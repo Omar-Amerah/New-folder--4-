@@ -15,4 +15,6 @@ for (const file of requiredFiles) {
   }
 }
 
+fs.writeFileSync(path.join(__dirname, "public", "blueprint-fix.js"), "\"use strict\";\n");
+
 console.log("Netlify static assets are ready in public/");
