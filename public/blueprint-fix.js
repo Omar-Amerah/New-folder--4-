@@ -64,7 +64,15 @@
       addNotice("Build ships after the match starts", "warning");
       return;
     }
-    send({ type: "buyShip", count, design: state.design });
+
+    // The editor is the source of truth. Sync the current editor blueprint first,
+    // then ask the server to build using its updated player.design/player.stats.
+    send({ type: "deploy", design: state.design });
+    setTimeout(() => {
+      if (state.socket?.readyState === WebSocket.OPEN && state.phase === "active") {
+        send({ type: "buyShip", count });
+      }
+    }, 90);
   };
 
   renderSavedDesigns = function renderSimpleSavedBlueprints() {
