@@ -73,7 +73,7 @@
 
         <div class="panel-section control-group">
           <div class="section-heading">
-            <h2>Shipyard</h2>
+              <h2>Ship Design</h2>
             <span id="budgetText">0 pts</span>
           </div>
           <div id="partPalette" class="part-palette" aria-label="Ship parts"></div>
@@ -84,12 +84,16 @@
           <div id="statsGrid" class="stats-grid"></div>
           <div class="saved-designs">
             <div class="section-heading compact">
-              <h2>Saved designs</h2>
-              <button id="saveDesignButton" type="button" class="secondary">Save</button>
+              <h2>Saved Blueprints</h2>
+              <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
             </div>
             <div id="savedDesignList" class="saved-design-list"></div>
           </div>
           <div class="economy-card">
+            <div>
+              <span id="activePurchaseTitle">Selected design</span>
+              <strong id="activePurchaseLabel">Editor Blueprint</strong>
+            </div>
             <div>
               <span id="moneyTitle">Starting money</span>
               <strong id="moneyLabel">$0</strong>
@@ -99,7 +103,7 @@
               <strong id="incomeLabel">+$0/s</strong>
             </div>
             <div>
-              <span id="unitCostTitle">Current design cost</span>
+              <span id="unitCostTitle">Blueprint Cost</span>
               <strong id="unitCostLabel">$0</strong>
             </div>
             <div>
@@ -111,7 +115,7 @@
               <strong id="afterBuildLabel">$0</strong>
             </div>
             <div id="budgetCard">
-              <span id="budgetTitle">Deployment limit</span>
+              <span id="budgetTitle">Starting Fleet Limit</span>
               <strong id="fleetCapLabel">0/0</strong>
             </div>
           </div>
@@ -127,7 +131,7 @@
           </select>
           <div class="button-row">
             <button id="deployButton" type="button">Ready with this design</button>
-            <button id="resetButton" type="button" class="secondary">Reset</button>
+            <button id="resetButton" type="button" class="secondary">Reset Editor</button>
           </div>
         </div>
       </section>

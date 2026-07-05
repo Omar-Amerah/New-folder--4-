@@ -1019,6 +1019,20 @@ h2 {
   text-transform: uppercase;
 }
 
+.saved-design-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.saved-design-loaded.subtle {
+  border-color: rgba(174, 199, 231, 0.22);
+  background: rgba(174, 199, 231, 0.06);
+  color: #c8d6e8;
+}
+
 .saved-design-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1048,7 +1062,7 @@ h2 {
 
 .saved-design-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
 }
 

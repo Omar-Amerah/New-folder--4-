@@ -432,14 +432,19 @@ function handleMessage(client, message) {
       return;
     }
     const count = clampNumber(message.count, 1, 5);
-    const validation = validateBuyShip(client.room, client.player, count);
+    const purchaseDesign = message.design ? validateDesign(message.design) : null;
+    const validation = validateBuyShip(client.room, client.player, count, purchaseDesign?.stats);
     if (!validation.ok) {
       client.player.lastBuildError = validation.reason;
       send(client, { type: "error", message: validation.reason });
       return;
     }
     for (let i = 0; i < validation.count; i += 1) {
-      buyShip(client.room, client.player, performanceNow(), { prevalidated: true });
+      buyShip(client.room, client.player, performanceNow(), {
+        prevalidated: true,
+        stats: validation.shipStats,
+        design: purchaseDesign?.modules
+      });
     }
     return;
   }
@@ -858,7 +863,8 @@ function tickRoom(room, dt, now) {
 
 function buyShip(room, player, now, options = {}) {
   if (!player.ready) return false;
-  const stats = player.stats || computeStats(player.design);
+  const stats = options.stats || player.stats || computeStats(player.design);
+  const design = normalizeShipDesignSnapshot(options.design || player.design);
   if (!options.prevalidated) {
     const validation = options.starter
       ? validateBuildShip(room, player, stats)
@@ -873,7 +879,7 @@ function buyShip(room, player, now, options = {}) {
   player.spent += stats.unitCost;
   player.deployedFleetCost += stats.unitCost;
   const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
-  spawnShip(room, player, now, activeCount);
+  spawnShip(room, player, now, activeCount, { stats, design });
   if (!options.starter) {
     broadcastRoom(room, { type: "notice", message: `${player.name} built a ship for $${stats.unitCost}` });
   }
@@ -904,6 +910,11 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   return { ok: true, shipStats, count: requestedCount, totalCost };
 }
 
+function normalizeShipDesignSnapshot(design) {
+  const source = Array.isArray(design) ? design : DEFAULT_DESIGN;
+  return source.map((part) => ({ x: part.x, y: part.y, type: part.type }));
+}
+
 function validateBuildShip(room, player, stats = null) {
   if (!player.ready && room.phase === "active") {
     return { ok: false, reason: "Invalid design: save a blueprint first." };
@@ -923,8 +934,9 @@ function validateBuildShip(room, player, stats = null) {
   return { ok: true, shipCost: shipStats.unitCost, shipStats };
 }
 
-function spawnShip(room, player, now, index = 0) {
-  const stats = player.stats || computeStats(player.design);
+function spawnShip(room, player, now, index = 0, options = {}) {
+  const stats = options.stats || player.stats || computeStats(player.design);
+  const design = normalizeShipDesignSnapshot(options.design || player.design);
   const spawn = getPlayerSpawn(room, player.id);
   const offset = index - Math.floor(player.shipCap / 2);
   const ySpread = Math.sin(index * 1.7) * 54;
@@ -954,7 +966,7 @@ function spawnShip(room, player, now, index = 0) {
     maxHp: stats.maxHp,
     maxShield: stats.maxShield,
     stats,
-    design: player.design.map((part) => ({ ...part })),
+    design,
     cost: stats.unitCost,
     radius: stats.radius,
     blasterCooldown: randomRange(0.08, 0.42),
