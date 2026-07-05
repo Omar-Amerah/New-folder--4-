@@ -23,13 +23,45 @@ const MAX_PLAYERS_PER_ROOM = 12;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const MATCH_SCORE = 900;
 const ECONOMY = Object.freeze({
-  startingMoney: 520,
+  startingMoney: 420,
+  maxMoney: 2200,
   baseIncome: 13,
   relayIncome: 7,
   killBountyRatio: 0.28,
   killBountyMin: 24,
   captureBonus: 55,
-  shipCap: 14
+  shipCap: 14,
+  deploymentBudget: 700,
+  baseShipCost: 48,
+  partCostMultiplier: 1.32,
+  massCostMultiplier: 0.9,
+  hullCostMultiplier: 0.012,
+  shieldCostMultiplier: 0.05,
+  repairCostMultiplier: 0.8,
+  largeShipThreshold: 400,
+  largeShipCostTax: 0.15,
+  hugeShipThreshold: 700,
+  hugeShipCostTax: 0.25,
+  weaponPremiums: Object.freeze({
+    blaster: 18,
+    missile: 32,
+    railgun: 48
+  })
+});
+
+const REWARDS = Object.freeze({
+  baseReward: 30,
+  victoryBonus: 80,
+  lossSupport: 35,
+  minimumWinReward: 90,
+  minimumLossReward: 35,
+  destroyedEnemyCostMultiplier: 0.35,
+  maxDestroyedReward: 250,
+  lossDestroyedMultiplier: 0.18,
+  survivalBonusPerShip: 15,
+  efficiencyBonusScale: 45,
+  maxEfficiencyBonus: 80,
+  minimumOverpowerRewardMultiplier: 0.65
 });
 
 const MIME = {
@@ -43,17 +75,17 @@ const MIME = {
 };
 
 const PARTS = Object.freeze({
-  core: { cost: 0, mass: 7, hp: 120, power: 3, shield: 30, thrust: 0, turn: 0, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  frame: { cost: 4, mass: 2, hp: 38, power: 0, shield: 0, thrust: 0, turn: 0, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  armor: { cost: 9, mass: 6, hp: 115, power: 0, shield: 0, thrust: 0, turn: -0.03, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  engine: { cost: 13, mass: 4, hp: 52, power: -1, shield: 0, thrust: 120, turn: 0.32, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  reactor: { cost: 12, mass: 5, hp: 58, power: 6, shield: 0, thrust: 0, turn: 0.02, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  battery: { cost: 10, mass: 3, hp: 42, power: 2, shield: 52, thrust: 0, turn: 0.01, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  shield: { cost: 16, mass: 5, hp: 48, power: -2, shield: 95, thrust: 0, turn: 0, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  blaster: { cost: 15, mass: 5, hp: 46, power: -2, shield: 0, thrust: 0, turn: -0.02, blaster: 1, missile: 0, railgun: 0, repair: 0 },
-  missile: { cost: 22, mass: 7, hp: 54, power: -3, shield: 0, thrust: 0, turn: -0.03, blaster: 0, missile: 1, railgun: 0, repair: 0 },
-  railgun: { cost: 24, mass: 8, hp: 58, power: -4, shield: 0, thrust: 0, turn: -0.04, blaster: 0, missile: 0, railgun: 1, repair: 0 },
-  repair: { cost: 18, mass: 5, hp: 50, power: -2, shield: 28, thrust: 0, turn: -0.01, blaster: 0, missile: 0, railgun: 0, repair: 1 }
+  core: { cost: 0, mass: 8, hp: 150, powerGeneration: 4, powerUse: 0, shield: 25, shieldRegen: 0.4, thrust: 0, turn: 0, energyStorage: 80, repairRate: 0, weapon: null },
+  frame: { cost: 2, mass: 2, hp: 42, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0, energyStorage: 0, repairRate: 0, weapon: null },
+  armor: { cost: 9, mass: 8, hp: 135, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.04, energyStorage: 0, repairRate: 0, weapon: null },
+  engine: { cost: 14, mass: 4, hp: 52, powerGeneration: 0, powerUse: 1, shield: 0, shieldRegen: 0, thrust: 135, turn: 0.24, energyStorage: 0, repairRate: 0, weapon: null },
+  reactor: { cost: 20, mass: 6, hp: 62, powerGeneration: 9, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0.01, energyStorage: 30, repairRate: 0, explosionRisk: "Medium when destroyed", weapon: null },
+  battery: { cost: 12, mass: 3, hp: 44, powerGeneration: 0, powerUse: 0, shield: 42, shieldRegen: 0.8, thrust: 0, turn: 0, energyStorage: 180, repairRate: 0, weapon: null },
+  shield: { cost: 18, mass: 5, hp: 48, powerGeneration: 0, powerUse: 3, shield: 115, shieldRegen: 2.4, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 0, weapon: null },
+  blaster: { cost: 25, mass: 5, hp: 48, powerGeneration: 0, powerUse: 2, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.02, energyStorage: 0, repairRate: 0, blaster: 1, weapon: makeWeapon("blaster", { damage: 14, fireRate: 1.55, range: 520, projectileSpeed: 650, accuracy: 0.88, tracking: 0 }) },
+  missile: { cost: 35, mass: 7, hp: 54, powerGeneration: 0, powerUse: 3, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.03, energyStorage: 0, repairRate: 0, missile: 1, weapon: makeWeapon("missile", { damage: 64, fireRate: 0.3, range: 820, projectileSpeed: 330, accuracy: 0.72, tracking: 0.82 }) },
+  railgun: { cost: 45, mass: 9, hp: 58, powerGeneration: 0, powerUse: 6, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.05, energyStorage: 0, repairRate: 0, railgun: 1, weapon: makeWeapon("railgun", { damage: 105, fireRate: 0.19, range: 1100, projectileSpeed: 1080, accuracy: 0.96, tracking: 0 }) },
+  repair: { cost: 22, mass: 5, hp: 50, powerGeneration: 0, powerUse: 2, shield: 20, shieldRegen: 0.5, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 10, repair: 1, weapon: null }
 });
 
 const DEFAULT_DESIGN = Object.freeze([
@@ -391,7 +423,14 @@ function handleMessage(client, message) {
       else break;
     }
     if (built === 0) {
-      send(client, { type: "error", message: "Not enough money or fleet cap reached" });
+      const stats = client.player.stats || computeStats(client.player.design);
+      const budgetLeft = client.player.deploymentBudget - getActiveFleetCost(client.player);
+      const message = client.player.money < stats.unitCost
+        ? `Not enough money: need $${stats.unitCost - Math.floor(client.player.money)} more`
+        : budgetLeft < stats.unitCost
+          ? `Fleet exceeds deployment budget by $${stats.unitCost - budgetLeft}`
+          : "Fleet cap reached";
+      send(client, { type: "error", message });
     }
     return;
   }
@@ -494,11 +533,17 @@ function joinRoom(client, message) {
     stats: computeStats(DEFAULT_DESIGN),
     ships: [],
     money: ECONOMY.startingMoney,
+    bank: ECONOMY.startingMoney,
     income: ECONOMY.baseIncome,
     earned: ECONOMY.startingMoney,
     spent: 0,
-    maxMoney: 2000,
+    maxMoney: ECONOMY.maxMoney,
     shipCap: ECONOMY.shipCap,
+    deploymentBudget: ECONOMY.deploymentBudget,
+    deployedFleetCost: 0,
+    destroyedEnemyCost: 0,
+    lostFleetCost: 0,
+    lastReward: null,
     score: 0,
     kills: 0,
     losses: 0,
@@ -798,11 +843,14 @@ function buyShip(room, player, now, options = {}) {
   if (!player.ready) return false;
   const stats = player.stats || computeStats(player.design);
   const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
+  const activeFleetCost = getActiveFleetCost(player);
   if (activeCount >= player.shipCap) return false;
+  if (!options.starter && activeFleetCost + stats.unitCost > player.deploymentBudget) return false;
   if (player.money < stats.unitCost) return false;
 
   player.money -= stats.unitCost;
   player.spent += stats.unitCost;
+  player.deployedFleetCost += stats.unitCost;
   spawnShip(room, player, now, activeCount);
   if (!options.starter) {
     broadcastRoom(room, { type: "notice", message: `${player.name} built a ship for $${stats.unitCost}` });
@@ -859,9 +907,14 @@ function resetPlayerForMatch(room, player, now, options = {}) {
   for (const oldShip of player.ships) oldShip.removed = true;
   player.ships = [];
   player.money = ECONOMY.startingMoney;
+  if (options.keepBank) player.money = Math.max(ECONOMY.startingMoney, Math.floor(player.bank || ECONOMY.startingMoney));
   player.income = ECONOMY.baseIncome;
-  player.earned = ECONOMY.startingMoney;
+  player.earned = player.money;
   player.spent = 0;
+  player.deployedFleetCost = 0;
+  player.destroyedEnemyCost = 0;
+  player.lostFleetCost = 0;
+  player.lastReward = null;
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   if (options.spawn && player.ready) {
     buyShip(room, player, now, { starter: true });
@@ -926,7 +979,7 @@ function updateEconomy(room, dt) {
     const relays = ownedRelays.get(player.team) || 0;
     player.income = ECONOMY.baseIncome + relays * ECONOMY.relayIncome;
     const gained = player.income * dt;
-    player.money = Math.min(player.maxMoney || 2000, player.money + gained);
+    player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + gained);
     player.earned += gained;
   }
 }
@@ -1088,7 +1141,7 @@ function updateShipSupport(room, ships, dt, now) {
     }
 
     if (!target) continue;
-    const heal = 15 * ship.stats.repair * ship.stats.efficiency * dt;
+    const heal = ship.stats.repairRate * ship.stats.efficiency * dt;
     target.hp = Math.min(target.maxHp, target.hp + heal);
 
     if (now - ship.repairPulseAt > 420) {
@@ -1112,54 +1165,65 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   if (ship.stats.blaster > 0 && distance <= ship.stats.blasterRange && ship.blasterCooldown <= 0) {
     const shots = Math.min(3, ship.stats.blaster);
+    const accuracy = clampNumber(ship.stats.blasterAccuracy || 0.85, 0.1, 1);
+    const spreadScale = (1 - accuracy) * 0.26;
     for (let i = 0; i < shots; i += 1) {
-      const spread = (i - (shots - 1) / 2) * 0.06 + randomRange(-0.025, 0.025);
+      const spread = (i - (shots - 1) / 2) * 0.055 + randomRange(-spreadScale, spreadScale);
+      const speed = ship.stats.blasterProjectileSpeed || 620;
       addBullet(room, {
         type: "bolt",
         ownerId: ship.ownerId,
         targetId: target.id,
         x: ship.x + Math.cos(aim) * (ship.radius + 8),
         y: ship.y + Math.sin(aim) * (ship.radius + 8),
-        vx: Math.cos(aim + spread) * 620 + ship.vx * 0.25,
-        vy: Math.sin(aim + spread) * 620 + ship.vy * 0.25,
-        damage: 13 * ship.stats.efficiency,
+        vx: Math.cos(aim + spread) * speed + ship.vx * 0.25,
+        vy: Math.sin(aim + spread) * speed + ship.vy * 0.25,
+        damage: ship.stats.blasterDamage / Math.max(1, ship.stats.blaster) * ship.stats.efficiency,
         life: 1.25,
         bornAt: now
       });
     }
-    ship.blasterCooldown = Math.max(0.18, 0.82 / Math.sqrt(ship.stats.blaster));
+    ship.blasterCooldown = Math.max(0.16, ship.stats.blasterReload / Math.sqrt(ship.stats.blaster));
   }
 
   if (ship.stats.missile > 0 && distance <= ship.stats.missileRange && ship.missileCooldown <= 0) {
+    const missileAccuracy = clampNumber(ship.stats.missileAccuracy || 0.7, 0.1, 1);
+    const spread = randomRange(-(1 - missileAccuracy) * 0.22, (1 - missileAccuracy) * 0.22);
+    const speed = ship.stats.missileProjectileSpeed || 330;
     addBullet(room, {
       type: "missile",
       ownerId: ship.ownerId,
       targetId: target.id,
       x: ship.x + Math.cos(aim) * (ship.radius + 12),
       y: ship.y + Math.sin(aim) * (ship.radius + 12),
-      vx: Math.cos(aim) * 300 + ship.vx * 0.15,
-      vy: Math.sin(aim) * 300 + ship.vy * 0.15,
-      damage: 42 * ship.stats.efficiency,
+      vx: Math.cos(aim + spread) * speed + ship.vx * 0.15,
+      vy: Math.sin(aim + spread) * speed + ship.vy * 0.15,
+      damage: ship.stats.missileDamage / Math.max(1, ship.stats.missile) * ship.stats.efficiency,
+      tracking: ship.stats.missileTracking || 0.75,
+      maxSpeed: speed * 1.45,
       life: 2.8,
       bornAt: now
     });
-    ship.missileCooldown = Math.max(1.1, 2.75 / Math.sqrt(ship.stats.missile));
+    ship.missileCooldown = Math.max(1.2, ship.stats.missileReload / Math.sqrt(ship.stats.missile));
   }
 
   if (ship.stats.railgun > 0 && distance <= ship.stats.railgunRange && ship.railgunCooldown <= 0) {
+    const accuracy = clampNumber(ship.stats.railgunAccuracy || 0.95, 0.1, 1);
+    const spread = randomRange(-(1 - accuracy) * 0.11, (1 - accuracy) * 0.11);
+    const speed = ship.stats.railgunProjectileSpeed || 1080;
     addBullet(room, {
       type: "rail",
       ownerId: ship.ownerId,
       targetId: target.id,
       x: ship.x + Math.cos(aim) * (ship.radius + 15),
       y: ship.y + Math.sin(aim) * (ship.radius + 15),
-      vx: Math.cos(aim) * 980 + ship.vx * 0.12,
-      vy: Math.sin(aim) * 980 + ship.vy * 0.12,
-      damage: 58 * ship.stats.railgun * ship.stats.efficiency,
+      vx: Math.cos(aim + spread) * speed + ship.vx * 0.12,
+      vy: Math.sin(aim + spread) * speed + ship.vy * 0.12,
+      damage: ship.stats.railgunDamage * ship.stats.efficiency,
       life: 1.15,
       bornAt: now
     });
-    ship.railgunCooldown = Math.max(1.55, 3.4 / Math.sqrt(ship.stats.railgun));
+    ship.railgunCooldown = Math.max(1.65, ship.stats.railgunReload / Math.sqrt(ship.stats.railgun));
   }
 }
 
@@ -1210,8 +1274,8 @@ function updateBullets(room, dt, now) {
       if (target && areEnemies(room, bullet.ownerId, target.ownerId)) {
         const desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
         const current = Math.atan2(bullet.vy, bullet.vx);
-        const next = rotateToward(current, desired, 2.8 * dt);
-        const speed = Math.min(460, Math.hypot(bullet.vx, bullet.vy) + 95 * dt);
+        const next = rotateToward(current, desired, (1.6 + (bullet.tracking || 0.75) * 1.8) * dt);
+        const speed = Math.min(bullet.maxSpeed || 460, Math.hypot(bullet.vx, bullet.vy) + 95 * dt);
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
       }
@@ -1270,13 +1334,17 @@ function damageShip(room, ship, damage, attackerId, now) {
   room.effects.push({ type: "boom", x: ship.x, y: ship.y, at: now });
 
   const victim = room.players.get(ship.ownerId);
-  if (victim) victim.losses += 1;
+  if (victim) {
+    victim.losses += 1;
+    victim.lostFleetCost += ship.cost || ship.stats?.unitCost || 0;
+  }
 
   const attacker = room.players.get(attackerId);
   if (attacker && attacker.id !== ship.ownerId) {
     const bounty = Math.max(ECONOMY.killBountyMin, Math.round((ship.cost || ship.stats?.unitCost || 100) * ECONOMY.killBountyRatio));
     attacker.kills += 1;
-    attacker.money = Math.min(attacker.maxMoney || 2000, attacker.money + bounty);
+    attacker.destroyedEnemyCost += ship.cost || ship.stats?.unitCost || 0;
+    attacker.money = Math.min(attacker.maxMoney || ECONOMY.maxMoney, attacker.money + bounty);
     attacker.earned += bounty;
     attacker.score += 30 + Math.round(bounty * 0.4);
   }
@@ -1320,7 +1388,7 @@ function updateCapturePoints(room, ships, dt) {
         for (const player of room.players.values()) {
           if (player.team === leaderTeam) {
             player.captures += 1;
-            player.money = Math.min(player.maxMoney || 2000, player.money + ECONOMY.captureBonus);
+            player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + ECONOMY.captureBonus);
             player.earned += ECONOMY.captureBonus;
             player.score += 14;
           }
@@ -1358,8 +1426,83 @@ function updateScoring(room, now) {
     };
     room.winnerAt = now;
     room.phase = "ended";
+    finalizeMatchRewards(room);
     broadcastRoom(room, { type: "notice", message: `${room.winner.name} won the match` });
   }
+}
+
+function finalizeMatchRewards(room) {
+  if (!room.winner) return;
+  const players = [...room.players.values()];
+  for (const player of players) {
+    const didWin = player.team === room.winner.team;
+    const enemyFleetCost = players
+      .filter((other) => other.team !== player.team)
+      .reduce((total, other) => total + Math.max(other.deployedFleetCost, getActiveFleetCost(other)), 0);
+    const playerFleetCost = Math.max(player.deployedFleetCost, player.spent, getActiveFleetCost(player), 1);
+    const survivingFriendlyShips = player.ships.filter((ship) => ship.alive && !ship.removed).length;
+    const reward = calculateBattleReward({
+      didWin,
+      destroyedEnemyCost: player.destroyedEnemyCost,
+      enemyFleetCost,
+      playerFleetCost,
+      survivingFriendlyShips
+    });
+    player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + reward.total);
+    player.bank = player.money;
+    player.earned += reward.total;
+    player.lastReward = reward;
+  }
+}
+
+function calculateBattleReward({ didWin, destroyedEnemyCost, enemyFleetCost, playerFleetCost, survivingFriendlyShips }) {
+  const destroyedReward = Math.min(
+    destroyedEnemyCost * REWARDS.destroyedEnemyCostMultiplier,
+    REWARDS.maxDestroyedReward
+  );
+
+  if (!didWin) {
+    const lossDestroyed = destroyedEnemyCost * REWARDS.lossDestroyedMultiplier;
+    const total = Math.max(REWARDS.minimumLossReward, REWARDS.lossSupport + lossDestroyed);
+    return {
+      didWin,
+      base: 0,
+      lossSupport: REWARDS.lossSupport,
+      destroyed: Math.round(lossDestroyed),
+      victory: 0,
+      survival: 0,
+      efficiency: 0,
+      overpowerMultiplier: 1,
+      total: Math.round(total)
+    };
+  }
+
+  const survivalBonus = survivingFriendlyShips * REWARDS.survivalBonusPerShip;
+  let efficiencyBonus = 0;
+  if (enemyFleetCost > playerFleetCost) {
+    const efficiencyRatio = enemyFleetCost / Math.max(playerFleetCost, 1);
+    efficiencyBonus = Math.min((efficiencyRatio - 1) * REWARDS.efficiencyBonusScale, REWARDS.maxEfficiencyBonus);
+  }
+
+  let victoryBonus = REWARDS.victoryBonus;
+  let overpowerMultiplier = 1;
+  if (playerFleetCost > enemyFleetCost * 1.4) {
+    const overpowerRatio = playerFleetCost / Math.max(enemyFleetCost, 1);
+    overpowerMultiplier = Math.max(REWARDS.minimumOverpowerRewardMultiplier, 1 - ((overpowerRatio - 1.4) * 0.25));
+    victoryBonus *= overpowerMultiplier;
+  }
+
+  const total = REWARDS.baseReward + destroyedReward + victoryBonus + survivalBonus + efficiencyBonus;
+  return {
+    didWin,
+    base: REWARDS.baseReward,
+    destroyed: Math.round(destroyedReward),
+    victory: Math.round(victoryBonus),
+    survival: Math.round(survivalBonus),
+    efficiency: Math.round(efficiencyBonus),
+    overpowerMultiplier: round(overpowerMultiplier),
+    total: Math.max(REWARDS.minimumWinReward, Math.round(total))
+  };
 }
 
 function findTarget(room, ship, ships) {
@@ -1409,6 +1552,11 @@ function snapshotRoom(room, now) {
     earned: Math.floor(player.earned),
     spent: Math.floor(player.spent),
     shipCap: player.shipCap,
+    deploymentBudget: player.deploymentBudget,
+    activeFleetCost: getActiveFleetCost(player),
+    deployedFleetCost: Math.floor(player.deployedFleetCost),
+    destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
+    lastReward: player.lastReward,
     activeShips: player.ships.filter((ship) => ship.alive && !ship.removed).length,
     score: Math.floor(player.score),
     kills: player.kills,
@@ -1518,7 +1666,7 @@ function maybeStartMatch(room, now) {
   room.winnerAt = 0;
   room.lastScoreAt = now;
   for (const player of players) {
-    resetPlayerForMatch(room, player, now, { spawn: true });
+    resetPlayerForMatch(room, player, now, { spawn: true, keepBank: true });
   }
   broadcastRoom(room, { type: "notice", message: "All pilots ready. Match started." });
 }
@@ -1539,7 +1687,7 @@ function restartFromEnd(room, requester) {
   room.lastScoreAt = performanceNow();
   for (const player of room.players.values()) {
     player.ready = player.isBot;
-    resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
+    resetPlayerForMatch(room, player, performanceNow(), { spawn: false, keepBank: true });
   }
   broadcastRoom(room, { type: "notice", message: "New ship design phase started" });
 }
@@ -1668,7 +1816,7 @@ function validateDesign(input) {
   const occupied = new Set();
   let coreCount = 0;
 
-  for (const raw of modules.slice(0, 36)) {
+  for (const raw of modules) {
     const x = Math.trunc(Number(raw?.x));
     const y = Math.trunc(Number(raw?.y));
     const type = String(raw?.type || "");
@@ -1721,13 +1869,22 @@ function computeStats(modules) {
   let mass = 0;
   let maxHp = 0;
   let maxShield = 0;
-  let power = 0;
+  let shieldRegen = 0;
+  let powerGeneration = 0;
+  let powerUse = 0;
   let thrust = 0;
   let turnBonus = 0;
+  let energyStorage = 0;
   let blaster = 0;
   let missile = 0;
   let railgun = 0;
   let repair = 0;
+  let repairRate = 0;
+  const weaponTotals = {
+    blaster: weaponAccumulator(),
+    missile: weaponAccumulator(),
+    railgun: weaponAccumulator()
+  };
 
   let minX = 3;
   let maxX = 3;
@@ -1740,37 +1897,39 @@ function computeStats(modules) {
     mass += part.mass;
     maxHp += part.hp;
     maxShield += part.shield;
-    power += part.power;
+    shieldRegen += part.shieldRegen || 0;
+    powerGeneration += part.powerGeneration || 0;
+    powerUse += part.powerUse || 0;
     thrust += part.thrust;
     turnBonus += part.turn;
-    blaster += part.blaster;
-    missile += part.missile;
-    railgun += part.railgun;
-    repair += part.repair;
+    energyStorage += part.energyStorage || 0;
+    blaster += part.blaster || 0;
+    missile += part.missile || 0;
+    railgun += part.railgun || 0;
+    repair += part.repair || 0;
+    repairRate += part.repairRate || 0;
+    if (part.weapon) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
     minX = Math.min(minX, module.x);
     maxX = Math.max(maxX, module.x);
     minY = Math.min(minY, module.y);
     maxY = Math.max(maxY, module.y);
   }
 
-  const efficiency = clampNumber(0.72 + power * 0.045, 0.45, 1.25);
-  const baseAccel = 70 + thrust / Math.max(1, mass) * 38;
-  const accel = baseAccel * clampNumber(efficiency, 0.55, 1.12);
-  const maxSpeed = clampNumber(115 + thrust / Math.max(1, mass) * 17, 105, 360);
-  const turnRate = clampNumber(1.2 + turnBonus + thrust / Math.max(55, mass * 20), 0.65, 2.85);
+  const power = powerGeneration - powerUse;
+  const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.2;
+  const efficiency = clampNumber(powerUse > 0 ? 0.58 + powerRatio * 0.42 : 1.08, 0.48, 1.15);
+  const thrustRatio = thrust / Math.max(1, mass);
+  // Mobility balance: armor and large weapons add mass, while engines add thrust.
+  // Speed and acceleration scale from total thrust divided by total mass so heavy ships need more engines.
+  const accel = clampNumber(46 + thrustRatio * 46 * clampNumber(efficiency, 0.55, 1.08), 38, 420);
+  const maxSpeed = clampNumber(82 + thrustRatio * 21 * clampNumber(efficiency, 0.62, 1.08), 72, 360);
+  const turnRate = clampNumber(1.05 + turnBonus + thrustRatio * 0.035, 0.55, 2.85);
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
-  const fleetCount = clampNumber(Math.floor(225 / Math.max(44, cost + mass * 0.32)), 1, 5);
-  const unitCost = clampNumber(Math.round(
-    55 +
-    cost * 0.85 +
-    mass * 1.1 +
-    maxHp * 0.015 +
-    maxShield * 0.04 +
-    blaster * 14 +
-    missile * 24 +
-    railgun * 34 +
-    repair * 22
-  ), 95, 460);
+  const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun });
+  const unitCost = costBreakdown.total;
+  const fleetCount = clampNumber(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
+  const weapons = summarizeWeaponTotals(weaponTotals);
+  const warnings = shipWarnings({ powerGeneration, powerUse, thrustRatio, blaster, missile, railgun, mass, turnRate, repair, shield: maxShield, modules });
 
   return {
     cost,
@@ -1778,23 +1937,150 @@ function computeStats(modules) {
     mass: round(mass),
     maxHp: Math.max(140, Math.round(maxHp * 0.82)),
     maxShield: Math.round(maxShield * efficiency),
+    shieldRegen: round(shieldRegen * clampNumber(efficiency, 0.4, 1.12)),
+    powerGeneration,
+    powerUse,
     power,
     efficiency: round(efficiency),
+    thrust: round(thrust),
+    thrustRatio: round(thrustRatio),
+    energyStorage,
     accel: round(accel),
     maxSpeed: round(maxSpeed),
     turnRate: round(turnRate),
-    shieldRegen: round((1.5 + maxShield * 0.018) * clampNumber(efficiency, 0.35, 1.15)),
     blaster,
     missile,
     railgun,
     repair,
-    blasterRange: blaster > 0 ? 570 : 0,
-    missileRange: missile > 0 ? 820 : 0,
-    railgunRange: railgun > 0 ? 980 : 0,
+    repairRate,
+    blasterRange: weaponRange(weaponTotals.blaster),
+    missileRange: weaponRange(weaponTotals.missile),
+    railgunRange: weaponRange(weaponTotals.railgun),
+    blasterDamage: weapons.blaster.damage,
+    missileDamage: weapons.missile.damage,
+    railgunDamage: weapons.railgun.damage,
+    blasterReload: weapons.blaster.reload,
+    missileReload: weapons.missile.reload,
+    railgunReload: weapons.railgun.reload,
+    blasterProjectileSpeed: weapons.blaster.projectileSpeed,
+    missileProjectileSpeed: weapons.missile.projectileSpeed,
+    railgunProjectileSpeed: weapons.railgun.projectileSpeed,
+    blasterAccuracy: weapons.blaster.accuracy,
+    missileAccuracy: weapons.missile.accuracy,
+    railgunAccuracy: weapons.railgun.accuracy,
+    missileTracking: weapons.missile.tracking,
+    weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps),
+    weapons,
+    warnings,
+    costBreakdown,
     repairRange: repair > 0 ? 410 : 0,
     radius: round(radius),
     fleetCount
   };
+}
+
+function makeWeapon(type, stats) {
+  const fireRate = Number(stats.fireRate) || 1;
+  const damage = Number(stats.damage) || 0;
+  return {
+    type,
+    damage,
+    fireRate,
+    reload: calculateReload({ fireRate }),
+    range: stats.range,
+    projectileSpeed: stats.projectileSpeed,
+    accuracy: stats.accuracy,
+    tracking: stats.tracking || 0,
+    dps: calculateDps({ damage, fireRate })
+  };
+}
+
+function calculateCostBreakdown(stats) {
+  const base = ECONOMY.baseShipCost;
+  const parts = stats.cost * ECONOMY.partCostMultiplier;
+  const mass = stats.mass * ECONOMY.massCostMultiplier;
+  const hull = stats.maxHp * ECONOMY.hullCostMultiplier;
+  const shield = stats.maxShield * ECONOMY.shieldCostMultiplier;
+  const repair = stats.repairRate * ECONOMY.repairCostMultiplier;
+  const weaponPremium =
+    stats.blaster * ECONOMY.weaponPremiums.blaster +
+    stats.missile * ECONOMY.weaponPremiums.missile +
+    stats.railgun * ECONOMY.weaponPremiums.railgun;
+  const preTaxTotal = base + parts + mass + hull + shield + repair + weaponPremium;
+  const largeTax = Math.max(0, preTaxTotal - ECONOMY.largeShipThreshold) * ECONOMY.largeShipCostTax;
+  const hugeTax = Math.max(0, preTaxTotal - ECONOMY.hugeShipThreshold) * ECONOMY.hugeShipCostTax;
+  const sizeTax = largeTax + hugeTax;
+  return {
+    base: Math.round(base),
+    parts: Math.round(parts),
+    mass: Math.round(mass),
+    hull: Math.round(hull),
+    shield: Math.round(shield),
+    repair: Math.round(repair),
+    weaponPremium: Math.round(weaponPremium),
+    sizeTax: Math.round(sizeTax),
+    total: clampNumber(Math.round(preTaxTotal + sizeTax), 80, 1100)
+  };
+}
+
+function weaponAccumulator() {
+  return { count: 0, damage: 0, range: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0 };
+}
+
+function addWeaponStats(total, weapon) {
+  total.count += 1;
+  total.damage += weapon.damage;
+  total.range = Math.max(total.range, weapon.range);
+  total.fireRate += weapon.fireRate;
+  total.reload += calculateReload(weapon);
+  total.projectileSpeed += weapon.projectileSpeed;
+  total.accuracy += weapon.accuracy;
+  total.tracking += weapon.tracking || 0;
+  total.dps += calculateDps(weapon);
+}
+
+function calculateDps(weapon) {
+  return Number(((weapon.damage || 0) * (weapon.fireRate || 0)).toFixed(1));
+}
+
+function calculateReload(weapon) {
+  return round(1 / Math.max(0.01, weapon.fireRate || 1));
+}
+
+function weaponRange(total) {
+  return total.count > 0 ? total.range : 0;
+}
+
+function summarizeWeaponTotals(totals) {
+  const result = {};
+  for (const [type, total] of Object.entries(totals)) {
+    result[type] = {
+      count: total.count,
+      damage: total.damage,
+      range: total.range,
+      fireRate: round(total.fireRate),
+      reload: total.count ? round(total.reload / total.count) : 0,
+      projectileSpeed: total.count ? Math.round(total.projectileSpeed / total.count) : 0,
+      accuracy: total.count ? round(total.accuracy / total.count) : 0,
+      tracking: total.count ? round(total.tracking / total.count) : 0,
+      dps: round(total.dps)
+    };
+  }
+  return result;
+}
+
+function shipWarnings(stats) {
+  const warnings = [];
+  const weaponCount = stats.blaster + stats.missile + stats.railgun;
+  const hasReactor = stats.modules.some((module) => module.type === "reactor");
+  if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
+  if (!hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
+  if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
+  if (stats.mass > 85 || stats.turnRate < 0.85) warnings.push("Heavy ship: turning will be slow");
+  if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
+  if (stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
+  if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack");
+  return warnings;
 }
 
 function summarizeStats(stats) {
@@ -1804,6 +2090,10 @@ function summarizeStats(stats) {
     hp: stats.maxHp,
     shield: stats.maxShield,
     power: stats.power,
+    powerGeneration: stats.powerGeneration,
+    powerUse: stats.powerUse,
+    thrust: stats.thrust,
+    thrustRatio: stats.thrustRatio,
     speed: stats.maxSpeed,
     fleet: stats.fleetCount,
     unitCost: stats.unitCost,
@@ -1811,8 +2101,18 @@ function summarizeStats(stats) {
     missile: stats.missile,
     railgun: stats.railgun,
     repair: stats.repair,
+    repairRate: stats.repairRate,
+    weaponDps: stats.weaponDps,
+    warnings: stats.warnings,
+    costBreakdown: stats.costBreakdown,
     efficiency: stats.efficiency
   };
+}
+
+function getActiveFleetCost(player) {
+  return Math.round(player.ships
+    .filter((ship) => ship.alive && !ship.removed)
+    .reduce((total, ship) => total + (ship.cost || ship.stats?.unitCost || 0), 0));
 }
 
 function getLiveShips(room) {
@@ -1846,11 +2146,17 @@ function addBot(room, requester) {
     stats: computeStats(design),
     ships: [],
     money: ECONOMY.startingMoney,
+    bank: ECONOMY.startingMoney,
     income: ECONOMY.baseIncome,
     earned: ECONOMY.startingMoney,
     spent: 0,
-    maxMoney: 2000,
+    maxMoney: ECONOMY.maxMoney,
     shipCap: ECONOMY.shipCap,
+    deploymentBudget: ECONOMY.deploymentBudget,
+    deployedFleetCost: 0,
+    destroyedEnemyCost: 0,
+    lostFleetCost: 0,
+    lastReward: null,
     score: 0,
     kills: 0,
     losses: 0,

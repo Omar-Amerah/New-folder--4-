@@ -14,18 +14,36 @@ const PART_DEFS = {
   repair: { name: "Repair", color: "#67e08a", glyph: "linear-gradient(45deg, #10381f 0 30%, #67e08a 31% 48%, #d7ffe2 49% 58%, #67e08a 59%)" }
 };
 
+const SHIP_ECONOMY = Object.freeze({
+  baseShipCost: 48,
+  partCostMultiplier: 1.32,
+  massCostMultiplier: 0.9,
+  hullCostMultiplier: 0.012,
+  shieldCostMultiplier: 0.05,
+  repairCostMultiplier: 0.8,
+  largeShipThreshold: 400,
+  largeShipCostTax: 0.15,
+  hugeShipThreshold: 700,
+  hugeShipCostTax: 0.25,
+  weaponPremiums: Object.freeze({
+    blaster: 18,
+    missile: 32,
+    railgun: 48
+  })
+});
+
 const PART_STATS = {
-  core: { cost: 0, mass: 7, hp: 120, power: 3, shield: 30, thrust: 0, turn: 0, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  frame: { cost: 4, mass: 2, hp: 38, power: 0, shield: 0, thrust: 0, turn: 0, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  armor: { cost: 9, mass: 6, hp: 115, power: 0, shield: 0, thrust: 0, turn: -0.03, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  engine: { cost: 13, mass: 4, hp: 52, power: -1, shield: 0, thrust: 120, turn: 0.32, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  reactor: { cost: 12, mass: 5, hp: 58, power: 6, shield: 0, thrust: 0, turn: 0.02, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  battery: { cost: 10, mass: 3, hp: 42, power: 2, shield: 52, thrust: 0, turn: 0.01, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  shield: { cost: 16, mass: 5, hp: 48, power: -2, shield: 95, thrust: 0, turn: 0, blaster: 0, missile: 0, railgun: 0, repair: 0 },
-  blaster: { cost: 15, mass: 5, hp: 46, power: -2, shield: 0, thrust: 0, turn: -0.02, blaster: 1, missile: 0, railgun: 0, repair: 0 },
-  missile: { cost: 22, mass: 7, hp: 54, power: -3, shield: 0, thrust: 0, turn: -0.03, blaster: 0, missile: 1, railgun: 0, repair: 0 },
-  railgun: { cost: 24, mass: 8, hp: 58, power: -4, shield: 0, thrust: 0, turn: -0.04, blaster: 0, missile: 0, railgun: 1, repair: 0 },
-  repair: { cost: 18, mass: 5, hp: 50, power: -2, shield: 28, thrust: 0, turn: -0.01, blaster: 0, missile: 0, railgun: 0, repair: 1 }
+  core: { cost: 0, mass: 8, hp: 150, powerGeneration: 4, powerUse: 0, shield: 25, shieldRegen: 0.4, thrust: 0, turn: 0, energyStorage: 80, repairRate: 0, weapon: null, description: "The command core of the ship. Provides basic hull, small power generation, starter shield, and energy capacity. Every ship needs a core.", bestUse: "Keep it protected near the center of the ship." },
+  frame: { cost: 2, mass: 2, hp: 42, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0, energyStorage: 0, repairRate: 0, weapon: null, description: "Cheap structure used to expand the ship shape. Light and inexpensive, but provides limited protection.", bestUse: "Use as connective structure and low-cost hull filler." },
+  armor: { cost: 9, mass: 8, hp: 135, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.04, energyStorage: 0, repairRate: 0, weapon: null, description: "Heavy passive protection. Adds a lot of hull for low cost, but increases mass and slightly reduces turning.", bestUse: "Protect cores, reactors, and weapons on brawler ships." },
+  engine: { cost: 14, mass: 4, hp: 52, powerGeneration: 0, powerUse: 1, shield: 0, shieldRegen: 0, thrust: 135, turn: 0.24, energyStorage: 0, repairRate: 0, weapon: null, description: "Provides thrust and turning. More engines make the ship faster, especially if the ship is light. Engines consume power.", bestUse: "Add more engines when armor or heavy weapons make the ship sluggish." },
+  reactor: { cost: 20, mass: 6, hp: 62, powerGeneration: 9, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0.01, energyStorage: 30, repairRate: 0, explosionRisk: "Medium when destroyed", weapon: null, description: "Main power source. Generates power for weapons, shields, engines, and repair systems. Also adds a small amount of energy storage.", bestUse: "Required for railguns, shields, and large weapon batteries." },
+  battery: { cost: 12, mass: 3, hp: 44, powerGeneration: 0, powerUse: 0, shield: 42, shieldRegen: 0.8, thrust: 0, turn: 0, energyStorage: 180, repairRate: 0, weapon: null, description: "Stores energy and adds a small shield buffer. Useful for shield-heavy or burst-power ships, but does not replace a reactor.", bestUse: "Use for energy storage and backup shielding, not as a primary power source." },
+  shield: { cost: 18, mass: 5, hp: 48, powerGeneration: 0, powerUse: 3, shield: 115, shieldRegen: 2.4, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 0, weapon: null, description: "Active defence module. Adds regenerating shield, but consumes constant power. Strong against light sustained damage.", bestUse: "Protect expensive ships that already have enough reactor output." },
+  blaster: { cost: 25, mass: 5, hp: 48, powerGeneration: 0, powerUse: 2, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.02, energyStorage: 0, repairRate: 0, blaster: 1, weapon: makeWeapon("blaster", { damage: 14, fireRate: 1.55, range: 520, projectileSpeed: 650, accuracy: 0.88, tracking: 0 }), description: "Reliable medium-range weapon. Best for sustained DPS and close-to-mid range fighting. Cheap and efficient, but has less range than missiles or railguns.", bestUse: "Efficient sustained damage at close and medium range." },
+  missile: { cost: 35, mass: 7, hp: 54, powerGeneration: 0, powerUse: 3, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.03, energyStorage: 0, repairRate: 0, missile: 1, weapon: makeWeapon("missile", { damage: 64, fireRate: 0.3, range: 820, projectileSpeed: 330, accuracy: 0.72, tracking: 0.82 }), description: "Long-range tracking burst weapon. Good against fast or evasive ships. Fires slowly and has lower sustained DPS, but each hit is powerful.", bestUse: "Opening volleys, chasing fast ships, and pressuring from long range." },
+  railgun: { cost: 45, mass: 9, hp: 58, powerGeneration: 0, powerUse: 6, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.05, energyStorage: 0, repairRate: 0, railgun: 1, weapon: makeWeapon("railgun", { damage: 105, fireRate: 0.19, range: 1100, projectileSpeed: 1080, accuracy: 0.96, tracking: 0 }), description: "Very long-range precision weapon. High damage, fast projectile, and excellent accuracy. Expensive, heavy, and power-hungry with a slow fire rate.", bestUse: "Sniping expensive ships and forcing enemies away from objectives." },
+  repair: { cost: 22, mass: 5, hp: 50, powerGeneration: 0, powerUse: 2, shield: 20, shieldRegen: 0.5, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 10, repair: 1, weapon: null, description: "Repairs damaged hull over time. Best on larger ships with enough power. Provides sustain, but should not fully replace armour or shields.", bestUse: "Escort groups and durable fleets that fight around relays." }
 };
 
 const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
@@ -469,21 +487,30 @@ function renderPartInspector() {
   const type = state.selectedPart;
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
+  const details = [
+    ...partInspectorDetails(type, stat),
+    ["Cost impact", estimatePartCostImpact(type)]
+  ];
   dom.partInspector.innerHTML = `
     <div class="part-inspector-title">
       ${partIconMarkup(type, "inspector-glyph")}
       <strong>${escapeHtml(def.name)}</strong>
     </div>
+    <p class="part-description">${escapeHtml(stat.description || "")}</p>
     <div class="part-inspector-grid">
       ${inspectorStat("Cost", stat.cost)}
       ${inspectorStat("Mass", stat.mass)}
       ${inspectorStat("Hull", stat.hp)}
-      ${inspectorStat("Power", stat.power)}
+      ${inspectorStat("Power", partPowerText(stat))}
       ${inspectorStat("Shield", stat.shield)}
       ${inspectorStat("Thrust", stat.thrust)}
-      ${inspectorStat("Guns", stat.blaster + stat.missile + stat.railgun)}
-      ${inspectorStat("Repair", stat.repair)}
+      ${inspectorStat("Storage", stat.energyStorage)}
+      ${inspectorStat("Repair", stat.repairRate)}
     </div>
+    <div class="part-detail-list">
+      ${details.map(([label, value]) => inspectorDetail(label, value)).join("")}
+    </div>
+    <div class="part-best-use"><span>Best use</span>${escapeHtml(stat.bestUse || "Flexible ship system.")}</div>
   `;
 }
 
@@ -491,10 +518,130 @@ function inspectorStat(label, value) {
   return `<div><span>${label}</span><strong>${value}</strong></div>`;
 }
 
+function inspectorDetail(label, value) {
+  return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function partPowerText(stat) {
+  const generation = stat.powerGeneration || 0;
+  const use = stat.powerUse || 0;
+  if (generation && use) return `+${generation} / -${use}`;
+  if (generation) return `+${generation}`;
+  if (use) return `-${use}`;
+  return "0";
+}
+
+function partInspectorDetails(type, stat) {
+  if (stat.weapon) {
+    const weapon = stat.weapon;
+    return [
+      ["Damage", weapon.damage],
+      ["Range", `${weapon.range} units`],
+      ["Fire rate", `${weapon.fireRate} shots/s`],
+      ["Reload", `${weapon.reload}s`],
+      ["DPS", weapon.dps.toFixed(1)],
+      ["Projectile speed", weapon.projectileSpeed],
+      ["Accuracy", `${Math.round(weapon.accuracy * 100)}%`],
+      ["Tracking", weapon.tracking ? `${Math.round(weapon.tracking * 100)}%` : "None"],
+      ["Power use", stat.powerUse]
+    ];
+  }
+
+  if (type === "engine") {
+    return [
+      ["Thrust", stat.thrust],
+      ["Mass", stat.mass],
+      ["Speed contribution", "Total thrust / total mass"],
+      ["Power use", stat.powerUse]
+    ];
+  }
+
+  if (type === "reactor") {
+    return [
+      ["Power generation", `+${stat.powerGeneration}`],
+      ["Energy storage", stat.energyStorage],
+      ["Explosion risk", stat.explosionRisk || "Not implemented"],
+      ["Mass", stat.mass]
+    ];
+  }
+
+  if (type === "battery") {
+    return [
+      ["Energy storage", stat.energyStorage],
+      ["Shield", stat.shield],
+      ["Recharge", `${stat.shieldRegen}/s`],
+      ["Power generation", stat.powerGeneration]
+    ];
+  }
+
+  if (type === "shield") {
+    return [
+      ["Shield amount", stat.shield],
+      ["Recharge rate", `${stat.shieldRegen}/s`],
+      ["Power draw", stat.powerUse],
+      ["Mass", stat.mass]
+    ];
+  }
+
+  if (type === "repair") {
+    return [
+      ["Repair rate", `${stat.repairRate}/s`],
+      ["Power use", stat.powerUse],
+      ["Shield", stat.shield],
+      ["Mass", stat.mass]
+    ];
+  }
+
+  return [
+    ["Hull", stat.hp],
+    ["Mass", stat.mass],
+    ["Cost", stat.cost],
+    ["Power", partPowerText(stat)]
+  ];
+}
+
+function estimatePartCostImpact(type) {
+  const current = computeStats(state.design);
+  const occupied = new Set(state.design.map((part) => `${part.x},${part.y}`));
+  for (const part of state.design) {
+    const candidates = [
+      { x: part.x + 1, y: part.y },
+      { x: part.x - 1, y: part.y },
+      { x: part.x, y: part.y + 1 },
+      { x: part.x, y: part.y - 1 }
+    ];
+    for (const cell of candidates) {
+      const key = `${cell.x},${cell.y}`;
+      if (cell.x < 0 || cell.x > 6 || cell.y < 0 || cell.y > 6 || occupied.has(key)) continue;
+      const next = [...state.design, { x: cell.x, y: cell.y, type }];
+      if (!isConnected(next)) continue;
+      const updated = computeStats(next);
+      return `+$${updated.unitCost - current.unitCost} final cost`;
+    }
+  }
+  return "No open connected cell";
+}
+
 function partIconMarkup(type, extraClass = "") {
   const safeType = String(type || "frame").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
   const classes = ["part-glyph", `part-${safeType}`, extraClass].filter(Boolean).join(" ");
   return `<span class="${classes}" aria-hidden="true"><span></span></span>`;
+}
+
+function makeWeapon(type, stats) {
+  const fireRate = Number(stats.fireRate) || 1;
+  const damage = Number(stats.damage) || 0;
+  return {
+    type,
+    damage,
+    fireRate,
+    reload: Number((1 / fireRate).toFixed(2)),
+    range: stats.range,
+    projectileSpeed: stats.projectileSpeed,
+    accuracy: stats.accuracy,
+    tracking: stats.tracking || 0,
+    dps: Number((damage * fireRate).toFixed(1))
+  };
 }
 
 function renderBuildGrid() {
@@ -535,12 +682,10 @@ function editCell(x, y) {
     }
   } else {
     const next = [...state.design, { x, y, type: state.selectedPart }];
-    if (next.length <= 36 && isConnected(next)) {
+    if (isConnected(next)) {
       state.design = next;
     } else {
-      const message = next.length > 36
-        ? "Blueprint is full: remove a part before adding another"
-        : explainConnectionProblem(next, x, y, false);
+      const message = explainConnectionProblem(next, x, y, false);
       setBuildStatus(message, "warning");
       showToast(message, "warning");
       return;
@@ -577,27 +722,22 @@ function resetDesign() {
 
 function renderLocalStats() {
   const stats = computeStats(state.design);
-  dom.budget.textContent = `${stats.cost} pts`;
+  dom.budget.textContent = `Parts $${stats.cost}`;
   dom.stats.innerHTML = [
     statMarkup("Fleet", stats.fleetCount),
     statMarkup("Hull", stats.maxHp),
     statMarkup("Shield", stats.maxShield),
     statMarkup("Speed", Math.round(stats.maxSpeed)),
-    statMarkup("Power", stats.power),
-    statMarkup("Cost", `$${stats.unitCost}`),
+    statMarkup("Power", `${stats.powerGeneration}/${stats.powerUse}`),
+    statMarkup("Final Cost", `$${stats.unitCost}`),
+    statMarkup("Thrust/Mass", stats.thrustRatio),
     statMarkup("Weapons", `${stats.blaster}/${stats.missile}/${stats.railgun}`),
-    statMarkup("Repair", stats.repair),
-    statMarkup("Mass", stats.mass)
+    statMarkup("Repair", stats.repairRate),
+    statMarkup("Mass", stats.mass),
+    costBreakdownMarkup(stats.costBreakdown)
   ].join("");
 
-  const weaponCount = stats.blaster + stats.missile + stats.railgun;
-  const className = stats.power < -4 || weaponCount === 0 ? "warning" : "good";
-  const text = weaponCount === 0
-    ? "No weapons mounted"
-    : stats.power < -4
-      ? "Power-starved systems fire weaker"
-      : "Blueprint ready";
-  setBuildStatus(text, className);
+  setBuildStatus(stats.warnings.length ? stats.warnings.join(" | ") : "Blueprint ready", stats.warnings.length ? "warning" : "good");
   updateEconomyUi();
 }
 
@@ -608,6 +748,17 @@ function setBuildStatus(text, className) {
 
 function statMarkup(label, value) {
   return `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
+}
+
+function costBreakdownMarkup(breakdown) {
+  if (!breakdown) return "";
+  return `
+    <div class="stat cost-breakdown">
+      <span>Cost Breakdown</span>
+      <strong>$${breakdown.total}</strong>
+      <small>Base $${breakdown.base} | Parts $${breakdown.parts} | Mass $${breakdown.mass} | Hull $${breakdown.hull} | Shield $${breakdown.shield} | Repair $${breakdown.repair} | Weapons $${breakdown.weaponPremium} | Size tax $${breakdown.sizeTax}</small>
+    </div>
+  `;
 }
 
 function updateHud() {
@@ -635,8 +786,13 @@ function updateEconomyUi() {
   const shipCap = mine?.shipCap ?? 0;
   const myTeam = mine?.team;
   const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
-  const canBuild = state.phase === "active" && Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
-  const canBuildFive = state.phase === "active" && Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
+  const activeFleetCost = mine?.activeFleetCost ?? 0;
+  const deploymentBudget = mine?.deploymentBudget ?? 0;
+  const budgetRemaining = deploymentBudget ? deploymentBudget - activeFleetCost : Infinity;
+  const canAfford = money >= unitCost;
+  const withinDeploymentBudget = unitCost <= budgetRemaining;
+  const canBuild = state.phase === "active" && Boolean(mine?.ready) && canAfford && withinDeploymentBudget && activeShips < shipCap;
+  const canBuildFive = state.phase === "active" && Boolean(mine?.ready) && canAfford && withinDeploymentBudget && activeShips < shipCap;
   const canReady = state.phase === "design" && !mine?.ready;
 
   dom.moneyLabel.textContent = `$${Math.floor(money)}`;
@@ -645,7 +801,9 @@ function updateEconomyUi() {
     ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
     : "Save a blueprint to begin earning money.";
   dom.unitCostLabel.textContent = `$${unitCost}`;
-  dom.fleetCapLabel.textContent = `${activeShips}/${shipCap || "-"}`;
+  dom.unitCostLabel.title = canAfford ? "Can afford this ship" : `Need $${unitCost - money} more`;
+  dom.fleetCapLabel.textContent = deploymentBudget ? `$${activeFleetCost}/$${deploymentBudget}` : `${activeShips}/${shipCap || "-"}`;
+  dom.fleetCapLabel.title = deploymentBudget ? `Deployment budget remaining: $${Math.max(0, budgetRemaining)}` : "Active ships / fleet cap";
   dom.buildShipButton.disabled = !canBuild;
   dom.buildFiveButton.disabled = !canBuildFive;
   dom.deployButton.disabled = !canReady;
@@ -655,10 +813,16 @@ function updateEconomyUi() {
     const status = state.phase === "design"
       ? mine.ready ? "Ready. Waiting for the rest of the room." : "Design your ship, then press Ready ship."
       : mine.ready
-        ? `Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`
+        ? economyStatusText({ income, relays, canAfford, withinDeploymentBudget, unitCost, money, budgetRemaining })
         : "Waiting for ship design";
     if (!dom.buildStatus.className.includes("warning")) setBuildStatus(status, "good");
   }
+}
+
+function economyStatusText({ income, relays, canAfford, withinDeploymentBudget, unitCost, money, budgetRemaining }) {
+  if (!canAfford) return `Cannot afford this ship. Need $${Math.ceil(unitCost - money)} more.`;
+  if (!withinDeploymentBudget) return `Fleet exceeds deployment budget by $${Math.ceil(unitCost - budgetRemaining)}.`;
+  return `Can afford this ship. Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`;
 }
 
 function currentTarget() {
@@ -741,10 +905,42 @@ function updateWinnerBanner() {
   dom.winner.textContent = `${winner.name} won`;
   dom.endGameScreen.hidden = false;
   dom.endGameTitle.textContent = `${winner.name} won`;
-  dom.endGameSummary.textContent = isAdmin()
-    ? "Restart sends everyone back to ship design with a new generated map."
-    : "Waiting for the room admin to restart or close the lobby.";
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  dom.endGameSummary.innerHTML = rewardSummaryMarkup(mine?.lastReward, mine?.money);
   dom.endGameActions.hidden = !isAdmin();
+}
+
+function rewardSummaryMarkup(reward, money) {
+  if (!reward) {
+    return escapeHtml(isAdmin()
+      ? "Restart sends everyone back to ship design with a new generated map."
+      : "Waiting for the room admin to restart or close the lobby.");
+  }
+  const title = reward.didWin ? "Battle Result: Victory" : "Battle Result: Defeat";
+  const lines = reward.didWin
+    ? [
+        ["Base reward", reward.base],
+        ["Enemy destroyed", reward.destroyed],
+        ["Victory bonus", reward.victory],
+        ["Survival bonus", reward.survival],
+        ["Efficiency bonus", reward.efficiency]
+      ]
+    : [
+        ["Loss support", reward.lossSupport],
+        ["Enemy destroyed", reward.destroyed]
+      ];
+  const penalty = reward.didWin && reward.overpowerMultiplier < 1
+    ? `<li>Overpowered fleet penalty applied: ${Math.round(reward.overpowerMultiplier * 100)}% victory bonus</li>`
+    : "";
+  return `
+    <span>${escapeHtml(title)}</span>
+    <ul class="reward-list">
+      ${lines.map(([label, value]) => `<li>${escapeHtml(label)}: $${Math.round(value || 0)}</li>`).join("")}
+      ${penalty}
+      <li><strong>Total earned: $${Math.round(reward.total || 0)}</strong></li>
+      <li>New balance: $${Math.floor(money || 0)}</li>
+    </ul>
+  `;
 }
 
 function addNotice(text, tone = "") {
@@ -1872,13 +2068,22 @@ function computeStats(modules) {
   let mass = 0;
   let maxHp = 0;
   let maxShield = 0;
-  let power = 0;
+  let shieldRegen = 0;
+  let powerGeneration = 0;
+  let powerUse = 0;
   let thrust = 0;
   let turnBonus = 0;
+  let energyStorage = 0;
   let blaster = 0;
   let missile = 0;
   let railgun = 0;
   let repair = 0;
+  let repairRate = 0;
+  const weaponTotals = {
+    blaster: weaponAccumulator(),
+    missile: weaponAccumulator(),
+    railgun: weaponAccumulator()
+  };
 
   for (const module of modules) {
     const part = PART_STATS[module.type] || PART_STATS.frame;
@@ -1886,45 +2091,152 @@ function computeStats(modules) {
     mass += part.mass;
     maxHp += part.hp;
     maxShield += part.shield;
-    power += part.power;
+    shieldRegen += part.shieldRegen || 0;
+    powerGeneration += part.powerGeneration || 0;
+    powerUse += part.powerUse || 0;
     thrust += part.thrust;
     turnBonus += part.turn;
-    blaster += part.blaster;
-    missile += part.missile;
-    railgun += part.railgun;
-    repair += part.repair;
+    energyStorage += part.energyStorage || 0;
+    blaster += part.blaster || 0;
+    missile += part.missile || 0;
+    railgun += part.railgun || 0;
+    repair += part.repair || 0;
+    repairRate += part.repairRate || 0;
+    if (part.weapon) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
   }
 
-  const efficiency = clamp(0.72 + power * 0.045, 0.45, 1.25);
-  const maxSpeed = clamp(115 + thrust / Math.max(1, mass) * 17, 105, 360);
-  const fleetCount = clamp(Math.floor(225 / Math.max(44, cost + mass * 0.32)), 1, 5);
-  const unitCost = clamp(Math.round(
-    55 +
-    cost * 0.85 +
-    mass * 1.1 +
-    maxHp * 0.015 +
-    maxShield * 0.04 +
-    blaster * 14 +
-    missile * 24 +
-    railgun * 34 +
-    repair * 22
-  ), 95, 460);
+  const power = powerGeneration - powerUse;
+  const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.2;
+  const efficiency = clamp(powerUse > 0 ? 0.58 + powerRatio * 0.42 : 1.08, 0.48, 1.15);
+  const thrustRatio = thrust / Math.max(1, mass);
+  // Mobility balance: armor and large weapons add mass, while engines add thrust.
+  // Speed and acceleration scale from total thrust divided by total mass so heavy ships need more engines.
+  const maxSpeed = clamp(82 + thrustRatio * 21 * clamp(efficiency, 0.62, 1.08), 72, 360);
+  const accel = clamp(46 + thrustRatio * 46 * clamp(efficiency, 0.55, 1.08), 38, 420);
+  const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun });
+  const unitCost = costBreakdown.total;
+  const fleetCount = clamp(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
+  const warnings = shipWarnings({ powerGeneration, powerUse, thrustRatio, blaster, missile, railgun, mass, turnRate: clamp(1.05 + turnBonus + thrustRatio * 0.035, 0.55, 2.85), repair, shield: maxShield, modules });
 
   return {
     cost,
     unitCost,
-    mass,
+    mass: Math.round(mass),
     maxHp: Math.max(140, Math.round(maxHp * 0.82)),
     maxShield: Math.round(maxShield * efficiency),
+    shieldRegen: Number((shieldRegen * clamp(efficiency, 0.4, 1.12)).toFixed(2)),
+    powerGeneration,
+    powerUse,
     power,
+    efficiency: Number(efficiency.toFixed(2)),
+    thrust,
+    thrustRatio: Number(thrustRatio.toFixed(2)),
+    energyStorage,
+    accel: Math.round(accel),
     maxSpeed,
-    turnRate: clamp(1.2 + turnBonus + thrust / Math.max(55, mass * 20), 0.65, 2.85),
+    turnRate: clamp(1.05 + turnBonus + thrustRatio * 0.035, 0.55, 2.85),
     blaster,
     missile,
     railgun,
     repair,
+    repairRate,
+    blasterRange: weaponRange(weaponTotals.blaster),
+    missileRange: weaponRange(weaponTotals.missile),
+    railgunRange: weaponRange(weaponTotals.railgun),
+    weaponDps: Number((weaponTotals.blaster.dps + weaponTotals.missile.dps + weaponTotals.railgun.dps).toFixed(1)),
+    weapons: summarizeWeaponTotals(weaponTotals),
+    warnings,
+    costBreakdown,
     fleetCount
   };
+}
+
+function calculateCostBreakdown(stats) {
+  const base = SHIP_ECONOMY.baseShipCost;
+  const parts = stats.cost * SHIP_ECONOMY.partCostMultiplier;
+  const mass = stats.mass * SHIP_ECONOMY.massCostMultiplier;
+  const hull = stats.maxHp * SHIP_ECONOMY.hullCostMultiplier;
+  const shield = stats.maxShield * SHIP_ECONOMY.shieldCostMultiplier;
+  const repair = stats.repairRate * SHIP_ECONOMY.repairCostMultiplier;
+  const weaponPremium =
+    stats.blaster * SHIP_ECONOMY.weaponPremiums.blaster +
+    stats.missile * SHIP_ECONOMY.weaponPremiums.missile +
+    stats.railgun * SHIP_ECONOMY.weaponPremiums.railgun;
+  const preTaxTotal = base + parts + mass + hull + shield + repair + weaponPremium;
+  const largeTax = Math.max(0, preTaxTotal - SHIP_ECONOMY.largeShipThreshold) * SHIP_ECONOMY.largeShipCostTax;
+  const hugeTax = Math.max(0, preTaxTotal - SHIP_ECONOMY.hugeShipThreshold) * SHIP_ECONOMY.hugeShipCostTax;
+  const sizeTax = largeTax + hugeTax;
+  return {
+    base: Math.round(base),
+    parts: Math.round(parts),
+    mass: Math.round(mass),
+    hull: Math.round(hull),
+    shield: Math.round(shield),
+    repair: Math.round(repair),
+    weaponPremium: Math.round(weaponPremium),
+    sizeTax: Math.round(sizeTax),
+    total: clamp(Math.round(preTaxTotal + sizeTax), 80, 1100)
+  };
+}
+
+function weaponAccumulator() {
+  return { count: 0, damage: 0, range: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0 };
+}
+
+function addWeaponStats(total, weapon) {
+  total.count += 1;
+  total.damage += weapon.damage;
+  total.range = Math.max(total.range, weapon.range);
+  total.fireRate += weapon.fireRate;
+  total.reload += calculateReload(weapon);
+  total.projectileSpeed += weapon.projectileSpeed;
+  total.accuracy += weapon.accuracy;
+  total.tracking += weapon.tracking || 0;
+  total.dps += calculateDps(weapon);
+}
+
+function calculateDps(weapon) {
+  return Number(((weapon.damage || 0) * (weapon.fireRate || 0)).toFixed(1));
+}
+
+function calculateReload(weapon) {
+  return Number((1 / Math.max(0.01, weapon.fireRate || 1)).toFixed(2));
+}
+
+function weaponRange(total) {
+  return total.count > 0 ? total.range : 0;
+}
+
+function summarizeWeaponTotals(totals) {
+  const result = {};
+  for (const [type, total] of Object.entries(totals)) {
+    result[type] = {
+      count: total.count,
+      damage: total.damage,
+      range: total.range,
+      fireRate: Number(total.fireRate.toFixed(2)),
+      reload: total.count ? Number((total.reload / total.count).toFixed(2)) : 0,
+      projectileSpeed: total.count ? Math.round(total.projectileSpeed / total.count) : 0,
+      accuracy: total.count ? Number((total.accuracy / total.count).toFixed(2)) : 0,
+      tracking: total.count ? Number((total.tracking / total.count).toFixed(2)) : 0,
+      dps: Number(total.dps.toFixed(1))
+    };
+  }
+  return result;
+}
+
+function shipWarnings(stats) {
+  const warnings = [];
+  const weaponCount = stats.blaster + stats.missile + stats.railgun;
+  const hasReactor = stats.modules.some((module) => module.type === "reactor");
+  if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
+  if (!hasReactor && stats.powerUse > PART_STATS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
+  if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
+  if (stats.mass > 85 || stats.turnRate < 0.85) warnings.push("Heavy ship: turning will be slow");
+  if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
+  if (stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
+  if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack");
+  return warnings;
 }
 
 function makeStars(count) {
