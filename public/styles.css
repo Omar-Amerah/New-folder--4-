@@ -849,8 +849,70 @@ h2 {
   color: var(--amber);
 }
 
+.build-status.error {
+  color: var(--red);
+}
+
 .build-status.good {
   color: var(--green);
+}
+
+.ship-issues-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(10, 15, 25, 0.62);
+}
+
+.ship-issues-panel.blocked {
+  border-color: rgba(255, 95, 126, 0.42);
+}
+
+.ship-issues-panel.warning {
+  border-color: rgba(255, 202, 87, 0.38);
+}
+
+.ship-issues-panel.ready {
+  border-color: rgba(124, 255, 138, 0.32);
+}
+
+.ship-issues-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ship-issues-title span,
+.issue-group span {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ship-issues-title strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.issue-group ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.issue-group.empty p {
+  margin: 3px 0 0;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .stats-grid {
@@ -869,6 +931,131 @@ h2 {
   border: 1px solid rgba(255, 202, 87, 0.24);
   border-radius: 8px;
   background: rgba(38, 30, 14, 0.38);
+}
+
+.saved-designs {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.section-heading.compact {
+  margin-bottom: 0;
+}
+
+.section-heading.compact button {
+  width: auto;
+  min-height: 28px;
+  padding: 6px 10px;
+}
+
+.saved-design-list {
+  display: grid;
+  gap: 6px;
+}
+
+.saved-design-card,
+.saved-design-empty,
+.objective-summary {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(10, 15, 25, 0.66);
+}
+
+.saved-design-card {
+  display: grid;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.saved-design-card.selected {
+  border-color: rgba(56, 213, 255, 0.58);
+  background: linear-gradient(180deg, rgba(20, 47, 64, 0.66), rgba(10, 15, 25, 0.78));
+  box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.1), 0 0 18px rgba(56, 213, 255, 0.12);
+}
+
+.saved-design-card.expensive {
+  border-color: rgba(255, 202, 87, 0.25);
+}
+
+.saved-design-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.saved-design-card strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-design-card span,
+.saved-design-empty,
+.objective-summary {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.saved-design-loaded {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid rgba(56, 213, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(56, 213, 255, 0.09);
+  color: #b9f2ff;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.saved-design-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.saved-design-meta span {
+  min-width: 0;
+  padding: 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce8f8;
+}
+
+.saved-design-meta b {
+  display: block;
+  margin-bottom: 1px;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.saved-design-need {
+  color: #fff2c4;
+}
+
+.saved-design-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.saved-design-actions button {
+  min-height: 26px;
+  padding: 5px 6px;
+  font-size: 10px;
 }
 
 .economy-card div {
@@ -924,6 +1111,14 @@ h2 {
 
 .cost-breakdown {
   grid-column: 1 / -1;
+}
+
+.cost-breakdown summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .cost-breakdown small {
@@ -1147,6 +1342,88 @@ h2 {
 .score-list {
   display: grid;
   gap: 8px;
+}
+
+.team-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(10, 15, 25, 0.66);
+}
+
+.team-card.blue {
+  border-color: rgba(63, 214, 255, 0.34);
+}
+
+.team-card.red {
+  border-color: rgba(255, 95, 126, 0.34);
+}
+
+.team-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.team-card-head strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.team-card-head span,
+.team-objectives {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.team-player {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.team-player.mine {
+  background: rgba(124, 255, 138, 0.08);
+}
+
+.team-player.empty {
+  display: block;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.team-player strong,
+.team-player span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-player strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.team-player span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.team-player button {
+  min-height: 26px;
+  padding: 5px 8px;
+  font-size: 10px;
 }
 
 .match-meter {

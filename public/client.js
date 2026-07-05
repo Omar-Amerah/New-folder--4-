@@ -51,6 +51,7 @@ const LOCAL_NAME_KEY = "modular-fleet-name-v1";
 const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
 const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
 const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
+const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
 const WORLD_FALLBACK = { width: 3200, height: 1900 };
 
 const dom = {
@@ -82,7 +83,10 @@ const dom = {
   partInspector: document.getElementById("partInspector"),
   grid: document.getElementById("buildGrid"),
   buildStatus: document.getElementById("buildStatus"),
+  shipIssuesPanel: document.getElementById("shipIssuesPanel"),
   stats: document.getElementById("statsGrid"),
+  saveDesignButton: document.getElementById("saveDesignButton"),
+  savedDesignList: document.getElementById("savedDesignList"),
   budget: document.getElementById("budgetText"),
   roomLabel: document.getElementById("roomLabel"),
   fleetLabel: document.getElementById("fleetLabel"),
@@ -90,9 +94,17 @@ const dom = {
   moneyHud: document.getElementById("moneyHudLabel"),
   selectionLabel: document.getElementById("selectionLabel"),
   objectiveLabel: document.getElementById("objectiveLabel"),
+  moneyTitle: document.getElementById("moneyTitle"),
   moneyLabel: document.getElementById("moneyLabel"),
   incomeLabel: document.getElementById("incomeLabel"),
+  unitCostTitle: document.getElementById("unitCostTitle"),
   unitCostLabel: document.getElementById("unitCostLabel"),
+  canBuildTitle: document.getElementById("canBuildTitle"),
+  canBuildLabel: document.getElementById("canBuildLabel"),
+  afterBuildTitle: document.getElementById("afterBuildTitle"),
+  afterBuildLabel: document.getElementById("afterBuildLabel"),
+  budgetCard: document.getElementById("budgetCard"),
+  budgetTitle: document.getElementById("budgetTitle"),
   fleetCapLabel: document.getElementById("fleetCapLabel"),
   buildShipButton: document.getElementById("buildShipButton"),
   buildFiveButton: document.getElementById("buildFiveButton"),
@@ -121,6 +133,8 @@ const state = {
   world: { ...WORLD_FALLBACK },
   parts: {},
   design: loadDesign(),
+  savedDesigns: loadSavedDesigns(),
+  activeSavedDesignId: null,
   selectedPart: "frame",
   selectedShipIds: new Set(),
   snapshot: null,
@@ -132,7 +146,9 @@ const state = {
   drag: null,
   keys: new Set(),
   stars: makeStars(260),
+  rules: { startingMoney: 420, deploymentBudget: 700, shipCap: 20 },
   minimap: null,
+  shipHud: new Map(),
   notices: [],
   lastPingAt: 0,
   lastPongAt: 0,
@@ -149,6 +165,7 @@ renderPalette();
 renderPartInspector();
 renderBuildGrid();
 renderLocalStats();
+renderSavedDesigns();
 updateLobbyState();
 resizeCanvas();
 requestAnimationFrame(frame);
@@ -162,6 +179,7 @@ dom.joinButton.addEventListener("click", joinExistingGame);
 dom.deployButton.addEventListener("click", deployDesign);
 dom.buildShipButton.addEventListener("click", () => buyShips(1));
 dom.buildFiveButton.addEventListener("click", () => buyShips(5));
+dom.saveDesignButton.addEventListener("click", () => saveCurrentDesign());
 dom.resetButton.addEventListener("click", resetDesign);
 dom.copyButton.addEventListener("click", copyInvite);
 dom.botButton.addEventListener("click", addBot);
@@ -270,8 +288,8 @@ function deployDesign() {
     addNotice("Create or join a game first", "warning");
     return;
   }
-  if (state.phase !== "design") {
-    addNotice("Wait for the admin to start ship design", "warning");
+  if (state.phase !== "design" && state.phase !== "active") {
+    addNotice("Wait for ship design or match start", "warning");
     return;
   }
   send({ type: "deploy", design: state.design });
@@ -290,6 +308,8 @@ function closeLobby() {
 }
 
 function kickPlayer(targetId) {
+  const player = state.snapshot?.players?.find((candidate) => candidate.id === targetId);
+  if (typeof confirm === "function" && !confirm(`Kick ${player?.name || "this player"}?`)) return;
   send({ type: "kick", targetId });
 }
 
@@ -394,6 +414,7 @@ function handleServerMessage(message) {
     state.myId = message.id;
     state.parts = message.parts || {};
     state.world = message.world || { ...WORLD_FALLBACK };
+    state.rules = { ...state.rules, ...(message.economy || {}) };
     if (!localStorage.getItem(LOCAL_DESIGN_KEY)) {
       state.design = normalizeDesign(message.defaultDesign || state.design);
       renderBuildGrid();
@@ -431,6 +452,7 @@ function handleServerMessage(message) {
     updateHud();
     renderScoreboard();
     updateEconomyUi();
+    renderSavedDesigns();
     updateLobbyState();
     updateWinnerBanner();
     return;
@@ -695,6 +717,7 @@ function editCell(x, y) {
   persistDesign();
   renderBuildGrid();
   renderLocalStats();
+  renderSavedDesigns();
 }
 
 function removeCell(x, y) {
@@ -706,6 +729,7 @@ function removeCell(x, y) {
     persistDesign();
     renderBuildGrid();
     renderLocalStats();
+    renderSavedDesigns();
   } else {
     const message = "Removing that part would disconnect modules from the core";
     setBuildStatus(message, "warning");
@@ -715,13 +739,173 @@ function removeCell(x, y) {
 
 function resetDesign() {
   state.design = defaultDesign();
+  state.activeSavedDesignId = null;
   persistDesign();
   renderBuildGrid();
   renderLocalStats();
+  renderSavedDesigns();
+}
+
+function saveCurrentDesign(name = "") {
+  const stats = computeStats(state.design);
+  const now = Date.now();
+  const existingIndex = state.savedDesigns.findIndex((design) => design.id === state.activeSavedDesignId);
+  const existing = existingIndex >= 0 ? state.savedDesigns[existingIndex] : null;
+  const cleanName = String(name || "").trim() || existing?.name || nextDesignName();
+  const design = {
+    id: existing?.id || makeDesignId(),
+    name: cleanName.slice(0, 28),
+    blueprint: state.design.map((part) => ({ ...part })),
+    cost: stats.unitCost,
+    weapons: `${stats.blaster}/${stats.missile}/${stats.railgun}`,
+    speed: Math.round(stats.maxSpeed),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+  state.savedDesigns = existing
+    ? state.savedDesigns.map((saved) => saved.id === design.id ? design : saved)
+    : [design, ...state.savedDesigns];
+  state.activeSavedDesignId = design.id;
+  persistSavedDesigns();
+  renderSavedDesigns();
+  showToast(`${existing ? "Updated" : "Saved"} ${design.name}`, "good");
+}
+
+function loadSavedDesign(id) {
+  const saved = state.savedDesigns.find((design) => design.id === id);
+  if (!saved) return;
+  const valid = normalizeDesign(saved.blueprint);
+  state.design = valid;
+  state.activeSavedDesignId = saved.id;
+  persistDesign();
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
+  showToast(`Loaded ${saved.name}`, "good");
+}
+
+function duplicateSavedDesign(id) {
+  const saved = state.savedDesigns.find((design) => design.id === id);
+  if (!saved) return;
+  const stats = computeStats(saved.blueprint);
+  const copy = {
+    ...saved,
+    id: makeDesignId(),
+    name: uniqueCopyName(saved.name),
+    blueprint: saved.blueprint.map((part) => ({ ...part })),
+    cost: stats.unitCost,
+    weapons: `${stats.blaster}/${stats.missile}/${stats.railgun}`,
+    speed: Math.round(stats.maxSpeed),
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.savedDesigns = [copy, ...state.savedDesigns];
+  persistSavedDesigns();
+  renderSavedDesigns();
+  showToast(`Copied ${saved.name}`, "good");
+}
+
+function renameSavedDesign(id) {
+  const saved = state.savedDesigns.find((design) => design.id === id);
+  if (!saved || typeof prompt !== "function") return;
+  const next = prompt("Design name", saved.name);
+  if (!next) return;
+  const cleanName = next.trim().slice(0, 28);
+  if (!cleanName) return;
+  state.savedDesigns = state.savedDesigns.map((design) => design.id === id
+    ? { ...design, name: cleanName, updatedAt: Date.now() }
+    : design);
+  persistSavedDesigns();
+  renderSavedDesigns();
+  showToast(`Renamed ${cleanName}`, "good");
+}
+
+function deleteSavedDesign(id) {
+  const saved = state.savedDesigns.find((design) => design.id === id);
+  if (!saved) return;
+  if (typeof confirm === "function" && !confirm(`Delete ${saved.name}?`)) return;
+  state.savedDesigns = state.savedDesigns.filter((design) => design.id !== id);
+  if (state.activeSavedDesignId === id) state.activeSavedDesignId = null;
+  persistSavedDesigns();
+  renderSavedDesigns();
+  showToast(`Deleted ${saved.name}`, "warning");
+}
+
+function renderSavedDesigns() {
+  if (!dom.savedDesignList) return;
+  dom.savedDesignList.textContent = "";
+  if (!state.savedDesigns.length) {
+    const empty = document.createElement("div");
+    empty.className = "saved-design-empty";
+    empty.textContent = "No saved designs yet";
+    dom.savedDesignList.appendChild(empty);
+    return;
+  }
+
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const money = mine?.money ?? state.rules.startingMoney;
+  for (const saved of state.savedDesigns) {
+    const stats = computeStats(saved.blueprint);
+    const affordable = money >= stats.unitCost;
+    const selected = saved.id === state.activeSavedDesignId;
+    const statusText = affordable ? "Affordable" : "Too expensive";
+    const needText = affordable ? "" : `<span class="saved-design-need">Need $${Math.ceil(stats.unitCost - money)} more</span>`;
+    const row = document.createElement("div");
+    row.className = `saved-design-card${selected ? " selected" : ""}${affordable ? "" : " expensive"}`;
+    row.innerHTML = `
+      <div class="saved-design-head">
+        <strong>${escapeHtml(saved.name)}</strong>
+        ${selected ? `<span class="saved-design-loaded">Currently loaded</span>` : ""}
+      </div>
+      <div class="saved-design-meta">
+        <span><b>Cost</b>$${stats.unitCost}</span>
+        <span><b>Weapons</b>${stats.blaster}/${stats.missile}/${stats.railgun}</span>
+        <span><b>Speed</b>${Math.round(stats.maxSpeed)}</span>
+        <span><b>Status</b>${statusText}</span>
+      </div>
+      ${needText}
+      <div class="saved-design-actions">
+        <button type="button" data-load="${escapeHtml(saved.id)}">Load</button>
+        <button type="button" data-duplicate="${escapeHtml(saved.id)}">Copy</button>
+        <button type="button" data-rename="${escapeHtml(saved.id)}">Rename</button>
+        <button type="button" data-delete="${escapeHtml(saved.id)}">Delete</button>
+      </div>
+    `;
+    row.querySelector("[data-load]")?.addEventListener("click", () => loadSavedDesign(saved.id));
+    row.querySelector("[data-duplicate]")?.addEventListener("click", () => duplicateSavedDesign(saved.id));
+    row.querySelector("[data-rename]")?.addEventListener("click", () => renameSavedDesign(saved.id));
+    row.querySelector("[data-delete]")?.addEventListener("click", () => deleteSavedDesign(saved.id));
+    dom.savedDesignList.appendChild(row);
+  }
+}
+
+function makeDesignId() {
+  return `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function nextDesignName() {
+  const used = new Set(state.savedDesigns.map((design) => design.name.toLowerCase()));
+  for (let index = 1; index < 999; index += 1) {
+    const name = `Design ${index}`;
+    if (!used.has(name.toLowerCase())) return name;
+  }
+  return `Design ${state.savedDesigns.length + 1}`;
+}
+
+function uniqueCopyName(name) {
+  const base = `${String(name || "Design").slice(0, 21)} Copy`;
+  const used = new Set(state.savedDesigns.map((design) => design.name.toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base.slice(0, 28);
+  for (let index = 2; index < 99; index += 1) {
+    const candidate = `${base} ${index}`.slice(0, 28);
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${String(name || "Design").slice(0, 19)} Copy`;
 }
 
 function renderLocalStats() {
   const stats = computeStats(state.design);
+  const status = getShipStatus(stats);
   dom.budget.textContent = `Parts $${stats.cost}`;
   dom.stats.innerHTML = [
     statMarkup("Fleet", stats.fleetCount),
@@ -729,7 +913,6 @@ function renderLocalStats() {
     statMarkup("Shield", stats.maxShield),
     statMarkup("Speed", Math.round(stats.maxSpeed)),
     statMarkup("Power", `${stats.powerGeneration}/${stats.powerUse}`),
-    statMarkup("Final Cost", `$${stats.unitCost}`),
     statMarkup("Thrust/Mass", stats.thrustRatio),
     statMarkup("Weapons", `${stats.blaster}/${stats.missile}/${stats.railgun}`),
     statMarkup("Repair", stats.repairRate),
@@ -737,8 +920,61 @@ function renderLocalStats() {
     costBreakdownMarkup(stats.costBreakdown)
   ].join("");
 
-  setBuildStatus(stats.warnings.length ? stats.warnings.join(" | ") : "Blueprint ready", stats.warnings.length ? "warning" : "good");
+  renderShipIssues(status);
+  setBuildStatus(status.blockers.length ? status.blockers[0] : stats.warnings.length ? stats.warnings[0] : "Blueprint ready", status.blockers.length ? "error" : stats.warnings.length ? "warning" : "good");
   updateEconomyUi();
+}
+
+function getShipStatus(stats) {
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const blockers = [];
+  const money = currentMatchMoney(mine);
+  const activeShips = mine?.activeShips ?? 0;
+  const shipCap = mine?.shipCap ?? 20;
+  const isActiveBuild = state.phase === "active";
+  const hasCore = state.design.filter((part) => part.type === "core").length === 1;
+
+  if (!state.design.length) blockers.push("Invalid design: blueprint is empty.");
+  if (!hasCore) blockers.push("Invalid design: missing core.");
+  if (!isConnected(state.design)) blockers.push("Invalid design: disconnected parts.");
+  if (money < stats.unitCost) blockers.push(`${isActiveBuild ? "Cannot afford ship" : "Cannot ready design"}. Need $${Math.ceil(stats.unitCost - money)} more.`);
+  if (isActiveBuild && activeShips >= shipCap) blockers.push(`Ship limit reached: ${activeShips} / ${shipCap}.`);
+
+  const warnings = [...stats.warnings];
+  if (money > 0 && stats.unitCost > money * 0.75) warnings.push("High cost for current money.");
+  if (stats.maxShield < 35 && stats.maxHp < 210) warnings.push("Weak defence: low combined hull and shield.");
+
+  return { blockers, warnings };
+}
+
+function renderShipIssues(status) {
+  if (!dom.shipIssuesPanel) return;
+  const isDesignStage = state.phase === "design";
+  const stateText = status.blockers.length
+    ? isDesignStage ? "Cannot Ready" : "Cannot Build"
+    : status.warnings.length
+      ? isDesignStage ? "Ready, with warnings" : "Ready to Build, with warnings"
+      : isDesignStage ? "Ready" : "Ready to Build";
+  dom.shipIssuesPanel.className = `ship-issues-panel ${status.blockers.length ? "blocked" : status.warnings.length ? "warning" : "ready"}`;
+  dom.shipIssuesPanel.innerHTML = `
+    <div class="ship-issues-title"><span>Ship Status</span><strong>${stateText}</strong></div>
+    ${issueListMarkup("Blocking Issues", status.blockers)}
+    ${issueListMarkup("Warnings", status.warnings)}
+  `;
+}
+
+function currentMatchMoney(mine) {
+  return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
+}
+
+function issueListMarkup(title, issues) {
+  if (!issues.length) return `<div class="issue-group empty"><span>${title}</span><p>None</p></div>`;
+  return `
+    <div class="issue-group">
+      <span>${title}</span>
+      <ul>${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>
+    </div>
+  `;
 }
 
 function setBuildStatus(text, className) {
@@ -753,11 +989,10 @@ function statMarkup(label, value) {
 function costBreakdownMarkup(breakdown) {
   if (!breakdown) return "";
   return `
-    <div class="stat cost-breakdown">
-      <span>Cost Breakdown</span>
-      <strong>$${breakdown.total}</strong>
+    <details class="stat cost-breakdown">
+      <summary>Cost explanation</summary>
       <small>Base $${breakdown.base} | Parts $${breakdown.parts} | Mass $${breakdown.mass} | Hull $${breakdown.hull} | Shield $${breakdown.shield} | Repair $${breakdown.repair} | Weapons $${breakdown.weaponPremium} | Size tax $${breakdown.sizeTax}</small>
-    </div>
+    </details>
   `;
 }
 
@@ -779,22 +1014,32 @@ function updateHud() {
 function updateEconomyUi() {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const localStats = computeStats(state.design);
-  const money = mine?.money ?? 0;
+  const localStatus = getShipStatus(localStats);
+  const money = currentMatchMoney(mine);
   const income = mine?.income ?? 0;
-  const unitCost = mine?.stats?.unitCost ?? localStats.unitCost;
+  const unitCost = localStats.unitCost;
   const activeShips = mine?.activeShips ?? 0;
   const shipCap = mine?.shipCap ?? 0;
   const myTeam = mine?.team;
   const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
   const activeFleetCost = mine?.activeFleetCost ?? 0;
   const deploymentBudget = mine?.deploymentBudget ?? 0;
-  const budgetRemaining = deploymentBudget ? deploymentBudget - activeFleetCost : Infinity;
   const canAfford = money >= unitCost;
-  const withinDeploymentBudget = unitCost <= budgetRemaining;
-  const canBuild = state.phase === "active" && Boolean(mine?.ready) && canAfford && withinDeploymentBudget && activeShips < shipCap;
-  const canBuildFive = state.phase === "active" && Boolean(mine?.ready) && canAfford && withinDeploymentBudget && activeShips < shipCap;
-  const canReady = state.phase === "design" && !mine?.ready;
+  const canAffordFive = money >= unitCost * 5;
+  const hasShipSlot = activeShips < shipCap;
+  const hasFiveSlots = activeShips + 5 <= shipCap;
+  const canBuild = state.phase === "active" && Boolean(mine?.ready) && localStatus.blockers.length === 0 && canAfford && hasShipSlot;
+  const canBuildFive = state.phase === "active" && Boolean(mine?.ready) && localStatus.blockers.length === 0 && canAffordFive && hasFiveSlots;
+  const canReady = state.phase === "design" && !mine?.ready && localStatus.blockers.length === 0;
+  const canSaveActiveDesign = state.phase === "active" && Boolean(mine?.ready);
+  const afterBuild = money - unitCost;
 
+  const isDesignStage = state.phase === "design" || !state.snapshot;
+  dom.moneyTitle.textContent = isDesignStage ? "Starting money" : "Current money";
+  dom.unitCostTitle.textContent = isDesignStage ? "Current design cost" : "Ship cost";
+  dom.canBuildTitle.textContent = isDesignStage ? "Can ready" : "Can build";
+  dom.afterBuildTitle.textContent = isDesignStage ? "Money remaining" : "After build";
+  dom.budgetCard.hidden = isDesignStage;
   dom.moneyLabel.textContent = `$${Math.floor(money)}`;
   dom.incomeLabel.textContent = `+$${Math.round(income)}/s`;
   dom.incomeLabel.title = mine?.ready
@@ -802,26 +1047,69 @@ function updateEconomyUi() {
     : "Save a blueprint to begin earning money.";
   dom.unitCostLabel.textContent = `$${unitCost}`;
   dom.unitCostLabel.title = canAfford ? "Can afford this ship" : `Need $${unitCost - money} more`;
+  dom.canBuildLabel.textContent = localStatus.blockers.length ? "No" : "Yes";
+  dom.canBuildLabel.title = localStatus.blockers[0] || (isDesignStage ? "This design can be readied." : "This ship can be built.");
+  dom.afterBuildLabel.textContent = canAfford ? `$${Math.floor(afterBuild)}` : `Need $${Math.ceil(unitCost - money)}`;
   dom.fleetCapLabel.textContent = deploymentBudget ? `$${activeFleetCost}/$${deploymentBudget}` : `${activeShips}/${shipCap || "-"}`;
-  dom.fleetCapLabel.title = deploymentBudget ? `Deployment budget remaining: $${Math.max(0, budgetRemaining)}` : "Active ships / fleet cap";
+  dom.fleetCapLabel.title = deploymentBudget ? "Starting fleet used / starting fleet limit. Active builds use current money and ship cap." : "Active ships / fleet cap";
+  dom.buildShipButton.hidden = state.phase !== "active";
+  dom.buildFiveButton.hidden = state.phase !== "active";
   dom.buildShipButton.disabled = !canBuild;
   dom.buildFiveButton.disabled = !canBuildFive;
-  dom.deployButton.disabled = !canReady;
-  dom.deployButton.textContent = mine?.ready && state.phase === "design" ? "Ready" : state.phase === "design" ? "Ready ship" : "Save blueprint";
+  dom.buildShipButton.textContent = localStatus.blockers.length ? blockerButtonText(localStatus.blockers[0]) : buildButtonText({ canBuild, canAfford, hasShipSlot, money, unitCost });
+  dom.buildFiveButton.textContent = buildFiveButtonText({ canBuildFive, canAffordFive, hasFiveSlots, money, unitCost });
+  dom.deployButton.disabled = !(canReady || canSaveActiveDesign);
+  dom.deployButton.textContent = mine?.ready && state.phase === "design"
+    ? "Ready"
+    : state.phase === "design"
+      ? localStatus.blockers.length ? readyBlockerButtonText(localStatus.blockers[0]) : `Ready with this design - $${unitCost}`
+      : state.phase === "active"
+        ? `Save blueprint - $${unitCost}`
+        : "Save blueprint";
 
   if (mine) {
-    const status = state.phase === "design"
-      ? mine.ready ? "Ready. Waiting for the rest of the room." : "Design your ship, then press Ready ship."
+      const status = state.phase === "design"
+      ? mine.ready ? "Ready. Waiting for the rest of the room." : "Design your starting ship, then ready with this design."
       : mine.ready
-        ? economyStatusText({ income, relays, canAfford, withinDeploymentBudget, unitCost, money, budgetRemaining })
+        ? economyStatusText({ income, relays, canAfford, unitCost, money })
         : "Waiting for ship design";
     if (!dom.buildStatus.className.includes("warning")) setBuildStatus(status, "good");
   }
 }
 
-function economyStatusText({ income, relays, canAfford, withinDeploymentBudget, unitCost, money, budgetRemaining }) {
+function buildButtonText({ canBuild, canAfford, hasShipSlot, money, unitCost }) {
+  if (canBuild) return `Build Ship - $${unitCost}`;
+  if (!hasShipSlot) return "Ship Limit Reached";
+  if (!canAfford) return `Cannot Afford - Need $${Math.ceil(unitCost - money)}`;
+  return `Build Ship - $${unitCost}`;
+}
+
+function buildFiveButtonText({ canBuildFive, canAffordFive, hasFiveSlots, money, unitCost }) {
+  const totalCost = unitCost * 5;
+  if (canBuildFive) return `Build x5 - $${totalCost}`;
+  if (!hasFiveSlots) return "Build x5 - Ship Limit";
+  if (!canAffordFive) return `Build x5 - Need $${Math.ceil(totalCost - money)}`;
+  return `Build x5 - $${totalCost}`;
+}
+
+function blockerButtonText(reason) {
+  if (/Need \$(\d+)/.test(reason)) return `Cannot Build - Need $${reason.match(/Need \$(\d+)/)[1]}`;
+  if (reason.includes("Ship limit")) return "Cannot Build - Ship Limit";
+  if (reason.includes("missing core")) return "Cannot Build - Missing Core";
+  if (reason.includes("disconnected")) return "Cannot Build - Disconnected";
+  return "Cannot Build";
+}
+
+function readyBlockerButtonText(reason) {
+  if (/Need \$(\d+)/.test(reason)) return `Cannot Ready - Need $${reason.match(/Need \$(\d+)/)[1]}`;
+  if (reason.includes("missing core")) return "Cannot Ready - Missing Core";
+  if (reason.includes("disconnected")) return "Cannot Ready - Disconnected";
+  if (reason.includes("blueprint is empty")) return "Cannot Ready - Empty Design";
+  return "Cannot Ready";
+}
+
+function economyStatusText({ income, relays, canAfford, unitCost, money }) {
   if (!canAfford) return `Cannot afford this ship. Need $${Math.ceil(unitCost - money)} more.`;
-  if (!withinDeploymentBudget) return `Fleet exceeds deployment budget by $${Math.ceil(unitCost - budgetRemaining)}.`;
   return `Can afford this ship. Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`;
 }
 
@@ -836,19 +1124,67 @@ function renderScoreboard() {
   const players = [...state.snapshot.players].sort((a, b) => b.score - a.score);
   dom.scoreList.textContent = "";
   updateMatchMeter(players);
+  renderObjectiveSummary();
+  renderTeamPanel(players);
+}
 
-  for (const player of players) {
+function renderObjectiveSummary() {
+  const players = playerMap();
+  const lines = state.snapshot.points.map((point) => {
+    const owner = point.ownerId ? players.get(point.ownerId) : null;
+    const ownerName = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
+    return `${point.id}: ${ownerName} ${Math.round(point.progress * 100)}%`;
+  });
+  if (lines.length) {
     const row = document.createElement("div");
-    row.className = `score-row${player.id === state.myId ? " mine" : ""}`;
-    row.innerHTML = `
-      <span class="score-color" style="background:${player.color}"></span>
-      <div>
-        <div class="score-name">${escapeHtml(player.name)}${player.id === state.myId ? " *" : ""}${player.isBot ? " CPU" : ""}</div>
-        <div class="score-meta">${escapeHtml(player.teamName || "Solo")} | $${player.money} +${Math.round(player.income)}/s | K ${player.kills} / L ${player.losses}</div>
-      </div>
-      <div class="score-value">${player.score}</div>
-    `;
+    row.className = "objective-summary";
+    row.textContent = lines.join(" | ");
     dom.scoreList.appendChild(row);
+  }
+}
+
+function renderTeamPanel(players) {
+  const teams = ["blue", "red"];
+  for (const team of teams) {
+    const teamPlayers = players.filter((player) => player.team === team);
+    const score = Math.max(0, ...teamPlayers.map((player) => player.score || 0));
+    const objectives = state.snapshot.points.filter((point) => point.ownerTeam === team && point.progress > 0.98);
+    const pointsPerSecond = objectives.length * 6;
+    const card = document.createElement("div");
+    card.className = `team-card ${team}`;
+    card.innerHTML = `
+      <div class="team-card-head">
+        <strong>${team.toUpperCase()} TEAM</strong>
+        <span>${score}/${state.snapshot.maxScore || 900} (+${pointsPerSecond}/s)</span>
+      </div>
+      <div class="team-objectives">Objectives: ${objectives.length ? objectives.map((point) => point.id).join(", ") : "None"}</div>
+    `;
+
+    if (!teamPlayers.length) {
+      const empty = document.createElement("div");
+      empty.className = "team-player empty";
+      empty.textContent = "Empty slot";
+      card.appendChild(empty);
+    }
+
+    for (const player of teamPlayers) {
+      const row = document.createElement("div");
+      row.className = `team-player${player.id === state.myId ? " mine" : ""}`;
+      const status = player.ready ? "Ready" : state.phase === "design" ? "Building" : player.connected === false ? "Disconnected" : "In match";
+      const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin;
+      row.innerHTML = `
+        <span class="score-color" style="background:${player.color}"></span>
+        <div>
+          <strong>${escapeHtml(player.name)}${player.isAdmin ? " [Host]" : ""}${player.isBot ? " CPU" : ""}</strong>
+          <span>Money $${player.money} | Ships ${player.activeShips}/${player.shipCap} | Score ${player.score}/${state.snapshot.maxScore || 900}</span>
+          <span>Status: ${status} | K ${player.kills} / L ${player.losses}</span>
+        </div>
+        ${canKick ? `<button type="button" data-kick="${escapeHtml(player.id)}">Kick</button>` : ""}
+      `;
+      row.querySelector("[data-kick]")?.addEventListener("click", () => kickPlayer(player.id));
+      card.appendChild(row);
+    }
+    dom.scoreList.appendChild(card);
   }
 }
 
@@ -1424,6 +1760,9 @@ function drawRelays() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(point.id, 0, 0);
+    ctx.font = `${Math.max(10, 13 / state.camera.zoom)}px system-ui, sans-serif`;
+    const ownerText = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
+    ctx.fillText(ownerText, 0, point.radius + 18 / state.camera.zoom);
     ctx.restore();
   }
 }
@@ -1480,11 +1819,17 @@ function drawShips() {
   const snap = state.snapshot;
   if (!snap) return;
   const players = playerMap();
+  const visibleShipIds = new Set();
 
   for (const ship of snap.ships) {
+    visibleShipIds.add(ship.id);
     const player = players.get(ship.ownerId);
     if (!player) continue;
     drawShip(ship, player);
+  }
+
+  for (const id of state.shipHud.keys()) {
+    if (!visibleShipIds.has(id)) state.shipHud.delete(id);
   }
 }
 
@@ -1496,7 +1841,7 @@ function drawShip(ship, player) {
   ctx.rotate(ship.angle);
   ctx.globalAlpha = alpha;
 
-  const design = player.design || [];
+  const design = ship.design || player.design || [];
   const scale = 13;
   drawShipStructure(design, scale, player.color);
   for (const part of design) {
@@ -1737,24 +2082,206 @@ function drawFocusLine(ship) {
 
 function drawHealthBars(ship, player) {
   if (!ship.alive) return;
-  const width = Math.max(42, ship.radius * 1.6);
-  const y = ship.y - ship.radius - 22;
+  const selected = state.selectedShipIds.has(ship.id);
+  const damaged = ship.hp < ship.maxHp || ship.shield < ship.maxShield;
+  const width = Math.max(selected ? 72 : 56, ship.radius * (selected ? 2.15 : 1.85));
+  const x = ship.x - width / 2;
+  const y = ship.y - ship.radius - (selected ? 39 : 34);
+  const now = performance.now();
+  const hud = updateShipHud(ship, now);
+  const hullRatio = clamp(hud.hp / ship.maxHp, 0, 1);
+  const hullLagRatio = clamp(hud.hpLag / ship.maxHp, 0, 1);
+  const shieldRatio = ship.maxShield > 0 ? clamp(hud.shield / ship.maxShield, 0, 1) : 0;
+  const shieldLagRatio = ship.maxShield > 0 ? clamp(hud.shieldLag / ship.maxShield, 0, 1) : 0;
+  const lowHull = hullRatio <= 0.25;
+  const alpha = selected || damaged ? 1 : 0.68;
+  const pulse = clamp(1 - (now - hud.hitAt) / 280, 0, 1);
+
   ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(ship.x - width / 2, y, width, 5);
-  ctx.fillStyle = player.color;
-  ctx.fillRect(ship.x - width / 2, y, width * clamp(ship.hp / ship.maxHp, 0, 1), 5);
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = pulse > 0 && hud.lastHitShield ? "rgba(81,226,255,0.85)" : player.color;
+  ctx.shadowBlur = 4 + pulse * 11;
+  drawHudFrame(x - 4, y - 4, width + 8, selected ? 27 : 23, player.color, lowHull);
+  ctx.shadowBlur = 0;
+
   if (ship.maxShield > 0) {
-    ctx.fillStyle = "rgba(96,220,255,0.82)";
-    ctx.fillRect(ship.x - width / 2, y - 6, width * clamp(ship.shield / ship.maxShield, 0, 1), 3);
+    drawStatusBar({
+      x,
+      y,
+      width,
+      height: selected ? 5 : 4,
+      ratio: shieldRatio,
+      lagRatio: shieldLagRatio,
+      fillStart: "#b8f7ff",
+      fillEnd: "#38d5ff",
+      glow: "rgba(56,213,255,0.62)",
+      segments: 6
+    });
+  } else {
+    drawEmptyShieldLine(x, y, width);
+  }
+
+  const hullY = y + (selected ? 8 : 7);
+  const hullColor = hullColorForRatio(hullRatio);
+  drawStatusBar({
+    x,
+    y: hullY,
+    width,
+    height: selected ? 7 : 6,
+    ratio: hullRatio,
+    lagRatio: hullLagRatio,
+    fillStart: hullColor.start,
+    fillEnd: hullColor.end,
+    glow: lowHull ? "rgba(255,95,126,0.78)" : `${player.color}aa`,
+    segments: selected ? 8 : 6
+  });
+
+  ctx.shadowColor = lowHull ? "rgba(255,95,126,0.9)" : player.color;
+  ctx.shadowBlur = lowHull ? 9 : 4;
+  ctx.fillStyle = lowHull ? "#ffd6df" : "rgba(237,244,255,0.86)";
+  ctx.font = `${Math.max(9, (selected ? 11 : 10) / state.camera.zoom)}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(player.name, ship.x, hullY + (selected ? 9 : 8));
+
+  if (selected) {
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(213,236,255,0.78)";
+    ctx.font = `${Math.max(8, 9 / state.camera.zoom)}px system-ui, sans-serif`;
+    ctx.fillText(`${Math.round(shieldRatio * 100)}% SHD  ${Math.round(hullRatio * 100)}% HULL`, ship.x, hullY + 23);
   }
   ctx.restore();
 }
 
-function drawShipName(ship, player) {
-  if (!ship.alive || state.camera.zoom < 0.48) return;
+function updateShipHud(ship, now) {
+  const previous = state.shipHud.get(ship.id) || {
+    hp: ship.hp,
+    shield: ship.shield,
+    hpLag: ship.hp,
+    shieldLag: ship.shield,
+    actualHp: ship.hp,
+    actualShield: ship.shield,
+    hitAt: 0,
+    lastHitShield: false,
+    lastSeenAt: now
+  };
+  const dt = clamp((now - previous.lastSeenAt) / 1000, 0, 0.12);
+  const shieldHit = ship.shield < previous.actualShield;
+  const hullHit = ship.hp < previous.actualHp;
+  const displayRate = 14 * dt;
+  const lagRate = 4.4 * dt;
+  const next = {
+    hp: approach(previous.hp, ship.hp, displayRate),
+    shield: approach(previous.shield, ship.shield, displayRate),
+    hpLag: approach(previous.hpLag, ship.hp, lagRate),
+    shieldLag: approach(previous.shieldLag, ship.shield, lagRate),
+    actualHp: ship.hp,
+    actualShield: ship.shield,
+    hitAt: shieldHit || hullHit ? now : previous.hitAt,
+    lastHitShield: shieldHit || (!hullHit && previous.lastHitShield),
+    lastSeenAt: now
+  };
+  if (ship.hp > previous.actualHp) next.hpLag = Math.max(next.hpLag, ship.hp);
+  if (ship.shield > previous.actualShield) next.shieldLag = Math.max(next.shieldLag, ship.shield);
+  state.shipHud.set(ship.id, next);
+  return next;
+}
+
+function drawHudFrame(x, y, width, height, color, warning) {
   ctx.save();
-  ctx.fillStyle = "rgba(237,244,255,0.74)";
+  ctx.fillStyle = "rgba(3,8,15,0.72)";
+  ctx.strokeStyle = warning ? "rgba(255,95,126,0.9)" : color;
+  ctx.lineWidth = 1.25 / state.camera.zoom;
+  ctx.beginPath();
+  ctx.moveTo(x + 7, y);
+  ctx.lineTo(x + width - 7, y);
+  ctx.lineTo(x + width, y + 7);
+  ctx.lineTo(x + width - 5, y + height);
+  ctx.lineTo(x + 5, y + height);
+  ctx.lineTo(x, y + height - 7);
+  ctx.lineTo(x + 7, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = warning ? 0.92 : 0.62;
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(237,244,255,0.22)";
+  ctx.beginPath();
+  ctx.moveTo(x + 9, y + 3);
+  ctx.lineTo(x + width - 15, y + 3);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawStatusBar(options) {
+  const { x, y, width, height, ratio, lagRatio, fillStart, fillEnd, glow, segments } = options;
+  ctx.save();
+  roundRect(ctx, x, y, width, height, Math.max(1, height * 0.35));
+  ctx.fillStyle = "rgba(1,5,10,0.82)";
+  ctx.fill();
+
+  if (lagRatio > ratio) {
+    roundRect(ctx, x, y, width * lagRatio, height, Math.max(1, height * 0.35));
+    ctx.fillStyle = "rgba(255,245,194,0.48)";
+    ctx.fill();
+  }
+
+  if (ratio > 0) {
+    const fill = ctx.createLinearGradient(x, y, x + width, y);
+    fill.addColorStop(0, fillStart);
+    fill.addColorStop(1, fillEnd);
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 7;
+    roundRect(ctx, x, y, width * ratio, height, Math.max(1, height * 0.35));
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(225,241,255,0.22)";
+  ctx.lineWidth = 0.9 / state.camera.zoom;
+  roundRect(ctx, x, y, width, height, Math.max(1, height * 0.35));
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(2,8,16,0.72)";
+  ctx.lineWidth = 0.8 / state.camera.zoom;
+  const step = width / segments;
+  for (let i = 1; i < segments; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(x + step * i, y + 1);
+    ctx.lineTo(x + step * i, y + height - 1);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawEmptyShieldLine(x, y, width) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(88,122,150,0.42)";
+  ctx.lineWidth = 1 / state.camera.zoom;
+  ctx.setLineDash([4 / state.camera.zoom, 4 / state.camera.zoom]);
+  ctx.beginPath();
+  ctx.moveTo(x, y + 2);
+  ctx.lineTo(x + width, y + 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function hullColorForRatio(ratio) {
+  if (ratio <= 0.25) return { start: "#ffd0d9", end: "#ff5f7e" };
+  if (ratio <= 0.55) return { start: "#fff1a6", end: "#ffca57" };
+  return { start: "#d8ffe3", end: "#67e08a" };
+}
+
+function approach(current, target, rate) {
+  const t = clamp(rate, 0, 1);
+  return current + (target - current) * t;
+}
+
+function drawShipName(ship, player) {
+  if (!ship.alive || state.camera.zoom < 0.48 || state.selectedShipIds.has(ship.id)) return;
+  if (ship.hp < ship.maxHp || ship.shield < ship.maxShield) return;
+  ctx.save();
+  ctx.fillStyle = "rgba(237,244,255,0.5)";
   ctx.font = `${Math.max(10, 11 / state.camera.zoom)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.fillText(player.name, ship.x, ship.y + ship.radius + 18);
@@ -1979,6 +2506,29 @@ function loadDesign() {
 
 function persistDesign() {
   localStorage.setItem(LOCAL_DESIGN_KEY, JSON.stringify(state.design));
+}
+
+function loadSavedDesigns() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOCAL_SAVED_DESIGNS_KEY) || "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved.map((design, index) => ({
+      id: String(design.id || `saved-${index}`),
+      name: String(design.name || `Design ${index + 1}`).slice(0, 28),
+      blueprint: normalizeDesign(design.blueprint),
+      cost: Number(design.cost) || 0,
+      weapons: String(design.weapons || "0/0/0"),
+      speed: Number(design.speed) || 0,
+      createdAt: Number(design.createdAt) || Date.now(),
+      updatedAt: Number(design.updatedAt) || Date.now()
+    })).slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedDesigns() {
+  localStorage.setItem(LOCAL_SAVED_DESIGNS_KEY, JSON.stringify(state.savedDesigns.slice(0, 12)));
 }
 
 function defaultDesign() {

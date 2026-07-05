@@ -22,6 +22,7 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_PLAYERS_PER_ROOM = 12;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const MATCH_SCORE = 900;
+const SCORE_PER_CONTROLLED_POINT = 6;
 const ECONOMY = Object.freeze({
   startingMoney: 420,
   maxMoney: 2200,
@@ -30,7 +31,7 @@ const ECONOMY = Object.freeze({
   killBountyRatio: 0.28,
   killBountyMin: 24,
   captureBonus: 55,
-  shipCap: 14,
+  shipCap: 20,
   deploymentBudget: 700,
   baseShipCost: 48,
   partCostMultiplier: 1.32,
@@ -276,6 +277,11 @@ function createClient(socket) {
     id: client.id,
     world: WORLD,
     parts: PARTS,
+    economy: {
+      startingMoney: ECONOMY.startingMoney,
+      deploymentBudget: ECONOMY.deploymentBudget,
+      shipCap: ECONOMY.shipCap
+    },
     defaultDesign: DEFAULT_DESIGN
   });
 
@@ -397,17 +403,26 @@ function handleMessage(client, message) {
   }
 
   if (message.type === "deploy") {
-    if (client.room.phase !== "design") {
-      send(client, { type: "error", message: "Ship designs can only be readied during the design phase" });
+    if (client.room.phase !== "design" && client.room.phase !== "active") {
+      send(client, { type: "error", message: "Ship designs can only be saved during design or active match phases" });
       return;
     }
     const design = validateDesign(message.design);
+    const validation = validateBuildShip(client.room, client.player, design.stats);
+    if (client.room.phase === "design" && !validation.ok) {
+      send(client, { type: "error", message: validation.reason });
+      return;
+    }
     client.player.design = design.modules;
     client.player.stats = design.stats;
-    client.player.ready = true;
-    client.player.lastReadyAt = performanceNow();
-    broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
-    maybeStartMatch(client.room, performanceNow());
+    if (client.room.phase === "design") {
+      client.player.ready = true;
+      client.player.lastReadyAt = performanceNow();
+      broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
+      maybeStartMatch(client.room, performanceNow());
+    } else {
+      send(client, { type: "notice", message: `Blueprint saved. New ships cost $${design.stats.unitCost}` });
+    }
     return;
   }
 
@@ -417,20 +432,14 @@ function handleMessage(client, message) {
       return;
     }
     const count = clampNumber(message.count, 1, 5);
-    let built = 0;
-    for (let i = 0; i < count; i += 1) {
-      if (buyShip(client.room, client.player, performanceNow())) built += 1;
-      else break;
+    const validation = validateBuyShip(client.room, client.player, count);
+    if (!validation.ok) {
+      client.player.lastBuildError = validation.reason;
+      send(client, { type: "error", message: validation.reason });
+      return;
     }
-    if (built === 0) {
-      const stats = client.player.stats || computeStats(client.player.design);
-      const budgetLeft = client.player.deploymentBudget - getActiveFleetCost(client.player);
-      const message = client.player.money < stats.unitCost
-        ? `Not enough money: need $${stats.unitCost - Math.floor(client.player.money)} more`
-        : budgetLeft < stats.unitCost
-          ? `Fleet exceeds deployment budget by $${stats.unitCost - budgetLeft}`
-          : "Fleet cap reached";
-      send(client, { type: "error", message });
+    for (let i = 0; i < validation.count; i += 1) {
+      buyShip(client.room, client.player, performanceNow(), { prevalidated: true });
     }
     return;
   }
@@ -499,6 +508,7 @@ function handleMessage(client, message) {
 function joinRoom(client, message) {
   const requestedCode = sanitizeRoomCode(message.room);
   const code = requestedCode || makeRoomCode();
+  const requestedName = sanitizeName(message.name, `Pilot ${client.id.slice(1)}`);
   let room = rooms.get(code);
 
   if (!room) {
@@ -516,6 +526,11 @@ function joinRoom(client, message) {
     return;
   }
 
+  if (room.kickedIds?.has(client.id) || room.kickedNames?.has(requestedName.toLowerCase())) {
+    send(client, { type: "error", message: "You were kicked from this room by the host." });
+    return;
+  }
+
   leaveRoom(client);
 
   const color = COLORS[room.colorCursor % COLORS.length];
@@ -523,7 +538,7 @@ function joinRoom(client, message) {
 
   const player = {
     id: client.id,
-    name: sanitizeName(message.name, `Pilot ${client.id.slice(1)}`),
+    name: requestedName,
     color,
     team: sanitizeTeam(message.team, client.id),
     isBot: false,
@@ -601,6 +616,8 @@ function createRoom(code) {
     effects: [],
     map,
     points: map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 })),
+    kickedIds: new Set(),
+    kickedNames: new Set(),
     nextEntityId: 1,
     nextBotId: 1,
     colorCursor: 0,
@@ -842,20 +859,68 @@ function tickRoom(room, dt, now) {
 function buyShip(room, player, now, options = {}) {
   if (!player.ready) return false;
   const stats = player.stats || computeStats(player.design);
-  const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
-  const activeFleetCost = getActiveFleetCost(player);
-  if (activeCount >= player.shipCap) return false;
-  if (!options.starter && activeFleetCost + stats.unitCost > player.deploymentBudget) return false;
-  if (player.money < stats.unitCost) return false;
+  if (!options.prevalidated) {
+    const validation = options.starter
+      ? validateBuildShip(room, player, stats)
+      : validateBuyShip(room, player, 1, stats);
+    if (!validation.ok) {
+      if (!options.silent) player.lastBuildError = validation.reason;
+      return false;
+    }
+  }
 
   player.money -= stats.unitCost;
   player.spent += stats.unitCost;
   player.deployedFleetCost += stats.unitCost;
+  const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
   spawnShip(room, player, now, activeCount);
   if (!options.starter) {
     broadcastRoom(room, { type: "notice", message: `${player.name} built a ship for $${stats.unitCost}` });
   }
   return true;
+}
+
+function validateBuyShip(room, player, count = 1, stats = null) {
+  if (room.phase !== "active") {
+    return { ok: false, reason: "Ships can only be built after the match starts" };
+  }
+  if (!player.ready) {
+    return { ok: false, reason: "Invalid design: save a blueprint first." };
+  }
+  const shipStats = stats || player.stats || computeStats(player.design);
+  const requestedCount = clampNumber(count, 1, 5);
+  const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
+  if (activeCount >= player.shipCap) {
+    return { ok: false, reason: `Fleet cap reached: ${activeCount}/${player.shipCap}` };
+  }
+  const availableSlots = Math.max(0, player.shipCap - activeCount);
+  if (requestedCount > availableSlots) {
+    return { ok: false, reason: `Fleet cap reached: ${activeCount}/${player.shipCap}. ${availableSlots} slot${availableSlots === 1 ? "" : "s"} available.` };
+  }
+  const totalCost = shipStats.unitCost * requestedCount;
+  if (player.money < totalCost) {
+    return { ok: false, reason: `Not enough money: need $${totalCost - Math.floor(player.money)} more` };
+  }
+  return { ok: true, shipStats, count: requestedCount, totalCost };
+}
+
+function validateBuildShip(room, player, stats = null) {
+  if (!player.ready && room.phase === "active") {
+    return { ok: false, reason: "Invalid design: save a blueprint first." };
+  }
+  const shipStats = stats || player.stats || computeStats(player.design);
+  const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
+  if (activeCount >= player.shipCap) {
+    return { ok: false, reason: "Ship limit reached for this match." };
+  }
+  const activeFleetCost = getActiveFleetCost(player);
+  if (activeFleetCost + shipStats.unitCost > player.deploymentBudget) {
+    return { ok: false, reason: `Starting fleet limit exceeded by $${activeFleetCost + shipStats.unitCost - player.deploymentBudget}.` };
+  }
+  if (shipStats.unitCost > player.money) {
+    return { ok: false, reason: `Cannot build ship. Need $${shipStats.unitCost - Math.floor(player.money)} more.` };
+  }
+  return { ok: true, shipCost: shipStats.unitCost, shipStats };
 }
 
 function spawnShip(room, player, now, index = 0) {
@@ -889,6 +954,7 @@ function spawnShip(room, player, now, index = 0) {
     maxHp: stats.maxHp,
     maxShield: stats.maxShield,
     stats,
+    design: player.design.map((part) => ({ ...part })),
     cost: stats.unitCost,
     radius: stats.radius,
     blasterCooldown: randomRange(0.08, 0.42),
@@ -907,7 +973,6 @@ function resetPlayerForMatch(room, player, now, options = {}) {
   for (const oldShip of player.ships) oldShip.removed = true;
   player.ships = [];
   player.money = ECONOMY.startingMoney;
-  if (options.keepBank) player.money = Math.max(ECONOMY.startingMoney, Math.floor(player.bank || ECONOMY.startingMoney));
   player.income = ECONOMY.baseIncome;
   player.earned = player.money;
   player.spent = 0;
@@ -915,6 +980,7 @@ function resetPlayerForMatch(room, player, now, options = {}) {
   player.destroyedEnemyCost = 0;
   player.lostFleetCost = 0;
   player.lastReward = null;
+  player.lastBuildError = "";
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   if (options.spawn && player.ready) {
     buyShip(room, player, now, { starter: true });
@@ -1365,12 +1431,14 @@ function updateCapturePoints(room, ships, dt) {
     }
 
     const contenders = [...counts.entries()].sort((a, b) => b[1].count - a[1].count);
+    point.contested = false;
     if (contenders.length === 0) {
       point.progress = Math.max(0, point.progress - 0.08 * dt);
       continue;
     }
 
     if (contenders.length > 1 && contenders[0][1].count === contenders[1][1].count) {
+      point.contested = true;
       continue;
     }
 
@@ -1411,7 +1479,7 @@ function updateScoring(room, now) {
   for (const point of room.points) {
     if (!point.ownerTeam || point.progress < 0.98) continue;
     for (const player of room.players.values()) {
-      if (player.team === point.ownerTeam) player.score += 6;
+      if (player.team === point.ownerTeam) player.score += SCORE_PER_CONTROLLED_POINT;
     }
   }
 
@@ -1546,6 +1614,7 @@ function snapshotRoom(room, now) {
     teamName: teamLabel(room, player.team, player.name),
     isBot: player.isBot,
     isAdmin: room.adminId === player.id,
+    connected: player.connected !== false,
     ready: player.ready,
     money: Math.floor(player.money),
     income: round(player.income),
@@ -1585,6 +1654,7 @@ function snapshotRoom(room, now) {
         shield: round(ship.shield),
         maxShield: round(ship.maxShield),
         radius: round(ship.radius),
+        design: ship.design || [],
         cost: ship.cost || ship.stats?.unitCost || 0,
         focusTargetId: ship.focusTargetId,
         alive: ship.alive,
@@ -1620,6 +1690,7 @@ function snapshotRoom(room, now) {
       radius: point.radius,
       ownerId: point.ownerId,
       ownerTeam: point.ownerTeam,
+      contested: Boolean(point.contested),
       progress: round(point.progress)
     })),
     effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, now - effect.at) })),
@@ -1650,6 +1721,7 @@ function startDesignPhase(room, requester) {
   room.winnerAt = 0;
   room.lastScoreAt = performanceNow();
   for (const player of room.players.values()) {
+    resetRoundPlayerStats(player);
     player.ready = player.isBot;
     player.lastReadyAt = 0;
     resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
@@ -1666,7 +1738,7 @@ function maybeStartMatch(room, now) {
   room.winnerAt = 0;
   room.lastScoreAt = now;
   for (const player of players) {
-    resetPlayerForMatch(room, player, now, { spawn: true, keepBank: true });
+    resetPlayerForMatch(room, player, now, { spawn: true });
   }
   broadcastRoom(room, { type: "notice", message: "All pilots ready. Match started." });
 }
@@ -1686,10 +1758,23 @@ function restartFromEnd(room, requester) {
   room.winnerAt = 0;
   room.lastScoreAt = performanceNow();
   for (const player of room.players.values()) {
+    resetRoundPlayerStats(player);
     player.ready = player.isBot;
-    resetPlayerForMatch(room, player, performanceNow(), { spawn: false, keepBank: true });
+    resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
   }
   broadcastRoom(room, { type: "notice", message: "New ship design phase started" });
+}
+
+function resetRoundPlayerStats(player) {
+  player.score = 0;
+  player.kills = 0;
+  player.losses = 0;
+  player.captures = 0;
+  player.destroyedEnemyCost = 0;
+  player.lostFleetCost = 0;
+  player.deployedFleetCost = 0;
+  player.lastReward = null;
+  player.lastBuildError = "";
 }
 
 function closeLobby(room, requester) {
@@ -1721,6 +1806,8 @@ function kickPlayer(room, requester, targetId) {
   }
 
   removePlayerFromRoom(room, target, "kicked");
+  room.kickedIds.add(target.id);
+  room.kickedNames.add(target.name.toLowerCase());
   broadcastRoom(room, { type: "notice", message: `${target.name} was kicked` });
   if (room.phase === "design") maybeStartMatch(room, performanceNow());
 }
@@ -1732,6 +1819,14 @@ function removePlayerFromRoom(room, player, reason) {
   }
   room.players.delete(player.id);
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
+  for (const point of room.points) {
+    if (point.ownerId === player.id) {
+      point.ownerId = null;
+      point.ownerTeam = null;
+      point.progress = 0;
+      point.contested = false;
+    }
+  }
 
   if (!player.isBot) {
     const client = [...room.clients].find((candidate) => candidate.player?.id === player.id);
@@ -2177,7 +2272,7 @@ function updateBots(room, now) {
     player.ai.nextThinkAt = now + randomRange(900, 1700);
     const currentCost = player.stats?.unitCost || computeStats(player.design).unitCost;
     if (player.money >= currentCost && player.ships.filter((ship) => ship.alive && !ship.removed).length < player.shipCap) {
-      buyShip(room, player, now, { starter: true });
+      buyShip(room, player, now, { silent: true });
     }
     const ships = player.ships.filter((ship) => ship.alive && !ship.removed);
     if (ships.length === 0) continue;
@@ -2297,10 +2392,7 @@ function resetMatch(room, now) {
     point.progress = 0;
   }
   for (const player of room.players.values()) {
-    player.score = 0;
-    player.kills = 0;
-    player.losses = 0;
-    player.captures = 0;
+    resetRoundPlayerStats(player);
     resetPlayerForMatch(room, player, now);
   }
   broadcastRoom(room, { type: "notice", message: "New match started" });
