@@ -468,6 +468,42 @@ h2 {
   margin-top: 12px;
 }
 
+.economy-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(255, 202, 87, 0.24);
+  border-radius: 8px;
+  background: rgba(38, 30, 14, 0.38);
+}
+
+.economy-card div {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.economy-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.economy-card strong {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #fff2c4;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stat {
   min-width: 0;
   padding: 8px;

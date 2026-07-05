@@ -32,6 +32,7 @@ const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
 const LOCAL_NAME_KEY = "modular-fleet-name-v1";
 const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
 const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
+const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
 const WORLD_FALLBACK = { width: 3200, height: 1900 };
 
 const dom = {
@@ -59,8 +60,15 @@ const dom = {
   roomLabel: document.getElementById("roomLabel"),
   fleetLabel: document.getElementById("fleetLabel"),
   relayLabel: document.getElementById("relayLabel"),
+  moneyHud: document.getElementById("moneyHudLabel"),
   selectionLabel: document.getElementById("selectionLabel"),
   objectiveLabel: document.getElementById("objectiveLabel"),
+  moneyLabel: document.getElementById("moneyLabel"),
+  incomeLabel: document.getElementById("incomeLabel"),
+  unitCostLabel: document.getElementById("unitCostLabel"),
+  fleetCapLabel: document.getElementById("fleetCapLabel"),
+  buildShipButton: document.getElementById("buildShipButton"),
+  buildFiveButton: document.getElementById("buildFiveButton"),
   scoreList: document.getElementById("scoreList"),
   eventLog: document.getElementById("eventLog"),
   toastStack: document.getElementById("toastStack"),
@@ -116,6 +124,8 @@ window.addEventListener("keyup", (event) => state.keys.delete(event.key.toLowerC
 dom.createButton.addEventListener("click", createGame);
 dom.joinButton.addEventListener("click", joinExistingGame);
 dom.deployButton.addEventListener("click", deployDesign);
+dom.buildShipButton.addEventListener("click", () => buyShips(1));
+dom.buildFiveButton.addEventListener("click", () => buyShips(5));
 dom.resetButton.addEventListener("click", resetDesign);
 dom.copyButton.addEventListener("click", copyInvite);
 dom.botButton.addEventListener("click", addBot);
@@ -173,8 +183,7 @@ function joinRoom(roomCode = "") {
   dom.currentRoomCode.textContent = "----";
   dom.currentRoomCard.hidden = true;
 
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(`${protocol}//${location.host}/socket`);
+  const socket = new WebSocket(getSocketUrl());
   state.socket = socket;
   setConnectionStatus("connecting", "Connecting");
   updateLobbyState();
@@ -228,6 +237,14 @@ function addBot() {
     return;
   }
   send({ type: "addBot" });
+}
+
+function buyShips(count) {
+  if (!state.room || !state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    addNotice("Create or join a game first", "warning");
+    return;
+  }
+  send({ type: "buyShip", count });
 }
 
 function send(message) {
@@ -288,6 +305,7 @@ function handleServerMessage(message) {
     pruneSelection();
     updateHud();
     renderScoreboard();
+    updateEconomyUi();
     updateLobbyState();
     updateWinnerBanner();
     return;
@@ -431,6 +449,7 @@ function renderLocalStats() {
     statMarkup("Shield", stats.maxShield),
     statMarkup("Speed", Math.round(stats.maxSpeed)),
     statMarkup("Power", stats.power),
+    statMarkup("Cost", `$${stats.unitCost}`),
     statMarkup("Weapons", `${stats.blaster}/${stats.missile}/${stats.railgun}`),
     statMarkup("Repair", stats.repair),
     statMarkup("Mass", stats.mass)
@@ -444,6 +463,7 @@ function renderLocalStats() {
       ? "Power-starved systems fire weaker"
       : "Blueprint ready";
   setBuildStatus(text, className);
+  updateEconomyUi();
 }
 
 function setBuildStatus(text, className) {
@@ -462,11 +482,31 @@ function updateHud() {
   const myTeam = mine?.team;
   const relays = state.snapshot.points.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length;
   const target = currentTarget();
-  dom.fleetLabel.textContent = `${myShips.length}/${mine?.stats?.fleet || 0}`;
+  dom.fleetLabel.textContent = `${myShips.length}/${mine?.shipCap || 0}`;
+  dom.moneyHud.textContent = `$${mine?.money ?? 0}`;
   dom.relayLabel.textContent = String(relays);
   dom.selectionLabel.textContent = `${state.selectedShipIds.size}`;
   dom.objectiveLabel.textContent = target ? target.label : "None";
   dom.latency.textContent = state.latency == null ? "-- ms" : `${Math.round(state.latency)} ms`;
+}
+
+function updateEconomyUi() {
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const localStats = computeStats(state.design);
+  const money = mine?.money ?? 0;
+  const income = mine?.income ?? 0;
+  const unitCost = mine?.stats?.unitCost ?? localStats.unitCost;
+  const activeShips = mine?.activeShips ?? 0;
+  const shipCap = mine?.shipCap ?? 0;
+  const canBuild = Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
+  const canBuildFive = Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
+
+  dom.moneyLabel.textContent = `$${Math.floor(money)}`;
+  dom.incomeLabel.textContent = `+$${Math.round(income)}/s`;
+  dom.unitCostLabel.textContent = `$${unitCost}`;
+  dom.fleetCapLabel.textContent = `${activeShips}/${shipCap || "-"}`;
+  dom.buildShipButton.disabled = !canBuild;
+  dom.buildFiveButton.disabled = !canBuildFive;
 }
 
 function currentTarget() {
@@ -488,7 +528,7 @@ function renderScoreboard() {
       <span class="score-color" style="background:${player.color}"></span>
       <div>
         <div class="score-name">${escapeHtml(player.name)}${player.id === state.myId ? " *" : ""}${player.isBot ? " CPU" : ""}</div>
-        <div class="score-meta">${escapeHtml(player.teamName || "Solo")} | K ${player.kills} / L ${player.losses} / C ${player.captures}</div>
+        <div class="score-meta">${escapeHtml(player.teamName || "Solo")} | $${player.money} +${Math.round(player.income)}/s | K ${player.kills} / L ${player.losses}</div>
       </div>
       <div class="score-value">${player.score}</div>
     `;
@@ -554,6 +594,8 @@ function showToast(text, tone = "") {
 function copyInvite() {
   const url = new URL(location.href);
   if (state.room) url.searchParams.set("room", state.room);
+  const configuredServer = getConfiguredServerUrl();
+  if (configuredServer) url.searchParams.set("server", configuredServer);
   const text = state.room ? `${url.toString()}  Room: ${state.room}` : url.toString();
   if (!navigator.clipboard?.writeText) {
     addNotice("Clipboard unavailable", "warning");
@@ -563,6 +605,35 @@ function copyInvite() {
     () => addNotice("Invite copied", "good"),
     () => addNotice("Clipboard unavailable", "warning")
   );
+}
+
+function getSocketUrl() {
+  const configured = getConfiguredServerUrl();
+  if (configured) return normalizeSocketUrl(configured);
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${location.host}/socket`;
+}
+
+function getConfiguredServerUrl() {
+  const params = new URLSearchParams(location.search);
+  const fromUrl = params.get("server");
+  if (fromUrl) {
+    localStorage.setItem(LOCAL_SERVER_KEY, fromUrl);
+    return fromUrl;
+  }
+  return localStorage.getItem(LOCAL_SERVER_KEY) || "";
+}
+
+function normalizeSocketUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:") url.protocol = "ws:";
+    if (url.protocol === "https:") url.protocol = "wss:";
+    if (!url.pathname || url.pathname === "/") url.pathname = "/socket";
+    return url.toString();
+  } catch {
+    return value;
+  }
 }
 
 function handlePointerDown(event) {
@@ -1089,7 +1160,7 @@ function drawRespawn(ship) {
   ctx.fillStyle = "rgba(237,244,255,0.7)";
   ctx.font = `${Math.max(11, 13 / state.camera.zoom)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText(`${ship.respawnIn}`, ship.x, ship.y - ship.radius - 12);
+  ctx.fillText("lost", ship.x, ship.y - ship.radius - 12);
   ctx.restore();
 }
 
@@ -1353,9 +1424,21 @@ function computeStats(modules) {
   const efficiency = clamp(0.72 + power * 0.045, 0.45, 1.25);
   const maxSpeed = clamp(115 + thrust / Math.max(1, mass) * 17, 105, 360);
   const fleetCount = clamp(Math.floor(225 / Math.max(44, cost + mass * 0.32)), 1, 5);
+  const unitCost = clamp(Math.round(
+    55 +
+    cost * 0.85 +
+    mass * 1.1 +
+    maxHp * 0.015 +
+    maxShield * 0.04 +
+    blaster * 14 +
+    missile * 24 +
+    railgun * 34 +
+    repair * 22
+  ), 95, 460);
 
   return {
     cost,
+    unitCost,
     mass,
     maxHp: Math.max(140, Math.round(maxHp * 0.82)),
     maxShield: Math.round(maxShield * efficiency),

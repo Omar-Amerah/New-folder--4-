@@ -42,12 +42,13 @@ async function main() {
     alpha.send({ type: "deploy", design: alpha.defaultDesign });
     beta.send({ type: "deploy", design: beta.defaultDesign });
     alpha.send({ type: "addBot" });
+    alpha.send({ type: "buyShip", count: 1 });
     alpha.send({ type: "command", x: 1600, y: 950 });
     beta.send({ type: "command", x: 1600, y: 950 });
 
     const state = await alpha.waitFor(
-      (message) => message.type === "state" && message.players.length === 3 && message.ships.length >= 3 && message.points.length === 3,
-      "state snapshot did not include players, bot, and fleets"
+      (message) => message.type === "state" && message.players.length === 3 && message.ships.length >= 4 && message.points.length === 3,
+      "state snapshot did not include players, bot, economy-built ships, and fleets"
     );
 
     if (!state.players.some((player) => player.name === "Alpha") || !state.players.some((player) => player.name === "Beta")) {
@@ -55,6 +56,10 @@ async function main() {
     }
     if (!state.players.some((player) => player.isBot)) {
       throw new Error("bot missing from snapshot");
+    }
+    const alphaState = state.players.find((player) => player.name === "Alpha");
+    if (typeof alphaState.money !== "number" || typeof alphaState.income !== "number" || !alphaState.stats.unitCost) {
+      throw new Error("economy fields missing from snapshot");
     }
 
     alpha.close();

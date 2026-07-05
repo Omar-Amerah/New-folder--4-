@@ -894,7 +894,7 @@ function damageShip(room, ship, damage, attackerId, now) {
   if (attacker && attacker.id !== ship.ownerId) {
     const bounty = Math.max(ECONOMY.killBountyMin, Math.round((ship.cost || ship.stats?.unitCost || 100) * ECONOMY.killBountyRatio));
     attacker.kills += 1;
-    attacker.money = Math.min(attacker.maxMoney || 1800, attacker.money + bounty);
+    attacker.money = Math.min(attacker.maxMoney || 2000, attacker.money + bounty);
     attacker.earned += bounty;
     attacker.score += 30 + Math.round(bounty * 0.4);
   }
@@ -938,7 +938,7 @@ function updateCapturePoints(room, ships, dt) {
         for (const player of room.players.values()) {
           if (player.team === leaderTeam) {
             player.captures += 1;
-            player.money = Math.min(player.maxMoney || 1800, player.money + ECONOMY.captureBonus);
+            player.money = Math.min(player.maxMoney || 2000, player.money + ECONOMY.captureBonus);
             player.earned += ECONOMY.captureBonus;
             player.score += 14;
           }
@@ -1045,6 +1045,7 @@ function snapshotRoom(room, now) {
         shield: round(ship.shield),
         maxShield: round(ship.maxShield),
         radius: round(ship.radius),
+        cost: ship.cost || ship.stats?.unitCost || 0,
         focusTargetId: ship.focusTargetId,
         alive: ship.alive,
         respawnIn: 0,
@@ -1307,7 +1308,7 @@ function addBot(room, requester) {
     income: ECONOMY.baseIncome,
     earned: ECONOMY.startingMoney,
     spent: 0,
-    maxMoney: 1800,
+    maxMoney: 2000,
     shipCap: ECONOMY.shipCap,
     score: 0,
     kills: 0,
