@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Modular Fleet Arena</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="side-panel" aria-label="Dock controls">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <div class="brand-copy">
+            <h1>Modular Fleet Arena</h1>
+            <p><span id="connectionStatus" class="connection-status offline">Offline dock</span></p>
+          </div>
+        </div>
+
+        <div class="panel-section compact control-group">
+          <div class="section-heading">
+            <h2>Lobby</h2>
+            <span id="roomStateText">Not joined</span>
+          </div>
+          <label for="pilotName">Callsign</label>
+          <input id="pilotName" maxlength="18" autocomplete="nickname" placeholder="Pilot">
+
+          <label for="teamSelect">Wing</label>
+          <select id="teamSelect">
+            <option value="blue">Blue wing</option>
+            <option value="red">Red wing</option>
+            <option value="free">Solo</option>
+          </select>
+
+          <div class="create-game-card">
+            <div>
+              <h3>Create Game</h3>
+              <p>Start a new private room and share the code.</p>
+            </div>
+            <button id="createButton" type="button">Create</button>
+          </div>
+
+          <div id="currentRoomCard" class="room-code-card" hidden>
+            <span>Game code</span>
+            <strong id="currentRoomCode">----</strong>
+          </div>
+
+          <label for="roomCode">Join Existing Game</label>
+          <div class="join-row">
+            <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter code">
+            <button id="joinButton" type="button">Join</button>
+          </div>
+          <div class="utility-row">
+            <button id="copyButton" type="button" class="secondary">Copy invite</button>
+            <button id="botButton" type="button" class="secondary">Add bot</button>
+          </div>
+        </div>
+
+        <div class="panel-section control-group">
+          <div class="section-heading">
+            <h2>Shipyard</h2>
+            <span id="budgetText">0 pts</span>
+          </div>
+          <div id="partPalette" class="part-palette" aria-label="Ship parts"></div>
+          <div id="partInspector" class="part-inspector"></div>
+          <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
+          <div id="buildStatus" class="build-status"></div>
+          <div id="statsGrid" class="stats-grid"></div>
+          <label for="formationSelect">Formation</label>
+          <select id="formationSelect">
+            <option value="line">Line</option>
+            <option value="wedge">Wedge</option>
+            <option value="clump">Clump</option>
+          </select>
+          <div class="button-row">
+            <button id="deployButton" type="button">Deploy</button>
+            <button id="resetButton" type="button" class="secondary">Reset</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="arena-wrap" aria-label="Arena">
+        <canvas id="arenaCanvas"></canvas>
+        <div class="top-hud">
+          <div>
+            <span class="hud-label">Room</span>
+            <strong id="roomLabel">----</strong>
+          </div>
+          <div>
+            <span class="hud-label">Fleet</span>
+            <strong id="fleetLabel">0</strong>
+          </div>
+          <div>
+            <span class="hud-label">Relays</span>
+            <strong id="relayLabel">0</strong>
+          </div>
+          <div>
+            <span class="hud-label">Selected</span>
+            <strong id="selectionLabel">0</strong>
+          </div>
+          <div>
+            <span class="hud-label">Target</span>
+            <strong id="objectiveLabel">None</strong>
+          </div>
+        </div>
+        <div id="winnerBanner" class="winner-banner" hidden></div>
+        <div id="commandMarker" class="command-marker" hidden></div>
+        <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+      </section>
+
+      <aside class="score-panel" aria-label="Scoreboard">
+        <div class="section-heading">
+          <h2>Match</h2>
+          <span id="latencyText">-- ms</span>
+        </div>
+        <div class="match-meter" aria-label="Match score progress">
+          <div class="match-meter-track">
+            <span id="matchProgressFill"></span>
+          </div>
+          <div id="matchSummary" class="match-summary">No active match</div>
+        </div>
+        <div id="scoreList" class="score-list"></div>
+        <div id="eventLog" class="event-log"></div>
+      </aside>
+    </main>
+
+    <script src="/client.js?v=create-game-fix-1"></script>
+  </body>
+</html>

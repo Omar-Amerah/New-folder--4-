@@ -1,0 +1,20 @@
+{
+  "name": "modular-fleet-arena",
+  "version": "1.0.0",
+  "description": "Browser multiplayer modular space fleet arena.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/client.js && node --check verify-runtime.js && node --check verify-client-ui.js",
+    "verify": "node verify-runtime.js && node verify-client-ui.js"
+  },
+  "keywords": [
+    "browser-game",
+    "multiplayer",
+    "websocket",
+    "space",
+    "rts"
+  ],
+  "author": "",
+  "license": "MIT"
+}
