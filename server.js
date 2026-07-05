@@ -421,7 +421,7 @@ function handleMessage(client, message) {
       broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
       maybeStartMatch(client.room, performanceNow());
     } else {
-      send(client, { type: "notice", message: `Blueprint saved. New ships cost $${design.stats.unitCost}` });
+      send(client, { type: "notice", message: `Blueprint selected for future builds. New ships cost $${design.stats.unitCost}.` });
     }
     return;
   }

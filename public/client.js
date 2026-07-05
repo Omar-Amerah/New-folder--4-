@@ -136,7 +136,7 @@ const state = {
   parts: {},
   design: loadDesign(),
   savedDesigns: loadSavedDesigns(),
-  activeSavedDesignId: null,
+  loadedEditorBlueprintId: null,
   activePurchaseBlueprintId: null,
   selectedPart: "frame",
   selectedShipIds: new Set(),
@@ -335,7 +335,7 @@ function buyShips(count) {
     return;
   }
   const purchase = getActivePurchaseBlueprint();
-  if (!purchase?.blueprint?.length) {
+  if (!purchase) {
     addNotice("Select or save a blueprint before building", "warning");
     return;
   }
@@ -747,7 +747,7 @@ function removeCell(x, y) {
 
 function resetDesign() {
   state.design = defaultDesign();
-  state.activeSavedDesignId = null;
+  state.loadedEditorBlueprintId = null;
   persistDesign();
   renderBuildGrid();
   renderLocalStats();
@@ -757,7 +757,7 @@ function resetDesign() {
 function saveCurrentDesign(name = "") {
   const stats = computeStats(state.design);
   const now = Date.now();
-  const existingIndex = state.savedDesigns.findIndex((design) => design.id === state.activeSavedDesignId);
+  const existingIndex = state.savedDesigns.findIndex((design) => design.id === state.loadedEditorBlueprintId);
   const existing = existingIndex >= 0 ? state.savedDesigns[existingIndex] : null;
   const cleanName = String(name || "").trim() || existing?.name || nextDesignName();
   const design = {
@@ -773,8 +773,7 @@ function saveCurrentDesign(name = "") {
   state.savedDesigns = existing
     ? state.savedDesigns.map((saved) => saved.id === design.id ? design : saved)
     : [design, ...state.savedDesigns];
-  state.activeSavedDesignId = design.id;
-  if (!state.activePurchaseBlueprintId) state.activePurchaseBlueprintId = design.id;
+  state.loadedEditorBlueprintId = design.id;
   persistSavedDesigns();
   renderSavedDesigns();
   updateEconomyUi();
@@ -786,21 +785,35 @@ function loadSavedDesign(id) {
   if (!saved) return;
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
-  state.activeSavedDesignId = saved.id;
+  state.loadedEditorBlueprintId = saved.id;
   persistDesign();
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
+  updateEconomyUi();
   showToast(`Editing ${saved.name}`, "good");
 }
 
 function useSavedDesignForPurchase(id) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
+  const blueprint = normalizeDesign(saved.blueprint);
   state.activePurchaseBlueprintId = saved.id;
+  state.design = blueprint;
+  state.loadedEditorBlueprintId = saved.id;
+  persistDesign();
+  renderBuildGrid();
+  renderLocalStats();
   renderSavedDesigns();
   updateEconomyUi();
+  syncBlueprintToServer(blueprint);
   showToast(`${saved.name} selected for future builds`, "good");
+}
+
+function syncBlueprintToServer(blueprint) {
+  if (state.socket?.readyState !== WebSocket.OPEN) return;
+  if (state.phase !== "active" && state.phase !== "design") return;
+  send({ type: "deploy", design: blueprint });
 }
 
 function duplicateSavedDesign(id) {
@@ -844,7 +857,7 @@ function deleteSavedDesign(id) {
   if (!saved) return;
   if (typeof confirm === "function" && !confirm(`Delete ${saved.name}?`)) return;
   state.savedDesigns = state.savedDesigns.filter((design) => design.id !== id);
-  if (state.activeSavedDesignId === id) state.activeSavedDesignId = null;
+  if (state.loadedEditorBlueprintId === id) state.loadedEditorBlueprintId = null;
   if (state.activePurchaseBlueprintId === id) state.activePurchaseBlueprintId = null;
   persistSavedDesigns();
   renderSavedDesigns();
@@ -868,30 +881,24 @@ function renderSavedDesigns() {
   for (const saved of state.savedDesigns) {
     const stats = computeStats(saved.blueprint);
     const affordable = money >= stats.unitCost;
-    const editing = saved.id === state.activeSavedDesignId;
+    const editing = saved.id === state.loadedEditorBlueprintId;
     const purchasing = saved.id === state.activePurchaseBlueprintId;
     const statusText = affordable ? "Affordable" : "Too expensive";
-    const needText = affordable ? "" : `<span class="saved-design-need">Need $${Math.ceil(stats.unitCost - money)} more</span>`;
     const row = document.createElement("div");
     row.className = `saved-design-card${purchasing ? " selected" : ""}${affordable ? "" : " expensive"}`;
     row.innerHTML = `
       <div class="saved-design-head">
         <strong>${escapeHtml(saved.name)}</strong>
         <span class="saved-design-badges">
-          ${purchasing ? `<span class="saved-design-loaded">For purchase</span>` : ""}
+          ${purchasing ? `<span class="saved-design-loaded">Selected</span>` : ""}
           ${editing ? `<span class="saved-design-loaded subtle">Editing</span>` : ""}
         </span>
       </div>
-      <div class="saved-design-meta">
-        <span><b>Cost</b>$${stats.unitCost}</span>
-        <span><b>Weapons</b>${stats.blaster}/${stats.missile}/${stats.railgun}</span>
-        <span><b>Speed</b>${Math.round(stats.maxSpeed)}</span>
-        <span><b>Status</b>${statusText}</span>
-      </div>
-      ${needText}
+      <div class="saved-design-summary">Cost $${stats.unitCost} · Weapons ${stats.blaster}/${stats.missile}/${stats.railgun} · Speed ${Math.round(stats.maxSpeed)}</div>
+      <div class="saved-design-status ${affordable ? "affordable" : "expensive"}">${statusText}${affordable ? "" : ` · Need $${Math.ceil(stats.unitCost - money)} more`}</div>
       <div class="saved-design-actions">
-        <button type="button" title="Use for future builds" data-use="${escapeHtml(saved.id)}">Use</button>
-        <button type="button" data-load="${escapeHtml(saved.id)}">Edit</button>
+        <button type="button" title="Use for future builds" data-use="${escapeHtml(saved.id)}">Use for Purchase</button>
+        <button type="button" data-load="${escapeHtml(saved.id)}">Edit Blueprint</button>
         <button type="button" data-duplicate="${escapeHtml(saved.id)}">Copy</button>
         <button type="button" data-rename="${escapeHtml(saved.id)}">Rename</button>
         <button type="button" data-delete="${escapeHtml(saved.id)}">Delete</button>
@@ -1003,11 +1010,7 @@ function getActivePurchaseBlueprint() {
       blueprint: saved.blueprint.map((part) => ({ ...part }))
     };
   }
-  return {
-    id: null,
-    name: "Editor Blueprint",
-    blueprint: state.design.map((part) => ({ ...part }))
-  };
+  return null;
 }
 
 function issueListMarkup(title, issues) {
@@ -1059,7 +1062,8 @@ function updateEconomyUi() {
   const localStats = computeStats(state.design);
   const localStatus = getShipStatus(localStats);
   const purchase = getActivePurchaseBlueprint();
-  const purchaseStats = computeStats(purchase.blueprint);
+  const isDesignStage = state.phase === "design" || !state.snapshot;
+  const purchaseStats = purchase ? computeStats(purchase.blueprint) : localStats;
   const money = currentMatchMoney(mine);
   const income = mine?.income ?? 0;
   const unitCost = purchaseStats.unitCost;
@@ -1073,17 +1077,16 @@ function updateEconomyUi() {
   const canAffordFive = money >= unitCost * 5;
   const hasShipSlot = activeShips < shipCap;
   const hasFiveSlots = activeShips + 5 <= shipCap;
-  const purchaseReady = Boolean(purchase?.blueprint?.length);
+  const purchaseReady = isDesignStage || Boolean(purchase?.blueprint?.length);
   const canBuild = state.phase === "active" && Boolean(mine?.ready) && purchaseReady && canAfford && hasShipSlot;
   const canBuildFive = state.phase === "active" && Boolean(mine?.ready) && purchaseReady && canAffordFive && hasFiveSlots;
   const canReady = state.phase === "design" && !mine?.ready && localStatus.blockers.length === 0;
   const canSaveActiveDesign = state.phase === "active" && Boolean(mine?.ready);
   const afterBuild = money - unitCost;
 
-  const isDesignStage = state.phase === "design" || !state.snapshot;
   dom.moneyTitle.textContent = isDesignStage ? "Starting money" : "Current money";
   dom.activePurchaseTitle.textContent = isDesignStage ? "Editor blueprint" : "Selected design";
-  dom.activePurchaseLabel.textContent = isDesignStage ? "Current Editor" : purchase.name;
+  dom.activePurchaseLabel.textContent = isDesignStage ? "Current Editor" : purchase?.name || "None";
   dom.activePurchaseLabel.title = isDesignStage ? "Ready uses the current editor blueprint." : "Build Ship uses this blueprint.";
   dom.unitCostTitle.textContent = isDesignStage ? "Blueprint Cost" : "Ship Cost";
   dom.canBuildTitle.textContent = isDesignStage ? "Can ready" : "Can build";
@@ -1100,7 +1103,7 @@ function updateEconomyUi() {
   dom.canBuildLabel.title = isDesignStage
     ? localStatus.blockers[0] || "This design can be readied."
     : canBuild ? "This selected blueprint can be built." : activeBuildBlocker({ purchaseReady, canAfford, hasShipSlot, money, unitCost });
-  dom.afterBuildLabel.textContent = canAfford ? `$${Math.floor(afterBuild)}` : `Need $${Math.ceil(unitCost - money)}`;
+  dom.afterBuildLabel.textContent = !purchaseReady && !isDesignStage ? "Select blueprint" : canAfford ? `$${Math.floor(afterBuild)}` : `Need $${Math.ceil(unitCost - money)}`;
   dom.fleetCapLabel.textContent = deploymentBudget ? `$${activeFleetCost}/$${deploymentBudget}` : `${activeShips}/${shipCap || "-"}`;
   dom.fleetCapLabel.title = deploymentBudget ? "Starting fleet used / starting fleet limit. Active builds use current money and ship cap." : "Active ships / fleet cap";
   dom.buildShipButton.hidden = state.phase !== "active";
@@ -1109,7 +1112,7 @@ function updateEconomyUi() {
   dom.buildShipButton.disabled = !canBuild;
   dom.buildFiveButton.disabled = !canBuildFive;
   dom.buildShipButton.textContent = buildButtonText({ canBuild, purchaseReady, canAfford, hasShipSlot, money, unitCost });
-  dom.buildFiveButton.textContent = buildFiveButtonText({ canBuildFive, canAffordFive, hasFiveSlots, money, unitCost });
+  dom.buildFiveButton.textContent = buildFiveButtonText({ canBuildFive, purchaseReady, canAffordFive, hasFiveSlots, money, unitCost });
   dom.deployButton.disabled = !(canReady || canSaveActiveDesign);
   dom.deployButton.textContent = mine?.ready && state.phase === "design"
     ? "Ready"
@@ -1137,9 +1140,10 @@ function buildButtonText({ canBuild, purchaseReady, canAfford, hasShipSlot, mone
   return `Build Ship - $${unitCost}`;
 }
 
-function buildFiveButtonText({ canBuildFive, canAffordFive, hasFiveSlots, money, unitCost }) {
+function buildFiveButtonText({ canBuildFive, purchaseReady, canAffordFive, hasFiveSlots, money, unitCost }) {
   const totalCost = unitCost * 5;
   if (canBuildFive) return `Build x5 - $${totalCost}`;
+  if (!purchaseReady) return "Build x5 - Select Blueprint";
   if (!hasFiveSlots) return "Build x5 - Ship Limit";
   if (!canAffordFive) return `Build x5 - Need $${Math.ceil(totalCost - money)}`;
   return `Build x5 - $${totalCost}`;
