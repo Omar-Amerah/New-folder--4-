@@ -45,6 +45,16 @@
             <strong id="currentRoomCode">----</strong>
           </div>
 
+          <div class="flow-card">
+            <div class="phase-steps" aria-label="Game flow">
+              <span id="stepLobby" class="active">Lobby</span>
+              <span id="stepDesign">Design</span>
+              <span id="stepBattle">Battle</span>
+              <span id="stepEnd">End</span>
+            </div>
+            <p id="phaseDetail">Create or join a room to begin.</p>
+          </div>
+
           <label for="roomCode">Join Existing Game</label>
           <div class="join-row">
             <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter code">
@@ -54,6 +64,11 @@
             <button id="copyButton" type="button" class="secondary">Copy invite</button>
             <button id="botButton" type="button" class="secondary">Add bot</button>
           </div>
+          <div id="adminControls" class="admin-controls" hidden>
+            <button id="startDesignButton" type="button">Start ship design</button>
+            <button id="closeLobbyButton" type="button" class="secondary">Close lobby</button>
+          </div>
+          <div id="playerList" class="player-list" aria-label="Players"></div>
         </div>
 
         <div class="panel-section control-group">
@@ -130,6 +145,17 @@
           </div>
         </div>
         <div id="winnerBanner" class="winner-banner" hidden></div>
+        <div id="endGameScreen" class="end-game-screen" hidden>
+          <div>
+            <span>Match complete</span>
+            <strong id="endGameTitle">Victory</strong>
+            <p id="endGameSummary">Waiting for admin.</p>
+            <div id="endGameActions" class="end-game-actions">
+              <button id="restartButton" type="button">Restart</button>
+              <button id="endCloseButton" type="button" class="secondary">Close lobby</button>
+            </div>
+          </div>
+        </div>
         <div id="commandMarker" class="command-marker" hidden></div>
         <div id="toastStack" class="toast-stack" aria-live="polite"></div>
       </section>
@@ -150,6 +176,6 @@
       </aside>
     </main>
 
-    <script src="/client.js?v=income-clarity-1"></script>
+    <script src="/client.js?v=room-flow-1"></script>
   </body>
 </html>

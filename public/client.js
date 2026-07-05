@@ -45,9 +45,18 @@ const dom = {
   createButton: document.getElementById("createButton"),
   currentRoomCard: document.getElementById("currentRoomCard"),
   currentRoomCode: document.getElementById("currentRoomCode"),
+  phaseDetail: document.getElementById("phaseDetail"),
+  stepLobby: document.getElementById("stepLobby"),
+  stepDesign: document.getElementById("stepDesign"),
+  stepBattle: document.getElementById("stepBattle"),
+  stepEnd: document.getElementById("stepEnd"),
   joinButton: document.getElementById("joinButton"),
   copyButton: document.getElementById("copyButton"),
   botButton: document.getElementById("botButton"),
+  adminControls: document.getElementById("adminControls"),
+  startDesignButton: document.getElementById("startDesignButton"),
+  closeLobbyButton: document.getElementById("closeLobbyButton"),
+  playerList: document.getElementById("playerList"),
   deployButton: document.getElementById("deployButton"),
   resetButton: document.getElementById("resetButton"),
   formationSelect: document.getElementById("formationSelect"),
@@ -76,7 +85,13 @@ const dom = {
   matchSummary: document.getElementById("matchSummary"),
   latency: document.getElementById("latencyText"),
   marker: document.getElementById("commandMarker"),
-  winner: document.getElementById("winnerBanner")
+  winner: document.getElementById("winnerBanner"),
+  endGameScreen: document.getElementById("endGameScreen"),
+  endGameTitle: document.getElementById("endGameTitle"),
+  endGameSummary: document.getElementById("endGameSummary"),
+  endGameActions: document.getElementById("endGameActions"),
+  restartButton: document.getElementById("restartButton"),
+  endCloseButton: document.getElementById("endCloseButton")
 };
 
 const ctx = dom.canvas.getContext("2d", { alpha: false });
@@ -91,6 +106,9 @@ const state = {
   selectedPart: "frame",
   selectedShipIds: new Set(),
   snapshot: null,
+  map: null,
+  phase: "offline",
+  adminId: null,
   camera: { x: WORLD_FALLBACK.width / 2, y: WORLD_FALLBACK.height / 2, zoom: 0.58, follow: true, manualZoom: null },
   pointer: { x: 0, y: 0 },
   drag: null,
@@ -129,6 +147,10 @@ dom.buildFiveButton.addEventListener("click", () => buyShips(5));
 dom.resetButton.addEventListener("click", resetDesign);
 dom.copyButton.addEventListener("click", copyInvite);
 dom.botButton.addEventListener("click", addBot);
+dom.startDesignButton.addEventListener("click", startDesign);
+dom.closeLobbyButton.addEventListener("click", closeLobby);
+dom.restartButton.addEventListener("click", restartMatch);
+dom.endCloseButton.addEventListener("click", closeLobby);
 dom.formationSelect.addEventListener("change", () => {
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
 });
@@ -178,6 +200,9 @@ function joinRoom(roomCode = "") {
   if (state.socket) state.socket.close();
   state.room = "";
   state.snapshot = null;
+  state.map = null;
+  state.phase = "offline";
+  state.adminId = null;
   state.selectedShipIds.clear();
   dom.roomLabel.textContent = "----";
   dom.currentRoomCode.textContent = "----";
@@ -210,6 +235,7 @@ function joinRoom(roomCode = "") {
 
   socket.addEventListener("close", () => {
     if (socket !== state.socket) return;
+    state.phase = "offline";
     setConnectionStatus("offline", "Offline dock");
     updateLobbyState();
   });
@@ -222,12 +248,31 @@ function joinRoom(roomCode = "") {
 }
 
 function deployDesign() {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
-    joinRoom();
-    setTimeout(() => deployDesign(), 240);
+  if (!state.room || !state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    addNotice("Create or join a game first", "warning");
+    return;
+  }
+  if (state.phase !== "design") {
+    addNotice("Wait for the admin to start ship design", "warning");
     return;
   }
   send({ type: "deploy", design: state.design });
+}
+
+function startDesign() {
+  send({ type: "startDesign" });
+}
+
+function restartMatch() {
+  send({ type: "restart" });
+}
+
+function closeLobby() {
+  send({ type: "closeLobby" });
+}
+
+function kickPlayer(targetId) {
+  send({ type: "kick", targetId });
 }
 
 function addBot() {
@@ -242,6 +287,10 @@ function addBot() {
 function buyShips(count) {
   if (!state.room || !state.socket || state.socket.readyState !== WebSocket.OPEN) {
     addNotice("Create or join a game first", "warning");
+    return;
+  }
+  if (state.phase !== "active") {
+    addNotice("Build ships after the match starts", "warning");
     return;
   }
   send({ type: "buyShip", count });
@@ -261,13 +310,65 @@ function updateLobbyState() {
   const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
   const connecting = state.socket?.readyState === WebSocket.CONNECTING;
   const playerCount = state.snapshot?.players?.length || 0;
-  dom.roomState.textContent = connected ? `${playerCount} in room` : connecting ? "Connecting" : "Not joined";
+  const phase = state.snapshot?.phase || state.phase;
+  const admin = isAdmin();
+  dom.roomState.textContent = connected ? `${phaseLabel(phase)} | ${playerCount} in room` : connecting ? "Connecting" : "Not joined";
   dom.createButton.disabled = connecting;
   dom.joinButton.disabled = connecting;
   dom.copyButton.disabled = !state.room;
-  dom.botButton.disabled = !connected;
+  dom.botButton.disabled = !connected || !admin || phase !== "lobby";
+  dom.teamSelect.disabled = connected && phase !== "lobby";
+  dom.adminControls.hidden = !connected || !admin || phase === "active";
+  dom.startDesignButton.disabled = !connected || !admin || phase !== "lobby" || playerCount === 0;
+  dom.closeLobbyButton.disabled = !connected || !admin || phase === "active";
   dom.currentRoomCard.hidden = !state.room;
   dom.currentRoomCode.textContent = state.room || "----";
+  updatePhaseSteps(phase);
+  updatePhaseDetail(phase);
+  renderPlayerList();
+}
+
+function phaseLabel(phase) {
+  if (phase === "lobby") return "Lobby";
+  if (phase === "design") return "Ship design";
+  if (phase === "active") return "Battle";
+  if (phase === "ended") return "Ended";
+  return "Offline";
+}
+
+function updatePhaseSteps(phase) {
+  const order = ["lobby", "design", "active", "ended"];
+  const current = Math.max(0, order.indexOf(phase));
+  const entries = [
+    [dom.stepLobby, "lobby"],
+    [dom.stepDesign, "design"],
+    [dom.stepBattle, "active"],
+    [dom.stepEnd, "ended"]
+  ];
+  for (const [element, key] of entries) {
+    const index = order.indexOf(key);
+    element.className = index === current ? "active" : index < current ? "done" : "";
+  }
+}
+
+function updatePhaseDetail(phase) {
+  const players = state.snapshot?.players || [];
+  const ready = players.filter((player) => player.ready).length;
+  const mapName = state.snapshot?.map?.name;
+  const size = state.snapshot?.mapSizeLabel;
+  if (!state.room) {
+    dom.phaseDetail.textContent = "Create or join a room to begin.";
+  } else if (phase === "lobby") {
+    dom.phaseDetail.textContent = isAdmin()
+      ? `Waiting room. Add bots, share the code, then start ship design. Map size will use ${players.length || 1} player${players.length === 1 ? "" : "s"}.`
+      : "Waiting for the room admin to start ship design.";
+  } else if (phase === "design") {
+    dom.phaseDetail.textContent = `${ready}/${players.length} ready. Edit your ship, then press Ready. ${size || "Map"}: ${mapName || "generated map"}.`;
+  } else if (phase === "active") {
+    dom.phaseDetail.textContent = `${size || "Map"}: ${mapName || "generated map"}. Capture relays, build ships, and fight.`;
+  } else if (phase === "ended") {
+    dom.phaseDetail.textContent = isAdmin() ? "Match ended. Choose Restart or Close lobby." : "Match ended. Waiting for the admin.";
+  }
 }
 
 function handleServerMessage(message) {
@@ -287,6 +388,9 @@ function handleServerMessage(message) {
     state.myId = message.id;
     state.room = message.room;
     state.world = message.world || state.world;
+    state.map = message.map || state.map;
+    state.phase = message.phase || "lobby";
+    state.adminId = message.adminId || null;
     state.selectedShipIds.clear();
     dom.roomCode.value = message.room;
     dom.currentRoomCode.textContent = message.room;
@@ -294,13 +398,16 @@ function handleServerMessage(message) {
     dom.roomLabel.textContent = message.room;
     setConnectionStatus("online", "Room linked");
     updateLobbyState();
-    deployDesign();
     return;
   }
 
   if (message.type === "state") {
     state.snapshot = message;
     state.room = message.room;
+    state.world = message.world || state.world;
+    state.map = message.map || state.map;
+    state.phase = message.phase || state.phase;
+    state.adminId = message.adminId || state.adminId;
     dom.roomLabel.textContent = message.room;
     pruneSelection();
     updateHud();
@@ -326,6 +433,16 @@ function handleServerMessage(message) {
 
   if (message.type === "error") {
     addNotice(message.message || "Server error", "error");
+    return;
+  }
+
+  if (message.type === "kicked" || message.type === "closed") {
+    addNotice(message.message || "Room closed", "error");
+    state.room = "";
+    state.snapshot = null;
+    state.phase = "offline";
+    state.selectedShipIds.clear();
+    updateLobbyState();
   }
 }
 
@@ -338,7 +455,7 @@ function renderPalette() {
     button.type = "button";
     button.className = `part-button${state.selectedPart === type ? " active" : ""}`;
     button.title = `${PART_DEFS[type].name} | cost ${stat.cost} | mass ${stat.mass}`;
-    button.innerHTML = `<span class="part-glyph" style="background:${PART_DEFS[type].glyph}"></span><span class="part-name">${PART_DEFS[type].name}</span>`;
+    button.innerHTML = `${partIconMarkup(type)}<span class="part-name">${PART_DEFS[type].name}</span>`;
     button.addEventListener("click", () => {
       state.selectedPart = type;
       renderPalette();
@@ -354,7 +471,7 @@ function renderPartInspector() {
   const stat = PART_STATS[type] || PART_STATS.frame;
   dom.partInspector.innerHTML = `
     <div class="part-inspector-title">
-      <span style="background:${def.glyph}"></span>
+      ${partIconMarkup(type, "inspector-glyph")}
       <strong>${escapeHtml(def.name)}</strong>
     </div>
     <div class="part-inspector-grid">
@@ -374,6 +491,12 @@ function inspectorStat(label, value) {
   return `<div><span>${label}</span><strong>${value}</strong></div>`;
 }
 
+function partIconMarkup(type, extraClass = "") {
+  const safeType = String(type || "frame").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
+  const classes = ["part-glyph", `part-${safeType}`, extraClass].filter(Boolean).join(" ");
+  return `<span class="${classes}" aria-hidden="true"><span></span></span>`;
+}
+
 function renderBuildGrid() {
   dom.grid.textContent = "";
   const byCell = new Map(state.design.map((part) => [`${part.x},${part.y}`, part]));
@@ -385,7 +508,7 @@ function renderBuildGrid() {
       cell.type = "button";
       cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
       cell.title = part ? PART_DEFS[part.type].name : "Empty";
-      if (part) cell.style.background = PART_DEFS[part.type].glyph;
+      if (part) cell.innerHTML = partIconMarkup(part.type, "build-glyph");
       cell.addEventListener("click", () => editCell(x, y));
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
@@ -512,8 +635,9 @@ function updateEconomyUi() {
   const shipCap = mine?.shipCap ?? 0;
   const myTeam = mine?.team;
   const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
-  const canBuild = Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
-  const canBuildFive = Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
+  const canBuild = state.phase === "active" && Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
+  const canBuildFive = state.phase === "active" && Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
+  const canReady = state.phase === "design" && !mine?.ready;
 
   dom.moneyLabel.textContent = `$${Math.floor(money)}`;
   dom.incomeLabel.textContent = `+$${Math.round(income)}/s`;
@@ -524,11 +648,15 @@ function updateEconomyUi() {
   dom.fleetCapLabel.textContent = `${activeShips}/${shipCap || "-"}`;
   dom.buildShipButton.disabled = !canBuild;
   dom.buildFiveButton.disabled = !canBuildFive;
+  dom.deployButton.disabled = !canReady;
+  dom.deployButton.textContent = mine?.ready && state.phase === "design" ? "Ready" : state.phase === "design" ? "Ready ship" : "Save blueprint";
 
   if (mine) {
-    const status = mine.ready
-      ? `Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`
-      : "Save a blueprint to start earning money";
+    const status = state.phase === "design"
+      ? mine.ready ? "Ready. Waiting for the rest of the room." : "Design your ship, then press Ready ship."
+      : mine.ready
+        ? `Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`
+        : "Waiting for ship design";
     if (!dom.buildStatus.className.includes("warning")) setBuildStatus(status, "good");
   }
 }
@@ -560,6 +688,33 @@ function renderScoreboard() {
   }
 }
 
+function renderPlayerList() {
+  if (!dom.playerList) return;
+  const players = state.snapshot?.players || [];
+  dom.playerList.textContent = "";
+  if (!players.length) return;
+
+  for (const player of players) {
+    const row = document.createElement("div");
+    row.className = `player-row${player.id === state.myId ? " mine" : ""}`;
+    const canKick = isAdmin() && player.id !== state.myId && state.phase !== "active";
+    const status = player.isAdmin ? "Admin" : player.ready ? "Ready" : state.phase === "design" ? "Designing" : player.isBot ? "Bot" : "Waiting";
+    row.innerHTML = `
+      <span class="score-color" style="background:${player.color}"></span>
+      <div>
+        <strong>${escapeHtml(player.name)}${player.id === state.myId ? " (you)" : ""}</strong>
+        <span>${escapeHtml(player.teamName || "Solo")} | ${status}</span>
+      </div>
+      ${canKick ? `<button type="button" data-kick="${escapeHtml(player.id)}">Kick</button>` : ""}
+    `;
+    const kickButton = row.querySelector?.("[data-kick]");
+    if (kickButton) {
+      kickButton.addEventListener("click", () => kickPlayer(player.id));
+    }
+    dom.playerList.appendChild(row);
+  }
+}
+
 function updateMatchMeter(players) {
   if (!players.length) {
     dom.matchProgressFill.style.width = "0%";
@@ -570,18 +725,26 @@ function updateMatchMeter(players) {
   const maxScore = state.snapshot.maxScore || 900;
   const leader = players[0];
   const progress = clamp(leader.score / maxScore * 100, 0, 100);
+  const mapName = state.snapshot.map?.name ? `${state.snapshot.map.name} | ` : "";
   dom.matchProgressFill.style.width = `${progress}%`;
-  dom.matchSummary.textContent = `${leader.name} leads ${leader.score}/${maxScore}`;
+  dom.matchSummary.textContent = `${mapName}${leader.name} leads ${leader.score}/${maxScore}`;
 }
 
 function updateWinnerBanner() {
   const winner = state.snapshot?.winner;
-  if (!winner) {
+  if (!winner || state.phase !== "ended") {
     dom.winner.hidden = true;
+    dom.endGameScreen.hidden = true;
     return;
   }
   dom.winner.hidden = false;
   dom.winner.textContent = `${winner.name} won`;
+  dom.endGameScreen.hidden = false;
+  dom.endGameTitle.textContent = `${winner.name} won`;
+  dom.endGameSummary.textContent = isAdmin()
+    ? "Restart sends everyone back to ship design with a new generated map."
+    : "Waiting for the room admin to restart or close the lobby.";
+  dom.endGameActions.hidden = !isAdmin();
 }
 
 function addNotice(text, tone = "") {
@@ -747,6 +910,7 @@ function handleKeyDown(event) {
 
 function issueCommand(event) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+  if (state.phase !== "active") return;
   const mini = minimapWorldAt(event.clientX, event.clientY);
   const world = mini || screenToWorld(event.clientX, event.clientY);
   const targetShip = findShipAt(world.x, world.y, (ship) => ship.ownerId !== state.myId && ship.alive);
@@ -897,6 +1061,7 @@ function renderArena(now) {
   ctx.save();
   applyCamera(rect);
   drawWorldGrid();
+  drawMapFeatures(now);
   drawRelays();
   drawCommandTarget(now);
   drawBullets();
@@ -954,6 +1119,83 @@ function drawWorldGrid() {
   ctx.strokeStyle = "rgba(255,255,255,0.22)";
   ctx.lineWidth = 3 / state.camera.zoom;
   ctx.strokeRect(0, 0, state.world.width, state.world.height);
+  ctx.restore();
+}
+
+function drawMapFeatures(now) {
+  const map = currentMap();
+  if (!map) return;
+
+  for (const cloud of map.clouds || []) drawNebula(cloud);
+  for (const asteroid of map.asteroids || []) drawAsteroid(asteroid, now);
+}
+
+function drawNebula(cloud) {
+  const rx = cloud.rx || 300;
+  const ry = cloud.ry || 180;
+  const color = cloud.color || "56,213,255";
+  const alpha = cloud.alpha || 0.12;
+
+  ctx.save();
+  ctx.translate(cloud.x, cloud.y);
+  ctx.rotate(cloud.rotation || 0);
+  const gradient = ctx.createRadialGradient(0, 0, Math.min(rx, ry) * 0.1, 0, 0, rx);
+  gradient.addColorStop(0, `rgba(${color}, ${alpha})`);
+  gradient.addColorStop(0.52, `rgba(${color}, ${alpha * 0.42})`);
+  gradient.addColorStop(1, `rgba(${color}, 0)`);
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawAsteroid(asteroid, now) {
+  const radius = asteroid.radius || 60;
+  const shape = asteroid.shape?.length ? asteroid.shape : [1, 0.92, 1.08, 0.9, 1.12, 0.96, 1.05, 0.88, 1.1, 0.95, 1.03, 0.9];
+  const base = asteroid.shade === "warm" ? "#5a4939" : "#394657";
+  const edge = asteroid.shade === "warm" ? "#ad8b64" : "#8495aa";
+
+  ctx.save();
+  ctx.translate(asteroid.x, asteroid.y);
+  ctx.rotate((asteroid.rotation || 0) + (asteroid.spin || 0) * now * 0.001);
+  ctx.shadowColor = "rgba(0,0,0,0.42)";
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 8;
+
+  const gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
+  gradient.addColorStop(0, edge);
+  gradient.addColorStop(0.38, base);
+  gradient.addColorStop(1, "#171d26");
+  ctx.fillStyle = gradient;
+  ctx.strokeStyle = "rgba(220,235,255,0.22)";
+  ctx.lineWidth = Math.max(1.5, 2.5 / state.camera.zoom);
+  ctx.beginPath();
+  for (let i = 0; i < shape.length; i += 1) {
+    const angle = i / shape.length * Math.PI * 2;
+    const r = radius * shape[i];
+    const x = Math.cos(angle) * r;
+    const y = Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(0,0,0,0.24)";
+  ctx.strokeStyle = "rgba(255,255,255,0.14)";
+  for (const crater of asteroid.craters || []) {
+    const angle = crater.angle || 0;
+    const distance = radius * (crater.distance || 0.3);
+    const craterRadius = radius * (crater.radius || 0.12);
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle) * distance, Math.sin(angle) * distance, craterRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
   ctx.restore();
 }
 
@@ -1060,6 +1302,7 @@ function drawShip(ship, player) {
 
   const design = player.design || [];
   const scale = 13;
+  drawShipStructure(design, scale, player.color);
   for (const part of design) {
     const def = PART_DEFS[part.type] || PART_DEFS.frame;
     const px = (part.x - 3) * scale;
@@ -1084,48 +1327,191 @@ function drawShip(ship, player) {
   if (!ship.alive) drawRespawn(ship);
 }
 
+function drawShipStructure(design, scale, color) {
+  const keys = new Set(design.map((part) => `${part.x},${part.y}`));
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(3, scale * 0.26);
+  ctx.strokeStyle = "rgba(0,0,0,0.42)";
+  drawStructureLines(design, keys, scale);
+  ctx.lineWidth = Math.max(1.2, scale * 0.12);
+  ctx.strokeStyle = color;
+  ctx.globalAlpha *= 0.48;
+  drawStructureLines(design, keys, scale);
+  ctx.restore();
+}
+
+function drawStructureLines(design, keys, scale) {
+  ctx.beginPath();
+  for (const part of design) {
+    const x = (part.x - 3) * scale;
+    const y = (part.y - 3) * scale;
+    if (keys.has(`${part.x + 1},${part.y}`)) {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + scale, y);
+    }
+    if (keys.has(`${part.x},${part.y + 1}`)) {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + scale);
+    }
+  }
+  ctx.stroke();
+}
+
 function drawModule(x, y, size, color, type, trim) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.fillStyle = color;
+  ctx.lineWidth = Math.max(1.15, size * 0.12);
   ctx.strokeStyle = trim;
-  ctx.lineWidth = 1.8;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = type === "core" || type === "reactor" || type === "shield" ? 8 : 3;
 
-  if (type === "engine") {
+  const fill = ctx.createLinearGradient(-size * 0.55, -size * 0.55, size * 0.55, size * 0.55);
+  fill.addColorStop(0, "rgba(255,255,255,0.42)");
+  fill.addColorStop(0.24, color);
+  fill.addColorStop(1, "rgba(8,12,20,0.92)");
+  ctx.fillStyle = fill;
+
+  if (type === "core") {
+    roundRect(ctx, -size * 0.48, -size * 0.48, size * 0.96, size * 0.96, size * 0.18);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#f8fbff";
     ctx.beginPath();
-    ctx.moveTo(-size * 0.45, -size * 0.45);
-    ctx.lineTo(size * 0.45, 0);
-    ctx.lineTo(-size * 0.45, size * 0.45);
+    ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#6ee7ff";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (type === "frame") {
+    roundRect(ctx, -size * 0.46, -size * 0.46, size * 0.92, size * 0.92, size * 0.12);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.42)";
+    ctx.lineWidth = Math.max(1, size * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.28, -size * 0.28);
+    ctx.lineTo(size * 0.28, size * 0.28);
+    ctx.moveTo(size * 0.28, -size * 0.28);
+    ctx.lineTo(-size * 0.28, size * 0.28);
+    ctx.stroke();
+  } else if (type === "armor") {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.42, -size * 0.24);
+    ctx.lineTo(-size * 0.18, -size * 0.48);
+    ctx.lineTo(size * 0.42, -size * 0.34);
+    ctx.lineTo(size * 0.48, size * 0.2);
+    ctx.lineTo(size * 0.18, size * 0.48);
+    ctx.lineTo(-size * 0.48, size * 0.34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,244,220,0.38)";
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.18, -size * 0.34);
+    ctx.lineTo(size * 0.24, size * 0.28);
+    ctx.stroke();
+  } else if (type === "engine") {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.48, -size * 0.38);
+    ctx.lineTo(size * 0.4, -size * 0.24);
+    ctx.lineTo(size * 0.48, size * 0.24);
+    ctx.lineTo(-size * 0.48, size * 0.38);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#ffca57";
-    ctx.fillRect(-size * 0.7, -size * 0.18, size * 0.36, size * 0.36);
-  } else if (type === "blaster" || type === "missile" || type === "railgun") {
-    ctx.fillRect(-size * 0.44, -size * 0.33, size * 0.88, size * 0.66);
-    ctx.strokeRect(-size * 0.44, -size * 0.33, size * 0.88, size * 0.66);
-    ctx.fillStyle = type === "railgun" ? "#7aa4ff" : "#f8fbff";
-    ctx.fillRect(size * 0.1, -size * 0.12, size * 0.58, size * 0.24);
-  } else if (type === "shield" || type === "reactor" || type === "core" || type === "battery" || type === "repair") {
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.48, 0, Math.PI * 2);
+    ctx.moveTo(-size * 0.58, -size * 0.18);
+    ctx.lineTo(-size * 0.95, 0);
+    ctx.lineTo(-size * 0.58, size * 0.18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#89f7ff";
+    ctx.fillRect(-size * 0.35, -size * 0.16, size * 0.26, size * 0.32);
+  } else if (type === "blaster") {
+    drawWeaponBase(size, color);
+    ctx.fillStyle = "#ffd1dc";
+    roundRect(ctx, size * 0.02, -size * 0.13, size * 0.62, size * 0.26, size * 0.08);
+    ctx.fill();
+  } else if (type === "missile") {
+    drawWeaponBase(size, color);
+    ctx.fillStyle = "#f0dcff";
+    ctx.beginPath();
+    ctx.moveTo(size * 0.64, 0);
+    ctx.lineTo(size * 0.08, -size * 0.2);
+    ctx.lineTo(-size * 0.08, 0);
+    ctx.lineTo(size * 0.08, size * 0.2);
+    ctx.closePath();
+    ctx.fill();
+  } else if (type === "railgun") {
+    drawWeaponBase(size, color);
+    ctx.strokeStyle = "#f4f7ff";
+    ctx.lineWidth = Math.max(1.2, size * 0.1);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.04, -size * 0.16);
+    ctx.lineTo(size * 0.68, -size * 0.16);
+    ctx.moveTo(-size * 0.04, size * 0.16);
+    ctx.lineTo(size * 0.68, size * 0.16);
+    ctx.stroke();
+    ctx.fillStyle = "#7aa4ff";
+    ctx.fillRect(size * 0.42, -size * 0.06, size * 0.16, size * 0.12);
+  } else if (type === "reactor") {
+    drawRoundSystem(size);
+    ctx.fillStyle = "#fff7b3";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#6b4b12";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (type === "battery") {
+    roundRect(ctx, -size * 0.42, -size * 0.42, size * 0.84, size * 0.84, size * 0.12);
     ctx.fill();
     ctx.stroke();
-    if (type === "repair") {
-      ctx.strokeStyle = "#d7ffe2";
-      ctx.beginPath();
-      ctx.moveTo(-size * 0.22, 0);
-      ctx.lineTo(size * 0.22, 0);
-      ctx.moveTo(0, -size * 0.22);
-      ctx.lineTo(0, size * 0.22);
-      ctx.stroke();
+    ctx.fillStyle = "#d5fbff";
+    for (let i = 0; i < 3; i += 1) {
+      ctx.fillRect(-size * 0.25, -size * 0.28 + i * size * 0.21, size * 0.5, size * 0.09);
     }
+  } else if (type === "shield") {
+    drawRoundSystem(size);
+    ctx.strokeStyle = "#b9ffd0";
+    ctx.lineWidth = Math.max(1, size * 0.08);
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.34, Math.PI * 0.15, Math.PI * 1.85);
+    ctx.stroke();
+  } else if (type === "repair") {
+    drawRoundSystem(size);
+    ctx.strokeStyle = "#d7ffe2";
+    ctx.lineWidth = Math.max(1.4, size * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.24, 0);
+    ctx.lineTo(size * 0.24, 0);
+    ctx.moveTo(0, -size * 0.24);
+    ctx.lineTo(0, size * 0.24);
+    ctx.stroke();
   } else {
-    ctx.fillRect(-size * 0.45, -size * 0.45, size * 0.9, size * 0.9);
-    ctx.strokeRect(-size * 0.45, -size * 0.45, size * 0.9, size * 0.9);
+    roundRect(ctx, -size * 0.44, -size * 0.44, size * 0.88, size * 0.88, size * 0.1);
+    ctx.fill();
+    ctx.stroke();
   }
 
   ctx.restore();
+}
+
+function drawWeaponBase(size) {
+  roundRect(ctx, -size * 0.46, -size * 0.32, size * 0.68, size * 0.64, size * 0.12);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawRoundSystem(size) {
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.46, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
 }
 
 function drawSelectionRing(ship) {
@@ -1222,6 +1608,17 @@ function drawEffects() {
       ctx.moveTo(0, -24 - t * 24);
       ctx.lineTo(0, 24 + t * 24);
       ctx.stroke();
+    } else if (effect.type === "rockhit") {
+      ctx.fillStyle = "rgba(196,174,142,0.82)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 5 + t * 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,226,175,0.72)";
+      ctx.lineWidth = 2 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(-10 - t * 12, -4);
+      ctx.lineTo(8 + t * 18, 5);
+      ctx.stroke();
     } else {
       ctx.fillStyle = effect.type === "warp" ? "#38d5ff" : "#f3f7ff";
       ctx.beginPath();
@@ -1271,6 +1668,25 @@ function drawMinimap(rect) {
   const sx = w / state.world.width;
   const sy = h / state.world.height;
   const snap = state.snapshot;
+  const map = currentMap();
+  if (map) {
+    for (const cloud of map.clouds || []) {
+      ctx.fillStyle = `rgba(${cloud.color || "56,213,255"}, 0.12)`;
+      ctx.beginPath();
+      ctx.ellipse(x + cloud.x * sx, y + cloud.y * sy, Math.max(3, cloud.rx * sx), Math.max(2, cloud.ry * sy), cloud.rotation || 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const asteroid of map.asteroids || []) {
+      ctx.fillStyle = "rgba(172,185,202,0.45)";
+      ctx.strokeStyle = "rgba(22,28,37,0.82)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x + asteroid.x * sx, y + asteroid.y * sy, Math.max(2.5, asteroid.radius * sx), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
   if (snap) {
     const players = playerMap();
     for (const point of snap.points) {
@@ -1342,6 +1758,14 @@ function showCommandMarker(clientX, clientY) {
 
 function playerMap() {
   return new Map((state.snapshot?.players || []).map((player) => [player.id, player]));
+}
+
+function isAdmin() {
+  return state.adminId === state.myId || Boolean(state.snapshot?.players?.find((player) => player.id === state.myId && player.isAdmin));
+}
+
+function currentMap() {
+  return state.snapshot?.map || state.map;
 }
 
 function teamValue() {

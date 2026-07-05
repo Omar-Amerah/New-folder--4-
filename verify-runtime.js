@@ -39,18 +39,36 @@ async function main() {
       beta.waitFor((message) => message.type === "joined" && message.room === ROOM, "beta did not join")
     ]);
 
+    alpha.send({ type: "addBot" });
+
+    const lobbyState = await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "lobby" && message.players.length === 3 && message.players.some((player) => player.isAdmin),
+      "lobby did not include admin, bot, and players"
+    );
+    if (!lobbyState.players.find((player) => player.name === "Alpha")?.isAdmin) {
+      throw new Error("first player was not room admin");
+    }
+
+    alpha.send({ type: "startDesign" });
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "design" && message.map?.asteroids?.length,
+      "room did not enter ship design with a generated map"
+    );
+
     alpha.send({ type: "deploy", design: alpha.defaultDesign });
     beta.send({ type: "deploy", design: beta.defaultDesign });
-    alpha.send({ type: "addBot" });
     alpha.send({ type: "buyShip", count: 1 });
     alpha.send({ type: "command", x: 1600, y: 950 });
     beta.send({ type: "command", x: 1600, y: 950 });
 
     const state = await alpha.waitFor(
-      (message) => message.type === "state" && message.players.length === 3 && message.ships.length >= 4 && message.points.length === 3,
+      (message) => message.type === "state" && message.phase === "active" && message.players.length === 3 && message.ships.length >= 3 && message.points.length >= 3 && message.map?.asteroids?.length,
       "state snapshot did not include players, bot, economy-built ships, and fleets"
     );
 
+    if (!state.map.name || !Array.isArray(state.map.clouds) || state.map.clouds.length === 0) {
+      throw new Error("generated map fields missing from snapshot");
+    }
     if (!state.players.some((player) => player.name === "Alpha") || !state.players.some((player) => player.name === "Beta")) {
       throw new Error("players missing from snapshot");
     }

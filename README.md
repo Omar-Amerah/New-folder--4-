@@ -1,6 +1,6 @@
 # Modular Fleet Arena
 
-A dependency-free browser multiplayer space combat game. Players join a room, build ships from modules, deploy a fleet, capture relays, and fight with automatic weapons.
+A dependency-free browser multiplayer space combat game. Players join a room, build ships from modules, deploy a fleet, capture randomly generated relay maps, and fight with automatic weapons.
 
 ## Run
 
@@ -46,14 +46,16 @@ The game remembers that server URL locally and includes it when you copy invites
 
 ## Controls
 
-- Create a game, then share the generated room code.
-- Friends join using the same room code.
-- Choose Blue wing or Red wing for teams, or Solo for free-for-all.
-- Edit the blueprint grid, then save the blueprint. Right-click a blueprint part to remove it.
-- Spend money to build ships. Relays increase income.
+- Create a game, then share the generated room code. The first player in the room is the admin.
+- Friends join using the same room code. The admin can add bots, kick players, start ship design, and close the lobby.
+- Choose Blue wing or Red wing for teams, or Solo for free-for-all before ship design starts.
+- When the admin starts ship design, the server picks the map size from the current player count and generates the arena.
+- Edit the blueprint grid, then press Ready ship. Right-click a blueprint part to remove it.
+- When everyone is ready, the match starts. Spend money to build ships. Relays increase income.
+- At match end, an end screen appears. The admin can restart into a fresh ship design phase or close the lobby.
 - Left-click or drag-select your ships.
 - Right-click the arena to move selected ships. Right-click an enemy to focus fire.
 - Use the formation selector before issuing an order.
 - Use the minimap to jump the camera. Mouse wheel zooms; WASD or arrow keys pan; `F` follows your fleet; `Q` selects all live ships.
 - Add bots from the lobby controls for practice or fuller team matches.
-- Hold relays and destroy enemy ships to score. First side to the match score wins, then the match restarts.
+- Hold relays and destroy enemy ships to score. First side to the match score wins, then the admin chooses restart or close.

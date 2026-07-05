@@ -10,6 +10,12 @@ const { URL } = require("url");
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const WORLD = { width: 3200, height: 1900 };
+const WORLD_SIZES = Object.freeze([
+  { maxPlayers: 2, width: 2600, height: 1600, label: "Duel" },
+  { maxPlayers: 4, width: 3200, height: 1900, label: "Skirmish" },
+  { maxPlayers: 8, width: 4100, height: 2400, label: "Battle" },
+  { maxPlayers: Infinity, width: 5000, height: 2900, label: "Grand battle" }
+]);
 const TICK_HZ = 30;
 const SNAPSHOT_HZ = 15;
 const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -91,6 +97,23 @@ const BOT_NAMES = [
   "Pulse",
   "Apex",
   "Quasar"
+];
+
+const MAP_NAMES = [
+  "Broken Halo",
+  "Lattice Drift",
+  "Iron Nebula",
+  "Cinder Reach",
+  "Glass Belt",
+  "Silent Wake"
+];
+
+const MAP_CLOUD_COLORS = [
+  "56,213,255",
+  "185,149,255",
+  "124,255,160",
+  "255,202,87",
+  "255,95,126"
 ];
 
 const rooms = new Map();
@@ -342,19 +365,25 @@ function handleMessage(client, message) {
   }
 
   if (message.type === "deploy") {
+    if (client.room.phase !== "design") {
+      send(client, { type: "error", message: "Ship designs can only be readied during the design phase" });
+      return;
+    }
     const design = validateDesign(message.design);
-    const wasReady = client.player.ready;
     client.player.design = design.modules;
     client.player.stats = design.stats;
     client.player.ready = true;
-    if (!wasReady) {
-      buyShip(client.room, client.player, performanceNow(), { starter: true });
-    }
-    broadcastRoom(client.room, { type: "notice", message: `${client.player.name} loaded a blueprint` });
+    client.player.lastReadyAt = performanceNow();
+    broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
+    maybeStartMatch(client.room, performanceNow());
     return;
   }
 
   if (message.type === "buyShip") {
+    if (client.room.phase !== "active") {
+      send(client, { type: "error", message: "Ships can only be built after the match starts" });
+      return;
+    }
     const count = clampNumber(message.count, 1, 5);
     let built = 0;
     for (let i = 0; i < count; i += 1) {
@@ -368,8 +397,9 @@ function handleMessage(client, message) {
   }
 
   if (message.type === "command") {
-    const x = clampNumber(message.x, 0, WORLD.width);
-    const y = clampNumber(message.y, 0, WORLD.height);
+    if (client.room.phase !== "active") return;
+    const x = clampNumber(message.x, 0, client.room.world.width);
+    const y = clampNumber(message.y, 0, client.room.world.height);
     commandShips(client.room, client.player, x, y, {
       shipIds: Array.isArray(message.shipIds) ? message.shipIds : null,
       targetId: typeof message.targetId === "string" ? message.targetId : null,
@@ -379,18 +409,50 @@ function handleMessage(client, message) {
   }
 
   if (message.type === "setTeam") {
+    if (client.room.phase !== "lobby") {
+      send(client, { type: "error", message: "Wings can only be changed in the lobby before ship design" });
+      return;
+    }
     client.player.team = sanitizeTeam(message.team, client.player.id);
     broadcastRoom(client.room, { type: "notice", message: `${client.player.name} changed wing` });
     return;
   }
 
   if (message.type === "addBot") {
+    if (!isAdmin(client.room, client.player)) {
+      send(client, { type: "error", message: "Only the room admin can add bots" });
+      return;
+    }
+    if (client.room.phase !== "lobby") {
+      send(client, { type: "error", message: "Bots can only be added before ship design starts" });
+      return;
+    }
     addBot(client.room, client.player);
     return;
   }
 
   if (message.type === "setName") {
     client.player.name = sanitizeName(message.name, client.player.name);
+    return;
+  }
+
+  if (message.type === "startDesign") {
+    startDesignPhase(client.room, client.player);
+    return;
+  }
+
+  if (message.type === "kick") {
+    kickPlayer(client.room, client.player, String(message.targetId || ""));
+    return;
+  }
+
+  if (message.type === "restart") {
+    restartFromEnd(client.room, client.player);
+    return;
+  }
+
+  if (message.type === "closeLobby") {
+    closeLobby(client.room, client.player);
     return;
   }
 }
@@ -403,6 +465,11 @@ function joinRoom(client, message) {
   if (!room) {
     room = createRoom(code);
     rooms.set(code, room);
+  }
+
+  if (room.phase !== "lobby") {
+    send(client, { type: "error", message: "That game has already started. Create a new room or wait for the next lobby." });
+    return;
   }
 
   if (room.players.size >= MAX_PLAYERS_PER_ROOM && !room.clients.has(client)) {
@@ -436,16 +503,18 @@ function joinRoom(client, message) {
     kills: 0,
     losses: 0,
     captures: 0,
-    connected: true
+    connected: true,
+    lastReadyAt: 0
   };
 
   client.room = room;
   client.player = player;
   room.clients.add(client);
   room.players.set(player.id, player);
+  if (!room.adminId) room.adminId = player.id;
   room.lastEmptyAt = 0;
 
-  send(client, { type: "joined", id: client.id, room: room.code, world: WORLD });
+  send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });
 }
 
@@ -462,7 +531,9 @@ function leaveRoom(client) {
     if (room.clients.size === 0) {
       room.lastEmptyAt = Date.now();
     } else {
+      ensureAdmin(room);
       broadcastRoom(room, { type: "notice", message: `${player.name} left` });
+      if (room.phase === "design") maybeStartMatch(room, performanceNow());
     }
   }
 
@@ -471,17 +542,20 @@ function leaveRoom(client) {
 }
 
 function createRoom(code) {
+  const world = chooseWorldSize(1);
+  const map = generateMap(code, world);
   return {
     code,
+    adminId: null,
+    phase: "lobby",
+    world,
+    mapSizeLabel: world.label,
     clients: new Set(),
     players: new Map(),
     bullets: [],
     effects: [],
-    points: [
-      { id: "A", x: WORLD.width * 0.23, y: WORLD.height * 0.35, radius: 145, ownerId: null, ownerTeam: null, progress: 0 },
-      { id: "B", x: WORLD.width * 0.5, y: WORLD.height * 0.56, radius: 155, ownerId: null, ownerTeam: null, progress: 0 },
-      { id: "C", x: WORLD.width * 0.77, y: WORLD.height * 0.35, radius: 145, ownerId: null, ownerTeam: null, progress: 0 }
-    ],
+    map,
+    points: map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 })),
     nextEntityId: 1,
     nextBotId: 1,
     colorCursor: 0,
@@ -493,17 +567,222 @@ function createRoom(code) {
   };
 }
 
+function generateMap(roomCode, world) {
+  const seed = (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode)) >>> 0;
+  const rng = seededRandom(seed);
+  const relays = generateRelays(rng, world);
+  const asteroids = generateAsteroids(rng, world, relays);
+  const clouds = generateClouds(rng, world);
+
+  return {
+    seed,
+    name: MAP_NAMES[seed % MAP_NAMES.length],
+    relays,
+    asteroids,
+    clouds
+  };
+}
+
+function generateRelays(rng, world) {
+  const relays = [];
+  addMirroredRelayPair(rng, relays, {
+    minX: world.width * 0.2,
+    maxX: world.width * 0.38,
+    minY: world.height * 0.25,
+    maxY: world.height * 0.75
+  }, world);
+
+  if (rng() > 0.45) {
+    addMirroredRelayPair(rng, relays, {
+      minX: world.width * 0.25,
+      maxX: world.width * 0.43,
+      minY: world.height * 0.18,
+      maxY: world.height * 0.82
+    }, world);
+  }
+
+  relays.push({
+    x: world.width * 0.5 + rngRange(rng, -130, 130),
+    y: world.height * 0.5 + rngRange(rng, -120, 120),
+    radius: rngRange(rng, 138, 166)
+  });
+
+  return relays
+    .sort((a, b) => a.x - b.x || a.y - b.y)
+    .map((relay, index) => ({
+      id: String.fromCharCode(65 + index),
+      x: Math.round(relay.x),
+      y: Math.round(relay.y),
+      radius: Math.round(relay.radius)
+    }));
+}
+
+function addMirroredRelayPair(rng, relays, bounds, world) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const radius = rngRange(rng, 125, 158);
+    const relay = {
+      x: rngRange(rng, bounds.minX, bounds.maxX),
+      y: rngRange(rng, bounds.minY, bounds.maxY),
+      radius
+    };
+    const mirror = {
+      x: world.width - relay.x,
+      y: world.height - relay.y,
+      radius
+    };
+    if (circlesClear(relay, relays, 390) && circlesClear(mirror, relays, 390)) {
+      relays.push(relay, mirror);
+      return true;
+    }
+  }
+  return false;
+}
+
+function generateAsteroids(rng, world, relays) {
+  const asteroids = [];
+  const reserved = mapSafetyZones(relays, world);
+  const pairCount = 4 + Math.floor(rng() * 3);
+
+  for (let pair = 0; pair < pairCount; pair += 1) {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      const radius = rngRange(rng, 46, 105);
+      const asteroid = {
+        x: rngRange(rng, world.width * 0.18, world.width * 0.48),
+        y: rngRange(rng, 170, world.height - 170),
+        radius
+      };
+      const mirror = {
+        x: world.width - asteroid.x,
+        y: world.height - asteroid.y,
+        radius
+      };
+      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 34, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 34, world)) {
+        continue;
+      }
+      asteroids.push(
+        makeAsteroid(rng, `R${asteroids.length + 1}`, asteroid),
+        makeAsteroid(rng, `R${asteroids.length + 2}`, mirror)
+      );
+      break;
+    }
+  }
+
+  if (rng() > 0.55) {
+    for (let attempt = 0; attempt < 70; attempt += 1) {
+      const radius = rngRange(rng, 54, 92);
+      const asteroid = {
+        x: world.width * 0.5 + rngRange(rng, -110, 110),
+        y: rngRange(rng, world.height * 0.18, world.height * 0.38),
+        radius
+      };
+      const mirror = {
+        x: world.width - asteroid.x,
+        y: world.height - asteroid.y,
+        radius
+      };
+      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 42, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 42, world)) {
+        continue;
+      }
+      asteroids.push(
+        makeAsteroid(rng, `R${asteroids.length + 1}`, asteroid),
+        makeAsteroid(rng, `R${asteroids.length + 2}`, mirror)
+      );
+      break;
+    }
+  }
+
+  return asteroids;
+}
+
+function makeAsteroid(rng, id, asteroid) {
+  const points = 12;
+  const shape = [];
+  const craters = [];
+
+  for (let i = 0; i < points; i += 1) {
+    shape.push(round(rngRange(rng, 0.82, 1.16)));
+  }
+  for (let i = 0; i < 4; i += 1) {
+    craters.push({
+      angle: round(rngRange(rng, 0, Math.PI * 2)),
+      distance: round(rngRange(rng, 0.12, 0.58)),
+      radius: round(rngRange(rng, 0.08, 0.18))
+    });
+  }
+
+  return {
+    id,
+    x: Math.round(asteroid.x),
+    y: Math.round(asteroid.y),
+    radius: Math.round(asteroid.radius),
+    rotation: round(rngRange(rng, 0, Math.PI * 2)),
+    spin: round(rngRange(rng, -0.018, 0.018)),
+    shade: rng() > 0.52 ? "cold" : "warm",
+    shape,
+    craters
+  };
+}
+
+function generateClouds(rng, world) {
+  const clouds = [];
+  const count = 5 + Math.floor(rng() * 4);
+  for (let i = 0; i < count; i += 1) {
+    clouds.push({
+      id: `N${i + 1}`,
+      x: Math.round(rngRange(rng, 260, world.width - 260)),
+      y: Math.round(rngRange(rng, 190, world.height - 190)),
+      rx: Math.round(rngRange(rng, 250, 560)),
+      ry: Math.round(rngRange(rng, 130, 310)),
+      rotation: round(rngRange(rng, -0.7, 0.7)),
+      color: MAP_CLOUD_COLORS[Math.floor(rng() * MAP_CLOUD_COLORS.length)],
+      alpha: round(rngRange(rng, 0.08, 0.18))
+    });
+  }
+  return clouds;
+}
+
+function mapSafetyZones(relays, world) {
+  const zones = relays.map((relay) => ({ x: relay.x, y: relay.y, radius: relay.radius + 190 }));
+  zones.push(
+    { x: 260, y: world.height * 0.5, radius: 440 },
+    { x: world.width - 260, y: world.height * 0.5, radius: 440 },
+    { x: world.width * 0.5, y: 220, radius: 300 },
+    { x: world.width * 0.5, y: world.height - 220, radius: 300 }
+  );
+  return zones;
+}
+
+function canPlaceMapCircle(circle, reserved, existing, buffer, world) {
+  if (circle.x - circle.radius < 80 || circle.x + circle.radius > world.width - 80) return false;
+  if (circle.y - circle.radius < 80 || circle.y + circle.radius > world.height - 80) return false;
+  return circlesClear(circle, reserved, buffer) && circlesClear(circle, existing, buffer);
+}
+
+function circlesClear(circle, others, buffer) {
+  for (const other of others) {
+    const minimum = circle.radius + other.radius + buffer;
+    if (Math.hypot(circle.x - other.x, circle.y - other.y) < minimum) return false;
+  }
+  return true;
+}
+
 function tickRoom(room, dt, now) {
+  if (room.phase !== "active") {
+    room.effects = room.effects.filter((effect) => now - effect.at < 900);
+    return;
+  }
+
   updateBots(room, now);
   updateEconomy(room, dt);
   updateDestroyedShips(room, now);
 
   const ships = getLiveShips(room);
   for (const ship of ships) {
-    updateShipMovement(ship, dt);
+    updateShipMovement(room, ship, dt);
   }
 
-  updateShipSeparation(ships, dt);
+  updateShipSeparation(room, ships, dt);
+  resolveFleetMapCollisions(room, ships);
   updateShipSupport(room, ships, dt, now);
 
   for (const ship of ships) {
@@ -536,16 +815,22 @@ function spawnShip(room, player, now, index = 0) {
   const spawn = getPlayerSpawn(room, player.id);
   const offset = index - Math.floor(player.shipCap / 2);
   const ySpread = Math.sin(index * 1.7) * 54;
+  const spawnPoint = nearestClearPoint(
+    room,
+    spawn.x + offset * 16 + randomRange(-26, 26),
+    spawn.y + ySpread + randomRange(-32, 32),
+    Math.max(46, stats.radius * 0.72)
+  );
   const ship = {
     id: `s${room.nextEntityId++}`,
     ownerId: player.id,
-    x: clampNumber(spawn.x + offset * 16 + randomRange(-26, 26), 42, WORLD.width - 42),
-    y: clampNumber(spawn.y + ySpread + randomRange(-32, 32), 42, WORLD.height - 42),
+    x: spawnPoint.x,
+    y: spawnPoint.y,
     vx: 0,
     vy: 0,
     angle: spawn.angle,
-    targetX: WORLD.width / 2,
-    targetY: WORLD.height / 2,
+    targetX: room.world.width / 2,
+    targetY: room.world.height / 2,
     formationX: 0,
     formationY: 0,
     alive: true,
@@ -570,7 +855,7 @@ function spawnShip(room, player, now, index = 0) {
   return ship;
 }
 
-function resetPlayerForMatch(room, player, now) {
+function resetPlayerForMatch(room, player, now, options = {}) {
   for (const oldShip of player.ships) oldShip.removed = true;
   player.ships = [];
   player.money = ECONOMY.startingMoney;
@@ -578,7 +863,7 @@ function resetPlayerForMatch(room, player, now) {
   player.earned = ECONOMY.startingMoney;
   player.spent = 0;
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
-  if (player.ready) {
+  if (options.spawn && player.ready) {
     buyShip(room, player, now, { starter: true });
   }
 }
@@ -602,8 +887,9 @@ function commandShips(room, player, x, y, options = {}) {
 
   ships.forEach((ship, index) => {
     const offset = formationOffset(index, ships.length, spacing, formation);
-    ship.targetX = clampNumber(x + offset.x, 35, WORLD.width - 35);
-    ship.targetY = clampNumber(y + offset.y, 35, WORLD.height - 35);
+    const targetPoint = nearestClearPoint(room, x + offset.x, y + offset.y, Math.max(42, ship.radius * 0.72));
+    ship.targetX = targetPoint.x;
+    ship.targetY = targetPoint.y;
     ship.focusTargetId = focusTargetId;
   });
 }
@@ -655,7 +941,7 @@ function updateDestroyedShips(room, now) {
   }
 }
 
-function updateShipMovement(ship, dt) {
+function updateShipMovement(room, ship, dt) {
   const dx = ship.targetX - ship.x;
   const dy = ship.targetY - ship.y;
   const distance = Math.hypot(dx, dy);
@@ -682,18 +968,19 @@ function updateShipMovement(ship, dt) {
     ship.vy *= scale;
   }
 
-  ship.x = clampNumber(ship.x + ship.vx * dt, 42, WORLD.width - 42);
-  ship.y = clampNumber(ship.y + ship.vy * dt, 42, WORLD.height - 42);
+  ship.x = clampNumber(ship.x + ship.vx * dt, 42, room.world.width - 42);
+  ship.y = clampNumber(ship.y + ship.vy * dt, 42, room.world.height - 42);
+  resolveMapCollision(room, ship);
 
-  if (ship.x <= 43 || ship.x >= WORLD.width - 43) ship.vx *= -0.35;
-  if (ship.y <= 43 || ship.y >= WORLD.height - 43) ship.vy *= -0.35;
+  if (ship.x <= 43 || ship.x >= room.world.width - 43) ship.vx *= -0.35;
+  if (ship.y <= 43 || ship.y >= room.world.height - 43) ship.vy *= -0.35;
 
   if (ship.maxShield > 0) {
     ship.shield = Math.min(ship.maxShield, ship.shield + stats.shieldRegen * dt);
   }
 }
 
-function updateShipSeparation(ships, dt) {
+function updateShipSeparation(room, ships, dt) {
   for (let i = 0; i < ships.length; i += 1) {
     for (let j = i + 1; j < ships.length; j += 1) {
       const a = ships[i];
@@ -707,10 +994,10 @@ function updateShipSeparation(ships, dt) {
       const push = (minimum - distance) * 0.5;
       const nx = dx / distance;
       const ny = dy / distance;
-      a.x = clampNumber(a.x - nx * push, 42, WORLD.width - 42);
-      a.y = clampNumber(a.y - ny * push, 42, WORLD.height - 42);
-      b.x = clampNumber(b.x + nx * push, 42, WORLD.width - 42);
-      b.y = clampNumber(b.y + ny * push, 42, WORLD.height - 42);
+      a.x = clampNumber(a.x - nx * push, 42, room.world.width - 42);
+      a.y = clampNumber(a.y - ny * push, 42, room.world.height - 42);
+      b.x = clampNumber(b.x + nx * push, 42, room.world.width - 42);
+      b.y = clampNumber(b.y + ny * push, 42, room.world.height - 42);
 
       const impulse = push * dt * 9;
       a.vx -= nx * impulse;
@@ -719,6 +1006,67 @@ function updateShipSeparation(ships, dt) {
       b.vy += ny * impulse;
     }
   }
+}
+
+function resolveFleetMapCollisions(room, ships) {
+  for (const ship of ships) resolveMapCollision(room, ship);
+}
+
+function resolveMapCollision(room, ship) {
+  const asteroids = room.map?.asteroids || [];
+  for (const asteroid of asteroids) {
+    let dx = ship.x - asteroid.x;
+    let dy = ship.y - asteroid.y;
+    let distance = Math.hypot(dx, dy);
+    if (distance < 0.001) {
+      dx = Math.cos(ship.angle || 0);
+      dy = Math.sin(ship.angle || 0);
+      distance = 1;
+    }
+    const minimum = asteroid.radius + Math.max(24, ship.radius * 0.62);
+    if (distance >= minimum) continue;
+
+    const nx = dx / distance;
+    const ny = dy / distance;
+    const push = minimum - distance;
+    ship.x = clampNumber(ship.x + nx * push, 42, room.world.width - 42);
+    ship.y = clampNumber(ship.y + ny * push, 42, room.world.height - 42);
+
+    const towardRock = ship.vx * nx + ship.vy * ny;
+    if (towardRock < 0) {
+      ship.vx -= towardRock * nx * 1.25;
+      ship.vy -= towardRock * ny * 1.25;
+    }
+    ship.vx *= 0.82;
+    ship.vy *= 0.82;
+  }
+}
+
+function nearestClearPoint(room, x, y, clearance) {
+  let px = clampNumber(x, 42, room.world.width - 42);
+  let py = clampNumber(y, 42, room.world.height - 42);
+  const asteroids = room.map?.asteroids || [];
+
+  for (let pass = 0; pass < 8; pass += 1) {
+    let adjusted = false;
+    for (const asteroid of asteroids) {
+      const dx = px - asteroid.x;
+      const dy = py - asteroid.y;
+      const distance = Math.hypot(dx, dy);
+      const minimum = asteroid.radius + clearance;
+      if (distance >= minimum) continue;
+
+      const angle = distance > 0.001 ? Math.atan2(dy, dx) : Math.atan2(py - room.world.height * 0.5, px - room.world.width * 0.5);
+      px = asteroid.x + Math.cos(angle) * minimum;
+      py = asteroid.y + Math.sin(angle) * minimum;
+      px = clampNumber(px, 42, room.world.width - 42);
+      py = clampNumber(py, 42, room.world.height - 42);
+      adjusted = true;
+    }
+    if (!adjusted) break;
+  }
+
+  return { x: px, y: py };
 }
 
 function updateShipSupport(room, ships, dt, now) {
@@ -820,6 +1168,32 @@ function addBullet(room, bullet) {
   room.bullets.push(bullet);
 }
 
+function projectileMapImpact(room, x1, y1, bullet) {
+  const margin = bullet.type === "missile" ? 8 : bullet.type === "rail" ? 3 : 5;
+  let hit = null;
+  for (const asteroid of room.map?.asteroids || []) {
+    const impact = segmentCircleHit(x1, y1, bullet.x, bullet.y, asteroid.x, asteroid.y, asteroid.radius + margin);
+    if (!impact) continue;
+    if (!hit || impact.t < hit.t) hit = impact;
+  }
+  return hit;
+}
+
+function segmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq <= 0.0001) {
+    return Math.hypot(x1 - cx, y1 - cy) <= radius ? { x: x1, y: y1, t: 0 } : null;
+  }
+
+  const t = clampNumber(((cx - x1) * dx + (cy - y1) * dy) / lengthSq, 0, 1);
+  const px = x1 + dx * t;
+  const py = y1 + dy * t;
+  if (Math.hypot(px - cx, py - cy) > radius) return null;
+  return { x: px, y: py, t };
+}
+
 function updateBullets(room, dt, now) {
   const liveShips = getLiveShips(room);
   const byId = new Map(liveShips.map((ship) => [ship.id, ship]));
@@ -828,6 +1202,8 @@ function updateBullets(room, dt, now) {
   for (const bullet of room.bullets) {
     bullet.life -= dt;
     if (bullet.life <= 0) continue;
+    const previousX = bullet.x;
+    const previousY = bullet.y;
 
     if (bullet.type === "missile") {
       const target = byId.get(bullet.targetId);
@@ -844,7 +1220,13 @@ function updateBullets(room, dt, now) {
     bullet.x += bullet.vx * dt;
     bullet.y += bullet.vy * dt;
 
-    if (bullet.x < -80 || bullet.x > WORLD.width + 80 || bullet.y < -80 || bullet.y > WORLD.height + 80) {
+    if (bullet.x < -80 || bullet.x > room.world.width + 80 || bullet.y < -80 || bullet.y > room.world.height + 80) {
+      continue;
+    }
+
+    const rockHit = projectileMapImpact(room, previousX, previousY, bullet);
+    if (rockHit) {
+      room.effects.push({ type: "rockhit", x: rockHit.x, y: rockHit.y, at: now });
       continue;
     }
 
@@ -953,10 +1335,7 @@ function updateCapturePoints(room, ships, dt) {
 }
 
 function updateScoring(room, now) {
-  if (room.winner) {
-    if (now - room.winnerAt > 8000) resetMatch(room, now);
-    return;
-  }
+  if (room.phase !== "active" || room.winner) return;
 
   if (now - room.lastScoreAt < 1000) return;
   room.lastScoreAt = now;
@@ -978,6 +1357,7 @@ function updateScoring(room, now) {
       name: teamLabel(room, winner.team, winner.name)
     };
     room.winnerAt = now;
+    room.phase = "ended";
     broadcastRoom(room, { type: "notice", message: `${room.winner.name} won the match` });
   }
 }
@@ -991,20 +1371,27 @@ function findTarget(room, ship, ships) {
     const focused = ships.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
     if (focused) {
       const focusedDistance = Math.hypot(focused.x - ship.x, focused.y - ship.y);
-      if (focusedDistance <= Math.max(range, ship.stats.railgunRange) * 1.12) return focused;
+      if (focusedDistance <= Math.max(range, ship.stats.railgunRange) * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
     }
   }
 
   for (const other of ships) {
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
     const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
-    if (distance < bestDistance && distance <= Math.max(range, ship.stats.railgunRange)) {
+    if (distance < bestDistance && distance <= Math.max(range, ship.stats.railgunRange) && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) {
       best = other;
       bestDistance = distance;
     }
   }
 
   return best;
+}
+
+function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
+  for (const asteroid of room.map?.asteroids || []) {
+    if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
+  }
+  return false;
 }
 
 function snapshotRoom(room, now) {
@@ -1015,6 +1402,7 @@ function snapshotRoom(room, now) {
     team: player.team,
     teamName: teamLabel(room, player.team, player.name),
     isBot: player.isBot,
+    isAdmin: room.adminId === player.id,
     ready: player.ready,
     money: Math.floor(player.money),
     income: round(player.income),
@@ -1061,7 +1449,11 @@ function snapshotRoom(room, now) {
   return {
     type: "state",
     room: room.code,
-    world: WORLD,
+    phase: room.phase,
+    adminId: room.adminId,
+    mapSizeLabel: room.mapSizeLabel,
+    world: room.world,
+    map: room.map,
     players,
     ships,
     bullets: room.bullets.map((bullet) => ({
@@ -1091,6 +1483,151 @@ function snapshotRoom(room, now) {
 
 function broadcastRoom(room, data) {
   for (const client of room.clients) send(client, data);
+}
+
+function startDesignPhase(room, requester) {
+  if (!isAdmin(room, requester)) {
+    sendPlayer(room, requester, { type: "error", message: "Only the room admin can start ship design" });
+    return;
+  }
+  if (room.phase !== "lobby") {
+    sendPlayer(room, requester, { type: "error", message: "Ship design has already started" });
+    return;
+  }
+  if (room.players.size < 1) return;
+
+  prepareArenaForCurrentPlayers(room);
+  room.phase = "design";
+  room.winner = null;
+  room.winnerAt = 0;
+  room.lastScoreAt = performanceNow();
+  for (const player of room.players.values()) {
+    player.ready = player.isBot;
+    player.lastReadyAt = 0;
+    resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
+  }
+  broadcastRoom(room, { type: "notice", message: `Ship design started on ${room.mapSizeLabel} map` });
+}
+
+function maybeStartMatch(room, now) {
+  if (room.phase !== "design") return;
+  const players = [...room.players.values()];
+  if (!players.length || players.some((player) => !player.ready)) return;
+  room.phase = "active";
+  room.winner = null;
+  room.winnerAt = 0;
+  room.lastScoreAt = now;
+  for (const player of players) {
+    resetPlayerForMatch(room, player, now, { spawn: true });
+  }
+  broadcastRoom(room, { type: "notice", message: "All pilots ready. Match started." });
+}
+
+function restartFromEnd(room, requester) {
+  if (!isAdmin(room, requester)) {
+    sendPlayer(room, requester, { type: "error", message: "Only the room admin can restart the match" });
+    return;
+  }
+  if (room.phase !== "ended") {
+    sendPlayer(room, requester, { type: "error", message: "Restart is available after the match ends" });
+    return;
+  }
+  prepareArenaForCurrentPlayers(room);
+  room.phase = "design";
+  room.winner = null;
+  room.winnerAt = 0;
+  room.lastScoreAt = performanceNow();
+  for (const player of room.players.values()) {
+    player.ready = player.isBot;
+    resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
+  }
+  broadcastRoom(room, { type: "notice", message: "New ship design phase started" });
+}
+
+function closeLobby(room, requester) {
+  if (!isAdmin(room, requester)) {
+    sendPlayer(room, requester, { type: "error", message: "Only the room admin can close the lobby" });
+    return;
+  }
+  broadcastRoom(room, { type: "closed", message: "The room admin closed this lobby" });
+  for (const client of [...room.clients]) {
+    closeClient(client, 1000, "Lobby closed");
+  }
+  rooms.delete(room.code);
+}
+
+function kickPlayer(room, requester, targetId) {
+  if (!isAdmin(room, requester)) {
+    sendPlayer(room, requester, { type: "error", message: "Only the room admin can kick players" });
+    return;
+  }
+  if (!targetId || targetId === requester.id) {
+    sendPlayer(room, requester, { type: "error", message: "Choose another player to kick" });
+    return;
+  }
+
+  const target = room.players.get(targetId);
+  if (!target) {
+    sendPlayer(room, requester, { type: "error", message: "That player is no longer in the room" });
+    return;
+  }
+
+  removePlayerFromRoom(room, target, "kicked");
+  broadcastRoom(room, { type: "notice", message: `${target.name} was kicked` });
+  if (room.phase === "design") maybeStartMatch(room, performanceNow());
+}
+
+function removePlayerFromRoom(room, player, reason) {
+  for (const ship of player.ships) {
+    ship.alive = false;
+    ship.removed = true;
+  }
+  room.players.delete(player.id);
+  room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
+
+  if (!player.isBot) {
+    const client = [...room.clients].find((candidate) => candidate.player?.id === player.id);
+    if (client) {
+      send(client, { type: "kicked", message: reason === "kicked" ? "You were kicked by the room admin" : "Removed from room" });
+      room.clients.delete(client);
+      client.room = null;
+      client.player = null;
+      closeClient(client, 1000, reason === "kicked" ? "Kicked" : "Removed");
+    }
+  }
+
+  ensureAdmin(room);
+}
+
+function prepareArenaForCurrentPlayers(room) {
+  const world = chooseWorldSize(Math.max(1, room.players.size));
+  room.world = world;
+  room.mapSizeLabel = world.label;
+  room.map = generateMap(room.code, world);
+  room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
+  room.bullets = [];
+  room.effects = [];
+  room.nextEntityId = 1;
+}
+
+function chooseWorldSize(playerCount) {
+  const size = WORLD_SIZES.find((candidate) => playerCount <= candidate.maxPlayers) || WORLD_SIZES[WORLD_SIZES.length - 1];
+  return { width: size.width, height: size.height, label: size.label };
+}
+
+function ensureAdmin(room) {
+  if (room.adminId && room.players.has(room.adminId) && !room.players.get(room.adminId).isBot) return;
+  const nextAdmin = [...room.players.values()].find((player) => !player.isBot);
+  room.adminId = nextAdmin?.id || null;
+}
+
+function isAdmin(room, player) {
+  return Boolean(room && player && room.adminId === player.id && !player.isBot);
+}
+
+function sendPlayer(room, player, data) {
+  const client = [...room.clients].find((candidate) => candidate.player?.id === player?.id);
+  if (client) send(client, data);
 }
 
 function send(client, data) {
@@ -1304,7 +1841,7 @@ function addBot(room, requester) {
     team,
     isBot: true,
     ai: { nextThinkAt: 0, objectiveId: null },
-    ready: true,
+    ready: false,
     design,
     stats: computeStats(design),
     ships: [],
@@ -1318,11 +1855,11 @@ function addBot(room, requester) {
     kills: 0,
     losses: 0,
     captures: 0,
-    connected: true
+    connected: true,
+    lastReadyAt: 0
   };
 
   room.players.set(player.id, player);
-  buyShip(room, player, performanceNow(), { starter: true });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined as a bot` });
 }
 
@@ -1469,26 +2006,26 @@ function getPlayerSpawn(room, playerId) {
     const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "blue").map((candidate) => candidate.id).sort();
     const index = Math.max(0, teamMates.indexOf(playerId));
     const lanes = [0.32, 0.5, 0.68, 0.2, 0.8, 0.42, 0.58];
-    return { x: 260, y: WORLD.height * lanes[index % lanes.length], angle: 0 };
+    return { x: 260, y: room.world.height * lanes[index % lanes.length], angle: 0 };
   }
   if (player?.team === "red") {
     const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "red").map((candidate) => candidate.id).sort();
     const index = Math.max(0, teamMates.indexOf(playerId));
     const lanes = [0.68, 0.5, 0.32, 0.8, 0.2, 0.58, 0.42];
-    return { x: WORLD.width - 260, y: WORLD.height * lanes[index % lanes.length], angle: Math.PI };
+    return { x: room.world.width - 260, y: room.world.height * lanes[index % lanes.length], angle: Math.PI };
   }
 
   const ids = [...room.players.keys()].sort();
   const index = Math.max(0, ids.indexOf(playerId));
   const slots = [
-    { x: 260, y: WORLD.height * 0.5, angle: 0 },
-    { x: WORLD.width - 260, y: WORLD.height * 0.5, angle: Math.PI },
-    { x: WORLD.width * 0.5, y: 220, angle: Math.PI / 2 },
-    { x: WORLD.width * 0.5, y: WORLD.height - 220, angle: -Math.PI / 2 },
+    { x: 260, y: room.world.height * 0.5, angle: 0 },
+    { x: room.world.width - 260, y: room.world.height * 0.5, angle: Math.PI },
+    { x: room.world.width * 0.5, y: 220, angle: Math.PI / 2 },
+    { x: room.world.width * 0.5, y: room.world.height - 220, angle: -Math.PI / 2 },
     { x: 340, y: 260, angle: 0.35 },
-    { x: WORLD.width - 340, y: WORLD.height - 260, angle: Math.PI + 0.35 },
-    { x: WORLD.width - 340, y: 260, angle: Math.PI - 0.35 },
-    { x: 340, y: WORLD.height - 260, angle: -0.35 }
+    { x: room.world.width - 340, y: room.world.height - 260, angle: Math.PI + 0.35 },
+    { x: room.world.width - 340, y: 260, angle: Math.PI - 0.35 },
+    { x: 340, y: room.world.height - 260, angle: -0.35 }
   ];
   return slots[index % slots.length];
 }
@@ -1540,6 +2077,31 @@ function clampNumber(value, min, max) {
 
 function randomRange(min, max) {
   return min + Math.random() * (max - min);
+}
+
+function rngRange(rng, min, max) {
+  return min + rng() * (max - min);
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  const text = String(value || "");
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededRandom(seed) {
+  let value = seed >>> 0;
+  return function nextRandom() {
+    value = (value + 0x6D2B79F5) >>> 0;
+    let mixed = value;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function angleDifference(a, b) {

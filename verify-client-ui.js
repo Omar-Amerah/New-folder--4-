@@ -100,9 +100,18 @@ const ids = [
   "createButton",
   "currentRoomCard",
   "currentRoomCode",
+  "phaseDetail",
+  "stepLobby",
+  "stepDesign",
+  "stepBattle",
+  "stepEnd",
   "joinButton",
   "copyButton",
   "botButton",
+  "adminControls",
+  "startDesignButton",
+  "closeLobbyButton",
+  "playerList",
   "deployButton",
   "resetButton",
   "formationSelect",
@@ -131,7 +140,13 @@ const ids = [
   "matchSummary",
   "latencyText",
   "commandMarker",
-  "winnerBanner"
+  "winnerBanner",
+  "endGameScreen",
+  "endGameTitle",
+  "endGameSummary",
+  "endGameActions",
+  "restartButton",
+  "endCloseButton"
 ];
 
 const elements = new Map(ids.map((id) => [id, new FakeElement(id)]));
