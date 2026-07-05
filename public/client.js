@@ -402,14 +402,25 @@ function editCell(x, y) {
 
   if (existing) {
     const next = state.design.map((part) => part.x === x && part.y === y ? { x, y, type: state.selectedPart } : part);
-    if (isConnected(next)) state.design = next;
+    if (isConnected(next)) {
+      state.design = next;
+    } else {
+      const message = explainConnectionProblem(next, x, y, true);
+      setBuildStatus(message, "warning");
+      showToast(message, "warning");
+      return;
+    }
   } else {
     const next = [...state.design, { x, y, type: state.selectedPart }];
     if (next.length <= 36 && isConnected(next)) {
       state.design = next;
     } else {
-      setBuildStatus("Parts must stay connected to the core", "warning");
-      showToast("Part not connected", "warning");
+      const message = next.length > 36
+        ? "Blueprint is full: remove a part before adding another"
+        : explainConnectionProblem(next, x, y, false);
+      setBuildStatus(message, "warning");
+      showToast(message, "warning");
+      return;
     }
   }
 
@@ -428,8 +439,9 @@ function removeCell(x, y) {
     renderBuildGrid();
     renderLocalStats();
   } else {
-    setBuildStatus("That would detach part of the hull", "warning");
-    showToast("Hull section would detach", "warning");
+    const message = "Removing that part would disconnect modules from the core";
+    setBuildStatus(message, "warning");
+    showToast(message, "warning");
   }
 }
 
@@ -498,15 +510,27 @@ function updateEconomyUi() {
   const unitCost = mine?.stats?.unitCost ?? localStats.unitCost;
   const activeShips = mine?.activeShips ?? 0;
   const shipCap = mine?.shipCap ?? 0;
+  const myTeam = mine?.team;
+  const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
   const canBuild = Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
   const canBuildFive = Boolean(mine?.ready) && money >= unitCost && activeShips < shipCap;
 
   dom.moneyLabel.textContent = `$${Math.floor(money)}`;
   dom.incomeLabel.textContent = `+$${Math.round(income)}/s`;
+  dom.incomeLabel.title = mine?.ready
+    ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
+    : "Save a blueprint to begin earning money.";
   dom.unitCostLabel.textContent = `$${unitCost}`;
   dom.fleetCapLabel.textContent = `${activeShips}/${shipCap || "-"}`;
   dom.buildShipButton.disabled = !canBuild;
   dom.buildFiveButton.disabled = !canBuildFive;
+
+  if (mine) {
+    const status = mine.ready
+      ? `Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`
+      : "Save a blueprint to start earning money";
+    if (!dom.buildStatus.className.includes("warning")) setBuildStatus(status, "good");
+  }
 }
 
 function currentTarget() {
@@ -1391,6 +1415,32 @@ function isConnected(parts) {
   }
 
   return seen.size === parts.length;
+}
+
+function explainConnectionProblem(parts, x, y, replacing) {
+  if (!parts.some((part) => part.type === "core")) {
+    return "Blueprint must keep exactly one core module";
+  }
+
+  const target = parts.find((part) => part.x === x && part.y === y);
+  if (target) {
+    const sideNeighbor = parts.some((part) => part !== target && Math.abs(part.x - x) + Math.abs(part.y - y) === 1);
+    const cornerNeighbor = parts.some((part) => part !== target && Math.abs(part.x - x) === 1 && Math.abs(part.y - y) === 1);
+
+    if (!sideNeighbor && cornerNeighbor) {
+      return "Not connected: modules must touch by a full side; corner contact does not count";
+    }
+
+    if (!sideNeighbor) {
+      return "Not connected: place it so one side touches an existing module";
+    }
+  }
+
+  if (replacing) {
+    return "That change would break the side-connected path back to the core";
+  }
+
+  return "Not connected to the core: every module needs a side-connected path to the core";
 }
 
 function computeStats(modules) {

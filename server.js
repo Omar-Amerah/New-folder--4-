@@ -943,6 +943,10 @@ function updateCapturePoints(room, ships, dt) {
             player.score += 14;
           }
         }
+        broadcastRoom(room, {
+          type: "notice",
+          message: `${teamLabel(room, leaderTeam, "A wing")} captured relay ${point.id}: +$${ECONOMY.captureBonus}, +$${ECONOMY.relayIncome}/s`
+        });
       }
     }
   }

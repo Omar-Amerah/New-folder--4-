@@ -61,6 +61,19 @@ async function main() {
     if (typeof alphaState.money !== "number" || typeof alphaState.income !== "number" || !alphaState.stats.unitCost) {
       throw new Error("economy fields missing from snapshot");
     }
+    const moneyBefore = alphaState.money;
+    const laterState = await alpha.waitFor(
+      (message) => {
+        if (message.type !== "state") return false;
+        const player = message.players.find((candidate) => candidate.name === "Alpha");
+        return player && player.money > moneyBefore;
+      },
+      "money did not increase after income tick"
+    );
+    const laterAlpha = laterState.players.find((player) => player.name === "Alpha");
+    if (laterAlpha.income <= 0) {
+      throw new Error("income was not positive");
+    }
 
     alpha.close();
     beta.close();
