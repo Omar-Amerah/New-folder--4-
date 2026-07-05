@@ -1047,7 +1047,8 @@ function snapshotRoom(room, now) {
         radius: round(ship.radius),
         focusTargetId: ship.focusTargetId,
         alive: ship.alive,
-        respawnIn: ship.alive ? 0 : Math.max(0, Math.ceil((ship.respawnAt - now) / 1000))
+        respawnIn: 0,
+        removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
       });
     }
   }
