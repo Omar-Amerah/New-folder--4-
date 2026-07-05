@@ -17,7 +17,7 @@ const MAX_PLAYERS_PER_ROOM = 12;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const MATCH_SCORE = 900;
 const ECONOMY = Object.freeze({
-  startingMoney: 320,
+  startingMoney: 520,
   baseIncome: 13,
   relayIncome: 7,
   killBountyRatio: 0.28,
@@ -640,7 +640,7 @@ function updateEconomy(room, dt) {
     const relays = ownedRelays.get(player.team) || 0;
     player.income = ECONOMY.baseIncome + relays * ECONOMY.relayIncome;
     const gained = player.income * dt;
-    player.money = Math.min(player.maxMoney || 1800, player.money + gained);
+    player.money = Math.min(player.maxMoney || 2000, player.money + gained);
     player.earned += gained;
   }
 }
