@@ -430,7 +430,7 @@ function joinRoom(client, message) {
     income: ECONOMY.baseIncome,
     earned: ECONOMY.startingMoney,
     spent: 0,
-    maxMoney: 1800,
+    maxMoney: 2000,
     shipCap: ECONOMY.shipCap,
     score: 0,
     kills: 0,
