@@ -9,6 +9,7 @@ const { URL } = require("url");
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
+const COMPONENT_BALANCE_PATH = path.join(__dirname, "component-balance.json");
 const WORLD = { width: 3200, height: 1900 };
 const WORLD_SIZES = Object.freeze([
   { maxPlayers: 2, width: 2600, height: 1600, label: "Duel" },
@@ -82,7 +83,7 @@ const MIME = {
   ".svg": "image/svg+xml; charset=utf-8"
 };
 
-const PARTS = Object.freeze({
+const FALLBACK_PARTS = Object.freeze({
   // Existing basics
   core: {
     cost: 0, mass: 8, hp: 150,
@@ -699,6 +700,73 @@ const PARTS = Object.freeze({
   }
 });
 
+const COMPONENT_BALANCE = loadComponentBalance();
+const PARTS = buildPartsFromBalance(COMPONENT_BALANCE, FALLBACK_PARTS);
+
+function loadComponentBalance() {
+  try {
+    return JSON.parse(fs.readFileSync(COMPONENT_BALANCE_PATH, "utf8"));
+  } catch (error) {
+    console.error(`Failed to load component-balance.json: ${error.message}`);
+    return { components: [] };
+  }
+}
+
+function buildPartsFromBalance(balance, fallbackParts) {
+  const components = Array.isArray(balance?.components) ? balance.components : [];
+  if (!components.length) return fallbackParts;
+
+  const parts = {};
+  for (const component of components) {
+    if (!component || typeof component.id !== "string") continue;
+    parts[component.id] = normalizeBalanceComponent(component);
+  }
+  if (!parts.core && fallbackParts.core) parts.core = Object.freeze({ ...fallbackParts.core });
+  return Object.freeze(parts);
+}
+
+function normalizeBalanceComponent(component) {
+  const weapon = component.weapon
+    ? makeWeapon(component.weapon.family || component.weapon.type || "blaster", component.weapon)
+    : null;
+  const repairRate = toNumber(component.repairRate ?? component.repair, 0);
+  const part = {
+    category: component.category || "Utility",
+    cost: toNumber(component.cost, 0),
+    mass: toNumber(component.mass, 0),
+    hp: toNumber(component.hp ?? component.hull, 0),
+    powerGeneration: toNumber(component.powerGeneration, 0),
+    powerUse: toNumber(component.powerUse, 0),
+    shield: toNumber(component.shield, 0),
+    shieldRegen: toNumber(component.shieldRegen, 0),
+    thrust: toNumber(component.thrust, 0),
+    turn: toNumber(component.turn, 0),
+    energyStorage: toNumber(component.energyStorage ?? component.energy, 0),
+    repairRate,
+    repair: repairRate > 0 ? 1 : toNumber(component.repairCount, 0),
+    weapon,
+    description: component.description || "",
+    utilityEffect: component.utilityEffect || component.utility || "",
+    rangeBonus: toNumber(component.rangeBonus, 0),
+    accuracyBonus: toNumber(component.accuracyBonus, 0),
+    fireRateBonus: toNumber(component.fireRateBonus, 0),
+    captureBonus: toNumber(component.captureBonus, 0),
+    heat: toNumber(component.heat, 0),
+    rotationRequired: Boolean(component.rotationRequired || component.rotatable)
+  };
+
+  if (weapon) part[weapon.type] = 1;
+  for (const family of ["blaster", "missile", "railgun"]) {
+    if (component[family]) part[family] = toNumber(component[family], part[family] || 0);
+  }
+  return Object.freeze(part);
+}
+
+function toNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 const DEFAULT_DESIGN = Object.freeze([
   { x: 3, y: 3, type: "core" },
   { x: 3, y: 4, type: "reactor" },
@@ -843,6 +911,15 @@ function handleHttpRequest(req, res) {
   const requestUrl = new URL(req.url, "http://localhost");
   let pathname = decodeURIComponent(requestUrl.pathname);
   if (pathname === "/") pathname = "/index.html";
+
+  if (pathname === "/component-balance.json") {
+    res.writeHead(200, {
+      "content-type": MIME[".json"],
+      "cache-control": "no-store"
+    });
+    res.end(JSON.stringify(COMPONENT_BALANCE));
+    return;
+  }
 
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
   if (!filePath.startsWith(PUBLIC_DIR)) {

@@ -1,8 +1,8 @@
 {
   "notes": [
-    "Active selectable component balance sheet.",
+    "Active selectable component balance sheet and runtime source of truth for client and server balance.",
     "Hidden legacy size variants are intentionally omitted from this file and from the palette.",
-    "Runtime source lives in public/client.js PART_STATS and server.js PARTS; apply balance edits there after deciding final values.",
+    "Edit component values here; server.js normalizes this file into runtime PARTS and public/client.js loads the same file for UI stats.",
     "Units: cost $, mass T, hull HP, power MW, shield SP, shieldRegen SP/s, thrust kN, energy MJ, repair HP/s, range m, projectileSpeed m/s."
   ],
   "shipCostLimits": {
@@ -46,6 +46,23 @@
     "turnScaling": "Smaller ships keep a higher base turn rate. Mass turn penalty now scales from mass / 82 so light and medium ships turn more responsively while capital ships remain slow."
   },
   "components": [
+    {
+      "id": "core",
+      "name": "Core",
+      "category": "Structure",
+      "cost": 0,
+      "mass": 8,
+      "hull": 150,
+      "powerGeneration": 4,
+      "powerUse": 0,
+      "shield": 25,
+      "shieldRegen": 0.4,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 80,
+      "repair": 0,
+      "description": "Required command core with light built-in power, shield buffer, and energy storage."
+    },
     {
       "id": "armor",
       "name": "Armor",
@@ -510,8 +527,8 @@
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "Cooling support that reduces weapon reload time for weapon-heavy designs.",
-      "coolingBonus": "6% faster weapon reload from heat -6"
+      "description": "Cooling support that reduces weapon reload time by 6% for weapon-heavy designs.",
+      "heat": -6
     },
     {
       "id": "repair",

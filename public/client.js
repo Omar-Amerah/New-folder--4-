@@ -101,7 +101,7 @@ const SHIP_ECONOMY = Object.freeze({
   })
 });
 
-const PART_STATS = {
+const FALLBACK_PART_STATS = {
   // Existing basics
   core: {
     cost: 0, mass: 8, hp: 150,
@@ -718,6 +718,8 @@ const PART_STATS = {
   }
 };
 
+let PART_STATS = buildPartStatsFromBalance(null, FALLBACK_PART_STATS);
+
 const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
 const LOCAL_NAME_KEY = "modular-fleet-name-v1";
 const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
@@ -886,16 +888,7 @@ dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floo
 dom.teamSelect.value = localStorage.getItem(LOCAL_TEAM_KEY) === "red" ? "red" : "blue";
 dom.formationSelect.value = localStorage.getItem(LOCAL_FORMATION_KEY) || "line";
 
-renderPalette();
-renderPartInspector();
-renderBuildGrid();
-renderLocalStats();
-renderSavedDesigns();
-renderPurchaseBar();
-updateLobbyState();
-openMainMenu();
-resizeCanvas();
-requestAnimationFrame(frame);
+initializeClient();
 
 window.addEventListener("resize", resizeCanvas);
 window.addEventListener("keydown", handleKeyDown);
@@ -927,6 +920,53 @@ dom.confirmAcceptButton?.addEventListener("click", confirmModalAction);
 dom.confirmModal?.addEventListener("pointerdown", (event) => {
   if (event.target === dom.confirmModal) closeConfirmModal();
 });
+
+async function initializeClient() {
+  await loadComponentBalance();
+  renderPalette();
+  renderPartInspector();
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
+  renderPurchaseBar();
+  updateLobbyState();
+  openMainMenu();
+  resizeCanvas();
+  requestAnimationFrame(frame);
+}
+
+async function loadComponentBalance() {
+  if (typeof fetch !== "function") return;
+  try {
+    const response = await fetch("/component-balance.json", { cache: "no-store" });
+    if (!response.ok) return;
+    applyComponentBalance(await response.json());
+  } catch {
+    // Local file previews and older test harnesses can run without fetch; keep the bundled fallback.
+  }
+}
+
+function applyComponentBalance(balance) {
+  const nextParts = buildPartStatsFromBalance(balance, FALLBACK_PART_STATS);
+  if (!nextParts.core || !nextParts.frame) return;
+  PART_STATS = nextParts;
+  state.design = normalizeDesign(state.design);
+}
+
+function applyServerParts(parts) {
+  const nextParts = normalizeRuntimeParts(parts);
+  if (!nextParts.core || !nextParts.frame) return;
+  PART_STATS = nextParts;
+  state.parts = nextParts;
+  state.design = normalizeDesign(state.design);
+  renderPalette();
+  renderPartInspector();
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
+  renderPurchaseBar();
+}
+
 dom.formationSelect.addEventListener("change", () => {
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
 });
@@ -1650,7 +1690,7 @@ function updatePhaseDetail(phase) {
 function handleServerMessage(message) {
   if (message.type === "hello") {
     state.myId = message.id;
-    state.parts = message.parts || {};
+    applyServerParts(message.parts || {});
     state.world = message.world || { ...WORLD_FALLBACK };
     state.rules = { ...state.rules, ...(message.economy || {}) };
     if (!localStorage.getItem(LOCAL_DESIGN_KEY)) {
@@ -1845,8 +1885,6 @@ function renderPartInspector() {
     <div class="part-detail-list">
       ${details.map(([label, value]) => inspectorDetail(label, value)).join("")}
     </div>
-    <div class="part-best-use"><span>Best use</span>${escapeHtml(stat.bestUse || "Flexible ship system.")}</div>
-    ${stat.drawback ? `<div class="part-best-use drawback"><span>Drawback</span>${escapeHtml(stat.drawback)}</div>` : ""}
   `;
 }
 
@@ -1937,7 +1975,6 @@ function partInspectorDetails(type, stat, effectiveCost) {
 
   if (stat.utilityEffect || stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.heat) {
     return [
-      ["Utility role", utilityEffectLabel(stat)],
       ["Range bonus", stat.rangeBonus ? formatDistance(stat.rangeBonus) : "None"],
       ["Accuracy bonus", stat.accuracyBonus ? formatPercent(stat.accuracyBonus) : "None"],
       ["Fire rate bonus", stat.fireRateBonus ? formatPercent(stat.fireRateBonus) : "None"],
@@ -1996,17 +2033,6 @@ function formatSpeed(value) {
 
 function formatDamage(value) {
   return `${Number(value) || 0} dmg`;
-}
-
-function utilityEffectLabel(stat) {
-  const effect = stat.utilityEffect || "general";
-  if (effect === "range") return "Extends weapon range";
-  if (effect === "accuracy") return "Improves weapon accuracy";
-  if (effect === "fireRate") return "Improves weapon fire rate";
-  if (effect === "capture") return "Increases relay capture speed";
-  if (effect === "cooling") return "Reduces weapon reload time";
-  if (effect === "repair") return "Repairs damaged hull";
-  return "General utility";
 }
 
 function formatPercent(value) {
@@ -2078,6 +2104,105 @@ function makeWeapon(type, stats) {
     arc: Number(stats.arc) || 360,
     dps: Number((damage * fireRate).toFixed(1))
   };
+}
+
+function buildPartStatsFromBalance(balance, fallbackParts) {
+  const components = Array.isArray(balance?.components) ? balance.components : [];
+  if (!components.length) return normalizeRuntimeParts(fallbackParts);
+
+  const parts = {};
+  for (const component of components) {
+    if (!component || typeof component.id !== "string") continue;
+    parts[component.id] = normalizeBalanceComponent(component);
+  }
+  if (!parts.core && fallbackParts.core) parts.core = normalizeRuntimePart(fallbackParts.core);
+  return parts;
+}
+
+function normalizeRuntimeParts(parts = {}) {
+  const normalized = {};
+  for (const [type, part] of Object.entries(parts || {})) {
+    normalized[type] = normalizeRuntimePart(part);
+  }
+  return normalized;
+}
+
+function normalizeRuntimePart(part = {}) {
+  const weapon = part.weapon
+    ? makeWeapon(part.weapon.family || part.weapon.type || "blaster", part.weapon)
+    : null;
+  const repairRate = numberOr(part.repairRate ?? part.repair, 0);
+  const normalized = {
+    ...part,
+    category: part.category || "Utility",
+    cost: numberOr(part.cost, 0),
+    mass: numberOr(part.mass, 0),
+    hp: numberOr(part.hp ?? part.hull, 0),
+    powerGeneration: numberOr(part.powerGeneration, 0),
+    powerUse: numberOr(part.powerUse, 0),
+    shield: numberOr(part.shield, 0),
+    shieldRegen: numberOr(part.shieldRegen, 0),
+    thrust: numberOr(part.thrust, 0),
+    turn: numberOr(part.turn, 0),
+    energyStorage: numberOr(part.energyStorage ?? part.energy, 0),
+    repairRate,
+    repair: repairRate > 0 ? 1 : numberOr(part.repairCount ?? part.repair, 0),
+    weapon,
+    description: part.description || "",
+    utilityEffect: part.utilityEffect || part.utility || "",
+    rangeBonus: numberOr(part.rangeBonus, 0),
+    accuracyBonus: numberOr(part.accuracyBonus, 0),
+    fireRateBonus: numberOr(part.fireRateBonus, 0),
+    captureBonus: numberOr(part.captureBonus, 0),
+    heat: numberOr(part.heat, 0),
+    rotationRequired: Boolean(part.rotationRequired || part.rotatable)
+  };
+  if (weapon) normalized[weapon.type] = 1;
+  for (const family of ["blaster", "missile", "railgun"]) {
+    if (part[family]) normalized[family] = numberOr(part[family], normalized[family] || 0);
+  }
+  return normalized;
+}
+
+function normalizeBalanceComponent(component) {
+  const weapon = component.weapon
+    ? makeWeapon(component.weapon.family || component.weapon.type || "blaster", component.weapon)
+    : null;
+  const repairRate = numberOr(component.repairRate ?? component.repair, 0);
+  const part = {
+    category: component.category || "Utility",
+    cost: numberOr(component.cost, 0),
+    mass: numberOr(component.mass, 0),
+    hp: numberOr(component.hp ?? component.hull, 0),
+    powerGeneration: numberOr(component.powerGeneration, 0),
+    powerUse: numberOr(component.powerUse, 0),
+    shield: numberOr(component.shield, 0),
+    shieldRegen: numberOr(component.shieldRegen, 0),
+    thrust: numberOr(component.thrust, 0),
+    turn: numberOr(component.turn, 0),
+    energyStorage: numberOr(component.energyStorage ?? component.energy, 0),
+    repairRate,
+    repair: repairRate > 0 ? 1 : numberOr(component.repairCount, 0),
+    weapon,
+    description: component.description || "",
+    utilityEffect: component.utilityEffect || component.utility || "",
+    rangeBonus: numberOr(component.rangeBonus, 0),
+    accuracyBonus: numberOr(component.accuracyBonus, 0),
+    fireRateBonus: numberOr(component.fireRateBonus, 0),
+    captureBonus: numberOr(component.captureBonus, 0),
+    heat: numberOr(component.heat, 0),
+    rotationRequired: Boolean(component.rotationRequired || component.rotatable)
+  };
+  if (weapon) part[weapon.type] = 1;
+  for (const family of ["blaster", "missile", "railgun"]) {
+    if (component[family]) part[family] = numberOr(component[family], part[family] || 0);
+  }
+  return part;
+}
+
+function numberOr(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function renderBuildGrid() {
