@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Modular Fleet Arena</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=menu-errors-privacy-1">
   </head>
   <body>
     <main class="app">
@@ -19,8 +19,7 @@
 
         <div class="panel-section control-group">
           <div class="section-heading">
-              <h2>Ship Design</h2>
-          <span id="budgetText">Cost $0</span>
+            <h2>Ship Design</h2>
           </div>
           <div id="partPalette" class="part-palette" aria-label="Ship parts"></div>
           <div id="partInspector" class="part-inspector"></div>
@@ -40,28 +39,6 @@
             </div>
             <div id="savedDesignList" class="saved-design-list"></div>
           </div>
-          <div class="economy-card">
-            <div>
-              <span id="moneyTitle">Starting money</span>
-              <strong id="moneyLabel">$0</strong>
-            </div>
-            <div>
-              <span>Income</span>
-              <strong id="incomeLabel">+$0/s</strong>
-            </div>
-            <div>
-              <span id="unitCostTitle">Blueprint Cost</span>
-              <strong id="unitCostLabel">$0</strong>
-            </div>
-            <div>
-              <span id="canBuildTitle">Can ready</span>
-              <strong id="canBuildLabel">No</strong>
-            </div>
-            <div>
-              <span id="afterBuildTitle">Money remaining</span>
-              <strong id="afterBuildLabel">$0</strong>
-            </div>
-          </div>
           <label for="formationSelect">Formation</label>
           <select id="formationSelect">
             <option value="line">Line</option>
@@ -77,11 +54,6 @@
 
       <section class="arena-wrap" aria-label="Arena">
         <canvas id="arenaCanvas"></canvas>
-        <div class="screen-buttons" aria-label="Game screens">
-          <button id="mainMenuButton" type="button" class="secondary">Menu</button>
-          <button id="lobbyManagementButton" type="button" class="secondary">Lobby</button>
-          <button id="settingsButton" type="button" class="secondary">Settings</button>
-        </div>
         <div class="top-hud">
           <div>
             <span class="hud-label">Room</span>
@@ -94,6 +66,10 @@
           <div>
             <span class="hud-label">Money</span>
             <strong id="moneyHudLabel">$0</strong>
+          </div>
+          <div>
+            <span class="hud-label">Income</span>
+            <strong id="incomeHudLabel">+$0/s</strong>
           </div>
           <div>
             <span class="hud-label">Relays</span>
@@ -117,6 +93,7 @@
             <div id="endGameActions" class="end-game-actions">
               <button id="restartButton" type="button">Restart</button>
               <button id="endCloseButton" type="button" class="secondary">Close lobby</button>
+              <button id="endLeaveButton" type="button" class="secondary">Leave lobby</button>
             </div>
           </div>
         </div>
@@ -137,6 +114,11 @@
         </div>
         <div id="scoreList" class="score-list"></div>
         <div id="eventLog" class="event-log"></div>
+        <div class="screen-buttons" aria-label="Game screens">
+          <button id="mainMenuButton" type="button" class="secondary">Menu</button>
+          <button id="lobbyManagementButton" type="button" class="secondary">Lobby</button>
+          <button id="settingsButton" type="button" class="secondary">Settings</button>
+        </div>
       </aside>
     </main>
     <section id="mainMenuScreen" class="menu-screen main-menu-screen" aria-label="Main menu">
@@ -172,6 +154,7 @@
           <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter code">
           <button id="joinButton" type="button">Join</button>
         </div>
+        <div id="mainMenuNotice" class="menu-notice" hidden></div>
       </div>
     </section>
 
@@ -203,6 +186,7 @@
         <div class="utility-row">
           <button id="copyButton" type="button" class="secondary">Copy invite</button>
           <button id="botButton" type="button" class="secondary">Add bot</button>
+          <button id="leaveLobbyButton" type="button" class="secondary">Leave lobby</button>
         </div>
         <div id="adminControls" class="admin-controls" hidden>
           <button id="startDesignButton" type="button">Start ship design</button>
@@ -233,8 +217,6 @@
 
     <section id="purchaseBar" class="purchase-bar" aria-label="Ship purchase bar">
       <div class="purchase-meta">
-        <div><span>Money</span><strong id="purchaseMoney">$0</strong></div>
-        <div><span>Fleet</span><strong id="purchaseFleet">0/20</strong></div>
         <div class="purchase-quantity" aria-label="Purchase quantity">
           <span>Quantity</span>
           <div>
@@ -250,6 +232,6 @@
     </section>
     <div id="purchaseTooltip" class="purchase-tooltip" hidden></div>
 
-    <script src="/client.js?v=purchase-bar-1"></script>
+    <script src="/client.js?v=menu-errors-privacy-1"></script>
   </body>
 </html>

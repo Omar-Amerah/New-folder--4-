@@ -56,11 +56,12 @@ button {
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
-  transition: border-color 120ms ease, background 120ms ease, filter 120ms ease, transform 80ms ease;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 80ms ease;
 }
 
 button:hover {
-  filter: brightness(1.08);
+  border-color: rgba(147, 225, 255, 0.58);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(56, 213, 255, 0.1);
 }
 
 button:active {
@@ -145,8 +146,10 @@ label {
 
 .score-panel {
   order: 3;
+  display: flex;
+  flex-direction: column;
   border-left: 1px solid var(--line);
-  padding: 18px 14px 20px;
+  padding: 18px 14px 14px;
 }
 
 .arena-wrap {
@@ -193,7 +196,6 @@ h2 {
 .brand p,
 .hud-label,
 #latencyText,
-#budgetText,
 #roomStateText {
   color: var(--muted);
   font-size: 12px;
@@ -267,20 +269,28 @@ h2 {
 }
 
 .screen-buttons {
-  position: fixed;
-  top: 14px;
-  right: 14px;
-  z-index: 25;
-  display: flex;
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  margin-top: auto;
+  padding: 10px;
+  border: 1px solid rgba(174, 199, 231, 0.2);
+  border-radius: 8px;
+  background: rgba(7, 12, 20, 0.92);
+  box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(12px);
 }
 
 .screen-buttons button {
-  min-height: 34px;
-  padding: 0 10px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 8px;
   border-color: rgba(174, 199, 231, 0.22);
   background: rgba(9, 15, 25, 0.74);
-  backdrop-filter: blur(12px);
+  font-size: 13px;
 }
 
 .menu-screen {
@@ -374,6 +384,30 @@ h2 {
   font-size: 12px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.menu-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 202, 87, 0.34);
+  border-radius: 8px;
+  background: rgba(62, 48, 18, 0.34);
+  color: #ffe1a3;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.menu-notice.error {
+  border-color: rgba(255, 95, 126, 0.38);
+  background: rgba(61, 20, 31, 0.34);
+  color: #ffb7c6;
+}
+
+.menu-notice.good {
+  border-color: rgba(103, 224, 138, 0.34);
+  background: rgba(20, 61, 42, 0.3);
+  color: #a7f5bf;
 }
 
 .room-code-card {
@@ -499,6 +533,14 @@ h2 {
   min-height: 30px;
   padding: 0 9px;
   font-size: 11px;
+  touch-action: manipulation;
+}
+
+.player-row button.pressed,
+.team-player button.pressed {
+  transform: translateY(1px);
+  border-color: rgba(255, 95, 126, 0.58);
+  box-shadow: 0 0 0 1px rgba(255, 95, 126, 0.12);
 }
 
 .part-palette {
@@ -931,12 +973,13 @@ h2 {
   border-radius: 5px;
   background: var(--cell);
   cursor: pointer;
-  transition: border-color 120ms ease, filter 120ms ease, transform 80ms ease;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 80ms ease;
 }
 
 .build-cell:hover {
   border-color: rgba(255, 255, 255, 0.42);
-  filter: brightness(1.1);
+  background: #111827;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .build-cell.occupied {
@@ -1042,17 +1085,6 @@ h2 {
   margin-top: 12px;
 }
 
-.economy-card {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
-  padding: 10px;
-  border: 1px solid rgba(255, 202, 87, 0.24);
-  border-radius: 8px;
-  background: rgba(38, 30, 14, 0.38);
-}
-
 .saved-designs {
   display: grid;
   gap: 8px;
@@ -1090,10 +1122,6 @@ h2 {
   overflow: hidden;
 }
 
-.saved-design-card.expensive {
-  border-color: rgba(255, 202, 87, 0.25);
-}
-
 .saved-design-head {
   display: flex;
   align-items: center;
@@ -1125,8 +1153,7 @@ h2 {
   line-height: 1.35;
 }
 
-.saved-design-summary,
-.saved-design-status {
+.saved-design-summary {
   color: var(--muted);
   font-size: 11px;
   font-weight: 750;
@@ -1135,14 +1162,6 @@ h2 {
 
 .saved-design-summary {
   color: #cdd9eb;
-}
-
-.saved-design-status.affordable {
-  color: #9ff3bb;
-}
-
-.saved-design-status.expensive {
-  color: #ffe1a3;
 }
 
 .saved-design-actions {
@@ -1156,31 +1175,13 @@ h2 {
   padding: 4px 5px;
   font-size: 9px;
   box-shadow: none;
+  touch-action: manipulation;
 }
 
-.economy-card div {
-  min-width: 0;
-  padding: 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.economy-card span {
-  display: block;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.economy-card strong {
-  display: block;
-  margin-top: 2px;
-  overflow: hidden;
-  color: #fff2c4;
-  font-size: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.saved-design-actions button.pressed {
+  transform: translateY(1px);
+  border-color: rgba(56, 213, 255, 0.58);
+  box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.1);
 }
 
 .purchase-bar {
@@ -1192,7 +1193,7 @@ h2 {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
-  min-height: 88px;
+  min-height: 118px;
   padding: 10px 12px;
   border: 1px solid rgba(174, 199, 231, 0.24);
   border-top-color: rgba(56, 213, 255, 0.42);
@@ -1204,7 +1205,7 @@ h2 {
 
 .purchase-meta {
   display: grid;
-  grid-template-columns: repeat(2, minmax(70px, auto)) auto;
+  grid-template-columns: auto;
   align-content: center;
   gap: 8px;
 }
@@ -1280,6 +1281,14 @@ h2 {
   color: var(--text);
   text-align: left;
   box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.08), 0 8px 20px rgba(0, 0, 0, 0.28);
+  touch-action: manipulation;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, opacity 140ms ease, transform 80ms ease;
+}
+
+.purchase-option:hover {
+  border-color: rgba(103, 224, 138, 0.54);
+  background: linear-gradient(180deg, rgba(20, 58, 54, 0.96), rgba(10, 28, 30, 0.98));
+  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.12), 0 10px 24px rgba(0, 0, 0, 0.32);
 }
 
 .purchase-option strong,
@@ -1321,12 +1330,32 @@ h2 {
   border-color: rgba(174, 199, 231, 0.16);
   background: rgba(20, 25, 35, 0.82);
   box-shadow: none;
-  cursor: not-allowed;
+  cursor: pointer;
   opacity: 0.68;
 }
 
 .purchase-option.disabled em {
   color: #ffd991;
+}
+
+.purchase-option.pressed {
+  transform: translateY(1px);
+  border-color: rgba(56, 213, 255, 0.64);
+  background: linear-gradient(180deg, rgba(18, 62, 75, 0.96), rgba(8, 28, 36, 0.98));
+  box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.16), 0 0 20px rgba(56, 213, 255, 0.12);
+}
+
+.purchase-option.pressed em {
+  color: #aeeeff;
+}
+
+.purchase-option.error {
+  border-color: rgba(255, 95, 126, 0.46);
+  background: linear-gradient(180deg, rgba(57, 25, 34, 0.94), rgba(24, 12, 17, 0.98));
+}
+
+.purchase-option.error em {
+  color: #ffb7c6;
 }
 
 .purchase-option.pending {
@@ -1336,6 +1365,11 @@ h2 {
   box-shadow: 0 0 0 1px rgba(255, 202, 87, 0.12), 0 0 22px rgba(255, 202, 87, 0.12);
   cursor: progress;
   overflow: hidden;
+}
+
+.purchase-option.pending:hover {
+  border-color: rgba(255, 202, 87, 0.56);
+  background: linear-gradient(180deg, rgba(61, 45, 17, 0.94), rgba(24, 19, 12, 0.98));
 }
 
 .purchase-option.pending::before {
@@ -1348,6 +1382,7 @@ h2 {
   position: absolute;
   top: 8px;
   right: 8px;
+  pointer-events: none;
   animation: purchase-spin 700ms linear infinite;
 }
 
@@ -1356,6 +1391,7 @@ h2 {
   inset: 0;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
   content: "";
+  pointer-events: none;
   transform: translateX(-100%);
   animation: purchase-pulse 900ms ease-in-out infinite;
 }
@@ -1623,7 +1659,7 @@ h2 {
 
 .end-game-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
@@ -1794,6 +1830,7 @@ h2 {
   min-height: 26px;
   padding: 5px 8px;
   font-size: 10px;
+  touch-action: manipulation;
 }
 
 .match-meter {
@@ -1979,13 +2016,7 @@ h2 {
   }
 
   .purchase-meta {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .screen-buttons {
-    left: 8px;
-    right: 8px;
-    justify-content: flex-end;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .menu-screen {

@@ -21,6 +21,7 @@ const SNAPSHOT_HZ = 15;
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_PLAYERS_PER_ROOM = 12;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
+const CLOSED_ROOM_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 const MATCH_SCORE = 900;
 const SCORE_PER_CONTROLLED_POINT = 6;
 const ECONOMY = Object.freeze({
@@ -149,6 +150,7 @@ const MAP_CLOUD_COLORS = [
 ];
 
 const rooms = new Map();
+const closedRoomCodes = new Map();
 const sockets = new Set();
 let nextClientId = 1;
 
@@ -201,6 +203,7 @@ server.listen(PORT, "0.0.0.0", () => {
 
 setInterval(() => {
   const now = Date.now();
+  pruneClosedRoomCodes(now);
   for (const room of rooms.values()) {
     if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) {
       rooms.delete(room.code);
@@ -222,7 +225,7 @@ setInterval(() => {
 setInterval(() => {
   const now = performanceNow();
   for (const room of rooms.values()) {
-    broadcastRoom(room, snapshotRoom(room, now));
+    broadcastSnapshot(room, now);
   }
 }, 1000 / SNAPSHOT_HZ).unref();
 
@@ -469,7 +472,7 @@ function handleMessage(client, message) {
       type: "notice",
       message: `${client.player.name} built ${createdShips.length} ship${createdShips.length === 1 ? "" : "s"} for $${validation.totalCost}`
     });
-    broadcastRoom(client.room, snapshotRoom(client.room, performanceNow()));
+    broadcastSnapshot(client.room, performanceNow());
     return;
   }
 
@@ -532,12 +535,22 @@ function handleMessage(client, message) {
     closeLobby(client.room, client.player);
     return;
   }
+
+  if (message.type === "leaveLobby") {
+    leaveLobby(client);
+    return;
+  }
 }
 
 function joinRoom(client, message) {
   const requestedCode = sanitizeRoomCode(message.room);
   const code = requestedCode || makeRoomCode();
   const requestedName = sanitizeName(message.name, `Pilot ${client.id.slice(1)}`);
+  if (requestedCode && isClosedRoomCode(code)) {
+    send(client, { type: "error", message: "That lobby was closed. Create a new game instead." });
+    return;
+  }
+
   let room = rooms.get(code);
 
   if (!room) {
@@ -920,11 +933,12 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   const requestedCount = clampNumber(count, 1, 5);
   const activeCount = player.ships.filter((ship) => ship.alive && !ship.removed).length;
   if (activeCount + requestedCount > player.shipCap) {
+    const remainingSlots = Math.max(0, player.shipCap - activeCount);
     return {
       ok: false,
       reason: requestedCount === 1
-        ? "Fleet cap reached"
-        : `Not enough fleet slots: ${activeCount}/${player.shipCap}`
+        ? `Fleet cap reached: ${activeCount}/${player.shipCap} ships active`
+        : `Not enough fleet slots: ${remainingSlots} available, ${requestedCount} requested`
     };
   }
   const totalCost = shipStats.unitCost * requestedCount;
@@ -1633,7 +1647,7 @@ function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
   return false;
 }
 
-function snapshotRoom(room, now) {
+function snapshotRoom(room, now, viewer = null) {
   const players = [...room.players.values()].map((player) => ({
     id: player.id,
     name: player.name,
@@ -1644,13 +1658,13 @@ function snapshotRoom(room, now) {
     isAdmin: room.adminId === player.id,
     connected: player.connected !== false,
     ready: player.ready,
-    money: Math.floor(player.money),
-    income: round(player.income),
-    earned: Math.floor(player.earned),
-    spent: Math.floor(player.spent),
+    money: canViewPlayerEconomy(viewer, player) ? Math.floor(player.money) : null,
+    income: canViewPlayerEconomy(viewer, player) ? round(player.income) : null,
+    earned: canViewPlayerEconomy(viewer, player) ? Math.floor(player.earned) : null,
+    spent: canViewPlayerEconomy(viewer, player) ? Math.floor(player.spent) : null,
     shipCap: player.shipCap,
-    activeFleetCost: getActiveFleetCost(player),
-    deployedFleetCost: Math.floor(player.deployedFleetCost),
+    activeFleetCost: canViewPlayerEconomy(viewer, player) ? getActiveFleetCost(player) : null,
+    deployedFleetCost: canViewPlayerEconomy(viewer, player) ? Math.floor(player.deployedFleetCost) : null,
     destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
     lastReward: player.lastReward,
     activeShips: player.ships.filter((ship) => ship.alive && !ship.removed).length,
@@ -1731,6 +1745,18 @@ function broadcastRoom(room, data) {
   for (const client of room.clients) send(client, data);
 }
 
+function broadcastSnapshot(room, now) {
+  for (const client of room.clients) {
+    send(client, snapshotRoom(room, now, client.player));
+  }
+}
+
+function canViewPlayerEconomy(viewer, player) {
+  if (!viewer || !player) return false;
+  if (viewer.id === player.id) return true;
+  return viewer.team === player.team;
+}
+
 function startDesignPhase(room, requester) {
   if (!isAdmin(room, requester)) {
     sendPlayer(room, requester, { type: "error", message: "Only the room admin can start ship design" });
@@ -1809,11 +1835,34 @@ function closeLobby(room, requester) {
     sendPlayer(room, requester, { type: "error", message: "Only the room admin can close the lobby" });
     return;
   }
-  broadcastRoom(room, { type: "closed", message: "The room admin closed this lobby" });
+  const code = room.code;
+  rememberClosedRoom(code);
   for (const client of [...room.clients]) {
-    closeClient(client, 1000, "Lobby closed");
+    send(client, { type: "closed", message: "The room admin closed this lobby" });
+    client.room = null;
+    client.player = null;
   }
-  rooms.delete(room.code);
+  room.clients.clear();
+  room.players.clear();
+  room.bullets = [];
+  room.effects = [];
+  rooms.delete(code);
+}
+
+function leaveLobby(client) {
+  if (!client.room || !client.player) {
+    send(client, { type: "leftLobby", message: "Left lobby" });
+    return;
+  }
+  const room = client.room;
+  const code = room.code;
+  leaveRoom(client);
+  send(client, { type: "leftLobby", message: `Left lobby ${code}` });
+  if (room.clients.size === 0) {
+    rooms.delete(code);
+    return;
+  }
+  broadcastSnapshot(room, performanceNow());
 }
 
 function kickPlayer(room, requester, targetId) {
@@ -1837,6 +1886,7 @@ function kickPlayer(room, requester, targetId) {
   room.kickedNames.add(target.name.toLowerCase());
   broadcastRoom(room, { type: "notice", message: `${target.name} was kicked` });
   if (room.phase === "design") maybeStartMatch(room, performanceNow());
+  broadcastSnapshot(room, performanceNow());
 }
 
 function removePlayerFromRoom(room, player, reason) {
@@ -1862,7 +1912,6 @@ function removePlayerFromRoom(room, player, reason) {
       room.clients.delete(client);
       client.room = null;
       client.player = null;
-      closeClient(client, 1000, reason === "kicked" ? "Kicked" : "Removed");
     }
   }
 
@@ -2495,8 +2544,31 @@ function makeRoomCode() {
     for (let i = 0; i < 5; i += 1) {
       code += alphabet[Math.floor(Math.random() * alphabet.length)];
     }
-  } while (rooms.has(code));
+  } while (rooms.has(code) || isClosedRoomCode(code));
   return code;
+}
+
+function rememberClosedRoom(code) {
+  const clean = sanitizeRoomCode(code);
+  if (!clean) return;
+  closedRoomCodes.set(clean, Date.now() + CLOSED_ROOM_CODE_TTL_MS);
+}
+
+function isClosedRoomCode(code) {
+  const clean = sanitizeRoomCode(code);
+  const expiresAt = closedRoomCodes.get(clean);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    closedRoomCodes.delete(clean);
+    return false;
+  }
+  return true;
+}
+
+function pruneClosedRoomCodes(now) {
+  for (const [code, expiresAt] of closedRoomCodes) {
+    if (expiresAt <= now) closedRoomCodes.delete(code);
+  }
 }
 
 function clampNumber(value, min, max) {

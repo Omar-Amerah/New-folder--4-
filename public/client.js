@@ -59,6 +59,7 @@ const dom = {
   canvas: document.getElementById("arenaCanvas"),
   status: document.getElementById("connectionStatus"),
   roomState: document.getElementById("roomStateText"),
+  mainMenuNotice: document.getElementById("mainMenuNotice"),
   pilotName: document.getElementById("pilotName"),
   teamSelect: document.getElementById("teamSelect"),
   roomCode: document.getElementById("roomCode"),
@@ -73,6 +74,7 @@ const dom = {
   joinButton: document.getElementById("joinButton"),
   copyButton: document.getElementById("copyButton"),
   botButton: document.getElementById("botButton"),
+  leaveLobbyButton: document.getElementById("leaveLobbyButton"),
   adminControls: document.getElementById("adminControls"),
   startDesignButton: document.getElementById("startDesignButton"),
   closeLobbyButton: document.getElementById("closeLobbyButton"),
@@ -88,27 +90,16 @@ const dom = {
   stats: document.getElementById("statsGrid"),
   saveDesignButton: document.getElementById("saveDesignButton"),
   savedDesignList: document.getElementById("savedDesignList"),
-  budget: document.getElementById("budgetText"),
   blueprintCostLabel: document.getElementById("blueprintCostLabel"),
   blueprintCostStatus: document.getElementById("blueprintCostStatus"),
   roomLabel: document.getElementById("roomLabel"),
   fleetLabel: document.getElementById("fleetLabel"),
   relayLabel: document.getElementById("relayLabel"),
   moneyHud: document.getElementById("moneyHudLabel"),
+  incomeHud: document.getElementById("incomeHudLabel"),
   selectionLabel: document.getElementById("selectionLabel"),
   objectiveLabel: document.getElementById("objectiveLabel"),
-  moneyTitle: document.getElementById("moneyTitle"),
-  moneyLabel: document.getElementById("moneyLabel"),
-  incomeLabel: document.getElementById("incomeLabel"),
-  unitCostTitle: document.getElementById("unitCostTitle"),
-  unitCostLabel: document.getElementById("unitCostLabel"),
-  canBuildTitle: document.getElementById("canBuildTitle"),
-  canBuildLabel: document.getElementById("canBuildLabel"),
-  afterBuildTitle: document.getElementById("afterBuildTitle"),
-  afterBuildLabel: document.getElementById("afterBuildLabel"),
   purchaseBar: document.getElementById("purchaseBar"),
-  purchaseMoney: document.getElementById("purchaseMoney"),
-  purchaseFleet: document.getElementById("purchaseFleet"),
   purchaseQuantityOne: document.getElementById("purchaseQuantityOne"),
   purchaseQuantityFive: document.getElementById("purchaseQuantityFive"),
   purchaseOptions: document.getElementById("purchaseOptions"),
@@ -127,6 +118,7 @@ const dom = {
   endGameActions: document.getElementById("endGameActions"),
   restartButton: document.getElementById("restartButton"),
   endCloseButton: document.getElementById("endCloseButton"),
+  endLeaveButton: document.getElementById("endLeaveButton"),
   mainMenuScreen: document.getElementById("mainMenuScreen"),
   lobbyManagementScreen: document.getElementById("lobbyManagementScreen"),
   settingsScreen: document.getElementById("settingsScreen"),
@@ -169,6 +161,9 @@ const state = {
   shipHud: new Map(),
   pendingPurchases: new Map(),
   purchaseErrors: new Map(),
+  purchasePointer: null,
+  savedDesignPointer: null,
+  kickPointer: null,
   notices: [],
   lastPingAt: 0,
   lastPongAt: 0,
@@ -203,10 +198,12 @@ dom.saveDesignButton.addEventListener("click", () => saveCurrentDesign());
 dom.resetButton.addEventListener("click", resetDesign);
 dom.copyButton.addEventListener("click", copyInvite);
 dom.botButton.addEventListener("click", addBot);
+dom.leaveLobbyButton?.addEventListener("click", leaveLobby);
 dom.startDesignButton.addEventListener("click", startDesign);
 dom.closeLobbyButton.addEventListener("click", closeLobby);
 dom.restartButton.addEventListener("click", restartMatch);
 dom.endCloseButton.addEventListener("click", closeLobby);
+dom.endLeaveButton?.addEventListener("click", leaveLobby);
 dom.mainMenuButton?.addEventListener("click", openMainMenu);
 dom.lobbyManagementButton?.addEventListener("click", openLobbyManagement);
 dom.settingsButton?.addEventListener("click", openSettings);
@@ -231,6 +228,18 @@ dom.roomCode.addEventListener("keydown", (event) => {
 });
 dom.purchaseQuantityOne?.addEventListener("click", () => setPurchaseQuantity(1));
 dom.purchaseQuantityFive?.addEventListener("click", () => setPurchaseQuantity(5));
+dom.purchaseOptions?.addEventListener("pointerdown", handlePurchasePointerDown);
+dom.purchaseOptions?.addEventListener("pointerup", handlePurchasePointerUp);
+dom.purchaseOptions?.addEventListener("pointercancel", clearPurchasePointer);
+dom.purchaseOptions?.addEventListener("lostpointercapture", clearPurchasePointer);
+dom.purchaseOptions?.addEventListener("click", handlePurchaseKeyboardClick);
+dom.savedDesignList?.addEventListener("pointerdown", handleSavedDesignPointerDown);
+dom.savedDesignList?.addEventListener("pointerup", handleSavedDesignPointerUp);
+dom.savedDesignList?.addEventListener("pointercancel", clearSavedDesignPointer);
+dom.savedDesignList?.addEventListener("lostpointercapture", clearSavedDesignPointer);
+dom.savedDesignList?.addEventListener("click", handleSavedDesignKeyboardClick);
+bindKickButtonContainer(dom.playerList);
+bindKickButtonContainer(dom.scoreList);
 
 dom.canvas.addEventListener("pointerdown", handlePointerDown);
 dom.canvas.addEventListener("pointermove", handlePointerMove);
@@ -249,13 +258,15 @@ setInterval(() => {
 
 function createGame() {
   dom.roomCode.value = "";
+  clearMenuNotice();
   joinRoom("");
 }
 
 function joinExistingGame() {
   const code = dom.roomCode.value.trim().toUpperCase();
+  clearMenuNotice();
   if (!code) {
-    addNotice("Enter a game code or click Create", "warning");
+    showMenuNotice("Enter a game code or click Create", "warning");
     dom.roomCode.focus();
     return;
   }
@@ -263,6 +274,7 @@ function joinExistingGame() {
 }
 
 function joinRoom(roomCode = "") {
+  clearMenuNotice();
   if (state.socket) state.socket.close();
   state.room = "";
   state.snapshot = null;
@@ -301,9 +313,7 @@ function joinRoom(roomCode = "") {
 
   socket.addEventListener("close", () => {
     if (socket !== state.socket) return;
-    state.phase = "offline";
-    setConnectionStatus("offline", "Offline dock");
-    updateLobbyState();
+    returnToMainMenu(state.room ? "Disconnected from lobby" : "", "warning");
   });
 
   socket.addEventListener("error", () => {
@@ -334,7 +344,70 @@ function restartMatch() {
 }
 
 function closeLobby() {
+  setEndGameActionState(true);
   send({ type: "closeLobby" });
+  returnToMainMenu("Closing lobby", "warning");
+}
+
+function leaveLobby() {
+  if (!state.room) {
+    openMainMenu();
+    return;
+  }
+  send({ type: "leaveLobby" });
+  returnToMainMenu("Left lobby", "warning");
+}
+
+function setEndGameActionState(disabled) {
+  if (dom.restartButton) dom.restartButton.disabled = disabled;
+  if (dom.endCloseButton) dom.endCloseButton.disabled = disabled;
+  if (dom.endLeaveButton) dom.endLeaveButton.disabled = disabled;
+}
+
+function returnToMainMenu(message = "", tone = "warning") {
+  clearRoomState();
+  setConnectionStatus(state.socket?.readyState === WebSocket.OPEN ? "online" : "offline", state.socket?.readyState === WebSocket.OPEN ? "Dock linked" : "Offline dock");
+  updateLobbyState();
+  updateEconomyUi();
+  renderSavedDesigns();
+  renderPurchaseBar();
+  clearMatchPanels();
+  openMainMenu();
+  if (message) showMenuNotice(message, tone);
+}
+
+function clearRoomState() {
+  for (const pending of state.pendingPurchases.values()) clearTimeout(pending.timeoutId);
+  for (const error of state.purchaseErrors.values()) {
+    if (error?.timeoutId) clearTimeout(error.timeoutId);
+  }
+  state.room = "";
+  state.snapshot = null;
+  state.map = null;
+  state.phase = "offline";
+  state.adminId = null;
+  state.selectedShipIds.clear();
+  state.pendingPurchases.clear();
+  state.purchaseErrors.clear();
+  state.command = null;
+  dom.roomLabel.textContent = "----";
+  dom.currentRoomCode.textContent = "----";
+  dom.currentRoomCard.hidden = true;
+  dom.fleetLabel.textContent = "0";
+  dom.moneyHud.textContent = "$0";
+  if (dom.incomeHud) dom.incomeHud.textContent = "+$0/s";
+  dom.relayLabel.textContent = "0";
+  dom.selectionLabel.textContent = "0";
+  dom.objectiveLabel.textContent = "None";
+  dom.winner.hidden = true;
+  dom.endGameScreen.hidden = true;
+  setEndGameActionState(false);
+}
+
+function clearMatchPanels() {
+  dom.scoreList.textContent = "";
+  dom.matchProgressFill.style.width = "0%";
+  dom.matchSummary.textContent = "No active match";
 }
 
 function showMenuScreen(screen) {
@@ -353,7 +426,31 @@ function openMainMenu() {
   showMenuScreen(dom.mainMenuScreen);
 }
 
+function showMenuNotice(message, tone = "warning") {
+  if (!dom.mainMenuNotice) return;
+  const text = String(message || "").trim();
+  if (!text) {
+    clearMenuNotice();
+    return;
+  }
+  dom.mainMenuNotice.textContent = text;
+  dom.mainMenuNotice.className = `menu-notice ${tone || ""}`.trim();
+  dom.mainMenuNotice.hidden = false;
+}
+
+function clearMenuNotice() {
+  if (!dom.mainMenuNotice) return;
+  dom.mainMenuNotice.textContent = "";
+  dom.mainMenuNotice.hidden = true;
+  dom.mainMenuNotice.className = "menu-notice";
+}
+
 function openLobbyManagement() {
+  if (!state.room) {
+    addNotice("Create or join a game before opening lobby management", "warning");
+    openMainMenu();
+    return;
+  }
   showMenuScreen(dom.lobbyManagementScreen);
 }
 
@@ -377,9 +474,95 @@ function clearServerSetting() {
 }
 
 function kickPlayer(targetId) {
+  if (!targetId) {
+    addNotice("Cannot kick: missing player id", "error");
+    return;
+  }
+  if (!state.room || state.socket?.readyState !== WebSocket.OPEN) {
+    addNotice("Cannot kick: you are not connected to a lobby", "warning");
+    return;
+  }
+  if (!isAdmin()) {
+    addNotice("Only the room admin can kick players", "warning");
+    return;
+  }
   const player = state.snapshot?.players?.find((candidate) => candidate.id === targetId);
   if (typeof confirm === "function" && !confirm(`Kick ${player?.name || "this player"}?`)) return;
   send({ type: "kick", targetId });
+}
+
+function bindKickButtonContainer(container) {
+  if (!container) return;
+  container.addEventListener("pointerdown", handleKickPointerDown);
+  container.addEventListener("pointerup", handleKickPointerUp);
+  container.addEventListener("pointercancel", clearKickPointer);
+  container.addEventListener("lostpointercapture", clearKickPointer);
+  container.addEventListener("click", handleKickKeyboardClick);
+}
+
+function handleKickPointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const container = event.currentTarget;
+  const button = event.target?.closest?.("[data-kick]");
+  if (!button || !container?.contains(button) || button.disabled) return;
+  event.preventDefault();
+  clearKickPressedButtons();
+  button.classList.add("pressed");
+  state.kickPointer = {
+    targetId: button.dataset.kick || "",
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    container
+  };
+  try {
+    container.setPointerCapture?.(event.pointerId);
+  } catch {
+    // Pointer capture is best-effort; keyboard activation still uses the click fallback.
+  }
+}
+
+function handleKickPointerUp(event) {
+  const pointer = state.kickPointer;
+  if (!pointer || pointer.pointerId !== event.pointerId) return;
+  const container = pointer.container;
+  clearKickPointer();
+  try {
+    container?.releasePointerCapture?.(event.pointerId);
+  } catch {
+    // The browser may already have released capture while the panel rerenders.
+  }
+  const moved = Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y);
+  const bounds = container.getBoundingClientRect();
+  const releasedInside = event.clientX >= bounds.left
+    && event.clientX <= bounds.right
+    && event.clientY >= bounds.top
+    && event.clientY <= bounds.bottom;
+  if (moved > 12 || !releasedInside) return;
+  event.preventDefault();
+  kickPlayer(pointer.targetId);
+}
+
+function clearKickPointer() {
+  clearKickPressedButtons();
+  state.kickPointer = null;
+}
+
+function clearKickPressedButtons() {
+  for (const container of [dom.playerList, dom.scoreList]) {
+    container?.querySelectorAll?.("[data-kick].pressed")?.forEach((button) => {
+      button.classList.remove("pressed");
+    });
+  }
+}
+
+function handleKickKeyboardClick(event) {
+  if (event.detail !== 0) return;
+  const container = event.currentTarget;
+  const button = event.target?.closest?.("[data-kick]");
+  if (!button || !container?.contains(button) || button.disabled) return;
+  event.preventDefault();
+  kickPlayer(button.dataset.kick || "");
 }
 
 function addBot() {
@@ -391,34 +574,142 @@ function addBot() {
   send({ type: "addBot" });
 }
 
+function handlePurchasePointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const card = event.target?.closest?.(".purchase-option");
+  if (!card || !dom.purchaseOptions?.contains(card)) return;
+  clearPressedPurchaseCards();
+  setPurchaseCardFeedback(card, "pressed", "Checking...");
+  state.purchasePointer = {
+    optionId: card.dataset?.optionId || "",
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    startedAt: performance.now()
+  };
+  try {
+    dom.purchaseOptions.setPointerCapture?.(event.pointerId);
+  } catch {
+    // Pointer capture is best-effort; the click fallback below still handles keyboard activation.
+  }
+}
+
+function handlePurchasePointerUp(event) {
+  const pointer = state.purchasePointer;
+  if (!pointer || pointer.pointerId !== event.pointerId) return;
+  clearPurchasePointer();
+  try {
+    dom.purchaseOptions.releasePointerCapture?.(event.pointerId);
+  } catch {
+    // It is safe if the browser already released capture during a rerender.
+  }
+  const moved = Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y);
+  const bounds = dom.purchaseOptions.getBoundingClientRect();
+  const releasedInside = event.clientX >= bounds.left
+    && event.clientX <= bounds.right
+    && event.clientY >= bounds.top
+    && event.clientY <= bounds.bottom;
+  if (!pointer.optionId || moved > 12 || !releasedInside) {
+    clearPressedPurchaseCards();
+    return;
+  }
+  event.preventDefault();
+  buyPurchaseOption(pointer.optionId);
+}
+
+function clearPurchasePointer() {
+  clearPressedPurchaseCards();
+  state.purchasePointer = null;
+}
+
+function clearPressedPurchaseCards() {
+  dom.purchaseOptions?.querySelectorAll?.(".purchase-option.pressed")?.forEach((card) => {
+    card.classList.remove("pressed");
+    const previousStatus = card.dataset?.statusText;
+    if (previousStatus) {
+      const status = card.querySelector("em");
+      if (status) status.textContent = previousStatus;
+      delete card.dataset.statusText;
+    }
+  });
+}
+
+function setPurchaseCardFeedback(card, className, text) {
+  if (!card) return;
+  const status = card.querySelector("em");
+  if (status && card.dataset && !card.dataset.statusText) card.dataset.statusText = status.textContent;
+  card.classList.add(className);
+  if (status) status.textContent = text;
+}
+
+function setPurchaseOptionFeedback(optionId, className, text) {
+  const card = [...(dom.purchaseOptions?.querySelectorAll?.(".purchase-option") || [])]
+    .find((candidate) => candidate.dataset?.optionId === optionId);
+  if (card) setPurchaseCardFeedback(card, className, text);
+}
+
+function handlePurchaseKeyboardClick(event) {
+  if (event.detail !== 0) return;
+  const card = event.target?.closest?.(".purchase-option");
+  if (!card || !dom.purchaseOptions?.contains(card)) return;
+  event.preventDefault();
+  buyPurchaseOption(card.dataset?.optionId || "");
+}
+
 function buyPurchaseOption(optionId) {
-  if (!state.room || !state.socket || state.socket.readyState !== WebSocket.OPEN) {
-    addNotice("Create or join a game first", "warning");
-    return;
-  }
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
-  if (!option) return;
-  const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
-  if (!purchase.canBuy) {
-    addNotice(purchase.reason || "Cannot buy this ship right now", "warning");
+  const quantity = state.purchaseQuantity;
+  const connectionOpen = state.socket?.readyState === WebSocket.OPEN;
+
+  if (!option) {
+    showToast("Purchase option no longer exists", "error");
     return;
   }
+
+  const purchase = getPurchaseOptionState(option, quantity);
+
+  if (!state.room || !connectionOpen) {
+    const reason = "Create or join a game first";
+    setPurchaseOptionFeedback(optionId, "error", reason);
+    setPurchaseError(optionId, reason);
+    addNotice(reason, "warning");
+    return;
+  }
+
+  if (purchase.pending) {
+    const reason = "Already building this ship";
+    setPurchaseOptionFeedback(optionId, "pending", "Building...");
+    showToast(reason, "warning");
+    return;
+  }
+
+  if (!purchase.canBuy) {
+    const reason = purchase.reason || "Cannot buy this ship right now";
+    setPurchaseOptionFeedback(optionId, "error", reason);
+    setPurchaseError(optionId, reason);
+    addNotice(reason, "warning");
+    return;
+  }
+
   const requestId = makePurchaseRequestId();
   const timeoutId = setTimeout(() => {
     const pending = clearPendingPurchase(requestId);
-    if (pending?.optionId) setPurchaseError(pending.optionId, "No response, try again");
+    if (!pending) return;
+    const reason = "No server response after purchase request";
+    setPurchaseError(pending.optionId, "No response, try again");
   }, PURCHASE_PENDING_MS);
+
   state.pendingPurchases.set(requestId, {
     optionId,
-    count: state.purchaseQuantity,
+    count: quantity,
     moneyBefore: purchase.money,
     activeShipsBefore: purchase.activeShips,
     totalCost: purchase.totalCost,
     startedAt: performance.now(),
     timeoutId
   });
-  renderPurchaseBar();
-  send({ type: "buyShip", count: state.purchaseQuantity, design: option.blueprint, requestId });
+  setPurchaseOptionFeedback(optionId, "pending", "Building...");
+  send({ type: "buyShip", count: quantity, design: option.blueprint, requestId });
 }
 
 function setPurchaseQuantity(quantity) {
@@ -437,12 +728,6 @@ function clearPendingPurchase(requestId) {
   state.pendingPurchases.delete(requestId);
   renderPurchaseBar();
   return pending;
-}
-
-function clearPendingPurchasesForOption(optionId) {
-  for (const [requestId, pending] of state.pendingPurchases) {
-    if (pending.optionId === optionId) clearPendingPurchase(requestId);
-  }
 }
 
 function reconcilePendingPurchasesWithSnapshot() {
@@ -479,6 +764,7 @@ function send(message) {
 }
 
 function setConnectionStatus(status, text) {
+  if (!dom.status) return;
   dom.status.textContent = text;
   dom.status.className = `connection-status ${status}`;
 }
@@ -492,8 +778,13 @@ function updateLobbyState() {
   dom.roomState.textContent = connected ? `${phaseLabel(phase)} | ${playerCount} in room` : connecting ? "Connecting" : "Not joined";
   dom.createButton.disabled = connecting;
   dom.joinButton.disabled = connecting;
+  if (dom.mainMenuCloseButton) dom.mainMenuCloseButton.disabled = !connected;
   dom.copyButton.disabled = !state.room;
   dom.botButton.disabled = !connected || !admin || phase !== "lobby";
+  if (dom.leaveLobbyButton) {
+    dom.leaveLobbyButton.hidden = !connected || admin;
+    dom.leaveLobbyButton.disabled = !connected || admin;
+  }
   dom.teamSelect.disabled = connected && phase !== "lobby";
   dom.adminControls.hidden = !connected || !admin || phase === "active";
   dom.startDesignButton.disabled = !connected || !admin || phase !== "lobby" || playerCount === 0;
@@ -574,6 +865,7 @@ function handleServerMessage(message) {
     dom.currentRoomCode.textContent = message.room;
     dom.currentRoomCard.hidden = false;
     dom.roomLabel.textContent = message.room;
+    clearMenuNotice();
     setConnectionStatus("online", "Room linked");
     updateLobbyState();
     openLobbyManagement();
@@ -632,17 +924,19 @@ function handleServerMessage(message) {
 
   if (message.type === "error") {
     if (message.requestId) clearPendingPurchase(message.requestId);
+    if (!state.room || !dom.mainMenuScreen?.hidden) {
+      showMenuNotice(message.message || "Server error", "error");
+      setConnectionStatus("error", "Join failed");
+      updateLobbyState();
+      return;
+    }
     addNotice(message.message || "Server error", "error");
     return;
   }
 
-  if (message.type === "kicked" || message.type === "closed") {
-    addNotice(message.message || "Room closed", "error");
-    state.room = "";
-    state.snapshot = null;
-    state.phase = "offline";
-    state.selectedShipIds.clear();
-    updateLobbyState();
+  if (message.type === "kicked" || message.type === "closed" || message.type === "leftLobby") {
+    const tone = message.type === "kicked" ? "error" : "warning";
+    returnToMainMenu(message.message || "Left lobby", tone);
   }
 }
 
@@ -669,10 +963,8 @@ function renderPartInspector() {
   const type = state.selectedPart;
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
-  const details = [
-    ...partInspectorDetails(type, stat),
-    ["Cost impact", estimatePartCostImpact(type)]
-  ];
+  const effectiveCost = effectivePartCostLabel(type);
+  const details = partInspectorDetails(type, stat, effectiveCost);
   dom.partInspector.innerHTML = `
     <div class="part-inspector-title">
       ${partIconMarkup(type, "inspector-glyph")}
@@ -680,7 +972,7 @@ function renderPartInspector() {
     </div>
     <p class="part-description">${escapeHtml(stat.description || "")}</p>
     <div class="part-inspector-grid">
-      ${inspectorStat("Cost", stat.cost)}
+      ${inspectorStat("Cost", effectiveCost)}
       ${inspectorStat("Mass", stat.mass)}
       ${inspectorStat("Hull", stat.hp)}
       ${inspectorStat("Power", partPowerText(stat))}
@@ -697,7 +989,7 @@ function renderPartInspector() {
 }
 
 function inspectorStat(label, value) {
-  return `<div><span>${label}</span><strong>${value}</strong></div>`;
+  return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
 function inspectorDetail(label, value) {
@@ -713,7 +1005,7 @@ function partPowerText(stat) {
   return "0";
 }
 
-function partInspectorDetails(type, stat) {
+function partInspectorDetails(type, stat, effectiveCost) {
   if (stat.weapon) {
     const weapon = stat.weapon;
     return [
@@ -777,12 +1069,16 @@ function partInspectorDetails(type, stat) {
   return [
     ["Hull", stat.hp],
     ["Mass", stat.mass],
-    ["Cost", stat.cost],
+    ["Cost", effectiveCost],
     ["Power", partPowerText(stat)]
   ];
 }
 
-function estimatePartCostImpact(type) {
+function effectivePartCostLabel(type) {
+  return `$${estimatePartEffectiveCost(type)}`;
+}
+
+function estimatePartEffectiveCost(type) {
   const current = computeStats(state.design);
   const occupied = new Set(state.design.map((part) => `${part.x},${part.y}`));
   for (const part of state.design) {
@@ -798,10 +1094,26 @@ function estimatePartCostImpact(type) {
       const next = [...state.design, { x: cell.x, y: cell.y, type }];
       if (!isConnected(next)) continue;
       const updated = computeStats(next);
-      return `+$${updated.unitCost - current.unitCost} final cost`;
+      return Math.max(0, updated.unitCost - current.unitCost);
     }
   }
-  return "No open connected cell";
+  return estimateFormulaPartCost(type);
+}
+
+function estimateFormulaPartCost(type) {
+  const stat = PART_STATS[type] || PART_STATS.frame;
+  const weaponPremium =
+    (stat.blaster || 0) * SHIP_ECONOMY.weaponPremiums.blaster +
+    (stat.missile || 0) * SHIP_ECONOMY.weaponPremiums.missile +
+    (stat.railgun || 0) * SHIP_ECONOMY.weaponPremiums.railgun;
+  return Math.max(1, Math.round(
+    stat.cost * SHIP_ECONOMY.partCostMultiplier +
+    stat.mass * SHIP_ECONOMY.massCostMultiplier +
+    stat.hp * SHIP_ECONOMY.hullCostMultiplier +
+    stat.shield * SHIP_ECONOMY.shieldCostMultiplier +
+    (stat.repairRate || 0) * SHIP_ECONOMY.repairCostMultiplier +
+    weaponPremium
+  ));
 }
 
 function partIconMarkup(type, extraClass = "") {
@@ -952,6 +1264,71 @@ function syncBlueprintToServer(blueprint) {
   send({ type: "deploy", design: blueprint });
 }
 
+function handleSavedDesignPointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const button = event.target?.closest?.("[data-saved-action]");
+  if (!button || !dom.savedDesignList?.contains(button)) return;
+  event.preventDefault();
+  clearSavedDesignPressedButtons();
+  button.classList.add("pressed");
+  state.savedDesignPointer = {
+    action: button.dataset.savedAction || "",
+    id: button.dataset.savedId || "",
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY
+  };
+  try {
+    dom.savedDesignList.setPointerCapture?.(event.pointerId);
+  } catch {
+    // Pointer capture is best-effort; keyboard activation still uses the click fallback.
+  }
+}
+
+function handleSavedDesignPointerUp(event) {
+  const pointer = state.savedDesignPointer;
+  if (!pointer || pointer.pointerId !== event.pointerId) return;
+  clearSavedDesignPointer();
+  try {
+    dom.savedDesignList.releasePointerCapture?.(event.pointerId);
+  } catch {
+    // The browser may already have released capture while the list updates.
+  }
+  const moved = Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y);
+  const bounds = dom.savedDesignList.getBoundingClientRect();
+  const releasedInside = event.clientX >= bounds.left
+    && event.clientX <= bounds.right
+    && event.clientY >= bounds.top
+    && event.clientY <= bounds.bottom;
+  if (moved > 12 || !releasedInside) return;
+  event.preventDefault();
+  runSavedDesignAction(pointer.action, pointer.id);
+}
+
+function clearSavedDesignPointer() {
+  clearSavedDesignPressedButtons();
+  state.savedDesignPointer = null;
+}
+
+function clearSavedDesignPressedButtons() {
+  dom.savedDesignList?.querySelectorAll?.("[data-saved-action].pressed")?.forEach((button) => {
+    button.classList.remove("pressed");
+  });
+}
+
+function handleSavedDesignKeyboardClick(event) {
+  if (event.detail !== 0) return;
+  const button = event.target?.closest?.("[data-saved-action]");
+  if (!button || !dom.savedDesignList?.contains(button)) return;
+  event.preventDefault();
+  runSavedDesignAction(button.dataset.savedAction || "", button.dataset.savedId || "");
+}
+
+function runSavedDesignAction(action, id) {
+  if (action === "load") loadSavedDesign(id);
+  else if (action === "delete") deleteSavedDesign(id);
+}
+
 function renameSavedDesign(id, name) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
@@ -961,7 +1338,6 @@ function renameSavedDesign(id, name) {
     ? { ...design, name: cleanName, updatedAt: Date.now() }
     : design);
   persistSavedDesigns();
-  renderSavedDesigns();
   renderPurchaseBar();
 }
 
@@ -989,33 +1365,28 @@ function renderSavedDesigns() {
     return;
   }
 
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
-  const money = mine?.money ?? state.rules.startingMoney;
   for (const saved of state.savedDesigns) {
     const stats = computeStats(saved.blueprint);
-    const affordable = money >= stats.unitCost;
-    const statusText = affordable ? "Affordable" : "Too expensive";
     const row = document.createElement("div");
-    row.className = `saved-design-card${affordable ? "" : " expensive"}`;
+    row.className = "saved-design-card";
     row.innerHTML = `
       <div class="saved-design-head">
         <input class="saved-design-name" value="${escapeHtml(saved.name)}" maxlength="28" aria-label="Blueprint name">
       </div>
       <div class="saved-design-summary">Cost $${stats.unitCost} · Weapons ${stats.blaster}/${stats.missile}/${stats.railgun} · Speed ${Math.round(stats.maxSpeed)}</div>
-      <div class="saved-design-status ${affordable ? "affordable" : "expensive"}">${statusText}${affordable ? "" : ` · Need $${Math.ceil(stats.unitCost - money)} more`}</div>
       <div class="saved-design-actions">
-        <button type="button" data-load="${escapeHtml(saved.id)}">Use/Edit</button>
-        <button type="button" data-delete="${escapeHtml(saved.id)}">Delete</button>
+        <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Use/Edit</button>
+        <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}">Delete</button>
       </div>
     `;
     const nameInput = row.querySelector(".saved-design-name");
+    nameInput?.addEventListener("pointerdown", (event) => event.stopPropagation());
+    nameInput?.addEventListener("click", (event) => event.stopPropagation());
     nameInput?.addEventListener("change", () => renameSavedDesign(saved.id, nameInput.value));
     nameInput?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") nameInput.blur();
       event.stopPropagation();
     });
-    row.querySelector("[data-load]")?.addEventListener("click", () => loadSavedDesign(saved.id));
-    row.querySelector("[data-delete]")?.addEventListener("click", () => deleteSavedDesign(saved.id));
     dom.savedDesignList.appendChild(row);
   }
   renderPurchaseBar();
@@ -1040,10 +1411,11 @@ function renderLocalStats() {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const money = currentMatchMoney(mine);
   const canAfford = money >= stats.unitCost;
-  dom.budget.textContent = `Cost $${stats.unitCost}`;
   if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost}`;
   if (dom.blueprintCostStatus) {
-    dom.blueprintCostStatus.textContent = canAfford ? `After build $${Math.floor(money - stats.unitCost)}` : `Need $${Math.ceil(stats.unitCost - money)}`;
+    dom.blueprintCostStatus.textContent = canAfford
+      ? `Remaining after first ship $${Math.floor(money - stats.unitCost)}`
+      : `Need $${Math.ceil(stats.unitCost - money)} before first ship`;
     dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
   }
   dom.stats.innerHTML = [
@@ -1138,9 +1510,16 @@ function updateHud() {
   const myShips = state.snapshot.ships.filter((ship) => ship.ownerId === state.myId && ship.alive);
   const myTeam = mine?.team;
   const relays = state.snapshot.points.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length;
+  const income = mine?.income ?? 0;
   const target = currentTarget();
   dom.fleetLabel.textContent = `${myShips.length}`;
   dom.moneyHud.textContent = `$${mine?.money ?? 0}`;
+  if (dom.incomeHud) {
+    dom.incomeHud.textContent = `+$${Math.round(income)}/s`;
+    dom.incomeHud.title = mine?.ready
+      ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
+      : "Ready with an affordable starting design to begin earning money.";
+  }
   dom.relayLabel.textContent = String(relays);
   dom.selectionLabel.textContent = `${state.selectedShipIds.size}`;
   dom.objectiveLabel.textContent = target ? target.label : "None";
@@ -1151,7 +1530,6 @@ function updateEconomyUi() {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const localStats = computeStats(state.design);
   const localStatus = getShipStatus(localStats);
-  const isDesignStage = state.phase === "design" || !state.snapshot;
   const money = currentMatchMoney(mine);
   const income = mine?.income ?? 0;
   const myTeam = mine?.team;
@@ -1160,24 +1538,13 @@ function updateEconomyUi() {
   const canAfford = money >= unitCost;
   const canReady = state.phase === "design" && !mine?.ready && localStatus.blockers.length === 0;
   const canSaveActiveDesign = state.phase === "active" && Boolean(mine?.ready);
-  const afterBuild = money - unitCost;
 
-  dom.moneyTitle.textContent = isDesignStage ? "Starting money" : "Current money";
-  dom.unitCostTitle.textContent = "Editor cost";
-  dom.canBuildTitle.textContent = isDesignStage ? "Can ready" : "Editor valid";
-  dom.afterBuildTitle.textContent = isDesignStage ? "After ready" : "After purchase";
-  dom.moneyLabel.textContent = `$${Math.floor(money)}`;
-  dom.incomeLabel.textContent = `+$${Math.round(income)}/s`;
-  dom.incomeLabel.title = mine?.ready
-    ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
-    : "Ready with an affordable starting design to begin earning money.";
-  dom.unitCostLabel.textContent = `$${unitCost}`;
-  dom.unitCostLabel.title = canAfford ? "Can afford the current editor design" : `Need $${Math.ceil(unitCost - money)} more`;
-  dom.canBuildLabel.textContent = localStatus.blockers.length ? "No" : "Yes";
-  dom.canBuildLabel.title = isDesignStage
-    ? localStatus.blockers[0] || "This design can be readied."
-    : localStatus.blockers[0] || "The current editor design can be bought from the bottom bar.";
-  dom.afterBuildLabel.textContent = canAfford ? `$${Math.floor(afterBuild)}` : `Need $${Math.ceil(unitCost - money)}`;
+  if (dom.incomeHud) {
+    dom.incomeHud.textContent = `+$${Math.round(income)}/s`;
+    dom.incomeHud.title = mine?.ready
+      ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
+      : "Ready with an affordable starting design to begin earning money.";
+  }
   dom.deployButton.hidden = state.phase === "active";
   dom.deployButton.disabled = !(canReady || canSaveActiveDesign);
   dom.deployButton.textContent = mine?.ready && state.phase === "design"
@@ -1189,7 +1556,7 @@ function updateEconomyUi() {
         : "Save Blueprint";
 
   if (mine) {
-      const status = state.phase === "design"
+    const status = state.phase === "design"
       ? mine.ready ? "Ready. Waiting for the rest of the room." : "Design your starting ship, then ready with this design."
       : mine.ready
         ? economyStatusText({ income, relays, canAfford, unitCost, money })
@@ -1197,14 +1564,6 @@ function updateEconomyUi() {
     if (!dom.buildStatus.className.includes("warning")) setBuildStatus(status, "good");
   }
   renderPurchaseBar();
-}
-
-function blockerButtonText(reason) {
-  if (/Need \$(\d+)/.test(reason)) return `Cannot Build - Need $${reason.match(/Need \$(\d+)/)[1]}`;
-  if (reason.includes("Ship limit")) return "Cannot Build - Ship Limit";
-  if (reason.includes("missing core")) return "Cannot Build - Missing Core";
-  if (reason.includes("disconnected")) return "Cannot Build - Disconnected";
-  return "Cannot Build";
 }
 
 function readyBlockerButtonText(reason) {
@@ -1288,13 +1647,6 @@ function validateBlueprintForPurchase(blueprint) {
 
 function renderPurchaseBar() {
   if (!dom.purchaseBar || !dom.purchaseOptions) return;
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
-  const money = currentMatchMoney(mine);
-  const activeShips = mine?.activeShips ?? 0;
-  const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
-
-  if (dom.purchaseMoney) dom.purchaseMoney.textContent = `$${Math.floor(money)}`;
-  if (dom.purchaseFleet) dom.purchaseFleet.textContent = `${activeShips}/${shipCap}`;
   dom.purchaseQuantityOne?.classList?.toggle("active", state.purchaseQuantity === 1);
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
@@ -1314,7 +1666,6 @@ function renderPurchaseBar() {
       <small>${weaponSummaryText(option.stats)}</small>
       <em>${optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : escapeHtml(optionState.reason)}</em>
     `;
-    card.addEventListener?.("click", () => buyPurchaseOption(option.id));
     card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
     card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
     card.addEventListener?.("mouseleave", hidePurchaseTooltip);
@@ -1457,16 +1808,16 @@ function renderTeamPanel(players) {
       row.className = `team-player${player.id === state.myId ? " mine" : ""}`;
       const status = player.ready ? "Ready" : state.phase === "design" ? "Building" : player.connected === false ? "Disconnected" : "In match";
       const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin;
+      const moneyText = player.money == null ? "Money hidden" : `Money $${player.money}`;
       row.innerHTML = `
         <span class="score-color" style="background:${player.color}"></span>
         <div>
           <strong>${escapeHtml(player.name)}${player.isAdmin ? " [Host]" : ""}${player.isBot ? " CPU" : ""}</strong>
-          <span>Money $${player.money} | Ships ${player.activeShips} | Score ${player.score}/${state.snapshot.maxScore || 900}</span>
+          <span>${moneyText} | Ships ${player.activeShips} | Score ${player.score}/${state.snapshot.maxScore || 900}</span>
           <span>Status: ${status} | K ${player.kills} / L ${player.losses}</span>
         </div>
         ${canKick ? `<button type="button" data-kick="${escapeHtml(player.id)}">Kick</button>` : ""}
       `;
-      row.querySelector("[data-kick]")?.addEventListener("click", () => kickPlayer(player.id));
       card.appendChild(row);
     }
     dom.scoreList.appendChild(card);
@@ -1492,10 +1843,6 @@ function renderPlayerList() {
       </div>
       ${canKick ? `<button type="button" data-kick="${escapeHtml(player.id)}">Kick</button>` : ""}
     `;
-    const kickButton = row.querySelector?.("[data-kick]");
-    if (kickButton) {
-      kickButton.addEventListener("click", () => kickPlayer(player.id));
-    }
     dom.playerList.appendChild(row);
   }
 }
@@ -1528,7 +1875,12 @@ function updateWinnerBanner() {
   dom.endGameTitle.textContent = `${winner.name} won`;
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   dom.endGameSummary.innerHTML = rewardSummaryMarkup(mine?.lastReward, mine?.money);
-  dom.endGameActions.hidden = !isAdmin();
+  const admin = isAdmin();
+  dom.endGameActions.hidden = false;
+  dom.restartButton.hidden = !admin;
+  dom.endCloseButton.hidden = !admin;
+  if (dom.endLeaveButton) dom.endLeaveButton.hidden = admin;
+  setEndGameActionState(false);
 }
 
 function rewardSummaryMarkup(reward, money) {
