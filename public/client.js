@@ -39,13 +39,49 @@ const PART_DEFS = {
   lightRailgun: { name: "Light Railgun", color: "#e2e8f0", glyph: "linear-gradient(90deg, #0f172a 0 16%, #e2e8f0 18% 72%, #60a5fa 74%)" },
   heavyRailgun: { name: "Heavy Railgun", color: "#f8fafc", glyph: "linear-gradient(90deg, #020617 0 14%, #f8fafc 16% 70%, #3b82f6 74%)" },
   beamEmitter: { name: "Beam Emitter", color: "#bae6fd", glyph: "linear-gradient(90deg, #082f49 0 18%, #7dd3fc 20% 76%, #eff6ff 78%)" },
+  aegisProjector: { name: "Aegis Projector", color: "#6ee7b7", glyph: "radial-gradient(circle, #ecfdf5 0 18%, #34d399 30% 56%, #064e3b 64%)" },
   sensorArray: { name: "Sensor Array", color: "#a7f3d0", glyph: "radial-gradient(circle, #ecfdf5 0 15%, #10b981 25% 45%, #064e3b 55%)" },
   targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
   fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
   heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
   captureModule: { name: "Capture Module", color: "#f9a8d4", glyph: "radial-gradient(circle, #fdf2f8 0 20%, #ec4899 30% 55%, #831843 62%)" },
+  signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
+  stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" }
 };
+
+const PART_DESCRIPTIONS = Object.freeze({
+  core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
+  frame: "Cheap structure used to expand the ship shape and connect other modules.",
+  armor: "Heavy passive protection. Adds strong hull but increases mass and slows turning.",
+  engine: "Main propulsion module. Adds thrust for speed and acceleration.",
+  reactor: "Primary power source for weapons, shields, engines, and support systems.",
+  battery: "Energy reserve with a small shield buffer. Helps survivability without generating power.",
+  shield: "Active defensive barrier. Adds shield capacity and recharge at a power cost.",
+  blaster: "General-purpose gun with medium range, steady damage, and a forward firing arc.",
+  missile: "Tracking burst weapon with long reach, high impact, and slow reload.",
+  railgun: "Long-range precision weapon with heavy damage, narrow arc, and high power draw.",
+  repair: "Support module that slowly repairs hull damage during battle.",
+  compositeArmor: "Lighter armor plate that gives efficient hull without as much mass as standard armor.",
+  capacitor: "Large energy bank with extra shield capacity but no power generation.",
+  auxGenerator: "Small backup generator for light power deficits and compact ship builds.",
+  maneuverThruster: "Side-control engine that improves turning more than straight-line speed.",
+  gyroscope: "Stabilization module that improves turn rate without adding thrust.",
+  pointDefense: "Short-range defensive turret that can fire in every direction.",
+  autocannon: "Rapid-fire weapon with high spread. Best against nearby light targets.",
+  torpedo: "Slow heavy missile with major burst damage against large ships.",
+  swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
+  beamEmitter: "Accurate sustained beam weapon with high power use and focused range.",
+  aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
+  sensorArray: "Support electronics that extend weapon range for long-distance ships.",
+  targetingComputer: "Support computer that improves weapon accuracy.",
+  fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
+  heatSink: "Cooling support that is durable and low-power for weapon-heavy designs.",
+  captureModule: "Objective module that helps dedicated capture ships contest relays.",
+  signalAmplifier: "Utility transmitter that extends weapon range for command and skirmish ships.",
+  stabilizerNode: "Utility stabilizer that improves weapon accuracy and slightly helps turning.",
+  repairBeam: "Heavy support repair system with stronger hull recovery and high power draw."
+});
 
 const SHIP_ECONOMY = Object.freeze({
   baseShipCost: 48,
@@ -392,6 +428,16 @@ const PART_STATS = {
     rotationRequired: true
   },
 
+  aegisProjector: {
+    category: "Defence",
+    cost: 44, mass: 6, hp: 44,
+    powerGeneration: 0, powerUse: 5.4,
+    shield: 72, shieldRegen: 3.6,
+    thrust: 0, turn: -0.025,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
   // Weapons
   lightBlaster: {
     category: "Weapons",
@@ -635,6 +681,30 @@ const PART_STATS = {
     utilityEffect: "capture"
   },
 
+  signalAmplifier: {
+    category: "Utility",
+    cost: 34, mass: 3, hp: 30,
+    powerGeneration: 0, powerUse: 2.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rangeBonus: 60,
+    utilityEffect: "range"
+  },
+
+  stabilizerNode: {
+    category: "Utility",
+    cost: 30, mass: 3, hp: 34,
+    powerGeneration: 0, powerUse: 2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.04,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    accuracyBonus: 0.05,
+    utilityEffect: "accuracy"
+  },
+
   repairBeam: {
     category: "Support",
     cost: 58, mass: 8, hp: 48,
@@ -658,6 +728,25 @@ const LOCAL_ACTIVE_ROOM_KEY = "modular-fleet-active-room-v1";
 const WORLD_FALLBACK = { width: 3200, height: 1900 };
 const PURCHASE_PENDING_MS = 2500;
 const PART_CATEGORIES = ["Structure", "Power", "Engines", "Defence", "Weapons", "Support", "Utility"];
+const HIDDEN_PARTS = new Set([
+  "lightFrame",
+  "heavyFrame",
+  "bulkhead",
+  "lightMount",
+  "heavyMount",
+  "smallReactor",
+  "heavyReactor",
+  "microThruster",
+  "heavyEngine",
+  "lightShield",
+  "heavyShield",
+  "regenShield",
+  "lightBlaster",
+  "heavyBlaster",
+  "lightMissile",
+  "lightRailgun",
+  "heavyRailgun"
+]);
 
 const dom = {
   canvas: document.getElementById("arenaCanvas"),
@@ -1683,7 +1772,7 @@ function renderPalette() {
     tab.textContent = category;
     tab.addEventListener("click", () => {
       state.selectedPartCategory = category;
-      const first = Object.keys(PART_DEFS).find((type) => type !== "core" && partCategory(type) === category);
+      const first = Object.keys(PART_DEFS).find((type) => isPalettePart(type) && partCategory(type) === category);
       if (first) state.selectedPart = first;
       renderPalette();
       renderPartInspector();
@@ -1695,7 +1784,7 @@ function renderPalette() {
   const list = document.createElement("div");
   list.className = "part-category-list";
   for (const type of Object.keys(PART_DEFS)) {
-    if (type === "core") continue;
+    if (!isPalettePart(type)) continue;
     if (partCategory(type) !== state.selectedPartCategory) continue;
     const stat = PART_STATS[type];
     const button = document.createElement("button");
@@ -1712,6 +1801,10 @@ function renderPalette() {
     list.appendChild(button);
   }
   dom.palette.appendChild(list);
+}
+
+function isPalettePart(type) {
+  return type !== "core" && !HIDDEN_PARTS.has(type);
 }
 
 function partCategory(type) {
@@ -1738,7 +1831,7 @@ function renderPartInspector() {
       <strong>${escapeHtml(def.name)}</strong>
     </div>
     <div class="part-category-label">${escapeHtml(partCategory(type))}</div>
-    <p class="part-description">${escapeHtml(stat.description || "")}</p>
+    <p class="part-description">${escapeHtml(partDescription(type, stat))}</p>
     <div class="part-inspector-grid">
       ${inspectorStat("Cost", effectiveCost)}
       ${inspectorStat("Mass", formatMass(stat.mass))}
@@ -1755,6 +1848,10 @@ function renderPartInspector() {
     <div class="part-best-use"><span>Best use</span>${escapeHtml(stat.bestUse || "Flexible ship system.")}</div>
     ${stat.drawback ? `<div class="part-best-use drawback"><span>Drawback</span>${escapeHtml(stat.drawback)}</div>` : ""}
   `;
+}
+
+function partDescription(type, stat) {
+  return stat.description || PART_DESCRIPTIONS[type] || "General-purpose ship component.";
 }
 
 function inspectorStat(label, value) {
@@ -1788,6 +1885,7 @@ function partInspectorDetails(type, stat, effectiveCost) {
       ["Tracking", weapon.tracking ? `${Math.round(weapon.tracking * 100)}%` : "None"],
       ["Arc", `${weapon.arc || 360} deg`],
       ["Default facing", "Forward / editor up"],
+      ["Rotate", "Click a placed matching gun, or hover it and press R"],
       ["Power use", formatPowerUse(stat.powerUse)]
     ];
   }
@@ -1834,6 +1932,17 @@ function partInspectorDetails(type, stat, effectiveCost) {
       ["Power use", formatPowerUse(stat.powerUse)],
       ["Shield", formatShield(stat.shield)],
       ["Mass", formatMass(stat.mass)]
+    ];
+  }
+
+  if (stat.utilityEffect || stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.heat) {
+    return [
+      ["Utility role", utilityEffectLabel(stat)],
+      ["Range bonus", stat.rangeBonus ? formatDistance(stat.rangeBonus) : "None"],
+      ["Accuracy bonus", stat.accuracyBonus ? formatPercent(stat.accuracyBonus) : "None"],
+      ["Fire rate bonus", stat.fireRateBonus ? formatPercent(stat.fireRateBonus) : "None"],
+      ["Cooling bonus", stat.heat ? `${formatPercent(Math.max(0, -stat.heat) * 0.01)} faster reload` : "None"],
+      ["Capture pressure", stat.captureBonus ? `+${formatPercent(stat.captureBonus)}` : "None"]
     ];
   }
 
@@ -1889,6 +1998,21 @@ function formatDamage(value) {
   return `${Number(value) || 0} dmg`;
 }
 
+function utilityEffectLabel(stat) {
+  const effect = stat.utilityEffect || "general";
+  if (effect === "range") return "Extends weapon range";
+  if (effect === "accuracy") return "Improves weapon accuracy";
+  if (effect === "fireRate") return "Improves weapon fire rate";
+  if (effect === "capture") return "Increases relay capture speed";
+  if (effect === "cooling") return "Reduces weapon reload time";
+  if (effect === "repair") return "Repairs damaged hull";
+  return "General utility";
+}
+
+function formatPercent(value) {
+  return `${Math.round((Number(value) || 0) * 100)}%`;
+}
+
 function effectivePartCostLabel(type) {
   return `$${estimatePartEffectiveCost(type)}`;
 }
@@ -1934,8 +2058,8 @@ function estimateFormulaPartCost(type) {
 function partIconMarkup(type, extraClass = "") {
   const safeType = String(type || "frame").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
   const classes = ["part-glyph", `part-${safeType}`, extraClass].filter(Boolean).join(" ");
-  const glyph = PART_DEFS[type]?.glyph;
-  const style = glyph ? ` style="background:${escapeHtml(glyph)}"` : "";
+  const color = PART_DEFS[type]?.color || "#8393aa";
+  const style = ` style="--part-accent:${escapeHtml(color)}"`;
   return `<span class="${classes}"${style} aria-hidden="true"><span></span></span>`;
 }
 
@@ -1966,9 +2090,11 @@ function renderBuildGrid() {
       const cell = document.createElement("button");
       cell.type = "button";
       cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
-      cell.title = part ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg` : ""}` : "Empty";
+      cell.title = part
+        ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
+        : "Empty";
       if (part) {
-        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph")}${isRotatablePart(part.type) ? `<span class="rotation-marker rot-${normalizeRotation(part.rotation)}">▲</span>` : ""}`;
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph")}${isRotatablePart(part.type) ? `<span class="rotation-marker rot-${normalizeRotation(part.rotation)}">&#9650;</span>` : ""}`;
       }
       cell.addEventListener("mouseenter", () => {
         state.hoveredCell = { x, y };
@@ -1992,6 +2118,11 @@ function editCell(x, y) {
   state.selectedCell = { x, y };
 
   if (existing) {
+    if (existing.type === state.selectedPart && isRotatablePart(existing.type)) {
+      rotateCell(x, y);
+      return;
+    }
+
     const next = state.design.map((part) => part.x === x && part.y === y ? makeDesignPart(x, y, state.selectedPart, part.rotation) : part);
     if (isConnected(next)) {
       state.design = next;
@@ -2034,11 +2165,9 @@ function normalizeRotation(value) {
   return [0, 90, 180, 270].includes(rotation) ? rotation : 0;
 }
 
-function rotateFocusedPart() {
-  const cell = state.hoveredCell || state.selectedCell;
-  if (!cell) return;
-  const part = state.design.find((candidate) => candidate.x === cell.x && candidate.y === cell.y);
-  if (!part || !isRotatablePart(part.type)) return;
+function rotateCell(x, y) {
+  const part = state.design.find((candidate) => candidate.x === x && candidate.y === y);
+  if (!part || !isRotatablePart(part.type)) return false;
   state.design = state.design.map((candidate) => candidate === part
     ? { ...candidate, rotation: (normalizeRotation(candidate.rotation) + 90) % 360 }
     : candidate);
@@ -2046,6 +2175,13 @@ function rotateFocusedPart() {
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
+  return true;
+}
+
+function rotateFocusedPart() {
+  const cell = state.hoveredCell || state.selectedCell;
+  if (!cell) return;
+  rotateCell(cell.x, cell.y);
 }
 
 function removeCell(x, y) {
@@ -2322,12 +2458,21 @@ function renderLocalStats() {
   }
   dom.stats.innerHTML = [
     statMarkup("Fleet", stats.fleetCount),
+    statMarkup("Class", stats.massClass),
     statMarkup("Hull", formatHull(stats.maxHp)),
     statMarkup("Shield", formatShield(stats.maxShield)),
     statMarkup("Speed", formatSpeed(Math.round(stats.maxSpeed))),
-    statMarkup("Power", `${stats.powerGeneration}/${stats.powerUse} MW`),
+    statMarkup("Turn", `${stats.turnRate.toFixed(2)} rad/s`),
+    statMarkup("Power Use/Gen", `${stats.powerUse}/${stats.powerGeneration} MW`),
+    statMarkup("Effective Thrust", formatThrust(stats.effectiveThrust)),
+    statMarkup("Engine Efficiency", formatPercent(stats.engineEfficiency)),
+    statMarkup("Power Efficiency", formatPercent(stats.powerEfficiency)),
+    statMarkup("Power Debuff", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
+    statMarkup("Mass Speed Cap", formatSpeed(stats.speedCap)),
     statMarkup("Thrust/Mass", `${stats.thrustRatio} kN/T`),
     statMarkup("Weapons", weaponAbbrevText(stats)),
+    stats.coolingBonus > 0 ? statMarkup("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
+    stats.captureBonus > 0 ? statMarkup("Capture", `+${formatPercent(stats.captureBonus)}`) : "",
     statMarkup("Repair", formatRepair(stats.repairRate)),
     statMarkup("Mass", formatMass(stats.mass)),
     costBreakdownMarkup(stats.costBreakdown)
@@ -2632,9 +2777,11 @@ function showPurchaseTooltip(optionId, event) {
       ${tooltipStat("Speed", formatSpeed(Math.round(stats.maxSpeed)))}
       ${tooltipStat("Turn", stats.turnRate.toFixed(2))}
       ${tooltipStat("Mass", formatMass(stats.mass))}
-      ${tooltipStat("Power", `${stats.powerGeneration}/${stats.powerUse} MW`)}
+      ${tooltipStat("Power Use/Gen", `${stats.powerUse}/${stats.powerGeneration} MW`)}
       ${tooltipStat("Energy", formatEnergy(stats.energyStorage))}
       ${tooltipStat("Repair", formatRepair(stats.repairRate))}
+      ${stats.coolingBonus > 0 ? tooltipStat("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : ""}
+      ${stats.captureBonus > 0 ? tooltipStat("Capture", `+${formatPercent(stats.captureBonus)}`) : ""}
       ${tooltipStat("Weapons", weaponSummaryText(stats))}
       ${tooltipStat("DPS", stats.weaponDps)}
     </div>
@@ -2712,7 +2859,7 @@ function renderTeamPanel(players) {
     const teamPlayers = players.filter((player) => player.team === team);
     const score = Math.max(0, ...teamPlayers.map((player) => player.score || 0));
     const objectives = state.snapshot.points.filter((point) => point.ownerTeam === team && point.progress > 0.98);
-    const pointsPerSecond = objectives.length * 6;
+    const pointsPerSecond = objectives.length * 7;
     const title = soloMode
       ? (teamPlayers[0]?.name || "Solo")
       : `${team.toUpperCase()} TEAM`;
@@ -4235,12 +4382,19 @@ function computeStats(modules) {
   let powerUse = 0;
   let thrust = 0;
   let turnBonus = 0;
+  const engineThrustValues = [];
+  const turnModuleValues = [];
   let energyStorage = 0;
   let blaster = 0;
   let missile = 0;
   let railgun = 0;
   let repair = 0;
   let repairRate = 0;
+  let rangeBonus = 0;
+  let accuracyBonus = 0;
+  let fireRateBonus = 0;
+  let coolingBonus = 0;
+  let captureBonus = 0;
   const weaponTotals = {
     blaster: weaponAccumulator(),
     missile: weaponAccumulator(),
@@ -4258,29 +4412,30 @@ function computeStats(modules) {
     powerUse += part.powerUse || 0;
     thrust += part.thrust;
     turnBonus += part.turn;
+    if (part.thrust > 0) engineThrustValues.push(part.thrust);
+    if (part.turn > 0) turnModuleValues.push(part.turn);
     energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
     missile += part.missile || 0;
     railgun += part.railgun || 0;
     repair += part.repair || 0;
     repairRate += part.repairRate || 0;
+    rangeBonus += part.rangeBonus || 0;
+    accuracyBonus += part.accuracyBonus || 0;
+    fireRateBonus += part.fireRateBonus || 0;
+    coolingBonus += Math.max(0, -(part.heat || 0)) * 0.01;
+    captureBonus += part.captureBonus || 0;
     if (part.weapon) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
   }
 
+  applyWeaponUtilityBonuses(weaponTotals, { rangeBonus, accuracyBonus, fireRateBonus, coolingBonus });
   const power = powerGeneration - powerUse;
-  const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.2;
-  const efficiency = clamp(powerUse > 0 ? 0.58 + powerRatio * 0.42 : 1.08, 0.48, 1.15);
-  const thrustRatio = thrust / Math.max(1, mass);
-  // Mobility balance: armor and large weapons add mass, while engines add thrust.
-  // Speed and acceleration scale from total thrust divided by total mass so heavy ships need more engines.
-  // Ships with no engine thrust cannot move; their command target can change, but acceleration stays zero.
-  const hasEngineThrust = thrust > 0;
-  const maxSpeed = hasEngineThrust ? clamp(82 + thrustRatio * 21 * clamp(efficiency, 0.62, 1.08), 72, 360) : 0;
-  const accel = hasEngineThrust ? clamp(46 + thrustRatio * 46 * clamp(efficiency, 0.55, 1.08), 38, 420) : 0;
+  const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
+  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues });
   const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun });
   const unitCost = costBreakdown.total;
   const fleetCount = clamp(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
-  const warnings = shipWarnings({ powerGeneration, powerUse, thrustRatio, blaster, missile, railgun, mass, turnRate: clamp(1.05 + turnBonus + thrustRatio * 0.035, 0.55, 2.85), repair, shield: maxShield, modules });
+  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
 
   return {
     cost,
@@ -4294,16 +4449,25 @@ function computeStats(modules) {
     power,
     efficiency: Number(efficiency.toFixed(2)),
     thrust,
-    thrustRatio: Number(thrustRatio.toFixed(2)),
+    effectiveThrust: Math.round(movement.effectiveThrust),
+    engineEfficiency: Number(movement.engineEfficiency.toFixed(2)),
+    thrustRatio: Number(movement.thrustRatio.toFixed(2)),
     energyStorage,
-    accel: Math.round(accel),
-    maxSpeed,
-    turnRate: clamp(1.05 + turnBonus + thrustRatio * 0.035, 0.55, 2.85),
+    accel: Math.round(movement.accel),
+    maxSpeed: movement.maxSpeed,
+    turnRate: movement.turnRate,
+    massClass: movement.massClass,
+    speedCap: movement.speedCap,
+    turnCap: movement.turnCap,
+    powerEfficiency: Number(movement.powerEfficiency.toFixed(2)),
+    powerDebuff: Number(movement.powerDebuff.toFixed(2)),
     blaster,
     missile,
     railgun,
     repair,
     repairRate,
+    coolingBonus: Number(coolingBonus.toFixed(2)),
+    captureBonus: Number(captureBonus.toFixed(2)),
     blasterRange: weaponRange(weaponTotals.blaster),
     missileRange: weaponRange(weaponTotals.missile),
     railgunRange: weaponRange(weaponTotals.railgun),
@@ -4359,12 +4523,112 @@ function addWeaponStats(total, weapon) {
   total.dps += calculateDps(weapon);
 }
 
+function applyWeaponUtilityBonuses(totals, bonuses) {
+  const hasWeapons = Object.values(totals).some((total) => total.count > 0);
+  if (!hasWeapons) return;
+  const rangeBonus = Number(bonuses.rangeBonus) || 0;
+  const accuracyBonus = Number(bonuses.accuracyBonus) || 0;
+  const fireRateMultiplier = 1 + (Number(bonuses.fireRateBonus) || 0) + (Number(bonuses.coolingBonus) || 0);
+  for (const total of Object.values(totals)) {
+    if (total.count <= 0) continue;
+    total.range += rangeBonus;
+    total.accuracy = Math.min(total.count, total.accuracy + accuracyBonus * total.count);
+    total.fireRate *= fireRateMultiplier;
+    total.dps *= fireRateMultiplier;
+    total.reload = fireRateMultiplier > 0 ? total.reload / fireRateMultiplier : total.reload;
+  }
+}
+
 function calculateDps(weapon) {
   return Number(((weapon.damage || 0) * (weapon.fireRate || 0)).toFixed(1));
 }
 
 function calculateReload(weapon) {
   return Number((1 / Math.max(0.01, weapon.fireRate || 1)).toFixed(2));
+}
+
+function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues }) {
+  const safeMass = Math.max(mass, 1);
+  const effectiveThrust = effectiveStackedValue(engineThrustValues, 0.88);
+  const positiveTurn = effectiveStackedValue(turnModuleValues, 0.92);
+  const negativeTurnDrag = Math.min(0, turnBonus);
+  const effectiveTurnBonus = positiveTurn + negativeTurnDrag;
+  const thrustRatio = effectiveThrust / safeMass;
+  const hasEngineThrust = effectiveThrust > 0;
+  const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.1;
+  const movementPowerMultiplier = calculateMovementPowerMultiplier(powerGeneration, powerUse);
+  const powerEfficiency = clamp(powerRatio, 0, 1.1);
+  const massSpeedPenalty = 1 / Math.pow(1 + safeMass / 95, 0.55);
+  const massAccelPenalty = 1 / Math.pow(1 + safeMass / 76, 0.75);
+  const massTurnPenalty = 1 / Math.pow(1 + safeMass / 82, 0.82);
+  const rawSpeed = (90 + Math.sqrt(thrustRatio) * 52) * massSpeedPenalty * movementPowerMultiplier;
+  const rawAccel = (45 + Math.sqrt(effectiveThrust) * 7) * massAccelPenalty * movementPowerMultiplier;
+  const rawTurn = Math.max(0.22, (0.72 + effectiveTurnBonus * 1.34) * massTurnPenalty * movementPowerMultiplier);
+  const speedCap = speedCapForMass(safeMass);
+  const turnCap = turnCapForMass(safeMass);
+  const cappedSpeed = hasEngineThrust ? softCap(rawSpeed, speedCap, 0.25) : 0;
+  const cappedTurn = softCap(rawTurn, turnCap, 0.2);
+
+  // Engines stack with diminishing returns, then mass and power apply soft limits.
+  // This keeps engines useful on capital ships without letting high-mass hulls reach scout speeds.
+  return {
+    maxSpeed: hasEngineThrust ? Math.max(35, cappedSpeed) : 0,
+    accel: hasEngineThrust ? Math.max(18, rawAccel) : 0,
+    turnRate: cappedTurn,
+    thrustRatio,
+    effectiveThrust,
+    engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0,
+    powerEfficiency,
+    powerDebuff: Math.max(0, 1 - movementPowerMultiplier),
+    speedCap,
+    turnCap,
+    massClass: massClassForMass(safeMass),
+    speedCapped: hasEngineThrust && rawSpeed > speedCap * 1.05
+  };
+}
+
+function calculateSystemEfficiency(powerGeneration, powerUse) {
+  if (powerUse <= 0) return 1.08;
+  const ratio = powerGeneration / Math.max(powerUse, 1);
+  if (ratio >= 1) return clamp(1 + Math.min((ratio - 1) * 0.25, 0.12), 1, 1.12);
+  return clamp(Math.pow(Math.max(ratio, 0), 1.35), 0.25, 1);
+}
+
+function calculateMovementPowerMultiplier(powerGeneration, powerUse) {
+  if (powerUse <= 0) return 1.04;
+  const ratio = powerGeneration / Math.max(powerUse, 1);
+  if (ratio >= 1) return clamp(Math.sqrt(ratio), 1, 1.08);
+  return clamp(Math.pow(Math.max(ratio, 0), 1.8), 0.18, 1);
+}
+
+function effectiveStackedValue(values, falloff) {
+  return [...values].sort((a, b) => b - a).reduce((total, value, index) => total + value * Math.pow(falloff, index), 0);
+}
+
+function softCap(value, cap, softness = 0.35) {
+  if (value <= cap) return value;
+  return cap + (value - cap) * softness;
+}
+
+function massClassForMass(mass) {
+  if (mass < 55) return "Light";
+  if (mass < 125) return "Medium";
+  if (mass < 230) return "Heavy";
+  return "Capital";
+}
+
+function speedCapForMass(mass) {
+  if (mass < 55) return 340;
+  if (mass < 125) return 285;
+  if (mass < 230) return 215;
+  return 165;
+}
+
+function turnCapForMass(mass) {
+  if (mass < 55) return 2.85;
+  if (mass < 125) return 2.05;
+  if (mass < 230) return 1.12;
+  return 0.72;
 }
 
 function weaponRange(total) {
@@ -4395,8 +4659,10 @@ function shipWarnings(stats) {
   const hasReactor = stats.modules.some((module) => module.type === "reactor");
   if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
   if (!hasReactor && stats.powerUse > PART_STATS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
-  if (stats.thrust <= 0) warnings.push("No engines: this ship cannot move");
+  if (stats.effectiveThrust <= 0) warnings.push("No engines: this ship cannot move");
   if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
+  if (stats.speedCapped) warnings.push("Large hull: speed capped by mass");
+  if (stats.powerDebuff > 0.08 && stats.thrust > 0) warnings.push(`Underpowered systems: movement reduced ${formatPercent(stats.powerDebuff)}. Add reactors.`);
   if (stats.mass > 85 || stats.turnRate < 0.85) warnings.push("Heavy ship: turning will be slow");
   if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
   if (stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");

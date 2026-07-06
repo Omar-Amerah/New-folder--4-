@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Modular Fleet Arena</title>
-    <link rel="stylesheet" href="/styles.css?v=combat-parts-1">
+    <link rel="stylesheet" href="/styles.css?v=hud-align-1">
   </head>
   <body>
     <main class="app">
@@ -56,31 +56,31 @@
       <section class="arena-wrap" aria-label="Arena">
         <canvas id="arenaCanvas"></canvas>
         <div class="top-hud">
-          <div>
+          <div class="hud-card hud-room">
             <span class="hud-label">Room</span>
             <strong id="roomLabel">----</strong>
           </div>
-          <div>
+          <div class="hud-card hud-fleet">
             <span class="hud-label">Fleet</span>
             <strong id="fleetLabel">0</strong>
           </div>
-          <div>
+          <div class="hud-card hud-money">
             <span class="hud-label">Money</span>
             <strong id="moneyHudLabel">$0</strong>
           </div>
-          <div>
+          <div class="hud-card hud-income">
             <span class="hud-label">Income</span>
             <strong id="incomeHudLabel">+$0/s</strong>
           </div>
-          <div>
+          <div class="hud-card hud-relays">
             <span class="hud-label">Relays</span>
             <strong id="relayLabel">0</strong>
           </div>
-          <div>
+          <div class="hud-card hud-selected">
             <span class="hud-label">Selected</span>
             <strong id="selectionLabel">0</strong>
           </div>
-          <div>
+          <div class="hud-card hud-target">
             <span class="hud-label">Target</span>
             <strong id="objectiveLabel">None</strong>
           </div>
@@ -281,6 +281,6 @@
       </div>
     </section>
 
-    <script src="/client.js?v=combat-parts-1"></script>
+    <script src="/client.js?v=utility-effects-1"></script>
   </body>
 </html>
