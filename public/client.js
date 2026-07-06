@@ -53,7 +53,7 @@ const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
 const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
 const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
 const WORLD_FALLBACK = { width: 3200, height: 1900 };
-const PURCHASE_PENDING_MS = 850;
+const PURCHASE_PENDING_MS = 2500;
 
 const dom = {
   canvas: document.getElementById("arenaCanvas"),
@@ -156,6 +156,7 @@ const state = {
   minimap: null,
   shipHud: new Map(),
   pendingPurchases: new Map(),
+  purchaseErrors: new Map(),
   notices: [],
   lastPingAt: 0,
   lastPongAt: 0,
@@ -337,20 +338,22 @@ function buyPurchaseOption(optionId) {
   }
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option) return;
-  const existingPending = getPendingPurchaseForOption(optionId);
-  if (existingPending && performance.now() - existingPending.startedAt >= PURCHASE_PENDING_MS) {
-    clearPendingPurchasesForOption(optionId);
-  }
   const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
   if (!purchase.canBuy) {
     addNotice(purchase.reason || "Cannot buy this ship right now", "warning");
     return;
   }
   const requestId = makePurchaseRequestId();
-  const timeoutId = setTimeout(() => clearPendingPurchase(requestId), PURCHASE_PENDING_MS);
+  const timeoutId = setTimeout(() => {
+    const pending = clearPendingPurchase(requestId);
+    if (pending?.optionId) setPurchaseError(pending.optionId, "No response, try again");
+  }, PURCHASE_PENDING_MS);
   state.pendingPurchases.set(requestId, {
     optionId,
     count: state.purchaseQuantity,
+    moneyBefore: purchase.money,
+    activeShipsBefore: purchase.activeShips,
+    totalCost: purchase.totalCost,
     startedAt: performance.now(),
     timeoutId
   });
@@ -369,10 +372,11 @@ function makePurchaseRequestId() {
 
 function clearPendingPurchase(requestId) {
   const pending = state.pendingPurchases.get(requestId);
-  if (!pending) return;
+  if (!pending) return null;
   clearTimeout(pending.timeoutId);
   state.pendingPurchases.delete(requestId);
   renderPurchaseBar();
+  return pending;
 }
 
 function clearPendingPurchasesForOption(optionId) {
@@ -381,11 +385,32 @@ function clearPendingPurchasesForOption(optionId) {
   }
 }
 
-function clearAllPendingPurchases() {
+function reconcilePendingPurchasesWithSnapshot() {
   if (!state.pendingPurchases.size) return;
-  for (const requestId of [...state.pendingPurchases.keys()]) {
-    clearPendingPurchase(requestId);
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  if (!mine) return;
+  const money = currentMatchMoney(mine);
+  const activeShips = mine.activeShips ?? 0;
+  for (const [requestId, pending] of [...state.pendingPurchases]) {
+    const age = performance.now() - pending.startedAt;
+    const shipCountChanged = activeShips >= pending.activeShipsBefore + 1;
+    const moneySpent = money <= pending.moneyBefore - Math.max(1, Math.floor((pending.totalCost || 0) * 0.5));
+    if (age > 120 && (shipCountChanged || moneySpent)) {
+      clearPendingPurchase(requestId);
+      showToast(`Built ${pending.count} ship${pending.count === 1 ? "" : "s"}`, "good");
+    }
   }
+}
+
+function setPurchaseError(optionId, message) {
+  const previous = state.purchaseErrors.get(optionId);
+  if (previous?.timeoutId) clearTimeout(previous.timeoutId);
+  const timeoutId = setTimeout(() => {
+    state.purchaseErrors.delete(optionId);
+    renderPurchaseBar();
+  }, 1600);
+  state.purchaseErrors.set(optionId, { message, timeoutId });
+  renderPurchaseBar();
 }
 
 function send(message) {
@@ -502,6 +527,7 @@ function handleServerMessage(message) {
     state.phase = message.phase || state.phase;
     state.adminId = message.adminId || state.adminId;
     dom.roomLabel.textContent = message.room;
+    reconcilePendingPurchasesWithSnapshot();
     pruneSelection();
     updateHud();
     renderScoreboard();
@@ -509,7 +535,21 @@ function handleServerMessage(message) {
     renderSavedDesigns();
     updateLobbyState();
     updateWinnerBanner();
-    clearAllPendingPurchases();
+    return;
+  }
+
+  if (message.type === "purchaseResult") {
+    const pending = message.requestId ? clearPendingPurchase(message.requestId) : null;
+    if (message.ok) {
+      const count = Number(message.count) || pending?.count || 1;
+      const totalCost = Number(message.totalCost) || 0;
+      showToast(`Built ${count} ship${count === 1 ? "" : "s"}${totalCost ? ` for $${totalCost}` : ""}`, "good");
+    } else {
+      const reason = message.message || "Purchase failed";
+      if (pending?.optionId) setPurchaseError(pending.optionId, reason);
+      showToast(reason, "error");
+    }
+    renderPurchaseBar();
     return;
   }
 
@@ -1140,22 +1180,30 @@ function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const money = currentMatchMoney(mine);
   const activeShips = mine?.activeShips ?? 0;
+  const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
+  const remainingSlots = Math.max(0, shipCap - activeShips);
   const totalCost = option.stats.unitCost * quantity;
   const validity = validateBlueprintForPurchase(option.blueprint);
   const pending = getPendingPurchaseForOption(option.id);
+  const error = state.purchaseErrors.get(option.id);
   let reason = "";
 
   if (pending) reason = "Building...";
+  else if (error) reason = error.message || "Purchase failed";
   else if (state.phase !== "active") reason = "Match not active";
   else if (!mine?.ready) reason = "Not ready";
   else if (!validity.ok) reason = validity.reason;
+  else if (activeShips + quantity > shipCap) reason = quantity === 1 ? "Fleet full" : `Need ${quantity} slots`;
   else if (money < totalCost) reason = `Need $${Math.ceil(totalCost - money)}`;
 
   return {
     money,
     activeShips,
+    shipCap,
+    remainingSlots,
     totalCost,
     pending,
+    error,
     canBuy: reason === "",
     reason
   };
@@ -1180,9 +1228,10 @@ function renderPurchaseBar() {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const money = currentMatchMoney(mine);
   const activeShips = mine?.activeShips ?? 0;
+  const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
 
   if (dom.purchaseMoney) dom.purchaseMoney.textContent = `$${Math.floor(money)}`;
-  if (dom.purchaseFleet) dom.purchaseFleet.textContent = `${activeShips} ships`;
+  if (dom.purchaseFleet) dom.purchaseFleet.textContent = `${activeShips}/${shipCap}`;
   dom.purchaseQuantityOne?.classList?.toggle("active", state.purchaseQuantity === 1);
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
@@ -1193,7 +1242,7 @@ function renderPurchaseBar() {
     const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
     const card = document.createElement("button");
     card.type = "button";
-    card.className = `purchase-option ${optionState.pending ? "pending" : optionState.canBuy ? "ready" : "disabled"}`;
+    card.className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
     card.setAttribute?.("aria-disabled", String(!optionState.canBuy));
     if (card.dataset) card.dataset.optionId = option.id;
     card.innerHTML = `

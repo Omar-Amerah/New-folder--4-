@@ -431,33 +431,45 @@ function handleMessage(client, message) {
   if (message.type === "buyShip") {
     const requestId = sanitizeRequestId(message.requestId);
     if (client.room.phase !== "active") {
-      send(client, { type: "error", message: "Ships can only be built after the match starts", requestId });
+      send(client, { type: "purchaseResult", ok: false, requestId, message: "Ships can only be built after the match starts" });
       return;
     }
     const count = clampNumber(message.count, 1, 5);
     const purchaseDesign = validateDesign(message.design);
     if (!purchaseDesign.ok) {
-      send(client, { type: "error", message: purchaseDesign.reason, requestId });
+      send(client, { type: "purchaseResult", ok: false, requestId, message: purchaseDesign.reason });
       return;
     }
     const validation = validateBuyShip(client.room, client.player, count, purchaseDesign.stats);
     if (!validation.ok) {
       client.player.lastBuildError = validation.reason;
-      send(client, { type: "error", message: validation.reason, requestId });
+      send(client, { type: "purchaseResult", ok: false, requestId, message: validation.reason });
       return;
     }
+    const createdShips = [];
     for (let i = 0; i < validation.count; i += 1) {
-      buyShip(client.room, client.player, performanceNow(), {
+      const ship = buyShip(client.room, client.player, performanceNow(), {
         prevalidated: true,
         stats: validation.shipStats,
-        design: purchaseDesign.modules
+        design: purchaseDesign.modules,
+        silent: true
       });
+      if (ship) createdShips.push(ship);
     }
     send(client, {
-      type: "notice",
-      message: `${validation.count} ship${validation.count === 1 ? "" : "s"} building for $${validation.totalCost}`,
-      requestId
+      type: "purchaseResult",
+      ok: true,
+      requestId,
+      count: createdShips.length,
+      totalCost: validation.totalCost,
+      shipIds: createdShips.map((ship) => ship.id),
+      money: Math.floor(client.player.money)
     });
+    broadcastRoom(client.room, {
+      type: "notice",
+      message: `${client.player.name} built ${createdShips.length} ship${createdShips.length === 1 ? "" : "s"} for $${validation.totalCost}`
+    });
+    broadcastRoom(client.room, snapshotRoom(client.room, performanceNow()));
     return;
   }
 
@@ -873,7 +885,7 @@ function tickRoom(room, dt, now) {
 }
 
 function buyShip(room, player, now, options = {}) {
-  if (!player.ready) return false;
+  if (!player.ready) return null;
   const stats = options.stats || player.stats || computeStats(player.design);
   const design = normalizeShipDesignSnapshot(options.design || player.design);
   if (!options.prevalidated) {
@@ -882,7 +894,7 @@ function buyShip(room, player, now, options = {}) {
       : validateBuyShip(room, player, 1, stats);
     if (!validation.ok) {
       if (!options.silent) player.lastBuildError = validation.reason;
-      return false;
+      return null;
     }
   }
 
@@ -890,11 +902,11 @@ function buyShip(room, player, now, options = {}) {
   player.spent += stats.unitCost;
   player.deployedFleetCost += stats.unitCost;
   const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
-  spawnShip(room, player, now, activeCount, { stats, design });
-  if (!options.starter) {
+  const ship = spawnShip(room, player, now, activeCount, { stats, design });
+  if (!options.starter && !options.silent) {
     broadcastRoom(room, { type: "notice", message: `${player.name} built a ship for $${stats.unitCost}` });
   }
-  return true;
+  return ship;
 }
 
 function validateBuyShip(room, player, count = 1, stats = null) {
@@ -906,6 +918,15 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   }
   const shipStats = stats || player.stats || computeStats(player.design);
   const requestedCount = clampNumber(count, 1, 5);
+  const activeCount = player.ships.filter((ship) => ship.alive && !ship.removed).length;
+  if (activeCount + requestedCount > player.shipCap) {
+    return {
+      ok: false,
+      reason: requestedCount === 1
+        ? "Fleet cap reached"
+        : `Not enough fleet slots: ${activeCount}/${player.shipCap}`
+    };
+  }
   const totalCost = shipStats.unitCost * requestedCount;
   if (player.money < totalCost) {
     return { ok: false, reason: `Not enough money: need $${totalCost - Math.floor(player.money)} more` };
