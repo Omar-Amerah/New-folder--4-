@@ -245,6 +245,11 @@ h2 {
   padding-top: 2px;
 }
 
+.side-panel > .panel-section:first-of-type {
+  border-top: 0;
+  padding-top: 2px;
+}
+
 .section-heading {
   display: flex;
   align-items: center;
@@ -259,6 +264,77 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 92px;
   gap: 8px;
+}
+
+.screen-buttons {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 25;
+  display: flex;
+  gap: 8px;
+}
+
+.screen-buttons button {
+  min-height: 34px;
+  padding: 0 10px;
+  border-color: rgba(174, 199, 231, 0.22);
+  background: rgba(9, 15, 25, 0.74);
+  backdrop-filter: blur(12px);
+}
+
+.menu-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 5, 11, 0.62);
+  backdrop-filter: blur(10px);
+}
+
+.menu-panel {
+  width: min(460px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(174, 199, 231, 0.24);
+  border-radius: 8px;
+  background: rgba(9, 15, 25, 0.94);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.52);
+}
+
+.main-menu-screen .menu-panel {
+  border-color: rgba(56, 213, 255, 0.28);
+}
+
+.menu-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.menu-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.menu-head h2 {
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.menu-head button {
+  width: auto;
+  min-height: 32px;
+  padding: 0 10px;
+  box-shadow: none;
 }
 
 .button-row,
@@ -1455,7 +1531,7 @@ h2 {
   position: absolute;
   top: 14px;
   left: 14px;
-  right: 14px;
+  right: 270px;
   display: flex;
   align-items: stretch;
   flex-wrap: wrap;
@@ -1860,6 +1936,11 @@ h2 {
     left: 317px;
     right: 12px;
   }
+
+  .top-hud {
+    right: 14px;
+    top: 58px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1899,6 +1980,16 @@ h2 {
 
   .purchase-meta {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .screen-buttons {
+    left: 8px;
+    right: 8px;
+    justify-content: flex-end;
+  }
+
+  .menu-screen {
+    padding: 12px;
   }
 
   .part-palette {

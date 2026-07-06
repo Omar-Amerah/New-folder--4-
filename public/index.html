@@ -17,60 +17,6 @@
           </div>
         </div>
 
-        <div class="panel-section compact control-group">
-          <div class="section-heading">
-            <h2>Lobby</h2>
-            <span id="roomStateText">Not joined</span>
-          </div>
-          <label for="pilotName">Callsign</label>
-          <input id="pilotName" maxlength="18" autocomplete="nickname" placeholder="Pilot">
-
-          <label for="teamSelect">Wing</label>
-          <select id="teamSelect">
-            <option value="blue">Blue wing</option>
-            <option value="red">Red wing</option>
-            <option value="free">Solo</option>
-          </select>
-
-          <div class="create-game-card">
-            <div>
-              <h3>Create Game</h3>
-              <p>Start a new private room and share the code.</p>
-            </div>
-            <button id="createButton" type="button">Create</button>
-          </div>
-
-          <div id="currentRoomCard" class="room-code-card" hidden>
-            <span>Game code</span>
-            <strong id="currentRoomCode">----</strong>
-          </div>
-
-          <div class="flow-card">
-            <div class="phase-steps" aria-label="Game flow">
-              <span id="stepLobby" class="active">Lobby</span>
-              <span id="stepDesign">Design</span>
-              <span id="stepBattle">Battle</span>
-              <span id="stepEnd">End</span>
-            </div>
-            <p id="phaseDetail">Create or join a room to begin.</p>
-          </div>
-
-          <label for="roomCode">Join Existing Game</label>
-          <div class="join-row">
-            <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter code">
-            <button id="joinButton" type="button">Join</button>
-          </div>
-          <div class="utility-row">
-            <button id="copyButton" type="button" class="secondary">Copy invite</button>
-            <button id="botButton" type="button" class="secondary">Add bot</button>
-          </div>
-          <div id="adminControls" class="admin-controls" hidden>
-            <button id="startDesignButton" type="button">Start ship design</button>
-            <button id="closeLobbyButton" type="button" class="secondary">Close lobby</button>
-          </div>
-          <div id="playerList" class="player-list" aria-label="Players"></div>
-        </div>
-
         <div class="panel-section control-group">
           <div class="section-heading">
               <h2>Ship Design</h2>
@@ -131,6 +77,11 @@
 
       <section class="arena-wrap" aria-label="Arena">
         <canvas id="arenaCanvas"></canvas>
+        <div class="screen-buttons" aria-label="Game screens">
+          <button id="mainMenuButton" type="button" class="secondary">Menu</button>
+          <button id="lobbyManagementButton" type="button" class="secondary">Lobby</button>
+          <button id="settingsButton" type="button" class="secondary">Settings</button>
+        </div>
         <div class="top-hud">
           <div>
             <span class="hud-label">Room</span>
@@ -188,6 +139,98 @@
         <div id="eventLog" class="event-log"></div>
       </aside>
     </main>
+    <section id="mainMenuScreen" class="menu-screen main-menu-screen" aria-label="Main menu">
+      <div class="menu-panel">
+        <div class="menu-head">
+          <div>
+            <span id="roomStateText">Not joined</span>
+            <h2>Modular Fleet Arena</h2>
+          </div>
+          <button id="mainMenuCloseButton" type="button" class="secondary">Close</button>
+        </div>
+
+        <label for="pilotName">Callsign</label>
+        <input id="pilotName" maxlength="18" autocomplete="nickname" placeholder="Pilot">
+
+        <label for="teamSelect">Wing</label>
+        <select id="teamSelect">
+          <option value="blue">Blue wing</option>
+          <option value="red">Red wing</option>
+          <option value="free">Solo</option>
+        </select>
+
+        <div class="create-game-card">
+          <div>
+            <h3>Create Game</h3>
+            <p>Start a private room and share the code with friends.</p>
+          </div>
+          <button id="createButton" type="button">Create</button>
+        </div>
+
+        <label for="roomCode">Join Existing Game</label>
+        <div class="join-row">
+          <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter code">
+          <button id="joinButton" type="button">Join</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="lobbyManagementScreen" class="menu-screen" hidden aria-label="Lobby management">
+      <div class="menu-panel">
+        <div class="menu-head">
+          <div>
+            <span>Lobby management</span>
+            <h2>Room</h2>
+          </div>
+          <button id="lobbyCloseButton" type="button" class="secondary">Close</button>
+        </div>
+
+        <div id="currentRoomCard" class="room-code-card" hidden>
+          <span>Game code</span>
+          <strong id="currentRoomCode">----</strong>
+        </div>
+
+        <div class="flow-card">
+          <div class="phase-steps" aria-label="Game flow">
+            <span id="stepLobby" class="active">Lobby</span>
+            <span id="stepDesign">Design</span>
+            <span id="stepBattle">Battle</span>
+            <span id="stepEnd">End</span>
+          </div>
+          <p id="phaseDetail">Create or join a room to begin.</p>
+        </div>
+
+        <div class="utility-row">
+          <button id="copyButton" type="button" class="secondary">Copy invite</button>
+          <button id="botButton" type="button" class="secondary">Add bot</button>
+        </div>
+        <div id="adminControls" class="admin-controls" hidden>
+          <button id="startDesignButton" type="button">Start ship design</button>
+          <button id="closeLobbyButton" type="button" class="secondary">Close lobby</button>
+        </div>
+        <div id="playerList" class="player-list" aria-label="Players"></div>
+      </div>
+    </section>
+
+    <section id="settingsScreen" class="menu-screen" hidden aria-label="Settings">
+      <div class="menu-panel">
+        <div class="menu-head">
+          <div>
+            <span>Settings</span>
+            <h2>Connection</h2>
+          </div>
+          <button id="settingsCloseButton" type="button" class="secondary">Close</button>
+        </div>
+
+        <label for="serverUrlInput">Server URL</label>
+        <input id="serverUrlInput" autocomplete="off" placeholder="https://your-render-service.onrender.com">
+        <div class="utility-row">
+          <button id="saveServerButton" type="button">Save server</button>
+          <button id="clearServerButton" type="button" class="secondary">Use current host</button>
+        </div>
+      </div>
+    </section>
+
     <section id="purchaseBar" class="purchase-bar" aria-label="Ship purchase bar">
       <div class="purchase-meta">
         <div><span>Money</span><strong id="purchaseMoney">$0</strong></div>

@@ -126,7 +126,19 @@ const dom = {
   endGameSummary: document.getElementById("endGameSummary"),
   endGameActions: document.getElementById("endGameActions"),
   restartButton: document.getElementById("restartButton"),
-  endCloseButton: document.getElementById("endCloseButton")
+  endCloseButton: document.getElementById("endCloseButton"),
+  mainMenuScreen: document.getElementById("mainMenuScreen"),
+  lobbyManagementScreen: document.getElementById("lobbyManagementScreen"),
+  settingsScreen: document.getElementById("settingsScreen"),
+  mainMenuButton: document.getElementById("mainMenuButton"),
+  lobbyManagementButton: document.getElementById("lobbyManagementButton"),
+  settingsButton: document.getElementById("settingsButton"),
+  mainMenuCloseButton: document.getElementById("mainMenuCloseButton"),
+  lobbyCloseButton: document.getElementById("lobbyCloseButton"),
+  settingsCloseButton: document.getElementById("settingsCloseButton"),
+  serverUrlInput: document.getElementById("serverUrlInput"),
+  saveServerButton: document.getElementById("saveServerButton"),
+  clearServerButton: document.getElementById("clearServerButton")
 };
 
 const ctx = dom.canvas.getContext("2d", { alpha: false });
@@ -176,6 +188,7 @@ renderLocalStats();
 renderSavedDesigns();
 renderPurchaseBar();
 updateLobbyState();
+openMainMenu();
 resizeCanvas();
 requestAnimationFrame(frame);
 
@@ -194,6 +207,14 @@ dom.startDesignButton.addEventListener("click", startDesign);
 dom.closeLobbyButton.addEventListener("click", closeLobby);
 dom.restartButton.addEventListener("click", restartMatch);
 dom.endCloseButton.addEventListener("click", closeLobby);
+dom.mainMenuButton?.addEventListener("click", openMainMenu);
+dom.lobbyManagementButton?.addEventListener("click", openLobbyManagement);
+dom.settingsButton?.addEventListener("click", openSettings);
+dom.mainMenuCloseButton?.addEventListener("click", hideMenuScreens);
+dom.lobbyCloseButton?.addEventListener("click", hideMenuScreens);
+dom.settingsCloseButton?.addEventListener("click", hideMenuScreens);
+dom.saveServerButton?.addEventListener("click", saveServerSetting);
+dom.clearServerButton?.addEventListener("click", clearServerSetting);
 dom.formationSelect.addEventListener("change", () => {
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
 });
@@ -314,6 +335,45 @@ function restartMatch() {
 
 function closeLobby() {
   send({ type: "closeLobby" });
+}
+
+function showMenuScreen(screen) {
+  for (const element of [dom.mainMenuScreen, dom.lobbyManagementScreen, dom.settingsScreen]) {
+    if (element) element.hidden = element !== screen;
+  }
+}
+
+function hideMenuScreens() {
+  if (dom.mainMenuScreen) dom.mainMenuScreen.hidden = true;
+  if (dom.lobbyManagementScreen) dom.lobbyManagementScreen.hidden = true;
+  if (dom.settingsScreen) dom.settingsScreen.hidden = true;
+}
+
+function openMainMenu() {
+  showMenuScreen(dom.mainMenuScreen);
+}
+
+function openLobbyManagement() {
+  showMenuScreen(dom.lobbyManagementScreen);
+}
+
+function openSettings() {
+  if (dom.serverUrlInput) dom.serverUrlInput.value = getConfiguredServerUrl();
+  showMenuScreen(dom.settingsScreen);
+}
+
+function saveServerSetting() {
+  const value = dom.serverUrlInput?.value?.trim() || "";
+  if (value) localStorage.setItem(LOCAL_SERVER_KEY, value);
+  else localStorage.removeItem(LOCAL_SERVER_KEY);
+  addNotice(state.socket ? "Server setting saved. Reconnect to use it." : "Server setting saved", "good");
+  hideMenuScreens();
+}
+
+function clearServerSetting() {
+  localStorage.removeItem(LOCAL_SERVER_KEY);
+  if (dom.serverUrlInput) dom.serverUrlInput.value = "";
+  addNotice(state.socket ? "Using current host after reconnect" : "Using current host", "good");
 }
 
 function kickPlayer(targetId) {
@@ -516,10 +576,12 @@ function handleServerMessage(message) {
     dom.roomLabel.textContent = message.room;
     setConnectionStatus("online", "Room linked");
     updateLobbyState();
+    openLobbyManagement();
     return;
   }
 
   if (message.type === "state") {
+    const previousPhase = state.phase;
     state.snapshot = message;
     state.room = message.room;
     state.world = message.world || state.world;
@@ -535,6 +597,7 @@ function handleServerMessage(message) {
     renderSavedDesigns();
     updateLobbyState();
     updateWinnerBanner();
+    if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) hideMenuScreens();
     return;
   }
 
