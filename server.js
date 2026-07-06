@@ -50,6 +50,13 @@ const ECONOMY = Object.freeze({
   })
 });
 
+const DEFAULT_ROOM_RULES = Object.freeze({
+  startingMoney: ECONOMY.startingMoney,
+  maxPlayers: MAX_PLAYERS_PER_ROOM,
+  mapSize: "auto",
+  gameMode: "teams"
+});
+
 const REWARDS = Object.freeze({
   baseReward: 30,
   victoryBonus: 80,
@@ -76,17 +83,586 @@ const MIME = {
 };
 
 const PARTS = Object.freeze({
-  core: { cost: 0, mass: 8, hp: 150, powerGeneration: 4, powerUse: 0, shield: 25, shieldRegen: 0.4, thrust: 0, turn: 0, energyStorage: 80, repairRate: 0, weapon: null },
-  frame: { cost: 2, mass: 2, hp: 42, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0, energyStorage: 0, repairRate: 0, weapon: null },
-  armor: { cost: 9, mass: 8, hp: 135, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.04, energyStorage: 0, repairRate: 0, weapon: null },
-  engine: { cost: 14, mass: 4, hp: 52, powerGeneration: 0, powerUse: 1, shield: 0, shieldRegen: 0, thrust: 135, turn: 0.24, energyStorage: 0, repairRate: 0, weapon: null },
-  reactor: { cost: 20, mass: 6, hp: 62, powerGeneration: 9, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0.01, energyStorage: 30, repairRate: 0, explosionRisk: "Medium when destroyed", weapon: null },
-  battery: { cost: 12, mass: 3, hp: 44, powerGeneration: 0, powerUse: 0, shield: 42, shieldRegen: 0.8, thrust: 0, turn: 0, energyStorage: 180, repairRate: 0, weapon: null },
-  shield: { cost: 18, mass: 5, hp: 48, powerGeneration: 0, powerUse: 3, shield: 115, shieldRegen: 2.4, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 0, weapon: null },
-  blaster: { cost: 25, mass: 5, hp: 48, powerGeneration: 0, powerUse: 2, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.02, energyStorage: 0, repairRate: 0, blaster: 1, weapon: makeWeapon("blaster", { damage: 14, fireRate: 1.55, range: 520, projectileSpeed: 650, accuracy: 0.88, tracking: 0 }) },
-  missile: { cost: 35, mass: 7, hp: 54, powerGeneration: 0, powerUse: 3, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.03, energyStorage: 0, repairRate: 0, missile: 1, weapon: makeWeapon("missile", { damage: 64, fireRate: 0.3, range: 820, projectileSpeed: 330, accuracy: 0.72, tracking: 0.82 }) },
-  railgun: { cost: 45, mass: 9, hp: 58, powerGeneration: 0, powerUse: 6, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.05, energyStorage: 0, repairRate: 0, railgun: 1, weapon: makeWeapon("railgun", { damage: 105, fireRate: 0.19, range: 1100, projectileSpeed: 1080, accuracy: 0.96, tracking: 0 }) },
-  repair: { cost: 22, mass: 5, hp: 50, powerGeneration: 0, powerUse: 2, shield: 20, shieldRegen: 0.5, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 10, repair: 1, weapon: null }
+  // Existing basics
+  core: {
+    cost: 0, mass: 8, hp: 150,
+    powerGeneration: 4, powerUse: 0,
+    shield: 25, shieldRegen: 0.4,
+    thrust: 0, turn: 0,
+    energyStorage: 80, repairRate: 0,
+    weapon: null
+  },
+
+  frame: {
+    cost: 3, mass: 2, hp: 42,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.005,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  armor: {
+    cost: 11, mass: 8, hp: 125,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.045,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  engine: {
+    cost: 16, mass: 4, hp: 48,
+    powerGeneration: 0, powerUse: 1.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 130, turn: 0.22,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  reactor: {
+    cost: 22, mass: 6, hp: 58,
+    powerGeneration: 9, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 30, repairRate: 0,
+    weapon: null
+  },
+
+  battery: {
+    cost: 14, mass: 3, hp: 42,
+    powerGeneration: 0, powerUse: 0,
+    shield: 36, shieldRegen: 0.55,
+    thrust: 0, turn: 0,
+    energyStorage: 165, repairRate: 0,
+    weapon: null
+  },
+
+  shield: {
+    cost: 20, mass: 5, hp: 46,
+    powerGeneration: 0, powerUse: 3.2,
+    shield: 105, shieldRegen: 2.1,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  blaster: {
+    cost: 27, mass: 5, hp: 46,
+    powerGeneration: 0, powerUse: 2.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.025,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 13,
+      fireRate: 1.5,
+      range: 500,
+      projectileSpeed: 650,
+      accuracy: 0.87,
+      tracking: 0,
+      arc: 120
+    })
+  },
+
+  missile: {
+    cost: 38, mass: 7, hp: 50,
+    powerGeneration: 0, powerUse: 3.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.035,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 60,
+      fireRate: 0.28,
+      range: 790,
+      projectileSpeed: 320,
+      accuracy: 0.7,
+      tracking: 0.78,
+      arc: 220
+    })
+  },
+
+  railgun: {
+    cost: 50, mass: 9, hp: 54,
+    powerGeneration: 0, powerUse: 6.5,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.06,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 100,
+      fireRate: 0.18,
+      range: 1060,
+      projectileSpeed: 1080,
+      accuracy: 0.95,
+      tracking: 0,
+      arc: 45
+    })
+  },
+
+  repair: {
+    category: "Support",
+    cost: 26, mass: 5, hp: 48,
+    powerGeneration: 0, powerUse: 2.4,
+    shield: 16, shieldRegen: 0.35,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 8,
+    repair: 1,
+    weapon: null
+  },
+
+  // Structure
+  lightFrame: {
+    category: "Structure",
+    cost: 2, mass: 1, hp: 22,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.015,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  heavyFrame: {
+    category: "Structure",
+    cost: 7, mass: 5, hp: 82,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.025,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  compositeArmor: {
+    category: "Structure",
+    cost: 18, mass: 5, hp: 95,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.025,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  bulkhead: {
+    category: "Structure",
+    cost: 32, mass: 15, hp: 185,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.11,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  lightMount: {
+    category: "Structure",
+    cost: 5, mass: 2, hp: 32,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.005,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  heavyMount: {
+    category: "Structure",
+    cost: 14, mass: 6, hp: 78,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.035,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  // Power
+  smallReactor: {
+    category: "Power",
+    cost: 14, mass: 3, hp: 34,
+    powerGeneration: 5, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 12, repairRate: 0,
+    weapon: null
+  },
+
+  heavyReactor: {
+    category: "Power",
+    cost: 48, mass: 13, hp: 88,
+    powerGeneration: 18, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.04,
+    energyStorage: 50, repairRate: 0,
+    weapon: null
+  },
+
+  capacitor: {
+    category: "Power",
+    cost: 34, mass: 9, hp: 62,
+    powerGeneration: 0, powerUse: 0,
+    shield: 48, shieldRegen: 0.2,
+    thrust: 0, turn: -0.025,
+    energyStorage: 360, repairRate: 0,
+    weapon: null
+  },
+
+  auxGenerator: {
+    category: "Power",
+    cost: 11, mass: 2, hp: 24,
+    powerGeneration: 3, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 6, repairRate: 0,
+    weapon: null
+  },
+
+  // Engines
+  microThruster: {
+    category: "Engines",
+    cost: 8, mass: 1, hp: 20,
+    powerGeneration: 0, powerUse: 0.5,
+    shield: 0, shieldRegen: 0,
+    thrust: 42, turn: 0.1,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rotationRequired: true
+  },
+
+  heavyEngine: {
+    category: "Engines",
+    cost: 38, mass: 11, hp: 78,
+    powerGeneration: 0, powerUse: 4.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 310, turn: 0.06,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rotationRequired: true
+  },
+
+  maneuverThruster: {
+    category: "Engines",
+    cost: 20, mass: 3, hp: 38,
+    powerGeneration: 0, powerUse: 1.7,
+    shield: 0, shieldRegen: 0,
+    thrust: 60, turn: 0.38,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rotationRequired: true
+  },
+
+  gyroscope: {
+    category: "Engines",
+    cost: 28, mass: 5, hp: 42,
+    powerGeneration: 0, powerUse: 2.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.5,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  // Defence
+  lightShield: {
+    category: "Defence",
+    cost: 12, mass: 2, hp: 28,
+    powerGeneration: 0, powerUse: 1.4,
+    shield: 42, shieldRegen: 0.9,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  heavyShield: {
+    category: "Defence",
+    cost: 46, mass: 11, hp: 70,
+    powerGeneration: 0, powerUse: 6.8,
+    shield: 205, shieldRegen: 1.8,
+    thrust: 0, turn: -0.055,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  regenShield: {
+    category: "Defence",
+    cost: 36, mass: 6, hp: 50,
+    powerGeneration: 0, powerUse: 5.8,
+    shield: 82, shieldRegen: 4.8,
+    thrust: 0, turn: -0.03,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  pointDefense: {
+    category: "Defence",
+    cost: 36, mass: 4, hp: 40,
+    powerGeneration: 0, powerUse: 3.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 4,
+      fireRate: 4.0,
+      range: 280,
+      projectileSpeed: 820,
+      accuracy: 0.78,
+      tracking: 0,
+      arc: 360
+    }),
+    rotationRequired: true
+  },
+
+  // Weapons
+  lightBlaster: {
+    category: "Weapons",
+    cost: 17, mass: 3, hp: 32,
+    powerGeneration: 0, powerUse: 1.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 7,
+      fireRate: 2.1,
+      range: 420,
+      projectileSpeed: 680,
+      accuracy: 0.83,
+      tracking: 0,
+      arc: 120
+    }),
+    rotationRequired: true
+  },
+
+  heavyBlaster: {
+    category: "Weapons",
+    cost: 46, mass: 8, hp: 58,
+    powerGeneration: 0, powerUse: 4.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.05,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 26,
+      fireRate: 0.82,
+      range: 580,
+      projectileSpeed: 610,
+      accuracy: 0.84,
+      tracking: 0,
+      arc: 100
+    }),
+    rotationRequired: true
+  },
+
+  autocannon: {
+    category: "Weapons",
+    cost: 34, mass: 6,
+    hp: 44,
+    powerGeneration: 0, powerUse: 1.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.03,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 4,
+      fireRate: 5.2,
+      range: 470,
+      projectileSpeed: 700,
+      accuracy: 0.64,
+      tracking: 0,
+      arc: 130
+    }),
+    rotationRequired: true
+  },
+
+  lightMissile: {
+    category: "Weapons",
+    cost: 27, mass: 4, hp: 36,
+    powerGeneration: 0, powerUse: 1.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.02,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 34,
+      fireRate: 0.45,
+      range: 700,
+      projectileSpeed: 350,
+      accuracy: 0.72,
+      tracking: 0.7,
+      arc: 220
+    }),
+    rotationRequired: true
+  },
+
+  torpedo: {
+    category: "Weapons",
+    cost: 66, mass: 12, hp: 58,
+    powerGeneration: 0, powerUse: 5.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.065,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 115,
+      fireRate: 0.14,
+      range: 940,
+      projectileSpeed: 240,
+      accuracy: 0.58,
+      tracking: 0.3,
+      arc: 150
+    }),
+    rotationRequired: true
+  },
+
+  swarmMissile: {
+    category: "Weapons",
+    cost: 72, mass: 10, hp: 50,
+    powerGeneration: 0, powerUse: 5.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.055,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 20,
+      fireRate: 0.85,
+      range: 730,
+      projectileSpeed: 370,
+      accuracy: 0.68,
+      tracking: 0.82,
+      arc: 240
+    }),
+    rotationRequired: true
+  },
+
+  lightRailgun: {
+    category: "Weapons",
+    cost: 42, mass: 6, hp: 42,
+    powerGeneration: 0, powerUse: 4.6,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.045,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 66,
+      fireRate: 0.24,
+      range: 900,
+      projectileSpeed: 1100,
+      accuracy: 0.93,
+      tracking: 0,
+      arc: 45
+    }),
+    rotationRequired: true
+  },
+
+  heavyRailgun: {
+    category: "Weapons",
+    cost: 94, mass: 16, hp: 68,
+    powerGeneration: 0, powerUse: 11,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.1,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 160,
+      fireRate: 0.105,
+      range: 1280,
+      projectileSpeed: 1260,
+      accuracy: 0.96,
+      tracking: 0,
+      arc: 35
+    }),
+    rotationRequired: true
+  },
+
+  beamEmitter: {
+    category: "Weapons",
+    cost: 74, mass: 10, hp: 54,
+    powerGeneration: 0, powerUse: 9.5,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.065,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 34,
+      fireRate: 0.7,
+      range: 720,
+      projectileSpeed: 1500,
+      accuracy: 0.98,
+      tracking: 0,
+      arc: 70
+    }),
+    rotationRequired: true
+  },
+
+  // Support / utility
+  sensorArray: {
+    category: "Support",
+    cost: 22, mass: 2, hp: 24,
+    powerGeneration: 0, powerUse: 1.3,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rangeBonus: 35,
+    utilityEffect: "range"
+  },
+
+  targetingComputer: {
+    category: "Support",
+    cost: 32, mass: 3, hp: 28,
+    powerGeneration: 0, powerUse: 2.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    accuracyBonus: 0.035,
+    utilityEffect: "accuracy"
+  },
+
+  fireControl: {
+    category: "Support",
+    cost: 44, mass: 5, hp: 34,
+    powerGeneration: 0, powerUse: 3.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.02,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    fireRateBonus: 0.05,
+    utilityEffect: "fireRate"
+  },
+
+  heatSink: {
+    category: "Support",
+    cost: 24, mass: 5, hp: 44,
+    powerGeneration: 0, powerUse: 0.7,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    heat: -6,
+    utilityEffect: "cooling"
+  },
+
+  captureModule: {
+    category: "Utility",
+    cost: 28, mass: 4, hp: 40,
+    powerGeneration: 0, powerUse: 1.8,
+    shield: 8, shieldRegen: 0.15,
+    thrust: 0, turn: -0.005,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    captureBonus: 0.16,
+    utilityEffect: "capture"
+  },
+
+  repairBeam: {
+    category: "Support",
+    cost: 58, mass: 8, hp: 48,
+    powerGeneration: 0, powerUse: 6.2,
+    shield: 22, shieldRegen: 0.4,
+    thrust: 0, turn: -0.035,
+    energyStorage: 0, repairRate: 17,
+    repair: 1,
+    weapon: null,
+    utilityEffect: "repair"
+  }
 });
 
 const DEFAULT_DESIGN = Object.freeze([
@@ -493,8 +1069,15 @@ function handleMessage(client, message) {
       send(client, { type: "error", message: "Wings can only be changed in the lobby before ship design" });
       return;
     }
-    client.player.team = sanitizeTeam(message.team, client.player.id);
+    if (client.room.rules?.gameMode === "solo") {
+      client.player.team = client.player.id;
+      send(client, { type: "error", message: "Solo mode does not use team selection" });
+      broadcastSnapshot(client.room, performanceNow());
+      return;
+    }
+    client.player.team = sanitizeTeam(message.team, balanceTeam(client.room));
     broadcastRoom(client.room, { type: "notice", message: `${client.player.name} changed wing` });
+    broadcastSnapshot(client.room, performanceNow());
     return;
   }
 
@@ -508,6 +1091,11 @@ function handleMessage(client, message) {
       return;
     }
     addBot(client.room, client.player);
+    return;
+  }
+
+  if (message.type === "setRules") {
+    setRoomRules(client.room, client.player, message.rules || {});
     return;
   }
 
@@ -563,7 +1151,7 @@ function joinRoom(client, message) {
     return;
   }
 
-  if (room.players.size >= MAX_PLAYERS_PER_ROOM && !room.clients.has(client)) {
+  if (room.players.size >= room.rules.maxPlayers && !room.clients.has(client)) {
     send(client, { type: "error", message: "Room is full" });
     return;
   }
@@ -582,17 +1170,17 @@ function joinRoom(client, message) {
     id: client.id,
     name: requestedName,
     color,
-    team: sanitizeTeam(message.team, client.id),
+    team: sanitizeTeamForMode(room, message.team, client.id),
     isBot: false,
     ai: null,
     ready: false,
     design: DEFAULT_DESIGN.map((part) => ({ ...part })),
     stats: computeStats(DEFAULT_DESIGN),
     ships: [],
-    money: ECONOMY.startingMoney,
-    bank: ECONOMY.startingMoney,
+    money: room.rules.startingMoney,
+    bank: room.rules.startingMoney,
     income: ECONOMY.baseIncome,
-    earned: ECONOMY.startingMoney,
+    earned: room.rules.startingMoney,
     spent: 0,
     maxMoney: ECONOMY.maxMoney,
     shipCap: ECONOMY.shipCap,
@@ -615,7 +1203,7 @@ function joinRoom(client, message) {
   if (!room.adminId) room.adminId = player.id;
   room.lastEmptyAt = 0;
 
-  send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId });
+  send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });
 }
 
@@ -666,8 +1254,71 @@ function createRoom(code) {
     lastScoreAt: performanceNow(),
     winner: null,
     winnerAt: 0,
-    maxScore: MATCH_SCORE
+    maxScore: MATCH_SCORE,
+    rules: { ...DEFAULT_ROOM_RULES }
   };
+}
+
+function setRoomRules(room, requester, updates) {
+  if (!isAdmin(room, requester)) {
+    sendPlayer(room, requester, { type: "error", message: "Only the room admin can change game rules" });
+    return;
+  }
+  if (room.phase !== "lobby") {
+    sendPlayer(room, requester, { type: "error", message: "Game rules are locked after ship design starts" });
+    return;
+  }
+
+  room.rules = sanitizeRoomRules({ ...room.rules, ...updates }, room.players.size);
+  applyGameModeTeams(room);
+  const world = chooseRoomWorld(room);
+  room.world = world;
+  room.mapSizeLabel = world.label;
+  room.map = generateMap(room.code, world);
+  room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
+
+  for (const player of room.players.values()) {
+    player.money = room.rules.startingMoney;
+    player.bank = room.rules.startingMoney;
+    player.earned = room.rules.startingMoney;
+    player.maxMoney = Math.max(ECONOMY.maxMoney, room.rules.startingMoney);
+  }
+
+  broadcastSnapshot(room, performanceNow());
+}
+
+function sanitizeRoomRules(input, playerCount = 1) {
+  const currentPlayers = Math.max(1, Number(playerCount) || 1);
+  const startingMoney = Math.round(clampNumber(input.startingMoney, 100, ECONOMY.maxMoney));
+  const maxPlayers = Math.trunc(clampNumber(input.maxPlayers, Math.max(2, currentPlayers), MAX_PLAYERS_PER_ROOM));
+  const mapSize = sanitizeMapSize(input.mapSize);
+  const gameMode = sanitizeGameMode(input.gameMode);
+  return { startingMoney, maxPlayers, mapSize, gameMode };
+}
+
+function sanitizeMapSize(value) {
+  const text = String(value || "auto");
+  if (text === "auto") return "auto";
+  const match = WORLD_SIZES.find((size) => size.label === text);
+  return match ? match.label : "auto";
+}
+
+function sanitizeGameMode(value) {
+  const text = String(value || "").toLowerCase();
+  return text === "solo" ? "solo" : "teams";
+}
+
+function applyGameModeTeams(room) {
+  if (room.rules?.gameMode === "solo") {
+    for (const player of room.players.values()) player.team = player.id;
+    return;
+  }
+
+  for (const player of room.players.values()) {
+    if (player.team !== "blue" && player.team !== "red") {
+      player.team = balanceTeam(room);
+    }
+  }
 }
 
 function generateMap(roomCode, world) {
@@ -950,7 +1601,12 @@ function validateBuyShip(room, player, count = 1, stats = null) {
 
 function normalizeShipDesignSnapshot(design) {
   const source = Array.isArray(design) ? design : DEFAULT_DESIGN;
-  return source.map((part) => ({ x: part.x, y: part.y, type: part.type }));
+  return source.map((part) => ({ x: part.x, y: part.y, type: part.type, rotation: normalizeRotation(part.rotation) }));
+}
+
+function normalizeRotation(value) {
+  const rotation = Number(value);
+  return [0, 90, 180, 270].includes(rotation) ? rotation : 0;
 }
 
 function validateBuildShip(room, player, stats = null) {
@@ -1014,7 +1670,8 @@ function spawnShip(room, player, now, index = 0, options = {}) {
 function resetPlayerForMatch(room, player, now, options = {}) {
   for (const oldShip of player.ships) oldShip.removed = true;
   player.ships = [];
-  player.money = ECONOMY.startingMoney;
+  const startingMoney = room.rules?.startingMoney ?? ECONOMY.startingMoney;
+  player.money = startingMoney;
   player.income = ECONOMY.baseIncome;
   player.earned = player.money;
   player.spent = 0;
@@ -1271,8 +1928,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   const distance = Math.hypot(dx, dy);
   const aim = Math.atan2(dy, dx);
 
-  if (ship.stats.blaster > 0 && distance <= ship.stats.blasterRange && ship.blasterCooldown <= 0) {
-    const shots = Math.min(3, ship.stats.blaster);
+  const blasterArcCount = weaponModulesInArc(ship, target, "blaster");
+  if (blasterArcCount > 0 && distance <= ship.stats.blasterRange && ship.blasterCooldown <= 0) {
+    const shots = Math.min(3, blasterArcCount);
     const accuracy = clampNumber(ship.stats.blasterAccuracy || 0.85, 0.1, 1);
     const spreadScale = (1 - accuracy) * 0.26;
     for (let i = 0; i < shots; i += 1) {
@@ -1291,10 +1949,11 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         bornAt: now
       });
     }
-    ship.blasterCooldown = Math.max(0.16, ship.stats.blasterReload / Math.sqrt(ship.stats.blaster));
+    ship.blasterCooldown = Math.max(0.16, ship.stats.blasterReload / Math.sqrt(Math.max(1, blasterArcCount)));
   }
 
-  if (ship.stats.missile > 0 && distance <= ship.stats.missileRange && ship.missileCooldown <= 0) {
+  const missileArcCount = weaponModulesInArc(ship, target, "missile");
+  if (missileArcCount > 0 && distance <= ship.stats.missileRange && ship.missileCooldown <= 0) {
     const missileAccuracy = clampNumber(ship.stats.missileAccuracy || 0.7, 0.1, 1);
     const spread = randomRange(-(1 - missileAccuracy) * 0.22, (1 - missileAccuracy) * 0.22);
     const speed = ship.stats.missileProjectileSpeed || 330;
@@ -1312,10 +1971,11 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       life: 2.8,
       bornAt: now
     });
-    ship.missileCooldown = Math.max(1.2, ship.stats.missileReload / Math.sqrt(ship.stats.missile));
+    ship.missileCooldown = Math.max(1.2, ship.stats.missileReload / Math.sqrt(Math.max(1, missileArcCount)));
   }
 
-  if (ship.stats.railgun > 0 && distance <= ship.stats.railgunRange && ship.railgunCooldown <= 0) {
+  const railgunArcCount = weaponModulesInArc(ship, target, "railgun");
+  if (railgunArcCount > 0 && distance <= ship.stats.railgunRange && ship.railgunCooldown <= 0) {
     const accuracy = clampNumber(ship.stats.railgunAccuracy || 0.95, 0.1, 1);
     const spread = randomRange(-(1 - accuracy) * 0.11, (1 - accuracy) * 0.11);
     const speed = ship.stats.railgunProjectileSpeed || 1080;
@@ -1331,8 +1991,32 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       life: 1.15,
       bornAt: now
     });
-    ship.railgunCooldown = Math.max(1.65, ship.stats.railgunReload / Math.sqrt(ship.stats.railgun));
+    ship.railgunCooldown = Math.max(1.65, ship.stats.railgunReload / Math.sqrt(Math.max(1, railgunArcCount)));
   }
+}
+
+function weaponModulesInArc(ship, target, family) {
+  let count = 0;
+  for (const module of ship.design || []) {
+    const part = PARTS[module.type];
+    if (!part?.weapon || part.weapon.type !== family) continue;
+    if (isTargetInWeaponArc(ship, module, target, (part.weapon.arc || 360) * Math.PI / 180)) count += 1;
+  }
+  return count;
+}
+
+function moduleRotationToRadians(rotation) {
+  if (rotation === 90) return Math.PI / 2;
+  if (rotation === 180) return Math.PI;
+  if (rotation === 270) return -Math.PI / 2;
+  return 0;
+}
+
+function isTargetInWeaponArc(ship, module, target, arcRadians) {
+  if (arcRadians >= Math.PI * 2) return true;
+  const weaponFacing = ship.angle + moduleRotationToRadians(normalizeRotation(module.rotation));
+  const angleToTarget = Math.atan2(target.y - ship.y, target.x - ship.x);
+  return Math.abs(angleDifference(weaponFacing, angleToTarget)) <= arcRadians / 2;
 }
 
 function addBullet(room, bullet) {
@@ -1737,6 +2421,7 @@ function snapshotRoom(room, now, viewer = null) {
     effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, now - effect.at) })),
     winner: room.winner,
     maxScore: room.maxScore,
+    rules: room.rules,
     time: Math.floor(now)
   };
 }
@@ -1919,7 +2604,7 @@ function removePlayerFromRoom(room, player, reason) {
 }
 
 function prepareArenaForCurrentPlayers(room) {
-  const world = chooseWorldSize(Math.max(1, room.players.size));
+  const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
   room.map = generateMap(room.code, world);
@@ -1932,6 +2617,15 @@ function prepareArenaForCurrentPlayers(room) {
 function chooseWorldSize(playerCount) {
   const size = WORLD_SIZES.find((candidate) => playerCount <= candidate.maxPlayers) || WORLD_SIZES[WORLD_SIZES.length - 1];
   return { width: size.width, height: size.height, label: size.label };
+}
+
+function chooseRoomWorld(room) {
+  const requested = room.rules?.mapSize;
+  if (requested && requested !== "auto") {
+    const fixed = WORLD_SIZES.find((candidate) => candidate.label === requested);
+    if (fixed) return { width: fixed.width, height: fixed.height, label: fixed.label };
+  }
+  return chooseWorldSize(Math.max(1, room.players.size));
 }
 
 function ensureAdmin(room) {
@@ -1999,7 +2693,7 @@ function validateDesign(input) {
     if (type === "core") coreCount += 1;
 
     occupied.add(key);
-    clean.push({ x, y, type });
+    clean.push({ x, y, type, rotation: normalizeRotation(raw?.rotation) });
   }
 
   if (!clean.length) return { ok: false, reason: "Invalid design: blueprint is empty." };
@@ -2094,8 +2788,10 @@ function computeStats(modules) {
   const thrustRatio = thrust / Math.max(1, mass);
   // Mobility balance: armor and large weapons add mass, while engines add thrust.
   // Speed and acceleration scale from total thrust divided by total mass so heavy ships need more engines.
-  const accel = clampNumber(46 + thrustRatio * 46 * clampNumber(efficiency, 0.55, 1.08), 38, 420);
-  const maxSpeed = clampNumber(82 + thrustRatio * 21 * clampNumber(efficiency, 0.62, 1.08), 72, 360);
+  // Ships with no engine thrust cannot move; the server remains authoritative for this.
+  const hasEngineThrust = thrust > 0;
+  const accel = hasEngineThrust ? clampNumber(46 + thrustRatio * 46 * clampNumber(efficiency, 0.55, 1.08), 38, 420) : 0;
+  const maxSpeed = hasEngineThrust ? clampNumber(82 + thrustRatio * 21 * clampNumber(efficiency, 0.62, 1.08), 72, 360) : 0;
   const turnRate = clampNumber(1.05 + turnBonus + thrustRatio * 0.035, 0.55, 2.85);
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
   const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun });
@@ -2164,6 +2860,7 @@ function makeWeapon(type, stats) {
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
     tracking: stats.tracking || 0,
+    arc: Number(stats.arc) || 360,
     dps: calculateDps({ damage, fireRate })
   };
 }
@@ -2192,7 +2889,7 @@ function calculateCostBreakdown(stats) {
     repair: Math.round(repair),
     weaponPremium: Math.round(weaponPremium),
     sizeTax: Math.round(sizeTax),
-    total: clampNumber(Math.round(preTaxTotal + sizeTax), 80, 1100)
+    total: clampNumber(Math.round(preTaxTotal + sizeTax), 300, 2000)
   };
 }
 
@@ -2248,6 +2945,7 @@ function shipWarnings(stats) {
   const hasReactor = stats.modules.some((module) => module.type === "reactor");
   if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
   if (!hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
+  if (stats.thrust <= 0) warnings.push("No engines: this ship cannot move");
   if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
   if (stats.mass > 85 || stats.turnRate < 0.85) warnings.push("Heavy ship: turning will be slow");
   if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
@@ -2299,7 +2997,7 @@ function getLiveShips(room) {
 }
 
 function addBot(room, requester) {
-  if (room.players.size >= MAX_PLAYERS_PER_ROOM) return;
+  if (room.players.size >= (room.rules?.maxPlayers ?? MAX_PLAYERS_PER_ROOM)) return;
 
   const id = `bot${room.nextBotId++}`;
   const color = COLORS[room.colorCursor % COLORS.length];
@@ -2318,10 +3016,10 @@ function addBot(room, requester) {
     design,
     stats: computeStats(design),
     ships: [],
-    money: ECONOMY.startingMoney,
-    bank: ECONOMY.startingMoney,
+    money: room.rules?.startingMoney ?? ECONOMY.startingMoney,
+    bank: room.rules?.startingMoney ?? ECONOMY.startingMoney,
     income: ECONOMY.baseIncome,
-    earned: ECONOMY.startingMoney,
+    earned: room.rules?.startingMoney ?? ECONOMY.startingMoney,
     spent: 0,
     maxMoney: ECONOMY.maxMoney,
     shipCap: ECONOMY.shipCap,
@@ -2418,14 +3116,24 @@ function chooseBotDesign(seed) {
 }
 
 function chooseBotTeam(room, requester, fallbackId) {
+  if (room.rules?.gameMode === "solo") return fallbackId;
+
   if (requester && (requester.team === "blue" || requester.team === "red")) {
     return requester.team === "blue" ? "red" : "blue";
   }
 
+  return balanceTeam(room);
+}
+
+function balanceTeam(room) {
   const blue = [...room.players.values()].filter((player) => player.team === "blue").length;
   const red = [...room.players.values()].filter((player) => player.team === "red").length;
-  if (blue || red) return blue <= red ? "blue" : "red";
-  return fallbackId;
+  return blue <= red ? "blue" : "red";
+}
+
+function sanitizeTeamForMode(room, requestedTeam, fallbackId) {
+  if (room.rules?.gameMode === "solo") return fallbackId;
+  return sanitizeTeam(requestedTeam, balanceTeam(room));
 }
 
 function findShipById(room, id) {
@@ -2447,6 +3155,7 @@ function distanceToFleet(ships, target) {
 
 function areAllies(room, ownerA, ownerB) {
   if (ownerA === ownerB) return true;
+  if (room.rules?.gameMode === "solo") return false;
   const a = room.players.get(ownerA);
   const b = room.players.get(ownerB);
   return Boolean(a && b && a.team === b.team);
@@ -2454,6 +3163,7 @@ function areAllies(room, ownerA, ownerB) {
 
 function areEnemies(room, ownerA, ownerB) {
   if (ownerA === ownerB) return false;
+  if (room.rules?.gameMode === "solo") return Boolean(room.players.has(ownerA) && room.players.has(ownerB));
   const a = room.players.get(ownerA);
   const b = room.players.get(ownerB);
   return Boolean(a && b && a.team !== b.team);
@@ -2523,6 +3233,10 @@ function sanitizeFormation(formation) {
 }
 
 function teamLabel(room, team, fallback) {
+  if (room.rules?.gameMode === "solo") {
+    const owner = room.players.get(team);
+    return owner?.name || fallback || "No wing";
+  }
   if (TEAM_NAMES[team]) return TEAM_NAMES[team];
   const owner = room.players.get(team);
   return owner?.name || fallback || "Solo";

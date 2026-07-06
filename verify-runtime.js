@@ -49,10 +49,22 @@ async function main() {
       throw new Error("first player was not room admin");
     }
 
+    alpha.send({ type: "setRules", rules: { startingMoney: 1100 } });
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "lobby" && message.rules?.startingMoney === 1100,
+      "starting money rule was not applied"
+    );
+
     alpha.send({ type: "startDesign" });
     await alpha.waitFor(
       (message) => message.type === "state" && message.phase === "design" && message.map?.asteroids?.length,
       "room did not enter ship design with a generated map"
+    );
+
+    alpha.send({ type: "deploy", design: makeExpensiveDesign() });
+    await alpha.waitFor(
+      (message) => message.type === "error" && /Need \$/i.test(message.message || ""),
+      "oversized starting ship was not rejected"
     );
 
     alpha.send({ type: "deploy", design: alpha.defaultDesign });
@@ -150,6 +162,16 @@ function openClient(name) {
 
     socket.addEventListener("error", () => reject(new Error(`${name} websocket error`)));
   });
+}
+
+function makeExpensiveDesign() {
+  const design = [];
+  for (let y = 0; y <= 6; y += 1) {
+    for (let x = 0; x <= 6; x += 1) {
+      design.push({ x, y, type: x === 3 && y === 3 ? "core" : "railgun" });
+    }
+  }
+  return design;
 }
 
 function waitFor(predicate, timeoutMs, label) {

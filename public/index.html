@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Modular Fleet Arena</title>
-    <link rel="stylesheet" href="/styles.css?v=menu-errors-privacy-1">
+    <link rel="stylesheet" href="/styles.css?v=combat-parts-1">
   </head>
   <body>
     <main class="app">
@@ -28,6 +28,7 @@
             <strong id="blueprintCostLabel">$0</strong>
             <em id="blueprintCostStatus">Ready</em>
           </div>
+          <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
           <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
           <div id="buildStatus" class="build-status"></div>
           <div id="shipIssuesPanel" class="ship-issues-panel"></div>
@@ -47,7 +48,7 @@
           </select>
           <div class="button-row">
             <button id="deployButton" type="button">Ready with this design</button>
-            <button id="resetButton" type="button" class="secondary">Reset Editor</button>
+            <button id="resetButton" type="button" class="secondary">New Design</button>
           </div>
         </div>
       </section>
@@ -134,13 +135,6 @@
         <label for="pilotName">Callsign</label>
         <input id="pilotName" maxlength="18" autocomplete="nickname" placeholder="Pilot">
 
-        <label for="teamSelect">Wing</label>
-        <select id="teamSelect">
-          <option value="blue">Blue wing</option>
-          <option value="red">Red wing</option>
-          <option value="free">Solo</option>
-        </select>
-
         <div class="create-game-card">
           <div>
             <h3>Create Game</h3>
@@ -181,6 +175,51 @@
             <span id="stepEnd">End</span>
           </div>
           <p id="phaseDetail">Create or join a room to begin.</p>
+        </div>
+
+        <div class="rules-card">
+          <div class="section-heading compact">
+            <h2>Game Rules</h2>
+            <span id="rulesStatus">Host only</span>
+          </div>
+          <div class="rules-grid">
+            <label for="gameModeSelect">
+              Game mode
+              <select id="gameModeSelect">
+                <option value="teams">Teams</option>
+                <option value="solo">Solo</option>
+              </select>
+            </label>
+            <label for="startingMoneyInput">
+              Starting money
+              <input id="startingMoneyInput" type="number" min="100" max="2200" step="50" value="700">
+            </label>
+            <label for="maxPlayersInput">
+              Max players
+              <input id="maxPlayersInput" type="number" min="2" max="12" step="1" value="12">
+            </label>
+            <label for="mapSizeSelect">
+              Map size
+              <select id="mapSizeSelect">
+                <option value="auto">Auto by players</option>
+                <option value="Duel">Duel</option>
+                <option value="Skirmish">Skirmish</option>
+                <option value="Battle">Battle</option>
+                <option value="Grand battle">Grand battle</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div id="teamChoiceCard" class="team-choice-card">
+          <div>
+            <span>Lobby team</span>
+            <strong id="teamChoiceStatus">Choose before ship design</strong>
+          </div>
+          <select id="teamSelect" aria-label="Choose team">
+            <option value="blue">Blue wing</option>
+            <option value="red">Red wing</option>
+          </select>
         </div>
 
         <div class="utility-row">
@@ -231,7 +270,17 @@
       </div>
     </section>
     <div id="purchaseTooltip" class="purchase-tooltip" hidden></div>
+    <section id="confirmModal" class="confirm-modal" hidden role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+      <div class="confirm-panel">
+        <h2 id="confirmModalTitle">Delete blueprint?</h2>
+        <p id="confirmModalMessage">This cannot be undone.</p>
+        <div class="confirm-actions">
+          <button id="confirmCancelButton" type="button" class="secondary">Cancel</button>
+          <button id="confirmAcceptButton" type="button">Delete</button>
+        </div>
+      </div>
+    </section>
 
-    <script src="/client.js?v=menu-errors-privacy-1"></script>
+    <script src="/client.js?v=combat-parts-1"></script>
   </body>
 </html>

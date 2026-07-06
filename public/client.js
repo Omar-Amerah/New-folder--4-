@@ -11,7 +11,40 @@ const PART_DEFS = {
   blaster: { name: "Blaster", color: "#ff5f7e", glyph: "linear-gradient(90deg, #31131d 0 18%, #ff5f7e 20% 72%, #ffd1dc 73%)" },
   missile: { name: "Missile", color: "#b995ff", glyph: "linear-gradient(90deg, #27183b 0 25%, #b995ff 26% 68%, #f0dcff 69%)" },
   railgun: { name: "Railgun", color: "#f4f7ff", glyph: "linear-gradient(90deg, #1b2230 0 16%, #f4f7ff 18% 72%, #7aa4ff 74%)" },
-  repair: { name: "Repair", color: "#67e08a", glyph: "linear-gradient(45deg, #10381f 0 30%, #67e08a 31% 48%, #d7ffe2 49% 58%, #67e08a 59%)" }
+  repair: { name: "Repair", color: "#67e08a", glyph: "linear-gradient(45deg, #10381f 0 30%, #67e08a 31% 48%, #d7ffe2 49% 58%, #67e08a 59%)" },
+  lightFrame: { name: "Light Frame", color: "#9fb2c9", glyph: "linear-gradient(135deg, #334155, #cbd5e1)" },
+  heavyFrame: { name: "Heavy Frame", color: "#64748b", glyph: "linear-gradient(135deg, #1f2937, #94a3b8)" },
+  compositeArmor: { name: "Composite Armor", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
+  bulkhead: { name: "Bulkhead", color: "#b7c0cc", glyph: "linear-gradient(90deg, #475569, #e2e8f0, #475569)" },
+  lightMount: { name: "Light Mount", color: "#93c5fd", glyph: "radial-gradient(circle, #dbeafe 0 25%, #3b82f6 35% 58%, #172554 62%)" },
+  heavyMount: { name: "Heavy Mount", color: "#818cf8", glyph: "radial-gradient(circle, #e0e7ff 0 22%, #6366f1 34% 60%, #1e1b4b 64%)" },
+  smallReactor: { name: "Small Reactor", color: "#fde68a", glyph: "radial-gradient(circle, #fff7b3 0 18%, #f59e0b 28% 55%, #451a03 60%)" },
+  heavyReactor: { name: "Heavy Reactor", color: "#fbbf24", glyph: "radial-gradient(circle, #fef3c7 0 16%, #f59e0b 27% 58%, #78350f 63%)" },
+  capacitor: { name: "Capacitor", color: "#93c5fd", glyph: "linear-gradient(180deg, #dbeafe, #2563eb 52%, #172554)" },
+  auxGenerator: { name: "Aux Generator", color: "#fef08a", glyph: "linear-gradient(45deg, #422006, #eab308, #fef9c3)" },
+  microThruster: { name: "Micro Thruster", color: "#67e8f9", glyph: "linear-gradient(180deg, #cffafe, #0891b2 55%, #164e63)" },
+  heavyEngine: { name: "Heavy Engine", color: "#22d3ee", glyph: "linear-gradient(180deg, #a5f3fc, #0284c7 50%, #082f49)" },
+  maneuverThruster: { name: "Maneuver Thruster", color: "#7dd3fc", glyph: "linear-gradient(135deg, #e0f2fe, #0369a1)" },
+  gyroscope: { name: "Gyroscope", color: "#c4b5fd", glyph: "conic-gradient(#ede9fe, #7c3aed, #ede9fe)" },
+  lightShield: { name: "Light Shield", color: "#86efac", glyph: "radial-gradient(circle, #dcfce7 0 18%, #22c55e 30% 55%, #14532d 62%)" },
+  heavyShield: { name: "Heavy Shield", color: "#4ade80", glyph: "radial-gradient(circle, #bbf7d0 0 18%, #16a34a 32% 60%, #052e16 66%)" },
+  regenShield: { name: "Regen Shield", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 16%, #14b8a6 28% 58%, #134e4a 64%)" },
+  pointDefense: { name: "Point Defence", color: "#fda4af", glyph: "radial-gradient(circle, #fff1f2 0 18%, #fb7185 30% 56%, #881337 62%)" },
+  lightBlaster: { name: "Light Blaster", color: "#fb7185", glyph: "linear-gradient(90deg, #3f0d1b 0 18%, #fb7185 20% 72%, #ffe4e6 73%)" },
+  heavyBlaster: { name: "Heavy Blaster", color: "#f43f5e", glyph: "linear-gradient(90deg, #3f0d1b 0 16%, #e11d48 18% 70%, #ffe4e6 72%)" },
+  autocannon: { name: "Autocannon", color: "#f97316", glyph: "linear-gradient(90deg, #431407 0 18%, #fb923c 20% 70%, #ffedd5 72%)" },
+  lightMissile: { name: "Light Missile", color: "#c084fc", glyph: "linear-gradient(90deg, #2e1065 0 25%, #c084fc 26% 68%, #f3e8ff 69%)" },
+  torpedo: { name: "Torpedo", color: "#a78bfa", glyph: "linear-gradient(90deg, #1e1b4b 0 22%, #8b5cf6 24% 70%, #ede9fe 72%)" },
+  swarmMissile: { name: "Swarm Pod", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 12%, #a855f7 18% 30%, #581c87 42%)" },
+  lightRailgun: { name: "Light Railgun", color: "#e2e8f0", glyph: "linear-gradient(90deg, #0f172a 0 16%, #e2e8f0 18% 72%, #60a5fa 74%)" },
+  heavyRailgun: { name: "Heavy Railgun", color: "#f8fafc", glyph: "linear-gradient(90deg, #020617 0 14%, #f8fafc 16% 70%, #3b82f6 74%)" },
+  beamEmitter: { name: "Beam Emitter", color: "#bae6fd", glyph: "linear-gradient(90deg, #082f49 0 18%, #7dd3fc 20% 76%, #eff6ff 78%)" },
+  sensorArray: { name: "Sensor Array", color: "#a7f3d0", glyph: "radial-gradient(circle, #ecfdf5 0 15%, #10b981 25% 45%, #064e3b 55%)" },
+  targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
+  fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
+  heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
+  captureModule: { name: "Capture Module", color: "#f9a8d4", glyph: "radial-gradient(circle, #fdf2f8 0 20%, #ec4899 30% 55%, #831843 62%)" },
+  repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" }
 };
 
 const SHIP_ECONOMY = Object.freeze({
@@ -32,18 +65,587 @@ const SHIP_ECONOMY = Object.freeze({
   })
 });
 
-const PART_STATS = {
-  core: { cost: 0, mass: 8, hp: 150, powerGeneration: 4, powerUse: 0, shield: 25, shieldRegen: 0.4, thrust: 0, turn: 0, energyStorage: 80, repairRate: 0, weapon: null, description: "The command core of the ship. Provides basic hull, small power generation, starter shield, and energy capacity. Every ship needs a core.", bestUse: "Keep it protected near the center of the ship." },
-  frame: { cost: 2, mass: 2, hp: 42, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0, energyStorage: 0, repairRate: 0, weapon: null, description: "Cheap structure used to expand the ship shape. Light and inexpensive, but provides limited protection.", bestUse: "Use as connective structure and low-cost hull filler." },
-  armor: { cost: 9, mass: 8, hp: 135, powerGeneration: 0, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.04, energyStorage: 0, repairRate: 0, weapon: null, description: "Heavy passive protection. Adds a lot of hull for low cost, but increases mass and slightly reduces turning.", bestUse: "Protect cores, reactors, and weapons on brawler ships." },
-  engine: { cost: 14, mass: 4, hp: 52, powerGeneration: 0, powerUse: 1, shield: 0, shieldRegen: 0, thrust: 135, turn: 0.24, energyStorage: 0, repairRate: 0, weapon: null, description: "Provides thrust and turning. More engines make the ship faster, especially if the ship is light. Engines consume power.", bestUse: "Add more engines when armor or heavy weapons make the ship sluggish." },
-  reactor: { cost: 20, mass: 6, hp: 62, powerGeneration: 9, powerUse: 0, shield: 0, shieldRegen: 0, thrust: 0, turn: 0.01, energyStorage: 30, repairRate: 0, explosionRisk: "Medium when destroyed", weapon: null, description: "Main power source. Generates power for weapons, shields, engines, and repair systems. Also adds a small amount of energy storage.", bestUse: "Required for railguns, shields, and large weapon batteries." },
-  battery: { cost: 12, mass: 3, hp: 44, powerGeneration: 0, powerUse: 0, shield: 42, shieldRegen: 0.8, thrust: 0, turn: 0, energyStorage: 180, repairRate: 0, weapon: null, description: "Stores energy and adds a small shield buffer. Useful for shield-heavy or burst-power ships, but does not replace a reactor.", bestUse: "Use for energy storage and backup shielding, not as a primary power source." },
-  shield: { cost: 18, mass: 5, hp: 48, powerGeneration: 0, powerUse: 3, shield: 115, shieldRegen: 2.4, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 0, weapon: null, description: "Active defence module. Adds regenerating shield, but consumes constant power. Strong against light sustained damage.", bestUse: "Protect expensive ships that already have enough reactor output." },
-  blaster: { cost: 25, mass: 5, hp: 48, powerGeneration: 0, powerUse: 2, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.02, energyStorage: 0, repairRate: 0, blaster: 1, weapon: makeWeapon("blaster", { damage: 14, fireRate: 1.55, range: 520, projectileSpeed: 650, accuracy: 0.88, tracking: 0 }), description: "Reliable medium-range weapon. Best for sustained DPS and close-to-mid range fighting. Cheap and efficient, but has less range than missiles or railguns.", bestUse: "Efficient sustained damage at close and medium range." },
-  missile: { cost: 35, mass: 7, hp: 54, powerGeneration: 0, powerUse: 3, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.03, energyStorage: 0, repairRate: 0, missile: 1, weapon: makeWeapon("missile", { damage: 64, fireRate: 0.3, range: 820, projectileSpeed: 330, accuracy: 0.72, tracking: 0.82 }), description: "Long-range tracking burst weapon. Good against fast or evasive ships. Fires slowly and has lower sustained DPS, but each hit is powerful.", bestUse: "Opening volleys, chasing fast ships, and pressuring from long range." },
-  railgun: { cost: 45, mass: 9, hp: 58, powerGeneration: 0, powerUse: 6, shield: 0, shieldRegen: 0, thrust: 0, turn: -0.05, energyStorage: 0, repairRate: 0, railgun: 1, weapon: makeWeapon("railgun", { damage: 105, fireRate: 0.19, range: 1100, projectileSpeed: 1080, accuracy: 0.96, tracking: 0 }), description: "Very long-range precision weapon. High damage, fast projectile, and excellent accuracy. Expensive, heavy, and power-hungry with a slow fire rate.", bestUse: "Sniping expensive ships and forcing enemies away from objectives." },
-  repair: { cost: 22, mass: 5, hp: 50, powerGeneration: 0, powerUse: 2, shield: 20, shieldRegen: 0.5, thrust: 0, turn: -0.01, energyStorage: 0, repairRate: 10, repair: 1, weapon: null, description: "Repairs damaged hull over time. Best on larger ships with enough power. Provides sustain, but should not fully replace armour or shields.", bestUse: "Escort groups and durable fleets that fight around relays." }
+const PARTS_STATS = {
+  // Existing basics
+  core: {
+    cost: 0, mass: 8, hp: 150,
+    powerGeneration: 4, powerUse: 0,
+    shield: 25, shieldRegen: 0.4,
+    thrust: 0, turn: 0,
+    energyStorage: 80, repairRate: 0,
+    weapon: null
+  },
+
+  frame: {
+    cost: 3, mass: 2, hp: 42,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.005,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  armor: {
+    cost: 11, mass: 8, hp: 125,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.045,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  engine: {
+    cost: 16, mass: 4, hp: 48,
+    powerGeneration: 0, powerUse: 1.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 130, turn: 0.22,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  reactor: {
+    cost: 22, mass: 6, hp: 58,
+    powerGeneration: 9, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 30, repairRate: 0,
+    weapon: null
+  },
+
+  battery: {
+    cost: 14, mass: 3, hp: 42,
+    powerGeneration: 0, powerUse: 0,
+    shield: 36, shieldRegen: 0.55,
+    thrust: 0, turn: 0,
+    energyStorage: 165, repairRate: 0,
+    weapon: null
+  },
+
+  shield: {
+    cost: 20, mass: 5, hp: 46,
+    powerGeneration: 0, powerUse: 3.2,
+    shield: 105, shieldRegen: 2.1,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  blaster: {
+    cost: 27, mass: 5, hp: 46,
+    powerGeneration: 0, powerUse: 2.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.025,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 13,
+      fireRate: 1.5,
+      range: 500,
+      projectileSpeed: 650,
+      accuracy: 0.87,
+      tracking: 0,
+      arc: 120
+    })
+  },
+
+  missile: {
+    cost: 38, mass: 7, hp: 50,
+    powerGeneration: 0, powerUse: 3.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.035,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 60,
+      fireRate: 0.28,
+      range: 790,
+      projectileSpeed: 320,
+      accuracy: 0.7,
+      tracking: 0.78,
+      arc: 220
+    })
+  },
+
+  railgun: {
+    cost: 50, mass: 9, hp: 54,
+    powerGeneration: 0, powerUse: 6.5,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.06,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 100,
+      fireRate: 0.18,
+      range: 1060,
+      projectileSpeed: 1080,
+      accuracy: 0.95,
+      tracking: 0,
+      arc: 45
+    })
+  },
+
+  repair: {
+    category: "Support",
+    cost: 26, mass: 5, hp: 48,
+    powerGeneration: 0, powerUse: 2.4,
+    shield: 16, shieldRegen: 0.35,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 8,
+    repair: 1,
+    weapon: null
+  },
+
+  // Structure
+  lightFrame: {
+    category: "Structure",
+    cost: 2, mass: 1, hp: 22,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.015,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  heavyFrame: {
+    category: "Structure",
+    cost: 7, mass: 5, hp: 82,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.025,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  compositeArmor: {
+    category: "Structure",
+    cost: 18, mass: 5, hp: 95,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.025,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  bulkhead: {
+    category: "Structure",
+    cost: 32, mass: 15, hp: 185,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.11,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  lightMount: {
+    category: "Structure",
+    cost: 5, mass: 2, hp: 32,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.005,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  heavyMount: {
+    category: "Structure",
+    cost: 14, mass: 6, hp: 78,
+    powerGeneration: 0, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.035,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  // Power
+  smallReactor: {
+    category: "Power",
+    cost: 14, mass: 3, hp: 34,
+    powerGeneration: 5, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 12, repairRate: 0,
+    weapon: null
+  },
+
+  heavyReactor: {
+    category: "Power",
+    cost: 48, mass: 13, hp: 88,
+    powerGeneration: 18, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.04,
+    energyStorage: 50, repairRate: 0,
+    weapon: null
+  },
+
+  capacitor: {
+    category: "Power",
+    cost: 34, mass: 9, hp: 62,
+    powerGeneration: 0, powerUse: 0,
+    shield: 48, shieldRegen: 0.2,
+    thrust: 0, turn: -0.025,
+    energyStorage: 360, repairRate: 0,
+    weapon: null
+  },
+
+  auxGenerator: {
+    category: "Power",
+    cost: 11, mass: 2, hp: 24,
+    powerGeneration: 3, powerUse: 0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 6, repairRate: 0,
+    weapon: null
+  },
+
+  // Engines
+  microThruster: {
+    category: "Engines",
+    cost: 8, mass: 1, hp: 20,
+    powerGeneration: 0, powerUse: 0.5,
+    shield: 0, shieldRegen: 0,
+    thrust: 42, turn: 0.1,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rotationRequired: true
+  },
+
+  heavyEngine: {
+    category: "Engines",
+    cost: 38, mass: 11, hp: 78,
+    powerGeneration: 0, powerUse: 4.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 310, turn: 0.06,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rotationRequired: true
+  },
+
+  maneuverThruster: {
+    category: "Engines",
+    cost: 20, mass: 3, hp: 38,
+    powerGeneration: 0, powerUse: 1.7,
+    shield: 0, shieldRegen: 0,
+    thrust: 60, turn: 0.38,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rotationRequired: true
+  },
+
+  gyroscope: {
+    category: "Engines",
+    cost: 28, mass: 5, hp: 42,
+    powerGeneration: 0, powerUse: 2.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.5,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  // Defence
+  lightShield: {
+    category: "Defence",
+    cost: 12, mass: 2, hp: 28,
+    powerGeneration: 0, powerUse: 1.4,
+    shield: 42, shieldRegen: 0.9,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  heavyShield: {
+    category: "Defence",
+    cost: 46, mass: 11, hp: 70,
+    powerGeneration: 0, powerUse: 6.8,
+    shield: 205, shieldRegen: 1.8,
+    thrust: 0, turn: -0.055,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  regenShield: {
+    category: "Defence",
+    cost: 36, mass: 6, hp: 50,
+    powerGeneration: 0, powerUse: 5.8,
+    shield: 82, shieldRegen: 4.8,
+    thrust: 0, turn: -0.03,
+    energyStorage: 0, repairRate: 0,
+    weapon: null
+  },
+
+  pointDefense: {
+    category: "Defence",
+    cost: 36, mass: 4, hp: 40,
+    powerGeneration: 0, powerUse: 3.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 4,
+      fireRate: 4.0,
+      range: 280,
+      projectileSpeed: 820,
+      accuracy: 0.78,
+      tracking: 0,
+      arc: 360
+    }),
+    rotationRequired: true
+  },
+
+  // Weapons
+  lightBlaster: {
+    category: "Weapons",
+    cost: 17, mass: 3, hp: 32,
+    powerGeneration: 0, powerUse: 1.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 7,
+      fireRate: 2.1,
+      range: 420,
+      projectileSpeed: 680,
+      accuracy: 0.83,
+      tracking: 0,
+      arc: 120
+    }),
+    rotationRequired: true
+  },
+
+  heavyBlaster: {
+    category: "Weapons",
+    cost: 46, mass: 8, hp: 58,
+    powerGeneration: 0, powerUse: 4.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.05,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 26,
+      fireRate: 0.82,
+      range: 580,
+      projectileSpeed: 610,
+      accuracy: 0.84,
+      tracking: 0,
+      arc: 100
+    }),
+    rotationRequired: true
+  },
+
+  autocannon: {
+    category: "Weapons",
+    cost: 34, mass: 6,
+    hp: 44,
+    powerGeneration: 0, powerUse: 1.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.03,
+    energyStorage: 0, repairRate: 0,
+    blaster: 1,
+    weapon: makeWeapon("blaster", {
+      damage: 4,
+      fireRate: 5.2,
+      range: 470,
+      projectileSpeed: 700,
+      accuracy: 0.64,
+      tracking: 0,
+      arc: 130
+    }),
+    rotationRequired: true
+  },
+
+  lightMissile: {
+    category: "Weapons",
+    cost: 27, mass: 4, hp: 36,
+    powerGeneration: 0, powerUse: 1.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.02,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 34,
+      fireRate: 0.45,
+      range: 700,
+      projectileSpeed: 350,
+      accuracy: 0.72,
+      tracking: 0.7,
+      arc: 220
+    }),
+    rotationRequired: true
+  },
+
+  torpedo: {
+    category: "Weapons",
+    cost: 66, mass: 12, hp: 58,
+    powerGeneration: 0, powerUse: 5.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.065,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 115,
+      fireRate: 0.14,
+      range: 940,
+      projectileSpeed: 240,
+      accuracy: 0.58,
+      tracking: 0.3,
+      arc: 150
+    }),
+    rotationRequired: true
+  },
+
+  swarmMissile: {
+    category: "Weapons",
+    cost: 72, mass: 10, hp: 50,
+    powerGeneration: 0, powerUse: 5.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.055,
+    energyStorage: 0, repairRate: 0,
+    missile: 1,
+    weapon: makeWeapon("missile", {
+      damage: 20,
+      fireRate: 0.85,
+      range: 730,
+      projectileSpeed: 370,
+      accuracy: 0.68,
+      tracking: 0.82,
+      arc: 240
+    }),
+    rotationRequired: true
+  },
+
+  lightRailgun: {
+    category: "Weapons",
+    cost: 42, mass: 6, hp: 42,
+    powerGeneration: 0, powerUse: 4.6,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.045,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 66,
+      fireRate: 0.24,
+      range: 900,
+      projectileSpeed: 1100,
+      accuracy: 0.93,
+      tracking: 0,
+      arc: 45
+    }),
+    rotationRequired: true
+  },
+
+  heavyRailgun: {
+    category: "Weapons",
+    cost: 94, mass: 16, hp: 68,
+    powerGeneration: 0, powerUse: 11,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.1,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 160,
+      fireRate: 0.105,
+      range: 1280,
+      projectileSpeed: 1260,
+      accuracy: 0.96,
+      tracking: 0,
+      arc: 35
+    }),
+    rotationRequired: true
+  },
+
+  beamEmitter: {
+    category: "Weapons",
+    cost: 74, mass: 10, hp: 54,
+    powerGeneration: 0, powerUse: 9.5,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.065,
+    energyStorage: 0, repairRate: 0,
+    railgun: 1,
+    weapon: makeWeapon("railgun", {
+      damage: 34,
+      fireRate: 0.7,
+      range: 720,
+      projectileSpeed: 1500,
+      accuracy: 0.98,
+      tracking: 0,
+      arc: 70
+    }),
+    rotationRequired: true
+  },
+
+  // Support / utility
+  sensorArray: {
+    category: "Support",
+    cost: 22, mass: 2, hp: 24,
+    powerGeneration: 0, powerUse: 1.3,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    rangeBonus: 35,
+    utilityEffect: "range"
+  },
+
+  targetingComputer: {
+    category: "Support",
+    cost: 32, mass: 3, hp: 28,
+    powerGeneration: 0, powerUse: 2.4,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    accuracyBonus: 0.035,
+    utilityEffect: "accuracy"
+  },
+
+  fireControl: {
+    category: "Support",
+    cost: 44, mass: 5, hp: 34,
+    powerGeneration: 0, powerUse: 3.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.02,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    fireRateBonus: 0.05,
+    utilityEffect: "fireRate"
+  },
+
+  heatSink: {
+    category: "Support",
+    cost: 24, mass: 5, hp: 44,
+    powerGeneration: 0, powerUse: 0.7,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    heat: -6,
+    utilityEffect: "cooling"
+  },
+
+  captureModule: {
+    category: "Utility",
+    cost: 28, mass: 4, hp: 40,
+    powerGeneration: 0, powerUse: 1.8,
+    shield: 8, shieldRegen: 0.15,
+    thrust: 0, turn: -0.005,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    captureBonus: 0.16,
+    utilityEffect: "capture"
+  },
+
+  repairBeam: {
+    category: "Support",
+    cost: 58, mass: 8, hp: 48,
+    powerGeneration: 0, powerUse: 6.2,
+    shield: 22, shieldRegen: 0.4,
+    thrust: 0, turn: -0.035,
+    energyStorage: 0, repairRate: 17,
+    repair: 1,
+    weapon: null,
+    utilityEffect: "repair"
+  }
 };
 
 const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
@@ -52,8 +654,10 @@ const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
 const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
 const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
 const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
+const LOCAL_ACTIVE_ROOM_KEY = "modular-fleet-active-room-v1";
 const WORLD_FALLBACK = { width: 3200, height: 1900 };
 const PURCHASE_PENDING_MS = 2500;
+const PART_CATEGORIES = ["Structure", "Power", "Engines", "Defence", "Weapons", "Support", "Utility"];
 
 const dom = {
   canvas: document.getElementById("arenaCanvas"),
@@ -75,6 +679,13 @@ const dom = {
   copyButton: document.getElementById("copyButton"),
   botButton: document.getElementById("botButton"),
   leaveLobbyButton: document.getElementById("leaveLobbyButton"),
+  rulesStatus: document.getElementById("rulesStatus"),
+  gameModeSelect: document.getElementById("gameModeSelect"),
+  startingMoneyInput: document.getElementById("startingMoneyInput"),
+  maxPlayersInput: document.getElementById("maxPlayersInput"),
+  mapSizeSelect: document.getElementById("mapSizeSelect"),
+  teamChoiceCard: document.getElementById("teamChoiceCard"),
+  teamChoiceStatus: document.getElementById("teamChoiceStatus"),
   adminControls: document.getElementById("adminControls"),
   startDesignButton: document.getElementById("startDesignButton"),
   closeLobbyButton: document.getElementById("closeLobbyButton"),
@@ -130,7 +741,12 @@ const dom = {
   settingsCloseButton: document.getElementById("settingsCloseButton"),
   serverUrlInput: document.getElementById("serverUrlInput"),
   saveServerButton: document.getElementById("saveServerButton"),
-  clearServerButton: document.getElementById("clearServerButton")
+  clearServerButton: document.getElementById("clearServerButton"),
+  confirmModal: document.getElementById("confirmModal"),
+  confirmModalTitle: document.getElementById("confirmModalTitle"),
+  confirmModalMessage: document.getElementById("confirmModalMessage"),
+  confirmCancelButton: document.getElementById("confirmCancelButton"),
+  confirmAcceptButton: document.getElementById("confirmAcceptButton")
 };
 
 const ctx = dom.canvas.getContext("2d", { alpha: false });
@@ -146,6 +762,9 @@ const state = {
   loadedEditorBlueprintId: null,
   purchaseQuantity: 1,
   selectedPart: "frame",
+  selectedPartCategory: "Structure",
+  hoveredCell: null,
+  selectedCell: null,
   selectedShipIds: new Set(),
   snapshot: null,
   map: null,
@@ -156,13 +775,15 @@ const state = {
   drag: null,
   keys: new Set(),
   stars: makeStars(260),
-  rules: { startingMoney: 700, shipCap: 20 },
+  rules: { startingMoney: 700, shipCap: 20, maxPlayers: 12, mapSize: "auto", gameMode: "teams" },
   minimap: null,
   shipHud: new Map(),
   pendingPurchases: new Map(),
   purchaseErrors: new Map(),
   purchasePointer: null,
   savedDesignPointer: null,
+  pendingDeleteDesignId: null,
+  pendingKickTargetId: null,
   kickPointer: null,
   notices: [],
   lastPingAt: 0,
@@ -173,7 +794,7 @@ const state = {
 };
 
 dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floor(100 + Math.random() * 900)}`;
-dom.teamSelect.value = localStorage.getItem(LOCAL_TEAM_KEY) || "blue";
+dom.teamSelect.value = localStorage.getItem(LOCAL_TEAM_KEY) === "red" ? "red" : "blue";
 dom.formationSelect.value = localStorage.getItem(LOCAL_FORMATION_KEY) || "line";
 
 renderPalette();
@@ -212,6 +833,11 @@ dom.lobbyCloseButton?.addEventListener("click", hideMenuScreens);
 dom.settingsCloseButton?.addEventListener("click", hideMenuScreens);
 dom.saveServerButton?.addEventListener("click", saveServerSetting);
 dom.clearServerButton?.addEventListener("click", clearServerSetting);
+dom.confirmCancelButton?.addEventListener("click", closeConfirmModal);
+dom.confirmAcceptButton?.addEventListener("click", confirmModalAction);
+dom.confirmModal?.addEventListener("pointerdown", (event) => {
+  if (event.target === dom.confirmModal) closeConfirmModal();
+});
 dom.formationSelect.addEventListener("change", () => {
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
 });
@@ -226,6 +852,10 @@ dom.pilotName.addEventListener("change", () => {
 dom.roomCode.addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinExistingGame();
 });
+dom.startingMoneyInput?.addEventListener("change", sendRulesUpdate);
+dom.maxPlayersInput?.addEventListener("change", sendRulesUpdate);
+dom.mapSizeSelect?.addEventListener("change", sendRulesUpdate);
+dom.gameModeSelect?.addEventListener("change", sendRulesUpdate);
 dom.purchaseQuantityOne?.addEventListener("click", () => setPurchaseQuantity(1));
 dom.purchaseQuantityFive?.addEventListener("click", () => setPurchaseQuantity(5));
 dom.purchaseOptions?.addEventListener("pointerdown", handlePurchasePointerDown);
@@ -283,6 +913,7 @@ function joinRoom(roomCode = "") {
   state.adminId = null;
   state.selectedShipIds.clear();
   dom.roomLabel.textContent = "----";
+  dom.roomCode.value = "";
   dom.currentRoomCode.textContent = "----";
   dom.currentRoomCard.hidden = true;
 
@@ -346,6 +977,7 @@ function restartMatch() {
 function closeLobby() {
   setEndGameActionState(true);
   send({ type: "closeLobby" });
+  forgetActiveRoom();
   returnToMainMenu("Closing lobby", "warning");
 }
 
@@ -355,6 +987,7 @@ function leaveLobby() {
     return;
   }
   send({ type: "leaveLobby" });
+  forgetActiveRoom();
   returnToMainMenu("Left lobby", "warning");
 }
 
@@ -401,6 +1034,7 @@ function clearRoomState() {
   dom.objectiveLabel.textContent = "None";
   dom.winner.hidden = true;
   dom.endGameScreen.hidden = true;
+  if (dom.roomCode) dom.roomCode.value = "";
   setEndGameActionState(false);
 }
 
@@ -473,6 +1107,17 @@ function clearServerSetting() {
   addNotice(state.socket ? "Using current host after reconnect" : "Using current host", "good");
 }
 
+function sendRulesUpdate() {
+  if (!isAdmin() || state.phase !== "lobby") return;
+  const rules = {
+    gameMode: dom.gameModeSelect?.value || "teams",
+    startingMoney: Number(dom.startingMoneyInput?.value),
+    maxPlayers: Number(dom.maxPlayersInput?.value),
+    mapSize: dom.mapSizeSelect?.value || "auto"
+  };
+  send({ type: "setRules", rules });
+}
+
 function kickPlayer(targetId) {
   if (!targetId) {
     addNotice("Cannot kick: missing player id", "error");
@@ -487,8 +1132,17 @@ function kickPlayer(targetId) {
     return;
   }
   const player = state.snapshot?.players?.find((candidate) => candidate.id === targetId);
-  if (typeof confirm === "function" && !confirm(`Kick ${player?.name || "this player"}?`)) return;
-  send({ type: "kick", targetId });
+  openKickConfirmModal(player || { id: targetId, name: "this player" });
+}
+
+function openKickConfirmModal(player) {
+  state.pendingKickTargetId = player.id;
+  state.pendingDeleteDesignId = null;
+  if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Kick player?";
+  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = `Remove ${player.name || "this player"} from this lobby?`;
+  if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Kick";
+  if (dom.confirmModal) dom.confirmModal.hidden = false;
+  dom.confirmCancelButton?.focus?.();
 }
 
 function bindKickButtonContainer(container) {
@@ -578,6 +1232,7 @@ function handlePurchasePointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return;
   const card = event.target?.closest?.(".purchase-option");
   if (!card || !dom.purchaseOptions?.contains(card)) return;
+  if (isUnaffordablePurchaseOption(card.dataset?.optionId || "")) return;
   clearPressedPurchaseCards();
   setPurchaseCardFeedback(card, "pressed", "Checking...");
   state.purchasePointer = {
@@ -652,6 +1307,7 @@ function handlePurchaseKeyboardClick(event) {
   if (event.detail !== 0) return;
   const card = event.target?.closest?.(".purchase-option");
   if (!card || !dom.purchaseOptions?.contains(card)) return;
+  if (isUnaffordablePurchaseOption(card.dataset?.optionId || "")) return;
   event.preventDefault();
   buyPurchaseOption(card.dataset?.optionId || "");
 }
@@ -685,6 +1341,7 @@ function buyPurchaseOption(optionId) {
 
   if (!purchase.canBuy) {
     const reason = purchase.reason || "Cannot buy this ship right now";
+    if (isMoneyPurchaseBlocker(reason)) return;
     setPurchaseOptionFeedback(optionId, "error", reason);
     setPurchaseError(optionId, reason);
     addNotice(reason, "warning");
@@ -710,6 +1367,17 @@ function buyPurchaseOption(optionId) {
   });
   setPurchaseOptionFeedback(optionId, "pending", "Building...");
   send({ type: "buyShip", count: quantity, design: option.blueprint, requestId });
+}
+
+function isUnaffordablePurchaseOption(optionId) {
+  const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
+  if (!option) return false;
+  const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
+  return !purchase.canBuy && isMoneyPurchaseBlocker(purchase.reason);
+}
+
+function isMoneyPurchaseBlocker(reason = "") {
+  return /need \$|not enough money|cannot afford/i.test(String(reason));
 }
 
 function setPurchaseQuantity(quantity) {
@@ -785,15 +1453,62 @@ function updateLobbyState() {
     dom.leaveLobbyButton.hidden = !connected || admin;
     dom.leaveLobbyButton.disabled = !connected || admin;
   }
-  dom.teamSelect.disabled = connected && phase !== "lobby";
+  updateTeamChoiceControls(connected, phase);
   dom.adminControls.hidden = !connected || !admin || phase === "active";
   dom.startDesignButton.disabled = !connected || !admin || phase !== "lobby" || playerCount === 0;
   dom.closeLobbyButton.disabled = !connected || !admin || phase === "active";
   dom.currentRoomCard.hidden = !state.room;
   dom.currentRoomCode.textContent = state.room || "----";
+  updateRulesControls(connected, admin, phase, playerCount);
   updatePhaseSteps(phase);
   updatePhaseDetail(phase);
   renderPlayerList();
+}
+
+function updateRulesControls(connected, admin, phase, playerCount) {
+  const editable = connected && admin && phase === "lobby";
+  const rules = state.snapshot?.rules || state.rules || {};
+  state.rules = { ...state.rules, ...rules };
+  if (dom.rulesStatus) {
+    dom.rulesStatus.textContent = editable
+      ? "Host controls"
+      : admin && connected ? "Locked after lobby" : "Host only";
+  }
+  setRuleControlValue(dom.gameModeSelect, rules.gameMode || state.rules.gameMode || "teams");
+  setRuleControlValue(dom.startingMoneyInput, rules.startingMoney ?? state.rules.startingMoney);
+  setRuleControlValue(dom.maxPlayersInput, rules.maxPlayers ?? state.rules.maxPlayers);
+  setRuleControlValue(dom.mapSizeSelect, rules.mapSize || state.rules.mapSize || "auto");
+  for (const element of [dom.gameModeSelect, dom.startingMoneyInput, dom.maxPlayersInput, dom.mapSizeSelect]) {
+    if (element) element.disabled = !editable;
+  }
+  if (dom.maxPlayersInput) {
+    dom.maxPlayersInput.min = String(Math.max(2, playerCount || 1));
+  }
+}
+
+function updateTeamChoiceControls(connected, phase) {
+  const mode = state.rules?.gameMode || "teams";
+  const inLobby = connected && phase === "lobby";
+  const canChoose = inLobby && mode === "teams";
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  if (dom.teamChoiceCard) {
+    dom.teamChoiceCard.hidden = !connected || mode === "solo";
+    dom.teamChoiceCard.classList?.toggle?.("solo", mode === "solo");
+  }
+  if (dom.teamSelect) {
+    if (mine?.team === "blue" || mine?.team === "red") dom.teamSelect.value = mine.team;
+    dom.teamSelect.disabled = !canChoose;
+  }
+  if (dom.teamChoiceStatus) {
+    dom.teamChoiceStatus.textContent = mode === "solo"
+      ? "Solo mode: every player is an opponent"
+      : canChoose ? "Choose before ship design" : "Locked after ship design starts";
+  }
+}
+
+function setRuleControlValue(element, value) {
+  if (!element || document.activeElement === element) return;
+  element.value = String(value);
 }
 
 function phaseLabel(phase) {
@@ -827,8 +1542,12 @@ function updatePhaseDetail(phase) {
   if (!state.room) {
     dom.phaseDetail.textContent = "Create or join a room to begin.";
   } else if (phase === "lobby") {
+    const mapRule = (state.rules?.mapSize && state.rules.mapSize !== "auto")
+      ? state.rules.mapSize
+      : `${players.length || 1} player${players.length === 1 ? "" : "s"}`;
+    const modeText = state.rules?.gameMode === "solo" ? "Solo mode" : "Teams mode";
     dom.phaseDetail.textContent = isAdmin()
-      ? `Waiting room. Add bots, share the code, then start ship design. Map size will use ${players.length || 1} player${players.length === 1 ? "" : "s"}.`
+      ? `Waiting room. ${modeText}. Add bots, share the code, then start ship design. Map size will use ${mapRule}.`
       : "Waiting for the room admin to start ship design.";
   } else if (phase === "design") {
     dom.phaseDetail.textContent = `${ready}/${players.length} ready. Edit your ship, then press Ready. ${size || "Map"}: ${mapName || "generated map"}.`;
@@ -860,12 +1579,14 @@ function handleServerMessage(message) {
     state.map = message.map || state.map;
     state.phase = message.phase || "lobby";
     state.adminId = message.adminId || null;
+    state.rules = { ...state.rules, ...(message.rules || {}) };
     state.selectedShipIds.clear();
     dom.roomCode.value = message.room;
     dom.currentRoomCode.textContent = message.room;
     dom.currentRoomCard.hidden = false;
     dom.roomLabel.textContent = message.room;
     clearMenuNotice();
+    rememberActiveRoom(message.room);
     setConnectionStatus("online", "Room linked");
     updateLobbyState();
     openLobbyManagement();
@@ -880,6 +1601,7 @@ function handleServerMessage(message) {
     state.map = message.map || state.map;
     state.phase = message.phase || state.phase;
     state.adminId = message.adminId || state.adminId;
+    state.rules = { ...state.rules, ...(message.rules || {}) };
     dom.roomLabel.textContent = message.room;
     reconcilePendingPurchasesWithSnapshot();
     pruneSelection();
@@ -924,6 +1646,7 @@ function handleServerMessage(message) {
 
   if (message.type === "error") {
     if (message.requestId) clearPendingPurchase(message.requestId);
+    if (/closed|kicked/i.test(message.message || "")) forgetActiveRoom();
     if (!state.room || !dom.mainMenuScreen?.hidden) {
       showMenuNotice(message.message || "Server error", "error");
       setConnectionStatus("error", "Join failed");
@@ -936,27 +1659,71 @@ function handleServerMessage(message) {
 
   if (message.type === "kicked" || message.type === "closed" || message.type === "leftLobby") {
     const tone = message.type === "kicked" ? "error" : "warning";
+    forgetActiveRoom();
     returnToMainMenu(message.message || "Left lobby", tone);
   }
 }
 
+function rememberActiveRoom(roomCode) {
+  if (roomCode) localStorage.setItem(LOCAL_ACTIVE_ROOM_KEY, String(roomCode).toUpperCase());
+}
+
+function forgetActiveRoom() {
+  localStorage.removeItem(LOCAL_ACTIVE_ROOM_KEY);
+}
+
 function renderPalette() {
   dom.palette.textContent = "";
+  const tabs = document.createElement("div");
+  tabs.className = "part-category-tabs";
+  for (const category of PART_CATEGORIES) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = category === state.selectedPartCategory ? "active" : "";
+    tab.textContent = category;
+    tab.addEventListener("click", () => {
+      state.selectedPartCategory = category;
+      const first = Object.keys(PART_DEFS).find((type) => type !== "core" && partCategory(type) === category);
+      if (first) state.selectedPart = first;
+      renderPalette();
+      renderPartInspector();
+    });
+    tabs.appendChild(tab);
+  }
+  dom.palette.appendChild(tabs);
+
+  const list = document.createElement("div");
+  list.className = "part-category-list";
   for (const type of Object.keys(PART_DEFS)) {
     if (type === "core") continue;
+    if (partCategory(type) !== state.selectedPartCategory) continue;
     const stat = PART_STATS[type];
     const button = document.createElement("button");
     button.type = "button";
     button.className = `part-button${state.selectedPart === type ? " active" : ""}`;
-    button.title = `${PART_DEFS[type].name} | cost ${stat.cost} | mass ${stat.mass}`;
+    button.title = `${PART_DEFS[type].name} | ${partCategory(type)} | cost ${stat.cost} | mass ${stat.mass}`;
     button.innerHTML = `${partIconMarkup(type)}<span class="part-name">${PART_DEFS[type].name}</span>`;
     button.addEventListener("click", () => {
       state.selectedPart = type;
+      state.selectedPartCategory = partCategory(type);
       renderPalette();
       renderPartInspector();
     });
-    dom.palette.appendChild(button);
+    list.appendChild(button);
   }
+  dom.palette.appendChild(list);
+}
+
+function partCategory(type) {
+  const stat = PART_STATS[type] || {};
+  if (stat.category) return stat.category;
+  if (type === "frame" || type === "armor") return "Structure";
+  if (type === "reactor" || type === "battery") return "Power";
+  if (type === "engine") return "Engines";
+  if (type === "shield") return "Defence";
+  if (stat.weapon) return "Weapons";
+  if (type === "repair") return "Support";
+  return "Utility";
 }
 
 function renderPartInspector() {
@@ -970,21 +1737,23 @@ function renderPartInspector() {
       ${partIconMarkup(type, "inspector-glyph")}
       <strong>${escapeHtml(def.name)}</strong>
     </div>
+    <div class="part-category-label">${escapeHtml(partCategory(type))}</div>
     <p class="part-description">${escapeHtml(stat.description || "")}</p>
     <div class="part-inspector-grid">
       ${inspectorStat("Cost", effectiveCost)}
-      ${inspectorStat("Mass", stat.mass)}
-      ${inspectorStat("Hull", stat.hp)}
+      ${inspectorStat("Mass", formatMass(stat.mass))}
+      ${inspectorStat("Hull", formatHull(stat.hp))}
       ${inspectorStat("Power", partPowerText(stat))}
-      ${inspectorStat("Shield", stat.shield)}
-      ${inspectorStat("Thrust", stat.thrust)}
-      ${inspectorStat("Storage", stat.energyStorage)}
-      ${inspectorStat("Repair", stat.repairRate)}
+      ${inspectorStat("Shield", formatShield(stat.shield))}
+      ${inspectorStat("Thrust", formatThrust(stat.thrust))}
+      ${inspectorStat("Storage", formatEnergy(stat.energyStorage))}
+      ${inspectorStat("Repair", formatRepair(stat.repairRate))}
     </div>
     <div class="part-detail-list">
       ${details.map(([label, value]) => inspectorDetail(label, value)).join("")}
     </div>
     <div class="part-best-use"><span>Best use</span>${escapeHtml(stat.bestUse || "Flexible ship system.")}</div>
+    ${stat.drawback ? `<div class="part-best-use drawback"><span>Drawback</span>${escapeHtml(stat.drawback)}</div>` : ""}
   `;
 }
 
@@ -999,79 +1768,125 @@ function inspectorDetail(label, value) {
 function partPowerText(stat) {
   const generation = stat.powerGeneration || 0;
   const use = stat.powerUse || 0;
-  if (generation && use) return `+${generation} / -${use}`;
-  if (generation) return `+${generation}`;
-  if (use) return `-${use}`;
-  return "0";
+  if (generation && use) return `+${generation} MW / -${use} MW`;
+  if (generation) return `+${generation} MW`;
+  if (use) return `-${use} MW`;
+  return "0 MW";
 }
 
 function partInspectorDetails(type, stat, effectiveCost) {
   if (stat.weapon) {
     const weapon = stat.weapon;
     return [
-      ["Damage", weapon.damage],
-      ["Range", `${weapon.range} units`],
+      ["Damage", formatDamage(weapon.damage)],
+      ["Range", formatDistance(weapon.range)],
       ["Fire rate", `${weapon.fireRate} shots/s`],
       ["Reload", `${weapon.reload}s`],
       ["DPS", weapon.dps.toFixed(1)],
-      ["Projectile speed", weapon.projectileSpeed],
+      ["Projectile speed", formatSpeed(weapon.projectileSpeed)],
       ["Accuracy", `${Math.round(weapon.accuracy * 100)}%`],
       ["Tracking", weapon.tracking ? `${Math.round(weapon.tracking * 100)}%` : "None"],
-      ["Power use", stat.powerUse]
+      ["Arc", `${weapon.arc || 360} deg`],
+      ["Default facing", "Forward / editor up"],
+      ["Power use", formatPowerUse(stat.powerUse)]
     ];
   }
 
   if (type === "engine") {
     return [
-      ["Thrust", stat.thrust],
-      ["Mass", stat.mass],
+      ["Thrust", formatThrust(stat.thrust)],
+      ["Mass", formatMass(stat.mass)],
       ["Speed contribution", "Total thrust / total mass"],
-      ["Power use", stat.powerUse]
+      ["Power use", formatPowerUse(stat.powerUse)]
     ];
   }
 
   if (type === "reactor") {
     return [
-      ["Power generation", `+${stat.powerGeneration}`],
-      ["Energy storage", stat.energyStorage],
+      ["Power generation", formatPowerGeneration(stat.powerGeneration)],
+      ["Energy storage", formatEnergy(stat.energyStorage)],
       ["Explosion risk", stat.explosionRisk || "Not implemented"],
-      ["Mass", stat.mass]
+      ["Mass", formatMass(stat.mass)]
     ];
   }
 
   if (type === "battery") {
     return [
-      ["Energy storage", stat.energyStorage],
-      ["Shield", stat.shield],
+      ["Energy storage", formatEnergy(stat.energyStorage)],
+      ["Shield", formatShield(stat.shield)],
       ["Recharge", `${stat.shieldRegen}/s`],
-      ["Power generation", stat.powerGeneration]
+      ["Power generation", formatPowerGeneration(stat.powerGeneration)]
     ];
   }
 
   if (type === "shield") {
     return [
-      ["Shield amount", stat.shield],
+      ["Shield amount", formatShield(stat.shield)],
       ["Recharge rate", `${stat.shieldRegen}/s`],
-      ["Power draw", stat.powerUse],
-      ["Mass", stat.mass]
+      ["Power draw", formatPowerUse(stat.powerUse)],
+      ["Mass", formatMass(stat.mass)]
     ];
   }
 
   if (type === "repair") {
     return [
-      ["Repair rate", `${stat.repairRate}/s`],
-      ["Power use", stat.powerUse],
-      ["Shield", stat.shield],
-      ["Mass", stat.mass]
+      ["Repair rate", formatRepair(stat.repairRate)],
+      ["Power use", formatPowerUse(stat.powerUse)],
+      ["Shield", formatShield(stat.shield)],
+      ["Mass", formatMass(stat.mass)]
     ];
   }
 
   return [
-    ["Hull", stat.hp],
-    ["Mass", stat.mass],
+    ["Hull", formatHull(stat.hp)],
+    ["Mass", formatMass(stat.mass)],
     ["Cost", effectiveCost],
     ["Power", partPowerText(stat)]
   ];
+}
+
+function formatMass(value) {
+  return `${Number(value) || 0} T`;
+}
+
+function formatHull(value) {
+  return `${Number(value) || 0} HP`;
+}
+
+function formatShield(value) {
+  return `${Number(value) || 0} SP`;
+}
+
+function formatThrust(value) {
+  return `${Number(value) || 0} kN`;
+}
+
+function formatEnergy(value) {
+  return `${Number(value) || 0} MJ`;
+}
+
+function formatRepair(value) {
+  return `${Number(value) || 0} HP/s`;
+}
+
+function formatPowerUse(value) {
+  return `${Number(value) || 0} MW`;
+}
+
+function formatPowerGeneration(value) {
+  return `+${Number(value) || 0} MW`;
+}
+
+function formatDistance(value) {
+  return `${Number(value) || 0} m`;
+}
+
+function formatSpeed(value) {
+  return `${Number(value) || 0} m/s`;
+}
+
+function formatDamage(value) {
+  return `${Number(value) || 0} dmg`;
 }
 
 function effectivePartCostLabel(type) {
@@ -1119,7 +1934,9 @@ function estimateFormulaPartCost(type) {
 function partIconMarkup(type, extraClass = "") {
   const safeType = String(type || "frame").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
   const classes = ["part-glyph", `part-${safeType}`, extraClass].filter(Boolean).join(" ");
-  return `<span class="${classes}" aria-hidden="true"><span></span></span>`;
+  const glyph = PART_DEFS[type]?.glyph;
+  const style = glyph ? ` style="background:${escapeHtml(glyph)}"` : "";
+  return `<span class="${classes}"${style} aria-hidden="true"><span></span></span>`;
 }
 
 function makeWeapon(type, stats) {
@@ -1134,6 +1951,7 @@ function makeWeapon(type, stats) {
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
     tracking: stats.tracking || 0,
+    arc: Number(stats.arc) || 360,
     dps: Number((damage * fireRate).toFixed(1))
   };
 }
@@ -1148,8 +1966,16 @@ function renderBuildGrid() {
       const cell = document.createElement("button");
       cell.type = "button";
       cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
-      cell.title = part ? PART_DEFS[part.type].name : "Empty";
-      if (part) cell.innerHTML = partIconMarkup(part.type, "build-glyph");
+      cell.title = part ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg` : ""}` : "Empty";
+      if (part) {
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph")}${isRotatablePart(part.type) ? `<span class="rotation-marker rot-${normalizeRotation(part.rotation)}">▲</span>` : ""}`;
+      }
+      cell.addEventListener("mouseenter", () => {
+        state.hoveredCell = { x, y };
+      });
+      cell.addEventListener("mouseleave", () => {
+        if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) state.hoveredCell = null;
+      });
       cell.addEventListener("click", () => editCell(x, y));
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
@@ -1163,9 +1989,10 @@ function renderBuildGrid() {
 function editCell(x, y) {
   const existing = state.design.find((part) => part.x === x && part.y === y);
   if (existing?.type === "core") return;
+  state.selectedCell = { x, y };
 
   if (existing) {
-    const next = state.design.map((part) => part.x === x && part.y === y ? { x, y, type: state.selectedPart } : part);
+    const next = state.design.map((part) => part.x === x && part.y === y ? makeDesignPart(x, y, state.selectedPart, part.rotation) : part);
     if (isConnected(next)) {
       state.design = next;
     } else {
@@ -1175,7 +2002,7 @@ function editCell(x, y) {
       return;
     }
   } else {
-    const next = [...state.design, { x, y, type: state.selectedPart }];
+    const next = [...state.design, makeDesignPart(x, y, state.selectedPart)];
     if (isConnected(next)) {
       state.design = next;
     } else {
@@ -1186,6 +2013,35 @@ function editCell(x, y) {
     }
   }
 
+  persistDesign();
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
+}
+
+function makeDesignPart(x, y, type, previousRotation = 0) {
+  const rotation = isRotatablePart(type) ? normalizeRotation(previousRotation) : 0;
+  return { x, y, type, rotation };
+}
+
+function isRotatablePart(type) {
+  const stat = PART_STATS[type] || {};
+  return Boolean(stat.rotationRequired || stat.weapon);
+}
+
+function normalizeRotation(value) {
+  const rotation = Number(value);
+  return [0, 90, 180, 270].includes(rotation) ? rotation : 0;
+}
+
+function rotateFocusedPart() {
+  const cell = state.hoveredCell || state.selectedCell;
+  if (!cell) return;
+  const part = state.design.find((candidate) => candidate.x === cell.x && candidate.y === cell.y);
+  if (!part || !isRotatablePart(part.type)) return;
+  state.design = state.design.map((candidate) => candidate === part
+    ? { ...candidate, rotation: (normalizeRotation(candidate.rotation) + 90) % 360 }
+    : candidate);
   persistDesign();
   renderBuildGrid();
   renderLocalStats();
@@ -1242,6 +2098,11 @@ function saveCurrentDesign(name = "") {
   renderSavedDesigns();
   updateEconomyUi();
   showToast(`${existing ? "Updated" : "Saved"} ${design.name}`, "good");
+}
+
+function saveBlueprintButtonText() {
+  const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
+  return existing ? `Update "${existing.name}"` : "Save Blueprint";
 }
 
 function loadSavedDesign(id) {
@@ -1329,6 +2190,10 @@ function runSavedDesignAction(action, id) {
   else if (action === "delete") deleteSavedDesign(id);
 }
 
+function isSavedDesignNameFocused() {
+  return Boolean(document.activeElement?.classList?.contains("saved-design-name"));
+}
+
 function renameSavedDesign(id, name) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
@@ -1339,15 +2204,50 @@ function renameSavedDesign(id, name) {
     : design);
   persistSavedDesigns();
   renderPurchaseBar();
+  if (state.loadedEditorBlueprintId === id && dom.saveDesignButton) {
+    dom.saveDesignButton.textContent = saveBlueprintButtonText();
+  }
 }
 
 function deleteSavedDesign(id) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
-  if (typeof confirm === "function" && !confirm(`Delete ${saved.name}?`)) return;
+  openDeleteDesignModal(saved);
+}
+
+function openDeleteDesignModal(saved) {
+  state.pendingDeleteDesignId = saved.id;
+  state.pendingKickTargetId = null;
+  if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Delete blueprint?";
+  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = `Delete ${saved.name}? This cannot be undone.`;
+  if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Delete";
+  if (dom.confirmModal) dom.confirmModal.hidden = false;
+  dom.confirmCancelButton?.focus?.();
+}
+
+function closeConfirmModal() {
+  state.pendingDeleteDesignId = null;
+  state.pendingKickTargetId = null;
+  if (dom.confirmModal) dom.confirmModal.hidden = true;
+}
+
+function confirmModalAction() {
+  if (state.pendingKickTargetId) {
+    const targetId = state.pendingKickTargetId;
+    closeConfirmModal();
+    send({ type: "kick", targetId });
+    return;
+  }
+  const id = state.pendingDeleteDesignId;
+  const saved = state.savedDesigns.find((design) => design.id === id);
+  if (!saved) {
+    closeConfirmModal();
+    return;
+  }
   state.savedDesigns = state.savedDesigns.filter((design) => design.id !== id);
   if (state.loadedEditorBlueprintId === id) state.loadedEditorBlueprintId = null;
   persistSavedDesigns();
+  closeConfirmModal();
   renderSavedDesigns();
   updateEconomyUi();
   showToast(`Deleted ${saved.name}`, "warning");
@@ -1355,6 +2255,7 @@ function deleteSavedDesign(id) {
 
 function renderSavedDesigns() {
   if (!dom.savedDesignList) return;
+  if (isSavedDesignNameFocused()) return;
   dom.savedDesignList.textContent = "";
   if (!state.savedDesigns.length) {
     const empty = document.createElement("div");
@@ -1373,7 +2274,7 @@ function renderSavedDesigns() {
       <div class="saved-design-head">
         <input class="saved-design-name" value="${escapeHtml(saved.name)}" maxlength="28" aria-label="Blueprint name">
       </div>
-      <div class="saved-design-summary">Cost $${stats.unitCost} · Weapons ${stats.blaster}/${stats.missile}/${stats.railgun} · Speed ${Math.round(stats.maxSpeed)}</div>
+      <div class="saved-design-summary">Cost $${stats.unitCost} · Weapons (${weaponAbbrevText(stats)}) · Speed ${formatSpeed(Math.round(stats.maxSpeed))}</div>
       <div class="saved-design-actions">
         <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Use/Edit</button>
         <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}">Delete</button>
@@ -1411,6 +2312,7 @@ function renderLocalStats() {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const money = currentMatchMoney(mine);
   const canAfford = money >= stats.unitCost;
+  if (dom.saveDesignButton) dom.saveDesignButton.textContent = saveBlueprintButtonText();
   if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost}`;
   if (dom.blueprintCostStatus) {
     dom.blueprintCostStatus.textContent = canAfford
@@ -1420,14 +2322,14 @@ function renderLocalStats() {
   }
   dom.stats.innerHTML = [
     statMarkup("Fleet", stats.fleetCount),
-    statMarkup("Hull", stats.maxHp),
-    statMarkup("Shield", stats.maxShield),
-    statMarkup("Speed", Math.round(stats.maxSpeed)),
-    statMarkup("Power", `${stats.powerGeneration}/${stats.powerUse}`),
-    statMarkup("Thrust/Mass", stats.thrustRatio),
-    statMarkup("Weapons", `${stats.blaster}/${stats.missile}/${stats.railgun}`),
-    statMarkup("Repair", stats.repairRate),
-    statMarkup("Mass", stats.mass),
+    statMarkup("Hull", formatHull(stats.maxHp)),
+    statMarkup("Shield", formatShield(stats.maxShield)),
+    statMarkup("Speed", formatSpeed(Math.round(stats.maxSpeed))),
+    statMarkup("Power", `${stats.powerGeneration}/${stats.powerUse} MW`),
+    statMarkup("Thrust/Mass", `${stats.thrustRatio} kN/T`),
+    statMarkup("Weapons", weaponAbbrevText(stats)),
+    statMarkup("Repair", formatRepair(stats.repairRate)),
+    statMarkup("Mass", formatMass(stats.mass)),
     costBreakdownMarkup(stats.costBreakdown)
   ].join("");
 
@@ -1496,10 +2398,30 @@ function statMarkup(label, value) {
 
 function costBreakdownMarkup(breakdown) {
   if (!breakdown) return "";
+  const rows = [
+    ["Base", breakdown.base],
+    ["Parts", breakdown.parts],
+    ["Mass", breakdown.mass],
+    ["Hull", breakdown.hull],
+    ["Shield", breakdown.shield],
+    ["Repair", breakdown.repair],
+    ["Weapons", breakdown.weaponPremium],
+    ["Size tax", breakdown.sizeTax]
+  ];
   return `
     <details class="stat cost-breakdown">
-      <summary>Cost explanation</summary>
-      <small>Base $${breakdown.base} | Parts $${breakdown.parts} | Mass $${breakdown.mass} | Hull $${breakdown.hull} | Shield $${breakdown.shield} | Repair $${breakdown.repair} | Weapons $${breakdown.weaponPremium} | Size tax $${breakdown.sizeTax}</small>
+      <summary>
+        <span>Cost Breakdown</span>
+        <strong>$${breakdown.total}</strong>
+      </summary>
+      <div class="cost-breakdown-grid">
+        ${rows.map(([label, value]) => `
+          <div>
+            <span>${label}</span>
+            <strong>$${value}</strong>
+          </div>
+        `).join("")}
+      </div>
     </details>
   `;
 }
@@ -1552,8 +2474,8 @@ function updateEconomyUi() {
     : state.phase === "design"
       ? localStatus.blockers.length ? readyBlockerButtonText(localStatus.blockers[0]) : `Ready with this design - $${unitCost}`
       : state.phase === "active"
-        ? "Save Blueprint"
-        : "Save Blueprint";
+        ? saveBlueprintButtonText()
+        : saveBlueprintButtonText();
 
   if (mine) {
     const status = state.phase === "design"
@@ -1680,8 +2602,12 @@ function purchaseCostText(option, optionState) {
   return `$${option.stats.unitCost} each | $${optionState.totalCost} total`;
 }
 
+function weaponAbbrevText(stats) {
+  return `${Number(stats.blaster) || 0}b/${Number(stats.missile) || 0}m/${Number(stats.railgun) || 0}r`;
+}
+
 function weaponSummaryText(stats) {
-  return `${stats.blaster}B / ${stats.missile}M / ${stats.railgun}R`;
+  return `(${weaponAbbrevText(stats)})`;
 }
 
 function showPurchaseTooltip(optionId, event) {
@@ -1701,14 +2627,14 @@ function showPurchaseTooltip(optionId, event) {
     <div class="purchase-tooltip-grid">
       ${tooltipStat("Cost", `$${stats.unitCost}`)}
       ${state.purchaseQuantity > 1 ? tooltipStat("Total", `$${optionState.totalCost}`) : ""}
-      ${tooltipStat("Hull", stats.maxHp)}
-      ${tooltipStat("Shield", `${stats.maxShield} (+${stats.shieldRegen}/s)`)}
-      ${tooltipStat("Speed", Math.round(stats.maxSpeed))}
+      ${tooltipStat("Hull", formatHull(stats.maxHp))}
+      ${tooltipStat("Shield", `${formatShield(stats.maxShield)} (+${stats.shieldRegen}/s)`)}
+      ${tooltipStat("Speed", formatSpeed(Math.round(stats.maxSpeed)))}
       ${tooltipStat("Turn", stats.turnRate.toFixed(2))}
-      ${tooltipStat("Mass", stats.mass)}
-      ${tooltipStat("Power", `${stats.powerGeneration}/${stats.powerUse}`)}
-      ${tooltipStat("Energy", stats.energyStorage)}
-      ${tooltipStat("Repair", `${stats.repairRate}/s`)}
+      ${tooltipStat("Mass", formatMass(stats.mass))}
+      ${tooltipStat("Power", `${stats.powerGeneration}/${stats.powerUse} MW`)}
+      ${tooltipStat("Energy", formatEnergy(stats.energyStorage))}
+      ${tooltipStat("Repair", formatRepair(stats.repairRate))}
       ${tooltipStat("Weapons", weaponSummaryText(stats))}
       ${tooltipStat("DPS", stats.weaponDps)}
     </div>
@@ -1780,23 +2706,27 @@ function renderObjectiveSummary() {
 }
 
 function renderTeamPanel(players) {
-  const teams = ["blue", "red"];
+  const soloMode = state.rules?.gameMode === "solo";
+  const teams = soloMode ? players.map((player) => player.team) : ["blue", "red"];
   for (const team of teams) {
     const teamPlayers = players.filter((player) => player.team === team);
     const score = Math.max(0, ...teamPlayers.map((player) => player.score || 0));
     const objectives = state.snapshot.points.filter((point) => point.ownerTeam === team && point.progress > 0.98);
     const pointsPerSecond = objectives.length * 6;
+    const title = soloMode
+      ? (teamPlayers[0]?.name || "Solo")
+      : `${team.toUpperCase()} TEAM`;
     const card = document.createElement("div");
-    card.className = `team-card ${team}`;
+    card.className = `team-card ${soloMode ? "solo" : team}`;
     card.innerHTML = `
       <div class="team-card-head">
-        <strong>${team.toUpperCase()} TEAM</strong>
+        <strong>${escapeHtml(title)}</strong>
         <span>${score}/${state.snapshot.maxScore || 900} (+${pointsPerSecond}/s)</span>
       </div>
       <div class="team-objectives">Objectives: ${objectives.length ? objectives.map((point) => point.id).join(", ") : "None"}</div>
     `;
 
-    if (!teamPlayers.length) {
+    if (!soloMode && !teamPlayers.length) {
       const empty = document.createElement("div");
       empty.className = "team-player empty";
       empty.textContent = "Empty slot";
@@ -1808,13 +2738,21 @@ function renderTeamPanel(players) {
       row.className = `team-player${player.id === state.myId ? " mine" : ""}`;
       const status = player.ready ? "Ready" : state.phase === "design" ? "Building" : player.connected === false ? "Disconnected" : "In match";
       const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin;
-      const moneyText = player.money == null ? "Money hidden" : `Money $${player.money}`;
+      const infoItems = [];
+      if (player.money != null) infoItems.push(`$${player.money}`);
+      infoItems.push(`${player.activeShips} ship${player.activeShips === 1 ? "" : "s"}`);
+      infoItems.push(`${player.score}/${state.snapshot.maxScore || 900}`);
       row.innerHTML = `
         <span class="score-color" style="background:${player.color}"></span>
-        <div>
-          <strong>${escapeHtml(player.name)}${player.isAdmin ? " [Host]" : ""}${player.isBot ? " CPU" : ""}</strong>
-          <span>${moneyText} | Ships ${player.activeShips} | Score ${player.score}/${state.snapshot.maxScore || 900}</span>
-          <span>Status: ${status} | K ${player.kills} / L ${player.losses}</span>
+        <div class="team-player-body">
+          <div class="team-player-main">
+            <strong>${escapeHtml(player.name)}${player.isAdmin ? " [Host]" : ""}${player.isBot ? " CPU" : ""}</strong>
+            <span class="team-player-status">${status}</span>
+          </div>
+          <div class="team-player-metrics">
+            ${infoItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
+            <span>K ${player.kills} / L ${player.losses}</span>
+          </div>
         </div>
         ${canKick ? `<button type="button" data-kick="${escapeHtml(player.id)}">Kick</button>` : ""}
       `;
@@ -1839,7 +2777,7 @@ function renderPlayerList() {
       <span class="score-color" style="background:${player.color}"></span>
       <div>
         <strong>${escapeHtml(player.name)}${player.id === state.myId ? " (you)" : ""}</strong>
-        <span>${escapeHtml(player.teamName || "Solo")} | ${status}</span>
+        <span>${escapeHtml(state.rules?.gameMode === "solo" ? "No wing" : player.teamName || "Blue wing")} | ${status}</span>
       </div>
       ${canKick ? `<button type="button" data-kick="${escapeHtml(player.id)}">Kick</button>` : ""}
     `;
@@ -2060,9 +2998,19 @@ function handleWheel(event) {
 }
 
 function handleKeyDown(event) {
-  const tag = document.activeElement?.tagName;
-  if (tag === "INPUT" || tag === "SELECT" || tag === "BUTTON") return;
+  if (event.key === "Escape" && dom.confirmModal && !dom.confirmModal.hidden) {
+    event.preventDefault();
+    closeConfirmModal();
+    return;
+  }
   const key = event.key.toLowerCase();
+  const tag = document.activeElement?.tagName;
+  if (key === "r" && tag !== "INPUT" && tag !== "SELECT") {
+    event.preventDefault();
+    rotateFocusedPart();
+    return;
+  }
+  if (tag === "INPUT" || tag === "SELECT" || tag === "BUTTON") return;
   state.keys.add(key);
 
   if (key === "q") {
@@ -2483,9 +3431,12 @@ function drawShip(ship, player) {
   drawShipStructure(design, scale, player.color);
   for (const part of design) {
     const def = PART_DEFS[part.type] || PART_DEFS.frame;
-    const px = (part.x - 3) * scale;
-    const py = (part.y - 3) * scale;
-    drawModule(px, py, scale - 1, def.color, part.type, player.color);
+    const { x: px, y: py } = moduleLocalPosition(part, scale);
+    ctx.save();
+    ctx.translate(px, py);
+    if (isRotatablePart(part.type)) ctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
+    drawModule(0, 0, scale - 1, def.color, part.type, player.color);
+    ctx.restore();
   }
 
   ctx.strokeStyle = player.color;
@@ -2522,18 +3473,33 @@ function drawShipStructure(design, scale, color) {
 function drawStructureLines(design, keys, scale) {
   ctx.beginPath();
   for (const part of design) {
-    const x = (part.x - 3) * scale;
-    const y = (part.y - 3) * scale;
+    const { x, y } = moduleLocalPosition(part, scale);
     if (keys.has(`${part.x + 1},${part.y}`)) {
+      const next = moduleLocalPosition({ x: part.x + 1, y: part.y }, scale);
       ctx.moveTo(x, y);
-      ctx.lineTo(x + scale, y);
+      ctx.lineTo(next.x, next.y);
     }
     if (keys.has(`${part.x},${part.y + 1}`)) {
+      const next = moduleLocalPosition({ x: part.x, y: part.y + 1 }, scale);
       ctx.moveTo(x, y);
-      ctx.lineTo(x, y + scale);
+      ctx.lineTo(next.x, next.y);
     }
   }
   ctx.stroke();
+}
+
+function moduleLocalPosition(part, scale) {
+  return {
+    x: (3 - part.y) * scale,
+    y: (part.x - 3) * scale
+  };
+}
+
+function moduleRotationToRadians(rotation) {
+  if (rotation === 90) return Math.PI / 2;
+  if (rotation === 180) return Math.PI;
+  if (rotation === 270) return -Math.PI / 2;
+  return 0;
 }
 
 function drawModule(x, y, size, color, type, trim) {
@@ -2723,7 +3689,8 @@ function drawHealthBars(ship, player) {
   const damaged = ship.hp < ship.maxHp || ship.shield < ship.maxShield;
   const width = Math.max(selected ? 72 : 56, ship.radius * (selected ? 2.15 : 1.85));
   const x = ship.x - width / 2;
-  const y = ship.y - ship.radius - (selected ? 39 : 34);
+  const frameHeight = selected ? 34 : 25;
+  const y = ship.y - ship.radius - (selected ? 46 : 35);
   const now = performance.now();
   const hud = updateShipHud(ship, now);
   const hullRatio = clamp(hud.hp / ship.maxHp, 0, 1);
@@ -2738,15 +3705,20 @@ function drawHealthBars(ship, player) {
   ctx.globalAlpha = alpha;
   ctx.shadowColor = pulse > 0 && hud.lastHitShield ? "rgba(81,226,255,0.85)" : player.color;
   ctx.shadowBlur = 4 + pulse * 11;
-  drawHudFrame(x - 4, y - 4, width + 8, selected ? 27 : 23, player.color, lowHull);
+  drawHudFrame(x - 4, y - 4, width + 8, frameHeight, player.color, lowHull);
   ctx.shadowBlur = 0;
+
+  const shieldY = y + 1;
+  const hullY = y + (selected ? 9 : 8);
+  const shieldHeight = selected ? 6 : 4;
+  const hullHeight = selected ? 7 : 6;
 
   if (ship.maxShield > 0) {
     drawStatusBar({
       x,
-      y,
+      y: shieldY,
       width,
-      height: selected ? 5 : 4,
+      height: shieldHeight,
       ratio: shieldRatio,
       lagRatio: shieldLagRatio,
       fillStart: "#b8f7ff",
@@ -2755,16 +3727,15 @@ function drawHealthBars(ship, player) {
       segments: 6
     });
   } else {
-    drawEmptyShieldLine(x, y, width);
+    drawEmptyShieldLine(x, shieldY, width);
   }
 
-  const hullY = y + (selected ? 8 : 7);
   const hullColor = hullColorForRatio(hullRatio);
   drawStatusBar({
     x,
     y: hullY,
     width,
-    height: selected ? 7 : 6,
+    height: hullHeight,
     ratio: hullRatio,
     lagRatio: hullLagRatio,
     fillStart: hullColor.start,
@@ -2776,17 +3747,21 @@ function drawHealthBars(ship, player) {
   ctx.shadowColor = lowHull ? "rgba(255,95,126,0.9)" : player.color;
   ctx.shadowBlur = lowHull ? 9 : 4;
   ctx.fillStyle = lowHull ? "#ffd6df" : "rgba(237,244,255,0.86)";
-  ctx.font = `${Math.max(9, (selected ? 11 : 10) / state.camera.zoom)}px system-ui, sans-serif`;
+  ctx.font = `${Math.max(9, (selected ? 10 : 9) / state.camera.zoom)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillText(player.name, ship.x, hullY + (selected ? 9 : 8));
 
   if (selected) {
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(213,236,255,0.78)";
-    ctx.font = `${Math.max(8, 9 / state.camera.zoom)}px system-ui, sans-serif`;
-    ctx.fillText(`${Math.round(shieldRatio * 100)}% SHD  ${Math.round(hullRatio * 100)}% HULL`, ship.x, hullY + 23);
+    ctx.fillStyle = "rgba(213,236,255,0.86)";
+    ctx.font = `${Math.max(8, 8 / state.camera.zoom)}px system-ui, sans-serif`;
+    ctx.fillText(`Shield ${Math.round(shieldRatio * 100)}%  Hull ${Math.round(hullRatio * 100)}%`, ship.x, y + 18);
   }
+
+  ctx.shadowBlur = lowHull ? 8 : 3;
+  ctx.fillStyle = "rgba(237,244,255,0.9)";
+  ctx.font = `${Math.max(9, (selected ? 10 : 9) / state.camera.zoom)}px system-ui, sans-serif`;
+  ctx.fillText(player.name, ship.x, y + frameHeight + 2);
   ctx.restore();
 }
 
@@ -3129,7 +4104,7 @@ function currentMap() {
 }
 
 function teamValue() {
-  return dom.teamSelect.value === "free" ? "free" : dom.teamSelect.value;
+  return dom.teamSelect?.value === "red" ? "red" : "blue";
 }
 
 function loadDesign() {
@@ -3196,7 +4171,7 @@ function normalizeDesign(input) {
     const key = `${x},${y}`;
     if (x < 0 || x > 6 || y < 0 || y > 6 || !PART_DEFS[type] || seen.has(key)) continue;
     seen.add(key);
-    clean.push({ x, y, type });
+    clean.push(makeDesignPart(x, y, type, raw?.rotation));
   }
 
   if (clean.filter((part) => part.type === "core").length !== 1 || !isConnected(clean)) return fallback;
@@ -3298,8 +4273,10 @@ function computeStats(modules) {
   const thrustRatio = thrust / Math.max(1, mass);
   // Mobility balance: armor and large weapons add mass, while engines add thrust.
   // Speed and acceleration scale from total thrust divided by total mass so heavy ships need more engines.
-  const maxSpeed = clamp(82 + thrustRatio * 21 * clamp(efficiency, 0.62, 1.08), 72, 360);
-  const accel = clamp(46 + thrustRatio * 46 * clamp(efficiency, 0.55, 1.08), 38, 420);
+  // Ships with no engine thrust cannot move; their command target can change, but acceleration stays zero.
+  const hasEngineThrust = thrust > 0;
+  const maxSpeed = hasEngineThrust ? clamp(82 + thrustRatio * 21 * clamp(efficiency, 0.62, 1.08), 72, 360) : 0;
+  const accel = hasEngineThrust ? clamp(46 + thrustRatio * 46 * clamp(efficiency, 0.55, 1.08), 38, 420) : 0;
   const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun });
   const unitCost = costBreakdown.total;
   const fleetCount = clamp(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
@@ -3362,7 +4339,7 @@ function calculateCostBreakdown(stats) {
     repair: Math.round(repair),
     weaponPremium: Math.round(weaponPremium),
     sizeTax: Math.round(sizeTax),
-    total: clamp(Math.round(preTaxTotal + sizeTax), 80, 1100)
+    total: clamp(Math.round(preTaxTotal + sizeTax), 300, 2000)
   };
 }
 
@@ -3418,6 +4395,7 @@ function shipWarnings(stats) {
   const hasReactor = stats.modules.some((module) => module.type === "reactor");
   if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
   if (!hasReactor && stats.powerUse > PART_STATS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
+  if (stats.thrust <= 0) warnings.push("No engines: this ship cannot move");
   if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
   if (stats.mass > 85 || stats.turnRate < 0.85) warnings.push("Heavy ship: turning will be slow");
   if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
@@ -3469,4 +4447,10 @@ function escapeHtml(text) {
 const roomFromUrl = new URLSearchParams(location.search).get("room");
 if (roomFromUrl) {
   dom.roomCode.value = roomFromUrl.toUpperCase().slice(0, 8);
+} else {
+  const activeRoom = (localStorage.getItem(LOCAL_ACTIVE_ROOM_KEY) || "").toUpperCase().slice(0, 8);
+  if (activeRoom) {
+    dom.roomCode.value = activeRoom;
+    joinRoom(activeRoom);
+  }
 }
