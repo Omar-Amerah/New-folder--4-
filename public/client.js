@@ -65,7 +65,7 @@ const SHIP_ECONOMY = Object.freeze({
   })
 });
 
-const PARTS_STATS = {
+const PART_STATS = {
   // Existing basics
   core: {
     cost: 0, mass: 8, hp: 150,
