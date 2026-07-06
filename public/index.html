@@ -74,10 +74,15 @@
         <div class="panel-section control-group">
           <div class="section-heading">
               <h2>Ship Design</h2>
-            <span id="budgetText">0 pts</span>
+          <span id="budgetText">Cost $0</span>
           </div>
           <div id="partPalette" class="part-palette" aria-label="Ship parts"></div>
           <div id="partInspector" class="part-inspector"></div>
+          <div class="blueprint-cost-banner" aria-live="polite">
+            <span>Current ship cost</span>
+            <strong id="blueprintCostLabel">$0</strong>
+            <em id="blueprintCostStatus">Ready</em>
+          </div>
           <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
           <div id="buildStatus" class="build-status"></div>
           <div id="shipIssuesPanel" class="ship-issues-panel"></div>
@@ -90,10 +95,6 @@
             <div id="savedDesignList" class="saved-design-list"></div>
           </div>
           <div class="economy-card">
-            <div>
-              <span id="activePurchaseTitle">Selected design</span>
-              <strong id="activePurchaseLabel">Editor Blueprint</strong>
-            </div>
             <div>
               <span id="moneyTitle">Starting money</span>
               <strong id="moneyLabel">$0</strong>
@@ -114,14 +115,6 @@
               <span id="afterBuildTitle">Money remaining</span>
               <strong id="afterBuildLabel">$0</strong>
             </div>
-            <div id="budgetCard">
-              <span id="budgetTitle">Starting Fleet Limit</span>
-              <strong id="fleetCapLabel">0/0</strong>
-            </div>
-          </div>
-          <div class="button-row">
-            <button id="buildShipButton" type="button" hidden>Build ship</button>
-            <button id="buildFiveButton" type="button" class="secondary" hidden>Build x5</button>
           </div>
           <label for="formationSelect">Formation</label>
           <select id="formationSelect">
@@ -195,8 +188,25 @@
         <div id="eventLog" class="event-log"></div>
       </aside>
     </main>
+    <section id="purchaseBar" class="purchase-bar" aria-label="Ship purchase bar">
+      <div class="purchase-meta">
+        <div><span>Money</span><strong id="purchaseMoney">$0</strong></div>
+        <div><span>Ships</span><strong id="purchaseFleet">0 ships</strong></div>
+        <div class="purchase-quantity" aria-label="Purchase quantity">
+          <span>Quantity</span>
+          <div>
+            <button id="purchaseQuantityOne" type="button" class="active">1</button>
+            <button id="purchaseQuantityFive" type="button">5</button>
+          </div>
+        </div>
+      </div>
+      <div class="purchase-main">
+        <span>Buy Ships</span>
+        <div id="purchaseOptions" class="purchase-options"></div>
+      </div>
+    </section>
+    <div id="purchaseTooltip" class="purchase-tooltip" hidden></div>
 
-    <script src="/client.js?v=room-flow-1"></script>
-    <script src="/blueprint-fix.js?v=simple-editor-1"></script>
+    <script src="/client.js?v=purchase-bar-1"></script>
   </body>
 </html>

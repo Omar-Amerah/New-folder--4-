@@ -24,7 +24,7 @@ const ROOM_IDLE_MS = 15 * 60 * 1000;
 const MATCH_SCORE = 900;
 const SCORE_PER_CONTROLLED_POINT = 6;
 const ECONOMY = Object.freeze({
-  startingMoney: 420,
+  startingMoney: 700,
   maxMoney: 2200,
   baseIncome: 13,
   relayIncome: 7,
@@ -32,7 +32,6 @@ const ECONOMY = Object.freeze({
   killBountyMin: 24,
   captureBonus: 55,
   shipCap: 20,
-  deploymentBudget: 700,
   baseShipCost: 48,
   partCostMultiplier: 1.32,
   massCostMultiplier: 0.9,
@@ -279,7 +278,6 @@ function createClient(socket) {
     parts: PARTS,
     economy: {
       startingMoney: ECONOMY.startingMoney,
-      deploymentBudget: ECONOMY.deploymentBudget,
       shipCap: ECONOMY.shipCap
     },
     defaultDesign: DEFAULT_DESIGN
@@ -408,6 +406,10 @@ function handleMessage(client, message) {
       return;
     }
     const design = validateDesign(message.design);
+    if (!design.ok) {
+      send(client, { type: "error", message: design.reason });
+      return;
+    }
     const validation = validateBuildShip(client.room, client.player, design.stats);
     if (client.room.phase === "design" && !validation.ok) {
       send(client, { type: "error", message: validation.reason });
@@ -421,31 +423,41 @@ function handleMessage(client, message) {
       broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
       maybeStartMatch(client.room, performanceNow());
     } else {
-      send(client, { type: "notice", message: `Blueprint selected for future builds. New ships cost $${design.stats.unitCost}.` });
+      send(client, { type: "notice", message: `Editor blueprint saved. Buy the current design from the bottom bar for $${design.stats.unitCost}.` });
     }
     return;
   }
 
   if (message.type === "buyShip") {
+    const requestId = sanitizeRequestId(message.requestId);
     if (client.room.phase !== "active") {
-      send(client, { type: "error", message: "Ships can only be built after the match starts" });
+      send(client, { type: "error", message: "Ships can only be built after the match starts", requestId });
       return;
     }
     const count = clampNumber(message.count, 1, 5);
-    const purchaseDesign = message.design ? validateDesign(message.design) : null;
-    const validation = validateBuyShip(client.room, client.player, count, purchaseDesign?.stats);
+    const purchaseDesign = validateDesign(message.design);
+    if (!purchaseDesign.ok) {
+      send(client, { type: "error", message: purchaseDesign.reason, requestId });
+      return;
+    }
+    const validation = validateBuyShip(client.room, client.player, count, purchaseDesign.stats);
     if (!validation.ok) {
       client.player.lastBuildError = validation.reason;
-      send(client, { type: "error", message: validation.reason });
+      send(client, { type: "error", message: validation.reason, requestId });
       return;
     }
     for (let i = 0; i < validation.count; i += 1) {
       buyShip(client.room, client.player, performanceNow(), {
         prevalidated: true,
         stats: validation.shipStats,
-        design: purchaseDesign?.modules
+        design: purchaseDesign.modules
       });
     }
+    send(client, {
+      type: "notice",
+      message: `${validation.count} ship${validation.count === 1 ? "" : "s"} building for $${validation.totalCost}`,
+      requestId
+    });
     return;
   }
 
@@ -559,7 +571,6 @@ function joinRoom(client, message) {
     spent: 0,
     maxMoney: ECONOMY.maxMoney,
     shipCap: ECONOMY.shipCap,
-    deploymentBudget: ECONOMY.deploymentBudget,
     deployedFleetCost: 0,
     destroyedEnemyCost: 0,
     lostFleetCost: 0,
@@ -895,14 +906,6 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   }
   const shipStats = stats || player.stats || computeStats(player.design);
   const requestedCount = clampNumber(count, 1, 5);
-  const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
-  if (activeCount >= player.shipCap) {
-    return { ok: false, reason: `Fleet cap reached: ${activeCount}/${player.shipCap}` };
-  }
-  const availableSlots = Math.max(0, player.shipCap - activeCount);
-  if (requestedCount > availableSlots) {
-    return { ok: false, reason: `Fleet cap reached: ${activeCount}/${player.shipCap}. ${availableSlots} slot${availableSlots === 1 ? "" : "s"} available.` };
-  }
   const totalCost = shipStats.unitCost * requestedCount;
   if (player.money < totalCost) {
     return { ok: false, reason: `Not enough money: need $${totalCost - Math.floor(player.money)} more` };
@@ -920,14 +923,6 @@ function validateBuildShip(room, player, stats = null) {
     return { ok: false, reason: "Invalid design: save a blueprint first." };
   }
   const shipStats = stats || player.stats || computeStats(player.design);
-  const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
-  if (activeCount >= player.shipCap) {
-    return { ok: false, reason: "Ship limit reached for this match." };
-  }
-  const activeFleetCost = getActiveFleetCost(player);
-  if (activeFleetCost + shipStats.unitCost > player.deploymentBudget) {
-    return { ok: false, reason: `Starting fleet limit exceeded by $${activeFleetCost + shipStats.unitCost - player.deploymentBudget}.` };
-  }
   if (shipStats.unitCost > player.money) {
     return { ok: false, reason: `Cannot build ship. Need $${shipStats.unitCost - Math.floor(player.money)} more.` };
   }
@@ -1633,7 +1628,6 @@ function snapshotRoom(room, now) {
     earned: Math.floor(player.earned),
     spent: Math.floor(player.spent),
     shipCap: player.shipCap,
-    deploymentBudget: player.deploymentBudget,
     activeFleetCost: getActiveFleetCost(player),
     deployedFleetCost: Math.floor(player.deployedFleetCost),
     destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
@@ -1918,7 +1912,8 @@ function finalizeClient(client) {
 }
 
 function validateDesign(input) {
-  const modules = Array.isArray(input) ? input : DEFAULT_DESIGN;
+  if (!Array.isArray(input)) return { ok: false, reason: "Invalid design: no blueprint was sent." };
+  const modules = input;
   const clean = [];
   const occupied = new Set();
   let coreCount = 0;
@@ -1937,10 +1932,11 @@ function validateDesign(input) {
     clean.push({ x, y, type });
   }
 
-  if (coreCount !== 1) return validateDesign(DEFAULT_DESIGN);
-  if (!isConnected(clean)) return validateDesign(DEFAULT_DESIGN);
+  if (!clean.length) return { ok: false, reason: "Invalid design: blueprint is empty." };
+  if (coreCount !== 1) return { ok: false, reason: "Invalid design: exactly one core is required." };
+  if (!isConnected(clean)) return { ok: false, reason: "Invalid design: all parts must connect to the core." };
 
-  return { modules: clean, stats: computeStats(clean) };
+  return { ok: true, modules: clean, stats: computeStats(clean) };
 }
 
 function isConnected(modules) {
@@ -2259,7 +2255,6 @@ function addBot(room, requester) {
     spent: 0,
     maxMoney: ECONOMY.maxMoney,
     shipCap: ECONOMY.shipCap,
-    deploymentBudget: ECONOMY.deploymentBudget,
     deployedFleetCost: 0,
     destroyedEnemyCost: 0,
     lostFleetCost: 0,
@@ -2283,7 +2278,7 @@ function updateBots(room, now) {
     if (!player.isBot || !player.ready || now < player.ai.nextThinkAt) continue;
     player.ai.nextThinkAt = now + randomRange(900, 1700);
     const currentCost = player.stats?.unitCost || computeStats(player.design).unitCost;
-    if (player.money >= currentCost && player.ships.filter((ship) => ship.alive && !ship.removed).length < player.shipCap) {
+    if (player.money >= currentCost) {
       buyShip(room, player, now, { silent: true });
     }
     const ships = player.ships.filter((ship) => ship.alive && !ship.removed);
@@ -2465,6 +2460,10 @@ function teamLabel(room, team, fallback) {
 
 function sanitizeRoomCode(room) {
   return String(room || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
+}
+
+function sanitizeRequestId(requestId) {
+  return String(requestId || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48);
 }
 
 function makeRoomCode() {
