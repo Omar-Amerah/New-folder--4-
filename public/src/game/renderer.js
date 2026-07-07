@@ -38,7 +38,7 @@ export function renderArena(now) {
   applyCamera(rect);
   drawWorldGrid();
   drawMapFeatures(now);
-  drawRelays();
+  drawRelays(now);
   drawCommandTarget(now);
   drawShips();
   drawBullets();
@@ -197,10 +197,11 @@ export function drawAsteroid(asteroid, now) {
   ctx.restore();
 }
 
-export function drawRelays() {
+export function drawRelays(now) {
   const snap = state.snapshot;
   if (!snap) return;
   const players = playerMap();
+  const time = now || (typeof performance !== "undefined" ? performance.now() : Date.now());
 
   for (const point of snap.points) {
     const owner = point.ownerId ? players.get(point.ownerId) : null;
@@ -210,25 +211,82 @@ export function drawRelays() {
     ctx.translate(point.x, point.y);
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
+    
+    // 1. Draw capture influence range
     ctx.globalAlpha = 0.12;
     ctx.beginPath();
     ctx.arc(0, 0, point.radius, 0, Math.PI * 2);
     ctx.fill();
+    
+    // 2. Draw capture progress ring
     ctx.globalAlpha = 0.76;
     ctx.lineWidth = 3 / state.camera.zoom;
     ctx.beginPath();
-    ctx.arc(0, 0, point.radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * point.progress);
+    ctx.arc(0, 0, point.radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (point.progress || 0));
     ctx.stroke();
 
+    // 3. Draw premium futuristic relay station at the center
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#eaf3ff";
-    ctx.font = `${Math.max(18, 24 / state.camera.zoom)}px system-ui, sans-serif`;
+    
+    // Slowly rotating struts
+    ctx.strokeStyle = owner ? `${color}66` : "rgba(180,200,225,0.28)";
+    ctx.lineWidth = 3.5 / state.camera.zoom;
+    for (let i = 0; i < 3; i++) {
+      const angle = (i * Math.PI * 2) / 3 + time * 0.00015;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(angle) * 36, Math.sin(angle) * 36);
+      ctx.stroke();
+      
+      // Node tip on strut
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * 36, Math.sin(angle) * 36, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Outer circular station hull
+    ctx.fillStyle = "rgba(13,18,30,0.95)";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5 / state.camera.zoom;
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner glowing core
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0; // reset shadow
+
+    // 4. Draw labels
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#080c14";
+    ctx.lineWidth = 3;
+    ctx.font = `bold ${Math.max(16, 20 / state.camera.zoom)}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(point.id, 0, 0);
+    
+    // Offset correction for Segoe UI / system-ui centering on Canvas 2D
+    const offsetX = -1.1 / state.camera.zoom;
+    const offsetY = 0.8 / state.camera.zoom;
+    ctx.strokeText(point.id, offsetX, offsetY);
+    ctx.fillText(point.id, offsetX, offsetY);
+    
     ctx.font = `${Math.max(10, 13 / state.camera.zoom)}px system-ui, sans-serif`;
     const ownerText = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
-    ctx.fillText(ownerText, 0, point.radius + 18 / state.camera.zoom);
+    
+    // Draw background label box
+    ctx.fillStyle = "rgba(8, 12, 20, 0.72)";
+    const labelY = point.radius + 18 / state.camera.zoom;
+    ctx.fillRect(-50, labelY - 9, 100, 18);
+    
+    ctx.fillStyle = owner ? color : "#ccd5e0";
+    ctx.fillText(ownerText, 0, labelY);
     ctx.restore();
   }
 }
@@ -306,6 +364,50 @@ export function drawBullets() {
       ctx.lineTo(-12, 3);
       ctx.closePath();
       ctx.fill();
+    } else if (bullet.type === "pdShot") {
+      if (bullet.subtype === "flakCannon") {
+        ctx.shadowColor = "#f97316";
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = "#fdba74";
+        ctx.beginPath();
+        ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (bullet.subtype === "interceptorPod") {
+        ctx.shadowColor = "#c084fc";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "#e9d5ff";
+        ctx.beginPath();
+        ctx.moveTo(6, 0);
+        ctx.lineTo(-4, -2.5);
+        ctx.lineTo(-6, 0);
+        ctx.lineTo(-4, 2.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#a855f7";
+        ctx.fillRect(-4, -1.5, 4, 3);
+        ctx.fillStyle = "rgba(251, 146, 60, 0.85)";
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.5);
+        ctx.lineTo(-11, 0);
+        ctx.lineTo(-6, 1.5);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.shadowColor = "#ff3b30";
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = "#ff3b30";
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(0, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     } else {
       ctx.fillStyle = color;
       ctx.shadowColor = color;
@@ -604,13 +706,51 @@ export function drawModule({ x, y, size, color, type, trim }) {
     ctx.beginPath();
     ctx.arc(size * 0.22, 0, size * 0.12, 0, Math.PI * 2);
     ctx.fill();
-  } else if (type === "pointDefense") {
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
+  } else if (type === "pointDefense" || type === "pointDefenseLaser") {
+    drawWeaponBase(size, color);
+    ctx.fillStyle = "#fda4af";
+    roundRect(ctx, { x: 0, y: -size * 0.08, width: size * 0.62, height: size * 0.16, radius: size * 0.04 });
+    ctx.fill();
+  } else if (type === "flakCannon") {
+    // Left turret
+    ctx.save();
+    ctx.translate(0, -size * 0.22);
+    drawWeaponBase(size * 0.65);
+    ctx.fillStyle = "#f43f5e";
+    roundRect(ctx, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
+    ctx.fill();
+    ctx.restore();
+
+    // Right turret
+    ctx.save();
+    ctx.translate(0, size * 0.22);
+    drawWeaponBase(size * 0.65);
+    ctx.fillStyle = "#f43f5e";
+    roundRect(ctx, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
+    ctx.fill();
+    ctx.restore();
+  } else if (type === "interceptorPod") {
+    // Casing
+    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.16 });
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = "#fda4af";
-    ctx.fillRect(0, -size * 0.08, size * 0.58, size * 0.16);
+
+    // 4 launcher tubes in purple/violet
+    ctx.fillStyle = "#a855f7";
+    roundRect(ctx, { x: -size * 0.32, y: -size * 0.38, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    roundRect(ctx, { x: -size * 0.32, y: -size * 0.18, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    roundRect(ctx, { x: -size * 0.32, y: size * 0.02, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    roundRect(ctx, { x: -size * 0.32, y: size * 0.22, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    ctx.fill();
+
+    // Rocket tips inside the tubes in light purple/white
+    ctx.fillStyle = "#f3e8ff";
+    ctx.beginPath();
+    ctx.arc(size * 0.34, -size * 0.31, size * 0.05, 0, Math.PI * 2);
+    ctx.arc(size * 0.34, -size * 0.11, size * 0.05, 0, Math.PI * 2);
+    ctx.arc(size * 0.34, size * 0.09, size * 0.05, 0, Math.PI * 2);
+    ctx.arc(size * 0.34, size * 0.29, size * 0.05, 0, Math.PI * 2);
+    ctx.fill();
   } else if (type === "repairBeam") {
     drawWeaponBase(size, color);
     ctx.fillStyle = "#15803d";
@@ -659,6 +799,118 @@ export function drawModule({ x, y, size, color, type, trim }) {
     ctx.moveTo(0, -size * 0.24);
     ctx.lineTo(0, size * 0.24);
     ctx.stroke();
+  } else if (type === "gyroscope") {
+    drawRoundSystem(size);
+    ctx.strokeStyle = "rgba(255,255,255,0.48)";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.28, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#a78bfa";
+    ctx.fillRect(-size * 0.06, -size * 0.38, size * 0.12, size * 0.76);
+    ctx.fillRect(-size * 0.38, -size * 0.06, size * 0.76, size * 0.12);
+  } else if (type === "auxGenerator") {
+    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fef08a";
+    ctx.fillRect(-size * 0.14, -size * 0.28, size * 0.28, size * 0.56);
+    ctx.strokeStyle = "#ca8a04";
+    ctx.strokeRect(-size * 0.14, -size * 0.28, size * 0.28, size * 0.56);
+  } else if (type === "capacitor") {
+    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.10 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillRect(-size * 0.28, -size * 0.3, size * 0.2, size * 0.6);
+    ctx.fillRect(size * 0.08, -size * 0.3, size * 0.2, size * 0.6);
+  } else if (type === "maneuverThruster") {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.35, -size * 0.35);
+    ctx.lineTo(size * 0.35, -size * 0.15);
+    ctx.lineTo(size * 0.35, size * 0.15);
+    ctx.lineTo(-size * 0.35, size * 0.35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#60a5fa";
+    ctx.fillRect(-size * 0.48, -size * 0.12, size * 0.15, size * 0.24);
+  } else if (type === "sensorArray") {
+    drawRoundSystem(size);
+    ctx.strokeStyle = "#60a5fa";
+    ctx.lineWidth = Math.max(1, size * 0.08);
+    ctx.beginPath();
+    ctx.arc(-size * 0.12, 0, size * 0.32, -Math.PI * 0.3, Math.PI * 0.3);
+    ctx.stroke();
+    ctx.fillStyle = "#bfdbfe";
+    ctx.fillRect(-size * 0.16, -size * 0.04, size * 0.48, size * 0.08);
+  } else if (type === "targetingComputer") {
+    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(0, 255, 100, 0.08)";
+    ctx.fillRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
+    ctx.strokeStyle = "#22c55e";
+    ctx.strokeRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.14, 0, Math.PI * 2);
+    ctx.moveTo(-size * 0.22, 0);
+    ctx.lineTo(size * 0.22, 0);
+    ctx.moveTo(0, -size * 0.22);
+    ctx.lineTo(0, size * 0.22);
+    ctx.stroke();
+  } else if (type === "fireControl") {
+    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.24, -size * 0.24);
+    ctx.lineTo(size * 0.24, size * 0.24);
+    ctx.moveTo(size * 0.24, -size * 0.24);
+    ctx.lineTo(-size * 0.24, size * 0.24);
+    ctx.stroke();
+  } else if (type === "heatSink") {
+    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.10 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(239, 68, 68, 0.45)";
+    for (let i = 0; i < 4; i += 1) {
+      ctx.fillRect(-size * 0.28 + i * size * 0.16, -size * 0.26, size * 0.08, size * 0.52);
+    }
+  } else if (type === "captureModule") {
+    drawRoundSystem(size);
+    ctx.fillStyle = "#f59e0b";
+    ctx.beginPath();
+    ctx.moveTo(0, -size * 0.32);
+    ctx.lineTo(size * 0.24, 0);
+    ctx.lineTo(0, size * 0.32);
+    ctx.lineTo(-size * 0.24, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (type === "signalAmplifier") {
+    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#a855f7";
+    ctx.fillRect(-size * 0.06, -size * 0.28, size * 0.12, size * 0.56);
+    ctx.strokeStyle = "#d8b4fe";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.22, -Math.PI * 0.6, -Math.PI * 0.4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.34, -Math.PI * 0.6, -Math.PI * 0.4);
+    ctx.stroke();
+  } else if (type === "stabilizerNode") {
+    drawRoundSystem(size);
+    ctx.strokeStyle = "#38bdf8";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#0284c7";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.12, 0, Math.PI * 2);
+    ctx.fill();
   } else {
     roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.1 });
     ctx.fill();
@@ -669,8 +921,12 @@ export function drawModule({ x, y, size, color, type, trim }) {
 }
 
 export function drawWeaponBase(size) {
-  roundRect(ctx, { x: -size * 0.46, y: -size * 0.32, width: size * 0.68, height: size * 0.64, radius: size * 0.12 });
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
   ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2);
   ctx.stroke();
 }
 

@@ -81,6 +81,7 @@ function snapshotRoom(room, now, viewer = null) {
     bullets: room.bullets.map((bullet) => ({
       id: bullet.id,
       type: bullet.type,
+      subtype: bullet.subtype,
       ownerId: bullet.ownerId,
       x: round(bullet.x),
       y: round(bullet.y),

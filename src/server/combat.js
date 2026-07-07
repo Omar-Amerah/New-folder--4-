@@ -44,21 +44,21 @@ function updateShipSupport(room, ships, dt, now) {
 }
 
 
-function findPointDefenseTarget(room, ship, weapon, ships) {
+function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships) {
   let best = null;
   let bestScore = -Infinity;
   const rangeSq = weapon.range * weapon.range;
 
   for (const bullet of room.bullets) {
-    if (!bullet.interceptable || bullet.life <= 0 || !areEnemies(room, ship.ownerId, bullet.ownerId)) continue;
+    if (!bullet.interceptable || bullet.life <= 0 || !areEnemies(room, shipOwnerId, bullet.ownerId)) continue;
 
-    const dx = bullet.x - ship.x;
-    const dy = bullet.y - ship.y;
+    const dx = bullet.x - worldX;
+    const dy = bullet.y - worldY;
     const distSq = dx * dx + dy * dy;
 
-    if (distSq <= rangeSq && !isLineBlocked(room, ship.x, ship.y, bullet.x, bullet.y, 4)) {
+    if (distSq <= rangeSq && !isLineBlocked(room, worldX, worldY, bullet.x, bullet.y, 4)) {
       let score = -distSq;
-      if (bullet.targetId === ship.id) score += 10000000;
+      if (bullet.targetId === shipOwnerId) score += 10000000;
       else score += 5000000;
 
       const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "ship"];
@@ -80,11 +80,11 @@ function findPointDefenseTarget(room, ship, weapon, ships) {
   let bestShipDist = Infinity;
 
   for (const other of ships) {
-    if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
-    const dx = other.x - ship.x;
-    const dy = other.y - ship.y;
+    if (!other.alive || !areEnemies(room, shipOwnerId, other.ownerId)) continue;
+    const dx = other.x - worldX;
+    const dy = other.y - worldY;
     const dist = Math.hypot(dx, dy);
-    if (dist <= weapon.range && dist < bestShipDist && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) {
+    if (dist <= weapon.range && dist < bestShipDist && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) {
       bestShip = other;
       bestShipDist = dist;
     }
@@ -179,20 +179,42 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const defaultRelative = moduleRotationToRadians(normalizeRotation(module.rotation));
     let desiredRelative = defaultRelative;
     let isTracking = false;
+    let currentPdTarget = null;
 
-    if (target) {
-      const dx = target.x - worldX;
-      const dy = target.y - worldY;
-      const distance = Math.hypot(dx, dy);
-      const range = ship.stats[family + "Range"] || part.weapon.range;
+    if (family === "pointDefense") {
+      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, part.weapon, ships);
+      if (currentPdTarget) {
+        const targetEntity = currentPdTarget.entity;
+        const dx = targetEntity.x - worldX;
+        const dy = targetEntity.y - worldY;
+        const distance = Math.hypot(dx, dy);
+        const range = ship.stats[family + "Range"] || part.weapon.range;
 
-      if (distance <= range) {
-        const worldAngleToTarget = Math.atan2(dy, dx);
-        const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
-        const diff = angleDifference(defaultRelative, relativeAngleToTarget);
-        if (Math.abs(diff) <= arcRadians / 2) {
-          desiredRelative = relativeAngleToTarget;
-          isTracking = true;
+        if (distance <= range) {
+          const worldAngleToTarget = Math.atan2(dy, dx);
+          const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
+          const diff = angleDifference(defaultRelative, relativeAngleToTarget);
+          if (Math.abs(diff) <= arcRadians / 2) {
+            desiredRelative = relativeAngleToTarget;
+            isTracking = true;
+          }
+        }
+      }
+    } else {
+      if (target) {
+        const dx = target.x - worldX;
+        const dy = target.y - worldY;
+        const distance = Math.hypot(dx, dy);
+        const range = ship.stats[family + "Range"] || part.weapon.range;
+
+        if (distance <= range) {
+          const worldAngleToTarget = Math.atan2(dy, dx);
+          const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
+          const diff = angleDifference(defaultRelative, relativeAngleToTarget);
+          if (Math.abs(diff) <= arcRadians / 2) {
+            desiredRelative = relativeAngleToTarget;
+            isTracking = true;
+          }
         }
       }
     }
@@ -201,10 +223,15 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
     ship.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
 
-    if (!target || !isTracking) return;
+    if (family === "pointDefense") {
+      if (!currentPdTarget || !isTracking) return;
+    } else {
+      if (!target || !isTracking) return;
+    }
 
     const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
-    const worldAngleToTarget = Math.atan2(target.y - worldY, target.x - worldX);
+    const targetEntity = family === "pointDefense" ? currentPdTarget.entity : target;
+    const worldAngleToTarget = Math.atan2(targetEntity.y - worldY, targetEntity.x - worldX);
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
     if (family !== "beam" && angleErr > 0.26) return;
 
@@ -277,24 +304,24 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         });
       }
     } else if (family === "pointDefense") {
-      const pdTarget = findPointDefenseTarget(room, ship, part.weapon, ships);
-      if (pdTarget) {
+      if (currentPdTarget) {
          const speed = part.weapon.projectileSpeed || 1000;
          const life = part.weapon.range / speed;
-         const target = pdTarget.entity;
-         const shotAngle = Math.atan2(target.y - muzzle.y, target.x - muzzle.x) + randomRange(-0.05, 0.05);
+         const targetEnt = currentPdTarget.entity;
+         const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + randomRange(-0.05, 0.05);
 
          addBullet(room, {
             type: "pdShot",
+            subtype: module.type,
             ownerId: ship.ownerId,
-            targetId: pdTarget.type === "ship" ? target.id : target.id,
+            targetId: currentPdTarget.type === "ship" ? targetEnt.id : targetEnt.id,
             x: muzzle.x,
             y: muzzle.y,
             vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
             vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
-            damage: part.weapon.damage * ship.stats.efficiency * (pdTarget.type === "ship" ? (part.weapon.shipDamageMultiplier || 0.1) : 1),
-            pdTargetType: pdTarget.type,
-            pdTargetId: target.id,
+            damage: part.weapon.damage * ship.stats.efficiency * (currentPdTarget.type === "ship" ? (part.weapon.shipDamageMultiplier || 0.1) : 1),
+            pdTargetType: currentPdTarget.type,
+            pdTargetId: targetEnt.id,
             life: life,
             bornAt: now
          });

@@ -360,25 +360,25 @@ const FALLBACK_PARTS = Object.freeze({
     weapon: null
   },
 
-  pointDefenseLaser: {
+  pointDefense: {
     category: "Defence",
-    cost: 32, mass: 3, hp: 35,
-    powerGeneration: 0, powerUse: 2.4,
+    cost: 36, mass: 4, hp: 40,
+    powerGeneration: 0, powerUse: 3.2,
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: 0,
     energyStorage: 0, repairRate: 0,
     pointDefense: 1,
     weapon: makeWeapon("pointDefense", {
-      damage: 18,
-      fireRate: 4.5,
+      damage: 4,
+      fireRate: 4.0,
       range: 280,
-      projectileSpeed: 1200,
-      accuracy: 0.95,
+      projectileSpeed: 820,
+      accuracy: 0.78,
       tracking: 0,
       arc: 360,
       antiMissile: true,
       targetPriority: ["missile", "torpedo", "projectile", "ship"],
-      shipDamageMultiplier: 0.25
+      shipDamageMultiplier: 0.1
     }),
     rotationRequired: true
   },
@@ -429,42 +429,7 @@ const FALLBACK_PARTS = Object.freeze({
     rotationRequired: true
   },
 
-  ecmModule: {
-    category: "Defence",
-    cost: 45, mass: 4, hp: 30,
-    powerGeneration: 0, powerUse: 3.5,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0.01,
-    energyStorage: 0, repairRate: 0,
-    ecmStrength: 0.25,
-    weapon: null
-  },
 
-  decoyLauncher: {
-    category: "Defence",
-    cost: 38, mass: 3, hp: 28,
-    powerGeneration: 0, powerUse: 1.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 0, repairRate: 0,
-    decoyRange: 500,
-    decoyCooldown: 6.5,
-    decoyConfuseDuration: 2.2,
-    decoyChance: 0.85,
-    weapon: null
-  },
-
-  forwardDeflector: {
-    category: "Defence",
-    cost: 42, mass: 5, hp: 36,
-    powerGeneration: 0, powerUse: 2.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.01,
-    energyStorage: 0, repairRate: 0,
-    frontDamageReduction: 0.25,
-    frontArc: 90,
-    weapon: null
-  },
 
   aegisProjector: {
     category: "Defence",
@@ -782,9 +747,6 @@ function buildPartsFromBalance(balance, fallbackParts) {
     parts[component.id] = normalizeBalanceComponent(component);
   }
   if (!parts.core && fallbackParts.core) parts.core = Object.freeze({ ...fallbackParts.core });
-  if (!parts.pointDefense && parts.pointDefenseLaser) {
-    parts.pointDefense = parts.pointDefenseLaser;
-  }
   return Object.freeze(parts);
 }
 

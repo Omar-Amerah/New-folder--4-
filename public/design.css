@@ -256,6 +256,99 @@
   background: #ffd1dc;
 }
 
+.part-pointdefense {
+  background: linear-gradient(135deg, #3b0712, #fda4af 48%, #ffe4e6);
+}
+
+.part-pointdefense::before {
+  content: "";
+  inset: 5px;
+  border-radius: 50%;
+  border: 2px solid #fda4af;
+}
+
+.part-pointdefense::after {
+  content: "";
+  top: 50%;
+  left: 45%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 3px;
+  background: #ffe4e6;
+}
+
+.part-flakcannon {
+  background: linear-gradient(135deg, #4c0519, #f43f5e 50%, #ffe4e6);
+}
+
+.part-flakcannon::before {
+  content: "";
+  top: 50%;
+  left: 15%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 10px;
+  background: #4c0519;
+  border-radius: 2px;
+}
+
+.part-flakcannon::after {
+  content: "";
+  top: 25%;
+  left: 40%;
+  width: 11px;
+  height: 3px;
+  background: #f43f5e;
+  border-radius: 1px;
+  box-shadow: 0 8px 0 #f43f5e;
+}
+
+.part-interceptorpod {
+  background: linear-gradient(135deg, #450a0a, #dc2626 50%, #fee2e2);
+}
+
+.part-interceptorpod::before {
+  content: "";
+  inset: 5px;
+  border-radius: 3px;
+  border: 1.5px dashed #dc2626;
+}
+
+.part-interceptorpod::after {
+  content: "";
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  background: #fee2e2;
+  border-radius: 50%;
+  box-shadow: -4px -4px 0 #fee2e2, 4px -4px 0 #fee2e2, -4px 4px 0 #fee2e2, 4px 4px 0 #fee2e2;
+}
+
+.part-aegisprojector {
+  background: linear-gradient(135deg, #064e3b, #059669 48%, #d1fae5);
+}
+
+.part-aegisprojector::before {
+  content: "";
+  inset: 4px;
+  border-radius: 50%;
+  border: 2px solid rgba(209, 250, 229, 0.42);
+}
+
+.part-aegisprojector::after {
+  content: "";
+  top: 30%;
+  left: 60%;
+  width: 6px;
+  height: 10px;
+  border: 2.5px solid #d1fae5;
+  border-left: 0;
+  border-radius: 0 50% 50% 0;
+  transform: rotate(-15deg);
+}
+
 .part-missile {
   background: linear-gradient(135deg, #27183b, #b995ff 56%, #f0dcff);
 }

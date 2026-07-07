@@ -32,12 +32,9 @@ export const PART_DEFS = {
   heavyShield: { name: "Heavy Shield", color: "#4ade80", glyph: "radial-gradient(circle, #bbf7d0 0 18%, #16a34a 32% 60%, #052e16 66%)" },
   regenShield: { name: "Regen Shield", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 16%, #14b8a6 28% 58%, #134e4a 64%)" },
   pointDefense: { name: "Point Defence", color: "#fda4af", glyph: "radial-gradient(circle, #fff1f2 0 18%, #fb7185 30% 56%, #881337 62%)" },
-  pointDefenseLaser: { name: "Point Defence Laser", color: "#fda4af", glyph: "radial-gradient(circle, #fff1f2 0 18%, #fb7185 30% 56%, #881337 62%)" },
+
   flakCannon: { name: "Flak Cannon", color: "#fda4af", glyph: "radial-gradient(circle, #fecdd3 0 25%, #f43f5e 35% 56%, #881337 62%)" },
-  interceptorPod: { name: "Interceptor Pod", color: "#fda4af", glyph: "radial-gradient(circle, #ffe4e6 0 22%, #e11d48 30% 60%, #4c0519 65%)" },
-  ecmModule: { name: "ECM Module", color: "#fef08a", glyph: "linear-gradient(135deg, #fef08a 20%, #ca8a04 50%, #713f12 80%)" },
-  decoyLauncher: { name: "Decoy Launcher", color: "#fef08a", glyph: "radial-gradient(circle, #fef08a 0 20%, #d97706 40% 60%, #78350f 70%)" },
-  forwardDeflector: { name: "Forward Deflector", color: "#60a5fa", glyph: "linear-gradient(0deg, #1e3a8a 0%, #3b82f6 40%, #bfdbfe 80%)" },
+  interceptorPod: { name: "Interceptor Pod", color: "#c084fc", glyph: "radial-gradient(circle, #f3e8ff 0 22%, #a855f7 30% 60%, #3b0764 65%)" },
   lightBlaster: { name: "Light Blaster", color: "#fb7185", glyph: "linear-gradient(90deg, #3f0d1b 0 18%, #fb7185 20% 72%, #ffe4e6 73%)" },
   heavyBlaster: { name: "Heavy Blaster", color: "#f43f5e", glyph: "linear-gradient(90deg, #3f0d1b 0 16%, #e11d48 18% 70%, #ffe4e6 72%)" },
   autocannon: { name: "Autocannon", color: "#f97316", glyph: "linear-gradient(90deg, #431407 0 18%, #fb923c 20% 70%, #ffedd5 72%)" },
@@ -76,12 +73,9 @@ export const PART_DESCRIPTIONS = Object.freeze({
   maneuverThruster: "Side-control engine that improves turning more than straight-line speed.",
   gyroscope: "Stabilization module that improves turn rate without adding thrust.",
   pointDefense: "Protects nearby ships from missiles and torpedoes. Very weak against normal ships.",
-  pointDefenseLaser: "Protects nearby ships from missiles and torpedoes. Very weak against normal ships.",
+
   flakCannon: "Short-range anti-missile and anti-swarm defence. Poor range and weak direct damage.",
   interceptorPod: "Longer-range missile interception. Expensive and weak against ships.",
-  ecmModule: "Makes this ship harder for missiles to track. Does not protect against guns, beams, or railguns.",
-  decoyLauncher: "Fires decoys to distract incoming missiles and disrupt their tracking.",
-  forwardDeflector: "Provides strong frontal protection against attacks within a 90-degree forward arc.",
   autocannon: "Rapid-fire weapon with high spread. Best against nearby light targets.",
   torpedo: "Slow heavy missile with major burst damage against large ships.",
   swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
@@ -373,25 +367,25 @@ export const FALLBACK_PART_STATS = {
     energyStorage: 0, repairRate: 0,
     weapon: null
   },
-  pointDefenseLaser: {
+  pointDefense: {
     category: "Defence",
-    cost: 32, mass: 3, hp: 35,
-    powerGeneration: 0, powerUse: 2.4,
+    cost: 36, mass: 4, hp: 40,
+    powerGeneration: 0, powerUse: 3.2,
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: 0,
     energyStorage: 0, repairRate: 0,
     pointDefense: 1,
     weapon: makeWeapon("pointDefense", {
-      damage: 18,
-      fireRate: 4.5,
+      damage: 4,
+      fireRate: 4.0,
       range: 280,
-      projectileSpeed: 1200,
-      accuracy: 0.95,
+      projectileSpeed: 820,
+      accuracy: 0.78,
       tracking: 0,
       arc: 360,
       antiMissile: true,
       targetPriority: ["missile", "torpedo", "projectile", "ship"],
-      shipDamageMultiplier: 0.25
+      shipDamageMultiplier: 0.1
     }),
     rotationRequired: true
   },
@@ -424,7 +418,6 @@ export const FALLBACK_PART_STATS = {
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.02,
     energyStorage: 0, repairRate: 0,
-    pointDefense: 1,
     weapon: makeWeapon("pointDefense", {
       damage: 40,
       fireRate: 1.2,
@@ -439,40 +432,7 @@ export const FALLBACK_PART_STATS = {
     }),
     rotationRequired: true
   },
-  ecmModule: {
-    category: "Defence",
-    cost: 45, mass: 4, hp: 30,
-    powerGeneration: 0, powerUse: 3.5,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0.01,
-    energyStorage: 0, repairRate: 0,
-    ecmStrength: 0.25,
-    weapon: null
-  },
-  decoyLauncher: {
-    category: "Defence",
-    cost: 38, mass: 3, hp: 28,
-    powerGeneration: 0, powerUse: 1.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 0, repairRate: 0,
-    decoyRange: 500,
-    decoyCooldown: 6.5,
-    decoyConfuseDuration: 2.2,
-    decoyChance: 0.85,
-    weapon: null
-  },
-  forwardDeflector: {
-    category: "Defence",
-    cost: 42, mass: 5, hp: 36,
-    powerGeneration: 0, powerUse: 2.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.01,
-    energyStorage: 0, repairRate: 0,
-    frontDamageReduction: 0.25,
-    frontArc: 90,
-    weapon: null
-  },
+
   aegisProjector: {
     category: "Defence",
     cost: 44, mass: 6, hp: 44,
@@ -844,9 +804,6 @@ export function buildPartStatsFromBalance(balance, fallbackParts) {
     parts[component.id] = normalizeBalanceComponent(component);
   }
   if (!parts.core && fallbackParts.core) parts.core = normalizeRuntimePart(fallbackParts.core);
-  if (!parts.pointDefense && parts.pointDefenseLaser) {
-    parts.pointDefense = parts.pointDefenseLaser;
-  }
   return parts;
 }
 

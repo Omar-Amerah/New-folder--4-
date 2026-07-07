@@ -18,10 +18,10 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const massSpeedPenalty = 1 / Math.pow(1 + safeMass / 120, 0.45);
   const massAccelPenalty = 1 / Math.pow(1 + safeMass / 76, 0.65);
   const massTurnPenalty = 1 / Math.pow(1 + safeMass / 82, 0.85);
-  const rawSpeed = (120 + thrustRatio * 200) * massSpeedPenalty * movementPowerMultiplier;
-  const rawAccel = (50 + Math.sqrt(effectiveThrust) * 10) * massAccelPenalty * movementPowerMultiplier;
+  const rawSpeed = (120 + thrustRatio * 200) * massSpeedPenalty * movementPowerMultiplier * 1.3;
+  const rawAccel = (50 + Math.sqrt(effectiveThrust) * 10) * massAccelPenalty * movementPowerMultiplier * 1.3;
   const rawTurn = Math.max(0.15, (0.85 + effectiveTurnBonus * 1.5) * massTurnPenalty * movementPowerMultiplier);
-  const speedCap = speedCapForMass(safeMass);
+  const speedCap = speedCapForMass(safeMass) * 1.3;
   const turnCap = turnCapForMass(safeMass);
   const cappedSpeed = hasEngineThrust ? softCap(rawSpeed, speedCap, 0.25) : 0;
   const cappedTurn = softCap(rawTurn, turnCap, 0.2);
