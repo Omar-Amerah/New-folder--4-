@@ -63,31 +63,55 @@ function partInspectorDetails(type, stat, effectiveCost) {
       return [
         ["Damage", `${formatDamage(weapon.damage)}/s`],
         ["Range", formatDistance(weapon.range)],
-      (weapon.antiMissile ? ["Role", "Anti-missile point defence"] : null),
-      (weapon.missileHp ? ["Missile health", weapon.missileHp.toString()] : null),
-      (weapon.antiMissile ? ["Role", "Anti-missile point defence"] : null),
-      (weapon.missileHp ? ["Missile health", weapon.missileHp.toString()] : null),
         ["Beam radius", formatDistance(weapon.radius || 0)],
-        ["Tracking", `${Math.round((weapon.tracking || 0) * 100)}% slow aim`],
+        weapon.aimSpeed !== undefined ? ["Aim speed", `${weapon.aimSpeed.toFixed(2)} rad/s`] : null,
         ["Arc", `${weapon.arc || 360} deg`],
-        ["Behavior", "Continuous beam"],
+        ["Behavior", "Sustained line damage"],
         ["Power use", formatPowerUse(stat.powerUse)]
-      ];
+      ].filter(Boolean);
     }
-    return [
+
+    const details = [
       ["Damage", formatDamage(weapon.damage)],
       ["Range", formatDistance(weapon.range)],
       ["Fire rate", `${weapon.fireRate} shots/s`],
       ["Reload", `${weapon.reload}s`],
-      ["DPS", weapon.dps.toFixed(1)],
-      ["Projectile speed", formatSpeed(weapon.projectileSpeed)],
-      ["Accuracy", `${Math.round(weapon.accuracy * 100)}%`],
-      ["Tracking", weapon.tracking ? `${Math.round(weapon.tracking * 100)}%` : "None"],
+      ["DPS", weapon.dps.toFixed(1)]
+    ];
+
+    if (weapon.type === "missile") {
+      details.push(
+        ["Accuracy", `${Math.round(weapon.accuracy * 100)}% launch precision`],
+        ["Tracking", `${Math.round(weapon.tracking * 100)}% steering strength`],
+        ["Track time", `${weapon.trackTime}s active search`],
+        ["Speed", `${formatSpeed(weapon.projectileSpeed)} travel speed`],
+        ["Behavior", type === "torpedo" ? "Heavy slow payload, poor tracking, dodgeable" : "Guided payload"]
+      );
+    } else {
+      details.push(
+        ["Projectile speed", formatSpeed(weapon.projectileSpeed)],
+        ["Accuracy", `${Math.round(weapon.accuracy * 100)}% shot spread`]
+      );
+      if (weapon.aimSpeed !== undefined) {
+        details.push(["Aim speed", `${weapon.aimSpeed.toFixed(2)} rad/s`]);
+      }
+    }
+
+    if (weapon.antiMissile) {
+      details.push(["Role", "Anti-missile point defence"]);
+    }
+    if (weapon.type !== "missile" && weapon.missileHp) {
+      details.push(["Missile health", weapon.missileHp.toString()]);
+    }
+
+    details.push(
       ["Arc", `${weapon.arc || 360} deg`],
       ["Default facing", "Forward / editor up"],
       ["Rotate", "Click a placed matching gun, or hover it and press R"],
       ["Power use", formatPowerUse(stat.powerUse)]
-    ];
+    );
+
+    return details;
   }
 
   if (type === "engine") {

@@ -184,7 +184,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       }
     }
 
-    const turnRate = getWeaponTurnRate(family);
+    const turnRate = getWeaponTurnRate(part.weapon);
     const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
     ship.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
 
@@ -196,7 +196,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     if (family !== "beam" && angleErr > 0.26) return;
 
     const accuracy = clampNumber((part.weapon.accuracy || 0.8) + (ship.stats.accuracyBonus || 0), 0.1, 1);
-    const spreadScale = (1 - accuracy) * 0.22;
+    const spreadScale = (1 - accuracy) * (family === "missile" ? 0.35 : 0.22);
     const spread = randomRange(-spreadScale, spreadScale);
     const shotAngle = worldWeaponAngle + spread;
 
@@ -237,9 +237,11 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         damage: part.weapon.damage * ship.stats.efficiency,
         tracking: part.weapon.tracking || 0.75,
         trackRemaining: part.weapon.trackTime || 1.4,
+        trackingDelay: part.weapon.trackingDelay || 0.25,
         maxSpeed: speed * 1.45,
         life: life,
-        bornAt: now
+        bornAt: now,
+        age: 0
       });
       const reload = (1 / part.weapon.fireRate) / Math.max(0.1, fireRateMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
@@ -497,7 +499,12 @@ function areEnemies(room, ownerA, ownerB) {
   return Boolean(a && b && a.team !== b.team);
 }
 
-function getWeaponTurnRate(family) {
+function getWeaponTurnRate(weapon) {
+  if (!weapon) return 8.0;
+  if (Number.isFinite(weapon.aimSpeed)) return weapon.aimSpeed;
+  if (Number.isFinite(weapon.turretTurnRate)) return weapon.turretTurnRate;
+  
+  const family = typeof weapon === "string" ? weapon : (weapon.type || weapon.family);
   if (family === "blaster") return 12.0;
   if (family === "missile") return 8.0;
   if (family === "railgun") return 4.5;

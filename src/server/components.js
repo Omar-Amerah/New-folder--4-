@@ -19,6 +19,16 @@ function calculateReload(weapon) {
 function makeWeapon(type, stats) {
   const fireRate = Number(stats.fireRate) || 1;
   const damage = Number(stats.damage) || 0;
+  
+  let tracking = stats.tracking || 0;
+  let aimSpeed = stats.aimSpeed;
+  if (type === "beam") {
+    if (stats.tracking && !stats.aimSpeed) {
+      aimSpeed = 1.65;
+    }
+    tracking = 0; // beam weapons do not have tracking
+  }
+
   return {
     type,
     damage,
@@ -28,10 +38,16 @@ function makeWeapon(type, stats) {
     radius: Number(stats.radius) || 0,
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
-    tracking: stats.tracking || 0,
+    tracking: tracking,
     trackTime: Number(stats.trackTime) || 0,
+    trackingDelay: Number(stats.trackingDelay) || 0,
+    aimSpeed: aimSpeed !== undefined ? Number(aimSpeed) : undefined,
     arc: Number(stats.arc) || 360,
-    dps: calculateDps({ damage, fireRate })
+    dps: calculateDps({ damage, fireRate }),
+    missileHp: Number(stats.missileHp) || 0,
+    antiMissile: Boolean(stats.antiMissile),
+    shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
+    targetPriority: stats.targetPriority || []
   };
 }
 
@@ -131,7 +147,9 @@ const FALLBACK_PARTS = Object.freeze({
       range: 790,
       projectileSpeed: 320,
       accuracy: 0.7,
-      tracking: 0.78,
+      tracking: 0.7,
+      trackTime: 1.5,
+      trackingDelay: 0.25,
       arc: 220
     })
   },
@@ -342,24 +360,110 @@ const FALLBACK_PARTS = Object.freeze({
     weapon: null
   },
 
-  pointDefense: {
+  pointDefenseLaser: {
     category: "Defence",
-    cost: 36, mass: 4, hp: 40,
-    powerGeneration: 0, powerUse: 3.2,
+    cost: 32, mass: 3, hp: 35,
+    powerGeneration: 0, powerUse: 2.4,
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: 0,
     energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
-      damage: 4,
-      fireRate: 4.0,
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
+      damage: 18,
+      fireRate: 4.5,
       range: 280,
-      projectileSpeed: 820,
-      accuracy: 0.78,
+      projectileSpeed: 1200,
+      accuracy: 0.95,
       tracking: 0,
-      arc: 360
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["missile", "torpedo", "projectile", "ship"],
+      shipDamageMultiplier: 0.25
     }),
     rotationRequired: true
+  },
+
+  flakCannon: {
+    category: "Defence",
+    cost: 38, mass: 5, hp: 42,
+    powerGeneration: 0, powerUse: 3.0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.01,
+    energyStorage: 0, repairRate: 0,
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
+      damage: 8,
+      fireRate: 2.5,
+      range: 220,
+      projectileSpeed: 800,
+      accuracy: 0.7,
+      tracking: 0,
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["missile", "torpedo", "projectile", "ship"],
+      shipDamageMultiplier: 0.15
+    }),
+    rotationRequired: true
+  },
+
+  interceptorPod: {
+    category: "Defence",
+    cost: 55, mass: 6, hp: 48,
+    powerGeneration: 0, powerUse: 4.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.02,
+    energyStorage: 0, repairRate: 0,
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
+      damage: 40,
+      fireRate: 1.2,
+      range: 450,
+      projectileSpeed: 1600,
+      accuracy: 0.9,
+      tracking: 0,
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["torpedo", "missile", "projectile", "ship"],
+      shipDamageMultiplier: 0.1
+    }),
+    rotationRequired: true
+  },
+
+  ecmModule: {
+    category: "Defence",
+    cost: 45, mass: 4, hp: 30,
+    powerGeneration: 0, powerUse: 3.5,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0.01,
+    energyStorage: 0, repairRate: 0,
+    ecmStrength: 0.25,
+    weapon: null
+  },
+
+  decoyLauncher: {
+    category: "Defence",
+    cost: 38, mass: 3, hp: 28,
+    powerGeneration: 0, powerUse: 1.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    decoyRange: 500,
+    decoyCooldown: 6.5,
+    decoyConfuseDuration: 2.2,
+    decoyChance: 0.85,
+    weapon: null
+  },
+
+  forwardDeflector: {
+    category: "Defence",
+    cost: 42, mass: 5, hp: 36,
+    powerGeneration: 0, powerUse: 2.8,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.01,
+    energyStorage: 0, repairRate: 0,
+    frontDamageReduction: 0.25,
+    frontArc: 90,
+    weapon: null
   },
 
   aegisProjector: {
@@ -447,8 +551,10 @@ const FALLBACK_PARTS = Object.freeze({
       fireRate: 0.45,
       range: 700,
       projectileSpeed: 350,
-      accuracy: 0.72,
-      tracking: 0.7,
+      accuracy: 0.68,
+      tracking: 0.82,
+      trackTime: 1.7,
+      trackingDelay: 0.15,
       arc: 220
     }),
     rotationRequired: true
@@ -468,7 +574,9 @@ const FALLBACK_PARTS = Object.freeze({
       range: 940,
       projectileSpeed: 240,
       accuracy: 0.58,
-      tracking: 0.3,
+      tracking: 0.25,
+      trackTime: 1.1,
+      trackingDelay: 0.45,
       arc: 150
     }),
     rotationRequired: true
@@ -489,6 +597,8 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 370,
       accuracy: 0.68,
       tracking: 0.82,
+      trackTime: 1.7,
+      trackingDelay: 0.15,
       arc: 240
     }),
     rotationRequired: true
@@ -549,7 +659,7 @@ const FALLBACK_PARTS = Object.freeze({
       radius: 16,
       projectileSpeed: 0,
       accuracy: 0.99,
-      tracking: 0.45,
+      aimSpeed: 1.65,
       arc: 110
     }),
     rotationRequired: true
@@ -672,6 +782,9 @@ function buildPartsFromBalance(balance, fallbackParts) {
     parts[component.id] = normalizeBalanceComponent(component);
   }
   if (!parts.core && fallbackParts.core) parts.core = Object.freeze({ ...fallbackParts.core });
+  if (!parts.pointDefense && parts.pointDefenseLaser) {
+    parts.pointDefense = parts.pointDefenseLaser;
+  }
   return Object.freeze(parts);
 }
 

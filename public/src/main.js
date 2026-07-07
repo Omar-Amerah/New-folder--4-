@@ -4,7 +4,7 @@ import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
-import { renderBuildGrid, renderLocalStats, resetDesign } from "./ui/designerUi.js";
+import { renderBuildGrid, renderLocalStats, resetDesign, clearDesign } from "./ui/designerUi.js";
 import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
@@ -34,6 +34,7 @@ dom.saveDesignButton?.addEventListener("click", () => {
   });
 });
 dom.resetButton.addEventListener("click", resetDesign);
+dom.clearGridButton.addEventListener("click", clearDesign);
 dom.copyButton.addEventListener("click", () => {
   // Copy invite logic
   const url = new URL(location.href);

@@ -355,7 +355,7 @@ export function drawShip(ship, player) {
       const defaultRelative = moduleRotationToRadians(normalizeRotation(part.rotation));
       const targetRelative = serverAngles[i] !== undefined ? serverAngles[i] : defaultRelative;
 
-      const turnRate = weaponStat ? getWeaponTurnRate(weaponStat.type || part.type) : 3.0;
+      const turnRate = weaponStat ? getWeaponTurnRate(weaponStat) : 3.0;
       visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
 
       ctx.rotate(visualAngles[i]);
@@ -1137,7 +1137,12 @@ function angleDifference(a, b) {
   return diff;
 }
 
-function getWeaponTurnRate(type) {
+function getWeaponTurnRate(weapon) {
+  if (!weapon) return 8.0;
+  if (Number.isFinite(weapon.aimSpeed)) return weapon.aimSpeed;
+  if (Number.isFinite(weapon.turretTurnRate)) return weapon.turretTurnRate;
+  
+  const type = typeof weapon === "string" ? weapon : (weapon.type || weapon.family);
   if (type === "pointdefense") return 16.0;
   if (type === "blaster" || type === "autocannon") return 12.0;
   if (type === "beam") return 1.65;

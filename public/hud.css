@@ -714,3 +714,40 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.designer-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.designer-actions .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.designer-actions .icon-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.designer-actions .icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+#deployButton {
+  width: 100%;
+  margin-top: 12px;
+}

@@ -101,6 +101,41 @@ function snapshotRoom(room, now, viewer = null) {
     winner: room.winner,
     maxScore: room.maxScore,
     rules: room.rules,
+    controlVictory: room.controlVictory ? {
+      active: Boolean(room.controlVictory.team || room.controlVictory.playerId),
+      team: room.controlVictory.team,
+      playerId: room.controlVictory.playerId,
+      remaining: room.controlVictory.remaining,
+      requiredSeconds: room.controlVictory.requiredSeconds,
+      fullControl: Boolean(room.controlVictory.team || room.controlVictory.playerId)
+    } : null,
+    objectiveControl: (() => {
+      const objectiveControl = {
+        total: room.points.length,
+        neutral: 0,
+        contested: 0,
+        teams: {},
+        players: {}
+      };
+      for (const point of room.points) {
+        if (point.contested) {
+          objectiveControl.contested++;
+        } else if (room.rules?.gameMode === "solo") {
+          if (!point.ownerId || point.progress < 0.98) {
+            objectiveControl.neutral++;
+          } else {
+            objectiveControl.players[point.ownerId] = (objectiveControl.players[point.ownerId] || 0) + 1;
+          }
+        } else {
+          if (!point.ownerTeam || point.progress < 0.98) {
+            objectiveControl.neutral++;
+          } else {
+            objectiveControl.teams[point.ownerTeam] = (objectiveControl.teams[point.ownerTeam] || 0) + 1;
+          }
+        }
+      }
+      return objectiveControl;
+    })(),
     time: Math.floor(now)
   };
 }

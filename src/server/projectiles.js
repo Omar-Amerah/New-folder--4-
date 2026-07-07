@@ -48,19 +48,34 @@ function updateBullets(room, dt, now) {
     const previousY = bullet.y;
 
     if (bullet.type === "missile") {
-      const target = byId.get(bullet.targetId);
-
+      bullet.age = (bullet.age || 0) + dt;
       if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
         bullet.trackingDisabledFor -= dt;
       }
-
+      const target = byId.get(bullet.targetId);
       const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
-        const desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
-        const current = Math.atan2(bullet.vy, bullet.vx);
+        let desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
+        let turnRate = 0.1; // Weak tracking during arming delay
+
+        if (bullet.age >= (bullet.trackingDelay || 0)) {
+          const tracking = clampNumber(bullet.tracking ?? 0.5, 0, 1);
+          const baseTurnRate = bullet.baseTurnRate ?? 0.7;
+          const trackingTurnRate = bullet.maxTurnRate ?? (0.45 + tracking * tracking * 4.2);
+          turnRate = baseTurnRate + trackingTurnRate;
+
+          // Add slight lead prediction only for high-tracking missiles
+          const leadStrength = tracking * 0.35;
+          const predictedX = target.x + (target.vx || 0) * leadStrength;
+          const predictedY = target.y + (target.vy || 0) * leadStrength;
+          desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
+        }
 
         const ecmMod = Math.max(0, 1 - (target.stats.ecmStrength || 0));
-        const next = rotateToward(current, desired, (1.6 + (bullet.tracking || 0.75) * 1.8) * ecmMod * dt);
+        turnRate *= ecmMod;
+
+        const current = Math.atan2(bullet.vy, bullet.vx);
+        const next = rotateToward(current, desired, turnRate * dt);
         const speed = Math.min(bullet.maxSpeed || 460, Math.hypot(bullet.vx, bullet.vy) + 95 * dt);
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;

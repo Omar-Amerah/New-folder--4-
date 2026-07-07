@@ -294,7 +294,7 @@ function shipWarnings(stats) {
   if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
   if (stats.speedCapped) warnings.push("Large hull: speed capped by mass");
   if (stats.powerDebuff > 0.08 && stats.thrust > 0) warnings.push(`Underpowered systems: movement reduced ${Math.round(stats.powerDebuff * 100)}%. Add reactors.`);
-  if (stats.mass > 85 || stats.turnRate < 0.85) warnings.push("Heavy ship: turning will be slow");
+  if (stats.effectiveThrust > 0 && (stats.mass > 85 || stats.turnRate < 0.85)) warnings.push("Heavy ship: turning will be slow");
   if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
   if (stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
   if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack");

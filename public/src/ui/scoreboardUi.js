@@ -46,7 +46,7 @@ export function renderTeamPanel(players) {
     card.innerHTML = `
       <div class="team-card-head">
         <strong>${escapeHtml(title)}</strong>
-        <span>${score}/${state.snapshot.maxScore || 900} (+${pointsPerSecond}/s)</span>
+        <span>Battle score: ${score}</span>
       </div>
       <div class="team-objectives">Objectives: ${objectives.length ? objectives.map((point) => point.id).join(", ") : "None"}</div>
     `;
@@ -66,7 +66,7 @@ export function renderTeamPanel(players) {
       const infoItems = [];
       if (player.money != null) infoItems.push(`$${player.money}`);
       infoItems.push(`${player.activeShips} ship${player.activeShips === 1 ? "" : "s"}`);
-      infoItems.push(`${player.score}/${state.snapshot.maxScore || 900}`);
+      infoItems.push(`Score: ${player.score}`);
       row.innerHTML = `
         <span class="score-color" style="background:${player.color}"></span>
         <div class="team-player-body">
@@ -88,18 +88,108 @@ export function renderTeamPanel(players) {
 }
 
 export function updateMatchMeter(players) {
-  if (!players.length) {
+  if (!state.snapshot) return;
+
+  const snapshot = state.snapshot;
+  const points = snapshot.points || [];
+  if (!points.length) {
     dom.matchProgressFill.style.width = "0%";
     dom.matchSummary.textContent = "No active match";
     return;
   }
 
-  const maxScore = state.snapshot.maxScore || 900;
-  const leader = players[0];
-  const progress = clamp(leader.score / maxScore * 100, 0, 100);
-  const mapName = state.snapshot.map?.name ? `${state.snapshot.map.name} | ` : "";
-  dom.matchProgressFill.style.width = `${progress}%`;
-  dom.matchSummary.textContent = `${mapName}${leader.name} leads ${leader.score}/${maxScore}`;
+  const objectiveControl = snapshot.objectiveControl || {
+    total: points.length,
+    neutral: 0,
+    contested: 0,
+    teams: {},
+    players: {}
+  };
+
+  const soloMode = snapshot.rules?.gameMode === "solo";
+
+  let leftName = "";
+  let rightName = "";
+  let leftColor = "";
+  let rightColor = "";
+  let leftCount = 0;
+  let rightCount = 0;
+
+  if (soloMode) {
+    const me = players.find(p => p.id === state.myId);
+    leftName = me ? me.name : "Me";
+    leftColor = me ? me.color || "#00f0ff" : "#00f0ff";
+    leftCount = objectiveControl.players[state.myId] || 0;
+
+    rightName = "Others";
+    rightColor = "#ff5555";
+    rightCount = 0;
+    for (const [pid, count] of Object.entries(objectiveControl.players)) {
+      if (pid !== state.myId) {
+        rightCount += count;
+      }
+    }
+  } else {
+    leftName = "Wing Blue";
+    leftColor = "var(--cyan)";
+    leftCount = objectiveControl.teams["blue"] || 0;
+
+    rightName = "Wing Red";
+    rightColor = "var(--amber)";
+    rightCount = objectiveControl.teams["red"] || 0;
+  }
+
+  const total = objectiveControl.total || points.length;
+  const contested = objectiveControl.contested || 0;
+
+  const leftPercent = (leftCount / total) * 100;
+  const rightPercent = (rightCount / total) * 100;
+  const centerPercent = 100 - leftPercent - rightPercent;
+
+  dom.matchProgressFill.style.display = "flex";
+  dom.matchProgressFill.style.width = "100%";
+  dom.matchProgressFill.style.height = "100%";
+  dom.matchProgressFill.style.background = "none";
+  dom.matchProgressFill.style.borderRadius = "inherit";
+
+  dom.matchProgressFill.innerHTML = `
+    <span style="display:block; height:100%; background:${leftColor}; width:${leftPercent}%; transition:width 180ms ease;"></span>
+    <span style="display:block; height:100%; background:rgba(255, 255, 255, 0.07); width:${centerPercent}%; transition:width 180ms ease;"></span>
+    <span style="display:block; height:100%; background:${rightColor}; width:${rightPercent}%; transition:width 180ms ease;"></span>
+  `;
+
+  let summaryText = "";
+  if (soloMode) {
+    summaryText = `${leftName} controls ${leftCount}/${total} relays.`;
+    if (contested > 0) {
+      summaryText += ` ${contested} relay${contested === 1 ? "" : "s"} contested.`;
+    }
+  } else {
+    summaryText = `${leftName}: ${leftCount}/${total} | ${rightName}: ${rightCount}/${total}`;
+    if (contested > 0) {
+      summaryText += ` | ${contested} contested`;
+    }
+  }
+  
+  const controlVictory = snapshot.controlVictory;
+  if (controlVictory && controlVictory.active) {
+    const sec = Math.ceil(controlVictory.remaining);
+    const winTeamName = soloMode ? "" : (controlVictory.team === "blue" ? "Wing Blue" : "Wing Red");
+    
+    if (soloMode) {
+      summaryText += `<div class="control-countdown" style="margin-top: 6px; color: #ffca57; font-weight: 800;">Control all relays to win instantly.</div>`;
+    } else {
+      summaryText += `<div class="control-countdown" style="margin-top: 6px; color: #ffca57; font-weight: 800;">Victory for ${winTeamName} in ${sec}s</div>`;
+    }
+  } else {
+    if (soloMode) {
+      summaryText += `<div class="control-instructions" style="margin-top: 6px; color: var(--muted); font-size: 11px;">Control all relays to win instantly.</div>`;
+    } else {
+      summaryText += `<div class="control-instructions" style="margin-top: 6px; color: var(--muted); font-size: 11px;">Control all relays for 20s to win.</div>`;
+    }
+  }
+
+  dom.matchSummary.innerHTML = summaryText;
 }
 
 export function playerMap() {

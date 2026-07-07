@@ -296,6 +296,13 @@ function maybeStartMatch(room, now) {
   room.phase = "active";
   room.winner = null;
   room.winnerAt = 0;
+  room.controlVictory = {
+    team: null,
+    playerId: null,
+    startedAt: null,
+    remaining: null,
+    requiredSeconds: 20
+  };
   room.lastScoreAt = now;
   for (const player of players) {
     resetPlayerForMatch(room, player, now, { spawn: true });
@@ -320,6 +327,13 @@ function startDesignPhase(room, requester) {
   room.phase = "design";
   room.winner = null;
   room.winnerAt = 0;
+  room.controlVictory = {
+    team: null,
+    playerId: null,
+    startedAt: null,
+    remaining: null,
+    requiredSeconds: 20
+  };
   room.lastScoreAt = performanceNow();
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
@@ -345,6 +359,13 @@ function restartFromEnd(room, requester) {
   room.phase = "design";
   room.winner = null;
   room.winnerAt = 0;
+  room.controlVictory = {
+    team: null,
+    playerId: null,
+    startedAt: null,
+    remaining: null,
+    requiredSeconds: 20
+  };
   room.lastScoreAt = performanceNow();
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);

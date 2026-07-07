@@ -50,6 +50,13 @@ function createRoom(code) {
     winner: null,
     winnerAt: 0,
     maxScore: MATCH_SCORE,
+    controlVictory: {
+      team: null,
+      playerId: null,
+      startedAt: null,
+      remaining: null,
+      requiredSeconds: 20
+    },
     rules: { ...DEFAULT_ROOM_RULES },
     playerColors: new Map()
   };
