@@ -386,12 +386,35 @@ function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
 function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now) {
   for (const target of ships) {
     if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
-    const hit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
-    if (!hit) continue;
-    damageShip(room, target, damage, ship.ownerId, now, x1, y1);
+
+    // Broad-phase: check if the beam line segment is anywhere near the ship's bounding circle
+    const broadHit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
+    if (!broadHit) continue;
+
+    // Narrow-phase: check segment-circle intersection against each individual module of the hull
+    let hitPoint = null;
+    const cos = Math.cos(target.angle);
+    const sin = Math.sin(target.angle);
+    const scale = 13;
+
+    for (const module of target.design || []) {
+      const lx = (3 - module.y) * scale;
+      const ly = (module.x - 3) * scale;
+      const wx = target.x + lx * cos - ly * sin;
+      const wy = target.y + lx * sin + ly * cos;
+
+      const hit = segmentCircleHit(x1, y1, x2, y2, wx, wy, 8.5 + beamRadius);
+      if (hit) {
+        hitPoint = hit;
+        break;
+      }
+    }
+
+    if (hitPoint) {
+      damageShip(room, target, damage, ship.ownerId, now, hitPoint.x, hitPoint.y);
+    }
   }
 }
-
 
 function isDamageFromFront(ship, sourceX, sourceY, frontArcDegrees) {
   const angleToSource = Math.atan2(sourceY - ship.y, sourceX - ship.x);
