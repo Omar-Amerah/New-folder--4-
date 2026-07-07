@@ -5,6 +5,7 @@ import { PART_STATS } from "./parts.js";
 import { SHIP_ECONOMY } from "../constants.js";
 import { formatPercent } from "./statFormatting.js";
 import { isConnected } from "./blueprintValidation.js";
+import { calculateMovementStats, calculateSystemEfficiency } from "../shared/movementStats.js";
 
 export function computeStats(modules) {
   let cost = 0;
@@ -181,82 +182,6 @@ export function calculateReload(weapon) {
   return Number((1 / Math.max(0.01, weapon.fireRate || 1)).toFixed(2));
 }
 
-export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues }) {
-  const safeMass = Math.max(mass, 1);
-  const effectiveThrust = effectiveStackedValue(engineThrustValues, 0.88);
-  const positiveTurn = effectiveStackedValue(turnModuleValues, 0.92);
-  const negativeTurnDrag = Math.min(0, turnBonus);
-  const effectiveTurnBonus = positiveTurn + negativeTurnDrag;
-  const thrustRatio = effectiveThrust / safeMass;
-  const hasEngineThrust = effectiveThrust > 0;
-  const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.1;
-  const movementPowerMultiplier = calculateMovementPowerMultiplier(powerGeneration, powerUse);
-  const powerEfficiency = clamp(powerRatio, 0, 1.1);
-  const massSpeedPenalty = 1 / Math.pow(1 + safeMass / 95, 0.55);
-  const massAccelPenalty = 1 / Math.pow(1 + safeMass / 76, 0.75);
-  const massTurnPenalty = 1 / Math.pow(1 + safeMass / 82, 0.82);
-  const rawSpeed = (90 + Math.sqrt(thrustRatio) * 52) * massSpeedPenalty * movementPowerMultiplier;
-  const rawAccel = (45 + Math.sqrt(effectiveThrust) * 7) * massAccelPenalty * movementPowerMultiplier;
-  const rawTurn = Math.max(0.22, (0.72 + effectiveTurnBonus * 1.34) * massTurnPenalty * movementPowerMultiplier);
-  const speedCap = speedCapForMass(safeMass);
-  const turnCap = turnCapForMass(safeMass);
-  const cappedSpeed = hasEngineThrust ? softCap(rawSpeed, speedCap, 0.25) : 0;
-  const cappedTurn = softCap(rawTurn, turnCap, 0.2);
-
-  return {
-    maxSpeed: hasEngineThrust ? Math.max(35, cappedSpeed) : 0,
-    accel: hasEngineThrust ? Math.max(18, rawAccel) : 0,
-    turnRate: cappedTurn,
-    thrustRatio,
-    effectiveThrust,
-    engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0,
-    powerEfficiency,
-    powerDebuff: Math.max(0, 1 - movementPowerMultiplier),
-    speedCap,
-    turnCap,
-    massClass: massClassForMass(safeMass),
-    speedCapped: hasEngineThrust && rawSpeed > speedCap * 1.05
-  };
-}
-
-export function calculateSystemEfficiency(powerGeneration, powerUse) {
-  if (powerUse <= 0) return 1.08;
-  const ratio = powerGeneration / Math.max(powerUse, 1);
-  if (ratio >= 1) return clamp(1 + Math.min((ratio - 1) * 0.25, 0.12), 1, 1.12);
-  return clamp(Math.pow(Math.max(ratio, 0), 1.35), 0.25, 1);
-}
-
-export function calculateMovementPowerMultiplier(powerGeneration, powerUse) {
-  if (powerUse <= 0) return 1.04;
-  const ratio = powerGeneration / Math.max(powerUse, 1);
-  if (ratio >= 1) return clamp(Math.sqrt(ratio), 1, 1.08);
-  return clamp(Math.pow(Math.max(ratio, 0), 1.8), 0.18, 1);
-}
-
-export function effectiveStackedValue(values, falloff) {
-  return [...values].sort((a, b) => b - a).reduce((total, value, index) => total + value * Math.pow(falloff, index), 0);
-}
-
-export function massClassForMass(mass) {
-  if (mass < 55) return "Light";
-  if (mass < 125) return "Medium";
-  if (mass < 230) return "Heavy";
-  return "Capital";
-}
-
-export function speedCapForMass(mass) {
-  if (mass < 55) return 340;
-  if (mass < 125) return 285;
-  if (mass < 230) return 215;
-  return 165;
-}
-
-export function turnCapForMass(mass) {
-  if (mass < 55) return 2.85;
-  if (mass < 125) return 2.05;
-  if (mass < 230) return 1.12;
-  return 0.72;
-}
 
 export function weaponRange(total) {
   return total.count > 0 ? total.range : 0;
