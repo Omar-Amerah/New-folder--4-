@@ -49,11 +49,18 @@ function updateBullets(room, dt, now) {
 
     if (bullet.type === "missile") {
       const target = byId.get(bullet.targetId);
-      const canTrack = bullet.trackRemaining === undefined || bullet.trackRemaining > 0;
+
+      if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
+        bullet.trackingDisabledFor -= dt;
+      }
+
+      const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
         const desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
         const current = Math.atan2(bullet.vy, bullet.vx);
-        const next = rotateToward(current, desired, (1.6 + (bullet.tracking || 0.75) * 1.8) * dt);
+
+        const ecmMod = Math.max(0, 1 - (target.stats.ecmStrength || 0));
+        const next = rotateToward(current, desired, (1.6 + (bullet.tracking || 0.75) * 1.8) * ecmMod * dt);
         const speed = Math.min(bullet.maxSpeed || 460, Math.hypot(bullet.vx, bullet.vy) + 95 * dt);
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
@@ -66,6 +73,27 @@ function updateBullets(room, dt, now) {
 
     if (bullet.x < -80 || bullet.x > room.world.width + 80 || bullet.y < -80 || bullet.y > room.world.height + 80) {
       continue;
+    }
+
+
+    if (bullet.type === "pdShot") {
+       if (bullet.pdTargetType === "projectile") {
+          const target = room.bullets.find(b => b.id === bullet.pdTargetId);
+          if (target && target.interceptable && target.life > 0) {
+             const dx = target.x - bullet.x;
+             const dy = target.y - bullet.y;
+             if (dx * dx + dy * dy <= 400) { // 20 radius
+                target.hp -= bullet.damage;
+                bullet.life = 0;
+                room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
+                if (target.hp <= 0) {
+                   target.life = 0;
+                   room.effects.push({ type: "burst", x: target.x, y: target.y, at: now });
+                }
+                continue;
+             }
+          }
+       }
     }
 
     const rockHit = projectileMapImpact(room, previousX, previousY, bullet);
@@ -82,8 +110,8 @@ function updateBullets(room, dt, now) {
       const dy = ship.y - bullet.y;
       const r = ship.radius + hitRadius;
       if (dx * dx + dy * dy <= r * r) {
-        damageShip(room, ship, bullet.damage, bullet.ownerId, now);
-        room.effects.push({ type: bullet.type === "missile" ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: bullet.x, y: bullet.y, at: now });
+        damageShip(room, ship, bullet.damage, bullet.ownerId, now, bullet.x, bullet.y);
+        room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: bullet.x, y: bullet.y, at: now });
         hit = true;
         break;
       }

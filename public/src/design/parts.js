@@ -713,7 +713,11 @@ export function makeWeapon(type, stats) {
     tracking: stats.tracking || 0,
     trackTime: Number(stats.trackTime) || 0,
     arc: Number(stats.arc) || 360,
-    dps: Number((damage * fireRate).toFixed(1))
+    dps: Number((damage * fireRate).toFixed(1)),
+    missileHp: Number(stats.missileHp) || 0,
+    antiMissile: Boolean(stats.antiMissile),
+    shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
+    targetPriority: stats.targetPriority || []
   };
 }
 
@@ -766,10 +770,17 @@ export function normalizeRuntimePart(part = {}) {
     fireRateBonus: numberOr(part.fireRateBonus, 0),
     captureBonus: numberOr(part.captureBonus, 0),
     heat: numberOr(part.heat, 0),
-    rotationRequired: Boolean(part.rotationRequired || part.rotatable)
+    rotationRequired: Boolean(part.rotationRequired || part.rotatable),
+    ecmStrength: numberOr(part.ecmStrength, 0),
+    decoyRange: numberOr(part.decoyRange, 0),
+    decoyCooldown: numberOr(part.decoyCooldown, 0),
+    decoyConfuseDuration: numberOr(part.decoyConfuseDuration, 0),
+    decoyChance: numberOr(part.decoyChance, 0),
+    frontDamageReduction: numberOr(part.frontDamageReduction, 0),
+    frontArc: numberOr(part.frontArc, 0)
   };
   if (weapon) normalized[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun", "beam"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
     if (part[family]) normalized[family] = numberOr(part[family], normalized[family] || 0);
   }
   return normalized;
@@ -802,10 +813,17 @@ export function normalizeBalanceComponent(component) {
     fireRateBonus: numberOr(component.fireRateBonus, 0),
     captureBonus: numberOr(component.captureBonus, 0),
     heat: numberOr(component.heat, 0),
-    rotationRequired: Boolean(component.rotationRequired || component.rotatable)
+    rotationRequired: Boolean(component.rotationRequired || component.rotatable),
+    ecmStrength: numberOr(component.ecmStrength, 0),
+    decoyRange: numberOr(component.decoyRange, 0),
+    decoyCooldown: numberOr(component.decoyCooldown, 0),
+    decoyConfuseDuration: numberOr(component.decoyConfuseDuration, 0),
+    decoyChance: numberOr(component.decoyChance, 0),
+    frontDamageReduction: numberOr(component.frontDamageReduction, 0),
+    frontArc: numberOr(component.frontArc, 0)
   };
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun", "beam"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
     if (component[family]) part[family] = numberOr(component[family], part[family] || 0);
   }
   return part;

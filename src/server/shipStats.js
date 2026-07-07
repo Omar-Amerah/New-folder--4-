@@ -40,11 +40,20 @@ function computeStats(modules) {
   let fireRateBonus = 0;
   let coolingBonus = 0;
   let captureBonus = 0;
+  let ecmStrength = 0;
+  let decoyRange = 0;
+  let decoyCooldown = 0;
+  let decoyConfuseDuration = 0;
+  let decoyChance = 0;
+  let frontDamageReduction = 0;
+  let frontArc = 0;
+  let pointDefense = 0;
   const weaponTotals = {
     blaster: weaponAccumulator(),
     missile: weaponAccumulator(),
     railgun: weaponAccumulator(),
-    beam: weaponAccumulator()
+    beam: weaponAccumulator(),
+    pointDefense: weaponAccumulator()
   };
 
   let minX = 3;
@@ -71,6 +80,7 @@ function computeStats(modules) {
     missile += part.missile || 0;
     railgun += part.railgun || 0;
     beam += part.beam || 0;
+    pointDefense += part.pointDefense || 0;
     repair += part.repair || 0;
     repairRate += part.repairRate || 0;
     if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
@@ -79,6 +89,15 @@ function computeStats(modules) {
     fireRateBonus += part.fireRateBonus || 0;
     coolingBonus += Math.max(0, -(part.heat || 0)) * 0.01;
     captureBonus += part.captureBonus || 0;
+    if (part.ecmStrength) ecmStrength += part.ecmStrength;
+    if (part.decoyRange > decoyRange) decoyRange = part.decoyRange;
+    if (part.decoyCooldown > decoyCooldown) decoyCooldown = part.decoyCooldown;
+    if (part.decoyConfuseDuration > decoyConfuseDuration) decoyConfuseDuration = part.decoyConfuseDuration;
+    if (part.decoyChance > decoyChance) decoyChance = part.decoyChance;
+    if (part.frontDamageReduction) {
+      frontDamageReduction += part.frontDamageReduction;
+      if (part.frontArc > frontArc) frontArc = part.frontArc;
+    }
     if (part.weapon && weaponTotals[part.weapon.type]) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
     minX = Math.min(minX, module.x);
     maxX = Math.max(maxX, module.x);
@@ -94,6 +113,8 @@ function computeStats(modules) {
   const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
   applyWeaponUtilityBonuses(weaponTotals, { rangeBonus, accuracyBonus, fireRateBonus, coolingBonus });
+  ecmStrength = Math.min(ecmStrength, 0.55);
+  frontDamageReduction = Math.min(frontDamageReduction, 0.35);
   const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam });
   const unitCost = costBreakdown.total;
   const fleetCount = clampNumber(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
@@ -132,6 +153,14 @@ function computeStats(modules) {
     repairRate,
     coolingBonus: round(coolingBonus),
     captureBonus: round(captureBonus),
+    pointDefense,
+    ecmStrength: round(ecmStrength),
+    decoyRange,
+    decoyCooldown,
+    decoyConfuseDuration,
+    decoyChance,
+    frontDamageReduction: round(frontDamageReduction),
+    frontArc,
     blasterRange: weaponRange(weaponTotals.blaster),
     missileRange: weaponRange(weaponTotals.missile),
     railgunRange: weaponRange(weaponTotals.railgun),
@@ -145,6 +174,11 @@ function computeStats(modules) {
     missileReload: weapons.missile.reload,
     railgunReload: weapons.railgun.reload,
     beamReload: weapons.beam.reload,
+    pointDefenseReload: weapons.pointDefense.reload,
+    pointDefenseDamage: weapons.pointDefense.damage,
+    pointDefenseRange: weapons.pointDefense.range,
+    pointDefenseProjectileSpeed: weapons.pointDefense.projectileSpeed,
+    pointDefenseAccuracy: weapons.pointDefense.accuracy,
     blasterProjectileSpeed: weapons.blaster.projectileSpeed,
     missileProjectileSpeed: weapons.missile.projectileSpeed,
     railgunProjectileSpeed: weapons.railgun.projectileSpeed,
@@ -155,7 +189,7 @@ function computeStats(modules) {
     beamAccuracy: weapons.beam.accuracy,
     missileTracking: weapons.missile.tracking,
     beamTracking: weapons.beam.tracking,
-    weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps + weapons.beam.dps),
+    weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps + weapons.beam.dps + weapons.pointDefense.dps),
     weapons,
     warnings,
     costBreakdown,
@@ -252,7 +286,7 @@ function summarizeWeaponTotals(totals) {
 
 function shipWarnings(stats) {
   const warnings = [];
-  const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
+  const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.pointDefense || 0);
   const hasReactor = stats.modules.some((module) => module.type === "reactor");
   if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
   if (!hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
@@ -296,6 +330,14 @@ function summarizeStats(stats) {
     repairRate: stats.repairRate,
     coolingBonus: stats.coolingBonus,
     captureBonus: stats.captureBonus,
+    pointDefense: stats.pointDefense,
+    ecmStrength: stats.ecmStrength,
+    decoyRange: stats.decoyRange,
+    decoyCooldown: stats.decoyCooldown,
+    decoyConfuseDuration: stats.decoyConfuseDuration,
+    decoyChance: stats.decoyChance,
+    frontDamageReduction: stats.frontDamageReduction,
+    frontArc: stats.frontArc,
     weaponDps: stats.weaponDps,
     warnings: stats.warnings,
     costBreakdown: stats.costBreakdown,

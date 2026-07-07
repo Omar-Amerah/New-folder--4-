@@ -63,6 +63,10 @@ function partInspectorDetails(type, stat, effectiveCost) {
       return [
         ["Damage", `${formatDamage(weapon.damage)}/s`],
         ["Range", formatDistance(weapon.range)],
+      (weapon.antiMissile ? ["Role", "Anti-missile point defence"] : null),
+      (weapon.missileHp ? ["Missile health", weapon.missileHp.toString()] : null),
+      (weapon.antiMissile ? ["Role", "Anti-missile point defence"] : null),
+      (weapon.missileHp ? ["Missile health", weapon.missileHp.toString()] : null),
         ["Beam radius", formatDistance(weapon.radius || 0)],
         ["Tracking", `${Math.round((weapon.tracking || 0) * 100)}% slow aim`],
         ["Arc", `${weapon.arc || 360} deg`],
@@ -128,6 +132,34 @@ function partInspectorDetails(type, stat, effectiveCost) {
       ["Power use", formatPowerUse(stat.powerUse)],
       ["Shield", formatShield(stat.shield)],
       ["Mass", formatMass(stat.mass)]
+    ];
+  }
+
+  if (type === "ecmModule") {
+    return [
+      ["ECM Strength", `-${Math.round((stat.ecmStrength || 0) * 100)}% missile tracking`],
+      ["Power use", formatPowerUse(stat.powerUse)],
+      ["Mass", formatMass(stat.mass)]
+    ];
+  }
+
+  if (type === "decoyLauncher") {
+    return [
+      ["Decoy range", formatDistance(stat.decoyRange)],
+      ["Cooldown", `${stat.decoyCooldown || 0}s`],
+      ["Confusion duration", `${stat.decoyConfuseDuration || 0}s`],
+      ["Success chance", formatPercent(stat.decoyChance || 0)],
+      ["Power use", formatPowerUse(stat.powerUse)]
+    ];
+  }
+
+  if (type === "forwardDeflector") {
+    return [
+      ["Frontal reduction", `${Math.round((stat.frontDamageReduction || 0) * 100)}%`],
+      ["Front arc", `${stat.frontArc || 0} deg`],
+      ["Shield amount", formatShield(stat.shield)],
+      ["Recharge rate", `${stat.shieldRegen}/s`],
+      ["Power draw", formatPowerUse(stat.powerUse)]
     ];
   }
 

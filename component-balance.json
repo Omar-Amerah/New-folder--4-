@@ -253,34 +253,6 @@
       "description": "High-power defensive projector with strong but limited shield recharge."
     },
     {
-      "id": "pointDefense",
-      "name": "Point Defence",
-      "category": "Defence",
-      "cost": 34,
-      "mass": 5,
-      "hull": 45,
-      "powerGeneration": 0,
-      "powerUse": 3,
-      "shield": 0,
-      "shieldRegen": 0,
-      "thrust": 0,
-      "turn": 0.02,
-      "energy": 0,
-      "repair": 0,
-      "weapon": {
-        "family": "blaster",
-        "damage": 6,
-        "fireRate": 4.2,
-        "range": 300,
-        "projectileSpeed": 820,
-        "accuracy": 0.82,
-        "tracking": 0,
-        "arc": 360
-      },
-      "rotatable": true,
-      "description": "Short-range defensive turret that fires in every direction."
-    },
-    {
       "id": "shield",
       "name": "Shield",
       "category": "Defence",
@@ -406,7 +378,8 @@
         "accuracy": 0.7,
         "tracking": 0.78,
         "trackTime": 1.6,
-        "arc": 220
+        "arc": 220,
+        "missileHp": 18
       },
       "rotatable": true,
       "description": "Tracking burst weapon with long reach and slow reload."
@@ -463,7 +436,8 @@
         "accuracy": 0.7,
         "tracking": 0.86,
         "trackTime": 1.9,
-        "arc": 240
+        "arc": 240,
+        "missileHp": 8
       },
       "rotatable": true,
       "description": "Tracking missile pod that applies frequent pressure."
@@ -492,7 +466,8 @@
         "accuracy": 0.62,
         "tracking": 0.35,
         "trackTime": 0.9,
-        "arc": 160
+        "arc": 160,
+        "missileHp": 45
       },
       "rotatable": true,
       "description": "Heavy slow missile for cracking large ships."
@@ -663,6 +638,172 @@
       "accuracyBonus": 0.05,
       "utility": "accuracy",
       "description": "Utility stabilizer that improves accuracy and slightly helps turning."
+    },
+    {
+      "id": "pointDefenseLaser",
+      "name": "Point Defence Laser",
+      "category": "Defence",
+      "cost": 32,
+      "mass": 3,
+      "hp": 35,
+      "powerGeneration": 0,
+      "powerUse": 2.4,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "weapon": {
+        "family": "pointDefense",
+        "damage": 18,
+        "fireRate": 4.5,
+        "range": 280,
+        "projectileSpeed": 1200,
+        "accuracy": 0.95,
+        "tracking": 0,
+        "arc": 360,
+        "antiMissile": true,
+        "targetPriority": [
+          "missile",
+          "torpedo",
+          "projectile",
+          "ship"
+        ],
+        "shipDamageMultiplier": 0.25
+      },
+      "rotatable": true,
+      "description": "Protects nearby ships from missiles and torpedoes. Very weak against normal ships."
+    },
+    {
+      "id": "flakCannon",
+      "name": "Flak Cannon",
+      "category": "Defence",
+      "cost": 38,
+      "mass": 5,
+      "hp": 42,
+      "powerGeneration": 0,
+      "powerUse": 3,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.01,
+      "energy": 0,
+      "repair": 0,
+      "weapon": {
+        "family": "pointDefense",
+        "damage": 8,
+        "fireRate": 2.5,
+        "range": 220,
+        "projectileSpeed": 800,
+        "accuracy": 0.7,
+        "tracking": 0,
+        "arc": 360,
+        "antiMissile": true,
+        "targetPriority": [
+          "missile",
+          "torpedo",
+          "projectile",
+          "ship"
+        ],
+        "shipDamageMultiplier": 0.15
+      },
+      "rotatable": true,
+      "description": "Short-range anti-missile and anti-swarm defence. Poor range and weak direct damage."
+    },
+    {
+      "id": "interceptorPod",
+      "name": "Interceptor Pod",
+      "category": "Defence",
+      "cost": 55,
+      "mass": 6,
+      "hp": 48,
+      "powerGeneration": 0,
+      "powerUse": 4.2,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.02,
+      "energy": 0,
+      "repair": 0,
+      "weapon": {
+        "family": "pointDefense",
+        "damage": 40,
+        "fireRate": 1.2,
+        "range": 450,
+        "projectileSpeed": 1600,
+        "accuracy": 0.9,
+        "tracking": 0,
+        "arc": 360,
+        "antiMissile": true,
+        "targetPriority": [
+          "torpedo",
+          "missile",
+          "projectile",
+          "ship"
+        ],
+        "shipDamageMultiplier": 0.1
+      },
+      "rotatable": true,
+      "description": "Longer-range missile interception. Expensive and weak against ships."
+    },
+    {
+      "id": "ecmModule",
+      "name": "ECM Module",
+      "category": "Defence",
+      "cost": 45,
+      "mass": 4,
+      "hp": 30,
+      "powerGeneration": 0,
+      "powerUse": 3.5,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0.01,
+      "energy": 0,
+      "repair": 0,
+      "ecmStrength": 0.25,
+      "description": "Makes this ship harder for missiles to track. Does not protect against guns, beams, or railguns."
+    },
+    {
+      "id": "decoyLauncher",
+      "name": "Decoy Launcher",
+      "category": "Defence",
+      "cost": 38,
+      "mass": 3,
+      "hp": 28,
+      "powerGeneration": 0,
+      "powerUse": 1.8,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "decoyRange": 340,
+      "decoyCooldown": 7,
+      "decoyConfuseDuration": 1.2,
+      "decoyChance": 0.85,
+      "description": "Confuses incoming missiles before impact. Cooldown-based and useless against guns."
+    },
+    {
+      "id": "forwardDeflector",
+      "name": "Forward Deflector",
+      "category": "Defence",
+      "cost": 52,
+      "mass": 5,
+      "hp": 36,
+      "powerGeneration": 0,
+      "powerUse": 4.2,
+      "shield": 45,
+      "shieldRegen": 0.7,
+      "thrust": 0,
+      "turn": -0.02,
+      "energy": 0,
+      "repair": 0,
+      "frontDamageReduction": 0.18,
+      "frontArc": 90,
+      "description": "Reduces damage from enemies in front of the ship. Weak if flanked or attacked from behind."
     }
   ]
 }

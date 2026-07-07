@@ -43,6 +43,89 @@ function updateShipSupport(room, ships, dt, now) {
   }
 }
 
+
+function findPointDefenseTarget(room, ship, weapon, ships) {
+  let best = null;
+  let bestScore = -Infinity;
+  const rangeSq = weapon.range * weapon.range;
+
+  for (const bullet of room.bullets) {
+    if (!bullet.interceptable || bullet.life <= 0 || !areEnemies(room, ship.ownerId, bullet.ownerId)) continue;
+
+    const dx = bullet.x - ship.x;
+    const dy = bullet.y - ship.y;
+    const distSq = dx * dx + dy * dy;
+
+    if (distSq <= rangeSq && !isLineBlocked(room, ship.x, ship.y, bullet.x, bullet.y, 4)) {
+      let score = -distSq;
+      if (bullet.targetId === ship.id) score += 10000000;
+      else score += 5000000;
+
+      const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "ship"];
+      const pIndex = priorityList.indexOf(bullet.type);
+      if (pIndex !== -1) {
+          score -= pIndex * 100000;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = { type: 'projectile', entity: bullet };
+      }
+    }
+  }
+
+  if (best) return best;
+
+  let bestShip = null;
+  let bestShipDist = Infinity;
+
+  for (const other of ships) {
+    if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+    const dx = other.x - ship.x;
+    const dy = other.y - ship.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= weapon.range && dist < bestShipDist && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) {
+      bestShip = other;
+      bestShipDist = dist;
+    }
+  }
+
+  if (bestShip) return { type: 'ship', entity: bestShip };
+  return null;
+}
+
+
+function updateDecoys(room, ship, dt, now) {
+  if (!ship.stats.decoyCooldown || !ship.stats.decoyRange) return;
+
+  if (ship.decoyReadyIn === undefined) ship.decoyReadyIn = 0;
+  if (ship.decoyReadyIn > 0) {
+    ship.decoyReadyIn -= dt;
+    return;
+  }
+
+  const rangeSq = ship.stats.decoyRange * ship.stats.decoyRange;
+  let used = false;
+
+  for (const bullet of room.bullets) {
+    if (!bullet.interceptable || bullet.life <= 0 || bullet.targetId !== ship.id) continue;
+
+    const dx = bullet.x - ship.x;
+    const dy = bullet.y - ship.y;
+    if (dx * dx + dy * dy <= rangeSq) {
+      if (Math.random() <= (ship.stats.decoyChance || 0.85)) {
+        bullet.trackingDisabledFor = ship.stats.decoyConfuseDuration || 1.2;
+      }
+      used = true;
+    }
+  }
+
+  if (used) {
+    ship.decoyReadyIn = ship.stats.decoyCooldown;
+    room.effects.push({ type: "spark", x: ship.x, y: ship.y, at: now });
+  }
+}
+
 function updateShipWeapons(room, ship, ships, dt, now) {
   if (!ship.weaponCooldowns) {
     ship.weaponCooldowns = new Array(ship.design ? ship.design.length : 0).fill(0);
@@ -143,6 +226,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const life = rangeVal / speed;
       addBullet(room, {
         type: "missile",
+        interceptable: true,
+        hp: part.weapon.missileHp || 20,
         ownerId: ship.ownerId,
         targetId: target.id,
         x: muzzle.x,
@@ -175,6 +260,31 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           radius: beamRadius,
           at: now
         });
+      }
+    } else if (family === "pointDefense") {
+      const pdTarget = findPointDefenseTarget(room, ship, part.weapon, ships);
+      if (pdTarget) {
+         const speed = part.weapon.projectileSpeed || 1000;
+         const life = part.weapon.range / speed;
+         const target = pdTarget.entity;
+         const shotAngle = Math.atan2(target.y - muzzle.y, target.x - muzzle.x) + randomRange(-0.05, 0.05);
+
+         addBullet(room, {
+            type: "pdShot",
+            ownerId: ship.ownerId,
+            targetId: pdTarget.type === "ship" ? target.id : target.id,
+            x: muzzle.x,
+            y: muzzle.y,
+            vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
+            vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
+            damage: part.weapon.damage * ship.stats.efficiency * (pdTarget.type === "ship" ? (part.weapon.shipDamageMultiplier || 0.1) : 1),
+            pdTargetType: pdTarget.type,
+            pdTargetId: target.id,
+            life: life,
+            bornAt: now
+         });
+         const reload = (1 / part.weapon.fireRate) / Math.max(0.1, fireRateMultiplier);
+         ship.weaponCooldowns[i] = Math.max(0.05, reload);
       }
     } else if (family === "railgun") {
       const speed = part.weapon.projectileSpeed || 1080;
@@ -263,8 +373,15 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
     const hit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
     if (!hit) continue;
-    damageShip(room, target, damage, ship.ownerId, now);
+    damageShip(room, target, damage, ship.ownerId, now, x1, y1);
   }
+}
+
+
+function isDamageFromFront(ship, sourceX, sourceY, frontArcDegrees) {
+  const angleToSource = Math.atan2(sourceY - ship.y, sourceX - ship.x);
+  const diff = Math.abs(angleDifference(ship.angle, angleToSource));
+  return diff <= (frontArcDegrees * Math.PI / 180) / 2;
 }
 
 function isTargetInWeaponArc(ship, module, target, arcRadians) {
@@ -275,7 +392,12 @@ function isTargetInWeaponArc(ship, module, target, arcRadians) {
   return Math.abs(angleDifference(weaponFacing, angleToTarget)) <= arcRadians / 2;
 }
 
-function damageShip(room, ship, damage, attackerId, now) {
+function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY) {
+  if (ship.stats.frontDamageReduction && sourceX !== undefined && sourceY !== undefined) {
+    if (isDamageFromFront(ship, sourceX, sourceY, ship.stats.frontArc)) {
+      damage *= (1 - ship.stats.frontDamageReduction);
+    }
+  }
   ship.lastDamagedBy = attackerId;
 
   if (ship.shield > 0) {
