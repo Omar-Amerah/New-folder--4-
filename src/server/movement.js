@@ -1,6 +1,7 @@
 // Handles ship velocities, turning, path alignment, separation forces, map collision avoidance, and movement commands.
 
 const { clampNumber, rotateToward, angleDifference } = require("./utils");
+const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
 const { areEnemies } = require("./combat");
 
@@ -27,6 +28,7 @@ function commandShips(room, player, x, y, options = {}) {
     ship.targetX = targetPoint.x;
     ship.targetY = targetPoint.y;
     ship.focusTargetId = focusTargetId;
+    ship.arrived = false;
   });
 }
 
@@ -46,22 +48,61 @@ function formationOffset(index, count, spacing, formation) {
 }
 
 function updateShipMovement(room, ship, dt) {
+  const stats = ship.stats;
+
+  // Chase and stop at weapon range if focused on an enemy target
+  if (ship.focusTargetId) {
+    const focusTarget = room.ships.get(ship.focusTargetId);
+    if (focusTarget && focusTarget.alive && !focusTarget.removed) {
+      // Keep destination target coordinates updated to focus target position
+      ship.targetX = focusTarget.x;
+      ship.targetY = focusTarget.y;
+
+      const distToTarget = Math.hypot(focusTarget.x - ship.x, focusTarget.y - ship.y);
+      const maxRange = Math.max(stats.blasterRange || 0, stats.missileRange || 0, stats.railgunRange || 0);
+
+      if (maxRange > 0) {
+        if (distToTarget <= maxRange * 0.88) {
+          ship.arrived = true;
+        } else if (distToTarget > maxRange * 0.95) {
+          ship.arrived = false;
+        }
+      }
+    } else {
+      ship.focusTargetId = null;
+    }
+  }
+
   const dx = ship.targetX - ship.x;
   const dy = ship.targetY - ship.y;
   const distance = Math.hypot(dx, dy);
-  const stats = ship.stats;
 
-  if (distance > 12) {
-    const desired = Math.atan2(dy, dx);
-    ship.angle = rotateToward(ship.angle, desired, stats.turnRate * dt);
-
-    const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
-    const thrust = stats.accel * alignment;
-    ship.vx += Math.cos(ship.angle) * thrust * dt;
-    ship.vy += Math.sin(ship.angle) * thrust * dt;
+  if (ship.arrived === undefined) {
+    ship.arrived = distance <= 16;
   }
 
-  const damping = distance < 85 ? 0.9 : 0.985;
+  if (!ship.arrived) {
+    if (distance > 16) {
+      const desired = Math.atan2(dy, dx);
+      ship.angle = rotateToward(ship.angle, desired, stats.turnRate * dt);
+
+      const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
+      const thrust = stats.accel * alignment;
+      ship.vx += Math.cos(ship.angle) * thrust * dt;
+      ship.vy += Math.sin(ship.angle) * thrust * dt;
+    } else {
+      ship.arrived = true;
+    }
+  } else {
+    const targetId = ship.combatTargetId || ship.focusTargetId;
+    const target = targetId ? room.ships.get(targetId) : null;
+    if (target && target.alive && !target.removed) {
+      const desired = findOptimalHullAngle(ship, target);
+      ship.angle = rotateToward(ship.angle, desired, stats.turnRate * dt);
+    }
+  }
+
+  const damping = ship.arrived ? 0.8 : (distance < 85 ? 0.9 : 0.985);
   ship.vx *= Math.pow(damping, dt * 60);
   ship.vy *= Math.pow(damping, dt * 60);
 
@@ -172,6 +213,81 @@ function nearestClearPoint(room, x, y, clearance) {
   }
 
   return { x: px, y: py };
+}
+
+
+function moduleRotationToRad(rotation) {
+  const norm = ((rotation % 360) + 360) % 360;
+  if (norm === 90) return Math.PI / 2;
+  if (norm === 180) return Math.PI;
+  if (norm === 270) return -Math.PI / 2;
+  return 0;
+}
+
+function getModuleLocalPos(module, scale = 13) {
+  return {
+    x: (3 - module.y) * scale,
+    y: (module.x - 3) * scale
+  };
+}
+
+function findOptimalHullAngle(ship, target) {
+  const angleToTarget = Math.atan2(target.y - ship.y, target.x - ship.x);
+  const design = ship.design || [];
+  
+  // If no weapons, just point directly at target
+  const weapons = design.filter(module => PARTS[module.type]?.weapon);
+  if (weapons.length === 0) return angleToTarget;
+
+  let bestAngle = angleToTarget;
+  let bestScore = -Infinity;
+
+  // Sample 24 angles around the circle to find the one maximizing active weapons
+  for (let i = 0; i < 24; i += 1) {
+    const phi = (i * Math.PI) / 12 - Math.PI;
+    let activeWeaponsCount = 0;
+    const cos = Math.cos(phi);
+    const sin = Math.sin(phi);
+
+    for (const module of design) {
+      const part = PARTS[module.type];
+      if (!part?.weapon) continue;
+
+      const family = part.weapon.type;
+      const range = ship.stats[family + "Range"] || part.weapon.range;
+
+      const local = getModuleLocalPos(module);
+      const worldX = ship.x + local.x * cos - local.y * sin;
+      const worldY = ship.y + local.x * sin + local.y * cos;
+
+      const dx = target.x - worldX;
+      const dy = target.y - worldY;
+      const distance = Math.hypot(dx, dy);
+
+      if (distance <= range) {
+        const targetAngle = Math.atan2(dy, dx);
+        const defaultFacing = phi + moduleRotationToRad(module.rotation);
+        const arcRadians = (part.weapon.arc || 360) * Math.PI / 180;
+
+        const diff = angleDifference(defaultFacing, targetAngle);
+        if (Math.abs(diff) <= arcRadians / 2) {
+          activeWeaponsCount += 1;
+        }
+      }
+    }
+
+    // Score: prioritize weapon coverage, then minimize rotation, then face target
+    const currentDiff = Math.abs(angleDifference(phi, ship.angle));
+    const targetDiff = Math.abs(angleDifference(phi, angleToTarget));
+    const score = activeWeaponsCount - currentDiff * 0.06 - targetDiff * 0.01;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestAngle = phi;
+    }
+  }
+
+  return bestAngle;
 }
 
 module.exports = {

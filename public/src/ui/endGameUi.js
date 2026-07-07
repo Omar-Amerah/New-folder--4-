@@ -33,28 +33,7 @@ function rewardSummaryMarkup(reward, money) {
       : "Waiting for the room admin to restart or close the lobby.");
   }
   const title = reward.didWin ? "Battle Result: Victory" : "Battle Result: Defeat";
-  const lines = reward.didWin
-    ? [
-        ["Base reward", reward.base],
-        ["Enemy destroyed", reward.destroyed],
-        ["Victory bonus", reward.victory],
-        ["Survival bonus", reward.survival],
-        ["Efficiency bonus", reward.efficiency]
-      ]
-    : [
-        ["Loss support", reward.lossSupport],
-        ["Enemy destroyed", reward.destroyed]
-      ];
-  const penalty = reward.didWin && reward.overpowerMultiplier < 1
-    ? `<li>Overpowered fleet penalty applied: ${Math.round(reward.overpowerMultiplier * 100)}% victory bonus</li>`
-    : "";
   return `
     <span>${escapeHtml(title)}</span>
-    <ul class="reward-list">
-      ${lines.map(([label, value]) => `<li>${escapeHtml(label)}: $${Math.round(value || 0)}</li>`).join("")}
-      ${penalty}
-      <li><strong>Total earned: $${Math.round(reward.total || 0)}</strong></li>
-      <li>New balance: $${Math.floor(money || 0)}</li>
-    </ul>
   `;
 }

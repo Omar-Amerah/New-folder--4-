@@ -662,7 +662,7 @@ export function applyServerParts(parts) {
 
 export function isRotatablePart(type) {
   const stat = PART_STATS[type] || {};
-  return Boolean(stat.rotationRequired || stat.weapon);
+  return Boolean(stat.weapon);
 }
 
 

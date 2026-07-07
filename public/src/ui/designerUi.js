@@ -137,10 +137,14 @@ export function renderLocalStats() {
   }
   if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost}`;
   if (dom.blueprintCostStatus) {
-    dom.blueprintCostStatus.textContent = canAfford
-      ? `Remaining after first ship $${Math.floor(money - stats.unitCost)}`
-      : `Need $${Math.ceil(stats.unitCost - money)} before first ship`;
-    dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
+    if (state.phase === "active") {
+      dom.blueprintCostStatus.textContent = "";
+    } else {
+      dom.blueprintCostStatus.textContent = canAfford
+        ? `Remaining after first ship $${Math.floor(money - stats.unitCost)}`
+        : `Need $${Math.ceil(stats.unitCost - money)} before first ship`;
+      dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
+    }
   }
   dom.stats.innerHTML = [
     statMarkup("Fleet", stats.fleetCount),

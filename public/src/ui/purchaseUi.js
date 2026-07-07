@@ -177,6 +177,7 @@ export function reconcilePendingPurchasesWithSnapshot() {
 }
 
 export function setPurchaseError(optionId, message) {
+  if (isMoneyPurchaseBlocker(message)) return;
   const previous = state.purchaseErrors.get(optionId);
   if (previous?.timeoutId) clearTimeout(previous.timeoutId);
   const timeoutId = setTimeout(() => {

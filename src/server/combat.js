@@ -2,8 +2,15 @@
 
 const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
-const { randomRange, clampNumber, angleDifference } = require("./utils");
+const { randomRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
+
+const MODULE_SCALE = 13;
+const MUZZLE_DISTANCE = Object.freeze({
+  blaster: 11,
+  missile: 12,
+  railgun: 14
+});
 
 function updateShipSupport(room, ships, dt, now) {
   for (const ship of ships) {
@@ -35,84 +42,137 @@ function updateShipSupport(room, ships, dt, now) {
 }
 
 function updateShipWeapons(room, ship, ships, dt, now) {
-  const target = findTarget(room, ship, ships);
-  ship.blasterCooldown = Math.max(0, ship.blasterCooldown - dt);
-  ship.missileCooldown = Math.max(0, ship.missileCooldown - dt);
-  ship.railgunCooldown = Math.max(0, ship.railgunCooldown - dt);
-  if (!target) return;
+  if (!ship.weaponCooldowns) {
+    ship.weaponCooldowns = new Array(ship.design ? ship.design.length : 0).fill(0);
+  }
+  if (!ship.weaponAngles) {
+    ship.weaponAngles = (ship.design || []).map(module => moduleRotationToRadians(normalizeRotation(module.rotation)));
+  }
 
-  const dx = target.x - ship.x;
-  const dy = target.y - ship.y;
-  const distance = Math.hypot(dx, dy);
-  const aim = Math.atan2(dy, dx);
+  for (let i = 0; i < ship.weaponCooldowns.length; i += 1) {
+    ship.weaponCooldowns[i] = Math.max(0, ship.weaponCooldowns[i] - dt);
+  }
+
+  const target = findTarget(room, ship, ships);
+  ship.combatTargetId = target ? target.id : null;
 
   const { addBullet } = require("./projectiles");
+  const scale = 13;
+  const cos = Math.cos(ship.angle);
+  const sin = Math.sin(ship.angle);
 
-  const blasterArcCount = weaponModulesInArc(ship, target, "blaster");
-  if (blasterArcCount > 0 && distance <= ship.stats.blasterRange && ship.blasterCooldown <= 0) {
-    const shots = Math.min(3, blasterArcCount);
-    const accuracy = clampNumber(ship.stats.blasterAccuracy || 0.85, 0.1, 1);
-    const spreadScale = (1 - accuracy) * 0.26;
-    for (let i = 0; i < shots; i += 1) {
-      const spread = (i - (shots - 1) / 2) * 0.055 + randomRange(-spreadScale, spreadScale);
-      const speed = ship.stats.blasterProjectileSpeed || 620;
+  const fireRateMultiplier = 1 + (ship.stats.fireRateBonus || 0) + (ship.stats.coolingBonus || 0);
+
+  (ship.design || []).forEach((module, i) => {
+    const part = PARTS[module.type];
+    if (!part?.weapon) return;
+
+    const family = part.weapon.type;
+    const cooldown = ship.weaponCooldowns[i] || 0;
+    if (cooldown > 0) return;
+
+    const arcRadians = (part.weapon.arc || 360) * Math.PI / 180;
+    const local = moduleLocalPosition(module);
+    const worldX = ship.x + local.x * cos - local.y * sin;
+    const worldY = ship.y + local.x * sin + local.y * cos;
+
+    const defaultRelative = moduleRotationToRadians(normalizeRotation(module.rotation));
+    let desiredRelative = defaultRelative;
+    let isTracking = false;
+
+    if (target) {
+      const dx = target.x - worldX;
+      const dy = target.y - worldY;
+      const distance = Math.hypot(dx, dy);
+      const range = ship.stats[family + "Range"] || part.weapon.range;
+
+      if (distance <= range) {
+        const worldAngleToTarget = Math.atan2(dy, dx);
+        const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
+        const diff = angleDifference(defaultRelative, relativeAngleToTarget);
+        if (Math.abs(diff) <= arcRadians / 2) {
+          desiredRelative = relativeAngleToTarget;
+          isTracking = true;
+        }
+      }
+    }
+
+    const turnRate = getWeaponTurnRate(family);
+    const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
+    ship.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
+
+    if (!target || !isTracking) return;
+
+    const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
+    const worldAngleToTarget = Math.atan2(target.y - worldY, target.x - worldX);
+    const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
+    if (angleErr > 0.26) return;
+
+    const accuracy = clampNumber((part.weapon.accuracy || 0.8) + (ship.stats.accuracyBonus || 0), 0.1, 1);
+    const spreadScale = (1 - accuracy) * 0.22;
+    const spread = randomRange(-spreadScale, spreadScale);
+    const shotAngle = worldWeaponAngle + spread;
+
+    const muzzle = weaponMuzzleWorldPosition(ship, module, worldWeaponAngle, family);
+
+    if (family === "blaster") {
+      const speed = part.weapon.projectileSpeed || 620;
+      const rangeVal = ship.stats?.blasterRange || part.weapon.range;
+      const life = rangeVal / speed;
       addBullet(room, {
         type: "bolt",
         ownerId: ship.ownerId,
         targetId: target.id,
-        x: ship.x + Math.cos(aim) * (ship.radius + 8),
-        y: ship.y + Math.sin(aim) * (ship.radius + 8),
-        vx: Math.cos(aim + spread) * speed + ship.vx * 0.25,
-        vy: Math.sin(aim + spread) * speed + ship.vy * 0.25,
-        damage: ship.stats.blasterDamage / Math.max(1, ship.stats.blaster) * ship.stats.efficiency,
-        life: 1.25,
+        x: muzzle.x,
+        y: muzzle.y,
+        vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
+        vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
+        damage: part.weapon.damage * ship.stats.efficiency,
+        life: life,
         bornAt: now
       });
+      const reload = (1 / part.weapon.fireRate) / Math.max(0.1, fireRateMultiplier);
+      ship.weaponCooldowns[i] = Math.max(0.05, reload);
+    } else if (family === "missile") {
+      const speed = part.weapon.projectileSpeed || 330;
+      const rangeVal = ship.stats?.missileRange || part.weapon.range;
+      const life = rangeVal / speed;
+      addBullet(room, {
+        type: "missile",
+        ownerId: ship.ownerId,
+        targetId: target.id,
+        x: muzzle.x,
+        y: muzzle.y,
+        vx: Math.cos(shotAngle) * speed + ship.vx * 0.15,
+        vy: Math.sin(shotAngle) * speed + ship.vy * 0.15,
+        damage: part.weapon.damage * ship.stats.efficiency,
+        tracking: part.weapon.tracking || 0.75,
+        maxSpeed: speed * 1.45,
+        life: life,
+        bornAt: now
+      });
+      const reload = (1 / part.weapon.fireRate) / Math.max(0.1, fireRateMultiplier);
+      ship.weaponCooldowns[i] = Math.max(0.05, reload);
+    } else if (family === "railgun") {
+      const speed = part.weapon.projectileSpeed || 1080;
+      const rangeVal = ship.stats?.railgunRange || part.weapon.range;
+      const life = rangeVal / speed;
+      addBullet(room, {
+        type: "rail",
+        ownerId: ship.ownerId,
+        targetId: target.id,
+        x: muzzle.x,
+        y: muzzle.y,
+        vx: Math.cos(shotAngle) * speed + ship.vx * 0.12,
+        vy: Math.sin(shotAngle) * speed + ship.vy * 0.12,
+        damage: part.weapon.damage * ship.stats.efficiency,
+        life: life,
+        bornAt: now
+      });
+      const reload = (1 / part.weapon.fireRate) / Math.max(0.1, fireRateMultiplier);
+      ship.weaponCooldowns[i] = Math.max(0.05, reload);
     }
-    ship.blasterCooldown = Math.max(0.16, ship.stats.blasterReload / Math.sqrt(Math.max(1, blasterArcCount)));
-  }
-
-  const missileArcCount = weaponModulesInArc(ship, target, "missile");
-  if (missileArcCount > 0 && distance <= ship.stats.missileRange && ship.missileCooldown <= 0) {
-    const missileAccuracy = clampNumber(ship.stats.missileAccuracy || 0.7, 0.1, 1);
-    const spread = randomRange(-(1 - missileAccuracy) * 0.22, (1 - missileAccuracy) * 0.22);
-    const speed = ship.stats.missileProjectileSpeed || 330;
-    addBullet(room, {
-      type: "missile",
-      ownerId: ship.ownerId,
-      targetId: target.id,
-      x: ship.x + Math.cos(aim) * (ship.radius + 12),
-      y: ship.y + Math.sin(aim) * (ship.radius + 12),
-      vx: Math.cos(aim + spread) * speed + ship.vx * 0.15,
-      vy: Math.sin(aim + spread) * speed + ship.vy * 0.15,
-      damage: ship.stats.missileDamage / Math.max(1, ship.stats.missile) * ship.stats.efficiency,
-      tracking: ship.stats.missileTracking || 0.75,
-      maxSpeed: speed * 1.45,
-      life: 2.8,
-      bornAt: now
-    });
-    ship.missileCooldown = Math.max(1.2, ship.stats.missileReload / Math.sqrt(Math.max(1, missileArcCount)));
-  }
-
-  const railgunArcCount = weaponModulesInArc(ship, target, "railgun");
-  if (railgunArcCount > 0 && distance <= ship.stats.railgunRange && ship.railgunCooldown <= 0) {
-    const accuracy = clampNumber(ship.stats.railgunAccuracy || 0.95, 0.1, 1);
-    const spread = randomRange(-(1 - accuracy) * 0.11, (1 - accuracy) * 0.11);
-    const speed = ship.stats.railgunProjectileSpeed || 1080;
-    addBullet(room, {
-      type: "rail",
-      ownerId: ship.ownerId,
-      targetId: target.id,
-      x: ship.x + Math.cos(aim) * (ship.radius + 15),
-      y: ship.y + Math.sin(aim) * (ship.radius + 15),
-      vx: Math.cos(aim + spread) * speed + ship.vx * 0.12,
-      vy: Math.sin(aim + spread) * speed + ship.vy * 0.12,
-      damage: ship.stats.railgunDamage * ship.stats.efficiency,
-      life: 1.15,
-      bornAt: now
-    });
-    ship.railgunCooldown = Math.max(1.65, ship.stats.railgunReload / Math.sqrt(Math.max(1, railgunArcCount)));
-  }
+  });
 }
 
 function weaponModulesInArc(ship, target, family) {
@@ -132,10 +192,41 @@ function moduleRotationToRadians(rotation) {
   return 0;
 }
 
+function moduleLocalPosition(module, scale = MODULE_SCALE) {
+  return {
+    x: (3 - module.y) * scale,
+    y: (module.x - 3) * scale
+  };
+}
+
+function weaponFacingAngle(ship, module) {
+  return ship.angle + moduleRotationToRadians(normalizeRotation(module.rotation));
+}
+
+function weaponModuleWorldPosition(ship, module) {
+  const local = moduleLocalPosition(module);
+  const cos = Math.cos(ship.angle);
+  const sin = Math.sin(ship.angle);
+  return {
+    x: ship.x + local.x * cos - local.y * sin,
+    y: ship.y + local.x * sin + local.y * cos
+  };
+}
+
+function weaponMuzzleWorldPosition(ship, module, angle, family) {
+  const origin = weaponModuleWorldPosition(ship, module);
+  const distance = MUZZLE_DISTANCE[family] || 11;
+  return {
+    x: origin.x + Math.cos(angle) * distance,
+    y: origin.y + Math.sin(angle) * distance
+  };
+}
+
 function isTargetInWeaponArc(ship, module, target, arcRadians) {
   if (arcRadians >= Math.PI * 2) return true;
-  const weaponFacing = ship.angle + moduleRotationToRadians(normalizeRotation(module.rotation));
-  const angleToTarget = Math.atan2(target.y - ship.y, target.x - ship.x);
+  const origin = weaponModuleWorldPosition(ship, module);
+  const weaponFacing = weaponFacingAngle(ship, module);
+  const angleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
   return Math.abs(angleDifference(weaponFacing, angleToTarget)) <= arcRadians / 2;
 }
 
@@ -234,6 +325,13 @@ function areEnemies(room, ownerA, ownerB) {
   const a = room.players.get(ownerA);
   const b = room.players.get(ownerB);
   return Boolean(a && b && a.team !== b.team);
+}
+
+function getWeaponTurnRate(family) {
+  if (family === "blaster") return 12.0;
+  if (family === "missile") return 8.0;
+  if (family === "railgun") return 4.5;
+  return 8.0;
 }
 
 module.exports = {

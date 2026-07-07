@@ -26,7 +26,7 @@ const SCORE_PER_CONTROLLED_POINT = 7;
 
 const ECONOMY = Object.freeze({
   startingMoney: 700,
-  maxMoney: 2200,
+  maxMoney: 9999,
   baseIncome: 25,
   relayIncome: 10,
   killBountyRatio: 0.28,

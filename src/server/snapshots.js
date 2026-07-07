@@ -55,7 +55,12 @@ function snapshotRoom(room, now, viewer = null) {
       design: ship.design || [],
       cost: ship.cost || ship.stats?.unitCost || 0,
       focusTargetId: ship.focusTargetId,
+      combatTargetId: ship.combatTargetId || null,
+      weaponAngles: ship.weaponAngles || [],
       alive: ship.alive,
+      blasterRange: ship.stats?.blasterRange || 0,
+      missileRange: ship.stats?.missileRange || 0,
+      railgunRange: ship.stats?.railgunRange || 0,
       respawnIn: 0,
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     });
