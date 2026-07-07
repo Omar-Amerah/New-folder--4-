@@ -1,0 +1,181 @@
+// Bootstraps the browser client by wiring state, networking, UI, input, and rendering.
+
+import { dom } from "./ui/dom.js";
+import { state } from "./state.js";
+import { renderPalette } from "./ui/partPaletteUi.js";
+import { renderPartInspector } from "./ui/partInspectorUi.js";
+import { renderBuildGrid, renderLocalStats, resetDesign } from "./ui/designerUi.js";
+import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
+import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
+import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
+import { resizeCanvas, frame } from "./game/renderer.js";
+import { handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleKeyDown } from "./game/input.js";
+import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY } from "./constants.js";
+import { send, getConfiguredServerUrl } from "./network.js";
+
+// Initialize input values from localStorage
+dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floor(100 + Math.random() * 900)}`;
+dom.teamSelect.value = localStorage.getItem(LOCAL_TEAM_KEY) === "red" ? "red" : "blue";
+dom.formationSelect.value = localStorage.getItem(LOCAL_FORMATION_KEY) || "line";
+
+// Register core window listeners
+window.addEventListener("resize", resizeCanvas);
+window.addEventListener("keydown", handleKeyDown);
+window.addEventListener("keyup", (event) => state.keys.delete(event.key.toLowerCase()));
+
+// Register main DOM actions
+dom.createButton.addEventListener("click", createGame);
+dom.joinButton.addEventListener("click", joinExistingGame);
+dom.deployButton.addEventListener("click", deployDesign);
+dom.saveDesignButton?.addEventListener("click", () => {
+  import("./ui/savedBlueprintsUi.js").then((mod) => {
+    mod.saveCurrentDesign();
+  });
+});
+dom.resetButton.addEventListener("click", resetDesign);
+dom.copyButton.addEventListener("click", () => {
+  // Copy invite logic
+  const url = new URL(location.href);
+  if (state.room) url.searchParams.set("room", state.room);
+  const configuredServer = getConfiguredServerUrl();
+  if (configuredServer) url.searchParams.set("server", configuredServer);
+  const text = state.room ? `${url.toString()}  Room: ${state.room}` : url.toString();
+  if (!navigator.clipboard?.writeText) {
+    import("./ui/toastUi.js").then((toastMod) => {
+      toastMod.addNotice("Clipboard unavailable", "warning");
+    });
+    return;
+  }
+  navigator.clipboard.writeText(text).then(
+    () => {
+      import("./ui/toastUi.js").then((toastMod) => {
+        toastMod.addNotice("Invite copied", "good");
+      });
+    },
+    () => {
+      import("./ui/toastUi.js").then((toastMod) => {
+        toastMod.addNotice("Clipboard unavailable", "warning");
+      });
+    }
+  );
+});
+
+dom.botButton.addEventListener("click", () => {
+  import("./ui/lobbyUi.js").then((mod) => mod.addBot());
+});
+dom.leaveLobbyButton?.addEventListener("click", leaveLobby);
+dom.startDesignButton.addEventListener("click", startDesign);
+dom.closeLobbyButton.addEventListener("click", closeLobby);
+dom.restartButton.addEventListener("click", restartMatch);
+dom.endCloseButton.addEventListener("click", closeLobby);
+dom.endLeaveButton?.addEventListener("click", leaveLobby);
+dom.mainMenuButton?.addEventListener("click", openMainMenu);
+dom.lobbyManagementButton?.addEventListener("click", openLobbyManagement);
+dom.settingsButton?.addEventListener("click", openSettings);
+dom.mainMenuCloseButton?.addEventListener("click", hideMenuScreens);
+dom.lobbyCloseButton?.addEventListener("click", hideMenuScreens);
+dom.settingsCloseButton?.addEventListener("click", hideMenuScreens);
+dom.saveServerButton?.addEventListener("click", saveServerSetting);
+dom.clearServerButton?.addEventListener("click", clearServerSetting);
+dom.confirmCancelButton?.addEventListener("click", closeConfirmModal);
+dom.confirmAcceptButton?.addEventListener("click", confirmModalAction);
+dom.confirmModal?.addEventListener("pointerdown", (event) => {
+  if (event.target === dom.confirmModal) closeConfirmModal();
+});
+
+// Rules controls updates
+dom.gameModeSelect?.addEventListener("change", sendRulesUpdate);
+dom.startingMoneyInput?.addEventListener("change", sendRulesUpdate);
+dom.maxPlayersInput?.addEventListener("change", sendRulesUpdate);
+dom.mapSizeSelect?.addEventListener("change", sendRulesUpdate);
+
+// Team select updates
+dom.teamSelect?.addEventListener("change", () => {
+  localStorage.setItem(LOCAL_TEAM_KEY, dom.teamSelect.value);
+  if (state.room && state.socket && state.socket.readyState === WebSocket.OPEN) {
+    send({ type: "join", name: dom.pilotName.value, room: state.room, team: dom.teamSelect.value });
+  }
+});
+
+// Formation updates
+dom.formationSelect?.addEventListener("change", () => {
+  localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
+});
+
+// Purchase quantity updates
+dom.purchaseQuantityOne?.addEventListener("click", () => setPurchaseQuantity(1));
+dom.purchaseQuantityFive?.addEventListener("click", () => setPurchaseQuantity(5));
+
+// Bind Saved designs listeners
+dom.savedDesignList?.addEventListener("pointerdown", handleSavedDesignPointerDown);
+dom.savedDesignList?.addEventListener("pointerup", handleSavedDesignPointerUp);
+dom.savedDesignList?.addEventListener("click", handleSavedDesignKeyboardClick);
+
+// Bind Purchase options listeners
+dom.purchaseOptions?.addEventListener("pointerdown", handlePurchasePointerDown);
+dom.purchaseOptions?.addEventListener("pointerup", handlePurchasePointerUp);
+dom.purchaseOptions?.addEventListener("click", handlePurchaseKeyboardClick);
+
+// Bind kick handlers
+bindKickButtonContainer(dom.playerList);
+bindKickButtonContainer(dom.scoreList);
+
+// Bind canvas pointer listeners
+dom.canvas?.addEventListener("pointerdown", handlePointerDown);
+dom.canvas?.addEventListener("pointermove", handlePointerMove);
+dom.canvas?.addEventListener("pointerup", handlePointerUp);
+dom.canvas?.addEventListener("wheel", handleWheel, { passive: false });
+dom.canvas?.addEventListener("contextmenu", (event) => event.preventDefault());
+
+// Initialize bootstrapping
+initializeClient();
+
+async function initializeClient() {
+  await loadComponentBalance();
+  renderPalette();
+  renderPartInspector();
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
+  renderPurchaseBar();
+  updateLobbyState();
+  openMainMenu();
+  resizeCanvas();
+  requestAnimationFrame(frame);
+
+  // Connection ping tick loop
+  setInterval(() => {
+    if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+      send({ type: "ping", at: performance.now() });
+    }
+  }, 3000);
+
+  // Auto-connect if URL parameter room or active local room exists
+  const roomFromUrl = new URLSearchParams(location.search).get("room");
+  if (roomFromUrl) {
+    dom.roomCode.value = roomFromUrl.toUpperCase().slice(0, 8);
+  } else {
+    const activeRoom = (localStorage.getItem(LOCAL_ACTIVE_ROOM_KEY) || "").toUpperCase().slice(0, 8);
+    if (activeRoom) {
+      dom.roomCode.value = activeRoom;
+      joinRoom(activeRoom);
+    }
+  }
+}
+
+async function loadComponentBalance() {
+  if (typeof fetch !== "function") return;
+  try {
+    const response = await fetch("/component-balance.json", { cache: "no-store" });
+    if (!response.ok) return;
+    const balance = await response.json();
+    import("./design/parts.js").then((mod) => {
+      mod.applyComponentBalance(balance);
+      renderPalette();
+      renderPartInspector();
+      renderLocalStats();
+    });
+  } catch {
+    // Fail silently, use defaults
+  }
+}

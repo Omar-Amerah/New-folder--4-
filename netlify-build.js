@@ -3,6 +3,82 @@
 const fs = require("fs");
 const path = require("path");
 
+// 1. Bundle src files into client.js
+const srcDir = path.join(__dirname, "public", "src");
+const clientJsPath = path.join(__dirname, "public", "client.js");
+
+const srcFiles = [
+  "constants.js",
+  "shared/math.js",
+  "shared/formatting.js",
+  "shared/ids.js",
+  "design/rotation.js",
+  "design/statFormatting.js",
+  "design/parts.js",
+  "design/componentStats.js",
+  "design/blueprintValidation.js",
+  "design/blueprintStorage.js",
+  "state.js",
+  "ui/dom.js",
+  "ui/toastUi.js",
+  "ui/partPaletteUi.js",
+  "ui/partInspectorUi.js",
+  "ui/savedBlueprintsUi.js",
+  "ui/purchaseUi.js",
+  "ui/hudUi.js",
+  "ui/scoreboardUi.js",
+  "ui/endGameUi.js",
+  "ui/lobbyUi.js",
+  "ui/designerUi.js",
+  "game/interpolation.js",
+  "game/effects.js",
+  "game/camera.js",
+  "game/selection.js",
+  "game/commands.js",
+  "game/input.js",
+  "game/renderer.js",
+  "network.js",
+  "messages.js",
+  "main.js"
+];
+
+try {
+  let bundledCode = `"use strict";\n\n`;
+
+  for (const filename of srcFiles) {
+    const filePath = path.join(srcDir, filename);
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Source file missing for bundle: ${filename}`);
+    }
+    let content = fs.readFileSync(filePath, "utf8");
+
+    // Remove "use strict"; from individual files
+    content = content.replace(/"use strict";\r?\n?/g, "");
+    content = content.replace(/'use strict';\r?\n?/g, "");
+
+    // Strip imports (single-line imports)
+    content = content.replace(/^\s*import\s+.*;?$/gm, "");
+
+    // Strip exports, but preserve the definitions
+    content = content.replace(/^\s*export\s+const\s+/gm, "const ");
+    content = content.replace(/^\s*export\s+let\s+/gm, "let ");
+    content = content.replace(/^\s*export\s+function\s+/gm, "function ");
+    content = content.replace(/^\s*export\s+class\s+/gm, "class ");
+    content = content.replace(/^\s*export\s+default\s+/gm, "");
+    // Remove standalone exports like export { ... };
+    content = content.replace(/^\s*export\s*\{[\s\S]*?\};?$/gm, "");
+
+    bundledCode += `// --- Module: ${filename} ---\n` + content.trim() + "\n\n";
+  }
+
+  fs.writeFileSync(clientJsPath, bundledCode, "utf8");
+  console.log("Successfully bundled public/client.js from public/src/");
+} catch (err) {
+  console.error("Bundling failed:", err);
+  process.exit(1);
+}
+
+// 2. Perform Netlify asset checks
 const requiredFiles = [
   path.join(__dirname, "public", "index.html"),
   path.join(__dirname, "public", "client.js"),
@@ -11,7 +87,7 @@ const requiredFiles = [
 
 for (const file of requiredFiles) {
   if (!fs.existsSync(file)) {
-    throw new Error(`Missing required Netlify asset: ${file}`);
+    throw new Error("Missing required Netlify asset: " + file);
   }
 }
 

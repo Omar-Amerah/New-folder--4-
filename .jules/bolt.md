@@ -1,0 +1,3 @@
+## 2024-07-07 - Avoid Math.hypot in N^2 loops
+**Learning:** `Math.hypot` is a significant bottleneck in N^2 collision and targeting loops due to its overhead compared to simple squared distance checks (`dx*dx + dy*dy`). In Node.js/V8, `Math.hypot` handles multiple arguments and prevents overflow/underflow, which makes it far slower than a simple algebraic square sum check.
+**Action:** When iterating over all pairs of entities (e.g., ships vs ships, ships vs bullets), always compare squared distances first and only take `Math.sqrt()` if an actual collision or range check passes and the exact distance is required for resolution.
