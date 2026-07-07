@@ -26,7 +26,7 @@ const closedRoomCodes = new Map();
 
 function createRoom(code) {
   const world = chooseWorldSize(1);
-  const map = generateMap(code, world);
+  const map = generateMap(code, world, DEFAULT_ROOM_RULES.gameMode);
   return {
     code,
     adminId: null,
@@ -80,7 +80,7 @@ function setRoomRules(room, requester, updates) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.map = generateMap(room.code, world);
+  room.map = generateMap(room.code, world, room.rules.gameMode);
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
 
   for (const player of room.players.values()) {
@@ -129,11 +129,12 @@ function applyGameModeTeams(room) {
   }
 }
 
-function generateMap(roomCode, world) {
+function generateMap(roomCode, world, gameMode) {
   const seed = (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode)) >>> 0;
   const rng = seededRandom(seed);
-  const relays = generateRelays(rng, world);
-  const asteroids = generateAsteroids(rng, world, relays);
+  const safeZones = generateSafeZones(world, gameMode);
+  const relays = generateRelays(rng, world, safeZones);
+  const asteroids = generateAsteroids(rng, world, relays, safeZones);
   const clouds = generateClouds(rng, world);
 
   return {
@@ -141,32 +142,48 @@ function generateMap(roomCode, world) {
     name: MAP_NAMES[seed % MAP_NAMES.length],
     relays,
     asteroids,
-    clouds
+    clouds,
+    safeZones
   };
 }
 
-function generateRelays(rng, world) {
-  const relays = [];
-  addMirroredRelayPair(rng, relays, {
-    minX: world.width * 0.2,
-    maxX: world.width * 0.38,
-    minY: world.height * 0.25,
-    maxY: world.height * 0.75
-  }, world);
+function generateSafeZones(world, gameMode) {
+  const zones = [];
+  if (gameMode === "teams") {
+    // Large base zones
+    zones.push({ x: 500, y: world.height * 0.5, radius: 800, color: "rgba(63,214,255,0.06)", isSpawn: true, team: "blue" });
+    zones.push({ x: world.width - 500, y: world.height * 0.5, radius: 800, color: "rgba(255,95,126,0.06)", isSpawn: true, team: "red" });
+  } else {
+    // Solo zones
+    zones.push({ x: 500, y: world.height * 0.5, radius: 800, color: "rgba(255,255,255,0.06)", isSpawn: true });
+    zones.push({ x: world.width - 500, y: world.height * 0.5, radius: 800, color: "rgba(255,255,255,0.06)", isSpawn: true });
+    zones.push({ x: world.width * 0.5, y: 500, radius: 800, color: "rgba(255,255,255,0.06)", isSpawn: true });
+    zones.push({ x: world.width * 0.5, y: world.height - 500, radius: 800, color: "rgba(255,255,255,0.06)", isSpawn: true });
+  }
+  return zones;
+}
 
-  if (rng() > 0.45) {
+function generateRelays(rng, world, safeZones) {
+  const relays = [];
+  const buffer = 500;
+
+  // Try to place up to 3 pairs of mirrored relays
+  const pairCount = rng() > 0.6 ? 3 : 2;
+
+  for (let i = 0; i < pairCount; i++) {
     addMirroredRelayPair(rng, relays, {
-      minX: world.width * 0.25,
-      maxX: world.width * 0.43,
-      minY: world.height * 0.18,
-      maxY: world.height * 0.82
-    }, world);
+      minX: world.width * 0.15,
+      maxX: world.width * 0.45,
+      minY: world.height * 0.15,
+      maxY: world.height * 0.85
+    }, world, safeZones);
   }
 
+  // Always one central relay
   relays.push({
-    x: world.width * 0.5 + rngRange(rng, -130, 130),
-    y: world.height * 0.5 + rngRange(rng, -120, 120),
-    radius: rngRange(rng, 138, 166)
+    x: world.width * 0.5 + rngRange(rng, -200, 200),
+    y: world.height * 0.5 + rngRange(rng, -200, 200),
+    radius: rngRange(rng, 150, 180)
   });
 
   return relays
@@ -179,9 +196,9 @@ function generateRelays(rng, world) {
     }));
 }
 
-function addMirroredRelayPair(rng, relays, bounds, world) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const radius = rngRange(rng, 125, 158);
+function addMirroredRelayPair(rng, relays, bounds, world, safeZones) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const radius = rngRange(rng, 140, 170);
     const relay = {
       x: rngRange(rng, bounds.minX, bounds.maxX),
       y: rngRange(rng, bounds.minY, bounds.maxY),
@@ -192,7 +209,10 @@ function addMirroredRelayPair(rng, relays, bounds, world) {
       y: world.height - relay.y,
       radius
     };
-    if (circlesClear(relay, relays, 390) && circlesClear(mirror, relays, 390)) {
+
+    // Check clearance against other relays (wider distance)
+    if (circlesClear(relay, relays, 800) && circlesClear(mirror, relays, 800) &&
+        circlesClear(relay, safeZones, 100) && circlesClear(mirror, safeZones, 100)) {
       relays.push(relay, mirror);
       return true;
     }
@@ -200,17 +220,20 @@ function addMirroredRelayPair(rng, relays, bounds, world) {
   return false;
 }
 
-function generateAsteroids(rng, world, relays) {
+function generateAsteroids(rng, world, relays, safeZones) {
   const asteroids = [];
-  const reserved = mapSafetyZones(relays, world);
-  const pairCount = 4 + Math.floor(rng() * 3);
+  // Exclude relays and safe zones
+  const reserved = relays.map(r => ({ x: r.x, y: r.y, radius: r.radius + 300 })).concat(safeZones.map(s => ({ x: s.x, y: s.y, radius: s.radius + 200 })));
+
+  const pairCount = 8 + Math.floor(rng() * 8);
 
   for (let pair = 0; pair < pairCount; pair += 1) {
     for (let attempt = 0; attempt < 90; attempt += 1) {
-      const radius = rngRange(rng, 46, 105);
+      const radius = rngRange(rng, 60, 140);
+      // Place anywhere except extreme edges
       const asteroid = {
-        x: rngRange(rng, world.width * 0.18, world.width * 0.48),
-        y: rngRange(rng, 170, world.height - 170),
+        x: rngRange(rng, world.width * 0.05, world.width * 0.49),
+        y: rngRange(rng, world.height * 0.05, world.height * 0.95),
         radius
       };
       const mirror = {
@@ -218,7 +241,7 @@ function generateAsteroids(rng, world, relays) {
         y: world.height - asteroid.y,
         radius
       };
-      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 34, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 34, world)) {
+      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 80, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 80, world)) {
         continue;
       }
       asteroids.push(
@@ -229,28 +252,30 @@ function generateAsteroids(rng, world, relays) {
     }
   }
 
-  if (rng() > 0.55) {
-    for (let attempt = 0; attempt < 70; attempt += 1) {
-      const radius = rngRange(rng, 54, 92);
-      const asteroid = {
-        x: world.width * 0.5 + rngRange(rng, -110, 110),
-        y: rngRange(rng, world.height * 0.18, world.height * 0.38),
-        radius
-      };
-      const mirror = {
-        x: world.width - asteroid.x,
-        y: world.height - asteroid.y,
-        radius
-      };
-      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 42, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 42, world)) {
-        continue;
+  // Central scattered asteroids
+  const centralCount = 4 + Math.floor(rng() * 4);
+  for (let i = 0; i < centralCount; i += 1) {
+      for (let attempt = 0; attempt < 70; attempt += 1) {
+        const radius = rngRange(rng, 70, 120);
+        const asteroid = {
+          x: world.width * 0.5 + rngRange(rng, -800, 800),
+          y: world.height * 0.5 + rngRange(rng, -800, 800),
+          radius
+        };
+        const mirror = {
+          x: world.width - asteroid.x,
+          y: world.height - asteroid.y,
+          radius
+        };
+        if (!canPlaceMapCircle(asteroid, reserved, asteroids, 60, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 60, world)) {
+          continue;
+        }
+        asteroids.push(
+          makeAsteroid(rng, `R${asteroids.length + 1}`, asteroid),
+          makeAsteroid(rng, `R${asteroids.length + 2}`, mirror)
+        );
+        break;
       }
-      asteroids.push(
-        makeAsteroid(rng, `R${asteroids.length + 1}`, asteroid),
-        makeAsteroid(rng, `R${asteroids.length + 2}`, mirror)
-      );
-      break;
-    }
   }
 
   return asteroids;
@@ -303,17 +328,6 @@ function generateClouds(rng, world) {
   return clouds;
 }
 
-function mapSafetyZones(relays, world) {
-  const zones = relays.map((relay) => ({ x: relay.x, y: relay.y, radius: relay.radius + 190 }));
-  zones.push(
-    { x: 260, y: world.height * 0.5, radius: 440 },
-    { x: world.width - 260, y: world.height * 0.5, radius: 440 },
-    { x: world.width * 0.5, y: 220, radius: 300 },
-    { x: world.width * 0.5, y: world.height - 220, radius: 300 }
-  );
-  return zones;
-}
-
 function canPlaceMapCircle(circle, reserved, existing, buffer, world) {
   if (circle.x - circle.radius < 80 || circle.x + circle.radius > world.width - 80) return false;
   if (circle.y - circle.radius < 80 || circle.y + circle.radius > world.height - 80) return false;
@@ -332,7 +346,7 @@ function prepareArenaForCurrentPlayers(room) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.map = generateMap(room.code, world);
+  room.map = generateMap(room.code, world, room.rules?.gameMode || "teams");
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
   room.bullets = [];
   room.effects = [];
@@ -428,7 +442,7 @@ module.exports = {
   generateAsteroids,
   makeAsteroid,
   generateClouds,
-  mapSafetyZones,
+  generateSafeZones,
   canPlaceMapCircle,
   circlesClear,
   prepareArenaForCurrentPlayers,
