@@ -858,6 +858,7 @@ const state = {
   selectedCell: null,
   selectedShipIds: new Set(),
   snapshot: null,
+  mine: null,
   map: null,
   phase: "offline",
   adminId: null,
@@ -1037,6 +1038,7 @@ function joinRoom(roomCode = "") {
   if (state.socket) state.socket.close();
   state.room = "";
   state.snapshot = null;
+  state.mine = null;
   state.map = null;
   state.phase = "offline";
   state.adminId = null;
@@ -1145,6 +1147,7 @@ function clearRoomState() {
   }
   state.room = "";
   state.snapshot = null;
+  state.mine = null;
   state.map = null;
   state.phase = "offline";
   state.adminId = null;
@@ -1529,7 +1532,7 @@ function clearPendingPurchase(requestId) {
 
 function reconcilePendingPurchasesWithSnapshot() {
   if (!state.pendingPurchases.size) return;
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   if (!mine) return;
   const money = currentMatchMoney(mine);
   const activeShips = mine.activeShips ?? 0;
@@ -1619,7 +1622,7 @@ function updateTeamChoiceControls(connected, phase) {
   const mode = state.rules?.gameMode || "teams";
   const inLobby = connected && phase === "lobby";
   const canChoose = inLobby && mode === "teams";
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   if (dom.teamChoiceCard) {
     dom.teamChoiceCard.hidden = !connected || mode === "solo";
     dom.teamChoiceCard.classList?.toggle?.("solo", mode === "solo");
@@ -1725,6 +1728,7 @@ function handleServerMessage(message) {
   if (message.type === "state") {
     const previousPhase = state.phase;
     state.snapshot = message;
+    state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
     state.room = message.room;
     state.world = message.world || state.world;
     state.map = message.map || state.map;
@@ -2570,7 +2574,7 @@ function nextDesignName() {
 function renderLocalStats() {
   const stats = computeStats(state.design);
   const status = getShipStatus(stats);
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const money = currentMatchMoney(mine);
   const canAfford = money >= stats.unitCost;
   if (dom.saveDesignButton) dom.saveDesignButton.textContent = saveBlueprintButtonText();
@@ -2609,7 +2613,7 @@ function renderLocalStats() {
 }
 
 function getShipStatus(stats) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const blockers = [];
   const money = currentMatchMoney(mine);
   const isActiveBuild = state.phase === "active";
@@ -2698,7 +2702,7 @@ function costBreakdownMarkup(breakdown) {
 
 function updateHud() {
   if (!state.snapshot) return;
-  const mine = state.snapshot.players.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const myShips = state.snapshot.ships.filter((ship) => ship.ownerId === state.myId && ship.alive);
   const myTeam = mine?.team;
   const relays = state.snapshot.points.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length;
@@ -2719,7 +2723,7 @@ function updateHud() {
 }
 
 function updateEconomyUi() {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const localStats = computeStats(state.design);
   const localStatus = getShipStatus(localStats);
   const money = currentMatchMoney(mine);
@@ -2791,7 +2795,7 @@ function getPurchaseOptions() {
 }
 
 function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const money = currentMatchMoney(mine);
   const activeShips = mine?.activeShips ?? 0;
   const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
@@ -3083,7 +3087,7 @@ function updateWinnerBanner() {
   dom.winner.textContent = `${winner.name} won`;
   dom.endGameScreen.hidden = false;
   dom.endGameTitle.textContent = `${winner.name} won`;
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   dom.endGameSummary.innerHTML = rewardSummaryMarkup(mine?.lastReward, mine?.money);
   const admin = isAdmin();
   dom.endGameActions.hidden = false;
@@ -4368,7 +4372,7 @@ function playerMap() {
 }
 
 function isAdmin() {
-  return state.adminId === state.myId || Boolean(state.snapshot?.players?.find((player) => player.id === state.myId && player.isAdmin));
+  return state.adminId === state.myId || Boolean(state.mine?.isAdmin);
 }
 
 function currentMap() {
