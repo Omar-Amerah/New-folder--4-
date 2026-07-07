@@ -387,6 +387,7 @@ module.exports = {
   updateShipWeapons,
   weaponModulesInArc,
   moduleRotationToRadians,
+  moduleLocalPosition,
   isTargetInWeaponArc,
   damageShip,
   updateDestroyedShips,
