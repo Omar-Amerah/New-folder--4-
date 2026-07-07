@@ -88,12 +88,12 @@ export function handlePurchaseKeyboardClick(event) {
 export function buyPurchaseOption(optionId) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option) return;
-  const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const purchase = getPurchaseOptionState(option, state.purchaseQuantity, mine);
   if (state.phase !== "active") {
     setPurchaseError(optionId, "Match not active");
     return;
   }
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   if (!mine?.ready) {
     setPurchaseError(optionId, "Not ready");
     return;
@@ -137,7 +137,8 @@ export function buyPurchaseOption(optionId) {
 export function isUnaffordablePurchaseOption(optionId) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option) return false;
-  const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const purchase = getPurchaseOptionState(option, state.purchaseQuantity, mine);
   return !purchase.canBuy && isMoneyPurchaseBlocker(purchase.reason);
 }
 
@@ -190,7 +191,7 @@ export function setPurchaseError(optionId, message) {
 export function updateEconomyUi() {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const localStats = computeStats(state.design);
-  const localStatus = getShipStatus(localStats);
+  const localStatus = getShipStatus(localStats, mine);
   const money = currentMatchMoney(mine);
   const income = mine?.income ?? 0;
   const myTeam = mine?.team;
@@ -227,7 +228,7 @@ export function updateEconomyUi() {
       dom.buildStatus.className = "build-status good";
     }
   }
-  renderPurchaseBar();
+  renderPurchaseBar(mine);
 }
 
 function readyBlockerButtonText(reason) {
@@ -267,8 +268,7 @@ export function getPurchaseOptions() {
   ];
 }
 
-export function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+export function getPurchaseOptionState(option, quantity = state.purchaseQuantity, mine = state.snapshot?.players?.find((player) => player.id === state.myId)) {
   const money = currentMatchMoney(mine);
   const activeShips = mine?.activeShips ?? 0;
   const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
@@ -314,7 +314,7 @@ export function validateBlueprintForPurchase(blueprint) {
   return { ok: true, reason: "" };
 }
 
-export function renderPurchaseBar() {
+export function renderPurchaseBar(mine = state.snapshot?.players?.find((player) => player.id === state.myId)) {
   if (!dom.purchaseBar || !dom.purchaseOptions) return;
   dom.purchaseQuantityOne?.classList?.toggle("active", state.purchaseQuantity === 1);
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
@@ -323,7 +323,7 @@ export function renderPurchaseBar() {
   dom.purchaseOptions.textContent = "";
 
   for (const option of getPurchaseOptions()) {
-    const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
+    const optionState = getPurchaseOptionState(option, state.purchaseQuantity, mine);
     const card = document.createElement("button");
     card.type = "button";
     card.className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
@@ -356,7 +356,8 @@ export function weaponSummaryText(stats) {
 export function showPurchaseTooltip(optionId, event) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option || !dom.purchaseTooltip) return;
-  const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const optionState = getPurchaseOptionState(option, state.purchaseQuantity, mine);
   const stats = option.stats;
   dom.purchaseTooltip.innerHTML = `
     <div class="purchase-tooltip-head">
@@ -424,8 +425,7 @@ function currentMatchMoney(mine) {
   return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
 }
 
-function getShipStatus(stats) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+function getShipStatus(stats, mine = state.snapshot?.players?.find((player) => player.id === state.myId)) {
   const blockers = [];
   const money = currentMatchMoney(mine);
   const isActiveBuild = state.phase === "active";
