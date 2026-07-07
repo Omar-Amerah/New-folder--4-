@@ -35,6 +35,7 @@ function createRoom(code) {
     mapSizeLabel: world.label,
     clients: new Set(),
     players: new Map(),
+    ships: new Map(),
     bullets: [],
     effects: [],
     map,

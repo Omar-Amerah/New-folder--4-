@@ -181,6 +181,7 @@ function updateDestroyedShips(room, now) {
     for (const ship of player.ships) {
       if (!ship.alive && !ship.removed && ship.removeAt && now >= ship.removeAt) {
         ship.removed = true;
+        room.ships.delete(ship.id);
       }
     }
   }

@@ -49,6 +49,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     lastDamagedBy: null
   };
   player.ships.push(ship);
+  room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
   return ship;
 }
@@ -65,10 +66,8 @@ function getLiveShips(room) {
 
 function findShipById(room, id) {
   if (!id) return null;
-  for (const player of room.players.values()) {
-    const ship = player.ships.find((candidate) => candidate.id === id && candidate.alive && !candidate.removed);
-    if (ship) return ship;
-  }
+  const ship = room.ships.get(id);
+  if (ship && ship.alive && !ship.removed) return ship;
   return null;
 }
 
