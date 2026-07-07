@@ -922,7 +922,7 @@ function handleHttpRequest(req, res) {
   }
 
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep) && filePath !== PUBLIC_DIR) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
