@@ -25,7 +25,7 @@ function snapshotRoom(room, now, viewer = null) {
     deployedFleetCost: canViewPlayerEconomy(viewer, player) ? Math.floor(player.deployedFleetCost) : null,
     destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
     lastReward: player.lastReward,
-    activeShips: player.ships.filter((ship) => ship.alive && !ship.removed).length,
+    activeShips: player.ships.filter((ship) => ship.alive).length,
     score: Math.floor(player.score),
     kills: player.kills,
     losses: player.losses,

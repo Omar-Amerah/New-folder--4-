@@ -123,6 +123,7 @@ function leaveRoom(client) {
       ship.removed = true;
       room.ships.delete(ship.id);
     }
+    player.ships = [];
     room.clients.delete(client);
     if (room.phase === "lobby") {
       room.players.delete(player.id);
@@ -197,6 +198,7 @@ function removePlayerFromRoom(room, player, reason) {
     ship.removed = true;
     room.ships.delete(ship.id);
   }
+  player.ships = [];
   room.players.delete(player.id);
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   for (const point of room.points) {
