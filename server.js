@@ -1324,6 +1324,7 @@ function leaveRoom(client) {
     for (const ship of player.ships) {
       ship.alive = false;
       ship.removed = true;
+      room.ships.delete(ship.id);
     }
     room.clients.delete(client);
     room.players.delete(player.id);
@@ -1352,6 +1353,7 @@ function createRoom(code) {
     mapSizeLabel: world.label,
     clients: new Set(),
     players: new Map(),
+    ships: new Map(),
     bullets: [],
     effects: [],
     map,
@@ -1774,12 +1776,16 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     lastDamagedBy: null
   };
   player.ships.push(ship);
+  room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
   return ship;
 }
 
 function resetPlayerForMatch(room, player, now, options = {}) {
-  for (const oldShip of player.ships) oldShip.removed = true;
+  for (const oldShip of player.ships) {
+    oldShip.removed = true;
+    room.ships.delete(oldShip.id);
+  }
   player.ships = [];
   const startingMoney = room.rules?.startingMoney ?? ECONOMY.startingMoney;
   player.money = startingMoney;
@@ -1865,6 +1871,7 @@ function updateDestroyedShips(room, now) {
     for (const ship of player.ships) {
       if (!ship.alive && !ship.removed && ship.removeAt && now >= ship.removeAt) {
         ship.removed = true;
+        room.ships.delete(ship.id);
       }
     }
   }
@@ -2472,32 +2479,30 @@ function snapshotRoom(room, now, viewer = null) {
   }));
 
   const ships = [];
-  for (const player of room.players.values()) {
-    for (const ship of player.ships) {
-      if (ship.removed) continue;
-      ships.push({
-        id: ship.id,
-        ownerId: ship.ownerId,
-        x: round(ship.x),
-        y: round(ship.y),
-        vx: round(ship.vx),
-        vy: round(ship.vy),
-        angle: round(ship.angle),
-        targetX: round(ship.targetX),
-        targetY: round(ship.targetY),
-        hp: round(ship.hp),
-        maxHp: round(ship.maxHp),
-        shield: round(ship.shield),
-        maxShield: round(ship.maxShield),
-        radius: round(ship.radius),
-        design: ship.design || [],
-        cost: ship.cost || ship.stats?.unitCost || 0,
-        focusTargetId: ship.focusTargetId,
-        alive: ship.alive,
-        respawnIn: 0,
-        removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
-      });
-    }
+  for (const ship of room.ships.values()) {
+    if (ship.removed) continue;
+    ships.push({
+      id: ship.id,
+      ownerId: ship.ownerId,
+      x: round(ship.x),
+      y: round(ship.y),
+      vx: round(ship.vx),
+      vy: round(ship.vy),
+      angle: round(ship.angle),
+      targetX: round(ship.targetX),
+      targetY: round(ship.targetY),
+      hp: round(ship.hp),
+      maxHp: round(ship.maxHp),
+      shield: round(ship.shield),
+      maxShield: round(ship.maxShield),
+      radius: round(ship.radius),
+      design: ship.design || [],
+      cost: ship.cost || ship.stats?.unitCost || 0,
+      focusTargetId: ship.focusTargetId,
+      alive: ship.alive,
+      respawnIn: 0,
+      removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
+    });
   }
 
   return {
@@ -2689,6 +2694,7 @@ function removePlayerFromRoom(room, player, reason) {
   for (const ship of player.ships) {
     ship.alive = false;
     ship.removed = true;
+    room.ships.delete(ship.id);
   }
   room.players.delete(player.id);
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
@@ -3226,10 +3232,8 @@ function getActiveFleetCost(player) {
 
 function getLiveShips(room) {
   const ships = [];
-  for (const player of room.players.values()) {
-    for (const ship of player.ships) {
-      if (ship.alive && !ship.removed) ships.push(ship);
-    }
+  for (const ship of room.ships.values()) {
+    if (ship.alive && !ship.removed) ships.push(ship);
   }
   return ships;
 }
@@ -3376,10 +3380,8 @@ function sanitizeTeamForMode(room, requestedTeam, fallbackId) {
 
 function findShipById(room, id) {
   if (!id) return null;
-  for (const player of room.players.values()) {
-    const ship = player.ships.find((candidate) => candidate.id === id && candidate.alive && !candidate.removed);
-    if (ship) return ship;
-  }
+  const ship = room.ships.get(id);
+  if (ship && ship.alive && !ship.removed) return ship;
   return null;
 }
 
