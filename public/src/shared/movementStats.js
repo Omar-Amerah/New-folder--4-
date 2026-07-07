@@ -6,7 +6,7 @@ function clamp(value, min, max) {
 
 export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues }) {
   const safeMass = Math.max(mass, 1);
-  const effectiveThrust = effectiveStackedValue(engineThrustValues, 0.88);
+  const effectiveThrust = effectiveStackedValue(engineThrustValues, 0.99);
   const positiveTurn = effectiveStackedValue(turnModuleValues, 0.92);
   const negativeTurnDrag = Math.min(0, turnBonus);
   const effectiveTurnBonus = positiveTurn + negativeTurnDrag;
@@ -15,12 +15,12 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.1;
   const movementPowerMultiplier = calculateMovementPowerMultiplier(powerGeneration, powerUse);
   const powerEfficiency = clamp(powerRatio, 0, 1.1);
-  const massSpeedPenalty = 1 / Math.pow(1 + safeMass / 95, 0.55);
-  const massAccelPenalty = 1 / Math.pow(1 + safeMass / 76, 0.75);
-  const massTurnPenalty = 1 / Math.pow(1 + safeMass / 82, 0.82);
-  const rawSpeed = (90 + Math.sqrt(thrustRatio) * 52) * massSpeedPenalty * movementPowerMultiplier;
-  const rawAccel = (45 + Math.sqrt(effectiveThrust) * 7) * massAccelPenalty * movementPowerMultiplier;
-  const rawTurn = Math.max(0.22, (0.72 + effectiveTurnBonus * 1.34) * massTurnPenalty * movementPowerMultiplier);
+  const massSpeedPenalty = 1 / Math.pow(1 + safeMass / 120, 0.45);
+  const massAccelPenalty = 1 / Math.pow(1 + safeMass / 76, 0.65);
+  const massTurnPenalty = 1 / Math.pow(1 + safeMass / 82, 0.85);
+  const rawSpeed = (120 + thrustRatio * 200) * massSpeedPenalty * movementPowerMultiplier;
+  const rawAccel = (50 + Math.sqrt(effectiveThrust) * 10) * massAccelPenalty * movementPowerMultiplier;
+  const rawTurn = Math.max(0.15, (0.85 + effectiveTurnBonus * 1.5) * massTurnPenalty * movementPowerMultiplier);
   const speedCap = speedCapForMass(safeMass);
   const turnCap = turnCapForMass(safeMass);
   const cappedSpeed = hasEngineThrust ? softCap(rawSpeed, speedCap, 0.25) : 0;
