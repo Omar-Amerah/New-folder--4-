@@ -702,11 +702,18 @@ function normalizeBalanceComponent(component) {
     fireRateBonus: toNumber(component.fireRateBonus, 0),
     captureBonus: toNumber(component.captureBonus, 0),
     heat: toNumber(component.heat, 0),
-    rotationRequired: Boolean(component.rotationRequired || component.rotatable)
+    rotationRequired: Boolean(component.rotationRequired || component.rotatable),
+    ecmStrength: toNumber(component.ecmStrength, 0),
+    decoyRange: toNumber(component.decoyRange, 0),
+    decoyCooldown: toNumber(component.decoyCooldown, 0),
+    decoyConfuseDuration: toNumber(component.decoyConfuseDuration, 0),
+    decoyChance: toNumber(component.decoyChance, 0),
+    frontDamageReduction: toNumber(component.frontDamageReduction, 0),
+    frontArc: toNumber(component.frontArc, 0)
   };
 
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun", "beam"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
     if (component[family]) part[family] = toNumber(component[family], part[family] || 0);
   }
   return Object.freeze(part);
