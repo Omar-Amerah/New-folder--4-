@@ -1,756 +1,13 @@
-"use strict";
+import { PART_DEFS, PART_DESCRIPTIONS, SHIP_ECONOMY, FALLBACK_PART_STATS, PART_STATS, LOCAL_DESIGN_KEY, LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_SERVER_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, PURCHASE_PENDING_MS, PART_CATEGORIES, HIDDEN_PARTS } from "../constants.js";
+import { initializeClient } from "../main.js";
+import { createGame, joinExistingGame, joinRoom } from "./lobbyUi.js";
+import { restartMatch, closeLobby, leaveLobby, setEndGameActionState, returnToMainMenu } from "./endGameUi.js";
+import { handlePurchasePointerDown, handlePurchasePointerUp, clearPurchasePointer, clearPressedPurchaseCards, setPurchaseCardFeedback, setPurchaseOptionFeedback, handlePurchaseKeyboardClick, buyPurchaseOption, isUnaffordablePurchaseOption, isMoneyPurchaseBlocker, setPurchaseQuantity, makePurchaseRequestId, clearPendingPurchase, reconcilePendingPurchasesWithSnapshot, setPurchaseError, send, setConnectionStatus, updateLobbyState, updateRulesControls, updateTeamChoiceControls, setRuleControlValue, phaseLabel, updatePhaseSteps, updatePhaseDetail, handleServerMessage, rememberActiveRoom, forgetActiveRoom, renderPalette, isPalettePart, partCategory, renderPartInspector, partDescription, inspectorStat, inspectorDetail, partPowerText, partInspectorDetails, formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPowerUse, formatPowerGeneration, formatDistance, formatSpeed, formatDamage, formatPercent, effectivePartCostLabel, estimatePartEffectiveCost, estimateFormulaPartCost, partIconMarkup, makeWeapon, buildPartStatsFromBalance, normalizeRuntimeParts, normalizeRuntimePart, normalizeBalanceComponent, numberOr, renderBuildGrid, editCell, makeDesignPart, isRotatablePart, normalizeRotation, rotateCell, rotateFocusedPart, removeCell, resetDesign, saveCurrentDesign, saveBlueprintButtonText, loadSavedDesign, syncBlueprintToServer, handleSavedDesignPointerDown, handleSavedDesignPointerUp, clearSavedDesignPointer, clearSavedDesignPressedButtons, handleSavedDesignKeyboardClick, runSavedDesignAction, isSavedDesignNameFocused, renameSavedDesign, deleteSavedDesign, openDeleteDesignModal, closeConfirmModal, confirmModalAction, renderSavedDesigns, makeDesignId, nextDesignName, renderLocalStats, getShipStatus, renderShipIssues, currentMatchMoney, issueListMarkup, setBuildStatus, statMarkup, costBreakdownMarkup, updateHud, updateEconomyUi, readyBlockerButtonText, economyStatusText, getPurchaseOptions, getPurchaseOptionState, getPendingPurchaseForOption, validateBlueprintForPurchase, renderPurchaseBar, purchaseCostText, weaponAbbrevText, weaponSummaryText, showPurchaseTooltip, tooltipStat, positionPurchaseTooltip, hidePurchaseTooltip, inferShipRole, currentTarget } from "./purchaseUi.js";
+import { renderScoreboard, renderObjectiveSummary, renderTeamPanel, renderPlayerList, updateMatchMeter, updateWinnerBanner, rewardSummaryMarkup, addNotice, showToast, copyInvite, getSocketUrl, getConfiguredServerUrl, normalizeSocketUrl, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleKeyDown, issueCommand, selectedShipIdsForCommand, selectAt, selectBox, selectAllOwnShips, pruneSelection, ownLiveShips, findShipAt, resizeCanvas, frame, updateCamera, renderArena, drawBackdrop, drawWorldGrid, drawMapFeatures, drawNebula, drawAsteroid, drawRelays, drawCommandTarget, drawBullets, drawShips, drawShip, drawShipStructure, drawStructureLines, moduleLocalPosition, moduleRotationToRadians, drawModule, drawWeaponBase, drawRoundSystem, drawSelectionRing, drawFocusLine, drawHealthBars, updateShipHud, drawHudFrame, drawStatusBar, drawEmptyShieldLine, hullColorForRatio, approach, drawShipName, drawRespawn, drawEffects, drawSelectionBox, drawMinimap, applyCamera, screenToWorld, minimapWorldAt, showCommandMarker, playerMap, isAdmin, currentMap, teamValue, loadDesign, persistDesign, loadSavedDesigns, persistSavedDesigns, defaultDesign, normalizeDesign, isConnected, explainConnectionProblem, computeStats, calculateCostBreakdown, weaponAccumulator, addWeaponStats, applyWeaponUtilityBonuses, calculateDps, calculateReload, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, effectiveStackedValue, softCap, massClassForMass, speedCapForMass, turnCapForMass, weaponRange, summarizeWeaponTotals, shipWarnings, makeStars, roundRect, clamp, escapeHtml, roomFromUrl } from "./scoreboardUi.js";
+import { toString } from "../function toString() { [native code] }";
 
-const PART_DEFS = {
-  core: { name: "Core", color: "#f3f7ff", glyph: "radial-gradient(circle, #ffffff 0 28%, #86ddff 31% 58%, #2b5d92 60%)" },
-  frame: { name: "Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
-  armor: { name: "Armor", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
-  engine: { name: "Engine", color: "#54d7ff", glyph: "linear-gradient(180deg, #68efff, #225ed8 52%, #111827)" },
-  reactor: { name: "Reactor", color: "#ffdc5e", glyph: "radial-gradient(circle, #fff7b3 0 20%, #f4c145 26% 55%, #6b4b12 60%)" },
-  battery: { name: "Battery", color: "#7ee0ff", glyph: "linear-gradient(180deg, #d5fbff 0 20%, #47caee 22% 50%, #14536f 52%)" },
-  shield: { name: "Shield", color: "#7cffa0", glyph: "radial-gradient(circle, #b9ffd0 0 18%, #39cc75 28% 54%, #114027 58%)" },
-  blaster: { name: "Blaster", color: "#ff5f7e", glyph: "linear-gradient(90deg, #31131d 0 18%, #ff5f7e 20% 72%, #ffd1dc 73%)" },
-  missile: { name: "Missile", color: "#b995ff", glyph: "linear-gradient(90deg, #27183b 0 25%, #b995ff 26% 68%, #f0dcff 69%)" },
-  railgun: { name: "Railgun", color: "#f4f7ff", glyph: "linear-gradient(90deg, #1b2230 0 16%, #f4f7ff 18% 72%, #7aa4ff 74%)" },
-  repair: { name: "Repair", color: "#67e08a", glyph: "linear-gradient(45deg, #10381f 0 30%, #67e08a 31% 48%, #d7ffe2 49% 58%, #67e08a 59%)" },
-  lightFrame: { name: "Light Frame", color: "#9fb2c9", glyph: "linear-gradient(135deg, #334155, #cbd5e1)" },
-  heavyFrame: { name: "Heavy Frame", color: "#64748b", glyph: "linear-gradient(135deg, #1f2937, #94a3b8)" },
-  compositeArmor: { name: "Composite Armor", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
-  bulkhead: { name: "Bulkhead", color: "#b7c0cc", glyph: "linear-gradient(90deg, #475569, #e2e8f0, #475569)" },
-  lightMount: { name: "Light Mount", color: "#93c5fd", glyph: "radial-gradient(circle, #dbeafe 0 25%, #3b82f6 35% 58%, #172554 62%)" },
-  heavyMount: { name: "Heavy Mount", color: "#818cf8", glyph: "radial-gradient(circle, #e0e7ff 0 22%, #6366f1 34% 60%, #1e1b4b 64%)" },
-  smallReactor: { name: "Small Reactor", color: "#fde68a", glyph: "radial-gradient(circle, #fff7b3 0 18%, #f59e0b 28% 55%, #451a03 60%)" },
-  heavyReactor: { name: "Heavy Reactor", color: "#fbbf24", glyph: "radial-gradient(circle, #fef3c7 0 16%, #f59e0b 27% 58%, #78350f 63%)" },
-  capacitor: { name: "Capacitor", color: "#93c5fd", glyph: "linear-gradient(180deg, #dbeafe, #2563eb 52%, #172554)" },
-  auxGenerator: { name: "Aux Generator", color: "#fef08a", glyph: "linear-gradient(45deg, #422006, #eab308, #fef9c3)" },
-  microThruster: { name: "Micro Thruster", color: "#67e8f9", glyph: "linear-gradient(180deg, #cffafe, #0891b2 55%, #164e63)" },
-  heavyEngine: { name: "Heavy Engine", color: "#22d3ee", glyph: "linear-gradient(180deg, #a5f3fc, #0284c7 50%, #082f49)" },
-  maneuverThruster: { name: "Maneuver Thruster", color: "#7dd3fc", glyph: "linear-gradient(135deg, #e0f2fe, #0369a1)" },
-  gyroscope: { name: "Gyroscope", color: "#c4b5fd", glyph: "conic-gradient(#ede9fe, #7c3aed, #ede9fe)" },
-  lightShield: { name: "Light Shield", color: "#86efac", glyph: "radial-gradient(circle, #dcfce7 0 18%, #22c55e 30% 55%, #14532d 62%)" },
-  heavyShield: { name: "Heavy Shield", color: "#4ade80", glyph: "radial-gradient(circle, #bbf7d0 0 18%, #16a34a 32% 60%, #052e16 66%)" },
-  regenShield: { name: "Regen Shield", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 16%, #14b8a6 28% 58%, #134e4a 64%)" },
-  pointDefense: { name: "Point Defence", color: "#fda4af", glyph: "radial-gradient(circle, #fff1f2 0 18%, #fb7185 30% 56%, #881337 62%)" },
-  lightBlaster: { name: "Light Blaster", color: "#fb7185", glyph: "linear-gradient(90deg, #3f0d1b 0 18%, #fb7185 20% 72%, #ffe4e6 73%)" },
-  heavyBlaster: { name: "Heavy Blaster", color: "#f43f5e", glyph: "linear-gradient(90deg, #3f0d1b 0 16%, #e11d48 18% 70%, #ffe4e6 72%)" },
-  autocannon: { name: "Autocannon", color: "#f97316", glyph: "linear-gradient(90deg, #431407 0 18%, #fb923c 20% 70%, #ffedd5 72%)" },
-  lightMissile: { name: "Light Missile", color: "#c084fc", glyph: "linear-gradient(90deg, #2e1065 0 25%, #c084fc 26% 68%, #f3e8ff 69%)" },
-  torpedo: { name: "Torpedo", color: "#a78bfa", glyph: "linear-gradient(90deg, #1e1b4b 0 22%, #8b5cf6 24% 70%, #ede9fe 72%)" },
-  swarmMissile: { name: "Swarm Pod", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 12%, #a855f7 18% 30%, #581c87 42%)" },
-  lightRailgun: { name: "Light Railgun", color: "#e2e8f0", glyph: "linear-gradient(90deg, #0f172a 0 16%, #e2e8f0 18% 72%, #60a5fa 74%)" },
-  heavyRailgun: { name: "Heavy Railgun", color: "#f8fafc", glyph: "linear-gradient(90deg, #020617 0 14%, #f8fafc 16% 70%, #3b82f6 74%)" },
-  beamEmitter: { name: "Beam Emitter", color: "#bae6fd", glyph: "linear-gradient(90deg, #082f49 0 18%, #7dd3fc 20% 76%, #eff6ff 78%)" },
-  aegisProjector: { name: "Aegis Projector", color: "#6ee7b7", glyph: "radial-gradient(circle, #ecfdf5 0 18%, #34d399 30% 56%, #064e3b 64%)" },
-  sensorArray: { name: "Sensor Array", color: "#a7f3d0", glyph: "radial-gradient(circle, #ecfdf5 0 15%, #10b981 25% 45%, #064e3b 55%)" },
-  targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
-  fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
-  heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
-  captureModule: { name: "Capture Module", color: "#f9a8d4", glyph: "radial-gradient(circle, #fdf2f8 0 20%, #ec4899 30% 55%, #831843 62%)" },
-  signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
-  stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
-  repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" }
-};
 
-const PART_DESCRIPTIONS = Object.freeze({
-  core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
-  frame: "Cheap structure used to expand the ship shape and connect other modules.",
-  armor: "Heavy passive protection. Adds strong hull but increases mass and slows turning.",
-  engine: "Main propulsion module. Adds thrust for speed and acceleration.",
-  reactor: "Primary power source for weapons, shields, engines, and support systems.",
-  battery: "Energy reserve with a small shield buffer. Helps survivability without generating power.",
-  shield: "Active defensive barrier. Adds shield capacity and recharge at a power cost.",
-  blaster: "General-purpose gun with medium range, steady damage, and a forward firing arc.",
-  missile: "Tracking burst weapon with long reach, high impact, and slow reload.",
-  railgun: "Long-range precision weapon with heavy damage, narrow arc, and high power draw.",
-  repair: "Support module that slowly repairs hull damage during battle.",
-  compositeArmor: "Lighter armor plate that gives efficient hull without as much mass as standard armor.",
-  capacitor: "Large energy bank with extra shield capacity but no power generation.",
-  auxGenerator: "Small backup generator for light power deficits and compact ship builds.",
-  maneuverThruster: "Side-control engine that improves turning more than straight-line speed.",
-  gyroscope: "Stabilization module that improves turn rate without adding thrust.",
-  pointDefense: "Short-range defensive turret that can fire in every direction.",
-  autocannon: "Rapid-fire weapon with high spread. Best against nearby light targets.",
-  torpedo: "Slow heavy missile with major burst damage against large ships.",
-  swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
-  beamEmitter: "Accurate sustained beam weapon with high power use and focused range.",
-  aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
-  sensorArray: "Support electronics that extend weapon range for long-distance ships.",
-  targetingComputer: "Support computer that improves weapon accuracy.",
-  fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
-  heatSink: "Cooling support that is durable and low-power for weapon-heavy designs.",
-  captureModule: "Objective module that helps dedicated capture ships contest relays.",
-  signalAmplifier: "Utility transmitter that extends weapon range for command and skirmish ships.",
-  stabilizerNode: "Utility stabilizer that improves weapon accuracy and slightly helps turning.",
-  repairBeam: "Heavy support repair system with stronger hull recovery and high power draw."
-});
-
-const SHIP_ECONOMY = Object.freeze({
-  baseShipCost: 48,
-  partCostMultiplier: 1.32,
-  massCostMultiplier: 0.9,
-  hullCostMultiplier: 0.012,
-  shieldCostMultiplier: 0.05,
-  repairCostMultiplier: 0.8,
-  largeShipThreshold: 400,
-  largeShipCostTax: 0.15,
-  hugeShipThreshold: 700,
-  hugeShipCostTax: 0.25,
-  weaponPremiums: Object.freeze({
-    blaster: 18,
-    missile: 32,
-    railgun: 48
-  })
-});
-
-const FALLBACK_PART_STATS = {
-  // Existing basics
-  core: {
-    cost: 0, mass: 8, hp: 150,
-    powerGeneration: 4, powerUse: 0,
-    shield: 25, shieldRegen: 0.4,
-    thrust: 0, turn: 0,
-    energyStorage: 80, repairRate: 0,
-    weapon: null
-  },
-
-  frame: {
-    cost: 3, mass: 2, hp: 42,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0.005,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  armor: {
-    cost: 11, mass: 8, hp: 125,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.045,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  engine: {
-    cost: 16, mass: 4, hp: 48,
-    powerGeneration: 0, powerUse: 1.2,
-    shield: 0, shieldRegen: 0,
-    thrust: 130, turn: 0.22,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  reactor: {
-    cost: 22, mass: 6, hp: 58,
-    powerGeneration: 9, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 30, repairRate: 0,
-    weapon: null
-  },
-
-  battery: {
-    cost: 14, mass: 3, hp: 42,
-    powerGeneration: 0, powerUse: 0,
-    shield: 36, shieldRegen: 0.55,
-    thrust: 0, turn: 0,
-    energyStorage: 165, repairRate: 0,
-    weapon: null
-  },
-
-  shield: {
-    cost: 20, mass: 5, hp: 46,
-    powerGeneration: 0, powerUse: 3.2,
-    shield: 105, shieldRegen: 2.1,
-    thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  blaster: {
-    cost: 27, mass: 5, hp: 46,
-    powerGeneration: 0, powerUse: 2.2,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.025,
-    energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
-      damage: 13,
-      fireRate: 1.5,
-      range: 500,
-      projectileSpeed: 650,
-      accuracy: 0.87,
-      tracking: 0,
-      arc: 120
-    })
-  },
-
-  missile: {
-    cost: 38, mass: 7, hp: 50,
-    powerGeneration: 0, powerUse: 3.4,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.035,
-    energyStorage: 0, repairRate: 0,
-    missile: 1,
-    weapon: makeWeapon("missile", {
-      damage: 60,
-      fireRate: 0.28,
-      range: 790,
-      projectileSpeed: 320,
-      accuracy: 0.7,
-      tracking: 0.78,
-      arc: 220
-    })
-  },
-
-  railgun: {
-    cost: 50, mass: 9, hp: 54,
-    powerGeneration: 0, powerUse: 6.5,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.06,
-    energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
-      damage: 100,
-      fireRate: 0.18,
-      range: 1060,
-      projectileSpeed: 1080,
-      accuracy: 0.95,
-      tracking: 0,
-      arc: 45
-    })
-  },
-
-  repair: {
-    category: "Support",
-    cost: 26, mass: 5, hp: 48,
-    powerGeneration: 0, powerUse: 2.4,
-    shield: 16, shieldRegen: 0.35,
-    thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 8,
-    repair: 1,
-    weapon: null
-  },
-
-  // Structure
-  lightFrame: {
-    category: "Structure",
-    cost: 2, mass: 1, hp: 22,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0.015,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  heavyFrame: {
-    category: "Structure",
-    cost: 7, mass: 5, hp: 82,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.025,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  compositeArmor: {
-    category: "Structure",
-    cost: 18, mass: 5, hp: 95,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.025,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  bulkhead: {
-    category: "Structure",
-    cost: 32, mass: 15, hp: 185,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.11,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  lightMount: {
-    category: "Structure",
-    cost: 5, mass: 2, hp: 32,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0.005,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  heavyMount: {
-    category: "Structure",
-    cost: 14, mass: 6, hp: 78,
-    powerGeneration: 0, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.035,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  // Power
-  smallReactor: {
-    category: "Power",
-    cost: 14, mass: 3, hp: 34,
-    powerGeneration: 5, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 12, repairRate: 0,
-    weapon: null
-  },
-
-  heavyReactor: {
-    category: "Power",
-    cost: 48, mass: 13, hp: 88,
-    powerGeneration: 18, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.04,
-    energyStorage: 50, repairRate: 0,
-    weapon: null
-  },
-
-  capacitor: {
-    category: "Power",
-    cost: 34, mass: 9, hp: 62,
-    powerGeneration: 0, powerUse: 0,
-    shield: 48, shieldRegen: 0.2,
-    thrust: 0, turn: -0.025,
-    energyStorage: 360, repairRate: 0,
-    weapon: null
-  },
-
-  auxGenerator: {
-    category: "Power",
-    cost: 11, mass: 2, hp: 24,
-    powerGeneration: 3, powerUse: 0,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 6, repairRate: 0,
-    weapon: null
-  },
-
-  // Engines
-  microThruster: {
-    category: "Engines",
-    cost: 8, mass: 1, hp: 20,
-    powerGeneration: 0, powerUse: 0.5,
-    shield: 0, shieldRegen: 0,
-    thrust: 42, turn: 0.1,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    rotationRequired: true
-  },
-
-  heavyEngine: {
-    category: "Engines",
-    cost: 38, mass: 11, hp: 78,
-    powerGeneration: 0, powerUse: 4.4,
-    shield: 0, shieldRegen: 0,
-    thrust: 310, turn: 0.06,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    rotationRequired: true
-  },
-
-  maneuverThruster: {
-    category: "Engines",
-    cost: 20, mass: 3, hp: 38,
-    powerGeneration: 0, powerUse: 1.7,
-    shield: 0, shieldRegen: 0,
-    thrust: 60, turn: 0.38,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    rotationRequired: true
-  },
-
-  gyroscope: {
-    category: "Engines",
-    cost: 28, mass: 5, hp: 42,
-    powerGeneration: 0, powerUse: 2.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0.5,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  // Defence
-  lightShield: {
-    category: "Defence",
-    cost: 12, mass: 2, hp: 28,
-    powerGeneration: 0, powerUse: 1.4,
-    shield: 42, shieldRegen: 0.9,
-    thrust: 0, turn: 0,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  heavyShield: {
-    category: "Defence",
-    cost: 46, mass: 11, hp: 70,
-    powerGeneration: 0, powerUse: 6.8,
-    shield: 205, shieldRegen: 1.8,
-    thrust: 0, turn: -0.055,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  regenShield: {
-    category: "Defence",
-    cost: 36, mass: 6, hp: 50,
-    powerGeneration: 0, powerUse: 5.8,
-    shield: 82, shieldRegen: 4.8,
-    thrust: 0, turn: -0.03,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  pointDefense: {
-    category: "Defence",
-    cost: 36, mass: 4, hp: 40,
-    powerGeneration: 0, powerUse: 3.2,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
-      damage: 4,
-      fireRate: 4.0,
-      range: 280,
-      projectileSpeed: 820,
-      accuracy: 0.78,
-      tracking: 0,
-      arc: 360
-    }),
-    rotationRequired: true
-  },
-
-  aegisProjector: {
-    category: "Defence",
-    cost: 44, mass: 6, hp: 44,
-    powerGeneration: 0, powerUse: 5.4,
-    shield: 72, shieldRegen: 3.6,
-    thrust: 0, turn: -0.025,
-    energyStorage: 0, repairRate: 0,
-    weapon: null
-  },
-
-  // Weapons
-  lightBlaster: {
-    category: "Weapons",
-    cost: 17, mass: 3, hp: 32,
-    powerGeneration: 0, powerUse: 1.4,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
-      damage: 7,
-      fireRate: 2.1,
-      range: 420,
-      projectileSpeed: 680,
-      accuracy: 0.83,
-      tracking: 0,
-      arc: 120
-    }),
-    rotationRequired: true
-  },
-
-  heavyBlaster: {
-    category: "Weapons",
-    cost: 46, mass: 8, hp: 58,
-    powerGeneration: 0, powerUse: 4.4,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.05,
-    energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
-      damage: 26,
-      fireRate: 0.82,
-      range: 580,
-      projectileSpeed: 610,
-      accuracy: 0.84,
-      tracking: 0,
-      arc: 100
-    }),
-    rotationRequired: true
-  },
-
-  autocannon: {
-    category: "Weapons",
-    cost: 34, mass: 6,
-    hp: 44,
-    powerGeneration: 0, powerUse: 1.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.03,
-    energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
-      damage: 4,
-      fireRate: 5.2,
-      range: 470,
-      projectileSpeed: 700,
-      accuracy: 0.64,
-      tracking: 0,
-      arc: 130
-    }),
-    rotationRequired: true
-  },
-
-  lightMissile: {
-    category: "Weapons",
-    cost: 27, mass: 4, hp: 36,
-    powerGeneration: 0, powerUse: 1.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.02,
-    energyStorage: 0, repairRate: 0,
-    missile: 1,
-    weapon: makeWeapon("missile", {
-      damage: 34,
-      fireRate: 0.45,
-      range: 700,
-      projectileSpeed: 350,
-      accuracy: 0.72,
-      tracking: 0.7,
-      arc: 220
-    }),
-    rotationRequired: true
-  },
-
-  torpedo: {
-    category: "Weapons",
-    cost: 66, mass: 12, hp: 58,
-    powerGeneration: 0, powerUse: 5.2,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.065,
-    energyStorage: 0, repairRate: 0,
-    missile: 1,
-    weapon: makeWeapon("missile", {
-      damage: 115,
-      fireRate: 0.14,
-      range: 940,
-      projectileSpeed: 240,
-      accuracy: 0.58,
-      tracking: 0.3,
-      arc: 150
-    }),
-    rotationRequired: true
-  },
-
-  swarmMissile: {
-    category: "Weapons",
-    cost: 72, mass: 10, hp: 50,
-    powerGeneration: 0, powerUse: 5.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.055,
-    energyStorage: 0, repairRate: 0,
-    missile: 1,
-    weapon: makeWeapon("missile", {
-      damage: 20,
-      fireRate: 0.85,
-      range: 730,
-      projectileSpeed: 370,
-      accuracy: 0.68,
-      tracking: 0.82,
-      arc: 240
-    }),
-    rotationRequired: true
-  },
-
-  lightRailgun: {
-    category: "Weapons",
-    cost: 42, mass: 6, hp: 42,
-    powerGeneration: 0, powerUse: 4.6,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.045,
-    energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
-      damage: 66,
-      fireRate: 0.24,
-      range: 900,
-      projectileSpeed: 1100,
-      accuracy: 0.93,
-      tracking: 0,
-      arc: 45
-    }),
-    rotationRequired: true
-  },
-
-  heavyRailgun: {
-    category: "Weapons",
-    cost: 94, mass: 16, hp: 68,
-    powerGeneration: 0, powerUse: 11,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.1,
-    energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
-      damage: 160,
-      fireRate: 0.105,
-      range: 1280,
-      projectileSpeed: 1260,
-      accuracy: 0.96,
-      tracking: 0,
-      arc: 35
-    }),
-    rotationRequired: true
-  },
-
-  beamEmitter: {
-    category: "Weapons",
-    cost: 74, mass: 10, hp: 54,
-    powerGeneration: 0, powerUse: 9.5,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.065,
-    energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
-      damage: 34,
-      fireRate: 0.7,
-      range: 720,
-      projectileSpeed: 1500,
-      accuracy: 0.98,
-      tracking: 0,
-      arc: 70
-    }),
-    rotationRequired: true
-  },
-
-  // Support / utility
-  sensorArray: {
-    category: "Support",
-    cost: 22, mass: 2, hp: 24,
-    powerGeneration: 0, powerUse: 1.3,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    rangeBonus: 35,
-    utilityEffect: "range"
-  },
-
-  targetingComputer: {
-    category: "Support",
-    cost: 32, mass: 3, hp: 28,
-    powerGeneration: 0, powerUse: 2.4,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    accuracyBonus: 0.035,
-    utilityEffect: "accuracy"
-  },
-
-  fireControl: {
-    category: "Support",
-    cost: 44, mass: 5, hp: 34,
-    powerGeneration: 0, powerUse: 3.8,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.02,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    fireRateBonus: 0.05,
-    utilityEffect: "fireRate"
-  },
-
-  heatSink: {
-    category: "Support",
-    cost: 24, mass: 5, hp: 44,
-    powerGeneration: 0, powerUse: 0.7,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    heat: -6,
-    utilityEffect: "cooling"
-  },
-
-  captureModule: {
-    category: "Utility",
-    cost: 28, mass: 4, hp: 40,
-    powerGeneration: 0, powerUse: 1.8,
-    shield: 8, shieldRegen: 0.15,
-    thrust: 0, turn: -0.005,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    captureBonus: 0.16,
-    utilityEffect: "capture"
-  },
-
-  signalAmplifier: {
-    category: "Utility",
-    cost: 34, mass: 3, hp: 30,
-    powerGeneration: 0, powerUse: 2.2,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    rangeBonus: 60,
-    utilityEffect: "range"
-  },
-
-  stabilizerNode: {
-    category: "Utility",
-    cost: 30, mass: 3, hp: 34,
-    powerGeneration: 0, powerUse: 2,
-    shield: 0, shieldRegen: 0,
-    thrust: 0, turn: 0.04,
-    energyStorage: 0, repairRate: 0,
-    weapon: null,
-    accuracyBonus: 0.05,
-    utilityEffect: "accuracy"
-  },
-
-  repairBeam: {
-    category: "Support",
-    cost: 58, mass: 8, hp: 48,
-    powerGeneration: 0, powerUse: 6.2,
-    shield: 22, shieldRegen: 0.4,
-    thrust: 0, turn: -0.035,
-    energyStorage: 0, repairRate: 17,
-    repair: 1,
-    weapon: null,
-    utilityEffect: "repair"
-  }
-};
-
-let PART_STATS = buildPartStatsFromBalance(null, FALLBACK_PART_STATS);
-
-const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
-const LOCAL_NAME_KEY = "modular-fleet-name-v1";
-const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
-const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
-const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
-const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
-const LOCAL_ACTIVE_ROOM_KEY = "modular-fleet-active-room-v1";
-const WORLD_FALLBACK = { width: 3200, height: 1900 };
-const PURCHASE_PENDING_MS = 2500;
-const PART_CATEGORIES = ["Structure", "Power", "Engines", "Defence", "Weapons", "Support", "Utility"];
-const HIDDEN_PARTS = new Set([
-  "lightFrame",
-  "heavyFrame",
-  "bulkhead",
-  "lightMount",
-  "heavyMount",
-  "smallReactor",
-  "heavyReactor",
-  "microThruster",
-  "heavyEngine",
-  "lightShield",
-  "heavyShield",
-  "regenShield",
-  "lightBlaster",
-  "heavyBlaster",
-  "lightMissile",
-  "lightRailgun",
-  "heavyRailgun"
-]);
-
-const dom = {
+export const dom = {
   canvas: document.getElementById("arenaCanvas"),
   status: document.getElementById("connectionStatus"),
   roomState: document.getElementById("roomStateText"),
@@ -840,9 +97,9 @@ const dom = {
   confirmAcceptButton: document.getElementById("confirmAcceptButton")
 };
 
-const ctx = dom.canvas.getContext("2d", { alpha: false });
+export const ctx = dom.canvas.getContext("2d", { alpha: false });
 
-const state = {
+export const state = {
   socket: null,
   myId: null,
   room: "",
@@ -946,14 +203,14 @@ async function loadComponentBalance() {
   }
 }
 
-function applyComponentBalance(balance) {
+export function applyComponentBalance(balance) {
   const nextParts = buildPartStatsFromBalance(balance, FALLBACK_PART_STATS);
   if (!nextParts.core || !nextParts.frame) return;
   PART_STATS = nextParts;
   state.design = normalizeDesign(state.design);
 }
 
-function applyServerParts(parts) {
+export function applyServerParts(parts) {
   const nextParts = normalizeRuntimeParts(parts);
   if (!nextParts.core || !nextParts.frame) return;
   PART_STATS = nextParts;
@@ -1015,13 +272,13 @@ setInterval(() => {
   send({ type: "ping", at: state.lastPingAt });
 }, 2000);
 
-function createGame() {
+export function createGame() {
   dom.roomCode.value = "";
   clearMenuNotice();
   joinRoom("");
 }
 
-function joinExistingGame() {
+export function joinExistingGame() {
   const code = dom.roomCode.value.trim().toUpperCase();
   clearMenuNotice();
   if (!code) {
@@ -1032,7 +289,7 @@ function joinExistingGame() {
   joinRoom(code);
 }
 
-function joinRoom(roomCode = "") {
+export function joinRoom(roomCode = "") {
   clearMenuNotice();
   if (state.socket) state.socket.close();
   state.room = "";
@@ -1083,7 +340,7 @@ function joinRoom(roomCode = "") {
   });
 }
 
-function deployDesign() {
+export function deployDesign() {
   if (!state.room || !state.socket || state.socket.readyState !== WebSocket.OPEN) {
     addNotice("Create or join a game first", "warning");
     return;
@@ -1095,22 +352,22 @@ function deployDesign() {
   send({ type: "deploy", design: state.design });
 }
 
-function startDesign() {
+export function startDesign() {
   send({ type: "startDesign" });
 }
 
-function restartMatch() {
+export function restartMatch() {
   send({ type: "restart" });
 }
 
-function closeLobby() {
+export function closeLobby() {
   setEndGameActionState(true);
   send({ type: "closeLobby" });
   forgetActiveRoom();
   returnToMainMenu("Closing lobby", "warning");
 }
 
-function leaveLobby() {
+export function leaveLobby() {
   if (!state.room) {
     openMainMenu();
     return;
@@ -1120,13 +377,13 @@ function leaveLobby() {
   returnToMainMenu("Left lobby", "warning");
 }
 
-function setEndGameActionState(disabled) {
+export function setEndGameActionState(disabled) {
   if (dom.restartButton) dom.restartButton.disabled = disabled;
   if (dom.endCloseButton) dom.endCloseButton.disabled = disabled;
   if (dom.endLeaveButton) dom.endLeaveButton.disabled = disabled;
 }
 
-function returnToMainMenu(message = "", tone = "warning") {
+export function returnToMainMenu(message = "", tone = "warning") {
   clearRoomState();
   setConnectionStatus(state.socket?.readyState === WebSocket.OPEN ? "online" : "offline", state.socket?.readyState === WebSocket.OPEN ? "Dock linked" : "Offline dock");
   updateLobbyState();
@@ -1138,7 +395,7 @@ function returnToMainMenu(message = "", tone = "warning") {
   if (message) showMenuNotice(message, tone);
 }
 
-function clearRoomState() {
+export function clearRoomState() {
   for (const pending of state.pendingPurchases.values()) clearTimeout(pending.timeoutId);
   for (const error of state.purchaseErrors.values()) {
     if (error?.timeoutId) clearTimeout(error.timeoutId);
@@ -1167,29 +424,29 @@ function clearRoomState() {
   setEndGameActionState(false);
 }
 
-function clearMatchPanels() {
+export function clearMatchPanels() {
   dom.scoreList.textContent = "";
   dom.matchProgressFill.style.width = "0%";
   dom.matchSummary.textContent = "No active match";
 }
 
-function showMenuScreen(screen) {
+export function showMenuScreen(screen) {
   for (const element of [dom.mainMenuScreen, dom.lobbyManagementScreen, dom.settingsScreen]) {
     if (element) element.hidden = element !== screen;
   }
 }
 
-function hideMenuScreens() {
+export function hideMenuScreens() {
   if (dom.mainMenuScreen) dom.mainMenuScreen.hidden = true;
   if (dom.lobbyManagementScreen) dom.lobbyManagementScreen.hidden = true;
   if (dom.settingsScreen) dom.settingsScreen.hidden = true;
 }
 
-function openMainMenu() {
+export function openMainMenu() {
   showMenuScreen(dom.mainMenuScreen);
 }
 
-function showMenuNotice(message, tone = "warning") {
+export function showMenuNotice(message, tone = "warning") {
   if (!dom.mainMenuNotice) return;
   const text = String(message || "").trim();
   if (!text) {
@@ -1201,14 +458,14 @@ function showMenuNotice(message, tone = "warning") {
   dom.mainMenuNotice.hidden = false;
 }
 
-function clearMenuNotice() {
+export function clearMenuNotice() {
   if (!dom.mainMenuNotice) return;
   dom.mainMenuNotice.textContent = "";
   dom.mainMenuNotice.hidden = true;
   dom.mainMenuNotice.className = "menu-notice";
 }
 
-function openLobbyManagement() {
+export function openLobbyManagement() {
   if (!state.room) {
     addNotice("Create or join a game before opening lobby management", "warning");
     openMainMenu();
@@ -1217,12 +474,12 @@ function openLobbyManagement() {
   showMenuScreen(dom.lobbyManagementScreen);
 }
 
-function openSettings() {
+export function openSettings() {
   if (dom.serverUrlInput) dom.serverUrlInput.value = getConfiguredServerUrl();
   showMenuScreen(dom.settingsScreen);
 }
 
-function saveServerSetting() {
+export function saveServerSetting() {
   const value = dom.serverUrlInput?.value?.trim() || "";
   if (value) localStorage.setItem(LOCAL_SERVER_KEY, value);
   else localStorage.removeItem(LOCAL_SERVER_KEY);
@@ -1230,13 +487,13 @@ function saveServerSetting() {
   hideMenuScreens();
 }
 
-function clearServerSetting() {
+export function clearServerSetting() {
   localStorage.removeItem(LOCAL_SERVER_KEY);
   if (dom.serverUrlInput) dom.serverUrlInput.value = "";
   addNotice(state.socket ? "Using current host after reconnect" : "Using current host", "good");
 }
 
-function sendRulesUpdate() {
+export function sendRulesUpdate() {
   if (!isAdmin() || state.phase !== "lobby") return;
   const rules = {
     gameMode: dom.gameModeSelect?.value || "teams",
@@ -1247,7 +504,7 @@ function sendRulesUpdate() {
   send({ type: "setRules", rules });
 }
 
-function kickPlayer(targetId) {
+export function kickPlayer(targetId) {
   if (!targetId) {
     addNotice("Cannot kick: missing player id", "error");
     return;
@@ -1264,7 +521,7 @@ function kickPlayer(targetId) {
   openKickConfirmModal(player || { id: targetId, name: "this player" });
 }
 
-function openKickConfirmModal(player) {
+export function openKickConfirmModal(player) {
   state.pendingKickTargetId = player.id;
   state.pendingDeleteDesignId = null;
   if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Kick player?";
@@ -1274,7 +531,7 @@ function openKickConfirmModal(player) {
   dom.confirmCancelButton?.focus?.();
 }
 
-function bindKickButtonContainer(container) {
+export function bindKickButtonContainer(container) {
   if (!container) return;
   container.addEventListener("pointerdown", handleKickPointerDown);
   container.addEventListener("pointerup", handleKickPointerUp);
@@ -1283,7 +540,7 @@ function bindKickButtonContainer(container) {
   container.addEventListener("click", handleKickKeyboardClick);
 }
 
-function handleKickPointerDown(event) {
+export function handleKickPointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return;
   const container = event.currentTarget;
   const button = event.target?.closest?.("[data-kick]");
@@ -1305,7 +562,7 @@ function handleKickPointerDown(event) {
   }
 }
 
-function handleKickPointerUp(event) {
+export function handleKickPointerUp(event) {
   const pointer = state.kickPointer;
   if (!pointer || pointer.pointerId !== event.pointerId) return;
   const container = pointer.container;
@@ -1326,12 +583,12 @@ function handleKickPointerUp(event) {
   kickPlayer(pointer.targetId);
 }
 
-function clearKickPointer() {
+export function clearKickPointer() {
   clearKickPressedButtons();
   state.kickPointer = null;
 }
 
-function clearKickPressedButtons() {
+export function clearKickPressedButtons() {
   for (const container of [dom.playerList, dom.scoreList]) {
     container?.querySelectorAll?.("[data-kick].pressed")?.forEach((button) => {
       button.classList.remove("pressed");
@@ -1339,7 +596,7 @@ function clearKickPressedButtons() {
   }
 }
 
-function handleKickKeyboardClick(event) {
+export function handleKickKeyboardClick(event) {
   if (event.detail !== 0) return;
   const container = event.currentTarget;
   const button = event.target?.closest?.("[data-kick]");
@@ -1348,7 +605,7 @@ function handleKickKeyboardClick(event) {
   kickPlayer(button.dataset.kick || "");
 }
 
-function addBot() {
+export function addBot() {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
     joinRoom();
     setTimeout(addBot, 260);
@@ -1357,7 +614,7 @@ function addBot() {
   send({ type: "addBot" });
 }
 
-function handlePurchasePointerDown(event) {
+export function handlePurchasePointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return;
   const card = event.target?.closest?.(".purchase-option");
   if (!card || !dom.purchaseOptions?.contains(card)) return;
@@ -1378,7 +635,7 @@ function handlePurchasePointerDown(event) {
   }
 }
 
-function handlePurchasePointerUp(event) {
+export function handlePurchasePointerUp(event) {
   const pointer = state.purchasePointer;
   if (!pointer || pointer.pointerId !== event.pointerId) return;
   clearPurchasePointer();
@@ -1401,12 +658,12 @@ function handlePurchasePointerUp(event) {
   buyPurchaseOption(pointer.optionId);
 }
 
-function clearPurchasePointer() {
+export function clearPurchasePointer() {
   clearPressedPurchaseCards();
   state.purchasePointer = null;
 }
 
-function clearPressedPurchaseCards() {
+export function clearPressedPurchaseCards() {
   dom.purchaseOptions?.querySelectorAll?.(".purchase-option.pressed")?.forEach((card) => {
     card.classList.remove("pressed");
     const previousStatus = card.dataset?.statusText;
@@ -1418,7 +675,7 @@ function clearPressedPurchaseCards() {
   });
 }
 
-function setPurchaseCardFeedback(card, className, text) {
+export function setPurchaseCardFeedback(card, className, text) {
   if (!card) return;
   const status = card.querySelector("em");
   if (status && card.dataset && !card.dataset.statusText) card.dataset.statusText = status.textContent;
@@ -1426,13 +683,13 @@ function setPurchaseCardFeedback(card, className, text) {
   if (status) status.textContent = text;
 }
 
-function setPurchaseOptionFeedback(optionId, className, text) {
+export function setPurchaseOptionFeedback(optionId, className, text) {
   const card = [...(dom.purchaseOptions?.querySelectorAll?.(".purchase-option") || [])]
     .find((candidate) => candidate.dataset?.optionId === optionId);
   if (card) setPurchaseCardFeedback(card, className, text);
 }
 
-function handlePurchaseKeyboardClick(event) {
+export function handlePurchaseKeyboardClick(event) {
   if (event.detail !== 0) return;
   const card = event.target?.closest?.(".purchase-option");
   if (!card || !dom.purchaseOptions?.contains(card)) return;
@@ -1441,7 +698,7 @@ function handlePurchaseKeyboardClick(event) {
   buyPurchaseOption(card.dataset?.optionId || "");
 }
 
-function buyPurchaseOption(optionId) {
+export function buyPurchaseOption(optionId) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   const quantity = state.purchaseQuantity;
   const connectionOpen = state.socket?.readyState === WebSocket.OPEN;
@@ -1498,27 +755,27 @@ function buyPurchaseOption(optionId) {
   send({ type: "buyShip", count: quantity, design: option.blueprint, requestId });
 }
 
-function isUnaffordablePurchaseOption(optionId) {
+export function isUnaffordablePurchaseOption(optionId) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option) return false;
   const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
   return !purchase.canBuy && isMoneyPurchaseBlocker(purchase.reason);
 }
 
-function isMoneyPurchaseBlocker(reason = "") {
+export function isMoneyPurchaseBlocker(reason = "") {
   return /need \$|not enough money|cannot afford/i.test(String(reason));
 }
 
-function setPurchaseQuantity(quantity) {
+export function setPurchaseQuantity(quantity) {
   state.purchaseQuantity = quantity === 5 ? 5 : 1;
   renderPurchaseBar();
 }
 
-function makePurchaseRequestId() {
+export function makePurchaseRequestId() {
   return `buy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function clearPendingPurchase(requestId) {
+export function clearPendingPurchase(requestId) {
   const pending = state.pendingPurchases.get(requestId);
   if (!pending) return null;
   clearTimeout(pending.timeoutId);
@@ -1527,7 +784,7 @@ function clearPendingPurchase(requestId) {
   return pending;
 }
 
-function reconcilePendingPurchasesWithSnapshot() {
+export function reconcilePendingPurchasesWithSnapshot() {
   if (!state.pendingPurchases.size) return;
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   if (!mine) return;
@@ -1544,7 +801,7 @@ function reconcilePendingPurchasesWithSnapshot() {
   }
 }
 
-function setPurchaseError(optionId, message) {
+export function setPurchaseError(optionId, message) {
   const previous = state.purchaseErrors.get(optionId);
   if (previous?.timeoutId) clearTimeout(previous.timeoutId);
   const timeoutId = setTimeout(() => {
@@ -1555,18 +812,18 @@ function setPurchaseError(optionId, message) {
   renderPurchaseBar();
 }
 
-function send(message) {
+export function send(message) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
   state.socket.send(JSON.stringify(message));
 }
 
-function setConnectionStatus(status, text) {
+export function setConnectionStatus(status, text) {
   if (!dom.status) return;
   dom.status.textContent = text;
   dom.status.className = `connection-status ${status}`;
 }
 
-function updateLobbyState() {
+export function updateLobbyState() {
   const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
   const connecting = state.socket?.readyState === WebSocket.CONNECTING;
   const playerCount = state.snapshot?.players?.length || 0;
@@ -1594,7 +851,7 @@ function updateLobbyState() {
   renderPlayerList();
 }
 
-function updateRulesControls(connected, admin, phase, playerCount) {
+export function updateRulesControls(connected, admin, phase, playerCount) {
   const editable = connected && admin && phase === "lobby";
   const rules = state.snapshot?.rules || state.rules || {};
   state.rules = { ...state.rules, ...rules };
@@ -1615,7 +872,7 @@ function updateRulesControls(connected, admin, phase, playerCount) {
   }
 }
 
-function updateTeamChoiceControls(connected, phase) {
+export function updateTeamChoiceControls(connected, phase) {
   const mode = state.rules?.gameMode || "teams";
   const inLobby = connected && phase === "lobby";
   const canChoose = inLobby && mode === "teams";
@@ -1635,12 +892,12 @@ function updateTeamChoiceControls(connected, phase) {
   }
 }
 
-function setRuleControlValue(element, value) {
+export function setRuleControlValue(element, value) {
   if (!element || document.activeElement === element) return;
   element.value = String(value);
 }
 
-function phaseLabel(phase) {
+export function phaseLabel(phase) {
   if (phase === "lobby") return "Lobby";
   if (phase === "design") return "Ship design";
   if (phase === "active") return "Battle";
@@ -1648,7 +905,7 @@ function phaseLabel(phase) {
   return "Offline";
 }
 
-function updatePhaseSteps(phase) {
+export function updatePhaseSteps(phase) {
   const order = ["lobby", "design", "active", "ended"];
   const current = Math.max(0, order.indexOf(phase));
   const entries = [
@@ -1663,7 +920,7 @@ function updatePhaseSteps(phase) {
   }
 }
 
-function updatePhaseDetail(phase) {
+export function updatePhaseDetail(phase) {
   const players = state.snapshot?.players || [];
   const ready = players.filter((player) => player.ready).length;
   const mapName = state.snapshot?.map?.name;
@@ -1687,7 +944,7 @@ function updatePhaseDetail(phase) {
   }
 }
 
-function handleServerMessage(message) {
+export function handleServerMessage(message) {
   if (message.type === "hello") {
     state.myId = message.id;
     applyServerParts(message.parts || {});
@@ -1793,15 +1050,15 @@ function handleServerMessage(message) {
   }
 }
 
-function rememberActiveRoom(roomCode) {
+export function rememberActiveRoom(roomCode) {
   if (roomCode) localStorage.setItem(LOCAL_ACTIVE_ROOM_KEY, String(roomCode).toUpperCase());
 }
 
-function forgetActiveRoom() {
+export function forgetActiveRoom() {
   localStorage.removeItem(LOCAL_ACTIVE_ROOM_KEY);
 }
 
-function renderPalette() {
+export function renderPalette() {
   dom.palette.textContent = "";
   const tabs = document.createElement("div");
   tabs.className = "part-category-tabs";
@@ -1843,11 +1100,11 @@ function renderPalette() {
   dom.palette.appendChild(list);
 }
 
-function isPalettePart(type) {
+export function isPalettePart(type) {
   return type !== "core" && !HIDDEN_PARTS.has(type);
 }
 
-function partCategory(type) {
+export function partCategory(type) {
   const stat = PART_STATS[type] || {};
   if (stat.category) return stat.category;
   if (type === "frame" || type === "armor") return "Structure";
@@ -1859,7 +1116,7 @@ function partCategory(type) {
   return "Utility";
 }
 
-function renderPartInspector() {
+export function renderPartInspector() {
   const type = state.selectedPart;
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
@@ -1888,19 +1145,19 @@ function renderPartInspector() {
   `;
 }
 
-function partDescription(type, stat) {
+export function partDescription(type, stat) {
   return stat.description || PART_DESCRIPTIONS[type] || "General-purpose ship component.";
 }
 
-function inspectorStat(label, value) {
+export function inspectorStat(label, value) {
   return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
-function inspectorDetail(label, value) {
+export function inspectorDetail(label, value) {
   return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
-function partPowerText(stat) {
+export function partPowerText(stat) {
   const generation = stat.powerGeneration || 0;
   const use = stat.powerUse || 0;
   if (generation && use) return `+${generation} MW / -${use} MW`;
@@ -1909,7 +1166,7 @@ function partPowerText(stat) {
   return "0 MW";
 }
 
-function partInspectorDetails(type, stat, effectiveCost) {
+export function partInspectorDetails(type, stat, effectiveCost) {
   if (stat.weapon) {
     const weapon = stat.weapon;
     return [
@@ -1991,59 +1248,59 @@ function partInspectorDetails(type, stat, effectiveCost) {
   ];
 }
 
-function formatMass(value) {
+export function formatMass(value) {
   return `${Number(value) || 0} T`;
 }
 
-function formatHull(value) {
+export function formatHull(value) {
   return `${Number(value) || 0} HP`;
 }
 
-function formatShield(value) {
+export function formatShield(value) {
   return `${Number(value) || 0} SP`;
 }
 
-function formatThrust(value) {
+export function formatThrust(value) {
   return `${Number(value) || 0} kN`;
 }
 
-function formatEnergy(value) {
+export function formatEnergy(value) {
   return `${Number(value) || 0} MJ`;
 }
 
-function formatRepair(value) {
+export function formatRepair(value) {
   return `${Number(value) || 0} HP/s`;
 }
 
-function formatPowerUse(value) {
+export function formatPowerUse(value) {
   return `${Number(value) || 0} MW`;
 }
 
-function formatPowerGeneration(value) {
+export function formatPowerGeneration(value) {
   return `+${Number(value) || 0} MW`;
 }
 
-function formatDistance(value) {
+export function formatDistance(value) {
   return `${Number(value) || 0} m`;
 }
 
-function formatSpeed(value) {
+export function formatSpeed(value) {
   return `${Number(value) || 0} m/s`;
 }
 
-function formatDamage(value) {
+export function formatDamage(value) {
   return `${Number(value) || 0} dmg`;
 }
 
-function formatPercent(value) {
+export function formatPercent(value) {
   return `${Math.round((Number(value) || 0) * 100)}%`;
 }
 
-function effectivePartCostLabel(type) {
+export function effectivePartCostLabel(type) {
   return `$${estimatePartEffectiveCost(type)}`;
 }
 
-function estimatePartEffectiveCost(type) {
+export function estimatePartEffectiveCost(type) {
   const current = computeStats(state.design);
   const occupied = new Set(state.design.map((part) => `${part.x},${part.y}`));
   for (const part of state.design) {
@@ -2065,7 +1322,7 @@ function estimatePartEffectiveCost(type) {
   return estimateFormulaPartCost(type);
 }
 
-function estimateFormulaPartCost(type) {
+export function estimateFormulaPartCost(type) {
   const stat = PART_STATS[type] || PART_STATS.frame;
   const weaponPremium =
     (stat.blaster || 0) * SHIP_ECONOMY.weaponPremiums.blaster +
@@ -2081,7 +1338,7 @@ function estimateFormulaPartCost(type) {
   ));
 }
 
-function partIconMarkup(type, extraClass = "") {
+export function partIconMarkup(type, extraClass = "") {
   const safeType = String(type || "frame").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
   const classes = ["part-glyph", `part-${safeType}`, extraClass].filter(Boolean).join(" ");
   const color = PART_DEFS[type]?.color || "#8393aa";
@@ -2089,7 +1346,7 @@ function partIconMarkup(type, extraClass = "") {
   return `<span class="${classes}"${style} aria-hidden="true"><span></span></span>`;
 }
 
-function makeWeapon(type, stats) {
+export function makeWeapon(type, stats) {
   const fireRate = Number(stats.fireRate) || 1;
   const damage = Number(stats.damage) || 0;
   return {
@@ -2106,7 +1363,7 @@ function makeWeapon(type, stats) {
   };
 }
 
-function buildPartStatsFromBalance(balance, fallbackParts) {
+export function buildPartStatsFromBalance(balance, fallbackParts) {
   const components = Array.isArray(balance?.components) ? balance.components : [];
   if (!components.length) return normalizeRuntimeParts(fallbackParts);
 
@@ -2119,7 +1376,7 @@ function buildPartStatsFromBalance(balance, fallbackParts) {
   return parts;
 }
 
-function normalizeRuntimeParts(parts = {}) {
+export function normalizeRuntimeParts(parts = {}) {
   const normalized = {};
   for (const [type, part] of Object.entries(parts || {})) {
     normalized[type] = normalizeRuntimePart(part);
@@ -2127,7 +1384,7 @@ function normalizeRuntimeParts(parts = {}) {
   return normalized;
 }
 
-function normalizeRuntimePart(part = {}) {
+export function normalizeRuntimePart(part = {}) {
   const weapon = part.weapon
     ? makeWeapon(part.weapon.family || part.weapon.type || "blaster", part.weapon)
     : null;
@@ -2164,7 +1421,7 @@ function normalizeRuntimePart(part = {}) {
   return normalized;
 }
 
-function normalizeBalanceComponent(component) {
+export function normalizeBalanceComponent(component) {
   const weapon = component.weapon
     ? makeWeapon(component.weapon.family || component.weapon.type || "blaster", component.weapon)
     : null;
@@ -2200,12 +1457,12 @@ function normalizeBalanceComponent(component) {
   return part;
 }
 
-function numberOr(value, fallback = 0) {
+export function numberOr(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
 
-function renderBuildGrid() {
+export function renderBuildGrid() {
   dom.grid.textContent = "";
   const byCell = new Map(state.design.map((part) => [`${part.x},${part.y}`, part]));
 
@@ -2237,7 +1494,7 @@ function renderBuildGrid() {
   }
 }
 
-function editCell(x, y) {
+export function editCell(x, y) {
   const existing = state.design.find((part) => part.x === x && part.y === y);
   if (existing?.type === "core") return;
   state.selectedCell = { x, y };
@@ -2275,22 +1532,22 @@ function editCell(x, y) {
   renderSavedDesigns();
 }
 
-function makeDesignPart(x, y, type, previousRotation = 0) {
+export function makeDesignPart(x, y, type, previousRotation = 0) {
   const rotation = isRotatablePart(type) ? normalizeRotation(previousRotation) : 0;
   return { x, y, type, rotation };
 }
 
-function isRotatablePart(type) {
+export function isRotatablePart(type) {
   const stat = PART_STATS[type] || {};
   return Boolean(stat.rotationRequired || stat.weapon);
 }
 
-function normalizeRotation(value) {
+export function normalizeRotation(value) {
   const rotation = Number(value);
   return [0, 90, 180, 270].includes(rotation) ? rotation : 0;
 }
 
-function rotateCell(x, y) {
+export function rotateCell(x, y) {
   const part = state.design.find((candidate) => candidate.x === x && candidate.y === y);
   if (!part || !isRotatablePart(part.type)) return false;
   state.design = state.design.map((candidate) => candidate === part
@@ -2303,13 +1560,13 @@ function rotateCell(x, y) {
   return true;
 }
 
-function rotateFocusedPart() {
+export function rotateFocusedPart() {
   const cell = state.hoveredCell || state.selectedCell;
   if (!cell) return;
   rotateCell(cell.x, cell.y);
 }
 
-function removeCell(x, y) {
+export function removeCell(x, y) {
   const existing = state.design.find((part) => part.x === x && part.y === y);
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part.x !== x || part.y !== y);
@@ -2326,7 +1583,7 @@ function removeCell(x, y) {
   }
 }
 
-function resetDesign() {
+export function resetDesign() {
   state.design = defaultDesign();
   state.loadedEditorBlueprintId = null;
   persistDesign();
@@ -2335,7 +1592,7 @@ function resetDesign() {
   renderSavedDesigns();
 }
 
-function saveCurrentDesign(name = "") {
+export function saveCurrentDesign(name = "") {
   const stats = computeStats(state.design);
   const now = Date.now();
   const existingIndex = state.savedDesigns.findIndex((design) => design.id === state.loadedEditorBlueprintId);
@@ -2361,12 +1618,12 @@ function saveCurrentDesign(name = "") {
   showToast(`${existing ? "Updated" : "Saved"} ${design.name}`, "good");
 }
 
-function saveBlueprintButtonText() {
+export function saveBlueprintButtonText() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
   return existing ? `Update "${existing.name}"` : "Save Blueprint";
 }
 
-function loadSavedDesign(id) {
+export function loadSavedDesign(id) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
   const valid = normalizeDesign(saved.blueprint);
@@ -2380,13 +1637,13 @@ function loadSavedDesign(id) {
   showToast(`Editing ${saved.name}`, "good");
 }
 
-function syncBlueprintToServer(blueprint) {
+export function syncBlueprintToServer(blueprint) {
   if (state.socket?.readyState !== WebSocket.OPEN) return;
   if (state.phase !== "active" && state.phase !== "design") return;
   send({ type: "deploy", design: blueprint });
 }
 
-function handleSavedDesignPointerDown(event) {
+export function handleSavedDesignPointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return;
   const button = event.target?.closest?.("[data-saved-action]");
   if (!button || !dom.savedDesignList?.contains(button)) return;
@@ -2407,7 +1664,7 @@ function handleSavedDesignPointerDown(event) {
   }
 }
 
-function handleSavedDesignPointerUp(event) {
+export function handleSavedDesignPointerUp(event) {
   const pointer = state.savedDesignPointer;
   if (!pointer || pointer.pointerId !== event.pointerId) return;
   clearSavedDesignPointer();
@@ -2427,18 +1684,18 @@ function handleSavedDesignPointerUp(event) {
   runSavedDesignAction(pointer.action, pointer.id);
 }
 
-function clearSavedDesignPointer() {
+export function clearSavedDesignPointer() {
   clearSavedDesignPressedButtons();
   state.savedDesignPointer = null;
 }
 
-function clearSavedDesignPressedButtons() {
+export function clearSavedDesignPressedButtons() {
   dom.savedDesignList?.querySelectorAll?.("[data-saved-action].pressed")?.forEach((button) => {
     button.classList.remove("pressed");
   });
 }
 
-function handleSavedDesignKeyboardClick(event) {
+export function handleSavedDesignKeyboardClick(event) {
   if (event.detail !== 0) return;
   const button = event.target?.closest?.("[data-saved-action]");
   if (!button || !dom.savedDesignList?.contains(button)) return;
@@ -2446,16 +1703,16 @@ function handleSavedDesignKeyboardClick(event) {
   runSavedDesignAction(button.dataset.savedAction || "", button.dataset.savedId || "");
 }
 
-function runSavedDesignAction(action, id) {
+export function runSavedDesignAction(action, id) {
   if (action === "load") loadSavedDesign(id);
   else if (action === "delete") deleteSavedDesign(id);
 }
 
-function isSavedDesignNameFocused() {
+export function isSavedDesignNameFocused() {
   return Boolean(document.activeElement?.classList?.contains("saved-design-name"));
 }
 
-function renameSavedDesign(id, name) {
+export function renameSavedDesign(id, name) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
   const cleanName = String(name || "").trim().slice(0, 28);
@@ -2470,13 +1727,13 @@ function renameSavedDesign(id, name) {
   }
 }
 
-function deleteSavedDesign(id) {
+export function deleteSavedDesign(id) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
   openDeleteDesignModal(saved);
 }
 
-function openDeleteDesignModal(saved) {
+export function openDeleteDesignModal(saved) {
   state.pendingDeleteDesignId = saved.id;
   state.pendingKickTargetId = null;
   if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Delete blueprint?";
@@ -2486,13 +1743,13 @@ function openDeleteDesignModal(saved) {
   dom.confirmCancelButton?.focus?.();
 }
 
-function closeConfirmModal() {
+export function closeConfirmModal() {
   state.pendingDeleteDesignId = null;
   state.pendingKickTargetId = null;
   if (dom.confirmModal) dom.confirmModal.hidden = true;
 }
 
-function confirmModalAction() {
+export function confirmModalAction() {
   if (state.pendingKickTargetId) {
     const targetId = state.pendingKickTargetId;
     closeConfirmModal();
@@ -2514,7 +1771,7 @@ function confirmModalAction() {
   showToast(`Deleted ${saved.name}`, "warning");
 }
 
-function renderSavedDesigns() {
+export function renderSavedDesigns() {
   if (!dom.savedDesignList) return;
   if (isSavedDesignNameFocused()) return;
   dom.savedDesignList.textContent = "";
@@ -2554,11 +1811,11 @@ function renderSavedDesigns() {
   renderPurchaseBar();
 }
 
-function makeDesignId() {
+export function makeDesignId() {
   return `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function nextDesignName() {
+export function nextDesignName() {
   const used = new Set(state.savedDesigns.map((design) => design.name.toLowerCase()));
   for (let index = 1; index < 999; index += 1) {
     const name = `Design ${index}`;
@@ -2567,7 +1824,7 @@ function nextDesignName() {
   return `Design ${state.savedDesigns.length + 1}`;
 }
 
-function renderLocalStats() {
+export function renderLocalStats() {
   const stats = computeStats(state.design);
   const status = getShipStatus(stats);
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
@@ -2608,7 +1865,7 @@ function renderLocalStats() {
   updateEconomyUi();
 }
 
-function getShipStatus(stats) {
+export function getShipStatus(stats) {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const blockers = [];
   const money = currentMatchMoney(mine);
@@ -2627,7 +1884,7 @@ function getShipStatus(stats) {
   return { blockers, warnings };
 }
 
-function renderShipIssues(status) {
+export function renderShipIssues(status) {
   if (!dom.shipIssuesPanel) return;
   const isDesignStage = state.phase === "design";
   const stateText = status.blockers.length
@@ -2643,11 +1900,11 @@ function renderShipIssues(status) {
   `;
 }
 
-function currentMatchMoney(mine) {
+export function currentMatchMoney(mine) {
   return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
 }
 
-function issueListMarkup(title, issues) {
+export function issueListMarkup(title, issues) {
   if (!issues.length) return `<div class="issue-group empty"><span>${title}</span><p>None</p></div>`;
   return `
     <div class="issue-group">
@@ -2657,16 +1914,16 @@ function issueListMarkup(title, issues) {
   `;
 }
 
-function setBuildStatus(text, className) {
+export function setBuildStatus(text, className) {
   dom.buildStatus.textContent = text;
   dom.buildStatus.className = `build-status ${className || ""}`.trim();
 }
 
-function statMarkup(label, value) {
+export function statMarkup(label, value) {
   return `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
-function costBreakdownMarkup(breakdown) {
+export function costBreakdownMarkup(breakdown) {
   if (!breakdown) return "";
   const rows = [
     ["Base", breakdown.base],
@@ -2696,7 +1953,7 @@ function costBreakdownMarkup(breakdown) {
   `;
 }
 
-function updateHud() {
+export function updateHud() {
   if (!state.snapshot) return;
   const mine = state.snapshot.players.find((player) => player.id === state.myId);
   const myShips = state.snapshot.ships.filter((ship) => ship.ownerId === state.myId && ship.alive);
@@ -2718,7 +1975,7 @@ function updateHud() {
   dom.latency.textContent = state.latency == null ? "-- ms" : `${Math.round(state.latency)} ms`;
 }
 
-function updateEconomyUi() {
+export function updateEconomyUi() {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const localStats = computeStats(state.design);
   const localStatus = getShipStatus(localStats);
@@ -2758,7 +2015,7 @@ function updateEconomyUi() {
   renderPurchaseBar();
 }
 
-function readyBlockerButtonText(reason) {
+export function readyBlockerButtonText(reason) {
   if (/Need \$(\d+)/.test(reason)) return `Cannot Ready - Need $${reason.match(/Need \$(\d+)/)[1]}`;
   if (reason.includes("missing core")) return "Cannot Ready - Missing Core";
   if (reason.includes("disconnected")) return "Cannot Ready - Disconnected";
@@ -2766,12 +2023,12 @@ function readyBlockerButtonText(reason) {
   return "Cannot Ready";
 }
 
-function economyStatusText({ income, relays, canAfford, unitCost, money }) {
+export function economyStatusText({ income, relays, canAfford, unitCost, money }) {
   if (!canAfford) return `Current editor design needs $${Math.ceil(unitCost - money)} more. Buy affordable ships from the bottom bar.`;
   return `Buy ships from the bottom bar. Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`;
 }
 
-function getPurchaseOptions() {
+export function getPurchaseOptions() {
   return [
     {
       id: "current",
@@ -2790,7 +2047,7 @@ function getPurchaseOptions() {
   ];
 }
 
-function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
+export function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
   const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
   const money = currentMatchMoney(mine);
   const activeShips = mine?.activeShips ?? 0;
@@ -2823,21 +2080,21 @@ function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
   };
 }
 
-function getPendingPurchaseForOption(optionId) {
+export function getPendingPurchaseForOption(optionId) {
   for (const pending of state.pendingPurchases.values()) {
     if (pending.optionId === optionId) return pending;
   }
   return null;
 }
 
-function validateBlueprintForPurchase(blueprint) {
+export function validateBlueprintForPurchase(blueprint) {
   if (!Array.isArray(blueprint) || blueprint.length === 0) return { ok: false, reason: "Invalid design" };
   if (blueprint.filter((part) => part.type === "core").length !== 1) return { ok: false, reason: "Invalid core" };
   if (!isConnected(blueprint)) return { ok: false, reason: "Disconnected" };
   return { ok: true, reason: "" };
 }
 
-function renderPurchaseBar() {
+export function renderPurchaseBar() {
   if (!dom.purchaseBar || !dom.purchaseOptions) return;
   dom.purchaseQuantityOne?.classList?.toggle("active", state.purchaseQuantity === 1);
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
@@ -2867,20 +2124,20 @@ function renderPurchaseBar() {
   }
 }
 
-function purchaseCostText(option, optionState) {
+export function purchaseCostText(option, optionState) {
   if (state.purchaseQuantity === 1) return `$${option.stats.unitCost}`;
   return `$${option.stats.unitCost} each | $${optionState.totalCost} total`;
 }
 
-function weaponAbbrevText(stats) {
+export function weaponAbbrevText(stats) {
   return `${Number(stats.blaster) || 0}b/${Number(stats.missile) || 0}m/${Number(stats.railgun) || 0}r`;
 }
 
-function weaponSummaryText(stats) {
+export function weaponSummaryText(stats) {
   return `(${weaponAbbrevText(stats)})`;
 }
 
-function showPurchaseTooltip(optionId, event) {
+export function showPurchaseTooltip(optionId, event) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option || !dom.purchaseTooltip) return;
   const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
@@ -2915,11 +2172,11 @@ function showPurchaseTooltip(optionId, event) {
   positionPurchaseTooltip(event);
 }
 
-function tooltipStat(label, value) {
+export function tooltipStat(label, value) {
   return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
-function positionPurchaseTooltip(event) {
+export function positionPurchaseTooltip(event) {
   if (!dom.purchaseTooltip || dom.purchaseTooltip.hidden) return;
   const margin = 14;
   const rect = dom.purchaseTooltip.getBoundingClientRect();
@@ -2932,11 +2189,11 @@ function positionPurchaseTooltip(event) {
   dom.purchaseTooltip.style.top = `${top}px`;
 }
 
-function hidePurchaseTooltip() {
+export function hidePurchaseTooltip() {
   if (dom.purchaseTooltip) dom.purchaseTooltip.hidden = true;
 }
 
-function inferShipRole(stats) {
+export function inferShipRole(stats) {
   const weapons = stats.blaster + stats.missile + stats.railgun;
   if (stats.repair > 0 && stats.weaponDps < 30) return "Support";
   if (stats.railgun >= Math.max(stats.blaster, stats.missile) && stats.railgun > 0) return "Rail Platform";
@@ -2947,13 +2204,13 @@ function inferShipRole(stats) {
   return "Utility";
 }
 
-function currentTarget() {
+export function currentTarget() {
   if (!state.command) return null;
   if (state.command.targetName) return { label: state.command.targetName };
   return { label: `${Math.round(state.command.x)},${Math.round(state.command.y)}` };
 }
 
-function renderScoreboard() {
+export function renderScoreboard() {
   if (!state.snapshot) return;
   const players = [...state.snapshot.players].sort((a, b) => b.score - a.score);
   dom.scoreList.textContent = "";
@@ -2962,7 +2219,7 @@ function renderScoreboard() {
   renderTeamPanel(players);
 }
 
-function renderObjectiveSummary() {
+export function renderObjectiveSummary() {
   const players = playerMap();
   const lines = state.snapshot.points.map((point) => {
     const owner = point.ownerId ? players.get(point.ownerId) : null;
@@ -2977,7 +2234,7 @@ function renderObjectiveSummary() {
   }
 }
 
-function renderTeamPanel(players) {
+export function renderTeamPanel(players) {
   const soloMode = state.rules?.gameMode === "solo";
   const teams = soloMode ? players.map((player) => player.team) : ["blue", "red"];
   for (const team of teams) {
@@ -3034,7 +2291,7 @@ function renderTeamPanel(players) {
   }
 }
 
-function renderPlayerList() {
+export function renderPlayerList() {
   if (!dom.playerList) return;
   const players = state.snapshot?.players || [];
   dom.playerList.textContent = "";
@@ -3057,7 +2314,7 @@ function renderPlayerList() {
   }
 }
 
-function updateMatchMeter(players) {
+export function updateMatchMeter(players) {
   if (!players.length) {
     dom.matchProgressFill.style.width = "0%";
     dom.matchSummary.textContent = "No active match";
@@ -3072,7 +2329,7 @@ function updateMatchMeter(players) {
   dom.matchSummary.textContent = `${mapName}${leader.name} leads ${leader.score}/${maxScore}`;
 }
 
-function updateWinnerBanner() {
+export function updateWinnerBanner() {
   const winner = state.snapshot?.winner;
   if (!winner || state.phase !== "ended") {
     dom.winner.hidden = true;
@@ -3093,7 +2350,7 @@ function updateWinnerBanner() {
   setEndGameActionState(false);
 }
 
-function rewardSummaryMarkup(reward, money) {
+export function rewardSummaryMarkup(reward, money) {
   if (!reward) {
     return escapeHtml(isAdmin()
       ? "Restart sends everyone back to ship design with a new generated map."
@@ -3126,7 +2383,7 @@ function rewardSummaryMarkup(reward, money) {
   `;
 }
 
-function addNotice(text, tone = "") {
+export function addNotice(text, tone = "") {
   const clean = String(text || "").slice(0, 90);
   state.notices.unshift({ text: clean, tone, at: performance.now() });
   state.notices = state.notices.slice(0, 7);
@@ -3139,7 +2396,7 @@ function addNotice(text, tone = "") {
   showToast(clean, tone);
 }
 
-function showToast(text, tone = "") {
+export function showToast(text, tone = "") {
   if (!dom.toastStack) return;
   const toast = document.createElement("div");
   toast.className = `toast ${tone || ""}`.trim();
@@ -3157,7 +2414,7 @@ function showToast(text, tone = "") {
   setTimeout(() => toast.remove(), 3200);
 }
 
-function copyInvite() {
+export function copyInvite() {
   const url = new URL(location.href);
   if (state.room) url.searchParams.set("room", state.room);
   const configuredServer = getConfiguredServerUrl();
@@ -3173,14 +2430,14 @@ function copyInvite() {
   );
 }
 
-function getSocketUrl() {
+export function getSocketUrl() {
   const configured = getConfiguredServerUrl();
   if (configured) return normalizeSocketUrl(configured);
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${location.host}/socket`;
 }
 
-function getConfiguredServerUrl() {
+export function getConfiguredServerUrl() {
   const params = new URLSearchParams(location.search);
   const fromUrl = params.get("server");
   if (fromUrl) {
@@ -3190,7 +2447,7 @@ function getConfiguredServerUrl() {
   return localStorage.getItem(LOCAL_SERVER_KEY) || "";
 }
 
-function normalizeSocketUrl(value) {
+export function normalizeSocketUrl(value) {
   try {
     const url = new URL(value);
     if (url.protocol === "http:") url.protocol = "ws:";
@@ -3202,7 +2459,7 @@ function normalizeSocketUrl(value) {
   }
 }
 
-function handlePointerDown(event) {
+export function handlePointerDown(event) {
   if (!state.snapshot) return;
   dom.canvas.setPointerCapture(event.pointerId);
   state.pointer = { x: event.clientX, y: event.clientY };
@@ -3235,7 +2492,7 @@ function handlePointerDown(event) {
   };
 }
 
-function handlePointerMove(event) {
+export function handlePointerMove(event) {
   state.pointer = { x: event.clientX, y: event.clientY };
   if (!state.drag || state.drag.pointerId !== event.pointerId) return;
   state.drag.currentClientX = event.clientX;
@@ -3243,7 +2500,7 @@ function handlePointerMove(event) {
   state.drag.currentWorld = screenToWorld(event.clientX, event.clientY);
 }
 
-function handlePointerUp(event) {
+export function handlePointerUp(event) {
   if (!state.drag || state.drag.pointerId !== event.pointerId) return;
   const drag = state.drag;
   state.drag = null;
@@ -3257,7 +2514,7 @@ function handlePointerUp(event) {
   updateHud();
 }
 
-function handleWheel(event) {
+export function handleWheel(event) {
   event.preventDefault();
   const before = screenToWorld(event.clientX, event.clientY);
   const factor = event.deltaY > 0 ? 0.9 : 1.1;
@@ -3269,7 +2526,7 @@ function handleWheel(event) {
   state.camera.follow = false;
 }
 
-function handleKeyDown(event) {
+export function handleKeyDown(event) {
   if (event.key === "Escape" && dom.confirmModal && !dom.confirmModal.hidden) {
     event.preventDefault();
     closeConfirmModal();
@@ -3297,7 +2554,7 @@ function handleKeyDown(event) {
   }
 }
 
-function issueCommand(event) {
+export function issueCommand(event) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
   if (state.phase !== "active") return;
   const mini = minimapWorldAt(event.clientX, event.clientY);
@@ -3324,13 +2581,13 @@ function issueCommand(event) {
   showCommandMarker(event.clientX, event.clientY);
 }
 
-function selectedShipIdsForCommand() {
+export function selectedShipIdsForCommand() {
   pruneSelection();
   if (state.selectedShipIds.size > 0) return [...state.selectedShipIds];
   return ownLiveShips().map((ship) => ship.id);
 }
 
-function selectAt(world, additive) {
+export function selectAt(world, additive) {
   const ship = findShipAt(world.x, world.y, (candidate) => candidate.ownerId === state.myId && candidate.alive);
   if (!additive) state.selectedShipIds.clear();
   if (ship) {
@@ -3340,7 +2597,7 @@ function selectAt(world, additive) {
   }
 }
 
-function selectBox(a, b, additive) {
+export function selectBox(a, b, additive) {
   if (!additive) state.selectedShipIds.clear();
   const minX = Math.min(a.x, b.x);
   const maxX = Math.max(a.x, b.x);
@@ -3354,23 +2611,23 @@ function selectBox(a, b, additive) {
   if (state.selectedShipIds.size > 0) state.camera.follow = true;
 }
 
-function selectAllOwnShips() {
+export function selectAllOwnShips() {
   state.selectedShipIds = new Set(ownLiveShips().map((ship) => ship.id));
   updateHud();
 }
 
-function pruneSelection() {
+export function pruneSelection() {
   const live = new Set(ownLiveShips().map((ship) => ship.id));
   for (const id of [...state.selectedShipIds]) {
     if (!live.has(id)) state.selectedShipIds.delete(id);
   }
 }
 
-function ownLiveShips() {
+export function ownLiveShips() {
   return state.snapshot?.ships?.filter((ship) => ship.ownerId === state.myId && ship.alive) || [];
 }
 
-function findShipAt(x, y, predicate) {
+export function findShipAt(x, y, predicate) {
   const ships = state.snapshot?.ships || [];
   let best = null;
   let bestDistance = Infinity;
@@ -3385,7 +2642,7 @@ function findShipAt(x, y, predicate) {
   return best;
 }
 
-function resizeCanvas() {
+export function resizeCanvas() {
   const rect = dom.canvas.getBoundingClientRect();
   const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   dom.canvas.width = Math.max(1, Math.floor(rect.width * ratio));
@@ -3393,7 +2650,7 @@ function resizeCanvas() {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 }
 
-function frame(now) {
+export function frame(now) {
   const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrameAt) / 1000));
   state.lastFrameAt = now;
   updateCamera(dt);
@@ -3401,7 +2658,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-function updateCamera(dt) {
+export function updateCamera(dt) {
   const rect = dom.canvas.getBoundingClientRect();
   const fitZoom = clamp(Math.min(rect.width / 1300, rect.height / 820), 0.42, 0.82);
   if (state.camera.manualZoom == null) state.camera.zoom = fitZoom;
@@ -3442,7 +2699,7 @@ function updateCamera(dt) {
   state.camera.y = clamp(state.camera.y, 0, state.world.height);
 }
 
-function renderArena(now) {
+export function renderArena(now) {
   const rect = dom.canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
   drawBackdrop(rect);
@@ -3469,7 +2726,7 @@ function renderArena(now) {
   }
 }
 
-function drawBackdrop(rect) {
+export function drawBackdrop(rect) {
   const gradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
   gradient.addColorStop(0, "#040710");
   gradient.addColorStop(0.55, "#0a111d");
@@ -3488,7 +2745,7 @@ function drawBackdrop(rect) {
   ctx.restore();
 }
 
-function drawWorldGrid() {
+export function drawWorldGrid() {
   ctx.save();
   ctx.lineWidth = 1 / state.camera.zoom;
   ctx.strokeStyle = "rgba(130,160,205,0.11)";
@@ -3511,7 +2768,7 @@ function drawWorldGrid() {
   ctx.restore();
 }
 
-function drawMapFeatures(now) {
+export function drawMapFeatures(now) {
   const map = currentMap();
   if (!map) return;
 
@@ -3519,7 +2776,7 @@ function drawMapFeatures(now) {
   for (const asteroid of map.asteroids || []) drawAsteroid(asteroid, now);
 }
 
-function drawNebula(cloud) {
+export function drawNebula(cloud) {
   const rx = cloud.rx || 300;
   const ry = cloud.ry || 180;
   const color = cloud.color || "56,213,255";
@@ -3539,7 +2796,7 @@ function drawNebula(cloud) {
   ctx.restore();
 }
 
-function drawAsteroid(asteroid, now) {
+export function drawAsteroid(asteroid, now) {
   const radius = asteroid.radius || 60;
   const shape = asteroid.shape?.length ? asteroid.shape : [1, 0.92, 1.08, 0.9, 1.12, 0.96, 1.05, 0.88, 1.1, 0.95, 1.03, 0.9];
   const base = asteroid.shade === "warm" ? "#5a4939" : "#394657";
@@ -3588,7 +2845,7 @@ function drawAsteroid(asteroid, now) {
   ctx.restore();
 }
 
-function drawRelays() {
+export function drawRelays() {
   const snap = state.snapshot;
   if (!snap) return;
   const players = playerMap();
@@ -3624,7 +2881,7 @@ function drawRelays() {
   }
 }
 
-function drawCommandTarget(now) {
+export function drawCommandTarget(now) {
   if (!state.command) return;
   const age = now - state.command.at;
   if (age > 1600) {
@@ -3649,7 +2906,7 @@ function drawCommandTarget(now) {
   ctx.restore();
 }
 
-function drawBullets() {
+export function drawBullets() {
   const snap = state.snapshot;
   if (!snap) return;
   const players = playerMap();
@@ -3672,7 +2929,7 @@ function drawBullets() {
   }
 }
 
-function drawShips() {
+export function drawShips() {
   const snap = state.snapshot;
   if (!snap) return;
   const players = playerMap();
@@ -3690,7 +2947,7 @@ function drawShips() {
   }
 }
 
-function drawShip(ship, player) {
+export function drawShip(ship, player) {
   const selected = state.selectedShipIds.has(ship.id);
   const alpha = ship.alive ? 1 : 0.32;
   ctx.save();
@@ -3728,7 +2985,7 @@ function drawShip(ship, player) {
   if (!ship.alive) drawRespawn(ship);
 }
 
-function drawShipStructure(design, scale, color) {
+export function drawShipStructure(design, scale, color) {
   const keys = new Set(design.map((part) => `${part.x},${part.y}`));
   ctx.save();
   ctx.lineCap = "round";
@@ -3742,7 +2999,7 @@ function drawShipStructure(design, scale, color) {
   ctx.restore();
 }
 
-function drawStructureLines(design, keys, scale) {
+export function drawStructureLines(design, keys, scale) {
   ctx.beginPath();
   for (const part of design) {
     const { x, y } = moduleLocalPosition(part, scale);
@@ -3760,21 +3017,21 @@ function drawStructureLines(design, keys, scale) {
   ctx.stroke();
 }
 
-function moduleLocalPosition(part, scale) {
+export function moduleLocalPosition(part, scale) {
   return {
     x: (3 - part.y) * scale,
     y: (part.x - 3) * scale
   };
 }
 
-function moduleRotationToRadians(rotation) {
+export function moduleRotationToRadians(rotation) {
   if (rotation === 90) return Math.PI / 2;
   if (rotation === 180) return Math.PI;
   if (rotation === 270) return -Math.PI / 2;
   return 0;
 }
 
-function drawModule(x, y, size, color, type, trim) {
+export function drawModule(x, y, size, color, type, trim) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineWidth = Math.max(1.15, size * 0.12);
@@ -3917,20 +3174,20 @@ function drawModule(x, y, size, color, type, trim) {
   ctx.restore();
 }
 
-function drawWeaponBase(size) {
+export function drawWeaponBase(size) {
   roundRect(ctx, -size * 0.46, -size * 0.32, size * 0.68, size * 0.64, size * 0.12);
   ctx.fill();
   ctx.stroke();
 }
 
-function drawRoundSystem(size) {
+export function drawRoundSystem(size) {
   ctx.beginPath();
   ctx.arc(0, 0, size * 0.46, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 }
 
-function drawSelectionRing(ship) {
+export function drawSelectionRing(ship) {
   ctx.save();
   ctx.strokeStyle = "#ffca57";
   ctx.lineWidth = 2.5 / state.camera.zoom;
@@ -3941,7 +3198,7 @@ function drawSelectionRing(ship) {
   ctx.restore();
 }
 
-function drawFocusLine(ship) {
+export function drawFocusLine(ship) {
   const target = state.snapshot?.ships?.find((candidate) => candidate.id === ship.focusTargetId);
   if (!target) return;
   ctx.save();
@@ -3955,7 +3212,7 @@ function drawFocusLine(ship) {
   ctx.restore();
 }
 
-function drawHealthBars(ship, player) {
+export function drawHealthBars(ship, player) {
   if (!ship.alive) return;
   const selected = state.selectedShipIds.has(ship.id);
   const damaged = ship.hp < ship.maxHp || ship.shield < ship.maxShield;
@@ -4037,7 +3294,7 @@ function drawHealthBars(ship, player) {
   ctx.restore();
 }
 
-function updateShipHud(ship, now) {
+export function updateShipHud(ship, now) {
   const previous = state.shipHud.get(ship.id) || {
     hp: ship.hp,
     shield: ship.shield,
@@ -4071,7 +3328,7 @@ function updateShipHud(ship, now) {
   return next;
 }
 
-function drawHudFrame(x, y, width, height, color, warning) {
+export function drawHudFrame(x, y, width, height, color, warning) {
   ctx.save();
   ctx.fillStyle = "rgba(3,8,15,0.72)";
   ctx.strokeStyle = warning ? "rgba(255,95,126,0.9)" : color;
@@ -4096,7 +3353,7 @@ function drawHudFrame(x, y, width, height, color, warning) {
   ctx.restore();
 }
 
-function drawStatusBar(options) {
+export function drawStatusBar(options) {
   const { x, y, width, height, ratio, lagRatio, fillStart, fillEnd, glow, segments } = options;
   ctx.save();
   roundRect(ctx, x, y, width, height, Math.max(1, height * 0.35));
@@ -4138,7 +3395,7 @@ function drawStatusBar(options) {
   ctx.restore();
 }
 
-function drawEmptyShieldLine(x, y, width) {
+export function drawEmptyShieldLine(x, y, width) {
   ctx.save();
   ctx.strokeStyle = "rgba(88,122,150,0.42)";
   ctx.lineWidth = 1 / state.camera.zoom;
@@ -4150,18 +3407,18 @@ function drawEmptyShieldLine(x, y, width) {
   ctx.restore();
 }
 
-function hullColorForRatio(ratio) {
+export function hullColorForRatio(ratio) {
   if (ratio <= 0.25) return { start: "#ffd0d9", end: "#ff5f7e" };
   if (ratio <= 0.55) return { start: "#fff1a6", end: "#ffca57" };
   return { start: "#d8ffe3", end: "#67e08a" };
 }
 
-function approach(current, target, rate) {
+export function approach(current, target, rate) {
   const t = clamp(rate, 0, 1);
   return current + (target - current) * t;
 }
 
-function drawShipName(ship, player) {
+export function drawShipName(ship, player) {
   if (!ship.alive || state.camera.zoom < 0.48 || state.selectedShipIds.has(ship.id)) return;
   if (ship.hp < ship.maxHp || ship.shield < ship.maxShield) return;
   ctx.save();
@@ -4172,7 +3429,7 @@ function drawShipName(ship, player) {
   ctx.restore();
 }
 
-function drawRespawn(ship) {
+export function drawRespawn(ship) {
   ctx.save();
   ctx.fillStyle = "rgba(237,244,255,0.7)";
   ctx.font = `${Math.max(11, 13 / state.camera.zoom)}px system-ui, sans-serif`;
@@ -4181,7 +3438,7 @@ function drawRespawn(ship) {
   ctx.restore();
 }
 
-function drawEffects() {
+export function drawEffects() {
   const snap = state.snapshot;
   if (!snap) return;
   for (const effect of snap.effects) {
@@ -4236,7 +3493,7 @@ function drawEffects() {
   }
 }
 
-function drawSelectionBox() {
+export function drawSelectionBox() {
   if (!state.drag) return;
   const a = state.drag.startWorld;
   const b = state.drag.currentWorld;
@@ -4254,7 +3511,7 @@ function drawSelectionBox() {
   ctx.restore();
 }
 
-function drawMinimap(rect) {
+export function drawMinimap(rect) {
   const w = Math.min(190, Math.max(142, rect.width * 0.19));
   const h = w * (state.world.height / state.world.width);
   const x = 14;
@@ -4326,13 +3583,13 @@ function drawMinimap(rect) {
   ctx.restore();
 }
 
-function applyCamera(rect) {
+export function applyCamera(rect) {
   ctx.translate(rect.width / 2, rect.height / 2);
   ctx.scale(state.camera.zoom, state.camera.zoom);
   ctx.translate(-state.camera.x, -state.camera.y);
 }
 
-function screenToWorld(clientX, clientY) {
+export function screenToWorld(clientX, clientY) {
   const rect = dom.canvas.getBoundingClientRect();
   return {
     x: state.camera.x + (clientX - rect.left - rect.width / 2) / state.camera.zoom,
@@ -4340,7 +3597,7 @@ function screenToWorld(clientX, clientY) {
   };
 }
 
-function minimapWorldAt(clientX, clientY) {
+export function minimapWorldAt(clientX, clientY) {
   if (!state.minimap) return null;
   const rect = dom.canvas.getBoundingClientRect();
   const x = clientX - rect.left;
@@ -4353,7 +3610,7 @@ function minimapWorldAt(clientX, clientY) {
   };
 }
 
-function showCommandMarker(clientX, clientY) {
+export function showCommandMarker(clientX, clientY) {
   const rect = dom.canvas.getBoundingClientRect();
   dom.marker.hidden = false;
   dom.marker.style.left = `${clientX - rect.left}px`;
@@ -4363,23 +3620,23 @@ function showCommandMarker(clientX, clientY) {
   dom.marker.style.animation = "";
 }
 
-function playerMap() {
+export function playerMap() {
   return new Map((state.snapshot?.players || []).map((player) => [player.id, player]));
 }
 
-function isAdmin() {
+export function isAdmin() {
   return state.adminId === state.myId || Boolean(state.snapshot?.players?.find((player) => player.id === state.myId && player.isAdmin));
 }
 
-function currentMap() {
+export function currentMap() {
   return state.snapshot?.map || state.map;
 }
 
-function teamValue() {
+export function teamValue() {
   return dom.teamSelect?.value === "red" ? "red" : "blue";
 }
 
-function loadDesign() {
+export function loadDesign() {
   try {
     const saved = JSON.parse(localStorage.getItem(LOCAL_DESIGN_KEY) || "null");
     return normalizeDesign(saved);
@@ -4388,11 +3645,11 @@ function loadDesign() {
   }
 }
 
-function persistDesign() {
+export function persistDesign() {
   localStorage.setItem(LOCAL_DESIGN_KEY, JSON.stringify(state.design));
 }
 
-function loadSavedDesigns() {
+export function loadSavedDesigns() {
   try {
     const saved = JSON.parse(localStorage.getItem(LOCAL_SAVED_DESIGNS_KEY) || "[]");
     if (!Array.isArray(saved)) return [];
@@ -4411,11 +3668,11 @@ function loadSavedDesigns() {
   }
 }
 
-function persistSavedDesigns() {
+export function persistSavedDesigns() {
   localStorage.setItem(LOCAL_SAVED_DESIGNS_KEY, JSON.stringify(state.savedDesigns.slice(0, 12)));
 }
 
-function defaultDesign() {
+export function defaultDesign() {
   return [
     { x: 3, y: 3, type: "core" },
     { x: 3, y: 4, type: "reactor" },
@@ -4430,7 +3687,7 @@ function defaultDesign() {
   ];
 }
 
-function normalizeDesign(input) {
+export function normalizeDesign(input) {
   const fallback = defaultDesign();
   const source = Array.isArray(input) ? input : fallback;
   const seen = new Set();
@@ -4450,7 +3707,7 @@ function normalizeDesign(input) {
   return clean;
 }
 
-function isConnected(parts) {
+export function isConnected(parts) {
   const core = parts.find((part) => part.type === "core");
   if (!core) return false;
   const keys = new Set(parts.map((part) => `${part.x},${part.y}`));
@@ -4471,7 +3728,7 @@ function isConnected(parts) {
   return seen.size === parts.length;
 }
 
-function explainConnectionProblem(parts, x, y, replacing) {
+export function explainConnectionProblem(parts, x, y, replacing) {
   if (!parts.some((part) => part.type === "core")) {
     return "Blueprint must keep exactly one core module";
   }
@@ -4497,7 +3754,7 @@ function explainConnectionProblem(parts, x, y, replacing) {
   return "Not connected to the core: every module needs a side-connected path to the core";
 }
 
-function computeStats(modules) {
+export function computeStats(modules) {
   let cost = 0;
   let mass = 0;
   let maxHp = 0;
@@ -4604,7 +3861,7 @@ function computeStats(modules) {
   };
 }
 
-function calculateCostBreakdown(stats) {
+export function calculateCostBreakdown(stats) {
   const base = SHIP_ECONOMY.baseShipCost;
   const parts = stats.cost * SHIP_ECONOMY.partCostMultiplier;
   const mass = stats.mass * SHIP_ECONOMY.massCostMultiplier;
@@ -4632,11 +3889,11 @@ function calculateCostBreakdown(stats) {
   };
 }
 
-function weaponAccumulator() {
+export function weaponAccumulator() {
   return { count: 0, damage: 0, range: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0 };
 }
 
-function addWeaponStats(total, weapon) {
+export function addWeaponStats(total, weapon) {
   total.count += 1;
   total.damage += weapon.damage;
   total.range = Math.max(total.range, weapon.range);
@@ -4648,7 +3905,7 @@ function addWeaponStats(total, weapon) {
   total.dps += calculateDps(weapon);
 }
 
-function applyWeaponUtilityBonuses(totals, bonuses) {
+export function applyWeaponUtilityBonuses(totals, bonuses) {
   const hasWeapons = Object.values(totals).some((total) => total.count > 0);
   if (!hasWeapons) return;
   const rangeBonus = Number(bonuses.rangeBonus) || 0;
@@ -4664,15 +3921,15 @@ function applyWeaponUtilityBonuses(totals, bonuses) {
   }
 }
 
-function calculateDps(weapon) {
+export function calculateDps(weapon) {
   return Number(((weapon.damage || 0) * (weapon.fireRate || 0)).toFixed(1));
 }
 
-function calculateReload(weapon) {
+export function calculateReload(weapon) {
   return Number((1 / Math.max(0.01, weapon.fireRate || 1)).toFixed(2));
 }
 
-function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues }) {
+export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues }) {
   const safeMass = Math.max(mass, 1);
   const effectiveThrust = effectiveStackedValue(engineThrustValues, 0.88);
   const positiveTurn = effectiveStackedValue(turnModuleValues, 0.92);
@@ -4712,55 +3969,55 @@ function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powe
   };
 }
 
-function calculateSystemEfficiency(powerGeneration, powerUse) {
+export function calculateSystemEfficiency(powerGeneration, powerUse) {
   if (powerUse <= 0) return 1.08;
   const ratio = powerGeneration / Math.max(powerUse, 1);
   if (ratio >= 1) return clamp(1 + Math.min((ratio - 1) * 0.25, 0.12), 1, 1.12);
   return clamp(Math.pow(Math.max(ratio, 0), 1.35), 0.25, 1);
 }
 
-function calculateMovementPowerMultiplier(powerGeneration, powerUse) {
+export function calculateMovementPowerMultiplier(powerGeneration, powerUse) {
   if (powerUse <= 0) return 1.04;
   const ratio = powerGeneration / Math.max(powerUse, 1);
   if (ratio >= 1) return clamp(Math.sqrt(ratio), 1, 1.08);
   return clamp(Math.pow(Math.max(ratio, 0), 1.8), 0.18, 1);
 }
 
-function effectiveStackedValue(values, falloff) {
+export function effectiveStackedValue(values, falloff) {
   return [...values].sort((a, b) => b - a).reduce((total, value, index) => total + value * Math.pow(falloff, index), 0);
 }
 
-function softCap(value, cap, softness = 0.35) {
+export function softCap(value, cap, softness = 0.35) {
   if (value <= cap) return value;
   return cap + (value - cap) * softness;
 }
 
-function massClassForMass(mass) {
+export function massClassForMass(mass) {
   if (mass < 55) return "Light";
   if (mass < 125) return "Medium";
   if (mass < 230) return "Heavy";
   return "Capital";
 }
 
-function speedCapForMass(mass) {
+export function speedCapForMass(mass) {
   if (mass < 55) return 340;
   if (mass < 125) return 285;
   if (mass < 230) return 215;
   return 165;
 }
 
-function turnCapForMass(mass) {
+export function turnCapForMass(mass) {
   if (mass < 55) return 2.85;
   if (mass < 125) return 2.05;
   if (mass < 230) return 1.12;
   return 0.72;
 }
 
-function weaponRange(total) {
+export function weaponRange(total) {
   return total.count > 0 ? total.range : 0;
 }
 
-function summarizeWeaponTotals(totals) {
+export function summarizeWeaponTotals(totals) {
   const result = {};
   for (const [type, total] of Object.entries(totals)) {
     result[type] = {
@@ -4778,7 +4035,7 @@ function summarizeWeaponTotals(totals) {
   return result;
 }
 
-function shipWarnings(stats) {
+export function shipWarnings(stats) {
   const warnings = [];
   const weaponCount = stats.blaster + stats.missile + stats.railgun;
   const hasReactor = stats.modules.some((module) => module.type === "reactor");
@@ -4795,7 +4052,7 @@ function shipWarnings(stats) {
   return warnings;
 }
 
-function makeStars(count) {
+export function makeStars(count) {
   const stars = [];
   for (let i = 0; i < count; i += 1) {
     const bright = Math.random() > 0.78;
@@ -4810,7 +4067,7 @@ function makeStars(count) {
   return stars;
 }
 
-function roundRect(context, x, y, width, height, radius) {
+export function roundRect(context, x, y, width, height, radius) {
   const r = Math.min(radius, width / 2, height / 2);
   context.beginPath();
   context.moveTo(x + r, y);
@@ -4821,11 +4078,11 @@ function roundRect(context, x, y, width, height, radius) {
   context.closePath();
 }
 
-function clamp(value, min, max) {
+export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || 0));
 }
 
-function escapeHtml(text) {
+export function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
     "<": "&lt;",
@@ -4835,7 +4092,7 @@ function escapeHtml(text) {
   })[char]);
 }
 
-const roomFromUrl = new URLSearchParams(location.search).get("room");
+export const roomFromUrl = new URLSearchParams(location.search).get("room");
 if (roomFromUrl) {
   dom.roomCode.value = roomFromUrl.toUpperCase().slice(0, 8);
 } else {

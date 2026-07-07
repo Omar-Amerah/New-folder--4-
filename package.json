@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "build": "node netlify-build.js",
-    "check": "node --check server.js && node --check public/client.js && node --check verify-runtime.js && node --check verify-client-ui.js",
+    "check": "node --check server.js && node --check verify-runtime.js && node --check verify-client-ui.js",
     "verify": "node verify-runtime.js && node verify-client-ui.js"
   },
   "keywords": [
@@ -17,5 +17,9 @@
     "rts"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@babel/parser": "^8.0.0",
+    "@babel/traverse": "^8.0.0"
+  }
 }
