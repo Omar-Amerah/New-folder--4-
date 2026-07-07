@@ -12,6 +12,7 @@ import { resizeCanvas, frame } from "./game/renderer.js";
 import { handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleKeyDown } from "./game/input.js";
 import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY } from "./constants.js";
 import { send, getConfiguredServerUrl } from "./network.js";
+import { applyComponentBalance } from "./design/parts.js";
 
 // Initialize input values from localStorage
 dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floor(100 + Math.random() * 900)}`;
@@ -169,12 +170,12 @@ async function loadComponentBalance() {
     const response = await fetch("/component-balance.json", { cache: "no-store" });
     if (!response.ok) return;
     const balance = await response.json();
-    import("./design/parts.js").then((mod) => {
-      mod.applyComponentBalance(balance);
-      renderPalette();
-      renderPartInspector();
-      renderLocalStats();
-    });
+    applyComponentBalance(balance);
+    renderPalette();
+    renderPartInspector();
+    renderBuildGrid();
+    renderLocalStats();
+    renderSavedDesigns();
   } catch {
     // Fail silently, use defaults
   }

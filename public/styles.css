@@ -1143,7 +1143,11 @@ h2 {
   border-radius: 5px;
   background: var(--cell);
   cursor: pointer;
-  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 80ms ease;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.build-cell:active {
+  transform: none;
 }
 
 .rotation-marker {

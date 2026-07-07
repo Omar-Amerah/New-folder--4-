@@ -652,7 +652,7 @@ export const FALLBACK_PART_STATS = {
 export let PART_STATS = buildPartStatsFromBalance(null, FALLBACK_PART_STATS);
 
 export function applyComponentBalance(balance) {
-  PART_STATS = buildPartStatsFromBalance(balance, FALLBACK_PART_STATS);
+  PART_STATS = { ...normalizeRuntimeParts(FALLBACK_PART_STATS), ...buildPartStatsFromBalance(balance, FALLBACK_PART_STATS) };
 }
 
 export function applyServerParts(parts) {
@@ -669,7 +669,7 @@ export function isRotatablePart(type) {
 import { HIDDEN_PARTS } from "../constants.js";
 
 export function isPalettePart(type) {
-  return type !== "core" && !HIDDEN_PARTS.has(type);
+  return type !== "core" && !HIDDEN_PARTS.has(type) && Boolean(PART_STATS[type]);
 }
 
 

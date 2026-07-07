@@ -298,42 +298,32 @@ export function shipWarnings(stats) {
 }
 
 export function estimatePartEffectiveCost(type, design) {
-  const current = computeStats(design);
-  const occupied = new Set(design.map((part) => `${part.x},${part.y}`));
+  const baseDesign = Array.isArray(design) ? design.map((part) => ({ ...part })) : [];
+  const current = computeStats(baseDesign);
+  const occupied = new Set();
+  for (let i = 0; i < baseDesign.length; i += 1) {
+    occupied.add(`${baseDesign[i].x},${baseDesign[i].y}`);
+  }
 
-  // pre-calculate the updated stats by adding a dummy part.
-  // Stats don't depend on coordinates, so we only need to compute this once.
-  design.push({ x: 0, y: 0, type });
-  const updated = computeStats(design);
-  const costDiff = Math.max(0, updated.unitCost - current.unitCost);
+  const dx = [1, -1, 0, 0];
+  const dy = [0, 0, 1, -1];
 
-  // Cache the design length before the push so we don't check neighbors of the newly added dummy part
-  const len = design.length - 1;
+  for (let i = 0; i < baseDesign.length; i += 1) {
+    const part = baseDesign[i];
+    for (let d = 0; d < 4; d += 1) {
+      const cx = part.x + dx[d];
+      const cy = part.y + dy[d];
+      if (cx < 0 || cx > 6 || cy < 0 || cy > 6) continue;
+      if (occupied.has(`${cx},${cy}`)) continue;
 
-  for (let i = 0; i < len; i += 1) {
-    const part = design[i];
-    const candidates = [
-      { x: part.x + 1, y: part.y },
-      { x: part.x - 1, y: part.y },
-      { x: part.x, y: part.y + 1 },
-      { x: part.x, y: part.y - 1 }
-    ];
-    for (const cell of candidates) {
-      const key = `${cell.x},${cell.y}`;
-      if (cell.x < 0 || cell.x > 6 || cell.y < 0 || cell.y > 6 || occupied.has(key)) continue;
-
-      // Update coordinates of our dummy part in place to test connectivity
-      design[len].x = cell.x;
-      design[len].y = cell.y;
-
-      if (isConnected(design)) {
-        design.pop();
-        return costDiff;
+      const candidate = [...baseDesign, { x: cx, y: cy, type }];
+      if (isConnected(candidate)) {
+        const updated = computeStats(candidate);
+        return Math.max(0, updated.unitCost - current.unitCost);
       }
     }
   }
 
-  design.pop();
   return estimateFormulaPartCost(type);
 }
 
@@ -353,4 +343,3 @@ export function estimateFormulaPartCost(type) {
     weaponPremium
   ));
 }
-
