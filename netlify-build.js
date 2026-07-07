@@ -1,12 +1,11 @@
-"use strict";
-
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import { promises as fsp } from "fs";
+import path from "path";
 
 const requiredFiles = [
-  path.join(__dirname, "public", "index.html"),
-  path.join(__dirname, "public", "client.js"),
-  path.join(__dirname, "public", "styles.css")
+  path.join(process.cwd(), "public", "index.html"),
+  path.join(process.cwd(), "public", "styles.css"),
+  path.join(process.cwd(), "public", "src", "main.js")
 ];
 
 for (const file of requiredFiles) {
@@ -15,6 +14,6 @@ for (const file of requiredFiles) {
   }
 }
 
-fs.writeFileSync(path.join(__dirname, "public", "blueprint-fix.js"), "\"use strict\";\n");
+fs.writeFileSync(path.join(process.cwd(), "public", "blueprint-fix.js"), "\"use strict\";\n");
 
 console.log("Netlify static assets are ready in public/");

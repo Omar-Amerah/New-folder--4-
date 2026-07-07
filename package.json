@@ -18,8 +18,5 @@
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "@babel/parser": "^8.0.0",
-    "@babel/traverse": "^8.0.0"
-  }
+  "type": "module"
 }
