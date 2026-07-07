@@ -10,7 +10,7 @@ function commandShips(room, player, x, y, options = {}) {
   const shipIdSet = Array.isArray(options.shipIds)
     ? new Set(options.shipIds.map((id) => String(id)).slice(0, 24))
     : null;
-  let ships = player.ships.filter((ship) => ship.alive && !ship.removed);
+  let ships = player.ships.filter((ship) => ship.alive);
 
   if (shipIdSet && shipIdSet.size > 0) {
     ships = ships.filter((ship) => shipIdSet.has(ship.id));
@@ -54,7 +54,7 @@ function updateShipMovement(room, ship, dt) {
   // Chase and stop at weapon range if focused on an enemy target
   if (ship.focusTargetId) {
     const focusTarget = room.ships.get(ship.focusTargetId);
-    if (focusTarget && focusTarget.alive && !focusTarget.removed) {
+    if (focusTarget && focusTarget.alive) {
       // Keep destination target coordinates updated to focus target position
       ship.targetX = focusTarget.x;
       ship.targetY = focusTarget.y;
@@ -97,7 +97,7 @@ function updateShipMovement(room, ship, dt) {
   } else {
     const targetId = ship.combatTargetId || ship.focusTargetId;
     const target = targetId ? room.ships.get(targetId) : null;
-    if (target && target.alive && !target.removed) {
+    if (target && target.alive) {
       const desired = findOptimalHullAngle(ship, target);
       ship.angle = rotateToward(ship.angle, desired, stats.turnRate * dt);
     }

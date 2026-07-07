@@ -58,7 +58,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
 function getLiveShips(room) {
   const ships = [];
   for (const ship of room.ships.values()) {
-    if (ship.alive && !ship.removed) ships.push(ship);
+    if (ship.alive) ships.push(ship);
   }
   return ships;
 }
@@ -66,7 +66,7 @@ function getLiveShips(room) {
 function findShipById(room, id) {
   if (!id) return null;
   const ship = room.ships.get(id);
-  if (ship && ship.alive && !ship.removed) return ship;
+  if (ship && ship.alive) return ship;
   return null;
 }
 
@@ -129,7 +129,7 @@ function updateBots(room, now) {
     if (player.money >= currentCost) {
       buyShip(room, player, now, { silent: true });
     }
-    const ships = player.ships.filter((ship) => ship.alive && !ship.removed);
+    const ships = player.ships.filter((ship) => ship.alive);
     if (ships.length === 0) continue;
 
     const enemies = getLiveShips(room)

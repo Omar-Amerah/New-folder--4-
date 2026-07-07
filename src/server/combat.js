@@ -4,6 +4,7 @@ const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
 const { randomRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
+const { addBullet, segmentCircleHit } = require("./projectiles");
 
 const MODULE_SCALE = 13;
 const MUZZLE_DISTANCE = Object.freeze({
@@ -60,7 +61,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   const target = findTarget(room, ship, ships);
   ship.combatTargetId = target ? target.id : null;
 
-  const { addBullet } = require("./projectiles");
   const scale = 13;
   const cos = Math.cos(ship.angle);
   const sin = Math.sin(ship.angle);
@@ -248,7 +248,6 @@ function weaponMuzzleWorldPosition(ship, module, angle, family) {
 function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
   const maxX = x + Math.cos(angle) * range;
   const maxY = y + Math.sin(angle) * range;
-  const { segmentCircleHit } = require("./projectiles");
   let end = { x: maxX, y: maxY, t: 1 };
 
   for (const asteroid of room.map?.asteroids || []) {
@@ -260,7 +259,6 @@ function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
 }
 
 function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now) {
-  const { segmentCircleHit } = require("./projectiles");
   for (const target of ships) {
     if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
     const hit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
@@ -316,12 +314,16 @@ function damageShip(room, ship, damage, attackerId, now) {
 
 function updateDestroyedShips(room, now) {
   for (const player of room.players.values()) {
+    let keptShips = [];
     for (const ship of player.ships) {
       if (!ship.alive && !ship.removed && ship.removeAt && now >= ship.removeAt) {
         ship.removed = true;
         room.ships.delete(ship.id);
+      } else {
+        keptShips.push(ship);
       }
     }
+    player.ships = keptShips;
   }
 }
 
@@ -351,7 +353,6 @@ function findTarget(room, ship, ships) {
 }
 
 function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
-  const { segmentCircleHit } = require("./projectiles");
   for (const asteroid of room.map?.asteroids || []) {
     if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
   }
