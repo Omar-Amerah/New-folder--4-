@@ -1,0 +1,3 @@
+## 2024-03-24 - Added :focus-visible for buttons
+**Learning:** Found that buttons lacked visible focus indicators, which severely hindered keyboard accessibility. Since custom styles reset default outlines, adding `:focus-visible` styles is crucial for users navigating with keyboards.
+**Action:** Always ensure that custom styled interactive elements, especially `button`s and links, have a distinct `:focus-visible` style that matches the application's design system without relying solely on default browser outlines.

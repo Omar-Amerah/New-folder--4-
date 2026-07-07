@@ -68,6 +68,12 @@ button:active {
   transform: translateY(1px);
 }
 
+button:focus-visible {
+  outline: none;
+  border-color: rgba(56, 213, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(56, 213, 255, 0.12);
+}
+
 button.secondary {
   border-color: var(--line);
   background: #121a27;
