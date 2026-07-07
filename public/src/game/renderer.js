@@ -293,7 +293,14 @@ export function drawShip(ship, player) {
     ctx.save();
     ctx.translate(px, py);
     if (isRotatablePart(part.type)) ctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-    drawModule(0, 0, scale - 1, def.color, part.type, player.color);
+    drawModule({
+      x: 0,
+      y: 0,
+      size: scale - 1,
+      color: def.color,
+      type: part.type,
+      trim: player.color
+    });
     ctx.restore();
   }
 
@@ -353,7 +360,7 @@ export function moduleLocalPosition(part, scale) {
   };
 }
 
-export function drawModule(x, y, size, color, type, trim) {
+export function drawModule({ x, y, size, color, type, trim }) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineWidth = Math.max(1.15, size * 0.12);
