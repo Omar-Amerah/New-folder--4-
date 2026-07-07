@@ -91,9 +91,10 @@ function updateShipSeparation(room, ships, dt) {
       const b = ships[j];
       const dx = b.x - a.x;
       const dy = b.y - a.y;
-      const distance = Math.hypot(dx, dy) || 1;
+      const distSq = dx * dx + dy * dy;
       const minimum = (a.radius + b.radius) * 0.72;
-      if (distance >= minimum) continue;
+      if (distSq >= minimum * minimum) continue;
+      const distance = Math.sqrt(distSq) || 1;
 
       const push = (minimum - distance) * 0.5;
       const nx = dx / distance;

@@ -76,7 +76,10 @@ function updateBullets(room, dt, now) {
     for (const ship of liveShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? 14 : bullet.type === "rail" ? 9 : 6;
-      if (Math.hypot(ship.x - bullet.x, ship.y - bullet.y) <= ship.radius + hitRadius) {
+      const dx = ship.x - bullet.x;
+      const dy = ship.y - bullet.y;
+      const r = ship.radius + hitRadius;
+      if (dx * dx + dy * dy <= r * r) {
         damageShip(room, ship, bullet.damage, bullet.ownerId, now);
         room.effects.push({ type: bullet.type === "missile" ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: bullet.x, y: bullet.y, at: now });
         hit = true;
