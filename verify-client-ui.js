@@ -250,4 +250,16 @@ if (!elements.get("createButton").disabled || !elements.get("joinButton").disabl
   throw new Error("Create Game did not disable lobby actions while connecting");
 }
 
+if (context.numberOr(5) !== 5) throw new Error("numberOr failed on integer");
+if (context.numberOr("5") !== 5) throw new Error("numberOr failed on string number");
+if (context.numberOr("5.5") !== 5.5) throw new Error("numberOr failed on decimal string");
+if (context.numberOr("", 10) !== 0) throw new Error("numberOr failed on empty string");
+if (context.numberOr(null, 10) !== 0) throw new Error("numberOr failed on null");
+if (context.numberOr(undefined, 10) !== 10) throw new Error("numberOr failed on undefined with fallback");
+if (context.numberOr(NaN, 7) !== 7) throw new Error("numberOr failed on NaN with fallback");
+if (context.numberOr(Infinity, 3) !== 3) throw new Error("numberOr failed on Infinity with fallback");
+if (context.numberOr("-Infinity", 3) !== 3) throw new Error("numberOr failed on -Infinity string with fallback");
+if (context.numberOr("abc", 2) !== 2) throw new Error("numberOr failed on non-numeric string");
+if (context.numberOr("10px", 5) !== 5) throw new Error("numberOr failed on string with trailing characters");
+
 console.log("client ui verification passed");
