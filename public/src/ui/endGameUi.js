@@ -16,7 +16,7 @@ export function updateWinnerBanner() {
   dom.winner.textContent = `${winner.name} won`;
   dom.endGameScreen.hidden = false;
   dom.endGameTitle.textContent = `${winner.name} won`;
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   dom.endGameSummary.innerHTML = rewardSummaryMarkup(mine?.lastReward, mine?.money);
   const admin = isAdmin();
   dom.endGameActions.hidden = false;

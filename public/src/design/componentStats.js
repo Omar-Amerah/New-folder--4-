@@ -300,7 +300,18 @@ export function shipWarnings(stats) {
 export function estimatePartEffectiveCost(type, design) {
   const current = computeStats(design);
   const occupied = new Set(design.map((part) => `${part.x},${part.y}`));
-  for (const part of design) {
+
+  // pre-calculate the updated stats by adding a dummy part.
+  // Stats don't depend on coordinates, so we only need to compute this once.
+  design.push({ x: 0, y: 0, type });
+  const updated = computeStats(design);
+  const costDiff = Math.max(0, updated.unitCost - current.unitCost);
+
+  // Cache the design length before the push so we don't check neighbors of the newly added dummy part
+  const len = design.length - 1;
+
+  for (let i = 0; i < len; i += 1) {
+    const part = design[i];
     const candidates = [
       { x: part.x + 1, y: part.y },
       { x: part.x - 1, y: part.y },
@@ -310,14 +321,22 @@ export function estimatePartEffectiveCost(type, design) {
     for (const cell of candidates) {
       const key = `${cell.x},${cell.y}`;
       if (cell.x < 0 || cell.x > 6 || cell.y < 0 || cell.y > 6 || occupied.has(key)) continue;
-      const next = [...design, { x: cell.x, y: cell.y, type }];
-      if (!isConnected(next)) continue;
-      const updated = computeStats(next);
-      return Math.max(0, updated.unitCost - current.unitCost);
+
+      // Update coordinates of our dummy part in place to test connectivity
+      design[len].x = cell.x;
+      design[len].y = cell.y;
+
+      if (isConnected(design)) {
+        design.pop();
+        return costDiff;
+      }
     }
   }
+
+  design.pop();
   return estimateFormulaPartCost(type);
 }
+
 
 export function estimateFormulaPartCost(type) {
   const stat = PART_STATS[type] || PART_STATS.frame;

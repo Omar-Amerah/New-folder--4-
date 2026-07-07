@@ -121,6 +121,7 @@ function leaveRoom(client) {
     for (const ship of player.ships) {
       ship.alive = false;
       ship.removed = true;
+      room.ships.delete(ship.id);
     }
     room.clients.delete(client);
     if (room.phase === "lobby") {
@@ -194,6 +195,7 @@ function removePlayerFromRoom(room, player, reason) {
   for (const ship of player.ships) {
     ship.alive = false;
     ship.removed = true;
+    room.ships.delete(ship.id);
   }
   room.players.delete(player.id);
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
@@ -251,7 +253,10 @@ function teamLabel(room, team, fallback) {
 
 function resetPlayerForMatch(room, player, now, options = {}) {
   const { buyShip } = require("./economy");
-  for (const oldShip of player.ships) oldShip.removed = true;
+  for (const oldShip of player.ships) {
+    oldShip.removed = true;
+    room.ships.delete(oldShip.id);
+  }
   player.ships = [];
   const startingMoney = room.rules?.startingMoney ?? ECONOMY.startingMoney;
   player.money = startingMoney;

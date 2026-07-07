@@ -127,7 +127,7 @@ export function resetDesign() {
 export function renderLocalStats() {
   const stats = computeStats(state.design);
   const status = getShipStatus(stats);
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const money = currentMatchMoney(mine);
   const canAfford = money >= stats.unitCost;
   
@@ -170,7 +170,7 @@ export function renderLocalStats() {
 }
 
 export function getShipStatus(stats) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const blockers = [];
   const money = currentMatchMoney(mine);
   const isActiveBuild = state.phase === "active";

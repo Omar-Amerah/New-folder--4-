@@ -93,7 +93,7 @@ export function buyPurchaseOption(optionId) {
     setPurchaseError(optionId, "Match not active");
     return;
   }
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   if (!mine?.ready) {
     setPurchaseError(optionId, "Not ready");
     return;
@@ -161,7 +161,7 @@ export function clearPendingPurchase(requestId) {
 
 export function reconcilePendingPurchasesWithSnapshot() {
   if (!state.pendingPurchases.size) return;
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   if (!mine) return;
   const money = currentMatchMoney(mine);
   const activeShips = mine.activeShips ?? 0;
@@ -188,7 +188,7 @@ export function setPurchaseError(optionId, message) {
 }
 
 export function updateEconomyUi() {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const localStats = computeStats(state.design);
   const localStatus = getShipStatus(localStats);
   const money = currentMatchMoney(mine);
@@ -268,7 +268,7 @@ export function getPurchaseOptions() {
 }
 
 export function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const money = currentMatchMoney(mine);
   const activeShips = mine?.activeShips ?? 0;
   const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
@@ -425,7 +425,7 @@ function currentMatchMoney(mine) {
 }
 
 function getShipStatus(stats) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const blockers = [];
   const money = currentMatchMoney(mine);
   const isActiveBuild = state.phase === "active";

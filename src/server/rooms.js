@@ -35,6 +35,7 @@ function createRoom(code) {
     mapSizeLabel: world.label,
     clients: new Set(),
     players: new Map(),
+    ships: new Map(),
     bullets: [],
     effects: [],
     map,
@@ -332,8 +333,14 @@ function prepareArenaForCurrentPlayers(room) {
 }
 
 function chooseWorldSize(playerCount) {
-  const size = WORLD_SIZES.find((candidate) => playerCount <= candidate.maxPlayers) || WORLD_SIZES[WORLD_SIZES.length - 1];
-  return { width: size.width, height: size.height, label: size.label };
+  for (let i = 0; i < WORLD_SIZES.length; i += 1) {
+    const candidate = WORLD_SIZES[i];
+    if (playerCount <= candidate.maxPlayers) {
+      return { width: candidate.width, height: candidate.height, label: candidate.label };
+    }
+  }
+  const fallback = WORLD_SIZES[WORLD_SIZES.length - 1];
+  return { width: fallback.width, height: fallback.height, label: fallback.label };
 }
 
 function chooseRoomWorld(room) {
@@ -351,7 +358,7 @@ function makeRoomCode() {
   do {
     code = "";
     for (let i = 0; i < 5; i += 1) {
-      code += alphabet[Math.floor(Math.random() * alphabet.length)];
+      code += alphabet[crypto.randomInt(alphabet.length)];
     }
   } while (rooms.has(code) || isClosedRoomCode(code));
   return code;

@@ -35,32 +35,30 @@ function snapshotRoom(room, now, viewer = null) {
   }));
 
   const ships = [];
-  for (const player of room.players.values()) {
-    for (const ship of player.ships) {
-      if (ship.removed) continue;
-      ships.push({
-        id: ship.id,
-        ownerId: ship.ownerId,
-        x: round(ship.x),
-        y: round(ship.y),
-        vx: round(ship.vx),
-        vy: round(ship.vy),
-        angle: round(ship.angle),
-        targetX: round(ship.targetX),
-        targetY: round(ship.targetY),
-        hp: round(ship.hp),
-        maxHp: round(ship.maxHp),
-        shield: round(ship.shield),
-        maxShield: round(ship.maxShield),
-        radius: round(ship.radius),
-        design: ship.design || [],
-        cost: ship.cost || ship.stats?.unitCost || 0,
-        focusTargetId: ship.focusTargetId,
-        alive: ship.alive,
-        respawnIn: 0,
-        removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
-      });
-    }
+  for (const ship of room.ships.values()) {
+    if (ship.removed) continue;
+    ships.push({
+      id: ship.id,
+      ownerId: ship.ownerId,
+      x: round(ship.x),
+      y: round(ship.y),
+      vx: round(ship.vx),
+      vy: round(ship.vy),
+      angle: round(ship.angle),
+      targetX: round(ship.targetX),
+      targetY: round(ship.targetY),
+      hp: round(ship.hp),
+      maxHp: round(ship.maxHp),
+      shield: round(ship.shield),
+      maxShield: round(ship.maxShield),
+      radius: round(ship.radius),
+      design: ship.design || [],
+      cost: ship.cost || ship.stats?.unitCost || 0,
+      focusTargetId: ship.focusTargetId,
+      alive: ship.alive,
+      respawnIn: 0,
+      removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
+    });
   }
 
   return {

@@ -57,6 +57,7 @@ export function handleServerMessage(message) {
   if (message.type === "state") {
     const previousPhase = state.phase;
     state.snapshot = message;
+    state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
     state.room = message.room;
     state.world = message.world || state.world;
     state.map = message.map || state.map;
