@@ -728,7 +728,7 @@ export function drawSelectionRing(ship) {
 
           const defaultRelativeFacing = moduleRotationToRadians(normalizeRotation(part.rotation));
           const arcRadians = (weaponStat.arc || 360) * Math.PI / 180;
-          const gunRange = ship.stats?.[weaponStat.type + "Range"] || weaponStat.range || maxRange;
+          const gunRange = ship[weaponStat.type + "Range"] || weaponStat.range || maxRange;
 
           // Arc is fixed to the gun's designer-facing direction, only moves with hull rotation
           const arcCenterWorld = ship.angle + defaultRelativeFacing;
