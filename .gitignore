@@ -1,0 +1,5 @@
+# Ignored build artifacts
+public/client.js
+public/blueprint-fix.js
+node_modules/
+.gemini/
