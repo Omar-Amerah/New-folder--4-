@@ -368,7 +368,7 @@ export function drawModule(x, y, size, color, type, trim) {
   ctx.fillStyle = fill;
 
   if (type === "core") {
-    roundRect(ctx, -size * 0.48, -size * 0.48, size * 0.96, size * 0.96, size * 0.18);
+    roundRect(ctx, { x: -size * 0.48, y: -size * 0.48, width: size * 0.96, height: size * 0.96, radius: size * 0.18 });
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#f8fbff";
@@ -380,7 +380,7 @@ export function drawModule(x, y, size, color, type, trim) {
     ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
     ctx.stroke();
   } else if (type === "frame") {
-    roundRect(ctx, -size * 0.46, -size * 0.46, size * 0.92, size * 0.92, size * 0.12);
+    roundRect(ctx, { x: -size * 0.46, y: -size * 0.46, width: size * 0.92, height: size * 0.92, radius: size * 0.12 });
     ctx.fill();
     ctx.stroke();
     ctx.strokeStyle = "rgba(255,255,255,0.42)";
@@ -428,7 +428,7 @@ export function drawModule(x, y, size, color, type, trim) {
   } else if (type === "blaster") {
     drawWeaponBase(size, color);
     ctx.fillStyle = "#ffd1dc";
-    roundRect(ctx, size * 0.02, -size * 0.13, size * 0.62, size * 0.26, size * 0.08);
+    roundRect(ctx, { x: size * 0.02, y: -size * 0.13, width: size * 0.62, height: size * 0.26, radius: size * 0.08 });
     ctx.fill();
   } else if (type === "missile") {
     drawWeaponBase(size, color);
@@ -463,7 +463,7 @@ export function drawModule(x, y, size, color, type, trim) {
     ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
     ctx.stroke();
   } else if (type === "battery") {
-    roundRect(ctx, -size * 0.42, -size * 0.42, size * 0.84, size * 0.84, size * 0.12);
+    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#d5fbff";
@@ -488,7 +488,7 @@ export function drawModule(x, y, size, color, type, trim) {
     ctx.lineTo(0, size * 0.24);
     ctx.stroke();
   } else {
-    roundRect(ctx, -size * 0.44, -size * 0.44, size * 0.88, size * 0.88, size * 0.1);
+    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.1 });
     ctx.fill();
     ctx.stroke();
   }
@@ -497,7 +497,7 @@ export function drawModule(x, y, size, color, type, trim) {
 }
 
 export function drawWeaponBase(size) {
-  roundRect(ctx, -size * 0.46, -size * 0.32, size * 0.68, size * 0.64, size * 0.12);
+  roundRect(ctx, { x: -size * 0.46, y: -size * 0.32, width: size * 0.68, height: size * 0.64, radius: size * 0.12 });
   ctx.fill();
   ctx.stroke();
 }
@@ -678,12 +678,12 @@ export function drawHudFrame(x, y, width, height, color, warning) {
 export function drawStatusBar(options) {
   const { x, y, width, height, ratio, lagRatio, fillStart, fillEnd, glow, segments } = options;
   ctx.save();
-  roundRect(ctx, x, y, width, height, Math.max(1, height * 0.35));
+  roundRect(ctx, { x, y, width, height, radius: Math.max(1, height * 0.35) });
   ctx.fillStyle = "rgba(1,5,10,0.82)";
   ctx.fill();
 
   if (lagRatio > ratio) {
-    roundRect(ctx, x, y, width * lagRatio, height, Math.max(1, height * 0.35));
+    roundRect(ctx, { x, y, width: width * lagRatio, height, radius: Math.max(1, height * 0.35) });
     ctx.fillStyle = "rgba(255,245,194,0.48)";
     ctx.fill();
   }
@@ -694,7 +694,7 @@ export function drawStatusBar(options) {
     fill.addColorStop(1, fillEnd);
     ctx.shadowColor = glow;
     ctx.shadowBlur = 7;
-    roundRect(ctx, x, y, width * ratio, height, Math.max(1, height * 0.35));
+    roundRect(ctx, { x, y, width: width * ratio, height, radius: Math.max(1, height * 0.35) });
     ctx.fillStyle = fill;
     ctx.fill();
   }
@@ -702,7 +702,7 @@ export function drawStatusBar(options) {
   ctx.shadowBlur = 0;
   ctx.strokeStyle = "rgba(225,241,255,0.22)";
   ctx.lineWidth = 0.9 / state.camera.zoom;
-  roundRect(ctx, x, y, width, height, Math.max(1, height * 0.35));
+  roundRect(ctx, { x, y, width, height, radius: Math.max(1, height * 0.35) });
   ctx.stroke();
 
   ctx.strokeStyle = "rgba(2,8,16,0.72)";
@@ -766,11 +766,11 @@ export function drawMinimap(rect) {
   ctx.fillStyle = "rgba(7,12,20,0.78)";
   ctx.strokeStyle = "rgba(174,199,231,0.25)";
   ctx.lineWidth = 1;
-  roundRect(ctx, x, y, w, h, 8);
+  roundRect(ctx, { x, y, w, h, radius: 8 });
   ctx.fill();
   ctx.stroke();
   ctx.beginPath();
-  roundRect(ctx, x, y, w, h, 8);
+  roundRect(ctx, { x, y, w, h, radius: 8 });
   ctx.clip();
 
   const sx = w / state.world.width;
@@ -827,7 +827,7 @@ export function drawMinimap(rect) {
   ctx.restore();
 }
 
-function roundRect(context, x, y, width, height, radius) {
+function roundRect(context, { x, y, width, height, radius }) {
   const r = Math.min(radius, width / 2, height / 2);
   context.beginPath();
   context.moveTo(x + r, y);
