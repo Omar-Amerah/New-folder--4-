@@ -1,4 +1,1 @@
-## 2024-07-07 - Avoid Math.hypot in N^2 loops
-**Learning:** `Math.hypot` is a significant bottleneck in N^2 collision and targeting loops due to its overhead compared to simple squared distance checks (`dx*dx + dy*dy`). In Node.js/V8, `Math.hypot` handles multiple arguments and prevents overflow/underflow, which makes it far slower than a simple algebraic square sum check.
-**Action:** When iterating over all pairs of entities (e.g., ships vs ships, ships vs bullets), always compare squared distances first and only take `Math.sqrt()` if an actual collision or range check passes and the exact distance is required for resolution.
-Game state in `server.js` uses `room` objects which maintain a `ships` Map for O(1) ship lookups. Modifications to a ship's lifecycle (spawning, removal, resetting for matches) must be synchronized with `room.ships` to maintain data consistency and prevent memory leaks.
+Optimized findOptimalHullAngle to cache weapon properties, which improves performance of the inner loop by avoiding N*24 dictionary lookups and redundant distance checks. Also removed duplicate function declarations in movement.js by exporting them from combat.js.

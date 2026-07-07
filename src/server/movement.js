@@ -3,7 +3,8 @@
 const { clampNumber, rotateToward, angleDifference } = require("./utils");
 const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
-const { areEnemies } = require("./combat");
+const { areEnemies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
+const { normalizeRotation } = require("./shipDesign");
 
 function commandShips(room, player, x, y, options = {}) {
   const shipIdSet = Array.isArray(options.shipIds)
@@ -216,27 +217,25 @@ function nearestClearPoint(room, x, y, clearance) {
 }
 
 
-function moduleRotationToRad(rotation) {
-  const norm = ((rotation % 360) + 360) % 360;
-  if (norm === 90) return Math.PI / 2;
-  if (norm === 180) return Math.PI;
-  if (norm === 270) return -Math.PI / 2;
-  return 0;
-}
-
-function getModuleLocalPos(module, scale = 13) {
-  return {
-    x: (3 - module.y) * scale,
-    y: (module.x - 3) * scale
-  };
-}
-
 function findOptimalHullAngle(ship, target) {
   const angleToTarget = Math.atan2(target.y - ship.y, target.x - ship.x);
   const design = ship.design || [];
   
+  // Pre-calculate weapon properties to avoid redundant lookups in the loop
+  const weapons = [];
+  for (const module of design) {
+    const part = PARTS[module.type];
+    if (part?.weapon) {
+      weapons.push({
+        local: moduleLocalPosition(module),
+        range: ship.stats[part.weapon.type + "Range"] || part.weapon.range,
+        arcRadians: (part.weapon.arc || 360) * Math.PI / 180,
+        rotationOffset: moduleRotationToRadians(normalizeRotation(module.rotation))
+      });
+    }
+  }
+
   // If no weapons, just point directly at target
-  const weapons = design.filter(module => PARTS[module.type]?.weapon);
   if (weapons.length === 0) return angleToTarget;
 
   let bestAngle = angleToTarget;
@@ -249,28 +248,20 @@ function findOptimalHullAngle(ship, target) {
     const cos = Math.cos(phi);
     const sin = Math.sin(phi);
 
-    for (const module of design) {
-      const part = PARTS[module.type];
-      if (!part?.weapon) continue;
-
-      const family = part.weapon.type;
-      const range = ship.stats[family + "Range"] || part.weapon.range;
-
-      const local = getModuleLocalPos(module);
-      const worldX = ship.x + local.x * cos - local.y * sin;
-      const worldY = ship.y + local.x * sin + local.y * cos;
+    for (const weapon of weapons) {
+      const worldX = ship.x + weapon.local.x * cos - weapon.local.y * sin;
+      const worldY = ship.y + weapon.local.x * sin + weapon.local.y * cos;
 
       const dx = target.x - worldX;
       const dy = target.y - worldY;
       const distance = Math.hypot(dx, dy);
 
-      if (distance <= range) {
+      if (distance <= weapon.range) {
         const targetAngle = Math.atan2(dy, dx);
-        const defaultFacing = phi + moduleRotationToRad(module.rotation);
-        const arcRadians = (part.weapon.arc || 360) * Math.PI / 180;
+        const defaultFacing = phi + weapon.rotationOffset;
 
         const diff = angleDifference(defaultFacing, targetAngle);
-        if (Math.abs(diff) <= arcRadians / 2) {
+        if (Math.abs(diff) <= weapon.arcRadians / 2) {
           activeWeaponsCount += 1;
         }
       }
