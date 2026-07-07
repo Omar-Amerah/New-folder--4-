@@ -3494,7 +3494,7 @@ function makeRoomCode() {
   do {
     code = "";
     for (let i = 0; i < 5; i += 1) {
-      code += alphabet[Math.floor(Math.random() * alphabet.length)];
+      code += alphabet[crypto.randomInt(alphabet.length)];
     }
   } while (rooms.has(code) || isClosedRoomCode(code));
   return code;
