@@ -2726,8 +2726,14 @@ function prepareArenaForCurrentPlayers(room) {
 }
 
 function chooseWorldSize(playerCount) {
-  const size = WORLD_SIZES.find((candidate) => playerCount <= candidate.maxPlayers) || WORLD_SIZES[WORLD_SIZES.length - 1];
-  return { width: size.width, height: size.height, label: size.label };
+  for (let i = 0; i < WORLD_SIZES.length; i++) {
+    const candidate = WORLD_SIZES[i];
+    if (playerCount <= candidate.maxPlayers) {
+      return { width: candidate.width, height: candidate.height, label: candidate.label };
+    }
+  }
+  const fallback = WORLD_SIZES[WORLD_SIZES.length - 1];
+  return { width: fallback.width, height: fallback.height, label: fallback.label };
 }
 
 function chooseRoomWorld(room) {
