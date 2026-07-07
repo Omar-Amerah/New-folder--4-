@@ -126,6 +126,14 @@ function updateDecoys(room, ship, dt, now) {
   }
 }
 
+function isInSafeZone(room, x, y) {
+  if (!room.map || !room.map.safeZones) return false;
+  for (const zone of room.map.safeZones) {
+    if (Math.hypot(x - zone.x, y - zone.y) <= zone.radius) return true;
+  }
+  return false;
+}
+
 function updateShipWeapons(room, ship, ships, dt, now) {
   if (!ship.weaponCooldowns) {
     ship.weaponCooldowns = new Array(ship.design ? ship.design.length : 0).fill(0);
@@ -139,6 +147,11 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   for (let i = 0; i < ship.weaponCooldowns.length; i += 1) {
     ship.weaponCooldowns[i] = Math.max(0, ship.weaponCooldowns[i] - dt);
+  }
+
+  if (isInSafeZone(room, ship.x, ship.y)) {
+    ship.combatTargetId = null;
+    return; // Cannot fire from spawn
   }
 
   const target = findTarget(room, ship, ships);
@@ -395,6 +408,8 @@ function isTargetInWeaponArc(ship, module, target, arcRadians) {
 }
 
 function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY) {
+  if (isInSafeZone(room, ship.x, ship.y)) return; // Invincible in spawn
+
   if (ship.stats.frontDamageReduction && sourceX !== undefined && sourceY !== undefined) {
     if (isDamageFromFront(ship, sourceX, sourceY, ship.stats.frontArc)) {
       damage *= (1 - ship.stats.frontDamageReduction);

@@ -6,13 +6,13 @@ const PORT = Number(process.env.PORT || 5544);
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "public");
 const COMPONENT_BALANCE_PATH = path.join(__dirname, "..", "..", "component-balance.json");
 
-const WORLD = { width: 3200, height: 1900 };
+const WORLD = { width: 6400, height: 3800 };
 
 const WORLD_SIZES = Object.freeze([
-  { maxPlayers: 2, width: 2600, height: 1600, label: "Duel" },
-  { maxPlayers: 4, width: 3200, height: 1900, label: "Skirmish" },
-  { maxPlayers: 8, width: 4100, height: 2400, label: "Battle" },
-  { maxPlayers: Infinity, width: 5000, height: 2900, label: "Grand battle" }
+  { maxPlayers: 2, width: 5200, height: 3200, label: "Duel" },
+  { maxPlayers: 4, width: 6400, height: 3800, label: "Skirmish" },
+  { maxPlayers: 8, width: 8200, height: 4800, label: "Battle" },
+  { maxPlayers: Infinity, width: 10000, height: 5800, label: "Grand battle" }
 ]);
 
 const TICK_HZ = 30;

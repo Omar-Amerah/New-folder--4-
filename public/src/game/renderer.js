@@ -102,8 +102,30 @@ export function drawMapFeatures(now) {
   const map = state.snapshot?.map || state.map;
   if (!map) return;
 
+  for (const zone of map.safeZones || []) drawSafeZone(zone);
   for (const cloud of map.clouds || []) drawNebula(cloud);
   for (const asteroid of map.asteroids || []) drawAsteroid(asteroid, now);
+}
+
+export function drawSafeZone(zone) {
+  ctx.save();
+  ctx.translate(zone.x, zone.y);
+
+  // Fill
+  ctx.fillStyle = zone.color || "rgba(255,255,255,0.04)";
+  ctx.beginPath();
+  ctx.arc(0, 0, zone.radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Dashed border
+  ctx.strokeStyle = zone.color || "rgba(255,255,255,0.1)";
+  ctx.lineWidth = 4;
+  ctx.setLineDash([20, 20]);
+  ctx.beginPath();
+  ctx.arc(0, 0, zone.radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 export function drawNebula(cloud) {
@@ -1070,6 +1092,12 @@ export function drawMinimap(rect) {
   const snap = state.snapshot;
   const map = state.snapshot?.map || state.map;
   if (map) {
+    for (const zone of map.safeZones || []) {
+      ctx.fillStyle = zone.color || "rgba(255,255,255,0.06)";
+      ctx.beginPath();
+      ctx.arc(x + zone.x * sx, y + zone.y * sy, zone.radius * sx, 0, Math.PI * 2);
+      ctx.fill();
+    }
     for (const cloud of map.clouds || []) {
       ctx.fillStyle = `rgba(${cloud.color || "56,213,255"}, 0.12)`;
       ctx.beginPath();
