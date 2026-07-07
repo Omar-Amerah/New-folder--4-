@@ -5,7 +5,7 @@ const { teamLabel } = require("./players");
 const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
 
-function snapshotRoom(room, now, viewer = null) {
+function snapshotRoom(room, now, viewer = null, sendStatic = true) {
   const players = [...room.players.values()].map((player) => ({
     id: player.id,
     name: player.name,
@@ -30,8 +30,8 @@ function snapshotRoom(room, now, viewer = null) {
     kills: player.kills,
     losses: player.losses,
     captures: player.captures,
-    design: player.design,
-    stats: summarizeStats(player.stats || computeStats(player.design))
+    design: sendStatic ? player.design : undefined,
+    stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined
   }));
 
   const ships = [];
@@ -73,9 +73,9 @@ function snapshotRoom(room, now, viewer = null) {
     room: room.code,
     phase: room.phase,
     adminId: room.adminId,
-    mapSizeLabel: room.mapSizeLabel,
-    world: room.world,
-    map: room.map,
+    mapSizeLabel: sendStatic ? room.mapSizeLabel : undefined,
+    world: sendStatic ? room.world : undefined,
+    map: sendStatic ? room.map : undefined,
     players,
     ships,
     bullets: room.bullets.map((bullet) => ({
@@ -101,7 +101,7 @@ function snapshotRoom(room, now, viewer = null) {
     effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, now - effect.at) })),
     winner: room.winner,
     maxScore: room.maxScore,
-    rules: room.rules,
+    rules: sendStatic ? room.rules : undefined,
     controlVictory: room.controlVictory ? {
       active: Boolean(room.controlVictory.team || room.controlVictory.playerId),
       team: room.controlVictory.team,

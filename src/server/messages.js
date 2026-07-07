@@ -24,8 +24,12 @@ function broadcastRoom(room, data) {
 
 function broadcastSnapshot(room, now) {
   const { snapshotRoom } = require("./snapshots");
+  const sendStatic = room.phase !== "active" || !room.lastStaticSnapshotAt || now - room.lastStaticSnapshotAt > 2000;
+  if (sendStatic && room.phase === "active") {
+    room.lastStaticSnapshotAt = now;
+  }
   for (const client of room.clients) {
-    send(client, snapshotRoom(room, now, client.player));
+    send(client, snapshotRoom(room, now, client.player, sendStatic));
   }
 }
 

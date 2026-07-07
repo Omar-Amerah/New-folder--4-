@@ -25,10 +25,12 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const turnCap = turnCapForMass(safeMass);
   const cappedSpeed = hasEngineThrust ? softCap(rawSpeed, speedCap, 0.25) : 0;
   const cappedTurn = softCap(rawTurn, turnCap, 0.2);
+  const maxSpeed = hasEngineThrust ? Math.max(35, cappedSpeed) : 0;
+  const accel = hasEngineThrust ? Math.max(18, maxSpeed * 0.24) : 0;
 
   return {
-    maxSpeed: hasEngineThrust ? Math.max(35, cappedSpeed) : 0,
-    accel: hasEngineThrust ? Math.max(18, rawAccel) : 0,
+    maxSpeed,
+    accel,
     turnRate: cappedTurn,
     thrustRatio,
     effectiveThrust,

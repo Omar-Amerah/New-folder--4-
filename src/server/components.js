@@ -433,9 +433,9 @@ const FALLBACK_PARTS = Object.freeze({
 
   aegisProjector: {
     category: "Defence",
-    cost: 44, mass: 6, hp: 44,
+    cost: 47, mass: 7, hp: 47,
     powerGeneration: 0, powerUse: 5.4,
-    shield: 72, shieldRegen: 2.1,
+    shield: 165, shieldRegen: 6.8,
     thrust: 0, turn: -0.025,
     energyStorage: 0, repairRate: 0,
     weapon: null
