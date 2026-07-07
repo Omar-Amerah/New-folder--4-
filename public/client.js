@@ -2046,7 +2046,18 @@ function effectivePartCostLabel(type) {
 function estimatePartEffectiveCost(type) {
   const current = computeStats(state.design);
   const occupied = new Set(state.design.map((part) => `${part.x},${part.y}`));
-  for (const part of state.design) {
+
+  // Pre-calculate the updated stats by adding a dummy part.
+  // Stats don't depend on coordinates, so we only need to compute this once.
+  state.design.push({ x: 0, y: 0, type });
+  const updated = computeStats(state.design);
+  const costDiff = Math.max(0, updated.unitCost - current.unitCost);
+
+  // Cache the design length before the push so we don't check neighbors of the newly added dummy part
+  const len = state.design.length - 1;
+
+  for (let i = 0; i < len; i++) {
+    const part = state.design[i];
     const candidates = [
       { x: part.x + 1, y: part.y },
       { x: part.x - 1, y: part.y },
@@ -2056,12 +2067,20 @@ function estimatePartEffectiveCost(type) {
     for (const cell of candidates) {
       const key = `${cell.x},${cell.y}`;
       if (cell.x < 0 || cell.x > 6 || cell.y < 0 || cell.y > 6 || occupied.has(key)) continue;
-      const next = [...state.design, { x: cell.x, y: cell.y, type }];
-      if (!isConnected(next)) continue;
-      const updated = computeStats(next);
-      return Math.max(0, updated.unitCost - current.unitCost);
+
+      // Update coordinates of our dummy part in place to test connectivity
+      state.design[len].x = cell.x;
+      state.design[len].y = cell.y;
+
+      if (!isConnected(state.design)) continue;
+
+      // If we find any valid connected spot, we return the diff
+      state.design.pop();
+      return costDiff;
     }
   }
+
+  state.design.pop();
   return estimateFormulaPartCost(type);
 }
 
