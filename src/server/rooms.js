@@ -98,8 +98,10 @@ function sanitizeRoomRules(input, playerCount = 1) {
 function sanitizeMapSize(value) {
   const text = String(value || "auto");
   if (text === "auto") return "auto";
-  const match = WORLD_SIZES.find((size) => size.label === text);
-  return match ? match.label : "auto";
+  for (let i = 0; i < WORLD_SIZES.length; i++) {
+    if (WORLD_SIZES[i].label === text) return text;
+  }
+  return "auto";
 }
 
 function sanitizeGameMode(value) {
@@ -332,15 +334,25 @@ function prepareArenaForCurrentPlayers(room) {
 }
 
 function chooseWorldSize(playerCount) {
-  const size = WORLD_SIZES.find((candidate) => playerCount <= candidate.maxPlayers) || WORLD_SIZES[WORLD_SIZES.length - 1];
+  for (let i = 0; i < WORLD_SIZES.length; i++) {
+    const candidate = WORLD_SIZES[i];
+    if (playerCount <= candidate.maxPlayers) {
+      return { width: candidate.width, height: candidate.height, label: candidate.label };
+    }
+  }
+  const size = WORLD_SIZES[WORLD_SIZES.length - 1];
   return { width: size.width, height: size.height, label: size.label };
 }
 
 function chooseRoomWorld(room) {
   const requested = room.rules?.mapSize;
   if (requested && requested !== "auto") {
-    const fixed = WORLD_SIZES.find((candidate) => candidate.label === requested);
-    if (fixed) return { width: fixed.width, height: fixed.height, label: fixed.label };
+    for (let i = 0; i < WORLD_SIZES.length; i++) {
+      const candidate = WORLD_SIZES[i];
+      if (candidate.label === requested) {
+        return { width: candidate.width, height: candidate.height, label: candidate.label };
+      }
+    }
   }
   return chooseWorldSize(Math.max(1, room.players.size));
 }
