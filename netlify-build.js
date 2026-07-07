@@ -10,6 +10,7 @@ const clientJsPath = path.join(__dirname, "public", "client.js");
 const srcFiles = [
   "constants.js",
   "shared/math.js",
+  "shared/movementStats.js",
   "shared/formatting.js",
   "shared/ids.js",
   "design/rotation.js",
