@@ -247,13 +247,51 @@ export function drawBullets() {
     ctx.save();
     ctx.translate(bullet.x, bullet.y);
     ctx.rotate(Math.atan2(bullet.vy, bullet.vx));
-    ctx.fillStyle = bullet.type === "missile" ? "#f7d37b" : bullet.type === "rail" ? "#f4f7ff" : color;
-    ctx.shadowColor = ctx.fillStyle;
-    ctx.shadowBlur = bullet.type === "rail" ? 22 : bullet.type === "missile" ? 18 : 12;
     if (bullet.type === "rail") {
-      ctx.fillRect(-18, -2, 36, 4);
+      ctx.strokeStyle = "#eaf6ff";
+      ctx.shadowColor = "#9fdcff";
+      ctx.shadowBlur = 24;
+      ctx.lineWidth = 3.2 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(-34, 0);
+      ctx.lineTo(24, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "#64a8ff";
+      ctx.lineWidth = 1.2 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(-18, -3);
+      ctx.lineTo(18, -3);
+      ctx.moveTo(-18, 3);
+      ctx.lineTo(18, 3);
+      ctx.stroke();
+    } else if (bullet.type === "missile") {
+      ctx.shadowColor = "#ffd37a";
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = "#ffe7ad";
+      ctx.beginPath();
+      ctx.moveTo(13, 0);
+      ctx.lineTo(-7, -5);
+      ctx.lineTo(-12, 0);
+      ctx.lineTo(-7, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#8b5cf6";
+      ctx.fillRect(-8, -3, 8, 6);
+      ctx.fillStyle = "rgba(255, 111, 64, 0.85)";
+      ctx.beginPath();
+      ctx.moveTo(-12, -3);
+      ctx.lineTo(-22, 0);
+      ctx.lineTo(-12, 3);
+      ctx.closePath();
+      ctx.fill();
     } else {
-      ctx.fillRect(bullet.type === "missile" ? -10 : -7, bullet.type === "missile" ? -3 : -2, bullet.type === "missile" ? 20 : 14, bullet.type === "missile" ? 6 : 4);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12;
+      roundRect(ctx, { x: -7, y: -2, width: 14, height: 4, radius: 2 });
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.fillRect(1, -1, 5, 2);
     }
     ctx.restore();
   }
@@ -661,7 +699,7 @@ export function drawSelectionRing(ship) {
   ctx.restore();
 
   if (ship.alive) {
-    const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0);
+    const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0);
     if (maxRange > 0) {
       // Draw single range ring at maximum range
       ctx.save();
@@ -1102,6 +1140,7 @@ function angleDifference(a, b) {
 function getWeaponTurnRate(type) {
   if (type === "pointdefense") return 16.0;
   if (type === "blaster" || type === "autocannon") return 12.0;
+  if (type === "beam") return 1.65;
   if (type === "beamemitter" || type === "repairbeam") return 8.0;
   if (type === "missile" || type === "swarmmissile") return 8.0;
   if (type === "torpedo" || type === "aegisprojector") return 5.0;

@@ -73,7 +73,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   autocannon: "Rapid-fire weapon with high spread. Best against nearby light targets.",
   torpedo: "Slow heavy missile with major burst damage against large ships.",
   swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
-  beamEmitter: "Accurate sustained beam weapon with high power use and focused range.",
+  beamEmitter: "Medium-short sustained beam weapon with a focused burn path and high power use.",
   aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
   sensorArray: "Support electronics that extend weapon range for long-distance ships.",
   targetingComputer: "Support computer that improves weapon accuracy.",
@@ -197,9 +197,9 @@ export const FALLBACK_PART_STATS = {
     category: "Support",
     cost: 26, mass: 5, hp: 48,
     powerGeneration: 0, powerUse: 2.4,
-    shield: 16, shieldRegen: 0.35,
+    shield: 16, shieldRegen: 0.25,
     thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 8,
+    energyStorage: 0, repairRate: 5,
     repair: 1,
     weapon: null
   },
@@ -354,7 +354,7 @@ export const FALLBACK_PART_STATS = {
     category: "Defence",
     cost: 36, mass: 6, hp: 50,
     powerGeneration: 0, powerUse: 5.8,
-    shield: 82, shieldRegen: 4.8,
+    shield: 82, shieldRegen: 2.0,
     thrust: 0, turn: -0.03,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -382,7 +382,7 @@ export const FALLBACK_PART_STATS = {
     category: "Defence",
     cost: 44, mass: 6, hp: 44,
     powerGeneration: 0, powerUse: 5.4,
-    shield: 72, shieldRegen: 3.6,
+    shield: 72, shieldRegen: 2.1,
     thrust: 0, turn: -0.025,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -547,15 +547,16 @@ export const FALLBACK_PART_STATS = {
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.065,
     energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
+    beam: 1,
+    weapon: makeWeapon("beam", {
       damage: 34,
-      fireRate: 0.7,
-      range: 720,
-      projectileSpeed: 1500,
-      accuracy: 0.98,
-      tracking: 0,
-      arc: 70
+      fireRate: 1,
+      range: 520,
+      radius: 16,
+      projectileSpeed: 0,
+      accuracy: 0.99,
+      tracking: 0.45,
+      arc: 110
     }),
     rotationRequired: true
   },
@@ -640,9 +641,9 @@ export const FALLBACK_PART_STATS = {
     category: "Support",
     cost: 58, mass: 8, hp: 48,
     powerGeneration: 0, powerUse: 6.2,
-    shield: 22, shieldRegen: 0.4,
+    shield: 22, shieldRegen: 0.3,
     thrust: 0, turn: -0.035,
-    energyStorage: 0, repairRate: 17,
+    energyStorage: 0, repairRate: 11,
     repair: 1,
     weapon: null,
     utilityEffect: "repair"
@@ -706,9 +707,11 @@ export function makeWeapon(type, stats) {
     fireRate,
     reload: Number((1 / fireRate).toFixed(2)),
     range: stats.range,
+    radius: Number(stats.radius) || 0,
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
     tracking: stats.tracking || 0,
+    trackTime: Number(stats.trackTime) || 0,
     arc: Number(stats.arc) || 360,
     dps: Number((damage * fireRate).toFixed(1))
   };
@@ -766,7 +769,7 @@ export function normalizeRuntimePart(part = {}) {
     rotationRequired: Boolean(part.rotationRequired || part.rotatable)
   };
   if (weapon) normalized[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam"]) {
     if (part[family]) normalized[family] = numberOr(part[family], normalized[family] || 0);
   }
   return normalized;
@@ -802,7 +805,7 @@ export function normalizeBalanceComponent(component) {
     rotationRequired: Boolean(component.rotationRequired || component.rotatable)
   };
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam"]) {
     if (component[family]) part[family] = numberOr(component[family], part[family] || 0);
   }
   return part;

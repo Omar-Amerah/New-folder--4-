@@ -20,6 +20,7 @@ function computeStats(modules) {
   let maxHp = 0;
   let maxShield = 0;
   let shieldRegen = 0;
+  const shieldRegenValues = [];
   let powerGeneration = 0;
   let powerUse = 0;
   let thrust = 0;
@@ -30,8 +31,10 @@ function computeStats(modules) {
   let blaster = 0;
   let missile = 0;
   let railgun = 0;
+  let beam = 0;
   let repair = 0;
   let repairRate = 0;
+  const repairRateValues = [];
   let rangeBonus = 0;
   let accuracyBonus = 0;
   let fireRateBonus = 0;
@@ -40,7 +43,8 @@ function computeStats(modules) {
   const weaponTotals = {
     blaster: weaponAccumulator(),
     missile: weaponAccumulator(),
-    railgun: weaponAccumulator()
+    railgun: weaponAccumulator(),
+    beam: weaponAccumulator()
   };
 
   let minX = 3;
@@ -55,6 +59,7 @@ function computeStats(modules) {
     maxHp += part.hp;
     maxShield += part.shield;
     shieldRegen += part.shieldRegen || 0;
+    if ((part.shieldRegen || 0) > 0) shieldRegenValues.push(part.shieldRegen);
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += part.thrust;
@@ -65,30 +70,35 @@ function computeStats(modules) {
     blaster += part.blaster || 0;
     missile += part.missile || 0;
     railgun += part.railgun || 0;
+    beam += part.beam || 0;
     repair += part.repair || 0;
     repairRate += part.repairRate || 0;
+    if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
     rangeBonus += part.rangeBonus || 0;
     accuracyBonus += part.accuracyBonus || 0;
     fireRateBonus += part.fireRateBonus || 0;
     coolingBonus += Math.max(0, -(part.heat || 0)) * 0.01;
     captureBonus += part.captureBonus || 0;
-    if (part.weapon) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
+    if (part.weapon && weaponTotals[part.weapon.type]) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
     minX = Math.min(minX, module.x);
     maxX = Math.max(maxX, module.x);
     minY = Math.min(minY, module.y);
     maxY = Math.max(maxY, module.y);
   }
 
+  // Sustain modules use sharp diminishing returns so stacking regen cannot erase focused damage.
+  shieldRegen = effectiveStackedValue(shieldRegenValues, 0.72);
+  repairRate = effectiveStackedValue(repairRateValues, 0.62);
   const power = powerGeneration - powerUse;
   const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
   const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
   applyWeaponUtilityBonuses(weaponTotals, { rangeBonus, accuracyBonus, fireRateBonus, coolingBonus });
-  const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun });
+  const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam });
   const unitCost = costBreakdown.total;
   const fleetCount = clampNumber(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
   const weapons = summarizeWeaponTotals(weaponTotals);
-  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
+  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
 
   return {
     cost,
@@ -117,6 +127,7 @@ function computeStats(modules) {
     blaster,
     missile,
     railgun,
+    beam,
     repair,
     repairRate,
     coolingBonus: round(coolingBonus),
@@ -124,20 +135,27 @@ function computeStats(modules) {
     blasterRange: weaponRange(weaponTotals.blaster),
     missileRange: weaponRange(weaponTotals.missile),
     railgunRange: weaponRange(weaponTotals.railgun),
+    beamRange: weaponRange(weaponTotals.beam),
+    beamRadius: weapons.beam.radius,
     blasterDamage: weapons.blaster.damage,
     missileDamage: weapons.missile.damage,
     railgunDamage: weapons.railgun.damage,
+    beamDamage: weapons.beam.damage,
     blasterReload: weapons.blaster.reload,
     missileReload: weapons.missile.reload,
     railgunReload: weapons.railgun.reload,
+    beamReload: weapons.beam.reload,
     blasterProjectileSpeed: weapons.blaster.projectileSpeed,
     missileProjectileSpeed: weapons.missile.projectileSpeed,
     railgunProjectileSpeed: weapons.railgun.projectileSpeed,
+    beamProjectileSpeed: weapons.beam.projectileSpeed,
     blasterAccuracy: weapons.blaster.accuracy,
     missileAccuracy: weapons.missile.accuracy,
     railgunAccuracy: weapons.railgun.accuracy,
+    beamAccuracy: weapons.beam.accuracy,
     missileTracking: weapons.missile.tracking,
-    weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps),
+    beamTracking: weapons.beam.tracking,
+    weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps + weapons.beam.dps),
     weapons,
     warnings,
     costBreakdown,
@@ -157,7 +175,8 @@ function calculateCostBreakdown(stats) {
   const weaponPremium =
     stats.blaster * ECONOMY.weaponPremiums.blaster +
     stats.missile * ECONOMY.weaponPremiums.missile +
-    stats.railgun * ECONOMY.weaponPremiums.railgun;
+    stats.railgun * ECONOMY.weaponPremiums.railgun +
+    (stats.beam || 0) * (ECONOMY.weaponPremiums.beam || ECONOMY.weaponPremiums.railgun);
   const preTaxTotal = base + parts + mass + hull + shield + repair + weaponPremium;
   const largeTax = Math.max(0, preTaxTotal - ECONOMY.largeShipThreshold) * ECONOMY.largeShipCostTax;
   const hugeTax = Math.max(0, preTaxTotal - ECONOMY.hugeShipThreshold) * ECONOMY.hugeShipCostTax;
@@ -176,13 +195,14 @@ function calculateCostBreakdown(stats) {
 }
 
 function weaponAccumulator() {
-  return { count: 0, damage: 0, range: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0 };
+  return { count: 0, damage: 0, range: 0, radius: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0 };
 }
 
 function addWeaponStats(total, weapon) {
   total.count += 1;
   total.damage += weapon.damage;
   total.range = Math.max(total.range, weapon.range);
+  total.radius = Math.max(total.radius, weapon.radius || 0);
   total.fireRate += weapon.fireRate;
   total.reload += 1000 / weapon.fireRate;
   total.projectileSpeed += weapon.projectileSpeed;
@@ -218,6 +238,7 @@ function summarizeWeaponTotals(totals) {
       count: total.count,
       damage: total.damage,
       range: total.range,
+      radius: total.radius,
       fireRate: round(total.fireRate),
       reload: total.count ? round(total.reload / total.count) : 0,
       projectileSpeed: total.count ? Math.round(total.projectileSpeed / total.count) : 0,
@@ -231,7 +252,7 @@ function summarizeWeaponTotals(totals) {
 
 function shipWarnings(stats) {
   const warnings = [];
-  const weaponCount = stats.blaster + stats.missile + stats.railgun;
+  const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
   const hasReactor = stats.modules.some((module) => module.type === "reactor");
   if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
   if (!hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
@@ -270,6 +291,7 @@ function summarizeStats(stats) {
     blaster: stats.blaster,
     missile: stats.missile,
     railgun: stats.railgun,
+    beam: stats.beam,
     repair: stats.repair,
     repairRate: stats.repairRate,
     coolingBonus: stats.coolingBonus,

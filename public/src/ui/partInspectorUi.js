@@ -59,6 +59,17 @@ function partPowerText(stat) {
 function partInspectorDetails(type, stat, effectiveCost) {
   if (stat.weapon) {
     const weapon = stat.weapon;
+    if (weapon.type === "beam") {
+      return [
+        ["Damage", `${formatDamage(weapon.damage)}/s`],
+        ["Range", formatDistance(weapon.range)],
+        ["Beam radius", formatDistance(weapon.radius || 0)],
+        ["Tracking", `${Math.round((weapon.tracking || 0) * 100)}% slow aim`],
+        ["Arc", `${weapon.arc || 360} deg`],
+        ["Behavior", "Continuous beam"],
+        ["Power use", formatPowerUse(stat.powerUse)]
+      ];
+    }
     return [
       ["Damage", formatDamage(weapon.damage)],
       ["Range", formatDistance(weapon.range)],

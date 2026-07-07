@@ -46,7 +46,8 @@ const ECONOMY = Object.freeze({
   weaponPremiums: Object.freeze({
     blaster: 18,
     missile: 32,
-    railgun: 48
+    railgun: 48,
+    beam: 42
   })
 });
 

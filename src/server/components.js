@@ -25,9 +25,11 @@ function makeWeapon(type, stats) {
     fireRate,
     reload: calculateReload({ fireRate }),
     range: stats.range,
+    radius: Number(stats.radius) || 0,
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
     tracking: stats.tracking || 0,
+    trackTime: Number(stats.trackTime) || 0,
     arc: Number(stats.arc) || 360,
     dps: calculateDps({ damage, fireRate })
   };
@@ -156,9 +158,9 @@ const FALLBACK_PARTS = Object.freeze({
     category: "Support",
     cost: 26, mass: 5, hp: 48,
     powerGeneration: 0, powerUse: 2.4,
-    shield: 16, shieldRegen: 0.35,
+    shield: 16, shieldRegen: 0.25,
     thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 8,
+    energyStorage: 0, repairRate: 5,
     repair: 1,
     weapon: null
   },
@@ -334,7 +336,7 @@ const FALLBACK_PARTS = Object.freeze({
     category: "Defence",
     cost: 36, mass: 6, hp: 50,
     powerGeneration: 0, powerUse: 5.8,
-    shield: 82, shieldRegen: 4.8,
+    shield: 82, shieldRegen: 2.0,
     thrust: 0, turn: -0.03,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -364,7 +366,7 @@ const FALLBACK_PARTS = Object.freeze({
     category: "Defence",
     cost: 44, mass: 6, hp: 44,
     powerGeneration: 0, powerUse: 5.4,
-    shield: 72, shieldRegen: 3.6,
+    shield: 72, shieldRegen: 2.1,
     thrust: 0, turn: -0.025,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -539,15 +541,16 @@ const FALLBACK_PARTS = Object.freeze({
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.065,
     energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
+    beam: 1,
+    weapon: makeWeapon("beam", {
       damage: 34,
-      fireRate: 0.7,
-      range: 720,
-      projectileSpeed: 1500,
-      accuracy: 0.98,
-      tracking: 0,
-      arc: 70
+      fireRate: 1,
+      range: 520,
+      radius: 16,
+      projectileSpeed: 0,
+      accuracy: 0.99,
+      tracking: 0.45,
+      arc: 110
     }),
     rotationRequired: true
   },
@@ -641,9 +644,9 @@ const FALLBACK_PARTS = Object.freeze({
     category: "Support",
     cost: 58, mass: 8, hp: 48,
     powerGeneration: 0, powerUse: 6.2,
-    shield: 22, shieldRegen: 0.4,
+    shield: 22, shieldRegen: 0.3,
     thrust: 0, turn: -0.035,
-    energyStorage: 0, repairRate: 17,
+    energyStorage: 0, repairRate: 11,
     repair: 1,
     weapon: null,
     utilityEffect: "repair"
@@ -703,7 +706,7 @@ function normalizeBalanceComponent(component) {
   };
 
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam"]) {
     if (component[family]) part[family] = toNumber(component[family], part[family] || 0);
   }
   return Object.freeze(part);

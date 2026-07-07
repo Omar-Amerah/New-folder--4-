@@ -5,7 +5,7 @@ import { PART_STATS } from "./parts.js";
 import { SHIP_ECONOMY } from "../constants.js";
 import { formatPercent } from "./statFormatting.js";
 import { isConnected } from "./blueprintValidation.js";
-import { calculateMovementStats, calculateSystemEfficiency } from "../shared/movementStats.js";
+import { calculateMovementStats, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
 
 export function computeStats(modules) {
   let cost = 0;
@@ -13,6 +13,7 @@ export function computeStats(modules) {
   let maxHp = 0;
   let maxShield = 0;
   let shieldRegen = 0;
+  const shieldRegenValues = [];
   let powerGeneration = 0;
   let powerUse = 0;
   let thrust = 0;
@@ -23,8 +24,10 @@ export function computeStats(modules) {
   let blaster = 0;
   let missile = 0;
   let railgun = 0;
+  let beam = 0;
   let repair = 0;
   let repairRate = 0;
+  const repairRateValues = [];
   let rangeBonus = 0;
   let accuracyBonus = 0;
   let fireRateBonus = 0;
@@ -33,7 +36,8 @@ export function computeStats(modules) {
   const weaponTotals = {
     blaster: weaponAccumulator(),
     missile: weaponAccumulator(),
-    railgun: weaponAccumulator()
+    railgun: weaponAccumulator(),
+    beam: weaponAccumulator()
   };
 
   for (const module of modules) {
@@ -43,6 +47,7 @@ export function computeStats(modules) {
     maxHp += part.hp;
     maxShield += part.shield;
     shieldRegen += part.shieldRegen || 0;
+    if ((part.shieldRegen || 0) > 0) shieldRegenValues.push(part.shieldRegen);
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += part.thrust;
@@ -53,24 +58,29 @@ export function computeStats(modules) {
     blaster += part.blaster || 0;
     missile += part.missile || 0;
     railgun += part.railgun || 0;
+    beam += part.beam || 0;
     repair += part.repair || 0;
     repairRate += part.repairRate || 0;
+    if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
     rangeBonus += part.rangeBonus || 0;
     accuracyBonus += part.accuracyBonus || 0;
     fireRateBonus += part.fireRateBonus || 0;
     coolingBonus += Math.max(0, -(part.heat || 0)) * 0.01;
     captureBonus += part.captureBonus || 0;
-    if (part.weapon) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
+    if (part.weapon && weaponTotals[part.weapon.type]) addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
   }
 
+  // Sustain modules use sharp diminishing returns so stacking regen cannot erase focused damage.
+  shieldRegen = effectiveStackedValue(shieldRegenValues, 0.72);
+  repairRate = effectiveStackedValue(repairRateValues, 0.62);
   applyWeaponUtilityBonuses(weaponTotals, { rangeBonus, accuracyBonus, fireRateBonus, coolingBonus });
   const power = powerGeneration - powerUse;
   const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
   const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues });
-  const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun });
+  const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam });
   const unitCost = costBreakdown.total;
   const fleetCount = clamp(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
-  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
+  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
 
   return {
     cost,
@@ -99,6 +109,7 @@ export function computeStats(modules) {
     blaster,
     missile,
     railgun,
+    beam,
     repair,
     repairRate,
     coolingBonus: Number(coolingBonus.toFixed(2)),
@@ -106,7 +117,9 @@ export function computeStats(modules) {
     blasterRange: weaponRange(weaponTotals.blaster),
     missileRange: weaponRange(weaponTotals.missile),
     railgunRange: weaponRange(weaponTotals.railgun),
-    weaponDps: Number((weaponTotals.blaster.dps + weaponTotals.missile.dps + weaponTotals.railgun.dps).toFixed(1)),
+    beamRange: weaponRange(weaponTotals.beam),
+    beamRadius: weaponTotals.beam.radius,
+    weaponDps: Number((weaponTotals.blaster.dps + weaponTotals.missile.dps + weaponTotals.railgun.dps + weaponTotals.beam.dps).toFixed(1)),
     weapons: summarizeWeaponTotals(weaponTotals),
     warnings,
     costBreakdown,
@@ -124,7 +137,8 @@ export function calculateCostBreakdown(stats) {
   const weaponPremium =
     stats.blaster * SHIP_ECONOMY.weaponPremiums.blaster +
     stats.missile * SHIP_ECONOMY.weaponPremiums.missile +
-    stats.railgun * SHIP_ECONOMY.weaponPremiums.railgun;
+    stats.railgun * SHIP_ECONOMY.weaponPremiums.railgun +
+    (stats.beam || 0) * (SHIP_ECONOMY.weaponPremiums.beam || SHIP_ECONOMY.weaponPremiums.railgun);
   const preTaxTotal = base + parts + mass + hull + shield + repair + weaponPremium;
   const largeTax = Math.max(0, preTaxTotal - SHIP_ECONOMY.largeShipThreshold) * SHIP_ECONOMY.largeShipCostTax;
   const hugeTax = Math.max(0, preTaxTotal - SHIP_ECONOMY.hugeShipThreshold) * SHIP_ECONOMY.hugeShipCostTax;
@@ -143,13 +157,14 @@ export function calculateCostBreakdown(stats) {
 }
 
 export function weaponAccumulator() {
-  return { count: 0, damage: 0, range: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0 };
+  return { count: 0, damage: 0, range: 0, radius: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0 };
 }
 
 export function addWeaponStats(total, weapon) {
   total.count += 1;
   total.damage += weapon.damage;
   total.range = Math.max(total.range, weapon.range);
+  total.radius = Math.max(total.radius, weapon.radius || 0);
   total.fireRate += weapon.fireRate;
   total.reload += calculateReload(weapon);
   total.projectileSpeed += weapon.projectileSpeed;
@@ -194,6 +209,7 @@ export function summarizeWeaponTotals(totals) {
       count: total.count,
       damage: total.damage,
       range: total.range,
+      radius: total.radius,
       fireRate: Number(total.fireRate.toFixed(2)),
       reload: total.count ? Number((total.reload / total.count).toFixed(2)) : 0,
       projectileSpeed: total.count ? Math.round(total.projectileSpeed / total.count) : 0,
@@ -207,7 +223,7 @@ export function summarizeWeaponTotals(totals) {
 
 export function shipWarnings(stats) {
   const warnings = [];
-  const weaponCount = stats.blaster + stats.missile + stats.railgun;
+  const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
   const hasReactor = stats.modules.some((module) => module.type === "reactor");
   if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
   if (!hasReactor && stats.powerUse > PART_STATS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
@@ -258,7 +274,8 @@ export function estimateFormulaPartCost(type) {
   const weaponPremium =
     (stat.blaster || 0) * SHIP_ECONOMY.weaponPremiums.blaster +
     (stat.missile || 0) * SHIP_ECONOMY.weaponPremiums.missile +
-    (stat.railgun || 0) * SHIP_ECONOMY.weaponPremiums.railgun;
+    (stat.railgun || 0) * SHIP_ECONOMY.weaponPremiums.railgun +
+    (stat.beam || 0) * (SHIP_ECONOMY.weaponPremiums.beam || SHIP_ECONOMY.weaponPremiums.railgun);
   return Math.max(1, Math.round(
     stat.cost * SHIP_ECONOMY.partCostMultiplier +
     stat.mass * SHIP_ECONOMY.massCostMultiplier +

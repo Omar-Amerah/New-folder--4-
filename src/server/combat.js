@@ -9,7 +9,8 @@ const MODULE_SCALE = 13;
 const MUZZLE_DISTANCE = Object.freeze({
   blaster: 11,
   missile: 12,
-  railgun: 14
+  railgun: 14,
+  beam: 13
 });
 
 function updateShipSupport(room, ships, dt, now) {
@@ -47,6 +48,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   }
   if (!ship.weaponAngles) {
     ship.weaponAngles = (ship.design || []).map(module => moduleRotationToRadians(normalizeRotation(module.rotation)));
+  }
+  if (!ship.beamEffectsAt) {
+    ship.beamEffectsAt = new Array(ship.design ? ship.design.length : 0).fill(0);
   }
 
   for (let i = 0; i < ship.weaponCooldowns.length; i += 1) {
@@ -106,7 +110,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
     const worldAngleToTarget = Math.atan2(target.y - worldY, target.x - worldX);
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
-    if (angleErr > 0.26) return;
+    if (family !== "beam" && angleErr > 0.26) return;
 
     const accuracy = clampNumber((part.weapon.accuracy || 0.8) + (ship.stats.accuracyBonus || 0), 0.1, 1);
     const spreadScale = (1 - accuracy) * 0.22;
@@ -147,12 +151,31 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         vy: Math.sin(shotAngle) * speed + ship.vy * 0.15,
         damage: part.weapon.damage * ship.stats.efficiency,
         tracking: part.weapon.tracking || 0.75,
+        trackRemaining: part.weapon.trackTime || 1.4,
         maxSpeed: speed * 1.45,
         life: life,
         bornAt: now
       });
       const reload = (1 / part.weapon.fireRate) / Math.max(0.1, fireRateMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
+    } else if (family === "beam") {
+      const rangeVal = ship.stats?.beamRange || part.weapon.range;
+      const beamRadius = part.weapon.radius || 28;
+      const beamEnd = beamImpactPoint(room, muzzle.x, muzzle.y, worldWeaponAngle, rangeVal, beamRadius);
+      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * ship.stats.efficiency * dt, now);
+      if (now - (ship.beamEffectsAt[i] || 0) > 55) {
+        ship.beamEffectsAt[i] = now;
+        room.effects.push({
+          type: "beam",
+          ownerId: ship.ownerId,
+          x: muzzle.x,
+          y: muzzle.y,
+          x2: beamEnd.x,
+          y2: beamEnd.y,
+          radius: beamRadius,
+          at: now
+        });
+      }
     } else if (family === "railgun") {
       const speed = part.weapon.projectileSpeed || 1080;
       const rangeVal = ship.stats?.railgunRange || part.weapon.range;
@@ -222,6 +245,30 @@ function weaponMuzzleWorldPosition(ship, module, angle, family) {
   };
 }
 
+function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
+  const maxX = x + Math.cos(angle) * range;
+  const maxY = y + Math.sin(angle) * range;
+  const { segmentCircleHit } = require("./projectiles");
+  let end = { x: maxX, y: maxY, t: 1 };
+
+  for (const asteroid of room.map?.asteroids || []) {
+    const hit = segmentCircleHit(x, y, maxX, maxY, asteroid.x, asteroid.y, asteroid.radius + beamRadius);
+    if (hit && hit.t < end.t) end = { x: hit.x, y: hit.y, t: hit.t };
+  }
+
+  return end;
+}
+
+function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now) {
+  const { segmentCircleHit } = require("./projectiles");
+  for (const target of ships) {
+    if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
+    const hit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
+    if (!hit) continue;
+    damageShip(room, target, damage, ship.ownerId, now);
+  }
+}
+
 function isTargetInWeaponArc(ship, module, target, arcRadians) {
   if (arcRadians >= Math.PI * 2) return true;
   const origin = weaponModuleWorldPosition(ship, module);
@@ -281,20 +328,20 @@ function updateDestroyedShips(room, now) {
 function findTarget(room, ship, ships) {
   let best = null;
   let bestDistance = Infinity;
-  const range = Math.max(ship.stats.blasterRange, ship.stats.missileRange, 420);
+  const range = Math.max(ship.stats.blasterRange, ship.stats.missileRange, ship.stats.beamRange || 0, 420);
 
   if (ship.focusTargetId) {
     const focused = ships.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
     if (focused) {
       const focusedDistance = Math.hypot(focused.x - ship.x, focused.y - ship.y);
-      if (focusedDistance <= Math.max(range, ship.stats.railgunRange) * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
+      if (focusedDistance <= Math.max(range, ship.stats.railgunRange, ship.stats.beamRange || 0) * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
     }
   }
 
   for (const other of ships) {
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
     const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
-    if (distance < bestDistance && distance <= Math.max(range, ship.stats.railgunRange) && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) {
+    if (distance < bestDistance && distance <= Math.max(range, ship.stats.railgunRange, ship.stats.beamRange || 0) && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) {
       best = other;
       bestDistance = distance;
     }
@@ -331,6 +378,7 @@ function getWeaponTurnRate(family) {
   if (family === "blaster") return 12.0;
   if (family === "missile") return 8.0;
   if (family === "railgun") return 4.5;
+  if (family === "beam") return 1.65;
   return 8.0;
 }
 

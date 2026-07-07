@@ -61,6 +61,8 @@ function snapshotRoom(room, now, viewer = null) {
       blasterRange: ship.stats?.blasterRange || 0,
       missileRange: ship.stats?.missileRange || 0,
       railgunRange: ship.stats?.railgunRange || 0,
+      beamRange: ship.stats?.beamRange || 0,
+      beamRadius: ship.stats?.beamRadius || 0,
       respawnIn: 0,
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     });

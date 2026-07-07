@@ -3,7 +3,7 @@
     "Active selectable component balance sheet and runtime source of truth for client and server balance.",
     "Hidden legacy size variants are intentionally omitted from this file and from the palette.",
     "Edit component values here; server.js normalizes this file into runtime PARTS and public/client.js loads the same file for UI stats.",
-    "Units: cost $, mass T, hull HP, power MW, shield SP, shieldRegen SP/s, thrust kN, energy MJ, repair HP/s, range m, projectileSpeed m/s."
+    "Units: cost $, mass T, hull HP, power MW, shield SP, shieldRegen SP/s, thrust kN, energy MJ, repair HP/s, range m, radius m, projectileSpeed m/s."
   ],
   "shipCostLimits": {
     "minimum": 300,
@@ -245,12 +245,12 @@
       "powerGeneration": 0,
       "powerUse": 5.4,
       "shield": 72,
-      "shieldRegen": 3.6,
+      "shieldRegen": 2.1,
       "thrust": 0,
       "turn": -0.025,
       "energy": 0,
       "repair": 0,
-      "description": "High-power defensive projector with fast shield recharge."
+      "description": "High-power defensive projector with strong but limited shield recharge."
     },
     {
       "id": "pointDefense",
@@ -290,7 +290,7 @@
       "powerGeneration": 0,
       "powerUse": 3,
       "shield": 115,
-      "shieldRegen": 2.4,
+      "shieldRegen": 1.7,
       "thrust": 0,
       "turn": -0.01,
       "energy": 0,
@@ -341,17 +341,18 @@
       "energy": 0,
       "repair": 0,
       "weapon": {
-        "family": "railgun",
-        "damage": 42,
-        "fireRate": 0.75,
-        "range": 760,
-        "projectileSpeed": 1500,
+        "family": "beam",
+        "damage": 34,
+        "fireRate": 1,
+        "range": 520,
+        "radius": 16,
+        "projectileSpeed": 0,
         "accuracy": 0.99,
-        "tracking": 0,
-        "arc": 70
+        "tracking": 0.45,
+        "arc": 110
       },
       "rotatable": true,
-      "description": "Accurate sustained beam weapon with heavy power draw."
+      "description": "Medium-short sustained beam weapon with a focused burn path and heavy power draw."
     },
     {
       "id": "blaster",
@@ -404,6 +405,7 @@
         "projectileSpeed": 320,
         "accuracy": 0.7,
         "tracking": 0.78,
+        "trackTime": 1.6,
         "arc": 220
       },
       "rotatable": true,
@@ -428,8 +430,8 @@
         "family": "railgun",
         "damage": 100,
         "fireRate": 0.18,
-        "range": 1060,
-        "projectileSpeed": 1080,
+        "range": 1120,
+        "projectileSpeed": 2200,
         "accuracy": 0.95,
         "tracking": 0,
         "arc": 45
@@ -460,6 +462,7 @@
         "projectileSpeed": 380,
         "accuracy": 0.7,
         "tracking": 0.86,
+        "trackTime": 1.9,
         "arc": 240
       },
       "rotatable": true,
@@ -488,6 +491,7 @@
         "projectileSpeed": 260,
         "accuracy": 0.62,
         "tracking": 0.35,
+        "trackTime": 0.9,
         "arc": 160
       },
       "rotatable": true,
@@ -540,12 +544,12 @@
       "powerGeneration": 0,
       "powerUse": 2,
       "shield": 20,
-      "shieldRegen": 0.5,
+      "shieldRegen": 0.25,
       "thrust": 0,
       "turn": -0.01,
       "energy": 0,
-      "repair": 10,
-      "description": "Small support module that repairs hull over time."
+      "repair": 5,
+      "description": "Small support module that slowly repairs hull over time."
     },
     {
       "id": "repairBeam",
@@ -557,12 +561,12 @@
       "powerGeneration": 0,
       "powerUse": 5,
       "shield": 30,
-      "shieldRegen": 0.6,
+      "shieldRegen": 0.3,
       "thrust": 0,
       "turn": -0.02,
       "energy": 0,
-      "repair": 22,
-      "description": "Heavy repair system with stronger hull recovery."
+      "repair": 11,
+      "description": "Heavy repair system with stronger but limited hull recovery."
     },
     {
       "id": "sensorArray",

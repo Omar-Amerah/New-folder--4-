@@ -411,8 +411,9 @@ export function hidePurchaseTooltip() {
 }
 
 export function inferShipRole(stats) {
-  const weapons = stats.blaster + stats.missile + stats.railgun;
+  const weapons = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
   if (stats.repair > 0 && stats.weaponDps < 30) return "Support";
+  if ((stats.beam || 0) >= Math.max(stats.blaster, stats.missile, stats.railgun) && (stats.beam || 0) > 0) return "Beam Ship";
   if (stats.railgun >= Math.max(stats.blaster, stats.missile) && stats.railgun > 0) return "Rail Platform";
   if (stats.missile >= Math.max(stats.blaster, stats.railgun) && stats.missile > 0) return "Missile Boat";
   if (stats.maxHp + stats.maxShield > 700 && stats.maxSpeed < 190) return "Heavy Tank";

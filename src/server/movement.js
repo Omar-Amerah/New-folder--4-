@@ -59,7 +59,7 @@ function updateShipMovement(room, ship, dt) {
       ship.targetY = focusTarget.y;
 
       const distToTarget = Math.hypot(focusTarget.x - ship.x, focusTarget.y - ship.y);
-      const maxRange = Math.max(stats.blasterRange || 0, stats.missileRange || 0, stats.railgunRange || 0);
+      const maxRange = Math.max(stats.blasterRange || 0, stats.missileRange || 0, stats.railgunRange || 0, stats.beamRange || 0);
 
       if (maxRange > 0) {
         if (distToTarget <= maxRange * 0.88) {

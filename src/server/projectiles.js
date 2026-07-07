@@ -49,7 +49,8 @@ function updateBullets(room, dt, now) {
 
     if (bullet.type === "missile") {
       const target = byId.get(bullet.targetId);
-      if (target && areEnemies(room, bullet.ownerId, target.ownerId)) {
+      const canTrack = bullet.trackRemaining === undefined || bullet.trackRemaining > 0;
+      if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
         const desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
         const current = Math.atan2(bullet.vy, bullet.vx);
         const next = rotateToward(current, desired, (1.6 + (bullet.tracking || 0.75) * 1.8) * dt);
@@ -57,6 +58,7 @@ function updateBullets(room, dt, now) {
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
       }
+      if (bullet.trackRemaining !== undefined) bullet.trackRemaining = Math.max(0, bullet.trackRemaining - dt);
     }
 
     bullet.x += bullet.vx * dt;
@@ -91,7 +93,7 @@ function updateBullets(room, dt, now) {
   }
 
   room.bullets = kept;
-  room.effects = room.effects.filter((effect) => now - effect.at < 900);
+  room.effects = room.effects.filter((effect) => now - effect.at < (effect.type === "beam" ? 140 : 900));
 }
 
 module.exports = {
