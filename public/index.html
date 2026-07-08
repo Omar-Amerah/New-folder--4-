@@ -23,50 +23,8 @@
         <div class="panel-section control-group">
           <div class="section-heading">
             <h2>Ship Design</h2>
-            <div class="designer-actions">
-              <button id="resetButton" type="button" class="icon-button" title="New Design (Core only)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-              </button>
-              <button id="clearGridButton" type="button" class="icon-button" title="Clear Grid (Empty)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-              </button>
-            </div>
           </div>
-          <div id="partPalette" class="part-palette" aria-label="Ship parts"></div>
-          <div id="partInspector" class="part-inspector"></div>
-          <div class="combat-style-selector">
-            <label for="combatStyleSelect">Combat Movement Style</label>
-            <select id="combatStyleSelect">
-              <option value="charge">Charge (Approach closer)</option>
-              <option value="hold">Hold (Stay at max range)</option>
-              <option value="circle">Circle (Orbit target)</option>
-            </select>
-          </div>
-          <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite">
-            <span>Current ship cost</span>
-            <strong id="blueprintCostLabel">$0</strong>
-            <em id="blueprintCostStatus">Ready</em>
-          </div>
-          <div id="blueprintCostBreakdown" class="blueprint-cost-breakdown" hidden></div>
-          <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
-          <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
-          <div id="buildStatus" class="build-status"></div>
-          <div id="shipIssuesPanel" class="ship-issues-panel"></div>
-          <div id="statsGrid" class="stats-grid"></div>
-          <div class="saved-designs">
-            <div class="section-heading compact">
-              <h2>Saved Blueprints</h2>
-              <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
-            </div>
-            <div id="savedDesignList" class="saved-design-list"></div>
-          </div>
-          <label for="formationSelect">Formation</label>
-          <select id="formationSelect">
-            <option value="line">Line</option>
-            <option value="wedge">Wedge</option>
-            <option value="clump">Clump</option>
-          </select>
-          <button id="deployButton" type="button">Ready with this design</button>
+          <button id="openBlueprintDesignerButton" type="button">Open Ship Designer</button>
         </div>
       </section>
 
@@ -324,6 +282,74 @@
         <div class="confirm-actions">
           <button id="confirmCancelButton" type="button" class="secondary">Cancel</button>
           <button id="confirmAcceptButton" type="button">Delete</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="blueprintDesignerScreen" class="menu-screen blueprint-designer-screen" hidden aria-label="Blueprint Designer">
+      <div class="menu-panel blueprint-designer-panel">
+        <div class="menu-head">
+          <div>
+            <span>Ship Design</span>
+            <h2>Blueprint Designer</h2>
+          </div>
+          <button id="closeBlueprintDesignerButton" type="button" class="secondary">Close</button>
+        </div>
+
+        <div class="blueprint-designer-layout">
+          <div class="designer-left-col">
+            <div id="partPalette" class="part-palette" aria-label="Ship parts"></div>
+            <div class="combat-style-selector">
+              <label for="combatStyleSelect">Combat Movement Style</label>
+              <select id="combatStyleSelect">
+                <option value="charge">Charge (Approach closer)</option>
+                <option value="hold">Hold (Stay at max range)</option>
+                <option value="circle">Circle (Orbit target)</option>
+              </select>
+            </div>
+            <label for="formationSelect">Formation</label>
+            <select id="formationSelect">
+              <option value="line">Line</option>
+              <option value="wedge">Wedge</option>
+              <option value="clump">Clump</option>
+            </select>
+          </div>
+
+          <div class="designer-center-col">
+            <div class="section-heading">
+              <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite">
+                <span>Current ship cost</span>
+                <strong id="blueprintCostLabel">$0</strong>
+                <em id="blueprintCostStatus">Ready</em>
+              </div>
+              <div class="designer-actions">
+                <button id="resetButton" type="button" class="icon-button" title="New Design (Core only)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                </button>
+                <button id="clearGridButton" type="button" class="icon-button" title="Clear Grid (Empty)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
+              </div>
+            </div>
+            <div id="blueprintCostBreakdown" class="blueprint-cost-breakdown" hidden></div>
+            <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
+            <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
+            <div id="buildStatus" class="build-status"></div>
+            <div id="shipIssuesPanel" class="ship-issues-panel"></div>
+            <button id="deployButton" type="button">Ready with this design</button>
+          </div>
+
+          <div class="designer-right-col">
+            <div id="partInspector" class="part-inspector"></div>
+            <div id="statsGrid" class="stats-grid"></div>
+            <div class="saved-designs">
+              <div class="section-heading compact">
+                <h2>Saved Blueprints</h2>
+                <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
+              </div>
+              <div id="savedDesignList" class="saved-design-list"></div>
+            </div>
+          </div>
         </div>
       </div>
     </section>

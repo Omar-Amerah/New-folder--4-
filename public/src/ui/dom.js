@@ -2,6 +2,9 @@
 
 export const dom = {
   canvas: document.getElementById("arenaCanvas"),
+  blueprintDesignerScreen: document.getElementById("blueprintDesignerScreen"),
+  openBlueprintDesignerButton: document.getElementById("openBlueprintDesignerButton"),
+  closeBlueprintDesignerButton: document.getElementById("closeBlueprintDesignerButton"),
   status: document.getElementById("connectionStatus"),
   roomState: document.getElementById("roomStateText"),
   mainMenuNotice: document.getElementById("mainMenuNotice"),

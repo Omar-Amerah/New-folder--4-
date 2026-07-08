@@ -210,6 +210,16 @@ export function updateEconomyUi() {
   }
   dom.deployButton.hidden = state.phase === "active";
   dom.deployButton.disabled = !(canReady || canSaveActiveDesign);
+
+  if (dom.openBlueprintDesignerButton) {
+    if (state.phase === "design" && !mine?.ready) {
+      dom.openBlueprintDesignerButton.textContent = "Open Ship Designer (Action Required)";
+      dom.openBlueprintDesignerButton.style.border = "2px solid var(--amber)";
+    } else {
+      dom.openBlueprintDesignerButton.textContent = "Open Ship Designer";
+      dom.openBlueprintDesignerButton.style.border = "";
+    }
+  }
   dom.deployButton.textContent = mine?.ready && state.phase === "design"
     ? "Ready"
     : state.phase === "design"
