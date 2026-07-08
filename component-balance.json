@@ -287,7 +287,7 @@
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 6,
+        "damage": 5,
         "fireRate": 5.4,
         "range": 500,
         "projectileSpeed": 720,
@@ -344,7 +344,7 @@
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 14,
+        "damage": 18,
         "fireRate": 1.5,
         "range": 500,
         "projectileSpeed": 650,
@@ -372,7 +372,7 @@
       "repair": 0,
       "weapon": {
         "family": "missile",
-        "damage": 62,
+        "damage": 85,
         "fireRate": 0.28,
         "range": 790,
         "projectileSpeed": 280,
@@ -403,7 +403,7 @@
       "repair": 0,
       "weapon": {
         "family": "railgun",
-        "damage": 103,
+        "damage": 140,
         "fireRate": 0.18,
         "range": 1120,
         "projectileSpeed": 2200,
