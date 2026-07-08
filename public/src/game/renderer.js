@@ -1326,10 +1326,14 @@ export function drawRespawn(ship) {
 }
 
 export function drawMinimap(rect) {
+  if (state.phase !== "active") {
+    state.minimap = null;
+    return;
+  }
   const w = Math.min(190, Math.max(142, rect.width * 0.19));
   const h = w * (state.world.height / state.world.width);
-  const x = 14;
-  const y = 78;
+  const x = rect.width - w - 14;
+  const y = 14;
   state.minimap = { x, y, w, h };
 
   ctx.save();
@@ -1373,9 +1377,21 @@ export function drawMinimap(rect) {
 
   if (snap) {
     const players = playerMap();
+    const myTeam = state.mine?.team;
+    const isSolo = state.rules?.gameMode === "solo";
+
     for (const point of snap.points) {
-      const owner = players.get(point.ownerId);
-      ctx.fillStyle = owner?.color || "rgba(220,230,245,0.42)";
+      let relayColor = "rgba(220,230,245,0.42)"; // Neutral
+      if (point.ownerTeam) {
+        if (!isSolo && myTeam && point.ownerTeam === myTeam) {
+          relayColor = "#38d7ff"; // Friendly team
+        } else if (isSolo && point.ownerId === state.myId) {
+          relayColor = "#38d7ff"; // Friendly player (us)
+        } else {
+          relayColor = "#ff3838"; // Enemy
+        }
+      }
+      ctx.fillStyle = relayColor;
       ctx.globalAlpha = 0.75;
       ctx.beginPath();
       ctx.arc(x + point.x * sx, y + point.y * sy, 4, 0, Math.PI * 2);
@@ -1385,8 +1401,18 @@ export function drawMinimap(rect) {
     for (const ship of snap.ships) {
       if (!ship.alive) continue;
       const player = players.get(ship.ownerId);
-      ctx.fillStyle = player?.color || "#ffffff";
-      ctx.fillRect(x + ship.x * sx - 2, y + ship.y * sy - 2, 4, 4);
+      
+      let isFriendly = false;
+      if (ship.ownerId === state.myId) {
+        isFriendly = true;
+      } else if (!isSolo && player && myTeam && player.team === myTeam) {
+        isFriendly = true;
+      }
+
+      ctx.fillStyle = isFriendly ? "#38d7ff" : "#ff3838";
+      ctx.beginPath();
+      ctx.arc(x + ship.x * sx, y + ship.y * sy, 2.5, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
