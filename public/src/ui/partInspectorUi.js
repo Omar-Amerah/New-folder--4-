@@ -16,13 +16,21 @@ export function renderPartInspector() {
   const effectiveCost = `$${estimatePartEffectiveCost(type, state.design)}`;
   const details = partInspectorDetails(type, stat, effectiveCost);
 
+  const baseDesc = partDescription(type, stat);
+  const enrichedDesc = enrichDescription(type, baseDesc);
+
+  let tipHtml = "";
+  if (stat.weapon || stat.category === "Weapons" || stat.rotatable) {
+    tipHtml = `<div class="part-inspector-tip">Tip: hover a placed matching weapon and press R to rotate.</div>`;
+  }
+
   dom.partInspector.innerHTML = `
     <div class="part-inspector-title">
       ${partIconMarkup(type, "inspector-glyph")}
       <strong>${escapeHtml(def.name)}</strong>
     </div>
     <div class="part-category-label">${escapeHtml(partCategory(type))}</div>
-    <p class="part-description">${escapeHtml(partDescription(type, stat))}</p>
+    <p class="part-description">${escapeHtml(enrichedDesc)}</p>
     <div class="part-inspector-grid">
       ${inspectorStat("Cost", effectiveCost)}
       ${inspectorStat("Mass", formatMass(stat.mass))}
@@ -36,6 +44,7 @@ export function renderPartInspector() {
     <div class="part-detail-list">
       ${details.map(([label, value]) => inspectorDetail(label, value)).join("")}
     </div>
+    ${tipHtml}
   `;
 }
 
@@ -56,114 +65,129 @@ function partPowerText(stat) {
   return "0 MW";
 }
 
+function formatMultiplierPercent(value) {
+  return `${Math.round((value ?? 1) * 100)}%`;
+}
+
+function formatAimSpeed(value) {
+  if (value === undefined) return "Instant";
+  const degs = Math.round(value * (180 / Math.PI));
+  return `${value.toFixed(2)} rad/s (${degs} deg/s)`;
+}
+
+function enrichDescription(type, baseDescription) {
+  if (type === "railgun" || type === "lightRailgun" || type === "heavyRailgun") {
+    return `${baseDescription} Long-range kinetic weapon. Weak into shields, strong against exposed hull. Narrow arc and slow fire rate.`;
+  }
+  if (type === "beamEmitter") {
+    return `${baseDescription} Shield-stripping energy weapon. Strong against shields, weaker against hull.`;
+  }
+  if (type === "autocannon") {
+    return `${baseDescription} Rapid kinetic weapon. Poor against shields, better against exposed hull and light ships.`;
+  }
+  if (type === "torpedo") {
+    return `${baseDescription} Heavy explosive missile. Devastating to hull but vulnerable to point defence.`;
+  }
+  if (type === "swarmMissile") {
+    return `${baseDescription} Fires many lighter missiles. Good at overwhelming defences but weaker per hit.`;
+  }
+  if (type === "pointDefense" || type === "flakCannon" || type === "interceptorPod") {
+    return `${baseDescription} Defensive weapon that intercepts incoming missiles and torpedoes. Weak against ships.`;
+  }
+  return baseDescription;
+}
+
 function partInspectorDetails(type, stat, effectiveCost) {
   if (stat.weapon) {
     const weapon = stat.weapon;
+    const details = [];
+
+    // Basic Weapon Stats
     if (weapon.type === "beam") {
-      return [
-        ["Damage", `${formatDamage(weapon.damage)}/s`],
-        ["Range", formatDistance(weapon.range)],
-        ["Beam radius", formatDistance(weapon.radius || 0)],
-        weapon.aimSpeed !== undefined ? ["Aim speed", `${weapon.aimSpeed.toFixed(2)} rad/s`] : null,
-        ["Arc", `${weapon.arc || 360} deg`],
-        ["Behavior", "Sustained line damage"],
-        ["Power use", formatPowerUse(stat.powerUse)]
-      ].filter(Boolean);
-    }
-
-    const details = [
-      ["Damage", formatDamage(weapon.damage)],
-      ["Range", formatDistance(weapon.range)],
-      ["Fire rate", `${weapon.fireRate} shots/s`],
-      ["Reload", `${weapon.reload}s`],
-      ["DPS", weapon.dps.toFixed(1)]
-    ];
-
-    if (weapon.type === "missile") {
-      details.push(
-        ["Accuracy", `${Math.round(weapon.accuracy * 100)}% launch precision`],
-        ["Tracking", `${Math.round(weapon.tracking * 100)}% steering strength`],
-        ["Track time", `${weapon.trackTime}s active search`],
-        ["Speed", `${formatSpeed(weapon.projectileSpeed)} travel speed`],
-        ["Behavior", type === "torpedo" ? "Heavy slow payload, poor tracking, dodgeable" : "Guided payload"]
-      );
+      details.push(["Damage", `${formatDamage(weapon.damage)}/s`]);
     } else {
-      details.push(
-        ["Projectile speed", formatSpeed(weapon.projectileSpeed)],
-        ["Accuracy", `${Math.round(weapon.accuracy * 100)}% shot spread`]
-      );
-      if (weapon.aimSpeed !== undefined) {
-        details.push(["Aim speed", `${weapon.aimSpeed.toFixed(2)} rad/s`]);
+      details.push(["Damage", formatDamage(weapon.damage)]);
+      details.push(["Fire rate", `${weapon.fireRate} shots/s`]);
+      details.push(["Reload", `${weapon.reload}s`]);
+    }
+    details.push(["DPS", weapon.dps.toFixed(1)]);
+
+    // Damage Profile
+    const shieldMult = weapon.shieldDamageMultiplier ?? 1;
+    const hullMult = weapon.hullDamageMultiplier ?? 1;
+    details.push(["Vs Shields", formatMultiplierPercent(shieldMult)]);
+    details.push(["Vs Hull", formatMultiplierPercent(hullMult)]);
+    details.push(["Shield DPS", (weapon.dps * shieldMult).toFixed(1)]);
+    details.push(["Hull DPS", (weapon.dps * hullMult).toFixed(1)]);
+
+    // Combat Behaviour
+    details.push(["Range", formatDistance(weapon.range)]);
+    if (weapon.type !== "beam") {
+      details.push(["Projectile speed", formatSpeed(weapon.projectileSpeed)]);
+      details.push(["Accuracy", `${Math.round(weapon.accuracy * 100)}%`]);
+    }
+    
+    // Turret Turn
+    const aimSpeed = weapon.aimSpeed ?? (weapon.type === "beam" ? 1.65 : undefined);
+    if (aimSpeed !== undefined) {
+      details.push(["Turret Turn", formatAimSpeed(aimSpeed)]);
+    }
+    
+    details.push(["Arc", `${weapon.arc || 360} deg`]);
+
+    // Special Conditionals
+    if (weapon.type === "missile") {
+      details.push(["Tracking", `${Math.round(weapon.tracking * 100)}%`]);
+      details.push(["Track time", `${weapon.trackTime}s`]);
+      details.push(["Lock delay", `${weapon.trackingDelay}s`]);
+      details.push(["Missile HP", `${weapon.missileHp}`]);
+    } else if (weapon.type === "beam") {
+      details.push(["Beam radius", formatDistance(weapon.radius || 0)]);
+      details.push(["Behavior", "Sustained line damage"]);
+    } else if (weapon.antiMissile) {
+      details.push(["Anti-Missile", "Yes"]);
+      if (weapon.targetPriority && weapon.targetPriority.length > 0) {
+        details.push(["Target Priority", weapon.targetPriority.join(", ")]);
       }
+      const pdShipDamage = Math.round((weapon.shipDamageMultiplier || 0.1) * 100);
+      details.push(["Ship Damage", `${pdShipDamage}%`]);
     }
 
-    if (weapon.antiMissile) {
-      details.push(["Role", "Anti-missile point defence"]);
-    }
-    if (weapon.type !== "missile" && weapon.missileHp) {
-      details.push(["Missile health", weapon.missileHp.toString()]);
-    }
-
-    details.push(
-      ["Arc", `${weapon.arc || 360} deg`],
-      ["Default facing", "Forward / editor up"],
-      ["Rotate", "Click a placed matching gun, or hover it and press R"],
-      ["Power use", formatPowerUse(stat.powerUse)]
-    );
-
-    return details;
+    return details.filter(Boolean);
   }
 
   if (type === "engine") {
     return [
       ["Thrust", formatThrust(stat.thrust)],
-      ["Mass", formatMass(stat.mass)],
-      ["Speed contribution", "Total thrust / total mass"],
-      ["Power use", formatPowerUse(stat.powerUse)]
+      ["Speed contribution", "Total thrust / total mass"]
     ];
   }
 
   if (type === "reactor") {
     return [
-      ["Power generation", formatPowerGeneration(stat.powerGeneration)],
-      ["Energy storage", formatEnergy(stat.energyStorage)],
-      ["Explosion risk", stat.explosionRisk || "Not implemented"],
-      ["Mass", formatMass(stat.mass)]
+      ["Explosion risk", stat.explosionRisk || "Not implemented"]
     ];
   }
 
   if (type === "battery") {
     return [
-      ["Energy storage", formatEnergy(stat.energyStorage)],
-      ["Shield", formatShield(stat.shield)],
-      ["Recharge", `${stat.shieldRegen}/s`],
-      ["Power generation", formatPowerGeneration(stat.powerGeneration)]
+      ["Recharge", `${stat.shieldRegen}/s`]
     ];
   }
 
   if (type === "shield") {
     return [
-      ["Shield amount", formatShield(stat.shield)],
-      ["Recharge rate", `${stat.shieldRegen}/s`],
-      ["Power draw", formatPowerUse(stat.powerUse)],
-      ["Mass", formatMass(stat.mass)]
+      ["Recharge rate", `${stat.shieldRegen}/s`]
     ];
   }
 
   if (type === "repair") {
-    return [
-      ["Repair rate", formatRepair(stat.repairRate)],
-      ["Power use", formatPowerUse(stat.powerUse)],
-      ["Shield", formatShield(stat.shield)],
-      ["Mass", formatMass(stat.mass)]
-    ];
+    return [];
   }
 
   if (type === "ecmModule") {
     return [
-      ["ECM Strength", `-${Math.round((stat.ecmStrength || 0) * 100)}% missile tracking`],
-      ["Power use", formatPowerUse(stat.powerUse)],
-      ["Mass", formatMass(stat.mass)]
+      ["ECM Strength", `-${Math.round((stat.ecmStrength || 0) * 100)}% missile tracking`]
     ];
   }
 
@@ -172,8 +196,7 @@ function partInspectorDetails(type, stat, effectiveCost) {
       ["Decoy range", formatDistance(stat.decoyRange)],
       ["Cooldown", `${stat.decoyCooldown || 0}s`],
       ["Confusion duration", `${stat.decoyConfuseDuration || 0}s`],
-      ["Success chance", formatPercent(stat.decoyChance || 0)],
-      ["Power use", formatPowerUse(stat.powerUse)]
+      ["Success chance", formatPercent(stat.decoyChance || 0)]
     ];
   }
 
@@ -181,9 +204,7 @@ function partInspectorDetails(type, stat, effectiveCost) {
     return [
       ["Frontal reduction", `${Math.round((stat.frontDamageReduction || 0) * 100)}%`],
       ["Front arc", `${stat.frontArc || 0} deg`],
-      ["Shield amount", formatShield(stat.shield)],
-      ["Recharge rate", `${stat.shieldRegen}/s`],
-      ["Power draw", formatPowerUse(stat.powerUse)]
+      ["Recharge rate", `${stat.shieldRegen}/s`]
     ];
   }
 
@@ -197,10 +218,5 @@ function partInspectorDetails(type, stat, effectiveCost) {
     ];
   }
 
-  return [
-    ["Hull", formatHull(stat.hp)],
-    ["Mass", formatMass(stat.mass)],
-    ["Cost", effectiveCost],
-    ["Power", partPowerText(stat)]
-  ];
+  return [];
 }

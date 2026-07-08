@@ -151,7 +151,10 @@ function updateBullets(room, dt, now) {
       }
 
       if (moduleHit) {
-        damageShip(room, ship, bullet.damage, bullet.ownerId, now, bullet.x, bullet.y);
+        damageShip(room, ship, bullet.damage, bullet.ownerId, now, bullet.x, bullet.y, {
+          shieldDamageMultiplier: bullet.shieldDamageMultiplier,
+          hullDamageMultiplier: bullet.hullDamageMultiplier
+        });
         room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: bullet.x, y: bullet.y, at: now });
         hit = true;
         break;

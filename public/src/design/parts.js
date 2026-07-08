@@ -790,7 +790,9 @@ export function makeWeapon(type, stats) {
     missileHp: Number(stats.missileHp) || 0,
     antiMissile: Boolean(stats.antiMissile),
     shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
-    targetPriority: stats.targetPriority || []
+    targetPriority: stats.targetPriority || [],
+    shieldDamageMultiplier: Number(stats.shieldDamageMultiplier ?? 1),
+    hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1)
   };
 }
 

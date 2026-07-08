@@ -255,6 +255,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
         vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
         damage: part.weapon.damage * ship.stats.efficiency,
+        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
         life: life,
         bornAt: now
       });
@@ -276,6 +278,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.15,
         vy: Math.sin(shotAngle) * speed + ship.vy * 0.15,
         damage: part.weapon.damage * ship.stats.efficiency,
+        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
         tracking: part.weapon.tracking || 0.75,
         trackRemaining: part.weapon.trackTime || 1.4,
         trackingDelay: part.weapon.trackingDelay || 0.25,
@@ -290,7 +294,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const rangeVal = ship.stats?.beamRange || part.weapon.range;
       const beamRadius = part.weapon.radius || 28;
       const beamEnd = beamImpactPoint(room, muzzle.x, muzzle.y, worldWeaponAngle, rangeVal, beamRadius);
-      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * ship.stats.efficiency * dt, now);
+      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * ship.stats.efficiency * dt, now, {
+        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1
+      });
       if (now - (ship.beamEffectsAt[i] || 0) > 55) {
         ship.beamEffectsAt[i] = now;
         room.effects.push({
@@ -321,6 +328,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
             vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
             damage: part.weapon.damage * ship.stats.efficiency * (currentPdTarget.type === "ship" ? (part.weapon.shipDamageMultiplier || 0.1) : 1),
+            shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
+            hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
             pdTargetType: currentPdTarget.type,
             pdTargetId: targetEnt.id,
             life: life,
@@ -342,6 +351,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.12,
         vy: Math.sin(shotAngle) * speed + ship.vy * 0.12,
         damage: part.weapon.damage * ship.stats.efficiency,
+        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
         life: life,
         bornAt: now
       });
@@ -411,7 +422,7 @@ function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
   return end;
 }
 
-function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now) {
+function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now, options = {}) {
   const { getShipModuleWorldCoords } = require("./ships");
   for (const target of ships) {
     if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
@@ -434,7 +445,7 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     }
 
     if (hitPoint) {
-      damageShip(room, target, damage, ship.ownerId, now, hitPoint.x, hitPoint.y);
+      damageShip(room, target, damage, ship.ownerId, now, hitPoint.x, hitPoint.y, options);
     }
   }
 }
@@ -453,7 +464,7 @@ function isTargetInWeaponArc(ship, module, target, arcRadians) {
   return Math.abs(angleDifference(weaponFacing, angleToTarget)) <= arcRadians / 2;
 }
 
-function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY) {
+function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, options = {}) {
   if (isInSafeZone(room, ship.x, ship.y)) return; // Invincible in spawn
 
   if (ship.stats.frontDamageReduction && sourceX !== undefined && sourceY !== undefined) {
@@ -464,20 +475,52 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY) {
   }
   ship.lastDamagedBy = attackerId;
 
+  const SHIELD_ABSORPTION = 0.95;
+
+  const shieldMultiplier = Number(options.shieldDamageMultiplier ?? 1);
+  const hullMultiplier = Number(options.hullDamageMultiplier ?? 1);
+
+  let hullDamage = damage * hullMultiplier;
+
   if (ship.shield > 0) {
-    const blocked = Math.min(ship.shield, damage);
-    ship.shield -= blocked;
-    damage -= blocked * 0.72;
-    if (blocked > 0) {
-      room.effects.push({ type: "dmg", x: ship.x, y: ship.y, at: now, amount: blocked, isShield: true });
+    const shieldDamage = damage * shieldMultiplier;
+    const blockedShieldDamage = Math.min(ship.shield, shieldDamage);
+    ship.shield -= blockedShieldDamage;
+
+    const absorbedRatio = shieldDamage > 0
+      ? blockedShieldDamage / shieldDamage
+      : 0;
+
+    const absorbedHullDamage = hullDamage * absorbedRatio;
+    const overflowHullDamage = hullDamage - absorbedHullDamage;
+    const bleedThroughDamage = absorbedHullDamage * (1 - SHIELD_ABSORPTION);
+
+    hullDamage = bleedThroughDamage + overflowHullDamage;
+
+    if (blockedShieldDamage > 0) {
+      room.effects.push({
+        type: "dmg",
+        x: ship.x,
+        y: ship.y,
+        at: now,
+        amount: blockedShieldDamage,
+        isShield: true
+      });
     }
   }
 
-  if (damage > 0) {
-    room.effects.push({ type: "dmg", x: ship.x, y: ship.y, at: now, amount: damage, isShield: false });
+  if (hullDamage > 0) {
+    room.effects.push({
+      type: "dmg",
+      x: ship.x,
+      y: ship.y,
+      at: now,
+      amount: hullDamage,
+      isShield: false
+    });
   }
 
-  ship.hp -= damage;
+  ship.hp -= hullDamage;
   if (ship.hp > 0) return;
 
   ship.alive = false;

@@ -251,7 +251,7 @@
       "turn": -0.025,
       "energy": 0,
       "repair": 0,
-      "description": "High-power defensive projector with strong but limited shield recharge."
+      "description": "High-power defensive projector. Shields absorb 95% of damage they block. 5% leaks through to hull. Different weapons may deal more or less damage to shields and hull."
     },
     {
       "id": "shield",
@@ -268,7 +268,7 @@
       "turn": -0.01,
       "energy": 0,
       "repair": 0,
-      "description": "Active shield generator with solid capacity and recharge."
+      "description": "Active shield generator. Shields absorb 95% of damage they block. 5% leaks through to hull. Different weapons may deal more or less damage to shields and hull."
     },
     {
       "id": "autocannon",
@@ -293,7 +293,9 @@
         "projectileSpeed": 720,
         "accuracy": 0.68,
         "tracking": 0,
-        "arc": 140
+        "arc": 140,
+        "shieldDamageMultiplier": 0.75,
+        "hullDamageMultiplier": 1.15
       },
       "rotatable": true,
       "description": "Rapid-fire close weapon with high spread."
@@ -322,7 +324,9 @@
         "projectileSpeed": 0,
         "accuracy": 0.99,
         "aimSpeed": 1.65,
-        "arc": 110
+        "arc": 110,
+        "shieldDamageMultiplier": 1.4,
+        "hullDamageMultiplier": 0.75
       },
       "rotatable": true,
       "description": "Medium-short sustained beam weapon with a focused burn path and heavy power draw."
@@ -350,7 +354,9 @@
         "projectileSpeed": 650,
         "accuracy": 0.87,
         "tracking": 0,
-        "arc": 120
+        "arc": 120,
+        "shieldDamageMultiplier": 1.0,
+        "hullDamageMultiplier": 1.0
       },
       "rotatable": true,
       "description": "Medium-range general-purpose gun with steady damage."
@@ -381,7 +387,9 @@
         "trackTime": 1.5,
         "trackingDelay": 0.25,
         "arc": 220,
-        "missileHp": 18
+        "missileHp": 18,
+        "shieldDamageMultiplier": 1.0,
+        "hullDamageMultiplier": 1.0
       },
       "rotatable": true,
       "description": "Tracking burst weapon with long reach and slow reload."
@@ -409,7 +417,9 @@
         "projectileSpeed": 2200,
         "accuracy": 0.95,
         "tracking": 0,
-        "arc": 45
+        "arc": 45,
+        "shieldDamageMultiplier": 0.65,
+        "hullDamageMultiplier": 1.35
       },
       "rotatable": true,
       "description": "Long-range precision weapon with high damage and narrow arc."
@@ -440,7 +450,9 @@
         "trackTime": 1.7,
         "trackingDelay": 0.15,
         "arc": 240,
-        "missileHp": 8
+        "missileHp": 8,
+        "shieldDamageMultiplier": 0.85,
+        "hullDamageMultiplier": 0.9
       },
       "rotatable": true,
       "description": "Tracking missile pod that applies frequent pressure."
@@ -471,7 +483,9 @@
         "trackTime": 1.1,
         "trackingDelay": 0.45,
         "arc": 160,
-        "missileHp": 45
+        "missileHp": 45,
+        "shieldDamageMultiplier": 0.8,
+        "hullDamageMultiplier": 1.5
       },
       "rotatable": true,
       "description": "Heavy slow missile for cracking large ships."

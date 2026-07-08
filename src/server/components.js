@@ -47,7 +47,9 @@ function makeWeapon(type, stats) {
     missileHp: Number(stats.missileHp) || 0,
     antiMissile: Boolean(stats.antiMissile),
     shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
-    targetPriority: stats.targetPriority || []
+    targetPriority: stats.targetPriority || [],
+    shieldDamageMultiplier: Number(stats.shieldDamageMultiplier ?? 1),
+    hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1)
   };
 }
 
@@ -130,7 +132,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 650,
       accuracy: 0.87,
       tracking: 0,
-      arc: 120
+      arc: 120,
+      shieldDamageMultiplier: 1.0,
+      hullDamageMultiplier: 1.0
     })
   },
 
@@ -150,7 +154,9 @@ const FALLBACK_PARTS = Object.freeze({
       tracking: 0.7,
       trackTime: 1.5,
       trackingDelay: 0.25,
-      arc: 220
+      arc: 220,
+      shieldDamageMultiplier: 1.0,
+      hullDamageMultiplier: 1.0
     })
   },
 
@@ -168,7 +174,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 1080,
       accuracy: 0.95,
       tracking: 0,
-      arc: 45
+      arc: 45,
+      shieldDamageMultiplier: 0.65,
+      hullDamageMultiplier: 1.35
     })
   },
 
@@ -457,7 +465,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 680,
       accuracy: 0.83,
       tracking: 0,
-      arc: 120
+      arc: 120,
+      shieldDamageMultiplier: 1.0,
+      hullDamageMultiplier: 0.95
     }),
     rotationRequired: true
   },
@@ -477,7 +487,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 610,
       accuracy: 0.84,
       tracking: 0,
-      arc: 100
+      arc: 100,
+      shieldDamageMultiplier: 1.05,
+      hullDamageMultiplier: 1.05
     }),
     rotationRequired: true
   },
@@ -498,7 +510,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 700,
       accuracy: 0.64,
       tracking: 0,
-      arc: 130
+      arc: 130,
+      shieldDamageMultiplier: 0.75,
+      hullDamageMultiplier: 1.15
     }),
     rotationRequired: true
   },
@@ -520,7 +534,9 @@ const FALLBACK_PARTS = Object.freeze({
       tracking: 0.82,
       trackTime: 1.7,
       trackingDelay: 0.15,
-      arc: 220
+      arc: 220,
+      shieldDamageMultiplier: 0.95,
+      hullDamageMultiplier: 1.0
     }),
     rotationRequired: true
   },
@@ -542,7 +558,9 @@ const FALLBACK_PARTS = Object.freeze({
       tracking: 0.25,
       trackTime: 1.1,
       trackingDelay: 0.45,
-      arc: 150
+      arc: 150,
+      shieldDamageMultiplier: 0.8,
+      hullDamageMultiplier: 1.5
     }),
     rotationRequired: true
   },
@@ -564,7 +582,9 @@ const FALLBACK_PARTS = Object.freeze({
       tracking: 0.82,
       trackTime: 1.7,
       trackingDelay: 0.15,
-      arc: 240
+      arc: 240,
+      shieldDamageMultiplier: 0.85,
+      hullDamageMultiplier: 0.9
     }),
     rotationRequired: true
   },
@@ -584,7 +604,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 1100,
       accuracy: 0.93,
       tracking: 0,
-      arc: 45
+      arc: 45,
+      shieldDamageMultiplier: 0.7,
+      hullDamageMultiplier: 1.25
     }),
     rotationRequired: true
   },
@@ -604,7 +626,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 1260,
       accuracy: 0.96,
       tracking: 0,
-      arc: 35
+      arc: 35,
+      shieldDamageMultiplier: 0.6,
+      hullDamageMultiplier: 1.5
     }),
     rotationRequired: true
   },
@@ -625,7 +649,9 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 0,
       accuracy: 0.99,
       aimSpeed: 1.65,
-      arc: 110
+      arc: 110,
+      shieldDamageMultiplier: 1.4,
+      hullDamageMultiplier: 0.75
     }),
     rotationRequired: true
   },

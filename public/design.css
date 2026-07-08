@@ -546,6 +546,14 @@
   line-height: 1.3;
 }
 
+.part-inspector-tip {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+}
+
 .combat-style-selector {
   margin: 14px 0 10px;
 }
