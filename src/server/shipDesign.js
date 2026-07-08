@@ -17,7 +17,7 @@ function validateDesign(input) {
     const type = String(raw?.type || "");
     const key = `${x},${y}`;
 
-    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 6 || y < 0 || y > 6) continue;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 14 || y < 0 || y > 14) continue;
     if (!PARTS[type] || occupied.has(key)) continue;
     if (type === "core") coreCount += 1;
 
@@ -62,7 +62,10 @@ function isConnected(modules) {
 
 function normalizeShipDesignSnapshot(design) {
   const source = Array.isArray(design) ? design : DEFAULT_DESIGN;
-  return source.map((part) => ({ x: part.x, y: part.y, type: part.type, rotation: normalizeRotation(part.rotation) }));
+  const oldCore = source.find(p => p && p.type === "core" && Math.trunc(Number(p.x)) === 3 && Math.trunc(Number(p.y)) === 3);
+  const offsetX = oldCore ? 4 : 0;
+  const offsetY = oldCore ? 4 : 0;
+  return source.map((part) => ({ x: part.x + offsetX, y: part.y + offsetY, type: part.type, rotation: normalizeRotation(part.rotation) }));
 }
 
 function normalizeRotation(value) {

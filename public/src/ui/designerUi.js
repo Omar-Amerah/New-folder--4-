@@ -18,8 +18,8 @@ export function renderBuildGrid() {
   dom.grid.textContent = "";
   const byCell = new Map(state.design.map((part) => [`${part.x},${part.y}`, part]));
 
-  for (let y = 0; y < 7; y += 1) {
-    for (let x = 0; x < 7; x += 1) {
+  for (let y = 0; y < 15; y += 1) {
+    for (let x = 0; x < 15; x += 1) {
       const part = byCell.get(`${x},${y}`);
       const cell = document.createElement("button");
       cell.type = "button";

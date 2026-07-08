@@ -642,9 +642,9 @@
 
 .build-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  grid-template-rows: repeat(7, minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(15, 1fr);
+  grid-template-rows: repeat(15, minmax(0, 1fr));
+  gap: 2px;
   width: 100%;
   aspect-ratio: 1;
   padding: 8px;
