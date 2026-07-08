@@ -75,6 +75,7 @@ export function handleServerMessage(message) {
         }
       }
     }
+    state.snapshotReceivedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     state.snapshot = message;
     state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
     state.room = message.room;

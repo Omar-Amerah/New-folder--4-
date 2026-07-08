@@ -24,9 +24,58 @@ export function frame(now) {
   const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrameAt) / 1000));
   state.lastFrameAt = now;
   state.dt = dt;
+  interpolateShips(dt, now);
   updateCamera(dt);
   renderArena(now);
   requestAnimationFrame(frame);
+}
+
+export function interpolateShips(dt, now) {
+  const snap = state.snapshot;
+  if (!snap) return;
+
+  if (snap.ships) {
+    if (!state.visualShips) state.visualShips = new Map();
+    const visibleIds = new Set(snap.ships.map((s) => s.id));
+    for (const id of state.visualShips.keys()) {
+      if (!visibleIds.has(id)) state.visualShips.delete(id);
+    }
+
+    for (const ship of snap.ships) {
+      let vis = state.visualShips.get(ship.id);
+      if (!vis) {
+        vis = { x: ship.x, y: ship.y, angle: ship.angle };
+        state.visualShips.set(ship.id, vis);
+      } else {
+        const t = 1 - Math.exp(-22 * dt);
+        const distSq = (ship.x - vis.x) ** 2 + (ship.y - vis.y) ** 2;
+        if (distSq > 300 * 300) {
+          vis.x = ship.x;
+          vis.y = ship.y;
+          vis.angle = ship.angle;
+        } else {
+          vis.x += (ship.x - vis.x) * t;
+          vis.y += (ship.y - vis.y) * t;
+          vis.angle += angleDifference(vis.angle, ship.angle) * t;
+        }
+      }
+      ship.x = vis.x;
+      ship.y = vis.y;
+      ship.angle = vis.angle;
+    }
+  }
+
+  if (snap.bullets) {
+    const elapsed = Math.min(0.15, (now - (state.snapshotReceivedAt || now)) / 1000);
+    for (const bullet of snap.bullets) {
+      if (bullet.originalX === undefined) {
+        bullet.originalX = bullet.x;
+        bullet.originalY = bullet.y;
+      }
+      bullet.x = bullet.originalX + bullet.vx * elapsed;
+      bullet.y = bullet.originalY + bullet.vy * elapsed;
+    }
+  }
 }
 
 export function renderArena(now) {
