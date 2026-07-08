@@ -36,15 +36,11 @@ function joinRoom(client, message) {
     rooms.set(code, room);
   }
 
-  if (room.phase !== "lobby") {
-    const existingPlayer = [...room.players.values()].find(
-      (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === false
-    );
-    if (!existingPlayer) {
-      send(client, { type: "error", message: "That game has already started. Create a new room or wait for the next lobby." });
-      return;
-    }
+  const existingPlayer = [...room.players.values()].find(
+    (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === false
+  );
 
+  if (existingPlayer) {
     leaveRoom(client);
 
     const oldPlayerId = existingPlayer.id;
@@ -52,16 +48,34 @@ function joinRoom(client, message) {
     client.player = existingPlayer;
     existingPlayer.id = client.id;
     existingPlayer.connected = true;
+
+    // Clear out any pending deletion timeout if they rejoined in the lobby
+    if (existingPlayer.disconnectTimeout) {
+      clearTimeout(existingPlayer.disconnectTimeout);
+      existingPlayer.disconnectTimeout = null;
+    }
+
     room.clients.add(client);
     room.players.delete(oldPlayerId);
     room.players.set(client.id, existingPlayer);
 
-    ensureAdmin(room);
+    // If the reconnected player was admin, their admin ID needs to match their new client ID
+    if (room.adminId === oldPlayerId) {
+      room.adminId = client.id;
+    } else {
+      ensureAdmin(room);
+    }
+
     room.lastEmptyAt = 0;
 
     send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
     broadcastSnapshot(room, performanceNow(), true);
+    return;
+  }
+
+  if (room.phase !== "lobby") {
+    send(client, { type: "error", message: "That game has already started. Create a new room or wait for the next lobby." });
     return;
   }
 
@@ -127,7 +141,7 @@ function joinRoom(client, message) {
   broadcastSnapshot(room, performanceNow(), true);
 }
 
-function leaveRoom(client) {
+function leaveRoom(client, explicitLeave = false) {
   if (client.room && client.player) {
     const { room, player } = client;
     for (const ship of player.ships) {
@@ -137,11 +151,33 @@ function leaveRoom(client) {
     }
     player.ships = [];
     room.clients.delete(client);
+
+    player.connected = false;
+
     if (room.phase === "lobby") {
-      room.players.delete(player.id);
-    } else {
-      player.connected = false;
+      if (explicitLeave) {
+        room.players.delete(player.id);
+        if (room.adminId === player.id) {
+          room.adminId = null;
+        }
+      } else {
+        // Give them a grace period to reconnect if they refreshed during the lobby
+        player.disconnectTimeout = setTimeout(() => {
+          if (!player.connected && room.players.has(player.id)) {
+            room.players.delete(player.id);
+            if (room.adminId === player.id) {
+              room.adminId = null;
+              ensureAdmin(room);
+            }
+            if (room.clients.size > 0) {
+              const { broadcastSnapshot } = require("./messages");
+              broadcastSnapshot(room, performanceNow(), true);
+            }
+          }
+        }, 5000);
+      }
     }
+
     room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
     if (room.clients.size === 0) {
       room.lastEmptyAt = Date.now();
@@ -169,7 +205,7 @@ function leaveLobby(client) {
   }
   const room = client.room;
   const code = room.code;
-  leaveRoom(client);
+  leaveRoom(client, true);
   send(client, { type: "leftLobby", message: `Left lobby ${code}` });
   if (room.clients.size === 0) {
     rooms.delete(code);
