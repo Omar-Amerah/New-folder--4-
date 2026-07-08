@@ -47,6 +47,7 @@ function joinRoom(client, message) {
 
     ensureAdmin(room);
     room.lastEmptyAt = 0;
+    room.lastStaticSnapshotAt = 0;
 
     send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
@@ -110,6 +111,7 @@ function joinRoom(client, message) {
   room.players.set(player.id, player);
   ensureAdmin(room);
   room.lastEmptyAt = 0;
+  room.lastStaticSnapshotAt = 0;
 
   send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });

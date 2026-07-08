@@ -79,6 +79,9 @@ function setRoomRules(room, requester, updates) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
+  room.map = generateMap(room.code, world, room.rules.gameMode);
+  room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
+  room.lastStaticSnapshotAt = 0;
 
   for (const player of room.players.values()) {
     player.money = room.rules.startingMoney;
@@ -360,6 +363,7 @@ function prepareArenaForCurrentPlayers(room) {
   room.mapSizeLabel = world.label;
   room.map = generateMap(room.code, world, room.rules?.gameMode || "teams");
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
+  room.lastStaticSnapshotAt = 0;
   room.bullets = [];
   room.effects = [];
   room.nextEntityId = 1;
