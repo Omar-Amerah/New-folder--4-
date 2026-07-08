@@ -458,6 +458,7 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY) {
   if (ship.stats.frontDamageReduction && sourceX !== undefined && sourceY !== undefined) {
     if (isDamageFromFront(ship, sourceX, sourceY, ship.stats.frontArc)) {
       damage *= (1 - ship.stats.frontDamageReduction);
+      room.effects.push({ type: "text", text: "BLOCKED", x: ship.x, y: ship.y, at: now });
     }
   }
   ship.lastDamagedBy = attackerId;
@@ -466,6 +467,13 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY) {
     const blocked = Math.min(ship.shield, damage);
     ship.shield -= blocked;
     damage -= blocked * 0.72;
+    if (blocked > 0) {
+      room.effects.push({ type: "dmg", x: ship.x, y: ship.y, at: now, amount: blocked, isShield: true });
+    }
+  }
+
+  if (damage > 0) {
+    room.effects.push({ type: "dmg", x: ship.x, y: ship.y, at: now, amount: damage, isShield: false });
   }
 
   ship.hp -= damage;

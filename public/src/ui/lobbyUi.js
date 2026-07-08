@@ -325,6 +325,9 @@ export function openSettings() {
   if (dom.debugOverlayToggle) {
     dom.debugOverlayToggle.checked = localStorage.getItem("mfa.debugRenderer") === "true";
   }
+  if (dom.combatEffectsToggle) {
+    dom.combatEffectsToggle.checked = localStorage.getItem("mfa.combatEffects") !== "false";
+  }
 }
 
 export function saveServerSetting() {
@@ -461,6 +464,11 @@ if (typeof window !== "undefined") {
       dom.debugOverlayToggle.addEventListener("change", (e) => {
         localStorage.setItem("mfa.debugRenderer", e.target.checked);
         if (dom.debugOverlay) dom.debugOverlay.style.display = e.target.checked ? "block" : "none";
+      });
+    }
+    if (dom.combatEffectsToggle) {
+      dom.combatEffectsToggle.addEventListener("change", (e) => {
+        localStorage.setItem("mfa.combatEffects", e.target.checked);
       });
     }
   });
