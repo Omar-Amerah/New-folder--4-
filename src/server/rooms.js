@@ -133,6 +133,26 @@ function generateMap(roomCode, world, gameMode) {
   const seed = (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode)) >>> 0;
   const rng = seededRandom(seed);
   const safeZones = generateSafeZones(world, gameMode);
+
+  if (world.label === "Testing") {
+    const relays = [
+      {
+        id: "A",
+        x: world.width * 0.5,
+        y: world.height * 0.5,
+        radius: 160
+      }
+    ];
+    return {
+      seed,
+      name: "Testing Sandbox",
+      relays,
+      asteroids: [],
+      clouds: generateClouds(rng, world),
+      safeZones
+    };
+  }
+
   const relays = generateRelays(rng, world, safeZones);
   const asteroids = generateAsteroids(rng, world, relays, safeZones);
   const clouds = generateClouds(rng, world);
