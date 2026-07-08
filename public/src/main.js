@@ -6,6 +6,7 @@ import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats, resetDesign, clearDesign } from "./ui/designerUi.js";
 import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
+import { openBlueprintDesigner, closeBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
 import { resizeCanvas, frame } from "./game/renderer.js";
@@ -31,6 +32,8 @@ window.addEventListener("keyup", (event) => state.keys.delete(event.key.toLowerC
 dom.createButton.addEventListener("click", createGame);
 dom.joinButton.addEventListener("click", joinExistingGame);
 dom.deployButton.addEventListener("click", deployDesign);
+if (dom.openBlueprintDesignerButton) dom.openBlueprintDesignerButton.addEventListener("click", openBlueprintDesigner);
+if (dom.closeBlueprintDesignerButton) dom.closeBlueprintDesignerButton.addEventListener("click", closeBlueprintDesigner);
 dom.blueprintCostBanner?.addEventListener("click", () => {
   if (dom.blueprintCostBreakdown) {
     dom.blueprintCostBreakdown.hidden = !dom.blueprintCostBreakdown.hidden;
