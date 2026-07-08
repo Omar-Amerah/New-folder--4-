@@ -212,7 +212,12 @@ function handleMessage(client, message) {
   }
 
   if (message.type === "setName") {
+    const oldName = client.player.name;
     client.player.name = sanitizeName(message.name, client.player.name);
+    if (oldName !== client.player.name) {
+      broadcastRoom(client.room, { type: "notice", message: `${oldName} changed name to ${client.player.name}` });
+      broadcastSnapshot(client.room, performanceNow(), true);
+    }
     return;
   }
 

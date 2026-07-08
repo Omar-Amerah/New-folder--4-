@@ -126,7 +126,18 @@ dom.mapSizeSelect?.addEventListener("change", sendRulesUpdate);
 dom.teamSelect?.addEventListener("change", () => {
   localStorage.setItem(LOCAL_TEAM_KEY, dom.teamSelect.value);
   if (state.room && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "join", name: dom.pilotName.value, room: state.room, team: dom.teamSelect.value });
+    send({ type: "setTeam", team: dom.teamSelect.value });
+  }
+});
+
+// Name input updates
+dom.pilotName?.addEventListener("change", () => {
+  const name = String(dom.pilotName.value || "").trim().slice(0, 18);
+  if (name) {
+    localStorage.setItem(LOCAL_NAME_KEY, name);
+    if (state.room && state.socket && state.socket.readyState === WebSocket.OPEN) {
+      send({ type: "setName", name });
+    }
   }
 });
 
