@@ -24,8 +24,12 @@ function broadcastRoom(room, data) {
 
 function broadcastSnapshot(room, now) {
   const { snapshotRoom } = require("./snapshots");
+  const sendStatic = !room.lastStaticSnapshotAt || now - room.lastStaticSnapshotAt > 2000;
+  if (sendStatic) {
+    room.lastStaticSnapshotAt = now;
+  }
   for (const client of room.clients) {
-    send(client, snapshotRoom(room, now, client.player));
+    send(client, snapshotRoom(room, now, client.player, sendStatic));
   }
 }
 
@@ -72,6 +76,7 @@ function handleMessage(client, message) {
     }
     client.player.design = design.modules;
     client.player.stats = design.stats;
+    client.room.lastStaticSnapshotAt = 0;
     if (client.room.phase === "design") {
       client.player.ready = true;
       client.player.lastReadyAt = performanceNow();

@@ -5,7 +5,7 @@ const { teamLabel } = require("./players");
 const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
 
-function snapshotRoom(room, now, viewer = null) {
+function snapshotRoom(room, now, viewer = null, sendStatic = true) {
   const players = [...room.players.values()].map((player) => ({
     id: player.id,
     name: player.name,
@@ -25,42 +25,47 @@ function snapshotRoom(room, now, viewer = null) {
     deployedFleetCost: canViewPlayerEconomy(viewer, player) ? Math.floor(player.deployedFleetCost) : null,
     destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
     lastReward: player.lastReward,
-    activeShips: player.ships.filter((ship) => ship.alive && !ship.removed).length,
+    activeShips: player.ships.filter((ship) => ship.alive).length,
     score: Math.floor(player.score),
     kills: player.kills,
     losses: player.losses,
     captures: player.captures,
-    design: player.design,
-    stats: summarizeStats(player.stats || computeStats(player.design))
+    design: sendStatic ? player.design : undefined,
+    stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined
   }));
 
   const ships = [];
-  for (const player of room.players.values()) {
-    for (const ship of player.ships) {
-      if (ship.removed) continue;
-      ships.push({
-        id: ship.id,
-        ownerId: ship.ownerId,
-        x: round(ship.x),
-        y: round(ship.y),
-        vx: round(ship.vx),
-        vy: round(ship.vy),
-        angle: round(ship.angle),
-        targetX: round(ship.targetX),
-        targetY: round(ship.targetY),
-        hp: round(ship.hp),
-        maxHp: round(ship.maxHp),
-        shield: round(ship.shield),
-        maxShield: round(ship.maxShield),
-        radius: round(ship.radius),
-        design: ship.design || [],
-        cost: ship.cost || ship.stats?.unitCost || 0,
-        focusTargetId: ship.focusTargetId,
-        alive: ship.alive,
-        respawnIn: 0,
-        removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
-      });
-    }
+  for (const ship of room.ships.values()) {
+    if (ship.removed) continue;
+    ships.push({
+      id: ship.id,
+      ownerId: ship.ownerId,
+      x: round(ship.x),
+      y: round(ship.y),
+      vx: round(ship.vx),
+      vy: round(ship.vy),
+      angle: round(ship.angle),
+      targetX: round(ship.targetX),
+      targetY: round(ship.targetY),
+      hp: round(ship.hp),
+      maxHp: round(ship.maxHp),
+      shield: round(ship.shield),
+      maxShield: round(ship.maxShield),
+      radius: round(ship.radius),
+      design: sendStatic ? (ship.design || []) : undefined,
+      cost: ship.cost || ship.stats?.unitCost || 0,
+      focusTargetId: ship.focusTargetId,
+      combatTargetId: ship.combatTargetId || null,
+      weaponAngles: ship.weaponAngles || [],
+      alive: ship.alive,
+      blasterRange: ship.stats?.blasterRange || 0,
+      missileRange: ship.stats?.missileRange || 0,
+      railgunRange: ship.stats?.railgunRange || 0,
+      beamRange: ship.stats?.beamRange || 0,
+      beamRadius: ship.stats?.beamRadius || 0,
+      respawnIn: 0,
+      removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
+    });
   }
 
   return {
@@ -68,14 +73,15 @@ function snapshotRoom(room, now, viewer = null) {
     room: room.code,
     phase: room.phase,
     adminId: room.adminId,
-    mapSizeLabel: room.mapSizeLabel,
-    world: room.world,
-    map: room.map,
+    mapSizeLabel: sendStatic ? room.mapSizeLabel : undefined,
+    world: sendStatic ? room.world : undefined,
+    map: sendStatic ? room.map : undefined,
     players,
     ships,
     bullets: room.bullets.map((bullet) => ({
       id: bullet.id,
       type: bullet.type,
+      subtype: bullet.subtype,
       ownerId: bullet.ownerId,
       x: round(bullet.x),
       y: round(bullet.y),
@@ -95,7 +101,42 @@ function snapshotRoom(room, now, viewer = null) {
     effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, now - effect.at) })),
     winner: room.winner,
     maxScore: room.maxScore,
-    rules: room.rules,
+    rules: sendStatic ? room.rules : undefined,
+    controlVictory: room.controlVictory ? {
+      active: Boolean(room.controlVictory.team || room.controlVictory.playerId),
+      team: room.controlVictory.team,
+      playerId: room.controlVictory.playerId,
+      remaining: room.controlVictory.remaining,
+      requiredSeconds: room.controlVictory.requiredSeconds,
+      fullControl: Boolean(room.controlVictory.team || room.controlVictory.playerId)
+    } : null,
+    objectiveControl: (() => {
+      const objectiveControl = {
+        total: room.points.length,
+        neutral: 0,
+        contested: 0,
+        teams: {},
+        players: {}
+      };
+      for (const point of room.points) {
+        if (point.contested) {
+          objectiveControl.contested++;
+        } else if (room.rules?.gameMode === "solo") {
+          if (!point.ownerId || point.progress < 0.98) {
+            objectiveControl.neutral++;
+          } else {
+            objectiveControl.players[point.ownerId] = (objectiveControl.players[point.ownerId] || 0) + 1;
+          }
+        } else {
+          if (!point.ownerTeam || point.progress < 0.98) {
+            objectiveControl.neutral++;
+          } else {
+            objectiveControl.teams[point.ownerTeam] = (objectiveControl.teams[point.ownerTeam] || 0) + 1;
+          }
+        }
+      }
+      return objectiveControl;
+    })(),
     time: Math.floor(now)
   };
 }

@@ -34,6 +34,7 @@ export const state = {
   selectedCell: null,
   selectedShipIds: new Set(),
   snapshot: null,
+  mine: null,
   map: null,
   phase: "offline",
   adminId: null,

@@ -5,7 +5,7 @@ import { state } from "../state.js";
 
 export function updateHud() {
   if (!state.snapshot) return;
-  const mine = state.snapshot.players.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const myShips = state.snapshot.ships.filter((ship) => ship.ownerId === state.myId && ship.alive);
   const myTeam = mine?.team;
   const relays = state.snapshot.points.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length;

@@ -19,17 +19,35 @@ function calculateReload(weapon) {
 function makeWeapon(type, stats) {
   const fireRate = Number(stats.fireRate) || 1;
   const damage = Number(stats.damage) || 0;
+  
+  let tracking = stats.tracking || 0;
+  let aimSpeed = stats.aimSpeed;
+  if (type === "beam") {
+    if (stats.tracking && !stats.aimSpeed) {
+      aimSpeed = 1.65;
+    }
+    tracking = 0; // beam weapons do not have tracking
+  }
+
   return {
     type,
     damage,
     fireRate,
     reload: calculateReload({ fireRate }),
     range: stats.range,
+    radius: Number(stats.radius) || 0,
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
-    tracking: stats.tracking || 0,
+    tracking: tracking,
+    trackTime: Number(stats.trackTime) || 0,
+    trackingDelay: Number(stats.trackingDelay) || 0,
+    aimSpeed: aimSpeed !== undefined ? Number(aimSpeed) : undefined,
     arc: Number(stats.arc) || 360,
-    dps: calculateDps({ damage, fireRate })
+    dps: calculateDps({ damage, fireRate }),
+    missileHp: Number(stats.missileHp) || 0,
+    antiMissile: Boolean(stats.antiMissile),
+    shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
+    targetPriority: stats.targetPriority || []
   };
 }
 
@@ -129,7 +147,9 @@ const FALLBACK_PARTS = Object.freeze({
       range: 790,
       projectileSpeed: 320,
       accuracy: 0.7,
-      tracking: 0.78,
+      tracking: 0.7,
+      trackTime: 1.5,
+      trackingDelay: 0.25,
       arc: 220
     })
   },
@@ -156,9 +176,9 @@ const FALLBACK_PARTS = Object.freeze({
     category: "Support",
     cost: 26, mass: 5, hp: 48,
     powerGeneration: 0, powerUse: 2.4,
-    shield: 16, shieldRegen: 0.35,
+    shield: 16, shieldRegen: 0.25,
     thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 8,
+    energyStorage: 0, repairRate: 5,
     repair: 1,
     weapon: null
   },
@@ -334,7 +354,7 @@ const FALLBACK_PARTS = Object.freeze({
     category: "Defence",
     cost: 36, mass: 6, hp: 50,
     powerGeneration: 0, powerUse: 5.8,
-    shield: 82, shieldRegen: 4.8,
+    shield: 82, shieldRegen: 2.0,
     thrust: 0, turn: -0.03,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -347,24 +367,75 @@ const FALLBACK_PARTS = Object.freeze({
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: 0,
     energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
       damage: 4,
       fireRate: 4.0,
       range: 280,
       projectileSpeed: 820,
       accuracy: 0.78,
       tracking: 0,
-      arc: 360
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["missile", "torpedo", "projectile", "ship"],
+      shipDamageMultiplier: 0.1
     }),
     rotationRequired: true
   },
 
+  flakCannon: {
+    category: "Defence",
+    cost: 38, mass: 5, hp: 42,
+    powerGeneration: 0, powerUse: 3.0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.01,
+    energyStorage: 0, repairRate: 0,
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
+      damage: 8,
+      fireRate: 2.5,
+      range: 220,
+      projectileSpeed: 800,
+      accuracy: 0.7,
+      tracking: 0,
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["missile", "torpedo", "projectile", "ship"],
+      shipDamageMultiplier: 0.15
+    }),
+    rotationRequired: true
+  },
+
+  interceptorPod: {
+    category: "Defence",
+    cost: 55, mass: 6, hp: 48,
+    powerGeneration: 0, powerUse: 4.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.02,
+    energyStorage: 0, repairRate: 0,
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
+      damage: 40,
+      fireRate: 1.2,
+      range: 450,
+      projectileSpeed: 1600,
+      accuracy: 0.9,
+      tracking: 0,
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["torpedo", "missile", "projectile", "ship"],
+      shipDamageMultiplier: 0.1
+    }),
+    rotationRequired: true
+  },
+
+
+
   aegisProjector: {
     category: "Defence",
-    cost: 44, mass: 6, hp: 44,
+    cost: 47, mass: 7, hp: 47,
     powerGeneration: 0, powerUse: 5.4,
-    shield: 72, shieldRegen: 3.6,
+    shield: 165, shieldRegen: 6.8,
     thrust: 0, turn: -0.025,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -445,8 +516,10 @@ const FALLBACK_PARTS = Object.freeze({
       fireRate: 0.45,
       range: 700,
       projectileSpeed: 350,
-      accuracy: 0.72,
-      tracking: 0.7,
+      accuracy: 0.68,
+      tracking: 0.82,
+      trackTime: 1.7,
+      trackingDelay: 0.15,
       arc: 220
     }),
     rotationRequired: true
@@ -466,7 +539,9 @@ const FALLBACK_PARTS = Object.freeze({
       range: 940,
       projectileSpeed: 240,
       accuracy: 0.58,
-      tracking: 0.3,
+      tracking: 0.25,
+      trackTime: 1.1,
+      trackingDelay: 0.45,
       arc: 150
     }),
     rotationRequired: true
@@ -487,6 +562,8 @@ const FALLBACK_PARTS = Object.freeze({
       projectileSpeed: 370,
       accuracy: 0.68,
       tracking: 0.82,
+      trackTime: 1.7,
+      trackingDelay: 0.15,
       arc: 240
     }),
     rotationRequired: true
@@ -539,15 +616,16 @@ const FALLBACK_PARTS = Object.freeze({
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.065,
     energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
+    beam: 1,
+    weapon: makeWeapon("beam", {
       damage: 34,
-      fireRate: 0.7,
-      range: 720,
-      projectileSpeed: 1500,
-      accuracy: 0.98,
-      tracking: 0,
-      arc: 70
+      fireRate: 1,
+      range: 520,
+      radius: 16,
+      projectileSpeed: 0,
+      accuracy: 0.99,
+      aimSpeed: 1.65,
+      arc: 110
     }),
     rotationRequired: true
   },
@@ -641,9 +719,9 @@ const FALLBACK_PARTS = Object.freeze({
     category: "Support",
     cost: 58, mass: 8, hp: 48,
     powerGeneration: 0, powerUse: 6.2,
-    shield: 22, shieldRegen: 0.4,
+    shield: 22, shieldRegen: 0.3,
     thrust: 0, turn: -0.035,
-    energyStorage: 0, repairRate: 17,
+    energyStorage: 0, repairRate: 11,
     repair: 1,
     weapon: null,
     utilityEffect: "repair"
@@ -699,11 +777,18 @@ function normalizeBalanceComponent(component) {
     fireRateBonus: toNumber(component.fireRateBonus, 0),
     captureBonus: toNumber(component.captureBonus, 0),
     heat: toNumber(component.heat, 0),
-    rotationRequired: Boolean(component.rotationRequired || component.rotatable)
+    rotationRequired: Boolean(component.rotationRequired || component.rotatable),
+    ecmStrength: toNumber(component.ecmStrength, 0),
+    decoyRange: toNumber(component.decoyRange, 0),
+    decoyCooldown: toNumber(component.decoyCooldown, 0),
+    decoyConfuseDuration: toNumber(component.decoyConfuseDuration, 0),
+    decoyChance: toNumber(component.decoyChance, 0),
+    frontDamageReduction: toNumber(component.frontDamageReduction, 0),
+    frontArc: toNumber(component.frontArc, 0)
   };
 
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
     if (component[family]) part[family] = toNumber(component[family], part[family] || 0);
   }
   return Object.freeze(part);

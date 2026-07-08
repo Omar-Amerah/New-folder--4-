@@ -10,7 +10,7 @@ import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprin
 import { showToast } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText } from "./savedBlueprintsUi.js";
 import { updateEconomyUi } from "./purchaseUi.js";
-import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent } from "../design/statFormatting.js";
+import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
 
 
@@ -124,10 +124,19 @@ export function resetDesign() {
   renderSavedDesigns();
 }
 
+export function clearDesign() {
+  state.design = [];
+  state.loadedEditorBlueprintId = null;
+  persistDesign(state.design);
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
+}
+
 export function renderLocalStats() {
   const stats = computeStats(state.design);
   const status = getShipStatus(stats);
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const money = currentMatchMoney(mine);
   const canAfford = money >= stats.unitCost;
   
@@ -137,10 +146,14 @@ export function renderLocalStats() {
   }
   if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost}`;
   if (dom.blueprintCostStatus) {
-    dom.blueprintCostStatus.textContent = canAfford
-      ? `Remaining after first ship $${Math.floor(money - stats.unitCost)}`
-      : `Need $${Math.ceil(stats.unitCost - money)} before first ship`;
-    dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
+    if (state.phase === "active") {
+      dom.blueprintCostStatus.textContent = "";
+    } else {
+      dom.blueprintCostStatus.textContent = canAfford
+        ? `Remaining after first ship $${Math.floor(money - stats.unitCost)}`
+        : `Need $${Math.ceil(stats.unitCost - money)} before first ship`;
+      dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
+    }
   }
   dom.stats.innerHTML = [
     statMarkup("Fleet", stats.fleetCount),
@@ -149,13 +162,13 @@ export function renderLocalStats() {
     statMarkup("Shield", formatShield(stats.maxShield)),
     statMarkup("Speed", formatSpeed(Math.round(stats.maxSpeed))),
     statMarkup("Turn", `${stats.turnRate.toFixed(2)} rad/s`),
-    statMarkup("Power Use/Gen", `${stats.powerUse}/${stats.powerGeneration} MW`),
+    statMarkup("Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`),
     statMarkup("Effective Thrust", formatThrust(stats.effectiveThrust)),
     statMarkup("Engine Efficiency", formatPercent(stats.engineEfficiency)),
     statMarkup("Power Efficiency", formatPercent(stats.powerEfficiency)),
     statMarkup("Power Debuff", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
     statMarkup("Mass Speed Cap", formatSpeed(stats.speedCap)),
-    statMarkup("Thrust/Mass", `${stats.thrustRatio} kN/T`),
+    statMarkup("Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
     statMarkup("Weapons", weaponAbbrevText(stats)),
     stats.coolingBonus > 0 ? statMarkup("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
     stats.captureBonus > 0 ? statMarkup("Capture", `+${formatPercent(stats.captureBonus)}`) : "",
@@ -170,7 +183,7 @@ export function renderLocalStats() {
 }
 
 export function getShipStatus(stats) {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const blockers = [];
   const money = currentMatchMoney(mine);
   const isActiveBuild = state.phase === "active";

@@ -4,7 +4,7 @@ import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
-import { renderBuildGrid, renderLocalStats, resetDesign } from "./ui/designerUi.js";
+import { renderBuildGrid, renderLocalStats, resetDesign, clearDesign } from "./ui/designerUi.js";
 import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
@@ -12,6 +12,7 @@ import { resizeCanvas, frame } from "./game/renderer.js";
 import { handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleKeyDown } from "./game/input.js";
 import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY } from "./constants.js";
 import { send, getConfiguredServerUrl } from "./network.js";
+import { applyComponentBalance } from "./design/parts.js";
 
 // Initialize input values from localStorage
 dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floor(100 + Math.random() * 900)}`;
@@ -33,6 +34,7 @@ dom.saveDesignButton?.addEventListener("click", () => {
   });
 });
 dom.resetButton.addEventListener("click", resetDesign);
+dom.clearGridButton.addEventListener("click", clearDesign);
 dom.copyButton.addEventListener("click", () => {
   // Copy invite logic
   const url = new URL(location.href);
@@ -169,12 +171,12 @@ async function loadComponentBalance() {
     const response = await fetch("/component-balance.json", { cache: "no-store" });
     if (!response.ok) return;
     const balance = await response.json();
-    import("./design/parts.js").then((mod) => {
-      mod.applyComponentBalance(balance);
-      renderPalette();
-      renderPartInspector();
-      renderLocalStats();
-    });
+    applyComponentBalance(balance);
+    renderPalette();
+    renderPartInspector();
+    renderBuildGrid();
+    renderLocalStats();
+    renderSavedDesigns();
   } catch {
     // Fail silently, use defaults
   }

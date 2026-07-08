@@ -1,47 +1,53 @@
 // Unit suffix builders and text formatting wrappers for ship inspector statistics.
 
+export function round2(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Number(num.toFixed(2));
+}
+
 export function formatMass(value) {
-  return `${Number(value) || 0} T`;
+  return `${round2(value)} T`;
 }
 
 export function formatHull(value) {
-  return `${Number(value) || 0} HP`;
+  return `${round2(value)} HP`;
 }
 
 export function formatShield(value) {
-  return `${Number(value) || 0} SP`;
+  return `${round2(value)} SP`;
 }
 
 export function formatThrust(value) {
-  return `${Number(value) || 0} kN`;
+  return `${round2(value)} kN`;
 }
 
 export function formatEnergy(value) {
-  return `${Number(value) || 0} MJ`;
+  return `${round2(value)} MJ`;
 }
 
 export function formatRepair(value) {
-  return `${Number(value) || 0} HP/s`;
+  return `${round2(value)} HP/s`;
 }
 
 export function formatPowerUse(value) {
-  return `${Number(value) || 0} MW`;
+  return `${round2(value)} MW`;
 }
 
 export function formatPowerGeneration(value) {
-  return `+${Number(value) || 0} MW`;
+  return `+${round2(value)} MW`;
 }
 
 export function formatDistance(value) {
-  return `${Number(value) || 0} m`;
+  return `${round2(value)} m`;
 }
 
 export function formatSpeed(value) {
-  return `${Number(value) || 0} m/s`;
+  return `${round2(value)} m/s`;
 }
 
 export function formatDamage(value) {
-  return `${Number(value) || 0} dmg`;
+  return `${round2(value)} dmg`;
 }
 
 export function formatPercent(value) {
