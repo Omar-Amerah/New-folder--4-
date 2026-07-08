@@ -143,7 +143,7 @@ export function updatePhaseDetail(phase) {
 }
 
 export function renderPlayerList() {
-  if (!dom.playerList) return;
+  if (!dom.playerList || dom.lobbyManagementScreen?.hidden) return;
   const players = state.snapshot?.players || [];
   dom.playerList.textContent = "";
   if (!players.length) return;
