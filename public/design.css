@@ -1861,7 +1861,7 @@
 .blueprint-designer-panel .build-grid {
   width: auto;
   height: 100%;
-  max-height: 70vh;
+  max-height: 85vh;
   aspect-ratio: 1;
 }
 
