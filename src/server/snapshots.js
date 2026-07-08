@@ -98,7 +98,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true) {
       contested: Boolean(point.contested),
       progress: round(point.progress)
     })),
-    effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, now - effect.at) })),
+    effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, now - effect.at), subtype: effect.subtype })),
     winner: room.winner,
     maxScore: room.maxScore,
     rules: sendStatic ? room.rules : undefined,
