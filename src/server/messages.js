@@ -37,7 +37,7 @@ function handleMessage(client, message) {
     return;
   }
 
-  const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, closeLobby, leaveLobby, startDesignPhase } = require("./players");
+  const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase } = require("./players");
   const { validateDesign } = require("./shipDesign");
   const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName } = require("./validation");
   const { validateBuyShip, buyShip } = require("./economy");
@@ -217,6 +217,11 @@ function handleMessage(client, message) {
 
   if (message.type === "restart") {
     restartFromEnd(client.room, client.player);
+    return;
+  }
+
+  if (message.type === "returnToLobby") {
+    returnToLobbyPhase(client.room, client.player);
     return;
   }
 

@@ -43,7 +43,12 @@ function updateBullets(room, dt, now) {
 
   for (const bullet of room.bullets) {
     bullet.life -= dt;
-    if (bullet.life <= 0) continue;
+    if (bullet.life <= 0) {
+      if (bullet.type === "missile" || bullet.type === "pdShot") {
+        room.effects.push({ type: "despawn", subtype: bullet.subtype, x: bullet.x, y: bullet.y, at: now });
+      }
+      continue;
+    }
     const previousX = bullet.x;
     const previousY = bullet.y;
 

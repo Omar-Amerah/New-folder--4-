@@ -266,6 +266,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const life = rangeVal / speed;
       addBullet(room, {
         type: "missile",
+        subtype: module.type,
         interceptable: true,
         hp: part.weapon.missileHp || 20,
         ownerId: ship.ownerId,

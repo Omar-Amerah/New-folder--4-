@@ -3,7 +3,7 @@
 import { ctx } from "../ui/dom.js";
 import { state } from "../state.js";
 import { clamp } from "../shared/math.js";
-import { getCombatEffectsEnabled } from "./renderSettings.js";
+import { getCombatEffectsEnabled, getRenderQuality } from "./renderSettings.js";
 
 export function drawEffects() {
   const snap = state.snapshot;
@@ -127,6 +127,70 @@ export function drawEffects() {
       ctx.moveTo(0, -8 - t * 16);
       ctx.lineTo(0, 8 + t * 16);
       ctx.stroke();
+    } else if (effect.type === "despawn") {
+      const q = getRenderQuality();
+      if (q === "low") {
+        ctx.fillStyle = "#ffca57";
+        ctx.beginPath();
+        ctx.arc(0, 0, 4 + t * 8, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const subtype = effect.subtype || "missile";
+        const isSwarm = subtype === "swarmMissile";
+        const isTorpedo = subtype === "torpedo";
+        const isInterceptor = subtype === "interceptorPod";
+        const isFlak = subtype === "flakCannon";
+
+        if (isInterceptor) {
+           ctx.fillStyle = "#e9d5ff";
+           ctx.beginPath();
+           ctx.arc(0, 0, 3 + t * 12, 0, Math.PI * 2);
+           ctx.fill();
+           ctx.strokeStyle = "#a855f7";
+           ctx.lineWidth = 2 / state.camera.zoom;
+           ctx.beginPath();
+           ctx.moveTo(-6 - t * 12, 0);
+           ctx.lineTo(6 + t * 12, 0);
+           ctx.moveTo(0, -6 - t * 12);
+           ctx.lineTo(0, 6 + t * 12);
+           ctx.stroke();
+        } else if (isFlak) {
+           ctx.fillStyle = "#f97316";
+           ctx.beginPath();
+           ctx.arc(0, 0, 4 + t * 14, 0, Math.PI * 2);
+           ctx.fill();
+           ctx.strokeStyle = "#fdba74";
+           ctx.lineWidth = 2 / state.camera.zoom;
+           ctx.beginPath();
+           ctx.arc(0, 0, 6 + t * 18, 0, Math.PI * 2);
+           ctx.stroke();
+        } else if (isSwarm) {
+           ctx.fillStyle = "#c084fc";
+           ctx.beginPath();
+           ctx.arc(0, 0, 2 + t * 6, 0, Math.PI * 2);
+           ctx.fill();
+        } else if (isTorpedo) {
+           ctx.fillStyle = "#ff7e5f";
+           ctx.beginPath();
+           ctx.arc(0, 0, 8 + t * 24, 0, Math.PI * 2);
+           ctx.fill();
+           ctx.strokeStyle = "#ff9a57";
+           ctx.lineWidth = 3 / state.camera.zoom;
+           ctx.beginPath();
+           ctx.arc(0, 0, 12 + t * 30, 0, Math.PI * 2);
+           ctx.stroke();
+        } else {
+           ctx.fillStyle = "#ffca57";
+           ctx.beginPath();
+           ctx.arc(0, 0, 4 + t * 12, 0, Math.PI * 2);
+           ctx.fill();
+           ctx.strokeStyle = "#ff9a57";
+           ctx.lineWidth = 2 / state.camera.zoom;
+           ctx.beginPath();
+           ctx.arc(0, 0, 6 + t * 16, 0, Math.PI * 2);
+           ctx.stroke();
+        }
+      }
     } else {
       ctx.fillStyle = effect.type === "warp" ? "#38d5ff" : "#f3f7ff";
       ctx.beginPath();
