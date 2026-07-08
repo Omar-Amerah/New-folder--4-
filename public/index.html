@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/hud.css">
   </head>
   <body>
+  <div id="debugOverlay" style="position: fixed; top: 10px; left: 10px; pointer-events: none; z-index: 10000; background: rgba(0,0,0,0.7); color: #00ff00; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 4px; display: none;"></div>
     <main class="app">
       <section class="side-panel" aria-label="Dock controls">
         <div class="brand">
@@ -267,6 +268,24 @@
           <button id="saveServerButton" type="button">Save server</button>
           <button id="clearServerButton" type="button" class="secondary">Use current host</button>
         </div>
+        <div class="menu-head" style="margin-top: 1.5rem;">
+          <div>
+            <h2>Graphics</h2>
+          </div>
+        </div>
+
+        <label for="renderQualitySelect">Render Quality</label>
+        <select id="renderQualitySelect" style="margin-bottom: 1rem;">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+        </select>
+
+        <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+          <input type="checkbox" id="debugOverlayToggle">
+          Show Debug Overlay (F3)
+        </label>
+
       </div>
     </section>
 
