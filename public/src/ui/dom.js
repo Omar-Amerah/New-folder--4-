@@ -70,6 +70,8 @@ export const dom = {
   marker: document.getElementById("commandMarker"),
   winner: document.getElementById("winnerBanner"),
   endGameScreen: document.getElementById("endGameScreen"),
+  minimizeEndGameButton: document.getElementById("minimizeEndGameButton"),
+  showEndGameButton: document.getElementById("showEndGameButton"),
   endGameTitle: document.getElementById("endGameTitle"),
   endGameSummary: document.getElementById("endGameSummary"),
   endGameActions: document.getElementById("endGameActions"),

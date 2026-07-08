@@ -10,11 +10,17 @@ export function updateWinnerBanner() {
   if (!winner || state.phase !== "ended") {
     dom.winner.hidden = true;
     dom.endGameScreen.hidden = true;
+    if (dom.showEndGameButton) dom.showEndGameButton.hidden = true;
     return;
   }
   dom.winner.hidden = false;
   dom.winner.textContent = `${winner.name} won`;
-  dom.endGameScreen.hidden = false;
+
+  if (!dom.showEndGameButton || dom.showEndGameButton.hidden !== false || !dom.endGameScreen.hidden) {
+    dom.endGameScreen.hidden = state.endGameMinimized === true;
+    if (dom.showEndGameButton) dom.showEndGameButton.hidden = !dom.endGameScreen.hidden;
+  }
+
   dom.endGameTitle.textContent = `${winner.name} won`;
   dom.endGameSummary.innerHTML = renderBattleReport();
   const admin = isAdmin();
