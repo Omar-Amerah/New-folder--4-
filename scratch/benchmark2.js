@@ -5,7 +5,7 @@ function chooseWorldSize_Original(playerCount) {
   return { width: size.width, height: size.height, label: size.label };
 }
 
-function chooseWorldSize_Optimized1(playerCount) {
+function chooseWorldSize_For(playerCount) {
   for (let i = 0; i < WORLD_SIZES.length; i++) {
     const candidate = WORLD_SIZES[i];
     if (playerCount <= candidate.maxPlayers) {
@@ -16,11 +16,14 @@ function chooseWorldSize_Optimized1(playerCount) {
   return { width: last.width, height: last.height, label: last.label };
 }
 
-function chooseWorldSize_Optimized2(playerCount) {
-    if (playerCount <= 2) return { width: 2600, height: 1600, label: "Duel" };
-    if (playerCount <= 4) return { width: 3200, height: 1900, label: "Skirmish" };
-    if (playerCount <= 8) return { width: 4100, height: 2400, label: "Battle" };
-    return { width: 5000, height: 2900, label: "Grand battle" };
+function chooseWorldSize_ForOf(playerCount) {
+  for (const candidate of WORLD_SIZES) {
+    if (playerCount <= candidate.maxPlayers) {
+      return { width: candidate.width, height: candidate.height, label: candidate.label };
+    }
+  }
+  const last = WORLD_SIZES[WORLD_SIZES.length - 1];
+  return { width: last.width, height: last.height, label: last.label };
 }
 
 const ITERATIONS = 10000000;
@@ -37,14 +40,14 @@ console.log(`Original: ${(end - start).toFixed(2)} ms`);
 
 start = performance.now();
 for (let i = 0; i < ITERATIONS; i++) {
-  chooseWorldSize_Optimized1(testValues[i % testValues.length]);
+  chooseWorldSize_For(testValues[i % testValues.length]);
 }
 end = performance.now();
-console.log(`Optimized (For loop): ${(end - start).toFixed(2)} ms`);
+console.log(`Optimized (For): ${(end - start).toFixed(2)} ms`);
 
 start = performance.now();
 for (let i = 0; i < ITERATIONS; i++) {
-  chooseWorldSize_Optimized2(testValues[i % testValues.length]);
+  chooseWorldSize_ForOf(testValues[i % testValues.length]);
 }
 end = performance.now();
-console.log(`Optimized (Direct IFs): ${(end - start).toFixed(2)} ms`);
+console.log(`Optimized (ForOf): ${(end - start).toFixed(2)} ms`);
