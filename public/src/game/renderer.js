@@ -10,6 +10,7 @@ import { formatHull, formatShield, formatThrust, formatEnergy, formatRepair, for
 import { drawEffects } from "./effects.js";
 import { drawSelectionBox, ownLiveShips } from "./selection.js";
 import { updateCamera, applyCamera } from "./camera.js";
+import { getRenderQuality, qualityShadowBlur, getRenderQualityDprCap } from "./renderSettings.js";
 import { playerMap } from "../ui/scoreboardUi.js";
 
 
@@ -40,34 +41,11 @@ export function isCircleVisible(x, y, radius, bounds) {
 
 
 
-let cachedRenderQuality = null;
 
-export function getRenderQuality() {
-  if (cachedRenderQuality !== null) return cachedRenderQuality;
-  cachedRenderQuality = localStorage.getItem("mfa.renderQuality") || "medium";
-  return cachedRenderQuality;
-}
-
-export function setRenderQuality(quality) {
-  if (["low", "medium", "high"].includes(quality)) {
-    localStorage.setItem("mfa.renderQuality", quality);
-    cachedRenderQuality = quality;
-  }
-}
-
-export function qualityShadowBlur(value) {
-  const q = getRenderQuality();
-  if (q === "low") return 0;
-  if (q === "medium") return value * 0.45;
-  return value;
-}
 
 export function resizeCanvas() {
   const rect = dom.canvas.getBoundingClientRect();
-  const q = getRenderQuality();
-  let maxDpr = 1.5;
-  if (q === "low") maxDpr = 1.25;
-  if (q === "high") maxDpr = 2.0;
+  const maxDpr = getRenderQualityDprCap();
 
   const ratio = Math.max(1, Math.min(maxDpr, window.devicePixelRatio || 1));
   dom.canvas.width = Math.max(1, Math.floor(rect.width * ratio));

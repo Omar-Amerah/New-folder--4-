@@ -1,4 +1,5 @@
-import { getRenderQuality, setRenderQuality, resizeCanvas } from "../game/renderer.js";
+import { resizeCanvas } from "../game/renderer.js";
+import { getRenderQuality, setRenderQuality } from "../game/renderSettings.js";
 // Handles lobby screens, player wing choices, starting/leaving, rules updates, and host controls.
 
 import { dom } from "./dom.js";
