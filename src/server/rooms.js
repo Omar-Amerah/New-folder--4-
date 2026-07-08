@@ -26,7 +26,6 @@ const closedRoomCodes = new Map();
 
 function createRoom(code) {
   const world = chooseWorldSize(1);
-  const map = generateMap(code, world, DEFAULT_ROOM_RULES.gameMode);
   return {
     code,
     adminId: null,
@@ -38,8 +37,8 @@ function createRoom(code) {
     ships: new Map(),
     bullets: [],
     effects: [],
-    map,
-    points: map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 })),
+    map: null,
+    points: [],
     kickedIds: new Set(),
     kickedNames: new Set(),
     nextEntityId: 1,
@@ -80,8 +79,6 @@ function setRoomRules(room, requester, updates) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.map = generateMap(room.code, world, room.rules.gameMode);
-  room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
 
   for (const player of room.players.values()) {
     player.money = room.rules.startingMoney;
