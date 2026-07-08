@@ -32,13 +32,15 @@ export function renderSavedDesigns() {
 
   for (const saved of state.savedDesigns) {
     const stats = computeStats(saved.blueprint);
+    const rawStyle = saved.combatStyle || "charge";
+    const displayStyle = rawStyle.charAt(0).toUpperCase() + rawStyle.slice(1);
     const row = document.createElement("div");
     row.className = "saved-design-card";
     row.innerHTML = `
       <div class="saved-design-head">
         <input class="saved-design-name" value="${escapeHtml(saved.name)}" maxlength="28" aria-label="Blueprint name">
       </div>
-      <div class="saved-design-summary">Style: ${saved.combatStyle || "charge"} · Cost $${stats.unitCost} · Weapons (${weaponAbbrevText(stats)}) · Speed ${formatSpeed(Math.round(stats.maxSpeed))}</div>
+      <div class="saved-design-summary">Style: ${displayStyle} · Cost $${stats.unitCost} · Weapons (${weaponAbbrevText(stats)}) · Speed ${formatSpeed(Math.round(stats.maxSpeed))}</div>
       <div class="saved-design-actions">
         <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Use/Edit</button>
         <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}">Delete</button>

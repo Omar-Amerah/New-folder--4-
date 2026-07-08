@@ -113,19 +113,7 @@ function renderBattleReport() {
   }
   html += `</ul></div>`;
 
-  if (mine && mine.lastReward) {
-    const reward = mine.lastReward;
-    html += `<div class="report-reward">
-      <h4>Reward Breakdown</h4>
-      <div>Base: $${reward.base}</div>
-      ${reward.destroyed > 0 ? `<div>Destroyed: $${reward.destroyed}</div>` : ""}
-      ${reward.victory > 0 ? `<div>Victory: $${reward.victory}</div>` : ""}
-      ${reward.survival > 0 ? `<div>Survival: $${reward.survival}</div>` : ""}
-      ${reward.efficiency > 0 ? `<div>Efficiency: $${reward.efficiency}</div>` : ""}
-      ${reward.lossSupport > 0 ? `<div>Loss Support: $${reward.lossSupport}</div>` : ""}
-      <strong>Total: $${reward.total}</strong>
-    </div>`;
-  } else if (!isAdmin()) {
+  if (!isAdmin()) {
     html += `<div class="report-wait">Waiting for the room admin to restart or close the lobby.</div>`;
   }
 

@@ -124,6 +124,7 @@ export function buyPurchaseOption(optionId) {
   send({
     type: "buyShip",
     design: option.blueprint,
+    combatStyle: option.combatStyle || state.combatStyle || "charge",
     count: state.purchaseQuantity,
     requestId
   });

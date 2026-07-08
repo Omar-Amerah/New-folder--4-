@@ -18,6 +18,9 @@ import { applyComponentBalance } from "./design/parts.js";
 dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floor(100 + Math.random() * 900)}`;
 dom.teamSelect.value = localStorage.getItem(LOCAL_TEAM_KEY) === "red" ? "red" : "blue";
 dom.formationSelect.value = localStorage.getItem(LOCAL_FORMATION_KEY) || "line";
+if (dom.combatStyleSelect) {
+  dom.combatStyleSelect.value = state.combatStyle || "charge";
+}
 
 // Register core window listeners
 window.addEventListener("resize", resizeCanvas);

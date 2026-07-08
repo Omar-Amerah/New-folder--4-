@@ -211,7 +211,11 @@ export function deployDesign() {
   const ready = mine?.ready;
 
   if (isDesignStage && !ready) {
-    send({ type: "deploy", design: state.design });
+    send({
+      type: "deploy",
+      design: state.design,
+      combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "charge"
+    });
     send({ type: "ready" });
   } else if (state.phase === "active") {
     // If active, deployButton saves current blueprint

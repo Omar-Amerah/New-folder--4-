@@ -116,7 +116,7 @@ function resetControlVictory(room, broadcastReset = false) {
 function finalizeTeamControlVictory(room, team, now) {
   const { teamLabel } = require("./players");
   const { finalizeMatchRewards } = require("./economy");
-  const { broadcastRoom } = require("./messages");
+  const { broadcastRoom, broadcastSnapshot } = require("./messages");
 
   const winningPlayer = [...room.players.values()].find(p => p.team === team);
   const teamName = teamLabel(room, team, winningPlayer ? winningPlayer.name : `Wing ${team}`);
@@ -130,11 +130,12 @@ function finalizeTeamControlVictory(room, team, now) {
   room.phase = "ended";
   finalizeMatchRewards(room);
   broadcastRoom(room, { type: "notice", message: `${teamName} won the match` });
+  broadcastSnapshot(room, now, true);
 }
 
 function finalizeSoloControlVictory(room, playerId, now) {
   const { finalizeMatchRewards } = require("./economy");
-  const { broadcastRoom } = require("./messages");
+  const { broadcastRoom, broadcastSnapshot } = require("./messages");
 
   const player = room.players.get(playerId);
   const playerName = player ? player.name : "A player";
@@ -148,6 +149,7 @@ function finalizeSoloControlVictory(room, playerId, now) {
   room.phase = "ended";
   finalizeMatchRewards(room);
   broadcastRoom(room, { type: "notice", message: `${playerName} won the match` });
+  broadcastSnapshot(room, now, true);
 }
 
 function updateScoring(room, now) {
