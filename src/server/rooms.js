@@ -91,7 +91,7 @@ function setRoomRules(room, requester, updates) {
   }
 
   const { broadcastSnapshot } = require("./messages");
-  broadcastSnapshot(room, performanceNow());
+  broadcastSnapshot(room, performanceNow(), true);
 }
 
 function sanitizeRoomRules(input, playerCount = 1) {

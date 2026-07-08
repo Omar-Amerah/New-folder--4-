@@ -166,6 +166,8 @@ setInterval(() => {
 setInterval(() => {
   const now = performanceNow();
   for (const room of rooms.values()) {
-    broadcastSnapshot(room, now);
+    if (room.phase === "active") {
+      broadcastSnapshot(room, now);
+    }
   }
 }, 1000 / SNAPSHOT_HZ).unref();

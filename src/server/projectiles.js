@@ -34,7 +34,7 @@ function segmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
 }
 
 function updateBullets(room, dt, now) {
-  const { getLiveShips } = require("./ships");
+  const { getLiveShips, getShipModuleWorldCoords } = require("./ships");
   const { areEnemies, damageShip } = require("./combat");
 
   const liveShips = getLiveShips(room);
@@ -128,22 +128,17 @@ function updateBullets(room, dt, now) {
       const r = ship.radius + hitRadius;
       if (dx * dx + dy * dy > r * r) continue;
 
-      // Narrow-phase: check distance to each individual module of the ship hull
+      // Narrow-phase: check distance to precomputed individual hull module world positions
       let moduleHit = false;
-      const cos = Math.cos(ship.angle);
-      const sin = Math.sin(ship.angle);
-      const scale = 13;
+      const coords = getShipModuleWorldCoords(ship);
+      const collisionR = 8.5 + hitRadius;
+      const collisionR2 = collisionR * collisionR;
 
-      for (const module of ship.design || []) {
-        const lx = (3 - module.y) * scale;
-        const ly = (module.x - 3) * scale;
-        const wx = ship.x + lx * cos - ly * sin;
-        const wy = ship.y + lx * sin + ly * cos;
-
-        const mdx = wx - bullet.x;
-        const mdy = wy - bullet.y;
-        const collisionR = 8.5 + hitRadius; // ~8.5 radius for 13x13 module + projectile radius
-        if (mdx * mdx + mdy * mdy <= collisionR * collisionR) {
+      for (let i = 0; i < coords.length; i++) {
+        const m = coords[i];
+        const mdx = m.x - bullet.x;
+        const mdy = m.y - bullet.y;
+        if (mdx * mdx + mdy * mdy <= collisionR2) {
           moduleHit = true;
           break;
         }

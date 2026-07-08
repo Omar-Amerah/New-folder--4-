@@ -242,6 +242,26 @@ function distanceToFleet(ships, target) {
   return best;
 }
 
+function getShipModuleWorldCoords(ship) {
+  const scale = 13;
+  if (!ship.moduleWorldCoords || ship.angle !== ship.lastPrecomputedAngle || ship.x !== ship.lastPrecomputedX || ship.y !== ship.lastPrecomputedY) {
+    const cos = Math.cos(ship.angle);
+    const sin = Math.sin(ship.angle);
+    ship.moduleWorldCoords = (ship.design || []).map((module) => {
+      const lx = (3 - module.y) * scale;
+      const ly = (module.x - 3) * scale;
+      return {
+        x: ship.x + lx * cos - ly * sin,
+        y: ship.y + lx * sin + ly * cos
+      };
+    });
+    ship.lastPrecomputedAngle = ship.angle;
+    ship.lastPrecomputedX = ship.x;
+    ship.lastPrecomputedY = ship.y;
+  }
+  return ship.moduleWorldCoords;
+}
+
 module.exports = {
   spawnShip,
   getLiveShips,
@@ -251,5 +271,6 @@ module.exports = {
   chooseBotDesign,
   chooseBotTeam,
   getPlayerSpawn,
-  distanceToFleet
+  distanceToFleet,
+  getShipModuleWorldCoords
 };

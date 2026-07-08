@@ -50,7 +50,7 @@ function joinRoom(client, message) {
 
     send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
-    broadcastSnapshot(room, performanceNow());
+    broadcastSnapshot(room, performanceNow(), true);
     return;
   }
 
@@ -113,6 +113,7 @@ function joinRoom(client, message) {
 
   send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });
+  broadcastSnapshot(room, performanceNow(), true);
 }
 
 function leaveRoom(client) {
@@ -290,7 +291,7 @@ function resetRoundPlayerStats(player) {
 
 function maybeStartMatch(room, now) {
   if (room.phase !== "design") return;
-  const { broadcastRoom } = require("./messages");
+  const { broadcastRoom, broadcastSnapshot } = require("./messages");
   const players = [...room.players.values()].filter((player) => player.connected !== false);
   if (!players.length || players.some((player) => !player.ready)) return;
   room.phase = "active";
@@ -308,10 +309,11 @@ function maybeStartMatch(room, now) {
     resetPlayerForMatch(room, player, now, { spawn: true });
   }
   broadcastRoom(room, { type: "notice", message: "All pilots ready. Match started." });
+  broadcastSnapshot(room, now, true);
 }
 
 function startDesignPhase(room, requester) {
-  const { sendPlayer, broadcastRoom } = require("./messages");
+  const { sendPlayer, broadcastRoom, broadcastSnapshot } = require("./messages");
   if (!isAdmin(room, requester)) {
     sendPlayer(room, requester, { type: "error", message: "Only the room admin can start ship design" });
     return;
@@ -342,10 +344,11 @@ function startDesignPhase(room, requester) {
     resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
   }
   broadcastRoom(room, { type: "notice", message: `Ship design started on ${room.mapSizeLabel} map` });
+  broadcastSnapshot(room, performanceNow(), true);
 }
 
 function restartFromEnd(room, requester) {
-  const { sendPlayer, broadcastRoom } = require("./messages");
+  const { sendPlayer, broadcastRoom, broadcastSnapshot } = require("./messages");
   if (!isAdmin(room, requester)) {
     sendPlayer(room, requester, { type: "error", message: "Only the room admin can restart the match" });
     return;
@@ -373,6 +376,7 @@ function restartFromEnd(room, requester) {
     resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
   }
   broadcastRoom(room, { type: "notice", message: "New ship design phase started" });
+  broadcastSnapshot(room, performanceNow(), true);
 }
 
 function closeLobby(room, requester) {

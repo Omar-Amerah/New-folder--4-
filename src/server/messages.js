@@ -22,14 +22,10 @@ function broadcastRoom(room, data) {
   for (const client of room.clients) send(client, data);
 }
 
-function broadcastSnapshot(room, now) {
+function broadcastSnapshot(room, now, forceStatic = false) {
   const { snapshotRoom } = require("./snapshots");
-  const sendStatic = room.phase !== "active" || !room.lastStaticSnapshotAt || now - room.lastStaticSnapshotAt > 2000;
-  if (sendStatic && room.phase === "active") {
-    room.lastStaticSnapshotAt = now;
-  }
   for (const client of room.clients) {
-    send(client, snapshotRoom(room, now, client.player, sendStatic));
+    send(client, snapshotRoom(room, now, client.player, forceStatic));
   }
 }
 
@@ -80,6 +76,7 @@ function handleMessage(client, message) {
       client.player.ready = true;
       client.player.lastReadyAt = performanceNow();
       broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
+      broadcastSnapshot(client.room, performanceNow(), true);
       maybeStartMatch(client.room, performanceNow());
     } else {
       send(client, { type: "notice", message: `Editor blueprint saved. Buy the current design from the bottom bar for $${design.stats.unitCost}.` });
@@ -152,12 +149,12 @@ function handleMessage(client, message) {
     if (client.room.rules?.gameMode === "solo") {
       client.player.team = client.player.id;
       send(client, { type: "error", message: "Solo mode does not use team selection" });
-      broadcastSnapshot(client.room, performanceNow());
+      broadcastSnapshot(client.room, performanceNow(), true);
       return;
     }
     client.player.team = sanitizeTeam(message.team, balanceTeam(client.room));
     broadcastRoom(client.room, { type: "notice", message: `${client.player.name} changed wing` });
-    broadcastSnapshot(client.room, performanceNow());
+    broadcastSnapshot(client.room, performanceNow(), true);
     return;
   }
 
