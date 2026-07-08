@@ -321,28 +321,58 @@ export function renderPurchaseBar() {
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
   dom.purchaseQuantityFive?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 5));
-  dom.purchaseOptions.textContent = "";
 
-  for (const option of getPurchaseOptions()) {
+  const options = getPurchaseOptions();
+  const existingCards = Array.from(dom.purchaseOptions.children);
+
+  const optionsMatch = existingCards.length === options.length &&
+    options.every((opt, i) => existingCards[i].dataset?.optionId === opt.id);
+
+  if (!optionsMatch) {
+    dom.purchaseOptions.textContent = "";
+    existingCards.length = 0;
+  }
+
+  options.forEach((option, i) => {
     const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
-    card.setAttribute?.("aria-disabled", String(!optionState.canBuy));
-    if (card.dataset) card.dataset.optionId = option.id;
-    card.innerHTML = `
+    let card = existingCards[i];
+    const isNew = !card;
+
+    if (isNew) {
+      card = document.createElement("button");
+      card.type = "button";
+      if (card.dataset) card.dataset.optionId = option.id;
+      
+      card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
+      card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
+      card.addEventListener?.("mouseleave", hidePurchaseTooltip);
+      card.addEventListener?.("focus", (event) => showPurchaseTooltip(option.id, event));
+      card.addEventListener?.("blur", hidePurchaseTooltip);
+    }
+
+    const className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
+    if (card.className !== className) {
+      card.className = className;
+    }
+    const ariaDisabled = String(!optionState.canBuy);
+    if (card.getAttribute?.("aria-disabled") !== ariaDisabled) {
+      card.setAttribute?.("aria-disabled", ariaDisabled);
+    }
+
+    const innerHTML = `
       <strong>${escapeHtml(option.name)}</strong>
       <span>${purchaseCostText(option, optionState)}</span>
       <small>${weaponSummaryText(option.stats)}</small>
       <em>${optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : escapeHtml(optionState.reason)}</em>
     `;
-    card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
-    card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
-    card.addEventListener?.("mouseleave", hidePurchaseTooltip);
-    card.addEventListener?.("focus", (event) => showPurchaseTooltip(option.id, event));
-    card.addEventListener?.("blur", hidePurchaseTooltip);
-    dom.purchaseOptions.appendChild(card);
-  }
+    if (card.innerHTML !== innerHTML) {
+      card.innerHTML = innerHTML;
+    }
+
+    if (isNew) {
+      dom.purchaseOptions.appendChild(card);
+    }
+  });
 }
 
 export function purchaseCostText(option, optionState) {
