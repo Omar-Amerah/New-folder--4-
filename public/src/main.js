@@ -89,6 +89,16 @@ dom.restartButton.addEventListener("click", restartMatch);
 if (dom.returnToLobbyButton) dom.returnToLobbyButton.addEventListener("click", returnToLobby);
 dom.endCloseButton.addEventListener("click", closeLobby);
 dom.endLeaveButton?.addEventListener("click", leaveLobby);
+dom.minimizeEndGameButton?.addEventListener("click", () => {
+  state.endGameMinimized = true;
+  if (dom.endGameScreen) dom.endGameScreen.hidden = true;
+  if (dom.showEndGameButton) dom.showEndGameButton.hidden = false;
+});
+dom.showEndGameButton?.addEventListener("click", () => {
+  state.endGameMinimized = false;
+  if (dom.endGameScreen) dom.endGameScreen.hidden = false;
+  if (dom.showEndGameButton) dom.showEndGameButton.hidden = true;
+});
 dom.mainMenuButton?.addEventListener("click", openMainMenu);
 dom.lobbyManagementButton?.addEventListener("click", openLobbyManagement);
 dom.settingsButton?.addEventListener("click", openSettings);

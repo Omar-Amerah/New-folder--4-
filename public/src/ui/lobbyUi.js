@@ -287,6 +287,8 @@ export function clearRoomState() {
 export function clearMatchPanels() {
   dom.winner.hidden = true;
   dom.endGameScreen.hidden = true;
+  if (dom.showEndGameButton) dom.showEndGameButton.hidden = true;
+  state.endGameMinimized = false;
 }
 
 export function showMenuScreen(screen) {

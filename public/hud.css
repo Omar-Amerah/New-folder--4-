@@ -224,6 +224,48 @@
   border-radius: 12px;
   background: rgba(9, 15, 25, 0.96);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+
+.minimize-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.minimize-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.show-end-game-button {
+  position: absolute;
+  top: 70px;
+  right: 20px;
+  z-index: 5;
+  padding: 8px 16px;
+  background: rgba(9, 15, 25, 0.8);
+  border: 1px solid rgba(255, 202, 87, 0.35);
+  border-radius: 6px;
+  color: #fff2c4;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.show-end-game-button:hover {
+  background: rgba(9, 15, 25, 1);
+  border-color: rgba(255, 202, 87, 0.6);
 }
 
 .battle-report {
