@@ -125,6 +125,16 @@ export function handleKeyDown(event) {
   if (tag === "INPUT" || tag === "SELECT" || tag === "BUTTON") return;
   state.keys.add(key);
 
+  if (
+    key === "arrowup" ||
+    key === "arrowdown" ||
+    key === "arrowleft" ||
+    key === "arrowright" ||
+    key === " "
+  ) {
+    event.preventDefault();
+  }
+
   if (key === "q") {
     event.preventDefault();
     selectAllOwnShips();
