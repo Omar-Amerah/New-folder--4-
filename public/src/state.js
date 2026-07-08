@@ -19,6 +19,7 @@ function makeStars(count) {
 }
 
 export const state = {
+  visualShips: new Map(),
   socket: null,
   myId: null,
   room: "",

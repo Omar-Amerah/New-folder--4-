@@ -7,7 +7,10 @@ import { clamp } from "../shared/math.js";
 export function drawEffects() {
   const snap = state.snapshot;
   if (!snap) return;
+  if(state.debugStats) state.debugStats.totalEffects = snap.effects.length;
+  let drawn = 0;
   for (const effect of snap.effects) {
+    drawn++;
     const age = effect.age || 0;
     const t = clamp(age / 900, 0, 1);
     ctx.save();
@@ -85,4 +88,5 @@ export function drawEffects() {
     }
     ctx.restore();
   }
+  if(state.debugStats) state.debugStats.drawnEffects = drawn;
 }

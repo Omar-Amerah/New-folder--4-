@@ -10,23 +10,68 @@ import { formatHull, formatShield, formatThrust, formatEnergy, formatRepair, for
 import { drawEffects } from "./effects.js";
 import { drawSelectionBox, ownLiveShips } from "./selection.js";
 import { updateCamera, applyCamera } from "./camera.js";
+import { getRenderQuality, qualityShadowBlur, getRenderQualityDprCap } from "./renderSettings.js";
 import { playerMap } from "../ui/scoreboardUi.js";
+
+
+let frameCount = 0;
+let lastFpsTime = 0;
+let currentFps = 0;
+let lastRenderTimeMs = 0;
+let debugLastUpdated = 0;
+
+
+export function getViewportWorldBounds(rect, padding = 160) {
+  const w = rect.width / state.camera.zoom;
+  const h = rect.height / state.camera.zoom;
+  return {
+    left: state.camera.x - w / 2 - padding,
+    right: state.camera.x + w / 2 + padding,
+    top: state.camera.y - h / 2 - padding,
+    bottom: state.camera.y + h / 2 + padding
+  };
+}
+
+export function isCircleVisible(x, y, radius, bounds) {
+  return x + radius >= bounds.left &&
+         x - radius <= bounds.right &&
+         y + radius >= bounds.top &&
+         y - radius <= bounds.bottom;
+}
+
+
+
+
 
 export function resizeCanvas() {
   const rect = dom.canvas.getBoundingClientRect();
-  const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const maxDpr = getRenderQualityDprCap();
+
+  const ratio = Math.max(1, Math.min(maxDpr, window.devicePixelRatio || 1));
   dom.canvas.width = Math.max(1, Math.floor(rect.width * ratio));
   dom.canvas.height = Math.max(1, Math.floor(rect.height * ratio));
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 }
 
 export function frame(now) {
+  const start = performance.now();
   const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrameAt) / 1000));
   state.lastFrameAt = now;
   state.dt = dt;
   interpolateShips(dt, now);
   updateCamera(dt);
   renderArena(now);
+
+  frameCount++;
+  if (now - lastFpsTime > 1000) {
+    currentFps = Math.round((frameCount * 1000) / (now - lastFpsTime));
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+
+  lastRenderTimeMs = performance.now() - start;
+  updateDebugOverlay(now);
+
   requestAnimationFrame(frame);
 }
 
@@ -42,49 +87,30 @@ export function interpolateShips(dt, now) {
     }
 
     for (const ship of snap.ships) {
-      if (ship.originalX === undefined) {
-        ship.originalX = ship.x;
-        ship.originalY = ship.y;
-        ship.originalAngle = ship.angle;
-      }
-
       let vis = state.visualShips.get(ship.id);
       if (!vis) {
-        vis = { x: ship.originalX, y: ship.originalY, angle: ship.originalAngle };
+        vis = { x: ship.x, y: ship.y, angle: ship.angle };
         state.visualShips.set(ship.id, vis);
       } else {
         const t = 1 - Math.exp(-22 * dt);
-        const distSq = (ship.originalX - vis.x) ** 2 + (ship.originalY - vis.y) ** 2;
+        const distSq = (ship.x - vis.x) ** 2 + (ship.y - vis.y) ** 2;
         if (distSq > 300 * 300) {
-          vis.x = ship.originalX;
-          vis.y = ship.originalY;
-          vis.angle = ship.originalAngle;
+          vis.x = ship.x;
+          vis.y = ship.y;
+          vis.angle = ship.angle;
         } else {
-          vis.x += (ship.originalX - vis.x) * t;
-          vis.y += (ship.originalY - vis.y) * t;
-          vis.angle += angleDifference(vis.angle, ship.originalAngle) * t;
+          vis.x += (ship.x - vis.x) * t;
+          vis.y += (ship.y - vis.y) * t;
+          vis.angle += angleDifference(vis.angle, ship.angle) * t;
         }
       }
-      ship.x = vis.x;
-      ship.y = vis.y;
-      ship.angle = vis.angle;
-    }
-  }
-
-  if (snap.bullets) {
-    const elapsed = Math.min(0.15, (now - (state.snapshotReceivedAt || now)) / 1000);
-    for (const bullet of snap.bullets) {
-      if (bullet.originalX === undefined) {
-        bullet.originalX = bullet.x;
-        bullet.originalY = bullet.y;
-      }
-      bullet.x = bullet.originalX + bullet.vx * elapsed;
-      bullet.y = bullet.originalY + bullet.vy * elapsed;
     }
   }
 }
 
 export function renderArena(now) {
+  state.debugStats = { drawnShips: 0, totalShips: 0, drawnBullets: 0, totalBullets: 0, drawnAsteroids: 0, totalAsteroids: 0, drawnEffects: 0, totalEffects: 0 };
+  const players = state.snapshot ? playerMap() : new Map();
   const rect = dom.canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
   drawBackdrop(rect);
@@ -92,16 +118,17 @@ export function renderArena(now) {
   ctx.save();
   applyCamera(rect);
   drawWorldGrid();
-  drawMapFeatures(now);
-  drawRelays(now);
+  const bounds = getViewportWorldBounds(rect);
+  drawMapFeatures(now, bounds);
+  drawRelays(now, players, bounds);
   drawCommandTarget(now);
-  drawShips();
-  drawBullets();
+  drawShips(players, bounds);
+  drawBullets(players, bounds);
   drawEffects();
   drawSelectionBox();
   ctx.restore();
 
-  drawMinimap(rect);
+  drawMinimap(rect, players);
 
   if (!state.snapshot) {
     ctx.fillStyle = "rgba(237,244,255,0.72)";
@@ -130,22 +157,31 @@ export function drawBackdrop(rect) {
   ctx.restore();
 }
 
+let cachedGridPath = null;
+let cachedGridWidth = 0;
+let cachedGridHeight = 0;
+
 export function drawWorldGrid() {
   ctx.save();
   ctx.lineWidth = 1 / state.camera.zoom;
   ctx.strokeStyle = "rgba(130,160,205,0.11)";
-  for (let x = 0; x <= state.world.width; x += 160) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, state.world.height);
-    ctx.stroke();
+
+  if (!cachedGridPath || cachedGridWidth !== state.world.width || cachedGridHeight !== state.world.height) {
+    cachedGridPath = new Path2D();
+    cachedGridWidth = state.world.width;
+    cachedGridHeight = state.world.height;
+
+    for (let x = 0; x <= state.world.width; x += 160) {
+      cachedGridPath.moveTo(x, 0);
+      cachedGridPath.lineTo(x, state.world.height);
+    }
+    for (let y = 0; y <= state.world.height; y += 160) {
+      cachedGridPath.moveTo(0, y);
+      cachedGridPath.lineTo(state.world.width, y);
+    }
   }
-  for (let y = 0; y <= state.world.height; y += 160) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(state.world.width, y);
-    ctx.stroke();
-  }
+
+  ctx.stroke(cachedGridPath);
 
   ctx.strokeStyle = "rgba(255,255,255,0.22)";
   ctx.lineWidth = 3 / state.camera.zoom;
@@ -153,13 +189,23 @@ export function drawWorldGrid() {
   ctx.restore();
 }
 
-export function drawMapFeatures(now) {
+export function drawMapFeatures(now, bounds) {
   const map = state.snapshot?.map || state.map;
   if (!map) return;
 
-  for (const zone of map.safeZones || []) drawSafeZone(zone);
-  for (const cloud of map.clouds || []) drawNebula(cloud);
-  for (const asteroid of map.asteroids || []) drawAsteroid(asteroid, now);
+  for (const zone of map.safeZones || []) {
+    if (!bounds || isCircleVisible(zone.x, zone.y, zone.radius, bounds)) drawSafeZone(zone);
+  }
+  for (const cloud of map.clouds || []) {
+    if (!bounds || isCircleVisible(cloud.x, cloud.y, Math.max(cloud.rx || 300, cloud.ry || 180), bounds)) drawNebula(cloud);
+  }
+  for (const asteroid of map.asteroids || []) {
+    state.debugStats.totalAsteroids++;
+    if (!bounds || isCircleVisible(asteroid.x, asteroid.y, asteroid.radius || 60, bounds)) {
+      state.debugStats.drawnAsteroids++;
+      drawAsteroid(asteroid, now);
+    }
+  }
 }
 
 export function drawSafeZone(zone) {
@@ -235,7 +281,7 @@ export function drawAsteroid(asteroid, now) {
   ctx.translate(asteroid.x, asteroid.y);
   ctx.rotate((asteroid.rotation || 0) + (asteroid.spin || 0) * now * 0.001);
   ctx.shadowColor = "rgba(0,0,0,0.42)";
-  ctx.shadowBlur = 18;
+  ctx.shadowBlur = qualityShadowBlur(18);
   ctx.shadowOffsetY = 8;
 
   const gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
@@ -274,13 +320,14 @@ export function drawAsteroid(asteroid, now) {
   ctx.restore();
 }
 
-export function drawRelays(now) {
+export function drawRelays(now, players, bounds) {
   const snap = state.snapshot;
   if (!snap) return;
-  const players = playerMap();
+  if (!players) players = playerMap();
   const time = now || (typeof performance !== "undefined" ? performance.now() : Date.now());
 
   for (const point of snap.points) {
+    if (bounds && !isCircleVisible(point.x, point.y, point.radius || 100, bounds)) continue;
     const owner = point.ownerId ? players.get(point.ownerId) : null;
     const color = owner?.color || "rgba(180,200,225,0.62)";
 
@@ -334,7 +381,7 @@ export function drawRelays(now) {
     // Inner glowing core
     ctx.fillStyle = color;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = qualityShadowBlur(10);
     ctx.beginPath();
     ctx.arc(0, 0, 7, 0, Math.PI * 2);
     ctx.fill();
@@ -393,21 +440,34 @@ export function drawCommandTarget(now) {
   ctx.restore();
 }
 
-export function drawBullets() {
+export function drawBullets(players, bounds) {
   const snap = state.snapshot;
   if (!snap) return;
-  const players = playerMap();
+  if (!players) players = playerMap(); // fallback
+
+  const now = performance.now();
+  const elapsed = Math.min(0.15, (now - (state.snapshotReceivedAt || now)) / 1000);
 
   for (const bullet of snap.bullets) {
+    if (state.debugStats) state.debugStats.totalBullets++;
+
+    const renderX = bullet.x + bullet.vx * elapsed;
+    const renderY = bullet.y + bullet.vy * elapsed;
+
+    if (bounds && !isCircleVisible(renderX, renderY, 20, bounds)) continue;
+
+    if (state.debugStats) state.debugStats.drawnBullets++;
+
     const owner = players.get(bullet.ownerId);
     const color = owner?.color || "#ffffff";
     ctx.save();
-    ctx.translate(bullet.x, bullet.y);
+
+    ctx.translate(renderX, renderY);
     ctx.rotate(Math.atan2(bullet.vy, bullet.vx));
     if (bullet.type === "rail") {
       ctx.strokeStyle = "#eaf6ff";
       ctx.shadowColor = "#9fdcff";
-      ctx.shadowBlur = 24;
+      ctx.shadowBlur = qualityShadowBlur(24);
       ctx.lineWidth = 3.2 / state.camera.zoom;
       ctx.beginPath();
       ctx.moveTo(-34, 0);
@@ -423,7 +483,7 @@ export function drawBullets() {
       ctx.stroke();
     } else if (bullet.type === "missile") {
       ctx.shadowColor = "#ffd37a";
-      ctx.shadowBlur = 18;
+      ctx.shadowBlur = qualityShadowBlur(18);
       ctx.fillStyle = "#ffe7ad";
       ctx.beginPath();
       ctx.moveTo(13, 0);
@@ -444,7 +504,7 @@ export function drawBullets() {
     } else if (bullet.type === "pdShot") {
       if (bullet.subtype === "flakCannon") {
         ctx.shadowColor = "#f97316";
-        ctx.shadowBlur = 14;
+        ctx.shadowBlur = qualityShadowBlur(14);
         ctx.fillStyle = "#fdba74";
         ctx.beginPath();
         ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
@@ -455,7 +515,7 @@ export function drawBullets() {
         ctx.fill();
       } else if (bullet.subtype === "interceptorPod") {
         ctx.shadowColor = "#c084fc";
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = qualityShadowBlur(10);
         ctx.fillStyle = "#e9d5ff";
         ctx.beginPath();
         ctx.moveTo(6, 0);
@@ -475,7 +535,7 @@ export function drawBullets() {
         ctx.fill();
       } else {
         ctx.shadowColor = "#ff3b30";
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = qualityShadowBlur(12);
         ctx.fillStyle = "#ff3b30";
         ctx.beginPath();
         ctx.arc(0, 0, 5, 0, Math.PI * 2);
@@ -488,7 +548,7 @@ export function drawBullets() {
     } else {
       ctx.fillStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = qualityShadowBlur(12);
       roundRect(ctx, { x: -7, y: -2, width: 14, height: 4, radius: 2 });
       ctx.fill();
       ctx.fillStyle = "rgba(255,255,255,0.88)";
@@ -498,17 +558,31 @@ export function drawBullets() {
   }
 }
 
-export function drawShips() {
+export function drawShips(players, bounds) {
   const snap = state.snapshot;
   if (!snap) return;
-  const players = playerMap();
+
+  if (!players) players = playerMap(); // fallback
   const visibleShipIds = new Set();
 
   for (const ship of snap.ships) {
+    if (state.debugStats) state.debugStats.totalShips++;
+    let renderShip = ship;
+    if (state.visualShips) {
+      const vis = state.visualShips.get(ship.id);
+      if (vis) {
+        renderShip = { ...ship, x: vis.x, y: vis.y, angle: vis.angle };
+      }
+    }
+
     visibleShipIds.add(ship.id);
+    if (bounds && !isCircleVisible(renderShip.x, renderShip.y, renderShip.radius || 60, bounds)) continue;
+
+    if (state.debugStats) state.debugStats.drawnShips++;
     const player = players.get(ship.ownerId);
     if (!player) continue;
-    drawShip(ship, player);
+
+    drawShip(renderShip, player);
   }
 
   if (state.weaponAnglesMap) {
@@ -635,7 +709,7 @@ export function drawModule({ x, y, size, color, type, trim }) {
   ctx.lineWidth = Math.max(1.15, size * 0.12);
   ctx.strokeStyle = trim;
   ctx.shadowColor = color;
-  ctx.shadowBlur = type === "core" || type === "reactor" || type === "shield" ? 8 : 3;
+  ctx.shadowBlur = qualityShadowBlur(type === "core" || type === "reactor" || type === "shield" ? 8 : 3);
 
   const fill = ctx.createLinearGradient(-size * 0.55, -size * 0.55, size * 0.55, size * 0.55);
   fill.addColorStop(0, "rgba(255,255,255,0.42)");
@@ -1149,7 +1223,7 @@ export function drawHealthBars(ship, player) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.shadowColor = pulse > 0 && hud.lastHitShield ? "rgba(81,226,255,0.85)" : player.color;
-  ctx.shadowBlur = 4 + pulse * 11;
+  ctx.shadowBlur = qualityShadowBlur(4 + pulse * 11);
   drawHudFrame(x - 4, y - 4, width + 8, frameHeight, player.color, lowHull);
   ctx.shadowBlur = 0;
 
@@ -1196,7 +1270,7 @@ export function drawHealthBars(ship, player) {
   });
 
   ctx.shadowColor = lowHull ? "rgba(255,95,126,0.9)" : player.color;
-  ctx.shadowBlur = lowHull ? 9 : 4;
+  ctx.shadowBlur = qualityShadowBlur(lowHull ? 9 : 4);
   ctx.fillStyle = lowHull ? "#ffd6df" : "rgba(237,244,255,0.86)";
   ctx.font = `${Math.max(9, (selected ? 10 : 9) / state.camera.zoom)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
@@ -1205,7 +1279,7 @@ export function drawHealthBars(ship, player) {
 
 
   ctx.shadowColor = player.color;
-  ctx.shadowBlur = 5;
+  ctx.shadowBlur = qualityShadowBlur(5);
   ctx.fillStyle = "#ffffff";
   ctx.font = `bold ${Math.max(10, (selected ? 11 : 10) / state.camera.zoom)}px system-ui, sans-serif`;
   ctx.fillText(player.name.toUpperCase(), ship.x, y + frameHeight + 4);
@@ -1249,7 +1323,7 @@ export function updateShipHud(ship, now) {
 export function drawHudFrame(x, y, width, height, color, warning) {
   ctx.save();
   ctx.shadowColor = warning ? "rgba(255,70,100,0.4)" : "rgba(0,0,0,0.5)";
-  ctx.shadowBlur = 10;
+  ctx.shadowBlur = qualityShadowBlur(10);
   
   ctx.fillStyle = "rgba(4,10,22,0.85)";
   ctx.strokeStyle = warning ? "rgba(255,95,126,0.85)" : color;
@@ -1402,7 +1476,7 @@ export function drawRespawn(ship) {
   ctx.restore();
 }
 
-export function drawMinimap(rect) {
+export function drawMinimap(rect, players) {
   if (!state.snapshot) {
     state.minimap = null;
     return;
@@ -1453,7 +1527,7 @@ export function drawMinimap(rect) {
   }
 
   if (snap) {
-    const players = playerMap();
+    if (!players) players = playerMap();
     const myTeam = state.mine?.team;
     const isSolo = state.rules?.gameMode === "solo";
 
@@ -1544,4 +1618,58 @@ function approachAngle(current, target, maxDelta) {
   let diff = angleDifference(current, target);
   if (Math.abs(diff) <= maxDelta) return target;
   return current + Math.sign(diff) * maxDelta;
+}
+
+
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "F3") {
+      e.preventDefault();
+      const current = localStorage.getItem("mfa.debugRenderer") === "true";
+      localStorage.setItem("mfa.debugRenderer", !current);
+      if (dom.debugOverlayToggle) dom.debugOverlayToggle.checked = !current;
+      updateDebugOverlay(performance.now(), true);
+    }
+  });
+
+  window.addEventListener("DOMContentLoaded", () => {
+    const isEnabled = localStorage.getItem("mfa.debugRenderer") === "true";
+    if (dom.debugOverlay) dom.debugOverlay.style.display = isEnabled ? "block" : "none";
+  });
+}
+
+function updateDebugOverlay(now, force = false) {
+  const isEnabled = localStorage.getItem("mfa.debugRenderer") === "true";
+  if (!dom.debugOverlay) return;
+
+  if (!isEnabled) {
+    if (dom.debugOverlay.style.display !== "none") dom.debugOverlay.style.display = "none";
+    return;
+  } else {
+    if (dom.debugOverlay.style.display !== "block") dom.debugOverlay.style.display = "block";
+  }
+
+  if (!force && now - debugLastUpdated < 250) return; // throttle DOM updates
+  debugLastUpdated = now;
+
+  const dpr = window.devicePixelRatio || 1;
+  const q = getRenderQuality();
+  let maxDpr = 1.5;
+  if (q === "low") maxDpr = 1.25;
+  if (q === "high") maxDpr = 2.0;
+  const actualDpr = Math.max(1, Math.min(maxDpr, dpr)).toFixed(2);
+
+  const text = [
+    `FPS: ${currentFps} (${lastRenderTimeMs.toFixed(1)}ms)`,
+    `Quality: ${q} (DPR: ${actualDpr})`,
+    `Zoom: ${state.camera.zoom.toFixed(2)}`,
+    `Ships: ${state.debugStats?.drawnShips || 0} / ${state.debugStats?.totalShips || 0}`,
+    `Bullets: ${state.debugStats?.drawnBullets || 0} / ${state.debugStats?.totalBullets || 0}`,
+    `Asteroids: ${state.debugStats?.drawnAsteroids || 0} / ${state.debugStats?.totalAsteroids || 0}`,
+    `Effects: ${state.debugStats?.drawnEffects || 0} / ${state.debugStats?.totalEffects || 0}`
+  ].join("<br>");
+
+  if (dom.debugOverlay.innerHTML !== text) {
+    dom.debugOverlay.innerHTML = text;
+  }
 }

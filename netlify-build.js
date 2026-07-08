@@ -37,6 +37,7 @@ const srcFiles = [
   "game/selection.js",
   "game/commands.js",
   "game/input.js",
+  "game/renderSettings.js",
   "game/renderer.js",
   "network.js",
   "messages.js",

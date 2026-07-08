@@ -1,3 +1,5 @@
+import { resizeCanvas } from "../game/renderer.js";
+import { getRenderQuality, setRenderQuality } from "../game/renderSettings.js";
 // Handles lobby screens, player wing choices, starting/leaving, rules updates, and host controls.
 
 import { dom } from "./dom.js";
@@ -317,6 +319,12 @@ export function openSettings() {
   if (dom.serverUrlInput) {
     dom.serverUrlInput.value = getConfiguredServerUrl();
   }
+  if (dom.renderQualitySelect) {
+    dom.renderQualitySelect.value = getRenderQuality();
+  }
+  if (dom.debugOverlayToggle) {
+    dom.debugOverlayToggle.checked = localStorage.getItem("mfa.debugRenderer") === "true";
+  }
 }
 
 export function saveServerSetting() {
@@ -438,4 +446,22 @@ export function setConnectionStatus(status, text) {
   if (!dom.status) return;
   dom.status.textContent = text;
   dom.status.className = `connection-status ${status}`;
+}
+
+
+if (typeof window !== "undefined") {
+  window.addEventListener("DOMContentLoaded", () => {
+    if (dom.renderQualitySelect) {
+      dom.renderQualitySelect.addEventListener("change", (e) => {
+        setRenderQuality(e.target.value);
+        resizeCanvas();
+      });
+    }
+    if (dom.debugOverlayToggle) {
+      dom.debugOverlayToggle.addEventListener("change", (e) => {
+        localStorage.setItem("mfa.debugRenderer", e.target.checked);
+        if (dom.debugOverlay) dom.debugOverlay.style.display = e.target.checked ? "block" : "none";
+      });
+    }
+  });
 }
