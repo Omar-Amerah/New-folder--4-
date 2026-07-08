@@ -48,15 +48,39 @@ function updateBullets(room, dt, now) {
     const previousY = bullet.y;
 
     if (bullet.type === "missile") {
+      bullet.age = (bullet.age || 0) + dt;
+      if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
+        bullet.trackingDisabledFor -= dt;
+      }
       const target = byId.get(bullet.targetId);
-      if (target && areEnemies(room, bullet.ownerId, target.ownerId)) {
-        const desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
+      const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
+      if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
+        let desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
+        let turnRate = 0.1; // Weak tracking during arming delay
+
+        if (bullet.age >= (bullet.trackingDelay || 0)) {
+          const tracking = clampNumber(bullet.tracking ?? 0.5, 0, 1);
+          const baseTurnRate = bullet.baseTurnRate ?? 0.7;
+          const trackingTurnRate = bullet.maxTurnRate ?? (0.45 + tracking * tracking * 4.2);
+          turnRate = baseTurnRate + trackingTurnRate;
+
+          // Add slight lead prediction only for high-tracking missiles
+          const leadStrength = tracking * 0.35;
+          const predictedX = target.x + (target.vx || 0) * leadStrength;
+          const predictedY = target.y + (target.vy || 0) * leadStrength;
+          desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
+        }
+
+        const ecmMod = Math.max(0, 1 - (target.stats.ecmStrength || 0));
+        turnRate *= ecmMod;
+
         const current = Math.atan2(bullet.vy, bullet.vx);
-        const next = rotateToward(current, desired, (1.6 + (bullet.tracking || 0.75) * 1.8) * dt);
+        const next = rotateToward(current, desired, turnRate * dt);
         const speed = Math.min(bullet.maxSpeed || 460, Math.hypot(bullet.vx, bullet.vy) + 95 * dt);
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
       }
+      if (bullet.trackRemaining !== undefined) bullet.trackRemaining = Math.max(0, bullet.trackRemaining - dt);
     }
 
     bullet.x += bullet.vx * dt;
@@ -64,6 +88,27 @@ function updateBullets(room, dt, now) {
 
     if (bullet.x < -80 || bullet.x > room.world.width + 80 || bullet.y < -80 || bullet.y > room.world.height + 80) {
       continue;
+    }
+
+
+    if (bullet.type === "pdShot") {
+       if (bullet.pdTargetType === "projectile") {
+          const target = room.bullets.find(b => b.id === bullet.pdTargetId);
+          if (target && target.interceptable && target.life > 0) {
+             const dx = target.x - bullet.x;
+             const dy = target.y - bullet.y;
+             if (dx * dx + dy * dy <= 400) { // 20 radius
+                target.hp -= bullet.damage;
+                bullet.life = 0;
+                room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
+                if (target.hp <= 0) {
+                   target.life = 0;
+                   room.effects.push({ type: "burst", x: target.x, y: target.y, at: now });
+                }
+                continue;
+             }
+          }
+       }
     }
 
     const rockHit = projectileMapImpact(room, previousX, previousY, bullet);
@@ -76,12 +121,37 @@ function updateBullets(room, dt, now) {
     for (const ship of liveShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? 14 : bullet.type === "rail" ? 9 : 6;
+      
+      // Broad-phase: check if close to the bounding circle of the ship
       const dx = ship.x - bullet.x;
       const dy = ship.y - bullet.y;
       const r = ship.radius + hitRadius;
-      if (dx * dx + dy * dy <= r * r) {
-        damageShip(room, ship, bullet.damage, bullet.ownerId, now);
-        room.effects.push({ type: bullet.type === "missile" ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: bullet.x, y: bullet.y, at: now });
+      if (dx * dx + dy * dy > r * r) continue;
+
+      // Narrow-phase: check distance to each individual module of the ship hull
+      let moduleHit = false;
+      const cos = Math.cos(ship.angle);
+      const sin = Math.sin(ship.angle);
+      const scale = 13;
+
+      for (const module of ship.design || []) {
+        const lx = (3 - module.y) * scale;
+        const ly = (module.x - 3) * scale;
+        const wx = ship.x + lx * cos - ly * sin;
+        const wy = ship.y + lx * sin + ly * cos;
+
+        const mdx = wx - bullet.x;
+        const mdy = wy - bullet.y;
+        const collisionR = 8.5 + hitRadius; // ~8.5 radius for 13x13 module + projectile radius
+        if (mdx * mdx + mdy * mdy <= collisionR * collisionR) {
+          moduleHit = true;
+          break;
+        }
+      }
+
+      if (moduleHit) {
+        damageShip(room, ship, bullet.damage, bullet.ownerId, now, bullet.x, bullet.y);
+        room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: bullet.x, y: bullet.y, at: now });
         hit = true;
         break;
       }
@@ -91,7 +161,7 @@ function updateBullets(room, dt, now) {
   }
 
   room.bullets = kept;
-  room.effects = room.effects.filter((effect) => now - effect.at < 900);
+  room.effects = room.effects.filter((effect) => now - effect.at < (effect.type === "beam" ? 140 : 900));
 }
 
 module.exports = {

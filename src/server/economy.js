@@ -24,7 +24,7 @@ function buyShip(room, player, now, options = {}) {
   player.money -= stats.unitCost;
   player.spent += stats.unitCost;
   player.deployedFleetCost += stats.unitCost;
-  const activeCount = player.ships.filter((ship) => !ship.removed && ship.alive).length;
+  const activeCount = player.ships.filter((ship) => ship.alive).length;
   const ship = spawnShip(room, player, now, activeCount, { stats, design });
   if (!options.starter && !options.silent) {
     const { broadcastRoom } = require("./messages");
@@ -42,7 +42,7 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   }
   const shipStats = stats || player.stats || computeStats(player.design);
   const requestedCount = clampNumber(count, 1, 5);
-  const activeCount = player.ships.filter((ship) => ship.alive && !ship.removed).length;
+  const activeCount = player.ships.filter((ship) => ship.alive).length;
   if (activeCount + requestedCount > player.shipCap) {
     const remainingSlots = Math.max(0, player.shipCap - activeCount);
     return {
@@ -90,7 +90,7 @@ function finalizeMatchRewards(room) {
       .filter((other) => other.team !== player.team)
       .reduce((total, other) => total + Math.max(other.deployedFleetCost, getActiveFleetCost(other)), 0);
     const playerFleetCost = Math.max(player.deployedFleetCost, player.spent, getActiveFleetCost(player), 1);
-    const survivingFriendlyShips = player.ships.filter((ship) => ship.alive && !ship.removed).length;
+    const survivingFriendlyShips = player.ships.filter((ship) => ship.alive).length;
     const reward = calculateBattleReward({
       didWin,
       destroyedEnemyCost: player.destroyedEnemyCost,
@@ -157,7 +157,7 @@ function calculateBattleReward({ didWin, destroyedEnemyCost, enemyFleetCost, pla
 
 function getActiveFleetCost(player) {
   return Math.round(player.ships
-    .filter((ship) => ship.alive && !ship.removed)
+    .filter((ship) => ship.alive)
     .reduce((total, ship) => total + (ship.cost || ship.stats?.unitCost || 0), 0));
 }
 

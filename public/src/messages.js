@@ -5,6 +5,9 @@ import { dom } from "./ui/dom.js";
 import { applyServerParts } from "./design/parts.js";
 import { normalizeDesign } from "./design/blueprintStorage.js";
 import { renderBuildGrid, renderLocalStats } from "./ui/designerUi.js";
+import { renderPalette } from "./ui/partPaletteUi.js";
+import { renderPartInspector } from "./ui/partInspectorUi.js";
+import { renderSavedDesigns } from "./ui/savedBlueprintsUi.js";
 import * as lobbyUi from "./ui/lobbyUi.js";
 import * as purchaseUi from "./ui/purchaseUi.js";
 import { pruneSelection } from "./game/selection.js";
@@ -18,6 +21,12 @@ export function handleServerMessage(message) {
   if (message.type === "hello") {
     state.myId = message.id;
     applyServerParts(message.parts || {});
+    state.design = normalizeDesign(state.design);
+    renderPalette();
+    renderPartInspector();
+    renderBuildGrid();
+    renderLocalStats();
+    renderSavedDesigns();
     state.world = message.world || { ...WORLD_FALLBACK };
     state.rules = { ...state.rules, ...(message.economy || {}) };
     const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
@@ -57,6 +66,7 @@ export function handleServerMessage(message) {
   if (message.type === "state") {
     const previousPhase = state.phase;
     state.snapshot = message;
+    state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
     state.room = message.room;
     state.world = message.world || state.world;
     state.map = message.map || state.map;
@@ -69,7 +79,6 @@ export function handleServerMessage(message) {
     updateHud();
     renderScoreboard();
     purchaseUi.updateEconomyUi();
-    renderBuildGrid(); // Re-render when snapshot state updates in designer
     lobbyUi.updateLobbyState();
     updateWinnerBanner();
     if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) lobbyUi.hideMenuScreens();
@@ -134,4 +143,3 @@ export function rememberActiveRoom(roomCode) {
 export function forgetActiveRoom() {
   localStorage.removeItem(LOCAL_ACTIVE_ROOM_KEY);
 }
-
