@@ -16,7 +16,7 @@ import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY
 
 
 export function isAdmin() {
-  return state.adminId === state.myId || Boolean(state.snapshot?.players?.find((player) => player.id === state.myId && player.isAdmin));
+  return state.adminId === state.myId || Boolean(state.mine?.isAdmin);
 }
 
 export function updateLobbyState() {
@@ -72,7 +72,7 @@ export function updateTeamChoiceControls(connected, phase) {
   const mode = state.rules?.gameMode || "teams";
   const inLobby = connected && phase === "lobby";
   const canChoose = inLobby && mode === "teams";
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   if (dom.teamChoiceCard) {
     dom.teamChoiceCard.hidden = !connected || mode === "solo";
     dom.teamChoiceCard.classList?.toggle?.("solo", mode === "solo");
@@ -204,7 +204,7 @@ export function joinRoom(roomCode = "") {
 
 export function deployDesign() {
   const stats = computeStats(state.design);
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const isDesignStage = state.phase === "design";
   const ready = mine?.ready;
 
@@ -260,6 +260,7 @@ export function clearRoomState() {
   state.room = "";
   state.myId = null;
   state.snapshot = null;
+  state.mine = null;
   state.map = null;
   state.phase = "offline";
   state.adminId = null;

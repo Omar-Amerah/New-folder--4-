@@ -47,6 +47,7 @@ function joinRoom(client, message) {
 
     ensureAdmin(room);
     room.lastEmptyAt = 0;
+    room.lastStaticSnapshotAt = 0;
 
     send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
@@ -110,6 +111,7 @@ function joinRoom(client, message) {
   room.players.set(player.id, player);
   ensureAdmin(room);
   room.lastEmptyAt = 0;
+  room.lastStaticSnapshotAt = 0;
 
   send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });
@@ -121,7 +123,9 @@ function leaveRoom(client) {
     for (const ship of player.ships) {
       ship.alive = false;
       ship.removed = true;
+      room.ships.delete(ship.id);
     }
+    player.ships = [];
     room.clients.delete(client);
     if (room.phase === "lobby") {
       room.players.delete(player.id);
@@ -194,7 +198,9 @@ function removePlayerFromRoom(room, player, reason) {
   for (const ship of player.ships) {
     ship.alive = false;
     ship.removed = true;
+    room.ships.delete(ship.id);
   }
+  player.ships = [];
   room.players.delete(player.id);
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   for (const point of room.points) {
@@ -251,7 +257,10 @@ function teamLabel(room, team, fallback) {
 
 function resetPlayerForMatch(room, player, now, options = {}) {
   const { buyShip } = require("./economy");
-  for (const oldShip of player.ships) oldShip.removed = true;
+  for (const oldShip of player.ships) {
+    oldShip.removed = true;
+    room.ships.delete(oldShip.id);
+  }
   player.ships = [];
   const startingMoney = room.rules?.startingMoney ?? ECONOMY.startingMoney;
   player.money = startingMoney;
@@ -289,6 +298,13 @@ function maybeStartMatch(room, now) {
   room.phase = "active";
   room.winner = null;
   room.winnerAt = 0;
+  room.controlVictory = {
+    team: null,
+    playerId: null,
+    startedAt: null,
+    remaining: null,
+    requiredSeconds: 20
+  };
   room.lastScoreAt = now;
   for (const player of players) {
     resetPlayerForMatch(room, player, now, { spawn: true });
@@ -313,6 +329,13 @@ function startDesignPhase(room, requester) {
   room.phase = "design";
   room.winner = null;
   room.winnerAt = 0;
+  room.controlVictory = {
+    team: null,
+    playerId: null,
+    startedAt: null,
+    remaining: null,
+    requiredSeconds: 20
+  };
   room.lastScoreAt = performanceNow();
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
@@ -338,6 +361,13 @@ function restartFromEnd(room, requester) {
   room.phase = "design";
   room.winner = null;
   room.winnerAt = 0;
+  room.controlVictory = {
+    team: null,
+    playerId: null,
+    startedAt: null,
+    remaining: null,
+    requiredSeconds: 20
+  };
   room.lastScoreAt = performanceNow();
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);

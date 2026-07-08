@@ -33,6 +33,7 @@ export const dom = {
   playerList: document.getElementById("playerList"),
   deployButton: document.getElementById("deployButton"),
   resetButton: document.getElementById("resetButton"),
+  clearGridButton: document.getElementById("clearGridButton"),
   formationSelect: document.getElementById("formationSelect"),
   palette: document.getElementById("partPalette"),
   partInspector: document.getElementById("partInspector"),

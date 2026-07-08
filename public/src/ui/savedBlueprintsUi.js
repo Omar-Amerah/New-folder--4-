@@ -13,7 +13,8 @@ import { makeDesignId } from "../shared/ids.js";
 
 
 export function weaponAbbrevText(stats) {
-  return `${Number(stats.blaster) || 0}b/${Number(stats.missile) || 0}m/${Number(stats.railgun) || 0}r`;
+  const base = `${Number(stats.blaster) || 0}b/${Number(stats.missile) || 0}m/${Number(stats.railgun) || 0}r`;
+  return (Number(stats.beam) || 0) > 0 ? `${base}/${Number(stats.beam) || 0}e` : base;
 }
 
 export function renderSavedDesigns() {
@@ -259,4 +260,3 @@ export function saveCurrentDesign() {
     mod.renderBuildGrid();
   });
 }
-

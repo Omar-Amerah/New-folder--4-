@@ -26,8 +26,9 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     vx: 0,
     vy: 0,
     angle: spawn.angle,
-    targetX: room.world.width / 2,
-    targetY: room.world.height / 2,
+    targetX: spawnPoint.x,
+    targetY: spawnPoint.y,
+    arrived: true,
     formationX: 0,
     formationY: 0,
     alive: true,
@@ -49,26 +50,23 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     lastDamagedBy: null
   };
   player.ships.push(ship);
+  room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
   return ship;
 }
 
 function getLiveShips(room) {
   const ships = [];
-  for (const player of room.players.values()) {
-    for (const ship of player.ships) {
-      if (ship.alive && !ship.removed) ships.push(ship);
-    }
+  for (const ship of room.ships.values()) {
+    if (ship.alive) ships.push(ship);
   }
   return ships;
 }
 
 function findShipById(room, id) {
   if (!id) return null;
-  for (const player of room.players.values()) {
-    const ship = player.ships.find((candidate) => candidate.id === id && candidate.alive && !candidate.removed);
-    if (ship) return ship;
-  }
+  const ship = room.ships.get(id);
+  if (ship && ship.alive) return ship;
   return null;
 }
 
@@ -131,7 +129,7 @@ function updateBots(room, now) {
     if (player.money >= currentCost) {
       buyShip(room, player, now, { silent: true });
     }
-    const ships = player.ships.filter((ship) => ship.alive && !ship.removed);
+    const ships = player.ships.filter((ship) => ship.alive);
     if (ships.length === 0) continue;
 
     const enemies = getLiveShips(room)
@@ -213,27 +211,25 @@ function getPlayerSpawn(room, playerId) {
   if (player?.team === "blue") {
     const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "blue").map((candidate) => candidate.id).sort();
     const index = Math.max(0, teamMates.indexOf(playerId));
-    const lanes = [0.32, 0.5, 0.68, 0.2, 0.8, 0.42, 0.58];
-    return { x: 260, y: room.world.height * lanes[index % lanes.length], angle: 0 };
+    const lanes = [0, -0.32, 0.32, -0.6, 0.6, -0.45, 0.45];
+    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (550 * 0.7);
+    return { x: 220, y: spawnY, angle: 0 };
   }
   if (player?.team === "red") {
     const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "red").map((candidate) => candidate.id).sort();
     const index = Math.max(0, teamMates.indexOf(playerId));
-    const lanes = [0.68, 0.5, 0.32, 0.8, 0.2, 0.58, 0.42];
-    return { x: room.world.width - 260, y: room.world.height * lanes[index % lanes.length], angle: Math.PI };
+    const lanes = [0, 0.32, -0.32, 0.6, -0.6, 0.45, -0.45];
+    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (550 * 0.7);
+    return { x: room.world.width - 220, y: spawnY, angle: Math.PI };
   }
 
   const ids = [...room.players.keys()].sort();
   const index = Math.max(0, ids.indexOf(playerId));
   const slots = [
-    { x: 260, y: room.world.height * 0.5, angle: 0 },
-    { x: room.world.width - 260, y: room.world.height * 0.5, angle: Math.PI },
+    { x: 220, y: room.world.height * 0.5, angle: 0 },
+    { x: room.world.width - 220, y: room.world.height * 0.5, angle: Math.PI },
     { x: room.world.width * 0.5, y: 220, angle: Math.PI / 2 },
-    { x: room.world.width * 0.5, y: room.world.height - 220, angle: -Math.PI / 2 },
-    { x: 340, y: 260, angle: 0.35 },
-    { x: room.world.width - 340, y: room.world.height - 260, angle: Math.PI + 0.35 },
-    { x: room.world.width - 340, y: 260, angle: Math.PI - 0.35 },
-    { x: 340, y: room.world.height - 260, angle: -0.35 }
+    { x: room.world.width * 0.5, y: room.world.height - 220, angle: -Math.PI / 2 }
   ];
   return slots[index % slots.length];
 }

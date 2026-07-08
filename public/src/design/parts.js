@@ -32,6 +32,9 @@ export const PART_DEFS = {
   heavyShield: { name: "Heavy Shield", color: "#4ade80", glyph: "radial-gradient(circle, #bbf7d0 0 18%, #16a34a 32% 60%, #052e16 66%)" },
   regenShield: { name: "Regen Shield", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 16%, #14b8a6 28% 58%, #134e4a 64%)" },
   pointDefense: { name: "Point Defence", color: "#fda4af", glyph: "radial-gradient(circle, #fff1f2 0 18%, #fb7185 30% 56%, #881337 62%)" },
+
+  flakCannon: { name: "Flak Cannon", color: "#fda4af", glyph: "radial-gradient(circle, #fecdd3 0 25%, #f43f5e 35% 56%, #881337 62%)" },
+  interceptorPod: { name: "Interceptor Pod", color: "#c084fc", glyph: "radial-gradient(circle, #f3e8ff 0 22%, #a855f7 30% 60%, #3b0764 65%)" },
   lightBlaster: { name: "Light Blaster", color: "#fb7185", glyph: "linear-gradient(90deg, #3f0d1b 0 18%, #fb7185 20% 72%, #ffe4e6 73%)" },
   heavyBlaster: { name: "Heavy Blaster", color: "#f43f5e", glyph: "linear-gradient(90deg, #3f0d1b 0 16%, #e11d48 18% 70%, #ffe4e6 72%)" },
   autocannon: { name: "Autocannon", color: "#f97316", glyph: "linear-gradient(90deg, #431407 0 18%, #fb923c 20% 70%, #ffedd5 72%)" },
@@ -69,11 +72,14 @@ export const PART_DESCRIPTIONS = Object.freeze({
   auxGenerator: "Small backup generator for light power deficits and compact ship builds.",
   maneuverThruster: "Side-control engine that improves turning more than straight-line speed.",
   gyroscope: "Stabilization module that improves turn rate without adding thrust.",
-  pointDefense: "Short-range defensive turret that can fire in every direction.",
+  pointDefense: "Protects nearby ships from missiles and torpedoes. Very weak against normal ships.",
+
+  flakCannon: "Short-range anti-missile and anti-swarm defence. Poor range and weak direct damage.",
+  interceptorPod: "Longer-range missile interception. Expensive and weak against ships.",
   autocannon: "Rapid-fire weapon with high spread. Best against nearby light targets.",
   torpedo: "Slow heavy missile with major burst damage against large ships.",
   swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
-  beamEmitter: "Accurate sustained beam weapon with high power use and focused range.",
+  beamEmitter: "Medium-short sustained beam weapon with a focused burn path and high power use.",
   aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
   sensorArray: "Support electronics that extend weapon range for long-distance ships.",
   targetingComputer: "Support computer that improves weapon accuracy.",
@@ -172,7 +178,9 @@ export const FALLBACK_PART_STATS = {
       range: 790,
       projectileSpeed: 320,
       accuracy: 0.7,
-      tracking: 0.78,
+      tracking: 0.7,
+      trackTime: 1.5,
+      trackingDelay: 0.25,
       arc: 220
     })
   },
@@ -197,9 +205,9 @@ export const FALLBACK_PART_STATS = {
     category: "Support",
     cost: 26, mass: 5, hp: 48,
     powerGeneration: 0, powerUse: 2.4,
-    shield: 16, shieldRegen: 0.35,
+    shield: 16, shieldRegen: 0.25,
     thrust: 0, turn: -0.015,
-    energyStorage: 0, repairRate: 8,
+    energyStorage: 0, repairRate: 5,
     repair: 1,
     weapon: null
   },
@@ -354,7 +362,7 @@ export const FALLBACK_PART_STATS = {
     category: "Defence",
     cost: 36, mass: 6, hp: 50,
     powerGeneration: 0, powerUse: 5.8,
-    shield: 82, shieldRegen: 4.8,
+    shield: 82, shieldRegen: 2.0,
     thrust: 0, turn: -0.03,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -366,23 +374,70 @@ export const FALLBACK_PART_STATS = {
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: 0,
     energyStorage: 0, repairRate: 0,
-    blaster: 1,
-    weapon: makeWeapon("blaster", {
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
       damage: 4,
       fireRate: 4.0,
       range: 280,
       projectileSpeed: 820,
       accuracy: 0.78,
       tracking: 0,
-      arc: 360
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["missile", "torpedo", "projectile", "ship"],
+      shipDamageMultiplier: 0.1
     }),
     rotationRequired: true
   },
+  flakCannon: {
+    category: "Defence",
+    cost: 38, mass: 5, hp: 42,
+    powerGeneration: 0, powerUse: 3.0,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.01,
+    energyStorage: 0, repairRate: 0,
+    pointDefense: 1,
+    weapon: makeWeapon("pointDefense", {
+      damage: 8,
+      fireRate: 2.5,
+      range: 220,
+      projectileSpeed: 800,
+      accuracy: 0.7,
+      tracking: 0,
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["missile", "torpedo", "projectile", "ship"],
+      shipDamageMultiplier: 0.15
+    }),
+    rotationRequired: true
+  },
+  interceptorPod: {
+    category: "Defence",
+    cost: 55, mass: 6, hp: 48,
+    powerGeneration: 0, powerUse: 4.2,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.02,
+    energyStorage: 0, repairRate: 0,
+    weapon: makeWeapon("pointDefense", {
+      damage: 40,
+      fireRate: 1.2,
+      range: 450,
+      projectileSpeed: 1600,
+      accuracy: 0.9,
+      tracking: 0,
+      arc: 360,
+      antiMissile: true,
+      targetPriority: ["torpedo", "missile", "projectile", "ship"],
+      shipDamageMultiplier: 0.1
+    }),
+    rotationRequired: true
+  },
+
   aegisProjector: {
     category: "Defence",
-    cost: 44, mass: 6, hp: 44,
+    cost: 47, mass: 7, hp: 47,
     powerGeneration: 0, powerUse: 5.4,
-    shield: 72, shieldRegen: 3.6,
+    shield: 165, shieldRegen: 6.8,
     thrust: 0, turn: -0.025,
     energyStorage: 0, repairRate: 0,
     weapon: null
@@ -458,8 +513,10 @@ export const FALLBACK_PART_STATS = {
       fireRate: 0.45,
       range: 700,
       projectileSpeed: 350,
-      accuracy: 0.72,
-      tracking: 0.7,
+      accuracy: 0.68,
+      tracking: 0.82,
+      trackTime: 1.7,
+      trackingDelay: 0.15,
       arc: 220
     }),
     rotationRequired: true
@@ -478,7 +535,9 @@ export const FALLBACK_PART_STATS = {
       range: 940,
       projectileSpeed: 240,
       accuracy: 0.58,
-      tracking: 0.3,
+      tracking: 0.25,
+      trackTime: 1.1,
+      trackingDelay: 0.45,
       arc: 150
     }),
     rotationRequired: true
@@ -498,6 +557,8 @@ export const FALLBACK_PART_STATS = {
       projectileSpeed: 370,
       accuracy: 0.68,
       tracking: 0.82,
+      trackTime: 1.7,
+      trackingDelay: 0.15,
       arc: 240
     }),
     rotationRequired: true
@@ -547,15 +608,16 @@ export const FALLBACK_PART_STATS = {
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.065,
     energyStorage: 0, repairRate: 0,
-    railgun: 1,
-    weapon: makeWeapon("railgun", {
+    beam: 1,
+    weapon: makeWeapon("beam", {
       damage: 34,
-      fireRate: 0.7,
-      range: 720,
-      projectileSpeed: 1500,
-      accuracy: 0.98,
-      tracking: 0,
-      arc: 70
+      fireRate: 1,
+      range: 520,
+      radius: 16,
+      projectileSpeed: 0,
+      accuracy: 0.99,
+      aimSpeed: 1.65,
+      arc: 110
     }),
     rotationRequired: true
   },
@@ -640,9 +702,9 @@ export const FALLBACK_PART_STATS = {
     category: "Support",
     cost: 58, mass: 8, hp: 48,
     powerGeneration: 0, powerUse: 6.2,
-    shield: 22, shieldRegen: 0.4,
+    shield: 22, shieldRegen: 0.3,
     thrust: 0, turn: -0.035,
-    energyStorage: 0, repairRate: 17,
+    energyStorage: 0, repairRate: 11,
     repair: 1,
     weapon: null,
     utilityEffect: "repair"
@@ -652,7 +714,7 @@ export const FALLBACK_PART_STATS = {
 export let PART_STATS = buildPartStatsFromBalance(null, FALLBACK_PART_STATS);
 
 export function applyComponentBalance(balance) {
-  PART_STATS = buildPartStatsFromBalance(balance, FALLBACK_PART_STATS);
+  PART_STATS = { ...normalizeRuntimeParts(FALLBACK_PART_STATS), ...buildPartStatsFromBalance(balance, FALLBACK_PART_STATS) };
 }
 
 export function applyServerParts(parts) {
@@ -662,14 +724,14 @@ export function applyServerParts(parts) {
 
 export function isRotatablePart(type) {
   const stat = PART_STATS[type] || {};
-  return Boolean(stat.rotationRequired || stat.weapon);
+  return stat.category === "Weapons" || stat.rotatable === true;
 }
 
 
 import { HIDDEN_PARTS } from "../constants.js";
 
 export function isPalettePart(type) {
-  return type !== "core" && !HIDDEN_PARTS.has(type);
+  return type !== "core" && !HIDDEN_PARTS.has(type) && Boolean(PART_STATS[type]);
 }
 
 
@@ -700,17 +762,35 @@ export function partIconMarkup(type, extraClass = "") {
 export function makeWeapon(type, stats) {
   const fireRate = Number(stats.fireRate) || 1;
   const damage = Number(stats.damage) || 0;
+  
+  let tracking = stats.tracking || 0;
+  let aimSpeed = stats.aimSpeed;
+  if (type === "beam") {
+    if (stats.tracking && !stats.aimSpeed) {
+      aimSpeed = 1.65;
+    }
+    tracking = 0; // beam weapons do not have tracking
+  }
+
   return {
     type,
     damage,
     fireRate,
     reload: Number((1 / fireRate).toFixed(2)),
     range: stats.range,
+    radius: Number(stats.radius) || 0,
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
-    tracking: stats.tracking || 0,
+    tracking: tracking,
+    trackTime: Number(stats.trackTime) || 0,
+    trackingDelay: Number(stats.trackingDelay) || 0,
+    aimSpeed: aimSpeed !== undefined ? Number(aimSpeed) : undefined,
     arc: Number(stats.arc) || 360,
-    dps: Number((damage * fireRate).toFixed(1))
+    dps: Number((damage * fireRate).toFixed(1)),
+    missileHp: Number(stats.missileHp) || 0,
+    antiMissile: Boolean(stats.antiMissile),
+    shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
+    targetPriority: stats.targetPriority || []
   };
 }
 
@@ -763,10 +843,17 @@ export function normalizeRuntimePart(part = {}) {
     fireRateBonus: numberOr(part.fireRateBonus, 0),
     captureBonus: numberOr(part.captureBonus, 0),
     heat: numberOr(part.heat, 0),
-    rotationRequired: Boolean(part.rotationRequired || part.rotatable)
+    rotationRequired: Boolean(part.rotationRequired || part.rotatable),
+    ecmStrength: numberOr(part.ecmStrength, 0),
+    decoyRange: numberOr(part.decoyRange, 0),
+    decoyCooldown: numberOr(part.decoyCooldown, 0),
+    decoyConfuseDuration: numberOr(part.decoyConfuseDuration, 0),
+    decoyChance: numberOr(part.decoyChance, 0),
+    frontDamageReduction: numberOr(part.frontDamageReduction, 0),
+    frontArc: numberOr(part.frontArc, 0)
   };
   if (weapon) normalized[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
     if (part[family]) normalized[family] = numberOr(part[family], normalized[family] || 0);
   }
   return normalized;
@@ -799,10 +886,17 @@ export function normalizeBalanceComponent(component) {
     fireRateBonus: numberOr(component.fireRateBonus, 0),
     captureBonus: numberOr(component.captureBonus, 0),
     heat: numberOr(component.heat, 0),
-    rotationRequired: Boolean(component.rotationRequired || component.rotatable)
+    rotationRequired: Boolean(component.rotationRequired || component.rotatable),
+    ecmStrength: numberOr(component.ecmStrength, 0),
+    decoyRange: numberOr(component.decoyRange, 0),
+    decoyCooldown: numberOr(component.decoyCooldown, 0),
+    decoyConfuseDuration: numberOr(component.decoyConfuseDuration, 0),
+    decoyChance: numberOr(component.decoyChance, 0),
+    frontDamageReduction: numberOr(component.frontDamageReduction, 0),
+    frontArc: numberOr(component.frontArc, 0)
   };
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
     if (component[family]) part[family] = numberOr(component[family], part[family] || 0);
   }
   return part;

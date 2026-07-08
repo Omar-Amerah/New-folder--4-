@@ -59,36 +59,153 @@ function updateCapturePoints(room, ships, dt) {
   }
 }
 
-function updateScoring(room, now) {
-  if (room.phase !== "active" || room.winner) return;
+function getTeamWithFullControl(room) {
+  if (!room.points?.length) return null;
 
-  if (now - room.lastScoreAt < 1000) return;
-  room.lastScoreAt = now;
+  let controllingTeam = null;
 
   for (const point of room.points) {
-    if (!point.ownerTeam || point.progress < 0.98) continue;
-    for (const player of room.players.values()) {
-      if (player.team === point.ownerTeam) player.score += SCORE_PER_CONTROLLED_POINT;
+    if (point.contested) return null;
+    if (!point.ownerTeam) return null;
+    if ((point.progress || 0) < 0.98) return null;
+
+    if (!controllingTeam) {
+      controllingTeam = point.ownerTeam;
+    } else if (point.ownerTeam !== controllingTeam) {
+      return null;
     }
   }
 
+  return controllingTeam;
+}
+
+function getPlayerWithFullControl(room) {
+  if (!room.points?.length) return null;
+
+  let controllingPlayerId = null;
+
+  for (const point of room.points) {
+    if (point.contested) return null;
+    if (!point.ownerId) return null;
+    if ((point.progress || 0) < 0.98) return null;
+
+    if (!controllingPlayerId) {
+      controllingPlayerId = point.ownerId;
+    } else if (point.ownerId !== controllingPlayerId) {
+      return null;
+    }
+  }
+
+  return controllingPlayerId;
+}
+
+function resetControlVictory(room, broadcastReset = false) {
+  if (!room.controlVictory) return;
+  const hadActiveCountdown = Boolean(room.controlVictory.team || room.controlVictory.playerId);
+  room.controlVictory.team = null;
+  room.controlVictory.playerId = null;
+  room.controlVictory.startedAt = null;
+  room.controlVictory.remaining = null;
+
+  if (hadActiveCountdown && broadcastReset) {
+    const { broadcastRoom } = require("./messages");
+    broadcastRoom(room, { type: "notice", message: "Victory countdown interrupted." });
+  }
+}
+
+function finalizeTeamControlVictory(room, team, now) {
   const { teamLabel } = require("./players");
   const { finalizeMatchRewards } = require("./economy");
   const { broadcastRoom } = require("./messages");
 
-  const winner = [...room.players.values()]
-    .filter((player) => player.score >= room.maxScore)
-    .sort((a, b) => b.score - a.score)[0];
-  if (winner) {
-    room.winner = {
-      id: winner.id,
-      team: winner.team,
-      name: teamLabel(room, winner.team, winner.name)
+  const winningPlayer = [...room.players.values()].find(p => p.team === team);
+  const teamName = teamLabel(room, team, winningPlayer ? winningPlayer.name : `Wing ${team}`);
+
+  room.winner = {
+    id: winningPlayer ? winningPlayer.id : null,
+    team: team,
+    name: teamName
+  };
+  room.winnerAt = now;
+  room.phase = "ended";
+  finalizeMatchRewards(room);
+  broadcastRoom(room, { type: "notice", message: `${teamName} won the match` });
+}
+
+function finalizeSoloControlVictory(room, playerId, now) {
+  const { finalizeMatchRewards } = require("./economy");
+  const { broadcastRoom } = require("./messages");
+
+  const player = room.players.get(playerId);
+  const playerName = player ? player.name : "A player";
+
+  room.winner = {
+    id: playerId,
+    team: player ? player.team : null,
+    name: playerName
+  };
+  room.winnerAt = now;
+  room.phase = "ended";
+  finalizeMatchRewards(room);
+  broadcastRoom(room, { type: "notice", message: `${playerName} won the match` });
+}
+
+function updateScoring(room, now) {
+  if (room.phase !== "active" || room.winner) return;
+
+  // 1. Keep score incrementing over time as a secondary stat/economy/reward metric
+  const tickScore = now - (room.lastScoreAt || 0) >= 1000;
+  if (tickScore) {
+    room.lastScoreAt = now;
+    for (const point of room.points) {
+      if (!point.ownerTeam || point.progress < 0.98) continue;
+      for (const player of room.players.values()) {
+        if (player.team === point.ownerTeam) player.score += SCORE_PER_CONTROLLED_POINT;
+      }
+    }
+  }
+
+  // 2. Authoritative Control Victory win conditions
+  const { teamLabel } = require("./players");
+  const { broadcastRoom } = require("./messages");
+
+  if (room.rules?.gameMode === "solo") {
+    const controllingPlayerId = getPlayerWithFullControl(room);
+    if (!controllingPlayerId) {
+      resetControlVictory(room, false);
+      return;
+    }
+    finalizeSoloControlVictory(room, controllingPlayerId, now);
+    return;
+  }
+
+  // Team mode
+  const controllingTeam = getTeamWithFullControl(room);
+  if (!controllingTeam) {
+    resetControlVictory(room, true); // Broadcast when interrupted
+    return;
+  }
+
+  if (room.controlVictory?.team !== controllingTeam) {
+    room.controlVictory = {
+      team: controllingTeam,
+      playerId: null,
+      startedAt: now,
+      requiredSeconds: 20,
+      remaining: 20
     };
-    room.winnerAt = now;
-    room.phase = "ended";
-    finalizeMatchRewards(room);
-    broadcastRoom(room, { type: "notice", message: `${room.winner.name} won the match` });
+    const teamName = teamLabel(room, controllingTeam, `Wing ${controllingTeam}`);
+    broadcastRoom(room, {
+      type: "notice",
+      message: `${teamName} controls all relays. Victory countdown started.`
+    });
+  } else {
+    const elapsedSeconds = (now - room.controlVictory.startedAt) / 1000;
+    room.controlVictory.remaining = Math.max(0, room.controlVictory.requiredSeconds - elapsedSeconds);
+
+    if (elapsedSeconds >= room.controlVictory.requiredSeconds) {
+      finalizeTeamControlVictory(room, controllingTeam, now);
+    }
   }
 }
 

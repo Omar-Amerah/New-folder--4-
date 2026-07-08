@@ -94,6 +94,7 @@ export function buyPurchaseOption(optionId) {
     setPurchaseError(optionId, "Match not active");
     return;
   }
+  const mine = state.mine;
   if (!mine?.ready) {
     setPurchaseError(optionId, "Not ready");
     return;
@@ -162,7 +163,7 @@ export function clearPendingPurchase(requestId) {
 
 export function reconcilePendingPurchasesWithSnapshot() {
   if (!state.pendingPurchases.size) return;
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   if (!mine) return;
   const money = currentMatchMoney(mine);
   const activeShips = mine.activeShips ?? 0;
@@ -178,6 +179,7 @@ export function reconcilePendingPurchasesWithSnapshot() {
 }
 
 export function setPurchaseError(optionId, message) {
+  if (isMoneyPurchaseBlocker(message)) return;
   const previous = state.purchaseErrors.get(optionId);
   if (previous?.timeoutId) clearTimeout(previous.timeoutId);
   const timeoutId = setTimeout(() => {
@@ -189,7 +191,7 @@ export function setPurchaseError(optionId, message) {
 }
 
 export function updateEconomyUi() {
-  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const mine = state.mine;
   const localStats = computeStats(state.design);
   const localStatus = getShipStatus(localStats, mine);
   const money = currentMatchMoney(mine);
@@ -268,7 +270,8 @@ export function getPurchaseOptions() {
   ];
 }
 
-export function getPurchaseOptionState(option, quantity = state.purchaseQuantity, mine = state.snapshot?.players?.find((player) => player.id === state.myId)) {
+export function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
+  const mine = state.mine;
   const money = currentMatchMoney(mine);
   const activeShips = mine?.activeShips ?? 0;
   const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
@@ -320,12 +323,30 @@ export function renderPurchaseBar(mine = state.snapshot?.players?.find((player) 
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
   dom.purchaseQuantityFive?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 5));
-  dom.purchaseOptions.textContent = "";
 
-  for (const option of getPurchaseOptions()) {
-    const optionState = getPurchaseOptionState(option, state.purchaseQuantity, mine);
-    const card = document.createElement("button");
-    card.type = "button";
+  const options = getPurchaseOptions();
+  const existingCards = Array.from(dom.purchaseOptions.children);
+
+  // Remove excess cards
+  while (existingCards.length > options.length) {
+    existingCards.pop().remove();
+  }
+
+  options.forEach((option, index) => {
+    const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
+
+    let card = existingCards[index];
+    if (!card) {
+      card = document.createElement("button");
+      card.type = "button";
+      card.addEventListener("mouseenter", (event) => showPurchaseTooltip(event.currentTarget.dataset.optionId, event));
+      card.addEventListener("mousemove", (event) => positionPurchaseTooltip(event));
+      card.addEventListener("mouseleave", hidePurchaseTooltip);
+      card.addEventListener("focus", (event) => showPurchaseTooltip(event.currentTarget.dataset.optionId, event));
+      card.addEventListener("blur", hidePurchaseTooltip);
+      dom.purchaseOptions.appendChild(card);
+    }
+
     card.className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
     card.setAttribute?.("aria-disabled", String(!optionState.canBuy));
     if (card.dataset) card.dataset.optionId = option.id;
@@ -335,13 +356,7 @@ export function renderPurchaseBar(mine = state.snapshot?.players?.find((player) 
       <small>${weaponSummaryText(option.stats)}</small>
       <em>${optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : escapeHtml(optionState.reason)}</em>
     `;
-    card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
-    card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
-    card.addEventListener?.("mouseleave", hidePurchaseTooltip);
-    card.addEventListener?.("focus", (event) => showPurchaseTooltip(option.id, event));
-    card.addEventListener?.("blur", hidePurchaseTooltip);
-    dom.purchaseOptions.appendChild(card);
-  }
+  });
 }
 
 export function purchaseCostText(option, optionState) {
@@ -411,8 +426,9 @@ export function hidePurchaseTooltip() {
 }
 
 export function inferShipRole(stats) {
-  const weapons = stats.blaster + stats.missile + stats.railgun;
+  const weapons = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
   if (stats.repair > 0 && stats.weaponDps < 30) return "Support";
+  if ((stats.beam || 0) >= Math.max(stats.blaster, stats.missile, stats.railgun) && (stats.beam || 0) > 0) return "Beam Ship";
   if (stats.railgun >= Math.max(stats.blaster, stats.missile) && stats.railgun > 0) return "Rail Platform";
   if (stats.missile >= Math.max(stats.blaster, stats.railgun) && stats.missile > 0) return "Missile Boat";
   if (stats.maxHp + stats.maxShield > 700 && stats.maxSpeed < 190) return "Heavy Tank";
@@ -425,7 +441,8 @@ function currentMatchMoney(mine) {
   return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
 }
 
-function getShipStatus(stats, mine = state.snapshot?.players?.find((player) => player.id === state.myId)) {
+function getShipStatus(stats) {
+  const mine = state.mine;
   const blockers = [];
   const money = currentMatchMoney(mine);
   const isActiveBuild = state.phase === "active";
