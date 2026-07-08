@@ -24,6 +24,7 @@ function buyShip(room, player, now, options = {}) {
   player.money -= stats.unitCost;
   player.spent += stats.unitCost;
   player.deployedFleetCost += stats.unitCost;
+  player.shipsBuilt = (player.shipsBuilt || 0) + 1;
   const activeCount = player.ships.filter((ship) => ship.alive).length;
   const combatStyle = options.combatStyle || player.combatStyle || "charge";
   const ship = spawnShip(room, player, now, activeCount, { stats, design, combatStyle });

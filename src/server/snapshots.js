@@ -16,13 +16,13 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true) {
     isAdmin: room.adminId === player.id,
     connected: player.connected !== false,
     ready: player.ready,
-    money: canViewPlayerEconomy(viewer, player) ? Math.floor(player.money) : null,
+    money: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.money) : null,
     income: canViewPlayerEconomy(viewer, player) ? round(player.income) : null,
-    earned: canViewPlayerEconomy(viewer, player) ? Math.floor(player.earned) : null,
-    spent: canViewPlayerEconomy(viewer, player) ? Math.floor(player.spent) : null,
+    earned: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.earned) : null,
+    spent: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.spent) : null,
     shipCap: player.shipCap,
     activeFleetCost: canViewPlayerEconomy(viewer, player) ? getActiveFleetCost(player) : null,
-    deployedFleetCost: canViewPlayerEconomy(viewer, player) ? Math.floor(player.deployedFleetCost) : null,
+    deployedFleetCost: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.deployedFleetCost) : null,
     destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
     lastReward: player.lastReward,
     activeShips: player.ships.filter((ship) => ship.alive).length,
@@ -31,7 +31,9 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true) {
     losses: player.losses,
     captures: player.captures,
     design: sendStatic ? player.design : undefined,
-    stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined
+    stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined,
+    shipsBuilt: player.shipsBuilt || 0,
+    lostFleetCost: Math.floor(player.lostFleetCost || 0)
   }));
 
   const ships = [];
@@ -100,6 +102,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true) {
     })),
     effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, now - effect.at), subtype: effect.subtype })),
     winner: room.winner,
+    matchStartedAt: room.matchStartedAt,
     maxScore: room.maxScore,
     rules: sendStatic ? room.rules : undefined,
     controlVictory: room.controlVictory ? {

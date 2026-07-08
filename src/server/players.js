@@ -296,6 +296,7 @@ function resetRoundPlayerStats(player) {
   player.destroyedEnemyCost = 0;
   player.lostFleetCost = 0;
   player.deployedFleetCost = 0;
+  player.shipsBuilt = 0;
   player.lastReward = null;
   player.lastBuildError = "";
 }
@@ -308,6 +309,7 @@ function maybeStartMatch(room, now) {
   room.phase = "active";
   room.winner = null;
   room.winnerAt = 0;
+  room.matchStartedAt = now;
   room.controlVictory = {
     team: null,
     playerId: null,
@@ -390,6 +392,42 @@ function restartFromEnd(room, requester) {
   broadcastSnapshot(room, performanceNow(), true);
 }
 
+function returnToLobbyPhase(room, requester) {
+  const { sendPlayer, broadcastRoom, broadcastSnapshot } = require("./messages");
+  if (!isAdmin(room, requester)) {
+    sendPlayer(room, requester, { type: "error", message: "Only the room admin can return to lobby" });
+    return;
+  }
+  if (room.phase !== "ended") {
+    sendPlayer(room, requester, { type: "error", message: "Return to lobby is available after the match ends" });
+    return;
+  }
+
+  room.phase = "lobby";
+  room.winner = null;
+  room.winnerAt = 0;
+  for (const ship of room.ships.values()) {
+    ship.removed = true;
+  }
+  room.ships.clear();
+  room.bullets = [];
+  room.effects = [];
+  room.controlVictory = {
+    team: null,
+    playerId: null,
+    startedAt: null,
+    remaining: null,
+    requiredSeconds: 20
+  };
+  for (const player of room.players.values()) {
+    resetRoundPlayerStats(player);
+    player.ready = player.isBot;
+    player.ships = [];
+  }
+  broadcastRoom(room, { type: "notice", message: "Returned to lobby" });
+  broadcastSnapshot(room, performanceNow(), true);
+}
+
 function closeLobby(room, requester) {
   const { sendPlayer, send } = require("./messages");
   if (!isAdmin(room, requester)) {
@@ -427,6 +465,7 @@ module.exports = {
   maybeStartMatch,
   startDesignPhase,
   restartFromEnd,
+  returnToLobbyPhase,
   closeLobby
 };
 
