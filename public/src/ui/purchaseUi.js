@@ -88,7 +88,8 @@ export function handlePurchaseKeyboardClick(event) {
 export function buyPurchaseOption(optionId) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option) return;
-  const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const purchase = getPurchaseOptionState(option, state.purchaseQuantity, mine);
   if (state.phase !== "active") {
     setPurchaseError(optionId, "Match not active");
     return;
@@ -137,7 +138,8 @@ export function buyPurchaseOption(optionId) {
 export function isUnaffordablePurchaseOption(optionId) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option) return false;
-  const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const purchase = getPurchaseOptionState(option, state.purchaseQuantity, mine);
   return !purchase.canBuy && isMoneyPurchaseBlocker(purchase.reason);
 }
 
@@ -191,7 +193,7 @@ export function setPurchaseError(optionId, message) {
 export function updateEconomyUi() {
   const mine = state.mine;
   const localStats = computeStats(state.design);
-  const localStatus = getShipStatus(localStats);
+  const localStatus = getShipStatus(localStats, mine);
   const money = currentMatchMoney(mine);
   const income = mine?.income ?? 0;
   const myTeam = mine?.team;
@@ -228,7 +230,7 @@ export function updateEconomyUi() {
       dom.buildStatus.className = "build-status good";
     }
   }
-  renderPurchaseBar();
+  renderPurchaseBar(mine);
 }
 
 function readyBlockerButtonText(reason) {
@@ -315,7 +317,7 @@ export function validateBlueprintForPurchase(blueprint) {
   return { ok: true, reason: "" };
 }
 
-export function renderPurchaseBar() {
+export function renderPurchaseBar(mine = state.snapshot?.players?.find((player) => player.id === state.myId)) {
   if (!dom.purchaseBar || !dom.purchaseOptions) return;
   dom.purchaseQuantityOne?.classList?.toggle("active", state.purchaseQuantity === 1);
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
@@ -369,7 +371,8 @@ export function weaponSummaryText(stats) {
 export function showPurchaseTooltip(optionId, event) {
   const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
   if (!option || !dom.purchaseTooltip) return;
-  const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
+  const mine = state.snapshot?.players?.find((player) => player.id === state.myId);
+  const optionState = getPurchaseOptionState(option, state.purchaseQuantity, mine);
   const stats = option.stats;
   dom.purchaseTooltip.innerHTML = `
     <div class="purchase-tooltip-head">
