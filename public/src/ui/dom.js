@@ -60,6 +60,7 @@ export const dom = {
   purchaseQuantityFive: document.getElementById("purchaseQuantityFive"),
   purchaseOptions: document.getElementById("purchaseOptions"),
   purchaseTooltip: document.getElementById("purchaseTooltip"),
+  statTooltip: document.getElementById("statTooltip"),
   scoreList: document.getElementById("scoreList"),
   eventLog: document.getElementById("eventLog"),
   toastStack: document.getElementById("toastStack"),

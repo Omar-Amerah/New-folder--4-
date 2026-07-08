@@ -45,7 +45,7 @@ export const state = {
   drag: null,
   keys: new Set(),
   stars: makeStars(260),
-  rules: { startingMoney: 700, shipCap: 20, maxPlayers: 12, mapSize: "auto", gameMode: "teams" },
+  rules: { startingMoney: 700, shipCap: 30, maxPlayers: 12, mapSize: "auto", gameMode: "teams" },
   minimap: null,
   shipHud: new Map(),
   pendingPurchases: new Map(),

@@ -1222,12 +1222,25 @@
   border: 1px solid var(--line);
   border-radius: 6px;
   background: rgba(10, 15, 25, 0.66);
+  outline: none;
+  transition: all 100ms ease;
+}
+
+.stat:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.15);
+  cursor: help;
+}
+
+.stat:focus {
+  outline: 2px solid #ffca57;
+  outline-offset: -1px;
 }
 
 .stat span {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0;
@@ -1237,7 +1250,7 @@
   display: block;
   margin-top: 2px;
   overflow: hidden;
-  font-size: 16px;
+  font-size: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1742,3 +1755,70 @@
   border-radius: 50%;
   box-shadow: 0 0 8px #22c55e;
 }
+
+/* Custom Ship Stats Tooltip */
+.stat-tooltip {
+  width: min(320px, calc(100vw - 28px)) !important;
+}
+
+.stat-tooltip-head {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.stat-tooltip-head strong {
+  display: block;
+  color: #ffca57;
+  font-size: 16px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-tooltip-desc {
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.stat-tooltip-formula {
+  background: rgba(0, 168, 255, 0.05);
+  border: 1px solid rgba(0, 168, 255, 0.25);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #aed0f9;
+  line-height: 1.35;
+  margin-bottom: 8px;
+  font-family: monospace;
+  white-space: pre-wrap;
+}
+
+.stat-tooltip-breakdown {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.4;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding-top: 6px;
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+.stat-tooltip-breakdown strong {
+  color: var(--text);
+}
+
+/* Custom Unit Colors */
+.stat-unit {
+  font-weight: bold;
+}
+.stat-unit.hp { color: #f87171; } /* Light Red for Hit Points */
+.stat-unit.sp { color: #38bdf8; } /* Light Blue for Shield Points */
+.stat-unit.speed { color: #4ade80; } /* Light Green for Speed */
+.stat-unit.turn { color: #c084fc; } /* Purple for Turn Rate */
+.stat-unit.power { color: #fbbf24; } /* Orange/Yellow for Power */
+.stat-unit.thrust { color: #fb923c; } /* Orange for Thrust */
+.stat-unit.mass { color: #94a3b8; } /* Slate for Mass */
+.stat-unit.money { color: #2ecc71; } /* Green for Cost */

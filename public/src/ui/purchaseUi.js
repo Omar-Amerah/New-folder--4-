@@ -384,7 +384,7 @@ export function purchaseCostText(option, optionState) {
 }
 
 export function weaponSummaryText(stats) {
-  return `(${weaponAbbrevText(stats)})`;
+  return `${stats.weaponDps} DPS`;
 }
 
 export function showPurchaseTooltip(optionId, event) {

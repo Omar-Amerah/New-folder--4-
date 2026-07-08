@@ -159,24 +159,24 @@ export function renderLocalStats() {
     }
   }
   dom.stats.innerHTML = [
-    statMarkup("Fleet", stats.fleetCount),
-    statMarkup("Class", stats.massClass),
-    statMarkup("Hull", formatHull(stats.maxHp)),
-    statMarkup("Shield", formatShield(stats.maxShield)),
-    statMarkup("Speed", formatSpeed(Math.round(stats.maxSpeed))),
-    statMarkup("Turn", `${stats.turnRate.toFixed(2)} rad/s`),
-    statMarkup("Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`),
-    statMarkup("Effective Thrust", formatThrust(stats.effectiveThrust)),
-    statMarkup("Engine Efficiency", formatPercent(stats.engineEfficiency)),
-    statMarkup("Power Efficiency", formatPercent(stats.powerEfficiency)),
-    statMarkup("Power Debuff", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
-    statMarkup("Mass Speed Cap", formatSpeed(stats.speedCap)),
-    statMarkup("Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
-    statMarkup("Weapons", weaponAbbrevText(stats)),
-    stats.coolingBonus > 0 ? statMarkup("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
-    stats.captureBonus > 0 ? statMarkup("Capture", `+${formatPercent(stats.captureBonus)}`) : "",
-    statMarkup("Repair", formatRepair(stats.repairRate)),
-    statMarkup("Mass", formatMass(stats.mass))
+    statMarkup("fleet", "Fleet", stats.fleetCount),
+    statMarkup("class", "Class", stats.massClass),
+    statMarkup("hull", "Hull", formatHull(stats.maxHp)),
+    statMarkup("shield", "Shield", formatShield(stats.maxShield)),
+    statMarkup("speed", "Speed", formatSpeed(Math.round(stats.maxSpeed))),
+    statMarkup("turn", "Turn", `${stats.turnRate.toFixed(2)} rad/s`),
+    statMarkup("power", "Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`),
+    statMarkup("thrust", "Effective Thrust", formatThrust(stats.effectiveThrust)),
+    statMarkup("engineEfficiency", "Engine Efficiency", formatPercent(stats.engineEfficiency)),
+    statMarkup("powerEfficiency", "Power Efficiency", formatPercent(stats.powerEfficiency)),
+    statMarkup("powerDebuff", "Power Debuff", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
+    statMarkup("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
+    statMarkup("thrustRatio", "Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
+    statMarkup("weapons", "Weapons", `${stats.weaponDps} DPS`),
+    stats.coolingBonus > 0 ? statMarkup("cooling", "Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
+    stats.captureBonus > 0 ? statMarkup("capture", "Capture", `+${formatPercent(stats.captureBonus)}`) : "",
+    statMarkup("repair", "Repair", formatRepair(stats.repairRate)),
+    statMarkup("mass", "Mass", formatMass(stats.mass))
   ].join("");
 
   if (dom.blueprintCostBreakdown) {
@@ -186,6 +186,12 @@ export function renderLocalStats() {
   renderShipIssues(status);
   setBuildStatus(status.blockers.length ? status.blockers[0] : stats.warnings.length ? stats.warnings[0] : "Blueprint ready", status.blockers.length ? "error" : stats.warnings.length ? "warning" : "good");
   updateEconomyUi();
+}
+
+export function setBuildStatus(text, className) {
+  if (!dom.buildStatus) return;
+  dom.buildStatus.textContent = text;
+  dom.buildStatus.className = `build-status ${className || ""}`.trim();
 }
 
 export function getShipStatus(stats) {
@@ -227,6 +233,319 @@ function currentMatchMoney(mine) {
   return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
 }
 
+// Toggle/Show tooltip on click
+if (dom.stats) {
+  dom.stats.addEventListener("click", (e) => {
+    const card = e.target.closest(".stat");
+    if (card) {
+      e.stopPropagation();
+      const key = card.dataset.statKey;
+      if (!dom.statTooltip.hidden && dom.statTooltip.dataset.activeKey === key) {
+        hideStatTooltip();
+      } else {
+        showStatTooltip(card, e);
+        dom.statTooltip.dataset.activeKey = key;
+      }
+    }
+  });
+
+  dom.stats.addEventListener("keydown", (e) => {
+    const card = e.target.closest(".stat");
+    if (card && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      card.click();
+    }
+  });
+}
+
+// Close tooltip when clicking outside
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("click", (e) => {
+    if (dom.statTooltip && !dom.statTooltip.hidden) {
+      if (!e.target.closest(".stat") && !e.target.closest("#statTooltip")) {
+        hideStatTooltip();
+      }
+    }
+  });
+}
+
+function showStatTooltip(card, event) {
+  if (!dom.statTooltip) return;
+  const key = card.dataset.statKey;
+  const stats = computeStats(state.design);
+  const markup = buildStatTooltipMarkup(key, stats);
+  if (!markup) {
+    dom.statTooltip.hidden = true;
+    return;
+  }
+  dom.statTooltip.innerHTML = markup;
+  dom.statTooltip.hidden = false;
+  positionStatTooltip(event);
+}
+
+function positionStatTooltip(event) {
+  if (!dom.statTooltip || dom.statTooltip.hidden) return;
+  const margin = 14;
+  const rect = dom.statTooltip.getBoundingClientRect();
+  const sourceRect = event.currentTarget?.getBoundingClientRect?.();
+  const pointerX = event.clientX || sourceRect?.left || window.innerWidth / 2;
+  const pointerY = event.clientY || sourceRect?.top || window.innerHeight / 2;
+  
+  const left = Math.min(pointerX + 14, window.innerWidth - rect.width - margin);
+  const top = Math.min(pointerY - rect.height - 12, window.innerHeight - rect.height - margin);
+  
+  dom.statTooltip.style.left = `${Math.max(margin, left)}px`;
+  dom.statTooltip.style.top = `${Math.max(margin, top)}px`;
+}
+
+function hideStatTooltip() {
+  if (dom.statTooltip) dom.statTooltip.hidden = true;
+}
+
+function formatTooltipText(text) {
+  if (!text) return "";
+  let html = escapeHtml(text);
+  html = html.replace(/\bHP\b/g, '<span class="stat-unit hp">HP</span>');
+  html = html.replace(/\bSP\b/g, '<span class="stat-unit sp">SP</span>');
+  html = html.replace(/\bm\/s\b/g, '<span class="stat-unit speed">m/s</span>');
+  html = html.replace(/\brad\/s\b/g, '<span class="stat-unit turn">rad/s</span>');
+  html = html.replace(/\bdeg\/s\b/g, '<span class="stat-unit turn">deg/s</span>');
+  html = html.replace(/\bMW\b/g, '<span class="stat-unit power">MW</span>');
+  html = html.replace(/\bMJ\b/g, '<span class="stat-unit power">MJ</span>');
+  html = html.replace(/\bkN\b/g, '<span class="stat-unit thrust">kN</span>');
+  html = html.replace(/\bT\b/g, '<span class="stat-unit mass">T</span>');
+  html = html.replace(/\b\$\b/g, '<span class="stat-unit money">$</span>');
+  html = html.replace(/\bDPS\b/g, '<span class="stat-unit hp">DPS</span>');
+  return html;
+}
+
+function buildStatTooltipMarkup(key, stats) {
+  const data = buildStatTooltipData(key, stats);
+  if (!data.label) return "";
+
+  let html = `<div class="stat-tooltip-head"><strong>${escapeHtml(data.label)}</strong></div>`;
+  html += `<div class="stat-tooltip-desc">${formatTooltipText(data.desc)}</div>`;
+
+  if (data.formula) {
+    html += `<div class="stat-tooltip-formula">${formatTooltipText(data.formula)}</div>`;
+  }
+
+  if (data.breakdown) {
+    html += `<div class="stat-tooltip-breakdown">${formatTooltipText(data.breakdown)}</div>`;
+  }
+
+  return html;
+}
+
+function buildStatTooltipData(key, stats) {
+  switch (key) {
+    case "fleet":
+      return {
+        label: "Fleet Squadron Size",
+        desc: "Number of ships spawned by this blueprint in matches. Cheaper designs with smaller mass allow you to control larger fleets in combat.",
+        formula: "Squadron Size = Clamp(Floor(260 / (UnitCost * 0.72 + Mass * 0.45)), 1, 5)",
+        breakdown: `Unit Cost: $${stats.unitCost}\nMass: ${stats.mass} T\nFinal Squad Size: ${stats.fleetCount} ship(s)`
+      };
+    
+    case "class":
+      return {
+        label: "Ship Weight Class",
+        desc: "Weight class category of this design based on mass. Heavier weight classes feature higher base hull HP and defense buffers, but restrict top speed limits and hull rotation rates.",
+        formula: "Light (<55 T) | Medium (55-124 T) | Heavy (125-229 T) | Capital (230+ T)",
+        breakdown: `Mass: ${stats.mass} T\nWeight Class: ${stats.massClass}`
+      };
+
+    case "hull": {
+      let coreHp = 0, armorHp = 0, frameHp = 0, weaponHp = 0, otherHp = 0;
+      for (const m of state.design) {
+        const part = PART_STATS[m.type] || PART_STATS.frame;
+        if (m.type === "core") coreHp += part.hp;
+        else if (m.type === "armor" || m.type === "compositeArmor") armorHp += part.hp;
+        else if (m.type === "frame") frameHp += part.hp;
+        else if (part.weapon) weaponHp += part.hp;
+        else otherHp += part.hp;
+      }
+      return {
+        label: "Hull Hit Points",
+        desc: "Total structural health of the ship. Hull damage reduces this value. At 0 HP the ship is destroyed.",
+        formula: "MaxHp = Max(140, Round(RawHP * 0.82))",
+        breakdown: `Core: ${coreHp} HP
+Armor: +${armorHp} HP
+Frames: +${frameHp} HP
+Weapons: +${weaponHp} HP
+Other Systems: +${otherHp} HP
+Raw HP Sum: ${coreHp + armorHp + frameHp + weaponHp + otherHp} HP
+Final Hull HP: ${stats.maxHp} HP`
+      };
+    }
+
+    case "shield":
+      return {
+        label: "Shield Buffers",
+        desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase this.",
+        formula: "MaxShield = Round(RawShield * PowerEfficiency)",
+        breakdown: `Raw Shield: ${Math.round(stats.maxShield / Math.max(0.01, stats.efficiency))} SP
+Power Efficiency: ${Math.round(stats.efficiency * 100)}%
+Final Shield SP: ${stats.maxShield} SP
+Shield Recharge: +${stats.shieldRegen}/s`
+      };
+
+    case "speed":
+      return {
+        label: "Top Speed",
+        desc: "Maximum speed the ship can achieve when engines are fully engaged. Mass smoothly scales down engine efficiency without hard class walls.",
+        formula: "FinalSpeed = RawSpeed\nRawSpeed = (120 + (Thrust/Mass) * 32) * MassSpeedPenalty * PowerMult * 1.3",
+        breakdown: `Engine Thrust: ${stats.effectiveThrust} kN
+Mass: ${stats.mass} T
+Thrust/Mass Ratio: ${stats.thrustRatio.toFixed(2)} kN/T
+Mass Speed Penalty Factor: ${stats.mass > 0 ? (1 / Math.pow(1 + stats.mass / 100, 0.65)).toFixed(3) : "1.000"}
+Power Efficiency Mult: ${Math.round(stats.powerEfficiency * 100)}%
+Final Speed: ${Math.round(stats.maxSpeed)} m/s`
+      };
+
+    case "turn":
+      return {
+        label: "Hull Turn Rate",
+        desc: "Maximum turning and orientation rate. Faster turning ships lock onto and track quick targets better.",
+        formula: "TurnRate = SoftCap(RawTurn, TurnCap, 0.2)",
+        breakdown: `Effective Turn Modifier: ${stats.turnRate.toFixed(2)} rad/s (${Math.round(stats.turnRate * (180 / Math.PI))} deg/s)
+Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
+      };
+
+    case "power": {
+      const surplus = stats.powerGeneration - stats.powerUse;
+      return {
+        label: "Reactor Power Balance",
+        desc: "Generated energy compared to power consumed by active thrusters, shields, and weapons.",
+        formula: "PowerBalance = PowerGeneration - PowerUse",
+        breakdown: `Reactor Generation: +${stats.powerGeneration.toFixed(1)} MW
+Subsystem Consumed: -${stats.powerUse.toFixed(1)} MW
+Grid Surplus: ${surplus >= 0 ? "+" : ""}${surplus.toFixed(1)} MW`
+      };
+    }
+
+    case "thrust":
+      return {
+        label: "Effective Engine Thrust",
+        desc: "Total usable thrust generated by propulsion systems. Stacks with soft caps to prevent excessive acceleration.",
+        formula: "Diminishing Returns (99% stack factor)",
+        breakdown: `Raw Engine Sum: ${stats.thrust} kN
+Effective Stacked Thrust: ${stats.effectiveThrust} kN`
+      };
+
+    case "engineEfficiency":
+      return {
+        label: "Engine Stacking Efficiency",
+        desc: "Proportion of raw thrust converted into effective stacked thrust. Excessive engine modules reduce efficiency.",
+        formula: "Efficiency = EffectiveThrust / RawThrust",
+        breakdown: `Raw Engine Sum: ${stats.thrust} kN
+Effective Thrust: ${stats.effectiveThrust} kN
+Efficiency: ${Math.round(stats.engineEfficiency * 100)}%`
+      };
+
+    case "powerEfficiency":
+      return {
+        label: "Subsystem Power Efficiency",
+        desc: "Energy grid output performance ratio. Low power capacity limits defense recharge rates.",
+        formula: "Efficiency = Clamp(PowerGeneration / PowerUse, 0, 1.1)",
+        breakdown: `Reactor Generation: +${stats.powerGeneration.toFixed(1)} MW
+Subsystem Consumed: -${stats.powerUse.toFixed(1)} MW
+Efficiency: ${Math.round(stats.powerEfficiency * 100)}%`
+      };
+
+    case "powerDebuff":
+      return {
+        label: "Power Grid Brownout Penalty",
+        desc: "Active penalty to ship movement when reactor power generation falls short of active power draw.",
+        formula: "MovementPowerPenalty = Max(0, 1 - PowerMultiplier)",
+        breakdown: `Power Penalty: ${stats.powerDebuff > 0 ? ("-" + Math.round(stats.powerDebuff * 100) + "%") : "None"}`
+      };
+
+    case "speedCap":
+      return {
+        label: "Mass Drag Limit",
+        desc: "Mass reduces engine efficiency smoothly. Heavier ships need more thrust to reach high speed. Ship class is descriptive, not a hard speed wall.",
+        formula: "Drag Factor = 1 / (1 + Mass / 100)^0.65",
+        breakdown: `Ship Mass: ${stats.mass} T
+Weight Class: ${stats.massClass}
+Mass Drag Factor: ${stats.mass > 0 ? (1 / Math.pow(1 + stats.mass / 100, 0.65)).toFixed(3) : "1.000"}`
+      };
+
+    case "thrustRatio":
+      return {
+        label: "Thrust-to-Mass ratio",
+        desc: "Acceleration potential index. Higher numbers allow you to change directions and escape hazards faster.",
+        formula: "ThrustRatio = EffectiveThrust / Mass",
+        breakdown: `Effective Thrust: ${stats.effectiveThrust} kN
+Mass: ${stats.mass} T
+Acceleration index: ${stats.thrustRatio.toFixed(2)} kN/T`
+      };
+
+    case "weapons": {
+      const weaponsCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
+      const desc = `${stats.blaster} Blaster(s) / ${stats.missile} Missile(s) / ${stats.railgun} Railgun(s)` + (stats.beam ? ` / ${stats.beam} Beam(s)` : "");
+      return {
+        label: "Weapons loadout",
+        desc: "Ship offensive weapon summary. More active weapons increase direct combat DPS but add mass, cost, and power use.",
+        formula: "DPS = Base Weapon DPS Sum",
+        breakdown: `Active Guns: ${weaponsCount}
+Summary: ${desc}
+Total DPS: ${stats.weaponDps} DPS`
+      };
+    }
+
+    case "cooling":
+      return {
+        label: "Heat Sink Cooling Speedup",
+        desc: "Active reload recovery rate for all equipped weapons.",
+        formula: "Reload speedup = Sum of Heat Sink values",
+        breakdown: `Reload recovery rate: ${Math.round(stats.coolingBonus * 100)}%`
+      };
+
+    case "capture":
+      return {
+        label: "Lobby Capture Pressure",
+        desc: "objective control zone capture rate speedup.",
+        formula: "Capture rate = Base + Sum of Capture modules",
+        breakdown: `Zone Capture rate: +${Math.round(stats.captureBonus * 100)}%`
+      };
+
+    case "repair":
+      return {
+        label: "Hull Repair Rate",
+        desc: "Active repair rate of hull integrity per second. Does not restore shield capacity.",
+        formula: "Diminishing Returns (62% stack factor)",
+        breakdown: `Repair Rate: ${stats.repairRate.toFixed(1)} HP/s`
+      };
+
+    case "mass": {
+      let structMass = 0, weaponMass = 0, engineMass = 0, powerMass = 0, otherMass = 0;
+      for (const m of state.design) {
+        const part = PART_STATS[m.type] || PART_STATS.frame;
+        if (part.category === "Structure") structMass += part.mass;
+        else if (part.category === "Weapons") weaponMass += part.mass;
+        else if (part.category === "Engines") engineMass += part.mass;
+        else if (part.category === "Power" || part.category === "Defence") powerMass += part.mass;
+        else otherMass += part.mass;
+      }
+      return {
+        label: "Blueprint Ship Mass",
+        desc: "Total mass weight in tonnes. Heavier ships survive longer but turn and accelerate slower.",
+        formula: "Mass = Sum of module masses",
+        breakdown: `Structure: ${structMass} T
+Weapons: ${weaponMass} T
+Engines: ${engineMass} T
+Systems / Defence: ${powerMass} T
+Other modules: ${otherMass} T
+Total Mass: ${stats.mass} T`
+      };
+    }
+
+    default:
+      return { label: "", desc: "", formula: "", breakdown: "" };
+  }
+}
+
 function issueListMarkup(title, issues) {
   if (!issues.length) return `<div class="issue-group empty"><span>${title}</span><p>None</p></div>`;
   return `
@@ -235,16 +554,6 @@ function issueListMarkup(title, issues) {
       <ul>${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>
     </div>
   `;
-}
-
-export function setBuildStatus(text, className) {
-  if (!dom.buildStatus) return;
-  dom.buildStatus.textContent = text;
-  dom.buildStatus.className = `build-status ${className || ""}`.trim();
-}
-
-function statMarkup(label, value) {
-  return `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
 function costBreakdownInnerMarkup(breakdown) {
@@ -267,6 +576,15 @@ function costBreakdownInnerMarkup(breakdown) {
           <strong>$${value}</strong>
         </div>
       `).join("")}
+    </div>
+  `;
+}
+
+function statMarkup(key, label, value) {
+  return `
+    <div class="stat" tabindex="0" data-stat-key="${escapeHtml(key)}" data-stat-label="${escapeHtml(label)}" data-stat-value="${escapeHtml(value)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
     </div>
   `;
 }

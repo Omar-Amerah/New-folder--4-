@@ -33,7 +33,7 @@ const ECONOMY = Object.freeze({
   killBountyRatio: 0.28,
   killBountyMin: 24,
   captureBonus: 70,
-  shipCap: 20,
+  shipCap: 30,
   baseShipCost: 48,
   partCostMultiplier: 1.32,
   massCostMultiplier: 0.9,
