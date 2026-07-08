@@ -36,13 +36,21 @@ export function renderArena(now) {
 
   ctx.save();
   applyCamera(rect);
-  drawWorldGrid();
-  drawMapFeatures(now);
-  drawRelays(now);
+  const viewW = rect.width / state.camera.zoom;
+  const viewH = rect.height / state.camera.zoom;
+  const viewRect = {
+    left: state.camera.x - viewW / 2,
+    right: state.camera.x + viewW / 2,
+    top: state.camera.y - viewH / 2,
+    bottom: state.camera.y + viewH / 2
+  };
+  drawWorldGrid(viewRect);
+  drawMapFeatures(now, viewRect);
+  drawRelays(now, viewRect);
   drawCommandTarget(now);
-  drawShips();
-  drawBullets();
-  drawEffects();
+  drawShips(viewRect);
+  drawBullets(viewRect);
+  drawEffects(viewRect);
   drawSelectionBox();
   ctx.restore();
 
@@ -56,12 +64,20 @@ export function renderArena(now) {
   }
 }
 
+let cachedBgGradient = null;
+let cachedBgWidth = 0;
+let cachedBgHeight = 0;
+
 export function drawBackdrop(rect) {
-  const gradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
-  gradient.addColorStop(0, "#040710");
-  gradient.addColorStop(0.55, "#0a111d");
-  gradient.addColorStop(1, "#05070c");
-  ctx.fillStyle = gradient;
+  if (!cachedBgGradient || cachedBgWidth !== rect.width || cachedBgHeight !== rect.height) {
+    cachedBgGradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
+    cachedBgGradient.addColorStop(0, "#040710");
+    cachedBgGradient.addColorStop(0.55, "#0a111d");
+    cachedBgGradient.addColorStop(1, "#05070c");
+    cachedBgWidth = rect.width;
+    cachedBgHeight = rect.height;
+  }
+  ctx.fillStyle = cachedBgGradient;
   ctx.fillRect(0, 0, rect.width, rect.height);
 
   ctx.save();
@@ -75,36 +91,55 @@ export function drawBackdrop(rect) {
   ctx.restore();
 }
 
-export function drawWorldGrid() {
+export function drawWorldGrid(viewRect) {
+  if (!viewRect) return; // Fallback if viewRect is missing
   ctx.save();
   ctx.lineWidth = 1 / state.camera.zoom;
   ctx.strokeStyle = "rgba(130,160,205,0.11)";
-  for (let x = 0; x <= state.world.width; x += 160) {
+
+  const startX = Math.max(0, Math.floor(viewRect.left / 160) * 160);
+  const endX = Math.min(state.world.width, viewRect.right);
+  for (let x = startX; x <= endX; x += 160) {
     ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, state.world.height);
+    ctx.moveTo(x, Math.max(0, viewRect.top));
+    ctx.lineTo(x, Math.min(state.world.height, viewRect.bottom));
     ctx.stroke();
   }
-  for (let y = 0; y <= state.world.height; y += 160) {
+
+  const startY = Math.max(0, Math.floor(viewRect.top / 160) * 160);
+  const endY = Math.min(state.world.height, viewRect.bottom);
+  for (let y = startY; y <= endY; y += 160) {
     ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(state.world.width, y);
+    ctx.moveTo(Math.max(0, viewRect.left), y);
+    ctx.lineTo(Math.min(state.world.width, viewRect.right), y);
     ctx.stroke();
   }
 
   ctx.strokeStyle = "rgba(255,255,255,0.22)";
   ctx.lineWidth = 3 / state.camera.zoom;
-  ctx.strokeRect(0, 0, state.world.width, state.world.height);
+
+  if (0 >= viewRect.left && 0 <= viewRect.right) {
+    ctx.beginPath(); ctx.moveTo(0, Math.max(0, viewRect.top)); ctx.lineTo(0, Math.min(state.world.height, viewRect.bottom)); ctx.stroke();
+  }
+  if (state.world.width >= viewRect.left && state.world.width <= viewRect.right) {
+    ctx.beginPath(); ctx.moveTo(state.world.width, Math.max(0, viewRect.top)); ctx.lineTo(state.world.width, Math.min(state.world.height, viewRect.bottom)); ctx.stroke();
+  }
+  if (0 >= viewRect.top && 0 <= viewRect.bottom) {
+    ctx.beginPath(); ctx.moveTo(Math.max(0, viewRect.left), 0); ctx.lineTo(Math.min(state.world.width, viewRect.right), 0); ctx.stroke();
+  }
+  if (state.world.height >= viewRect.top && state.world.height <= viewRect.bottom) {
+    ctx.beginPath(); ctx.moveTo(Math.max(0, viewRect.left), state.world.height); ctx.lineTo(Math.min(state.world.width, viewRect.right), state.world.height); ctx.stroke();
+  }
   ctx.restore();
 }
 
-export function drawMapFeatures(now) {
+export function drawMapFeatures(now, viewRect) {
   const map = state.snapshot?.map || state.map;
   if (!map) return;
 
-  for (const zone of map.safeZones || []) drawSafeZone(zone);
-  for (const cloud of map.clouds || []) drawNebula(cloud);
-  for (const asteroid of map.asteroids || []) drawAsteroid(asteroid, now);
+  for (const zone of map.safeZones || []) { if (isVisible(zone.x, zone.y, zone.radius, viewRect)) drawSafeZone(zone); }
+  for (const cloud of map.clouds || []) { const r = Math.max(cloud.rx || 300, cloud.ry || 180); if (isVisible(cloud.x, cloud.y, r, viewRect)) drawNebula(cloud); }
+  for (const asteroid of map.asteroids || []) { const r = asteroid.radius || 60; if (isVisible(asteroid.x, asteroid.y, r + 20, viewRect)) drawAsteroid(asteroid, now); }
 }
 
 export function drawSafeZone(zone) {
@@ -128,25 +163,45 @@ export function drawSafeZone(zone) {
   ctx.restore();
 }
 
+const nebulaCache = new Map();
+
 export function drawNebula(cloud) {
   const rx = cloud.rx || 300;
   const ry = cloud.ry || 180;
   const color = cloud.color || "56,213,255";
   const alpha = cloud.alpha || 0.12;
 
+  const key = `${rx}-${ry}-${color}-${alpha}`;
+  let cached = nebulaCache.get(key);
+  if (!cached) {
+    if (nebulaCache.size > 50) {
+      nebulaCache.delete(nebulaCache.keys().next().value);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = rx * 2;
+    canvas.height = ry * 2;
+    const context = canvas.getContext("2d");
+    context.translate(rx, ry);
+    const gradient = context.createRadialGradient(0, 0, Math.min(rx, ry) * 0.1, 0, 0, rx);
+    gradient.addColorStop(0, `rgba(${color}, ${alpha})`);
+    gradient.addColorStop(0.52, `rgba(${color}, ${alpha * 0.42})`);
+    gradient.addColorStop(1, `rgba(${color}, 0)`);
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    context.fill();
+    cached = { canvas, rx, ry };
+    nebulaCache.set(key, cached);
+  }
+
   ctx.save();
   ctx.translate(cloud.x, cloud.y);
   ctx.rotate(cloud.rotation || 0);
-  const gradient = ctx.createRadialGradient(0, 0, Math.min(rx, ry) * 0.1, 0, 0, rx);
-  gradient.addColorStop(0, `rgba(${color}, ${alpha})`);
-  gradient.addColorStop(0.52, `rgba(${color}, ${alpha * 0.42})`);
-  gradient.addColorStop(1, `rgba(${color}, 0)`);
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.drawImage(cached.canvas, -cached.rx, -cached.ry);
   ctx.restore();
 }
+
+const asteroidCache = new Map();
 
 export function drawAsteroid(asteroid, now) {
   const radius = asteroid.radius || 60;
@@ -154,33 +209,56 @@ export function drawAsteroid(asteroid, now) {
   const base = asteroid.shade === "warm" ? "#5a4939" : "#394657";
   const edge = asteroid.shade === "warm" ? "#ad8b64" : "#8495aa";
 
+  const shapeKey = shape.map(v => Math.round(v * 100)).join(",");
+  const key = `${radius}-${base}-${edge}-${shapeKey}`;
+
+  let cached = asteroidCache.get(key);
+  if (!cached) {
+    if (asteroidCache.size > 200) {
+      asteroidCache.delete(asteroidCache.keys().next().value);
+    }
+
+    const pad = Math.max(30, radius * 0.5);
+    const canvas = document.createElement("canvas");
+    canvas.width = (radius + pad) * 2;
+    canvas.height = (radius + pad) * 2;
+    const context = canvas.getContext("2d");
+    context.translate(radius + pad, radius + pad);
+
+    context.shadowColor = "rgba(0,0,0,0.42)";
+    context.shadowBlur = 18;
+    context.shadowOffsetY = 8;
+
+    const gradient = context.createLinearGradient(-radius, -radius, radius, radius);
+    gradient.addColorStop(0, edge);
+    gradient.addColorStop(0.38, base);
+    gradient.addColorStop(1, "#171d26");
+    context.fillStyle = gradient;
+    context.strokeStyle = "rgba(220,235,255,0.22)";
+    context.lineWidth = 1.5;
+
+    context.beginPath();
+    for (let i = 0; i < shape.length; i += 1) {
+      const angle = i / shape.length * Math.PI * 2;
+      const r = radius * shape[i];
+      const x = Math.cos(angle) * r;
+      const y = Math.sin(angle) * r;
+      if (i === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+    context.closePath();
+    context.fill();
+    context.shadowBlur = 0;
+    context.stroke();
+
+    cached = { canvas, pad };
+    asteroidCache.set(key, cached);
+  }
+
   ctx.save();
   ctx.translate(asteroid.x, asteroid.y);
   ctx.rotate((asteroid.rotation || 0) + (asteroid.spin || 0) * now * 0.001);
-  ctx.shadowColor = "rgba(0,0,0,0.42)";
-  ctx.shadowBlur = 18;
-  ctx.shadowOffsetY = 8;
-
-  const gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
-  gradient.addColorStop(0, edge);
-  gradient.addColorStop(0.38, base);
-  gradient.addColorStop(1, "#171d26");
-  ctx.fillStyle = gradient;
-  ctx.strokeStyle = "rgba(220,235,255,0.22)";
-  ctx.lineWidth = Math.max(1.5, 2.5 / state.camera.zoom);
-  ctx.beginPath();
-  for (let i = 0; i < shape.length; i += 1) {
-    const angle = i / shape.length * Math.PI * 2;
-    const r = radius * shape[i];
-    const x = Math.cos(angle) * r;
-    const y = Math.sin(angle) * r;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.stroke();
+  ctx.drawImage(cached.canvas, -radius - cached.pad, -radius - cached.pad);
 
   ctx.fillStyle = "rgba(0,0,0,0.24)";
   ctx.strokeStyle = "rgba(255,255,255,0.14)";
@@ -197,13 +275,14 @@ export function drawAsteroid(asteroid, now) {
   ctx.restore();
 }
 
-export function drawRelays(now) {
+export function drawRelays(now, viewRect) {
   const snap = state.snapshot;
   if (!snap) return;
   const players = playerMap();
   const time = now || (typeof performance !== "undefined" ? performance.now() : Date.now());
 
   for (const point of snap.points) {
+    if (typeof viewRect !== 'undefined' && !isVisible(point.x, point.y, point.radius || 300, viewRect)) continue;
     const owner = point.ownerId ? players.get(point.ownerId) : null;
     const color = owner?.color || "rgba(180,200,225,0.62)";
 
@@ -316,35 +395,47 @@ export function drawCommandTarget(now) {
   ctx.restore();
 }
 
-export function drawBullets() {
-  const snap = state.snapshot;
-  if (!snap) return;
-  const players = playerMap();
+const bulletCache = new Map();
 
-  for (const bullet of snap.bullets) {
-    const owner = players.get(bullet.ownerId);
-    const color = owner?.color || "#ffffff";
-    ctx.save();
-    ctx.translate(bullet.x, bullet.y);
-    ctx.rotate(Math.atan2(bullet.vy, bullet.vx));
-    if (bullet.type === "rail") {
+function getCachedBullet(type, color, zoom) {
+  // Zoom changes line widths for railguns, etc. Let's discretize zoom to avoid infinite cache entries
+  const zoomLevel = Math.round(zoom * 10) / 10;
+  const key = `${type}-${color}-${zoomLevel}`;
+  let cached = bulletCache.get(key);
+  if (!cached) {
+    if (bulletCache.size > 100) bulletCache.delete(bulletCache.keys().next().value);
+
+    const canvas = document.createElement("canvas");
+    let padX = 40, padY = 40;
+
+    // Depending on type, configure size
+    if (type === "rail") { padX = 60; padY = 30; }
+    else if (type === "missile") { padX = 30; padY = 20; }
+    else { padX = 30; padY = 20; }
+
+    canvas.width = padX * 2;
+    canvas.height = padY * 2;
+    const ctx = canvas.getContext("2d");
+    ctx.translate(padX, padY);
+
+    if (type === "rail") {
       ctx.strokeStyle = "#eaf6ff";
       ctx.shadowColor = "#9fdcff";
       ctx.shadowBlur = 24;
-      ctx.lineWidth = 3.2 / state.camera.zoom;
+      ctx.lineWidth = 3.2 / zoomLevel;
       ctx.beginPath();
       ctx.moveTo(-34, 0);
       ctx.lineTo(24, 0);
       ctx.stroke();
       ctx.strokeStyle = "#64a8ff";
-      ctx.lineWidth = 1.2 / state.camera.zoom;
+      ctx.lineWidth = 1.2 / zoomLevel;
       ctx.beginPath();
       ctx.moveTo(-18, -3);
       ctx.lineTo(18, -3);
       ctx.moveTo(-18, 3);
       ctx.lineTo(18, 3);
       ctx.stroke();
-    } else if (bullet.type === "missile") {
+    } else if (type === "missile") {
       ctx.shadowColor = "#ffd37a";
       ctx.shadowBlur = 18;
       ctx.fillStyle = "#ffe7ad";
@@ -364,7 +455,51 @@ export function drawBullets() {
       ctx.lineTo(-12, 3);
       ctx.closePath();
       ctx.fill();
-    } else if (bullet.type === "pdShot") {
+    } else {
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12;
+
+      // manual roundRect
+      const w = 14, h = 4, r = 2, x = -7, y = -2;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.fillRect(1, -1, 5, 2);
+    }
+
+    cached = { canvas, padX, padY };
+    bulletCache.set(key, cached);
+  }
+  return cached;
+}
+
+export function drawBullets(viewRect) {
+  const snap = state.snapshot;
+  if (!snap) return;
+  const players = playerMap();
+
+  for (const bullet of snap.bullets) {
+    if (typeof viewRect !== 'undefined' && !isVisible(bullet.x, bullet.y, 40, viewRect)) continue;
+    const owner = players.get(bullet.ownerId);
+    const color = owner?.color || "#ffffff";
+
+    // We treat pdShot internally without caching here as it has subtypes,
+    // or we just let it be if it's too complex. For simplicity, we just cache rail, missile, and normal.
+    // Looking at original code, pdShot logic has 3 subtypes.
+
+    ctx.save();
+    ctx.translate(bullet.x, bullet.y);
+    ctx.rotate(Math.atan2(bullet.vy, bullet.vx));
+
+    if (bullet.type === "pdShot") {
       if (bullet.subtype === "flakCannon") {
         ctx.shadowColor = "#f97316";
         ctx.shadowBlur = 14;
@@ -409,25 +544,21 @@ export function drawBullets() {
         ctx.fill();
       }
     } else {
-      ctx.fillStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 12;
-      roundRect(ctx, { x: -7, y: -2, width: 14, height: 4, radius: 2 });
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.fillRect(1, -1, 5, 2);
+      const cached = getCachedBullet(bullet.type, color, state.camera.zoom);
+      ctx.drawImage(cached.canvas, -cached.padX, -cached.padY);
     }
     ctx.restore();
   }
 }
 
-export function drawShips() {
+export function drawShips(viewRect) {
   const snap = state.snapshot;
   if (!snap) return;
   const players = playerMap();
   const visibleShipIds = new Set();
 
   for (const ship of snap.ships) {
+    if (typeof viewRect !== 'undefined' && !isVisible(ship.x, ship.y, ship.radius || 100, viewRect)) continue;
     visibleShipIds.add(ship.id);
     const player = players.get(ship.ownerId);
     if (!player) continue;
@@ -445,6 +576,8 @@ export function drawShips() {
   }
 }
 
+const staticShipCache = new Map();
+
 export function drawShip(ship, player) {
   const selected = state.selectedShipIds.has(ship.id);
   const alpha = ship.alive ? 1 : 0.32;
@@ -455,7 +588,107 @@ export function drawShip(ship, player) {
 
   const design = ship.design || player.design || [];
   const scale = 13;
-  drawShipStructure(design, scale, player.color);
+
+  let designHash = "";
+  for (let i = 0; i < design.length; i++) {
+    designHash += `${design[i].type}${design[i].x}${design[i].y}${design[i].rotation}`;
+  }
+  const cacheKey = `${player.color}-${scale}-${designHash}`;
+
+  let cachedStatic = staticShipCache.get(cacheKey);
+  if (!cachedStatic) {
+    if (staticShipCache.size > 200) staticShipCache.delete(staticShipCache.keys().next().value);
+
+    let minX = 0, maxX = 0, minY = 0, maxY = 0;
+    for (const part of design) {
+      const { x, y } = moduleLocalPosition(part, scale);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+
+    const pad = 30;
+    const width = (maxX - minX) + pad * 2;
+    const height = (maxY - minY) + pad * 2;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, width);
+    canvas.height = Math.max(1, height);
+    const context = canvas.getContext("2d");
+
+    const offsetX = -minX + pad;
+    const offsetY = -minY + pad;
+    context.translate(offsetX, offsetY);
+
+    // Draw Structure
+    const keys = new Set(design.map((part) => `${part.x},${part.y}`));
+    context.lineCap = "round";
+    context.lineWidth = Math.max(3, scale * 0.26);
+    context.strokeStyle = "rgba(0,0,0,0.42)";
+    context.beginPath();
+    for (const part of design) {
+      const { x, y } = moduleLocalPosition(part, scale);
+      if (keys.has(`${part.x + 1},${part.y}`)) {
+        const next = moduleLocalPosition({ x: part.x + 1, y: part.y }, scale);
+        context.moveTo(x, y); context.lineTo(next.x, next.y);
+      }
+      if (keys.has(`${part.x},${part.y + 1}`)) {
+        const next = moduleLocalPosition({ x: part.x, y: part.y + 1 }, scale);
+        context.moveTo(x, y); context.lineTo(next.x, next.y);
+      }
+    }
+    context.stroke();
+
+    context.lineWidth = Math.max(1.2, scale * 0.12);
+    context.strokeStyle = player.color;
+    context.globalAlpha = 0.48;
+    context.beginPath();
+    for (const part of design) {
+      const { x, y } = moduleLocalPosition(part, scale);
+      if (keys.has(`${part.x + 1},${part.y}`)) {
+        const next = moduleLocalPosition({ x: part.x + 1, y: part.y }, scale);
+        context.moveTo(x, y); context.lineTo(next.x, next.y);
+      }
+      if (keys.has(`${part.x},${part.y + 1}`)) {
+        const next = moduleLocalPosition({ x: part.x, y: part.y + 1 }, scale);
+        context.moveTo(x, y); context.lineTo(next.x, next.y);
+      }
+    }
+    context.stroke();
+    context.globalAlpha = 1.0;
+
+    // Draw static modules
+    for (let i = 0; i < design.length; i++) {
+      const part = design[i];
+      if (!isRotatablePart(part.type)) {
+        const def = PART_DEFS[part.type] || PART_DEFS.frame;
+        const { x: px, y: py } = moduleLocalPosition(part, scale);
+        context.save();
+        context.translate(px, py);
+
+        // We handle rotation for static parts directly here as they are baked in
+        if (part.rotation) {
+          context.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
+        }
+
+        drawModule({
+          x: 0,
+          y: 0,
+          size: scale - 1,
+          color: def.color,
+          type: part.type,
+          trim: player.color
+        }, context);
+        context.restore();
+      }
+    }
+
+    cachedStatic = { canvas, offsetX, offsetY };
+    staticShipCache.set(cacheKey, cachedStatic);
+  }
+
+  ctx.drawImage(cachedStatic.canvas, -cachedStatic.offsetX, -cachedStatic.offsetY);
 
   if (!state.weaponAnglesMap) state.weaponAnglesMap = new Map();
 
@@ -469,13 +702,13 @@ export function drawShip(ship, player) {
   const dt = state.dt || 0.016;
 
   design.forEach((part, i) => {
-    const def = PART_DEFS[part.type] || PART_DEFS.frame;
-    const weaponStat = PART_STATS[part.type]?.weapon;
-    const { x: px, y: py } = moduleLocalPosition(part, scale);
-    ctx.save();
-    ctx.translate(px, py);
-
     if (isRotatablePart(part.type)) {
+      const def = PART_DEFS[part.type] || PART_DEFS.frame;
+      const weaponStat = PART_STATS[part.type]?.weapon;
+      const { x: px, y: py } = moduleLocalPosition(part, scale);
+      ctx.save();
+      ctx.translate(px, py);
+
       const defaultRelative = moduleRotationToRadians(normalizeRotation(part.rotation));
       const targetRelative = serverAngles[i] !== undefined ? serverAngles[i] : defaultRelative;
 
@@ -483,17 +716,17 @@ export function drawShip(ship, player) {
       visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
 
       ctx.rotate(visualAngles[i]);
-    }
 
-    drawModule({
-      x: 0,
-      y: 0,
-      size: scale - 1,
-      color: def.color,
-      type: part.type,
-      trim: player.color
-    });
-    ctx.restore();
+      drawModule({
+        x: 0,
+        y: 0,
+        size: scale - 1,
+        color: def.color,
+        type: part.type,
+        trim: player.color
+      });
+      ctx.restore();
+    }
   });
 
   ctx.strokeStyle = player.color;
@@ -554,7 +787,8 @@ export function moduleLocalPosition(part, scale) {
 
 const moduleCache = new Map();
 
-export function drawModule(options) {
+export function drawModule(options, contextOverride) {
+  const targetCtx = contextOverride || ctx;
   const { x, y, size, color, type, trim } = options;
   const key = `${type}-${size}-${trim}-${color}`;
   let cached = moduleCache.get(key);
@@ -578,10 +812,10 @@ export function drawModule(options) {
     moduleCache.set(key, cached);
   }
 
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.drawImage(cached.canvas, -cached.pad, -cached.pad);
-  ctx.restore();
+  targetCtx.save();
+  targetCtx.translate(x, y);
+  targetCtx.drawImage(cached.canvas, -cached.pad, -cached.pad);
+  targetCtx.restore();
 }
 
 function renderModuleState(context, { x, y, size, color, type, trim }) {
@@ -1481,4 +1715,12 @@ function approachAngle(current, target, maxDelta) {
   let diff = angleDifference(current, target);
   if (Math.abs(diff) <= maxDelta) return target;
   return current + Math.sign(diff) * maxDelta;
+}
+
+function isVisible(x, y, radius, viewRect) {
+  if (!viewRect) return true;
+  return x + radius >= viewRect.left &&
+         x - radius <= viewRect.right &&
+         y + radius >= viewRect.top &&
+         y - radius <= viewRect.bottom;
 }
