@@ -71,6 +71,7 @@ function joinRoom(client, message) {
     send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
     broadcastSnapshot(room, performanceNow(), true);
+  checkEmptyLobby(room);
     return;
   }
 
@@ -139,6 +140,7 @@ function joinRoom(client, message) {
   send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });
   broadcastSnapshot(room, performanceNow(), true);
+  checkEmptyLobby(room);
 }
 
 function leaveRoom(client, explicitLeave = false) {
@@ -173,6 +175,7 @@ function leaveRoom(client, explicitLeave = false) {
               const { broadcastSnapshot } = require("./messages");
               broadcastSnapshot(room, performanceNow(), true);
             }
+            checkEmptyLobby(room);
           }
         }, 5000);
       }
@@ -192,6 +195,7 @@ function leaveRoom(client, explicitLeave = false) {
     }
   }
 
+  if (client.room) checkEmptyLobby(client.room);
   client.room = null;
   client.player = null;
 }
@@ -269,11 +273,17 @@ function removePlayerFromRoom(room, player, reason) {
   }
 
   ensureAdmin(room);
+  checkEmptyLobby(room);
 }
 
 function ensureAdmin(room) {
-  if (room.adminId && room.players.has(room.adminId) && !room.players.get(room.adminId).isBot && room.players.get(room.adminId).connected !== false) return;
-  const nextAdmin = [...room.players.values()].find((player) => !player.isBot && player.connected !== false);
+  if (room.adminId && room.players.has(room.adminId)) {
+    const adminPlayer = room.players.get(room.adminId);
+    if (!adminPlayer.isBot && (adminPlayer.connected !== false || adminPlayer.disconnectTimeout)) {
+      return;
+    }
+  }
+  const nextAdmin = [...room.players.values()].find((player) => !player.isBot && (player.connected !== false || player.disconnectTimeout));
   room.adminId = nextAdmin?.id || null;
 }
 
@@ -394,6 +404,7 @@ function startDesignPhase(room, requester) {
   }
   broadcastRoom(room, { type: "notice", message: `Ship design started on ${room.mapSizeLabel} map` });
   broadcastSnapshot(room, performanceNow(), true);
+  checkEmptyLobby(room);
 }
 
 function restartFromEnd(room, requester) {
@@ -462,19 +473,47 @@ function returnToLobbyPhase(room, requester) {
   }
   broadcastRoom(room, { type: "notice", message: "Returned to lobby" });
   broadcastSnapshot(room, performanceNow(), true);
+  checkEmptyLobby(room);
+}
+
+function checkEmptyLobby(room) {
+  if (room.phase !== "lobby") {
+    if (room.emptyLobbyTimeout) {
+      clearTimeout(room.emptyLobbyTimeout);
+      room.emptyLobbyTimeout = null;
+    }
+    return;
+  }
+
+  const hasHumans = [...room.players.values()].some(player => !player.isBot && (player.connected !== false || player.disconnectTimeout));
+
+  if (hasHumans) {
+    if (room.emptyLobbyTimeout) {
+      clearTimeout(room.emptyLobbyTimeout);
+      room.emptyLobbyTimeout = null;
+    }
+  } else if (!room.emptyLobbyTimeout) {
+    room.emptyLobbyTimeout = setTimeout(() => {
+      closeLobby(room, null);
+    }, 10000);
+  }
 }
 
 function closeLobby(room, requester) {
   const { sendPlayer, send } = require("./messages");
-  if (!isAdmin(room, requester)) {
+  if (requester !== null && !isAdmin(room, requester)) {
     sendPlayer(room, requester, { type: "error", message: "Only the room admin can close the lobby" });
     return;
+  }
+  if (room.emptyLobbyTimeout) {
+    clearTimeout(room.emptyLobbyTimeout);
+    room.emptyLobbyTimeout = null;
   }
   const code = room.code;
   const { rememberClosedRoom, rooms } = require("./rooms");
   rememberClosedRoom(code);
   for (const client of [...room.clients]) {
-    send(client, { type: "closed", message: "The room admin closed this lobby" });
+    send(client, { type: "closed", message: requester === null ? "Lobby closed due to inactivity" : "The room admin closed this lobby" });
     client.room = null;
     client.player = null;
   }
