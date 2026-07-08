@@ -29,6 +29,7 @@ function commandShips(room, player, x, y, options = {}) {
     ship.targetX = targetPoint.x;
     ship.targetY = targetPoint.y;
     ship.focusTargetId = focusTargetId;
+    ship.isManualMove = !focusTargetId;
     ship.arrived = false;
   });
 }
@@ -52,8 +53,8 @@ function updateShipMovement(room, ship, dt) {
   const stats = ship.stats;
   const style = ship.combatStyle || "charge";
 
-  // Determine active target (focus target takes priority, auto-target matches combat style if ship is arrived/idle)
-  const activeTargetId = ship.focusTargetId || (ship.arrived ? ship.combatTargetId : null);
+  // Determine active target (focus target takes priority, auto-target matches combat style if not under manual command)
+  const activeTargetId = ship.focusTargetId || (!ship.isManualMove ? ship.combatTargetId : null);
   const hasActiveTarget = activeTargetId && room.ships.has(activeTargetId);
 
   // Chase and stop/hold/circle depending on combatStyle if focused on an enemy target
@@ -61,7 +62,8 @@ function updateShipMovement(room, ship, dt) {
     const focusTarget = room.ships.get(activeTargetId);
     if (focusTarget && focusTarget.alive) {
       const distToTarget = Math.hypot(focusTarget.x - ship.x, focusTarget.y - ship.y);
-      const maxRange = Math.max(stats.blasterRange || 0, stats.missileRange || 0, stats.railgunRange || 0, stats.beamRange || 0);
+      const rawMaxRange = Math.max(stats.blasterRange || 0, stats.missileRange || 0, stats.railgunRange || 0, stats.beamRange || 0);
+      const maxRange = rawMaxRange > 0 ? Math.max(120, rawMaxRange) : 0;
 
       if (maxRange > 0) {
         if (style === "circle") {
@@ -71,8 +73,8 @@ function updateShipMovement(room, ship, dt) {
             ship.lastOrbitTargetId = activeTargetId;
           }
 
-          // Orbit/circle target at 75% of maxRange
-          const orbitRadius = Math.max(80, maxRange * 0.75);
+          // Orbit/circle target at 80% of maxRange
+          const orbitRadius = Math.max(80, maxRange * 0.8);
           const angleToShip = Math.atan2(ship.y - focusTarget.y, ship.x - focusTarget.x);
 
           // Determine starting orbit direction based on current heading/tangent alignment
@@ -86,16 +88,21 @@ function updateShipMovement(room, ship, dt) {
           }
 
           const orbitAngle = angleToShip + 0.42 * ship.orbitDir;
-          ship.targetX = focusTarget.x + Math.cos(orbitAngle) * orbitRadius;
-          ship.targetY = focusTarget.y + Math.sin(orbitAngle) * orbitRadius;
+          const newTargetX = focusTarget.x + Math.cos(orbitAngle) * orbitRadius;
+          const newTargetY = focusTarget.y + Math.sin(orbitAngle) * orbitRadius;
+
+          if (!Number.isNaN(newTargetX) && !Number.isNaN(newTargetY)) {
+            ship.targetX = newTargetX;
+            ship.targetY = newTargetY;
+          }
           ship.arrived = false;
         } else if (style === "hold") {
-          // Stop at 90% of maxRange (Keep distance)
+          // Keep distance around 85-90% of max weapon range
           ship.targetX = focusTarget.x;
           ship.targetY = focusTarget.y;
-          if (distToTarget <= maxRange * 0.9) {
+          if (distToTarget <= maxRange * 0.82) {
             ship.arrived = true;
-          } else if (distToTarget > Math.max(distToTarget, maxRange * 0.96)) {
+          } else if (distToTarget > maxRange * 0.96) {
             ship.arrived = false;
           }
         } else {
@@ -114,10 +121,13 @@ function updateShipMovement(room, ship, dt) {
         ship.targetY = focusTarget.y;
         if (distToTarget <= 16) {
           ship.arrived = true;
+        } else {
+          ship.arrived = false;
         }
       }
     } else {
-      if (ship.focusTargetId) ship.focusTargetId = null;
+      ship.focusTargetId = null;
+      ship.combatTargetId = null;
       ship.orbitDir = undefined;
       ship.lastOrbitTargetId = null;
     }
@@ -132,6 +142,11 @@ function updateShipMovement(room, ship, dt) {
 
   if (ship.arrived === undefined) {
     ship.arrived = distance <= 16;
+  }
+
+  // Clear manual move flag once we reach our ground destination
+  if (ship.isManualMove && distance <= 16 && !hasActiveTarget) {
+    ship.isManualMove = false;
   }
 
   const isCircleOrbit = style === "circle" && hasActiveTarget;
