@@ -552,389 +552,429 @@ export function moduleLocalPosition(part, scale) {
   };
 }
 
-export function drawModule({ x, y, size, color, type, trim }) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.lineWidth = Math.max(1.15, size * 0.12);
-  ctx.strokeStyle = trim;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = type === "core" || type === "reactor" || type === "shield" ? 8 : 3;
+const moduleCache = new Map();
 
-  const fill = ctx.createLinearGradient(-size * 0.55, -size * 0.55, size * 0.55, size * 0.55);
-  fill.addColorStop(0, "rgba(255,255,255,0.42)");
-  fill.addColorStop(0.24, color);
-  fill.addColorStop(1, "rgba(8,12,20,0.92)");
-  ctx.fillStyle = fill;
+export function drawModule(options) {
+  const { x, y, size, color, type, trim } = options;
+  const key = `${type}-${size}-${trim}-${color}`;
+  let cached = moduleCache.get(key);
 
-  if (type === "core") {
-    roundRect(ctx, { x: -size * 0.48, y: -size * 0.48, width: size * 0.96, height: size * 0.96, radius: size * 0.18 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#f8fbff";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#6ee7ff";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
-    ctx.stroke();
-  } else if (type === "frame") {
-    roundRect(ctx, { x: -size * 0.46, y: -size * 0.46, width: size * 0.92, height: size * 0.92, radius: size * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.42)";
-    ctx.lineWidth = Math.max(1, size * 0.08);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.28, -size * 0.28);
-    ctx.lineTo(size * 0.28, size * 0.28);
-    ctx.moveTo(size * 0.28, -size * 0.28);
-    ctx.lineTo(-size * 0.28, size * 0.28);
-    ctx.stroke();
-  } else if (type === "armor") {
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.42, -size * 0.24);
-    ctx.lineTo(-size * 0.18, -size * 0.48);
-    ctx.lineTo(size * 0.42, -size * 0.34);
-    ctx.lineTo(size * 0.48, size * 0.2);
-    ctx.lineTo(size * 0.18, size * 0.48);
-    ctx.lineTo(-size * 0.48, size * 0.34);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,244,220,0.38)";
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.18, -size * 0.34);
-    ctx.lineTo(size * 0.24, size * 0.28);
-    ctx.stroke();
-  } else if (type === "engine") {
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.48, -size * 0.38);
-    ctx.lineTo(size * 0.4, -size * 0.24);
-    ctx.lineTo(size * 0.48, size * 0.24);
-    ctx.lineTo(-size * 0.48, size * 0.38);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#ffca57";
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.58, -size * 0.18);
-    ctx.lineTo(-size * 0.95, 0);
-    ctx.lineTo(-size * 0.58, size * 0.18);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#89f7ff";
-    ctx.fillRect(-size * 0.35, -size * 0.16, size * 0.26, size * 0.32);
-  } else if (type === "blaster") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#ffd1dc";
-    roundRect(ctx, { x: size * 0.02, y: -size * 0.13, width: size * 0.62, height: size * 0.26, radius: size * 0.08 });
-    ctx.fill();
-  } else if (type === "missile") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#f0dcff";
-    ctx.beginPath();
-    ctx.moveTo(size * 0.64, 0);
-    ctx.lineTo(size * 0.08, -size * 0.2);
-    ctx.lineTo(-size * 0.08, 0);
-    ctx.lineTo(size * 0.08, size * 0.2);
-    ctx.closePath();
-    ctx.fill();
-  } else if (type === "railgun") {
-    drawWeaponBase(size, color);
-    ctx.strokeStyle = "#f4f7ff";
-    ctx.lineWidth = Math.max(1.2, size * 0.1);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.04, -size * 0.16);
-    ctx.lineTo(size * 0.68, -size * 0.16);
-    ctx.moveTo(-size * 0.04, size * 0.16);
-    ctx.lineTo(size * 0.68, size * 0.16);
-    ctx.stroke();
-    ctx.fillStyle = "#7aa4ff";
-    ctx.fillRect(size * 0.42, -size * 0.06, size * 0.16, size * 0.12);
-  } else if (type === "swarmMissile") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#e9d5ff";
-    roundRect(ctx, { x: 0, y: -size * 0.28, width: size * 0.52, height: size * 0.56, radius: size * 0.08 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#581c87";
-    ctx.beginPath();
-    ctx.arc(size * 0.18, -size * 0.12, size * 0.06, 0, Math.PI * 2);
-    ctx.arc(size * 0.38, -size * 0.12, size * 0.06, 0, Math.PI * 2);
-    ctx.arc(size * 0.18, size * 0.12, size * 0.06, 0, Math.PI * 2);
-    ctx.arc(size * 0.38, size * 0.12, size * 0.06, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (type === "autocannon") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#fdba74";
-    roundRect(ctx, { x: size * 0.02, y: -size * 0.22, width: size * 0.68, height: size * 0.14, radius: size * 0.04 });
-    roundRect(ctx, { x: size * 0.02, y: size * 0.08, width: size * 0.68, height: size * 0.14, radius: size * 0.04 });
-    ctx.fill();
-  } else if (type === "torpedo") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#c084fc";
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.12, -size * 0.24);
-    ctx.lineTo(size * 0.46, -size * 0.24);
-    ctx.lineTo(size * 0.72, 0);
-    ctx.lineTo(size * 0.46, size * 0.24);
-    ctx.lineTo(-size * 0.12, size * 0.24);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  } else if (type === "beamEmitter") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#0284c7";
-    ctx.fillRect(0, -size * 0.16, size * 0.22, size * 0.32);
-    ctx.fillStyle = "#38bdf8";
-    ctx.beginPath();
-    ctx.moveTo(size * 0.22, 0);
-    ctx.lineTo(size * 0.44, -size * 0.18);
-    ctx.lineTo(size * 0.72, 0);
-    ctx.lineTo(size * 0.44, size * 0.18);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  } else if (type === "aegisProjector") {
-    drawWeaponBase(size, color);
-    ctx.strokeStyle = "#34d399";
-    ctx.lineWidth = Math.max(1.4, size * 0.1);
-    ctx.beginPath();
-    ctx.arc(size * 0.18, 0, size * 0.36, -Math.PI * 0.4, Math.PI * 0.4);
-    ctx.stroke();
-    ctx.fillStyle = "#a7f3d0";
-    ctx.beginPath();
-    ctx.arc(size * 0.22, 0, size * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (type === "pointDefense" || type === "pointDefenseLaser") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#fda4af";
-    roundRect(ctx, { x: 0, y: -size * 0.08, width: size * 0.62, height: size * 0.16, radius: size * 0.04 });
-    ctx.fill();
-  } else if (type === "flakCannon") {
-    // Left turret
-    ctx.save();
-    ctx.translate(0, -size * 0.22);
-    drawWeaponBase(size * 0.65);
-    ctx.fillStyle = "#f43f5e";
-    roundRect(ctx, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
-    ctx.fill();
-    ctx.restore();
-
-    // Right turret
-    ctx.save();
-    ctx.translate(0, size * 0.22);
-    drawWeaponBase(size * 0.65);
-    ctx.fillStyle = "#f43f5e";
-    roundRect(ctx, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
-    ctx.fill();
-    ctx.restore();
-  } else if (type === "interceptorPod") {
-    // Casing
-    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.16 });
-    ctx.fill();
-    ctx.stroke();
-
-    // 4 launcher tubes in purple/violet
-    ctx.fillStyle = "#a855f7";
-    roundRect(ctx, { x: -size * 0.32, y: -size * 0.38, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
-    roundRect(ctx, { x: -size * 0.32, y: -size * 0.18, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
-    roundRect(ctx, { x: -size * 0.32, y: size * 0.02, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
-    roundRect(ctx, { x: -size * 0.32, y: size * 0.22, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
-    ctx.fill();
-
-    // Rocket tips inside the tubes in light purple/white
-    ctx.fillStyle = "#f3e8ff";
-    ctx.beginPath();
-    ctx.arc(size * 0.34, -size * 0.31, size * 0.05, 0, Math.PI * 2);
-    ctx.arc(size * 0.34, -size * 0.11, size * 0.05, 0, Math.PI * 2);
-    ctx.arc(size * 0.34, size * 0.09, size * 0.05, 0, Math.PI * 2);
-    ctx.arc(size * 0.34, size * 0.29, size * 0.05, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (type === "repairBeam") {
-    drawWeaponBase(size, color);
-    ctx.fillStyle = "#15803d";
-    ctx.fillRect(0, -size * 0.16, size * 0.22, size * 0.32);
-    ctx.fillStyle = "#4ade80";
-    ctx.beginPath();
-    ctx.moveTo(size * 0.22, 0);
-    ctx.lineTo(size * 0.44, -size * 0.16);
-    ctx.lineTo(size * 0.68, 0);
-    ctx.lineTo(size * 0.44, size * 0.16);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  } else if (type === "reactor") {
-    drawRoundSystem(size);
-    ctx.fillStyle = "#fff7b3";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#6b4b12";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
-    ctx.stroke();
-  } else if (type === "battery") {
-    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#d5fbff";
-    for (let i = 0; i < 3; i += 1) {
-      ctx.fillRect(-size * 0.25, -size * 0.28 + i * size * 0.21, size * 0.5, size * 0.09);
+  if (!cached) {
+    if (moduleCache.size > 2000) {
+      const firstKey = moduleCache.keys().next().value;
+      moduleCache.delete(firstKey);
     }
-  } else if (type === "shield") {
-    drawRoundSystem(size);
-    ctx.strokeStyle = "#b9ffd0";
-    ctx.lineWidth = Math.max(1, size * 0.08);
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.34, Math.PI * 0.15, Math.PI * 1.85);
-    ctx.stroke();
-  } else if (type === "repair") {
-    drawRoundSystem(size);
-    ctx.strokeStyle = "#d7ffe2";
-    ctx.lineWidth = Math.max(1.4, size * 0.12);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.24, 0);
-    ctx.lineTo(size * 0.24, 0);
-    ctx.moveTo(0, -size * 0.24);
-    ctx.lineTo(0, size * 0.24);
-    ctx.stroke();
-  } else if (type === "gyroscope") {
-    drawRoundSystem(size);
-    ctx.strokeStyle = "rgba(255,255,255,0.48)";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.28, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#a78bfa";
-    ctx.fillRect(-size * 0.06, -size * 0.38, size * 0.12, size * 0.76);
-    ctx.fillRect(-size * 0.38, -size * 0.06, size * 0.76, size * 0.12);
-  } else if (type === "auxGenerator") {
-    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#fef08a";
-    ctx.fillRect(-size * 0.14, -size * 0.28, size * 0.28, size * 0.56);
-    ctx.strokeStyle = "#ca8a04";
-    ctx.strokeRect(-size * 0.14, -size * 0.28, size * 0.28, size * 0.56);
-  } else if (type === "capacitor") {
-    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.10 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#38bdf8";
-    ctx.fillRect(-size * 0.28, -size * 0.3, size * 0.2, size * 0.6);
-    ctx.fillRect(size * 0.08, -size * 0.3, size * 0.2, size * 0.6);
-  } else if (type === "maneuverThruster") {
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.35, -size * 0.35);
-    ctx.lineTo(size * 0.35, -size * 0.15);
-    ctx.lineTo(size * 0.35, size * 0.15);
-    ctx.lineTo(-size * 0.35, size * 0.35);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#60a5fa";
-    ctx.fillRect(-size * 0.48, -size * 0.12, size * 0.15, size * 0.24);
-  } else if (type === "sensorArray") {
-    drawRoundSystem(size);
-    ctx.strokeStyle = "#60a5fa";
-    ctx.lineWidth = Math.max(1, size * 0.08);
-    ctx.beginPath();
-    ctx.arc(-size * 0.12, 0, size * 0.32, -Math.PI * 0.3, Math.PI * 0.3);
-    ctx.stroke();
-    ctx.fillStyle = "#bfdbfe";
-    ctx.fillRect(-size * 0.16, -size * 0.04, size * 0.48, size * 0.08);
-  } else if (type === "targetingComputer") {
-    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(0, 255, 100, 0.08)";
-    ctx.fillRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
-    ctx.strokeStyle = "#22c55e";
-    ctx.strokeRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.14, 0, Math.PI * 2);
-    ctx.moveTo(-size * 0.22, 0);
-    ctx.lineTo(size * 0.22, 0);
-    ctx.moveTo(0, -size * 0.22);
-    ctx.lineTo(0, size * 0.22);
-    ctx.stroke();
-  } else if (type === "fireControl") {
-    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "#ef4444";
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.24, -size * 0.24);
-    ctx.lineTo(size * 0.24, size * 0.24);
-    ctx.moveTo(size * 0.24, -size * 0.24);
-    ctx.lineTo(-size * 0.24, size * 0.24);
-    ctx.stroke();
-  } else if (type === "heatSink") {
-    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.10 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(239, 68, 68, 0.45)";
-    for (let i = 0; i < 4; i += 1) {
-      ctx.fillRect(-size * 0.28 + i * size * 0.16, -size * 0.26, size * 0.08, size * 0.52);
-    }
-  } else if (type === "captureModule") {
-    drawRoundSystem(size);
-    ctx.fillStyle = "#f59e0b";
-    ctx.beginPath();
-    ctx.moveTo(0, -size * 0.32);
-    ctx.lineTo(size * 0.24, 0);
-    ctx.lineTo(0, size * 0.32);
-    ctx.lineTo(-size * 0.24, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  } else if (type === "signalAmplifier") {
-    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#a855f7";
-    ctx.fillRect(-size * 0.06, -size * 0.28, size * 0.12, size * 0.56);
-    ctx.strokeStyle = "#d8b4fe";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.22, -Math.PI * 0.6, -Math.PI * 0.4);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.34, -Math.PI * 0.6, -Math.PI * 0.4);
-    ctx.stroke();
-  } else if (type === "stabilizerNode") {
-    drawRoundSystem(size);
-    ctx.strokeStyle = "#38bdf8";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#0284c7";
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.1 });
-    ctx.fill();
-    ctx.stroke();
+
+    const pad = Math.ceil(size * 1.5 + 16); // padding for shadows and overhangs
+    const canvas = document.createElement("canvas");
+    canvas.width = pad * 2;
+    canvas.height = pad * 2;
+    const context = canvas.getContext("2d");
+
+    context.translate(pad, pad);
+    renderModuleState(context, { x: 0, y: 0, size, color, type, trim });
+
+    cached = { canvas, pad };
+    moduleCache.set(key, cached);
   }
 
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.drawImage(cached.canvas, -cached.pad, -cached.pad);
   ctx.restore();
 }
 
-export function drawWeaponBase(size) {
-  ctx.beginPath();
-  ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2);
-  ctx.stroke();
+function renderModuleState(context, { x, y, size, color, type, trim }) {
+  context.save();
+  context.translate(x, y);
+  context.lineWidth = Math.max(1.15, size * 0.12);
+  context.strokeStyle = trim;
+  context.shadowColor = color;
+  context.shadowBlur = type === "core" || type === "reactor" || type === "shield" ? 8 : 3;
+
+  const fill = context.createLinearGradient(-size * 0.55, -size * 0.55, size * 0.55, size * 0.55);
+  fill.addColorStop(0, "rgba(255,255,255,0.42)");
+  fill.addColorStop(0.24, color);
+  fill.addColorStop(1, "rgba(8,12,20,0.92)");
+  context.fillStyle = fill;
+
+  if (type === "core") {
+    roundRect(context, { x: -size * 0.48, y: -size * 0.48, width: size * 0.96, height: size * 0.96, radius: size * 0.18 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#f8fbff";
+    context.beginPath();
+    context.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = "#6ee7ff";
+    context.beginPath();
+    context.arc(0, 0, size * 0.36, 0, Math.PI * 2);
+    context.stroke();
+  } else if (type === "frame") {
+    roundRect(context, { x: -size * 0.46, y: -size * 0.46, width: size * 0.92, height: size * 0.92, radius: size * 0.12 });
+    context.fill();
+    context.stroke();
+    context.strokeStyle = "rgba(255,255,255,0.42)";
+    context.lineWidth = Math.max(1, size * 0.08);
+    context.beginPath();
+    context.moveTo(-size * 0.28, -size * 0.28);
+    context.lineTo(size * 0.28, size * 0.28);
+    context.moveTo(size * 0.28, -size * 0.28);
+    context.lineTo(-size * 0.28, size * 0.28);
+    context.stroke();
+  } else if (type === "armor") {
+    context.beginPath();
+    context.moveTo(-size * 0.42, -size * 0.24);
+    context.lineTo(-size * 0.18, -size * 0.48);
+    context.lineTo(size * 0.42, -size * 0.34);
+    context.lineTo(size * 0.48, size * 0.2);
+    context.lineTo(size * 0.18, size * 0.48);
+    context.lineTo(-size * 0.48, size * 0.34);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.strokeStyle = "rgba(255,244,220,0.38)";
+    context.beginPath();
+    context.moveTo(-size * 0.18, -size * 0.34);
+    context.lineTo(size * 0.24, size * 0.28);
+    context.stroke();
+  } else if (type === "engine") {
+    context.beginPath();
+    context.moveTo(-size * 0.48, -size * 0.38);
+    context.lineTo(size * 0.4, -size * 0.24);
+    context.lineTo(size * 0.48, size * 0.24);
+    context.lineTo(-size * 0.48, size * 0.38);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#ffca57";
+    context.beginPath();
+    context.moveTo(-size * 0.58, -size * 0.18);
+    context.lineTo(-size * 0.95, 0);
+    context.lineTo(-size * 0.58, size * 0.18);
+    context.closePath();
+    context.fill();
+    context.fillStyle = "#89f7ff";
+    context.fillRect(-size * 0.35, -size * 0.16, size * 0.26, size * 0.32);
+  } else if (type === "blaster") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#ffd1dc";
+    roundRect(context, { x: size * 0.02, y: -size * 0.13, width: size * 0.62, height: size * 0.26, radius: size * 0.08 });
+    context.fill();
+  } else if (type === "missile") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#f0dcff";
+    context.beginPath();
+    context.moveTo(size * 0.64, 0);
+    context.lineTo(size * 0.08, -size * 0.2);
+    context.lineTo(-size * 0.08, 0);
+    context.lineTo(size * 0.08, size * 0.2);
+    context.closePath();
+    context.fill();
+  } else if (type === "railgun") {
+    drawWeaponBase(context, size, color);
+    context.strokeStyle = "#f4f7ff";
+    context.lineWidth = Math.max(1.2, size * 0.1);
+    context.beginPath();
+    context.moveTo(-size * 0.04, -size * 0.16);
+    context.lineTo(size * 0.68, -size * 0.16);
+    context.moveTo(-size * 0.04, size * 0.16);
+    context.lineTo(size * 0.68, size * 0.16);
+    context.stroke();
+    context.fillStyle = "#7aa4ff";
+    context.fillRect(size * 0.42, -size * 0.06, size * 0.16, size * 0.12);
+  } else if (type === "swarmMissile") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#e9d5ff";
+    roundRect(context, { x: 0, y: -size * 0.28, width: size * 0.52, height: size * 0.56, radius: size * 0.08 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#581c87";
+    context.beginPath();
+    context.arc(size * 0.18, -size * 0.12, size * 0.06, 0, Math.PI * 2);
+    context.arc(size * 0.38, -size * 0.12, size * 0.06, 0, Math.PI * 2);
+    context.arc(size * 0.18, size * 0.12, size * 0.06, 0, Math.PI * 2);
+    context.arc(size * 0.38, size * 0.12, size * 0.06, 0, Math.PI * 2);
+    context.fill();
+  } else if (type === "autocannon") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#fdba74";
+    roundRect(context, { x: size * 0.02, y: -size * 0.22, width: size * 0.68, height: size * 0.14, radius: size * 0.04 });
+    roundRect(context, { x: size * 0.02, y: size * 0.08, width: size * 0.68, height: size * 0.14, radius: size * 0.04 });
+    context.fill();
+  } else if (type === "torpedo") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#c084fc";
+    context.beginPath();
+    context.moveTo(-size * 0.12, -size * 0.24);
+    context.lineTo(size * 0.46, -size * 0.24);
+    context.lineTo(size * 0.72, 0);
+    context.lineTo(size * 0.46, size * 0.24);
+    context.lineTo(-size * 0.12, size * 0.24);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  } else if (type === "beamEmitter") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#0284c7";
+    context.fillRect(0, -size * 0.16, size * 0.22, size * 0.32);
+    context.fillStyle = "#38bdf8";
+    context.beginPath();
+    context.moveTo(size * 0.22, 0);
+    context.lineTo(size * 0.44, -size * 0.18);
+    context.lineTo(size * 0.72, 0);
+    context.lineTo(size * 0.44, size * 0.18);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  } else if (type === "aegisProjector") {
+    drawWeaponBase(context, size, color);
+    context.strokeStyle = "#34d399";
+    context.lineWidth = Math.max(1.4, size * 0.1);
+    context.beginPath();
+    context.arc(size * 0.18, 0, size * 0.36, -Math.PI * 0.4, Math.PI * 0.4);
+    context.stroke();
+    context.fillStyle = "#a7f3d0";
+    context.beginPath();
+    context.arc(size * 0.22, 0, size * 0.12, 0, Math.PI * 2);
+    context.fill();
+  } else if (type === "pointDefense" || type === "pointDefenseLaser") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#fda4af";
+    roundRect(context, { x: 0, y: -size * 0.08, width: size * 0.62, height: size * 0.16, radius: size * 0.04 });
+    context.fill();
+  } else if (type === "flakCannon") {
+    // Left turret
+    context.save();
+    context.translate(0, -size * 0.22);
+    drawWeaponBase(context, size * 0.65);
+    context.fillStyle = "#f43f5e";
+    roundRect(context, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
+    context.fill();
+    context.restore();
+
+    // Right turret
+    context.save();
+    context.translate(0, size * 0.22);
+    drawWeaponBase(context, size * 0.65);
+    context.fillStyle = "#f43f5e";
+    roundRect(context, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
+    context.fill();
+    context.restore();
+  } else if (type === "interceptorPod") {
+    // Casing
+    roundRect(context, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.16 });
+    context.fill();
+    context.stroke();
+
+    // 4 launcher tubes in purple/violet
+    context.fillStyle = "#a855f7";
+    roundRect(context, { x: -size * 0.32, y: -size * 0.38, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    roundRect(context, { x: -size * 0.32, y: -size * 0.18, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    roundRect(context, { x: -size * 0.32, y: size * 0.02, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    roundRect(context, { x: -size * 0.32, y: size * 0.22, width: size * 0.66, height: size * 0.14, radius: size * 0.03 });
+    context.fill();
+
+    // Rocket tips inside the tubes in light purple/white
+    context.fillStyle = "#f3e8ff";
+    context.beginPath();
+    context.arc(size * 0.34, -size * 0.31, size * 0.05, 0, Math.PI * 2);
+    context.arc(size * 0.34, -size * 0.11, size * 0.05, 0, Math.PI * 2);
+    context.arc(size * 0.34, size * 0.09, size * 0.05, 0, Math.PI * 2);
+    context.arc(size * 0.34, size * 0.29, size * 0.05, 0, Math.PI * 2);
+    context.fill();
+  } else if (type === "repairBeam") {
+    drawWeaponBase(context, size, color);
+    context.fillStyle = "#15803d";
+    context.fillRect(0, -size * 0.16, size * 0.22, size * 0.32);
+    context.fillStyle = "#4ade80";
+    context.beginPath();
+    context.moveTo(size * 0.22, 0);
+    context.lineTo(size * 0.44, -size * 0.16);
+    context.lineTo(size * 0.68, 0);
+    context.lineTo(size * 0.44, size * 0.16);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  } else if (type === "reactor") {
+    drawRoundSystem(context, size);
+    context.fillStyle = "#fff7b3";
+    context.beginPath();
+    context.arc(0, 0, size * 0.2, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = "#6b4b12";
+    context.beginPath();
+    context.arc(0, 0, size * 0.36, 0, Math.PI * 2);
+    context.stroke();
+  } else if (type === "battery") {
+    roundRect(context, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#d5fbff";
+    for (let i = 0; i < 3; i += 1) {
+      context.fillRect(-size * 0.25, -size * 0.28 + i * size * 0.21, size * 0.5, size * 0.09);
+    }
+  } else if (type === "shield") {
+    drawRoundSystem(context, size);
+    context.strokeStyle = "#b9ffd0";
+    context.lineWidth = Math.max(1, size * 0.08);
+    context.beginPath();
+    context.arc(0, 0, size * 0.34, Math.PI * 0.15, Math.PI * 1.85);
+    context.stroke();
+  } else if (type === "repair") {
+    drawRoundSystem(context, size);
+    context.strokeStyle = "#d7ffe2";
+    context.lineWidth = Math.max(1.4, size * 0.12);
+    context.beginPath();
+    context.moveTo(-size * 0.24, 0);
+    context.lineTo(size * 0.24, 0);
+    context.moveTo(0, -size * 0.24);
+    context.lineTo(0, size * 0.24);
+    context.stroke();
+  } else if (type === "gyroscope") {
+    drawRoundSystem(context, size);
+    context.strokeStyle = "rgba(255,255,255,0.48)";
+    context.beginPath();
+    context.arc(0, 0, size * 0.28, 0, Math.PI * 2);
+    context.stroke();
+    context.fillStyle = "#a78bfa";
+    context.fillRect(-size * 0.06, -size * 0.38, size * 0.12, size * 0.76);
+    context.fillRect(-size * 0.38, -size * 0.06, size * 0.76, size * 0.12);
+  } else if (type === "auxGenerator") {
+    roundRect(context, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#fef08a";
+    context.fillRect(-size * 0.14, -size * 0.28, size * 0.28, size * 0.56);
+    context.strokeStyle = "#ca8a04";
+    context.strokeRect(-size * 0.14, -size * 0.28, size * 0.28, size * 0.56);
+  } else if (type === "capacitor") {
+    roundRect(context, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.10 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#38bdf8";
+    context.fillRect(-size * 0.28, -size * 0.3, size * 0.2, size * 0.6);
+    context.fillRect(size * 0.08, -size * 0.3, size * 0.2, size * 0.6);
+  } else if (type === "maneuverThruster") {
+    context.beginPath();
+    context.moveTo(-size * 0.35, -size * 0.35);
+    context.lineTo(size * 0.35, -size * 0.15);
+    context.lineTo(size * 0.35, size * 0.15);
+    context.lineTo(-size * 0.35, size * 0.35);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#60a5fa";
+    context.fillRect(-size * 0.48, -size * 0.12, size * 0.15, size * 0.24);
+  } else if (type === "sensorArray") {
+    drawRoundSystem(context, size);
+    context.strokeStyle = "#60a5fa";
+    context.lineWidth = Math.max(1, size * 0.08);
+    context.beginPath();
+    context.arc(-size * 0.12, 0, size * 0.32, -Math.PI * 0.3, Math.PI * 0.3);
+    context.stroke();
+    context.fillStyle = "#bfdbfe";
+    context.fillRect(-size * 0.16, -size * 0.04, size * 0.48, size * 0.08);
+  } else if (type === "targetingComputer") {
+    roundRect(context, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.12 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "rgba(0, 255, 100, 0.08)";
+    context.fillRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
+    context.strokeStyle = "#22c55e";
+    context.strokeRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
+    context.beginPath();
+    context.arc(0, 0, size * 0.14, 0, Math.PI * 2);
+    context.moveTo(-size * 0.22, 0);
+    context.lineTo(size * 0.22, 0);
+    context.moveTo(0, -size * 0.22);
+    context.lineTo(0, size * 0.22);
+    context.stroke();
+  } else if (type === "fireControl") {
+    roundRect(context, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.12 });
+    context.fill();
+    context.stroke();
+    context.strokeStyle = "#ef4444";
+    context.beginPath();
+    context.moveTo(-size * 0.24, -size * 0.24);
+    context.lineTo(size * 0.24, size * 0.24);
+    context.moveTo(size * 0.24, -size * 0.24);
+    context.lineTo(-size * 0.24, size * 0.24);
+    context.stroke();
+  } else if (type === "heatSink") {
+    roundRect(context, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.10 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "rgba(239, 68, 68, 0.45)";
+    for (let i = 0; i < 4; i += 1) {
+      context.fillRect(-size * 0.28 + i * size * 0.16, -size * 0.26, size * 0.08, size * 0.52);
+    }
+  } else if (type === "captureModule") {
+    drawRoundSystem(context, size);
+    context.fillStyle = "#f59e0b";
+    context.beginPath();
+    context.moveTo(0, -size * 0.32);
+    context.lineTo(size * 0.24, 0);
+    context.lineTo(0, size * 0.32);
+    context.lineTo(-size * 0.24, 0);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  } else if (type === "signalAmplifier") {
+    roundRect(context, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#a855f7";
+    context.fillRect(-size * 0.06, -size * 0.28, size * 0.12, size * 0.56);
+    context.strokeStyle = "#d8b4fe";
+    context.beginPath();
+    context.arc(0, 0, size * 0.22, -Math.PI * 0.6, -Math.PI * 0.4);
+    context.stroke();
+    context.beginPath();
+    context.arc(0, 0, size * 0.34, -Math.PI * 0.6, -Math.PI * 0.4);
+    context.stroke();
+  } else if (type === "stabilizerNode") {
+    drawRoundSystem(context, size);
+    context.strokeStyle = "#38bdf8";
+    context.beginPath();
+    context.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+    context.stroke();
+    context.fillStyle = "#0284c7";
+    context.beginPath();
+    context.arc(0, 0, size * 0.12, 0, Math.PI * 2);
+    context.fill();
+  } else {
+    roundRect(context, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.1 });
+    context.fill();
+    context.stroke();
+  }
+
+  context.restore();
 }
 
-export function drawRoundSystem(size) {
-  ctx.beginPath();
-  ctx.arc(0, 0, size * 0.46, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+export function drawWeaponBase(context, size) {
+  if (size === undefined) {
+    size = context;
+    context = ctx;
+  }
+  context.beginPath();
+  context.arc(0, 0, size * 0.36, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.beginPath();
+  context.arc(0, 0, size * 0.22, 0, Math.PI * 2);
+  context.stroke();
+}
+
+export function drawRoundSystem(context, size) {
+  if (size === undefined) {
+    size = context;
+    context = ctx;
+  }
+  context.beginPath();
+  context.arc(0, 0, size * 0.46, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
 }
 
 export function drawSelectionRing(ship) {
