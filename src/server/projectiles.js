@@ -104,6 +104,7 @@ function updateBullets(room, dt, now) {
                 if (target.hp <= 0) {
                    target.life = 0;
                    room.effects.push({ type: "burst", x: target.x, y: target.y, at: now });
+                   room.effects.push({ type: "text", text: "INTERCEPTED", x: target.x, y: target.y, at: now });
                 }
                 continue;
              }

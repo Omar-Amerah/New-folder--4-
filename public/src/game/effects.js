@@ -3,9 +3,11 @@
 import { ctx } from "../ui/dom.js";
 import { state } from "../state.js";
 import { clamp } from "../shared/math.js";
+import { getCombatEffectsEnabled } from "./renderSettings.js";
 
 export function drawEffects() {
   const snap = state.snapshot;
+  const combatEffectsEnabled = getCombatEffectsEnabled();
   if (!snap) return;
   if(state.debugStats) state.debugStats.totalEffects = snap.effects.length;
   let drawn = 0;
@@ -79,6 +81,51 @@ export function drawEffects() {
       ctx.beginPath();
       ctx.moveTo(-10 - t * 12, -4);
       ctx.lineTo(8 + t * 18, 5);
+      ctx.stroke();
+    } else if (effect.type === "dmg" || effect.type === "text") {
+      if (combatEffectsEnabled) {
+        ctx.translate(0, -t * 30);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        if (effect.type === "dmg") {
+          ctx.font = `bold ${Math.max(12, 16 / state.camera.zoom)}px monospace`;
+          ctx.fillStyle = effect.isShield ? "#7dd3fc" : "#ff5f7e";
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
+          ctx.lineWidth = 3 / state.camera.zoom;
+          const text = Math.round(effect.amount).toString();
+          ctx.strokeText(text, 0, 0);
+          ctx.fillText(text, 0, 0);
+        } else {
+          ctx.font = `bold ${Math.max(10, 14 / state.camera.zoom)}px sans-serif`;
+          ctx.fillStyle = "#e2e8f0";
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
+          ctx.lineWidth = 3 / state.camera.zoom;
+          ctx.strokeText(effect.text, 0, 0);
+          ctx.fillText(effect.text, 0, 0);
+        }
+      }
+    } else if (effect.type === "burst") {
+      ctx.fillStyle = "#ffca57";
+      ctx.beginPath();
+      ctx.arc(0, 0, 12 + t * 40, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ff9a57";
+      ctx.lineWidth = 4 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.arc(0, 0, 20 + t * 50, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (effect.type === "spark") {
+      ctx.fillStyle = "#f3f7ff";
+      ctx.beginPath();
+      ctx.arc(0, 0, 6 + t * 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#a5c2ff";
+      ctx.lineWidth = 2 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(-8 - t * 16, 0);
+      ctx.lineTo(8 + t * 16, 0);
+      ctx.moveTo(0, -8 - t * 16);
+      ctx.lineTo(0, 8 + t * 16);
       ctx.stroke();
     } else {
       ctx.fillStyle = effect.type === "warp" ? "#38d5ff" : "#f3f7ff";

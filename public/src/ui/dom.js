@@ -80,6 +80,7 @@ export const dom = {
   settingsScreen: document.getElementById("settingsScreen"),
   renderQualitySelect: document.getElementById("renderQualitySelect"),
   debugOverlayToggle: document.getElementById("debugOverlayToggle"),
+  combatEffectsToggle: document.getElementById("combatEffectsToggle"),
   debugOverlay: document.getElementById("debugOverlay"),
   mainMenuButton: document.getElementById("mainMenuButton"),
   lobbyManagementButton: document.getElementById("lobbyManagementButton"),

@@ -32,3 +32,7 @@ export function getRenderQualityDprCap() {
   if (q === "medium") return 1.5;
   return 2.0;
 }
+
+export function getCombatEffectsEnabled() {
+  return localStorage.getItem("mfa.combatEffects") !== "false";
+}
