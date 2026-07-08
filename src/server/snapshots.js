@@ -52,7 +52,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true) {
       shield: round(ship.shield),
       maxShield: round(ship.maxShield),
       radius: round(ship.radius),
-      design: ship.design || [],
+      design: sendStatic ? (ship.design || []) : undefined,
       cost: ship.cost || ship.stats?.unitCost || 0,
       focusTargetId: ship.focusTargetId,
       combatTargetId: ship.combatTargetId || null,
