@@ -50,3 +50,41 @@ export const SHIP_ECONOMY = Object.freeze({
     beam: 42
   })
 });
+
+export function syncUrlParams() {
+  if (typeof window === "undefined" || typeof window.location === "undefined" || typeof localStorage === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const currentServer = localStorage.getItem(LOCAL_SERVER_KEY) || "";
+  const currentRoom = localStorage.getItem(LOCAL_ACTIVE_ROOM_KEY) || "";
+
+  let changed = false;
+  if (currentServer) {
+    if (params.get("server") !== currentServer) {
+      params.set("server", currentServer);
+      changed = true;
+    }
+  } else {
+    if (params.has("server")) {
+      params.delete("server");
+      changed = true;
+    }
+  }
+
+  if (currentRoom) {
+    if (params.get("room") !== currentRoom) {
+      params.set("room", currentRoom);
+      changed = true;
+    }
+  } else {
+    if (params.has("room")) {
+      params.delete("room");
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    const newSearch = params.toString();
+    const newUrl = window.location.pathname + (newSearch ? "?" + newSearch : "") + window.location.hash;
+    window.history.replaceState(null, "", newUrl);
+  }
+}

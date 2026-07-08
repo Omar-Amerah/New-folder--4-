@@ -12,7 +12,7 @@ import { renderBuildGrid, renderLocalStats } from "./designerUi.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { normalizeDesign } from "../design/blueprintStorage.js";
 import { computeStats } from "../design/componentStats.js";
-import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, LOCAL_FORMATION_KEY } from "../constants.js";
+import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, LOCAL_FORMATION_KEY, syncUrlParams } from "../constants.js";
 
 
 export function isAdmin() {
@@ -327,12 +327,14 @@ export function saveServerSetting() {
   } else {
     clearServerSetting();
   }
+  syncUrlParams();
 }
 
 export function clearServerSetting() {
   localStorage.removeItem(LOCAL_SERVER_KEY);
   if (dom.serverUrlInput) dom.serverUrlInput.value = "";
   showToast("Using default server URL", "warning");
+  syncUrlParams();
 }
 
 export function sendRulesUpdate() {

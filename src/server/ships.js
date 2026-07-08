@@ -1,7 +1,7 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY } = require("./config");
-const { randomRange } = require("./utils");
+const { randomRange, performanceNow } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { normalizeShipDesignSnapshot } = require("./shipDesign");
 
@@ -113,6 +113,8 @@ function addBot(room, requester) {
 
   room.players.set(player.id, player);
   broadcastRoom(room, { type: "notice", message: `${player.name} joined as a bot` });
+  const { broadcastSnapshot } = require("./messages");
+  broadcastSnapshot(room, performanceNow(), true);
 }
 
 function updateBots(room, now) {

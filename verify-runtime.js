@@ -25,11 +25,13 @@ async function main() {
   server.stdout.on("data", (chunk) => output.push(chunk.toString()));
   server.stderr.on("data", (chunk) => output.push(chunk.toString()));
 
+  let alpha = null;
+  let beta = null;
   try {
     await waitFor(() => output.join("").includes(`http://localhost:${PORT}`), 4000, "server did not start");
 
-    const alpha = await openClient("Alpha");
-    const beta = await openClient("Beta");
+    alpha = await openClient("Alpha");
+    beta = await openClient("Beta");
 
     alpha.send({ type: "join", name: "Alpha", room: ROOM });
     beta.send({ type: "join", name: "Beta", room: ROOM });
@@ -108,6 +110,12 @@ async function main() {
     alpha.close();
     beta.close();
     console.log("runtime verification passed");
+  } catch (error) {
+    console.error("Alpha messages:", alpha ? alpha.messages : "none");
+    console.error("Beta messages:", beta ? beta.messages : "none");
+    console.error("Server output before crash:");
+    console.error(output.join(""));
+    throw error;
   } finally {
     server.kill();
   }
@@ -122,6 +130,7 @@ function openClient(name) {
 
     const client = {
       defaultDesign: null,
+      messages,
       send(data) {
         socket.send(JSON.stringify(data));
       },

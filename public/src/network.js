@@ -61,11 +61,13 @@ export function send(message) {
 export function getSocketUrl() {
   const configured = getConfiguredServerUrl();
   if (configured) return normalizeSocketUrl(configured);
+  if (typeof location === "undefined") return "";
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${location.host}/socket`;
 }
 
 export function getConfiguredServerUrl() {
+  if (typeof location === "undefined" || typeof localStorage === "undefined") return "";
   const params = new URLSearchParams(location.search);
   const fromUrl = params.get("server");
   if (fromUrl) {

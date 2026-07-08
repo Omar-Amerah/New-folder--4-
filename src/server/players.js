@@ -13,6 +13,17 @@ function joinRoom(client, message) {
   const requestedCode = sanitizeRoomCode(message.room);
   const code = requestedCode || require("./rooms").makeRoomCode();
   const requestedName = sanitizeName(message.name, `Pilot ${client.id.slice(1)}`);
+
+  if (!requestedCode) {
+    for (const existingRoom of Array.from(rooms.values())) {
+      if (existingRoom.adminId) {
+        const adminPlayer = existingRoom.players.get(existingRoom.adminId);
+        if (adminPlayer && adminPlayer.name.toLowerCase() === requestedName.toLowerCase()) {
+          closeLobby(existingRoom, adminPlayer);
+        }
+      }
+    }
+  }
   if (requestedCode && isClosedRoomCode(code)) {
     send(client, { type: "error", message: "That lobby was closed. Create a new game instead." });
     return;

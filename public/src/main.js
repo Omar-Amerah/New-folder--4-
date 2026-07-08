@@ -10,7 +10,7 @@ import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, hand
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
 import { resizeCanvas, frame } from "./game/renderer.js";
 import { handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleKeyDown } from "./game/input.js";
-import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY } from "./constants.js";
+import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "./constants.js";
 import { send, getConfiguredServerUrl } from "./network.js";
 import { applyComponentBalance } from "./design/parts.js";
 
@@ -155,7 +155,9 @@ async function initializeClient() {
   // Auto-connect if URL parameter room or active local room exists
   const roomFromUrl = new URLSearchParams(location.search).get("room");
   if (roomFromUrl) {
-    dom.roomCode.value = roomFromUrl.toUpperCase().slice(0, 8);
+    const cleanRoom = roomFromUrl.toUpperCase().slice(0, 8);
+    dom.roomCode.value = cleanRoom;
+    joinRoom(cleanRoom);
   } else {
     const activeRoom = (localStorage.getItem(LOCAL_ACTIVE_ROOM_KEY) || "").toUpperCase().slice(0, 8);
     if (activeRoom) {
@@ -163,6 +165,7 @@ async function initializeClient() {
       joinRoom(activeRoom);
     }
   }
+  syncUrlParams();
 }
 
 async function loadComponentBalance() {

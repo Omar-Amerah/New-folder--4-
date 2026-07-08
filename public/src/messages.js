@@ -15,7 +15,7 @@ import { updateHud } from "./ui/hudUi.js";
 import { renderScoreboard } from "./ui/scoreboardUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
-import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK } from "./constants.js";
+import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, syncUrlParams } from "./constants.js";
 
 export function handleServerMessage(message) {
   if (message.type === "hello") {
@@ -65,6 +65,16 @@ export function handleServerMessage(message) {
 
   if (message.type === "state") {
     const previousPhase = state.phase;
+    if (state.snapshot && state.snapshot.players && message.players) {
+      const oldPlayers = new Map(state.snapshot.players.map(p => [p.id, p]));
+      for (const newPlayer of message.players) {
+        const oldPlayer = oldPlayers.get(newPlayer.id);
+        if (oldPlayer) {
+          if (newPlayer.design === undefined) newPlayer.design = oldPlayer.design;
+          if (newPlayer.stats === undefined) newPlayer.stats = oldPlayer.stats;
+        }
+      }
+    }
     state.snapshot = message;
     state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
     state.room = message.room;
@@ -137,9 +147,13 @@ export function handleServerMessage(message) {
 }
 
 export function rememberActiveRoom(roomCode) {
-  if (roomCode) localStorage.setItem(LOCAL_ACTIVE_ROOM_KEY, String(roomCode).toUpperCase());
+  if (roomCode) {
+    localStorage.setItem(LOCAL_ACTIVE_ROOM_KEY, String(roomCode).toUpperCase());
+    syncUrlParams();
+  }
 }
 
 export function forgetActiveRoom() {
   localStorage.removeItem(LOCAL_ACTIVE_ROOM_KEY);
+  syncUrlParams();
 }
