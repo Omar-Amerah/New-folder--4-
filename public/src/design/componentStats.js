@@ -275,7 +275,7 @@ export function estimatePartEffectiveCost(type, design) {
     for (let d = 0; d < 4; d += 1) {
       const cx = part.x + dx[d];
       const cy = part.y + dy[d];
-      if (cx < 0 || cx > 6 || cy < 0 || cy > 6) continue;
+      if (cx < 0 || cx > 14 || cy < 0 || cy > 14) continue;
       if (occupied.has(`${cx},${cy}`)) continue;
 
       const candidate = [...baseDesign, { x: cx, y: cy, type }];

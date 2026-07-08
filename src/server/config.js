@@ -133,15 +133,15 @@ const MAP_CLOUD_COLORS = [
 ];
 
 const DEFAULT_DESIGN = Object.freeze([
-  { x: 3, y: 3, type: "core" },
-  { x: 3, y: 4, type: "reactor" },
-  { x: 2, y: 4, type: "engine" },
-  { x: 4, y: 4, type: "engine" },
-  { x: 2, y: 3, type: "blaster" },
-  { x: 4, y: 3, type: "blaster" },
-  { x: 3, y: 2, type: "shield" },
-  { x: 2, y: 2, type: "armor" },
-  { x: 4, y: 2, type: "armor" }
+  { x: 7, y: 7, type: "core" },
+  { x: 7, y: 8, type: "reactor" },
+  { x: 6, y: 8, type: "engine" },
+  { x: 8, y: 8, type: "engine" },
+  { x: 6, y: 7, type: "blaster" },
+  { x: 8, y: 7, type: "blaster" },
+  { x: 7, y: 6, type: "shield" },
+  { x: 6, y: 6, type: "armor" },
+  { x: 8, y: 6, type: "armor" }
 ]);
 
 module.exports = {

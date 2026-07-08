@@ -7,16 +7,16 @@ import { isConnected } from "./blueprintValidation.js";
 
 export function defaultDesign() {
   return [
-    { x: 3, y: 3, type: "core" },
-    { x: 3, y: 4, type: "reactor" },
-    { x: 2, y: 4, type: "engine" },
-    { x: 4, y: 4, type: "engine" },
-    { x: 2, y: 3, type: "blaster" },
-    { x: 4, y: 3, type: "blaster" },
-    { x: 3, y: 2, type: "shield" },
-    { x: 2, y: 2, type: "armor" },
-    { x: 4, y: 2, type: "armor" },
-    { x: 3, y: 5, type: "battery" }
+    { x: 7, y: 7, type: "core" },
+    { x: 7, y: 8, type: "reactor" },
+    { x: 6, y: 8, type: "engine" },
+    { x: 8, y: 8, type: "engine" },
+    { x: 6, y: 7, type: "blaster" },
+    { x: 8, y: 7, type: "blaster" },
+    { x: 7, y: 6, type: "shield" },
+    { x: 6, y: 6, type: "armor" },
+    { x: 8, y: 6, type: "armor" },
+    { x: 7, y: 9, type: "battery" }
   ];
 }
 
@@ -28,15 +28,21 @@ export function makeDesignPart(x, y, type, previousRotation = 0) {
 export function normalizeDesign(input) {
   const fallback = defaultDesign();
   const source = Array.isArray(input) ? input : fallback;
+
+  // If this is an old blueprint centered on 3,3 (core at 3,3), shift it by +4,+4 to center it in 15x15.
+  const oldCore = source.find(p => p && p.type === "core" && Math.trunc(Number(p.x)) === 3 && Math.trunc(Number(p.y)) === 3);
+  const offsetX = oldCore ? 4 : 0;
+  const offsetY = oldCore ? 4 : 0;
+
   const seen = new Set();
   const clean = [];
 
   for (const raw of source) {
-    const x = Math.trunc(Number(raw?.x));
-    const y = Math.trunc(Number(raw?.y));
+    const x = Math.trunc(Number(raw?.x)) + offsetX;
+    const y = Math.trunc(Number(raw?.y)) + offsetY;
     const type = String(raw?.type || "");
     const key = `${x},${y}`;
-    if (x < 0 || x > 6 || y < 0 || y > 6 || !PART_DEFS[type] || seen.has(key)) continue;
+    if (x < 0 || x > 14 || y < 0 || y > 14 || !PART_DEFS[type] || seen.has(key)) continue;
     seen.add(key);
     clean.push(makeDesignPart(x, y, type, raw?.rotation));
   }

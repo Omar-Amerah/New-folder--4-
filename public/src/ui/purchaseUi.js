@@ -208,8 +208,8 @@ export function updateEconomyUi() {
       ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
       : "Ready with an affordable starting design to begin earning money.";
   }
-  dom.deployButton.hidden = state.phase === "active";
-  dom.deployButton.disabled = !(canReady || canSaveActiveDesign);
+  dom.deployButton.hidden = state.phase !== "design";
+  dom.deployButton.disabled = !canReady;
 
   if (dom.openBlueprintDesignerButton) {
     if (state.phase === "design" && !mine?.ready) {
@@ -222,11 +222,9 @@ export function updateEconomyUi() {
   }
   dom.deployButton.textContent = mine?.ready && state.phase === "design"
     ? "Ready"
-    : state.phase === "design"
-      ? localStatus.blockers.length ? readyBlockerButtonText(localStatus.blockers[0]) : `Ready with this design - $${unitCost}`
-      : state.phase === "active"
-        ? saveBlueprintButtonText()
-        : saveBlueprintButtonText();
+    : localStatus.blockers.length
+      ? readyBlockerButtonText(localStatus.blockers[0])
+      : `Ready with this design - $${unitCost}`;
 
   if (mine) {
     const status = state.phase === "design"
@@ -248,11 +246,6 @@ function readyBlockerButtonText(reason) {
   if (reason.includes("disconnected")) return "Cannot Ready - Disconnected";
   if (reason.includes("blueprint is empty")) return "Cannot Ready - Empty Design";
   return "Cannot Ready";
-}
-
-function saveBlueprintButtonText() {
-  const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
-  return existing ? `Update "${existing.name}"` : "Save Blueprint";
 }
 
 function economyStatusText({ income, relays, canAfford, unitCost, money }) {

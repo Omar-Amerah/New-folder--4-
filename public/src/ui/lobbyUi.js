@@ -217,11 +217,6 @@ export function deployDesign() {
       combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "charge"
     });
     send({ type: "ready" });
-  } else if (state.phase === "active") {
-    // If active, deployButton saves current blueprint
-    import("./savedBlueprintsUi.js").then((mod) => {
-      mod.saveCurrentDesign();
-    });
   }
 }
 
