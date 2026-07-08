@@ -229,6 +229,10 @@ export function restartMatch() {
   send({ type: "restart" });
 }
 
+export function returnToLobby() {
+  send({ type: "returnToLobby" });
+}
+
 export function closeLobby() {
   send({ type: "closeLobby" });
 }
@@ -238,7 +242,7 @@ export function leaveLobby() {
 }
 
 export function setEndGameActionState(disabled) {
-  for (const element of [dom.restartButton, dom.endCloseButton, dom.endLeaveButton]) {
+  for (const element of [dom.restartButton, dom.returnToLobbyButton, dom.endCloseButton, dom.endLeaveButton]) {
     if (element) element.disabled = disabled;
   }
 }

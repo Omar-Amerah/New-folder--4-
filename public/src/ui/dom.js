@@ -73,6 +73,7 @@ export const dom = {
   endGameSummary: document.getElementById("endGameSummary"),
   endGameActions: document.getElementById("endGameActions"),
   restartButton: document.getElementById("restartButton"),
+  returnToLobbyButton: document.getElementById("returnToLobbyButton"),
   endCloseButton: document.getElementById("endCloseButton"),
   endLeaveButton: document.getElementById("endLeaveButton"),
   mainMenuScreen: document.getElementById("mainMenuScreen"),
