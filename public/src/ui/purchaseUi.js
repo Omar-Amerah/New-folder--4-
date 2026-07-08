@@ -256,6 +256,7 @@ export function getPurchaseOptions() {
       name: "Current Design",
       source: "editor",
       blueprint: state.design.map((part) => ({ ...part })),
+      combatStyle: state.combatStyle || "charge",
       stats: computeStats(state.design)
     },
     ...state.savedDesigns.map((saved) => ({
@@ -263,6 +264,7 @@ export function getPurchaseOptions() {
       name: saved.name,
       source: "saved",
       blueprint: normalizeDesign(saved.blueprint).map((part) => ({ ...part })),
+      combatStyle: saved.combatStyle || "charge",
       stats: computeStats(saved.blueprint)
     }))
   ];
@@ -399,6 +401,7 @@ export function showPurchaseTooltip(optionId, event) {
       <strong>${optionState.canBuy ? `$${optionState.totalCost}` : escapeHtml(optionState.reason)}</strong>
     </div>
     <div class="purchase-tooltip-grid">
+      ${tooltipStat("Style", option.combatStyle || "charge")}
       ${tooltipStat("Cost", `$${stats.unitCost}`)}
       ${state.purchaseQuantity > 1 ? tooltipStat("Total", `$${optionState.totalCost}`) : ""}
       ${tooltipStat("Hull", formatHull(stats.maxHp))}
