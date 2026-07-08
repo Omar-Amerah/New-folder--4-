@@ -73,7 +73,28 @@ function handleMessage(client, message) {
     client.player.design = design.modules;
     client.player.stats = design.stats;
     const allowedStyles = ["charge", "hold", "circle"];
-    client.player.combatStyle = allowedStyles.includes(message.combatStyle) ? message.combatStyle : "charge";
+    const combatStyle = allowedStyles.includes(message.combatStyle) ? message.combatStyle : "charge";
+    client.player.combatStyle = combatStyle;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[DEBUG] Deploy received from player ${client.player.id} with combatStyle: ${combatStyle}`);
+    }
+
+    if (client.room.phase === "active") {
+      let updatedCount = 0;
+      for (const ship of client.player.ships) {
+        if (!ship.alive) continue;
+        ship.combatStyle = combatStyle;
+        ship.orbitDir = undefined;
+        ship.lastOrbitTargetId = null;
+        updatedCount++;
+      }
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[DEBUG] Updated combatStyle of ${updatedCount} live ships for player ${client.player.id} to: ${combatStyle}`);
+      }
+      broadcastSnapshot(client.room, performanceNow(), true);
+    }
+
     client.room.lastStaticSnapshotAt = 0;
     if (client.room.phase === "design") {
       client.player.ready = true;

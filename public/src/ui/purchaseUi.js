@@ -391,6 +391,7 @@ export function showPurchaseTooltip(optionId, event) {
   if (!option || !dom.purchaseTooltip) return;
   const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
   const stats = option.stats;
+  const displayStyle = (option.combatStyle || "charge").charAt(0).toUpperCase() + (option.combatStyle || "charge").slice(1);
   dom.purchaseTooltip.innerHTML = `
     <div class="purchase-tooltip-head">
       <strong>${escapeHtml(option.name)}</strong>
@@ -401,7 +402,7 @@ export function showPurchaseTooltip(optionId, event) {
       <strong>${optionState.canBuy ? `$${optionState.totalCost}` : escapeHtml(optionState.reason)}</strong>
     </div>
     <div class="purchase-tooltip-grid">
-      ${tooltipStat("Style", option.combatStyle || "charge")}
+      ${tooltipStat("Style", displayStyle)}
       ${tooltipStat("Cost", `$${stats.unitCost}`)}
       ${state.purchaseQuantity > 1 ? tooltipStat("Total", `$${optionState.totalCost}`) : ""}
       ${tooltipStat("Hull", formatHull(stats.maxHp))}

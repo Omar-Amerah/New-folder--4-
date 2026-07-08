@@ -53,6 +53,11 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[DEBUG] Spawning ship ${ship.id} for player ${player.id} with combatStyle: ${ship.combatStyle}`);
+  }
+
   return ship;
 }
 
