@@ -28,6 +28,20 @@ window.addEventListener("keyup", (event) => state.keys.delete(event.key.toLowerC
 dom.createButton.addEventListener("click", createGame);
 dom.joinButton.addEventListener("click", joinExistingGame);
 dom.deployButton.addEventListener("click", deployDesign);
+dom.blueprintCostBanner?.addEventListener("click", () => {
+  if (dom.blueprintCostBreakdown) {
+    dom.blueprintCostBreakdown.hidden = !dom.blueprintCostBreakdown.hidden;
+  }
+});
+dom.combatStyleSelect?.addEventListener("change", (e) => {
+  state.combatStyle = e.target.value;
+  import("./design/blueprintStorage.js").then((mod) => {
+    mod.persistDesign(state.design, state.combatStyle);
+  });
+  if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
+    send({ type: "deploy", design: state.design, combatStyle: state.combatStyle });
+  }
+});
 dom.saveDesignButton?.addEventListener("click", () => {
   import("./ui/savedBlueprintsUi.js").then((mod) => {
     mod.saveCurrentDesign();

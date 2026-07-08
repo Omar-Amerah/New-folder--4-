@@ -72,6 +72,8 @@ function handleMessage(client, message) {
     }
     client.player.design = design.modules;
     client.player.stats = design.stats;
+    const allowedStyles = ["charge", "hold", "circle"];
+    client.player.combatStyle = allowedStyles.includes(message.combatStyle) ? message.combatStyle : "charge";
     client.room.lastStaticSnapshotAt = 0;
     if (client.room.phase === "design") {
       client.player.ready = true;

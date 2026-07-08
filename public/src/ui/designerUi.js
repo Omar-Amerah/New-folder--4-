@@ -73,7 +73,7 @@ export function editCell(x, y) {
     }
   }
 
-  persistDesign(state.design);
+  persistDesign(state.design, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
@@ -85,7 +85,7 @@ export function rotateCell(x, y) {
   state.design = state.design.map((candidate) => candidate === part
     ? { ...candidate, rotation: (normalizeRotation(candidate.rotation) + 90) % 360 }
     : candidate);
-  persistDesign(state.design);
+  persistDesign(state.design, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
@@ -104,7 +104,7 @@ export function removeCell(x, y) {
   const next = state.design.filter((part) => part.x !== x || part.y !== y);
   if (isConnected(next)) {
     state.design = next;
-    persistDesign(state.design);
+    persistDesign(state.design, state.combatStyle);
     renderBuildGrid();
     renderLocalStats();
     renderSavedDesigns();
@@ -118,7 +118,7 @@ export function removeCell(x, y) {
 export function resetDesign() {
   state.design = defaultDesign();
   state.loadedEditorBlueprintId = null;
-  persistDesign(state.design);
+  persistDesign(state.design, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
@@ -127,7 +127,7 @@ export function resetDesign() {
 export function clearDesign() {
   state.design = [];
   state.loadedEditorBlueprintId = null;
-  persistDesign(state.design);
+  persistDesign(state.design, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
@@ -140,6 +140,9 @@ export function renderLocalStats() {
   const money = currentMatchMoney(mine);
   const canAfford = money >= stats.unitCost;
   
+  if (dom.combatStyleSelect) {
+    dom.combatStyleSelect.value = state.combatStyle || "charge";
+  }
   if (dom.saveDesignButton) {
     const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
     dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
@@ -173,9 +176,12 @@ export function renderLocalStats() {
     stats.coolingBonus > 0 ? statMarkup("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
     stats.captureBonus > 0 ? statMarkup("Capture", `+${formatPercent(stats.captureBonus)}`) : "",
     statMarkup("Repair", formatRepair(stats.repairRate)),
-    statMarkup("Mass", formatMass(stats.mass)),
-    costBreakdownMarkup(stats.costBreakdown)
+    statMarkup("Mass", formatMass(stats.mass))
   ].join("");
+
+  if (dom.blueprintCostBreakdown) {
+    dom.blueprintCostBreakdown.innerHTML = costBreakdownInnerMarkup(stats.costBreakdown);
+  }
 
   renderShipIssues(status);
   setBuildStatus(status.blockers.length ? status.blockers[0] : stats.warnings.length ? stats.warnings[0] : "Blueprint ready", status.blockers.length ? "error" : stats.warnings.length ? "warning" : "good");
@@ -241,7 +247,7 @@ function statMarkup(label, value) {
   return `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
-function costBreakdownMarkup(breakdown) {
+function costBreakdownInnerMarkup(breakdown) {
   if (!breakdown) return "";
   const rows = [
     ["Base", breakdown.base],
@@ -254,19 +260,13 @@ function costBreakdownMarkup(breakdown) {
     ["Size tax", breakdown.sizeTax]
   ];
   return `
-    <details class="stat cost-breakdown">
-      <summary>
-        <span>Cost Breakdown</span>
-        <strong>$${breakdown.total}</strong>
-      </summary>
-      <div class="cost-breakdown-grid">
-        ${rows.map(([label, value]) => `
-          <div>
-            <span>${label}</span>
-            <strong>$${value}</strong>
-          </div>
-        `).join("")}
-      </div>
-    </details>
+    <div class="cost-breakdown-grid">
+      ${rows.map(([label, value]) => `
+        <div>
+          <span>${label}</span>
+          <strong>$${value}</strong>
+        </div>
+      `).join("")}
+    </div>
   `;
 }

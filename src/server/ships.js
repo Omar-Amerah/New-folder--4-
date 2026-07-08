@@ -26,6 +26,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     vx: 0,
     vy: 0,
     angle: spawn.angle,
+    combatStyle: options.combatStyle || "charge",
     targetX: spawnPoint.x,
     targetY: spawnPoint.y,
     arrived: true,

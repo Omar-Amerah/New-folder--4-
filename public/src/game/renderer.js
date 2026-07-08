@@ -42,21 +42,27 @@ export function interpolateShips(dt, now) {
     }
 
     for (const ship of snap.ships) {
+      if (ship.originalX === undefined) {
+        ship.originalX = ship.x;
+        ship.originalY = ship.y;
+        ship.originalAngle = ship.angle;
+      }
+
       let vis = state.visualShips.get(ship.id);
       if (!vis) {
-        vis = { x: ship.x, y: ship.y, angle: ship.angle };
+        vis = { x: ship.originalX, y: ship.originalY, angle: ship.originalAngle };
         state.visualShips.set(ship.id, vis);
       } else {
         const t = 1 - Math.exp(-22 * dt);
-        const distSq = (ship.x - vis.x) ** 2 + (ship.y - vis.y) ** 2;
+        const distSq = (ship.originalX - vis.x) ** 2 + (ship.originalY - vis.y) ** 2;
         if (distSq > 300 * 300) {
-          vis.x = ship.x;
-          vis.y = ship.y;
-          vis.angle = ship.angle;
+          vis.x = ship.originalX;
+          vis.y = ship.originalY;
+          vis.angle = ship.originalAngle;
         } else {
-          vis.x += (ship.x - vis.x) * t;
-          vis.y += (ship.y - vis.y) * t;
-          vis.angle += angleDifference(vis.angle, ship.angle) * t;
+          vis.x += (ship.originalX - vis.x) * t;
+          vis.y += (ship.originalY - vis.y) * t;
+          vis.angle += angleDifference(vis.angle, ship.originalAngle) * t;
         }
       }
       ship.x = vis.x;
@@ -1375,7 +1381,7 @@ export function drawRespawn(ship) {
 }
 
 export function drawMinimap(rect) {
-  if (state.phase !== "active") {
+  if (!state.snapshot) {
     state.minimap = null;
     return;
   }
@@ -1389,11 +1395,11 @@ export function drawMinimap(rect) {
   ctx.fillStyle = "rgba(7,12,20,0.78)";
   ctx.strokeStyle = "rgba(174,199,231,0.25)";
   ctx.lineWidth = 1;
-  roundRect(ctx, { x, y, w, h, radius: 8 });
+  roundRect(ctx, { x, y, width: w, height: h, radius: 8 });
   ctx.fill();
   ctx.stroke();
   ctx.beginPath();
-  roundRect(ctx, { x, y, w, h, radius: 8 });
+  roundRect(ctx, { x, y, width: w, height: h, radius: 8 });
   ctx.clip();
 
   const sx = w / state.world.width;

@@ -38,7 +38,7 @@ export function renderSavedDesigns() {
       <div class="saved-design-head">
         <input class="saved-design-name" value="${escapeHtml(saved.name)}" maxlength="28" aria-label="Blueprint name">
       </div>
-      <div class="saved-design-summary">Cost $${stats.unitCost} · Weapons (${weaponAbbrevText(stats)}) · Speed ${formatSpeed(Math.round(stats.maxSpeed))}</div>
+      <div class="saved-design-summary">Style: ${saved.combatStyle || "charge"} · Cost $${stats.unitCost} · Weapons (${weaponAbbrevText(stats)}) · Speed ${formatSpeed(Math.round(stats.maxSpeed))}</div>
       <div class="saved-design-actions">
         <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Use/Edit</button>
         <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}">Delete</button>
@@ -190,11 +190,16 @@ function loadSavedDesign(id) {
   if (!saved) return;
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
+  state.combatStyle = saved.combatStyle || "charge";
   state.loadedEditorBlueprintId = saved.id;
+  
+  if (dom.combatStyleSelect) {
+    dom.combatStyleSelect.value = state.combatStyle;
+  }
   
   // Save design to localStorage v2
   import("../design/blueprintStorage.js").then((mod) => {
-    mod.persistDesign(state.design);
+    mod.persistDesign(state.design, state.combatStyle);
   });
 
   // Re-draw grid and update UI
@@ -221,6 +226,7 @@ export function saveCurrentDesign() {
     state.savedDesigns = state.savedDesigns.map((design) => design.id === existing.id ? {
       ...design,
       blueprint,
+      combatStyle: state.combatStyle || "charge",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
       speed: Math.round(stats.maxSpeed),
@@ -238,6 +244,7 @@ export function saveCurrentDesign() {
       id,
       name,
       blueprint,
+      combatStyle: state.combatStyle || "charge",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
       speed: Math.round(stats.maxSpeed),
@@ -251,7 +258,7 @@ export function saveCurrentDesign() {
   persistSavedDesigns(state.savedDesigns);
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: blueprint });
+    send({ type: "deploy", design: blueprint, combatStyle: state.combatStyle || "charge" });
   }
 
   renderSavedDesigns();

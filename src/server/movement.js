@@ -50,28 +50,80 @@ function formationOffset(index, count, spacing, formation) {
 
 function updateShipMovement(room, ship, dt) {
   const stats = ship.stats;
+  const style = ship.combatStyle || "charge";
 
-  // Chase and stop at weapon range if focused on an enemy target
-  if (ship.focusTargetId) {
-    const focusTarget = room.ships.get(ship.focusTargetId);
+  // Determine active target (focus target takes priority, auto-target matches combat style if ship is arrived/idle)
+  const activeTargetId = ship.focusTargetId || (ship.arrived ? ship.combatTargetId : null);
+  const hasActiveTarget = activeTargetId && room.ships.has(activeTargetId);
+
+  // Chase and stop/hold/circle depending on combatStyle if focused on an enemy target
+  if (hasActiveTarget) {
+    const focusTarget = room.ships.get(activeTargetId);
     if (focusTarget && focusTarget.alive) {
-      // Keep destination target coordinates updated to focus target position
-      ship.targetX = focusTarget.x;
-      ship.targetY = focusTarget.y;
-
       const distToTarget = Math.hypot(focusTarget.x - ship.x, focusTarget.y - ship.y);
       const maxRange = Math.max(stats.blasterRange || 0, stats.missileRange || 0, stats.railgunRange || 0, stats.beamRange || 0);
 
       if (maxRange > 0) {
-        if (distToTarget <= maxRange * 0.88) {
-          ship.arrived = true;
-        } else if (distToTarget > maxRange * 0.95) {
+        if (style === "circle") {
+          // Reset orbit direction if target changed
+          if (ship.lastOrbitTargetId !== activeTargetId) {
+            ship.orbitDir = undefined;
+            ship.lastOrbitTargetId = activeTargetId;
+          }
+
+          // Orbit/circle target at 75% of maxRange
+          const orbitRadius = Math.max(80, maxRange * 0.75);
+          const angleToShip = Math.atan2(ship.y - focusTarget.y, ship.x - focusTarget.x);
+
+          // Determine starting orbit direction based on current heading/tangent alignment
+          if (ship.orbitDir === undefined) {
+            const fx = Math.cos(ship.angle);
+            const fy = Math.sin(ship.angle);
+            const dx = ship.x - focusTarget.x;
+            const dy = ship.y - focusTarget.y;
+            const dot = -dy * fx + dx * fy;
+            ship.orbitDir = dot >= 0 ? 1 : -1;
+          }
+
+          const orbitAngle = angleToShip + 0.42 * ship.orbitDir;
+          ship.targetX = focusTarget.x + Math.cos(orbitAngle) * orbitRadius;
+          ship.targetY = focusTarget.y + Math.sin(orbitAngle) * orbitRadius;
           ship.arrived = false;
+        } else if (style === "hold") {
+          // Stop at 90% of maxRange (Keep distance)
+          ship.targetX = focusTarget.x;
+          ship.targetY = focusTarget.y;
+          if (distToTarget <= maxRange * 0.9) {
+            ship.arrived = true;
+          } else if (distToTarget > Math.max(distToTarget, maxRange * 0.96)) {
+            ship.arrived = false;
+          }
+        } else {
+          // charge: approach closer, stop at 50% maxRange
+          ship.targetX = focusTarget.x;
+          ship.targetY = focusTarget.y;
+          if (distToTarget <= maxRange * 0.5) {
+            ship.arrived = true;
+          } else if (distToTarget > maxRange * 0.65) {
+            ship.arrived = false;
+          }
+        }
+      } else {
+        // Ram directly if no weapons
+        ship.targetX = focusTarget.x;
+        ship.targetY = focusTarget.y;
+        if (distToTarget <= 16) {
+          ship.arrived = true;
         }
       }
     } else {
-      ship.focusTargetId = null;
+      if (ship.focusTargetId) ship.focusTargetId = null;
+      ship.orbitDir = undefined;
+      ship.lastOrbitTargetId = null;
     }
+  } else {
+    ship.orbitDir = undefined;
+    ship.lastOrbitTargetId = null;
   }
 
   const dx = ship.targetX - ship.x;
@@ -82,9 +134,48 @@ function updateShipMovement(room, ship, dt) {
     ship.arrived = distance <= 16;
   }
 
-  if (!ship.arrived) {
-    if (distance > 16) {
-      const desired = Math.atan2(dy, dx);
+  const isCircleOrbit = style === "circle" && hasActiveTarget;
+
+  if (!ship.arrived || isCircleOrbit) {
+    if (distance > 16 || isCircleOrbit) {
+      let desired = Math.atan2(dy, dx);
+
+      // Obstacle avoidance: check if any asteroid blocks our forward path
+      const speed = Math.hypot(ship.vx, ship.vy);
+      const lookahead = Math.max(120, speed * 0.8 + 60);
+      const nx = Math.cos(ship.angle);
+      const ny = Math.sin(ship.angle);
+
+      let closestAsteroid = null;
+      let closestDist = Infinity;
+
+      for (const asteroid of room.map?.asteroids || []) {
+        const ax = asteroid.x - ship.x;
+        const ay = asteroid.y - ship.y;
+        const dot = ax * nx + ay * ny;
+
+        // If asteroid is behind or beyond our lookahead limit, ignore
+        if (dot < 0 || dot > lookahead) continue;
+
+        const lat = ax * (-ny) + ay * nx;
+        const avoidRadius = asteroid.radius + ship.radius + 32;
+
+        if (Math.abs(lat) < avoidRadius) {
+          if (dot < closestDist) {
+            closestDist = dot;
+            closestAsteroid = { asteroid, lat, avoidRadius };
+          }
+        }
+      }
+
+      if (closestAsteroid) {
+        const { asteroid, lat, avoidRadius } = closestAsteroid;
+        const steerDir = lat >= 0 ? -1 : 1;
+        const sideX = asteroid.x + (-ny) * avoidRadius * steerDir;
+        const sideY = asteroid.y + nx * avoidRadius * steerDir;
+        desired = Math.atan2(sideY - ship.y, sideX - ship.x);
+      }
+
       ship.angle = rotateToward(ship.angle, desired, stats.turnRate * dt);
 
       const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
@@ -103,7 +194,7 @@ function updateShipMovement(room, ship, dt) {
     }
   }
 
-  const damping = ship.arrived ? 0.8 : (distance < 85 ? 0.9 : 0.985);
+  const damping = (ship.arrived && !isCircleOrbit) ? 0.8 : ((distance < 85 && !isCircleOrbit) ? 0.9 : 0.985);
   ship.vx *= Math.pow(damping, dt * 60);
   ship.vy *= Math.pow(damping, dt * 60);
 

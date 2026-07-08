@@ -33,11 +33,20 @@
           </div>
           <div id="partPalette" class="part-palette" aria-label="Ship parts"></div>
           <div id="partInspector" class="part-inspector"></div>
-          <div class="blueprint-cost-banner" aria-live="polite">
+          <div class="combat-style-selector">
+            <label for="combatStyleSelect">Combat Movement Style</label>
+            <select id="combatStyleSelect">
+              <option value="charge">Charge (Approach closer)</option>
+              <option value="hold">Hold (Stay at max range)</option>
+              <option value="circle">Circle (Orbit target)</option>
+            </select>
+          </div>
+          <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite">
             <span>Current ship cost</span>
             <strong id="blueprintCostLabel">$0</strong>
             <em id="blueprintCostStatus">Ready</em>
           </div>
+          <div id="blueprintCostBreakdown" class="blueprint-cost-breakdown" hidden></div>
           <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
           <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
           <div id="buildStatus" class="build-status"></div>

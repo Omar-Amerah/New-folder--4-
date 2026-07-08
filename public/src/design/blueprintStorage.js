@@ -48,14 +48,26 @@ export function normalizeDesign(input) {
 export function loadDesign() {
   try {
     const saved = JSON.parse(localStorage.getItem(LOCAL_DESIGN_KEY) || "null");
-    return normalizeDesign(saved);
+    if (saved && !Array.isArray(saved) && Array.isArray(saved.modules)) {
+      return {
+        modules: normalizeDesign(saved.modules),
+        combatStyle: saved.combatStyle || "charge"
+      };
+    }
+    return {
+      modules: normalizeDesign(saved),
+      combatStyle: "charge"
+    };
   } catch {
-    return normalizeDesign(null);
+    return {
+      modules: normalizeDesign(null),
+      combatStyle: "charge"
+    };
   }
 }
 
-export function persistDesign(design) {
-  localStorage.setItem(LOCAL_DESIGN_KEY, JSON.stringify(design));
+export function persistDesign(design, combatStyle = "charge") {
+  localStorage.setItem(LOCAL_DESIGN_KEY, JSON.stringify({ modules: design, combatStyle }));
 }
 
 export function loadSavedDesigns() {
@@ -66,6 +78,7 @@ export function loadSavedDesigns() {
       id: String(design.id || `saved-${index}`),
       name: String(design.name || `Design ${index + 1}`).slice(0, 28),
       blueprint: normalizeDesign(design.blueprint),
+      combatStyle: design.combatStyle || "charge",
       cost: Number(design.cost) || 0,
       weapons: String(design.weapons || "0/0/0"),
       speed: Number(design.speed) || 0,
