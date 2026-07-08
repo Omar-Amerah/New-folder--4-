@@ -321,12 +321,30 @@ export function renderPurchaseBar() {
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
   dom.purchaseQuantityFive?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 5));
-  dom.purchaseOptions.textContent = "";
 
-  for (const option of getPurchaseOptions()) {
+  const options = getPurchaseOptions();
+  const existingCards = Array.from(dom.purchaseOptions.children);
+
+  // Remove excess cards
+  while (existingCards.length > options.length) {
+    existingCards.pop().remove();
+  }
+
+  options.forEach((option, index) => {
     const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
-    const card = document.createElement("button");
-    card.type = "button";
+
+    let card = existingCards[index];
+    if (!card) {
+      card = document.createElement("button");
+      card.type = "button";
+      card.addEventListener("mouseenter", (event) => showPurchaseTooltip(event.currentTarget.dataset.optionId, event));
+      card.addEventListener("mousemove", (event) => positionPurchaseTooltip(event));
+      card.addEventListener("mouseleave", hidePurchaseTooltip);
+      card.addEventListener("focus", (event) => showPurchaseTooltip(event.currentTarget.dataset.optionId, event));
+      card.addEventListener("blur", hidePurchaseTooltip);
+      dom.purchaseOptions.appendChild(card);
+    }
+
     card.className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
     card.setAttribute?.("aria-disabled", String(!optionState.canBuy));
     if (card.dataset) card.dataset.optionId = option.id;
@@ -336,13 +354,7 @@ export function renderPurchaseBar() {
       <small>${weaponSummaryText(option.stats)}</small>
       <em>${optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : escapeHtml(optionState.reason)}</em>
     `;
-    card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
-    card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
-    card.addEventListener?.("mouseleave", hidePurchaseTooltip);
-    card.addEventListener?.("focus", (event) => showPurchaseTooltip(option.id, event));
-    card.addEventListener?.("blur", hidePurchaseTooltip);
-    dom.purchaseOptions.appendChild(card);
-  }
+  });
 }
 
 export function purchaseCostText(option, optionState) {
