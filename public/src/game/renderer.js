@@ -192,14 +192,36 @@ export function drawNebula(cloud) {
   ctx.save();
   ctx.translate(cloud.x, cloud.y);
   ctx.rotate(cloud.rotation || 0);
-  const gradient = ctx.createRadialGradient(0, 0, Math.min(rx, ry) * 0.1, 0, 0, rx);
-  gradient.addColorStop(0, `rgba(${color}, ${alpha})`);
-  gradient.addColorStop(0.52, `rgba(${color}, ${alpha * 0.42})`);
-  gradient.addColorStop(1, `rgba(${color}, 0)`);
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
+
+  // Use seeded pseudo-random for consistent blob placement inside the nebula
+  let seed = Math.abs(Math.floor(cloud.x * 1000 + cloud.y));
+  const prng = () => {
+    seed = (seed + 0x6D2B79F5) >>> 0;
+    let mixed = seed;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const blobCount = 4 + Math.floor(prng() * 3);
+  for (let i = 0; i < blobCount; i++) {
+    const angle = prng() * Math.PI * 2;
+    const distance = prng() * 0.5;
+    const cx = Math.cos(angle) * (rx * distance);
+    const cy = Math.sin(angle) * (ry * distance);
+    const blobRadius = Math.min(rx, ry) * (0.6 + prng() * 0.6);
+
+    const gradient = ctx.createRadialGradient(cx, cy, blobRadius * 0.1, cx, cy, blobRadius);
+    gradient.addColorStop(0, `rgba(${color}, ${alpha * (0.8 + prng() * 0.4)})`);
+    gradient.addColorStop(0.5, `rgba(${color}, ${alpha * 0.5 * (0.5 + prng() * 0.5)})`);
+    gradient.addColorStop(1, `rgba(${color}, 0)`);
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(cx, cy, blobRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   ctx.restore();
 }
 
