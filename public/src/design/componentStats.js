@@ -260,32 +260,40 @@ export function shipWarnings(stats) {
 }
 
 export function estimatePartEffectiveCost(type, design) {
-  const baseDesign = Array.isArray(design) ? design.map((part) => ({ ...part })) : [];
-  const current = computeStats(baseDesign);
+  const current = computeStats(design);
   const occupied = new Set();
-  for (let i = 0; i < baseDesign.length; i += 1) {
-    occupied.add(`${baseDesign[i].x},${baseDesign[i].y}`);
+  for (let i = 0; i < design.length; i++) {
+    occupied.add(`${design[i].x},${design[i].y}`);
   }
 
-  const dx = [1, -1, 0, 0];
-  const dy = [0, 0, 1, -1];
+  const testPart = { x: 0, y: 0, type };
+  design.push(testPart);
 
-  for (let i = 0; i < baseDesign.length; i += 1) {
-    const part = baseDesign[i];
-    for (let d = 0; d < 4; d += 1) {
+  for (let i = 0; i < design.length - 1; i++) {
+    const part = design[i];
+
+    const dx = [1, -1, 0, 0];
+    const dy = [0, 0, 1, -1];
+
+    for (let d = 0; d < 4; d++) {
       const cx = part.x + dx[d];
       const cy = part.y + dy[d];
+
       if (cx < 0 || cx > 6 || cy < 0 || cy > 6) continue;
       if (occupied.has(`${cx},${cy}`)) continue;
 
-      const candidate = [...baseDesign, { x: cx, y: cy, type }];
-      if (isConnected(candidate)) {
-        const updated = computeStats(candidate);
-        return Math.max(0, updated.unitCost - current.unitCost);
-      }
+      testPart.x = cx;
+      testPart.y = cy;
+
+      if (!isConnected(design)) continue;
+
+      const updated = computeStats(design);
+      design.pop();
+      return Math.max(0, updated.unitCost - current.unitCost);
     }
   }
 
+  design.pop();
   return estimateFormulaPartCost(type);
 }
 
