@@ -337,6 +337,20 @@ function updateShipWeapons(room, ship, ships, dt, now) {
          });
          const reload = (1 / part.weapon.fireRate) / Math.max(0.1, fireRateMultiplier);
          ship.weaponCooldowns[i] = Math.max(0.05, reload);
+
+         const pdCount = (ship.design || []).filter(m => PARTS[m.type]?.weapon?.type === "pointDefense").length || 1;
+         if (pdCount > 1) {
+           const stagger = reload / pdCount;
+           (ship.design || []).forEach((otherModule, j) => {
+             if (i === j) return;
+             const otherPart = PARTS[otherModule.type];
+             if (otherPart?.weapon?.type === "pointDefense") {
+               if (ship.weaponCooldowns[j] < stagger) {
+                 ship.weaponCooldowns[j] = stagger;
+               }
+             }
+           });
+         }
       }
     } else if (family === "railgun") {
       const speed = part.weapon.projectileSpeed || 1080;
