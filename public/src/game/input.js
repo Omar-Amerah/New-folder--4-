@@ -21,6 +21,21 @@ export function handlePointerDown(event) {
     return;
   }
 
+  // Camera panning using Middle Mouse Button (1) or Spacebar + Left Mouse Button (0)
+  const isPanButton = event.button === 1 || (event.button === 0 && state.keys.has(" "));
+  if (isPanButton) {
+    event.preventDefault();
+    state.camDrag = {
+      pointerId: event.pointerId,
+      startCameraX: state.camera.x,
+      startCameraY: state.camera.y,
+      startClientX: event.clientX,
+      startClientY: event.clientY
+    };
+    state.camera.follow = false;
+    return;
+  }
+
   if (event.button !== 0) return;
 
   const mini = minimapWorldAt(event.clientX, event.clientY);
@@ -45,6 +60,17 @@ export function handlePointerDown(event) {
 
 export function handlePointerMove(event) {
   state.pointer = { x: event.clientX, y: event.clientY };
+
+  // Handle active camera panning
+  if (state.camDrag && state.camDrag.pointerId === event.pointerId) {
+    event.preventDefault();
+    const dx = (event.clientX - state.camDrag.startClientX) / state.camera.zoom;
+    const dy = (event.clientY - state.camDrag.startClientY) / state.camera.zoom;
+    state.camera.x = clamp(state.camDrag.startCameraX - dx, 0, state.world?.width || 2000);
+    state.camera.y = clamp(state.camDrag.startCameraY - dy, 0, state.world?.height || 2000);
+    return;
+  }
+
   if (!state.drag || state.drag.pointerId !== event.pointerId) return;
   state.drag.currentClientX = event.clientX;
   state.drag.currentClientY = event.clientY;
@@ -52,6 +78,12 @@ export function handlePointerMove(event) {
 }
 
 export function handlePointerUp(event) {
+  if (state.camDrag && state.camDrag.pointerId === event.pointerId) {
+    event.preventDefault();
+    state.camDrag = null;
+    return;
+  }
+
   if (!state.drag || state.drag.pointerId !== event.pointerId) return;
   const drag = state.drag;
   state.drag = null;
