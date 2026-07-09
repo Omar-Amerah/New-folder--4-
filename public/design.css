@@ -1885,3 +1885,18 @@
   flex-shrink: 0;
   margin-bottom: 20px;
 }
+.build-preview {
+  pointer-events: none;
+  z-index: 10;
+  border-radius: 5px;
+  border: 2px solid;
+  transition: all 0.1s;
+}
+.build-preview.valid {
+  background: rgba(0, 255, 0, 0.2);
+  border-color: rgba(0, 255, 0, 0.6);
+}
+.build-preview.invalid {
+  background: rgba(255, 0, 0, 0.2);
+  border-color: rgba(255, 0, 0, 0.6);
+}

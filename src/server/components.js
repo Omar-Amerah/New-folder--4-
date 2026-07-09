@@ -810,7 +810,8 @@ function normalizeBalanceComponent(component) {
     decoyConfuseDuration: toNumber(component.decoyConfuseDuration, 0),
     decoyChance: toNumber(component.decoyChance, 0),
     frontDamageReduction: toNumber(component.frontDamageReduction, 0),
-    frontArc: toNumber(component.frontArc, 0)
+    frontArc: toNumber(component.frontArc, 0),
+    footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
 
   if (weapon) part[weapon.type] = 1;

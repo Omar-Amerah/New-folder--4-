@@ -24,12 +24,15 @@ export function renderPartInspector() {
     tipHtml = `<div class="part-inspector-tip">Tip: hover a placed matching weapon and press R to rotate.</div>`;
   }
 
+  const footprint = stat.footprint || { width: 1, height: 1 };
+  const footprintText = `${footprint.width}x${footprint.height}`;
+
   dom.partInspector.innerHTML = `
     <div class="part-inspector-title">
       ${partIconMarkup(type, "inspector-glyph")}
       <strong>${escapeHtml(def.name)}</strong>
     </div>
-    <div class="part-category-label">${escapeHtml(partCategory(type))}</div>
+    <div class="part-category-label">${escapeHtml(partCategory(type))} | Size: ${footprintText}</div>
     <p class="part-description">${escapeHtml(enrichedDesc)}</p>
     <div class="part-inspector-grid">
       ${inspectorStat("Cost", effectiveCost)}

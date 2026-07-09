@@ -134,7 +134,7 @@ const MAP_CLOUD_COLORS = [
 
 const DEFAULT_DESIGN = Object.freeze([
   { x: 7, y: 7, type: "core" },
-  { x: 7, y: 8, type: "reactor" },
+  { x: 7, y: 8, type: "frame" },
   { x: 6, y: 8, type: "engine" },
   { x: 8, y: 8, type: "engine" },
   { x: 6, y: 7, type: "blaster" },

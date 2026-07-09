@@ -4,7 +4,8 @@ import { clamp, softCap } from "../shared/math.js";
 import { PART_STATS } from "./parts.js";
 import { SHIP_ECONOMY } from "../constants.js";
 import { formatPercent } from "./statFormatting.js";
-import { isConnected } from "./blueprintValidation.js";
+import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
+import { getOccupiedCells } from "./footprint.js";
 import { calculateMovementStats, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
 
 export function computeStats(modules) {
@@ -263,8 +264,15 @@ export function estimatePartEffectiveCost(type, design) {
   const baseDesign = Array.isArray(design) ? design.map((part) => ({ ...part })) : [];
   const current = computeStats(baseDesign);
   const occupied = new Set();
+
   for (let i = 0; i < baseDesign.length; i += 1) {
-    occupied.add(`${baseDesign[i].x},${baseDesign[i].y}`);
+    const part = baseDesign[i];
+    const stat = PART_STATS[part.type] || PART_STATS.frame;
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    for (const cell of cells) {
+      occupied.add(`${cell.x},${cell.y}`);
+    }
   }
 
   const dx = [1, -1, 0, 0];
@@ -272,16 +280,22 @@ export function estimatePartEffectiveCost(type, design) {
 
   for (let i = 0; i < baseDesign.length; i += 1) {
     const part = baseDesign[i];
-    for (let d = 0; d < 4; d += 1) {
-      const cx = part.x + dx[d];
-      const cy = part.y + dy[d];
-      if (cx < 0 || cx > 14 || cy < 0 || cy > 14) continue;
-      if (occupied.has(`${cx},${cy}`)) continue;
+    const stat = PART_STATS[part.type] || PART_STATS.frame;
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
 
-      const candidate = [...baseDesign, { x: cx, y: cy, type }];
-      if (isConnected(candidate)) {
-        const updated = computeStats(candidate);
-        return Math.max(0, updated.unitCost - current.unitCost);
+    for (const cell of cells) {
+      for (let d = 0; d < 4; d += 1) {
+        const cx = cell.x + dx[d];
+        const cy = cell.y + dy[d];
+        if (cx < 0 || cx > 14 || cy < 0 || cy > 14) continue;
+        if (occupied.has(`${cx},${cy}`)) continue;
+
+        const candidate = [...baseDesign, { x: cx, y: cy, type }];
+        if (!isOutOfBounds(candidate) && !isOverlapping(candidate) && isConnected(candidate)) {
+          const updated = computeStats(candidate);
+          return Math.max(0, updated.unitCost - current.unitCost);
+        }
       }
     }
   }

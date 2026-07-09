@@ -16,6 +16,7 @@ const srcFiles = [
   "design/rotation.js",
   "design/statFormatting.js",
   "design/parts.js",
+  "design/footprint.js",
   "design/componentStats.js",
   "design/blueprintValidation.js",
   "design/blueprintStorage.js",
