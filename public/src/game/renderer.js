@@ -388,19 +388,29 @@ export function drawRelays(now, players, bounds) {
     ctx.shadowBlur = 0; // reset shadow
 
     // 4. Draw labels
+    const idLabelY = -46 / state.camera.zoom;
+
+    // Draw relay letter badge
+    const badgeWidth = 38 / state.camera.zoom;
+    const badgeHeight = 28 / state.camera.zoom;
+    ctx.fillStyle = "rgba(8, 12, 20, 0.78)";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5 / state.camera.zoom;
+
+    // Rounded rectangle for badge
+    ctx.beginPath();
+    ctx.roundRect(-badgeWidth / 2, idLabelY - badgeHeight / 2, badgeWidth, badgeHeight, 6 / state.camera.zoom);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw relay letter text
     ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#080c14";
-    ctx.lineWidth = 3;
-    ctx.font = `bold ${Math.max(16, 20 / state.camera.zoom)}px system-ui, sans-serif`;
+    ctx.font = `bold ${Math.max(14, 18 / state.camera.zoom)}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    ctx.fillText(point.id, 0, idLabelY);
     
-    // Offset correction for Segoe UI / system-ui centering on Canvas 2D
-    const offsetX = -1.1 / state.camera.zoom;
-    const offsetY = 0.8 / state.camera.zoom;
-    ctx.strokeText(point.id, offsetX, offsetY);
-    ctx.fillText(point.id, offsetX, offsetY);
-    
+    // Draw owner text below relay
     ctx.font = `${Math.max(10, 13 / state.camera.zoom)}px system-ui, sans-serif`;
     const ownerText = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
     
