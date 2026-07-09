@@ -805,6 +805,55 @@ export function drawModule({ x, y, size, color, type, trim }) {
     ctx.moveTo(size * 0.28, -size * 0.28);
     ctx.lineTo(-size * 0.28, size * 0.28);
     ctx.stroke();
+  } else if (type === "halfFrameDiagonal" || type === "halfArmorDiagonal" || type === "halfCompositeArmorDiagonal") {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.46, -size * 0.46);
+    ctx.lineTo(size * 0.46, -size * 0.46);
+    ctx.lineTo(-size * 0.46, size * 0.46);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    if (type === "halfFrameDiagonal") {
+      ctx.strokeStyle = "rgba(255,255,255,0.42)";
+      ctx.lineWidth = Math.max(1, size * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.2, -size * 0.2);
+      ctx.lineTo(size * 0.1, -size * 0.2);
+      ctx.moveTo(-size * 0.2, size * 0.1);
+      ctx.lineTo(-size * 0.2, -size * 0.2);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(255,244,220,0.38)";
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.2, -size * 0.2);
+      ctx.lineTo(size * 0.1, -size * 0.2);
+      ctx.stroke();
+    }
+  } else if (type === "wingFrame" || type === "wingArmor" || type === "wingCompositeArmor") {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.46, -size * 0.46);
+    ctx.lineTo(size * 0.46, 0);
+    ctx.lineTo(-size * 0.46, size * 0.46);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    if (type === "wingFrame") {
+      ctx.strokeStyle = "rgba(255,255,255,0.42)";
+      ctx.lineWidth = Math.max(1, size * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.2, -size * 0.2);
+      ctx.lineTo(size * 0.1, 0);
+      ctx.lineTo(-size * 0.2, size * 0.2);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(255,244,220,0.38)";
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.2, -size * 0.2);
+      ctx.lineTo(size * 0.1, 0);
+      ctx.stroke();
+    }
   } else if (type === "armor") {
     ctx.beginPath();
     ctx.moveTo(-size * 0.42, -size * 0.24);
