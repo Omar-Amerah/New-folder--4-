@@ -332,11 +332,11 @@ export function drawRelays(now, players, bounds) {
     let color = "rgba(180,200,225,0.62)"; // Neutral
     const isSolo = state.rules?.gameMode === "solo";
     const myTeam = state.mine?.team;
+    const owner = point.ownerId ? players.get(point.ownerId) : null;
 
     if (point.ownerTeam && !isSolo) {
       color = (myTeam && point.ownerTeam === myTeam) ? "#38d7ff" : "#ff3838";
-    } else if (point.ownerId) {
-      const owner = players.get(point.ownerId);
+    } else if (owner) {
       if (owner) color = owner.color || color;
     }
 
