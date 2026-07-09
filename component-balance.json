@@ -163,7 +163,11 @@
       "turn": -0.015,
       "energy": 500,
       "repair": 0,
-      "description": "Large energy bank with extra shield capacity and heavy mass."
+      "description": "Large energy bank with extra shield capacity and heavy mass.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "reactor",
@@ -180,7 +184,11 @@
       "turn": 0,
       "energy": 30,
       "repair": 0,
-      "description": "Primary power source for weapons, shields, engines, and support systems."
+      "description": "Primary power source for weapons, shields, engines, and support systems.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "engine",
@@ -198,7 +206,11 @@
       "energy": 0,
       "repair": 0,
       "rotatable": true,
-      "description": "Main propulsion module that adds thrust for speed and acceleration."
+      "description": "Main propulsion module that adds thrust for speed and acceleration.",
+      "footprint": {
+        "width": 1,
+        "height": 2
+      }
     },
     {
       "id": "gyroscope",
@@ -208,7 +220,7 @@
       "mass": 4,
       "hull": 42,
       "powerGeneration": 0,
-      "powerUse": 3.0,
+      "powerUse": 3,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
@@ -243,15 +255,19 @@
       "mass": 10,
       "hull": 48,
       "powerGeneration": 0,
-      "powerUse": 8.0,
+      "powerUse": 8,
       "shield": 125,
       "shadowBlur": 0,
-      "shieldRegen": 4.0,
+      "shieldRegen": 4,
       "thrust": 0,
       "turn": -0.04,
       "energy": 0,
       "repair": 0,
-      "description": "High-power defensive projector. Shields absorb 95% of damage they block. 5% leaks through to hull. Different weapons may deal more or less damage to shields and hull."
+      "description": "High-power defensive projector. Shields absorb 95% of damage they block. 5% leaks through to hull. Different weapons may deal more or less damage to shields and hull.",
+      "footprint": {
+        "width": 2,
+        "height": 2
+      }
     },
     {
       "id": "shield",
@@ -329,7 +345,11 @@
         "hullDamageMultiplier": 0.65
       },
       "rotatable": true,
-      "description": "Medium-short sustained beam weapon with a focused burn path and heavy power draw."
+      "description": "Medium-short sustained beam weapon with a focused burn path and heavy power draw.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "blaster",
@@ -356,7 +376,7 @@
         "tracking": 0,
         "arc": 125,
         "shieldDamageMultiplier": 1.05,
-        "hullDamageMultiplier": 1.0
+        "hullDamageMultiplier": 1
       },
       "rotatable": true,
       "description": "Medium-range general-purpose gun with steady damage."
@@ -388,8 +408,8 @@
         "trackingDelay": 0.22,
         "arc": 220,
         "missileHp": 18,
-        "shieldDamageMultiplier": 1.0,
-        "hullDamageMultiplier": 1.0
+        "shieldDamageMultiplier": 1,
+        "hullDamageMultiplier": 1
       },
       "rotatable": true,
       "description": "Tracking burst weapon with long reach and slow reload."
@@ -422,7 +442,11 @@
         "hullDamageMultiplier": 1.55
       },
       "rotatable": true,
-      "description": "Long-range precision weapon with high damage and narrow arc."
+      "description": "Long-range precision weapon with high damage and narrow arc.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "swarmMissile",
@@ -480,7 +504,7 @@
         "projectileSpeed": 220,
         "accuracy": 0.55,
         "tracking": 0.2,
-        "trackTime": 1.0,
+        "trackTime": 1,
         "trackingDelay": 0.5,
         "arc": 150,
         "missileHp": 50,
@@ -488,7 +512,11 @@
         "hullDamageMultiplier": 1.65
       },
       "rotatable": true,
-      "description": "Heavy slow missile for cracking large ships."
+      "description": "Heavy slow missile for cracking large ships.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "fireControl",
@@ -553,13 +581,13 @@
       "mass": 8,
       "hull": 52,
       "powerGeneration": 0,
-      "powerUse": 6.0,
+      "powerUse": 6,
       "shield": 18,
       "shieldRegen": 0.15,
       "thrust": 0,
       "turn": -0.02,
       "energy": 0,
-      "repair": 8.0,
+      "repair": 8,
       "description": "Heavy repair system with stronger but limited hull recovery."
     },
     {
@@ -627,7 +655,7 @@
       "mass": 4,
       "hull": 30,
       "powerGeneration": 0,
-      "powerUse": 3.0,
+      "powerUse": 3,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
@@ -665,7 +693,7 @@
       "mass": 4,
       "hp": 38,
       "powerGeneration": 0,
-      "powerUse": 3.0,
+      "powerUse": 3,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
@@ -747,7 +775,7 @@
       "weapon": {
         "family": "pointDefense",
         "damage": 52,
-        "fireRate": 1.0,
+        "fireRate": 1,
         "range": 520,
         "projectileSpeed": 1750,
         "accuracy": 0.92,

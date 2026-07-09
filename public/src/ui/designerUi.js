@@ -4,7 +4,8 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
 import { normalizeRotation } from "../design/rotation.js";
-import { isConnected, explainConnectionProblem } from "../design/blueprintValidation.js";
+import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
+import { getOccupiedCells, footprintIncludes } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
 import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { showToast } from "./toastUi.js";
@@ -16,14 +17,48 @@ import { escapeHtml } from "../shared/formatting.js";
 
 export function renderBuildGrid() {
   dom.grid.textContent = "";
-  const byCell = new Map(state.design.map((part) => [`${part.x},${part.y}`, part]));
+
+  // Find which cells are already covered by the extension of some component
+  const coveredCells = new Set();
+  const byCell = new Map();
+  for (const part of state.design) {
+    byCell.set(`${part.x},${part.y}`, part);
+    const stat = PART_STATS[part.type] || PART_STATS.frame;
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    for (const c of cells) {
+      if (c.x !== part.x || c.y !== part.y) {
+        coveredCells.add(`${c.x},${c.y}`);
+      }
+    }
+  }
 
   for (let y = 0; y < 15; y += 1) {
     for (let x = 0; x < 15; x += 1) {
+      const isCovered = coveredCells.has(`${x},${y}`);
+      if (isCovered) continue; // Skip rendering separate cell for extensions
+
       const part = byCell.get(`${x},${y}`);
       const cell = document.createElement("button");
       cell.type = "button";
       cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
+
+      let width = 1;
+      let height = 1;
+
+      if (part) {
+        const stat = PART_STATS[part.type] || PART_STATS.frame;
+        const footprint = stat.footprint || { width: 1, height: 1 };
+        const rotation = normalizeRotation(part.rotation || 0);
+        const isRotated = rotation === 90 || rotation === 270;
+        width = isRotated ? footprint.height : footprint.width;
+        height = isRotated ? footprint.width : footprint.height;
+      }
+
+      // We position using 1-based indexing for CSS grid lines
+      cell.style.gridColumn = `${x + 1} / span ${width}`;
+      cell.style.gridRow = `${y + 1} / span ${height}`;
+
       cell.title = part
         ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
         : "Empty";
@@ -32,9 +67,13 @@ export function renderBuildGrid() {
       }
       cell.addEventListener("mouseenter", () => {
         state.hoveredCell = { x, y };
+        renderBuildGrid(); // Re-render to show hover preview
       });
       cell.addEventListener("mouseleave", () => {
-        if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) state.hoveredCell = null;
+        if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) {
+          state.hoveredCell = null;
+          renderBuildGrid(); // Re-render to remove hover preview
+        }
       });
       cell.addEventListener("click", () => editCell(x, y));
       cell.addEventListener("contextmenu", (event) => {
@@ -44,29 +83,112 @@ export function renderBuildGrid() {
       dom.grid.appendChild(cell);
     }
   }
+
+  // Draw hover preview
+  if (state.hoveredCell && state.selectedPart) {
+    const existing = findPartAt(state.hoveredCell.x, state.hoveredCell.y);
+    let targetX = existing ? existing.x : state.hoveredCell.x;
+    let targetY = existing ? existing.y : state.hoveredCell.y;
+    let rotation = existing ? existing.rotation : (state.previewRotation || 0);
+
+    // If we're hovering over a part of the same type and it's rotatable, preview the next rotation
+    if (existing && existing.type === state.selectedPart && isRotatablePart(existing.type)) {
+      rotation = (normalizeRotation(rotation) + 90) % 360;
+    }
+
+    const stat = PART_STATS[state.selectedPart] || PART_STATS.frame;
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    const isRotated = rotation === 90 || rotation === 270;
+    const width = isRotated ? footprint.height : footprint.width;
+    const height = isRotated ? footprint.width : footprint.height;
+
+    // Determine validity
+    let isValid = true;
+    const candidatePart = makeDesignPart(targetX, targetY, state.selectedPart, rotation);
+    const nextDesign = existing
+      ? state.design.map(p => p === existing ? candidatePart : p)
+      : [...state.design, candidatePart];
+
+    if (isOutOfBounds(nextDesign) || isOverlapping(nextDesign)) {
+      isValid = false;
+    } else if (!isConnected(nextDesign)) {
+      isValid = false;
+    }
+
+    const preview = document.createElement("div");
+    preview.className = `build-preview ${isValid ? "valid" : "invalid"}`;
+    preview.style.gridColumn = `${targetX + 1} / span ${width}`;
+    preview.style.gridRow = `${targetY + 1} / span ${height}`;
+    dom.grid.appendChild(preview);
+  }
+}
+
+function findPartAt(x, y) {
+  for (const part of state.design) {
+    const stat = PART_STATS[part.type] || PART_STATS.frame;
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    if (footprintIncludes(part.x, part.y, footprint, part.rotation || 0, x, y)) {
+      return part;
+    }
+  }
+  return null;
 }
 
 export function editCell(x, y) {
-  const existing = state.design.find((part) => part.x === x && part.y === y);
+  const existing = findPartAt(x, y);
   if (existing?.type === "core") return;
-  state.selectedCell = { x, y };
+
+  // if clicked on an empty extension cell, target the clicked cell as origin for new part
+  let targetX = existing ? existing.x : x;
+  let targetY = existing ? existing.y : y;
+
+  state.selectedCell = { x: targetX, y: targetY };
 
   if (existing) {
     if (existing.type === state.selectedPart) {
       if (isRotatablePart(existing.type)) {
-        rotateCell(x, y);
+        rotateCell(existing.x, existing.y);
       }
-      // Same type, not rotatable: nothing to do
       return;
     }
-    // Replacing a part keeps the same grid position so connectivity is always preserved
-    state.design = state.design.map((part) => part.x === x && part.y === y ? makeDesignPart(x, y, state.selectedPart, part.rotation) : part);
+    const newPart = makeDesignPart(targetX, targetY, state.selectedPart, isRotatablePart(state.selectedPart) ? (state.previewRotation || 0) : existing.rotation);
+    const next = state.design.map((part) => part === existing ? newPart : part);
+
+    if (isOutOfBounds(next)) {
+      setBuildStatus("Outside build grid", "error");
+      showToast("Outside build grid", "error");
+      return;
+    }
+    if (isOverlapping(next)) {
+      setBuildStatus("Overlaps another component", "error");
+      showToast("Overlaps another component", "error");
+      return;
+    }
+    if (!isConnected(next)) {
+      const message = explainConnectionProblem(state.design.filter(p => p !== existing), state.selectedPart, targetX, targetY, newPart.rotation);
+      setBuildStatus(message, "warning");
+      showToast(message, "warning");
+      return;
+    }
+    state.design = next;
   } else {
-    const next = [...state.design, makeDesignPart(x, y, state.selectedPart)];
+    const newPart = makeDesignPart(targetX, targetY, state.selectedPart, state.previewRotation || 0);
+    const next = [...state.design, newPart];
+
+    if (isOutOfBounds(next)) {
+      setBuildStatus("Outside build grid", "error");
+      showToast("Outside build grid", "error");
+      return;
+    }
+    if (isOverlapping(next)) {
+      setBuildStatus("Overlaps another component", "error");
+      showToast("Overlaps another component", "error");
+      return;
+    }
     if (isConnected(next)) {
       state.design = next;
     } else {
-      const message = explainConnectionProblem(state.design, x, y);
+      const message = explainConnectionProblem(state.design, state.selectedPart, targetX, targetY, newPart.rotation);
       setBuildStatus(message, "warning");
       showToast(message, "warning");
       return;
@@ -82,9 +204,29 @@ export function editCell(x, y) {
 export function rotateCell(x, y) {
   const part = state.design.find((candidate) => candidate.x === x && candidate.y === y);
   if (!part || !isRotatablePart(part.type)) return false;
-  state.design = state.design.map((candidate) => candidate === part
-    ? { ...candidate, rotation: (normalizeRotation(candidate.rotation) + 90) % 360 }
+
+  const newRotation = (normalizeRotation(part.rotation) + 90) % 360;
+  const next = state.design.map((candidate) => candidate === part
+    ? { ...candidate, rotation: newRotation }
     : candidate);
+
+  if (isOutOfBounds(next)) {
+    setBuildStatus("Rotation goes outside build grid", "error");
+    showToast("Rotation goes outside build grid", "error");
+    return false;
+  }
+  if (isOverlapping(next)) {
+    setBuildStatus("Rotation overlaps another component", "error");
+    showToast("Rotation overlaps another component", "error");
+    return false;
+  }
+  if (!isConnected(next)) {
+    setBuildStatus("Rotation breaks connection to core", "error");
+    showToast("Rotation breaks connection to core", "error");
+    return false;
+  }
+
+  state.design = next;
   persistDesign(state.design, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
@@ -95,13 +237,19 @@ export function rotateCell(x, y) {
 export function rotateFocusedPart() {
   const cell = state.hoveredCell || state.selectedCell;
   if (!cell) return;
-  rotateCell(cell.x, cell.y);
+  const part = findPartAt(cell.x, cell.y);
+  if (part) {
+    rotateCell(part.x, part.y);
+  } else if (state.hoveredCell && state.selectedPart) {
+    state.previewRotation = (normalizeRotation(state.previewRotation || 0) + 90) % 360;
+    renderBuildGrid();
+  }
 }
 
 export function removeCell(x, y) {
-  const existing = state.design.find((part) => part.x === x && part.y === y);
+  const existing = findPartAt(x, y);
   if (!existing || existing.type === "core") return;
-  const next = state.design.filter((part) => part.x !== x || part.y !== y);
+  const next = state.design.filter((part) => part !== existing);
   if (isConnected(next)) {
     state.design = next;
     persistDesign(state.design, state.combatStyle);

@@ -852,7 +852,8 @@ export function normalizeRuntimePart(part = {}) {
     decoyConfuseDuration: numberOr(part.decoyConfuseDuration, 0),
     decoyChance: numberOr(part.decoyChance, 0),
     frontDamageReduction: numberOr(part.frontDamageReduction, 0),
-    frontArc: numberOr(part.frontArc, 0)
+    frontArc: numberOr(part.frontArc, 0),
+    footprint: part.footprint ? { width: numberOr(part.footprint.width, 1), height: numberOr(part.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (weapon) normalized[weapon.type] = 1;
   for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
@@ -895,7 +896,8 @@ export function normalizeBalanceComponent(component) {
     decoyConfuseDuration: numberOr(component.decoyConfuseDuration, 0),
     decoyChance: numberOr(component.decoyChance, 0),
     frontDamageReduction: numberOr(component.frontDamageReduction, 0),
-    frontArc: numberOr(component.frontArc, 0)
+    frontArc: numberOr(component.frontArc, 0),
+    footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (weapon) part[weapon.type] = 1;
   for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {

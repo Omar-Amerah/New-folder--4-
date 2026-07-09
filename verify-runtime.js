@@ -66,7 +66,7 @@ async function main() {
     alpha.send({ type: "deploy", design: makeExpensiveDesign() });
     await alpha.waitFor(
       (message) => message.type === "error" && /Need \$/i.test(message.message || ""),
-      "oversized starting ship was not rejected"
+      "unaffordable starting ship was not rejected"
     );
 
     alpha.send({ type: "deploy", design: alpha.defaultDesign });
@@ -177,9 +177,11 @@ function makeExpensiveDesign() {
   const design = [];
   for (let y = 0; y <= 6; y += 1) {
     for (let x = 0; x <= 6; x += 1) {
-      design.push({ x, y, type: x === 3 && y === 3 ? "core" : "railgun" });
+      if (x === 3 && y === 3) continue;
+      design.push({ x, y, type: "interceptorPod" });
     }
   }
+  design.push({ x: 3, y: 3, type: "core" });
   return design;
 }
 

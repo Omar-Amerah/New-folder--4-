@@ -18,7 +18,10 @@ export function renderPalette() {
     tab.addEventListener("click", () => {
       state.selectedPartCategory = category;
       const first = Object.keys(PART_DEFS).find((type) => isPalettePart(type) && partCategory(type) === category);
-      if (first) state.selectedPart = first;
+      if (first) {
+        state.selectedPart = first;
+        state.previewRotation = 0;
+      }
       renderPalette();
       renderPartInspector();
     });
@@ -40,6 +43,7 @@ export function renderPalette() {
     button.addEventListener("click", () => {
       state.selectedPart = type;
       state.selectedPartCategory = partCategory(type);
+      state.previewRotation = 0;
       renderPalette();
       renderPartInspector();
     });

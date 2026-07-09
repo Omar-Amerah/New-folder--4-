@@ -1,14 +1,15 @@
 // Handles localStorage persistence, blueprint validation wrappers, default designs, and formatting migrations.
 
 import { LOCAL_DESIGN_KEY, LOCAL_SAVED_DESIGNS_KEY } from "../constants.js";
-import { PART_DEFS, isRotatablePart } from "./parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { normalizeRotation } from "./rotation.js";
-import { isConnected } from "./blueprintValidation.js";
+import { isConnected, isOutOfBounds, isOverlapping } from "./blueprintValidation.js";
+import { getOccupiedCells } from "./footprint.js";
 
 export function defaultDesign() {
   return [
     { x: 7, y: 7, type: "core" },
-    { x: 7, y: 8, type: "reactor" },
+    { x: 7, y: 8, type: "frame" },
     { x: 6, y: 8, type: "engine" },
     { x: 8, y: 8, type: "engine" },
     { x: 6, y: 7, type: "blaster" },
@@ -34,17 +35,35 @@ export function normalizeDesign(input) {
   const offsetX = oldCore ? 4 : 0;
   const offsetY = oldCore ? 4 : 0;
 
-  const seen = new Set();
+  const occupied = new Set();
   const clean = [];
 
   for (const raw of source) {
     const x = Math.trunc(Number(raw?.x)) + offsetX;
     const y = Math.trunc(Number(raw?.y)) + offsetY;
     const type = String(raw?.type || "");
-    const key = `${x},${y}`;
-    if (x < 0 || x > 14 || y < 0 || y > 14 || !PART_DEFS[type] || seen.has(key)) continue;
-    seen.add(key);
-    clean.push(makeDesignPart(x, y, type, raw?.rotation));
+
+    if (x < 0 || x > 14 || y < 0 || y > 14 || !PART_DEFS[type]) continue;
+
+    const newPart = makeDesignPart(x, y, type, raw?.rotation);
+    const stat = PART_STATS[type] || PART_STATS.frame;
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    const cells = getOccupiedCells(x, y, footprint, newPart.rotation);
+
+    let overlap = false;
+    let outOfBounds = false;
+    for (const cell of cells) {
+      if (cell.x < 0 || cell.x > 14 || cell.y < 0 || cell.y > 14) outOfBounds = true;
+      if (occupied.has(`${cell.x},${cell.y}`)) overlap = true;
+    }
+
+    if (overlap || outOfBounds) continue;
+
+    for (const cell of cells) {
+      occupied.add(`${cell.x},${cell.y}`);
+    }
+
+    clean.push(newPart);
   }
 
   if (clean.filter((part) => part.type === "core").length !== 1 || !isConnected(clean)) return fallback;

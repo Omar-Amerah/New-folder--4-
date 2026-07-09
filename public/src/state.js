@@ -32,6 +32,7 @@ export const state = {
   purchaseQuantity: 1,
   selectedPart: "frame",
   selectedPartCategory: "Structure",
+  previewRotation: 0,
   hoveredCell: null,
   selectedCell: null,
   selectedShipIds: new Set(),
