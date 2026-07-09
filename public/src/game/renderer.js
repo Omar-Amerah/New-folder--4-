@@ -328,8 +328,17 @@ export function drawRelays(now, players, bounds) {
 
   for (const point of snap.points) {
     if (bounds && !isCircleVisible(point.x, point.y, point.radius || 100, bounds)) continue;
-    const owner = point.ownerId ? players.get(point.ownerId) : null;
-    const color = owner?.color || "rgba(180,200,225,0.62)";
+
+    let color = "rgba(180,200,225,0.62)"; // Neutral
+    const isSolo = state.rules?.gameMode === "solo";
+    const myTeam = state.mine?.team;
+
+    if (point.ownerTeam && !isSolo) {
+      color = (myTeam && point.ownerTeam === myTeam) ? "#38d7ff" : "#ff3838";
+    } else if (point.ownerId) {
+      const owner = players.get(point.ownerId);
+      if (owner) color = owner.color || color;
+    }
 
     ctx.save();
     ctx.translate(point.x, point.y);
