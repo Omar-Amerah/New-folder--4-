@@ -156,29 +156,27 @@ function leaveRoom(client, explicitLeave = false) {
 
     player.connected = false;
 
-    if (room.phase === "lobby") {
-      if (explicitLeave) {
-        room.players.delete(player.id);
-        if (room.adminId === player.id) {
-          room.adminId = null;
-        }
-      } else {
-        // Give them a grace period to reconnect if they refreshed during the lobby
-        player.disconnectTimeout = setTimeout(() => {
-          if (!player.connected && room.players.has(player.id)) {
-            room.players.delete(player.id);
-            if (room.adminId === player.id) {
-              room.adminId = null;
-              ensureAdmin(room);
-            }
-            if (room.clients.size > 0) {
-              const { broadcastSnapshot } = require("./messages");
-              broadcastSnapshot(room, performanceNow(), true);
-            }
-            checkEmptyLobby(room);
-          }
-        }, 5000);
+    if (explicitLeave) {
+      room.players.delete(player.id);
+      if (room.adminId === player.id) {
+        room.adminId = null;
       }
+    } else {
+      // Give them a grace period to reconnect if they refreshed
+      player.disconnectTimeout = setTimeout(() => {
+        if (!player.connected && room.players.has(player.id)) {
+          room.players.delete(player.id);
+          if (room.adminId === player.id) {
+            room.adminId = null;
+            ensureAdmin(room);
+          }
+          if (room.clients.size > 0) {
+            const { broadcastSnapshot } = require("./messages");
+            broadcastSnapshot(room, performanceNow(), true);
+          }
+          checkEmptyLobby(room);
+        }
+      }, 5000);
     }
 
     room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
