@@ -75,13 +75,23 @@ export function renderBuildGrid() {
           renderBuildGrid(); // Re-render to remove hover preview
         }
       });
-      cell.addEventListener("click", () => editCell(x, y));
+      cell.dataset.x = String(x);
+      cell.dataset.y = String(y);
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         removeCell(x, y);
       });
       dom.grid.appendChild(cell);
     }
+  }
+
+  if (!dom.grid.dataset.hasDelegatedClick) {
+    dom.grid.addEventListener("click", (event) => {
+      const cell = event.target.closest(".build-cell");
+      if (!cell || !dom.grid.contains(cell)) return;
+      editCell(Number(cell.dataset.x), Number(cell.dataset.y));
+    });
+    dom.grid.dataset.hasDelegatedClick = "true";
   }
 
   // Draw hover preview
