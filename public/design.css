@@ -2053,71 +2053,104 @@
 }
 
 /* Half Diagonal Shapes */
-.part-halfFrameDiagonal,
-.part-halfArmorDiagonal,
-.part-halfCompositeArmorDiagonal {
+.part-halfframediagonal,
+.part-halfarmordiagonal,
+.part-halfcompositearmordiagonal {
   clip-path: polygon(0 0, 100% 0, 0 100%);
 }
 
-.part-halfFrameDiagonal {
+.part-halfframediagonal {
   background: linear-gradient(135deg, #5d6d82, #111926 48%, #9fafc6);
 }
-.part-halfFrameDiagonal::before {
+.part-halfframediagonal::before {
   inset: 5px;
   border: 2px solid rgba(225, 235, 248, 0.42);
   border-radius: 3px;
   clip-path: polygon(0 0, 100% 0, 0 100%);
 }
 
-.part-halfArmorDiagonal {
+.part-halfarmordiagonal {
   background: linear-gradient(145deg, #ffc06f, #d45d3f 58%, #34141a);
 }
-.part-halfArmorDiagonal::before {
+.part-halfarmordiagonal::before {
   inset: 4px;
   background: rgba(255, 244, 220, 0.18);
-  clip-path: polygon(15% 25%, 36% 8%, 86% 22%, 92% 64%, 65% 92%, 10% 75%);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.part-halfarmordiagonal::after {
+  top: 4px;
+  left: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 244, 220, 0.3);
 }
 
-.part-halfCompositeArmorDiagonal {
+.part-halfcompositearmordiagonal {
   background: linear-gradient(160deg, #ffe1a3, #d7a56a 30%, #8f5b32 70%, #2f1d10);
 }
-.part-halfCompositeArmorDiagonal::before {
+.part-halfcompositearmordiagonal::before {
   inset: 4px;
-  background: rgba(255, 244, 220, 0.18);
-  clip-path: polygon(10% 20%, 40% 10%, 90% 25%, 85% 60%, 60% 90%, 15% 80%);
+  background: rgba(255, 225, 163, 0.22);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.part-halfcompositearmordiagonal::after {
+  top: 8px;
+  left: 4px;
+  width: 6px;
+  height: 2px;
+  background: rgba(255, 244, 220, 0.5);
+  transform: rotate(-45deg);
 }
 
 /* Wing Shapes */
-.part-wingFrame,
-.part-wingArmor,
-.part-wingCompositeArmor {
+.part-wingframe,
+.part-wingarmor,
+.part-wingcompositearmor {
   clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
-.part-wingFrame {
+.part-wingframe {
   background: linear-gradient(135deg, #5d6d82, #111926 48%, #9fafc6);
 }
-.part-wingFrame::before {
+.part-wingframe::before {
   inset: 5px;
   border: 2px solid rgba(225, 235, 248, 0.42);
   border-radius: 3px;
   clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
-.part-wingArmor {
+.part-wingarmor {
   background: linear-gradient(145deg, #ffc06f, #d45d3f 58%, #34141a);
 }
-.part-wingArmor::before {
+.part-wingarmor::before {
   inset: 4px;
   background: rgba(255, 244, 220, 0.18);
-  clip-path: polygon(15% 15%, 80% 50%, 15% 85%);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.part-wingarmor::after {
+  top: 50%;
+  left: 6px;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 244, 220, 0.3);
 }
 
-.part-wingCompositeArmor {
+.part-wingcompositearmor {
   background: linear-gradient(160deg, #ffe1a3, #d7a56a 30%, #8f5b32 70%, #2f1d10);
 }
-.part-wingCompositeArmor::before {
+.part-wingcompositearmor::before {
   inset: 4px;
-  background: rgba(255, 244, 220, 0.18);
-  clip-path: polygon(15% 15%, 80% 50%, 15% 85%);
+  background: rgba(255, 225, 163, 0.22);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.part-wingcompositearmor::after {
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 10px;
+  background: rgba(255, 244, 220, 0.5);
 }
