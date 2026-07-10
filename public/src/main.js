@@ -55,6 +55,14 @@ dom.saveDesignButton?.addEventListener("click", () => {
 });
 dom.resetButton.addEventListener("click", resetDesign);
 dom.clearGridButton.addEventListener("click", clearDesign);
+dom.copyCodeButton?.addEventListener("click", () => {
+  if (!navigator.clipboard?.writeText) return;
+  navigator.clipboard.writeText(state.room);
+  import("./ui/toastUi.js").then((toastMod) => {
+    toastMod.showToast("Room code copied", "good");
+  });
+});
+
 dom.copyButton.addEventListener("click", () => {
   // Copy invite logic
   const url = new URL(location.href);
