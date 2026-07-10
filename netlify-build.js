@@ -33,6 +33,7 @@ const srcFiles = [
   "ui/lobbyUi.js",
   "ui/designerUi.js",
   "ui/designerScreenUi.js",
+  "ui/componentIcon.js",
   "game/interpolation.js",
   "game/effects.js",
   "game/camera.js",

@@ -1,6 +1,6 @@
 // Renders part palette metadata, categories, description, and client-side definitions.
 
-import { escapeHtml } from "../shared/formatting.js";
+import { componentIconDataUrl, rotatedFootprint, clearComponentIconCache } from "../ui/componentIcon.js";
 
 export const PART_DEFS = {
   core: { name: "Core", color: "#f3f7ff", glyph: "radial-gradient(circle, #ffffff 0 28%, #86ddff 31% 58%, #2b5d92 60%)" },
@@ -723,11 +723,13 @@ export let PART_STATS = buildPartStatsFromBalance(null, FALLBACK_PART_STATS);
 
 export function applyComponentBalance(balance) {
   PART_STATS = { ...normalizeRuntimeParts(FALLBACK_PART_STATS), ...buildPartStatsFromBalance(balance, FALLBACK_PART_STATS) };
+  clearComponentIconCache(); // footprints may have changed, rebake icons
 }
 
 export function applyServerParts(parts) {
   const normalized = normalizeRuntimeParts(parts);
   PART_STATS = { ...PART_STATS, ...normalized };
+  clearComponentIconCache();
 }
 
 export function isRotatablePart(type) {
@@ -767,12 +769,14 @@ export function partDescription(type, stat) {
   return stat.description || PART_DESCRIPTIONS[type] || "General-purpose ship component.";
 }
 
-export function partIconMarkup(type, extraClass = "") {
+export function partIconMarkup(type, extraClass = "", rotationDeg = 0) {
   const safeType = String(type || "frame").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
   const classes = ["part-glyph", `part-${safeType}`, extraClass].filter(Boolean).join(" ");
-  const color = PART_DEFS[type]?.color || "#8393aa";
-  const style = ` style="--part-accent:${escapeHtml(color)}"`;
-  return `<span class="${classes}"${style} aria-hidden="true"><span></span></span>`;
+  const url = componentIconDataUrl(type, rotationDeg);
+  // The baked PNG carries the footprint aspect ratio as its intrinsic size, so an
+  // <img> scales correctly in the palette, grid, and inspector with plain CSS.
+  const src = url ? `src="${url}" ` : "";
+  return `<img class="${classes}" ${src}alt="" draggable="false" aria-hidden="true">`;
 }
 
 export function makeWeapon(type, stats) {

@@ -78,161 +78,21 @@
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.08);
 }
 
+/* Placed component icon fills its (footprint-shaped) cell. The cell already spans
+   the footprint via grid-column/row, and the baked <img> keeps the correct aspect
+   ratio, so the emblem + hull plate line up with the cell. The cell frame is the
+   only frame (icons opt out of the catalogue chip here). */
 .build-cell .part-glyph,
 .build-cell .build-glyph {
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  aspect-ratio: 1 / 1;
-  margin: auto;
-  border-radius: 5px;
+  padding: 1px;
+  object-fit: contain;
   border: 0;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -12px 18px rgba(0, 0, 0, 0.2);
-}
-
-.build-cell.reactor .part-reactor.build-glyph {
-  background:
-    linear-gradient(90deg, rgba(255, 214, 92, 0.18), transparent 24% 76%, rgba(255, 214, 92, 0.18)),
-    linear-gradient(180deg, #503712 0 18%, #1b1309 19% 82%, #604317 83% 100%);
-  border: 1px solid rgba(255, 214, 92, 0.24);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.build-cell.reactor .part-reactor.build-glyph::before {
-  top: 50%;
-  right: auto;
-  bottom: auto;
-  left: 50%;
-  width: auto;
-  height: 68%;
-  max-height: 42px;
-  aspect-ratio: 1 / 1;
-  transform: translate(-50%, -50%);
-  border: 2px solid rgba(255, 247, 179, 0.56);
-  border-radius: 50%;
-  background: radial-gradient(circle, #fff7b3 0 18%, #f4c145 24% 45%, #6b4b12 52%, #171008 72%);
-  box-shadow: 0 0 11px rgba(244, 193, 69, 0.54);
-}
-
-.build-cell.reactor .part-reactor.build-glyph::after {
-  top: 50%;
-  right: auto;
-  bottom: auto;
-  left: 50%;
-  width: auto;
-  height: 26%;
-  max-height: 16px;
-  aspect-ratio: 1 / 1;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: #fff7b3;
-  box-shadow: 0 0 9px rgba(255, 247, 179, 0.72);
-}
-
-.build-cell.reactor .part-reactor.build-glyph > span {
-  top: 50%;
-  left: 7%;
-  right: 7%;
-  height: 3px;
-  transform: translateY(-50%);
-  border-radius: 99px;
-  background: linear-gradient(90deg, rgba(255, 214, 92, 0.38), transparent 36% 64%, rgba(255, 214, 92, 0.38));
-}
-
-.build-cell.capacitor .part-capacitor.build-glyph {
-  background:
-    linear-gradient(90deg, rgba(219, 234, 254, 0.16), transparent 12% 88%, rgba(219, 234, 254, 0.12)),
-    linear-gradient(180deg, #93c5fd 0 18%, #2563eb 19% 66%, #172554 67% 100%);
-  border: 1px solid rgba(219, 234, 254, 0.2);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.build-cell.capacitor .part-capacitor.build-glyph::before {
-  inset: 6px;
-  width: auto;
-  height: auto;
-  transform: none;
-  border: 1px solid rgba(219, 234, 254, 0.38);
-  border-radius: 3px;
-  background:
-    linear-gradient(90deg, transparent 0 30%, rgba(219, 234, 254, 0.46) 31% 33%, transparent 34% 66%, rgba(219, 234, 254, 0.46) 67% 69%, transparent 70%),
-    linear-gradient(180deg, rgba(219, 234, 254, 0.22), transparent 36% 64%, rgba(11, 31, 73, 0.22)),
-    rgba(30, 64, 175, 0.36);
-}
-
-.build-cell.capacitor .part-capacitor.build-glyph::after {
-  top: 50%;
-  left: 18%;
-  width: 8px;
-  height: 12px;
-  transform: translateY(-50%);
-  border-radius: 2px;
-  background: rgba(255, 219, 88, 0.82);
-  box-shadow:
-    16px 0 0 rgba(255, 219, 88, 0.62),
-    32px 0 0 rgba(255, 219, 88, 0.46);
-}
-
-.build-cell.capacitor .part-capacitor.build-glyph > span {
-  top: 8px;
-  bottom: 8px;
-  left: 10%;
-  right: 10%;
-  border-radius: 4px;
-  border-top: 2px solid rgba(219, 234, 254, 0.2);
-  border-bottom: 2px solid rgba(11, 31, 73, 0.32);
-}
-
-.build-cell.battery .part-battery.build-glyph {
-  background:
-    linear-gradient(135deg, rgba(255, 238, 171, 0.18) 0 16%, transparent 17% 72%, rgba(0, 0, 0, 0.42) 73%),
-    linear-gradient(145deg, #263241 0 34%, #111821 58%, #05070c 100%);
-  border: 1px solid rgba(2, 5, 9, 0.92);
-  border-radius: 6px;
-  box-shadow:
-    inset 1px 1px 0 rgba(255, 239, 177, 0.18),
-    inset -3px -3px 0 rgba(0, 0, 0, 0.42);
-}
-
-.build-cell.battery .part-battery.build-glyph::before {
-  inset: 16% 13%;
-  transform: none;
-  border: 1px solid rgba(2, 5, 9, 0.9);
-  border-radius: 3px;
-  background:
-    linear-gradient(180deg, rgba(255, 232, 160, 0.11), transparent 38%),
-    linear-gradient(180deg, #263139, #11171c 72%);
-  box-shadow:
-    inset 1px 1px 0 rgba(255, 236, 170, 0.12),
-    inset -2px -2px 0 rgba(0, 0, 0, 0.48);
-}
-
-.build-cell.battery .part-battery.build-glyph::after {
-  top: 31%;
-  right: 22%;
-  bottom: 31%;
-  left: 22%;
-  width: auto;
-  height: auto;
-  transform: none;
-  border-radius: 3px;
-  background:
-    linear-gradient(90deg, #ffd36a 0 28%, transparent 28% 36%, #f0a22a 36% 64%, transparent 64% 72%, #bd6416 72% 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 243, 190, 0.42),
-    inset 0 -2px 0 rgba(75, 35, 6, 0.28),
-    0 0 8px rgba(245, 158, 11, 0.36);
-}
-
-.build-cell.battery .part-battery.build-glyph > span {
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255, 238, 171, 0.14), transparent 30% 68%, rgba(0, 0, 0, 0.34));
+  background: none;
   box-shadow: none;
-  pointer-events: none;
 }
 
 .build-cell.core {

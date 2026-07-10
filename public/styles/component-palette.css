@@ -62,12 +62,12 @@
 }
 
 .part-button .part-glyph {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
-  max-width: 32px;
-  max-height: 32px;
+  /* Height-led box: 1x1 parts are square; multi-cell parts grow wider (or taller)
+     with their footprint but stay bounded by the button. */
+  max-height: 34px;
+  max-width: 100%;
+  width: auto;
+  height: auto;
 }
 
 .part-button.active {

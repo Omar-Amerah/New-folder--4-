@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup, shouldRotateDesignerGlyph, shouldShowRotationMarker } from "../design/parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup, shouldShowRotationMarker } from "../design/parts.js";
 import { normalizeRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
 import { getOccupiedCells, footprintIncludes } from "../design/footprint.js";
@@ -64,9 +64,8 @@ export function renderBuildGrid() {
         : "Empty";
       if (part) {
         const rotation = normalizeRotation(part.rotation);
-        const glyphRotationClass = shouldRotateDesignerGlyph(part.type) ? ` glyph-rot-${rotation}` : "";
         const rotationMarker = shouldShowRotationMarker(part.type) ? `<span class="rotation-marker rot-${rotation}">&#9650;</span>` : "";
-        cell.innerHTML = `${partIconMarkup(part.type, `build-glyph${glyphRotationClass}`)}${rotationMarker}`;
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${rotationMarker}`;
       }
       cell.dataset.x = String(x);
       cell.dataset.y = String(y);
