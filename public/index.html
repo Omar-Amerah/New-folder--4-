@@ -143,8 +143,16 @@
         </div>
 
         <div id="currentRoomCard" class="room-code-card" hidden>
-          <span>Game code</span>
-          <strong id="currentRoomCode">----</strong>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span>Game code</span>
+              <strong id="currentRoomCode">----</strong>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="copyCodeButton" type="button" class="secondary">Copy code</button>
+              <button id="copyButton" type="button" class="secondary">Copy invite</button>
+            </div>
+          </div>
         </div>
 
         <div class="flow-card">
@@ -162,7 +170,7 @@
             <h2>Game Rules</h2>
             <span id="rulesStatus">Host only</span>
           </div>
-          <div class="rules-grid">
+          <div id="rulesGrid" class="rules-grid">
             <label for="gameModeSelect">
               Game mode
               <select id="gameModeSelect">
@@ -190,6 +198,7 @@
               </select>
             </label>
           </div>
+          <div id="rulesReadOnly" class="rules-read-only" hidden></div>
         </div>
 
         <div id="teamChoiceCard" class="team-choice-card">
@@ -203,12 +212,9 @@
           </select>
         </div>
 
-        <div class="utility-row">
-          <button id="copyButton" type="button" class="secondary">Copy invite</button>
+        <div id="hostActions" class="host-actions">
           <button id="botButton" type="button" class="secondary">Add bot</button>
           <button id="leaveLobbyButton" type="button" class="secondary">Leave lobby</button>
-        </div>
-        <div id="adminControls" class="admin-controls" hidden>
           <button id="startDesignButton" type="button">Start ship design</button>
           <button id="closeLobbyButton" type="button" class="secondary">Close lobby</button>
         </div>

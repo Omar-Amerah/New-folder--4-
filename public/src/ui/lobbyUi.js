@@ -32,15 +32,24 @@ export function updateLobbyState() {
   dom.joinButton.disabled = connecting;
   if (dom.mainMenuCloseButton) dom.mainMenuCloseButton.disabled = !connected;
   dom.copyButton.disabled = !state.room;
-  dom.botButton.disabled = !connected || !admin || phase !== "lobby";
+
+  if (dom.botButton) {
+    dom.botButton.hidden = !admin;
+    dom.botButton.disabled = !connected || phase !== "lobby";
+  }
   if (dom.leaveLobbyButton) {
-    dom.leaveLobbyButton.hidden = !connected || admin;
-    dom.leaveLobbyButton.disabled = !connected || admin;
+    dom.leaveLobbyButton.hidden = admin;
+    dom.leaveLobbyButton.disabled = !connected;
   }
   updateTeamChoiceControls(connected, phase);
-  dom.adminControls.hidden = !connected || !admin || phase === "active";
-  dom.startDesignButton.disabled = !connected || !admin || phase !== "lobby" || playerCount === 0;
-  dom.closeLobbyButton.disabled = !connected || !admin || phase === "active";
+  if (dom.startDesignButton) {
+    dom.startDesignButton.hidden = !admin;
+    dom.startDesignButton.disabled = !connected || phase !== "lobby" || playerCount === 0;
+  }
+  if (dom.closeLobbyButton) {
+    dom.closeLobbyButton.hidden = !admin;
+    dom.closeLobbyButton.disabled = !connected || phase === "active";
+  }
   dom.currentRoomCard.hidden = !state.room;
   dom.currentRoomCode.textContent = state.room || "----";
   updateRulesControls(connected, admin, phase, playerCount);
@@ -54,10 +63,28 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
   const rules = state.snapshot?.rules || state.rules || {};
   state.rules = { ...state.rules, ...rules };
   if (dom.rulesStatus) {
-    dom.rulesStatus.textContent = editable
-      ? "Host controls"
-      : admin && connected ? "Locked after lobby" : "Host only";
+    if (editable) {
+      dom.rulesStatus.textContent = "Host controls";
+    } else {
+      dom.rulesStatus.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;vertical-align:text-bottom;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked after lobby';
+    }
   }
+
+  if (dom.rulesGrid && dom.rulesReadOnly) {
+    if (editable) {
+      dom.rulesGrid.hidden = false;
+      dom.rulesReadOnly.hidden = true;
+    } else {
+      dom.rulesGrid.hidden = true;
+      dom.rulesReadOnly.hidden = false;
+      const gameMode = rules.gameMode === "solo" ? "Solo" : "Teams";
+      const startMoney = rules.startingMoney ?? 700;
+      const maxP = rules.maxPlayers ?? 12;
+      const mapSize = rules.mapSize || "Auto";
+      dom.rulesReadOnly.textContent = `Game mode: ${gameMode} | Starting money: ${startMoney} | Max players: ${maxP} | Map size: ${mapSize}`;
+    }
+  }
+
   setRuleControlValue(dom.gameModeSelect, rules.gameMode || state.rules.gameMode || "teams");
   setRuleControlValue(dom.startingMoneyInput, rules.startingMoney ?? state.rules.startingMoney);
   setRuleControlValue(dom.maxPlayersInput, rules.maxPlayers ?? state.rules.maxPlayers);
@@ -122,25 +149,21 @@ export function updatePhaseSteps(phase) {
 
 export function updatePhaseDetail(phase) {
   const players = state.snapshot?.players || [];
-  const ready = players.filter((player) => player.ready).length;
-  const mapName = state.snapshot?.map?.name;
-  const size = state.snapshot?.mapSizeLabel;
   if (!state.room) {
     dom.phaseDetail.textContent = "Create or join a room to begin.";
   } else if (phase === "lobby") {
     const mapRule = (state.rules?.mapSize && state.rules.mapSize !== "auto")
       ? state.rules.mapSize
       : `${players.length || 1} player${players.length === 1 ? "" : "s"}`;
-    const modeText = state.rules?.gameMode === "solo" ? "Solo mode" : "Teams mode";
     dom.phaseDetail.textContent = isAdmin()
-      ? `Waiting room. ${modeText}. Add bots, share the code, then start ship design. Map size will use ${mapRule}.`
-      : "Waiting for the room admin to start ship design.";
+      ? `Waiting room. Map: ${mapRule}.`
+      : "Waiting for admin to start design.";
   } else if (phase === "design") {
-    dom.phaseDetail.textContent = `${ready}/${players.length} ready. Edit your ship, then press Ready. ${size || "Map"}: ${mapName || "generated map"}.`;
+    dom.phaseDetail.textContent = "Ship design phase.";
   } else if (phase === "active") {
-    dom.phaseDetail.textContent = `${size || "Map"}: ${mapName || "generated map"}. Capture relays, build ships, and fight.`;
+    dom.phaseDetail.textContent = "Match in progress.";
   } else if (phase === "ended") {
-    dom.phaseDetail.textContent = isAdmin() ? "Match ended. Choose Restart or Close lobby." : "Match ended. Waiting for the admin.";
+    dom.phaseDetail.textContent = "Match ended.";
   }
 }
 
@@ -166,13 +189,30 @@ export function renderPlayerList() {
   dom.playerList.textContent = "";
   if (!players.length) return;
 
+  const max = state.rules?.maxPlayers || 12;
+  const total = players.length;
+  const ready = players.filter((p) => p.ready).length;
+
+  const summary = document.createElement("div");
+  summary.className = "section-heading compact";
+  summary.style.marginTop = "0.5rem";
+  summary.style.marginBottom = "0.5rem";
+
   if (state.rules?.gameMode === "solo") {
+    summary.innerHTML = `<h2>Players: ${total} / ${max} | Ready: ${ready} / ${total}</h2>`;
+    dom.playerList.appendChild(summary);
+
     for (const player of players) {
       dom.playerList.appendChild(createPlayerRow(player));
     }
   } else {
     const blueTeam = players.filter((p) => p.team !== "red");
     const redTeam = players.filter((p) => p.team === "red");
+
+    const blueCount = blueTeam.length;
+    const redCount = redTeam.length;
+    summary.innerHTML = `<h2>Players: ${total} / ${max} | Ready: ${ready} / ${total} <span style="margin-left: 8px; color: var(--muted); font-weight: normal;">Blue: ${blueCount} | Red: ${redCount}</span></h2>`;
+    dom.playerList.appendChild(summary);
 
     const blueHeader = document.createElement("div");
     blueHeader.className = "section-heading compact";
