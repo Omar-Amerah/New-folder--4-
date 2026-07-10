@@ -15,6 +15,7 @@ class FakeElement {
     this.value = "";
     this.hidden = false;
     this.disabled = false;
+    this.dataset = {};
   }
 
   addEventListener(type, handler) {
