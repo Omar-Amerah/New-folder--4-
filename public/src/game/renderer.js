@@ -1611,6 +1611,14 @@ export function drawMinimap(rect, players) {
   roundRect(ctx, { x, y, width: w, height: h, radius: 8 });
   ctx.clip();
 
+  if (dom.showEndGameButton && !dom.showEndGameButton.hidden) {
+    const desiredTop = `${Math.round(y + h + 14)}px`;
+    if (dom.showEndGameButton.style.top !== desiredTop) {
+      dom.showEndGameButton.style.top = desiredTop;
+      dom.showEndGameButton.style.right = `14px`;
+    }
+  }
+
   const sx = w / state.world.width;
   const sy = h / state.world.height;
   const snap = state.snapshot;
