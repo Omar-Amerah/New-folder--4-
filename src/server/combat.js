@@ -394,9 +394,11 @@ function moduleRotationToRadians(rotation) {
 }
 
 function moduleLocalPosition(module, scale = MODULE_SCALE) {
+  // 7 = center of the 15x15 build grid (core position), keeping module world
+  // coordinates centered on the ship origin.
   return {
-    x: (3 - module.y) * scale,
-    y: (module.x - 3) * scale
+    x: (7 - module.y) * scale,
+    y: (module.x - 7) * scale
   };
 }
 

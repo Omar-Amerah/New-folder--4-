@@ -65,16 +65,6 @@ export function renderBuildGrid() {
       if (part) {
         cell.innerHTML = `${partIconMarkup(part.type, "build-glyph")}${isRotatablePart(part.type) ? `<span class="rotation-marker rot-${normalizeRotation(part.rotation)}">&#9650;</span>` : ""}`;
       }
-      cell.addEventListener("mouseenter", () => {
-        state.hoveredCell = { x, y };
-        renderBuildGrid(); // Re-render to show hover preview
-      });
-      cell.addEventListener("mouseleave", () => {
-        if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) {
-          state.hoveredCell = null;
-          renderBuildGrid(); // Re-render to remove hover preview
-        }
-      });
       cell.dataset.x = String(x);
       cell.dataset.y = String(y);
       cell.addEventListener("contextmenu", (event) => {
@@ -91,10 +81,32 @@ export function renderBuildGrid() {
       if (!cell || !dom.grid.contains(cell)) return;
       editCell(Number(cell.dataset.x), Number(cell.dataset.y));
     });
+    // Hover preview is delegated so cells are never rebuilt mid-click:
+    // rebuilding on hover destroyed the mousedown target, so no click event fired.
+    dom.grid.addEventListener("mouseover", (event) => {
+      const cell = event.target.closest(".build-cell");
+      if (!cell || !dom.grid.contains(cell)) return;
+      const x = Number(cell.dataset.x);
+      const y = Number(cell.dataset.y);
+      if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) return;
+      state.hoveredCell = { x, y };
+      renderHoverPreview();
+    });
+    dom.grid.addEventListener("mouseleave", () => {
+      state.hoveredCell = null;
+      renderHoverPreview();
+    });
     dom.grid.dataset.hasDelegatedClick = "true";
   }
 
-  // Draw hover preview
+  renderHoverPreview();
+}
+
+export function renderHoverPreview() {
+  for (const stale of dom.grid.querySelectorAll(".build-preview")) {
+    stale.remove();
+  }
+
   if (state.hoveredCell && state.selectedPart) {
     const existing = findPartAt(state.hoveredCell.x, state.hoveredCell.y);
     let targetX = existing ? existing.x : state.hoveredCell.x;
@@ -252,7 +264,7 @@ export function rotateFocusedPart() {
     rotateCell(part.x, part.y);
   } else if (state.hoveredCell && state.selectedPart) {
     state.previewRotation = (normalizeRotation(state.previewRotation || 0) + 90) % 360;
-    renderBuildGrid();
+    renderHoverPreview();
   }
 }
 
@@ -341,8 +353,7 @@ export function renderLocalStats() {
     dom.blueprintCostBreakdown.innerHTML = costBreakdownInnerMarkup(stats.costBreakdown);
   }
 
-  renderShipIssues(status);
-  setBuildStatus(status.blockers.length ? status.blockers[0] : stats.warnings.length ? stats.warnings[0] : "Blueprint ready", status.blockers.length ? "error" : stats.warnings.length ? "warning" : "good");
+  renderShipStatus(status);
   updateEconomyUi();
 }
 
@@ -371,20 +382,147 @@ export function getShipStatus(stats) {
   return { blockers, warnings };
 }
 
-export function renderShipIssues(status) {
-  if (!dom.shipIssuesPanel) return;
-  const isDesignStage = state.phase === "design";
-  const stateText = status.blockers.length
-    ? isDesignStage ? "Cannot Ready" : "Cannot Build"
-    : status.warnings.length
-      ? isDesignStage ? "Ready, with warnings" : "Ready to Build, with warnings"
-      : isDesignStage ? "Ready" : "Ready to Build";
-  dom.shipIssuesPanel.className = `ship-issues-panel ${status.blockers.length ? "blocked" : status.warnings.length ? "warning" : "ready"}`;
-  dom.shipIssuesPanel.innerHTML = `
-    <div class="ship-issues-title"><span>Ship Status</span><strong>${stateText}</strong></div>
-    ${issueListMarkup("Blocking Issues", status.blockers)}
-    ${issueListMarkup("Warnings", status.warnings)}
+// Client-side severity mapper: the validation system exposes blocking issues
+// (red) and warnings; we further split warnings into yellow warnings and green
+// suggestions for display only. This does not change what blocks Ready/Build.
+const SUGGESTION_PATTERNS = [
+  /no weapons/i,
+  /speed capped by mass/i,
+  /large hull/i,
+  /^add /i,
+  /^consider /i
+];
+
+function classifyStatus(status) {
+  const errors = [...status.blockers];
+  const warnings = [];
+  const suggestions = [];
+  for (const message of status.warnings) {
+    if (SUGGESTION_PATTERNS.some((pattern) => pattern.test(message))) {
+      suggestions.push(message);
+    } else {
+      warnings.push(message);
+    }
+  }
+  return { errors, warnings, suggestions };
+}
+
+export function renderShipStatus(status) {
+  if (!dom.shipStatusChip) return;
+  const groups = classifyStatus(status);
+  const severity = groups.errors.length
+    ? "error"
+    : groups.warnings.length
+      ? "warning"
+      : groups.suggestions.length
+        ? "suggestion"
+        : "ready";
+
+  dom.shipStatusChip.className = `ship-status-chip ${severity}`;
+  if (dom.shipStatusText) dom.shipStatusText.textContent = chipSummaryText(severity, groups);
+
+  const total = groups.errors.length + groups.warnings.length + groups.suggestions.length;
+  dom.shipStatusChip.setAttribute("aria-label", `Ship status: ${chipSummaryText(severity, groups)}. ${total ? "Click for details." : ""}`.trim());
+
+  // Keep the popover in sync if it is currently open.
+  if (dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
+    renderShipStatusDetails(groups);
+  }
+}
+
+function chipSummaryText(severity, groups) {
+  if (severity === "error") {
+    return `${groups.errors.length} Blocking Error${groups.errors.length === 1 ? "" : "s"}`;
+  }
+  if (severity === "warning") {
+    return `Ready with ${groups.warnings.length} warning${groups.warnings.length === 1 ? "" : "s"}`;
+  }
+  if (severity === "suggestion") {
+    return `${groups.suggestions.length} Suggestion${groups.suggestions.length === 1 ? "" : "s"}`;
+  }
+  return "Ready";
+}
+
+function renderShipStatusDetails(groups) {
+  if (!dom.shipStatusDetails) return;
+  const total = groups.errors.length + groups.warnings.length + groups.suggestions.length;
+  const body = total
+    ? [
+        statusGroupMarkup("error", "Blocking Errors", groups.errors),
+        statusGroupMarkup("warning", "Warnings", groups.warnings),
+        statusGroupMarkup("suggestion", "Suggestions", groups.suggestions)
+      ].join("")
+    : `<div class="status-group ready"><p>No issues — this ship is ready.</p></div>`;
+  dom.shipStatusDetails.innerHTML = body;
+}
+
+function statusGroupMarkup(severity, title, issues) {
+  if (!issues.length) return "";
+  return `
+    <div class="status-group ${severity}">
+      <span>${title}</span>
+      <ul>${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>
+    </div>
   `;
+}
+
+function toggleShipStatusDetails(forceOpen) {
+  if (!dom.shipStatusDetails || !dom.shipStatusChip) return;
+  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : dom.shipStatusDetails.hidden;
+  if (shouldOpen) {
+    const status = getShipStatus(computeStats(state.design));
+    renderShipStatusDetails(classifyStatus(status));
+    dom.shipStatusDetails.hidden = false;
+    dom.shipStatusChip.setAttribute("aria-expanded", "true");
+    positionShipStatusDetails();
+  } else {
+    dom.shipStatusDetails.hidden = true;
+    dom.shipStatusChip.setAttribute("aria-expanded", "false");
+  }
+}
+
+// Position the fixed popover just above the chip (desktop). Narrow screens use a
+// CSS bottom-sheet layout instead, so we skip JS placement there.
+function positionShipStatusDetails() {
+  const details = dom.shipStatusDetails;
+  const chip = dom.shipStatusChip;
+  if (!details || !chip || typeof chip.getBoundingClientRect !== "function") return;
+  if (typeof window !== "undefined" && window.innerWidth <= 900) return;
+
+  const margin = 12;
+  const chipRect = chip.getBoundingClientRect();
+  const detailsRect = details.getBoundingClientRect();
+  const viewportW = (typeof window !== "undefined" && window.innerWidth) || 1024;
+
+  let left = chipRect.left + chipRect.width / 2 - detailsRect.width / 2;
+  left = Math.max(margin, Math.min(left, viewportW - detailsRect.width - margin));
+  const top = Math.max(margin, chipRect.top - detailsRect.height - 8);
+
+  details.style.left = `${left}px`;
+  details.style.top = `${top}px`;
+}
+
+if (dom.shipStatusChip) {
+  dom.shipStatusChip.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleShipStatusDetails();
+  });
+}
+
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("click", (event) => {
+    if (dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
+      if (!event.target.closest("#shipStatusDetails") && !event.target.closest("#shipStatusChip")) {
+        toggleShipStatusDetails(false);
+      }
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
+      toggleShipStatusDetails(false);
+      dom.shipStatusChip?.focus();
+    }
+  });
 }
 
 function currentMatchMoney(mine) {
@@ -702,16 +840,6 @@ Total Mass: ${stats.mass} T`
     default:
       return { label: "", desc: "", formula: "", breakdown: "" };
   }
-}
-
-function issueListMarkup(title, issues) {
-  if (!issues.length) return `<div class="issue-group empty"><span>${title}</span><p>None</p></div>`;
-  return `
-    <div class="issue-group">
-      <span>${title}</span>
-      <ul>${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>
-    </div>
-  `;
 }
 
 function costBreakdownInnerMarkup(breakdown) {

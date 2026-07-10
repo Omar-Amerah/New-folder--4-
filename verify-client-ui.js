@@ -24,6 +24,27 @@ class FakeElement {
     this.listeners.set(type, handlers);
   }
 
+  setAttribute(name, value) {
+    if (!this.attributes) this.attributes = {};
+    this.attributes[name] = String(value);
+  }
+
+  getAttribute(name) {
+    return this.attributes && name in this.attributes ? this.attributes[name] : null;
+  }
+
+  closest(selector) {
+    const id = String(selector).startsWith("#") ? String(selector).slice(1) : null;
+    const className = String(selector).startsWith(".") ? String(selector).slice(1).split(".")[0] : null;
+    let node = this;
+    while (node) {
+      if (id && node.id === id) return node;
+      if (className && String(node.className).split(/\s+/).includes(className)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
   dispatch(type, event = {}) {
     for (const handler of this.listeners.get(type) || []) {
       handler({
@@ -64,6 +85,19 @@ class FakeElement {
   }
 
   setPointerCapture() {}
+
+  querySelectorAll(selector) {
+    const className = String(selector).startsWith(".") ? String(selector).slice(1).split(".")[0] : null;
+    const matches = [];
+    const walk = (element) => {
+      for (const child of element.children) {
+        if (className && String(child.className).split(/\s+/).includes(className)) matches.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return matches;
+  }
 
   getBoundingClientRect() {
     return { left: 0, top: 0, width: 960, height: 640 };
@@ -119,8 +153,9 @@ const ids = [
   "partPalette",
   "partInspector",
   "buildGrid",
-  "buildStatus",
-  "shipIssuesPanel",
+  "shipStatusChip",
+  "shipStatusText",
+  "shipStatusDetails",
   "statsGrid",
   "saveDesignButton",
   "savedDesignList",

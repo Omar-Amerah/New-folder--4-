@@ -256,8 +256,8 @@ function getShipModuleWorldCoords(ship) {
     const cos = Math.cos(ship.angle);
     const sin = Math.sin(ship.angle);
     ship.moduleWorldCoords = (ship.design || []).map((module) => {
-      const lx = (3 - module.y) * scale;
-      const ly = (module.x - 3) * scale;
+      const lx = (7 - module.y) * scale;
+      const ly = (module.x - 7) * scale;
       return {
         x: ship.x + lx * cos - ly * sin,
         y: ship.y + lx * sin + ly * cos

@@ -11,6 +11,7 @@ import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
 import { renderPalette } from "./partPaletteUi.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats } from "./designerUi.js";
+import { closeBlueprintDesigner } from "./designerScreenUi.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { normalizeDesign } from "../design/blueprintStorage.js";
 import { computeStats } from "../design/componentStats.js";
@@ -302,6 +303,8 @@ export function deployDesign() {
       combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "charge"
     });
     send({ type: "ready" });
+    // Readying the first design confirms it; drop back to the arena view.
+    closeBlueprintDesigner();
   }
 }
 

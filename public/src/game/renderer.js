@@ -806,10 +806,14 @@ export function drawStructureLines(design, keys, scale) {
   ctx.stroke();
 }
 
+// Grid center for the 15x15 build grid (core sits here), so modules render
+// centered on the ship's origin instead of offset toward one corner.
+const GRID_CENTER = 7;
+
 export function moduleLocalPosition(part, scale) {
   return {
-    x: (3 - part.y) * scale,
-    y: (part.x - 3) * scale
+    x: (GRID_CENTER - part.y) * scale,
+    y: (part.x - GRID_CENTER) * scale
   };
 }
 

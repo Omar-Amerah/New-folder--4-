@@ -596,13 +596,54 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 12px rgba(255, 202, 87, 0.12);
 }
 
+/* Wrapper anchors the cost breakdown as a dropdown so opening it overlays the
+   grid instead of pushing/shrinking it, and keeps it visually joined to the banner. */
+.blueprint-cost-wrap {
+  position: relative;
+  flex: 0 1 auto;
+  width: min(420px, 70vw);
+  min-width: 0;
+}
+
+/* Center the cost banner/breakdown over the (centered) grid, with the
+   reset/clear actions floated to the right so they don't offset the centering. */
+.designer-top .section-heading {
+  position: relative;
+  justify-content: center;
+}
+
+.designer-top .designer-actions {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .blueprint-cost-breakdown {
-  margin: -4px 0 8px;
-  padding: 8px 4px 4px;
-  border: 1px solid rgba(255, 202, 87, 0.22);
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 0;
+  z-index: 40;
+  width: 100%;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgba(255, 202, 87, 0.5);
   border-top: none;
   border-radius: 0 0 8px 8px;
-  background: rgba(20, 16, 11, 0.42);
+  background: linear-gradient(180deg, rgba(30, 24, 12, 0.98), rgba(16, 13, 9, 0.98));
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.blueprint-cost-breakdown[hidden] {
+  display: none;
+}
+
+/* Square the banner's bottom corners while the dropdown is open so the two read as one panel. */
+.blueprint-cost-wrap:has(> .blueprint-cost-breakdown:not([hidden])) .blueprint-cost-banner {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
 }
 
 .blueprint-cost-banner span {
@@ -725,90 +766,145 @@
   cursor: default;
 }
 
-.build-status {
-  min-height: 18px;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.build-status.warning {
-  color: var(--amber);
-}
-
-.build-status.error {
-  color: var(--red);
-}
-
-.build-status.good {
-  color: var(--green);
-}
-
-.ship-issues-panel {
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(10, 15, 25, 0.62);
-}
-
-.ship-issues-panel.blocked {
-  border-color: rgba(255, 95, 126, 0.42);
-}
-
-.ship-issues-panel.warning {
-  border-color: rgba(255, 202, 87, 0.38);
-}
-
-.ship-issues-panel.ready {
-  border-color: rgba(124, 255, 138, 0.32);
-}
-
-.ship-issues-title {
+/* Compact clickable ship-status chip that replaces the permanent warning box. */
+.ship-status-row {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: center;
 }
 
-.ship-issues-title span,
-.issue-group span {
+.ship-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(10, 15, 25, 0.72);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ship-status-chip:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ship-status-chip:focus-visible {
+  outline: 2px solid #ffca57;
+  outline-offset: 2px;
+}
+
+.ship-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px currentColor;
+  flex: 0 0 auto;
+}
+
+.ship-status-chip.ready { border-color: rgba(124, 255, 138, 0.42); }
+.ship-status-chip.ready .ship-status-dot { background: var(--green); color: var(--green); }
+
+.ship-status-chip.suggestion { border-color: rgba(124, 255, 138, 0.5); }
+.ship-status-chip.suggestion .ship-status-dot { background: var(--green); color: var(--green); }
+.ship-status-chip.suggestion .ship-status-text { color: #a7f5bf; }
+
+.ship-status-chip.warning { border-color: rgba(255, 202, 87, 0.55); background: rgba(52, 41, 15, 0.5); }
+.ship-status-chip.warning .ship-status-dot { background: var(--amber); color: var(--amber); }
+.ship-status-chip.warning .ship-status-text { color: #ffd991; }
+
+.ship-status-chip.error { border-color: rgba(255, 95, 126, 0.6); background: rgba(54, 16, 24, 0.5); }
+.ship-status-chip.error .ship-status-dot { background: var(--red); color: var(--red); }
+.ship-status-chip.error .ship-status-text { color: #ff9bad; }
+
+/* Details popover: fixed overlay positioned by JS above the chip, so it never
+   shifts, shrinks, or is clipped by the editor layout. */
+.ship-status-details {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  gap: 10px;
+  width: min(340px, 92vw);
+  max-height: 46vh;
+  padding: 12px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(9, 14, 23, 0.97);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.ship-status-details[hidden] {
+  display: none;
+}
+
+.status-group {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.status-group span {
   color: var(--faint);
   font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.ship-issues-title strong {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.issue-group ul {
-  margin: 4px 0 0;
-  padding-left: 18px;
+.status-group ul {
+  margin: 2px 0 0;
+  padding-left: 16px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
   line-height: 1.4;
 }
 
-.issue-group.empty p {
-  margin: 3px 0 0;
-  color: var(--faint);
+.status-group.error { border-left-color: var(--red); }
+.status-group.error span { color: #ff9bad; }
+
+.status-group.warning { border-left-color: var(--amber); }
+.status-group.warning span { color: #ffd991; }
+
+.status-group.suggestion { border-left-color: var(--green); }
+.status-group.suggestion span { color: #a7f5bf; }
+
+.status-group.ready p {
+  margin: 0;
+  color: #a7f5bf;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 750;
+}
+
+@media (max-width: 900px) {
+  .ship-status-details {
+    left: 50% !important;
+    top: auto !important;
+    bottom: 12px;
+    transform: translateX(-50%);
+    width: min(440px, 94vw);
+    max-height: 60vh;
+  }
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .saved-designs {
@@ -1217,7 +1313,7 @@
 
 .stat {
   min-width: 0;
-  padding: 8px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: rgba(10, 15, 25, 0.66);
@@ -1247,9 +1343,9 @@
 
 .stat strong {
   display: block;
-  margin-top: 2px;
+  margin-top: 1px;
   overflow: hidden;
-  font-size: 18px;
+  font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1760,6 +1856,12 @@
   width: min(320px, calc(100vw - 28px)) !important;
 }
 
+/* The stat tooltip opens over the Blueprint Designer modal (z-index 30), so it
+   must sit above it or it renders behind the overlay and stays invisible. */
+#statTooltip {
+  z-index: 70;
+}
+
 .stat-tooltip-head {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 6px;
@@ -1867,6 +1969,12 @@
   padding-right: 4px;
 }
 
+/* The cost breakdown is now an absolutely positioned dropdown, so the top row
+   must not clip it and no longer needs to scroll. */
+.designer-top {
+  overflow: visible;
+}
+
 .designer-workspace {
   display: flex;
   flex-direction: column;
@@ -1882,6 +1990,9 @@
 }
 
 .blueprint-designer-panel .build-grid {
+  /* width auto lets aspect-ratio derive width from the available height, so the
+     grid stays square and centered instead of stretching to fill wide columns. */
+  width: auto;
   height: 100%;
   max-height: 100%;
   max-width: 100%;

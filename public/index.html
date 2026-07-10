@@ -324,10 +324,13 @@
           <div class="designer-center-col">
             <div class="designer-top">
               <div class="section-heading">
-                <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite">
-                  <span>Current ship cost</span>
-                  <strong id="blueprintCostLabel">$0</strong>
-                  <em id="blueprintCostStatus">Ready</em>
+                <div class="blueprint-cost-wrap">
+                  <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite" aria-haspopup="true" aria-expanded="false">
+                    <span>Current ship cost</span>
+                    <strong id="blueprintCostLabel">$0</strong>
+                    <em id="blueprintCostStatus">Ready</em>
+                  </div>
+                  <div id="blueprintCostBreakdown" class="blueprint-cost-breakdown" hidden></div>
                 </div>
                 <div class="designer-actions">
                   <button id="resetButton" type="button" class="icon-button" title="New Design (Core only)">
@@ -338,7 +341,6 @@
                   </button>
                 </div>
               </div>
-              <div id="blueprintCostBreakdown" class="blueprint-cost-breakdown" hidden></div>
             </div>
 
             <div class="designer-workspace">
@@ -347,8 +349,13 @@
             </div>
 
             <div class="designer-bottom">
-              <div id="buildStatus" class="build-status"></div>
-              <div id="shipIssuesPanel" class="ship-issues-panel"></div>
+              <div class="ship-status-row">
+                <button id="shipStatusChip" type="button" class="ship-status-chip" aria-haspopup="dialog" aria-expanded="false" aria-controls="shipStatusDetails">
+                  <span class="ship-status-dot" aria-hidden="true"></span>
+                  <span id="shipStatusText" class="ship-status-text">Ready</span>
+                </button>
+                <div id="shipStatusDetails" class="ship-status-details" role="dialog" aria-label="Ship status details" hidden></div>
+              </div>
               <button id="deployButton" type="button">Ready with this design</button>
             </div>
           </div>

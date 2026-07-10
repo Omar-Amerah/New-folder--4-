@@ -36,7 +36,9 @@ if (dom.openBlueprintDesignerButton) dom.openBlueprintDesignerButton.addEventLis
 if (dom.closeBlueprintDesignerButton) dom.closeBlueprintDesignerButton.addEventListener("click", closeBlueprintDesigner);
 dom.blueprintCostBanner?.addEventListener("click", () => {
   if (dom.blueprintCostBreakdown) {
-    dom.blueprintCostBreakdown.hidden = !dom.blueprintCostBreakdown.hidden;
+    const open = dom.blueprintCostBreakdown.hidden;
+    dom.blueprintCostBreakdown.hidden = !open;
+    dom.blueprintCostBanner.setAttribute("aria-expanded", open ? "true" : "false");
   }
 });
 dom.combatStyleSelect?.addEventListener("change", (e) => {
