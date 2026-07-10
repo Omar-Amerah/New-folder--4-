@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const zlib = require("zlib");
 const { URL } = require("url");
 
 // Load configuration and utilities
@@ -52,6 +53,33 @@ function tickRoom(room, dt, now) {
   updateScoring(room, now);
 }
 
+// In-memory static file cache (validated against file mtime) with pre-compressed
+// gzip variants for text assets — avoids re-reading and re-sending full payloads.
+const staticCache = new Map();
+const COMPRESSIBLE = new Set([".html", ".css", ".js", ".json", ".svg"]);
+const componentBalanceJson = JSON.stringify(COMPONENT_BALANCE);
+const componentBalanceGzip = zlib.gzipSync(componentBalanceJson);
+
+function acceptsGzip(req) {
+  return /\bgzip\b/.test(req.headers["accept-encoding"] || "");
+}
+
+function serveBuffer(req, res, { data, gzip, contentType, cacheControl }) {
+  const headers = {
+    "content-type": contentType,
+    "cache-control": cacheControl,
+    "vary": "Accept-Encoding"
+  };
+  if (gzip && acceptsGzip(req)) {
+    headers["content-encoding"] = "gzip";
+    res.writeHead(200, headers);
+    res.end(gzip);
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(data);
+}
+
 // HTTP request handler for static files and balance JSON
 function handleHttpRequest(req, res) {
   const requestUrl = new URL(req.url, "http://localhost");
@@ -59,11 +87,12 @@ function handleHttpRequest(req, res) {
   if (pathname === "/") pathname = "/index.html";
 
   if (pathname === "/component-balance.json") {
-    res.writeHead(200, {
-      "content-type": MIME[".json"],
-      "cache-control": "no-store"
+    serveBuffer(req, res, {
+      data: componentBalanceJson,
+      gzip: componentBalanceGzip,
+      contentType: MIME[".json"],
+      cacheControl: "no-store"
     });
-    res.end(JSON.stringify(COMPONENT_BALANCE));
     return;
   }
 
@@ -75,19 +104,34 @@ function handleHttpRequest(req, res) {
     return;
   }
 
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME[ext] || "application/octet-stream";
+  const cacheControl = ext === ".html" ? "no-store" : "public, max-age=600";
+
+  fs.stat(filePath, (statErr, stats) => {
+    if (statErr || !stats.isFile()) {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       res.end("Not found");
       return;
     }
 
-    const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, {
-      "content-type": MIME[ext] || "application/octet-stream",
-      "cache-control": ext === ".html" ? "no-store" : "public, max-age=600"
+    const cached = staticCache.get(filePath);
+    if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+      serveBuffer(req, res, { data: cached.data, gzip: cached.gzip, contentType, cacheControl });
+      return;
+    }
+
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        res.end("Not found");
+        return;
+      }
+
+      const gzip = COMPRESSIBLE.has(ext) ? zlib.gzipSync(data) : null;
+      staticCache.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, data, gzip });
+      serveBuffer(req, res, { data, gzip, contentType, cacheControl });
     });
-    res.end(data);
   });
 }
 

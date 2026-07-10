@@ -75,6 +75,17 @@ export function handleServerMessage(message) {
         }
       }
     }
+    // The server sends each ship's design once (it never changes after spawn);
+    // reuse the cached copy from the previous snapshot on later updates.
+    if (state.snapshot && state.snapshot.ships && message.ships) {
+      const oldShips = new Map(state.snapshot.ships.map(s => [s.id, s]));
+      for (const newShip of message.ships) {
+        if (newShip.design === undefined) {
+          const oldShip = oldShips.get(newShip.id);
+          if (oldShip) newShip.design = oldShip.design;
+        }
+      }
+    }
     state.snapshotReceivedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     state.snapshot = message;
     state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;

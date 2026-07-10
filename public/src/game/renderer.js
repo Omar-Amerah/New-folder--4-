@@ -10,7 +10,7 @@ import { formatHull, formatShield, formatThrust, formatEnergy, formatRepair, for
 import { drawEffects } from "./effects.js";
 import { drawSelectionBox, ownLiveShips } from "./selection.js";
 import { updateCamera, applyCamera } from "./camera.js";
-import { getRenderQuality, qualityShadowBlur, getRenderQualityDprCap } from "./renderSettings.js";
+import { getRenderQuality, qualityShadowBlur, getRenderQualityDprCap, getDebugRendererEnabled, setDebugRendererEnabled } from "./renderSettings.js";
 import { playerMap } from "../ui/scoreboardUi.js";
 
 
@@ -138,12 +138,20 @@ export function renderArena(now) {
   }
 }
 
+let cachedBackdropGradient = null;
+let cachedBackdropWidth = 0;
+let cachedBackdropHeight = 0;
+
 export function drawBackdrop(rect) {
-  const gradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
-  gradient.addColorStop(0, "#040710");
-  gradient.addColorStop(0.55, "#0a111d");
-  gradient.addColorStop(1, "#05070c");
-  ctx.fillStyle = gradient;
+  if (!cachedBackdropGradient || cachedBackdropWidth !== rect.width || cachedBackdropHeight !== rect.height) {
+    cachedBackdropGradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
+    cachedBackdropGradient.addColorStop(0, "#040710");
+    cachedBackdropGradient.addColorStop(0.55, "#0a111d");
+    cachedBackdropGradient.addColorStop(1, "#05070c");
+    cachedBackdropWidth = rect.width;
+    cachedBackdropHeight = rect.height;
+  }
+  ctx.fillStyle = cachedBackdropGradient;
   ctx.fillRect(0, 0, rect.width, rect.height);
 
   ctx.save();
@@ -229,15 +237,30 @@ export function drawSafeZone(zone) {
   ctx.restore();
 }
 
-export function drawNebula(cloud) {
+// Nebulas are static, but drawing one costs 4-6 radial gradients per frame.
+// Pre-render each cloud once into an offscreen canvas keyed by the cloud object
+// (a new map snapshot produces new cloud objects, so stale sprites simply GC away).
+const nebulaSpriteCache = new WeakMap();
+const NEBULA_SPRITE_SCALE = 0.5;
+
+function getNebulaSprite(cloud) {
+  let sprite = nebulaSpriteCache.get(cloud);
+  if (sprite) return sprite;
+
   const rx = cloud.rx || 300;
   const ry = cloud.ry || 180;
   const color = cloud.color || "56,213,255";
   const alpha = cloud.alpha || 0.12;
 
-  ctx.save();
-  ctx.translate(cloud.x, cloud.y);
-  ctx.rotate(cloud.rotation || 0);
+  // Blobs sit within 0.5*rx/ry of center with radius up to 1.2*min(rx,ry)
+  const extent = Math.max(rx, ry) * 0.5 + Math.min(rx, ry) * 1.2;
+  const size = Math.max(2, Math.ceil(extent * 2 * NEBULA_SPRITE_SCALE));
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const spriteCtx = canvas.getContext("2d");
+  spriteCtx.translate(size / 2, size / 2);
+  spriteCtx.scale(NEBULA_SPRITE_SCALE, NEBULA_SPRITE_SCALE);
 
   // Use seeded pseudo-random for consistent blob placement inside the nebula
   let seed = Math.abs(Math.floor(cloud.x * 1000 + cloud.y));
@@ -257,25 +280,52 @@ export function drawNebula(cloud) {
     const cy = Math.sin(angle) * (ry * distance);
     const blobRadius = Math.min(rx, ry) * (0.6 + prng() * 0.6);
 
-    const gradient = ctx.createRadialGradient(cx, cy, blobRadius * 0.1, cx, cy, blobRadius);
+    const gradient = spriteCtx.createRadialGradient(cx, cy, blobRadius * 0.1, cx, cy, blobRadius);
     gradient.addColorStop(0, `rgba(${color}, ${alpha * (0.8 + prng() * 0.4)})`);
     gradient.addColorStop(0.5, `rgba(${color}, ${alpha * 0.5 * (0.5 + prng() * 0.5)})`);
     gradient.addColorStop(1, `rgba(${color}, 0)`);
 
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(cx, cy, blobRadius, 0, Math.PI * 2);
-    ctx.fill();
+    spriteCtx.fillStyle = gradient;
+    spriteCtx.beginPath();
+    spriteCtx.arc(cx, cy, blobRadius, 0, Math.PI * 2);
+    spriteCtx.fill();
   }
 
+  sprite = { canvas, extent };
+  nebulaSpriteCache.set(cloud, sprite);
+  return sprite;
+}
+
+export function drawNebula(cloud) {
+  const sprite = getNebulaSprite(cloud);
+  ctx.save();
+  ctx.translate(cloud.x, cloud.y);
+  ctx.rotate(cloud.rotation || 0);
+  ctx.drawImage(sprite.canvas, -sprite.extent, -sprite.extent, sprite.extent * 2, sprite.extent * 2);
   ctx.restore();
+}
+
+// Asteroid fill gradients only depend on radius and shade; reuse them across frames.
+const asteroidGradientCache = new Map();
+
+function getAsteroidGradient(radius, shade) {
+  const key = `${radius}|${shade}`;
+  let gradient = asteroidGradientCache.get(key);
+  if (!gradient) {
+    const base = shade === "warm" ? "#5a4939" : "#394657";
+    const edge = shade === "warm" ? "#ad8b64" : "#8495aa";
+    gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
+    gradient.addColorStop(0, edge);
+    gradient.addColorStop(0.38, base);
+    gradient.addColorStop(1, "#171d26");
+    asteroidGradientCache.set(key, gradient);
+  }
+  return gradient;
 }
 
 export function drawAsteroid(asteroid, now) {
   const radius = asteroid.radius || 60;
   const shape = asteroid.shape?.length ? asteroid.shape : [1, 0.92, 1.08, 0.9, 1.12, 0.96, 1.05, 0.88, 1.1, 0.95, 1.03, 0.9];
-  const base = asteroid.shade === "warm" ? "#5a4939" : "#394657";
-  const edge = asteroid.shade === "warm" ? "#ad8b64" : "#8495aa";
 
   ctx.save();
   ctx.translate(asteroid.x, asteroid.y);
@@ -284,11 +334,7 @@ export function drawAsteroid(asteroid, now) {
   ctx.shadowBlur = qualityShadowBlur(18);
   ctx.shadowOffsetY = 8;
 
-  const gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
-  gradient.addColorStop(0, edge);
-  gradient.addColorStop(0.38, base);
-  gradient.addColorStop(1, "#171d26");
-  ctx.fillStyle = gradient;
+  ctx.fillStyle = getAsteroidGradient(radius, asteroid.shade);
   ctx.strokeStyle = "rgba(220,235,255,0.22)";
   ctx.lineWidth = Math.max(1.5, 2.5 / state.camera.zoom);
   ctx.beginPath();
@@ -767,6 +813,23 @@ export function moduleLocalPosition(part, scale) {
   };
 }
 
+// Module fill gradients are defined in local module space, so one gradient per
+// (size, color) pair serves every module of that type on screen.
+const moduleGradientCache = new Map();
+
+function getModuleGradient(size, color) {
+  const key = `${size}|${color}`;
+  let fill = moduleGradientCache.get(key);
+  if (!fill) {
+    fill = ctx.createLinearGradient(-size * 0.55, -size * 0.55, size * 0.55, size * 0.55);
+    fill.addColorStop(0, "rgba(255,255,255,0.42)");
+    fill.addColorStop(0.24, color);
+    fill.addColorStop(1, "rgba(8,12,20,0.92)");
+    moduleGradientCache.set(key, fill);
+  }
+  return fill;
+}
+
 export function drawModule({ x, y, size, color, type, trim }) {
   ctx.save();
   ctx.translate(x, y);
@@ -775,11 +838,7 @@ export function drawModule({ x, y, size, color, type, trim }) {
   ctx.shadowColor = color;
   ctx.shadowBlur = qualityShadowBlur(type === "core" || type === "reactor" || type === "shield" ? 8 : 3);
 
-  const fill = ctx.createLinearGradient(-size * 0.55, -size * 0.55, size * 0.55, size * 0.55);
-  fill.addColorStop(0, "rgba(255,255,255,0.42)");
-  fill.addColorStop(0.24, color);
-  fill.addColorStop(1, "rgba(8,12,20,0.92)");
-  ctx.fillStyle = fill;
+  ctx.fillStyle = getModuleGradient(size, color);
 
   if (type === "core") {
     roundRect(ctx, { x: -size * 0.48, y: -size * 0.48, width: size * 0.96, height: size * 0.96, radius: size * 0.18 });
@@ -1589,6 +1648,46 @@ export function drawRespawn(ship) {
   ctx.restore();
 }
 
+// The minimap's map features (zones, clouds, asteroids) never move; render them
+// once per (map, size) combination instead of ~60 arc fills per frame.
+let minimapStaticCache = null;
+
+function getMinimapStaticLayer(map, w, h, sx, sy) {
+  if (minimapStaticCache && minimapStaticCache.map === map && minimapStaticCache.w === w && minimapStaticCache.h === h) {
+    return minimapStaticCache.canvas;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(w));
+  canvas.height = Math.max(1, Math.ceil(h));
+  const mini = canvas.getContext("2d");
+
+  for (const zone of map.safeZones || []) {
+    mini.fillStyle = zone.color || "rgba(255,255,255,0.06)";
+    mini.beginPath();
+    mini.arc(zone.x * sx, zone.y * sy, zone.radius * sx, 0, Math.PI * 2);
+    mini.fill();
+  }
+  for (const cloud of map.clouds || []) {
+    mini.fillStyle = `rgba(${cloud.color || "56,213,255"}, 0.12)`;
+    mini.beginPath();
+    mini.ellipse(cloud.x * sx, cloud.y * sy, Math.max(3, cloud.rx * sx), Math.max(2, cloud.ry * sy), cloud.rotation || 0, 0, Math.PI * 2);
+    mini.fill();
+  }
+  for (const asteroid of map.asteroids || []) {
+    mini.fillStyle = "rgba(172,185,202,0.45)";
+    mini.strokeStyle = "rgba(22,28,37,0.82)";
+    mini.lineWidth = 1;
+    mini.beginPath();
+    mini.arc(asteroid.x * sx, asteroid.y * sy, Math.max(2.5, asteroid.radius * sx), 0, Math.PI * 2);
+    mini.fill();
+    mini.stroke();
+  }
+
+  minimapStaticCache = { map, w, h, canvas };
+  return canvas;
+}
+
 export function drawMinimap(rect, players) {
   if (!state.snapshot) {
     state.minimap = null;
@@ -1624,27 +1723,8 @@ export function drawMinimap(rect, players) {
   const snap = state.snapshot;
   const map = state.snapshot?.map || state.map;
   if (map) {
-    for (const zone of map.safeZones || []) {
-      ctx.fillStyle = zone.color || "rgba(255,255,255,0.06)";
-      ctx.beginPath();
-      ctx.arc(x + zone.x * sx, y + zone.y * sy, zone.radius * sx, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    for (const cloud of map.clouds || []) {
-      ctx.fillStyle = `rgba(${cloud.color || "56,213,255"}, 0.12)`;
-      ctx.beginPath();
-      ctx.ellipse(x + cloud.x * sx, y + cloud.y * sy, Math.max(3, cloud.rx * sx), Math.max(2, cloud.ry * sy), cloud.rotation || 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    for (const asteroid of map.asteroids || []) {
-      ctx.fillStyle = "rgba(172,185,202,0.45)";
-      ctx.strokeStyle = "rgba(22,28,37,0.82)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(x + asteroid.x * sx, y + asteroid.y * sy, Math.max(2.5, asteroid.radius * sx), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
+    const staticLayer = getMinimapStaticLayer(map, w, h, sx, sy);
+    if (staticLayer) ctx.drawImage(staticLayer, x, y);
   }
 
   if (snap) {
@@ -1746,21 +1826,20 @@ if (typeof window !== "undefined") {
   window.addEventListener("keydown", (e) => {
     if (e.key === "F3") {
       e.preventDefault();
-      const current = localStorage.getItem("mfa.debugRenderer") === "true";
-      localStorage.setItem("mfa.debugRenderer", !current);
-      if (dom.debugOverlayToggle) dom.debugOverlayToggle.checked = !current;
+      const next = !getDebugRendererEnabled();
+      setDebugRendererEnabled(next);
+      if (dom.debugOverlayToggle) dom.debugOverlayToggle.checked = next;
       updateDebugOverlay(performance.now(), true);
     }
   });
 
   window.addEventListener("DOMContentLoaded", () => {
-    const isEnabled = localStorage.getItem("mfa.debugRenderer") === "true";
-    if (dom.debugOverlay) dom.debugOverlay.style.display = isEnabled ? "block" : "none";
+    if (dom.debugOverlay) dom.debugOverlay.style.display = getDebugRendererEnabled() ? "block" : "none";
   });
 }
 
 function updateDebugOverlay(now, force = false) {
-  const isEnabled = localStorage.getItem("mfa.debugRenderer") === "true";
+  const isEnabled = getDebugRendererEnabled();
   if (!dom.debugOverlay) return;
 
   if (!isEnabled) {

@@ -1,5 +1,5 @@
 import { resizeCanvas } from "../game/renderer.js";
-import { getRenderQuality, setRenderQuality } from "../game/renderSettings.js";
+import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatEffectsEnabled, getDebugRendererEnabled, setDebugRendererEnabled } from "../game/renderSettings.js";
 // Handles lobby screens, player wing choices, starting/leaving, rules updates, and host controls.
 
 import { dom } from "./dom.js";
@@ -413,10 +413,10 @@ export function openSettings() {
     dom.renderQualitySelect.value = getRenderQuality();
   }
   if (dom.debugOverlayToggle) {
-    dom.debugOverlayToggle.checked = localStorage.getItem("mfa.debugRenderer") === "true";
+    dom.debugOverlayToggle.checked = getDebugRendererEnabled();
   }
   if (dom.combatEffectsToggle) {
-    dom.combatEffectsToggle.checked = localStorage.getItem("mfa.combatEffects") !== "false";
+    dom.combatEffectsToggle.checked = getCombatEffectsEnabled();
   }
 }
 
@@ -552,13 +552,13 @@ if (typeof window !== "undefined") {
     }
     if (dom.debugOverlayToggle) {
       dom.debugOverlayToggle.addEventListener("change", (e) => {
-        localStorage.setItem("mfa.debugRenderer", e.target.checked);
+        setDebugRendererEnabled(e.target.checked);
         if (dom.debugOverlay) dom.debugOverlay.style.display = e.target.checked ? "block" : "none";
       });
     }
     if (dom.combatEffectsToggle) {
       dom.combatEffectsToggle.addEventListener("change", (e) => {
-        localStorage.setItem("mfa.combatEffects", e.target.checked);
+        setCombatEffectsEnabled(e.target.checked);
       });
     }
   });

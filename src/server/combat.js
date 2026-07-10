@@ -484,7 +484,10 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
   if (ship.stats.frontDamageReduction && sourceX !== undefined && sourceY !== undefined) {
     if (isDamageFromFront(ship, sourceX, sourceY, ship.stats.frontArc)) {
       damage *= (1 - ship.stats.frontDamageReduction);
-      room.effects.push({ type: "text", text: "BLOCKED", x: ship.x, y: ship.y, at: now });
+      if (!ship.lastBlockedTextAt || now - ship.lastBlockedTextAt > 350) {
+        ship.lastBlockedTextAt = now;
+        room.effects.push({ type: "text", text: "BLOCKED", x: ship.x, y: ship.y, at: now });
+      }
     }
   }
   ship.lastDamagedBy = attackerId;
@@ -512,26 +515,12 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
     hullDamage = bleedThroughDamage + overflowHullDamage;
 
     if (blockedShieldDamage > 0) {
-      room.effects.push({
-        type: "dmg",
-        x: ship.x,
-        y: ship.y,
-        at: now,
-        amount: blockedShieldDamage,
-        isShield: true
-      });
+      pushDamageEffect(room, ship, now, blockedShieldDamage, true);
     }
   }
 
   if (hullDamage > 0) {
-    room.effects.push({
-      type: "dmg",
-      x: ship.x,
-      y: ship.y,
-      at: now,
-      amount: hullDamage,
-      isShield: false
-    });
+    pushDamageEffect(room, ship, now, hullDamage, false);
   }
 
   ship.hp -= hullDamage;
@@ -562,18 +551,45 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
   }
 }
 
+// Fast-repeating damage (beams tick 30x/s) accumulates into the most recent
+// floating number instead of spawning a new effect per tick, which keeps the
+// effects array (and its share of every snapshot) small.
+const DMG_EFFECT_MERGE_MS = 160;
+
+function pushDamageEffect(room, ship, now, amount, isShield) {
+  const key = isShield ? "lastShieldDmgEffect" : "lastHullDmgEffect";
+  const previous = ship[key];
+  if (previous && now - previous.at < DMG_EFFECT_MERGE_MS) {
+    previous.amount = Math.round((previous.amount + amount) * 10) / 10;
+    previous.x = ship.x;
+    previous.y = ship.y;
+    return;
+  }
+  const effect = {
+    type: "dmg",
+    x: ship.x,
+    y: ship.y,
+    at: now,
+    amount: Math.round(amount * 10) / 10,
+    isShield
+  };
+  ship[key] = effect;
+  room.effects.push(effect);
+}
+
 function updateDestroyedShips(room, now) {
   for (const player of room.players.values()) {
-    let keptShips = [];
+    let removedAny = false;
     for (const ship of player.ships) {
       if (!ship.alive && !ship.removed && ship.removeAt && now >= ship.removeAt) {
         ship.removed = true;
         room.ships.delete(ship.id);
-      } else {
-        keptShips.push(ship);
+        removedAny = true;
       }
     }
-    player.ships = keptShips;
+    if (removedAny) {
+      player.ships = player.ships.filter((ship) => !ship.removed);
+    }
   }
 }
 

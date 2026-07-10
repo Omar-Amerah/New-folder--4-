@@ -3,10 +3,14 @@
 const { clampNumber, performanceNow } = require("./utils");
 
 function send(client, data) {
+  sendRaw(client, JSON.stringify(data));
+}
+
+function sendRaw(client, json) {
   if (client.isClosed || client.socket.destroyed) return;
   try {
     const { writeFrame } = require("./websocketServer");
-    writeFrame(client.socket, JSON.stringify(data));
+    writeFrame(client.socket, json);
   } catch {
     const { closeClient } = require("./websocketServer");
     closeClient(client, 1011, "Send failed");
@@ -14,19 +18,38 @@ function send(client, data) {
 }
 
 function sendPlayer(room, player, data) {
-  const client = [...room.clients].find((candidate) => candidate.player?.id === player?.id);
-  if (client) send(client, data);
+  for (const client of room.clients) {
+    if (client.player?.id === player?.id) {
+      send(client, data);
+      return;
+    }
+  }
 }
 
 function broadcastRoom(room, data) {
-  for (const client of room.clients) send(client, data);
+  const json = JSON.stringify(data);
+  for (const client of room.clients) sendRaw(client, json);
 }
 
 function broadcastSnapshot(room, now, forceStatic = false) {
-  const { snapshotRoom } = require("./snapshots");
+  if (room.clients.size === 0) return;
+  const { snapshotRoom, buildSharedSnapshot, markShipDesignsSent } = require("./snapshots");
+
+  // Everything except per-player economy visibility is identical for all viewers,
+  // and economy visibility only depends on the viewer's team — so build the bulky
+  // shared arrays once and serialize once per team instead of once per client.
+  const shared = buildSharedSnapshot(room, now, forceStatic);
+  const byTeam = new Map();
   for (const client of room.clients) {
-    send(client, snapshotRoom(room, now, client.player, forceStatic));
+    const key = client.player ? `t:${client.player.team}` : "spectator";
+    let json = byTeam.get(key);
+    if (json === undefined) {
+      json = JSON.stringify(snapshotRoom(room, now, client.player, forceStatic, shared));
+      byTeam.set(key, json);
+    }
+    sendRaw(client, json);
   }
+  markShipDesignsSent(room);
 }
 
 function handleMessage(client, message) {

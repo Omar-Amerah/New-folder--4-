@@ -487,20 +487,23 @@ function nearestClearPoint(room, x, y, clearance) {
 
 function findOptimalHullAngle(ship, target) {
   const angleToTarget = Math.atan2(target.y - ship.y, target.x - ship.x);
-  const design = ship.design || [];
 
-  const weapons = [];
+  // Ship designs are immutable after spawn, so the weapon layout is computed once.
+  let weapons = ship.hullAngleWeapons;
+  if (!weapons) {
+    weapons = [];
+    for (const module of ship.design || []) {
+      const part = PARTS[module.type];
+      if (!part?.weapon) continue;
 
-  for (const module of design) {
-    const part = PARTS[module.type];
-    if (!part?.weapon) continue;
-
-    weapons.push({
-      local: moduleLocalPosition(module),
-      range: ship.stats[part.weapon.type + "Range"] || part.weapon.range,
-      arcRadians: (part.weapon.arc || 360) * Math.PI / 180,
-      rotationOffset: moduleRotationToRadians(normalizeRotation(module.rotation))
-    });
+      weapons.push({
+        local: moduleLocalPosition(module),
+        range: ship.stats[part.weapon.type + "Range"] || part.weapon.range,
+        arcRadians: (part.weapon.arc || 360) * Math.PI / 180,
+        rotationOffset: moduleRotationToRadians(normalizeRotation(module.rotation))
+      });
+    }
+    ship.hullAngleWeapons = weapons;
   }
 
   if (weapons.length === 0) {

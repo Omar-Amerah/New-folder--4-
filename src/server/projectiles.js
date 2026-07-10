@@ -39,6 +39,7 @@ function updateBullets(room, dt, now) {
 
   const liveShips = getLiveShips(room);
   const byId = new Map(liveShips.map((ship) => [ship.id, ship]));
+  let bulletsById = null;
   const kept = [];
 
   for (const bullet of room.bullets) {
@@ -98,7 +99,11 @@ function updateBullets(room, dt, now) {
 
     if (bullet.type === "pdShot") {
        if (bullet.pdTargetType === "projectile") {
-          const target = room.bullets.find(b => b.id === bullet.pdTargetId);
+          if (!bulletsById) {
+            bulletsById = new Map();
+            for (const other of room.bullets) bulletsById.set(other.id, other);
+          }
+          const target = bulletsById.get(bullet.pdTargetId);
           if (target && target.interceptable && target.life > 0) {
              const dx = target.x - bullet.x;
              const dy = target.y - bullet.y;

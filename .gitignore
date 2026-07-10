@@ -3,3 +3,7 @@ public/client.js
 public/blueprint-fix.js
 node_modules/
 .gemini/
+
+# Local runtime artifacts
+*.log
+server.pid

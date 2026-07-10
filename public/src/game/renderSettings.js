@@ -33,6 +33,31 @@ export function getRenderQualityDprCap() {
   return 2.0;
 }
 
+// These flags are read every frame in the render loop, so cache them instead of
+// hitting the synchronous localStorage API each time.
+let cachedCombatEffects = null;
+let cachedDebugRenderer = null;
+
 export function getCombatEffectsEnabled() {
-  return localStorage.getItem("mfa.combatEffects") !== "false";
+  if (cachedCombatEffects === null) {
+    cachedCombatEffects = localStorage.getItem("mfa.combatEffects") !== "false";
+  }
+  return cachedCombatEffects;
+}
+
+export function setCombatEffectsEnabled(enabled) {
+  cachedCombatEffects = Boolean(enabled);
+  localStorage.setItem("mfa.combatEffects", cachedCombatEffects);
+}
+
+export function getDebugRendererEnabled() {
+  if (cachedDebugRenderer === null) {
+    cachedDebugRenderer = localStorage.getItem("mfa.debugRenderer") === "true";
+  }
+  return cachedDebugRenderer;
+}
+
+export function setDebugRendererEnabled(enabled) {
+  cachedDebugRenderer = Boolean(enabled);
+  localStorage.setItem("mfa.debugRenderer", cachedDebugRenderer);
 }
