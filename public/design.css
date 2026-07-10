@@ -2034,7 +2034,6 @@
   z-index: 10;
   border-radius: 5px;
   border: 2px solid;
-  transition: all 0.1s;
 }
 .build-preview.valid {
   background: rgba(0, 255, 0, 0.2);
