@@ -564,7 +564,7 @@
       "rotatable": true,
       "description": "Long-range precision weapon with high damage and narrow arc.",
       "footprint": {
-        "width": 2,
+        "width": 3,
         "height": 1
       }
     },
@@ -599,7 +599,11 @@
         "hullDamageMultiplier": 0.85
       },
       "rotatable": true,
-      "description": "Tracking missile pod that applies frequent pressure."
+      "description": "Tracking missile pod that applies frequent pressure.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "torpedo",
@@ -708,7 +712,11 @@
       "turn": -0.02,
       "energy": 0,
       "repair": 8,
-      "description": "Heavy repair system with stronger but limited hull recovery."
+      "description": "Heavy repair system with stronger but limited hull recovery.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "sensorArray",
