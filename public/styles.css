@@ -316,6 +316,11 @@ h2 {
   margin-bottom: 12px;
 }
 
+#rulesStatus {
+  display: inline-flex;
+  align-items: center;
+}
+
 .join-row,
 .button-row,
 .utility-row {
