@@ -1715,11 +1715,12 @@ export function drawMinimap(rect, players) {
   ctx.clip();
 
   if (dom.showEndGameButton && !dom.showEndGameButton.hidden) {
-    const desiredTop = `${Math.round(y + h + 14)}px`;
-    if (dom.showEndGameButton.style.top !== desiredTop) {
-      dom.showEndGameButton.style.top = desiredTop;
-      dom.showEndGameButton.style.right = `14px`;
-    }
+    // Anchor the "Show Results" button just below the minimap (both are in the
+    // arena-wrap coordinate space) so it never overlaps it.
+    dom.showEndGameButton.style.top = `${Math.round(y + h + 14)}px`;
+    dom.showEndGameButton.style.right = `14px`;
+    dom.showEndGameButton.style.left = "auto";
+    dom.showEndGameButton.style.bottom = "auto";
   }
 
   const sx = w / state.world.width;

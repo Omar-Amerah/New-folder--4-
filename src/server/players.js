@@ -36,9 +36,37 @@ function joinRoom(client, message) {
     rooms.set(code, room);
   }
 
-  const existingPlayer = [...room.players.values()].find(
+  let existingPlayer = [...room.players.values()].find(
     (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === false
   );
+
+  // A fast page refresh during an active game often races ahead of the old
+  // socket's close, so the previous player is still marked connected when the
+  // rejoin arrives. Reclaim that slot instead of rejecting the returning player
+  // with "game already started".
+  if (!existingPlayer && room.phase !== "lobby") {
+    const stale = [...room.players.values()].find(
+      (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === true
+    );
+    if (stale) {
+      for (const oldClient of [...room.clients]) {
+        if (oldClient !== client && oldClient.player === stale) {
+          // Detach first so the orphaned socket's eventual close does not tear
+          // down the slot we are reclaiming.
+          oldClient.room = null;
+          oldClient.player = null;
+          room.clients.delete(oldClient);
+          try { oldClient.socket.destroy(); } catch { /* already gone */ }
+        }
+      }
+      if (stale.disconnectTimeout) {
+        clearTimeout(stale.disconnectTimeout);
+        stale.disconnectTimeout = null;
+      }
+      stale.connected = false;
+      existingPlayer = stale;
+    }
+  }
 
   if (existingPlayer) {
     leaveRoom(client);

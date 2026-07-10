@@ -18,6 +18,23 @@ class FakeElement {
     this.dataset = {};
   }
 
+  get classList() {
+    const el = this;
+    const set = () => new Set(String(el.className).split(/\s+/).filter(Boolean));
+    return {
+      add(...names) { const s = set(); names.forEach((n) => s.add(n)); el.className = [...s].join(" "); },
+      remove(...names) { const s = set(); names.forEach((n) => s.delete(n)); el.className = [...s].join(" "); },
+      contains(name) { return set().has(name); },
+      toggle(name, force) {
+        const s = set();
+        const shouldHave = force === undefined ? !s.has(name) : force;
+        if (shouldHave) s.add(name); else s.delete(name);
+        el.className = [...s].join(" ");
+        return shouldHave;
+      }
+    };
+  }
+
   addEventListener(type, handler) {
     const handlers = this.listeners.get(type) || [];
     handlers.push(handler);

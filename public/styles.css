@@ -81,6 +81,32 @@ button.secondary {
   box-shadow: none;
 }
 
+/* Loading state: hide the label and show a centered spinner while an action
+   (e.g. creating/joining a lobby) is in flight. */
+button.is-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+button.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(245, 251, 255, 0.35);
+  border-top-color: #f5fbff;
+  border-radius: 50%;
+  animation: button-spinner 0.7s linear infinite;
+}
+
+@keyframes button-spinner {
+  to { transform: rotate(360deg); }
+}
+
 button:disabled,
 input:disabled,
 select:disabled {

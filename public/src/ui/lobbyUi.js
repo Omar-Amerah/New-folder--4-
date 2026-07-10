@@ -29,8 +29,13 @@ export function updateLobbyState() {
   const phase = state.snapshot?.phase || state.phase;
   const admin = isAdmin();
   dom.roomState.textContent = connected ? `${phaseLabel(phase)} | ${playerCount} in room` : connecting ? "Connecting" : "Not joined";
-  dom.createButton.disabled = connecting;
-  dom.joinButton.disabled = connecting;
+  // Show a spinner from the create/join click until the room is joined (or the
+  // attempt fails), so the wait on lobby creation has visible feedback.
+  const joining = Boolean(state.joiningLobby) && !connected;
+  dom.createButton.classList.toggle("is-loading", joining);
+  dom.joinButton.classList.toggle("is-loading", joining);
+  dom.createButton.disabled = connecting || joining;
+  dom.joinButton.disabled = connecting || joining;
   if (dom.mainMenuCloseButton) dom.mainMenuCloseButton.disabled = !connected;
   dom.copyButton.disabled = !state.room;
 
@@ -49,7 +54,8 @@ export function updateLobbyState() {
   }
   if (dom.closeLobbyButton) {
     dom.closeLobbyButton.hidden = !admin;
-    dom.closeLobbyButton.disabled = !connected || phase === "active";
+    // Admin can close the lobby in any phase, including an active battle.
+    dom.closeLobbyButton.disabled = !connected;
   }
   dom.currentRoomCard.hidden = !state.room;
   dom.currentRoomCode.textContent = state.room || "----";
@@ -262,9 +268,11 @@ export function createGame() {
   localStorage.setItem(LOCAL_NAME_KEY, name);
   localStorage.setItem(LOCAL_TEAM_KEY, teamValue());
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
+  state.joiningLobby = true;
   connect(getSocketUrl(), () => {
     send({ type: "join", name, room: "", team: teamValue() });
   });
+  updateLobbyState();
 }
 
 export function joinExistingGame() {
@@ -285,9 +293,11 @@ export function joinRoom(roomCode = "") {
   localStorage.setItem(LOCAL_NAME_KEY, name);
   localStorage.setItem(LOCAL_TEAM_KEY, teamValue());
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
+  state.joiningLobby = true;
   connect(getSocketUrl(), () => {
     send({ type: "join", name, room: roomCode, team: teamValue() });
   });
+  updateLobbyState();
 }
 
 export function deployDesign() {
@@ -342,6 +352,7 @@ export function returnToMainMenu(message = "", tone = "warning") {
 }
 
 export function clearRoomState() {
+  state.joiningLobby = false;
   if (state.socket) {
     try {
       state.socket.close();

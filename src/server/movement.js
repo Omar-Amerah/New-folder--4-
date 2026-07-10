@@ -547,7 +547,7 @@ function findOptimalHullAngle(ship, target) {
       bestScore = score;
       bestAngle = candidateAngle;
     }
-  }
+     }
 
   return bestAngle;
 }

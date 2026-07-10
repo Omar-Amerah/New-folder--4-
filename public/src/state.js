@@ -40,6 +40,7 @@ export const state = {
   mine: null,
   map: null,
   phase: "offline",
+  joiningLobby: false,
   adminId: null,
   camera: { x: WORLD_FALLBACK.width / 2, y: WORLD_FALLBACK.height / 2, zoom: 0.58, follow: true, manualZoom: null },
   pointer: { x: 0, y: 0 },

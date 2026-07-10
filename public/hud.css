@@ -249,6 +249,10 @@
 
 .show-end-game-button {
   position: absolute;
+  /* Fallback anchor below the minimap's top-right area; the renderer refines the
+     exact `top` from the live minimap height each frame. */
+  top: 216px;
+  right: 14px;
   z-index: 5;
   padding: 8px 16px;
   background: rgba(9, 15, 25, 0.8);

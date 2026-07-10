@@ -39,6 +39,7 @@ export function handleServerMessage(message) {
   }
 
   if (message.type === "joined") {
+    state.joiningLobby = false;
     state.myId = message.id;
     state.room = message.room;
     state.world = message.world || state.world;
@@ -137,6 +138,7 @@ export function handleServerMessage(message) {
   }
 
   if (message.type === "error") {
+    state.joiningLobby = false;
     if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
     if (/closed|kicked/i.test(message.message || "")) forgetActiveRoom();
     if (!state.room || !dom.mainMenuScreen?.hidden) {
