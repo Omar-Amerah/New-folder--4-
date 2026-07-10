@@ -61,6 +61,8 @@ export const PART_DEFS = {
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" }
 };
 
+const MARKERLESS_ROTATABLE_PARTS = new Set(["halfFrameDiagonal", "wingFrame"]);
+
 export const PART_DESCRIPTIONS = Object.freeze({
   core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
   frame: "Cheap structure used to expand the ship shape and connect other modules.",
@@ -730,7 +732,15 @@ export function applyServerParts(parts) {
 
 export function isRotatablePart(type) {
   const stat = PART_STATS[type] || {};
-  return stat.category === "Weapons" || stat.rotatable === true;
+  return stat.category === "Weapons" || stat.rotatable === true || MARKERLESS_ROTATABLE_PARTS.has(type);
+}
+
+export function shouldShowRotationMarker(type) {
+  return isRotatablePart(type) && !MARKERLESS_ROTATABLE_PARTS.has(type);
+}
+
+export function shouldRotateDesignerGlyph(type) {
+  return MARKERLESS_ROTATABLE_PARTS.has(type);
 }
 
 

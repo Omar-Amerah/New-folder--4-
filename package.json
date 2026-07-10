@@ -17,5 +17,8 @@
     "rts"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "pixi.js": "^8.19.0"
+  }
 }

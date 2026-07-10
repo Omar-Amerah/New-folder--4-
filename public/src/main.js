@@ -9,8 +9,8 @@ import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPoin
 import { openBlueprintDesigner, closeBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
-import { resizeCanvas, frame } from "./game/renderer.js";
-import { handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleKeyDown } from "./game/input.js";
+import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
+import { handleKeyDown, bindArenaPointerListeners } from "./game/input.js";
 import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "./constants.js";
 import { send, getConfiguredServerUrl } from "./network.js";
 import { applyComponentBalance } from "./design/parts.js";
@@ -24,7 +24,7 @@ if (dom.combatStyleSelect) {
 }
 
 // Register core window listeners
-window.addEventListener("resize", resizeCanvas);
+window.addEventListener("resize", resizeArenaRenderer);
 window.addEventListener("keydown", handleKeyDown);
 window.addEventListener("keyup", (event) => state.keys.delete(event.key.toLowerCase()));
 
@@ -175,11 +175,7 @@ bindKickButtonContainer(dom.playerList);
 bindKickButtonContainer(dom.scoreList);
 
 // Bind canvas pointer listeners
-dom.canvas?.addEventListener("pointerdown", handlePointerDown);
-dom.canvas?.addEventListener("pointermove", handlePointerMove);
-dom.canvas?.addEventListener("pointerup", handlePointerUp);
-dom.canvas?.addEventListener("wheel", handleWheel, { passive: false });
-dom.canvas?.addEventListener("contextmenu", (event) => event.preventDefault());
+if (dom.canvas) bindArenaPointerListeners(dom.canvas);
 
 // Initialize bootstrapping
 initializeClient();
@@ -194,8 +190,7 @@ async function initializeClient() {
   renderPurchaseBar();
   updateLobbyState();
   openMainMenu();
-  resizeCanvas();
-  requestAnimationFrame(frame);
+  await initArenaRenderer();
   
   // Connection ping tick loop
   setInterval(() => {

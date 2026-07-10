@@ -1,0 +1,181 @@
+.stat {
+  --stat-bg: rgba(10, 15, 25, 0.66);
+  --stat-bg-hover: rgba(255, 255, 255, 0.03);
+  --stat-border: var(--line);
+  --stat-value: var(--text);
+  --stat-label: var(--muted);
+
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--stat-border);
+  border-radius: 6px;
+  background: var(--stat-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  outline: none;
+  transition:
+    background 100ms ease,
+    border-color 100ms ease,
+    box-shadow 100ms ease;
+}
+
+.stat:hover {
+  background: var(--stat-bg-hover);
+  border-color: rgba(255, 255, 255, 0.15);
+  cursor: help;
+}
+
+.stat:focus {
+  outline: 2px solid #ffca57;
+  outline-offset: -1px;
+}
+
+.stat span {
+  display: block;
+  color: var(--stat-label);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.stat strong {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  color: var(--stat-value);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Subtle full-card diagnostic states, no left stripe. */
+.stat-good {
+  --stat-bg:
+    linear-gradient(180deg, rgba(124, 255, 138, 0.11), rgba(124, 255, 138, 0.055)),
+    rgba(10, 28, 18, 0.76);
+  --stat-bg-hover:
+    linear-gradient(180deg, rgba(124, 255, 138, 0.15), rgba(124, 255, 138, 0.075)),
+    rgba(12, 34, 22, 0.82);
+  --stat-border: rgba(124, 255, 138, 0.30);
+  --stat-value: #d8ffe0;
+  --stat-label: #b5dec0;
+}
+
+.stat-warning {
+  --stat-bg:
+    linear-gradient(180deg, rgba(255, 202, 87, 0.12), rgba(255, 202, 87, 0.055)),
+    rgba(35, 25, 11, 0.78);
+  --stat-bg-hover:
+    linear-gradient(180deg, rgba(255, 202, 87, 0.16), rgba(255, 202, 87, 0.075)),
+    rgba(42, 30, 13, 0.84);
+  --stat-border: rgba(255, 202, 87, 0.34);
+  --stat-value: #fff0c2;
+  --stat-label: #dfc584;
+}
+
+.stat-bad {
+  --stat-bg:
+    linear-gradient(180deg, rgba(255, 95, 126, 0.13), rgba(255, 95, 126, 0.06)),
+    rgba(38, 14, 22, 0.78);
+  --stat-bg-hover:
+    linear-gradient(180deg, rgba(255, 95, 126, 0.17), rgba(255, 95, 126, 0.08)),
+    rgba(46, 16, 26, 0.84);
+  --stat-border: rgba(255, 95, 126, 0.38);
+  --stat-value: #ffe1e8;
+  --stat-label: #e1a2b0;
+}
+
+.stat-good:hover {
+  border-color: rgba(124, 255, 138, 0.44);
+}
+
+.stat-warning:hover {
+  border-color: rgba(255, 202, 87, 0.50);
+}
+
+.stat-bad:hover {
+  border-color: rgba(255, 95, 126, 0.56);
+}
+.cost-breakdown {
+  grid-column: 1 / -1;
+  padding: 0;
+  overflow: hidden;
+  border-color: rgba(255, 202, 87, 0.28);
+  background:
+    linear-gradient(180deg, rgba(55, 43, 17, 0.72), rgba(9, 15, 25, 0.82)),
+    rgba(10, 15, 25, 0.66);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.cost-breakdown summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: #ffe1a3;
+  list-style: none;
+}
+
+.cost-breakdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.cost-breakdown summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #ffe1a3;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cost-breakdown summary span::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 12px rgba(255, 202, 87, 0.62);
+  content: "";
+}
+
+.cost-breakdown summary strong {
+  margin: 0;
+  color: #fff2c4;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.cost-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.cost-breakdown-grid div {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 202, 87, 0.14);
+  border-radius: 4px;
+  background: rgba(7, 12, 20, 0.5);
+}
+
+.cost-breakdown-grid span {
+  display: block;
+  color: #9ba9bd;
+  font-size: 8px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.cost-breakdown-grid strong {
+  display: block;
+  margin-top: 1px;
+  color: #edf4ff;
+  font-size: 11px;
+  line-height: 1.1;
+}

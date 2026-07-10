@@ -1,0 +1,107 @@
+/* Designer stats grid and saved blueprint card/list styles. Keep import order in ../design.css unchanged. */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.saved-designs {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.section-heading.compact {
+  margin-bottom: 0;
+}
+
+.section-heading.compact button {
+  width: auto;
+  min-height: 28px;
+  padding: 6px 10px;
+}
+
+.saved-design-list {
+  display: grid;
+  gap: 6px;
+}
+
+.saved-design-card,
+.saved-design-empty,
+.objective-summary {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(10, 15, 25, 0.66);
+}
+
+.saved-design-card {
+  display: grid;
+  gap: 5px;
+  position: relative;
+  overflow: hidden;
+}
+
+.saved-design-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.saved-design-name {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-color: rgba(174, 199, 231, 0.2);
+  background: rgba(6, 10, 17, 0.72);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+}
+
+.saved-design-empty,
+.objective-summary {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.saved-design-summary {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.saved-design-summary {
+  color: #cdd9eb;
+}
+
+.saved-design-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: 4px;
+}
+
+.saved-design-actions button {
+  min-height: 24px;
+  padding: 4px 5px;
+  font-size: 9px;
+  box-shadow: none;
+  touch-action: manipulation;
+}
+
+.saved-design-actions button.pressed {
+  transform: translateY(1px);
+  border-color: rgba(56, 213, 255, 0.58);
+  box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.1);
+}

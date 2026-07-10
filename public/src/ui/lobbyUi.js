@@ -1,4 +1,4 @@
-import { resizeCanvas } from "../game/renderer.js";
+import { resizeArenaRenderer } from "../game/renderController.js";
 import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatEffectsEnabled, getDebugRendererEnabled, setDebugRendererEnabled } from "../game/renderSettings.js";
 // Handles lobby screens, player wing choices, starting/leaving, rules updates, and host controls.
 
@@ -561,7 +561,7 @@ if (typeof window !== "undefined") {
     if (dom.renderQualitySelect) {
       dom.renderQualitySelect.addEventListener("change", (e) => {
         setRenderQuality(e.target.value);
-        resizeCanvas();
+        resizeArenaRenderer();
       });
     }
     if (dom.debugOverlayToggle) {

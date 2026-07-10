@@ -1,0 +1,232 @@
+/* Fixed purchase bar, quantity controls, purchase options, and pending animation. Keep import order in ../design.css unchanged. */
+
+.purchase-bar {
+  position: fixed;
+  left: calc(346px + 12px);
+  right: calc(310px + 12px);
+  bottom: max(10px, env(safe-area-inset-bottom));
+  z-index: 12;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 118px;
+  padding: 10px 12px;
+  border: 1px solid rgba(174, 199, 231, 0.24);
+  border-top-color: rgba(56, 213, 255, 0.42);
+  border-radius: 8px;
+  background: rgba(7, 12, 20, 0.9);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(16px);
+}
+
+.purchase-meta {
+  display: grid;
+  grid-template-columns: auto;
+  align-content: center;
+  gap: 8px;
+}
+
+.purchase-meta > div,
+.purchase-quantity {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(174, 199, 231, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.purchase-meta span,
+.purchase-main > span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.purchase-meta strong {
+  display: block;
+  margin-top: 2px;
+  color: #f8fbff;
+  font-size: 16px;
+}
+
+.purchase-quantity > div {
+  display: grid;
+  grid-template-columns: repeat(2, 34px);
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.purchase-quantity button {
+  min-height: 26px;
+  padding: 0;
+  border-color: var(--line);
+  background: #111827;
+  box-shadow: none;
+}
+
+.purchase-quantity button.active {
+  border-color: rgba(103, 224, 138, 0.52);
+  background: linear-gradient(180deg, #1f7a55, #15543d);
+}
+
+.purchase-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.purchase-options {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.purchase-option {
+  flex: 0 0 132px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 58px;
+  padding: 7px 8px;
+  border-color: rgba(103, 224, 138, 0.34);
+  background: linear-gradient(180deg, rgba(18, 48, 45, 0.92), rgba(9, 22, 24, 0.96));
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.08), 0 8px 20px rgba(0, 0, 0, 0.28);
+  touch-action: manipulation;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, opacity 140ms ease, transform 80ms ease;
+}
+
+.purchase-option:hover {
+  border-color: rgba(103, 224, 138, 0.54);
+  background: linear-gradient(180deg, rgba(20, 58, 54, 0.96), rgba(10, 28, 30, 0.98));
+  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.12), 0 10px 24px rgba(0, 0, 0, 0.32);
+}
+
+.purchase-option strong,
+.purchase-option span,
+.purchase-option small,
+.purchase-option em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.purchase-option strong {
+  font-size: 12px;
+}
+
+.purchase-option span {
+  color: #fff2c4;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.purchase-option small {
+  color: #c7d7ea;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.purchase-option em {
+  color: #a7f5bf;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.purchase-option.disabled {
+  border-color: rgba(174, 199, 231, 0.16);
+  background: rgba(20, 25, 35, 0.82);
+  box-shadow: none;
+  cursor: pointer;
+  opacity: 0.68;
+}
+
+.purchase-option.disabled em {
+  color: #ffd991;
+}
+
+.purchase-option.pressed {
+  transform: translateY(1px);
+  border-color: rgba(56, 213, 255, 0.64);
+  background: linear-gradient(180deg, rgba(18, 62, 75, 0.96), rgba(8, 28, 36, 0.98));
+  box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.16), 0 0 20px rgba(56, 213, 255, 0.12);
+}
+
+.purchase-option.pressed em {
+  color: #aeeeff;
+}
+
+.purchase-option.error {
+  border-color: rgba(255, 95, 126, 0.46);
+  background: linear-gradient(180deg, rgba(57, 25, 34, 0.94), rgba(24, 12, 17, 0.98));
+}
+
+.purchase-option.error em {
+  color: #ffb7c6;
+}
+
+.purchase-option.pending {
+  position: relative;
+  border-color: rgba(255, 202, 87, 0.5);
+  background: linear-gradient(180deg, rgba(61, 45, 17, 0.94), rgba(24, 19, 12, 0.98));
+  box-shadow: 0 0 0 1px rgba(255, 202, 87, 0.12), 0 0 22px rgba(255, 202, 87, 0.12);
+  cursor: progress;
+  overflow: hidden;
+}
+
+.purchase-option.pending:hover {
+  border-color: rgba(255, 202, 87, 0.56);
+  background: linear-gradient(180deg, rgba(61, 45, 17, 0.94), rgba(24, 19, 12, 0.98));
+}
+
+.purchase-option.pending::before {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 242, 196, 0.28);
+  border-top-color: #fff2c4;
+  border-radius: 50%;
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  pointer-events: none;
+  animation: purchase-spin 700ms linear infinite;
+}
+
+.purchase-option.pending::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-100%);
+  animation: purchase-pulse 900ms ease-in-out infinite;
+}
+
+.purchase-option.pending em {
+  color: #fff2c4;
+}
+
+@keyframes purchase-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes purchase-pulse {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}

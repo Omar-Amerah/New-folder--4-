@@ -10,15 +10,14 @@ import { formatHull, formatShield, formatThrust, formatEnergy, formatRepair, for
 import { drawEffects } from "./effects.js";
 import { drawSelectionBox, ownLiveShips } from "./selection.js";
 import { updateCamera, applyCamera } from "./camera.js";
-import { getRenderQuality, qualityShadowBlur, getRenderQualityDprCap, getDebugRendererEnabled, setDebugRendererEnabled } from "./renderSettings.js";
+import { qualityShadowBlur, getRenderQualityDprCap } from "./renderSettings.js";
+import { setDebugFrameStats, updateDebugOverlay } from "./debugOverlay.js";
 import { playerMap } from "../ui/scoreboardUi.js";
 
 
 let frameCount = 0;
 let lastFpsTime = 0;
 let currentFps = 0;
-let lastRenderTimeMs = 0;
-let debugLastUpdated = 0;
 
 
 export function getViewportWorldBounds(rect, padding = 160) {
@@ -69,7 +68,7 @@ export function frame(now) {
     lastFpsTime = now;
   }
 
-  lastRenderTimeMs = performance.now() - start;
+  setDebugFrameStats(currentFps, performance.now() - start, "canvas2d");
   updateDebugOverlay(now);
 
   requestAnimationFrame(frame);
@@ -243,7 +242,7 @@ export function drawSafeZone(zone) {
 const nebulaSpriteCache = new WeakMap();
 const NEBULA_SPRITE_SCALE = 0.5;
 
-function getNebulaSprite(cloud) {
+export function getNebulaSprite(cloud) {
   let sprite = nebulaSpriteCache.get(cloud);
   if (sprite) return sprite;
 
@@ -529,6 +528,15 @@ export function drawBullets(players, bounds) {
 
     ctx.translate(renderX, renderY);
     ctx.rotate(Math.atan2(bullet.vy, bullet.vx));
+    drawBulletVisual(bullet, color);
+    ctx.restore();
+  }
+}
+
+// Draws a bullet's art around the origin (translation/rotation already applied).
+// Also used by the Pixi renderer to bake per-type projectile textures.
+export function drawBulletVisual(bullet, color) {
+  {
     if (bullet.type === "rail") {
       ctx.strokeStyle = "#eaf6ff";
       ctx.shadowColor = "#9fdcff";
@@ -664,7 +672,6 @@ export function drawBullets(players, bounds) {
       ctx.fillStyle = "rgba(255,255,255,0.88)";
       ctx.fillRect(1, -1, 5, 2);
     }
-    ctx.restore();
   }
 }
 
@@ -1656,7 +1663,7 @@ export function drawRespawn(ship) {
 // once per (map, size) combination instead of ~60 arc fills per frame.
 let minimapStaticCache = null;
 
-function getMinimapStaticLayer(map, w, h, sx, sy) {
+export function getMinimapStaticLayer(map, w, h, sx, sy) {
   if (minimapStaticCache && minimapStaticCache.map === map && minimapStaticCache.w === w && minimapStaticCache.h === h) {
     return minimapStaticCache.canvas;
   }
@@ -1797,14 +1804,14 @@ function roundRect(context, { x, y, width, height, radius }) {
   context.closePath();
 }
 
-function angleDifference(a, b) {
+export function angleDifference(a, b) {
   let diff = b - a;
   while (diff < -Math.PI) diff += Math.PI * 2;
   while (diff > Math.PI) diff -= Math.PI * 2;
   return diff;
 }
 
-function getWeaponTurnRate(weapon) {
+export function getWeaponTurnRate(weapon) {
   if (!weapon) return 8.0;
   if (Number.isFinite(weapon.aimSpeed)) return weapon.aimSpeed;
   if (Number.isFinite(weapon.turretTurnRate)) return weapon.turretTurnRate;
@@ -1820,61 +1827,10 @@ function getWeaponTurnRate(weapon) {
   return 8.0;
 }
 
-function approachAngle(current, target, maxDelta) {
+export function approachAngle(current, target, maxDelta) {
   let diff = angleDifference(current, target);
   if (Math.abs(diff) <= maxDelta) return target;
   return current + Math.sign(diff) * maxDelta;
 }
 
 
-if (typeof window !== "undefined") {
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "F3") {
-      e.preventDefault();
-      const next = !getDebugRendererEnabled();
-      setDebugRendererEnabled(next);
-      if (dom.debugOverlayToggle) dom.debugOverlayToggle.checked = next;
-      updateDebugOverlay(performance.now(), true);
-    }
-  });
-
-  window.addEventListener("DOMContentLoaded", () => {
-    if (dom.debugOverlay) dom.debugOverlay.style.display = getDebugRendererEnabled() ? "block" : "none";
-  });
-}
-
-function updateDebugOverlay(now, force = false) {
-  const isEnabled = getDebugRendererEnabled();
-  if (!dom.debugOverlay) return;
-
-  if (!isEnabled) {
-    if (dom.debugOverlay.style.display !== "none") dom.debugOverlay.style.display = "none";
-    return;
-  } else {
-    if (dom.debugOverlay.style.display !== "block") dom.debugOverlay.style.display = "block";
-  }
-
-  if (!force && now - debugLastUpdated < 250) return; // throttle DOM updates
-  debugLastUpdated = now;
-
-  const dpr = window.devicePixelRatio || 1;
-  const q = getRenderQuality();
-  let maxDpr = 1.5;
-  if (q === "low") maxDpr = 1.25;
-  if (q === "high") maxDpr = 2.0;
-  const actualDpr = Math.max(1, Math.min(maxDpr, dpr)).toFixed(2);
-
-  const text = [
-    `FPS: ${currentFps} (${lastRenderTimeMs.toFixed(1)}ms)`,
-    `Quality: ${q} (DPR: ${actualDpr})`,
-    `Zoom: ${state.camera.zoom.toFixed(2)}`,
-    `Ships: ${state.debugStats?.drawnShips || 0} / ${state.debugStats?.totalShips || 0}`,
-    `Bullets: ${state.debugStats?.drawnBullets || 0} / ${state.debugStats?.totalBullets || 0}`,
-    `Asteroids: ${state.debugStats?.drawnAsteroids || 0} / ${state.debugStats?.totalAsteroids || 0}`,
-    `Effects: ${state.debugStats?.drawnEffects || 0} / ${state.debugStats?.totalEffects || 0}`
-  ].join("<br>");
-
-  if (dom.debugOverlay.innerHTML !== text) {
-    dom.debugOverlay.innerHTML = text;
-  }
-}

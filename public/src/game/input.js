@@ -146,3 +146,11 @@ export function handleKeyDown(event) {
     updateHud();
   }
 }
+
+export function bindArenaPointerListeners(canvasEl) {
+  canvasEl.addEventListener("pointerdown", handlePointerDown);
+  canvasEl.addEventListener("pointermove", handlePointerMove);
+  canvasEl.addEventListener("pointerup", handlePointerUp);
+  canvasEl.addEventListener("wheel", handleWheel, { passive: false });
+  canvasEl.addEventListener("contextmenu", (event) => event.preventDefault());
+}

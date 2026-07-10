@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup, shouldRotateDesignerGlyph, shouldShowRotationMarker } from "../design/parts.js";
 import { normalizeRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
 import { getOccupiedCells, footprintIncludes } from "../design/footprint.js";
@@ -63,7 +63,10 @@ export function renderBuildGrid() {
         ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
         : "Empty";
       if (part) {
-        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph")}${isRotatablePart(part.type) ? `<span class="rotation-marker rot-${normalizeRotation(part.rotation)}">&#9650;</span>` : ""}`;
+        const rotation = normalizeRotation(part.rotation);
+        const glyphRotationClass = shouldRotateDesignerGlyph(part.type) ? ` glyph-rot-${rotation}` : "";
+        const rotationMarker = shouldShowRotationMarker(part.type) ? `<span class="rotation-marker rot-${rotation}">&#9650;</span>` : "";
+        cell.innerHTML = `${partIconMarkup(part.type, `build-glyph${glyphRotationClass}`)}${rotationMarker}`;
       }
       cell.dataset.x = String(x);
       cell.dataset.y = String(y);
@@ -328,25 +331,27 @@ export function renderLocalStats() {
       dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     }
   }
+  const statDiagnostics = buildStatDiagnostics(stats);
+  const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
   dom.stats.innerHTML = [
-    statMarkup("fleet", "Fleet", stats.fleetCount),
-    statMarkup("class", "Class", stats.massClass),
-    statMarkup("hull", "Hull", formatHull(stats.maxHp)),
-    statMarkup("shield", "Shield", formatShield(stats.maxShield)),
-    statMarkup("speed", "Speed", formatSpeed(Math.round(stats.maxSpeed))),
-    statMarkup("turn", "Turn", `${stats.turnRate.toFixed(2)} rad/s`),
-    statMarkup("power", "Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`),
-    statMarkup("thrust", "Effective Thrust", formatThrust(stats.effectiveThrust)),
-    statMarkup("engineEfficiency", "Engine Efficiency", formatPercent(stats.engineEfficiency)),
-    statMarkup("powerEfficiency", "Power Efficiency", formatPercent(stats.powerEfficiency)),
-    statMarkup("powerDebuff", "Power Debuff", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
-    statMarkup("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
-    statMarkup("thrustRatio", "Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
-    statMarkup("weapons", "Weapons", `${stats.weaponDps} DPS`),
-    stats.coolingBonus > 0 ? statMarkup("cooling", "Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
-    stats.captureBonus > 0 ? statMarkup("capture", "Capture", `+${formatPercent(stats.captureBonus)}`) : "",
-    statMarkup("repair", "Repair", formatRepair(stats.repairRate)),
-    statMarkup("mass", "Mass", formatMass(stats.mass))
+    statCard("fleet", "Fleet", stats.fleetCount),
+    statCard("class", "Class", stats.massClass),
+    statCard("hull", "Hull", formatHull(stats.maxHp)),
+    statCard("shield", "Shield", formatShield(stats.maxShield)),
+    statCard("speed", "Speed", formatSpeed(Math.round(stats.maxSpeed))),
+    statCard("turn", "Turn", `${stats.turnRate.toFixed(2)} rad/s`),
+    statCard("power", "Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`),
+    statCard("thrust", "Effective Thrust", formatThrust(stats.effectiveThrust)),
+    statCard("engineEfficiency", "Engine Efficiency", formatPercent(stats.engineEfficiency)),
+    statCard("powerEfficiency", "Power Efficiency", formatPercent(stats.powerEfficiency)),
+    statCard("powerDebuff", "Power Debuff", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
+    statCard("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
+    statCard("thrustRatio", "Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
+    statCard("weapons", "Weapons", `${stats.weaponDps} DPS`),
+    stats.coolingBonus > 0 ? statCard("cooling", "Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
+    stats.captureBonus > 0 ? statCard("capture", "Capture", `+${formatPercent(stats.captureBonus)}`) : "",
+    statCard("repair", "Repair", formatRepair(stats.repairRate)),
+    statCard("mass", "Mass", formatMass(stats.mass))
   ].join("");
 
   if (dom.blueprintCostBreakdown) {
@@ -866,9 +871,95 @@ function costBreakdownInnerMarkup(breakdown) {
   `;
 }
 
-function statMarkup(key, label, value) {
+const DIAGNOSTIC_LEVELS = new Set(["neutral", "good", "warning", "bad"]);
+
+function buildStatDiagnostics(stats) {
+  return {
+    power: classifyPower(stats),
+    engineEfficiency: classifyEfficiency(stats.engineEfficiency, { good: 0.95, warning: 0.75, zeroIsBad: true }),
+    powerEfficiency: classifyEfficiency(stats.powerEfficiency, { good: 1, warning: 0.8 }),
+    thrust: classifyThrust(stats),
+    thrustRatio: classifyThrustRatio(stats.thrustRatio),
+    speed: classifySpeed(stats.maxSpeed),
+    turn: classifyTurn(stats.turnRate),
+    speedCap: classifyMassDrag(stats)
+  };
+}
+
+function diagnostic(status = "neutral") {
+  return DIAGNOSTIC_LEVELS.has(status) ? status : "neutral";
+}
+
+function classifyPower(stats) {
+  const powerUse = Number(stats.powerUse) || 0;
+  const powerGeneration = Number(stats.powerGeneration) || 0;
+  if (powerUse <= 0) return powerGeneration > 0 ? "good" : "neutral";
+  if (powerGeneration <= 0) return "bad";
+
+  const useRatio = powerUse / powerGeneration;
+  if (useRatio > 1) return "bad";
+  if (useRatio >= 0.8) return "warning";
+  return "good";
+}
+
+function classifyEfficiency(value, thresholds) {
+  const amount = Number(value) || 0;
+  if (thresholds.zeroIsBad && amount <= 0) return "bad";
+  if (amount >= thresholds.good) return "good";
+  if (amount >= thresholds.warning) return "warning";
+  return "bad";
+}
+
+function classifyThrust(stats) {
+  const thrust = Number(stats.effectiveThrust) || 0;
+  const ratio = Number(stats.thrustRatio) || 0;
+  if (thrust <= 0 || ratio < 1.5) return "bad";
+  if (ratio < 2.7) return "warning";
+  if (thrust >= 220 && ratio >= 3.5) return "good";
+  return "neutral";
+}
+
+function classifyThrustRatio(value) {
+  const ratio = Number(value) || 0;
+  if (ratio <= 0 || ratio < 1.5) return "bad";
+  if (ratio < 2.7) return "warning";
+  if (ratio >= 4.5) return "good";
+  return "neutral";
+}
+
+function classifySpeed(value) {
+  const speed = Number(value) || 0;
+  if (speed <= 0 || speed < 130) return "bad";
+  if (speed < 190) return "warning";
+  if (speed >= 275) return "good";
+  return "neutral";
+}
+
+function classifyTurn(value) {
+  const turn = Number(value) || 0;
+  if (turn <= 0.35) return "bad";
+  if (turn < 0.75) return "warning";
+  if (turn >= 1.8) return "good";
+  return "neutral";
+}
+
+function classifyMassDrag(stats) {
+  const mass = Number(stats.mass) || 0;
+  if (mass <= 0) return "neutral";
+  const dragFactor = 1 / Math.pow(1 + mass / 100, 0.65);
+  const speed = Number(stats.maxSpeed) || 0;
+  const speedCap = Number(stats.speedCap) || 0;
+  const capRatio = speedCap > 0 ? speed / speedCap : 0;
+  if (dragFactor < 0.48) return "bad";
+  if (dragFactor < 0.62 || stats.speedCapped || capRatio >= 0.95) return "warning";
+  return "neutral";
+}
+
+function statMarkup(key, label, value, diagnosticStatus = "neutral") {
+  const status = diagnostic(diagnosticStatus);
+  const diagnosticText = status === "neutral" ? "" : ` ${status}`;
   return `
-    <div class="stat" tabindex="0" data-stat-key="${escapeHtml(key)}" data-stat-label="${escapeHtml(label)}" data-stat-value="${escapeHtml(value)}">
+    <div class="stat stat-${status}" tabindex="0" data-stat-key="${escapeHtml(key)}" data-stat-label="${escapeHtml(label)}" data-stat-value="${escapeHtml(value)}" data-stat-diagnostic="${escapeHtml(status)}" aria-label="${escapeHtml(`${label}: ${value}${diagnosticText}`)}">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
     </div>

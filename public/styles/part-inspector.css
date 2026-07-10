@@ -1,0 +1,111 @@
+/* Selected part inspector panel, stat grid, and detail list. Keep import order in ../design.css unchanged. */
+
+.part-inspector {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(7, 12, 20, 0.62);
+}
+
+.part-inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 900;
+}
+
+.part-inspector-title .part-glyph {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.part-category-label {
+  width: max-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid rgba(56, 213, 255, 0.22);
+  border-radius: 5px;
+  background: rgba(56, 213, 255, 0.08);
+  color: #9eefff;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.part-description {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.part-inspector-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.part-inspector-grid div {
+  min-width: 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.part-inspector-grid span {
+  display: block;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.part-inspector-grid strong {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.part-detail-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.part-detail-list div {
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid rgba(139, 160, 190, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.part-detail-list span {
+  display: block;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.part-detail-list strong {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.part-inspector-tip {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+}

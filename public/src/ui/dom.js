@@ -111,4 +111,33 @@ export const dom = {
   confirmAcceptButton: document.getElementById("confirmAcceptButton")
 };
 
-export const ctx = dom.canvas.getContext("2d", { alpha: false });
+// The 2D context is acquired lazily: the PixiJS backend needs the canvas free
+// for a WebGL context, so only the Canvas 2D fallback ever calls acquireArenaCtx().
+export let ctx = null;
+
+export function acquireArenaCtx() {
+  if (!ctx) ctx = dom.canvas.getContext("2d", { alpha: false });
+  return ctx;
+}
+
+// Temporarily points the shared ctx at another 2D context so existing draw
+// functions can render into offscreen canvases (used for texture baking).
+export function withCanvasContext(tempCtx, fn) {
+  const previous = ctx;
+  ctx = tempCtx;
+  try {
+    return fn();
+  } finally {
+    ctx = previous;
+  }
+}
+
+// Recovery path: if a failed WebGL init claimed the canvas, a fresh element is
+// needed before a 2D context can be obtained again.
+export function replaceArenaCanvasElement() {
+  const fresh = dom.canvas.cloneNode(false);
+  dom.canvas.replaceWith(fresh);
+  dom.canvas = fresh;
+  ctx = null;
+  return fresh;
+}

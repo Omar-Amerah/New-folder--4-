@@ -1,0 +1,178 @@
+/* Ship status chip, grouped validation popover, and its responsive adjustment. Keep import order in ../design.css unchanged. */
+
+/* Compact clickable ship-status chip that replaces the permanent warning box. */
+.ship-status-row {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.ship-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(10, 15, 25, 0.72);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ship-status-chip:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ship-status-chip:focus-visible {
+  outline: 2px solid #ffca57;
+  outline-offset: 2px;
+}
+
+.ship-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px currentColor;
+  flex: 0 0 auto;
+}
+
+.ship-status-chip.ready { border-color: rgba(124, 255, 138, 0.42); }
+.ship-status-chip.ready .ship-status-dot { background: var(--green); color: var(--green); }
+
+.ship-status-chip.suggestion { border-color: rgba(124, 255, 138, 0.5); }
+.ship-status-chip.suggestion .ship-status-dot { background: var(--green); color: var(--green); }
+.ship-status-chip.suggestion .ship-status-text { color: #a7f5bf; }
+
+.ship-status-chip.warning { border-color: rgba(255, 202, 87, 0.55); background: rgba(52, 41, 15, 0.5); }
+.ship-status-chip.warning .ship-status-dot { background: var(--amber); color: var(--amber); }
+.ship-status-chip.warning .ship-status-text { color: #ffd991; }
+
+.ship-status-chip.error { border-color: rgba(255, 95, 126, 0.6); background: rgba(54, 16, 24, 0.5); }
+.ship-status-chip.error .ship-status-dot { background: var(--red); color: var(--red); }
+.ship-status-chip.error .ship-status-text { color: #ff9bad; }
+
+/* Details popover: fixed overlay positioned by JS above the chip, so it never
+   shifts, shrinks, or is clipped by the editor layout. */
+.ship-status-details {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  gap: 12px;
+  width: min(360px, 92vw);
+  max-height: 46vh;
+  padding: 14px;
+  overflow-y: auto;
+  border: 1px solid rgba(174, 199, 231, 0.18);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(13, 19, 31, 0.98), rgba(8, 12, 20, 0.98));
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+}
+
+.ship-status-details[hidden] {
+  display: none;
+}
+
+.status-group {
+  --group-border: rgba(174, 199, 231, 0.18);
+  --group-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.02)),
+    rgba(10, 15, 25, 0.72);
+  --group-title: var(--faint);
+
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--group-border);
+  border-radius: 12px;
+  background: var(--group-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.status-group span {
+  display: block;
+  color: var(--group-title);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-group ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #b7c3d7;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.status-group li + li {
+  margin-top: 5px;
+}
+
+.status-group li::marker {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.status-group.error {
+  --group-border: rgba(255, 95, 126, 0.28);
+  --group-bg:
+    linear-gradient(180deg, rgba(255, 95, 126, 0.10), rgba(255, 95, 126, 0.04)),
+    rgba(34, 13, 20, 0.76);
+  --group-title: #ffb7c6;
+}
+
+.status-group.warning {
+  --group-border: rgba(255, 202, 87, 0.28);
+  --group-bg:
+    linear-gradient(180deg, rgba(255, 202, 87, 0.10), rgba(255, 202, 87, 0.04)),
+    rgba(35, 25, 11, 0.76);
+  --group-title: #ffd991;
+}
+
+.status-group.suggestion {
+  --group-border: rgba(124, 255, 138, 0.24);
+  --group-bg:
+    linear-gradient(180deg, rgba(124, 255, 138, 0.08), rgba(124, 255, 138, 0.03)),
+    rgba(10, 24, 17, 0.74);
+  --group-title: #a7f5bf;
+}
+
+.status-group.ready {
+  --group-border: rgba(124, 255, 138, 0.24);
+  --group-bg:
+    linear-gradient(180deg, rgba(124, 255, 138, 0.08), rgba(124, 255, 138, 0.03)),
+    rgba(10, 24, 17, 0.74);
+  --group-title: #a7f5bf;
+}
+
+.status-group.ready p {
+  margin: 0;
+  color: #c9ffd4;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .ship-status-details {
+    left: 50% !important;
+    top: auto !important;
+    bottom: 12px;
+    transform: translateX(-50%);
+    width: min(440px, 94vw);
+    max-height: 60vh;
+  }
+}

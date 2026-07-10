@@ -40,7 +40,14 @@ const srcFiles = [
   "game/commands.js",
   "game/input.js",
   "game/renderSettings.js",
+  "game/debugOverlay.js",
   "game/renderer.js",
+  "game/pixi/pixiBake.js",
+  "game/pixi/pixiScreenUi.js",
+  "game/pixi/pixiWorld.js",
+  "game/pixi/pixiShips.js",
+  "game/pixi/pixiRenderer.js",
+  "game/renderController.js",
   "network.js",
   "messages.js",
   "main.js"
@@ -67,6 +74,7 @@ try {
     content = content.replace(/^\s*export\s+const\s+/gm, "const ");
     content = content.replace(/^\s*export\s+let\s+/gm, "let ");
     content = content.replace(/^\s*export\s+function\s+/gm, "function ");
+    content = content.replace(/^\s*export\s+async\s+function\s+/gm, "async function ");
     content = content.replace(/^\s*export\s+class\s+/gm, "class ");
     content = content.replace(/^\s*export\s+default\s+/gm, "");
     // Remove standalone exports like export { ... };
@@ -82,11 +90,27 @@ try {
   process.exit(1);
 }
 
+// 1b. Vendor the PixiJS browser ESM bundle (served as .js because the server MIME map has no .mjs entry)
+const pixiSource = path.join(__dirname, "node_modules", "pixi.js", "dist", "pixi.min.mjs");
+const vendorDir = path.join(__dirname, "public", "vendor");
+const pixiVendorPath = path.join(vendorDir, "pixi.min.js");
+if (fs.existsSync(pixiSource)) {
+  fs.mkdirSync(vendorDir, { recursive: true });
+  fs.copyFileSync(pixiSource, pixiVendorPath);
+  console.log("Vendored pixi.js to public/vendor/pixi.min.js");
+} else if (fs.existsSync(pixiVendorPath)) {
+  console.warn("node_modules/pixi.js missing; keeping existing public/vendor/pixi.min.js");
+} else {
+  console.error("pixi.js is not installed and no vendored copy exists — run npm install first.");
+  process.exit(1);
+}
+
 // 2. Perform Netlify asset checks
 const requiredFiles = [
   path.join(__dirname, "public", "index.html"),
   path.join(__dirname, "public", "client.js"),
-  path.join(__dirname, "public", "styles.css")
+  path.join(__dirname, "public", "styles.css"),
+  path.join(__dirname, "public", "vendor", "pixi.min.js")
 ];
 
 for (const file of requiredFiles) {

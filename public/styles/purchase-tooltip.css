@@ -1,0 +1,75 @@
+/* Purchase tooltip layout and availability breakdown styles. Keep import order in ../design.css unchanged. */
+
+.purchase-tooltip {
+  position: fixed;
+  z-index: 20;
+  width: min(310px, calc(100vw - 28px));
+  padding: 12px;
+  border: 1px solid rgba(174, 199, 231, 0.28);
+  border-radius: 8px;
+  background: rgba(7, 12, 20, 0.96);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.48);
+  pointer-events: none;
+  backdrop-filter: blur(16px);
+}
+
+.purchase-tooltip-head,
+.purchase-tooltip-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.purchase-tooltip-head strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.purchase-tooltip-head span,
+.purchase-tooltip-status span,
+.purchase-tooltip-grid span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.purchase-tooltip-status {
+  margin-top: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.purchase-tooltip-status.ready strong {
+  color: #a7f5bf;
+}
+
+.purchase-tooltip-status.blocked strong {
+  color: #ffd991;
+}
+
+.purchase-tooltip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.purchase-tooltip-grid div {
+  min-width: 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.purchase-tooltip-grid strong {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #eef6ff;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
