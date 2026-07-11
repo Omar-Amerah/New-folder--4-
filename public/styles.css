@@ -538,12 +538,38 @@ h2 {
 
 #shipDamageCanvas {
   width: 100%;
-  max-width: 160px;
+  max-width: 180px;
   justify-self: center;
   border: 1px solid rgba(174, 199, 231, 0.14);
   border-radius: 6px;
   background: rgba(4, 8, 14, 0.7);
+  cursor: crosshair;
 }
+
+.damage-legend {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  font-size: 10px;
+  color: #8ea3c2;
+}
+
+.damage-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.legend-damaged { background: #fbb040; }
+.legend-critical { background: #ef4444; }
+.legend-destroyed { background: #2a2e35; border: 1px solid rgba(174, 199, 231, 0.3); }
 
 .ship-damage-hover {
   min-height: 14px;

@@ -137,8 +137,13 @@
               <span>Ship status</span>
               <button id="damageViewToggle" type="button" title="Toggle Component Damage View (V)">Damage View</button>
             </div>
-            <canvas id="shipDamageCanvas" width="160" height="160" aria-label="Selected ship component damage diagram"></canvas>
+            <canvas id="shipDamageCanvas" width="360" height="360" aria-label="Selected ship component damage diagram"></canvas>
             <div id="shipDamageHover" class="ship-damage-hover">Hover a component</div>
+            <div class="damage-legend" aria-hidden="true">
+              <span><i class="legend-dot legend-damaged"></i>Damaged</span>
+              <span><i class="legend-dot legend-critical"></i>Critical</span>
+              <span><i class="legend-dot legend-destroyed"></i>Destroyed</span>
+            </div>
             <div id="coreStatusLabel" class="core-status" hidden></div>
             <ul id="damageFeed" class="damage-feed" aria-live="polite"></ul>
           </div>

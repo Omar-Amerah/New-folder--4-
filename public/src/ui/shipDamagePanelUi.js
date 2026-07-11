@@ -1,14 +1,26 @@
-// Selected-ship damage panel: a compact blueprint-style diagram coloured by
-// component status, a hover readout (name, hp, status), the recent-damage feed,
-// and core warnings. Everything renders from the client-side ship/component
-// state already received — no extra server traffic or state.
+// Selected-ship damage panel: a mini rendering of the actual ship (real
+// component art via the shared drawModule pipeline, blueprint-up orientation)
+// with live status tints, per-component hp bars, hover highlight + readout,
+// the recent-damage feed, and core warnings. Everything renders from the
+// client-side ship/component state already received — no extra server traffic.
 
-import { dom } from "./dom.js";
+import { dom, withCanvasContext } from "./dom.js";
 import { state } from "../state.js";
-import { PART_STATS } from "../design/parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
 import { getOccupiedCells } from "../design/footprint.js";
+import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
+import {
+  drawShipStructure,
+  drawModule,
+  drawFootprintComponent,
+  footprintLocalPlacement,
+  drawModuleDamage,
+  drawModuleFlash,
+  componentHealthRatio
+} from "../game/renderer.js";
 import {
   componentMaxFromShip,
+  componentFlash,
   partDisplayName,
   recentDamageFeed,
   activeCoreWarning,
@@ -16,15 +28,10 @@ import {
   DAMAGED_RATIO
 } from "../game/componentDamage.js";
 
-const STATUS_COLORS = {
-  healthy: "#3f4c60",
-  damaged: "#fbb040",
-  critical: "#ef4444",
-  destroyed: "#2a2e35"
-};
+const GRID_CENTER = 7;
 
 let bound = false;
-let hoverContext = null; // { cellMap, ship, cellSize, offsetX, offsetY }
+let hoverContext = null; // { ship, cellMap, cellSize, originX, originY, hoverIndex }
 
 function statusFor(ratio) {
   if (ratio <= 0) return "destroyed";
@@ -54,6 +61,10 @@ function bindOnce() {
     canvas.addEventListener("mousemove", handleDiagramHover);
     canvas.addEventListener("mouseleave", () => {
       if (dom.shipDamageHover) dom.shipDamageHover.textContent = "Hover a component";
+      if (hoverContext && hoverContext.hoverIndex !== undefined) {
+        hoverContext.hoverIndex = undefined;
+        drawDiagram(hoverContext.ship);
+      }
     });
   }
   if (dom.damageViewToggle) {
@@ -66,36 +77,75 @@ function bindOnce() {
 
 function handleDiagramHover(event) {
   if (!hoverContext || !dom.shipDamageHover) return;
-  const rect = event.currentTarget.getBoundingClientRect();
-  const x = (event.clientX - rect.left) * (event.currentTarget.width / rect.width);
-  const y = (event.clientY - rect.top) * (event.currentTarget.height / rect.height);
-  const cellX = Math.floor((x - hoverContext.offsetX) / hoverContext.cellSize);
-  const cellY = Math.floor((y - hoverContext.offsetY) / hoverContext.cellSize);
-  const index = hoverContext.cellMap.get(`${cellX},${cellY}`);
+  const canvas = event.currentTarget;
+  const rect = canvas.getBoundingClientRect();
+  const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (event.clientY - rect.top) * (canvas.height / rect.height);
+  const gx = Math.round(GRID_CENTER + (x - hoverContext.originX) / hoverContext.cellSize);
+  const gy = Math.round(GRID_CENTER + (y - hoverContext.originY) / hoverContext.cellSize);
+  const index = hoverContext.cellMap.get(`${gx},${gy}`);
+  const previous = hoverContext.hoverIndex;
+  hoverContext.hoverIndex = index;
   if (index === undefined) {
     dom.shipDamageHover.textContent = "Hover a component";
-    return;
+  } else {
+    const ship = hoverContext.ship;
+    const part = ship.design[index];
+    if (part.type === "core") {
+      dom.shipDamageHover.textContent = "Core — indestructible";
+    } else {
+      const max = componentMaxFromShip(ship, index);
+      const hp = ship.chp[index] ?? 0;
+      const status = statusFor(max > 0 ? hp / max : 0);
+      dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.max(0, Math.round(hp))}/${Math.round(max)} — ${statusLabel(status)}`;
+    }
   }
-  const ship = hoverContext.ship;
-  const part = ship.design[index];
-  const max = componentMaxFromShip(ship, index);
-  const hp = ship.chp[index] ?? 0;
-  const status = statusFor(max > 0 ? hp / max : 0);
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.max(0, Math.round(hp))}/${Math.round(max)} — ${statusLabel(status)}`;
+  if (previous !== index) drawDiagram(hoverContext.ship);
 }
 
+// Screen-space bounding rect of a component's occupied cells on the diagram.
+function componentScreenRect(cells, cellSize, originX, originY) {
+  let minGx = Infinity, minGy = Infinity, maxGx = -Infinity, maxGy = -Infinity;
+  for (const cell of cells) {
+    if (cell.x < minGx) minGx = cell.x;
+    if (cell.y < minGy) minGy = cell.y;
+    if (cell.x > maxGx) maxGx = cell.x;
+    if (cell.y > maxGy) maxGy = cell.y;
+  }
+  const half = cellSize / 2;
+  return {
+    x: originX + (minGx - GRID_CENTER) * cellSize - half,
+    y: originY + (minGy - GRID_CENTER) * cellSize - half,
+    w: (maxGx - minGx + 1) * cellSize,
+    h: (maxGy - minGy + 1) * cellSize
+  };
+}
+
+function hpBarColor(ratio) {
+  if (ratio <= CRITICAL_RATIO) return "#ef4444";
+  if (ratio < DAMAGED_RATIO) return "#fbb040";
+  return "#4ade80";
+}
+
+// Renders the ship with its real component art (same drawModule pipeline as
+// the arena), rotated so the nose points up like the blueprint grid, then
+// layers status tints, hit flashes, hp bars, the core marker, and the hover
+// highlight on top.
 function drawDiagram(ship) {
   const canvas = dom.shipDamageCanvas;
   const drawCtx = canvas?.getContext("2d");
   if (!drawCtx) return;
   drawCtx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Collect occupied cells per component and the design's bounding box.
+  // Occupied cells per component (blueprint grid coordinates) + bounding box.
   const cellMap = new Map();
+  const cellsByIndex = [];
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   ship.design.forEach((part, i) => {
     const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
-    for (const cell of getOccupiedCells(part.x, part.y, footprint, part.rotation || 0)) {
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    cellsByIndex[i] = cells;
+    for (const cell of cells) {
       cellMap.set(`${cell.x},${cell.y}`, i);
       if (cell.x < minX) minX = cell.x;
       if (cell.y < minY) minY = cell.y;
@@ -105,42 +155,81 @@ function drawDiagram(ship) {
   });
   const cols = maxX - minX + 1;
   const rows = maxY - minY + 1;
-  const cellSize = Math.floor(Math.min(canvas.width / cols, canvas.height / rows));
-  const offsetX = Math.floor((canvas.width - cols * cellSize) / 2);
-  const offsetY = Math.floor((canvas.height - rows * cellSize) / 2);
+  const pad = 18; // keeps weapon barrels and hp bars inside the frame
+  const cellSize = Math.max(6, Math.floor(Math.min((canvas.width - pad) / cols, (canvas.height - pad) / rows)));
+  // Ship-grid origin (cell 7,7 centre) positioned so the design bbox is centred.
+  const originX = canvas.width / 2 - ((minX + maxX) / 2 - GRID_CENTER) * cellSize;
+  const originY = canvas.height / 2 - ((minY + maxY) / 2 - GRID_CENTER) * cellSize;
+  const hoverIndex = hoverContext?.ship === ship ? hoverContext.hoverIndex : undefined;
+  hoverContext = { ship, cellMap, cellSize, originX, originY, hoverIndex };
 
-  // Remap cells to diagram space for hover lookups.
-  const diagramCells = new Map();
-  for (const [key, index] of cellMap) {
-    const [x, y] = key.split(",").map(Number);
-    diagramCells.set(`${x - minX},${y - minY}`, index);
-  }
-  hoverContext = { cellMap: diagramCells, ship, cellSize, offsetX, offsetY };
+  const player = state.snapshot?.players?.find((candidate) => candidate.id === ship.ownerId);
+  const trim = player?.color || "#8fd8ff";
+  const now = performance.now();
 
-  for (const [key, index] of diagramCells) {
-    const [cx, cy] = key.split(",").map(Number);
-    const max = componentMaxFromShip(ship, index);
-    const ratio = max > 0 ? (ship.chp[index] ?? 0) / max : 0;
-    const status = statusFor(ratio);
-    const px = offsetX + cx * cellSize;
-    const py = offsetY + cy * cellSize;
-    drawCtx.fillStyle = STATUS_COLORS[status];
-    drawCtx.fillRect(px + 1, py + 1, cellSize - 2, cellSize - 2);
-    if (status === "destroyed") {
-      drawCtx.strokeStyle = "rgba(0,0,0,0.7)";
-      drawCtx.lineWidth = 1;
-      drawCtx.beginPath();
-      drawCtx.moveTo(px + 2, py + 2);
-      drawCtx.lineTo(px + cellSize - 2, py + cellSize - 2);
-      drawCtx.moveTo(px + cellSize - 2, py + 2);
-      drawCtx.lineTo(px + 2, py + cellSize - 2);
-      drawCtx.stroke();
-    }
-    if (ship.design[index].type === "core") {
+  // The arena drawing helpers work in ship-local space (nose along +x); rotate
+  // the whole frame -90deg so the ship renders nose-up like the build grid.
+  withCanvasContext(drawCtx, () => {
+    drawCtx.save();
+    drawCtx.translate(originX, originY);
+    drawCtx.rotate(-Math.PI / 2);
+    drawShipStructure(ship.design, cellSize, trim);
+
+    ship.design.forEach((part, i) => {
+      const def = PART_DEFS[part.type] || PART_DEFS.frame;
+      const place = footprintLocalPlacement(part, cellSize);
+      const ratio = componentHealthRatio(ship, i);
+      const destroyed = ratio !== null && ratio <= 0;
+      const halfLong = (place.tilesLong * (cellSize - 1)) / 2;
+      const halfCross = (place.tilesCross * (cellSize - 1)) / 2;
+      drawCtx.save();
+      drawCtx.translate(place.cx, place.cy);
+      if (destroyed) drawCtx.globalAlpha *= 0.6;
+      if (isRotatablePart(part.type)) {
+        drawCtx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
+        if (place.multi) {
+          drawFootprintComponent({ type: part.type, unit: cellSize - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
+        } else {
+          drawModule({ x: 0, y: 0, size: cellSize - 1, color: def.color, type: part.type, trim });
+        }
+      } else if (place.multi) {
+        drawCtx.rotate(place.longAxisAngle);
+        drawFootprintComponent({ type: part.type, unit: cellSize - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
+      } else {
+        drawModule({ x: 0, y: 0, size: cellSize - 1, color: def.color, type: part.type, trim });
+      }
+      drawModuleDamage(drawCtx, ratio, halfLong, halfCross, now);
+      drawModuleFlash(drawCtx, componentFlash(ship.id, i, now), halfLong, halfCross);
+      drawCtx.restore();
+    });
+    drawCtx.restore();
+  });
+
+  // Screen-space overlays: hp bars, core marker, hover highlight.
+  ship.design.forEach((part, i) => {
+    const rect = componentScreenRect(cellsByIndex[i], cellSize, originX, originY);
+    if (part.type === "core") {
       drawCtx.strokeStyle = "#8fd8ff";
-      drawCtx.lineWidth = Math.max(1.5, cellSize * 0.12);
-      drawCtx.strokeRect(px + 1.5, py + 1.5, cellSize - 3, cellSize - 3);
+      drawCtx.lineWidth = Math.max(1.5, cellSize * 0.1);
+      drawCtx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+      return;
     }
+    const ratio = componentHealthRatio(ship, i);
+    if (ratio !== null && ratio > 0 && ratio < 0.999) {
+      const barH = Math.max(2, cellSize * 0.14);
+      const y = rect.y + rect.h - barH - 1;
+      drawCtx.fillStyle = "rgba(3, 8, 15, 0.85)";
+      drawCtx.fillRect(rect.x + 1, y, rect.w - 2, barH);
+      drawCtx.fillStyle = hpBarColor(ratio);
+      drawCtx.fillRect(rect.x + 1, y, Math.max(1, (rect.w - 2) * ratio), barH);
+    }
+  });
+
+  if (hoverIndex !== undefined && ship.design[hoverIndex]) {
+    const rect = componentScreenRect(cellsByIndex[hoverIndex], cellSize, originX, originY);
+    drawCtx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+    drawCtx.lineWidth = 1.5;
+    drawCtx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
   }
 }
 
