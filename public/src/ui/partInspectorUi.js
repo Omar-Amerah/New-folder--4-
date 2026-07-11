@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { PART_DEFS, PART_STATS, partCategory, partDescription, partIconMarkup } from "../design/parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart, partCategory, partDescription, partIconMarkup } from "../design/parts.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPowerUse, formatPowerGeneration, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
 import { estimatePartEffectiveCost } from "../design/componentStats.js";
@@ -20,8 +20,8 @@ export function renderPartInspector() {
   const enrichedDesc = enrichDescription(type, baseDesc);
 
   let tipHtml = "";
-  if (stat.weapon || stat.category === "Weapons" || stat.rotatable) {
-    tipHtml = `<div class="part-inspector-tip">Tip: hover a placed matching weapon and press R to rotate.</div>`;
+  if (isRotatablePart(type)) {
+    tipHtml = `<div class="part-inspector-tip">Tip: hover a placed matching part and press R to rotate.</div>`;
   }
 
   const footprint = stat.footprint || { width: 1, height: 1 };

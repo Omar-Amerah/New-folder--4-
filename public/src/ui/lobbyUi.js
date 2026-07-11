@@ -52,6 +52,11 @@ export function updateLobbyState() {
     dom.startDesignButton.hidden = !admin;
     dom.startDesignButton.disabled = !connected || phase !== "lobby" || playerCount === 0;
   }
+  if (dom.restartLobbyButton) {
+    const canRestartLobby = phase === "design" || phase === "active";
+    dom.restartLobbyButton.hidden = !admin || !canRestartLobby;
+    dom.restartLobbyButton.disabled = !connected || !canRestartLobby;
+  }
   if (dom.closeLobbyButton) {
     dom.closeLobbyButton.hidden = !admin;
     // Admin can close the lobby in any phase, including an active battle.
@@ -177,7 +182,7 @@ export function updatePhaseDetail(phase) {
 function createPlayerRow(player) {
   const row = document.createElement("div");
   row.className = `player-row${player.id === state.myId ? " mine" : ""}`;
-  const canKick = isAdmin() && player.id !== state.myId && state.phase !== "active";
+  const canKick = isAdmin() && player.id !== state.myId && (state.phase === "lobby" || state.phase === "design");
   const status = player.isAdmin ? "Admin" : player.ready ? "Ready" : state.phase === "design" ? "Designing" : player.isBot ? "Bot" : "Waiting";
   row.innerHTML = `
     <span class="score-color" style="background:${player.color}"></span>

@@ -51,17 +51,17 @@
       "name": "Core",
       "category": "Structure",
       "cost": 1,
-      "mass": 9,
-      "hull": 158,
+      "mass": 5,
+      "hull": 150,
       "powerGeneration": 4,
       "powerUse": 0,
-      "shield": 25,
-      "shieldRegen": 0.4,
+      "shield": 0,
+      "shieldRegen": 0,
       "thrust": 0,
       "turn": 0,
       "energy": 80,
       "repair": 0,
-      "description": "Required command core with light built-in power, shield buffer, and energy storage."
+      "description": "Required command core with light built-in power."
     },
     {
       "id": "armor",

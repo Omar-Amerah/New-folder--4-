@@ -11,6 +11,7 @@
 }
 
 .build-grid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(15, minmax(0, 1fr));
   grid-template-rows: repeat(15, minmax(0, 1fr));
@@ -21,6 +22,7 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #0a0f19;
+  overflow: hidden;
 }
 
 .build-cell {

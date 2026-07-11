@@ -97,6 +97,7 @@ dom.botButton.addEventListener("click", () => {
 });
 dom.leaveLobbyButton?.addEventListener("click", leaveLobby);
 dom.startDesignButton.addEventListener("click", startDesign);
+dom.restartLobbyButton?.addEventListener("click", returnToLobby);
 dom.closeLobbyButton.addEventListener("click", closeLobby);
 dom.restartButton.addEventListener("click", restartMatch);
 if (dom.returnToLobbyButton) dom.returnToLobbyButton.addEventListener("click", returnToLobby);

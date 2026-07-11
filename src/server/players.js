@@ -250,6 +250,10 @@ function kickPlayer(room, requester, targetId) {
     sendPlayer(room, requester, { type: "error", message: "Only the room admin can kick players" });
     return;
   }
+  if (room.phase !== "lobby" && room.phase !== "design") {
+    sendPlayer(room, requester, { type: "error", message: "Players can only be kicked before the match starts" });
+    return;
+  }
   if (!targetId || targetId === requester.id) {
     sendPlayer(room, requester, { type: "error", message: "Choose another player to kick" });
     return;
@@ -471,11 +475,15 @@ function returnToLobbyPhase(room, requester) {
     sendPlayer(room, requester, { type: "error", message: "Only the room admin can return to lobby" });
     return;
   }
-  if (room.phase !== "ended") {
-    sendPlayer(room, requester, { type: "error", message: "Return to lobby is available after the match ends" });
+  if (!["design", "active", "ended"].includes(room.phase)) {
+    sendPlayer(room, requester, { type: "error", message: "Return to lobby is available after ship design starts" });
     return;
   }
+  const notice = room.phase === "ended" ? "Returned to lobby" : "Lobby restarted";
+  resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot);
+}
 
+function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
   room.phase = "lobby";
   room.winner = null;
   room.winnerAt = 0;
@@ -497,7 +505,7 @@ function returnToLobbyPhase(room, requester) {
     player.ready = player.isBot;
     player.ships = [];
   }
-  broadcastRoom(room, { type: "notice", message: "Returned to lobby" });
+  broadcastRoom(room, { type: "notice", message: notice });
   broadcastSnapshot(room, performanceNow(), true);
   checkEmptyLobby(room);
 }

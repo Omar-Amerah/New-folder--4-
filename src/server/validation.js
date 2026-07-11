@@ -31,6 +31,9 @@ function validateBuildShip(room, player, stats = null) {
   }
   const { computeStats } = require("./shipStats");
   const shipStats = stats || player.stats || computeStats(player.design);
+  if (shipStats.thrust <= 0) {
+    return { ok: false, reason: "Invalid design: add at least one engine." };
+  }
   if (shipStats.unitCost > player.money) {
     return { ok: false, reason: `Cannot build ship. Need $${shipStats.unitCost - Math.floor(player.money)} more.` };
   }
@@ -45,4 +48,3 @@ module.exports = {
   sanitizeRequestId,
   validateBuildShip
 };
-

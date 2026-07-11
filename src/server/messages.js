@@ -95,7 +95,7 @@ function handleMessage(client, message) {
     }
     client.player.design = design.modules;
     client.player.stats = design.stats;
-    const allowedStyles = ["charge", "hold", "circle"];
+    const allowedStyles = ["charge", "hold", "sentry", "circle"];
     const previousStyle = allowedStyles.includes(client.player.combatStyle)
       ? client.player.combatStyle
       : "charge";
@@ -155,7 +155,7 @@ function handleMessage(client, message) {
       return;
     }
     const createdShips = [];
-    const allowedStyles = ["charge", "hold", "circle"];
+    const allowedStyles = ["charge", "hold", "sentry", "circle"];
     const combatStyle = allowedStyles.includes(message.combatStyle)
       ? message.combatStyle
       : client.player.combatStyle || "charge";
@@ -259,7 +259,7 @@ function handleMessage(client, message) {
     return;
   }
 
-  if (message.type === "returnToLobby") {
+  if (message.type === "returnToLobby" || message.type === "restartLobby") {
     returnToLobbyPhase(client.room, client.player);
     return;
   }

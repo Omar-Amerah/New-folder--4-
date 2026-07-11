@@ -36,6 +36,7 @@ export const dom = {
   teamChoiceStatus: document.getElementById("teamChoiceStatus"),
   adminControls: document.getElementById("adminControls"),
   startDesignButton: document.getElementById("startDesignButton"),
+  restartLobbyButton: document.getElementById("restartLobbyButton"),
   closeLobbyButton: document.getElementById("closeLobbyButton"),
   playerList: document.getElementById("playerList"),
   deployButton: document.getElementById("deployButton"),

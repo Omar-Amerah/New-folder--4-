@@ -63,6 +63,36 @@ async function main() {
       "room did not enter ship design with a generated map"
     );
 
+    alpha.send({ type: "restartLobby" });
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "lobby",
+      "restart lobby did not return room to lobby"
+    );
+
+    alpha.send({ type: "startDesign" });
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "design" && message.map?.asteroids?.length,
+      "room did not re-enter ship design after lobby restart"
+    );
+
+    alpha.send({ type: "returnToLobby" });
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "lobby",
+      "return to lobby did not return room to lobby"
+    );
+
+    alpha.send({ type: "startDesign" });
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "design" && message.map?.asteroids?.length,
+      "room did not re-enter ship design after return to lobby"
+    );
+
+    alpha.send({ type: "deploy", design: makeNoEngineDesign() });
+    await alpha.waitFor(
+      (message) => message.type === "error" && /engine/i.test(message.message || ""),
+      "engineless starting ship was not rejected"
+    );
+
     alpha.send({ type: "deploy", design: makeExpensiveDesign() });
     await alpha.waitFor(
       (message) => message.type === "error" && /Need \$/i.test(message.message || ""),
@@ -85,6 +115,25 @@ async function main() {
     }
     if (!state.players.some((player) => player.name === "Alpha") || !state.players.some((player) => player.name === "Beta")) {
       throw new Error("players missing from snapshot");
+    }
+    const betaState = state.players.find((player) => player.name === "Beta");
+    if (!betaState?.id) {
+      throw new Error("beta player id missing from active snapshot");
+    }
+    alpha.send({ type: "kick", targetId: betaState.id });
+    await alpha.waitFor(
+      (message) => message.type === "error" && /before the match starts/i.test(message.message || ""),
+      "active match kick was not rejected"
+    );
+    const postKickState = await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "active" && message.time > state.time && message.players.some((player) => player.name === "Beta"),
+      "non-admin was removed by an active-match kick"
+    );
+    if (beta.messages.some((message) => message.type === "kicked")) {
+      throw new Error("beta received a kicked message during active match");
+    }
+    if (!postKickState.players.some((player) => player.name === "Beta")) {
+      throw new Error("beta missing after rejected kick");
     }
     if (!state.players.some((player) => player.isBot)) {
       throw new Error("bot missing from snapshot");
@@ -173,15 +222,22 @@ function openClient(name) {
   });
 }
 
+function makeNoEngineDesign() {
+  return [
+    { x: 3, y: 3, type: "core" },
+    { x: 3, y: 4, type: "armor" }
+  ];
+}
+
 function makeExpensiveDesign() {
   const design = [];
   for (let y = 0; y <= 6; y += 1) {
-    for (let x = 0; x <= 6; x += 1) {
-      if (x === 3 && y === 3) continue;
-      design.push({ x, y, type: "interceptorPod" });
+    for (const x of [0, 3, 6, 9, 12]) {
+      design.push({ x, y, type: "railgun" });
     }
   }
-  design.push({ x: 3, y: 3, type: "core" });
+  design.push({ x: 6, y: 7, type: "core" });
+  design.push({ x: 0, y: 7, type: "engine" });
   return design;
 }
 

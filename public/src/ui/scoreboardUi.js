@@ -54,7 +54,7 @@ export function generateScoreboardHTML(players) {
 
     for (const player of teamPlayers) {
       const status = player.ready ? "Ready" : state.phase === "design" ? "Building" : player.connected === false ? "Disconnected" : "In match";
-      const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin;
+      const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin && (state.phase === "lobby" || state.phase === "design");
       const infoItems = [];
       if (player.money != null) infoItems.push(`$${player.money}`);
       infoItems.push(`${player.activeShips} ship${player.activeShips === 1 ? "" : "s"}`);

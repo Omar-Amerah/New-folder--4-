@@ -43,6 +43,9 @@ function validateBuyShip(room, player, count = 1, stats = null) {
     return { ok: false, reason: "Invalid design: save a blueprint first." };
   }
   const shipStats = stats || player.stats || computeStats(player.design);
+  if (shipStats.thrust <= 0) {
+    return { ok: false, reason: "Invalid design: add at least one engine." };
+  }
   const requestedCount = clampNumber(count, 1, 5);
   const activeCount = player.ships.filter((ship) => ship.alive).length;
   if (activeCount + requestedCount > player.shipCap) {

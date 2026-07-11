@@ -315,4 +315,103 @@ if (context.numberOr("-Infinity", 3) !== 3) throw new Error("numberOr failed on 
 if (context.numberOr("abc", 2) !== 2) throw new Error("numberOr failed on non-numeric string");
 if (context.numberOr("10px", 5) !== 5) throw new Error("numberOr failed on string with trailing characters");
 
+const balance = JSON.parse(fs.readFileSync("component-balance.json", "utf8"));
+context.applyComponentBalance(balance);
+
+for (const type of ["pointDefense", "flakCannon", "interceptorPod"]) {
+  if (!context.isRotatablePart(type)) {
+    throw new Error(`${type} should be rotatable`);
+  }
+  const part = context.makeDesignPart(1, 1, type, 90);
+  if (part.rotation !== 90) {
+    throw new Error(`${type} did not preserve rotation`);
+  }
+}
+
+if (context.isRotatablePart("engine")) {
+  throw new Error("engine should not be rotatable");
+}
+
+if (context.makeDesignPart(1, 1, "engine", 90).rotation !== 0) {
+  throw new Error("engine placement should ignore preview rotation");
+}
+
+if (!context.isRotatablePart("halfArmorDiagonal")) {
+  throw new Error("half armor diagonal should preserve balance rotatable metadata");
+}
+
+if (context.isRotatablePart("shield")) {
+  throw new Error("plain shield module should not be rotatable");
+}
+
+const enginePreviewRotation = vm.runInContext(`
+  state.selectedPart = "engine";
+  state.hoveredCell = { x: 0, y: 0 };
+  state.selectedCell = null;
+  state.previewRotation = 0;
+  rotateFocusedPart();
+  state.previewRotation;
+`, context);
+if (enginePreviewRotation !== 0) {
+  throw new Error("engine preview rotation should not change");
+}
+
+const weaponPreviewRotation = vm.runInContext(`
+  state.selectedPart = "blaster";
+  state.hoveredCell = null;
+  state.selectedCell = null;
+  state.previewRotation = 0;
+  rotateFocusedPart();
+  state.previewRotation;
+`, context);
+if (weaponPreviewRotation !== 90) {
+  throw new Error("selected rotatable part preview should rotate");
+}
+
+const rotationCycle = vm.runInContext(`
+  state.design = [
+    { x: 5, y: 5, type: "core", rotation: 0 },
+    { x: 5, y: 6, type: "blaster", rotation: 0 }
+  ];
+  state.selectedPart = "blaster";
+  state.previewRotation = 0;
+  [rotateCell(5, 6), state.design[1].rotation, state.previewRotation,
+   rotateCell(5, 6), state.design[1].rotation, state.previewRotation,
+   rotateCell(5, 6), state.design[1].rotation, state.previewRotation,
+   rotateCell(5, 6), state.design[1].rotation, state.previewRotation];
+`, context);
+if (rotationCycle.join(",") !== "true,90,90,true,180,180,true,270,270,true,0,0") {
+  throw new Error(`placed component rotation cycle regressed: ${rotationCycle.join(",")}`);
+}
+
+const hoverPreviewSize = vm.runInContext(`
+  state.design = [
+    { x: 5, y: 5, type: "core", rotation: 0 },
+    { x: 5, y: 6, type: "blaster", rotation: 0 }
+  ];
+  state.selectedPart = "railgun";
+  state.previewRotation = 90;
+  state.hoveredCell = { x: 5, y: 6 };
+  renderHoverPreview();
+  const preview = dom.grid.querySelectorAll(".build-preview")[0];
+  [Number.parseFloat(preview.style.width), Number.parseFloat(preview.style.height)];
+`, context);
+if (!(hoverPreviewSize[1] > hoverPreviewSize[0] * 2)) {
+  throw new Error("hover preview should keep selected rotation over occupied cells");
+}
+
+const shieldedShip = { alive: true, radius: 50, shield: 40, maxShield: 100 };
+if (context.shieldRatioForShip(shieldedShip) !== 0.4) {
+  throw new Error("shield ratio should use shield / maxShield");
+}
+if (context.shieldRatioForShip({ shield: 150, maxShield: 100 }) !== 1) {
+  throw new Error("shield ratio should clamp to 1");
+}
+if (context.shieldRatioForShip({ shield: 25, maxShield: 0 }) !== 0) {
+  throw new Error("shield ratio should be 0 without max shield");
+}
+if (context.shieldRingRadius(shieldedShip) <= shieldedShip.radius) {
+  throw new Error("shield ring should scale outside ship radius");
+}
+
 console.log("client ui verification passed");

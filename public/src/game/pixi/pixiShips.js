@@ -6,7 +6,7 @@ import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
-import { isCircleVisible, drawShipStructure, drawModule, moduleLocalPosition, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio } from "../renderer.js";
+import { isCircleVisible, drawShipStructure, drawModule, moduleLocalPosition, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
 
 const SHIP_SCALE = 13;
@@ -105,6 +105,7 @@ function getPixiBarGradient(env, id, stops, vertical) {
 function createPixiShipView(env) {
   const PIXI = env.PIXI;
   const root = new PIXI.Container();
+  const shieldGfx = new PIXI.Graphics();
   const hullGroup = new PIXI.Container();
   const hullSprite = new PIXI.Sprite();
   hullSprite.anchor.set(0.5);
@@ -121,6 +122,7 @@ function createPixiShipView(env) {
   const hudName = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "bold", fill: "#ffffff" });
   const idleName = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fill: "rgba(237,244,255,0.5)" });
   const lostText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 14, fill: "rgba(237,244,255,0.7)" });
+  root.addChild(shieldGfx);
   root.addChild(hullGroup);
   root.addChild(hudGfx);
   root.addChild(shieldText);
@@ -130,6 +132,7 @@ function createPixiShipView(env) {
   root.addChild(lostText);
   return {
     root,
+    shieldGfx,
     hullGroup,
     hullSprite,
     turretSprites: [],
@@ -145,6 +148,66 @@ function createPixiShipView(env) {
       this.hullKey = null;
     }
   };
+}
+
+function updatePixiShieldRing(view, ship, zoom) {
+  const gfx = view.shieldGfx;
+  gfx.clear();
+  if (!ship?.alive) {
+    gfx.visible = false;
+    return;
+  }
+
+  const ratio = shieldRatioForShip(ship);
+  if (ratio <= 0) {
+    gfx.visible = false;
+    return;
+  }
+
+  const ringRadius = shieldRingRadius(ship);
+  const alpha = 0.18 + ratio * 0.42;
+  const lineWidth = Math.max(1.7, ringRadius * 0.04) / zoom;
+  const now = performance.now() * 0.001;
+  const phase = now * 1.15 + pixiShieldIdPhase(ship.id);
+  const segmentCount = 12;
+  const step = (Math.PI * 2) / segmentCount;
+  const gap = step * 0.26;
+  const activeSegments = ratio * segmentCount;
+
+  gfx.visible = true;
+  gfx.circle(0, 0, ringRadius + lineWidth * 2.2);
+  gfx.fill(`rgba(56,213,255,${alpha * 0.035})`);
+
+  for (let i = 0; i < segmentCount; i += 1) {
+    const fill = clamp(activeSegments - i, 0, 1);
+    const start = -Math.PI / 2 + i * step + gap / 2;
+    const end = start + (step - gap) * Math.max(0.14, fill);
+    gfx.moveTo(Math.cos(start) * ringRadius, Math.sin(start) * ringRadius);
+    gfx.arc(0, 0, ringRadius, start, end);
+    gfx.stroke({
+      width: lineWidth,
+      color: fill > 0 ? "#38d5ff" : "#38d5ff",
+      alpha: fill > 0 ? alpha * (0.34 + fill * 0.66) : alpha * 0.12
+    });
+  }
+
+  gfx.moveTo(Math.cos(phase) * (ringRadius + lineWidth * 0.7), Math.sin(phase) * (ringRadius + lineWidth * 0.7));
+  gfx.arc(0, 0, ringRadius + lineWidth * 0.7, phase, phase + Math.PI * 0.42);
+  gfx.stroke({
+    width: Math.max(1, lineWidth * 0.44),
+    color: "#e0faff",
+    alpha: alpha * (0.5 + Math.sin(now * 4 + ratio * 5) * 0.12)
+  });
+
+  gfx.circle(0, 0, ringRadius - lineWidth * 1.1);
+  gfx.stroke({ width: Math.max(1, lineWidth * 0.35), color: "#9ff4ff", alpha: alpha * 0.2 });
+}
+
+function pixiShieldIdPhase(id) {
+  const source = String(id || "");
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) hash = (hash + source.charCodeAt(i) * (i + 1)) % 628;
+  return hash / 100;
 }
 
 function rebuildPixiShipVisual(env, view, design, color, radius, hullKey) {
@@ -244,6 +307,60 @@ function drawPixiStatusBar(env, gfx, options) {
   gfx.stroke({ width: 0.75 / zoom, color: "rgba(255,255,255,0.08)" });
 }
 
+function drawPixiShieldStatusBar(env, gfx, options) {
+  const { x, y, width, height, ratio, lagRatio, pulse = 0, zoom } = options;
+  const radius = Math.max(2, height * 0.48);
+
+  gfx.roundRect(x, y, width, height, radius);
+  gfx.fill(getPixiBarGradient(env, "shield-track", [
+    { offset: 0, color: "rgba(3,18,34,0.92)" },
+    { offset: 1, color: "rgba(8,31,52,0.86)" }
+  ], false));
+  gfx.stroke({ width: 0.75 / zoom, color: "rgba(125,211,252,0.22)" });
+
+  if (lagRatio > ratio) {
+    gfx.roundRect(x, y, width * lagRatio, height, radius);
+    gfx.fill("rgba(125,211,252,0.18)");
+  }
+
+  if (ratio > 0) {
+    const fillWidth = Math.min(width, Math.max(radius, width * ratio));
+    gfx.roundRect(x, y, fillWidth, height, radius);
+    gfx.fill(getPixiBarGradient(env, "shield-fill", [
+      { offset: 0, color: "#075985" },
+      { offset: 0.58, color: "#22d3ee" },
+      { offset: 1, color: "#e0faff" }
+    ], false));
+    gfx.roundRect(x, y, fillWidth, Math.max(2, height * 0.62), radius * 0.8);
+    gfx.fill(getPixiBarGradient(env, "shield-gloss", [
+      { offset: 0, color: "rgba(255,255,255,0.42)" },
+      { offset: 0.42, color: "rgba(255,255,255,0.08)" },
+      { offset: 1, color: "rgba(255,255,255,0.0)" }
+    ], true));
+
+    const sweepX = x + ((performance.now() * 0.036) % Math.max(1, width + 26)) - 26;
+    gfx.rect(sweepX, y, 24, height);
+    gfx.fill(getPixiBarGradient(env, `shield-sweep|${pulse.toFixed(2)}`, [
+      { offset: 0, color: "rgba(255,255,255,0.0)" },
+      { offset: 0.5, color: `rgba(224,250,255,${0.22 + pulse * 0.28})` },
+      { offset: 1, color: "rgba(255,255,255,0.0)" }
+    ], false));
+  }
+
+  const cells = 8;
+  const cellGap = 2 / zoom;
+  const cellWidth = (width - cellGap * (cells - 1)) / cells;
+  for (let i = 1; i < cells; i += 1) {
+    const sx = x + i * (cellWidth + cellGap) - cellGap * 0.5;
+    gfx.moveTo(sx, y + 1.2 / zoom);
+    gfx.lineTo(sx, y + height - 1.2 / zoom);
+  }
+  gfx.stroke({ width: 0.65 / zoom, color: "rgba(224,250,255,0.18)" });
+
+  gfx.roundRect(x, y, width, height, radius);
+  gfx.stroke({ width: 1 / zoom, color: pulse > 0 ? "rgba(224,250,255,0.82)" : "rgba(125,211,252,0.45)" });
+}
+
 function setPixiBarText(text, val, maxVal, height, centerX, centerY) {
   const label = `${Math.round(val)} / ${Math.round(maxVal)}`;
   if (text.text !== label) text.text = label;
@@ -291,11 +408,11 @@ function updatePixiHealthBars(env, view, ship, player, zoom) {
   const barWidth = width - 8;
 
   if (ship.maxShield > 0) {
-    drawPixiStatusBar(env, gfx, {
+    drawPixiShieldStatusBar(env, gfx, {
       x: barX, y: shieldY, width: barWidth, height: shieldHeight,
       ratio: shieldRatio, lagRatio: shieldLagRatio,
-      gradientId: "shield", gradientStops: [{ offset: 0, color: "#0a2540" }, { offset: 1, color: "#38bdf8" }],
-      segments: 6, zoom
+      pulse: hud.lastHitShield ? clamp(1 - (now - hud.hitAt) / 280, 0, 1) : 0,
+      zoom
     });
     setPixiBarText(view.shieldText, hud.shield, ship.maxShield, shieldHeight, barX + barWidth / 2, shieldY + shieldHeight / 2);
   } else {
@@ -459,6 +576,7 @@ export function updatePixiShips(env, now, players, bounds) {
       view.root.position.set(renderShip.x, renderShip.y);
       view.hullGroup.rotation = renderShip.angle;
       view.hullGroup.alpha = ship.alive ? 1 : 0.32;
+      updatePixiShieldRing(view, ship, zoom);
       updatePixiTurrets(view, ship, design);
       updatePixiHealthBars(env, view, { ...renderShip, radius: ship.radius || 0 }, player, zoom);
       updatePixiShipLabels(view, renderShip, player, zoom);

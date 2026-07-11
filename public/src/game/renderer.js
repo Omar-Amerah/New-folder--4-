@@ -716,6 +716,7 @@ export function drawShips(players, bounds) {
 export function drawShip(ship, player) {
   const selected = state.selectedShipIds.has(ship.id);
   const alpha = ship.alive ? 1 : 0.32;
+  drawShieldRing(ship);
   ctx.save();
   ctx.translate(ship.x, ship.y);
   ctx.rotate(ship.angle);
@@ -779,6 +780,85 @@ export function drawShip(ship, player) {
   drawHealthBars(ship, player);
   drawShipName(ship, player);
   if (!ship.alive) drawRespawn(ship);
+}
+
+export function shieldRatioForShip(ship) {
+  const maxShield = Number(ship?.maxShield) || 0;
+  if (maxShield <= 0) return 0;
+  return clamp((Number(ship.shield) || 0) / maxShield, 0, 1);
+}
+
+export function shieldRingRadius(ship) {
+  const radius = Number(ship?.radius) || 0;
+  return Math.max(30, radius + Math.max(8, radius * 0.18));
+}
+
+export function drawShieldRing(ship) {
+  if (!ship?.alive) return;
+  const ratio = shieldRatioForShip(ship);
+  if (ratio <= 0) return;
+
+  const ringRadius = shieldRingRadius(ship);
+  const alpha = 0.18 + ratio * 0.42;
+  const lineWidth = Math.max(1.7, ringRadius * 0.04) / state.camera.zoom;
+  const now = performance.now() * 0.001;
+  const phase = now * 1.15 + shieldIdPhase(ship.id);
+  const segmentCount = 12;
+  const step = (Math.PI * 2) / segmentCount;
+  const gap = step * 0.26;
+  const activeSegments = ratio * segmentCount;
+
+  ctx.save();
+  ctx.translate(ship.x, ship.y);
+
+  const shell = ctx.createRadialGradient(0, 0, ringRadius * 0.72, 0, 0, ringRadius + lineWidth * 3);
+  shell.addColorStop(0, "rgba(56, 213, 255, 0)");
+  shell.addColorStop(0.74, `rgba(56, 213, 255, ${alpha * 0.16})`);
+  shell.addColorStop(1, "rgba(224, 250, 255, 0)");
+  ctx.fillStyle = shell;
+  ctx.beginPath();
+  ctx.arc(0, 0, ringRadius + lineWidth * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineCap = "round";
+  ctx.lineWidth = lineWidth;
+  ctx.shadowColor = "rgba(56, 213, 255, 0.8)";
+  ctx.shadowBlur = qualityShadowBlur(10 + ringRadius * 0.1);
+
+  for (let i = 0; i < segmentCount; i += 1) {
+    const fill = clamp(activeSegments - i, 0, 1);
+    const start = -Math.PI / 2 + i * step + gap / 2;
+    const end = start + (step - gap) * Math.max(0.14, fill);
+    ctx.globalAlpha = fill > 0 ? alpha * (0.34 + fill * 0.66) : alpha * 0.12;
+    ctx.strokeStyle = fill > 0 ? "#38d5ff" : "rgba(56, 213, 255, 0.3)";
+    ctx.beginPath();
+    ctx.arc(0, 0, ringRadius, start, end);
+    ctx.stroke();
+  }
+
+  ctx.shadowBlur = qualityShadowBlur(16);
+  ctx.globalAlpha = alpha * (0.5 + Math.sin(now * 4 + ratio * 5) * 0.12);
+  ctx.lineWidth = Math.max(1, lineWidth * 0.44);
+  ctx.strokeStyle = "#e0faff";
+  ctx.beginPath();
+  ctx.arc(0, 0, ringRadius + lineWidth * 0.7, phase, phase + Math.PI * 0.42);
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = alpha * 0.2;
+  ctx.lineWidth = Math.max(1, lineWidth * 0.35);
+  ctx.strokeStyle = "#9ff4ff";
+  ctx.beginPath();
+  ctx.arc(0, 0, ringRadius - lineWidth * 1.1, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function shieldIdPhase(id) {
+  const source = String(id || "");
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) hash = (hash + source.charCodeAt(i) * (i + 1)) % 628;
+  return hash / 100;
 }
 
 export function drawShipStructure(design, scale, color) {
@@ -1418,17 +1498,14 @@ export function drawHealthBars(ship, player) {
   const barWidth = width - 8;
 
   if (ship.maxShield > 0) {
-    drawStatusBar({
+    drawShieldStatusBar({
       x: barX,
       y: shieldY,
       width: barWidth,
       height: shieldHeight,
       ratio: shieldRatio,
       lagRatio: shieldLagRatio,
-      fillStart: "#0a2540",
-      fillEnd: "#38bdf8",
-      glow: "rgba(56,189,248,0.5)",
-      segments: 6,
+      pulse: hud.lastHitShield ? pulse : 0,
       val: hud.shield,
       maxVal: ship.maxShield
     });
@@ -1618,6 +1695,97 @@ export function drawStatusBar(options) {
     ctx.fillText(text, x + width / 2, y + height / 2 + 1);
   }
   
+  ctx.restore();
+}
+
+export function drawShieldStatusBar(options) {
+  const { x, y, width, height, ratio, lagRatio, pulse = 0, val, maxVal } = options;
+  const radius = Math.max(2, height * 0.48);
+  const zoom = state.camera.zoom;
+
+  ctx.save();
+
+  roundRect(ctx, { x, y, width, height, radius });
+  const track = ctx.createLinearGradient(x, y, x + width, y + height);
+  track.addColorStop(0, "rgba(3,18,34,0.92)");
+  track.addColorStop(1, "rgba(8,31,52,0.86)");
+  ctx.fillStyle = track;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(125, 211, 252, 0.22)";
+  ctx.lineWidth = 0.75 / zoom;
+  ctx.stroke();
+
+  if (lagRatio > ratio) {
+    roundRect(ctx, { x, y, width: width * lagRatio, height, radius });
+    ctx.fillStyle = "rgba(125, 211, 252, 0.18)";
+    ctx.fill();
+  }
+
+  if (ratio > 0) {
+    const fillWidth = Math.min(width, Math.max(radius, width * ratio));
+    ctx.save();
+    roundRect(ctx, { x, y, width: fillWidth, height, radius });
+    ctx.clip();
+
+    const fill = ctx.createLinearGradient(x, y, x + width, y);
+    fill.addColorStop(0, "#075985");
+    fill.addColorStop(0.58, "#22d3ee");
+    fill.addColorStop(1, "#e0faff");
+    ctx.shadowColor = "rgba(56, 213, 255, 0.62)";
+    ctx.shadowBlur = qualityShadowBlur(6 + pulse * 7);
+    ctx.fillStyle = fill;
+    ctx.fillRect(x, y, fillWidth, height);
+
+    const gloss = ctx.createLinearGradient(x, y, x, y + height);
+    gloss.addColorStop(0, "rgba(255,255,255,0.42)");
+    gloss.addColorStop(0.42, "rgba(255,255,255,0.08)");
+    gloss.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = gloss;
+    ctx.fillRect(x, y, fillWidth, Math.max(2, height * 0.62));
+
+    const sweepX = x + ((performance.now() * 0.036) % Math.max(1, width + 26)) - 26;
+    const sweep = ctx.createLinearGradient(sweepX, y, sweepX + 24, y);
+    sweep.addColorStop(0, "rgba(255,255,255,0)");
+    sweep.addColorStop(0.5, `rgba(224,250,255,${0.22 + pulse * 0.28})`);
+    sweep.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = sweep;
+    ctx.fillRect(sweepX, y, 24, height);
+    ctx.restore();
+  }
+
+  const cells = 8;
+  const cellGap = 2 / zoom;
+  const cellWidth = (width - cellGap * (cells - 1)) / cells;
+  for (let i = 1; i < cells; i += 1) {
+    const sx = x + i * (cellWidth + cellGap) - cellGap * 0.5;
+    ctx.strokeStyle = "rgba(224, 250, 255, 0.18)";
+    ctx.lineWidth = 0.65 / zoom;
+    ctx.beginPath();
+    ctx.moveTo(sx, y + 1.2 / zoom);
+    ctx.lineTo(sx, y + height - 1.2 / zoom);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = pulse > 0 ? "rgba(224, 250, 255, 0.82)" : "rgba(125, 211, 252, 0.45)";
+  ctx.lineWidth = 1 / zoom;
+  roundRect(ctx, { x, y, width, height, radius });
+  ctx.stroke();
+
+  if (val !== undefined && maxVal !== undefined) {
+    const text = Math.round(val) + " / " + Math.round(maxVal);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#f2fdff";
+    const fontSize = Math.max(7, Math.floor(height * 0.85));
+    ctx.font = `900 ${fontSize}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = "rgba(0, 8, 18, 0.78)";
+    ctx.lineWidth = 2.1;
+    ctx.strokeText(text, x + width / 2, y + height / 2 + 1);
+    ctx.fillText(text, x + width / 2, y + height / 2 + 1);
+  }
+
   ctx.restore();
 }
 

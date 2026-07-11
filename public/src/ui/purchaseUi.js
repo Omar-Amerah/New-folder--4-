@@ -318,6 +318,7 @@ export function validateBlueprintForPurchase(blueprint) {
   if (!Array.isArray(blueprint) || blueprint.length === 0) return { ok: false, reason: "Invalid design" };
   if (blueprint.filter((part) => part.type === "core").length !== 1) return { ok: false, reason: "Invalid core" };
   if (!isConnected(blueprint)) return { ok: false, reason: "Disconnected" };
+  if (computeStats(blueprint).thrust <= 0) return { ok: false, reason: "No engine" };
   return { ok: true, reason: "" };
 }
 
@@ -474,6 +475,7 @@ function getShipStatus(stats) {
   if (!state.design.length) blockers.push("Invalid design: blueprint is empty.");
   if (!hasCore) blockers.push("Invalid design: missing core.");
   if (!isConnected(state.design)) blockers.push("Invalid design: disconnected parts.");
+  if (stats.thrust <= 0) blockers.push("Invalid design: add at least one engine.");
   if (money < stats.unitCost) blockers.push(`${isActiveBuild ? "Cannot afford ship" : "Cannot ready design"}. Need $${Math.ceil(stats.unitCost - money)} more.`);
 
   const warnings = [...stats.warnings];

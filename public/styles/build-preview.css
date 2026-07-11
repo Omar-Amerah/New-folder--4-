@@ -1,20 +1,38 @@
 /* Blueprint placement preview overlay styles. Keep import order in ../design.css unchanged. */
 
 .build-preview {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
   pointer-events: none !important;
   z-index: 10;
   border-radius: 5px;
   border: 2px solid;
+  overflow: hidden;
 }
 .build-preview.valid {
-  background: rgba(0, 255, 0, 0.2);
-  border-color: rgba(0, 255, 0, 0.6);
+  background: rgba(40, 190, 110, 0.12);
+  border-color: rgba(83, 238, 151, 0.72);
   pointer-events: none !important;
 }
 .build-preview.invalid {
-  background: rgba(255, 0, 0, 0.2);
-  border-color: rgba(255, 0, 0, 0.6);
+  background: rgba(255, 80, 80, 0.14);
+  border-color: rgba(255, 99, 99, 0.78);
   pointer-events: none !important;
+}
+.build-preview .preview-glyph,
+.build-preview .part-glyph {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 1px;
+  object-fit: contain;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  opacity: 0.42;
 }
 .build-preview *,
 .build-preview::before,

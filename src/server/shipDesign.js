@@ -50,7 +50,10 @@ function validateDesign(input) {
 
   if (clean.length < input.length) return { ok: false, reason: "Invalid design: blueprint contains invalid overlapping or out of bounds modules." };
 
-  return { ok: true, modules: clean, stats: computeStats(clean) };
+  const stats = computeStats(clean);
+  if (stats.thrust <= 0) return { ok: false, reason: "Invalid design: add at least one engine." };
+
+  return { ok: true, modules: clean, stats };
 }
 
 function isConnected(modules) {

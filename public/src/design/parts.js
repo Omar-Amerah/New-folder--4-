@@ -734,7 +734,8 @@ export function applyServerParts(parts) {
 
 export function isRotatablePart(type) {
   const stat = PART_STATS[type] || {};
-  return stat.category === "Weapons" || stat.rotatable === true || MARKERLESS_ROTATABLE_PARTS.has(type);
+  if (stat.category === "Engines") return false;
+  return stat.category === "Weapons" || (stat.category === "Defence" && Boolean(stat.weapon)) || stat.rotatable === true || MARKERLESS_ROTATABLE_PARTS.has(type);
 }
 
 export function shouldShowRotationMarker(type) {
@@ -865,6 +866,7 @@ export function normalizeRuntimePart(part = {}) {
     fireRateBonus: numberOr(part.fireRateBonus, 0),
     captureBonus: numberOr(part.captureBonus, 0),
     heat: numberOr(part.heat, 0),
+    rotatable: Boolean(part.rotatable),
     rotationRequired: Boolean(part.rotationRequired || part.rotatable),
     ecmStrength: numberOr(part.ecmStrength, 0),
     decoyRange: numberOr(part.decoyRange, 0),
@@ -909,6 +911,7 @@ export function normalizeBalanceComponent(component) {
     fireRateBonus: numberOr(component.fireRateBonus, 0),
     captureBonus: numberOr(component.captureBonus, 0),
     heat: numberOr(component.heat, 0),
+    rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     ecmStrength: numberOr(component.ecmStrength, 0),
     decoyRange: numberOr(component.decoyRange, 0),

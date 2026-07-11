@@ -14,6 +14,10 @@ const HOLD_RANGE_RATIO = 0.9;
 const CHARGE_RANGE_RATIO = 0.3;
 const CIRCLE_RANGE_RATIO = 0.8;
 
+function shipCollisionRadius(ship) {
+  return clampNumber((ship.radius || 0) * 0.56, 18, 48);
+}
+
 function commandShips(room, player, x, y, options = {}) {
   const shipIdSet = Array.isArray(options.shipIds)
     ? new Set(options.shipIds.map((id) => String(id)).slice(0, 24))
@@ -127,6 +131,7 @@ function updateShipMovement(room, ship, dt) {
 
 function getCombatStyle(ship) {
   if (ship.combatStyle === "hold") return "hold";
+  if (ship.combatStyle === "sentry") return "sentry";
   if (ship.combatStyle === "circle") return "circle";
   return "charge";
 }
@@ -156,6 +161,14 @@ function updateCombatMoveTarget(room, ship, target, style) {
   const maxRange = getMaxWeaponRange(ship);
   const distanceToTarget = Math.hypot(target.x - ship.x, target.y - ship.y);
 
+  if (style === "sentry") {
+    clearOrbitState(ship);
+    ship.targetX = ship.x;
+    ship.targetY = ship.y;
+    ship.arrived = true;
+    return;
+  }
+
   if (maxRange <= 0) {
     clearOrbitState(ship);
     ship.targetX = target.x;
@@ -172,7 +185,7 @@ function updateCombatMoveTarget(room, ship, target, style) {
   clearOrbitState(ship);
 
   if (style === "hold") {
-    const holdRange = maxRange * 0.9;
+    const holdRange = maxRange * HOLD_RANGE_RATIO;
     const hysteresis = Math.max(18, ship.radius * 0.35);
 
     if (distanceToTarget > holdRange + hysteresis) {
@@ -188,7 +201,7 @@ function updateCombatMoveTarget(room, ship, target, style) {
   }
 
   if (style === "charge") {
-    const chargeRange = maxRange * 0.3;
+    const chargeRange = maxRange * CHARGE_RANGE_RATIO;
     const hysteresis = Math.max(18, ship.radius * 0.35);
 
     if (distanceToTarget > chargeRange + hysteresis) {
@@ -383,7 +396,7 @@ function updateShipSeparation(room, ships, dt) {
       const dy = b.y - a.y;
       const distSq = dx * dx + dy * dy;
 
-      const minimum = (a.radius + b.radius) * 0.72;
+      const minimum = shipCollisionRadius(a) + shipCollisionRadius(b);
       if (distSq >= minimum * minimum) continue;
 
       const distance = Math.sqrt(distSq) || 1;

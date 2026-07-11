@@ -14,6 +14,7 @@ import { updateEconomyUi } from "./purchaseUi.js";
 import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
 
+const GRID_SIZE = 15;
 
 export function renderBuildGrid() {
   dom.grid.textContent = "";
@@ -33,8 +34,8 @@ export function renderBuildGrid() {
     }
   }
 
-  for (let y = 0; y < 15; y += 1) {
-    for (let x = 0; x < 15; x += 1) {
+  for (let y = 0; y < GRID_SIZE; y += 1) {
+    for (let x = 0; x < GRID_SIZE; x += 1) {
       const isCovered = coveredCells.has(`${x},${y}`);
       if (isCovered) continue; // Skip rendering separate cell for extensions
 
@@ -110,17 +111,13 @@ export function renderHoverPreview() {
   }
 
   if (state.hoveredCell && state.selectedPart) {
+    const selectedType = state.selectedPart;
     const existing = findPartAt(state.hoveredCell.x, state.hoveredCell.y);
     let targetX = existing ? existing.x : state.hoveredCell.x;
     let targetY = existing ? existing.y : state.hoveredCell.y;
-    let rotation = existing ? existing.rotation : (state.previewRotation || 0);
+    let rotation = placementRotation(selectedType, state.previewRotation || 0);
 
-    // If we're hovering over a part of the same type and it's rotatable, preview the next rotation
-    if (existing && existing.type === state.selectedPart && isRotatablePart(existing.type)) {
-      rotation = (normalizeRotation(rotation) + 90) % 360;
-    }
-
-    const stat = PART_STATS[state.selectedPart] || PART_STATS.frame;
+    const stat = PART_STATS[selectedType] || PART_STATS.frame;
     const footprint = stat.footprint || { width: 1, height: 1 };
     const isRotated = rotation === 90 || rotation === 270;
     const width = isRotated ? footprint.height : footprint.width;
@@ -128,7 +125,8 @@ export function renderHoverPreview() {
 
     // Determine validity
     let isValid = true;
-    const candidatePart = makeDesignPart(targetX, targetY, state.selectedPart, rotation);
+    const candidatePart = makeDesignPart(targetX, targetY, selectedType, rotation);
+    rotation = candidatePart.rotation;
     const nextDesign = existing
       ? state.design.map(p => p === existing ? candidatePart : p)
       : [...state.design, candidatePart];
@@ -141,10 +139,52 @@ export function renderHoverPreview() {
 
     const preview = document.createElement("div");
     preview.className = `build-preview ${isValid ? "valid" : "invalid"}`;
-    preview.style.gridColumn = `${targetX + 1} / span ${width}`;
-    preview.style.gridRow = `${targetY + 1} / span ${height}`;
+    preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", rotation);
+    positionPreviewOverlay(preview, targetX, targetY, width, height);
     dom.grid.appendChild(preview);
   }
+}
+
+function placementRotation(type, rotation) {
+  return isRotatablePart(type) ? normalizeRotation(rotation) : 0;
+}
+
+function positionPreviewOverlay(preview, x, y, width, height) {
+  const rect = typeof dom.grid.getBoundingClientRect === "function" ? dom.grid.getBoundingClientRect() : null;
+  const computed = typeof window !== "undefined" && typeof window.getComputedStyle === "function"
+    ? window.getComputedStyle(dom.grid)
+    : null;
+  const gapX = cssPx(computed?.columnGap || computed?.gap, 2);
+  const gapY = cssPx(computed?.rowGap || computed?.gap, 2);
+  const paddingLeft = cssPx(computed?.paddingLeft, 8);
+  const paddingRight = cssPx(computed?.paddingRight, 8);
+  const paddingTop = cssPx(computed?.paddingTop, 8);
+  const paddingBottom = cssPx(computed?.paddingBottom, 8);
+
+  if (rect && rect.width > 0 && rect.height > 0) {
+    const contentWidth = Math.max(0, rect.width - paddingLeft - paddingRight);
+    const contentHeight = Math.max(0, rect.height - paddingTop - paddingBottom);
+    const cellWidth = (contentWidth - gapX * (GRID_SIZE - 1)) / GRID_SIZE;
+    const cellHeight = (contentHeight - gapY * (GRID_SIZE - 1)) / GRID_SIZE;
+    if (Number.isFinite(cellWidth) && Number.isFinite(cellHeight) && cellWidth > 0 && cellHeight > 0) {
+      preview.style.left = `${paddingLeft + x * (cellWidth + gapX)}px`;
+      preview.style.top = `${paddingTop + y * (cellHeight + gapY)}px`;
+      preview.style.width = `${width * cellWidth + Math.max(0, width - 1) * gapX}px`;
+      preview.style.height = `${height * cellHeight + Math.max(0, height - 1) * gapY}px`;
+      return;
+    }
+  }
+
+  const unit = 100 / GRID_SIZE;
+  preview.style.left = `${x * unit}%`;
+  preview.style.top = `${y * unit}%`;
+  preview.style.width = `${width * unit}%`;
+  preview.style.height = `${height * unit}%`;
+}
+
+function cssPx(value, fallback) {
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function findPartAt(x, y) {
@@ -175,7 +215,7 @@ export function editCell(x, y) {
       }
       return;
     }
-    const newPart = makeDesignPart(targetX, targetY, state.selectedPart, isRotatablePart(state.selectedPart) ? (state.previewRotation || 0) : existing.rotation);
+    const newPart = makeDesignPart(targetX, targetY, state.selectedPart, placementRotation(state.selectedPart, state.previewRotation || 0));
     const next = state.design.map((part) => part === existing ? newPart : part);
 
     if (isOutOfBounds(next)) {
@@ -251,6 +291,9 @@ export function rotateCell(x, y) {
   }
 
   state.design = next;
+  if (state.selectedPart === part.type) {
+    state.previewRotation = newRotation;
+  }
   persistDesign(state.design, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
@@ -260,11 +303,10 @@ export function rotateCell(x, y) {
 
 export function rotateFocusedPart() {
   const cell = state.hoveredCell || state.selectedCell;
-  if (!cell) return;
-  const part = findPartAt(cell.x, cell.y);
-  if (part) {
+  const part = cell ? findPartAt(cell.x, cell.y) : null;
+  if (part && isRotatablePart(part.type)) {
     rotateCell(part.x, part.y);
-  } else if (state.hoveredCell && state.selectedPart) {
+  } else if (state.selectedPart && isRotatablePart(state.selectedPart)) {
     state.previewRotation = (normalizeRotation(state.previewRotation || 0) + 90) % 360;
     renderHoverPreview();
   }
@@ -377,6 +419,7 @@ export function getShipStatus(stats) {
   if (!state.design.length) blockers.push("Invalid design: blueprint is empty.");
   if (!hasCore) blockers.push("Invalid design: missing core.");
   if (!isConnected(state.design)) blockers.push("Invalid design: disconnected parts.");
+  if (stats.thrust <= 0) blockers.push("Invalid design: add at least one engine.");
   if (money < stats.unitCost) blockers.push(`${isActiveBuild ? "Cannot afford ship" : "Cannot ready design"}. Need $${Math.ceil(stats.unitCost - money)} more.`);
 
   const warnings = [...stats.warnings];
