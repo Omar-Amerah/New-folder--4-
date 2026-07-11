@@ -49,6 +49,16 @@ function buildSharedSnapshot(room, now, sendStatic) {
     // snapshots or the first broadcast that includes the ship. Clients cache it.
     if (sendStatic || !ship.designSent) {
       entry.design = ship.design || [];
+      // Full authoritative component-hp sync rides along with the design.
+      if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
+    } else if (ship.dirtyComponents && ship.dirtyComponents.size) {
+      // Otherwise only ship the components whose hp changed since the last
+      // broadcast, as a flat [index, hp, index, hp, ...] delta.
+      const delta = [];
+      for (const index of ship.dirtyComponents) {
+        delta.push(index, Math.round(ship.componentHp[index] * 10) / 10);
+      }
+      entry.chpD = delta;
     }
     ships.push(entry);
   }
@@ -170,10 +180,12 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
   };
 }
 
-// Marks every current ship design as broadcast so subsequent dynamic snapshots omit it.
+// Marks every current ship design as broadcast so subsequent dynamic snapshots
+// omit it, and flushes the per-ship component-hp deltas that were just sent.
 function markShipDesignsSent(room) {
   for (const ship of room.ships.values()) {
     if (!ship.designSent) ship.designSent = true;
+    if (ship.dirtyComponents && ship.dirtyComponents.size) ship.dirtyComponents.clear();
   }
 }
 

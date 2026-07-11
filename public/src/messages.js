@@ -81,12 +81,23 @@ export function handleServerMessage(message) {
     }
     // The server sends each ship's design once (it never changes after spawn);
     // reuse the cached copy from the previous snapshot on later updates.
+    // Component hp (`chp`) works the same way: a full array rides along with the
+    // design, later snapshots only carry `chpD` deltas of [index, hp, ...].
     if (state.snapshot && state.snapshot.ships && message.ships) {
       const oldShips = new Map(state.snapshot.ships.map(s => [s.id, s]));
       for (const newShip of message.ships) {
-        if (newShip.design === undefined) {
-          const oldShip = oldShips.get(newShip.id);
-          if (oldShip) newShip.design = oldShip.design;
+        const oldShip = oldShips.get(newShip.id);
+        if (newShip.design === undefined && oldShip) newShip.design = oldShip.design;
+        if (newShip.chp === undefined && oldShip && oldShip.chp) {
+          if (newShip.chpD && newShip.chpD.length) {
+            const merged = oldShip.chp.slice();
+            for (let k = 0; k + 1 < newShip.chpD.length; k += 2) {
+              merged[newShip.chpD[k]] = newShip.chpD[k + 1];
+            }
+            newShip.chp = merged;
+          } else {
+            newShip.chp = oldShip.chp;
+          }
         }
       }
     }

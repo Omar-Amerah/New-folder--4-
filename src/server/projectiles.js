@@ -190,7 +190,11 @@ function updateBullets(room, dt, now) {
       const collisionR = 8.5 + hitRadius;
       const collisionR2 = collisionR * collisionR;
 
+      const componentHp = ship.componentHp;
       for (let i = 0; i < coords.length; i++) {
+        // Destroyed components no longer block shots; hits pass through to
+        // whatever alive module sits behind them (or miss entirely).
+        if (componentHp && componentHp[i] <= 0) continue;
         const m = coords[i];
         const mdx = m.x - bullet.x;
         const mdy = m.y - bullet.y;

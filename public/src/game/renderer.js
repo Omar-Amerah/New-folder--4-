@@ -956,15 +956,19 @@ export function drawShip(ship, player) {
     const def = PART_DEFS[part.type] || PART_DEFS.frame;
     const weaponStat = PART_STATS[part.type]?.weapon;
     const place = footprintLocalPlacement(part, scale);
+    const healthRatio = componentHealthRatio(ship, i);
+    const destroyed = healthRatio !== null && healthRatio <= 0;
     ctx.save();
     ctx.translate(place.cx, place.cy);
+    if (destroyed) ctx.globalAlpha *= 0.6;
 
     if (isRotatablePart(part.type)) {
       const defaultRelative = moduleRotationToRadians(normalizeRotation(part.rotation));
       const targetRelative = serverAngles[i] !== undefined ? serverAngles[i] : defaultRelative;
 
       const turnRate = weaponStat ? getWeaponTurnRate(weaponStat) : 3.0;
-      visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
+      // Destroyed turrets stop tracking and freeze in place.
+      if (!destroyed) visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
 
       ctx.rotate(visualAngles[i]);
       if (place.multi) {
@@ -972,11 +976,14 @@ export function drawShip(ship, player) {
       } else {
         drawModule({ x: 0, y: 0, size: scale - 1, color: def.color, type: part.type, trim: player.color });
       }
+      drawModuleDamage(ctx, healthRatio, (place.tilesLong * (scale - 1)) / 2, (place.tilesCross * (scale - 1)) / 2);
     } else if (place.multi) {
       ctx.rotate(place.longAxisAngle);
       drawFootprintComponent({ type: part.type, unit: scale - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: player.color });
+      drawModuleDamage(ctx, healthRatio, (place.tilesLong * (scale - 1)) / 2, (place.tilesCross * (scale - 1)) / 2);
     } else {
       drawModule({ x: 0, y: 0, size: scale - 1, color: def.color, type: part.type, trim: player.color });
+      drawModuleDamage(ctx, healthRatio, (scale - 1) / 2, (scale - 1) / 2);
     }
     ctx.restore();
   });
@@ -1136,6 +1143,63 @@ export function drawStructureLines(design, keys, scale) {
     }
   }
   ctx.stroke();
+}
+
+// --- Component health -------------------------------------------------------
+// Per-component max hp mirrors the server: each part's base hp scaled so the
+// design total matches ship.maxHp. Cached per design array (designs are static
+// and their object identity is reused across snapshots).
+const designComponentHpCache = new WeakMap();
+
+// Remaining health fraction (0..1) for design[index], or null when unknown
+// (no component data yet, e.g. ships from older servers).
+export function componentHealthRatio(ship, index) {
+  const chp = ship?.chp;
+  if (!chp || chp[index] === undefined || !ship.design) return null;
+  let raw = designComponentHpCache.get(ship.design);
+  if (!raw) {
+    const values = ship.design.map((part) => Math.max(1, Number(PART_STATS[part.type]?.hp) || 1));
+    raw = { values, sum: values.reduce((total, hp) => total + hp, 0) || 1 };
+    designComponentHpCache.set(ship.design, raw);
+  }
+  const maxHp = Number(ship.maxHp) || raw.sum;
+  const componentMax = raw.values[index] * (maxHp / raw.sum);
+  if (!(componentMax > 0)) return null;
+  return clamp(chp[index] / componentMax, 0, 1);
+}
+
+// Darkens/cracks a module that has taken component damage. Drawn in the same
+// local space the module was just drawn in (centred on 0,0; possibly rotated).
+export function drawModuleDamage(drawCtx, ratio, halfW, halfH) {
+  if (ratio === null || ratio >= 0.55) return;
+  const w = halfW * 2;
+  const h = halfH * 2;
+  if (ratio <= 0) {
+    // Destroyed: near-black slab with jagged crack lines.
+    drawCtx.fillStyle = "rgba(7, 9, 13, 0.78)";
+    drawCtx.fillRect(-halfW, -halfH, w, h);
+    drawCtx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    drawCtx.lineWidth = Math.max(1, halfW * 0.16);
+    drawCtx.beginPath();
+    drawCtx.moveTo(-halfW * 0.8, -halfH * 0.7);
+    drawCtx.lineTo(-halfW * 0.1, -halfH * 0.05);
+    drawCtx.lineTo(halfW * 0.35, halfH * 0.25);
+    drawCtx.lineTo(halfW * 0.85, halfH * 0.75);
+    drawCtx.moveTo(halfW * 0.7, -halfH * 0.8);
+    drawCtx.lineTo(halfW * 0.1, -halfH * 0.1);
+    drawCtx.lineTo(-halfW * 0.4, halfH * 0.5);
+    drawCtx.stroke();
+    drawCtx.strokeStyle = "rgba(255, 120, 60, 0.35)";
+    drawCtx.lineWidth = Math.max(0.6, halfW * 0.08);
+    drawCtx.beginPath();
+    drawCtx.moveTo(-halfW * 0.1, -halfH * 0.05);
+    drawCtx.lineTo(halfW * 0.35, halfH * 0.25);
+    drawCtx.stroke();
+  } else {
+    // Damaged: translucent scorch that deepens as hp drops toward zero.
+    drawCtx.fillStyle = `rgba(8, 10, 14, ${(0.55 - ratio) * 0.85})`;
+    drawCtx.fillRect(-halfW, -halfH, w, h);
+  }
 }
 
 // Grid center for the 15x15 build grid (core sits here), so modules render

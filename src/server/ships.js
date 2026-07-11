@@ -7,7 +7,10 @@ const { normalizeShipDesignSnapshot } = require("./shipDesign");
 
 function spawnShip(room, player, now, index = 0, options = {}) {
   const { nearestClearPoint } = require("./movement");
-  const stats = options.stats || player.stats || computeStats(player.design);
+  const { initComponentState } = require("./componentHealth");
+  // Shallow-clone: destroyed components mutate top-level stat fields per ship,
+  // and the source stats object is shared by every ship of the player.
+  const stats = { ...(options.stats || player.stats || computeStats(player.design)) };
   const design = normalizeShipDesignSnapshot(options.design || player.design);
   const spawn = getPlayerSpawn(room, player.id);
   const offset = index - Math.floor(player.shipCap / 2);
@@ -50,6 +53,8 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     focusTargetId: null,
     lastDamagedBy: null
   };
+  // Per-component health pools; also sets ship.hp/maxHp to the component sum.
+  initComponentState(ship);
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });

@@ -79,6 +79,7 @@ const FALLBACK_PARTS = Object.freeze({
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.045,
     energyStorage: 0, repairRate: 0,
+    armorFlatReduction: 3,
     weapon: null
   },
 
@@ -219,6 +220,7 @@ const FALLBACK_PARTS = Object.freeze({
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.025,
     energyStorage: 0, repairRate: 0,
+    armorFlatReduction: 2,
     weapon: null
   },
 
@@ -811,6 +813,8 @@ function normalizeBalanceComponent(component) {
     decoyChance: toNumber(component.decoyChance, 0),
     frontDamageReduction: toNumber(component.frontDamageReduction, 0),
     frontArc: toNumber(component.frontArc, 0),
+    // Directional armour: flat damage shaved off every hit this plate intercepts.
+    armorFlatReduction: toNumber(component.armorFlatReduction, 0),
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
 

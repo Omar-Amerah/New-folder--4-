@@ -6,7 +6,7 @@ import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
-import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip } from "../renderer.js";
+import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip, componentHealthRatio } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
 
 const SHIP_SCALE = 13;
@@ -129,8 +129,10 @@ function createPixiShipView(env) {
   const engineGfx = new PIXI.Graphics(); // exhaust plumes, drawn behind the hull
   const hullSprite = new PIXI.Sprite();
   hullSprite.anchor.set(0.5);
+  const damageGfx = new PIXI.Graphics(); // destroyed/damaged component overlays
   hullGroup.addChild(engineGfx);
   hullGroup.addChild(hullSprite);
+  hullGroup.addChild(damageGfx);
   const hudGfx = new PIXI.Graphics();
   const makeText = (style) => {
     const text = new PIXI.Text({ text: "", style, resolution: 2 });
@@ -158,6 +160,8 @@ function createPixiShipView(env) {
     engineGfx,
     engines: [],
     hullSprite,
+    damageGfx,
+    damageSig: null,
     turretSprites: [],
     hudGfx,
     shieldText,
@@ -250,8 +254,81 @@ function rebuildPixiShipVisual(env, view, design, color, radius, hullKey) {
     view.hullGroup.addChild(sprite);
     view.turretSprites.push(sprite);
   });
+  // Keep the damage overlay above the freshly re-added turret sprites.
+  view.hullGroup.addChild(view.damageGfx);
+  view.damageSig = null;
   view.engines = shipEngineNozzles(design, SHIP_SCALE);
   view.hullKey = hullKey;
+}
+
+// Draws darkened slabs (plus cracks when destroyed) over damaged components.
+// Redrawn only when the quantized damage signature changes, so healthy ships
+// cost nothing per frame.
+function updatePixiComponentDamage(view, ship, design) {
+  const gfx = view.damageGfx;
+  if (!ship.chp) {
+    if (view.damageSig !== null) {
+      gfx.clear();
+      view.damageSig = null;
+    }
+    return;
+  }
+
+  let sig = "";
+  for (let i = 0; i < design.length; i += 1) {
+    const ratio = componentHealthRatio(ship, i);
+    if (ratio === null || ratio >= 0.55) continue;
+    sig += `${i}:${ratio <= 0 ? "x" : Math.round(ratio * 10)};`;
+  }
+  if (sig === view.damageSig) return;
+  view.damageSig = sig;
+  gfx.clear();
+  if (!sig) return;
+
+  for (let i = 0; i < design.length; i += 1) {
+    const ratio = componentHealthRatio(ship, i);
+    if (ratio === null || ratio >= 0.55) continue;
+    const part = design[i];
+    const place = footprintLocalPlacement(part, SHIP_SCALE);
+    const halfW = (place.tilesLong * (SHIP_SCALE - 1)) / 2;
+    const halfH = (place.tilesCross * (SHIP_SCALE - 1)) / 2;
+    const ang = place.multi ? place.longAxisAngle : 0;
+    const cos = Math.cos(ang);
+    const sin = Math.sin(ang);
+    const corner = (x, y) => [place.cx + x * cos - y * sin, place.cy + x * sin + y * cos];
+    const pt = (x, y) => {
+      const [px, py] = corner(x, y);
+      return { x: px, y: py };
+    };
+
+    const c0 = pt(-halfW, -halfH);
+    const c1 = pt(halfW, -halfH);
+    const c2 = pt(halfW, halfH);
+    const c3 = pt(-halfW, halfH);
+    gfx.moveTo(c0.x, c0.y);
+    gfx.lineTo(c1.x, c1.y);
+    gfx.lineTo(c2.x, c2.y);
+    gfx.lineTo(c3.x, c3.y);
+    gfx.closePath();
+
+    if (ratio <= 0) {
+      gfx.fill({ color: 0x07090d, alpha: 0.78 });
+      const k0 = pt(-halfW * 0.8, -halfH * 0.7);
+      const k1 = pt(-halfW * 0.1, -halfH * 0.05);
+      const k2 = pt(halfW * 0.35, halfH * 0.25);
+      const k3 = pt(halfW * 0.85, halfH * 0.75);
+      gfx.moveTo(k0.x, k0.y);
+      gfx.lineTo(k1.x, k1.y);
+      gfx.lineTo(k2.x, k2.y);
+      gfx.lineTo(k3.x, k3.y);
+      gfx.stroke({ width: Math.max(1, halfW * 0.16), color: 0x000000, alpha: 0.85 });
+      gfx.moveTo(k1.x, k1.y);
+      gfx.lineTo(k2.x, k2.y);
+      gfx.stroke({ width: Math.max(0.6, halfW * 0.08), color: 0xff783c, alpha: 0.35 });
+    } else {
+      gfx.fill({ color: 0x080a0e, alpha: (0.55 - ratio) * 0.85 });
+    }
+  }
 }
 
 function pixiEngineIdPhase(id) {
@@ -328,6 +405,14 @@ function updatePixiTurrets(view, ship, design) {
     const i = sprite.__designIndex;
     const part = design[i];
     if (!part) continue;
+    const healthRatio = componentHealthRatio(ship, i);
+    if (healthRatio !== null && healthRatio <= 0) {
+      // Destroyed turrets freeze in place and read as knocked out.
+      sprite.alpha = 0.3;
+      sprite.rotation = visualAngles[i];
+      continue;
+    }
+    sprite.alpha = 1;
     const weaponStat = PART_STATS[part.type]?.weapon;
     const defaultRelative = moduleRotationToRadians(normalizeRotation(part.rotation));
     const targetRelative = serverAngles[i] !== undefined ? serverAngles[i] : defaultRelative;
@@ -678,6 +763,7 @@ export function updatePixiShips(env, now, players, bounds) {
       updatePixiShieldRing(view, ship, zoom);
       updatePixiEngineExhaust(view, renderShip, now);
       updatePixiTurrets(view, ship, design);
+      updatePixiComponentDamage(view, ship, design);
       updatePixiHealthBars(env, view, { ...renderShip, radius: ship.radius || 0 }, player, zoom);
       updatePixiShipLabels(view, renderShip, player, zoom);
 

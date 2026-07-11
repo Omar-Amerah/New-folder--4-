@@ -5,6 +5,7 @@ const { ECONOMY } = require("./config");
 const { randomRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
 const { addBullet, segmentCircleHit } = require("./projectiles");
+const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents } = require("./componentHealth");
 
 const MODULE_SCALE = 13;
 const MUZZLE_DISTANCE = Object.freeze({
@@ -34,7 +35,7 @@ function updateShipSupport(room, ships, dt, now) {
 
     if (!target) continue;
     const heal = ship.stats.repairRate * ship.stats.efficiency * dt;
-    target.hp = Math.min(target.maxHp, target.hp + heal);
+    repairShipComponents(room, target, heal, now);
 
     if (now - ship.repairPulseAt > 420) {
       ship.repairPulseAt = now;
@@ -166,6 +167,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   (ship.design || []).forEach((module, i) => {
     const part = PARTS[module.type];
     if (!part?.weapon) return;
+    if (!isComponentAlive(ship, i)) return; // destroyed weapons stop firing
 
     const family = part.weapon.type;
     const cooldown = ship.weaponCooldowns[i] || 0;
@@ -378,9 +380,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 function weaponModulesInArc(ship, target, family) {
   let count = 0;
-  for (const module of ship.design || []) {
+  const design = ship.design || [];
+  for (let i = 0; i < design.length; i += 1) {
+    const module = design[i];
     const part = PARTS[module.type];
     if (!part?.weapon || part.weapon.type !== family) continue;
+    if (!isComponentAlive(ship, i)) continue;
     if (isTargetInWeaponArc(ship, module, target, (part.weapon.arc || 360) * Math.PI / 180)) count += 1;
   }
   return count;
@@ -452,6 +457,7 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     const coords = getShipModuleWorldCoords(target);
 
     for (let i = 0; i < coords.length; i++) {
+      if (!isComponentAlive(target, i)) continue; // destroyed modules no longer block
       const m = coords[i];
       const hit = segmentCircleHit(x1, y1, x2, y2, m.x, m.y, 8.5 + beamRadius);
       if (hit) {
@@ -522,15 +528,24 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
   }
 
   if (hullDamage > 0) {
-    pushDamageEffect(room, ship, now, hullDamage, false);
+    // Route hull damage into the component under the impact point (armour on
+    // that side first). Only the damage actually absorbed by components is
+    // shown as a floating number — armour flat reduction eats the rest.
+    const impactX = sourceX !== undefined ? sourceX : ship.x;
+    const impactY = sourceY !== undefined ? sourceY : ship.y;
+    const applied = applyHullDamage(room, ship, hullDamage, now, impactX, impactY);
+    if (applied > 0) pushDamageEffect(room, ship, now, applied, false);
   }
 
-  ship.hp -= hullDamage;
-  if (ship.hp > 0) return;
+  if (ship.hp > 0.001 && !ship.coreDestroyed) return;
+  destroyShip(room, ship, attackerId, now);
+}
 
+function destroyShip(room, ship, attackerId, now) {
   ship.alive = false;
   ship.removeAt = now + 3200;
   ship.hp = 0;
+  zeroAllComponents(ship);
   ship.shield = 0;
   ship.vx *= 0.25;
   ship.vy *= 0.25;
@@ -613,6 +628,7 @@ function detonateSelfDestruct(room, ship, now) {
   ship.selfDestructAt = 0;
   ship.alive = false;
   ship.hp = 0;
+  zeroAllComponents(ship);
   ship.shield = 0;
   ship.vx *= 0.2;
   ship.vy *= 0.2;
