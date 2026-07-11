@@ -150,6 +150,7 @@ function joinRoom(client, message) {
     destroyedEnemyCost: 0,
     lostFleetCost: 0,
     lastReward: null,
+    rallyPoint: null,
     score: 0,
     kills: 0,
     losses: 0,
@@ -358,6 +359,7 @@ function resetPlayerForMatch(room, player, now, options = {}) {
   player.lostFleetCost = 0;
   player.lastReward = null;
   player.lastBuildError = "";
+  player.rallyPoint = null;
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   if (options.spawn && player.ready) {
     buyShip(room, player, now, { starter: true });

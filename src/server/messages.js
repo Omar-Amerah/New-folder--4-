@@ -1,16 +1,21 @@
 // Handles WebSocket outbound payload framing, room-wide broadcasts, state snapshot multicasting, and inbound JSON message routing.
 
 const { clampNumber, performanceNow } = require("./utils");
+const { encodeMessage } = require("./wsCodec");
+
+// Binary WebSocket opcode (0x2) — outbound game data is MessagePack, not text.
+const BINARY_OPCODE = 0x2;
 
 function send(client, data) {
-  sendRaw(client, JSON.stringify(data));
+  sendRaw(client, encodeMessage(data));
 }
 
-function sendRaw(client, json) {
+// `payload` is a pre-encoded MessagePack Buffer (encode once, fan out to many).
+function sendRaw(client, payload) {
   if (client.isClosed || client.socket.destroyed) return;
   try {
     const { writeFrame } = require("./websocketServer");
-    writeFrame(client.socket, json);
+    writeFrame(client.socket, payload, BINARY_OPCODE);
   } catch {
     const { closeClient } = require("./websocketServer");
     closeClient(client, 1011, "Send failed");
@@ -27,8 +32,8 @@ function sendPlayer(room, player, data) {
 }
 
 function broadcastRoom(room, data) {
-  const json = JSON.stringify(data);
-  for (const client of room.clients) sendRaw(client, json);
+  const payload = encodeMessage(data);
+  for (const client of room.clients) sendRaw(client, payload);
 }
 
 function broadcastSnapshot(room, now, forceStatic = false) {
@@ -42,12 +47,12 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   const byTeam = new Map();
   for (const client of room.clients) {
     const key = client.player ? `t:${client.player.team}` : "spectator";
-    let json = byTeam.get(key);
-    if (json === undefined) {
-      json = JSON.stringify(snapshotRoom(room, now, client.player, forceStatic, shared));
-      byTeam.set(key, json);
+    let payload = byTeam.get(key);
+    if (payload === undefined) {
+      payload = encodeMessage(snapshotRoom(room, now, client.player, forceStatic, shared));
+      byTeam.set(key, payload);
     }
-    sendRaw(client, json);
+    sendRaw(client, payload);
   }
   markShipDesignsSent(room);
 }
@@ -62,9 +67,10 @@ function handleMessage(client, message) {
 
   const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase } = require("./players");
   const { validateDesign } = require("./shipDesign");
-  const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName } = require("./validation");
+  const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { validateBuyShip, buyShip } = require("./economy");
   const { commandShips } = require("./movement");
+  const { requestSelfDestruct } = require("./combat");
   const { addBot } = require("./ships");
   const { setRoomRules } = require("./rooms");
 
@@ -95,13 +101,7 @@ function handleMessage(client, message) {
     }
     client.player.design = design.modules;
     client.player.stats = design.stats;
-    const allowedStyles = ["charge", "hold", "sentry", "circle"];
-    const previousStyle = allowedStyles.includes(client.player.combatStyle)
-      ? client.player.combatStyle
-      : "charge";
-    const combatStyle = allowedStyles.includes(message.combatStyle)
-      ? message.combatStyle
-      : previousStyle;
+    const combatStyle = sanitizeCombatStyle(message.combatStyle, sanitizeCombatStyle(client.player.combatStyle));
     client.player.combatStyle = combatStyle;
 
     if (process.env.NODE_ENV !== "production") {
@@ -155,10 +155,7 @@ function handleMessage(client, message) {
       return;
     }
     const createdShips = [];
-    const allowedStyles = ["charge", "hold", "sentry", "circle"];
-    const combatStyle = allowedStyles.includes(message.combatStyle)
-      ? message.combatStyle
-      : client.player.combatStyle || "charge";
+    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "charge");
 
     for (let i = 0; i < validation.count; i += 1) {
       const ship = buyShip(client.room, client.player, performanceNow(), {
@@ -187,6 +184,43 @@ function handleMessage(client, message) {
     return;
   }
 
+  if (message.type === "setCombatStyle") {
+    if (client.room.phase !== "active") return;
+    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "charge");
+    const shipIdSet = Array.isArray(message.shipIds)
+      ? new Set(message.shipIds.map((id) => String(id)).slice(0, 64))
+      : null;
+    let updatedCount = 0;
+    for (const ship of client.player.ships) {
+      if (!ship.alive) continue;
+      if (shipIdSet && shipIdSet.size > 0 && !shipIdSet.has(ship.id)) continue;
+      ship.combatStyle = combatStyle;
+      ship.orbitDir = undefined;
+      ship.lastOrbitTargetId = null;
+      updatedCount++;
+    }
+    if (!shipIdSet || shipIdSet.size === 0) client.player.combatStyle = combatStyle;
+    if (updatedCount > 0) broadcastSnapshot(client.room, performanceNow());
+    return;
+  }
+
+  if (message.type === "setRallyPoint") {
+    if (client.room.phase !== "active") return;
+    const x = clampNumber(message.x, 0, client.room.world.width);
+    const y = clampNumber(message.y, 0, client.room.world.height);
+    const { nearestClearPoint } = require("./movement");
+    client.player.rallyPoint = nearestClearPoint(client.room, x, y, 48);
+    broadcastSnapshot(client.room, performanceNow());
+    return;
+  }
+
+  if (message.type === "resetRallyPoint") {
+    if (client.room.phase !== "active") return;
+    client.player.rallyPoint = null;
+    broadcastSnapshot(client.room, performanceNow());
+    return;
+  }
+
   if (message.type === "command") {
     if (client.room.phase !== "active") return;
     const x = clampNumber(message.x, 0, client.room.world.width);
@@ -196,6 +230,13 @@ function handleMessage(client, message) {
       targetId: typeof message.targetId === "string" ? message.targetId : null,
       formation: sanitizeFormation(message.formation)
     });
+    return;
+  }
+
+  if (message.type === "destruct") {
+    if (client.room.phase !== "active") return;
+    const shipIds = Array.isArray(message.shipIds) ? message.shipIds.slice(0, 64) : null;
+    requestSelfDestruct(client.room, client.player, shipIds, performanceNow());
     return;
   }
 

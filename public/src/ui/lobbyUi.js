@@ -17,6 +17,14 @@ import { normalizeDesign } from "../design/blueprintStorage.js";
 import { computeStats } from "../design/componentStats.js";
 import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, LOCAL_FORMATION_KEY, syncUrlParams } from "../constants.js";
 
+const ASTEROID_DENSITY_LABELS = {
+  none: "None",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  veryHigh: "Very High"
+};
+
 
 export function isAdmin() {
   return state.adminId === state.myId || Boolean(state.mine?.isAdmin);
@@ -93,7 +101,8 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
       const startMoney = rules.startingMoney ?? 700;
       const maxP = rules.maxPlayers ?? 12;
       const mapSize = rules.mapSize || "Auto";
-      dom.rulesReadOnly.textContent = `Game mode: ${gameMode} | Starting money: ${startMoney} | Max players: ${maxP} | Map size: ${mapSize}`;
+      const asteroidDensity = ASTEROID_DENSITY_LABELS[rules.asteroidDensity] || "Medium";
+      dom.rulesReadOnly.textContent = `Game mode: ${gameMode} | Starting money: ${startMoney} | Max players: ${maxP} | Map size: ${mapSize} | Asteroids: ${asteroidDensity}`;
     }
   }
 
@@ -101,7 +110,8 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
   setRuleControlValue(dom.startingMoneyInput, rules.startingMoney ?? state.rules.startingMoney);
   setRuleControlValue(dom.maxPlayersInput, rules.maxPlayers ?? state.rules.maxPlayers);
   setRuleControlValue(dom.mapSizeSelect, rules.mapSize || state.rules.mapSize || "auto");
-  for (const element of [dom.gameModeSelect, dom.startingMoneyInput, dom.maxPlayersInput, dom.mapSizeSelect]) {
+  setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity || state.rules.asteroidDensity || "medium");
+  for (const element of [dom.gameModeSelect, dom.startingMoneyInput, dom.maxPlayersInput, dom.mapSizeSelect, dom.asteroidDensitySelect]) {
     if (element) element.disabled = !editable;
   }
   if (dom.maxPlayersInput) {
@@ -463,9 +473,10 @@ export function sendRulesUpdate() {
   const maxPlayers = Number(dom.maxPlayersInput?.value) || 12;
   const mapSize = dom.mapSizeSelect?.value || "auto";
   const gameMode = dom.gameModeSelect?.value || "teams";
+  const asteroidDensity = dom.asteroidDensitySelect?.value || "medium";
   send({
     type: "setRules",
-    rules: { startingMoney, maxPlayers, mapSize, gameMode }
+    rules: { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity }
   });
 }
 

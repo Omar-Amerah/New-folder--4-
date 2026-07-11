@@ -5,15 +5,28 @@ import { state } from "../state.js";
 import { computeStats } from "../design/componentStats.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
-import { normalizeDesign, persistSavedDesigns } from "../design/blueprintStorage.js";
+import { normalizeDesign, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
 import { showToast } from "./toastUi.js";
 import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
 import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
+import { shipThumbnailDataUrl } from "./shipThumbnail.js";
+import { playerMap } from "./scoreboardUi.js";
 
 
 export function weaponAbbrevText(stats) {
   return `${stats.weaponDps} DPS`;
+}
+
+// Preview tint: use the player's own team colour when known, else a neutral blue.
+export function previewColor() {
+  const me = state.myId ? playerMap().get(state.myId) : null;
+  return (me && me.color) || "#8fb4ff";
+}
+
+function styleLabel(style) {
+  const raw = style || "charge";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 export function renderSavedDesigns() {
@@ -23,39 +36,139 @@ export function renderSavedDesigns() {
   if (!state.savedDesigns.length) {
     const empty = document.createElement("div");
     empty.className = "saved-design-empty";
-    empty.textContent = "No saved blueprints yet";
+    empty.textContent = "No saved blueprints yet — build a ship and press Save Blueprint.";
     dom.savedDesignList.appendChild(empty);
     renderPurchaseBar();
     return;
   }
 
+  const color = previewColor();
+  // The inspector at the top reflects the design currently loaded in the editor —
+  // it is populated only by pressing Edit, never by clicking a card.
+  const editing = state.savedDesigns.find((d) => d.id === state.loadedEditorBlueprintId);
+  if (editing) dom.savedDesignList.appendChild(buildInspector(editing, color));
+
   for (const saved of state.savedDesigns) {
-    const stats = computeStats(saved.blueprint);
-    const rawStyle = saved.combatStyle || "charge";
-    const displayStyle = rawStyle.charAt(0).toUpperCase() + rawStyle.slice(1);
-    const row = document.createElement("div");
-    row.className = "saved-design-card";
-    row.innerHTML = `
-      <div class="saved-design-head">
-        <input class="saved-design-name" value="${escapeHtml(saved.name)}" maxlength="28" aria-label="Blueprint name">
-      </div>
-      <div class="saved-design-summary">Style: ${displayStyle} · Cost $${stats.unitCost} · Weapons (${weaponAbbrevText(stats)}) · Speed ${formatSpeed(Math.round(stats.maxSpeed))}</div>
-      <div class="saved-design-actions">
-        <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Use/Edit</button>
-        <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}">Delete</button>
-      </div>
-    `;
-    const nameInput = row.querySelector(".saved-design-name");
-    nameInput?.addEventListener("pointerdown", (event) => event.stopPropagation());
-    nameInput?.addEventListener("click", (event) => event.stopPropagation());
-    nameInput?.addEventListener("change", () => renameSavedDesign(saved.id, nameInput.value));
-    nameInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") nameInput.blur();
-      event.stopPropagation();
-    });
-    dom.savedDesignList.appendChild(row);
+    dom.savedDesignList.appendChild(buildCard(saved, color));
   }
   renderPurchaseBar();
+}
+
+function statChips(stats) {
+  return `
+    <span class="bp-chip" title="Unit cost">$${stats.unitCost}</span>
+    <span class="bp-chip" title="Weapon DPS">${stats.weaponDps} DPS</span>
+    <span class="bp-chip" title="Hull">${Math.round(stats.maxHp)} HP</span>
+    ${stats.maxShield > 0 ? `<span class="bp-chip bp-chip-shield" title="Shield">${Math.round(stats.maxShield)} SH</span>` : ""}
+    <span class="bp-chip" title="Top speed">${formatSpeed(Math.round(stats.maxSpeed))}</span>`;
+}
+
+function buildCard(saved, color) {
+  const stats = computeStats(saved.blueprint);
+  const isEditing = saved.id === state.loadedEditorBlueprintId;
+  const thumb = shipThumbnailDataUrl(saved.blueprint, color, 84);
+
+  const card = document.createElement("div");
+  card.className = `bp-card${isEditing ? " editing" : ""}`;
+  card.dataset.savedId = saved.id;
+  // Drag is enabled only from the handle (below) so it never hijacks text
+  // selection in the name input.
+  card.setAttribute("draggable", "false");
+  card.innerHTML = `
+    <span class="bp-drag" aria-hidden="true" title="Drag to reorder">⠿</span>
+    <div class="bp-thumb">${thumb ? `<img src="${thumb}" alt="" draggable="false">` : ""}</div>
+    <div class="bp-main">
+      <div class="bp-name-row">
+        <input class="saved-design-name" value="${escapeHtml(saved.name)}" maxlength="28" aria-label="Blueprint name">
+        ${isEditing ? `<span class="bp-editing-tag">Editing</span>` : ""}
+      </div>
+      <div class="bp-chips">${statChips(stats)}</div>
+    </div>
+    <div class="bp-actions saved-design-actions">
+      <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Edit</button>
+      <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}" title="Delete">✕</button>
+    </div>
+  `;
+
+  const nameInput = card.querySelector(".saved-design-name");
+  nameInput?.addEventListener("pointerdown", (event) => event.stopPropagation());
+  nameInput?.addEventListener("click", (event) => event.stopPropagation());
+  nameInput?.addEventListener("change", () => renameSavedDesign(saved.id, nameInput.value));
+  nameInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") nameInput.blur();
+    event.stopPropagation();
+  });
+
+  bindCardDrag(card, saved.id);
+  return card;
+}
+
+function buildInspector(saved, color) {
+  const stats = computeStats(saved.blueprint);
+  const thumb = shipThumbnailDataUrl(saved.blueprint, color, 160);
+  const inspector = document.createElement("div");
+  inspector.className = "bp-inspector";
+  inspector.innerHTML = `
+    <div class="bp-inspector-preview">${thumb ? `<img src="${thumb}" alt="Ship preview" draggable="false">` : ""}</div>
+    <div class="bp-inspector-body">
+      <div class="bp-inspector-title">${escapeHtml(saved.name)}</div>
+      <div class="bp-inspector-style">Combat style: <strong>${styleLabel(saved.combatStyle)}</strong></div>
+      <div class="bp-inspector-stats">
+        <div class="bp-stat bp-stat-cost"><span>Cost</span><strong>$${stats.unitCost}</strong></div>
+      </div>
+      <div class="bp-inspector-actions">
+        <button type="button" class="bp-editing-btn" disabled>● Editing</button>
+      </div>
+    </div>
+  `;
+  return inspector;
+}
+
+// ---- Drag-and-drop reordering -------------------------------------------------
+
+function bindCardDrag(card, id) {
+  const handle = card.querySelector(".bp-drag");
+  handle?.addEventListener("mousedown", () => card.setAttribute("draggable", "true"));
+  handle?.addEventListener("touchstart", () => card.setAttribute("draggable", "true"), { passive: true });
+  card.addEventListener("dragstart", (event) => {
+    state.draggingSavedDesignId = id;
+    card.classList.add("dragging");
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      try { event.dataTransfer.setData("text/plain", id); } catch { /* some browsers restrict */ }
+    }
+  });
+  card.addEventListener("dragend", () => {
+    state.draggingSavedDesignId = null;
+    card.classList.remove("dragging");
+    card.setAttribute("draggable", "false");
+    dom.savedDesignList?.querySelectorAll?.(".bp-card.drop-target")?.forEach((el) => el.classList.remove("drop-target"));
+  });
+  card.addEventListener("dragover", (event) => {
+    if (!state.draggingSavedDesignId || state.draggingSavedDesignId === id) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    card.classList.add("drop-target");
+  });
+  card.addEventListener("dragleave", () => card.classList.remove("drop-target"));
+  card.addEventListener("drop", (event) => {
+    event.preventDefault();
+    card.classList.remove("drop-target");
+    const fromId = state.draggingSavedDesignId;
+    if (fromId && fromId !== id) reorderSavedDesign(fromId, id);
+  });
+}
+
+function reorderSavedDesign(fromId, toId) {
+  const list = state.savedDesigns.slice();
+  const fromIndex = list.findIndex((d) => d.id === fromId);
+  const toIndex = list.findIndex((d) => d.id === toId);
+  if (fromIndex < 0 || toIndex < 0) return;
+  const [moved] = list.splice(fromIndex, 1);
+  list.splice(toIndex, 0, moved);
+  state.savedDesigns = list;
+  persistSavedDesigns(state.savedDesigns);
+  renderSavedDesigns();
 }
 
 export function handleSavedDesignPointerDown(event) {
@@ -179,6 +292,11 @@ export function confirmModalAction() {
   }
   state.savedDesigns = state.savedDesigns.filter((design) => design.id !== id);
   if (state.loadedEditorBlueprintId === id) state.loadedEditorBlueprintId = null;
+  // Drop the deleted design from any loadout tabs that referenced it.
+  if (Array.isArray(state.loadouts) && state.loadouts.length) {
+    state.loadouts = state.loadouts.map((lo) => ({ ...lo, designIds: lo.designIds.filter((did) => did !== id) }));
+    persistLoadouts(state.loadouts);
+  }
   persistSavedDesigns(state.savedDesigns);
   closeConfirmModal();
   renderSavedDesigns();

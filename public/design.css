@@ -5,8 +5,8 @@
 @import url(./styles/blueprint-controls.css);
 @import url(./styles/build-grid.css);
 @import url(./styles/ship-status.css);
-@import url(./styles/saved-designs.css);
-@import url(./styles/purchase-ui.css);
+@import url(./styles/saved-designs.css?v=blueprint-ui-2);
+@import url(./styles/purchase-ui.css?v=blueprint-ui-2);
 @import url(./styles/purchase-tooltip.css);
 @import url(./styles/stat-cards.css);
 @import url(./styles/stat-tooltip.css);

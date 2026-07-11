@@ -8,7 +8,8 @@ import { selectAt, selectBox, selectAllOwnShips } from "./selection.js";
 import { rotateFocusedPart } from "../ui/designerUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { updateHud } from "../ui/hudUi.js";
-import { issueCommand } from "./commands.js";
+import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
+import { issueCommand, destructSelectedShips } from "./commands.js";
 
 export function handlePointerDown(event) {
   if (!state.snapshot) return;
@@ -39,6 +40,12 @@ export function handlePointerDown(event) {
   if (event.button !== 0) return;
 
   const mini = minimapWorldAt(event.clientX, event.clientY);
+  if (state.settingRallyPoint) {
+    event.preventDefault();
+    setRallyPointFromWorld(mini || screenToWorld(event.clientX, event.clientY));
+    return;
+  }
+
   if (mini) {
     state.camera.x = mini.x;
     state.camera.y = mini.y;
@@ -95,6 +102,7 @@ export function handlePointerUp(event) {
     selectBox(drag.startWorld, drag.currentWorld, drag.shift);
   }
   updateHud();
+  renderSideControls();
 }
 
 export function handleWheel(event) {
@@ -117,6 +125,12 @@ export function handleKeyDown(event) {
   }
   const key = event.key.toLowerCase();
   const tag = document.activeElement?.tagName;
+  if (key === "escape" && state.settingRallyPoint) {
+    event.preventDefault();
+    state.settingRallyPoint = false;
+    renderSideControls();
+    return;
+  }
   if (key === "r" && tag !== "INPUT" && tag !== "SELECT") {
     event.preventDefault();
     rotateFocusedPart();
@@ -138,12 +152,18 @@ export function handleKeyDown(event) {
   if (key === "q") {
     event.preventDefault();
     selectAllOwnShips();
+    renderSideControls();
   } else if (key === "f") {
     event.preventDefault();
     state.camera.follow = true;
   } else if (key === "escape") {
     state.selectedShipIds.clear();
+    state.activeShipGroup = null;
     updateHud();
+    renderSideControls();
+  } else if (key === "delete" || key === "backspace") {
+    event.preventDefault();
+    destructSelectedShips();
   }
 }
 

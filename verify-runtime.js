@@ -1,6 +1,15 @@
 "use strict";
 
 const { spawn } = require("child_process");
+const msgpack = require("@msgpack/msgpack");
+
+// The server now replies with MessagePack over binary frames; decode accordingly
+// (still tolerate JSON text frames for robustness).
+function decodeServerMessage(data) {
+  if (data instanceof ArrayBuffer) return msgpack.decode(new Uint8Array(data));
+  if (ArrayBuffer.isView(data)) return msgpack.decode(data);
+  return JSON.parse(data);
+}
 
 const PORT = 3107;
 const ROOM = "SMOKE";
@@ -173,6 +182,7 @@ async function main() {
 function openClient(name) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
+    socket.binaryType = "arraybuffer";
     const messages = [];
     const waiters = [];
     const timeout = setTimeout(() => reject(new Error(`${name} connection timeout`)), 2500);
@@ -207,7 +217,7 @@ function openClient(name) {
     });
 
     socket.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data);
+      const message = decodeServerMessage(event.data);
       if (message.type === "hello") client.defaultDesign = message.defaultDesign;
       messages.push(message);
       for (const waiter of [...waiters]) {

@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Modular Fleet Arena</title>
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
-    <link rel="stylesheet" href="/styles.css?v=editor-grid-fix-1">
-    <link rel="stylesheet" href="/design.css?v=preview-click-fix-1">
+    <script src="/vendor/msgpack.min.js"></script>
+    <link rel="stylesheet" href="/styles.css?v=side-ui-1">
+    <link rel="stylesheet" href="/design.css?v=blueprint-ui-2">
     <link rel="stylesheet" href="/hud.css?v=preview-click-fix-1">
   </head>
   <body>
@@ -16,16 +17,42 @@
         <div class="brand">
           <span class="brand-mark"></span>
           <div class="brand-copy">
-            <h1>Modular Fleet Arena</h1>
+            <h1>Fleet Arena</h1>
             <p><span id="connectionStatus" class="connection-status offline">Offline dock</span></p>
           </div>
         </div>
 
         <div class="panel-section control-group">
           <div class="section-heading">
-            <h2>Ship Design</h2>
+            <h2>Control</h2>
           </div>
-          <button id="openBlueprintDesignerButton" type="button">Open Ship Designer</button>
+          <button id="deployButton" type="button" class="ready-button">Ready with current design ($0)</button>
+          <button id="openBlueprintDesignerButton" type="button" class="designer-button">Blueprint Designer</button>
+          <label for="formationSelect">Formation</label>
+          <select id="formationSelect">
+            <option value="line">Line</option>
+            <option value="wedge">Wedge</option>
+            <option value="clump">Clump</option>
+          </select>
+        </div>
+
+        <div class="panel-section ship-groups-panel">
+          <div class="section-heading compact">
+            <h2>Ship Groups</h2>
+            <span id="shipGroupTotal">0</span>
+          </div>
+          <div id="shipGroupList" class="ship-group-list" aria-label="Ship groups"></div>
+        </div>
+
+        <div id="rallyPanel" class="panel-section rally-panel">
+          <div class="section-heading compact">
+            <h2>Rally</h2>
+            <span id="rallyStatus">Spawn</span>
+          </div>
+          <div class="rally-actions">
+            <button id="rallyPointButton" type="button">Rally Point</button>
+            <button id="resetRallyButton" type="button" class="secondary">Reset</button>
+          </div>
         </div>
       </section>
 
@@ -93,6 +120,18 @@
             <span id="matchProgressFill"></span>
           </div>
           <div id="matchSummary" class="match-summary">No active match</div>
+        </div>
+        <div id="selectionPanel" class="selection-panel" aria-label="Selected ship controls">
+          <div class="section-heading compact">
+            <h2>Selection</h2>
+            <span id="selectionPanelCount">0 ships</span>
+          </div>
+          <div id="combatStyleControls" class="combat-style-controls" role="group" aria-label="Combat style">
+            <button type="button" data-combat-style="charge">Charge</button>
+            <button type="button" data-combat-style="hold">Hold</button>
+            <button type="button" data-combat-style="sentry">Sentry</button>
+            <button type="button" data-combat-style="circle">Circle</button>
+          </div>
         </div>
         <div id="scoreList" class="score-list"></div>
         <div id="eventLog" class="event-log"></div>
@@ -198,6 +237,16 @@
                 <option value="Grand battle">Grand battle</option>
               </select>
             </label>
+            <label for="asteroidDensitySelect">
+              Asteroid density
+              <select id="asteroidDensitySelect">
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="veryHigh">Very High</option>
+              </select>
+            </label>
           </div>
           <div id="rulesReadOnly" class="rules-read-only" hidden></div>
         </div>
@@ -277,7 +326,10 @@
         </div>
       </div>
       <div class="purchase-main">
-        <span>Buy Ships</span>
+        <div class="purchase-main-head">
+          <span>Buy Ships</span>
+          <div id="loadoutTabs" class="loadout-tabs" role="tablist" aria-label="Ship loadouts"></div>
+        </div>
         <div id="purchaseOptions" class="purchase-options"></div>
       </div>
     </section>
@@ -316,12 +368,6 @@
                 <option value="circle">Circle (Orbit target)</option>
               </select>
             </div>
-            <label for="formationSelect">Formation</label>
-            <select id="formationSelect">
-              <option value="line">Line</option>
-              <option value="wedge">Wedge</option>
-              <option value="clump">Clump</option>
-            </select>
           </div>
 
           <div class="designer-center-col">
@@ -359,7 +405,6 @@
                 </button>
                 <div id="shipStatusDetails" class="ship-status-details" role="dialog" aria-label="Ship status details" hidden></div>
               </div>
-              <button id="deployButton" type="button">Ready with this design</button>
             </div>
           </div>
 

@@ -1,7 +1,7 @@
 // Owns the main mutable client state object.
 
 import { WORLD_FALLBACK } from "./constants.js";
-import { loadDesign, loadSavedDesigns } from "./design/blueprintStorage.js";
+import { loadDesign, loadSavedDesigns, loadLoadouts } from "./design/blueprintStorage.js";
 
 function makeStars(count) {
   const stars = [];
@@ -29,6 +29,10 @@ export const state = {
   combatStyle: loadDesign().combatStyle,
   savedDesigns: loadSavedDesigns(),
   loadedEditorBlueprintId: null,
+  draggingSavedDesignId: null,
+  loadouts: loadLoadouts(),
+  activeLoadoutId: "all",
+  loadoutEditMode: false,
   purchaseQuantity: 1,
   selectedPart: "frame",
   selectedPartCategory: "Structure",
@@ -36,6 +40,17 @@ export const state = {
   hoveredCell: null,
   selectedCell: null,
   selectedShipIds: new Set(),
+  activeShipGroup: null,
+  shipGroups: { group1: new Set(), group2: new Set(), group3: new Set(), group4: new Set(), group5: new Set() },
+  shipGroupBaseCombatStyles: new Map(),
+  shipGroupSettings: {
+    group1: { formation: "line", combatStyle: "ship" },
+    group2: { formation: "line", combatStyle: "ship" },
+    group3: { formation: "line", combatStyle: "ship" },
+    group4: { formation: "line", combatStyle: "ship" },
+    group5: { formation: "line", combatStyle: "ship" }
+  },
+  settingRallyPoint: false,
   snapshot: null,
   mine: null,
   map: null,
@@ -47,9 +62,11 @@ export const state = {
   drag: null,
   keys: new Set(),
   stars: makeStars(260),
-  rules: { startingMoney: 700, shipCap: 30, maxPlayers: 12, mapSize: "auto", gameMode: "teams" },
+  rules: { startingMoney: 700, shipCap: 30, maxPlayers: 12, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium" },
   minimap: null,
   shipHud: new Map(),
+  engineSmoke: [],
+  engineSmokeEmitters: new Map(),
   pendingPurchases: new Map(),
   purchaseErrors: new Map(),
   purchasePointer: null,

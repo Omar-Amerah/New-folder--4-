@@ -4,8 +4,9 @@
 import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
-import { isCircleVisible, getNebulaSprite, drawAsteroid, drawBulletVisual } from "../renderer.js";
+import { isCircleVisible, getNebulaSprite, drawAsteroid, drawBulletVisual, activeEngineSmoke } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
+import { getRallyPoint } from "../../ui/sidePanelUi.js";
 
 const PIXI_BAKE_NOMINAL_ZOOM = 0.6;
 
@@ -264,6 +265,15 @@ function updatePixiRelays(env, now, players, bounds) {
 function updatePixiCommandTarget(env, now) {
   const gfx = env.layers.command;
   gfx.clear();
+  const rally = getRallyPoint();
+  if (rally) {
+    const pulse = (Math.sin(now * 0.004) + 1) * 0.5;
+    const radius = 24 + pulse * 8;
+    const zoom = state.camera.zoom;
+    gfx.circle(rally.x, rally.y, radius);
+    gfx.fill({ color: "#67e08a", alpha: 0.18 });
+    gfx.stroke({ width: 2.5 / zoom, color: "#67e08a", alpha: 1 });
+  }
   if (!state.command) return;
   const age = now - state.command.at;
   if (age > 1600) {
@@ -407,6 +417,51 @@ function updatePixiEffects(env, now, bounds) {
         gfx.moveTo(x, y - 24 - t * 24);
         gfx.lineTo(x, y + 24 + t * 24);
         gfx.stroke({ width: 3 / zoom, color: "#f4f7ff", alpha });
+      } else if (effect.type === "shieldhit") {
+        // Impact flash on the shield surface: a hexagonal facet ripple bulging
+        // outward along the impact normal, plus a bright core spark.
+        const st = clamp(age / 300, 0, 1);
+        const sAlpha = 1 - st;
+        const nx = effect.nx || 0;
+        const ny = effect.ny || 0;
+        const tx = -ny;
+        const ty = nx;
+        const spread = 12 + st * 24;
+        const bulge = 7 + st * 7;
+        const p1x = x + tx * spread;
+        const p1y = y + ty * spread;
+        const p2x = x - tx * spread;
+        const p2y = y - ty * spread;
+        const outX = x + nx * bulge;
+        const outY = y + ny * bulge;
+        const inX = x - nx * bulge * 0.55;
+        const inY = y - ny * bulge * 0.55;
+        gfx.moveTo(p1x, p1y);
+        gfx.quadraticCurveTo(outX, outY, p2x, p2y);
+        gfx.quadraticCurveTo(inX, inY, p1x, p1y);
+        gfx.fill({ color: "#7fe9ff", alpha: sAlpha * 0.26 });
+        gfx.stroke({ width: 2 / zoom, color: "#dffaff", alpha: sAlpha * 0.85 });
+        gfx.circle(x, y, 3 + st * 5);
+        gfx.fill({ color: "#eafcff", alpha: sAlpha });
+        gfx.moveTo(x, y);
+        gfx.lineTo(x + nx * (9 + st * 15), y + ny * (9 + st * 15));
+        gfx.stroke({ width: 1.6 / zoom, color: "#bfefff", alpha: sAlpha * 0.65 });
+      } else if (effect.type === "destructcharge") {
+        // Warning sparks pulsing off a ship while it charges its self-destruct.
+        const ct = clamp(age / 300, 0, 1);
+        const ca = 1 - ct;
+        const rr = effect.radius || 26;
+        gfx.circle(x, y, rr * (0.5 + ct * 1.0));
+        gfx.stroke({ width: 2.5 / zoom, color: "#ff7b3c", alpha: ca * 0.8 });
+        gfx.circle(x, y, 2 + ct * 3);
+        gfx.fill({ color: "#ffd7a8", alpha: ca });
+      } else if (effect.type === "selfdestruct") {
+        // Detonation shockwave (paired with a regular boom).
+        const rr = effect.radius || 26;
+        gfx.circle(x, y, rr * (0.6 + t * 3.4));
+        gfx.stroke({ width: 6 / zoom, color: "#ffcaa0", alpha });
+        gfx.circle(x, y, rr * (0.4 + t * 2.1));
+        gfx.stroke({ width: 3 / zoom, color: "#fff2e0", alpha });
       } else if (effect.type === "rockhit") {
         gfx.circle(x, y, 5 + t * 18);
         gfx.fill({ color: "rgba(196,174,142,0.82)", alpha });
@@ -486,6 +541,18 @@ function updatePixiEffects(env, now, bounds) {
 
 // --- Selection box ---------------------------------------------------------------
 
+function updatePixiEngineSmoke(env, now, bounds) {
+  const gfx = env.layers.engineSmoke;
+  if (!gfx) return;
+  gfx.clear();
+  const particles = activeEngineSmoke(now);
+  for (const p of particles) {
+    if (bounds && !isCircleVisible(p.x, p.y, p.radius, bounds)) continue;
+    gfx.circle(p.x, p.y, p.radius);
+    gfx.fill({ color: "#7f8f88", alpha: p.alpha });
+  }
+}
+
 function updatePixiSelectionBox(env) {
   if (!state.drag) return;
   const a = state.drag.startWorld;
@@ -506,6 +573,7 @@ export function updatePixiWorld(env, now, players, bounds, rect) {
   updatePixiMapFeatures(env, now, bounds);
   updatePixiRelays(env, now, players, bounds);
   updatePixiCommandTarget(env, now);
+  updatePixiEngineSmoke(env, now, bounds);
   updatePixiBullets(env, players, bounds);
   updatePixiEffects(env, now, bounds);
   updatePixiSelectionBox(env);

@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup, shouldShowRotationMarker } from "../design/parts.js";
 import { normalizeRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
-import { getOccupiedCells, footprintIncludes } from "../design/footprint.js";
+import { getOccupiedCells, getFootprintBounds, footprintIncludes } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
 import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { showToast } from "./toastUi.js";
@@ -44,21 +44,26 @@ export function renderBuildGrid() {
       cell.type = "button";
       cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
 
+      // Anchor stays at (x,y); the visual box is drawn from the rotated
+      // footprint's top-left bound so rotated multi-tile parts extend correctly.
+      let originX = x;
+      let originY = y;
       let width = 1;
       let height = 1;
 
       if (part) {
         const stat = PART_STATS[part.type] || PART_STATS.frame;
         const footprint = stat.footprint || { width: 1, height: 1 };
-        const rotation = normalizeRotation(part.rotation || 0);
-        const isRotated = rotation === 90 || rotation === 270;
-        width = isRotated ? footprint.height : footprint.width;
-        height = isRotated ? footprint.width : footprint.height;
+        const bounds = getFootprintBounds(part.x, part.y, footprint, part.rotation || 0);
+        originX = bounds.minX;
+        originY = bounds.minY;
+        width = bounds.width;
+        height = bounds.height;
       }
 
       // We position using 1-based indexing for CSS grid lines
-      cell.style.gridColumn = `${x + 1} / span ${width}`;
-      cell.style.gridRow = `${y + 1} / span ${height}`;
+      cell.style.gridColumn = `${originX + 1} / span ${width}`;
+      cell.style.gridRow = `${originY + 1} / span ${height}`;
 
       cell.title = part
         ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
@@ -119,9 +124,6 @@ export function renderHoverPreview() {
 
     const stat = PART_STATS[selectedType] || PART_STATS.frame;
     const footprint = stat.footprint || { width: 1, height: 1 };
-    const isRotated = rotation === 90 || rotation === 270;
-    const width = isRotated ? footprint.height : footprint.width;
-    const height = isRotated ? footprint.width : footprint.height;
 
     // Determine validity
     let isValid = true;
@@ -137,10 +139,14 @@ export function renderHoverPreview() {
       isValid = false;
     }
 
+    // Draw the preview box from the rotated footprint's top-left bound so it
+    // aligns exactly with where the placed part will render.
+    const bounds = getFootprintBounds(targetX, targetY, footprint, rotation);
+
     const preview = document.createElement("div");
     preview.className = `build-preview ${isValid ? "valid" : "invalid"}`;
     preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", rotation);
-    positionPreviewOverlay(preview, targetX, targetY, width, height);
+    positionPreviewOverlay(preview, bounds.minX, bounds.minY, bounds.width, bounds.height);
     dom.grid.appendChild(preview);
   }
 }

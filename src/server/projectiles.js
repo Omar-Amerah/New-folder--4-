@@ -7,6 +7,20 @@ function addBullet(room, bullet) {
   room.bullets.push(bullet);
 }
 
+// Below this shield charge the shield is treated as "down" for hit visuals only:
+// bullets flash on the hull instead of the shield bubble. This is purely cosmetic
+// (a trickle of shield regen otherwise keeps a depleted shield fractionally above
+// zero); damageShip's shield/hull damage split is unaffected.
+const SHIELD_HIT_MIN = 10;
+
+// Shield bubble radius used for projectile collision — must match the client's
+// rendered shield ring (renderer.js shieldRingRadius) so bullets visually stop
+// exactly at the ring the player sees.
+function shieldCollisionRadius(ship) {
+  const radius = Number(ship?.radius) || 0;
+  return Math.max(30, radius + Math.max(8, radius * 0.18));
+}
+
 function projectileMapImpact(room, x1, y1, bullet) {
   const margin = bullet.type === "missile" ? 8 : bullet.type === "rail" ? 3 : 5;
   let hit = null;
@@ -132,10 +146,41 @@ function updateBullets(room, dt, now) {
     for (const ship of liveShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? 14 : bullet.type === "rail" ? 9 : 6;
-      
-      // Broad-phase: check if close to the bounding circle of the ship
+
       const dx = ship.x - bullet.x;
       const dy = ship.y - bullet.y;
+
+      // While the shield holds, it presents a clean bubble hitbox: the projectile
+      // is stopped at the shield perimeter and the impact flashes on the shield,
+      // never reaching the hull modules. The damage model is unchanged — damageShip
+      // still applies the same shield/hull split — this only moves where the bullet
+      // dies and which impact effect plays. A near-empty shield (below SHIELD_HIT_MIN)
+      // reads as down so impacts land on the hull.
+      if (ship.shield >= SHIELD_HIT_MIN) {
+        const ringR = shieldCollisionRadius(ship) + hitRadius;
+        if (dx * dx + dy * dy > ringR * ringR) continue;
+
+        damageShip(room, ship, bullet.damage, bullet.ownerId, now, bullet.x, bullet.y, {
+          shieldDamageMultiplier: bullet.shieldDamageMultiplier,
+          hullDamageMultiplier: bullet.hullDamageMultiplier
+        });
+        // Impact point on the shield surface, along the incoming bullet direction.
+        const ang = Math.atan2(bullet.y - ship.y, bullet.x - ship.x);
+        const surfaceR = shieldCollisionRadius(ship);
+        room.effects.push({
+          type: "shieldhit",
+          subtype: bullet.type,
+          x: ship.x + Math.cos(ang) * surfaceR,
+          y: ship.y + Math.sin(ang) * surfaceR,
+          nx: Math.cos(ang),
+          ny: Math.sin(ang),
+          at: now
+        });
+        hit = true;
+        break;
+      }
+
+      // Shield down: bullets must strike an actual hull module.
       const r = ship.radius + hitRadius;
       if (dx * dx + dy * dy > r * r) continue;
 
@@ -170,7 +215,10 @@ function updateBullets(room, dt, now) {
   }
 
   room.bullets = kept;
-  room.effects = room.effects.filter((effect) => now - effect.at < (effect.type === "beam" ? 140 : 900));
+  room.effects = room.effects.filter((effect) => {
+    const life = effect.type === "beam" ? 140 : effect.type === "shieldhit" ? 340 : 900;
+    return now - effect.at < life;
+  });
 }
 
 module.exports = {

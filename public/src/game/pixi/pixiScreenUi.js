@@ -5,6 +5,7 @@ import { dom } from "../../ui/dom.js";
 import { state } from "../../state.js";
 import { getMinimapStaticLayer } from "../renderer.js";
 import { pixiBakeScreenTexture } from "./pixiBake.js";
+import { getRallyPoint } from "../../ui/sidePanelUi.js";
 
 let screenUiViews = null;
 let backdropSize = { width: 0, height: 0 };
@@ -170,6 +171,12 @@ function updatePixiMinimap(env, players, rect) {
     else if (!isSolo && player && myTeam && player.team === myTeam) isFriendly = true;
     dots.circle(ship.x * sx, ship.y * sy, 2.5);
     dots.fill(isFriendly ? "#38d7ff" : "#ff3838");
+  }
+  const rally = getRallyPoint();
+  if (rally) {
+    dots.circle(rally.x * sx, rally.y * sy, 4.5);
+    dots.fill("#67e08a");
+    dots.stroke({ width: 1.5, color: "rgba(4,8,14,0.9)" });
   }
   const viewW = rect.width / state.camera.zoom;
   const viewH = rect.height / state.camera.zoom;

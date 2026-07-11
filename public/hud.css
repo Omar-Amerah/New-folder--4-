@@ -817,7 +817,7 @@
 
 @media (max-width: 1040px) {
   .app {
-    grid-template-columns: minmax(260px, 305px) minmax(0, 1fr);
+    grid-template-columns: minmax(214px, 242px) minmax(0, 1fr);
   }
 
   .side-panel {
@@ -845,7 +845,7 @@
   }
 
   .purchase-bar {
-    left: 317px;
+    left: 254px;
     right: 12px;
   }
 
@@ -875,6 +875,10 @@
     border: 0;
     border-bottom: 1px solid var(--line);
     border-radius: 0;
+  }
+
+  .side-panel {
+    padding: 12px;
   }
 
   .arena-wrap {
@@ -957,5 +961,5 @@
 
 #deployButton {
   width: 100%;
-  margin-top: 12px;
+  margin-top: 0;
 }

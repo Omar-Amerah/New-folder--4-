@@ -11,11 +11,11 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const design = normalizeShipDesignSnapshot(options.design || player.design);
   const spawn = getPlayerSpawn(room, player.id);
   const offset = index - Math.floor(player.shipCap / 2);
-  const ySpread = Math.sin(index * 1.7) * 54;
+  const ySpread = Math.sin(index * 1.7) * 27;
   const spawnPoint = nearestClearPoint(
     room,
-    spawn.x + offset * 16 + randomRange(-26, 26),
-    spawn.y + ySpread + randomRange(-32, 32),
+    spawn.x + offset * 8 + randomRange(-13, 13),
+    spawn.y + ySpread + randomRange(-16, 16),
     Math.max(46, stats.radius * 0.72)
   );
   const ship = {
@@ -53,6 +53,22 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
+
+  const rallyPoint = getPlayerRallyPoint(room, player);
+  if (rallyPoint) {
+    const rallyTarget = nearestClearPoint(
+      room,
+      rallyPoint.x,
+      rallyPoint.y,
+      Math.max(42, ship.radius * 0.72)
+    );
+    if (Math.hypot(rallyTarget.x - ship.x, rallyTarget.y - ship.y) > 48) {
+      ship.targetX = rallyTarget.x;
+      ship.targetY = rallyTarget.y;
+      ship.arrived = false;
+      ship.isManualMove = true;
+    }
+  }
 
   if (process.env.NODE_ENV !== "production") {
     console.log(`[DEBUG] Spawning ship ${ship.id} for player ${player.id} with combatStyle: ${ship.combatStyle}`);
@@ -109,6 +125,7 @@ function addBot(room, requester) {
     destroyedEnemyCost: 0,
     lostFleetCost: 0,
     lastReward: null,
+    rallyPoint: null,
     score: 0,
     kills: 0,
     losses: 0,
@@ -215,31 +232,46 @@ function chooseBotTeam(room, requester, fallbackId) {
 }
 
 function getPlayerSpawn(room, playerId) {
+  const spawnRadius = 275;
+  const sideInset = spawnRadius;
   const player = room.players.get(playerId);
   if (player?.team === "blue") {
     const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "blue").map((candidate) => candidate.id).sort();
     const index = Math.max(0, teamMates.indexOf(playerId));
     const lanes = [0, -0.32, 0.32, -0.6, 0.6, -0.45, 0.45];
-    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (550 * 0.7);
-    return { x: 220, y: spawnY, angle: 0 };
+    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (spawnRadius * 0.7);
+    return { x: sideInset, y: spawnY, angle: 0 };
   }
   if (player?.team === "red") {
     const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "red").map((candidate) => candidate.id).sort();
     const index = Math.max(0, teamMates.indexOf(playerId));
     const lanes = [0, 0.32, -0.32, 0.6, -0.6, 0.45, -0.45];
-    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (550 * 0.7);
-    return { x: room.world.width - 220, y: spawnY, angle: Math.PI };
+    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (spawnRadius * 0.7);
+    return { x: room.world.width - sideInset, y: spawnY, angle: Math.PI };
   }
 
   const ids = [...room.players.keys()].sort();
   const index = Math.max(0, ids.indexOf(playerId));
   const slots = [
-    { x: 220, y: room.world.height * 0.5, angle: 0 },
-    { x: room.world.width - 220, y: room.world.height * 0.5, angle: Math.PI },
-    { x: room.world.width * 0.5, y: 220, angle: Math.PI / 2 },
-    { x: room.world.width * 0.5, y: room.world.height - 220, angle: -Math.PI / 2 }
+    { x: sideInset, y: room.world.height * 0.5, angle: 0 },
+    { x: room.world.width - sideInset, y: room.world.height * 0.5, angle: Math.PI },
+    { x: room.world.width * 0.5, y: sideInset, angle: Math.PI / 2 },
+    { x: room.world.width * 0.5, y: room.world.height - sideInset, angle: -Math.PI / 2 }
   ];
   return slots[index % slots.length];
+}
+
+function getPlayerRallyPoint(room, player) {
+  if (!room || !player) return null;
+  const rally = player.rallyPoint;
+  if (rally && Number.isFinite(rally.x) && Number.isFinite(rally.y)) {
+    return {
+      x: Math.max(0, Math.min(room.world.width, rally.x)),
+      y: Math.max(0, Math.min(room.world.height, rally.y))
+    };
+  }
+  const spawn = getPlayerSpawn(room, player.id);
+  return { x: spawn.x, y: spawn.y };
 }
 
 function distanceToFleet(ships, target) {
@@ -279,6 +311,7 @@ module.exports = {
   chooseBotDesign,
   chooseBotTeam,
   getPlayerSpawn,
+  getPlayerRallyPoint,
   distanceToFleet,
   getShipModuleWorldCoords
 };

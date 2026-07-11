@@ -68,10 +68,12 @@ function handleSocketData(client, chunk) {
       continue;
     }
 
-    if (frame.opcode !== 0x1) continue;
+    // 0x1 = text (JSON), 0x2 = binary (MessagePack). Ignore other data frames.
+    if (frame.opcode !== 0x1 && frame.opcode !== 0x2) continue;
 
     try {
-      const message = JSON.parse(frame.payload.toString("utf8"));
+      const { decodeBinary, decodeText } = require("./wsCodec");
+      const message = frame.opcode === 0x2 ? decodeBinary(frame.payload) : decodeText(frame.payload);
       client.lastMessageAt = Date.now();
       handleMessage(client, message);
     } catch {

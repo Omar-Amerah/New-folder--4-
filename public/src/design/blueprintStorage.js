@@ -1,6 +1,6 @@
 // Handles localStorage persistence, blueprint validation wrappers, default designs, and formatting migrations.
 
-import { LOCAL_DESIGN_KEY, LOCAL_SAVED_DESIGNS_KEY } from "../constants.js";
+import { LOCAL_DESIGN_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { normalizeRotation } from "./rotation.js";
 import { isConnected, isOutOfBounds, isOverlapping } from "./blueprintValidation.js";
@@ -117,4 +117,24 @@ export function loadSavedDesigns() {
 
 export function persistSavedDesigns(savedDesigns) {
   localStorage.setItem(LOCAL_SAVED_DESIGNS_KEY, JSON.stringify(savedDesigns.slice(0, 12)));
+}
+
+// Loadouts are named tabs in the purchase bar, each a curated list of saved-design
+// ids. The implicit "All" tab is not stored; only user-created loadouts persist.
+export function loadLoadouts() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(LOCAL_LOADOUTS_KEY) || "[]");
+    if (!Array.isArray(stored)) return [];
+    return stored.slice(0, 8).map((lo, index) => ({
+      id: String(lo.id || `loadout-${index}`),
+      name: String(lo.name || `Loadout ${index + 1}`).slice(0, 20),
+      designIds: Array.isArray(lo.designIds) ? lo.designIds.map(String).slice(0, 12) : []
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export function persistLoadouts(loadouts) {
+  localStorage.setItem(LOCAL_LOADOUTS_KEY, JSON.stringify(loadouts.slice(0, 8)));
 }

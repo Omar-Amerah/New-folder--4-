@@ -21,7 +21,7 @@ const { updateEconomy } = require("./src/server/economy");
 const { updateDestroyedShips } = require("./src/server/combat");
 const { getLiveShips } = require("./src/server/ships");
 const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./src/server/movement");
-const { updateShipSupport, updateShipWeapons } = require("./src/server/combat");
+const { updateShipSupport, updateShipWeapons, updateSelfDestructingShips } = require("./src/server/combat");
 const { updateBullets } = require("./src/server/projectiles");
 const { updateCapturePoints, updateScoring } = require("./src/server/objectives");
 
@@ -33,6 +33,7 @@ function tickRoom(room, dt, now) {
 
   updateBots(room, now);
   updateEconomy(room, dt);
+  updateSelfDestructingShips(room, now);
   updateDestroyedShips(room, now);
 
   const ships = getLiveShips(room);

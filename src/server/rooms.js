@@ -5,6 +5,7 @@ const {
   WORLD_SIZES,
   MAX_PLAYERS_PER_ROOM,
   DEFAULT_ROOM_RULES,
+  ASTEROID_DENSITY,
   MATCH_SCORE,
   ECONOMY,
   CLOSED_ROOM_CODE_TTL_MS,
@@ -26,7 +27,7 @@ const closedRoomCodes = new Map();
 
 function createRoom(code) {
   const world = chooseWorldSize(1);
-  const map = generateMap(code, world, DEFAULT_ROOM_RULES.gameMode);
+  const map = generateMap(code, world, DEFAULT_ROOM_RULES.gameMode, DEFAULT_ROOM_RULES.asteroidDensity);
   return {
     code,
     adminId: null,
@@ -80,7 +81,7 @@ function setRoomRules(room, requester, updates) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.map = generateMap(room.code, world, room.rules.gameMode);
+  room.map = generateMap(room.code, world, room.rules.gameMode, room.rules.asteroidDensity);
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
 
   for (const player of room.players.values()) {
@@ -100,7 +101,13 @@ function sanitizeRoomRules(input, playerCount = 1) {
   const maxPlayers = Math.trunc(clampNumber(input.maxPlayers, Math.max(2, currentPlayers), MAX_PLAYERS_PER_ROOM));
   const mapSize = sanitizeMapSize(input.mapSize);
   const gameMode = sanitizeGameMode(input.gameMode);
-  return { startingMoney, maxPlayers, mapSize, gameMode };
+  const asteroidDensity = sanitizeAsteroidDensity(input.asteroidDensity);
+  return { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity };
+}
+
+function sanitizeAsteroidDensity(value) {
+  const text = String(value || "").trim();
+  return Object.prototype.hasOwnProperty.call(ASTEROID_DENSITY, text) ? text : DEFAULT_ROOM_RULES.asteroidDensity;
 }
 
 function sanitizeMapSize(value) {
@@ -129,10 +136,11 @@ function applyGameModeTeams(room) {
   }
 }
 
-function generateMap(roomCode, world, gameMode) {
+function generateMap(roomCode, world, gameMode, asteroidDensity) {
   const seed = (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode)) >>> 0;
   const rng = seededRandom(seed);
   const safeZones = generateSafeZones(world, gameMode);
+  const densityMultiplier = ASTEROID_DENSITY[asteroidDensity] ?? ASTEROID_DENSITY.medium;
 
   if (world.label === "Testing") {
     const relays = [
@@ -154,7 +162,7 @@ function generateMap(roomCode, world, gameMode) {
   }
 
   const relays = generateRelays(rng, world, safeZones);
-  const asteroids = generateAsteroids(rng, world, relays, safeZones);
+  const asteroids = generateAsteroids(rng, world, relays, safeZones, densityMultiplier);
   const clouds = generateClouds(rng, world);
 
   return {
@@ -169,16 +177,17 @@ function generateMap(roomCode, world, gameMode) {
 
 function generateSafeZones(world, gameMode) {
   const zones = [];
+  const spawnRadius = 275;
+  const sideInset = spawnRadius;
   if (gameMode === "teams") {
-    // Large base zones
-    zones.push({ x: 300, y: world.height * 0.5, radius: 550, color: "rgba(63,214,255,0.06)", isSpawn: true, team: "blue" });
-    zones.push({ x: world.width - 300, y: world.height * 0.5, radius: 550, color: "rgba(255,95,126,0.06)", isSpawn: true, team: "red" });
+    zones.push({ x: sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(63,214,255,0.06)", isSpawn: true, team: "blue" });
+    zones.push({ x: world.width - sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(255,95,126,0.06)", isSpawn: true, team: "red" });
   } else {
     // Solo zones
-    zones.push({ x: 300, y: world.height * 0.5, radius: 550, color: "rgba(255,255,255,0.06)", isSpawn: true });
-    zones.push({ x: world.width - 300, y: world.height * 0.5, radius: 550, color: "rgba(255,255,255,0.06)", isSpawn: true });
-    zones.push({ x: world.width * 0.5, y: 300, radius: 550, color: "rgba(255,255,255,0.06)", isSpawn: true });
-    zones.push({ x: world.width * 0.5, y: world.height - 300, radius: 550, color: "rgba(255,255,255,0.06)", isSpawn: true });
+    zones.push({ x: sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(255,255,255,0.06)", isSpawn: true });
+    zones.push({ x: world.width - sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(255,255,255,0.06)", isSpawn: true });
+    zones.push({ x: world.width * 0.5, y: sideInset, radius: spawnRadius, color: "rgba(255,255,255,0.06)", isSpawn: true });
+    zones.push({ x: world.width * 0.5, y: world.height - sideInset, radius: spawnRadius, color: "rgba(255,255,255,0.06)", isSpawn: true });
   }
   return zones;
 }
@@ -249,12 +258,13 @@ function circlesClearWithNoise(circle, others, minBuffer, maxBuffer, rng) {
   return true;
 }
 
-function generateAsteroids(rng, world, relays, safeZones) {
+function generateAsteroids(rng, world, relays, safeZones, densityMultiplier = 1) {
   const asteroids = [];
+  if (densityMultiplier <= 0) return asteroids;
   // Exclude safe zones (relays checked dynamically with noise)
   const reserved = safeZones.map(s => ({ x: s.x, y: s.y, radius: s.radius + 200 }));
 
-  const pairCount = 8 + Math.floor(rng() * 8);
+  const pairCount = Math.round((8 + Math.floor(rng() * 8)) * densityMultiplier);
 
   for (let pair = 0; pair < pairCount; pair += 1) {
     for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -285,7 +295,7 @@ function generateAsteroids(rng, world, relays, safeZones) {
   }
 
   // Central scattered asteroids
-  const centralCount = 4 + Math.floor(rng() * 4);
+  const centralCount = Math.round((4 + Math.floor(rng() * 4)) * densityMultiplier);
   for (let i = 0; i < centralCount; i += 1) {
       for (let attempt = 0; attempt < 70; attempt += 1) {
         const radius = rngRange(rng, 70, 120);
@@ -381,7 +391,7 @@ function prepareArenaForCurrentPlayers(room) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.map = generateMap(room.code, world, room.rules?.gameMode || "teams");
+  room.map = generateMap(room.code, world, room.rules?.gameMode || "teams", room.rules?.asteroidDensity);
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
   room.bullets = [];
   room.effects = [];

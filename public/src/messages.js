@@ -12,6 +12,7 @@ import * as lobbyUi from "./ui/lobbyUi.js";
 import * as purchaseUi from "./ui/purchaseUi.js";
 import { pruneSelection } from "./game/selection.js";
 import { updateHud } from "./ui/hudUi.js";
+import { renderSideControls } from "./ui/sidePanelUi.js";
 import { renderScoreboard } from "./ui/scoreboardUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
@@ -48,6 +49,7 @@ export function handleServerMessage(message) {
     state.adminId = message.adminId || null;
     state.rules = { ...state.rules, ...(message.rules || {}) };
     state.selectedShipIds.clear();
+    state.activeShipGroup = null;
     dom.roomCode.value = message.room;
     dom.currentRoomCode.textContent = message.room;
     dom.currentRoomCard.hidden = false;
@@ -55,6 +57,7 @@ export function handleServerMessage(message) {
     lobbyUi.clearMenuNotice();
     rememberActiveRoom(message.room);
     lobbyUi.setConnectionStatus("online", "Room linked");
+    renderSideControls();
     lobbyUi.updateLobbyState();
     if (state.phase === "design" || state.phase === "active") {
       lobbyUi.hideMenuScreens();
@@ -100,6 +103,7 @@ export function handleServerMessage(message) {
     purchaseUi.reconcilePendingPurchasesWithSnapshot();
     pruneSelection();
     updateHud();
+    renderSideControls();
     renderScoreboard();
     purchaseUi.updateEconomyUi();
     lobbyUi.updateLobbyState();
@@ -120,6 +124,7 @@ export function handleServerMessage(message) {
       showToast(reason, "error");
     }
     purchaseUi.renderPurchaseBar();
+    renderSideControls();
     return;
   }
 

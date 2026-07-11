@@ -6,12 +6,13 @@ import { showToast } from "./toastUi.js";
 import { send } from "../network.js";
 import { computeStats } from "../design/componentStats.js";
 import { isConnected } from "../design/blueprintValidation.js";
-import { normalizeDesign } from "../design/blueprintStorage.js";
+import { normalizeDesign, persistLoadouts } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
-import { makePurchaseRequestId } from "../shared/ids.js";
+import { makePurchaseRequestId, makeDesignId } from "../shared/ids.js";
 import { formatHull, formatShield, formatSpeed, formatMass, formatEnergy, formatRepair, formatPercent } from "../design/statFormatting.js";
-import { weaponAbbrevText } from "./savedBlueprintsUi.js";
+import { weaponAbbrevText, previewColor } from "./savedBlueprintsUi.js";
+import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { isAdmin } from "./lobbyUi.js";
 
 export function handlePurchasePointerDown(event) {
@@ -213,18 +214,16 @@ export function updateEconomyUi() {
 
   if (dom.openBlueprintDesignerButton) {
     if (state.phase === "design" && !mine?.ready) {
-      dom.openBlueprintDesignerButton.textContent = "Open Ship Designer (Action Required)";
+      dom.openBlueprintDesignerButton.textContent = "Blueprint Designer";
       dom.openBlueprintDesignerButton.style.border = "2px solid var(--amber)";
     } else {
-      dom.openBlueprintDesignerButton.textContent = "Open Ship Designer";
+      dom.openBlueprintDesignerButton.textContent = "Blueprint Designer";
       dom.openBlueprintDesignerButton.style.border = "";
     }
   }
   dom.deployButton.textContent = mine?.ready && state.phase === "design"
     ? "Ready"
-    : localStatus.blockers.length
-      ? readyBlockerButtonText(localStatus.blockers[0])
-      : `Ready with this design - $${unitCost}`;
+    : `Ready with current design ($${unitCost})`;
 
   if (mine) {
     const status = state.phase === "design"
@@ -254,16 +253,29 @@ function economyStatusText({ income, relays, canAfford, unitCost, money }) {
 }
 
 export function getPurchaseOptions() {
+  const current = {
+    id: "current",
+    name: "Current Design",
+    source: "editor",
+    blueprint: state.design.map((part) => ({ ...part })),
+    combatStyle: state.combatStyle || "charge",
+    stats: computeStats(state.design)
+  };
+
+  // The active loadout tab decides which saved designs are buyable. The implicit
+  // "All" tab shows every saved design; a custom loadout shows only its members.
+  const active = getActiveLoadout();
+  let designs;
+  if (!active || active.id === "all") {
+    designs = state.savedDesigns;
+  } else {
+    const byId = new Map(state.savedDesigns.map((saved) => [saved.id, saved]));
+    designs = active.designIds.map((id) => byId.get(id)).filter(Boolean);
+  }
+
   return [
-    {
-      id: "current",
-      name: "Current Design",
-      source: "editor",
-      blueprint: state.design.map((part) => ({ ...part })),
-      combatStyle: state.combatStyle || "charge",
-      stats: computeStats(state.design)
-    },
-    ...state.savedDesigns.map((saved) => ({
+    current,
+    ...designs.map((saved) => ({
       id: saved.id,
       name: saved.name,
       source: "saved",
@@ -272,6 +284,72 @@ export function getPurchaseOptions() {
       stats: computeStats(saved.blueprint)
     }))
   ];
+}
+
+// ---- Loadout tabs -------------------------------------------------------------
+
+const ALL_LOADOUT = { id: "all", name: "All" };
+
+export function loadoutTabs() {
+  return [ALL_LOADOUT, ...(state.loadouts || [])];
+}
+
+export function getActiveLoadout() {
+  if (state.activeLoadoutId === "all") return ALL_LOADOUT;
+  return (state.loadouts || []).find((lo) => lo.id === state.activeLoadoutId) || ALL_LOADOUT;
+}
+
+export function setActiveLoadout(id) {
+  state.activeLoadoutId = id;
+  state.loadoutEditMode = false;
+  renderPurchaseBar();
+}
+
+export function addLoadout() {
+  if (!state.loadouts) state.loadouts = [];
+  if (state.loadouts.length >= 8) {
+    showToast("Loadout limit reached (8).", "warning");
+    return;
+  }
+  const loadout = { id: makeDesignId(), name: `Loadout ${state.loadouts.length + 1}`, designIds: [] };
+  state.loadouts.push(loadout);
+  persistLoadouts(state.loadouts);
+  state.activeLoadoutId = loadout.id;
+  state.loadoutEditMode = true; // jump straight to picking ships
+  renderPurchaseBar();
+}
+
+export function deleteLoadout(id) {
+  state.loadouts = (state.loadouts || []).filter((lo) => lo.id !== id);
+  persistLoadouts(state.loadouts);
+  if (state.activeLoadoutId === id) state.activeLoadoutId = "all";
+  state.loadoutEditMode = false;
+  renderPurchaseBar();
+}
+
+export function renameLoadout(id, name) {
+  const clean = String(name || "").trim().slice(0, 20);
+  if (!clean) return;
+  state.loadouts = (state.loadouts || []).map((lo) => (lo.id === id ? { ...lo, name: clean } : lo));
+  persistLoadouts(state.loadouts);
+  renderPurchaseBar();
+}
+
+export function toggleDesignInLoadout(designId) {
+  const active = getActiveLoadout();
+  if (active.id === "all") return;
+  const loadout = (state.loadouts || []).find((lo) => lo.id === active.id);
+  if (!loadout) return;
+  const idx = loadout.designIds.indexOf(designId);
+  if (idx >= 0) loadout.designIds.splice(idx, 1);
+  else if (loadout.designIds.length < 12) loadout.designIds.push(designId);
+  persistLoadouts(state.loadouts);
+  renderPurchaseBar();
+}
+
+export function toggleLoadoutEditMode() {
+  state.loadoutEditMode = !state.loadoutEditMode;
+  renderPurchaseBar();
 }
 
 export function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
@@ -329,8 +407,23 @@ export function renderPurchaseBar() {
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
   dom.purchaseQuantityFive?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 5));
 
+  renderLoadoutTabs();
+
+  const active = getActiveLoadout();
+  const editing = state.loadoutEditMode && active.id !== "all";
+  if (editing) {
+    renderLoadoutEditor(active);
+    return;
+  }
+
   const options = getPurchaseOptions();
-  const existingCards = Array.from(dom.purchaseOptions.children);
+  const color = previewColor();
+  const modeChanged = dom.purchaseOptions.dataset.mode !== "buy";
+  const existingCards = modeChanged ? [] : Array.from(dom.purchaseOptions.children);
+  if (modeChanged) {
+    dom.purchaseOptions.textContent = "";
+    dom.purchaseOptions.dataset.mode = "buy";
+  }
 
   const optionsMatch = existingCards.length === options.length &&
     options.every((opt, i) => existingCards[i].dataset?.optionId === opt.id);
@@ -349,7 +442,7 @@ export function renderPurchaseBar() {
       card = document.createElement("button");
       card.type = "button";
       if (card.dataset) card.dataset.optionId = option.id;
-      
+
       card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
       card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
       card.addEventListener?.("mouseleave", hidePurchaseTooltip);
@@ -366,11 +459,15 @@ export function renderPurchaseBar() {
       card.setAttribute?.("aria-disabled", ariaDisabled);
     }
 
+    const thumb = shipThumbnailDataUrl(option.blueprint, color, 72);
     const innerHTML = `
-      <strong>${escapeHtml(option.name)}</strong>
-      <span>${purchaseCostText(option, optionState)}</span>
-      <small>${weaponSummaryText(option.stats)}</small>
-      <em>${optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : escapeHtml(optionState.reason)}</em>
+      <span class="purchase-thumb">${thumb ? `<img src="${thumb}" alt="" draggable="false">` : ""}</span>
+      <span class="purchase-info">
+        <strong>${escapeHtml(option.name)}</strong>
+        <span>${purchaseCostText(option, optionState)}</span>
+        <small>${weaponSummaryText(option.stats)}</small>
+        <em>${optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : escapeHtml(optionState.reason)}</em>
+      </span>
     `;
     if (card.innerHTML !== innerHTML) {
       card.innerHTML = innerHTML;
@@ -380,6 +477,105 @@ export function renderPurchaseBar() {
       dom.purchaseOptions.appendChild(card);
     }
   });
+}
+
+function renderLoadoutTabs() {
+  const strip = dom.loadoutTabs;
+  if (!strip) return;
+  strip.textContent = "";
+  const active = getActiveLoadout();
+
+  for (const tab of loadoutTabs()) {
+    const isActive = tab.id === state.activeLoadoutId;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `loadout-tab${isActive ? " active" : ""}`;
+    btn.textContent = tab.name;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", String(isActive));
+    btn.addEventListener("click", () => setActiveLoadout(tab.id));
+    if (tab.id !== "all") {
+      btn.title = "Double-click to rename";
+      btn.addEventListener("dblclick", (event) => { event.preventDefault(); beginRenameLoadout(btn, tab); });
+    }
+    strip.appendChild(btn);
+  }
+
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "loadout-tab loadout-tab-add";
+  add.textContent = "+";
+  add.title = "New loadout";
+  add.setAttribute("aria-label", "New loadout");
+  add.addEventListener("click", addLoadout);
+  strip.appendChild(add);
+
+  // Manage controls for a custom loadout.
+  if (active.id !== "all") {
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = `loadout-tab loadout-tab-manage${state.loadoutEditMode ? " active" : ""}`;
+    edit.textContent = state.loadoutEditMode ? "✓ Done" : "✎ Edit";
+    edit.title = "Choose which ships are in this loadout";
+    edit.addEventListener("click", toggleLoadoutEditMode);
+    strip.appendChild(edit);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "loadout-tab loadout-tab-del";
+    del.textContent = "🗑";
+    del.title = "Delete this loadout";
+    del.setAttribute("aria-label", "Delete loadout");
+    del.addEventListener("click", () => deleteLoadout(active.id));
+    strip.appendChild(del);
+  }
+}
+
+function beginRenameLoadout(btn, tab) {
+  const input = document.createElement("input");
+  input.className = "loadout-tab-rename";
+  input.value = tab.name;
+  input.maxLength = 20;
+  btn.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = () => renameLoadout(tab.id, input.value);
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") input.blur();
+    else if (event.key === "Escape") renderPurchaseBar();
+    event.stopPropagation();
+  });
+}
+
+function renderLoadoutEditor(loadout) {
+  const container = dom.purchaseOptions;
+  container.textContent = "";
+  container.dataset.mode = "edit";
+  const color = previewColor();
+
+  if (state.savedDesigns.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "loadout-editor-empty";
+    empty.textContent = "Save blueprints first, then add them to this loadout.";
+    container.appendChild(empty);
+    return;
+  }
+
+  for (const saved of state.savedDesigns) {
+    const included = loadout.designIds.includes(saved.id);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `loadout-chip${included ? " included" : ""}`;
+    const thumb = shipThumbnailDataUrl(saved.blueprint, color, 60);
+    chip.innerHTML = `
+      <span class="loadout-chip-check">${included ? "✓" : "+"}</span>
+      <span class="purchase-thumb">${thumb ? `<img src="${thumb}" alt="" draggable="false">` : ""}</span>
+      <span class="loadout-chip-name">${escapeHtml(saved.name)}</span>
+    `;
+    chip.addEventListener("click", () => toggleDesignInLoadout(saved.id));
+    container.appendChild(chip);
+  }
 }
 
 export function purchaseCostText(option, optionState) {

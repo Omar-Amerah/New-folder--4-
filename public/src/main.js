@@ -8,6 +8,7 @@ import { renderBuildGrid, renderLocalStats, resetDesign, clearDesign } from "./u
 import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
 import { openBlueprintDesigner, closeBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
+import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
 import { handleKeyDown, bindArenaPointerListeners } from "./game/input.js";
@@ -34,6 +35,11 @@ dom.joinButton.addEventListener("click", joinExistingGame);
 dom.deployButton.addEventListener("click", deployDesign);
 if (dom.openBlueprintDesignerButton) dom.openBlueprintDesignerButton.addEventListener("click", openBlueprintDesigner);
 if (dom.closeBlueprintDesignerButton) dom.closeBlueprintDesignerButton.addEventListener("click", closeBlueprintDesigner);
+dom.shipGroupList?.addEventListener("click", handleShipGroupListClick);
+dom.shipGroupList?.addEventListener("change", handleShipGroupListChange);
+dom.rallyPointButton?.addEventListener("click", beginRallyPointPlacement);
+dom.resetRallyButton?.addEventListener("click", resetRallyPointToSpawn);
+dom.combatStyleControls?.addEventListener("click", handleSelectedCombatStyleClick);
 dom.blueprintCostBanner?.addEventListener("click", () => {
   if (dom.blueprintCostBreakdown) {
     const open = dom.blueprintCostBreakdown.hidden;
@@ -132,6 +138,7 @@ dom.gameModeSelect?.addEventListener("change", sendRulesUpdate);
 dom.startingMoneyInput?.addEventListener("change", sendRulesUpdate);
 dom.maxPlayersInput?.addEventListener("change", sendRulesUpdate);
 dom.mapSizeSelect?.addEventListener("change", sendRulesUpdate);
+dom.asteroidDensitySelect?.addEventListener("change", sendRulesUpdate);
 
 // Team select updates
 dom.teamSelect?.addEventListener("change", () => {
@@ -189,6 +196,7 @@ async function initializeClient() {
   renderLocalStats();
   renderSavedDesigns();
   renderPurchaseBar();
+  renderSideControls();
   updateLobbyState();
   openMainMenu();
   await initArenaRenderer();

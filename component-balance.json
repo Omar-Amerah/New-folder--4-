@@ -467,8 +467,8 @@
       "rotatable": true,
       "description": "Medium-short sustained beam weapon with a focused burn path and heavy power draw.",
       "footprint": {
-        "width": 2,
-        "height": 1
+        "width": 1,
+        "height": 2
       }
     },
     {
@@ -564,8 +564,8 @@
       "rotatable": true,
       "description": "Long-range precision weapon with high damage and narrow arc.",
       "footprint": {
-        "width": 3,
-        "height": 1
+        "width": 1,
+        "height": 3
       }
     },
     {
@@ -601,8 +601,8 @@
       "rotatable": true,
       "description": "Tracking missile pod that applies frequent pressure.",
       "footprint": {
-        "width": 2,
-        "height": 1
+        "width": 1,
+        "height": 2
       }
     },
     {
@@ -638,8 +638,8 @@
       "rotatable": true,
       "description": "Heavy slow missile for cracking large ships.",
       "footprint": {
-        "width": 2,
-        "height": 1
+        "width": 1,
+        "height": 2
       }
     },
     {

@@ -25,30 +25,100 @@
 
 .saved-design-list {
   display: grid;
-  gap: 6px;
+  gap: 7px;
 }
 
-.saved-design-card,
 .saved-design-empty,
 .objective-summary {
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgba(10, 15, 25, 0.66);
+  padding: 12px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(10, 15, 25, 0.5);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
 }
 
-.saved-design-card {
+/* ---- Blueprint library cards ---- */
+
+.bp-card {
   display: grid;
-  gap: 5px;
+  grid-template-columns: 14px 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px 7px 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(16, 23, 37, 0.82), rgba(9, 13, 22, 0.86));
   position: relative;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.05s ease;
+}
+
+.bp-card:hover {
+  border-color: rgba(120, 170, 235, 0.4);
+}
+
+.bp-card.selected {
+  border-color: rgba(56, 213, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.28), 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+.bp-card.editing {
+  border-color: rgba(103, 224, 138, 0.55);
+}
+
+.bp-card.dragging {
+  opacity: 0.5;
+}
+
+.bp-card.drop-target {
+  border-color: rgba(56, 213, 255, 0.85);
+  box-shadow: 0 -2px 0 0 rgba(56, 213, 255, 0.8);
+}
+
+.bp-drag {
+  cursor: grab;
+  color: rgba(174, 199, 231, 0.4);
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  user-select: none;
+}
+
+.bp-drag:active {
+  cursor: grabbing;
+}
+
+.bp-thumb {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 42%, rgba(38, 56, 88, 0.55), rgba(6, 10, 18, 0.85));
+  border: 1px solid rgba(120, 150, 200, 0.18);
   overflow: hidden;
 }
 
-.saved-design-head {
+.bp-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.bp-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.bp-name-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -56,10 +126,11 @@
   display: block;
   min-width: 0;
   width: 100%;
-  min-height: 30px;
+  min-height: 28px;
   padding: 0 8px;
   overflow: hidden;
-  border-color: rgba(174, 199, 231, 0.2);
+  border: 1px solid rgba(174, 199, 231, 0.16);
+  border-radius: 6px;
   background: rgba(6, 10, 17, 0.72);
   color: var(--text);
   font-size: 13px;
@@ -67,41 +138,182 @@
   text-overflow: ellipsis;
 }
 
-.saved-design-empty,
-.objective-summary {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.35;
+.bp-editing-tag {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(103, 224, 138, 0.16);
+  color: #9df0b6;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.saved-design-summary {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1.3;
-}
-
-.saved-design-summary {
-  color: #cdd9eb;
-}
-
-.saved-design-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 82px;
+.bp-chips {
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+}
+
+.bp-chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(120, 150, 200, 0.12);
+  border: 1px solid rgba(120, 150, 200, 0.14);
+  color: #cdd9eb;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.bp-chip-shield {
+  background: rgba(56, 213, 255, 0.12);
+  border-color: rgba(56, 213, 255, 0.22);
+  color: #a7e6ff;
+}
+
+.bp-actions {
+  display: grid;
+  grid-auto-flow: row;
+  gap: 4px;
+  align-content: center;
 }
 
 .saved-design-actions button {
   min-height: 24px;
-  padding: 4px 5px;
-  font-size: 9px;
+  padding: 4px 9px;
+  font-size: 10px;
   box-shadow: none;
   touch-action: manipulation;
+}
+
+.saved-design-actions button[data-saved-action="delete"] {
+  padding: 4px 8px;
+  color: #ffb4b4;
 }
 
 .saved-design-actions button.pressed {
   transform: translateY(1px);
   border-color: rgba(56, 213, 255, 0.58);
   box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.1);
+}
+
+/* ---- Selected-blueprint inspector ---- */
+
+.bp-inspector {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(56, 213, 255, 0.35);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(18, 30, 48, 0.9), rgba(10, 15, 26, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(56, 213, 255, 0.06);
+}
+
+.bp-inspector-preview {
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 40%, rgba(40, 62, 98, 0.6), rgba(5, 9, 16, 0.9));
+  border: 1px solid rgba(120, 150, 200, 0.2);
+  overflow: hidden;
+}
+
+.bp-inspector-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.bp-inspector-body {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  align-content: start;
+}
+
+.bp-inspector-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-inspector-style {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.bp-inspector-style strong {
+  color: #cdd9eb;
+}
+
+/* Content-sized pills that wrap — they can never clip a value regardless of the
+   panel width. */
+.bp-inspector-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.bp-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 150, 200, 0.18);
+  background: rgba(120, 150, 200, 0.1);
+  white-space: nowrap;
+}
+
+.bp-stat span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bp-stat strong {
+  font-size: 12.5px;
+  font-weight: 850;
+  line-height: 1.15;
+  color: var(--text);
+}
+
+/* Distinct colours per stat so they read at a glance. */
+.bp-stat-cost { border-color: rgba(255, 202, 87, 0.35); background: rgba(255, 202, 87, 0.12); }
+.bp-stat-cost strong { color: #ffd879; }
+.bp-stat-dps { border-color: rgba(255, 107, 129, 0.35); background: rgba(255, 107, 129, 0.12); }
+.bp-stat-dps strong { color: #ff97a6; }
+.bp-stat-hull { border-color: rgba(103, 224, 138, 0.35); background: rgba(103, 224, 138, 0.12); }
+.bp-stat-hull strong { color: #8ff0ac; }
+.bp-stat-shield { border-color: rgba(56, 213, 255, 0.35); background: rgba(56, 213, 255, 0.12); }
+.bp-stat-shield strong { color: #86e6ff; }
+.bp-stat-speed { border-color: rgba(143, 180, 255, 0.35); background: rgba(143, 180, 255, 0.12); }
+.bp-stat-speed strong { color: #b3ccff; }
+.bp-stat-parts { border-color: rgba(192, 132, 252, 0.35); background: rgba(192, 132, 252, 0.12); }
+.bp-stat-parts strong { color: #d6b0ff; }
+
+.bp-inspector-actions button {
+  width: 100%;
+  min-height: 30px;
+  margin-top: 2px;
+}
+
+.bp-editing-btn {
+  background: rgba(103, 224, 138, 0.16) !important;
+  border: 1px solid rgba(103, 224, 138, 0.5) !important;
+  color: #9df0b6 !important;
+  cursor: default !important;
+  opacity: 1 !important;
 }

@@ -4,6 +4,7 @@ const { round } = require("./utils");
 const { teamLabel } = require("./players");
 const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
+const { getPlayerRallyPoint } = require("./ships");
 
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
@@ -19,6 +20,7 @@ function buildSharedSnapshot(room, now, sendStatic) {
       vx: round(ship.vx),
       vy: round(ship.vy),
       angle: round(ship.angle),
+      combatStyle: ship.combatStyle || "charge",
       targetX: round(ship.targetX),
       targetY: round(ship.targetY),
       hp: round(ship.hp),
@@ -39,6 +41,10 @@ function buildSharedSnapshot(room, now, sendStatic) {
       respawnIn: 0,
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     };
+    if (ship.selfDestructAt && ship.alive) {
+      const span = ship.selfDestructAt - ship.selfDestructStart;
+      entry.destructProgress = span > 0 ? round(Math.max(0, Math.min(1, (now - ship.selfDestructStart) / span))) : 1;
+    }
     // A ship's design never changes after spawn, so only send it on static
     // snapshots or the first broadcast that includes the ship. Clients cache it.
     if (sendStatic || !ship.designSent) {
@@ -128,6 +134,8 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     captures: player.captures,
     design: sendStatic ? player.design : undefined,
     stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined,
+    rallyPoint: getPlayerRallyPoint(room, player),
+    rallyPointCustom: Boolean(player.rallyPoint),
     shipsBuilt: player.shipsBuilt || 0,
     lostFleetCost: Math.floor(player.lostFleetCost || 0)
   }));

@@ -579,6 +579,54 @@ function pushDamageEffect(room, ship, now, amount, isShield) {
   room.effects.push(effect);
 }
 
+// Self-destruct: the player scuttles their own ships. Each flagged ship charges
+// for SELF_DESTRUCT_MS (emitting charge sparks so the client can animate the
+// warning) and then detonates and is removed.
+const SELF_DESTRUCT_MS = 1400;
+
+function requestSelfDestruct(room, player, shipIds, now) {
+  const idSet = Array.isArray(shipIds) && shipIds.length ? new Set(shipIds.map((id) => String(id))) : null;
+  let count = 0;
+  for (const ship of player.ships) {
+    if (!ship.alive || ship.removed || ship.selfDestructAt) continue;
+    if (idSet && !idSet.has(ship.id)) continue;
+    ship.selfDestructStart = now;
+    ship.selfDestructAt = now + SELF_DESTRUCT_MS;
+    ship.nextDestructSparkAt = 0;
+    count += 1;
+  }
+  return count;
+}
+
+function updateSelfDestructingShips(room, now) {
+  for (const ship of room.ships.values()) {
+    if (!ship.selfDestructAt || !ship.alive) continue;
+    if (now >= ship.nextDestructSparkAt) {
+      ship.nextDestructSparkAt = now + 120;
+      room.effects.push({ type: "destructcharge", x: ship.x, y: ship.y, at: now, radius: ship.radius });
+    }
+    if (now >= ship.selfDestructAt) detonateSelfDestruct(room, ship, now);
+  }
+}
+
+function detonateSelfDestruct(room, ship, now) {
+  ship.selfDestructAt = 0;
+  ship.alive = false;
+  ship.hp = 0;
+  ship.shield = 0;
+  ship.vx *= 0.2;
+  ship.vy *= 0.2;
+  ship.removeAt = now + 700;
+  room.effects.push({ type: "boom", x: ship.x, y: ship.y, at: now });
+  room.effects.push({ type: "selfdestruct", x: ship.x, y: ship.y, at: now, radius: ship.radius });
+
+  const victim = room.players.get(ship.ownerId);
+  if (victim) {
+    victim.losses += 1;
+    victim.lostFleetCost += ship.cost || ship.stats?.unitCost || 0;
+  }
+}
+
 function updateDestroyedShips(room, now) {
   for (const player of room.players.values()) {
     let removedAny = false;
@@ -665,6 +713,8 @@ module.exports = {
   isTargetInWeaponArc,
   damageShip,
   updateDestroyedShips,
+  requestSelfDestruct,
+  updateSelfDestructingShips,
   findTarget,
   isLineBlocked,
   areAllies,

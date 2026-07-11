@@ -6,7 +6,7 @@
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
 import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
 import { withCanvasContext } from "./dom.js";
-import { drawModule } from "../game/renderer.js";
+import { drawModule, drawFootprintComponent } from "../game/renderer.js";
 
 const CELL = 40; // logical px per footprint cell
 const PAD = 8; // logical px breathing room so weapon barrels never clip
@@ -40,13 +40,28 @@ function emblemAngle(type, rotationDeg) {
   // rotate in their natural frame.
   if (isRotatablePart(type)) {
     const stat = PART_STATS[type] || {};
-    const isWeapon = stat.category === "Weapons" || Boolean(stat.weapon);
-    return isWeapon ? moduleRotationToRadians(rot) - Math.PI / 2 : moduleRotationToRadians(rot);
+    return isWeaponPart(stat) ? moduleRotationToRadians(rot) - Math.PI / 2 : moduleRotationToRadians(rot);
   }
   // Non-rotatable parts align the emblem with the footprint's long axis so
   // elongated parts (engine, reactor, ...) point along their body.
   const { width, height } = rotatedFootprint(type, rotationDeg);
   return height > width ? -Math.PI / 2 : 0;
+}
+
+function isWeaponPart(stat) {
+  return stat.category === "Weapons" || Boolean(stat.weapon);
+}
+
+// Orientation for the footprint-spanning art: align its canonical +x long axis
+// with the icon's longer footprint dimension (post-rotation w/h cells).
+function footprintArtAngle(type, rotationDeg, wCells, hCells) {
+  const stat = PART_STATS[type] || {};
+  if (isRotatablePart(type) && isWeaponPart(stat)) {
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    const baseAngle = (footprint.width || 1) >= (footprint.height || 1) ? 0 : -Math.PI / 2;
+    return baseAngle + moduleRotationToRadians(normalizeRotation(rotationDeg));
+  }
+  return wCells >= hCells ? 0 : -Math.PI / 2;
 }
 
 export function componentIconDataUrl(type, rotationDeg = 0) {
@@ -77,13 +92,20 @@ function bakeIcon(type, wCells, hCells, rotationDeg) {
     ictx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ictx.clearRect(0, 0, logicalW, logicalH);
 
-    if (multi) drawHullPlate(ictx, logicalW, logicalH, color);
-
     ictx.save();
     ictx.translate(logicalW / 2, logicalH / 2);
-    ictx.rotate(emblemAngle(type, rotationDeg));
-    // drawModule reads the module-level ctx, which withCanvasContext has pointed here.
-    drawModule({ x: 0, y: 0, size: EMBLEM, color, type, trim: NEUTRAL_TRIM });
+    if (multi) {
+      // Draw one footprint-spanning component (canonical frame has the long axis
+      // along +x); footprintArtAngle keeps weapon facing distinct within the box.
+      const tilesLong = Math.max(wCells, hCells);
+      const tilesCross = Math.min(wCells, hCells);
+      ictx.rotate(footprintArtAngle(type, rotationDeg, wCells, hCells));
+      drawFootprintComponent({ type, unit: EMBLEM, tilesLong, tilesCross, color, trim: NEUTRAL_TRIM });
+    } else {
+      ictx.rotate(emblemAngle(type, rotationDeg));
+      // drawModule reads the module-level ctx, which withCanvasContext has pointed here.
+      drawModule({ x: 0, y: 0, size: EMBLEM, color, type, trim: NEUTRAL_TRIM });
+    }
     ictx.restore();
   });
 

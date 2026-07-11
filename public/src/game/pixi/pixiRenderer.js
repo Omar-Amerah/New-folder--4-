@@ -62,6 +62,7 @@ export async function initPixiRenderer() {
     map: new PIXI.Container(),
     relays: new PIXI.Container(),
     command: new PIXI.Graphics(),
+    engineSmoke: new PIXI.Graphics(),
     ships: new PIXI.Container(),
     bullets: new PIXI.Container(),
     effects: new PIXI.Container(),
@@ -73,6 +74,7 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.map);
   worldRoot.addChild(layers.relays);
   worldRoot.addChild(layers.command);
+  worldRoot.addChild(layers.engineSmoke);
   worldRoot.addChild(layers.ships);
   worldRoot.addChild(layers.bullets);
   worldRoot.addChild(layers.effects);

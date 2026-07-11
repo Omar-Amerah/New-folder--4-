@@ -6,6 +6,24 @@ import { LOCAL_SERVER_KEY } from "./constants.js";
 import { handleServerMessage } from "./messages.js";
 import { setConnectionStatus, updateLobbyState } from "./ui/lobbyUi.js";
 
+// The server speaks MessagePack over binary WebSocket frames (vendored global
+// `MessagePack`, loaded via a <script> tag in index.html). We fall back to JSON
+// if the library is unavailable (e.g. the test sandbox) so nothing hard-breaks.
+function wsEncode(message) {
+  const mp = globalThis.MessagePack;
+  return mp ? mp.encode(message) : JSON.stringify(message);
+}
+
+function wsDecode(data) {
+  const mp = globalThis.MessagePack;
+  if (data instanceof ArrayBuffer) {
+    const bytes = new Uint8Array(data);
+    return mp ? mp.decode(bytes) : JSON.parse(new TextDecoder().decode(bytes));
+  }
+  // Text frame (JSON) — legacy/fallback path.
+  return JSON.parse(data);
+}
+
 export function connect(url, onOpenCallback) {
   if (state.socket) {
     try {
@@ -17,6 +35,7 @@ export function connect(url, onOpenCallback) {
 
   setConnectionStatus("connecting", "Connecting");
   const socket = new WebSocket(url);
+  socket.binaryType = "arraybuffer";
   state.socket = socket;
   updateLobbyState();
 
@@ -27,7 +46,7 @@ export function connect(url, onOpenCallback) {
 
   socket.addEventListener("message", (event) => {
     try {
-      const message = JSON.parse(event.data);
+      const message = wsDecode(event.data);
       handleServerMessage(message);
     } catch (err) {
       console.error("Failed to parse incoming WS message:", err);
@@ -55,7 +74,7 @@ export function connect(url, onOpenCallback) {
 
 export function send(message) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
-  state.socket.send(JSON.stringify(message));
+  state.socket.send(wsEncode(message));
 }
 
 export function getSocketUrl() {

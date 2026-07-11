@@ -52,11 +52,22 @@ const ECONOMY = Object.freeze({
   })
 });
 
+// Asteroid count multipliers relative to the original generation amount, which
+// is now the "high" setting. "medium" is the default; "none" disables asteroids.
+const ASTEROID_DENSITY = Object.freeze({
+  none: 0,
+  low: 0.35,
+  medium: 0.62,
+  high: 1,
+  veryHigh: 1.5
+});
+
 const DEFAULT_ROOM_RULES = Object.freeze({
   startingMoney: ECONOMY.startingMoney,
   maxPlayers: MAX_PLAYERS_PER_ROOM,
   mapSize: "auto",
-  gameMode: "teams"
+  gameMode: "teams",
+  asteroidDensity: "medium"
 });
 
 const REWARDS = Object.freeze({
@@ -160,6 +171,7 @@ module.exports = {
   SCORE_PER_CONTROLLED_POINT,
   ECONOMY,
   DEFAULT_ROOM_RULES,
+  ASTEROID_DENSITY,
   REWARDS,
   MIME,
   COLORS,

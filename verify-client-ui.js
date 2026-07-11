@@ -318,6 +318,21 @@ if (context.numberOr("10px", 5) !== 5) throw new Error("numberOr failed on strin
 const balance = JSON.parse(fs.readFileSync("component-balance.json", "utf8"));
 context.applyComponentBalance(balance);
 
+const railgunFootprintAngles = vm.runInContext(`
+  [
+    footprintArtAngle("railgun", 0, 3, 1),
+    footprintArtAngle("railgun", 90, 1, 3),
+    footprintArtAngle("railgun", 180, 3, 1),
+    footprintArtAngle("railgun", 270, 1, 3)
+  ];
+`, context);
+const expectedRailgunAngles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+for (let i = 0; i < expectedRailgunAngles.length; i += 1) {
+  if (Math.abs(railgunFootprintAngles[i] - expectedRailgunAngles[i]) > 1e-9) {
+    throw new Error(`railgun footprint icon angle ${i} regressed: ${railgunFootprintAngles.join(",")}`);
+  }
+}
+
 for (const type of ["pointDefense", "flakCannon", "interceptorPod"]) {
   if (!context.isRotatablePart(type)) {
     throw new Error(`${type} should be rotatable`);

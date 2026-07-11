@@ -6,6 +6,7 @@ export const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
 export const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
 export const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
 export const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
+export const LOCAL_LOADOUTS_KEY = "modular-fleet-loadouts-v1";
 export const LOCAL_ACTIVE_ROOM_KEY = "modular-fleet-active-room-v1";
 
 export const WORLD_FALLBACK = { width: 3200, height: 1900 };

@@ -82,6 +82,67 @@ export function drawEffects() {
       ctx.moveTo(-10 - t * 12, -4);
       ctx.lineTo(8 + t * 18, 5);
       ctx.stroke();
+    } else if (effect.type === "destructcharge") {
+      const ct = clamp(age / 300, 0, 1);
+      ctx.globalAlpha = (1 - ct) * 0.8;
+      ctx.strokeStyle = "#ff7b3c";
+      ctx.lineWidth = 2.5 / state.camera.zoom;
+      const rr = effect.radius || 26;
+      ctx.beginPath();
+      ctx.arc(0, 0, rr * (0.5 + ct * 1.0), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1 - ct;
+      ctx.fillStyle = "#ffd7a8";
+      ctx.beginPath();
+      ctx.arc(0, 0, 2 + ct * 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (effect.type === "selfdestruct") {
+      const rr = effect.radius || 26;
+      ctx.strokeStyle = "#ffcaa0";
+      ctx.lineWidth = 6 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.arc(0, 0, rr * (0.6 + t * 3.4), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#fff2e0";
+      ctx.lineWidth = 3 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.arc(0, 0, rr * (0.4 + t * 2.1), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (effect.type === "shieldhit") {
+      // Impact flash on the shield surface (canvas is translated to the point;
+      // nx,ny is the outward normal in world space, usable directly here).
+      const st = clamp(age / 300, 0, 1);
+      const a = 1 - st;
+      const nx = effect.nx || 0;
+      const ny = effect.ny || 0;
+      const tx = -ny;
+      const ty = nx;
+      const spread = 12 + st * 24;
+      const bulge = 7 + st * 7;
+      ctx.globalAlpha = a * 0.26;
+      ctx.beginPath();
+      ctx.moveTo(tx * spread, ty * spread);
+      ctx.quadraticCurveTo(nx * bulge, ny * bulge, -tx * spread, -ty * spread);
+      ctx.quadraticCurveTo(-nx * bulge * 0.55, -ny * bulge * 0.55, tx * spread, ty * spread);
+      ctx.closePath();
+      ctx.fillStyle = "#7fe9ff";
+      ctx.fill();
+      ctx.globalAlpha = a * 0.85;
+      ctx.strokeStyle = "#dffaff";
+      ctx.lineWidth = 2 / state.camera.zoom;
+      ctx.stroke();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "#eafcff";
+      ctx.beginPath();
+      ctx.arc(0, 0, 3 + st * 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = a * 0.65;
+      ctx.strokeStyle = "#bfefff";
+      ctx.lineWidth = 1.6 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(nx * (9 + st * 15), ny * (9 + st * 15));
+      ctx.stroke();
     } else if (effect.type === "dmg" || effect.type === "text") {
       if (combatEffectsEnabled) {
         ctx.translate(0, -t * 30);

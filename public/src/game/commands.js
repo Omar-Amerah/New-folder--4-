@@ -6,6 +6,7 @@ import { send } from "../network.js";
 import { minimapWorldAt, screenToWorld } from "./camera.js";
 import { findShipAt, pruneSelection, ownLiveShips } from "./selection.js";
 import { playerMap } from "../ui/scoreboardUi.js";
+import { formationForCommand } from "../ui/sidePanelUi.js";
 
 export function issueCommand(event) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
@@ -29,9 +30,20 @@ export function issueCommand(event) {
     y: targetShip?.y || world.y,
     targetId: targetShip?.id || null,
     shipIds,
-    formation: dom.formationSelect.value
+    formation: formationForCommand()
   });
   showCommandMarker(event.clientX, event.clientY);
+}
+
+// Scuttle the currently selected ships. Requires an explicit selection so a
+// stray keypress can never destroy the whole fleet.
+export function destructSelectedShips() {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+  if (state.phase !== "active") return;
+  pruneSelection();
+  const shipIds = [...state.selectedShipIds];
+  if (shipIds.length === 0) return;
+  send({ type: "destruct", shipIds });
 }
 
 export function selectedShipIdsForCommand() {

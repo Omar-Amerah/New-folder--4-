@@ -6,6 +6,7 @@ import { updateHud } from "../ui/hudUi.js";
 
 export function selectAt(world, additive) {
   const ship = findShipAt(world.x, world.y, (candidate) => candidate.ownerId === state.myId && candidate.alive);
+  state.activeShipGroup = null;
   if (!additive) state.selectedShipIds.clear();
   if (ship) {
     if (state.selectedShipIds.has(ship.id) && additive) state.selectedShipIds.delete(ship.id);
@@ -15,6 +16,7 @@ export function selectAt(world, additive) {
 }
 
 export function selectBox(a, b, additive) {
+  state.activeShipGroup = null;
   if (!additive) state.selectedShipIds.clear();
   const minX = Math.min(a.x, b.x);
   const maxX = Math.max(a.x, b.x);
@@ -30,6 +32,7 @@ export function selectBox(a, b, additive) {
 
 export function selectAllOwnShips() {
   state.selectedShipIds = new Set(ownLiveShips().map((ship) => ship.id));
+  state.activeShipGroup = null;
   updateHud();
 }
 
@@ -38,6 +41,7 @@ export function pruneSelection() {
   for (const id of [...state.selectedShipIds]) {
     if (!live.has(id)) state.selectedShipIds.delete(id);
   }
+  if (state.selectedShipIds.size === 0) state.activeShipGroup = null;
 }
 
 export function ownLiveShips() {

@@ -28,12 +28,14 @@ const srcFiles = [
   "ui/savedBlueprintsUi.js",
   "ui/purchaseUi.js",
   "ui/hudUi.js",
+  "ui/sidePanelUi.js",
   "ui/scoreboardUi.js",
   "ui/endGameUi.js",
   "ui/lobbyUi.js",
   "ui/designerUi.js",
   "ui/designerScreenUi.js",
   "ui/componentIcon.js",
+  "ui/shipThumbnail.js",
   "game/interpolation.js",
   "game/effects.js",
   "game/camera.js",
@@ -106,12 +108,28 @@ if (fs.existsSync(pixiSource)) {
   process.exit(1);
 }
 
+// 1c. Vendor the MessagePack UMD browser bundle (exposes window.MessagePack) so
+// the client can decode the binary WebSocket snapshots the server now sends.
+const msgpackSource = path.join(__dirname, "node_modules", "@msgpack", "msgpack", "dist.umd", "msgpack.min.js");
+const msgpackVendorPath = path.join(vendorDir, "msgpack.min.js");
+if (fs.existsSync(msgpackSource)) {
+  fs.mkdirSync(vendorDir, { recursive: true });
+  fs.copyFileSync(msgpackSource, msgpackVendorPath);
+  console.log("Vendored @msgpack/msgpack to public/vendor/msgpack.min.js");
+} else if (fs.existsSync(msgpackVendorPath)) {
+  console.warn("node_modules/@msgpack/msgpack missing; keeping existing public/vendor/msgpack.min.js");
+} else {
+  console.error("@msgpack/msgpack is not installed and no vendored copy exists — run npm install first.");
+  process.exit(1);
+}
+
 // 2. Perform Netlify asset checks
 const requiredFiles = [
   path.join(__dirname, "public", "index.html"),
   path.join(__dirname, "public", "client.js"),
   path.join(__dirname, "public", "styles.css"),
-  path.join(__dirname, "public", "vendor", "pixi.min.js")
+  path.join(__dirname, "public", "vendor", "pixi.min.js"),
+  path.join(__dirname, "public", "vendor", "msgpack.min.js")
 ];
 
 for (const file of requiredFiles) {

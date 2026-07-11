@@ -17,6 +17,12 @@ function sanitizeFormation(formation) {
   return "line";
 }
 
+function sanitizeCombatStyle(style, fallback = "charge") {
+  const clean = String(style || "").toLowerCase();
+  if (clean === "charge" || clean === "hold" || clean === "sentry" || clean === "circle") return clean;
+  return fallback;
+}
+
 function sanitizeRoomCode(room) {
   return String(room || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
 }
@@ -43,6 +49,7 @@ function validateBuildShip(room, player, stats = null) {
 module.exports = {
   sanitizeName,
   sanitizeTeam,
+  sanitizeCombatStyle,
   sanitizeFormation,
   sanitizeRoomCode,
   sanitizeRequestId,

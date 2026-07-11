@@ -5,7 +5,9 @@ import { state } from "../state.js";
 import { clamp, approach } from "../shared/math.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
+import { computeStats } from "../design/componentStats.js";
 import { moduleRotationToRadians, normalizeRotation } from "../design/rotation.js";
+import { getOccupiedCells } from "../design/footprint.js";
 import { formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPercent } from "../design/statFormatting.js";
 import { drawEffects } from "./effects.js";
 import { drawSelectionBox, ownLiveShips } from "./selection.js";
@@ -13,11 +15,13 @@ import { updateCamera, applyCamera } from "./camera.js";
 import { qualityShadowBlur, getRenderQualityDprCap } from "./renderSettings.js";
 import { setDebugFrameStats, updateDebugOverlay } from "./debugOverlay.js";
 import { playerMap } from "../ui/scoreboardUi.js";
+import { getRallyPoint } from "../ui/sidePanelUi.js";
 
 
 let frameCount = 0;
 let lastFpsTime = 0;
 let currentFps = 0;
+const renderedDesignStatsCache = new WeakMap();
 
 
 export function getViewportWorldBounds(rect, padding = 160) {
@@ -121,6 +125,8 @@ export function renderArena(now) {
   drawMapFeatures(now, bounds);
   drawRelays(now, players, bounds);
   drawCommandTarget(now);
+  drawRallyPoint(now);
+  drawEngineSmokeTrails(now, bounds);
   drawShips(players, bounds);
   drawBullets(players, bounds);
   drawEffects();
@@ -504,6 +510,23 @@ export function drawCommandTarget(now) {
   ctx.restore();
 }
 
+export function drawRallyPoint(now) {
+  const rally = getRallyPoint();
+  if (!rally) return;
+  const pulse = (Math.sin(now * 0.004) + 1) * 0.5;
+  const radius = 24 + pulse * 8;
+  ctx.save();
+  ctx.translate(rally.x, rally.y);
+  ctx.strokeStyle = "#67e08a";
+  ctx.fillStyle = "rgba(103,224,138,0.18)";
+  ctx.lineWidth = 2.5 / state.camera.zoom;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawBullets(players, bounds) {
   const snap = state.snapshot;
   if (!snap) return;
@@ -675,6 +698,197 @@ export function drawBulletVisual(bullet, color) {
   }
 }
 
+export function maxSpeedForRenderedShip(ship) {
+  if (ship?.stats?.maxSpeed) return ship.stats.maxSpeed;
+  const design = ship?.design;
+  if (!Array.isArray(design)) return 180;
+  let stats = renderedDesignStatsCache.get(design);
+  if (!stats) {
+    stats = computeStats(design);
+    renderedDesignStatsCache.set(design, stats);
+  }
+  return stats.maxSpeed || 180;
+}
+
+export function engineThrustRatio(ship) {
+  if (!ship?.alive) return 0;
+  const angle = Number(ship.angle) || 0;
+  const forwardX = Math.cos(angle);
+  const forwardY = Math.sin(angle);
+  const vx = Number(ship.vx) || 0;
+  const vy = Number(ship.vy) || 0;
+  const speed = Math.hypot(vx, vy);
+  const maxSpeed = Math.max(90, maxSpeedForRenderedShip(ship));
+  const forwardSpeed = vx * forwardX + vy * forwardY;
+  const speedRatio = clamp(Math.max(0, forwardSpeed) / maxSpeed, 0, 1);
+
+  const tx = Number.isFinite(ship.targetX) ? ship.targetX : ship.x;
+  const ty = Number.isFinite(ship.targetY) ? ship.targetY : ship.y;
+  const dx = tx - ship.x;
+  const dy = ty - ship.y;
+  const dist = Math.hypot(dx, dy);
+  let commandedRatio = 0;
+  if (dist > Math.max(28, (ship.radius || 30) * 0.35)) {
+    const align = clamp((dx * forwardX + dy * forwardY) / dist, 0, 1);
+    const distanceRamp = clamp(dist / 190, 0.2, 1);
+    commandedRatio = align * distanceRamp;
+  }
+
+  const driftGlow = speed > 14 ? 0.1 : 0;
+  return clamp(Math.max(speedRatio, commandedRatio, driftGlow), 0, 1);
+}
+
+export function shipEngineNozzles(design, scale = 13) {
+  const nozzles = [];
+  if (!Array.isArray(design)) return nozzles;
+  for (const part of design) {
+    if (part.type !== "engine") continue;
+    const place = footprintLocalPlacement(part, scale);
+    const c = Math.abs(Math.cos(place.longAxisAngle));
+    const s = Math.abs(Math.sin(place.longAxisAngle));
+    const extentX = (c * place.tilesLong + s * place.tilesCross) * scale * 0.5;
+    const spanY = (s * place.tilesLong + c * place.tilesCross) * scale;
+    nozzles.push({
+      x: place.cx - extentX + 1.5,
+      y: place.cy,
+      halfW: Math.max(2.4, spanY * 0.33)
+    });
+  }
+  return nozzles;
+}
+
+export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now()) {
+  const intensity = engineThrustRatio(ship);
+  if (intensity < 0.18 || !Array.isArray(nozzles) || nozzles.length === 0) return;
+  if (!state.engineSmoke) state.engineSmoke = [];
+  if (!state.engineSmokeEmitters) state.engineSmokeEmitters = new Map();
+
+  const angle = Number(ship.angle) || 0;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const backX = -cos;
+  const backY = -sin;
+  const vx = Number(ship.vx) || 0;
+  const vy = Number(ship.vy) || 0;
+  const cadence = 115 - intensity * 58;
+  const shipKey = String(ship.id || "ship");
+
+  for (let i = 0; i < nozzles.length; i += 1) {
+    const key = `${shipKey}:${i}`;
+    const last = state.engineSmokeEmitters.get(key) || 0;
+    if (now - last < cadence) continue;
+    state.engineSmokeEmitters.set(key, now);
+
+    const nz = nozzles[i];
+    const jitter = (Math.random() - 0.5) * nz.halfW * 0.9;
+    const localX = nz.x - nz.halfW * (0.9 + intensity * 1.4);
+    const localY = nz.y + jitter;
+    const wx = ship.x + localX * cos - localY * sin;
+    const wy = ship.y + localX * sin + localY * cos;
+    const push = 26 + intensity * 74;
+    state.engineSmoke.push({
+      x: wx,
+      y: wy,
+      vx: vx * 0.18 + backX * push + (Math.random() - 0.5) * 14,
+      vy: vy * 0.18 + backY * push + (Math.random() - 0.5) * 14,
+      radius: Math.max(3.2, scale * (0.18 + intensity * 0.34)),
+      alpha: 0.14 + intensity * 0.18,
+      createdAt: now,
+      life: 1900 + Math.random() * 900
+    });
+  }
+
+  if (state.engineSmoke.length > 560) {
+    state.engineSmoke.splice(0, state.engineSmoke.length - 560);
+  }
+}
+
+export function activeEngineSmoke(now = performance.now()) {
+  if (!state.engineSmoke) state.engineSmoke = [];
+  const visible = [];
+  const kept = [];
+  for (const smoke of state.engineSmoke) {
+    const age = now - smoke.createdAt;
+    const life = smoke.life || 2200;
+    const t = age / life;
+    if (t >= 1) continue;
+    kept.push(smoke);
+    const drift = age / 1000;
+    const fade = Math.pow(1 - t, 1.65);
+    visible.push({
+      x: smoke.x + smoke.vx * drift,
+      y: smoke.y + smoke.vy * drift,
+      radius: smoke.radius * (1 + t * 2.2),
+      alpha: smoke.alpha * fade
+    });
+  }
+  state.engineSmoke = kept;
+  return visible;
+}
+
+export function drawEngineSmokeTrails(now = performance.now(), bounds = null) {
+  const particles = activeEngineSmoke(now);
+  if (particles.length === 0) return;
+  ctx.save();
+  ctx.shadowBlur = 0;
+  for (const p of particles) {
+    if (bounds && !isCircleVisible(p.x, p.y, p.radius, bounds)) continue;
+    ctx.fillStyle = `rgba(127, 143, 136, ${p.alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawEngineExhaust(ship, design, scale, now = performance.now()) {
+  const nozzles = shipEngineNozzles(design, scale);
+  const intensity = engineThrustRatio(ship);
+  emitEngineSmoke(ship, nozzles, scale, now);
+  if (intensity <= 0.03 || nozzles.length === 0) return;
+
+  const speedRatio = clamp(Math.hypot(ship.vx || 0, ship.vy || 0) / Math.max(90, maxSpeedForRenderedShip(ship)), 0, 1);
+  const t = now * 0.001;
+  const phase = shieldIdPhase(ship.id);
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for (let i = 0; i < nozzles.length; i += 1) {
+    const nz = nozzles[i];
+    const flicker = 0.74 + 0.2 * Math.sin(t * 36 + phase + i * 1.9) + 0.08 * Math.sin(t * 67 + i);
+    const halfW = nz.halfW * (0.8 + intensity * 0.65);
+    const len = halfW * (1.2 + intensity * 9.4 + speedRatio * 2.4) * flicker;
+    const ox = nz.x;
+    const oy = nz.y;
+
+    ctx.fillStyle = `rgba(43, 123, 255, ${0.16 + intensity * 0.22})`;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy - halfW * 1.15);
+    ctx.quadraticCurveTo(ox - len * 0.55, oy - halfW * 0.7, ox - len, oy);
+    ctx.quadraticCurveTo(ox - len * 0.55, oy + halfW * 0.7, ox, oy + halfW * 1.15);
+    ctx.closePath();
+    ctx.fill();
+
+    const innerLen = len * 0.68;
+    ctx.fillStyle = `rgba(99, 230, 255, ${0.42 + intensity * 0.38})`;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy - halfW * 0.72);
+    ctx.quadraticCurveTo(ox - innerLen * 0.5, oy - halfW * 0.42, ox - innerLen, oy);
+    ctx.quadraticCurveTo(ox - innerLen * 0.5, oy + halfW * 0.42, ox, oy + halfW * 0.72);
+    ctx.closePath();
+    ctx.fill();
+
+    const coreLen = len * 0.36;
+    ctx.fillStyle = `rgba(234, 252, 255, ${0.66 + intensity * 0.28})`;
+    ctx.beginPath();
+    ctx.moveTo(ox + 0.5, oy - halfW * 0.38);
+    ctx.quadraticCurveTo(ox - coreLen * 0.5, oy - halfW * 0.22, ox - coreLen, oy);
+    ctx.quadraticCurveTo(ox - coreLen * 0.5, oy + halfW * 0.22, ox + 0.5, oy + halfW * 0.38);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 export function drawShips(players, bounds) {
   const snap = state.snapshot;
   if (!snap) return;
@@ -724,6 +938,7 @@ export function drawShip(ship, player) {
 
   const design = ship.design || player.design || [];
   const scale = 13;
+  drawEngineExhaust(ship, design, scale, performance.now());
   drawShipStructure(design, scale, player.color);
 
   if (!state.weaponAnglesMap) state.weaponAnglesMap = new Map();
@@ -740,9 +955,9 @@ export function drawShip(ship, player) {
   design.forEach((part, i) => {
     const def = PART_DEFS[part.type] || PART_DEFS.frame;
     const weaponStat = PART_STATS[part.type]?.weapon;
-    const { x: px, y: py } = moduleLocalPosition(part, scale);
+    const place = footprintLocalPlacement(part, scale);
     ctx.save();
-    ctx.translate(px, py);
+    ctx.translate(place.cx, place.cy);
 
     if (isRotatablePart(part.type)) {
       const defaultRelative = moduleRotationToRadians(normalizeRotation(part.rotation));
@@ -752,16 +967,17 @@ export function drawShip(ship, player) {
       visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
 
       ctx.rotate(visualAngles[i]);
+      if (place.multi) {
+        drawFootprintComponent({ type: part.type, unit: scale - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: player.color });
+      } else {
+        drawModule({ x: 0, y: 0, size: scale - 1, color: def.color, type: part.type, trim: player.color });
+      }
+    } else if (place.multi) {
+      ctx.rotate(place.longAxisAngle);
+      drawFootprintComponent({ type: part.type, unit: scale - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: player.color });
+    } else {
+      drawModule({ x: 0, y: 0, size: scale - 1, color: def.color, type: part.type, trim: player.color });
     }
-
-    drawModule({
-      x: 0,
-      y: 0,
-      size: scale - 1,
-      color: def.color,
-      type: part.type,
-      trim: player.color
-    });
     ctx.restore();
   });
 
@@ -777,9 +993,38 @@ export function drawShip(ship, player) {
 
   if (selected) drawSelectionRing(ship);
   if (ship.focusTargetId) drawFocusLine(ship);
+  if (ship.destructProgress != null && ship.alive) drawDestructWarning(ship);
   drawHealthBars(ship, player);
   drawShipName(ship, player);
   if (!ship.alive) drawRespawn(ship);
+}
+
+function drawDestructWarning(ship) {
+  const now = performance.now();
+  const progress = ship.destructProgress;
+  const r = (ship.radius || 26) + 10;
+  const pulse = 0.5 + 0.5 * Math.sin(now * 0.02 * (1 + progress * 3));
+  ctx.save();
+  ctx.globalAlpha = 0.4 + progress * 0.5;
+  ctx.strokeStyle = "#ff5f3c";
+  ctx.lineWidth = (1.5 + pulse * 2.5) / state.camera.zoom;
+  ctx.beginPath();
+  const rot = now * 0.0011;
+  for (let i = 0; i <= 6; i += 1) {
+    const a = rot + (i / 6) * Math.PI * 2;
+    const px = ship.x + Math.cos(a) * r;
+    const py = ship.y + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "#ffd7a8";
+  ctx.lineWidth = 2.5 / state.camera.zoom;
+  ctx.beginPath();
+  ctx.arc(ship.x, ship.y, r * 0.72, -Math.PI / 2, -Math.PI / 2 + Math.max(0.001, progress) * Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function shieldRatioForShip(ship) {
@@ -904,57 +1149,195 @@ export function moduleLocalPosition(part, scale) {
   };
 }
 
+// Where and how a (possibly multi-tile) part should be drawn on a ship, in the
+// ship's local space: the footprint's centre, its tile dimensions, and the
+// angle that aligns a canonical +x-forward component with the footprint's long
+// axis. Used by both renderers so blueprint and in-game visuals stay consistent.
+export function footprintLocalPlacement(part, scale) {
+  const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
+  const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+  let sx = 0, sy = 0, minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (const cell of cells) {
+    const p = moduleLocalPosition(cell, scale);
+    sx += p.x; sy += p.y;
+    if (p.x < minx) minx = p.x;
+    if (p.x > maxx) maxx = p.x;
+    if (p.y < miny) miny = p.y;
+    if (p.y > maxy) maxy = p.y;
+  }
+  const rot = normalizeRotation(part.rotation || 0);
+  const swap = rot === 90 || rot === 270;
+  const w = swap ? footprint.height : footprint.width;
+  const h = swap ? footprint.width : footprint.height;
+  return {
+    cx: sx / cells.length,
+    cy: sy / cells.length,
+    tilesLong: Math.max(w, h),
+    tilesCross: Math.min(w, h),
+    // Long axis runs along local x when its x-span is the larger one, else local y.
+    longAxisAngle: (maxx - minx) >= (maxy - miny) ? 0 : Math.PI / 2,
+    multi: cells.length > 1
+  };
+}
+
+// --- Module material system --------------------------------------------------
+// Top-down modules share one lighting language: a key light from the upper-left,
+// metallic bevelled bodies, dark local edges (no bright team outline), and
+// restrained energy accents. This keeps components readable and distinct while
+// looking like one cohesive, industrial ship rather than glowing icons.
+
+const STRUCTURAL_PARTS = new Set([
+  "frame", "armor", "compositeArmor",
+  "halfFrameDiagonal", "halfArmorDiagonal", "halfCompositeArmorDiagonal",
+  "wingFrame", "wingArmor", "wingCompositeArmor",
+  "lightFrame", "heavyFrame"
+]);
+
+const ENERGY_PARTS = new Set(["core", "reactor", "shield"]);
+
+function parseColor(color) {
+  if (typeof color !== "string") return { r: 148, g: 163, b: 184 };
+  if (color[0] === "#") {
+    let hex = color.slice(1);
+    if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
+    const n = parseInt(hex, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+  const match = color.match(/rgba?\(([^)]+)\)/);
+  if (match) {
+    const parts = match[1].split(",").map((v) => parseFloat(v));
+    return { r: parts[0] || 0, g: parts[1] || 0, b: parts[2] || 0 };
+  }
+  return { r: 148, g: 163, b: 184 };
+}
+
+// Blends colour a toward colour b (t in 0..1), returning an opaque rgb() string.
+function mixColor(a, b, t) {
+  const ca = parseColor(a);
+  const cb = parseColor(b);
+  const r = Math.round(ca.r + (cb.r - ca.r) * t);
+  const g = Math.round(ca.g + (cb.g - ca.g) * t);
+  const bl = Math.round(ca.b + (cb.b - ca.b) * t);
+  return `rgb(${r},${g},${bl})`;
+}
+
 // Module fill gradients are defined in local module space, so one gradient per
-// (size, color) pair serves every module of that type on screen.
+// (size, color) pair serves every module of that type on screen. The gradient
+// alone carries a soft top-left→bottom-right bevel so bodies read as raised
+// metal panels without a per-module outline.
 const moduleGradientCache = new Map();
 
 function getModuleGradient(size, color) {
   const key = `${size}|${color}`;
   let fill = moduleGradientCache.get(key);
   if (!fill) {
-    fill = ctx.createLinearGradient(-size * 0.55, -size * 0.55, size * 0.55, size * 0.55);
-    fill.addColorStop(0, "rgba(255,255,255,0.42)");
-    fill.addColorStop(0.24, color);
-    fill.addColorStop(1, "rgba(8,12,20,0.92)");
+    fill = ctx.createLinearGradient(-size * 0.5, -size * 0.5, size * 0.5, size * 0.5);
+    fill.addColorStop(0, mixColor(color, "#ffffff", 0.52));
+    fill.addColorStop(0.32, mixColor(color, "#ffffff", 0.14));
+    fill.addColorStop(0.6, color);
+    fill.addColorStop(1, mixColor(color, "#05070c", 0.74));
     moduleGradientCache.set(key, fill);
   }
   return fill;
 }
 
+// Draws a light top-left bevel highlight and a dark bottom-right seam along a
+// rounded-square footprint, giving flat plate modules a consistent raised look.
+function bevelRoundedPlate(size, inset, radius) {
+  const s = size * inset;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = Math.max(0.7, size * 0.045);
+  ctx.beginPath();
+  ctx.moveTo(-s + radius, -s + size * 0.02);
+  ctx.lineTo(s - radius, -s + size * 0.02);
+  ctx.moveTo(-s + size * 0.02, -s + radius);
+  ctx.lineTo(-s + size * 0.02, s - radius);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(3,6,12,0.45)";
+  ctx.beginPath();
+  ctx.moveTo(-s + radius, s - size * 0.02);
+  ctx.lineTo(s - radius, s - size * 0.02);
+  ctx.moveTo(s - size * 0.02, -s + radius);
+  ctx.lineTo(s - size * 0.02, s - radius);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Fills + dark-edges a rounded-square body and adds the shared bevel. Used by
+// the many system modules that share this plate footprint.
+function drawPlateBody(size, inset = 0.44, radius = size * 0.12) {
+  const s = size * inset;
+  roundRect(ctx, { x: -s, y: -s, width: s * 2, height: s * 2, radius });
+  ctx.fill();
+  ctx.stroke();
+  bevelRoundedPlate(size, inset, radius);
+}
+
 export function drawModule({ x, y, size, color, type, trim }) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.lineWidth = Math.max(1.15, size * 0.12);
-  ctx.strokeStyle = trim;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = qualityShadowBlur(type === "core" || type === "reactor" || type === "shield" ? 8 : 3);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
-  ctx.fillStyle = getModuleGradient(size, color);
+  // Dark local edge instead of a bright team-coloured outline; a soft glow is
+  // reserved for genuine energy parts so the ship reads clean, not noisy.
+  ctx.lineWidth = Math.max(0.9, size * 0.08);
+  ctx.strokeStyle = "rgba(3,6,12,0.72)";
+  const energyPart = ENERGY_PARTS.has(type);
+  ctx.shadowColor = energyPart ? color : "transparent";
+  ctx.shadowBlur = energyPart ? qualityShadowBlur(5) : 0;
+
+  // Structural parts carry a restrained team tint so friend/foe stays readable
+  // on the hull without every module glowing in the team colour.
+  const bodyColor = trim && STRUCTURAL_PARTS.has(type) ? mixColor(color, trim, 0.24) : color;
+  ctx.fillStyle = getModuleGradient(size, bodyColor);
 
   if (type === "core") {
-    roundRect(ctx, { x: -size * 0.48, y: -size * 0.48, width: size * 0.96, height: size * 0.96, radius: size * 0.18 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#f8fbff";
+    drawPlateBody(size, 0.48, size * 0.18);
+    // Housed reactor well: dark socket, bright controlled core, containment ring.
+    ctx.save();
+    ctx.fillStyle = "rgba(6,12,20,0.9)";
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+    ctx.arc(0, 0, size * 0.34, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#6ee7ff";
+    ctx.shadowColor = "#8fe6ff";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#f4fdff";
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
+    ctx.arc(0, 0, size * 0.19, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(110,231,255,0.75)";
+    ctx.lineWidth = Math.max(1, size * 0.05);
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.3, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
   } else if (type === "frame") {
-    roundRect(ctx, { x: -size * 0.46, y: -size * 0.46, width: size * 0.92, height: size * 0.92, radius: size * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.42)";
-    ctx.lineWidth = Math.max(1, size * 0.08);
+    drawPlateBody(size, 0.46, size * 0.1);
+    // Simple internal support bracing, kept dark/industrial rather than a bright cross.
+    ctx.save();
+    ctx.strokeStyle = "rgba(10,16,26,0.5)";
+    ctx.lineWidth = Math.max(1, size * 0.07);
     ctx.beginPath();
-    ctx.moveTo(-size * 0.28, -size * 0.28);
-    ctx.lineTo(size * 0.28, size * 0.28);
-    ctx.moveTo(size * 0.28, -size * 0.28);
-    ctx.lineTo(-size * 0.28, size * 0.28);
+    ctx.moveTo(-size * 0.26, -size * 0.26);
+    ctx.lineTo(size * 0.26, size * 0.26);
+    ctx.moveTo(size * 0.26, -size * 0.26);
+    ctx.lineTo(-size * 0.26, size * 0.26);
     ctx.stroke();
+    ctx.strokeStyle = "rgba(210,222,240,0.24)";
+    ctx.lineWidth = Math.max(0.7, size * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.26, -size * 0.26);
+    ctx.lineTo(size * 0.26, size * 0.26);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(214,226,244,0.32)";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   } else if (type === "halfFrameDiagonal" || type === "halfArmorDiagonal" || type === "halfCompositeArmorDiagonal") {
     ctx.beginPath();
     ctx.moveTo(-size * 0.46, -size * 0.46);
@@ -1021,23 +1404,45 @@ export function drawModule({ x, y, size, color, type, trim }) {
     ctx.lineTo(size * 0.24, size * 0.28);
     ctx.stroke();
   } else if (type === "engine") {
+    // Propulsion housing (wider at the mount, tapering toward the nozzle at -x).
     ctx.beginPath();
-    ctx.moveTo(-size * 0.48, -size * 0.38);
-    ctx.lineTo(size * 0.4, -size * 0.24);
-    ctx.lineTo(size * 0.48, size * 0.24);
-    ctx.lineTo(-size * 0.48, size * 0.38);
+    ctx.moveTo(-size * 0.36, -size * 0.4);
+    ctx.lineTo(size * 0.46, -size * 0.26);
+    ctx.lineTo(size * 0.46, size * 0.26);
+    ctx.lineTo(-size * 0.36, size * 0.4);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = "#ffca57";
+    // Panel seam across the housing.
+    ctx.save();
+    ctx.strokeStyle = "rgba(210,222,240,0.2)";
+    ctx.lineWidth = Math.max(0.7, size * 0.045);
     ctx.beginPath();
-    ctx.moveTo(-size * 0.58, -size * 0.18);
-    ctx.lineTo(-size * 0.95, 0);
-    ctx.lineTo(-size * 0.58, size * 0.18);
+    ctx.moveTo(size * 0.16, -size * 0.24);
+    ctx.lineTo(size * 0.16, size * 0.24);
+    ctx.stroke();
+    ctx.restore();
+    // Exhaust nozzle: dark bell around a hot cyan throat, pointing -x.
+    ctx.save();
+    ctx.fillStyle = "#0a2732";
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.36, -size * 0.24);
+    ctx.lineTo(-size * 0.58, -size * 0.2);
+    ctx.lineTo(-size * 0.58, size * 0.2);
+    ctx.lineTo(-size * 0.36, size * 0.24);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = "#89f7ff";
-    ctx.fillRect(-size * 0.35, -size * 0.16, size * 0.26, size * 0.32);
+    ctx.stroke();
+    ctx.shadowColor = "#89f7ff";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#9ff6ff";
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.4, -size * 0.12);
+    ctx.lineTo(-size * 0.56, 0);
+    ctx.lineTo(-size * 0.4, size * 0.12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   } else if (type === "blaster") {
     drawWeaponBase(size, color);
     ctx.fillStyle = "#ffd1dc";
@@ -1334,21 +1739,265 @@ export function drawModule({ x, y, size, color, type, trim }) {
   ctx.restore();
 }
 
-export function drawWeaponBase(size) {
-  ctx.beginPath();
-  ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2);
-  ctx.stroke();
+// --- Footprint-aware component art -------------------------------------------
+// Draws a multi-tile component as one purpose-built object spanning its whole
+// footprint, in a canonical frame where +x is "forward" (barrel / long axis)
+// and the body is centred on the origin. Shared by the arena ship renderer and
+// the designer icon baker so blueprint and in-game visuals match. 1x1 parts
+// keep using drawModule(); this only handles the elongated/multi-cell types.
+export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, color, trim }) {
+  const hl = (tilesLong * unit) / 2; // half length along +x
+  const hc = (tilesCross * unit) / 2; // half width along y
+  const edge = "rgba(3,6,12,0.72)";
+
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(0.9, unit * 0.08);
+  ctx.strokeStyle = edge;
+
+  const structural = STRUCTURAL_PARTS.has(type);
+  const bodyColor = trim && structural ? mixColor(color, trim, 0.24) : color;
+  const bodyFill = getModuleGradient(unit, bodyColor);
+  ctx.fillStyle = bodyFill;
+
+  // Long rounded chassis used as the base body for most elongated parts.
+  const chassis = (padCross = 0.72, radius = unit * 0.22) => {
+    roundRect(ctx, { x: -hl, y: -hc * padCross, width: hl * 2, height: hc * padCross * 2, radius });
+    ctx.fill();
+    ctx.stroke();
+  };
+  const panelSeams = (count) => {
+    ctx.save();
+    ctx.strokeStyle = "rgba(210,222,240,0.18)";
+    ctx.lineWidth = Math.max(0.6, unit * 0.04);
+    for (let i = 1; i < count; i += 1) {
+      const x = -hl + (hl * 2 * i) / count;
+      ctx.beginPath();
+      ctx.moveTo(x, -hc * 0.6);
+      ctx.lineTo(x, hc * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  if (type === "railgun") {
+    // Rear breech block + twin rails running the full length + muzzle.
+    roundRect(ctx, { x: -hl, y: -hc * 0.82, width: unit * 0.95, height: hc * 1.64, radius: unit * 0.14 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = mixColor(color, "#05070c", 0.45);
+    roundRect(ctx, { x: -hl + unit * 0.55, y: -hc * 0.5, width: hl * 2 - unit * 0.7, height: hc, radius: unit * 0.09 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#f4f7ff";
+    ctx.lineWidth = Math.max(1.1, unit * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(-hl + unit * 0.6, -hc * 0.32);
+    ctx.lineTo(hl - unit * 0.05, -hc * 0.32);
+    ctx.moveTo(-hl + unit * 0.6, hc * 0.32);
+    ctx.lineTo(hl - unit * 0.05, hc * 0.32);
+    ctx.stroke();
+    ctx.fillStyle = "#7aa4ff";
+    ctx.fillRect(hl - unit * 0.28, -hc * 0.26, unit * 0.28, hc * 0.52);
+  } else if (type === "beamEmitter" || type === "repairBeam") {
+    const accent = type === "repairBeam" ? "#4ade80" : "#38bdf8";
+    const core = type === "repairBeam" ? "#15803d" : "#0284c7";
+    chassis(0.62, unit * 0.2);
+    panelSeams(tilesLong);
+    ctx.fillStyle = core;
+    ctx.fillRect(-hl * 0.2, -hc * 0.22, hl * 0.5, hc * 0.44);
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.moveTo(hl * 0.3, -hc * 0.34);
+    ctx.lineTo(hl, 0);
+    ctx.lineTo(hl * 0.3, hc * 0.34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (type === "swarmMissile") {
+    chassis(0.86, unit * 0.16);
+    // Rows of launch tubes along the length, mouths toward +x.
+    ctx.fillStyle = "#3b0764";
+    const rows = 2;
+    const cols = Math.max(2, tilesLong);
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        const cx = -hl + hl * 2 * ((c + 0.5) / cols);
+        const cy = (r === 0 ? -1 : 1) * hc * 0.4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, unit * 0.13, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.fillStyle = "#e9d5ff";
+    for (let c = 0; c < cols; c += 1) {
+      const cx = -hl + hl * 2 * ((c + 0.5) / cols);
+      ctx.beginPath();
+      ctx.arc(cx, -hc * 0.4, unit * 0.05, 0, Math.PI * 2);
+      ctx.arc(cx, hc * 0.4, unit * 0.05, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (type === "torpedo") {
+    chassis(0.7, unit * 0.16);
+    panelSeams(tilesLong);
+    // Loaded torpedo tip protruding forward.
+    ctx.fillStyle = "#c084fc";
+    ctx.beginPath();
+    ctx.moveTo(-hl * 0.3, -hc * 0.34);
+    ctx.lineTo(hl * 0.55, -hc * 0.34);
+    ctx.lineTo(hl, 0);
+    ctx.lineTo(hl * 0.55, hc * 0.34);
+    ctx.lineTo(-hl * 0.3, hc * 0.34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (type === "aegisProjector") {
+    // Square-ish projector: housing + broad emitter arc facing +x.
+    roundRect(ctx, { x: -hl, y: -hc, width: hl * 2, height: hc * 2, radius: unit * 0.24 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#34d399";
+    ctx.lineWidth = Math.max(1.4, unit * 0.12);
+    ctx.beginPath();
+    ctx.arc(-hl * 0.1, 0, Math.min(hl, hc) * 0.82, -Math.PI * 0.42, Math.PI * 0.42);
+    ctx.stroke();
+    ctx.fillStyle = "#a7f3d0";
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.min(hl, hc) * 0.26, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === "engine") {
+    // Long propulsion block, nozzle bell + hot throat at the rear (-x).
+    roundRect(ctx, { x: -hl + unit * 0.34, y: -hc * 0.8, width: hl * 2 - unit * 0.34, height: hc * 1.6, radius: unit * 0.16 });
+    ctx.fill();
+    ctx.stroke();
+    panelSeams(tilesLong);
+    ctx.fillStyle = "#0a2732";
+    ctx.beginPath();
+    ctx.moveTo(-hl + unit * 0.34, -hc * 0.5);
+    ctx.lineTo(-hl, -hc * 0.42);
+    ctx.lineTo(-hl, hc * 0.42);
+    ctx.lineTo(-hl + unit * 0.34, hc * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = "#89f7ff";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#9ff6ff";
+    ctx.beginPath();
+    ctx.moveTo(-hl + unit * 0.28, -hc * 0.26);
+    ctx.lineTo(-hl - unit * 0.02, 0);
+    ctx.lineTo(-hl + unit * 0.28, hc * 0.26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  } else if (type === "reactor") {
+    // Elongated capsule housing with glowing core band.
+    roundRect(ctx, { x: -hl, y: -hc * 0.86, width: hl * 2, height: hc * 1.72, radius: hc * 0.7 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = "#ffe07a";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#fff7b3";
+    roundRect(ctx, { x: -hl * 0.62, y: -hc * 0.3, width: hl * 1.24, height: hc * 0.6, radius: hc * 0.3 });
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = "#6b4b12";
+    ctx.beginPath();
+    ctx.arc(-hl * 0.5, 0, hc * 0.34, 0, Math.PI * 2);
+    ctx.arc(hl * 0.5, 0, hc * 0.34, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (type === "capacitor") {
+    // Long block of charge cells.
+    roundRect(ctx, { x: -hl, y: -hc * 0.84, width: hl * 2, height: hc * 1.68, radius: unit * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#38bdf8";
+    const cols = Math.max(2, tilesLong + 1);
+    for (let c = 0; c < cols; c += 1) {
+      const cx = -hl + unit * 0.24 + (hl * 2 - unit * 0.48) * (c / (cols - 1 || 1));
+      ctx.fillRect(cx - unit * 0.06, -hc * 0.5, unit * 0.12, hc);
+    }
+  } else if (structural) {
+    // Armour/frame/wings: one plate covering the whole footprint with seams.
+    roundRect(ctx, { x: -hl, y: -hc, width: hl * 2, height: hc * 2, radius: unit * 0.14 });
+    ctx.fill();
+    ctx.stroke();
+    panelSeams(tilesLong);
+    if (type.startsWith("wing")) {
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.7, -hc * 0.5);
+      ctx.lineTo(hl * 0.7, 0);
+      ctx.lineTo(-hl * 0.7, hc * 0.5);
+      ctx.stroke();
+    }
+  } else {
+    // Unknown multi-tile type: fall back to a scaled single module.
+    ctx.restore();
+    drawModule({ x: 0, y: 0, size: Math.min(hl, hc) * 2 * 0.92, color, type, trim });
+    return;
+  }
+
+  ctx.restore();
 }
 
+// Shared mounted-turret base: a dark socket, a bevelled raised ring in the
+// module body colour, and a recessed hub the barrel emerges from. Gives every
+// weapon a believable top-down turret mount rather than a flat disc.
+export function drawWeaponBase(size) {
+  ctx.save();
+  ctx.fillStyle = "rgba(6,10,16,0.88)";
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.33, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(255,255,255,0.24)";
+  ctx.lineWidth = Math.max(0.7, size * 0.05);
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.27, Math.PI * 0.92, Math.PI * 1.7);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(3,6,12,0.5)";
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.27, Math.PI * -0.08, Math.PI * 0.7);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(9,14,22,0.9)";
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Shared circular housing for system modules (reactor, shield, etc.): bevelled
+// ring with a light upper-left rim and a dark lower-right seam.
 export function drawRoundSystem(size) {
   ctx.beginPath();
   ctx.arc(0, 0, size * 0.46, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.lineWidth = Math.max(0.7, size * 0.05);
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.4, Math.PI * 0.92, Math.PI * 1.68);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(3,6,12,0.45)";
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.4, Math.PI * -0.08, Math.PI * 0.68);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function drawSelectionRing(ship) {
@@ -1477,16 +2126,14 @@ export function drawHealthBars(ship, player) {
   const hud = updateShipHud(ship, now);
   const hullRatio = clamp(hud.hp / ship.maxHp, 0, 1);
   const hullLagRatio = clamp(hud.hpLag / ship.maxHp, 0, 1);
-  const shieldRatio = ship.maxShield > 0 ? clamp(hud.shield / ship.maxShield, 0, 1) : 0;
-  const shieldLagRatio = ship.maxShield > 0 ? clamp(hud.shieldLag / ship.maxShield, 0, 1) : 0;
+  const shieldRatio = ship.maxShield > 0 ? clamp(ship.shield / ship.maxShield, 0, 1) : 0;
   const lowHull = hullRatio <= 0.25;
   const alpha = selected || damaged ? 1 : 0.68;
-  const pulse = clamp(1 - (now - hud.hitAt) / 280, 0, 1);
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.shadowColor = pulse > 0 && hud.lastHitShield ? "rgba(81,226,255,0.85)" : player.color;
-  ctx.shadowBlur = qualityShadowBlur(4 + pulse * 11);
+  ctx.shadowColor = player.color;
+  ctx.shadowBlur = qualityShadowBlur(4);
   drawHudFrame(x - 4, y - 4, width + 8, frameHeight, player.color, lowHull);
   ctx.shadowBlur = 0;
 
@@ -1504,9 +2151,8 @@ export function drawHealthBars(ship, player) {
       width: barWidth,
       height: shieldHeight,
       ratio: shieldRatio,
-      lagRatio: shieldLagRatio,
-      pulse: hud.lastHitShield ? pulse : 0,
-      val: hud.shield,
+      lagRatio: shieldRatio,
+      val: ship.shield,
       maxVal: ship.maxShield
     });
   } else {
@@ -1699,7 +2345,7 @@ export function drawStatusBar(options) {
 }
 
 export function drawShieldStatusBar(options) {
-  const { x, y, width, height, ratio, lagRatio, pulse = 0, val, maxVal } = options;
+  const { x, y, width, height, ratio, lagRatio, val, maxVal } = options;
   const radius = Math.max(2, height * 0.48);
   const zoom = state.camera.zoom;
 
@@ -1732,7 +2378,7 @@ export function drawShieldStatusBar(options) {
     fill.addColorStop(0.58, "#22d3ee");
     fill.addColorStop(1, "#e0faff");
     ctx.shadowColor = "rgba(56, 213, 255, 0.62)";
-    ctx.shadowBlur = qualityShadowBlur(6 + pulse * 7);
+    ctx.shadowBlur = qualityShadowBlur(6);
     ctx.fillStyle = fill;
     ctx.fillRect(x, y, fillWidth, height);
 
@@ -1744,13 +2390,6 @@ export function drawShieldStatusBar(options) {
     ctx.fillStyle = gloss;
     ctx.fillRect(x, y, fillWidth, Math.max(2, height * 0.62));
 
-    const sweepX = x + ((performance.now() * 0.036) % Math.max(1, width + 26)) - 26;
-    const sweep = ctx.createLinearGradient(sweepX, y, sweepX + 24, y);
-    sweep.addColorStop(0, "rgba(255,255,255,0)");
-    sweep.addColorStop(0.5, `rgba(224,250,255,${0.22 + pulse * 0.28})`);
-    sweep.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = sweep;
-    ctx.fillRect(sweepX, y, 24, height);
     ctx.restore();
   }
 
@@ -1767,7 +2406,7 @@ export function drawShieldStatusBar(options) {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = pulse > 0 ? "rgba(224, 250, 255, 0.82)" : "rgba(125, 211, 252, 0.45)";
+  ctx.strokeStyle = "rgba(125, 211, 252, 0.45)";
   ctx.lineWidth = 1 / zoom;
   roundRect(ctx, { x, y, width, height, radius });
   ctx.stroke();
@@ -1945,6 +2584,18 @@ export function drawMinimap(rect, players) {
       ctx.beginPath();
       ctx.arc(x + ship.x * sx, y + ship.y * sy, 2.5, 0, Math.PI * 2);
       ctx.fill();
+    }
+    const rally = getRallyPoint();
+    if (rally) {
+      const rx = x + rally.x * sx;
+      const ry = y + rally.y * sy;
+      ctx.fillStyle = "#67e08a";
+      ctx.strokeStyle = "rgba(4,8,14,0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     }
   }
 
