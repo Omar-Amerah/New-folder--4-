@@ -16,6 +16,7 @@ import { qualityShadowBlur, getRenderQualityDprCap } from "./renderSettings.js";
 import { setDebugFrameStats, updateDebugOverlay } from "./debugOverlay.js";
 import { playerMap } from "../ui/scoreboardUi.js";
 import { getRallyPoint } from "../ui/sidePanelUi.js";
+import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, CRITICAL_RATIO, DAMAGED_RATIO } from "./componentDamage.js";
 
 
 let frameCount = 0;
@@ -925,6 +926,8 @@ export function drawShips(players, bounds) {
   for (const id of state.shipHud.keys()) {
     if (!visibleShipIds.has(id)) state.shipHud.delete(id);
   }
+
+  pruneComponentDamage(visibleShipIds, performance.now());
 }
 
 export function drawShip(ship, player) {
@@ -952,12 +955,18 @@ export function drawShip(ship, player) {
   const serverAngles = ship.weaponAngles || [];
   const dt = state.dt || 0.016;
 
+  const nowMs = performance.now();
+
   design.forEach((part, i) => {
     const def = PART_DEFS[part.type] || PART_DEFS.frame;
     const weaponStat = PART_STATS[part.type]?.weapon;
     const place = footprintLocalPlacement(part, scale);
     const healthRatio = componentHealthRatio(ship, i);
     const destroyed = healthRatio !== null && healthRatio <= 0;
+    const flash = ship.alive ? componentFlash(ship.id, i, nowMs) : null;
+    const halfLong = (place.tilesLong * (scale - 1)) / 2;
+    const halfCross = (place.tilesCross * (scale - 1)) / 2;
+    const halfCell = (scale - 1) / 2;
     ctx.save();
     ctx.translate(place.cx, place.cy);
     if (destroyed) ctx.globalAlpha *= 0.6;
@@ -976,17 +985,41 @@ export function drawShip(ship, player) {
       } else {
         drawModule({ x: 0, y: 0, size: scale - 1, color: def.color, type: part.type, trim: player.color });
       }
-      drawModuleDamage(ctx, healthRatio, (place.tilesLong * (scale - 1)) / 2, (place.tilesCross * (scale - 1)) / 2);
+      drawModuleDamage(ctx, healthRatio, halfLong, halfCross, nowMs);
+      drawModuleFlash(ctx, flash, halfLong, halfCross);
     } else if (place.multi) {
       ctx.rotate(place.longAxisAngle);
       drawFootprintComponent({ type: part.type, unit: scale - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: player.color });
-      drawModuleDamage(ctx, healthRatio, (place.tilesLong * (scale - 1)) / 2, (place.tilesCross * (scale - 1)) / 2);
+      drawModuleDamage(ctx, healthRatio, halfLong, halfCross, nowMs);
+      drawModuleFlash(ctx, flash, halfLong, halfCross);
     } else {
       drawModule({ x: 0, y: 0, size: scale - 1, color: def.color, type: part.type, trim: player.color });
-      drawModuleDamage(ctx, healthRatio, (scale - 1) / 2, (scale - 1) / 2);
+      drawModuleDamage(ctx, healthRatio, halfCell, halfCell, nowMs);
+      drawModuleFlash(ctx, flash, halfCell, halfCell);
     }
     ctx.restore();
   });
+
+  // Faint short-lived trace through the components a penetrating hit damaged,
+  // built from the order they appeared in the component-hp delta.
+  if (ship.alive) {
+    const path = activePenetrationPath(ship.id, nowMs);
+    if (path && path.indices.length >= 2) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 220, 170, ${0.55 * path.strength})`;
+      ctx.lineWidth = Math.max(1, 2 / state.camera.zoom);
+      ctx.beginPath();
+      path.indices.forEach((index, k) => {
+        const part = design[index];
+        if (!part) return;
+        const p = footprintLocalPlacement(part, scale);
+        if (k === 0) ctx.moveTo(p.cx, p.cy);
+        else ctx.lineTo(p.cx, p.cy);
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
   ctx.strokeStyle = player.color;
   ctx.lineWidth = 2.5 / state.camera.zoom;
@@ -1003,7 +1036,28 @@ export function drawShip(ship, player) {
   if (ship.destructProgress != null && ship.alive) drawDestructWarning(ship);
   drawHealthBars(ship, player);
   drawShipName(ship, player);
+  if (ship.alive) drawCoreWarning(ship);
   if (!ship.alive) drawRespawn(ship);
+}
+
+// Flashing CORE EXPOSED / CORE DAMAGED / CORE CRITICAL callout above the ship,
+// driven by the client-side damage feed (expires on its own timer).
+function drawCoreWarning(ship) {
+  const warning = activeCoreWarning(ship.id, performance.now());
+  if (!warning) return;
+  const zoom = state.camera.zoom;
+  const size = Math.max(11, 13 / zoom);
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, warning.strength * 1.6);
+  ctx.font = `900 ${size}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.lineWidth = Math.max(2, 3 / zoom);
+  ctx.strokeStyle = "rgba(10, 4, 4, 0.8)";
+  ctx.fillStyle = warning.text === "CORE EXPOSED" ? "#ffca57" : "#ff5f5f";
+  const y = ship.y - ship.radius - 64 / zoom;
+  ctx.strokeText(warning.text, ship.x, y);
+  ctx.fillText(warning.text, ship.x, y);
+  ctx.restore();
 }
 
 function drawDestructWarning(ship) {
@@ -1168,15 +1222,20 @@ export function componentHealthRatio(ship, index) {
   return clamp(chp[index] / componentMax, 0, 1);
 }
 
-// Darkens/cracks a module that has taken component damage. Drawn in the same
-// local space the module was just drawn in (centred on 0,0; possibly rotated).
-export function drawModuleDamage(drawCtx, ratio, halfW, halfH) {
-  if (ratio === null || ratio >= 0.55) return;
+// Persistent status tint for a module: healthy renders untouched, damaged gets
+// a subtle amber wash, critical a stronger red pulse, destroyed a dark broken
+// slab. In Component Damage View (state.componentDamageView) the tints are
+// stronger and applied from full health thresholds so status reads at a glance.
+// Drawn in the local space the module was just drawn in (centred, maybe rotated).
+export function drawModuleDamage(drawCtx, ratio, halfW, halfH, now = 0) {
+  if (ratio === null) return;
+  const overlay = Boolean(state.componentDamageView);
+  if (ratio >= DAMAGED_RATIO && !(overlay && ratio < 0.999)) return;
   const w = halfW * 2;
   const h = halfH * 2;
   if (ratio <= 0) {
     // Destroyed: near-black slab with jagged crack lines.
-    drawCtx.fillStyle = "rgba(7, 9, 13, 0.78)";
+    drawCtx.fillStyle = overlay ? "rgba(52, 58, 66, 0.85)" : "rgba(7, 9, 13, 0.78)";
     drawCtx.fillRect(-halfW, -halfH, w, h);
     drawCtx.strokeStyle = "rgba(0, 0, 0, 0.85)";
     drawCtx.lineWidth = Math.max(1, halfW * 0.16);
@@ -1195,10 +1254,51 @@ export function drawModuleDamage(drawCtx, ratio, halfW, halfH) {
     drawCtx.moveTo(-halfW * 0.1, -halfH * 0.05);
     drawCtx.lineTo(halfW * 0.35, halfH * 0.25);
     drawCtx.stroke();
-  } else {
-    // Damaged: translucent scorch that deepens as hp drops toward zero.
-    drawCtx.fillStyle = `rgba(8, 10, 14, ${(0.55 - ratio) * 0.85})`;
+  } else if (ratio <= CRITICAL_RATIO) {
+    // Critical: red wash with a slow pulse so it draws the eye without a glow.
+    const pulse = 0.72 + 0.28 * Math.sin(now * 0.008);
+    const alpha = (overlay ? 0.5 : 0.4) * pulse;
+    drawCtx.fillStyle = `rgba(239, 68, 68, ${alpha})`;
     drawCtx.fillRect(-halfW, -halfH, w, h);
+  } else {
+    // Damaged: subtle amber tint deepening toward critical.
+    const depth = clamp((DAMAGED_RATIO - ratio) / DAMAGED_RATIO, 0, 1);
+    const alpha = overlay ? 0.2 + depth * 0.35 : 0.12 + depth * 0.3;
+    drawCtx.fillStyle = `rgba(251, 176, 64, ${alpha})`;
+    drawCtx.fillRect(-halfW, -halfH, w, h);
+  }
+}
+
+// Short hit flash over one module: orange impact for armour plates, red/white
+// for internal components, a brighter expanding pop when the hit destroyed it.
+// Timers live client-side (componentDamage.js); nothing here touches the server.
+export function drawModuleFlash(drawCtx, flash, halfW, halfH) {
+  if (!flash) return;
+  const s = flash.strength;
+  const w = halfW * 2;
+  const h = halfH * 2;
+  if (flash.destroyed) {
+    const grow = 1 + (1 - s) * 0.9;
+    drawCtx.fillStyle = `rgba(255, 236, 210, ${0.75 * s})`;
+    drawCtx.fillRect(-halfW * grow, -halfH * grow, w * grow, h * grow);
+    drawCtx.strokeStyle = `rgba(255, 140, 60, ${0.9 * s})`;
+    drawCtx.lineWidth = Math.max(1, halfW * 0.2);
+    drawCtx.strokeRect(-halfW * grow, -halfH * grow, w * grow, h * grow);
+  } else if (flash.layer === "armor") {
+    drawCtx.fillStyle = `rgba(255, 158, 44, ${0.65 * s})`;
+    drawCtx.fillRect(-halfW, -halfH, w, h);
+    drawCtx.strokeStyle = `rgba(255, 214, 130, ${0.85 * s})`;
+    drawCtx.lineWidth = Math.max(0.8, halfW * 0.14);
+    drawCtx.beginPath();
+    drawCtx.moveTo(-halfW * 0.6, halfH * 0.5);
+    drawCtx.lineTo(0, -halfH * 0.2);
+    drawCtx.lineTo(halfW * 0.55, halfH * 0.4);
+    drawCtx.stroke();
+  } else {
+    drawCtx.fillStyle = `rgba(255, 92, 92, ${0.6 * s})`;
+    drawCtx.fillRect(-halfW, -halfH, w, h);
+    drawCtx.fillStyle = `rgba(255, 245, 245, ${0.5 * s * s})`;
+    drawCtx.fillRect(-halfW * 0.55, -halfH * 0.55, w * 0.55, h * 0.55);
   }
 }
 

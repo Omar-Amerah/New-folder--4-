@@ -9,6 +9,7 @@ import { rotateFocusedPart } from "../ui/designerUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { updateHud } from "../ui/hudUi.js";
 import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
+import { showToast } from "../ui/toastUi.js";
 import { issueCommand, destructSelectedShips } from "./commands.js";
 
 export function handlePointerDown(event) {
@@ -164,6 +165,12 @@ export function handleKeyDown(event) {
   } else if (key === "delete" || key === "backspace") {
     event.preventDefault();
     destructSelectedShips();
+  } else if (key === "v") {
+    // Client-only Component Damage View: stronger status tints on all ships.
+    event.preventDefault();
+    state.componentDamageView = !state.componentDamageView;
+    showToast(`Component damage view ${state.componentDamageView ? "on" : "off"}`, "good");
+    renderSideControls();
   }
 }
 

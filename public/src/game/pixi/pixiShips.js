@@ -8,6 +8,7 @@ import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
 import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip, componentHealthRatio } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
+import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
 
 const SHIP_SCALE = 13;
 // Nominal zoom used when baking zoom-compensated line widths into textures.
@@ -129,10 +130,12 @@ function createPixiShipView(env) {
   const engineGfx = new PIXI.Graphics(); // exhaust plumes, drawn behind the hull
   const hullSprite = new PIXI.Sprite();
   hullSprite.anchor.set(0.5);
-  const damageGfx = new PIXI.Graphics(); // destroyed/damaged component overlays
+  const damageGfx = new PIXI.Graphics(); // persistent destroyed/damaged tints
+  const flashGfx = new PIXI.Graphics(); // short-lived hit flashes + penetration trace
   hullGroup.addChild(engineGfx);
   hullGroup.addChild(hullSprite);
   hullGroup.addChild(damageGfx);
+  hullGroup.addChild(flashGfx);
   const hudGfx = new PIXI.Graphics();
   const makeText = (style) => {
     const text = new PIXI.Text({ text: "", style, resolution: 2 });
@@ -140,6 +143,7 @@ function createPixiShipView(env) {
     text.visible = false;
     return text;
   };
+  const coreWarnText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "900", fill: "#ff5f5f", stroke: { color: "rgba(10,4,4,0.8)", width: 3 } });
   const shieldText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 12, fontWeight: "900", fill: "#ffffff", stroke: { color: "rgba(0,0,0,0.65)", width: 2 } });
   const hullText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 12, fontWeight: "900", fill: "#ffffff", stroke: { color: "rgba(0,0,0,0.65)", width: 2 } });
   const hudName = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "bold", fill: "#ffffff" });
@@ -153,6 +157,7 @@ function createPixiShipView(env) {
   root.addChild(hudName);
   root.addChild(idleName);
   root.addChild(lostText);
+  root.addChild(coreWarnText);
   return {
     root,
     shieldGfx,
@@ -161,6 +166,8 @@ function createPixiShipView(env) {
     engines: [],
     hullSprite,
     damageGfx,
+    flashGfx,
+    coreWarnText,
     damageSig: null,
     turretSprites: [],
     hudGfx,
@@ -254,16 +261,35 @@ function rebuildPixiShipVisual(env, view, design, color, radius, hullKey) {
     view.hullGroup.addChild(sprite);
     view.turretSprites.push(sprite);
   });
-  // Keep the damage overlay above the freshly re-added turret sprites.
+  // Keep the damage/flash overlays above the freshly re-added turret sprites.
   view.hullGroup.addChild(view.damageGfx);
+  view.hullGroup.addChild(view.flashGfx);
   view.damageSig = null;
   view.engines = shipEngineNozzles(design, SHIP_SCALE);
   view.hullKey = hullKey;
 }
 
-// Draws darkened slabs (plus cracks when destroyed) over damaged components.
-// Redrawn only when the quantized damage signature changes, so healthy ships
-// cost nothing per frame.
+// Corner positions of a (possibly rotated) footprint rect in ship-local space.
+function footprintCorners(place, halfW, halfH) {
+  const ang = place.multi ? place.longAxisAngle : 0;
+  const cos = Math.cos(ang);
+  const sin = Math.sin(ang);
+  const pt = (x, y) => ({ x: place.cx + x * cos - y * sin, y: place.cy + x * sin + y * cos });
+  return [pt(-halfW, -halfH), pt(halfW, -halfH), pt(halfW, halfH), pt(-halfW, halfH), pt];
+}
+
+function tracePoly(gfx, corners) {
+  gfx.moveTo(corners[0].x, corners[0].y);
+  gfx.lineTo(corners[1].x, corners[1].y);
+  gfx.lineTo(corners[2].x, corners[2].y);
+  gfx.lineTo(corners[3].x, corners[3].y);
+  gfx.closePath();
+}
+
+// Persistent status tints over damaged components (amber), critical ones (red),
+// and destroyed ones (dark broken slab). Redrawn only when the quantized damage
+// signature changes, so healthy ships cost nothing per frame. The Component
+// Damage View toggle strengthens the tints and is part of the signature.
 function updatePixiComponentDamage(view, ship, design) {
   const gfx = view.damageGfx;
   if (!ship.chp) {
@@ -274,45 +300,32 @@ function updatePixiComponentDamage(view, ship, design) {
     return;
   }
 
-  let sig = "";
+  const overlay = Boolean(state.componentDamageView);
+  const shows = (ratio) => ratio !== null && (ratio < DAMAGED_RATIO || (overlay && ratio < 0.999));
+  let sig = overlay ? "V|" : "";
   for (let i = 0; i < design.length; i += 1) {
     const ratio = componentHealthRatio(ship, i);
-    if (ratio === null || ratio >= 0.55) continue;
+    if (!shows(ratio)) continue;
     sig += `${i}:${ratio <= 0 ? "x" : Math.round(ratio * 10)};`;
   }
   if (sig === view.damageSig) return;
   view.damageSig = sig;
   gfx.clear();
-  if (!sig) return;
+  if (!sig || sig === "V|") return;
 
   for (let i = 0; i < design.length; i += 1) {
     const ratio = componentHealthRatio(ship, i);
-    if (ratio === null || ratio >= 0.55) continue;
+    if (!shows(ratio)) continue;
     const part = design[i];
     const place = footprintLocalPlacement(part, SHIP_SCALE);
     const halfW = (place.tilesLong * (SHIP_SCALE - 1)) / 2;
     const halfH = (place.tilesCross * (SHIP_SCALE - 1)) / 2;
-    const ang = place.multi ? place.longAxisAngle : 0;
-    const cos = Math.cos(ang);
-    const sin = Math.sin(ang);
-    const corner = (x, y) => [place.cx + x * cos - y * sin, place.cy + x * sin + y * cos];
-    const pt = (x, y) => {
-      const [px, py] = corner(x, y);
-      return { x: px, y: py };
-    };
-
-    const c0 = pt(-halfW, -halfH);
-    const c1 = pt(halfW, -halfH);
-    const c2 = pt(halfW, halfH);
-    const c3 = pt(-halfW, halfH);
-    gfx.moveTo(c0.x, c0.y);
-    gfx.lineTo(c1.x, c1.y);
-    gfx.lineTo(c2.x, c2.y);
-    gfx.lineTo(c3.x, c3.y);
-    gfx.closePath();
+    const corners = footprintCorners(place, halfW, halfH);
+    const pt = corners[4];
+    tracePoly(gfx, corners);
 
     if (ratio <= 0) {
-      gfx.fill({ color: 0x07090d, alpha: 0.78 });
+      gfx.fill({ color: overlay ? 0x343a42 : 0x07090d, alpha: overlay ? 0.85 : 0.78 });
       const k0 = pt(-halfW * 0.8, -halfH * 0.7);
       const k1 = pt(-halfW * 0.1, -halfH * 0.05);
       const k2 = pt(halfW * 0.35, halfH * 0.25);
@@ -325,10 +338,100 @@ function updatePixiComponentDamage(view, ship, design) {
       gfx.moveTo(k1.x, k1.y);
       gfx.lineTo(k2.x, k2.y);
       gfx.stroke({ width: Math.max(0.6, halfW * 0.08), color: 0xff783c, alpha: 0.35 });
+    } else if (ratio <= CRITICAL_RATIO) {
+      gfx.fill({ color: 0xef4444, alpha: overlay ? 0.5 : 0.38 });
     } else {
-      gfx.fill({ color: 0x080a0e, alpha: (0.55 - ratio) * 0.85 });
+      const depth = clamp((DAMAGED_RATIO - ratio) / DAMAGED_RATIO, 0, 1);
+      gfx.fill({ color: 0xfbb040, alpha: (overlay ? 0.2 : 0.12) + depth * (overlay ? 0.35 : 0.3) });
     }
   }
+}
+
+// Short-lived hit flashes (orange = armour, red/white = internal, bright pop =
+// destroyed) plus the faint penetration trace. Fully client-side timers; the
+// graphics clear themselves once nothing is active, so idle ships skip work.
+function updatePixiDamageFlashes(view, ship, design, now) {
+  const gfx = view.flashGfx;
+  if (!ship.alive || !hasActiveDamageVisuals(ship.id, now)) {
+    if (gfx.visible) {
+      gfx.clear();
+      gfx.visible = false;
+    }
+    return;
+  }
+  gfx.visible = true;
+  gfx.clear();
+
+  for (let i = 0; i < design.length; i += 1) {
+    const flash = componentFlash(ship.id, i, now);
+    if (!flash) continue;
+    const place = footprintLocalPlacement(design[i], SHIP_SCALE);
+    const halfW = (place.tilesLong * (SHIP_SCALE - 1)) / 2;
+    const halfH = (place.tilesCross * (SHIP_SCALE - 1)) / 2;
+    const s = flash.strength;
+
+    if (flash.destroyed) {
+      const grow = 1 + (1 - s) * 0.9;
+      const corners = footprintCorners(place, halfW * grow, halfH * grow);
+      tracePoly(gfx, corners);
+      gfx.fill({ color: 0xffecd2, alpha: 0.75 * s });
+      tracePoly(gfx, corners);
+      gfx.stroke({ width: Math.max(1, halfW * 0.2), color: 0xff8c3c, alpha: 0.9 * s });
+    } else if (flash.layer === "armor") {
+      const corners = footprintCorners(place, halfW, halfH);
+      tracePoly(gfx, corners);
+      gfx.fill({ color: 0xff9e2c, alpha: 0.65 * s });
+      const pt = corners[4];
+      const p0 = pt(-halfW * 0.6, halfH * 0.5);
+      const p1 = pt(0, -halfH * 0.2);
+      const p2 = pt(halfW * 0.55, halfH * 0.4);
+      gfx.moveTo(p0.x, p0.y);
+      gfx.lineTo(p1.x, p1.y);
+      gfx.lineTo(p2.x, p2.y);
+      gfx.stroke({ width: Math.max(0.8, halfW * 0.14), color: 0xffd682, alpha: 0.85 * s });
+    } else {
+      const corners = footprintCorners(place, halfW, halfH);
+      tracePoly(gfx, corners);
+      gfx.fill({ color: 0xff5c5c, alpha: 0.6 * s });
+      const inner = footprintCorners(place, halfW * 0.55, halfH * 0.55);
+      tracePoly(gfx, inner);
+      gfx.fill({ color: 0xfff5f5, alpha: 0.5 * s * s });
+    }
+  }
+
+  const path = activePenetrationPath(ship.id, now);
+  if (path && path.indices.length >= 2) {
+    let started = false;
+    for (const index of path.indices) {
+      const part = design[index];
+      if (!part) continue;
+      const place = footprintLocalPlacement(part, SHIP_SCALE);
+      if (!started) {
+        gfx.moveTo(place.cx, place.cy);
+        started = true;
+      } else {
+        gfx.lineTo(place.cx, place.cy);
+      }
+    }
+    if (started) gfx.stroke({ width: 2, color: 0xffdcaa, alpha: 0.55 * path.strength });
+  }
+}
+
+// CORE EXPOSED / CORE DAMAGED / CORE CRITICAL callout above the ship.
+function updatePixiCoreWarning(view, ship, zoom) {
+  const warning = ship.alive ? activeCoreWarning(ship.id, performance.now()) : null;
+  const text = view.coreWarnText;
+  if (!warning) {
+    text.visible = false;
+    return;
+  }
+  if (text.text !== warning.text) text.text = warning.text;
+  text.style.fill = warning.text === "CORE EXPOSED" ? "#ffca57" : "#ff5f5f";
+  const size = Math.max(11, 13 / zoom);
+  text.scale.set(size / 13);
+  text.position.set(0, -(ship.radius || 26) - 64 / zoom);
+  text.alpha = Math.min(1, warning.strength * 1.6);
+  text.visible = true;
 }
 
 function pixiEngineIdPhase(id) {
@@ -764,6 +867,8 @@ export function updatePixiShips(env, now, players, bounds) {
       updatePixiEngineExhaust(view, renderShip, now);
       updatePixiTurrets(view, ship, design);
       updatePixiComponentDamage(view, ship, design);
+      updatePixiDamageFlashes(view, ship, design, performance.now());
+      updatePixiCoreWarning(view, ship, zoom);
       updatePixiHealthBars(env, view, { ...renderShip, radius: ship.radius || 0 }, player, zoom);
       updatePixiShipLabels(view, renderShip, player, zoom);
 
@@ -785,4 +890,6 @@ export function updatePixiShips(env, now, players, bounds) {
   for (const id of state.shipHud.keys()) {
     if (!visibleShipIds.has(id)) state.shipHud.delete(id);
   }
+
+  pruneComponentDamage(visibleShipIds, performance.now());
 }

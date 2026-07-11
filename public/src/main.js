@@ -24,6 +24,10 @@ if (dom.combatStyleSelect) {
   dom.combatStyleSelect.value = state.combatStyle || "charge";
 }
 
+// Debug/test handle: read-only access to the client state from the console
+// and automated browser checks. Not used by game code.
+window.__mfaState = state;
+
 // Register core window listeners
 window.addEventListener("resize", resizeArenaRenderer);
 window.addEventListener("keydown", handleKeyDown);

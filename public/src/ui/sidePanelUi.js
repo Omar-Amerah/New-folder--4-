@@ -6,6 +6,7 @@ import { send } from "../network.js";
 import { showToast } from "./toastUi.js";
 import { updateHud } from "./hudUi.js";
 import { ownLiveShips, pruneSelection } from "../game/selection.js";
+import { renderShipDamagePanel } from "./shipDamagePanelUi.js";
 
 const SHIP_GROUP_DEFS = [
   { id: "group1", label: "Group 1" },
@@ -250,6 +251,7 @@ function renderSelectionControls() {
     const def = SELECTED_COMBAT_STYLES.find((item) => item.id === style);
     if (def && button.textContent !== def.label) button.textContent = def.label;
   }
+  renderShipDamagePanel();
 }
 
 function assignSelectedShipsToGroup(groupId) {

@@ -132,6 +132,16 @@
             <button type="button" data-combat-style="sentry">Sentry</button>
             <button type="button" data-combat-style="circle">Circle</button>
           </div>
+          <div id="shipDamagePanel" class="ship-damage-panel" hidden>
+            <div class="ship-damage-head">
+              <span>Ship status</span>
+              <button id="damageViewToggle" type="button" title="Toggle Component Damage View (V)">Damage View</button>
+            </div>
+            <canvas id="shipDamageCanvas" width="160" height="160" aria-label="Selected ship component damage diagram"></canvas>
+            <div id="shipDamageHover" class="ship-damage-hover">Hover a component</div>
+            <div id="coreStatusLabel" class="core-status" hidden></div>
+            <ul id="damageFeed" class="damage-feed" aria-live="polite"></ul>
+          </div>
         </div>
         <div id="scoreList" class="score-list"></div>
         <div id="eventLog" class="event-log"></div>

@@ -17,6 +17,7 @@ import { renderScoreboard } from "./ui/scoreboardUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
 import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, syncUrlParams } from "./constants.js";
+import { recordComponentHpChanges } from "./game/componentDamage.js";
 
 export function handleServerMessage(message) {
   if (message.type === "hello") {
@@ -88,16 +89,22 @@ export function handleServerMessage(message) {
       for (const newShip of message.ships) {
         const oldShip = oldShips.get(newShip.id);
         if (newShip.design === undefined && oldShip) newShip.design = oldShip.design;
-        if (newShip.chp === undefined && oldShip && oldShip.chp) {
+        const oldChp = oldShip?.chp;
+        if (newShip.chp === undefined && oldChp) {
           if (newShip.chpD && newShip.chpD.length) {
-            const merged = oldShip.chp.slice();
+            const merged = oldChp.slice();
             for (let k = 0; k + 1 < newShip.chpD.length; k += 2) {
               merged[newShip.chpD[k]] = newShip.chpD[k + 1];
             }
             newShip.chp = merged;
           } else {
-            newShip.chp = oldShip.chp;
+            newShip.chp = oldChp;
           }
+        }
+        // Client-only damage feedback (flashes, penetration trace, damage feed,
+        // core warnings) derived from what changed between cached and new hp.
+        if (oldChp && newShip.chp && newShip.chp !== oldChp) {
+          recordComponentHpChanges(newShip, oldChp, newShip.chp);
         }
       }
     }
