@@ -101,6 +101,14 @@ export function handleServerMessage(message) {
             newShip.chp = oldChp;
           }
         }
+        const oldHeat = oldShip?.cheat;
+        if (newShip.cheat === undefined && oldHeat) {
+          if (newShip.cheatD?.length) {
+            const mergedHeat = oldHeat.map(value => Array.isArray(value) ? value.slice() : value);
+            for (let k = 0; k + 2 < newShip.cheatD.length; k += 3) mergedHeat[newShip.cheatD[k]] = [newShip.cheatD[k + 1], newShip.cheatD[k + 2]];
+            newShip.cheat = mergedHeat;
+          } else newShip.cheat = oldHeat;
+        }
         // Client-only damage feedback (flashes, penetration trace, damage feed,
         // core warnings) derived from what changed between cached and new hp.
         if (oldChp && newShip.chp && newShip.chp !== oldChp) {

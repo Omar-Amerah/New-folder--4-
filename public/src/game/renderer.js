@@ -746,15 +746,16 @@ export function shipEngineNozzles(design, scale = 13) {
     const part = design[i];
     if (part.type !== "engine") continue;
     const place = footprintLocalPlacement(part, scale);
-    const c = Math.abs(Math.cos(place.longAxisAngle));
-    const s = Math.abs(Math.sin(place.longAxisAngle));
-    const extentX = (c * place.tilesLong + s * place.tilesCross) * scale * 0.5;
-    const spanY = (s * place.tilesLong + c * place.tilesCross) * scale;
+    const angle = moduleRotationToRadians(normalizeRotation(part.rotation));
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const extent = place.tilesLong * scale * 0.5;
+    const spanY = place.tilesCross * scale;
     nozzles.push({
       index: i,
-      x: place.cx - extentX + 1.5,
-      y: place.cy,
-      halfW: Math.max(2.4, spanY * 0.33)
+      x: place.cx - c * extent + c * 1.5,
+      y: place.cy - s * extent + s * 1.5,
+      halfW: Math.max(2.4, spanY * 0.33),
+      angle
     });
   }
   return nozzles;
@@ -764,7 +765,9 @@ export function shipEngineNozzles(design, scale = 13) {
 // against the ship's live component hp.
 export function aliveEngineNozzles(ship, nozzles) {
   if (!Array.isArray(nozzles) || nozzles.length === 0 || !ship?.chp) return nozzles || [];
+  const blocked = new Set(ship.engBlocked || []);
   return nozzles.filter((nozzle) => {
+    if (blocked.has(nozzle.index)) return false;
     const ratio = componentHealthRatio(ship, nozzle.index);
     return ratio === null || ratio > 0;
   });
@@ -779,8 +782,6 @@ export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now
   const angle = Number(ship.angle) || 0;
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
-  const backX = -cos;
-  const backY = -sin;
   const vx = Number(ship.vx) || 0;
   const vy = Number(ship.vy) || 0;
   const cadence = 115 - intensity * 58;
@@ -794,16 +795,22 @@ export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now
 
     const nz = nozzles[i];
     const jitter = (Math.random() - 0.5) * nz.halfW * 0.9;
-    const localX = nz.x - nz.halfW * (0.9 + intensity * 1.4);
-    const localY = nz.y + jitter;
+    const nozzleAngle = nz.angle || 0;
+    const exhaustX = -Math.cos(nozzleAngle), exhaustY = -Math.sin(nozzleAngle);
+    const crossX = -exhaustY, crossY = exhaustX;
+    const offset = nz.halfW * (0.9 + intensity * 1.4);
+    const localX = nz.x + exhaustX * offset + crossX * jitter;
+    const localY = nz.y + exhaustY * offset + crossY * jitter;
     const wx = ship.x + localX * cos - localY * sin;
     const wy = ship.y + localX * sin + localY * cos;
     const push = 26 + intensity * 74;
+    const worldExhaustX = exhaustX * cos - exhaustY * sin;
+    const worldExhaustY = exhaustX * sin + exhaustY * cos;
     state.engineSmoke.push({
       x: wx,
       y: wy,
-      vx: vx * 0.18 + backX * push + (Math.random() - 0.5) * 14,
-      vy: vy * 0.18 + backY * push + (Math.random() - 0.5) * 14,
+      vx: vx * 0.18 + worldExhaustX * push + (Math.random() - 0.5) * 14,
+      vy: vy * 0.18 + worldExhaustY * push + (Math.random() - 0.5) * 14,
       radius: Math.max(3.2, scale * (0.18 + intensity * 0.34)),
       alpha: 0.14 + intensity * 0.18,
       createdAt: now,
@@ -870,8 +877,11 @@ function drawEngineExhaust(ship, design, scale, now = performance.now()) {
     const flicker = 0.74 + 0.2 * Math.sin(t * 36 + phase + i * 1.9) + 0.08 * Math.sin(t * 67 + i);
     const halfW = nz.halfW * (0.8 + intensity * 0.65);
     const len = halfW * (1.2 + intensity * 9.4 + speedRatio * 2.4) * flicker;
-    const ox = nz.x;
-    const oy = nz.y;
+    const ox = 0;
+    const oy = 0;
+    ctx.save();
+    ctx.translate(nz.x, nz.y);
+    ctx.rotate(nz.angle || 0);
 
     ctx.fillStyle = `rgba(43, 123, 255, ${0.16 + intensity * 0.22})`;
     ctx.beginPath();
@@ -898,6 +908,7 @@ function drawEngineExhaust(ship, design, scale, now = performance.now()) {
     ctx.quadraticCurveTo(ox - coreLen * 0.5, oy + halfW * 0.22, ox + 0.5, oy + halfW * 0.38);
     ctx.closePath();
     ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 }

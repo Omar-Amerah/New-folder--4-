@@ -22,6 +22,17 @@ export function updateHud() {
   dom.relayLabel.textContent = String(relays);
   dom.selectionLabel.textContent = `${state.selectedShipIds.size}`;
   dom.objectiveLabel.textContent = target ? target.label : "None";
+  const selected = myShips.filter(ship => state.selectedShipIds.has(ship.id));
+  const heatShips = selected.length ? selected : myShips;
+  const heat = heatShips.length ? Math.max(...heatShips.map(ship => Number(ship.heat) || 0)) : 0;
+  const hotCount = heatShips.reduce((sum, ship) => sum + (Number(ship.hot) || 0), 0);
+  const overheatedCount = heatShips.reduce((sum, ship) => sum + (Number(ship.overheated) || 0), 0);
+  if (dom.heatHudFill) dom.heatHudFill.style.width = `${heat}%`;
+  if (dom.heatHudLabel) dom.heatHudLabel.textContent = overheatedCount ? `HEAT ${heat}% · ${overheatedCount} OVERHEATED` : hotCount ? `HEAT ${heat}% · ${hotCount} HOT` : `HEAT ${heat}%`;
+  if (dom.heatHud) {
+    dom.heatHud.className = `heat-hud${overheatedCount ? " overheated" : hotCount ? " hot" : ""}`;
+    dom.heatHud.title = `${hotCount} hot component${hotCount === 1 ? "" : "s"}, ${overheatedCount} overheated`;
+  }
   dom.latency.textContent = state.latency == null ? "-- ms" : `${Math.round(state.latency)} ms`;
 }
 

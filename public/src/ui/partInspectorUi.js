@@ -15,6 +15,7 @@ export function renderPartInspector() {
   // Calculate effective cost preview based on design context
   const effectiveCost = `$${estimatePartEffectiveCost(type, state.design)}`;
   const details = partInspectorDetails(type, stat, effectiveCost);
+  const thermal = partThermalDetails(type, stat);
 
   const baseDesc = partDescription(type, stat);
   const enrichedDesc = enrichDescription(type, baseDesc);
@@ -43,12 +44,58 @@ export function renderPartInspector() {
       ${inspectorStat("Thrust", formatThrust(stat.thrust))}
       ${inspectorStat("Storage", formatEnergy(stat.energyStorage))}
       ${inspectorStat("Repair", formatRepair(stat.repairRate))}
+      ${inspectorStat("Heat", thermal.summary)}
+      ${inspectorStat("Capacity", `${thermal.capacity} H`)}
     </div>
     <div class="part-detail-list">
       ${details.map(([label, value]) => inspectorDetail(label, value)).join("")}
     </div>
+    <div class="part-detail-heading">Thermal effect</div>
+    <div class="part-detail-list thermal-detail-list">
+      ${thermal.details.map(([label, value]) => inspectorDetail(label, value)).join("")}
+    </div>
     ${tipHtml}
   `;
+}
+
+function partThermalDetails(type, stat) {
+  const rules = globalThis.HeatRules;
+  const thermalProfile = rules.profile(type, stat);
+  const capacity = thermalProfile.capacity;
+  const naturalCooling = thermalProfile.cooling;
+  let generation = rules.activityHeat(type, stat);
+  let cadence = "While active";
+  if (stat.weapon) {
+    cadence = stat.weapon.type === "beam" ? "while firing" : "at sustained fire";
+  } else if ((stat.powerGeneration || 0) > 0) {
+    generation = 2 + stat.powerGeneration * 0.42;
+    cadence = "At power load";
+  } else if ((stat.thrust || 0) > 0) {
+    generation = 2 + stat.thrust * 0.018;
+    cadence = "While thrusting";
+  } else if ((stat.shieldRegen || 0) > 0) {
+    generation = stat.shieldRegen * 0.7;
+    cadence = "Recharging / hit";
+  }
+
+  let effect = "Loses heat naturally and exchanges heat with adjacent occupied components.";
+  if (type === "heatSink") effect = "Adds 35 H capacity to every adjacent component and absorbs burst heat locally.";
+  if (type === "radiator") effect = "Removes 14 H/s with an exposed exterior edge, or 3.5 H/s when enclosed.";
+  if (type === "armor") effect = "Retains slightly more heat than frame.";
+
+  const signed = generation > 0 ? `+${generation.toFixed(1)} H` : `-${naturalCooling.toFixed(1)} H/s`;
+  return {
+    capacity,
+    summary: signed,
+    details: [
+      ["Heat generation", generation > 0 ? `${generation.toFixed(1)} H — ${cadence}` : "None"],
+      ["Natural cooling", `${naturalCooling.toFixed(1)} H/s`],
+      ["Heat capacity", `${capacity} H`],
+      ["Placement effect", effect],
+      ["Hot penalty", stat.weapon ? "30% slower sustained fire" : (stat.thrust || 0) > 0 ? "30% reduced thrust" : (stat.shieldRegen || 0) > 0 ? "30% slower recharge" : "Reduced performance"],
+      ["Overheated", "Temporarily shuts down until below 62% heat"]
+    ]
+  };
 }
 
 function inspectorStat(label, value) {
@@ -216,7 +263,6 @@ function partInspectorDetails(type, stat, effectiveCost) {
       ["Range bonus", stat.rangeBonus ? formatDistance(stat.rangeBonus) : "None"],
       ["Accuracy bonus", stat.accuracyBonus ? formatPercent(stat.accuracyBonus) : "None"],
       ["Fire rate bonus", stat.fireRateBonus ? formatPercent(stat.fireRateBonus) : "None"],
-      ["Cooling bonus", stat.heat ? `${formatPercent(Math.max(0, -stat.heat) * 0.01)} faster reload` : "None"],
       ["Capture pressure", stat.captureBonus ? `+${formatPercent(stat.captureBonus)}` : "None"]
     ];
   }

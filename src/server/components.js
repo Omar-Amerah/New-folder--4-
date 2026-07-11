@@ -707,6 +707,13 @@ const FALLBACK_PARTS = Object.freeze({
     utilityEffect: "cooling"
   },
 
+  radiator: {
+    category: "Support", cost: 30, mass: 5, hp: 40,
+    powerGeneration: 0, powerUse: 0.5, shield: 0, shieldRegen: 0,
+    thrust: 0, turn: -0.015, energyStorage: 0, repairRate: 0,
+    weapon: null, heat: -14, utilityEffect: "cooling"
+  },
+
   captureModule: {
     category: "Utility",
     cost: 28, mass: 4, hp: 40,

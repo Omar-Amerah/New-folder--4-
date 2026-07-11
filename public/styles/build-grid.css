@@ -100,3 +100,59 @@
 .build-cell.core {
   cursor: default;
 }
+
+.blocked-exhaust-warning { position:absolute; z-index:10; left:2px; top:2px; display:grid; place-items:center; width:12px; height:12px; border:1px solid #ffd1d8; border-radius:50%; background:#c51f3d; color:#fff; font-size:9px; font-weight:950; line-height:1; box-shadow:0 0 7px rgba(255,48,82,.7); pointer-events:auto; }
+.engine-exhaust-preview { position:absolute; z-index:11; border:1px dashed rgba(86,239,176,.72); border-radius:3px; background:linear-gradient(180deg,rgba(64,224,174,.12),rgba(64,224,174,.27),rgba(64,224,174,.08)); pointer-events:none; }
+.engine-exhaust-preview.invalid { border-color:rgba(255,77,103,.85); background:linear-gradient(180deg,rgba(255,50,82,.1),rgba(255,50,82,.3),rgba(255,50,82,.08)); }
+.engine-exhaust-preview.blocker { border-style:solid; border-width:2px; background:rgba(255,35,66,.36); box-shadow:inset 0 0 8px rgba(255,230,235,.35),0 0 7px rgba(255,35,66,.65); }
+.engine-thrust-arrow { position:absolute; z-index:13; display:grid; place-items:center; color:#69f3bd; font-size:20px; font-weight:950; text-shadow:0 0 5px #082; pointer-events:none; }
+.engine-thrust-arrow.invalid { color:#ff6079; text-shadow:0 0 5px #700; }
+
+.build-cell.heat-generator::after, .build-cell.heat-predicted-hot::after, .build-cell.heat-cooling::after { content:""; position:absolute; inset:1px; border-radius:4px; pointer-events:none; }
+.build-cell.heat-generator::after { box-shadow:inset 0 0 12px rgba(255,154,68,.42); }
+.build-cell.heat-predicted-hot::after { box-shadow:inset 0 0 16px rgba(255,70,70,.72); animation:designer-heat-pulse 1.2s ease-in-out infinite alternate; }
+.build-cell.heat-cooling::after { box-shadow:inset 0 0 14px rgba(80,205,255,.55); }
+.build-cell.heat-critical::after { box-shadow:inset 0 0 18px rgba(255,35,60,.88), 0 0 10px rgba(255,35,60,.35); }
+.build-cell.heat-overheated::after { box-shadow:inset 0 0 20px rgba(255,255,255,.92), 0 0 12px rgba(255,35,60,.8); animation:designer-heat-pulse .45s ease-in-out infinite alternate; }
+.heat-flow-overlay { position:absolute; z-index:6; inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); overflow:visible; color:#ffd166; pointer-events:none; }
+.heat-flow-overlay line { stroke:currentColor; stroke-linecap:round; }
+.heat-flow-overlay .hot-heat-flow { color:#ff9a3d; stroke:#ff9a3d; }
+.heat-flow-overlay .cooling-heat-flow { color:#67d9ff; stroke:#67d9ff; }
+.heat-flow-overlay .frame-heat-flow { stroke-dasharray:.18 .12; animation:thermal-flow-route .7s linear infinite; filter:drop-shadow(0 0 .06px currentColor); }
+.build-cell[class*="thermal-network-"] { outline:1px solid rgba(96,165,250,.2); outline-offset:-2px; }
+.build-cell.thermal-network-1 { outline-color:rgba(52,211,153,.28); }
+.build-cell.thermal-network-2 { outline-color:rgba(192,132,252,.28); }
+.build-cell.thermal-network-3 { outline-color:rgba(251,191,36,.28); }
+.build-cell.thermal-frame-cool { border-color:rgba(80,111,139,.42); background-color:rgba(19,34,49,.9); }
+.build-cell.thermal-frame-moderate { border-color:#d69b3b; box-shadow:inset 0 0 0 1px rgba(245,174,63,.42); }
+.build-cell.thermal-frame-heavy { border-color:#ff603d; box-shadow:inset 0 0 0 2px rgba(255,72,42,.6), 0 0 7px rgba(255,72,42,.3); }
+.build-cell.thermal-route-critical, .build-cell.thermal-route-broken { border-style:dashed; border-color:#ff5575; box-shadow:inset 0 0 0 1px rgba(110,120,132,.5), 0 0 8px rgba(255,85,117,.32); }
+.build-cell.thermal-route-critical::before { content:"!"; position:absolute; z-index:7; top:2px; left:3px; color:#fff; font-size:9px; font-weight:950; text-shadow:0 0 4px #ff1744; }
+.build-cell.heat-sink-absorption::before { content:""; position:absolute; z-index:3; inset:-4px; border:1px solid rgba(103,217,255,.62); border-radius:50%; box-shadow:0 0 9px rgba(56,189,248,.4), inset 0 0 7px rgba(56,189,248,.25); animation:heat-sink-ring 1.4s ease-out infinite; pointer-events:none; }
+.build-cell.radiator-exposed::before { content:""; position:absolute; z-index:3; pointer-events:none; opacity:.9; }
+.build-cell.radiator-exposed-left::before { left:-2px; top:12%; bottom:12%; width:12px; background:linear-gradient(90deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
+.build-cell.radiator-exposed-right::before { right:-2px; top:12%; bottom:12%; width:12px; background:linear-gradient(270deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
+.build-cell.radiator-exposed-top::before { top:-2px; left:12%; right:12%; height:12px; background:linear-gradient(180deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
+.build-cell.radiator-exposed-bottom::before { bottom:-2px; left:12%; right:12%; height:12px; background:linear-gradient(0deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
+.component-heat-value { position:absolute; z-index:8; left:50%; bottom:2px; transform:translateX(-50%); display:inline-flex; align-items:center; gap:1px; max-width:calc(100% - 4px); padding:1px 3px; border:1px solid rgba(167,187,209,.28); border-radius:4px; background:rgba(3,8,15,.91); color:#eef6ff; font-size:8px; font-weight:950; line-height:1.2; white-space:nowrap; text-shadow:0 1px 2px #000; pointer-events:none; }
+.component-heat-value small { color:#9fb4ca; font-size:6px; font-weight:850; }
+.component-heat-value .heat-badge-icon { color:#ffb454; font-size:7px; line-height:1; }
+.component-overheat-warning { position:absolute; z-index:9; left:2px; top:2px; display:grid; place-items:center; width:11px; height:10px; border:1px solid rgba(255,240,240,.8); border-radius:3px; background:#d7193f; color:#fff; font-size:7px; line-height:1; text-shadow:0 1px 2px #700; box-shadow:0 0 6px rgba(255,32,67,.75); pointer-events:none; animation:overheat-warning-pulse .7s ease-in-out infinite alternate; }
+.heat-cooling .component-heat-value { color:#7dd3fc; }
+.heat-predicted-hot .component-heat-value { color:#ff9a85; border-color:rgba(255,90,70,.5); }
+.build-cell.heat-ui-cool::after, .build-cell.heat-ui-warm::after, .build-cell.heat-ui-hot::after, .build-cell.heat-ui-critical::after, .build-cell.heat-ui-overheated::after { content:""; position:absolute; z-index:2; inset:1px; border-radius:4px; pointer-events:none; }
+.build-cell.heat-ui-cool::after { background:rgba(37,61,82,.12); box-shadow:inset 0 0 7px rgba(90,128,158,.16); }
+.build-cell.heat-ui-warm::after { background:rgba(250,204,21,.10); box-shadow:inset 0 0 9px rgba(250,204,21,.32); }
+.build-cell.heat-ui-hot::after { background:rgba(249,115,22,.14); box-shadow:inset 0 0 11px rgba(249,115,22,.48); }
+.build-cell.heat-ui-critical::after { background:rgba(239,68,32,.18); box-shadow:inset 0 0 13px rgba(255,76,35,.68); }
+.build-cell.heat-ui-overheated::after { background:rgba(220,24,55,.22); box-shadow:inset 0 0 15px rgba(255,32,67,.88), 0 0 7px rgba(255,32,67,.42); animation:overheated-component-pulse .65s ease-in-out infinite alternate; }
+.heat-ui-warm .component-heat-value { border-color:rgba(250,204,21,.4); }
+.heat-ui-hot .component-heat-value { border-color:rgba(249,115,22,.5); color:#ffd8b5; }
+.heat-ui-critical .component-heat-value, .heat-ui-overheated .component-heat-value { border-color:rgba(255,72,58,.62); color:#ffc4ba; }
+.heat-design-summary { grid-column:1/-1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 12px; padding:10px; border:1px solid rgba(100,200,255,.24); border-radius:8px; background:rgba(8,35,52,.45); color:#a9c6da; font-size:11px; }
+.heat-design-summary strong { grid-column:1/-1; color:#7dd3fc; text-transform:uppercase; letter-spacing:.06em; }
+@keyframes designer-heat-pulse { to { opacity:.48; } }
+@keyframes thermal-flow-route { to { stroke-dashoffset:-.3; } }
+@keyframes heat-sink-ring { from { transform:scale(.72); opacity:.8; } to { transform:scale(1.12); opacity:0; } }
+@keyframes overheat-warning-pulse { to { transform:scale(1.08); filter:brightness(1.25); } }
+@keyframes overheated-component-pulse { to { opacity:.58; box-shadow:inset 0 0 18px rgba(255,245,245,.82), 0 0 9px rgba(255,32,67,.5); } }

@@ -41,6 +41,12 @@ function buildSharedSnapshot(room, now, sendStatic) {
       respawnIn: 0,
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     };
+    if (ship.blockedEngineIndices?.size) entry.engBlocked = [...ship.blockedEngineIndices];
+    entry.heat = Math.round((ship.heatPressure || 0) * 100);
+    entry.heatNow = Math.round((ship.currentHeat || 0) * 10) / 10;
+    entry.heatMax = Math.round((ship.maxHeat || 0) * 10) / 10;
+    entry.hot = ship.hotComponentCount || 0;
+    entry.overheated = ship.overheatedComponentCount || 0;
     if (ship.selfDestructAt && ship.alive) {
       const span = ship.selfDestructAt - ship.selfDestructStart;
       entry.destructProgress = span > 0 ? round(Math.max(0, Math.min(1, (now - ship.selfDestructStart) / span))) : 1;
@@ -51,6 +57,7 @@ function buildSharedSnapshot(room, now, sendStatic) {
       entry.design = ship.design || [];
       // Full authoritative component-hp sync rides along with the design.
       if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
+      if (ship.componentHeat) entry.cheat = ship.componentHeat.map((value, i) => [Math.round(value), ship.componentHeatState[i]]);
     } else if (ship.dirtyComponents && ship.dirtyComponents.size) {
       // Otherwise only ship the components whose hp changed since the last
       // broadcast, as a flat [index, hp, index, hp, ...] delta.
@@ -59,6 +66,10 @@ function buildSharedSnapshot(room, now, sendStatic) {
         delta.push(index, Math.round(ship.componentHp[index] * 10) / 10);
       }
       entry.chpD = delta;
+    }
+    if (!sendStatic && ship.dirtyHeat?.size) {
+      entry.cheatD = [];
+      for (const index of ship.dirtyHeat) entry.cheatD.push(index, Math.round(ship.componentHeat[index]), ship.componentHeatState[index]);
     }
     ships.push(entry);
   }
@@ -186,6 +197,7 @@ function markShipDesignsSent(room) {
   for (const ship of room.ships.values()) {
     if (!ship.designSent) ship.designSent = true;
     if (ship.dirtyComponents && ship.dirtyComponents.size) ship.dirtyComponents.clear();
+    if (ship.dirtyHeat && ship.dirtyHeat.size) ship.dirtyHeat.clear();
   }
 }
 

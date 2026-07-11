@@ -8,6 +8,7 @@ import { getOccupiedCells } from "./footprint.js";
 import { calculateMovementStats, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
 
 export function computeStats(modules) {
+  const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(modules, PART_STATS);
   let cost = 0;
   let mass = 0;
   let maxHp = 0;
@@ -50,8 +51,10 @@ export function computeStats(modules) {
     pointDefense: weaponAccumulator()
   };
 
-  for (const module of modules) {
+  for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
+    const module = modules[moduleIndex];
     const part = PART_STATS[module.type] || PART_STATS.frame;
+    const blockedEngine = part.thrust > 0 && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
 
     cost += part.cost;
     mass += part.mass;
@@ -63,11 +66,11 @@ export function computeStats(modules) {
 
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
-    thrust += part.thrust;
-    turnBonus += part.turn;
+    thrust += blockedEngine ? 0 : part.thrust;
+    turnBonus += blockedEngine ? 0 : part.turn;
 
-    if (part.thrust > 0) engineThrustValues.push(part.thrust);
-    if (part.turn > 0) turnModuleValues.push(part.turn);
+    if (part.thrust > 0 && !blockedEngine) engineThrustValues.push(part.thrust);
+    if (part.turn > 0 && !blockedEngine) turnModuleValues.push(part.turn);
 
     energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
@@ -83,7 +86,7 @@ export function computeStats(modules) {
     rangeBonus += part.rangeBonus || 0;
     accuracyBonus += part.accuracyBonus || 0;
     fireRateBonus += part.fireRateBonus || 0;
-    coolingBonus += Math.max(0, -(part.heat || 0)) * 0.01;
+    // Cooling is placement-dependent and modeled by the thermal overlay.
     captureBonus += part.captureBonus || 0;
 
     if (part.ecmStrength) ecmStrength += part.ecmStrength;
@@ -165,6 +168,7 @@ export function computeStats(modules) {
     powerEfficiency: movement.powerEfficiency,
     powerDebuff: movement.powerDebuff
   });
+  if (exhaustAnalysis.blockedEngineIndices.size) warnings.push(`${exhaustAnalysis.blockedEngineIndices.size} blocked engine${exhaustAnalysis.blockedEngineIndices.size === 1 ? "" : "s"}: blocked exhaust provides no thrust.`);
 
   return {
     cost,
@@ -213,6 +217,7 @@ export function computeStats(modules) {
       ).toFixed(1)
     ),
     weapons: summarizeWeaponTotals(weaponTotals),
+    blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     warnings,
     costBreakdown,
     fleetCount
@@ -285,7 +290,7 @@ export function applyWeaponUtilityBonuses(totals, bonuses) {
 
   const rangeBonus = Number(bonuses.rangeBonus) || 0;
   const accuracyBonus = Number(bonuses.accuracyBonus) || 0;
-  const fireRateMultiplier = 1 + (Number(bonuses.fireRateBonus) || 0) + (Number(bonuses.coolingBonus) || 0);
+  const fireRateMultiplier = 1 + (Number(bonuses.fireRateBonus) || 0);
 
   for (const total of Object.values(totals)) {
     if (total.count <= 0) continue;

@@ -24,6 +24,7 @@ const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = 
 const { updateShipSupport, updateShipWeapons, updateSelfDestructingShips } = require("./src/server/combat");
 const { updateBullets } = require("./src/server/projectiles");
 const { updateCapturePoints, updateScoring } = require("./src/server/objectives");
+const { updateShipHeat } = require("./src/server/heat");
 
 function tickRoom(room, dt, now) {
   if (room.phase !== "active") {
@@ -47,6 +48,7 @@ function tickRoom(room, dt, now) {
 
   for (const ship of ships) {
     updateShipWeapons(room, ship, ships, dt, now);
+    updateShipHeat(ship, dt);
   }
 
   updateBullets(room, dt, now);

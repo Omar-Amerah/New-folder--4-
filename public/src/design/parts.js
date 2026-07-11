@@ -55,6 +55,7 @@ export const PART_DEFS = {
   targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
   fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
   heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
+  radiator: { name: "Radiator", color: "#7dd3fc", glyph: "repeating-linear-gradient(90deg, #0c4a6e 0 12%, #bae6fd 13% 22%)" },
   captureModule: { name: "Capture Module", color: "#f9a8d4", glyph: "radial-gradient(circle, #fdf2f8 0 20%, #ec4899 30% 55%, #831843 62%)" },
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
@@ -93,6 +94,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   targetingComputer: "Support computer that improves weapon accuracy.",
   fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
   heatSink: "Cooling support that is durable and low-power for weapon-heavy designs.",
+  radiator: "Continuous cooling that works best with an exposed exterior edge.",
   captureModule: "Objective module that helps dedicated capture ships contest relays.",
   signalAmplifier: "Utility transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Utility stabilizer that improves weapon accuracy and slightly helps turning.",
@@ -673,6 +675,12 @@ export const FALLBACK_PART_STATS = {
     heat: -6,
     utilityEffect: "cooling"
   },
+  radiator: {
+    cost: 30, mass: 5, hp: 40, powerGeneration: 0, powerUse: 0.5,
+    shield: 0, shieldRegen: 0, thrust: 0, turn: -0.015,
+    energyStorage: 0, repairRate: 0, weapon: null, heat: -14,
+    utilityEffect: "cooling"
+  },
   captureModule: {
     category: "Utility",
     cost: 28, mass: 4, hp: 40,
@@ -734,7 +742,7 @@ export function applyServerParts(parts) {
 
 export function isRotatablePart(type) {
   const stat = PART_STATS[type] || {};
-  if (stat.category === "Engines") return false;
+  if (stat.category === "Engines") return stat.thrust > 0 && stat.rotationRequired === true;
   return stat.category === "Weapons" || (stat.category === "Defence" && Boolean(stat.weapon)) || stat.rotatable === true || MARKERLESS_ROTATABLE_PARTS.has(type);
 }
 

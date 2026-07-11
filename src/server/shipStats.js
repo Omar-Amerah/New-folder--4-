@@ -13,8 +13,10 @@ const {
   turnCapForMass,
   softCap
 } = require("../../public/src/shared/movementStats.js");
+const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 
 function computeStats(modules) {
+  const exhaustAnalysis = EngineExhaustRules.analyze(modules, PARTS);
   let cost = 0;
   let mass = 0;
   let maxHp = 0;
@@ -61,8 +63,10 @@ function computeStats(modules) {
   let minY = 3;
   let maxY = 3;
 
-  for (const module of modules) {
+  for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
+    const module = modules[moduleIndex];
     const part = PARTS[module.type] || PARTS.frame;
+    const blockedEngine = part.thrust > 0 && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
     cost += part.cost;
     mass += part.mass;
     maxHp += part.hp;
@@ -71,10 +75,10 @@ function computeStats(modules) {
     if ((part.shieldRegen || 0) > 0) shieldRegenValues.push(part.shieldRegen);
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
-    thrust += part.thrust;
-    turnBonus += part.turn;
-    if (part.thrust > 0) engineThrustValues.push(part.thrust);
-    if (part.turn > 0) turnModuleValues.push(part.turn);
+    thrust += blockedEngine ? 0 : part.thrust;
+    turnBonus += blockedEngine ? 0 : part.turn;
+    if (part.thrust > 0 && !blockedEngine) engineThrustValues.push(part.thrust);
+    if (part.turn > 0 && !blockedEngine) turnModuleValues.push(part.turn);
     energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
     missile += part.missile || 0;
@@ -87,7 +91,7 @@ function computeStats(modules) {
     rangeBonus += part.rangeBonus || 0;
     accuracyBonus += part.accuracyBonus || 0;
     fireRateBonus += part.fireRateBonus || 0;
-    coolingBonus += Math.max(0, -(part.heat || 0)) * 0.01;
+    // Cooling is simulated locally per component; it is not a global reload buff.
     captureBonus += part.captureBonus || 0;
     if (part.ecmStrength) ecmStrength += part.ecmStrength;
     if (part.decoyRange > decoyRange) decoyRange = part.decoyRange;
@@ -120,6 +124,7 @@ function computeStats(modules) {
   const fleetCount = clampNumber(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
   const weapons = summarizeWeaponTotals(weaponTotals);
   const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
+  if (exhaustAnalysis.blockedEngineIndices.size) warnings.push(`${exhaustAnalysis.blockedEngineIndices.size} blocked engine${exhaustAnalysis.blockedEngineIndices.size === 1 ? "" : "s"}: blocked exhaust provides no thrust.`);
 
   return {
     cost,
@@ -190,6 +195,7 @@ function computeStats(modules) {
     missileTracking: weapons.missile.tracking,
     beamTracking: weapons.beam.tracking,
     weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps + weapons.beam.dps + weapons.pointDefense.dps),
+    blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     weapons,
     warnings,
     costBreakdown,
@@ -250,7 +256,7 @@ function applyWeaponUtilityBonuses(totals, bonuses) {
   if (!hasWeapons) return;
   const rangeBonus = Number(bonuses.rangeBonus) || 0;
   const accuracyBonus = Number(bonuses.accuracyBonus) || 0;
-  const fireRateMultiplier = 1 + (Number(bonuses.fireRateBonus) || 0) + (Number(bonuses.coolingBonus) || 0);
+  const fireRateMultiplier = 1 + (Number(bonuses.fireRateBonus) || 0);
   for (const total of Object.values(totals)) {
     if (total.count <= 0) continue;
     total.range += rangeBonus;

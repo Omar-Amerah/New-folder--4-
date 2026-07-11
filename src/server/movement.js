@@ -5,6 +5,7 @@ const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
 const { areEnemies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
+const { addComponentHeat, componentPerformance } = require("./heat");
 
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
@@ -275,7 +276,19 @@ function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
   ship.angle = rotateToward(ship.angle, desired, (stats.turnRate || 0) * dt);
 
   const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
-  const thrust = (stats.accel || 0) * alignment;
+  let enginePerformance = 0;
+  let engineCount = 0;
+  for (let i = 0; i < (ship.design || []).length; i += 1) {
+    const part = PARTS[ship.design[i].type];
+    if (!part?.thrust || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+    if (ship.validEngineIndices && !ship.validEngineIndices.has(i)) continue;
+    const performance = componentPerformance(ship, i);
+    enginePerformance += performance;
+    engineCount += 1;
+    if (performance > 0) addComponentHeat(ship, i, (2 + part.thrust * 0.018) * dt);
+  }
+  const localEfficiency = (engineCount ? enginePerformance / engineCount : 0) * (ship.thermalPowerFactor ?? 1);
+  const thrust = (stats.accel || 0) * alignment * localEfficiency;
 
   ship.vx += Math.cos(ship.angle) * thrust * dt;
   ship.vy += Math.sin(ship.angle) * thrust * dt;
@@ -382,7 +395,17 @@ function applyPosition(room, ship, dt) {
 
 function regenerateShield(ship, stats, dt) {
   if (ship.maxShield > 0) {
-    ship.shield = Math.min(ship.maxShield, ship.shield + (stats.shieldRegen || 0) * dt);
+    let performance = 0;
+    let count = 0;
+    for (let i = 0; i < (ship.design || []).length; i += 1) {
+      const part = PARTS[ship.design[i].type];
+      if (!part?.shieldRegen || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+      const local = componentPerformance(ship, i);
+      performance += local;
+      count += 1;
+      if (ship.shield < ship.maxShield && local > 0) addComponentHeat(ship, i, part.shieldRegen * 0.7 * dt);
+    }
+    ship.shield = Math.min(ship.maxShield, ship.shield + (stats.shieldRegen || 0) * (count ? performance / count : 0) * (ship.thermalPowerFactor ?? 1) * dt);
   }
 }
 

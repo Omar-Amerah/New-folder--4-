@@ -12,6 +12,7 @@
 
 const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
+const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 
 const MODULE_SCALE = 13;
 const GRID_CENTER = 7;
@@ -43,6 +44,17 @@ function initComponentState(ship) {
     for (const cell of cells) cellIndex.set(cell.x * GRID_SIZE + cell.y, i);
   });
   ship.componentCellIndex = cellIndex;
+  updateEngineExhaustState(ship);
+}
+
+function updateEngineExhaustState(ship) {
+  const alive = (ship.design || []).map((_, index) => (ship.componentHp?.[index] ?? 1) > 0);
+  const analysis = EngineExhaustRules.analyze(ship.design || [], PARTS, { alive });
+  ship.validEngineIndices = analysis.validEngineIndices;
+  ship.blockedEngineIndices = analysis.blockedEngineIndices;
+  ship.engineExhaustAnalysis = analysis;
+  ship.engineExhaustRevision = (ship.engineExhaustRevision || 0) + 1;
+  return analysis;
 }
 
 function isComponentAlive(ship, index) {
@@ -188,6 +200,7 @@ function onComponentDestroyed(room, ship, index, now) {
     return;
   }
   recalcEffectiveStats(ship);
+  if (/frame/i.test(module.type)) require("./heat").rebuildThermalNetworks(ship);
 }
 
 // Stat fields that depend on which components are still functional. Static
@@ -219,6 +232,7 @@ function recalcEffectiveStats(ship) {
   for (const key of EFFECTIVE_STAT_KEYS) ship.stats[key] = next[key];
   ship.maxShield = next.maxShield;
   if (ship.shield > ship.maxShield) ship.shield = ship.maxShield;
+  updateEngineExhaustState(ship);
 }
 
 // Repairs component hp directly (most damaged first), keeping ship.hp in sync.
@@ -256,6 +270,7 @@ function repairShipComponents(room, ship, amount, now) {
     if (wasDestroyed && ship.componentHp[idx] > 0) {
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       recalcEffectiveStats(ship);
+      if (/frame/i.test(ship.design[idx].type)) require("./heat").rebuildThermalNetworks(ship);
     }
   }
   return healed;
@@ -293,6 +308,7 @@ module.exports = {
   applyHullDamage,
   zeroAllComponents,
   recalcEffectiveStats,
+  updateEngineExhaustState,
   repairShipComponents,
   assertComponentHpConsistency
 };

@@ -470,27 +470,33 @@ function updatePixiEngineExhaust(view, ship, now) {
     const len = halfW * (1.2 + intensity * 9.4 + speedRatio * 2.4) * flicker;
     const ox = nz.x;
     const oy = nz.y;
+    const angle = nz.angle || 0;
+    const ca = Math.cos(angle), sa = Math.sin(angle);
+    const pt = (x, y) => ({ x: ox + x * ca - y * sa, y: oy + x * sa + y * ca });
 
     // Outer glow plume (wide, faint).
-    gfx.moveTo(ox, oy - halfW * 1.15);
-    gfx.quadraticCurveTo(ox - len * 0.55, oy - halfW * 0.7, ox - len, oy);
-    gfx.quadraticCurveTo(ox - len * 0.55, oy + halfW * 0.7, ox, oy + halfW * 1.15);
+    let p0 = pt(0, -halfW * 1.15), p1 = pt(-len * .55, -halfW * .7), p2 = pt(-len, 0), p3 = pt(-len * .55, halfW * .7), p4 = pt(0, halfW * 1.15);
+    gfx.moveTo(p0.x, p0.y);
+    gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+    gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
     gfx.closePath();
     gfx.fill({ color: "#2b7bff", alpha: 0.18 + intensity * 0.22 });
 
     // Inner flame body.
     const innerLen = len * 0.72;
-    gfx.moveTo(ox, oy - halfW * 0.72);
-    gfx.quadraticCurveTo(ox - innerLen * 0.5, oy - halfW * 0.42, ox - innerLen, oy);
-    gfx.quadraticCurveTo(ox - innerLen * 0.5, oy + halfW * 0.42, ox, oy + halfW * 0.72);
+    p0 = pt(0, -halfW * .72); p1 = pt(-innerLen * .5, -halfW * .42); p2 = pt(-innerLen, 0); p3 = pt(-innerLen * .5, halfW * .42); p4 = pt(0, halfW * .72);
+    gfx.moveTo(p0.x, p0.y);
+    gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+    gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
     gfx.closePath();
     gfx.fill({ color: "#63e6ff", alpha: 0.5 + intensity * 0.4 });
 
     // Hot core near the nozzle.
     const coreLen = len * 0.4;
-    gfx.moveTo(ox + 0.5, oy - halfW * 0.42);
-    gfx.quadraticCurveTo(ox - coreLen * 0.5, oy - halfW * 0.24, ox - coreLen, oy);
-    gfx.quadraticCurveTo(ox - coreLen * 0.5, oy + halfW * 0.24, ox + 0.5, oy + halfW * 0.42);
+    p0 = pt(.5, -halfW * .42); p1 = pt(-coreLen * .5, -halfW * .24); p2 = pt(-coreLen, 0); p3 = pt(-coreLen * .5, halfW * .24); p4 = pt(.5, halfW * .42);
+    gfx.moveTo(p0.x, p0.y);
+    gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+    gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
     gfx.closePath();
     gfx.fill({ color: "#eafcff", alpha: 0.72 + intensity * 0.28 });
   }

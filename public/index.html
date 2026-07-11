@@ -132,17 +132,29 @@
             <button type="button" data-combat-style="sentry">Sentry</button>
             <button type="button" data-combat-style="circle">Circle</button>
           </div>
+          <div id="heatHud" class="heat-hud" title="Highest local heat among selected ships">
+            <span id="heatHudLabel">HEAT 0%</span><i><b id="heatHudFill"></b></i>
+          </div>
           <div id="shipDamagePanel" class="ship-damage-panel" hidden>
             <div class="ship-damage-head">
               <span>Ship status</span>
-              <button id="damageViewToggle" type="button" title="Toggle Component Damage View (V)">Damage View</button>
+              <div class="status-view-tabs" role="tablist" aria-label="Ship status view">
+                <button id="shipDamageTab" type="button" role="tab" aria-selected="true">Damage</button>
+                <button id="shipHeatTab" type="button" role="tab" aria-selected="false">Heat</button>
+              </div>
             </div>
             <canvas id="shipDamageCanvas" width="360" height="360" aria-label="Selected ship component damage diagram"></canvas>
             <div id="shipDamageHover" class="ship-damage-hover">Hover a component</div>
-            <div class="damage-legend" aria-hidden="true">
+            <div id="damageLegend" class="damage-legend" aria-hidden="true">
               <span><i class="legend-dot legend-damaged"></i>Damaged</span>
               <span><i class="legend-dot legend-critical"></i>Critical</span>
               <span><i class="legend-dot legend-destroyed"></i>Destroyed</span>
+            </div>
+            <div id="heatLegend" class="damage-legend heat-legend" aria-hidden="true" hidden>
+              <span><i class="legend-dot legend-warm"></i>Warm</span>
+              <span><i class="legend-dot legend-hot"></i>Hot</span>
+              <span><i class="legend-dot legend-critical-heat"></i>Critical</span>
+              <span><i class="legend-dot legend-overheated"></i>Overheated</span>
             </div>
             <div id="coreStatusLabel" class="core-status" hidden></div>
             <ul id="damageFeed" class="damage-feed" aria-live="polite"></ul>
@@ -408,6 +420,16 @@
             </div>
 
             <div class="designer-workspace">
+              <div class="blueprint-view-tabs" role="tablist" aria-label="Blueprint view">
+                <button id="blueprintBuildTab" type="button" role="tab" aria-selected="true">Blueprint</button>
+                <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false">Heat</button>
+              </div>
+              <div id="blueprintHeatLegend" class="blueprint-heat-legend" hidden><span>Cool 0–25%</span><span>Warm 26–50%</span><span>Hot 51–75%</span><span>Critical 76–99%</span><span>Overheated 100%</span></div>
+              <div id="thermalLoadModes" class="thermal-load-modes" role="group" aria-label="Thermal prediction load" hidden>
+                <button type="button" data-thermal-load="idle">Idle</button>
+                <button type="button" data-thermal-load="combat">Combat load</button>
+                <button type="button" data-thermal-load="full" class="active">Full load</button>
+              </div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
             </div>
@@ -424,6 +446,7 @@
           </div>
 
           <div class="designer-right-col">
+            <section id="fullLoadThermalPanel" class="full-load-thermal-panel" hidden></section>
             <div id="partInspector" class="part-inspector"></div>
             <div id="statsGrid" class="stats-grid"></div>
             <div class="saved-designs">
@@ -438,6 +461,8 @@
       </div>
     </section>
 
-    <script type="module" src="/src/main.js?v=editor-grid-fix-1"></script>
+    <script src="/src/shared/heatRules.js?v=local-heat-2"></script>
+    <script src="/src/shared/engineExhaust.js?v=engine-exhaust-1"></script>
+    <script type="module" src="/src/main.js?v=local-heat-2"></script>
   </body>
 </html>

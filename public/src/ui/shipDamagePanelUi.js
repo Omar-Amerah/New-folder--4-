@@ -67,12 +67,8 @@ function bindOnce() {
       }
     });
   }
-  if (dom.damageViewToggle) {
-    dom.damageViewToggle.addEventListener("click", () => {
-      state.componentDamageView = !state.componentDamageView;
-      renderShipDamagePanel();
-    });
-  }
+  dom.shipDamageTab?.addEventListener("click", () => { state.shipStatusView = "damage"; renderShipDamagePanel(); });
+  dom.shipHeatTab?.addEventListener("click", () => { state.shipStatusView = "heat"; renderShipDamagePanel(); });
 }
 
 function handleDiagramHover(event) {
@@ -91,7 +87,11 @@ function handleDiagramHover(event) {
   } else {
     const ship = hoverContext.ship;
     const part = ship.design[index];
-    if (part.type === "core") {
+    if (state.shipStatusView === "heat") {
+      const thermal = ship.cheat?.[index] || [0, 0];
+      const labels = ["Cool", "Warm", "Hot", "Critical", "Overheated"];
+      dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.round(thermal[0] || 0)} heat — ${labels[thermal[1] || 0]}`;
+    } else if (part.type === "core") {
       dom.shipDamageHover.textContent = "Core — indestructible";
     } else {
       const max = componentMaxFromShip(ship, index);
@@ -125,6 +125,14 @@ function hpBarColor(ratio) {
   if (ratio <= CRITICAL_RATIO) return "#ef4444";
   if (ratio < DAMAGED_RATIO) return "#fbb040";
   return "#4ade80";
+}
+
+function heatColor(stateValue) {
+  if (stateValue >= 4) return "#fff1f2";
+  if (stateValue === 3) return "#ff334f";
+  if (stateValue === 2) return "#ff713d";
+  if (stateValue === 1) return "#fbbf24";
+  return "#38bdf8";
 }
 
 // Renders the ship with its real component art (same drawModule pipeline as
@@ -198,8 +206,19 @@ function drawDiagram(ship) {
       } else {
         drawModule({ x: 0, y: 0, size: cellSize - 1, color: def.color, type: part.type, trim });
       }
-      drawModuleDamage(drawCtx, ratio, halfLong, halfCross, now);
-      drawModuleFlash(drawCtx, componentFlash(ship.id, i, now), halfLong, halfCross);
+      if (state.shipStatusView !== "heat") {
+        drawModuleDamage(drawCtx, ratio, halfLong, halfCross, now);
+        drawModuleFlash(drawCtx, componentFlash(ship.id, i, now), halfLong, halfCross);
+      }
+      if (state.shipStatusView === "heat") {
+        const heatState = ship.cheat?.[i]?.[1] || 0;
+        const heatValue = ship.cheat?.[i]?.[0] || 0;
+        if (heatState > 0 || heatValue > 0) {
+          drawCtx.fillStyle = heatColor(heatState);
+          drawCtx.globalAlpha = heatState >= 3 ? 0.42 + Math.sin(now / 140) * 0.12 : Math.min(0.42, 0.1 + heatValue / 260);
+          drawCtx.fillRect(-halfLong, -halfCross, halfLong * 2, halfCross * 2);
+        }
+      }
       drawCtx.restore();
     });
     drawCtx.restore();
@@ -208,14 +227,19 @@ function drawDiagram(ship) {
   // Screen-space overlays: hp bars, core marker, hover highlight.
   ship.design.forEach((part, i) => {
     const rect = componentScreenRect(cellsByIndex[i], cellSize, originX, originY);
-    if (part.type === "core") {
+    if (state.shipStatusView !== "heat" && part.type === "core") {
       drawCtx.strokeStyle = "#8fd8ff";
       drawCtx.lineWidth = Math.max(1.5, cellSize * 0.1);
       drawCtx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
       return;
     }
     const ratio = componentHealthRatio(ship, i);
-    if (ratio !== null && ratio > 0 && ratio < 0.999) {
+    const heatState = ship.cheat?.[i]?.[1] || 0;
+    if (state.shipStatusView === "heat" && heatState > 0) {
+      const barH = Math.max(2, cellSize * 0.14);
+      drawCtx.fillStyle = heatColor(heatState);
+      drawCtx.fillRect(rect.x + 1, rect.y + rect.h - barH - 1, rect.w - 2, barH);
+    } else if (state.shipStatusView !== "heat" && ratio !== null && ratio > 0 && ratio < 0.999) {
       const barH = Math.max(2, cellSize * 0.14);
       const y = rect.y + rect.h - barH - 1;
       drawCtx.fillStyle = "rgba(3, 8, 15, 0.85)";
@@ -280,9 +304,14 @@ export function renderShipDamagePanel() {
   if (!panel) return;
   bindOnce();
 
-  if (dom.damageViewToggle) {
-    dom.damageViewToggle.classList.toggle("active", Boolean(state.componentDamageView));
-  }
+  const heatView = state.shipStatusView === "heat";
+  dom.shipDamageTab?.classList.toggle("active", !heatView);
+  dom.shipHeatTab?.classList.toggle("active", heatView);
+  dom.shipDamageTab?.setAttribute("aria-selected", String(!heatView));
+  dom.shipHeatTab?.setAttribute("aria-selected", String(heatView));
+  if (dom.damageLegend) dom.damageLegend.hidden = heatView;
+  if (dom.heatLegend) dom.heatLegend.hidden = !heatView;
+  if (dom.damageFeed) dom.damageFeed.hidden = heatView;
 
   const ship = selectedSingleShip();
   if (!ship) {
@@ -292,6 +321,10 @@ export function renderShipDamagePanel() {
   }
   panel.hidden = false;
   drawDiagram(ship);
-  renderCoreStatus(ship);
-  renderFeed(ship);
+  if (heatView) {
+    if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
+  } else {
+    renderCoreStatus(ship);
+    renderFeed(ship);
+  }
 }

@@ -687,6 +687,25 @@
       "heat": -6
     },
     {
+      "id": "radiator",
+      "name": "Radiator",
+      "category": "Support",
+      "cost": 30,
+      "mass": 5,
+      "hull": 40,
+      "powerGeneration": 0,
+      "powerUse": 0.5,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.015,
+      "energy": 0,
+      "repair": 0,
+      "utility": "cooling",
+      "heat": -14,
+      "description": "Exterior radiator for continuous local heat removal. Requires an exposed edge for full output."
+    },
+    {
       "id": "repair",
       "name": "Repair",
       "category": "Support",
