@@ -155,7 +155,7 @@ function handleMessage(client, message) {
       return;
     }
     const createdShips = [];
-    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "charge");
+    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
 
     for (let i = 0; i < validation.count; i += 1) {
       const ship = buyShip(client.room, client.player, performanceNow(), {
@@ -186,7 +186,7 @@ function handleMessage(client, message) {
 
   if (message.type === "setCombatStyle") {
     if (client.room.phase !== "active") return;
-    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "charge");
+    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
     const shipIdSet = Array.isArray(message.shipIds)
       ? new Set(message.shipIds.map((id) => String(id)).slice(0, 64))
       : null;

@@ -138,12 +138,16 @@ export function recordComponentHpChanges(ship, oldChp, newChp) {
   }
 }
 
-// Component max hp mirror (same scaling the renderers use).
+// Component max hp mirror (same scaling the renderers use): the indestructible
+// core is excluded from the damageable sum but keeps its own display pool.
 export function componentMaxFromShip(ship, index) {
   const design = ship.design;
   if (!design) return 0;
   let sum = 0;
-  for (const part of design) sum += Math.max(1, Number(PART_STATS[part.type]?.hp) || 1);
+  for (const part of design) {
+    if (part.type === "core") continue;
+    sum += Math.max(1, Number(PART_STATS[part.type]?.hp) || 1);
+  }
   if (!sum) return 0;
   const raw = Math.max(1, Number(PART_STATS[design[index].type]?.hp) || 1);
   return raw * ((Number(ship.maxHp) || sum) / sum);

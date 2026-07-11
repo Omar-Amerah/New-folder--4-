@@ -21,7 +21,7 @@ dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floo
 dom.teamSelect.value = localStorage.getItem(LOCAL_TEAM_KEY) === "red" ? "red" : "blue";
 dom.formationSelect.value = localStorage.getItem(LOCAL_FORMATION_KEY) || "line";
 if (dom.combatStyleSelect) {
-  dom.combatStyleSelect.value = state.combatStyle || "charge";
+  dom.combatStyleSelect.value = state.combatStyle || "sentry";
 }
 
 // Debug/test handle: read-only access to the client state from the console

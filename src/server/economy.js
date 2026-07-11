@@ -26,7 +26,7 @@ function buyShip(room, player, now, options = {}) {
   player.deployedFleetCost += stats.unitCost;
   player.shipsBuilt = (player.shipsBuilt || 0) + 1;
   const activeCount = player.ships.filter((ship) => ship.alive).length;
-  const combatStyle = options.combatStyle || player.combatStyle || "charge";
+  const combatStyle = options.combatStyle || player.combatStyle || "sentry";
   const ship = spawnShip(room, player, now, activeCount, { stats, design, combatStyle });
   if (!options.starter && !options.silent) {
     const { broadcastRoom } = require("./messages");

@@ -17,7 +17,7 @@ function sanitizeFormation(formation) {
   return "line";
 }
 
-function sanitizeCombatStyle(style, fallback = "charge") {
+function sanitizeCombatStyle(style, fallback = "sentry") {
   const clean = String(style || "").toLowerCase();
   if (clean === "charge" || clean === "hold" || clean === "sentry" || clean === "circle") return clean;
   return fallback;

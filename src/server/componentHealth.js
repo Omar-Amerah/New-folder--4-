@@ -23,9 +23,10 @@ const RAY_STEP = 0.4;
 function initComponentState(ship) {
   const design = ship.design || [];
   const rawHp = design.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
-  const rawSum = rawHp.reduce((sum, hp) => sum + hp, 0) || 1;
-  // stats.maxHp already applies the global hull multiplier/floor; distribute it
-  // across components proportionally so sum(componentMaxHp) === ship.maxHp.
+  // The core is indestructible: it takes no damage and contributes nothing to
+  // the damageable pool. The design's full hull budget (stats.maxHp) is spread
+  // across the other components; the ship dies when all of those are destroyed.
+  const rawSum = rawHp.reduce((sum, hp, i) => (design[i].type === "core" ? sum : sum + hp), 0) || 1;
   const scale = (ship.stats?.maxHp || rawSum) / rawSum;
 
   ship.componentMaxHp = rawHp.map((hp) => hp * scale);
@@ -114,6 +115,7 @@ function nearestAliveComponent(ship, gx, gy) {
   const design = ship.design || [];
   for (let i = 0; i < design.length; i += 1) {
     if (ship.componentHp[i] <= 0) continue;
+    if (design[i].type === "core") continue; // indestructible, can't soak the fallback hit
     const dx = design[i].x - gx;
     const dy = design[i].y - gy;
     const distSq = dx * dx + dy * dy;
@@ -141,6 +143,9 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
 
   for (const idx of chain) {
     if (remaining <= 0.0001) break;
+    // The core is indestructible: it soaks whatever reaches it and the shot
+    // stops there. Ships die by losing every other component instead.
+    if (ship.design[idx].type === "core") break;
     const part = PARTS[ship.design[idx].type] || PARTS.frame;
     if (part.armorFlatReduction > 0) {
       remaining = Math.max(0, remaining - part.armorFlatReduction);
@@ -268,10 +273,12 @@ function zeroAllComponents(ship) {
   }
 }
 
-// Dev-only consistency check: ship.hp must equal the component sum.
+// Dev-only consistency check: ship.hp must equal the non-core component sum
+// (the indestructible core keeps a pool for collision/display but is excluded
+// from the damageable total).
 function assertComponentHpConsistency(ship) {
   if (process.env.NODE_ENV === "production" || !ship.componentHp) return;
-  const sum = ship.componentHp.reduce((total, hp) => total + hp, 0);
+  const sum = ship.componentHp.reduce((total, hp, i) => (ship.design[i].type === "core" ? total : total + hp), 0);
   if (Math.abs(sum - ship.hp) > 0.5) {
     console.warn(`[componentHealth] ship ${ship.id} hp drift: ship.hp=${ship.hp.toFixed(2)} sum=${sum.toFixed(2)}`);
     ship.hp = sum;

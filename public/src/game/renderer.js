@@ -742,7 +742,8 @@ export function engineThrustRatio(ship) {
 export function shipEngineNozzles(design, scale = 13) {
   const nozzles = [];
   if (!Array.isArray(design)) return nozzles;
-  for (const part of design) {
+  for (let i = 0; i < design.length; i += 1) {
+    const part = design[i];
     if (part.type !== "engine") continue;
     const place = footprintLocalPlacement(part, scale);
     const c = Math.abs(Math.cos(place.longAxisAngle));
@@ -750,12 +751,23 @@ export function shipEngineNozzles(design, scale = 13) {
     const extentX = (c * place.tilesLong + s * place.tilesCross) * scale * 0.5;
     const spanY = (s * place.tilesLong + c * place.tilesCross) * scale;
     nozzles.push({
+      index: i,
       x: place.cx - extentX + 1.5,
       y: place.cy,
       halfW: Math.max(2.4, spanY * 0.33)
     });
   }
   return nozzles;
+}
+
+// Destroyed engines are dead metal: no plume, no smoke. Filters a nozzle list
+// against the ship's live component hp.
+export function aliveEngineNozzles(ship, nozzles) {
+  if (!Array.isArray(nozzles) || nozzles.length === 0 || !ship?.chp) return nozzles || [];
+  return nozzles.filter((nozzle) => {
+    const ratio = componentHealthRatio(ship, nozzle.index);
+    return ratio === null || ratio > 0;
+  });
 }
 
 export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now()) {
@@ -843,7 +855,7 @@ export function drawEngineSmokeTrails(now = performance.now(), bounds = null) {
 }
 
 function drawEngineExhaust(ship, design, scale, now = performance.now()) {
-  const nozzles = shipEngineNozzles(design, scale);
+  const nozzles = aliveEngineNozzles(ship, shipEngineNozzles(design, scale));
   const intensity = engineThrustRatio(ship);
   emitEngineSmoke(ship, nozzles, scale, now);
   if (intensity <= 0.03 || nozzles.length === 0) return;
@@ -1206,14 +1218,17 @@ export function drawStructureLines(design, keys, scale) {
 const designComponentHpCache = new WeakMap();
 
 // Remaining health fraction (0..1) for design[index], or null when unknown
-// (no component data yet, e.g. ships from older servers).
+// (no component data yet, e.g. ships from older servers). Mirrors the server's
+// scaling: the indestructible core is excluded from the damageable sum.
 export function componentHealthRatio(ship, index) {
   const chp = ship?.chp;
   if (!chp || chp[index] === undefined || !ship.design) return null;
+  if (ship.design[index]?.type === "core") return 1;
   let raw = designComponentHpCache.get(ship.design);
   if (!raw) {
     const values = ship.design.map((part) => Math.max(1, Number(PART_STATS[part.type]?.hp) || 1));
-    raw = { values, sum: values.reduce((total, hp) => total + hp, 0) || 1 };
+    const sum = ship.design.reduce((total, part, i) => (part.type === "core" ? total : total + values[i]), 0) || 1;
+    raw = { values, sum };
     designComponentHpCache.set(ship.design, raw);
   }
   const maxHp = Number(ship.maxHp) || raw.sum;

@@ -20,7 +20,7 @@ function buildSharedSnapshot(room, now, sendStatic) {
       vx: round(ship.vx),
       vy: round(ship.vy),
       angle: round(ship.angle),
-      combatStyle: ship.combatStyle || "charge",
+      combatStyle: ship.combatStyle || "sentry",
       targetX: round(ship.targetX),
       targetY: round(ship.targetY),
       hp: round(ship.hp),

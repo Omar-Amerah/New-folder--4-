@@ -79,7 +79,7 @@ const FALLBACK_PARTS = Object.freeze({
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.045,
     energyStorage: 0, repairRate: 0,
-    armorFlatReduction: 3,
+    armorFlatReduction: 5,
     weapon: null
   },
 
@@ -220,7 +220,7 @@ const FALLBACK_PARTS = Object.freeze({
     shield: 0, shieldRegen: 0,
     thrust: 0, turn: -0.025,
     energyStorage: 0, repairRate: 0,
-    armorFlatReduction: 2,
+    armorFlatReduction: 3.5,
     weapon: null
   },
 

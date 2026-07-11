@@ -6,7 +6,7 @@ import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
-import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip, componentHealthRatio } from "../renderer.js";
+import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, aliveEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip, componentHealthRatio } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
 import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
 
@@ -453,8 +453,9 @@ function updatePixiEngineExhaust(view, ship, now) {
   const maxSpeed = Math.max(90, maxSpeedForRenderedShip(ship));
   const speedRatio = clamp(speed / maxSpeed, 0, 1);
   const intensity = engineThrustRatio(ship);
-  emitEngineSmoke(ship, view.engines, SHIP_SCALE, now);
-  if (intensity <= 0.03) {
+  const liveEngines = aliveEngineNozzles(ship, view.engines);
+  emitEngineSmoke(ship, liveEngines, SHIP_SCALE, now);
+  if (intensity <= 0.03 || liveEngines.length === 0) {
     gfx.visible = false;
     return;
   }
@@ -462,8 +463,8 @@ function updatePixiEngineExhaust(view, ship, now) {
 
   const t = now * 0.001;
   const phase = pixiEngineIdPhase(ship.id);
-  for (let e = 0; e < view.engines.length; e += 1) {
-    const nz = view.engines[e];
+  for (let e = 0; e < liveEngines.length; e += 1) {
+    const nz = liveEngines[e];
     const flicker = 0.78 + 0.22 * Math.sin(t * 34 + phase + e * 1.7) + 0.08 * Math.sin(t * 61 + e);
     const halfW = nz.halfW * (0.8 + intensity * 0.65);
     const len = halfW * (1.2 + intensity * 9.4 + speedRatio * 2.4) * flicker;

@@ -125,7 +125,7 @@ function computeStats(modules) {
     cost,
     unitCost,
     mass: round(mass),
-    maxHp: Math.max(140, Math.round(maxHp * 0.82)),
+    maxHp: Math.max(140, Math.round(maxHp * 1.15)),
     maxShield: Math.round(maxShield * efficiency),
     shieldRegen: round(shieldRegen * clampNumber(efficiency, 0.4, 1.12)),
     powerGeneration,
