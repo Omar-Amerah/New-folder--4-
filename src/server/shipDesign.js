@@ -16,9 +16,7 @@ function validateDesign(input) {
     const x = Math.trunc(Number(raw?.x));
     const y = Math.trunc(Number(raw?.y));
     const type = String(raw?.type || "");
-    const rotation = type === "maneuverThruster"
-      ? maneuverThrusterAutoRotation(x)
-      : normalizeRotation(raw?.rotation);
+    const rotation = normalizePartRotation(type, x, raw?.rotation);
 
     if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
     if (!PARTS[type]) continue;
@@ -116,9 +114,23 @@ function normalizeShipDesignSnapshot(design) {
       x,
       y: part.y + offsetY,
       type,
-      rotation: type === "maneuverThruster" ? maneuverThrusterAutoRotation(x) : normalizeRotation(part.rotation)
+      rotation: normalizePartRotation(type, x, part.rotation)
     };
   });
+}
+
+function normalizePartRotation(type, x, rotation) {
+  if (type === "maneuverThruster") return maneuverThrusterAutoRotation(x);
+  return isRotatablePart(type) ? normalizeRotation(rotation) : 0;
+}
+
+function isRotatablePart(type) {
+  const part = PARTS[type] || {};
+  if (type === "engine" || type === "maneuverThruster") return false;
+  if (part.category === "Engines") return part.thrust > 0 && part.rotationRequired === true;
+  return part.category === "Weapons"
+    || (part.category === "Defence" && Boolean(part.weapon))
+    || part.rotationRequired === true;
 }
 
 function maneuverThrusterAutoRotation(x) {
@@ -136,5 +148,6 @@ module.exports = {
   validateDesign,
   isConnected,
   normalizeShipDesignSnapshot,
-  normalizeRotation
+  normalizeRotation,
+  normalizePartRotation
 };

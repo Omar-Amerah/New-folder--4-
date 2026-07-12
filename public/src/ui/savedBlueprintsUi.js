@@ -6,6 +6,7 @@ import { computeStats } from "../design/componentStats.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
 import { normalizeDesign, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
+import { validateBlueprint } from "../design/blueprintValidation.js";
 import { showToast } from "./toastUi.js";
 import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
 import { send } from "../network.js";
@@ -68,10 +69,11 @@ function statChips(stats) {
 function buildCard(saved, color) {
   const stats = computeStats(saved.blueprint);
   const isEditing = saved.id === state.loadedEditorBlueprintId;
+  const isInvalid = Boolean(saved.invalid);
   const thumb = shipThumbnailDataUrl(saved.blueprint, color, 84);
 
   const card = document.createElement("div");
-  card.className = `bp-card${isEditing ? " editing" : ""}`;
+  card.className = `bp-card${isEditing ? " editing" : ""}${isInvalid ? " invalid" : ""}`;
   card.dataset.savedId = saved.id;
   // Drag is enabled only from the handle (below) so it never hijacks text
   // selection in the name input.
@@ -83,11 +85,12 @@ function buildCard(saved, color) {
       <div class="bp-name-row">
         <input class="saved-design-name" value="${escapeHtml(saved.name)}" maxlength="28" aria-label="Blueprint name">
         ${isEditing ? `<span class="bp-editing-tag">Editing</span>` : ""}
+        ${isInvalid ? `<span class="bp-editing-tag" title="${escapeHtml(saved.invalidReason || "Invalid blueprint")}">Invalid</span>` : ""}
       </div>
-      <div class="bp-chips">${statChips(stats)}</div>
+      <div class="bp-chips">${isInvalid ? escapeHtml(saved.invalidReason || "Invalid blueprint") : statChips(stats)}</div>
     </div>
     <div class="bp-actions saved-design-actions">
-      <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Edit</button>
+      <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit</button>
       <button type="button" data-saved-action="duplicate" data-saved-id="${escapeHtml(saved.id)}" title="Duplicate">⧉</button>
       <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}" title="Delete">✕</button>
     </div>
@@ -254,7 +257,9 @@ export function duplicateSavedDesign(id) {
     ...source,
     id: makeDesignId(),
     name: `${source.name} copy`.slice(0, 28),
-    blueprint: normalizeDesign(source.blueprint).map((part) => ({ ...part })),
+    blueprint: normalizeDesign(source.blueprint, { fallbackOnInvalid: false, allowEmpty: true }).map((part) => ({ ...part })),
+    invalid: Boolean(source.invalid),
+    invalidReason: source.invalidReason || "Invalid blueprint.",
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -336,6 +341,10 @@ export function confirmModalAction() {
 function loadSavedDesign(id) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
+  if (saved.invalid) {
+    showToast(saved.invalidReason || "That blueprint is invalid.", "warning");
+    return;
+  }
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
   state.combatStyle = saved.combatStyle || "sentry";
@@ -368,6 +377,11 @@ function saveBlueprintButtonText() {
 export function saveCurrentDesign() {
   const blueprint = state.design.map((part) => ({ ...part }));
   const stats = computeStats(blueprint);
+  const validation = validateBlueprint(blueprint, { requireThrust: true, stats });
+  if (!validation.ok) {
+    showToast(validation.errors[0] || "Cannot save invalid blueprint.", "warning");
+    return;
+  }
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
 
   if (existing) {

@@ -4,7 +4,7 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup, shouldShowRotationMarker } from "../design/parts.js";
 import { normalizeRotation } from "../design/rotation.js";
-import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
+import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds, footprintIncludes } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
 import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
@@ -318,8 +318,13 @@ function gridCellFromPointer(clientX, clientY) {
   const cellWidth = (contentWidth - gapX * (GRID_SIZE - 1)) / GRID_SIZE;
   const cellHeight = (contentHeight - gapY * (GRID_SIZE - 1)) / GRID_SIZE;
   if (!(cellWidth > 0 && cellHeight > 0)) return null;
-  const x = Math.floor((clientX - rect.left - insetLeft) / (cellWidth + gapX));
-  const y = Math.floor((clientY - rect.top - insetTop) / (cellHeight + gapY));
+  const localX = clientX - rect.left - insetLeft;
+  const localY = clientY - rect.top - insetTop;
+  const pitchX = cellWidth + gapX;
+  const pitchY = cellHeight + gapY;
+  if ((localX % pitchX) > cellWidth || (localY % pitchY) > cellHeight) return null;
+  const x = Math.floor(localX / pitchX);
+  const y = Math.floor(localY / pitchY);
   if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return null;
   return { x, y };
 }
@@ -454,14 +459,15 @@ export function removeCell(x, y) {
   const existing = findPartAt(x, y);
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part !== existing);
-  if (isConnected(next)) {
+  const validation = validateBlueprint(next);
+  if (validation.ok) {
     state.design = next;
     persistDesign(state.design, state.combatStyle);
     renderBuildGrid();
     renderLocalStats();
     renderSavedDesigns();
   } else {
-    const message = "Removing that part would disconnect modules from the core";
+    const message = validation.errors[0] || "Removing that part would make the blueprint invalid";
     setBuildStatus(message, "warning");
     showToast(message, "warning");
   }
@@ -959,12 +965,9 @@ export function getShipStatus(stats) {
   const blockers = [];
   const money = currentMatchMoney(mine);
   const isActiveBuild = state.phase === "active";
-  const hasCore = state.design.filter((part) => part.type === "core").length === 1;
+  const blueprintValidation = validateBlueprint(state.design, { requireThrust: true, stats });
 
-  if (!state.design.length) blockers.push("Invalid design: blueprint is empty.");
-  if (!hasCore) blockers.push("Invalid design: missing core.");
-  if (!isConnected(state.design)) blockers.push("Invalid design: disconnected parts.");
-  if (stats.thrust <= 0) blockers.push("Invalid design: add at least one engine.");
+  blockers.push(...blueprintValidation.errors);
   if (money < stats.unitCost) blockers.push(`${isActiveBuild ? "Cannot afford ship" : "Cannot ready design"}. Need $${Math.ceil(stats.unitCost - money)} more.`);
 
   const warnings = [...stats.warnings];
