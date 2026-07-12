@@ -695,6 +695,18 @@ const FALLBACK_PARTS = Object.freeze({
     utilityEffect: "fireRate"
   },
 
+  heatPipe: {
+    category: "Support",
+    cost: 14, mass: 2, hp: 32,
+    powerGeneration: 0, powerUse: 0.1,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    heat: 0,
+    utilityEffect: "heatTransfer"
+  },
+
   heatSink: {
     category: "Support",
     cost: 24, mass: 5, hp: 44,

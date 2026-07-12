@@ -54,6 +54,7 @@ export const PART_DEFS = {
   sensorArray: { name: "Sensor Array", color: "#a7f3d0", glyph: "radial-gradient(circle, #ecfdf5 0 15%, #10b981 25% 45%, #064e3b 55%)" },
   targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
   fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
+  heatPipe: { name: "Heat Pipe", color: "#38bdf8", glyph: "linear-gradient(90deg, #082f49 0 18%, #38bdf8 20% 36%, #e0f2fe 38% 50%, #38bdf8 52% 68%, #082f49 70%)" },
   heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
   radiator: { name: "Radiator", color: "#7dd3fc", glyph: "repeating-linear-gradient(90deg, #0c4a6e 0 12%, #bae6fd 13% 22%)" },
   captureModule: { name: "Capture Module", color: "#f9a8d4", glyph: "radial-gradient(circle, #fdf2f8 0 20%, #ec4899 30% 55%, #831843 62%)" },
@@ -104,6 +105,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   sensorArray: "Support electronics that extend weapon range for long-distance ships.",
   targetingComputer: "Support computer that improves weapon accuracy.",
   fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
+  heatPipe: "High-conductivity thermal conduit that moves heat from nearby systems into frame routes, enabling centralised radiator banks and heat sinks. It transfers heat but does not cool by itself.",
   heatSink: "High-capacity thermal buffer that soaks heat from connected frames and boosts adjacent components' heat capacity. Pair with radiators to shed the stored heat.",
   radiator: "Continuous heat removal that works best with an exposed exterior edge; only 25% effective when fully enclosed.",
   captureModule: "Objective module that helps dedicated capture ships contest relays.",
@@ -674,6 +676,17 @@ export const FALLBACK_PART_STATS = {
     weapon: null,
     fireRateBonus: 0.05,
     utilityEffect: "fireRate"
+  },
+  heatPipe: {
+    category: "Support",
+    cost: 14, mass: 2, hp: 32,
+    powerGeneration: 0, powerUse: 0.1,
+    shield: 0, shieldRegen: 0,
+    thrust: 0, turn: 0,
+    energyStorage: 0, repairRate: 0,
+    weapon: null,
+    heat: 0,
+    utilityEffect: "heatTransfer"
   },
   heatSink: {
     category: "Support",

@@ -4,7 +4,7 @@ const { getOccupiedCells } = require("./footprint");
 const HeatRules = require("../../public/src/shared/heatRules");
 
 const { TICK_SECONDS, STATE, profile, stateFor, performanceForState, edgeTransfer, edgeConductivity } = HeatRules;
-function isFrameType(type) { return /frame/i.test(String(type || "")); }
+function isThermalRouteType(type) { return /frame/i.test(String(type || "")) || type === "heatPipe"; }
 
 function findExteriorEmptyCells(cellOwners) {
   const occupied = [...cellOwners.keys()].map(key => key.split(",").map(Number));
@@ -94,7 +94,7 @@ function rebuildThermalNetworks(ship) {
   if (!ship.componentAdjacency) return;
   const design = ship.design || [];
   const aliveFrames = new Set();
-  for (let i = 0; i < design.length; i += 1) if (isFrameType(design[i].type) && (ship.componentHp?.[i] ?? 1) > 0) aliveFrames.add(i);
+  for (let i = 0; i < design.length; i += 1) if (isThermalRouteType(design[i].type) && (ship.componentHp?.[i] ?? 1) > 0) aliveFrames.add(i);
   const visited = new Set();
   const networks = [];
   ship.componentThermalNetworks = design.map(() => []);
@@ -235,10 +235,10 @@ function updateShipHeat(ship, dt, room, now) {
       if (j <= i) continue;
       const aliveI = (ship.componentHp?.[i] ?? 1) > 0;
       const aliveJ = (ship.componentHp?.[j] ?? 1) > 0;
-      if ((!aliveI && isFrameType(ship.design[i].type)) || (!aliveJ && isFrameType(ship.design[j].type))) continue;
+      if ((!aliveI && isThermalRouteType(ship.design[i].type)) || (!aliveJ && isThermalRouteType(ship.design[j].type))) continue;
       let conductivity = (!aliveI || !aliveJ) ? HeatRules.CONDUCTIVITY.destroyed : edge.conductivity;
-      const frameI = isFrameType(ship.design[i].type);
-      const frameJ = isFrameType(ship.design[j].type);
+      const frameI = isThermalRouteType(ship.design[i].type);
+      const frameJ = isThermalRouteType(ship.design[j].type);
       const routedI = Number.isFinite(ship.frameCoolingDistance?.[i]);
       const routedJ = Number.isFinite(ship.frameCoolingDistance?.[j]);
       if (aliveI && aliveJ && frameI && frameJ && (routedI || routedJ)) conductivity *= HeatRules.NETWORK_FRAME_BOOST;

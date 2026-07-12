@@ -102,4 +102,22 @@ const debug = buildHeatDebug(withRadiator);
 assert(debug.components[4].removedByRadiatorPerSecond > 0, "radiator debug output did not record network cooling");
 assert(debug.networks[0].attachedRadiators.includes(4) && debug.networks[0].attachedHeatSources.includes(0), "network debug attachments missing");
 
+// Heat pipes form lightweight thermal routes that let ships move heat into a central cooling bank.
+const pipeRouted = shipFor([
+  {x:6,y:7,type:"blaster"}, {x:7,y:7,type:"heatPipe"}, {x:8,y:7,type:"heatPipe"},
+  {x:9,y:7,type:"heatPipe"}, {x:10,y:7,type:"radiator"}
+]);
+const pipeUncooled = shipFor([
+  {x:6,y:7,type:"blaster"}, {x:7,y:7,type:"heatPipe"}, {x:8,y:7,type:"heatPipe"},
+  {x:9,y:7,type:"heatPipe"}, {x:10,y:7,type:"frame"}
+]);
+assert.strictEqual(pipeRouted.thermalNetworks.length, 1, "heat pipes were not cached as one thermal route");
+assert(pipeRouted.thermalNetworks[0].generators.includes(0) && pipeRouted.thermalNetworks[0].radiators.includes(4), "heat-pipe route did not attach source and central radiator");
+for (let i = 0; i < 400; i += 1) {
+  addComponentHeat(pipeRouted, 0, 2); addComponentHeat(pipeUncooled, 0, 2);
+  ticks(pipeRouted, 1); ticks(pipeUncooled, 1);
+}
+assert(pipeRouted.componentHeat[0] < pipeUncooled.componentHeat[0] * 0.8, "heat pipe did not move hotspot heat to central cooling");
+assert(pipeRouted.componentHeatRadiated[4] > 0, "central radiator did not radiate heat delivered by heat pipes");
+
 console.log("Heat verification passed");

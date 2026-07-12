@@ -133,6 +133,7 @@ function partThermalDetails(type, stat) {
   }
 
   let effect = "Loses heat naturally and exchanges heat with adjacent occupied components.";
+  if (type === "heatPipe") effect = "High-conductivity thermal route for moving heat to central radiator banks; does not cool by itself.";
   if (type === "heatSink") effect = "Adds 35 H capacity to every adjacent component and absorbs burst heat locally.";
   if (type === "radiator") effect = "Removes ~14 H/s with an exposed exterior edge (25% output when enclosed); dissipation scales up as it stores more heat.";
   if (type === "armor") effect = "Retains slightly more heat than frame.";

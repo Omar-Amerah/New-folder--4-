@@ -669,6 +669,25 @@
       "description": "Weapon coordinator that improves fire rate."
     },
     {
+      "id": "heatPipe",
+      "name": "Heat Pipe",
+      "category": "Support",
+      "cost": 14,
+      "mass": 2,
+      "hull": 32,
+      "powerGeneration": 0,
+      "powerUse": 0.1,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "utility": "heatTransfer",
+      "heat": 0,
+      "description": "High-conductivity thermal conduit that moves heat from nearby components into a shared frame route, enabling centralised radiator banks and heat sinks. It stores little heat and does not cool by itself."
+    },
+    {
       "id": "heatSink",
       "name": "Heat Sink",
       "category": "Support",

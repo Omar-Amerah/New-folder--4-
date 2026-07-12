@@ -618,7 +618,7 @@ function renderHeatFlows(analysis) {
     const from = state.design[flow.from];
     const to = state.design[flow.to];
     if (!from || !to) continue;
-    const isFrameFlow = /frame/i.test(from.type) || /frame/i.test(to.type);
+    const isFrameFlow = /frame/i.test(from.type) || /frame/i.test(to.type) || from.type === "heatPipe" || to.type === "heatPipe";
     const coolingFlow = to.type === "radiator" || to.type === "heatSink" || (analysis.predictions.get(to)?.ratio || 0) < 0.35;
     for (const cell of occupiedByIndex[flow.from] || []) for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       if (owner.get(`${cell.x + dx},${cell.y + dy}`) !== flow.to) continue;
@@ -708,7 +708,7 @@ export function analyzeDesignHeat(design, mode = "full") {
     if ((stat.thrust || 0) > 0 && !designExhaust.validEngineIndices.has(index)) return 0;
     return rules.activityHeat(module.type, stat) * loadMultiplier(module, stat);
   });
-  const isFrame = type => /frame/i.test(String(type || ""));
+  const isFrame = type => /frame/i.test(String(type || "")) || type === "heatPipe";
   const frameCoolingDistance = design.map(() => Infinity);
   const coolingFrames = [];
   for (let i = 0; i < design.length; i += 1) {
