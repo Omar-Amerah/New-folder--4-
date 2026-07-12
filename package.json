@@ -15,7 +15,8 @@
     "test:reconnect": "node verify-reconnect.js",
     "test:core-reactor": "node verify-core-reactor.js",
     "test:heat-thermo": "node verify-heat-thermo.js",
-    "test:repair-target": "node verify-repair-target.js"
+    "test:repair-target": "node verify-repair-target.js",
+    "test:combat-review": "node verify-combat-review.js"
   },
   "keywords": [
     "browser-game",
