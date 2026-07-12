@@ -302,7 +302,7 @@ export function getActiveLoadout() {
 export function setActiveLoadout(id) {
   state.activeLoadoutId = id;
   state.loadoutEditMode = false;
-  renderPurchaseBar();
+  renderLoadouts();
 }
 
 export function addLoadout() {
@@ -316,7 +316,7 @@ export function addLoadout() {
   persistLoadouts(state.loadouts);
   state.activeLoadoutId = loadout.id;
   state.loadoutEditMode = true; // jump straight to picking ships
-  renderPurchaseBar();
+  renderLoadouts();
 }
 
 export function deleteLoadout(id) {
@@ -324,7 +324,7 @@ export function deleteLoadout(id) {
   persistLoadouts(state.loadouts);
   if (state.activeLoadoutId === id) state.activeLoadoutId = "all";
   state.loadoutEditMode = false;
-  renderPurchaseBar();
+  renderLoadouts();
 }
 
 export function renameLoadout(id, name) {
@@ -332,7 +332,7 @@ export function renameLoadout(id, name) {
   if (!clean) return;
   state.loadouts = (state.loadouts || []).map((lo) => (lo.id === id ? { ...lo, name: clean } : lo));
   persistLoadouts(state.loadouts);
-  renderPurchaseBar();
+  renderLoadouts();
 }
 
 export function toggleDesignInLoadout(designId) {
@@ -344,12 +344,12 @@ export function toggleDesignInLoadout(designId) {
   if (idx >= 0) loadout.designIds.splice(idx, 1);
   else if (loadout.designIds.length < 12) loadout.designIds.push(designId);
   persistLoadouts(state.loadouts);
-  renderPurchaseBar();
+  renderLoadouts();
 }
 
 export function toggleLoadoutEditMode() {
   state.loadoutEditMode = !state.loadoutEditMode;
-  renderPurchaseBar();
+  renderLoadouts();
 }
 
 export function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
@@ -407,14 +407,9 @@ export function renderPurchaseBar() {
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
   dom.purchaseQuantityFive?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 5));
 
-  renderLoadoutTabs();
-
-  const active = getActiveLoadout();
-  const editing = state.loadoutEditMode && active.id !== "all";
-  if (editing) {
-    renderLoadoutEditor(active);
-    return;
-  }
+  // The purchase bar only lets you *pick* a saved loadout; creating/editing them
+  // lives in the Blueprint screen's loadout manager.
+  renderLoadoutTabs(dom.loadoutTabs, false);
 
   const options = getPurchaseOptions();
   const color = previewColor();
@@ -442,6 +437,17 @@ export function renderPurchaseBar() {
       card = document.createElement("button");
       card.type = "button";
       if (card.dataset) card.dataset.optionId = option.id;
+      // Build the persistent sub-structure once. Subsequent renders update only
+      // the text/thumbnail that changed, so hover/focus/press state and the
+      // thumbnail <img> element survive the per-snapshot re-render.
+      card.innerHTML = `
+        <span class="purchase-thumb"></span>
+        <span class="purchase-info">
+          <strong></strong>
+          <span class="purchase-cost"></span>
+          <small class="purchase-weapons"></small>
+          <em class="purchase-status"></em>
+        </span>`;
 
       card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
       card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
@@ -451,39 +457,56 @@ export function renderPurchaseBar() {
     }
 
     const className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
-    if (card.className !== className) {
-      card.className = className;
-    }
+    if (card.className !== className) card.className = className;
     const ariaDisabled = String(!optionState.canBuy);
-    if (card.getAttribute?.("aria-disabled") !== ariaDisabled) {
-      card.setAttribute?.("aria-disabled", ariaDisabled);
+    if (card.getAttribute?.("aria-disabled") !== ariaDisabled) card.setAttribute?.("aria-disabled", ariaDisabled);
+
+    // Regenerate the (canvas-rendered) thumbnail only when the blueprint or team
+    // colour changes, not every snapshot.
+    const thumbSig = `${color}|${option.blueprint.length}|${JSON.stringify(option.blueprint)}`;
+    const thumbSpan = card.querySelector(".purchase-thumb");
+    if (thumbSpan && thumbSpan.dataset.sig !== thumbSig) {
+      thumbSpan.dataset.sig = thumbSig;
+      const thumb = shipThumbnailDataUrl(option.blueprint, color, 96);
+      thumbSpan.innerHTML = thumb ? `<img src="${thumb}" alt="" draggable="false">` : "";
     }
 
-    const thumb = shipThumbnailDataUrl(option.blueprint, color, 72);
-    const innerHTML = `
-      <span class="purchase-thumb">${thumb ? `<img src="${thumb}" alt="" draggable="false">` : ""}</span>
-      <span class="purchase-info">
-        <strong>${escapeHtml(option.name)}</strong>
-        <span>${purchaseCostText(option, optionState)}</span>
-        <small>${weaponSummaryText(option.stats)}</small>
-        <em>${optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : escapeHtml(optionState.reason)}</em>
-      </span>
-    `;
-    if (card.innerHTML !== innerHTML) {
-      card.innerHTML = innerHTML;
-    }
+    setCardText(card, "strong", option.name);
+    setCardText(card, ".purchase-cost", purchaseCostText(option, optionState));
+    setCardText(card, ".purchase-weapons", weaponSummaryText(option.stats));
+    setCardText(card, ".purchase-status", optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : optionState.reason);
 
-    if (isNew) {
-      dom.purchaseOptions.appendChild(card);
-    }
+    if (isNew) dom.purchaseOptions.appendChild(card);
   });
 }
 
-function renderLoadoutTabs() {
-  const strip = dom.loadoutTabs;
+// Updates a child element's text only when it changed, avoiding needless DOM work
+// and preserving the surrounding interactive state.
+function setCardText(card, selector, text) {
+  const el = card.querySelector(selector);
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+// Renders the loadout tab strip into `strip`. With `manage` (the Blueprint-screen
+// loadout maker) it also shows create/rename/edit/delete controls; without it
+// (the purchase bar) the tabs only *select* a saved loadout.
+function renderLoadoutTabs(strip = dom.loadoutTabs, manage = false) {
   if (!strip) return;
-  strip.textContent = "";
   const active = getActiveLoadout();
+
+  // These strips re-render on every snapshot. Only rebuild (which recreates the
+  // buttons + their click listeners) when something actually changed, so a click
+  // between two redraws can't target a button that gets replaced before it fires
+  // — and an in-progress rename input isn't destroyed mid-edit.
+  const signature = JSON.stringify({
+    tabs: loadoutTabs().map((tab) => [tab.id, tab.name]),
+    active: state.activeLoadoutId,
+    edit: state.loadoutEditMode,
+    manage
+  });
+  if (strip.dataset.sig === signature) return;
+  strip.dataset.sig = signature;
+  strip.textContent = "";
 
   for (const tab of loadoutTabs()) {
     const isActive = tab.id === state.activeLoadoutId;
@@ -494,12 +517,14 @@ function renderLoadoutTabs() {
     btn.setAttribute("role", "tab");
     btn.setAttribute("aria-selected", String(isActive));
     btn.addEventListener("click", () => setActiveLoadout(tab.id));
-    if (tab.id !== "all") {
+    if (manage && tab.id !== "all") {
       btn.title = "Double-click to rename";
       btn.addEventListener("dblclick", (event) => { event.preventDefault(); beginRenameLoadout(btn, tab); });
     }
     strip.appendChild(btn);
   }
+
+  if (!manage) return;
 
   const add = document.createElement("button");
   add.type = "button";
@@ -531,6 +556,26 @@ function renderLoadoutTabs() {
   }
 }
 
+// The loadout maker, rendered inside the Blueprint screen: full management tabs
+// plus the add-designs editor for the active custom loadout.
+export function renderLoadoutManager() {
+  if (!dom.loadoutManagerTabs) return;
+  renderLoadoutTabs(dom.loadoutManagerTabs, true);
+  const active = getActiveLoadout();
+  const editing = state.loadoutEditMode && active.id !== "all";
+  if (dom.loadoutManagerEditor) {
+    dom.loadoutManagerEditor.hidden = !editing;
+    if (editing) renderLoadoutEditor(active, dom.loadoutManagerEditor);
+    else dom.loadoutManagerEditor.textContent = "";
+  }
+}
+
+// Re-render both the purchase-bar tabs and the Blueprint-screen loadout maker.
+function renderLoadouts() {
+  renderPurchaseBar();
+  renderLoadoutManager();
+}
+
 function beginRenameLoadout(btn, tab) {
   const input = document.createElement("input");
   input.className = "loadout-tab-rename";
@@ -543,15 +588,14 @@ function beginRenameLoadout(btn, tab) {
   input.addEventListener("blur", commit);
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") input.blur();
-    else if (event.key === "Escape") renderPurchaseBar();
+    else if (event.key === "Escape") renderLoadoutManager();
     event.stopPropagation();
   });
 }
 
-function renderLoadoutEditor(loadout) {
-  const container = dom.purchaseOptions;
+function renderLoadoutEditor(loadout, container = dom.loadoutManagerEditor) {
+  if (!container) return;
   container.textContent = "";
-  container.dataset.mode = "edit";
   const color = previewColor();
 
   if (state.savedDesigns.length === 0) {

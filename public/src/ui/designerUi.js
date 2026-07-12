@@ -13,9 +13,11 @@ import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText } from "./saved
 import { updateEconomyUi } from "./purchaseUi.js";
 import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
+import { renderPartInspector } from "./partInspectorUi.js";
 
 const GRID_SIZE = 15;
 const thermalAnalysisCache = new Map();
+const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "Maximum Sustained Load" };
 
 export function renderBuildGrid() {
   dom.grid.textContent = "";
@@ -31,6 +33,10 @@ export function renderBuildGrid() {
   if (dom.thermalLoadModes) {
     dom.thermalLoadModes.hidden = !heatView;
     for (const button of dom.thermalLoadModes.querySelectorAll("[data-thermal-load]")) button.classList.toggle("active", button.dataset.thermalLoad === (state.thermalLoadMode || "full"));
+  }
+  if (dom.thermalScenarioLabel) {
+    dom.thermalScenarioLabel.hidden = !heatView;
+    dom.thermalScenarioLabel.textContent = `Predicted component heat — ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || "full"]}`;
   }
   renderFullLoadThermalPanel(heatView ? analyzeDesignHeat(state.design, "full") : null);
 
@@ -92,8 +98,12 @@ export function renderBuildGrid() {
         const prediction = heatAnalysis.predictions.get(part);
         const displayedHeat = Math.max(0, Math.min(100, heatAnalysis.componentHeat.get(part) || 0));
         const overheated = displayedHeat >= 100;
+        const critical = !overheated && displayedHeat >= 76;
+        const heatWarning = overheated
+          ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>`
+          : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
         const heatValue = heatView
-          ? `<span class="component-heat-value" aria-label="Heat load ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${overheated ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>` : ""}`
+          ? `<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`
           : "";
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
         cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${rotationMarker}${heatValue}${exhaustWarning}`;
@@ -101,10 +111,6 @@ export function renderBuildGrid() {
       }
       cell.dataset.x = String(x);
       cell.dataset.y = String(y);
-      cell.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        removeCell(x, y);
-      });
       dom.grid.appendChild(cell);
     }
   }
@@ -115,15 +121,23 @@ export function renderBuildGrid() {
     dom.grid.addEventListener("click", (event) => {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
-      editCell(Number(cell.dataset.x), Number(cell.dataset.y));
+      const pointed = gridCellFromPointer(event.clientX, event.clientY);
+      editCell(
+        pointed?.x ?? Number(cell.dataset.x),
+        pointed?.y ?? Number(cell.dataset.y)
+      );
     });
     // Hover preview is delegated so cells are never rebuilt mid-click:
     // rebuilding on hover destroyed the mousedown target, so no click event fired.
-    dom.grid.addEventListener("mouseover", (event) => {
+    dom.grid.addEventListener("mousemove", (event) => {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
-      const x = Number(cell.dataset.x);
-      const y = Number(cell.dataset.y);
+      // A multi-cell component is one spanning DOM button, so its dataset only
+      // contains the component anchor. Resolve the physical grid square under
+      // the pointer so the right/left/top/bottom sections all behave normally.
+      const pointed = gridCellFromPointer(event.clientX, event.clientY);
+      const x = pointed?.x ?? Number(cell.dataset.x);
+      const y = pointed?.y ?? Number(cell.dataset.y);
       if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) return;
       state.hoveredCell = { x, y };
       renderHoverPreview();
@@ -131,6 +145,16 @@ export function renderBuildGrid() {
     dom.grid.addEventListener("mouseleave", () => {
       state.hoveredCell = null;
       renderHoverPreview();
+    });
+    dom.grid.addEventListener("contextmenu", (event) => {
+      const cell = event.target.closest(".build-cell");
+      if (!cell || !dom.grid.contains(cell)) return;
+      event.preventDefault();
+      const pointed = gridCellFromPointer(event.clientX, event.clientY);
+      removeCell(
+        pointed?.x ?? Number(cell.dataset.x),
+        pointed?.y ?? Number(cell.dataset.y)
+      );
     });
     dom.grid.dataset.hasDelegatedClick = "true";
   }
@@ -157,6 +181,9 @@ export function renderBuildGrid() {
   }
 
   renderHoverPreview();
+  // The inspector's "Predicted in this design" rows track the live design and
+  // the selected thermal scenario, so refresh it alongside the grid.
+  renderPartInspector();
 }
 
 export function renderHoverPreview() {
@@ -167,8 +194,12 @@ export function renderHoverPreview() {
   if (state.hoveredCell && state.selectedPart) {
     const selectedType = state.selectedPart;
     const existing = findPartAt(state.hoveredCell.x, state.hoveredCell.y);
-    let targetX = existing ? existing.x : state.hoveredCell.x;
-    let targetY = existing ? existing.y : state.hoveredCell.y;
+    const editingSamePart = existing?.type === selectedType;
+    // Replacing a multi-cell component uses the exact hovered square. The old
+    // component is still removed as one object, but the replacement no longer
+    // jumps back to its anchor (for example the left side of a 2x1 reactor).
+    let targetX = editingSamePart ? existing.x : state.hoveredCell.x;
+    let targetY = editingSamePart ? existing.y : state.hoveredCell.y;
     let rotation = placementRotation(selectedType, state.previewRotation || 0);
 
     const stat = PART_STATS[selectedType] || PART_STATS.frame;
@@ -265,6 +296,31 @@ function cssPx(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function gridCellFromPointer(clientX, clientY) {
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+  if (typeof dom.grid.getBoundingClientRect !== "function") return null;
+  const rect = dom.grid.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0)) return null;
+  const computed = typeof window !== "undefined" && typeof window.getComputedStyle === "function"
+    ? window.getComputedStyle(dom.grid)
+    : null;
+  const gapX = cssPx(computed?.columnGap || computed?.gap, 2);
+  const gapY = cssPx(computed?.rowGap || computed?.gap, 2);
+  const insetLeft = cssPx(computed?.borderLeftWidth, 1) + cssPx(computed?.paddingLeft, 8);
+  const insetRight = cssPx(computed?.borderRightWidth, 1) + cssPx(computed?.paddingRight, 8);
+  const insetTop = cssPx(computed?.borderTopWidth, 1) + cssPx(computed?.paddingTop, 8);
+  const insetBottom = cssPx(computed?.borderBottomWidth, 1) + cssPx(computed?.paddingBottom, 8);
+  const contentWidth = rect.width - insetLeft - insetRight;
+  const contentHeight = rect.height - insetTop - insetBottom;
+  const cellWidth = (contentWidth - gapX * (GRID_SIZE - 1)) / GRID_SIZE;
+  const cellHeight = (contentHeight - gapY * (GRID_SIZE - 1)) / GRID_SIZE;
+  if (!(cellWidth > 0 && cellHeight > 0)) return null;
+  const x = Math.floor((clientX - rect.left - insetLeft) / (cellWidth + gapX));
+  const y = Math.floor((clientY - rect.top - insetTop) / (cellHeight + gapY));
+  if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return null;
+  return { x, y };
+}
+
 function findPartAt(x, y) {
   for (const part of state.design) {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
@@ -280,9 +336,10 @@ export function editCell(x, y) {
   const existing = findPartAt(x, y);
   if (existing?.type === "core") return;
 
-  // if clicked on an empty extension cell, target the clicked cell as origin for new part
-  let targetX = existing ? existing.x : x;
-  let targetY = existing ? existing.y : y;
+  // A different replacement part starts on the exact square clicked, even when
+  // that square belongs to the extension of a multi-cell component.
+  let targetX = existing?.type === state.selectedPart ? existing.x : x;
+  let targetY = existing?.type === state.selectedPart ? existing.y : y;
 
   state.selectedCell = { x: targetX, y: targetY };
 
@@ -454,7 +511,7 @@ export function renderLocalStats() {
   const statDiagnostics = buildStatDiagnostics(stats);
   const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
   dom.stats.innerHTML = [
-    state.blueprintView === "heat" ? `<div class="heat-design-summary"><strong>Thermal layout</strong><span>Cooling: ${heat.cooling}</span><span>Sustained heat: ${heat.sustained}</span><span>Likely hotspot: ${escapeHtml(heat.hotspot)}</span><span>Radiator exposure: ${heat.exposure}</span><span>Est. sustained cooling: ${heat.coolingRate}/s</span><span>Networks: ${heat.networks.length}</span><span>${escapeHtml(heat.routeWarning)}</span><span>${escapeHtml(heat.networkWarning)}</span><span>${escapeHtml(heat.severWarning)}</span></div>` : "",
+    state.blueprintView === "heat" ? `<div class="heat-design-summary"><strong>Thermal layout</strong><span>Likely hotspot: ${escapeHtml(heat.hotspot)}</span><span>Total cooling: -${heat.coolingRate} H/s</span>${[heat.routeWarning, heat.networkWarning, heat.severWarning].filter(warning => !/^(All|Thermal networks within|No single-frame)/.test(warning)).map(warning => `<span class="heat-summary-warning">${escapeHtml(warning)}</span>`).join("")}</div>` : "",
     statCard("fleet", "Fleet", stats.fleetCount),
     statCard("class", "Class", stats.massClass),
     statCard("hull", "Hull", formatHull(stats.maxHp)),
@@ -465,7 +522,7 @@ export function renderLocalStats() {
     statCard("thrust", "Effective Thrust", formatThrust(stats.effectiveThrust)),
     statCard("engineEfficiency", "Engine Efficiency", formatPercent(stats.engineEfficiency)),
     statCard("powerEfficiency", "Power Efficiency", formatPercent(stats.powerEfficiency)),
-    statCard("powerDebuff", "Power Debuff", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
+    statCard("powerDebuff", "Power Penalty", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
     statCard("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
     statCard("thrustRatio", "Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
     statCard("weapons", "Weapons", `${stats.weaponDps} DPS`),
@@ -486,8 +543,8 @@ export function renderLocalStats() {
 function thermalHoverText(prediction) {
   if (!prediction) return "";
   const labels = globalThis.HeatRules.STATE_LABELS;
-  const overheat = prediction.timeToOverheat === null ? "stable" : `${prediction.timeToOverheat.toFixed(1)}s to overheat`;
-  return `\nHeat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nState: ${labels[prediction.state]}\nGenerated: +${prediction.generation.toFixed(1)} H/s\nReceived: +${prediction.received.toFixed(1)} H/s\nSent through frame: -${prediction.transferredOut.toFixed(1)} H/s\nCooling: -${prediction.cooling.toFixed(1)} H/s\n${overheat}`;
+  const overheat = prediction.timeToOverheat === null ? "Time until overheat: never" : `Time until overheat: ${prediction.timeToOverheat.toFixed(1)}s`;
+  return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generation: +${prediction.generation.toFixed(1)} H/s\nHeat received: +${prediction.received.toFixed(1)} H/s\nSent through frame: -${prediction.transferredOut.toFixed(1)} H/s\nCooling received: -${prediction.cooling.toFixed(1)} H/s\n${overheat}`;
 }
 
 function renderFullLoadThermalPanel(fullLoadResult) {
@@ -497,32 +554,39 @@ function renderFullLoadThermalPanel(fullLoadResult) {
   if (!fullLoadResult) return;
   const analysis = fullLoadResult.analysis;
   const tone = analysis.balance.toLowerCase();
+  const statusText = analysis.balance === "Stable" ? "Thermally stable" : analysis.balance === "Marginal" ? "Thermally marginal" : "Thermally unsustainable";
   const row = (label, value) => `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
-  const seconds = value => value === null ? "Never" : `${value.toFixed(1)} seconds`;
-  const equilibrium = analysis.equilibriumTime === null ? "No equilibrium" : `${analysis.equilibriumTime.toFixed(1)} seconds`;
-  const reserve = analysis.reserve >= 0 ? `+${analysis.reserve.toFixed(1)} H/s spare cooling` : `${analysis.reserve.toFixed(1)} H/s deficit`;
+  const seconds = value => value === null ? "Never" : `${value.toFixed(1)} s`;
+  const equilibrium = analysis.equilibriumTime === null ? "No equilibrium" : `${analysis.equilibriumTime.toFixed(1)} s`;
+  const spareCooling = analysis.reserve >= 0;
   panel.innerHTML = `
-    <h3>Full Load Thermal Analysis</h3>
-    <p>Predicted performance with all major systems operating continuously.</p>
-    <div class="thermal-analysis-status ${tone}">${escapeHtml(analysis.balance)}</div>
-    <div class="thermal-analysis-rows">
-      ${row("Total heat generated", `${analysis.generation.toFixed(1)} H/s`)}
-      ${row("Total cooling", `${analysis.cooling.toFixed(1)} H/s`)}
-      ${row("Net heat", `${analysis.net >= 0 ? "+" : ""}${analysis.net.toFixed(1)} H/s`)}
-      ${row("Thermal balance", analysis.balance)}
-      ${row("First overheat", seconds(analysis.firstOverheatTime))}
-      ${row("First component", analysis.firstOverheatIndex < 0 ? "None" : describeComponentAt(analysis.firstOverheatIndex, state.design))}
-      ${row("Expected to overheat", String(analysis.overheatedCount))}
-      ${row("Thermal equilibrium", equilibrium)}
-      ${row("Peak component heat", `${Math.round(analysis.peakPredictedHeat * 100)}%`)}
-      ${row("Hottest network", analysis.hottestNetwork)}
-      ${row("Cooling reserve", reserve)}
-      ${row("Weapon uptime", `${Math.round(analysis.weaponUptime * 100)}%`)}
-      ${row("Engine efficiency", `${Math.round(analysis.engineEfficiency * 100)}%`)}
-      ${row("Shield recharge uptime", `${Math.round(analysis.shieldUptime * 100)}%`)}
-      ${row("Radiator utilisation", `${Math.round(analysis.radiatorUtilisation * 100)}%`)}
-      ${row("Heat-sink saturation", analysis.heatSinkSaturationTime === null ? "Never" : `${analysis.heatSinkSaturationTime.toFixed(1)} seconds`)}
-    </div>`;
+    <h3>Thermal Analysis</h3>
+    <p>Maximum Sustained Load — all major systems operating continuously.</p>
+    <div class="thermal-analysis-status ${tone}">${escapeHtml(statusText)}</div>
+    <div class="thermal-key-stats">
+      <div><span>${spareCooling ? "Spare cooling" : "Net heat"}</span><strong class="${spareCooling ? "thermal-good" : "thermal-bad"}">${spareCooling ? `${analysis.reserve.toFixed(1)} H/s` : `+${analysis.net.toFixed(1)} H/s`}</strong></div>
+      <div><span>First overheat</span><strong class="${analysis.firstOverheatTime === null ? "thermal-good" : "thermal-bad"}">${seconds(analysis.firstOverheatTime)}</strong></div>
+      <div><span>Peak component heat</span><strong>${Math.round(analysis.peakPredictedHeat * 100)}%</strong></div>
+    </div>
+    <details class="thermal-detailed-analysis"${state.thermalDetailsOpen ? " open" : ""}>
+      <summary>Detailed analysis</summary>
+      <div class="thermal-analysis-rows">
+        ${row("Heat generation", `+${analysis.generation.toFixed(1)} H/s`)}
+        ${row("Total cooling", `-${analysis.cooling.toFixed(1)} H/s`)}
+        ${row("Thermal equilibrium", equilibrium)}
+        ${row("Expected to overheat", String(analysis.overheatedCount))}
+        ${row("First component", analysis.firstOverheatIndex < 0 ? "None" : describeComponentAt(analysis.firstOverheatIndex, state.design))}
+        ${row("Hottest network", analysis.hottestNetwork)}
+        ${row("Weapon uptime", `${Math.round(analysis.weaponUptime * 100)}%`)}
+        ${row("Engine efficiency", `${Math.round(analysis.engineEfficiency * 100)}%`)}
+        ${row("Shield recharge uptime", `${Math.round(analysis.shieldUptime * 100)}%`)}
+        ${row("Radiator utilisation", `${Math.round(analysis.radiatorUtilisation * 100)}%`)}
+        ${row("Heat-sink saturation", analysis.heatSinkSaturationTime === null ? "Never" : `${analysis.heatSinkSaturationTime.toFixed(1)} s`)}
+      </div>
+    </details>`;
+  panel.querySelector(".thermal-detailed-analysis")?.addEventListener("toggle", event => {
+    state.thermalDetailsOpen = event.target.open;
+  });
 }
 
 function renderHeatFlows(analysis) {
@@ -558,7 +622,7 @@ function renderHeatFlows(analysis) {
   dom.grid.appendChild(svg);
 }
 
-function analyzeDesignHeat(design, mode = "full") {
+export function analyzeDesignHeat(design, mode = "full") {
   const rules = globalThis.HeatRules;
   const types = [...new Set(design.map(module => module.type))];
   const thermalSignature = types.map(type => {
@@ -696,6 +760,10 @@ function analyzeDesignHeat(design, mode = "full") {
       let coolingRate = profiles[i].cooling * profiles[i].retention;
       if (design[i].type === "radiator") coolingRate *= exposed[i] > 0 ? 1 : 0.25;
       else if (exposed[i] > 0) coolingRate *= 1.12;
+      // Temperature-dependent dissipation — must mirror the server heat sim
+      // (src/server/heat.js) so this prediction matches real in-combat cooling.
+      const coolRatio = Math.max(0, (heat[i] + delta[i]) / Math.max(1, profiles[i].capacity));
+      coolingRate *= 0.7 + 0.9 * coolRatio * coolRatio;
       cooling[i] = Math.min(Math.max(0, heat[i] + delta[i]), coolingRate * dt);
       if (design[i].type === "radiator") radiatorRemovedTotal += cooling[i];
       delta[i] -= cooling[i];
@@ -1229,13 +1297,27 @@ Subsystem Consumed: -${stats.powerUse.toFixed(1)} MW
 Efficiency: ${Math.round(stats.powerEfficiency * 100)}%`
       };
 
-    case "powerDebuff":
+    case "powerDebuff": {
+      const eff = Math.min(1, Number(stats.efficiency) || 1);
+      const sysPenalty = Math.round((1 - eff) * 100);
+      const movePenalty = Math.round((Number(stats.powerDebuff) || 0) * 100);
+      const deficit = stats.powerUse > stats.powerGeneration;
       return {
-        label: "Power Grid Brownout Penalty",
-        desc: "Active penalty to ship movement when reactor power generation falls short of active power draw.",
-        formula: "MovementPowerPenalty = Max(0, 1 - PowerMultiplier)",
-        breakdown: `Power Penalty: ${stats.powerDebuff > 0 ? ("-" + Math.round(stats.powerDebuff * 100) + "%") : "None"}`
+        label: "Power Penalty",
+        desc: deficit
+          ? "Reactor output is below demand, so power-hungry systems run under-powered and lose effectiveness. Add reactors/batteries or cut power use to clear it."
+          : "Power supply meets demand — no systems are being throttled.",
+        formula: "Under-power scales each system down toward the generation / demand ratio.",
+        breakdown: deficit
+          ? `Generation +${stats.powerGeneration.toFixed(1)} MW vs Demand -${stats.powerUse.toFixed(1)} MW
+Weapon damage: -${sysPenalty}%
+Shield capacity & regen: -${sysPenalty}%
+Repair rate: -${sysPenalty}%
+Engine thrust / speed / accel / turn: -${movePenalty}%
+Fire rate: unaffected by power (only reduced by overheating)`
+          : "All systems at full effectiveness."
       };
+    }
 
     case "speedCap":
       return {

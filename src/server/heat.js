@@ -175,7 +175,14 @@ function addHeatToType(ship, predicate, amount) {
   for (const i of matches) addComponentHeat(ship, i, amount / matches.length);
 }
 
-function updateShipHeat(ship, dt) {
+// A reactor pinned at the overheat failure state (heat >= capacity) for this long
+// melts down and explodes. The delay telegraphs the failure and prevents a single
+// spike from instantly chaining through a reactor bank.
+const REACTOR_MELTDOWN_SECONDS = 3;
+const REACTOR_EXPLOSION_RADIUS = 1.9; // tiles
+const REACTOR_EXPLOSION_DAMAGE = 60;
+
+function updateShipHeat(ship, dt, room, now) {
   if (!ship.alive || !ship.componentHeat) return;
   const pending = ship.componentHeatInput.some(value => value > 0);
   if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending) return;
@@ -248,6 +255,13 @@ function updateShipHeat(ship, dt) {
     let coolingRate = thermal.cooling * thermal.retention;
     if (ship.design[i].type === "radiator") coolingRate *= thermal.exposedEdges > 0 ? 1 : 0.25;
     else if (thermal.exposedEdges > 0) coolingRate *= 1.12;
+    // Thermodynamics: a hotter body sheds heat faster. Passive dissipation scales
+    // with the component's fill ratio — hotspots bleed off quickly — but the floor
+    // stays high enough that cool/normal components still dissipate properly
+    // (a low floor here starves normal cooling and makes everything creep hot).
+    const ratio = Math.max(0, (heat[i] + delta[i]) / Math.max(1, thermal.capacity));
+    const tempFactor = 0.7 + 0.9 * ratio * ratio;
+    coolingRate *= tempFactor;
     const removed = Math.min(Math.max(0, heat[i] + delta[i]), coolingRate * elapsed);
     ship.componentHeatRemoved[i] += removed;
     if (ship.design[i].type === "radiator") ship.componentHeatRadiated[i] = removed;
@@ -260,6 +274,8 @@ function updateShipHeat(ship, dt) {
   let overheatedCount = 0;
   let availablePower = 0;
   let nominalPower = 0;
+  let meltdowns = null;
+  if (!ship.componentMeltdown) ship.componentMeltdown = heat.map(() => 0);
   for (let i = 0; i < heat.length; i += 1) {
     const alive = (ship.componentHp?.[i] ?? 1) > 0;
     const capacity = ship.componentThermals[i].capacity;
@@ -277,6 +293,15 @@ function updateShipHeat(ship, dt) {
       const output = PARTS[ship.design[i].type]?.powerGeneration || 0;
       nominalPower += output;
       availablePower += output * performanceForState(nextState);
+      // Reactors (power sources) that stay at overheat failure melt down.
+      if (output > 0) {
+        if (nextState === STATE.OVERHEATED) {
+          ship.componentMeltdown[i] += elapsed;
+          if (ship.componentMeltdown[i] >= REACTOR_MELTDOWN_SECONDS) (meltdowns || (meltdowns = [])).push(i);
+        } else {
+          ship.componentMeltdown[i] = Math.max(0, ship.componentMeltdown[i] - elapsed * 2);
+        }
+      }
     }
     if (next > 0.05) remainsActive = true;
   }
@@ -297,6 +322,21 @@ function updateShipHeat(ship, dt) {
       + network.sinks.reduce((sum, index) => sum + ship.componentHeatRemoved[index], 0);
     const generation = network.generators.reduce((sum, index) => sum + HeatRules.activityHeat(ship.design[index].type, PARTS[ship.design[index].type] || {}), 0);
     network.overloaded = generation > network.totalCoolingCapacity;
+  }
+
+  // Resolve any reactor meltdowns after the thermal state is settled. Detonation
+  // deals hp damage to neighbours (not heat), so it cannot instantly cascade; a
+  // ship reduced to 0 hull or a destroyed core is finished off here.
+  if (meltdowns && room) {
+    const { detonateComponent } = require("./componentHealth");
+    for (const index of meltdowns) {
+      if (ship.componentHp[index] <= 0) continue;
+      ship.componentMeltdown[index] = 0;
+      detonateComponent(room, ship, index, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, now);
+    }
+    if (ship.alive && (ship.hp <= 0.001 || ship.coreDestroyed)) {
+      require("./combat").destroyShip(room, ship, ship.lastDamagedBy || null, now);
+    }
   }
 }
 

@@ -188,23 +188,26 @@ function drawDiagram(ship) {
       const place = footprintLocalPlacement(part, cellSize);
       const ratio = componentHealthRatio(ship, i);
       const destroyed = ratio !== null && ratio <= 0;
-      const halfLong = (place.tilesLong * (cellSize - 1)) / 2;
-      const halfCross = (place.tilesCross * (cellSize - 1)) / 2;
+      const halfLong = (place.tilesLong * cellSize) / 2;
+      const halfCross = (place.tilesCross * cellSize) / 2;
       drawCtx.save();
       drawCtx.translate(place.cx, place.cy);
       if (destroyed) drawCtx.globalAlpha *= 0.6;
       if (isRotatablePart(part.type)) {
         drawCtx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
         if (place.multi) {
-          drawFootprintComponent({ type: part.type, unit: cellSize - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
+          drawFootprintComponent({ type: part.type, unit: cellSize, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
         } else {
-          drawModule({ x: 0, y: 0, size: cellSize - 1, color: def.color, type: part.type, trim });
+          drawModule({ x: 0, y: 0, size: cellSize, color: def.color, type: part.type, trim });
         }
       } else if (place.multi) {
         drawCtx.rotate(place.longAxisAngle);
-        drawFootprintComponent({ type: part.type, unit: cellSize - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
+        drawFootprintComponent({ type: part.type, unit: cellSize, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
       } else {
-        drawModule({ x: 0, y: 0, size: cellSize - 1, color: def.color, type: part.type, trim });
+        if (part.type === "maneuverThruster") {
+          drawCtx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
+        }
+        drawModule({ x: 0, y: 0, size: cellSize, color: def.color, type: part.type, trim });
       }
       if (state.shipStatusView !== "heat") {
         drawModuleDamage(drawCtx, ratio, halfLong, halfCross, now);

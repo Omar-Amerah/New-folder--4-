@@ -9,7 +9,13 @@
     "check": "npm run build && node --check server.js && node --check public/client.js && node --check verify-runtime.js && node --check verify-client-ui.js",
     "verify": "npm run build && node verify-runtime.js && node verify-client-ui.js",
     "test:heat": "node verify-heat.js",
-    "test:engine-exhaust": "node verify-engine-exhaust.js"
+    "test:engine-exhaust": "node verify-engine-exhaust.js",
+    "test:movement": "node verify-movement.js",
+    "test:targeting": "node verify-targeting.js",
+    "test:reconnect": "node verify-reconnect.js",
+    "test:core-reactor": "node verify-core-reactor.js",
+    "test:heat-thermo": "node verify-heat-thermo.js",
+    "test:repair-target": "node verify-repair-target.js"
   },
   "keywords": [
     "browser-game",

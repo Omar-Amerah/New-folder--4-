@@ -326,7 +326,7 @@ const FALLBACK_PARTS = Object.freeze({
     thrust: 60, turn: 0.38,
     energyStorage: 0, repairRate: 0,
     weapon: null,
-    rotationRequired: true
+    rotationRequired: false
   },
 
   gyroscope: {

@@ -4,6 +4,22 @@ const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN } = require("./config");
 const { sanitizeName, sanitizeTeam } = require("./validation");
 const { performanceNow } = require("./utils");
 
+// A player who drops (refresh or brief disconnect) keeps their ships and state
+// for this long; the server only despawns them if no reconnection arrives first.
+const RECONNECT_GRACE_MS = 10000;
+
+// Ships are only removed when a player truly leaves (deliberate leave/kick, or
+// the reconnect grace period elapses). The server stays authoritative for this.
+function despawnPlayerShips(room, player) {
+  for (const ship of player.ships) {
+    ship.alive = false;
+    ship.removed = true;
+    room.ships.delete(ship.id);
+  }
+  player.ships = [];
+  room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
+}
+
 function joinRoom(client, message) {
   const { rooms, createRoom, isClosedRoomCode } = require("./rooms");
   const { sanitizeRoomCode } = require("./validation");
@@ -76,6 +92,15 @@ function joinRoom(client, message) {
     client.player = existingPlayer;
     existingPlayer.id = client.id;
     existingPlayer.connected = true;
+
+    // Ships (and their in-flight bullets) survived the grace period under the old
+    // player id; re-point them at the reconnected client so control is restored.
+    for (const ship of existingPlayer.ships) {
+      ship.ownerId = client.id;
+    }
+    for (const bullet of room.bullets) {
+      if (bullet.ownerId === oldPlayerId) bullet.ownerId = client.id;
+    }
 
     // Clear out any pending deletion timeout if they rejoined in the lobby
     if (existingPlayer.disconnectTimeout) {
@@ -175,25 +200,25 @@ function joinRoom(client, message) {
 function leaveRoom(client, explicitLeave = false) {
   if (client.room && client.player) {
     const { room, player } = client;
-    for (const ship of player.ships) {
-      ship.alive = false;
-      ship.removed = true;
-      room.ships.delete(ship.id);
-    }
-    player.ships = [];
     room.clients.delete(client);
 
     player.connected = false;
 
     if (explicitLeave) {
+      // Deliberate leave/kick: remove the player and their ships immediately.
+      despawnPlayerShips(room, player);
       room.players.delete(player.id);
       if (room.adminId === player.id) {
         room.adminId = null;
       }
     } else {
-      // Give them a grace period to reconnect if they refreshed
+      // Refresh / brief disconnect: keep the player and their ships alive for a
+      // reconnect grace period so a page refresh does not lose the fleet. Ships
+      // are only despawned if no reconnection arrives before the timer fires.
+      if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
       player.disconnectTimeout = setTimeout(() => {
         if (!player.connected && room.players.has(player.id)) {
+          despawnPlayerShips(room, player);
           room.players.delete(player.id);
           if (room.adminId === player.id) {
             room.adminId = null;
@@ -205,16 +230,15 @@ function leaveRoom(client, explicitLeave = false) {
           }
           checkEmptyLobby(room);
         }
-      }, 5000);
+      }, RECONNECT_GRACE_MS);
     }
 
-    room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
     if (room.clients.size === 0) {
       room.lastEmptyAt = Date.now();
     } else {
       const { broadcastRoom } = require("./messages");
       ensureAdmin(room);
-      broadcastRoom(room, { type: "notice", message: `${player.name} left` });
+      broadcastRoom(room, { type: "notice", message: explicitLeave ? `${player.name} left` : `${player.name} disconnected` });
       if (room.phase === "design") {
         const { maybeStartMatch } = require("./players");
         maybeStartMatch(room, performanceNow());

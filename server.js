@@ -48,7 +48,7 @@ function tickRoom(room, dt, now) {
 
   for (const ship of ships) {
     updateShipWeapons(room, ship, ships, dt, now);
-    updateShipHeat(ship, dt);
+    updateShipHeat(ship, dt, room, now);
   }
 
   updateBullets(room, dt, now);

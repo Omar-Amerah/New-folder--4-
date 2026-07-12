@@ -4,17 +4,12 @@ const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
 const { randomRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
+const { getOccupiedCells } = require("./footprint");
 const { addBullet, segmentCircleHit } = require("./projectiles");
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents } = require("./componentHealth");
 const { addComponentHeat, addHeatToType, componentPerformance, systemPerformance } = require("./heat");
 
 const MODULE_SCALE = 13;
-const MUZZLE_DISTANCE = Object.freeze({
-  blaster: 11,
-  missile: 12,
-  railgun: 14,
-  beam: 13
-});
 
 function updateShipSupport(room, ships, dt, now) {
   for (const ship of ships) {
@@ -31,29 +26,62 @@ function updateShipSupport(room, ships, dt, now) {
 
     let target = null;
     let worst = 0;
-    for (const other of ships) {
-      if (!areAllies(room, ship.ownerId, other.ownerId)) continue;
-      const missing = other.maxHp - other.hp;
-      if (missing <= 0) continue;
-      const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
-      if (distance > ship.stats.repairRange) continue;
-      if (missing > worst) {
-        target = other;
-        worst = missing;
+
+    // A player-assigned repair target takes priority while it is a valid, damaged
+    // ally in range; it is cleared once destroyed.
+    if (ship.repairTargetId) {
+      const assigned = room.ships.get(ship.repairTargetId);
+      if (!assigned || !assigned.alive) {
+        ship.repairTargetId = null;
+      } else if (areAllies(room, ship.ownerId, assigned.ownerId)
+        && assigned.hp < assigned.maxHp
+        && Math.hypot(assigned.x - ship.x, assigned.y - ship.y) <= ship.stats.repairRange) {
+        target = assigned;
+      }
+    }
+
+    if (!target) {
+      for (const other of ships) {
+        if (!areAllies(room, ship.ownerId, other.ownerId)) continue;
+        const missing = other.maxHp - other.hp;
+        if (missing <= 0) continue;
+        const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
+        if (distance > ship.stats.repairRange) continue;
+        if (missing > worst) {
+          target = other;
+          worst = missing;
+        }
       }
     }
 
     if (!target) continue;
     const heal = ship.stats.repairRate * ship.stats.efficiency * repairPerformance * (ship.thermalPowerFactor ?? 1) * dt;
     repairShipComponents(room, target, heal, now);
+
+    // Pick the repair emitter (prefer a dedicated repair beam) as the beam origin.
+    let emitterIndex = -1;
     for (let i = 0; i < (ship.design || []).length; i += 1) {
       const repairRate = PARTS[ship.design[i].type]?.repairRate || 0;
-      if (repairRate > 0 && isComponentAlive(ship, i) && componentPerformance(ship, i) > 0) addComponentHeat(ship, i, (1.5 + repairRate * 0.35) * dt);
+      if (repairRate > 0 && isComponentAlive(ship, i) && componentPerformance(ship, i) > 0) {
+        addComponentHeat(ship, i, (1.5 + repairRate * 0.35) * dt);
+        if (emitterIndex === -1 || ship.design[i].type === "repairBeam") emitterIndex = i;
+      }
     }
 
-    if (now - ship.repairPulseAt > 420) {
+    if (emitterIndex === -1) continue;
+    const emitter = ship.design[emitterIndex];
+    const origin = weaponModuleWorldPosition(ship, emitter);
+
+    // Aim the emitter turret at the single repair target so it visibly tracks it.
+    if (!ship.weaponAngles) ship.weaponAngles = (ship.design || []).map((m) => moduleRotationToRadians(normalizeRotation(m.rotation)));
+    const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
+    ship.weaponAngles[emitterIndex] = angleDifference(ship.angle, worldAngleToTarget);
+    const muzzle = weaponMuzzleWorldPosition(ship, emitter, worldAngleToTarget, "beam");
+
+    // Emit a continuous repair beam from the emitter muzzle to the one target.
+    if (now - (ship.repairPulseAt || 0) > 90) {
       ship.repairPulseAt = now;
-      room.effects.push({ type: "repair", x: target.x, y: target.y, at: now, ownerId: ship.ownerId });
+      room.effects.push({ type: "repairbeam", x: muzzle.x, y: muzzle.y, x2: target.x, y2: target.y, at: now, ownerId: ship.ownerId });
     }
   }
 }
@@ -172,10 +200,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   const target = findTarget(room, ship, ships);
   ship.combatTargetId = target ? target.id : null;
 
-  const scale = 13;
-  const cos = Math.cos(ship.angle);
-  const sin = Math.sin(ship.angle);
-
   const fireRateMultiplier = 1 + (ship.stats.fireRateBonus || 0);
 
   (ship.design || []).forEach((module, i) => {
@@ -187,17 +211,17 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const family = part.weapon.type;
     const cooldown = ship.weaponCooldowns[i] || 0;
-    if (cooldown > 0) return;
 
     const arcRadians = (part.weapon.arc || 360) * Math.PI / 180;
-    const local = moduleLocalPosition(module);
-    const worldX = ship.x + local.x * cos - local.y * sin;
-    const worldY = ship.y + local.x * sin + local.y * cos;
+    const weaponOrigin = weaponModuleWorldPosition(ship, module);
+    const worldX = weaponOrigin.x;
+    const worldY = weaponOrigin.y;
 
     const defaultRelative = moduleRotationToRadians(normalizeRotation(module.rotation));
     let desiredRelative = defaultRelative;
     let isTracking = false;
     let currentPdTarget = null;
+    let weaponTarget = null;
 
     if (family === "pointDefense") {
       currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, part.weapon, ships);
@@ -219,11 +243,16 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         }
       }
     } else {
-      if (target) {
-        const dx = target.x - worldX;
-        const dy = target.y - worldY;
+      const range = ship.stats[family + "Range"] || part.weapon.range;
+      // Keep the ship's assigned target when this weapon can reach it, otherwise
+      // fall back to any valid enemy already in this weapon's range so it does
+      // not idle while the primary target is out of reach. The assigned target
+      // itself is retained at the ship level and resumed once it is attackable.
+      weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range);
+      if (weaponTarget) {
+        const dx = weaponTarget.x - worldX;
+        const dy = weaponTarget.y - worldY;
         const distance = Math.hypot(dx, dy);
-        const range = ship.stats[family + "Range"] || part.weapon.range;
 
         if (distance <= range) {
           const worldAngleToTarget = Math.atan2(dy, dx);
@@ -241,14 +270,18 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
     ship.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
 
+    // Tracking is continuous while reloading. Only firing is cooldown-gated;
+    // otherwise the visible turret freezes between shots and snaps at fire time.
+    if (cooldown > 0) return;
+
     if (family === "pointDefense") {
       if (!currentPdTarget || !isTracking) return;
     } else {
-      if (!target || !isTracking) return;
+      if (!weaponTarget || !isTracking) return;
     }
 
     const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
-    const targetEntity = family === "pointDefense" ? currentPdTarget.entity : target;
+    const targetEntity = family === "pointDefense" ? currentPdTarget.entity : weaponTarget;
     const worldAngleToTarget = Math.atan2(targetEntity.y - worldY, targetEntity.x - worldX);
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
     if (family !== "beam" && angleErr > 0.26) return;
@@ -268,7 +301,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       addBullet(room, {
         type: "bolt",
         ownerId: ship.ownerId,
-        targetId: target.id,
+        targetId: weaponTarget.id,
         x: muzzle.x,
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
@@ -292,7 +325,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         interceptable: true,
         hp: part.weapon.missileHp || 20,
         ownerId: ship.ownerId,
-        targetId: target.id,
+        targetId: weaponTarget.id,
         x: muzzle.x,
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.15,
@@ -382,7 +415,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       addBullet(room, {
         type: "rail",
         ownerId: ship.ownerId,
-        targetId: target.id,
+        targetId: weaponTarget.id,
         x: muzzle.x,
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.12,
@@ -429,12 +462,28 @@ function moduleLocalPosition(module, scale = MODULE_SCALE) {
   };
 }
 
+function moduleFootprintLocalPosition(module, scale = MODULE_SCALE) {
+  const footprint = PARTS[module.type]?.footprint || { width: 1, height: 1 };
+  const cells = getOccupiedCells(module.x, module.y, footprint, normalizeRotation(module.rotation));
+  if (cells.length <= 1) return moduleLocalPosition(module, scale);
+  let x = 0;
+  let y = 0;
+  for (const cell of cells) {
+    const local = moduleLocalPosition(cell, scale);
+    x += local.x;
+    y += local.y;
+  }
+  return { x: x / cells.length, y: y / cells.length };
+}
+
 function weaponFacingAngle(ship, module) {
   return ship.angle + moduleRotationToRadians(normalizeRotation(module.rotation));
 }
 
 function weaponModuleWorldPosition(ship, module) {
-  const local = moduleLocalPosition(module);
+  // Multi-cell turret artwork pivots around the footprint centre, not the
+  // blueprint anchor tile. Keep server targeting/projectiles on that same pivot.
+  const local = moduleFootprintLocalPosition(module);
   const cos = Math.cos(ship.angle);
   const sin = Math.sin(ship.angle);
   return {
@@ -443,9 +492,21 @@ function weaponModuleWorldPosition(ship, module) {
   };
 }
 
+function weaponMuzzleDistance(module, family, scale = MODULE_SCALE) {
+  const footprint = PARTS[module.type]?.footprint || { width: 1, height: 1 };
+  const longTiles = Math.max(footprint.width || 1, footprint.height || 1);
+  if (longTiles > 1) return longTiles * scale * 0.5 - scale * 0.08;
+  const fraction = family === "blaster" ? 0.48
+    : family === "missile" ? 0.43
+      : family === "pointDefense" ? 0.44
+        : family === "railgun" ? 0.46
+          : 0.46;
+  return scale * fraction;
+}
+
 function weaponMuzzleWorldPosition(ship, module, angle, family) {
   const origin = weaponModuleWorldPosition(ship, module);
-  const distance = MUZZLE_DISTANCE[family] || 11;
+  const distance = weaponMuzzleDistance(module, family);
   return {
     x: origin.x + Math.cos(angle) * distance,
     y: origin.y + Math.sin(angle) * distance
@@ -707,6 +768,29 @@ function findTarget(room, ship, ships) {
   return best;
 }
 
+// Per-weapon firing target: prefer the ship's assigned/primary target when this
+// weapon can actually reach it (range + line of sight), otherwise the nearest
+// valid enemy already in this weapon's range so the weapon never idles while the
+// primary target is out of reach. The assigned target is not changed here.
+function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range) {
+  if (primary && primary.alive) {
+    const distance = Math.hypot(primary.x - worldX, primary.y - worldY);
+    if (distance <= range && !isLineBlocked(room, worldX, worldY, primary.x, primary.y, 8)) return primary;
+  }
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (const other of ships) {
+    if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+    const distance = Math.hypot(other.x - worldX, other.y - worldY);
+    if (distance <= range && distance < bestDistance && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) {
+      best = other;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
   for (const asteroid of room.map?.asteroids || []) {
     if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
@@ -749,12 +833,18 @@ module.exports = {
   weaponModulesInArc,
   moduleRotationToRadians,
   moduleLocalPosition,
+  moduleFootprintLocalPosition,
+  weaponModuleWorldPosition,
+  weaponMuzzleDistance,
+  weaponMuzzleWorldPosition,
   isTargetInWeaponArc,
   damageShip,
+  destroyShip,
   updateDestroyedShips,
   requestSelfDestruct,
   updateSelfDestructingShips,
   findTarget,
+  pickWeaponFireTarget,
   isLineBlocked,
   areAllies,
   areEnemies

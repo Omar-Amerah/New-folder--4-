@@ -16,7 +16,9 @@ function validateDesign(input) {
     const x = Math.trunc(Number(raw?.x));
     const y = Math.trunc(Number(raw?.y));
     const type = String(raw?.type || "");
-    const rotation = normalizeRotation(raw?.rotation);
+    const rotation = type === "maneuverThruster"
+      ? maneuverThrusterAutoRotation(x)
+      : normalizeRotation(raw?.rotation);
 
     if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
     if (!PARTS[type]) continue;
@@ -104,7 +106,22 @@ function normalizeShipDesignSnapshot(design) {
   const oldCore = source.find(p => p && p.type === "core" && Math.trunc(Number(p.x)) === 3 && Math.trunc(Number(p.y)) === 3);
   const offsetX = oldCore ? 4 : 0;
   const offsetY = oldCore ? 4 : 0;
-  return source.map((part) => ({ x: part.x + offsetX, y: part.y + offsetY, type: part.type, rotation: normalizeRotation(part.rotation) }));
+  return source.map((part) => {
+    const x = part.x + offsetX;
+    const type = part.type;
+    return {
+      x,
+      y: part.y + offsetY,
+      type,
+      rotation: type === "maneuverThruster" ? maneuverThrusterAutoRotation(x) : normalizeRotation(part.rotation)
+    };
+  });
+}
+
+function maneuverThrusterAutoRotation(x) {
+  if (x < 7) return 90;
+  if (x > 7) return 270;
+  return 0;
 }
 
 function normalizeRotation(value) {

@@ -287,14 +287,15 @@ h2 {
   box-shadow: 0 0 12px rgba(255, 95, 126, 0.32);
 }
 
+/* One consistent vertical rhythm for every left-bar section. */
 .panel-section {
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--line);
 }
 
 .control-group {
-  padding-bottom: 2px;
+  padding-bottom: 0;
 }
 
 .panel-section.compact {
@@ -312,11 +313,12 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
+/* Ship Groups / Rally headings share one consistent gap below their title. */
 .section-heading.compact {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .section-heading span,

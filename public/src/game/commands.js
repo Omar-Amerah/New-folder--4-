@@ -13,9 +13,18 @@ export function issueCommand(event) {
   if (state.phase !== "active") return;
   const mini = minimapWorldAt(event.clientX, event.clientY);
   const world = mini || screenToWorld(event.clientX, event.clientY);
-  const targetShip = findShipAt(world.x, world.y, (ship) => ship.ownerId !== state.myId && ship.alive);
-  const targetPlayer = targetShip ? playerMap().get(targetShip.ownerId) : null;
   const shipIds = selectedShipIdsForCommand();
+  // Allied ships are only valid click targets when the commanded fleet carries a
+  // repair beam; otherwise a click on a friendly is a plain move order.
+  const commandedSet = new Set(shipIds);
+  const fleetHasRepairBeam = (state.snapshot?.ships || []).some((ship) =>
+    commandedSet.has(ship.id) && (ship.design || []).some((module) => module.type === "repairBeam"));
+  const players = playerMap();
+  const myTeam = players.get(state.myId)?.team;
+  const isAllied = (ship) => ship.ownerId === state.myId
+    || Boolean(myTeam && players.get(ship.ownerId)?.team === myTeam);
+  const targetShip = findShipAt(world.x, world.y, (ship) => ship.alive && (!isAllied(ship) || fleetHasRepairBeam));
+  const targetPlayer = targetShip ? playerMap().get(targetShip.ownerId) : null;
 
   state.command = {
     x: targetShip?.x || world.x,

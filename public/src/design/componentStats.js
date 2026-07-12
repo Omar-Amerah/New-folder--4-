@@ -20,6 +20,7 @@ export function computeStats(modules) {
   let thrust = 0;
   let turnBonus = 0;
   const engineThrustValues = [];
+  const engineMassValues = [];
   const turnModuleValues = [];
   let energyStorage = 0;
   let blaster = 0;
@@ -51,6 +52,20 @@ export function computeStats(modules) {
     pointDefense: weaponAccumulator()
   };
 
+  // Centre of mass (mass-weighted) so maneuvering thrusters farther from it get a
+  // longer lever arm and contribute more turning torque (mirrors the server).
+  let comX = 0;
+  let comY = 0;
+  let comMass = 0;
+  for (const module of modules) {
+    const mm = ((PART_STATS[module.type] || PART_STATS.frame).mass || 0) + 0.5;
+    comX += module.x * mm;
+    comY += module.y * mm;
+    comMass += mm;
+  }
+  comX = comMass ? comX / comMass : 0;
+  comY = comMass ? comY / comMass : 0;
+
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
     const part = PART_STATS[module.type] || PART_STATS.frame;
@@ -69,8 +84,14 @@ export function computeStats(modules) {
     thrust += blockedEngine ? 0 : part.thrust;
     turnBonus += blockedEngine ? 0 : part.turn;
 
-    if (part.thrust > 0 && !blockedEngine) engineThrustValues.push(part.thrust);
-    if (part.turn > 0 && !blockedEngine) turnModuleValues.push(part.turn);
+    if (part.thrust > 0 && !blockedEngine) {
+      engineThrustValues.push(part.thrust);
+      engineMassValues.push(part.mass || 0);
+    }
+    if (part.turn > 0 && !blockedEngine) {
+      const lever = Math.hypot(module.x - comX, module.y - comY);
+      turnModuleValues.push(part.turn * clamp(0.6 + lever * 0.28, 0.5, 2));
+    }
 
     energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
@@ -126,6 +147,7 @@ export function computeStats(modules) {
     powerGeneration,
     powerUse,
     engineThrustValues,
+    engineMassValues,
     turnModuleValues
   });
 

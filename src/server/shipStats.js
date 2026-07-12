@@ -28,6 +28,7 @@ function computeStats(modules) {
   let thrust = 0;
   let turnBonus = 0;
   const engineThrustValues = [];
+  const engineMassValues = [];
   const turnModuleValues = [];
   let energyStorage = 0;
   let blaster = 0;
@@ -63,6 +64,20 @@ function computeStats(modules) {
   let minY = 3;
   let maxY = 3;
 
+  // Centre of mass (mass-weighted) — maneuvering thrusters farther from it swing
+  // the ship on a longer lever arm and so contribute more turning torque.
+  let comX = 0;
+  let comY = 0;
+  let comMass = 0;
+  for (const module of modules) {
+    const mm = ((PARTS[module.type] || PARTS.frame).mass || 0) + 0.5;
+    comX += module.x * mm;
+    comY += module.y * mm;
+    comMass += mm;
+  }
+  comX = comMass ? comX / comMass : 0;
+  comY = comMass ? comY / comMass : 0;
+
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
     const part = PARTS[module.type] || PARTS.frame;
@@ -77,8 +92,14 @@ function computeStats(modules) {
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
     turnBonus += blockedEngine ? 0 : part.turn;
-    if (part.thrust > 0 && !blockedEngine) engineThrustValues.push(part.thrust);
-    if (part.turn > 0 && !blockedEngine) turnModuleValues.push(part.turn);
+    if (part.thrust > 0 && !blockedEngine) {
+      engineThrustValues.push(part.thrust);
+      engineMassValues.push(part.mass || 0);
+    }
+    if (part.turn > 0 && !blockedEngine) {
+      const lever = Math.hypot(module.x - comX, module.y - comY);
+      turnModuleValues.push(part.turn * clampNumber(0.6 + lever * 0.28, 0.5, 2));
+    }
     energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
     missile += part.missile || 0;
@@ -114,7 +135,7 @@ function computeStats(modules) {
   repairRate = effectiveStackedValue(repairRateValues, 0.62);
   const power = powerGeneration - powerUse;
   const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
-  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, turnModuleValues });
+  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
   applyWeaponUtilityBonuses(weaponTotals, { rangeBonus, accuracyBonus, fireRateBonus, coolingBonus });
   ecmStrength = Math.min(ecmStrength, 0.55);

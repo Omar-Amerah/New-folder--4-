@@ -3,7 +3,7 @@
 const { clampNumber, rotateToward, angleDifference } = require("./utils");
 const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
-const { areEnemies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
+const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
 
@@ -36,6 +36,13 @@ function commandShips(room, player, x, y, options = {}) {
   const focusTargetId = target && target.alive && areEnemies(room, player.id, target.ownerId)
     ? target.id
     : null;
+  // Clicking an allied ship directs repair-beam ships to prioritise it. Any
+  // other command clears a previously assigned repair target. Ships without a
+  // repair beam never take an allied target.
+  const repairTargetId = target && target.alive && !focusTargetId && areAllies(room, player.id, target.ownerId)
+    ? target.id
+    : null;
+  const hasRepairBeam = (ship) => (ship.design || []).some((module) => module.type === "repairBeam");
 
   const formation = options.formation || "line";
   const spacing = clampNumber(62 + ships[0].radius * 0.55, 58, 110);
@@ -53,6 +60,7 @@ function commandShips(room, player, x, y, options = {}) {
     ship.targetY = targetPoint.y;
 
     ship.focusTargetId = focusTargetId;
+    ship.repairTargetId = repairTargetId && hasRepairBeam(ship) ? repairTargetId : null;
     ship.isManualMove = !focusTargetId;
     ship.arrived = false;
 
@@ -134,6 +142,7 @@ function getCombatStyle(ship) {
   if (ship.combatStyle === "hold") return "hold";
   if (ship.combatStyle === "sentry") return "sentry";
   if (ship.combatStyle === "circle") return "circle";
+  if (ship.combatStyle === "charge") return "charge";
   return "sentry";
 }
 

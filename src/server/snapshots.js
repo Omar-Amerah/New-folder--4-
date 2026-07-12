@@ -109,7 +109,10 @@ function buildSharedSnapshot(room, now, sendStatic) {
       x: round(bullet.x),
       y: round(bullet.y),
       vx: round(bullet.vx),
-      vy: round(bullet.vy)
+      vy: round(bullet.vy),
+      // Seconds since spawn, so the client can backdate a freshly fired bullet
+      // to its muzzle origin instead of extrapolating it ahead of the barrel.
+      age: Math.max(0, Math.round(now - (bullet.bornAt || now))) / 1000
     })),
     points: room.points.map((point) => ({
       id: point.id,

@@ -6,8 +6,9 @@ import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
-import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, aliveEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip, componentHealthRatio } from "../renderer.js";
+import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, aliveEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip, componentHealthRatio, computeManeuverJets } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
+import { getEffectDensity } from "../renderSettings.js";
 import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
 
 const SHIP_SCALE = 13;
@@ -50,17 +51,27 @@ function getPixiShipHullTexture(env, design, color, radius) {
   texture = pixiBakeTexture(env, halfW * 2, halfH * 2, (bctx) => {
     drawShipStructure(design, SHIP_SCALE, color);
     for (const part of design) {
-      if (isRotatablePart(part.type)) continue;
       const def = PART_DEFS[part.type] || PART_DEFS.frame;
       const place = footprintLocalPlacement(part, SHIP_SCALE);
+      const rotatable = isRotatablePart(part.type);
+      const weapon = Boolean(PART_STATS[part.type]?.weapon);
+      if (rotatable && !weapon) continue;
       if (place.multi) {
         bctx.save();
         bctx.translate(place.cx, place.cy);
         bctx.rotate(place.longAxisAngle);
-        drawFootprintComponent({ type: part.type, unit: SHIP_SCALE - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
+        drawFootprintComponent({ type: part.type, unit: SHIP_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color, drawDetail: !weapon });
         bctx.restore();
       } else {
-        drawModule({ x: place.cx, y: place.cy, size: SHIP_SCALE - 1, color: def.color, type: part.type, trim: color });
+        if (part.type === "maneuverThruster") {
+          bctx.save();
+          bctx.translate(place.cx, place.cy);
+          bctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
+          drawModule({ x: 0, y: 0, size: SHIP_SCALE, color: def.color, type: part.type, trim: color, drawDetail: !weapon });
+          bctx.restore();
+        } else {
+          drawModule({ x: place.cx, y: place.cy, size: SHIP_SCALE, color: def.color, type: part.type, trim: color, drawDetail: !weapon });
+        }
       }
     }
     // Direction indicator (drawn by drawShip after the module loop).
@@ -94,13 +105,14 @@ function getPixiTurretTexture(env, partType, trim) {
   const tilesLong = Math.max(footprint.width || 1, footprint.height || 1);
   const tilesCross = Math.min(footprint.width || 1, footprint.height || 1);
   const multi = tilesLong > 1 || tilesCross > 1;
+  const weapon = Boolean(PART_STATS[partType]?.weapon);
   // Extent must cover the elongated barrel (canonical art spans ±tilesLong/2).
   const halfExtent = SHIP_SCALE * (multi ? tilesLong * 0.62 + 1.0 : 2.1);
   texture = pixiBakeTexture(env, halfExtent * 2, halfExtent * 2, () => {
     if (multi) {
-      drawFootprintComponent({ type: partType, unit: SHIP_SCALE - 1, tilesLong, tilesCross, color: def.color, trim });
+      drawFootprintComponent({ type: partType, unit: SHIP_SCALE, tilesLong, tilesCross, color: def.color, trim, drawBase: !weapon });
     } else {
-      drawModule({ x: 0, y: 0, size: SHIP_SCALE - 1, color: def.color, type: partType, trim });
+      drawModule({ x: 0, y: 0, size: SHIP_SCALE, color: def.color, type: partType, trim, drawBase: !weapon });
     }
   });
   pixiTurretTextureCache.set(key, texture);
@@ -199,7 +211,9 @@ function updatePixiShieldRing(view, ship, zoom) {
   }
 
   const ringRadius = shieldRingRadius(ship);
-  const alpha = 0.18 + ratio * 0.42;
+  // Toned down (mirrors the canvas renderer) so the shield does not wash the ship
+  // blue and hide its team colour.
+  const alpha = 0.12 + ratio * 0.3;
   const lineWidth = Math.max(1.7, ringRadius * 0.04) / zoom;
   const now = performance.now() * 0.001;
   const phase = now * 1.15 + pixiShieldIdPhase(ship.id);
@@ -210,7 +224,7 @@ function updatePixiShieldRing(view, ship, zoom) {
 
   gfx.visible = true;
   gfx.circle(0, 0, ringRadius + lineWidth * 2.2);
-  gfx.fill(`rgba(56,213,255,${alpha * 0.035})`);
+  gfx.fill(`rgba(56,213,255,${alpha * 0.02})`);
 
   for (let i = 0; i < segmentCount; i += 1) {
     const fill = clamp(activeSegments - i, 0, 1);
@@ -318,8 +332,8 @@ function updatePixiComponentDamage(view, ship, design) {
     if (!shows(ratio)) continue;
     const part = design[i];
     const place = footprintLocalPlacement(part, SHIP_SCALE);
-    const halfW = (place.tilesLong * (SHIP_SCALE - 1)) / 2;
-    const halfH = (place.tilesCross * (SHIP_SCALE - 1)) / 2;
+    const halfW = (place.tilesLong * SHIP_SCALE) / 2;
+    const halfH = (place.tilesCross * SHIP_SCALE) / 2;
     const corners = footprintCorners(place, halfW, halfH);
     const pt = corners[4];
     tracePoly(gfx, corners);
@@ -366,8 +380,8 @@ function updatePixiDamageFlashes(view, ship, design, now) {
     const flash = componentFlash(ship.id, i, now);
     if (!flash) continue;
     const place = footprintLocalPlacement(design[i], SHIP_SCALE);
-    const halfW = (place.tilesLong * (SHIP_SCALE - 1)) / 2;
-    const halfH = (place.tilesCross * (SHIP_SCALE - 1)) / 2;
+    const halfW = (place.tilesLong * SHIP_SCALE) / 2;
+    const halfH = (place.tilesCross * SHIP_SCALE) / 2;
     const s = flash.strength;
 
     if (flash.destroyed) {
@@ -455,18 +469,38 @@ function updatePixiEngineExhaust(view, ship, now) {
   const intensity = engineThrustRatio(ship);
   const liveEngines = aliveEngineNozzles(ship, view.engines);
   emitEngineSmoke(ship, liveEngines, SHIP_SCALE, now);
+
+  // Lateral maneuvering-thruster jets (fire only while turning); drawn even when
+  // the main engines are idle, so a rotating-in-place ship still shows them.
+  const jets = computeManeuverJets(ship, ship.design || [], SHIP_SCALE, now);
+  if (jets) {
+    for (const jet of jets) {
+      const tipX = jet.x + jet.aft * jet.len;
+      gfx.moveTo(jet.x, jet.y - 2.4);
+      gfx.quadraticCurveTo(jet.x + jet.aft * jet.len * 0.6, jet.y - 1, tipX, jet.y);
+      gfx.quadraticCurveTo(jet.x + jet.aft * jet.len * 0.6, jet.y + 1, jet.x, jet.y + 2.4);
+      gfx.closePath();
+      gfx.fill({ color: "#7dd3ff", alpha: jet.plumeAlpha });
+      gfx.circle(jet.x + jet.aft * jet.len * 0.28, jet.y, 1.7);
+      gfx.fill({ color: "#eafcff", alpha: jet.coreAlpha });
+    }
+  }
+
   if (intensity <= 0.03 || liveEngines.length === 0) {
-    gfx.visible = false;
+    gfx.visible = Boolean(jets);
     return;
   }
   gfx.visible = true;
 
   const t = now * 0.001;
   const phase = pixiEngineIdPhase(ship.id);
+  // Match the canvas renderer: 20% smaller max plume, outer glow dimmed on low graphics.
+  const PLUME_SIZE = 0.8;
+  const glow = 0.55 + 0.45 * getEffectDensity();
   for (let e = 0; e < liveEngines.length; e += 1) {
     const nz = liveEngines[e];
     const flicker = 0.78 + 0.22 * Math.sin(t * 34 + phase + e * 1.7) + 0.08 * Math.sin(t * 61 + e);
-    const halfW = nz.halfW * (0.8 + intensity * 0.65);
+    const halfW = nz.halfW * (0.8 + intensity * 0.65) * PLUME_SIZE;
     const len = halfW * (1.2 + intensity * 9.4 + speedRatio * 2.4) * flicker;
     const ox = nz.x;
     const oy = nz.y;
@@ -480,7 +514,7 @@ function updatePixiEngineExhaust(view, ship, now) {
     gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
     gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
     gfx.closePath();
-    gfx.fill({ color: "#2b7bff", alpha: 0.18 + intensity * 0.22 });
+    gfx.fill({ color: "#2b7bff", alpha: (0.18 + intensity * 0.22) * glow });
 
     // Inner flame body.
     const innerLen = len * 0.72;

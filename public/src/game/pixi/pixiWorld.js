@@ -4,7 +4,7 @@
 import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
-import { isCircleVisible, getNebulaSprite, drawAsteroid, drawBulletVisual, activeEngineSmoke } from "../renderer.js";
+import { isCircleVisible, getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, activeEngineSmoke } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
 
@@ -329,8 +329,7 @@ function updatePixiBullets(env, players, bounds) {
     const elapsed = Math.min(0.15, (now - (state.snapshotReceivedAt || now)) / 1000);
     for (const bullet of snap.bullets) {
       if (state.debugStats) state.debugStats.totalBullets++;
-      const renderX = bullet.x + bullet.vx * elapsed;
-      const renderY = bullet.y + bullet.vy * elapsed;
+      const { x: renderX, y: renderY } = bulletRenderPosition(bullet, elapsed);
       if (bounds && !isCircleVisible(renderX, renderY, 20, bounds)) continue;
       if (state.debugStats) state.debugStats.drawnBullets++;
 
@@ -403,6 +402,19 @@ function updatePixiEffects(env, now, bounds) {
         gfx.moveTo(x, y);
         gfx.lineTo(x2, y2);
         gfx.stroke({ width: Math.max(radius * 0.16, 1.7 / zoom), color: "rgba(240,253,255,0.95)", alpha: beamAlpha, cap: "round" });
+      } else if (effect.type === "repairbeam") {
+        const beamT = clamp(age / 140, 0, 1);
+        const beamAlpha = (1 - beamT) * 0.9;
+        const x2 = effect.x2 || x;
+        const y2 = effect.y2 || y;
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: 7 / zoom, color: "rgba(34,197,94,0.28)", alpha: beamAlpha, cap: "round" });
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: 2 / zoom, color: "rgba(190,255,214,0.95)", alpha: beamAlpha, cap: "round" });
+        gfx.circle(x2, y2, 6);
+        gfx.fill({ color: "#4ade80", alpha: beamAlpha * 0.6 });
       } else if (effect.type === "boom") {
         gfx.circle(x, y, 18 + t * 64);
         gfx.fill({ color: "#ffca57", alpha });

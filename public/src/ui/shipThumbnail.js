@@ -31,7 +31,14 @@ export function shipThumbnailDataUrl(design, color = "#8fb4ff", size = 84) {
   const key = `${shipThumbSignature(design, color)}|${size}`;
   const cached = shipThumbCache.get(key);
   if (cached !== undefined) return cached;
-  const url = bakeShipThumb(design, color, size);
+  let url = "";
+  try {
+    url = bakeShipThumb(design, color, size);
+  } catch (error) {
+    // Thumbnail art is optional UI decoration; a malformed component drawing
+    // must not prevent purchase/saved-blueprint panels from rendering.
+    console.error("Failed to render ship thumbnail", error);
+  }
   shipThumbCache.set(key, url);
   return url;
 }
@@ -72,15 +79,18 @@ function bakeShipThumb(design, color, size) {
       if (isRotatablePart(part.type)) {
         tctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
         if (place.multi) {
-          drawFootprintComponent({ type: part.type, unit: THUMB_SCALE - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
+          drawFootprintComponent({ type: part.type, unit: THUMB_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
         } else {
-          drawModule({ x: 0, y: 0, size: THUMB_SCALE - 1, color: def.color, type: part.type, trim: color });
+          drawModule({ x: 0, y: 0, size: THUMB_SCALE, color: def.color, type: part.type, trim: color });
         }
       } else if (place.multi) {
         tctx.rotate(place.longAxisAngle);
-        drawFootprintComponent({ type: part.type, unit: THUMB_SCALE - 1, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
+        drawFootprintComponent({ type: part.type, unit: THUMB_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
       } else {
-        drawModule({ x: 0, y: 0, size: THUMB_SCALE - 1, color: def.color, type: part.type, trim: color });
+        if (part.type === "maneuverThruster") {
+          tctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
+        }
+        drawModule({ x: 0, y: 0, size: THUMB_SCALE, color: def.color, type: part.type, trim: color });
       }
       tctx.restore();
     }

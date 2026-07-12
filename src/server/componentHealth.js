@@ -24,14 +24,22 @@ const RAY_STEP = 0.4;
 function initComponentState(ship) {
   const design = ship.design || [];
   const rawHp = design.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
-  // The core is indestructible: it takes no damage and contributes nothing to
-  // the damageable pool. The design's full hull budget (stats.maxHp) is spread
-  // across the other components; the ship dies when all of those are destroyed.
+  // The core is destroyable but deliberately hard to reach: it sits behind the
+  // other components and has its own large, unscaled hp pool that is NOT part of
+  // the hull-integrity sum (ship.hp). The ship dies either by losing every other
+  // component (ship.hp -> 0) or by a shot penetrating all the way to the core.
   const rawSum = rawHp.reduce((sum, hp, i) => (design[i].type === "core" ? sum : sum + hp), 0) || 1;
   const scale = (ship.stats?.maxHp || rawSum) / rawSum;
 
   ship.componentMaxHp = rawHp.map((hp) => hp * scale);
   ship.componentHp = ship.componentMaxHp.slice();
+  const coreHp = Math.max(320, Math.round((ship.stats?.maxHp || rawSum) * 0.45));
+  design.forEach((module, i) => {
+    if (module.type === "core") {
+      ship.componentMaxHp[i] = coreHp;
+      ship.componentHp[i] = coreHp;
+    }
+  });
   ship.maxHp = ship.stats?.maxHp || rawSum;
   ship.hp = ship.maxHp;
   ship.coreDestroyed = false;
@@ -155,9 +163,23 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
 
   for (const idx of chain) {
     if (remaining <= 0.0001) break;
-    // The core is indestructible: it soaks whatever reaches it and the shot
-    // stops there. Ships die by losing every other component instead.
-    if (ship.design[idx].type === "core") break;
+    // The core can be destroyed once a shot penetrates to it, but it takes damage
+    // to its own pool (kept out of the hull sum) rather than to ship.hp, and the
+    // shot always stops here. Destroying it flags coreDestroyed -> ship dies.
+    if (ship.design[idx].type === "core") {
+      const dealt = Math.min(ship.componentHp[idx], remaining);
+      if (dealt > 0) {
+        ship.componentHp[idx] -= dealt;
+        remaining -= dealt;
+        applied += dealt;
+        ship.dirtyComponents.add(idx);
+        if (ship.componentHp[idx] <= 0.0001) {
+          ship.componentHp[idx] = 0;
+          onComponentDestroyed(room, ship, idx, now);
+        }
+      }
+      break;
+    }
     const part = PARTS[ship.design[idx].type] || PARTS.frame;
     if (part.armorFlatReduction > 0) {
       remaining = Math.max(0, remaining - part.armorFlatReduction);
@@ -201,6 +223,61 @@ function onComponentDestroyed(room, ship, index, now) {
   }
   recalcEffectiveStats(ship);
   if (/frame/i.test(module.type)) require("./heat").rebuildThermalNetworks(ship);
+}
+
+// Approximate footprint-center of a component in blueprint-grid tiles.
+function componentGridCenter(ship, index) {
+  const module = ship.design[index];
+  const footprint = (PARTS[module.type] || PARTS.frame).footprint || { width: 1, height: 1 };
+  return {
+    x: module.x + ((footprint.width || 1) - 1) / 2,
+    y: module.y + ((footprint.height || 1) - 1) / 2
+  };
+}
+
+// Detonates a component (e.g. a reactor that reached overheat failure): destroys
+// it and deals direct hp damage to nearby components within `radius` tiles, with
+// linear falloff. Damage (not heat) is dealt to neighbours so a blast cannot
+// instantly overheat and chain-detonate an adjacent reactor; a controlled radius
+// and moderate damage keep healthy neighbours alive. Returns true if it fired.
+function detonateComponent(room, ship, index, radius, damage, now) {
+  if (!ship.componentHp || ship.componentHp[index] <= 0) return false;
+  const center = componentGridCenter(ship, index);
+
+  const applyToComponent = (i, dmg) => {
+    if (dmg <= 0 || ship.componentHp[i] <= 0) return;
+    const isCore = ship.design[i].type === "core";
+    const dealt = Math.min(ship.componentHp[i], dmg);
+    ship.componentHp[i] -= dealt;
+    if (!isCore) ship.hp -= dealt; // the core is kept out of the hull sum
+    ship.dirtyComponents.add(i);
+    if (ship.componentHp[i] <= 0.0001) {
+      ship.componentHp[i] = 0;
+      onComponentDestroyed(room, ship, i, now);
+    }
+  };
+
+  // The reactor is destroyed outright.
+  applyToComponent(index, ship.componentHp[index]);
+
+  for (let i = 0; i < ship.design.length; i += 1) {
+    if (i === index || ship.componentHp[i] <= 0) continue;
+    const other = componentGridCenter(ship, i);
+    const dist = Math.hypot(other.x - center.x, other.y - center.y);
+    if (dist > radius) continue;
+    applyToComponent(i, damage * (1 - dist / radius));
+  }
+
+  if (ship.hp < 0) ship.hp = 0;
+  recalcEffectiveStats(ship);
+  if (room) {
+    const cos = Math.cos(ship.angle);
+    const sin = Math.sin(ship.angle);
+    const lx = (GRID_CENTER - center.y) * MODULE_SCALE;
+    const ly = (center.x - GRID_CENTER) * MODULE_SCALE;
+    room.effects.push({ type: "boom", x: ship.x + lx * cos - ly * sin, y: ship.y + lx * sin + ly * cos, at: now });
+  }
+  return true;
 }
 
 // Stat fields that depend on which components are still functional. Static
@@ -306,6 +383,7 @@ module.exports = {
   worldToGrid,
   componentsAlongImpactRay,
   applyHullDamage,
+  detonateComponent,
   zeroAllComponents,
   recalcEffectiveStats,
   updateEngineExhaustState,

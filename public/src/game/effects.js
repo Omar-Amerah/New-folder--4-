@@ -56,6 +56,33 @@ export function drawEffects() {
       ctx.beginPath();
       ctx.arc(0, 0, 34 + t * 84, 0, Math.PI * 2);
       ctx.stroke();
+    } else if (effect.type === "repairbeam") {
+      // Green repair beam from the emitter muzzle to the single repair target.
+      const beamT = clamp(age / 140, 0, 1);
+      const x2 = (effect.x2 || effect.x) - effect.x;
+      const y2 = (effect.y2 || effect.y) - effect.y;
+      ctx.globalAlpha = (1 - beamT) * 0.9;
+      ctx.lineCap = "round";
+      ctx.shadowColor = "#4ade80";
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = "rgba(34, 197, 94, 0.28)";
+      ctx.lineWidth = 7 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(190, 255, 214, 0.95)";
+      ctx.lineWidth = 2 / state.camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      // Small heal glow on the target end.
+      ctx.fillStyle = "rgba(74, 222, 128, 0.5)";
+      ctx.beginPath();
+      ctx.arc(x2, y2, 6, 0, Math.PI * 2);
+      ctx.fill();
     } else if (effect.type === "repair") {
       ctx.strokeStyle = "#67e08a";
       ctx.lineWidth = 3 / state.camera.zoom;

@@ -150,6 +150,10 @@ const DEFAULT_DESIGN = Object.freeze([
   { x: 8, y: 8, type: "engine" },
   { x: 6, y: 7, type: "blaster" },
   { x: 8, y: 7, type: "blaster" },
+  // Side maneuvering thrusters so the starting ship can turn (main engines no
+  // longer provide turn); placed off-centre for a useful turning lever arm.
+  { x: 5, y: 7, type: "maneuverThruster" },
+  { x: 9, y: 7, type: "maneuverThruster" },
   { x: 7, y: 6, type: "shield" },
   { x: 6, y: 6, type: "armor" },
   { x: 8, y: 6, type: "armor" }

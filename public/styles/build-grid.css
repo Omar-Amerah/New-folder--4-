@@ -90,7 +90,7 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 1px;
+  padding: 0;
   object-fit: contain;
   border: 0;
   background: none;
@@ -129,15 +129,16 @@
 .build-cell.thermal-route-critical, .build-cell.thermal-route-broken { border-style:dashed; border-color:#ff5575; box-shadow:inset 0 0 0 1px rgba(110,120,132,.5), 0 0 8px rgba(255,85,117,.32); }
 .build-cell.thermal-route-critical::before { content:"!"; position:absolute; z-index:7; top:2px; left:3px; color:#fff; font-size:9px; font-weight:950; text-shadow:0 0 4px #ff1744; }
 .build-cell.heat-sink-absorption::before { content:""; position:absolute; z-index:3; inset:-4px; border:1px solid rgba(103,217,255,.62); border-radius:50%; box-shadow:0 0 9px rgba(56,189,248,.4), inset 0 0 7px rgba(56,189,248,.25); animation:heat-sink-ring 1.4s ease-out infinite; pointer-events:none; }
-.build-cell.radiator-exposed::before { content:""; position:absolute; z-index:3; pointer-events:none; opacity:.9; }
-.build-cell.radiator-exposed-left::before { left:-2px; top:12%; bottom:12%; width:12px; background:linear-gradient(90deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
-.build-cell.radiator-exposed-right::before { right:-2px; top:12%; bottom:12%; width:12px; background:linear-gradient(270deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
-.build-cell.radiator-exposed-top::before { top:-2px; left:12%; right:12%; height:12px; background:linear-gradient(180deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
-.build-cell.radiator-exposed-bottom::before { bottom:-2px; left:12%; right:12%; height:12px; background:linear-gradient(0deg,rgba(103,217,255,.05),rgba(103,217,255,.75),transparent); }
+.build-cell.radiator-exposed::before { content:""; position:absolute; z-index:11; pointer-events:none; opacity:1; border-radius:3px; box-shadow:0 0 7px #38bdf8,0 0 2px #e8fbff; }
+.build-cell.radiator-exposed-left::before { left:-3px; top:7%; bottom:7%; width:5px; background:repeating-linear-gradient(180deg,#e8fbff 0 3px,#38bdf8 3px 7px); }
+.build-cell.radiator-exposed-right::before { right:-3px; top:7%; bottom:7%; width:5px; background:repeating-linear-gradient(180deg,#e8fbff 0 3px,#38bdf8 3px 7px); }
+.build-cell.radiator-exposed-top::before { top:-3px; left:7%; right:7%; height:5px; background:repeating-linear-gradient(90deg,#e8fbff 0 3px,#38bdf8 3px 7px); }
+.build-cell.radiator-exposed-bottom::before { bottom:-3px; left:7%; right:7%; height:5px; background:repeating-linear-gradient(90deg,#e8fbff 0 3px,#38bdf8 3px 7px); }
 .component-heat-value { position:absolute; z-index:8; left:50%; bottom:2px; transform:translateX(-50%); display:inline-flex; align-items:center; gap:1px; max-width:calc(100% - 4px); padding:1px 3px; border:1px solid rgba(167,187,209,.28); border-radius:4px; background:rgba(3,8,15,.91); color:#eef6ff; font-size:8px; font-weight:950; line-height:1.2; white-space:nowrap; text-shadow:0 1px 2px #000; pointer-events:none; }
 .component-heat-value small { color:#9fb4ca; font-size:6px; font-weight:850; }
 .component-heat-value .heat-badge-icon { color:#ffb454; font-size:7px; line-height:1; }
 .component-overheat-warning { position:absolute; z-index:9; left:2px; top:2px; display:grid; place-items:center; width:11px; height:10px; border:1px solid rgba(255,240,240,.8); border-radius:3px; background:#d7193f; color:#fff; font-size:7px; line-height:1; text-shadow:0 1px 2px #700; box-shadow:0 0 6px rgba(255,32,67,.75); pointer-events:none; animation:overheat-warning-pulse .7s ease-in-out infinite alternate; }
+.component-critical-warning { position:absolute; z-index:9; left:2px; top:2px; display:grid; place-items:center; width:11px; height:10px; border:1px solid rgba(255,240,220,.72); border-radius:3px; background:#c2410c; color:#fff; font-size:7px; line-height:1; text-shadow:0 1px 2px #611; box-shadow:0 0 5px rgba(249,115,22,.6); pointer-events:none; }
 .heat-cooling .component-heat-value { color:#7dd3fc; }
 .heat-predicted-hot .component-heat-value { color:#ff9a85; border-color:rgba(255,90,70,.5); }
 .build-cell.heat-ui-cool::after, .build-cell.heat-ui-warm::after, .build-cell.heat-ui-hot::after, .build-cell.heat-ui-critical::after, .build-cell.heat-ui-overheated::after { content:""; position:absolute; z-index:2; inset:1px; border-radius:4px; pointer-events:none; }
@@ -151,6 +152,7 @@
 .heat-ui-critical .component-heat-value, .heat-ui-overheated .component-heat-value { border-color:rgba(255,72,58,.62); color:#ffc4ba; }
 .heat-design-summary { grid-column:1/-1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 12px; padding:10px; border:1px solid rgba(100,200,255,.24); border-radius:8px; background:rgba(8,35,52,.45); color:#a9c6da; font-size:11px; }
 .heat-design-summary strong { grid-column:1/-1; color:#7dd3fc; text-transform:uppercase; letter-spacing:.06em; }
+.heat-design-summary .heat-summary-warning { grid-column:1/-1; color:#fcd34d; }
 @keyframes designer-heat-pulse { to { opacity:.48; } }
 @keyframes thermal-flow-route { to { stroke-dashoffset:-.3; } }
 @keyframes heat-sink-ring { from { transform:scale(.72); opacity:.8; } to { transform:scale(1.12); opacity:0; } }

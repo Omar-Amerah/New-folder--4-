@@ -142,6 +142,9 @@ function renderShipGroups() {
     if (assignButton) assignButton.disabled = assignDisabled;
     if (formationSelect) formationSelect.value = normalizeFormation(state.shipGroupSettings[group.id]?.formation);
     if (stanceSelect) stanceSelect.value = normalizeGroupCombatStyle(state.shipGroupSettings[group.id]?.combatStyle);
+    // Formation/stance controls only make sense once a group has ships in it.
+    const controls = dom.shipGroupList.querySelector?.(`[data-ship-group-controls="${group.id}"]`) || null;
+    if (controls) controls.hidden = shipIds.length === 0;
   }
 }
 
@@ -182,6 +185,7 @@ function ensureShipGroupRows() {
     if (ASSIGNABLE_GROUP_IDS.includes(group.id)) {
       const controls = document.createElement("div");
       controls.className = "ship-group-controls";
+      controls.dataset.shipGroupControls = group.id;
 
       const formationSelect = document.createElement("select");
       formationSelect.className = "ship-group-select";

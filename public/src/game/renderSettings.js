@@ -33,6 +33,16 @@ export function getRenderQualityDprCap() {
   return 2.0;
 }
 
+// Multiplier for non-essential particle density (engine smoke, trails, sparks,
+// heat pulses). Essential feedback — projectiles, warnings, selection, damage
+// numbers — is never gated by this. Low graphics thins particles heavily.
+export function getEffectDensity() {
+  const q = getRenderQuality();
+  if (q === "low") return 0.4;
+  if (q === "medium") return 0.72;
+  return 1;
+}
+
 // These flags are read every frame in the render loop, so cache them instead of
 // hitting the synchronous localStorage API each time.
 let cachedCombatEffects = null;

@@ -161,13 +161,13 @@
 }
 
 .purchase-option {
-  flex: 0 0 172px;
+  flex: 0 0 196px;
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  min-height: 62px;
-  padding: 7px 9px;
+  gap: 9px;
+  min-height: 74px;
+  padding: 8px 11px;
   border-color: rgba(103, 224, 138, 0.34);
   background: linear-gradient(180deg, rgba(18, 48, 45, 0.92), rgba(9, 22, 24, 0.96));
   color: var(--text);
@@ -181,8 +181,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
+  width: 60px;
+  height: 60px;
   border-radius: 7px;
   background: radial-gradient(circle at 50% 42%, rgba(40, 62, 98, 0.5), rgba(4, 8, 14, 0.85));
   border: 1px solid rgba(120, 150, 200, 0.16);
@@ -199,6 +199,28 @@
   min-width: 0;
   display: grid;
   gap: 2px;
+}
+
+/* ---- Loadout maker (Blueprint screen) ---- */
+
+.loadout-manager-hint {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.loadout-manager .loadout-tabs {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  margin-bottom: 6px;
+}
+
+.loadout-manager-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 /* ---- Loadout editor chips ---- */

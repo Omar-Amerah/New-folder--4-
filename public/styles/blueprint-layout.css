@@ -90,6 +90,16 @@
 .thermal-analysis-status.stable { background:rgba(34,197,94,.13); color:#86efac; }
 .thermal-analysis-status.marginal { background:rgba(245,158,11,.14); color:#fcd34d; }
 .thermal-analysis-status.unsustainable { background:rgba(239,68,68,.15); color:#fda4af; }
+.thermal-scenario-label { align-self:center; color:#ffd2ad; font-size:10px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
+.thermal-scenario-label[hidden] { display:none; }
+.thermal-key-stats { display:grid; gap:5px 10px; }
+.thermal-key-stats > div { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.thermal-key-stats span { color:#8fa3be; font-size:10px; font-weight:850; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+.thermal-key-stats strong { color:#f3f8ff; font-size:14px; font-weight:950; white-space:nowrap; }
+.thermal-key-stats .thermal-good { color:#86efac; }
+.thermal-key-stats .thermal-bad { color:#fda4af; }
+.thermal-detailed-analysis summary { cursor:pointer; color:#b8a48e; font-size:10px; font-weight:950; letter-spacing:.07em; text-transform:uppercase; user-select:none; }
+.thermal-detailed-analysis[open] summary { margin-bottom:5px; }
 
 .designer-workspace .forward-marker {
   margin: 0;

@@ -310,6 +310,7 @@
       "turn": 0,
       "energy": 30,
       "repair": 0,
+      "rotatable": true,
       "description": "Primary power source for weapons, shields, engines, and support systems.",
       "footprint": {
         "width": 2,
@@ -327,12 +328,12 @@
       "powerUse": 1.2,
       "shield": 0,
       "shieldRegen": 0,
-      "thrust": 145,
-      "turn": 0.12,
+      "thrust": 189,
+      "turn": 0,
       "energy": 0,
       "repair": 0,
-      "rotatable": true,
-      "description": "Main propulsion module that adds thrust for speed and acceleration.",
+      "rotatable": false,
+      "description": "Main propulsion module that adds thrust for speed and acceleration. Always faces forward (fires backwards); vectors a little thrust for modest turning — add maneuver thrusters to turn faster.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -366,12 +367,12 @@
       "powerUse": 1.8,
       "shield": 0,
       "shieldRegen": 0,
-      "thrust": 65,
+      "thrust": 85,
       "turn": 0.52,
       "energy": 0,
       "repair": 0,
-      "rotatable": true,
-      "description": "Control thruster that improves turning more than raw speed."
+      "rotatable": false,
+      "description": "Fixed forward-facing control thruster that improves turning more than raw speed."
     },
     {
       "id": "aegisProjector",
@@ -675,7 +676,7 @@
       "mass": 6,
       "hull": 48,
       "powerGeneration": 0,
-      "powerUse": 0.8,
+      "powerUse": 0.2,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
@@ -683,7 +684,7 @@
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "Cooling support that reduces weapon reload time by 6% for weapon-heavy designs.",
+      "description": "High-capacity thermal buffer. Soaks a large amount of heat from connected frames and nearby components, buying time before they overheat. Pair with radiators to shed the stored heat.",
       "heat": -6
     },
     {
@@ -737,7 +738,8 @@
       "turn": -0.02,
       "energy": 0,
       "repair": 8,
-      "description": "Heavy repair system with stronger but limited hull recovery.",
+      "rotatable": true,
+      "description": "Heavy repair beam. Aim it toward a friendly ship to project a hull-recovery beam from the emitter.",
       "footprint": {
         "width": 2,
         "height": 1

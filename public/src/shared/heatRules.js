@@ -9,7 +9,7 @@
   const STATE = Object.freeze({ NORMAL: 0, WARM: 1, HOT: 2, CRITICAL: 3, OVERHEATED: 4 });
   const STATE_LABELS = Object.freeze(["Cool", "Warm", "Hot", "Critical", "Overheated"]);
   const THRESHOLDS = Object.freeze({ warm: 0.42, hot: 0.68, critical: 0.86, overheated: 1, recover: 0.62 });
-  const CONDUCTIVITY = Object.freeze({ frame: 1.55, system: 0.72, armor: 0.48, compositeArmor: 0.28, heatSink: 1.4, radiator: 1.12, destroyed: 0.18 });
+  const CONDUCTIVITY = Object.freeze({ frame: 2.1, system: 0.72, armor: 0.48, compositeArmor: 0.28, heatSink: 1.4, radiator: 1.12, destroyed: 0.18 });
   const BASE_TRANSFER = 18;
   const NETWORK_FRAME_BOOST = 1.7;
   const NETWORK_ATTACHMENT_BOOST = 1.25;
@@ -17,10 +17,13 @@
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
   function profile(type, part) {
-    const capacity = type === "heatSink" ? 190 : type === "radiator" ? 115
-      : type === "armor" ? 125 : type === "compositeArmor" ? 140 : 100;
+    // Heat sinks are dedicated thermal-mass buffers (large capacity for their
+    // cost). Normal system components hold less heat than before so hotspots form
+    // and must be conducted away through frames to sinks/radiators.
+    const capacity = type === "heatSink" ? 340 : type === "radiator" ? 115
+      : type === "armor" ? 125 : type === "compositeArmor" ? 140 : 85;
     const cooling = type === "radiator" ? 14 : type === "heatSink" ? 1.5
-      : type === "armor" ? 0.65 : type === "compositeArmor" ? 0.55 : 0.9;
+      : type === "armor" ? 0.7 : type === "compositeArmor" ? 0.6 : 1.25;
     const conductivity = CONDUCTIVITY[type] ?? (type.includes("Frame") || type === "frame" ? CONDUCTIVITY.frame : CONDUCTIVITY.system);
     return { capacity, cooling, conductivity, retention: type === "armor" ? 0.9 : type === "compositeArmor" ? 0.82 : 1 };
   }

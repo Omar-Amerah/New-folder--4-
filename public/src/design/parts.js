@@ -62,7 +62,18 @@ export const PART_DEFS = {
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" }
 };
 
-const MARKERLESS_ROTATABLE_PARTS = new Set(["halfFrameDiagonal", "wingFrame"]);
+// These structural silhouettes show their direction through their geometry, so
+// all material variants rotate without an extra arrow marker.
+const MARKERLESS_ROTATABLE_PARTS = new Set([
+  "halfFrameDiagonal",
+  "halfArmorDiagonal",
+  "halfCompositeArmorDiagonal",
+  "wingFrame",
+  "wingArmor",
+  "wingCompositeArmor"
+]);
+
+const FIXED_ORIENTATION_PARTS = new Set(["engine", "maneuverThruster"]);
 
 export const PART_DESCRIPTIONS = Object.freeze({
   core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
@@ -339,7 +350,7 @@ export const FALLBACK_PART_STATS = {
     thrust: 60, turn: 0.38,
     energyStorage: 0, repairRate: 0,
     weapon: null,
-    rotationRequired: true
+    rotationRequired: false
   },
   gyroscope: {
     category: "Engines",
@@ -741,9 +752,14 @@ export function applyServerParts(parts) {
 }
 
 export function isRotatablePart(type) {
+  if (FIXED_ORIENTATION_PARTS.has(type)) return false;
   const stat = PART_STATS[type] || {};
   if (stat.category === "Engines") return stat.thrust > 0 && stat.rotationRequired === true;
-  return stat.category === "Weapons" || (stat.category === "Defence" && Boolean(stat.weapon)) || stat.rotatable === true || MARKERLESS_ROTATABLE_PARTS.has(type);
+  return stat.category === "Weapons"
+    || (stat.category === "Defence" && Boolean(stat.weapon))
+    || stat.rotatable === true
+    || stat.rotationRequired === true
+    || MARKERLESS_ROTATABLE_PARTS.has(type);
 }
 
 export function shouldShowRotationMarker(type) {
@@ -874,7 +890,10 @@ export function normalizeRuntimePart(part = {}) {
     fireRateBonus: numberOr(part.fireRateBonus, 0),
     captureBonus: numberOr(part.captureBonus, 0),
     heat: numberOr(part.heat, 0),
-    rotatable: Boolean(part.rotatable),
+    // Server-normalized parts expose rotationRequired even when they omit the
+    // source balance file's rotatable field. Preserve that capability when a
+    // hello/state message replaces the locally loaded component definition.
+    rotatable: Boolean(part.rotatable || part.rotationRequired),
     rotationRequired: Boolean(part.rotationRequired || part.rotatable),
     ecmStrength: numberOr(part.ecmStrength, 0),
     decoyRange: numberOr(part.decoyRange, 0),

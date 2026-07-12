@@ -6,6 +6,7 @@ import { PART_DEFS, PART_STATS, isRotatablePart, partCategory, partDescription, 
 import { escapeHtml } from "../shared/formatting.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPowerUse, formatPowerGeneration, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
 import { estimatePartEffectiveCost } from "../design/componentStats.js";
+import { analyzeDesignHeat } from "./designerUi.js";
 
 export function renderPartInspector() {
   const type = state.selectedPart;
@@ -44,18 +45,70 @@ export function renderPartInspector() {
       ${inspectorStat("Thrust", formatThrust(stat.thrust))}
       ${inspectorStat("Storage", formatEnergy(stat.energyStorage))}
       ${inspectorStat("Repair", formatRepair(stat.repairRate))}
-      ${inspectorStat("Heat", thermal.summary)}
-      ${inspectorStat("Capacity", `${thermal.capacity} H`)}
     </div>
     <div class="part-detail-list">
       ${details.map(([label, value]) => inspectorDetail(label, value)).join("")}
     </div>
-    <div class="part-detail-heading">Thermal effect</div>
-    <div class="part-detail-list thermal-detail-list">
-      ${thermal.details.map(([label, value]) => inspectorDetail(label, value)).join("")}
-    </div>
+    ${thermalSectionMarkup(type, stat, thermal)}
     ${tipHtml}
   `;
+  dom.partInspector.querySelector(".thermal-properties-details")?.addEventListener("toggle", event => {
+    state.partThermalPropsOpen = event.target.open;
+  });
+}
+
+// Design-specific thermal prediction for the selected part type, plus its static
+// thermal properties in a collapsed section so the two are never conflated.
+function thermalSectionMarkup(type, stat, thermal) {
+  const rules = globalThis.HeatRules;
+  const signed = (value, decimals = 1) => Math.abs(value) < 0.05 ? "0.0 H/s" : `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(decimals)} H/s`;
+  const placed = state.design.filter(part => part.type === type);
+  let predictedRows = "";
+  let explainer = "";
+  if (placed.length) {
+    const analysis = analyzeDesignHeat(state.design, state.thermalLoadMode || "full");
+    const prediction = placed
+      .map(part => analysis.predictions.get(part))
+      .filter(Boolean)
+      .reduce((hottest, candidate) => !hottest || candidate.ratio > hottest.ratio ? candidate : hottest, null);
+    if (prediction) {
+      const percent = Math.min(100, Math.round(prediction.ratio * 100));
+      const coolingReceived = prediction.cooling + prediction.transferredOut - prediction.received;
+      const net = prediction.generation - coolingReceived;
+      predictedRows = `
+        <div class="part-detail-heading">Predicted in this design</div>
+        <div class="thermal-stat-rows">
+          ${thermalRow("Predicted heat", `${percent}%`)}
+          ${thermalRow("Thermal state", rules.STATE_LABELS[prediction.state])}
+          ${thermalRow("Heat generation", signed(prediction.generation), "thermal-value-hot")}
+          ${thermalRow("Cooling received", signed(-coolingReceived), coolingReceived >= 0 ? "thermal-value-cool" : "thermal-value-hot")}
+          ${thermalRow("Net heat", signed(net), net > 0.05 ? "thermal-value-hot" : "thermal-value-cool")}
+          ${thermalRow("Heat capacity", `${prediction.capacity} H`)}
+        </div>`;
+      if (thermal.generation > 0.5 && prediction.ratio < 0.26) {
+        explainer = `<p class="thermal-explainer">Generates +${thermal.generation.toFixed(1)} H/s ${escapeHtml(thermal.cadence.toLowerCase())}. Predicted peak in this design: ${percent}% — the cooling layout is managing it.</p>`;
+      } else if (placed.length > 1) {
+        explainer = `<p class="thermal-explainer">Showing the hottest of ${placed.length} placed ${escapeHtml(PART_DEFS[type]?.name || type)} components.</p>`;
+      }
+    }
+  } else {
+    predictedRows = `
+      <div class="part-detail-heading">Predicted in this design</div>
+      <p class="thermal-explainer">Not placed in this design yet${thermal.generation > 0 ? ` — generates +${thermal.generation.toFixed(1)} H/s ${escapeHtml(thermal.cadence.toLowerCase())}` : ""}.</p>`;
+  }
+  return `
+    ${predictedRows}
+    ${explainer}
+    <details class="thermal-properties-details"${state.partThermalPropsOpen ? " open" : ""}>
+      <summary>Thermal properties</summary>
+      <div class="thermal-stat-rows">
+        ${thermal.details.map(([label, value]) => thermalRow(label, value)).join("")}
+      </div>
+    </details>`;
+}
+
+function thermalRow(label, value, valueClass = "") {
+  return `<div><span>${escapeHtml(label)}</span><strong${valueClass ? ` class="${valueClass}"` : ""}>${escapeHtml(value)}</strong></div>`;
 }
 
 function partThermalDetails(type, stat) {
@@ -83,17 +136,18 @@ function partThermalDetails(type, stat) {
   if (type === "radiator") effect = "Removes 14 H/s with an exposed exterior edge, or 3.5 H/s when enclosed.";
   if (type === "armor") effect = "Retains slightly more heat than frame.";
 
-  const signed = generation > 0 ? `+${generation.toFixed(1)} H` : `-${naturalCooling.toFixed(1)} H/s`;
   return {
     capacity,
-    summary: signed,
+    generation,
+    cadence,
     details: [
-      ["Heat generation", generation > 0 ? `${generation.toFixed(1)} H — ${cadence}` : "None"],
-      ["Natural cooling", `${naturalCooling.toFixed(1)} H/s`],
-      ["Heat capacity", `${capacity} H`],
-      ["Placement effect", effect],
-      ["Hot penalty", stat.weapon ? "30% slower sustained fire" : (stat.thrust || 0) > 0 ? "30% reduced thrust" : (stat.shieldRegen || 0) > 0 ? "30% slower recharge" : "Reduced performance"],
-      ["Overheated", "Temporarily shuts down until below 62% heat"]
+      ["Heat generation", generation > 0 ? `+${generation.toFixed(1)} H/s — ${cadence}` : "None"],
+      ["Natural cooling", `-${naturalCooling.toFixed(1)} H/s`],
+      ["Base heat capacity", `${capacity} H`],
+      ["Hot penalty", stat.weapon ? "-30% sustained fire rate" : (stat.thrust || 0) > 0 ? "-30% thrust" : (stat.shieldRegen || 0) > 0 ? "-30% recharge rate" : "Reduced performance"],
+      ["Overheat shutdown", "Temporarily shuts down"],
+      ["Recovery threshold", "Below 62% heat"],
+      ["Conduction", effect]
     ]
   };
 }

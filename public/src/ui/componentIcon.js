@@ -9,9 +9,9 @@ import { withCanvasContext } from "./dom.js";
 import { drawModule, drawFootprintComponent } from "../game/renderer.js";
 
 const CELL = 40; // logical px per footprint cell
-const PAD = 8; // logical px breathing room so weapon barrels never clip
+const PAD = 0; // full cubes meet the exact blueprint-cell bounds
 const DPR = 2; // bake at 2x for crisp downscaling
-const EMBLEM = CELL * 0.9; // single-cell emblem size passed to drawModule
+const EMBLEM = CELL; // regular bases occupy the full blueprint cube
 const NEUTRAL_TRIM = "#e7eef8"; // edge colour (player colour is used on the map)
 
 const iconCache = new Map();
@@ -34,6 +34,10 @@ export function rotatedFootprint(type, rotationDeg = 0) {
 // Orientation of the emblem within the icon.
 function emblemAngle(type, rotationDeg) {
   const rot = normalizeRotation(rotationDeg);
+  // Fixed propulsion faces ship-forward. The arena's canonical +x direction is
+  // up on the blueprint, including the square maneuver-thruster footprint.
+  if (type === "engine") return -Math.PI / 2;
+  if (type === "maneuverThruster") return moduleRotationToRadians(rot) - Math.PI / 2;
   // Every rotatable part rotates its own art with placement (there is no separate
   // rotation marker). Weapons additionally face their firing direction, so
   // rotation 0 points forward (up in the grid); structural diagonal/wing shapes
@@ -69,7 +73,15 @@ export function componentIconDataUrl(type, rotationDeg = 0) {
   const key = `${type}|${w}x${h}|${normalizeRotation(rotationDeg)}`;
   const cached = iconCache.get(key);
   if (cached !== undefined) return cached;
-  const url = bakeIcon(type, w, h, rotationDeg);
+  let url = "";
+  try {
+    url = bakeIcon(type, w, h, rotationDeg);
+  } catch (error) {
+    // One broken vector must not abort palette/grid rendering and leave the
+    // Blueprint Designer in a half-cleared state. Cache the empty fallback so
+    // the same bad icon cannot throw on every subsequent UI refresh.
+    console.error(`Failed to render component icon: ${type}`, error);
+  }
   iconCache.set(key, url);
   return url;
 }

@@ -11,3 +11,14 @@ export function moduleRotationToRadians(rotation) {
   if (rotation === 270) return -Math.PI / 2;
   return 0;
 }
+
+// Maneuver thrusters are not user-rotatable. Their direction is derived from
+// which side of the 15x15 blueprint they occupy: the left-side nozzle/exhaust
+// points left, the right-side nozzle/exhaust points right, and a centreline
+// thruster retains its forward orientation.
+export function maneuverThrusterAutoRotation(x, gridCenter = 7) {
+  const column = Number(x);
+  if (column < gridCenter) return 90;
+  if (column > gridCenter) return 270;
+  return 0;
+}

@@ -7,7 +7,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
 import { normalizeDesign, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
 import { showToast } from "./toastUi.js";
-import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
+import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
 import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
@@ -39,6 +39,7 @@ export function renderSavedDesigns() {
     empty.textContent = "No saved blueprints yet — build a ship and press Save Blueprint.";
     dom.savedDesignList.appendChild(empty);
     renderPurchaseBar();
+    renderLoadoutManager();
     return;
   }
 
@@ -52,6 +53,7 @@ export function renderSavedDesigns() {
     dom.savedDesignList.appendChild(buildCard(saved, color));
   }
   renderPurchaseBar();
+  renderLoadoutManager();
 }
 
 function statChips(stats) {
@@ -86,6 +88,7 @@ function buildCard(saved, color) {
     </div>
     <div class="bp-actions saved-design-actions">
       <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}">Edit</button>
+      <button type="button" data-saved-action="duplicate" data-saved-id="${escapeHtml(saved.id)}" title="Duplicate">⧉</button>
       <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}" title="Delete">✕</button>
     </div>
   `;
@@ -233,7 +236,33 @@ export function handleSavedDesignKeyboardClick(event) {
 
 export function runSavedDesignAction(action, id) {
   if (action === "load") loadSavedDesign(id);
+  else if (action === "duplicate") duplicateSavedDesign(id);
   else if (action === "delete") deleteSavedDesign(id);
+}
+
+// Adds an independent copy of a saved design right after the original, so a
+// variant can be built without editing (or losing) the source blueprint.
+export function duplicateSavedDesign(id) {
+  const index = state.savedDesigns.findIndex((design) => design.id === id);
+  if (index < 0) return;
+  if (state.savedDesigns.length >= 12) {
+    showToast("Design library is full (max 12 slots). Delete some before duplicating.", "warning");
+    return;
+  }
+  const source = state.savedDesigns[index];
+  const copy = {
+    ...source,
+    id: makeDesignId(),
+    name: `${source.name} copy`.slice(0, 28),
+    blueprint: normalizeDesign(source.blueprint).map((part) => ({ ...part })),
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.savedDesigns.splice(index + 1, 0, copy);
+  persistSavedDesigns(state.savedDesigns);
+  renderSavedDesigns();
+  updateEconomyUi();
+  showToast(`Duplicated "${source.name}"`, "good");
 }
 
 export function isSavedDesignNameFocused() {

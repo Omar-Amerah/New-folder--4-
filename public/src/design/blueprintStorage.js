@@ -2,7 +2,7 @@
 
 import { LOCAL_DESIGN_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
-import { normalizeRotation } from "./rotation.js";
+import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { isConnected, isOutOfBounds, isOverlapping } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 
@@ -14,6 +14,10 @@ export function defaultDesign() {
     { x: 8, y: 8, type: "engine" },
     { x: 6, y: 7, type: "blaster" },
     { x: 8, y: 7, type: "blaster" },
+    // Side maneuvering thrusters: main engines no longer turn the ship, so the
+    // starting design needs off-centre thrusters to steer.
+    { x: 5, y: 7, type: "maneuverThruster" },
+    { x: 9, y: 7, type: "maneuverThruster" },
     { x: 7, y: 6, type: "shield" },
     { x: 6, y: 6, type: "armor" },
     { x: 8, y: 6, type: "armor" },
@@ -22,7 +26,9 @@ export function defaultDesign() {
 }
 
 export function makeDesignPart(x, y, type, previousRotation = 0) {
-  const rotation = isRotatablePart(type) ? normalizeRotation(previousRotation) : 0;
+  const rotation = type === "maneuverThruster"
+    ? maneuverThrusterAutoRotation(x)
+    : isRotatablePart(type) ? normalizeRotation(previousRotation) : 0;
   return { x, y, type, rotation };
 }
 
