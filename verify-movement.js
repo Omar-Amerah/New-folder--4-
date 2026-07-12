@@ -4,6 +4,7 @@
 // turn; engine stacking still shows diminishing efficiency.
 const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
+const { segmentCircleClearance } = require("./src/server/movement");
 
 // Build a design with `engineCount` engines (clear downward exhaust in their own
 // columns) plus enough reactors to stay powered, a core, and optional dead mass.
@@ -91,6 +92,13 @@ function run() {
   assert(enginesPlusThruster.turnRate > enginesOnly.turnRate, `adding a maneuver thruster should raise turn rate (engines=${enginesOnly.turnRate} +thruster=${enginesPlusThruster.turnRate})`);
   assert(nearThruster.turnRate > 0 && farThruster.turnRate > 0, "thruster ships should be able to turn");
   assert(farThruster.turnRate > nearThruster.turnRate, `a thruster far from the centre of mass should turn faster (near=${nearThruster.turnRate} far=${farThruster.turnRate})`);
+
+  // 7. Asteroid route checks use the whole command segment, so a right-click
+  // destination behind an asteroid is recognized before the ship noses into it.
+  const blockedRoute = segmentCircleClearance(0, 0, 1000, 0, 500, 0, 120);
+  const clearRoute = segmentCircleClearance(0, 0, 1000, 0, 500, 200, 120);
+  assert(blockedRoute.blocked, "destination behind an asteroid should flag the route as blocked");
+  assert(!clearRoute.blocked, "route outside asteroid clearance should remain clear");
 
   console.log("Movement verification passed");
   console.log(`  speeds 1..8 engines: ${[1,2,3,4,5,6,7,8].map((n) => computeStats(buildShip(n)).maxSpeed).join(", ")}`);

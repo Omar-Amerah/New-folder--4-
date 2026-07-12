@@ -12,6 +12,17 @@ const TurretRules = require("../../public/src/shared/turretRules");
 
 const MODULE_SCALE = 13;
 
+function shipRepairNeed(ship) {
+  if (!ship || !ship.alive) return 0;
+  let need = Math.max(0, (ship.maxHp || 0) - (ship.hp || 0));
+  const hp = ship.componentHp || [];
+  const max = ship.componentMaxHp || [];
+  for (let i = 0; i < hp.length; i += 1) {
+    need += Math.max(0, (max[i] || 0) - (hp[i] || 0));
+  }
+  return need;
+}
+
 function updateShipSupport(room, ships, dt, now) {
   for (const ship of ships) {
     if (!ship.stats.repair) continue;
@@ -35,7 +46,7 @@ function updateShipSupport(room, ships, dt, now) {
       if (!assigned || !assigned.alive) {
         ship.repairTargetId = null;
       } else if (areAllies(room, ship.ownerId, assigned.ownerId)
-        && assigned.hp < assigned.maxHp
+        && shipRepairNeed(assigned) > 0
         && Math.hypot(assigned.x - ship.x, assigned.y - ship.y) <= ship.stats.repairRange) {
         target = assigned;
       }
@@ -44,13 +55,14 @@ function updateShipSupport(room, ships, dt, now) {
     if (!target) {
       for (const other of ships) {
         if (!areAllies(room, ship.ownerId, other.ownerId)) continue;
-        const missing = other.maxHp - other.hp;
+        const missing = shipRepairNeed(other);
         if (missing <= 0) continue;
         const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
         if (distance > ship.stats.repairRange) continue;
-        if (missing > worst) {
+        const urgency = missing / Math.max(1, distance * 0.08);
+        if (urgency > worst) {
           target = other;
-          worst = missing;
+          worst = urgency;
         }
       }
     }
@@ -824,6 +836,7 @@ function getWeaponTurnRate(weapon) {
 
 module.exports = {
   updateShipSupport,
+  shipRepairNeed,
   updateShipWeapons,
   weaponModulesInArc,
   moduleRotationToRadians,
