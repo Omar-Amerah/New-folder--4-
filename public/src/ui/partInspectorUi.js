@@ -84,6 +84,7 @@ function thermalSectionMarkup(type, stat, thermal) {
           ${thermalRow("Cooling received", signed(-coolingReceived), coolingReceived >= 0 ? "thermal-value-cool" : "thermal-value-hot")}
           ${thermalRow("Net heat", signed(net), net > 0.05 ? "thermal-value-hot" : "thermal-value-cool")}
           ${thermalRow("Heat capacity", `${prediction.capacity} H`)}
+          ${prediction.meltdownTime != null ? thermalRow("Meltdown predicted", `at ${prediction.meltdownTime.toFixed(1)}s sustained load`, "thermal-value-hot") : ""}
         </div>`;
       if (thermal.generation > 0.5 && prediction.ratio < 0.26) {
         explainer = `<p class="thermal-explainer">Generates +${thermal.generation.toFixed(1)} H/s ${escapeHtml(thermal.cadence.toLowerCase())}. Predicted peak in this design: ${percent}% — the cooling layout is managing it.</p>`;
@@ -133,8 +134,13 @@ function partThermalDetails(type, stat) {
 
   let effect = "Loses heat naturally and exchanges heat with adjacent occupied components.";
   if (type === "heatSink") effect = "Adds 35 H capacity to every adjacent component and absorbs burst heat locally.";
-  if (type === "radiator") effect = "Removes 14 H/s with an exposed exterior edge, or 3.5 H/s when enclosed.";
+  if (type === "radiator") effect = "Removes ~14 H/s with an exposed exterior edge (25% output when enclosed); dissipation scales up as it stores more heat.";
   if (type === "armor") effect = "Retains slightly more heat than frame.";
+
+  const hotPenalty = Math.round((1 - rules.performanceForState(rules.STATE.HOT)) * 100);
+  const criticalPenalty = Math.round((1 - rules.performanceForState(rules.STATE.CRITICAL)) * 100);
+  const penaltyTarget = stat.weapon ? "fire rate" : (stat.thrust || 0) > 0 ? "thrust" : (stat.shieldRegen || 0) > 0 ? "recharge rate" : (stat.powerGeneration || 0) > 0 ? "power output" : "performance";
+  const isGenerator = (stat.powerGeneration || 0) > 0;
 
   return {
     capacity,
@@ -144,9 +150,9 @@ function partThermalDetails(type, stat) {
       ["Heat generation", generation > 0 ? `+${generation.toFixed(1)} H/s — ${cadence}` : "None"],
       ["Natural cooling", `-${naturalCooling.toFixed(1)} H/s`],
       ["Base heat capacity", `${capacity} H`],
-      ["Hot penalty", stat.weapon ? "-30% sustained fire rate" : (stat.thrust || 0) > 0 ? "-30% thrust" : (stat.shieldRegen || 0) > 0 ? "-30% recharge rate" : "Reduced performance"],
-      ["Overheat shutdown", "Temporarily shuts down"],
-      ["Recovery threshold", "Below 62% heat"],
+      ["Hot / Critical penalty", `-${hotPenalty}% / -${criticalPenalty}% ${penaltyTarget}`],
+      ["Overheat shutdown", isGenerator ? `Output stops; melts down after ${rules.REACTOR_MELTDOWN_SECONDS}s pinned at overheat` : "Temporarily shuts down"],
+      ["Recovery threshold", `Below ${Math.round(rules.THRESHOLDS.recover * 100)}% heat`],
       ["Conduction", effect]
     ]
   };
@@ -267,9 +273,12 @@ function partInspectorDetails(type, stat, effectiveCost) {
     ];
   }
 
-  if (type === "reactor") {
+  if ((stat.powerGeneration || 0) > 0 && type !== "core") {
+    const rules = globalThis.HeatRules;
     return [
-      ["Explosion risk", stat.explosionRisk || "Not implemented"]
+      ["Meltdown risk", `Explodes after ${rules.REACTOR_MELTDOWN_SECONDS}s pinned at overheat`],
+      ["Meltdown blast", `${rules.REACTOR_EXPLOSION_DAMAGE} damage within ${rules.REACTOR_EXPLOSION_RADIUS} tiles`],
+      ["Heat at full load", `+${(2 + stat.powerGeneration * 0.42).toFixed(1)} H/s`]
     ];
   }
 

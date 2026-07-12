@@ -182,10 +182,9 @@ function addHeatToType(ship, predicate, amount) {
 
 // A reactor pinned at the overheat failure state (heat >= capacity) for this long
 // melts down and explodes. The delay telegraphs the failure and prevents a single
-// spike from instantly chaining through a reactor bank.
-const REACTOR_MELTDOWN_SECONDS = 3;
-const REACTOR_EXPLOSION_RADIUS = 1.9; // tiles
-const REACTOR_EXPLOSION_DAMAGE = 60;
+// spike from instantly chaining through a reactor bank. The constants live in the
+// shared HeatRules so the designer's meltdown prediction uses the same values.
+const { REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE } = HeatRules;
 
 function updateShipHeat(ship, dt, room, now) {
   if (!ship.alive || !ship.componentHeat) return;

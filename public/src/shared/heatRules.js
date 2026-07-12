@@ -13,6 +13,12 @@
   const BASE_TRANSFER = 18;
   const NETWORK_FRAME_BOOST = 1.7;
   const NETWORK_ATTACHMENT_BOOST = 1.25;
+  // A power generator pinned at the overheat failure state for this long melts
+  // down and explodes (server: componentHealth.detonateComponent). Shared so
+  // the designer's thermal prediction and part inspector stay in sync.
+  const REACTOR_MELTDOWN_SECONDS = 3;
+  const REACTOR_EXPLOSION_RADIUS = 1.9; // tiles
+  const REACTOR_EXPLOSION_DAMAGE = 60;
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
@@ -77,5 +83,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, clamp, profile, activityHeat, stateFor, performanceForState, edgeTransfer, edgeConductivity });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, performanceForState, edgeTransfer, edgeConductivity });
 }));
