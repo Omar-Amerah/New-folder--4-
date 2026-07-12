@@ -99,6 +99,7 @@ export const dom = {
   selectionPanelCount: document.getElementById("selectionPanelCount"),
   combatStyleControls: document.getElementById("combatStyleControls"),
   shipDamagePanel: document.getElementById("shipDamagePanel"),
+  shipHeatSummary: document.getElementById("shipHeatSummary"),
   shipDamageCanvas: document.getElementById("shipDamageCanvas"),
   shipDamageHover: document.getElementById("shipDamageHover"),
   coreStatusLabel: document.getElementById("coreStatusLabel"),

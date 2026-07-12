@@ -143,6 +143,7 @@
                 <button id="shipHeatTab" type="button" role="tab" aria-selected="false">Heat</button>
               </div>
             </div>
+            <div id="shipHeatSummary" class="ship-heat-summary" hidden></div>
             <canvas id="shipDamageCanvas" width="360" height="360" aria-label="Selected ship component damage diagram"></canvas>
             <div id="shipDamageHover" class="ship-damage-hover">Hover a component</div>
             <div id="damageLegend" class="damage-legend" aria-hidden="true">
@@ -151,10 +152,10 @@
               <span><i class="legend-dot legend-destroyed"></i>Destroyed</span>
             </div>
             <div id="heatLegend" class="damage-legend heat-legend" aria-hidden="true" hidden>
-              <span><i class="legend-dot legend-warm"></i>Warm</span>
-              <span><i class="legend-dot legend-hot"></i>Hot</span>
-              <span><i class="legend-dot legend-critical-heat"></i>Critical</span>
-              <span><i class="legend-dot legend-overheated"></i>Overheated</span>
+              <span><i class="legend-dot legend-warm"></i>Warm ≥42%</span>
+              <span><i class="legend-dot legend-hot"></i>Hot ≥68%</span>
+              <span><i class="legend-dot legend-critical-heat"></i>Critical ≥86%</span>
+              <span><i class="legend-dot legend-overheated"></i>Overheated ≥100%</span>
             </div>
             <div id="coreStatusLabel" class="core-status" hidden></div>
             <ul id="damageFeed" class="damage-feed" aria-live="polite"></ul>

@@ -136,3 +136,5 @@
   flex-shrink: 0;
   margin-bottom: 20px;
 }
+.thermal-action-list { margin:6px 0 0; padding:7px 8px 7px 20px; border:1px solid rgba(251,146,60,.18); border-radius:7px; background:rgba(7,12,20,.42); color:#ffd0aa; font-size:10px; line-height:1.35; }
+.thermal-action-list li + li { margin-top:4px; }

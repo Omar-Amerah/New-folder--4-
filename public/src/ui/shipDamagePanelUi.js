@@ -33,6 +33,41 @@ const GRID_CENTER = 7;
 let bound = false;
 let hoverContext = null; // { ship, cellMap, cellSize, originX, originY, hoverIndex }
 
+const HEAT_LABELS = ["Cool", "Warm", "Hot", "Critical", "Overheated"];
+
+function componentThermal(ship, index) {
+  const data = ship.componentHeat?.[index] || ship.cheat?.[index] || [];
+  const part = ship.design?.[index];
+  const profile = part ? globalThis.HeatRules?.profile?.(part.type, PART_STATS[part.type] || {}) : null;
+  const heat = Number(data[0]) || 0;
+  const stateValue = Number(data[1]) || 0;
+  const capacity = Number(data[3]) || Number(profile?.capacity) || 0;
+  const ratio = Number.isFinite(Number(data[2])) && Number(data[2]) > 0
+    ? Number(data[2])
+    : capacity > 0 ? heat / capacity : 0;
+  return { heat, state: stateValue, capacity, ratio: Math.max(0, ratio) };
+}
+
+function formatHeatAmount(value) {
+  return Number(value).toFixed(Math.abs(value) >= 100 ? 0 : 1).replace(/\.0$/, "");
+}
+
+function renderHeatSummary(ship) {
+  const summary = dom.shipHeatSummary;
+  if (!summary) return;
+  const heat = Math.round(Number(ship.heat) || 0);
+  const heatNow = Number(ship.heatNow) || 0;
+  const heatMax = Number(ship.heatMax) || 0;
+  const hot = Number(ship.hot) || 0;
+  const overheated = Number(ship.overheated) || 0;
+  summary.hidden = false;
+  summary.innerHTML = `
+    <div><span>Ship heat</span><strong>${heat}%</strong></div>
+    <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
+    <div><span>Hot parts</span><strong>${hot}</strong></div>
+    <div><span>Overheated</span><strong>${overheated}</strong></div>`;
+}
+
 function statusFor(ratio) {
   if (ratio <= 0) return "destroyed";
   if (ratio <= CRITICAL_RATIO) return "critical";
@@ -88,9 +123,12 @@ function handleDiagramHover(event) {
     const ship = hoverContext.ship;
     const part = ship.design[index];
     if (state.shipStatusView === "heat") {
-      const thermal = ship.cheat?.[index] || [0, 0];
-      const labels = ["Cool", "Warm", "Hot", "Critical", "Overheated"];
-      dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.round(thermal[0] || 0)} heat — ${labels[thermal[1] || 0]}`;
+      const thermal = componentThermal(ship, index);
+      const percent = Math.round(Math.min(125, thermal.ratio * 100));
+      const capacityText = thermal.capacity > 0 ? ` / ${formatHeatAmount(thermal.capacity)} H · ${percent}%` : " H";
+      const perf = globalThis.HeatRules?.performanceForState?.(thermal.state);
+      const perfText = perf != null && perf < 1 ? ` · ${Math.round(perf * 100)}% output` : "";
+      dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${perfText}`;
     } else if (part.type === "core") {
       dom.shipDamageHover.textContent = "Core — indestructible";
     } else {
@@ -214,11 +252,10 @@ function drawDiagram(ship) {
         drawModuleFlash(drawCtx, componentFlash(ship.id, i, now), halfLong, halfCross);
       }
       if (state.shipStatusView === "heat") {
-        const heatState = ship.cheat?.[i]?.[1] || 0;
-        const heatValue = ship.cheat?.[i]?.[0] || 0;
-        if (heatState > 0 || heatValue > 0) {
-          drawCtx.fillStyle = heatColor(heatState);
-          drawCtx.globalAlpha = heatState >= 3 ? 0.42 + Math.sin(now / 140) * 0.12 : Math.min(0.42, 0.1 + heatValue / 260);
+        const thermal = componentThermal(ship, i);
+        if (thermal.state > 0 || thermal.heat > 0) {
+          drawCtx.fillStyle = heatColor(thermal.state);
+          drawCtx.globalAlpha = thermal.state >= 3 ? 0.42 + Math.sin(now / 140) * 0.12 : Math.min(0.42, 0.08 + thermal.ratio * 0.34);
           drawCtx.fillRect(-halfLong, -halfCross, halfLong * 2, halfCross * 2);
         }
       }
@@ -237,11 +274,14 @@ function drawDiagram(ship) {
       return;
     }
     const ratio = componentHealthRatio(ship, i);
-    const heatState = ship.cheat?.[i]?.[1] || 0;
-    if (state.shipStatusView === "heat" && heatState > 0) {
+    const thermal = componentThermal(ship, i);
+    if (state.shipStatusView === "heat" && thermal.heat > 0) {
       const barH = Math.max(2, cellSize * 0.14);
-      drawCtx.fillStyle = heatColor(heatState);
-      drawCtx.fillRect(rect.x + 1, rect.y + rect.h - barH - 1, rect.w - 2, barH);
+      const y = rect.y + rect.h - barH - 1;
+      drawCtx.fillStyle = "rgba(3, 8, 15, 0.82)";
+      drawCtx.fillRect(rect.x + 1, y, rect.w - 2, barH);
+      drawCtx.fillStyle = heatColor(thermal.state);
+      drawCtx.fillRect(rect.x + 1, y, Math.max(1, (rect.w - 2) * Math.min(1, thermal.ratio)), barH);
     } else if (state.shipStatusView !== "heat" && ratio !== null && ratio > 0 && ratio < 0.999) {
       const barH = Math.max(2, cellSize * 0.14);
       const y = rect.y + rect.h - barH - 1;
@@ -315,16 +355,19 @@ export function renderShipDamagePanel() {
   if (dom.damageLegend) dom.damageLegend.hidden = heatView;
   if (dom.heatLegend) dom.heatLegend.hidden = !heatView;
   if (dom.damageFeed) dom.damageFeed.hidden = heatView;
+  if (dom.shipHeatSummary) dom.shipHeatSummary.hidden = !heatView;
 
   const ship = selectedSingleShip();
   if (!ship) {
     if (!panel.hidden) panel.hidden = true;
     hoverContext = null;
+    if (dom.shipHeatSummary) dom.shipHeatSummary.hidden = true;
     return;
   }
   panel.hidden = false;
   drawDiagram(ship);
   if (heatView) {
+    renderHeatSummary(ship);
     if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
   } else {
     renderCoreStatus(ship);

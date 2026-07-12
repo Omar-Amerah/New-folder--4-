@@ -1025,3 +1025,32 @@ h2 {
   border-color: rgba(255, 95, 126, 0.58);
   box-shadow: 0 0 0 1px rgba(255, 95, 126, 0.12);
 }
+
+.ship-heat-summary {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:6px;
+  margin:6px 0;
+}
+.ship-heat-summary[hidden] { display:none; }
+.ship-heat-summary div {
+  border:1px solid rgba(103, 217, 255, .16);
+  border-radius:6px;
+  background:rgba(8, 15, 27, .72);
+  padding:5px 6px;
+}
+.ship-heat-summary span {
+  display:block;
+  color:#8ea3c2;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.ship-heat-summary strong {
+  display:block;
+  margin-top:2px;
+  color:#e6f3ff;
+  font-size:11px;
+  font-weight:900;
+}

@@ -566,6 +566,7 @@ function renderFullLoadThermalPanel(fullLoadResult) {
   const statusText = analysis.meltdownCount > 0 ? "Reactor meltdown predicted"
     : analysis.balance === "Stable" ? "Thermally stable" : analysis.balance === "Marginal" ? "Thermally marginal" : "Thermally unsustainable";
   const row = (label, value) => `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
+  const actionRows = (analysis.actionItems || []).map(item => `<li>${escapeHtml(item)}</li>`).join("");
   const seconds = value => value === null ? "Never" : `${value.toFixed(1)} s`;
   const equilibrium = analysis.equilibriumTime === null ? "No equilibrium" : `${analysis.equilibriumTime.toFixed(1)} s`;
   const spareCooling = analysis.reserve >= 0;
@@ -583,7 +584,8 @@ function renderFullLoadThermalPanel(fullLoadResult) {
       <summary>Detailed analysis</summary>
       <div class="thermal-analysis-rows">
         ${row("Heat generation", `+${analysis.generation.toFixed(1)} H/s`)}
-        ${row("Total cooling", `-${analysis.cooling.toFixed(1)} H/s`)}
+        ${row("Cooling capacity", `-${analysis.cooling.toFixed(1)} H/s`)}
+        ${row("Actual heat removed", `-${analysis.actualCooling.toFixed(1)} H/s`)}
         ${row("Thermal equilibrium", equilibrium)}
         ${row("Expected to overheat", String(analysis.overheatedCount))}
         ${row("First component", analysis.firstOverheatIndex < 0 ? "None" : describeComponentAt(analysis.firstOverheatIndex, state.design))}
@@ -596,6 +598,7 @@ function renderFullLoadThermalPanel(fullLoadResult) {
         ${row("Radiator utilisation", `${Math.round(analysis.radiatorUtilisation * 100)}%`)}
         ${row("Heat-sink saturation", analysis.heatSinkSaturationTime === null ? "Never" : `${analysis.heatSinkSaturationTime.toFixed(1)} s`)}
       </div>
+      ${actionRows ? `<ul class="thermal-action-list">${actionRows}</ul>` : ""}
     </details>`;
   panel.querySelector(".thermal-detailed-analysis")?.addEventListener("toggle", event => {
     state.thermalDetailsOpen = event.target.open;
@@ -904,8 +907,19 @@ export function analyzeDesignHeat(design, mode = "full") {
     return !best || score > best.score ? { network, score } : best;
   }, null) : null;
   const radiatorCapacitySeconds = design.reduce((sum, module, i) => module.type === "radiator" ? sum + profiles[i].cooling * (exposed[i] ? 1 : .25) * simulatedSeconds : sum, 0);
+  const actualCooling = design.reduce((sum, _module, i) => sum + cooling[i] / dt, 0);
+  const overloadedNetworks = networks.filter(network => network.overloaded);
+  const actionItems = [];
+  if (unroutedHot.length) actionItems.push(`${describeComponentAt(unroutedHot[0], design)} has no frame/heat-pipe route to a radiator or heat sink.`);
+  if (overloadedNetworks.length) {
+    const network = overloadedNetworks[0];
+    actionItems.push(`${describeThermalNetwork(network, design)} is overloaded by ${(network.generation - network.cooling).toFixed(1)} H/s; add exposed radiators or split the route.`);
+  }
+  if (criticalFrames.size) actionItems.push(`${describeComponentAt([...criticalFrames][0], design)} is a single-frame cooling bottleneck; add a parallel frame or heat-pipe path.`);
+  if (heatSinkSaturationTime !== null) actionItems.push(`A heat sink saturates at ${heatSinkSaturationTime.toFixed(1)} s; pair it with more exposed radiator output.`);
+  if (meltdownIndices.length) actionItems.push(`${describeComponentAt(firstMeltdownIndex, design)} is predicted to melt down; route reactor heat away or reduce sustained load.`);
   const result = {
-    componentClasses, componentHeat, predictions, flows: finalFlows, networks, criticalFrames, exteriorDirections,
+    componentClasses, componentHeat, predictions, flows: finalFlows, networks, criticalFrames, exteriorDirections, actionItems,
     cooling: coolingRate >= generation * .7 ? "Good" : coolingRate >= generation * .4 ? "Fair" : "Poor",
     sustained: generation > coolingRate * 1.8 ? "High" : generation > coolingRate ? "Moderate" : "Low",
     hotspot: design[hottestIndex] ? `${PART_DEFS[design[hottestIndex].type]?.name || design[hottestIndex].type} cluster` : "None",
@@ -919,7 +933,7 @@ export function analyzeDesignHeat(design, mode = "full") {
       mode, generation, cooling: coolingRate, net: generation - coolingRate, balance,
       firstOverheatTime, firstOverheatIndex, overheatedCount: overheatedIndices.size,
       meltdownCount: meltdownIndices.length, firstMeltdownTime, firstMeltdownIndex,
-      equilibriumTime, peakPredictedHeat, reserve,
+      equilibriumTime, peakPredictedHeat, reserve, actualCooling, actionItems,
       hottestNetwork: hottestNetwork ? describeThermalNetwork(hottestNetwork.network, design) : "No frame network",
       weaponUptime: uptimeTotals.weapon ? uptimeTicks.weapon / uptimeTotals.weapon : 1,
       engineEfficiency: uptimeTotals.engine ? uptimeTicks.engine / uptimeTotals.engine : 1,
