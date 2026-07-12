@@ -491,7 +491,7 @@ export function renderLocalStats() {
   const canAfford = money >= stats.unitCost;
   
   if (dom.combatStyleSelect) {
-    dom.combatStyleSelect.value = state.combatStyle || "charge";
+    dom.combatStyleSelect.value = state.combatStyle || "sentry";
   }
   if (dom.saveDesignButton) {
     const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
@@ -744,6 +744,10 @@ export function analyzeDesignHeat(design, mode = "full") {
     }
     const workingHeat = heat.map((value, i) => Math.max(0, value + delta[i]));
     finalFlows = [];
+    // Two-pass transfer with proportional outflow scaling — must mirror the
+    // server heat sim (src/server/heat.js) so predictions match combat.
+    const pendingTransfers = [];
+    const outflow = design.map(() => 0);
     for (const edge of edges) {
       const frameI = isFrame(design[edge.i].type), frameJ = isFrame(design[edge.j].type);
       const routedI = Number.isFinite(frameCoolingDistance[edge.i]), routedJ = Number.isFinite(frameCoolingDistance[edge.j]);
@@ -751,10 +755,18 @@ export function analyzeDesignHeat(design, mode = "full") {
       if (frameI && frameJ && (routedI || routedJ)) conductivity *= rules.NETWORK_FRAME_BOOST;
       else if ((frameI && routedI) || (frameJ && routedJ)) conductivity *= rules.NETWORK_ATTACHMENT_BOOST;
       const amount = rules.edgeTransfer(workingHeat[edge.i], profiles[edge.i].capacity, workingHeat[edge.j], profiles[edge.j].capacity, conductivity, edge.sharedEdges, dt);
-      delta[edge.i] -= amount; delta[edge.j] += amount;
-      if (amount > 0) { transferredOut[edge.i] += amount; received[edge.j] += amount; }
-      else { received[edge.i] -= amount; transferredOut[edge.j] -= amount; }
-      if (Math.abs(amount) / dt >= 0.35) finalFlows.push({ from: amount > 0 ? edge.i : edge.j, to: amount > 0 ? edge.j : edge.i, amount: Math.abs(amount) / dt });
+      if (amount === 0) continue;
+      pendingTransfers.push({ i: edge.i, j: edge.j, amount });
+      outflow[amount > 0 ? edge.i : edge.j] += Math.abs(amount);
+    }
+    for (const pending of pendingTransfers) {
+      const source = pending.amount > 0 ? pending.i : pending.j;
+      const scale = outflow[source] > workingHeat[source] ? workingHeat[source] / outflow[source] : 1;
+      const amount = pending.amount * scale;
+      delta[pending.i] -= amount; delta[pending.j] += amount;
+      if (amount > 0) { transferredOut[pending.i] += amount; received[pending.j] += amount; }
+      else { received[pending.i] -= amount; transferredOut[pending.j] -= amount; }
+      if (Math.abs(amount) / dt >= 0.35) finalFlows.push({ from: amount > 0 ? pending.i : pending.j, to: amount > 0 ? pending.j : pending.i, amount: Math.abs(amount) / dt });
     }
     for (let i = 0; i < design.length; i += 1) {
       let coolingRate = profiles[i].cooling * profiles[i].retention;

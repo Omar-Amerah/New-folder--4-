@@ -62,7 +62,11 @@ function isConnected(modules) {
   const core = modules.find((part) => part.type === "core");
   if (!core) return false;
 
+  // Cell -> owning module index so each neighbour lookup is O(1). Kept in sync
+  // with public/src/design/blueprintValidation.js. Assumes modules don't
+  // overlap — validateDesign filters overlaps before calling this.
   const partCellsMap = new Map();
+  const cellOwner = new Map();
 
   for (let i = 0; i < modules.length; i++) {
     const part = modules[i];
@@ -70,6 +74,9 @@ function isConnected(modules) {
     const footprint = stat.footprint || { width: 1, height: 1 };
     const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
     partCellsMap.set(i, cells);
+    for (const cell of cells) {
+      cellOwner.set(`${cell.x},${cell.y}`, i);
+    }
   }
 
   const seenParts = new Set();
@@ -85,14 +92,10 @@ function isConnected(modules) {
 
     for (const cell of cells) {
       for (const [nx, ny] of [[cell.x + 1, cell.y], [cell.x - 1, cell.y], [cell.x, cell.y + 1], [cell.x, cell.y - 1]]) {
-        for (let j = 0; j < modules.length; j++) {
-          if (!seenParts.has(j)) {
-            const neighborCells = partCellsMap.get(j);
-            if (neighborCells.some(c => c.x === nx && c.y === ny)) {
-              seenParts.add(j);
-              queue.push(j);
-            }
-          }
+        const neighbor = cellOwner.get(`${nx},${ny}`);
+        if (neighbor !== undefined && !seenParts.has(neighbor)) {
+          seenParts.add(neighbor);
+          queue.push(neighbor);
         }
       }
     }

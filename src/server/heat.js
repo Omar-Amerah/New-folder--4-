@@ -169,8 +169,13 @@ function systemPerformance(ship, predicate) {
 }
 
 function addHeatToType(ship, predicate, amount) {
+  // Destroyed components discard incoming heat, so only split across live
+  // matches — otherwise part of the heat silently vanishes into wreckage.
   const matches = [];
-  for (let i = 0; i < (ship.design || []).length; i += 1) if (predicate(PARTS[ship.design[i].type] || {}, ship.design[i])) matches.push(i);
+  for (let i = 0; i < (ship.design || []).length; i += 1) {
+    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
+    if (predicate(PARTS[ship.design[i].type] || {}, ship.design[i])) matches.push(i);
+  }
   if (!matches.length) return;
   for (const i of matches) addComponentHeat(ship, i, amount / matches.length);
 }
@@ -217,8 +222,14 @@ function updateShipHeat(ship, dt, room, now) {
 
   }
 
-  // Cached edges only; normalized-ratio transfers are calculated before apply.
+  // Cached edges only; normalized-ratio transfers are calculated against the
+  // same pre-transfer snapshot, then each component's total outflow is scaled
+  // down so it never sends more heat than it holds (per-edge clamps alone let a
+  // component with several colder neighbours overdraw, minting heat from the
+  // final max(0, ...) clamp). Scaling keeps transfers order independent.
   const workingHeat = heat.map((value, i) => Math.max(0, value + delta[i]));
+  const pendingTransfers = [];
+  const outflow = heat.map(() => 0);
   for (let i = 0; i < heat.length; i += 1) {
     for (const edge of ship.componentAdjacency[i]) {
       const j = edge.index;
@@ -234,17 +245,26 @@ function updateShipHeat(ship, dt, room, now) {
       if (aliveI && aliveJ && frameI && frameJ && (routedI || routedJ)) conductivity *= HeatRules.NETWORK_FRAME_BOOST;
       else if (aliveI && aliveJ && ((frameI && routedI) || (frameJ && routedJ))) conductivity *= HeatRules.NETWORK_ATTACHMENT_BOOST;
       const transfer = edgeTransfer(workingHeat[i], ship.componentThermals[i].capacity, workingHeat[j], ship.componentThermals[j].capacity, conductivity, edge.sharedEdges, elapsed);
-      delta[i] -= transfer;
-      delta[j] += transfer;
-      if (transfer > 0) {
-        ship.componentHeatRemoved[i] += transfer;
-        ship.componentHeatReceived[j] += transfer;
-        if (frameI || frameJ) ship.componentHeatSentThroughFrame[i] += transfer;
-      } else if (transfer < 0) {
-        ship.componentHeatReceived[i] -= transfer;
-        ship.componentHeatRemoved[j] -= transfer;
-        if (frameI || frameJ) ship.componentHeatSentThroughFrame[j] -= transfer;
-      }
+      if (transfer === 0) continue;
+      pendingTransfers.push({ i, j, transfer, throughFrame: frameI || frameJ });
+      outflow[transfer > 0 ? i : j] += Math.abs(transfer);
+    }
+  }
+  for (const pending of pendingTransfers) {
+    const { i, j, throughFrame } = pending;
+    const source = pending.transfer > 0 ? i : j;
+    const scale = outflow[source] > workingHeat[source] ? workingHeat[source] / outflow[source] : 1;
+    const transfer = pending.transfer * scale;
+    delta[i] -= transfer;
+    delta[j] += transfer;
+    if (transfer > 0) {
+      ship.componentHeatRemoved[i] += transfer;
+      ship.componentHeatReceived[j] += transfer;
+      if (throughFrame) ship.componentHeatSentThroughFrame[i] += transfer;
+    } else if (transfer < 0) {
+      ship.componentHeatReceived[i] -= transfer;
+      ship.componentHeatRemoved[j] -= transfer;
+      if (throughFrame) ship.componentHeatSentThroughFrame[j] -= transfer;
     }
   }
 

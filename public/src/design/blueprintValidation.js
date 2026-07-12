@@ -6,8 +6,11 @@ export function isConnected(parts) {
   const core = parts.find((part) => part.type === "core");
   if (!core) return false;
 
+  // Cell -> owning part index, so the BFS below resolves each neighbour cell
+  // with one map lookup instead of rescanning every part (this runs on every
+  // hover preview). Assumes parts don't overlap — overlap is validated first.
   const partCellsMap = new Map();
-  const keys = new Set();
+  const cellOwner = new Map();
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
@@ -16,7 +19,7 @@ export function isConnected(parts) {
     const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
     partCellsMap.set(i, cells);
     for (const cell of cells) {
-      keys.add(`${cell.x},${cell.y}`);
+      cellOwner.set(`${cell.x},${cell.y}`, i);
     }
   }
 
@@ -33,15 +36,10 @@ export function isConnected(parts) {
 
     for (const cell of cells) {
       for (const [nx, ny] of [[cell.x + 1, cell.y], [cell.x - 1, cell.y], [cell.x, cell.y + 1], [cell.x, cell.y - 1]]) {
-        // find which part owns this neighbor
-        for (let j = 0; j < parts.length; j++) {
-          if (!seenParts.has(j)) {
-            const neighborCells = partCellsMap.get(j);
-            if (neighborCells.some(c => c.x === nx && c.y === ny)) {
-              seenParts.add(j);
-              queue.push(j);
-            }
-          }
+        const neighbor = cellOwner.get(`${nx},${ny}`);
+        if (neighbor !== undefined && !seenParts.has(neighbor)) {
+          seenParts.add(neighbor);
+          queue.push(neighbor);
         }
       }
     }

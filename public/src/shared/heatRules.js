@@ -29,9 +29,17 @@
   }
 
   function activityHeat(type, part) {
-    if (part.weapon) return part.weapon.type === "beam"
-      ? Math.max(3, Math.sqrt(part.weapon.damage || 1))
-      : Math.max(5, Math.sqrt(part.weapon.damage || 1) * 1.5) * (part.weapon.fireRate || 1);
+    // Per-family heat rates mirror the per-shot heat combat.js actually adds
+    // when a weapon fires, so designer predictions and the network-overload
+    // flag agree with in-combat heating.
+    if (part.weapon) {
+      const damage = part.weapon.damage || 1;
+      const fireRate = part.weapon.fireRate || 1;
+      if (part.weapon.type === "beam") return Math.max(3, Math.sqrt(damage));
+      if (part.weapon.type === "railgun") return Math.max(8, Math.sqrt(damage) * 1.8) * fireRate;
+      if (part.weapon.type === "pointDefense") return 4 * fireRate;
+      return Math.max(5, Math.sqrt(damage) * 1.5) * fireRate;
+    }
     if ((part.powerGeneration || 0) > 0) return 2 + part.powerGeneration * 0.42;
     if ((part.thrust || 0) > 0) return 2 + part.thrust * 0.018;
     if ((part.shieldRegen || 0) > 0) return part.shieldRegen * 0.7;
