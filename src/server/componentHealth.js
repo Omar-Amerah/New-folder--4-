@@ -345,8 +345,11 @@ function repairShipComponents(room, ship, amount, now) {
 
     const wasDestroyed = ship.componentHp[idx] <= 0;
     const heal = Math.min(remaining, worstMissing);
+    const isCore = ship.design[idx].type === "core";
     ship.componentHp[idx] += heal;
-    ship.hp = Math.min(ship.maxHp, ship.hp + heal);
+    // The core has a separate durability pool and is intentionally excluded
+    // from ship.hp, so repairing core damage must not inflate hull integrity.
+    if (!isCore) ship.hp = Math.min(ship.maxHp, ship.hp + heal);
     ship.dirtyComponents.add(idx);
     remaining -= heal;
     healed += heal;

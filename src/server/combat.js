@@ -544,10 +544,11 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
       if (!isComponentAlive(target, i)) continue; // destroyed modules no longer block
       const m = coords[i];
       const hit = segmentCircleHit(x1, y1, x2, y2, m.x, m.y, 8.5 + beamRadius);
-      if (hit) {
-        hitPoint = hit;
-        break;
-      }
+      // Components are stored in blueprint order, which is not guaranteed to
+      // match the beam entry order. Use the closest intersection along the beam
+      // so continuous beams damage the front component instead of sometimes
+      // skipping through to a later-listed rear module.
+      if (hit && (!hitPoint || hit.t < hitPoint.t)) hitPoint = hit;
     }
 
     if (hitPoint) {
