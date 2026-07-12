@@ -145,37 +145,48 @@ function buildSharedSnapshot(room, now, sendStatic) {
 function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null) {
   if (!shared) shared = buildSharedSnapshot(room, now, sendStatic);
 
-  const players = [...room.players.values()].map((player) => ({
-    id: player.id,
-    name: player.name,
-    color: player.color,
-    team: player.team,
-    teamName: teamLabel(room, player.team, player.name),
-    isBot: player.isBot,
-    isAdmin: room.adminId === player.id,
-    connected: player.connected !== false,
-    ready: player.ready,
-    money: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.money) : null,
-    income: canViewPlayerEconomy(viewer, player) ? round(player.income) : null,
-    earned: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.earned) : null,
-    spent: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.spent) : null,
-    shipCap: player.shipCap,
-    activeFleetCost: canViewPlayerEconomy(viewer, player) ? getActiveFleetCost(player) : null,
-    deployedFleetCost: (room.phase === "ended" || canViewPlayerEconomy(viewer, player)) ? Math.floor(player.deployedFleetCost) : null,
-    destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
-    lastReward: player.lastReward,
-    activeShips: player.ships.filter((ship) => ship.alive).length,
-    score: Math.floor(player.score),
-    kills: player.kills,
-    losses: player.losses,
-    captures: player.captures,
-    design: sendStatic ? player.design : undefined,
-    stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined,
-    rallyPoint: getPlayerRallyPoint(room, player),
-    rallyPointCustom: Boolean(player.rallyPoint),
-    shipsBuilt: player.shipsBuilt || 0,
-    lostFleetCost: Math.floor(player.lostFleetCost || 0)
-  }));
+  const phaseEnded = room.phase === "ended";
+  const players = [];
+  for (const player of room.players.values()) {
+    const canViewEconomy = canViewPlayerEconomy(viewer, player);
+    const canViewFinalEconomy = phaseEnded || canViewEconomy;
+    let activeShips = 0;
+    for (const ship of player.ships) {
+      if (ship.alive) activeShips += 1;
+    }
+
+    players.push({
+      id: player.id,
+      name: player.name,
+      color: player.color,
+      team: player.team,
+      teamName: teamLabel(room, player.team, player.name),
+      isBot: player.isBot,
+      isAdmin: room.adminId === player.id,
+      connected: player.connected !== false,
+      ready: player.ready,
+      money: canViewFinalEconomy ? Math.floor(player.money) : null,
+      income: canViewEconomy ? round(player.income) : null,
+      earned: canViewFinalEconomy ? Math.floor(player.earned) : null,
+      spent: canViewFinalEconomy ? Math.floor(player.spent) : null,
+      shipCap: player.shipCap,
+      activeFleetCost: canViewEconomy ? getActiveFleetCost(player) : null,
+      deployedFleetCost: canViewFinalEconomy ? Math.floor(player.deployedFleetCost) : null,
+      destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
+      lastReward: player.lastReward,
+      activeShips,
+      score: Math.floor(player.score),
+      kills: player.kills,
+      losses: player.losses,
+      captures: player.captures,
+      design: sendStatic ? player.design : undefined,
+      stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined,
+      rallyPoint: getPlayerRallyPoint(room, player),
+      rallyPointCustom: Boolean(player.rallyPoint),
+      shipsBuilt: player.shipsBuilt || 0,
+      lostFleetCost: Math.floor(player.lostFleetCost || 0)
+    });
+  }
 
   return {
     type: "state",

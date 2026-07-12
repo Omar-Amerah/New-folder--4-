@@ -5,6 +5,18 @@ const { encodeMessage } = require("./wsCodec");
 
 // Binary WebSocket opcode (0x2) — outbound game data is MessagePack, not text.
 const BINARY_OPCODE = 0x2;
+let cachedWriteFrame = null;
+let cachedCloseClient = null;
+
+function getWriteFrame() {
+  if (!cachedWriteFrame) ({ writeFrame: cachedWriteFrame } = require("./websocketServer"));
+  return cachedWriteFrame;
+}
+
+function getCloseClient() {
+  if (!cachedCloseClient) ({ closeClient: cachedCloseClient } = require("./websocketServer"));
+  return cachedCloseClient;
+}
 
 function send(client, data) {
   sendRaw(client, encodeMessage(data));
@@ -14,11 +26,9 @@ function send(client, data) {
 function sendRaw(client, payload) {
   if (client.isClosed || client.socket.destroyed) return;
   try {
-    const { writeFrame } = require("./websocketServer");
-    writeFrame(client.socket, payload, BINARY_OPCODE);
+    getWriteFrame()(client.socket, payload, BINARY_OPCODE);
   } catch {
-    const { closeClient } = require("./websocketServer");
-    closeClient(client, 1011, "Send failed");
+    getCloseClient()(client, 1011, "Send failed");
   }
 }
 
