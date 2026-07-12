@@ -306,14 +306,36 @@ function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
 function getDesiredMoveAngle(room, ship) {
   let desired = Math.atan2(ship.targetY - ship.y, ship.targetX - ship.x);
 
-  const speed = Math.hypot(ship.vx || 0, ship.vy || 0);
-  const lookahead = Math.max(120, speed * 0.8 + 60);
-
-  const forwardX = Math.cos(ship.angle);
-  const forwardY = Math.sin(ship.angle);
+  const dx = ship.targetX - ship.x;
+  const dy = ship.targetY - ship.y;
+  const targetDistance = Math.hypot(dx, dy);
+  const pathX = targetDistance > 0.001 ? dx / targetDistance : Math.cos(ship.angle);
+  const pathY = targetDistance > 0.001 ? dy / targetDistance : Math.sin(ship.angle);
 
   let closestAsteroid = null;
   let closestDist = Infinity;
+
+  for (const asteroid of room.map?.asteroids || []) {
+    const avoidRadius = asteroid.radius + ship.radius + 38;
+    const hit = segmentCircleClearance(ship.x, ship.y, ship.targetX, ship.targetY, asteroid.x, asteroid.y, avoidRadius);
+    if (!hit.blocked || hit.along < 0 || hit.along > targetDistance || hit.along >= closestDist) continue;
+
+    closestDist = hit.along;
+    closestAsteroid = { asteroid, lateralDistance: hit.lateral, avoidRadius };
+  }
+
+  if (closestAsteroid) {
+    const { asteroid, lateralDistance, avoidRadius } = closestAsteroid;
+    const steerDir = lateralDistance >= 0 ? -1 : 1;
+    const sideX = asteroid.x + (-pathY) * avoidRadius * steerDir;
+    const sideY = asteroid.y + pathX * avoidRadius * steerDir;
+    return Math.atan2(sideY - ship.y, sideX - ship.x);
+  }
+
+  const speed = Math.hypot(ship.vx || 0, ship.vy || 0);
+  const lookahead = Math.max(120, speed * 0.8 + 60);
+  const forwardX = Math.cos(ship.angle);
+  const forwardY = Math.sin(ship.angle);
 
   for (const asteroid of room.map?.asteroids || []) {
     const ax = asteroid.x - ship.x;
@@ -327,25 +349,38 @@ function getDesiredMoveAngle(room, ship) {
 
     if (Math.abs(lateralDistance) < avoidRadius && forwardDistance < closestDist) {
       closestDist = forwardDistance;
-      closestAsteroid = {
-        asteroid,
-        lateralDistance,
-        avoidRadius
-      };
+      closestAsteroid = { asteroid, lateralDistance, avoidRadius };
     }
   }
 
   if (closestAsteroid) {
     const { asteroid, lateralDistance, avoidRadius } = closestAsteroid;
     const steerDir = lateralDistance >= 0 ? -1 : 1;
-
     const sideX = asteroid.x + (-forwardY) * avoidRadius * steerDir;
     const sideY = asteroid.y + forwardX * avoidRadius * steerDir;
-
     desired = Math.atan2(sideY - ship.y, sideX - ship.x);
   }
 
   return desired;
+}
+
+function segmentCircleClearance(x1, y1, x2, y2, cx, cy, radius) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.001) {
+    return { blocked: Math.hypot(cx - x1, cy - y1) < radius, along: 0, lateral: 0 };
+  }
+  const ux = dx / len;
+  const uy = dy / len;
+  const relX = cx - x1;
+  const relY = cy - y1;
+  const along = relX * ux + relY * uy;
+  const clampedAlong = clampNumber(along, 0, len);
+  const closestX = x1 + ux * clampedAlong;
+  const closestY = y1 + uy * clampedAlong;
+  const lateral = relX * (-uy) + relY * ux;
+  return { blocked: Math.hypot(cx - closestX, cy - closestY) < radius, along, lateral };
 }
 
 function rotateHullForCombat(room, ship, stats, target, dt) {
@@ -604,5 +639,6 @@ module.exports = {
   updateShipSeparation,
   resolveFleetMapCollisions,
   resolveMapCollision,
-  nearestClearPoint
+  nearestClearPoint,
+  segmentCircleClearance
 };
