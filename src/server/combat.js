@@ -8,6 +8,7 @@ const { getOccupiedCells } = require("./footprint");
 const { addBullet, segmentCircleHit } = require("./projectiles");
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents } = require("./componentHealth");
 const { addComponentHeat, addHeatToType, componentPerformance, systemPerformance } = require("./heat");
+const TurretRules = require("../../public/src/shared/turretRules");
 
 const MODULE_SCALE = 13;
 
@@ -72,11 +73,15 @@ function updateShipSupport(room, ships, dt, now) {
     const emitter = ship.design[emitterIndex];
     const origin = weaponModuleWorldPosition(ship, emitter);
 
-    // Aim the emitter turret at the single repair target so it visibly tracks it.
+    // Rotate the emitter turret toward the repair target at the shared beam
+    // traverse rate (instead of snapping) so it visibly tracks, and emit the
+    // beam from wherever the barrel is actually pointing this tick.
     if (!ship.weaponAngles) ship.weaponAngles = (ship.design || []).map((m) => moduleRotationToRadians(normalizeRotation(m.rotation)));
     const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
-    ship.weaponAngles[emitterIndex] = angleDifference(ship.angle, worldAngleToTarget);
-    const muzzle = weaponMuzzleWorldPosition(ship, emitter, worldAngleToTarget, "beam");
+    const desiredRelative = angleDifference(ship.angle, worldAngleToTarget);
+    const currentRelative = ship.weaponAngles[emitterIndex] ?? moduleRotationToRadians(normalizeRotation(emitter.rotation));
+    ship.weaponAngles[emitterIndex] = rotateToward(currentRelative, desiredRelative, TurretRules.turnRateFor("beam") * dt);
+    const muzzle = weaponMuzzleWorldPosition(ship, emitter, ship.angle + ship.weaponAngles[emitterIndex], "beam");
 
     // Emit a continuous repair beam from the emitter muzzle to the one target.
     if (now - (ship.repairPulseAt || 0) > 90) {
@@ -493,15 +498,11 @@ function weaponModuleWorldPosition(ship, module) {
 }
 
 function weaponMuzzleDistance(module, family, scale = MODULE_SCALE) {
+  // Barrel-tip distances live in the shared TurretRules so projectiles spawn
+  // exactly where the client draws the muzzle.
   const footprint = PARTS[module.type]?.footprint || { width: 1, height: 1 };
   const longTiles = Math.max(footprint.width || 1, footprint.height || 1);
-  if (longTiles > 1) return longTiles * scale * 0.5 - scale * 0.08;
-  const fraction = family === "blaster" ? 0.48
-    : family === "missile" ? 0.43
-      : family === "pointDefense" ? 0.44
-        : family === "railgun" ? 0.46
-          : 0.46;
-  return scale * fraction;
+  return TurretRules.muzzleTiles(module.type, family, longTiles) * scale;
 }
 
 function weaponMuzzleWorldPosition(ship, module, angle, family) {
@@ -815,16 +816,9 @@ function areEnemies(room, ownerA, ownerB) {
 }
 
 function getWeaponTurnRate(weapon) {
-  if (!weapon) return 8.0;
-  if (Number.isFinite(weapon.aimSpeed)) return weapon.aimSpeed;
-  if (Number.isFinite(weapon.turretTurnRate)) return weapon.turretTurnRate;
-  
-  const family = typeof weapon === "string" ? weapon : (weapon.type || weapon.family);
-  if (family === "blaster") return 12.0;
-  if (family === "missile") return 8.0;
-  if (family === "railgun") return 4.5;
-  if (family === "beam") return 1.65;
-  return 8.0;
+  // Shared with the client renderer via TurretRules so the visible turret sweep
+  // matches the server's aim exactly.
+  return TurretRules.turnRateFor(weapon);
 }
 
 module.exports = {

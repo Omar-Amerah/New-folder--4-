@@ -226,13 +226,19 @@ function onComponentDestroyed(room, ship, index, now) {
 }
 
 // Approximate footprint-center of a component in blueprint-grid tiles.
+// Averages the rotated occupied cells: 90/180/270-degree footprints extend to
+// the negative side of the anchor, so anchor + width/2 would be off by tiles.
 function componentGridCenter(ship, index) {
   const module = ship.design[index];
   const footprint = (PARTS[module.type] || PARTS.frame).footprint || { width: 1, height: 1 };
-  return {
-    x: module.x + ((footprint.width || 1) - 1) / 2,
-    y: module.y + ((footprint.height || 1) - 1) / 2
-  };
+  const cells = getOccupiedCells(module.x, module.y, footprint, module.rotation || 0);
+  let x = 0;
+  let y = 0;
+  for (const cell of cells) {
+    x += cell.x;
+    y += cell.y;
+  }
+  return { x: x / cells.length, y: y / cells.length };
 }
 
 // Detonates a component (e.g. a reactor that reached overheat failure): destroys

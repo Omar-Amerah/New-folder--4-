@@ -255,7 +255,7 @@
       "turn": 0,
       "energy": 10,
       "repair": 0,
-      "description": "Compact backup generator for light power deficits."
+      "description": "Compact backup generator for light power deficits. Generates a little heat under load and, like all generators, melts down if kept overheated."
     },
     {
       "id": "battery",
@@ -311,7 +311,7 @@
       "energy": 30,
       "repair": 0,
       "rotatable": true,
-      "description": "Primary power source for weapons, shields, engines, and support systems.",
+      "description": "Primary power source for weapons, shields, engines, and support systems. Generates heat in proportion to load; if it stays pinned at overheat it melts down and explodes, damaging nearby components.",
       "footprint": {
         "width": 2,
         "height": 1

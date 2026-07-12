@@ -3811,19 +3811,10 @@ export function angleDifference(a, b) {
 }
 
 export function getWeaponTurnRate(weapon) {
-  if (!weapon) return 8.0;
-  if (Number.isFinite(weapon.aimSpeed)) return weapon.aimSpeed;
-  if (Number.isFinite(weapon.turretTurnRate)) return weapon.turretTurnRate;
-  
-  const type = typeof weapon === "string" ? weapon : (weapon.type || weapon.family);
-  if (type === "pointdefense") return 16.0;
-  if (type === "blaster" || type === "autocannon") return 12.0;
-  if (type === "beam") return 1.65;
-  if (type === "beamemitter" || type === "repairbeam") return 8.0;
-  if (type === "missile" || type === "swarmmissile") return 8.0;
-  if (type === "torpedo" || type === "aegisprojector") return 5.0;
-  if (type === "railgun") return 4.5;
-  return 8.0;
+  // Single source of truth shared with the server (src/server/combat.js): the
+  // turret sprites must sweep at exactly the rate the server aims, otherwise
+  // the visible barrel and the actual shot direction drift apart.
+  return globalThis.TurretRules.turnRateFor(weapon);
 }
 
 export function approachAngle(current, target, maxDelta) {

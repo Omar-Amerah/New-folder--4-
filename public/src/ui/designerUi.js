@@ -97,9 +97,12 @@ export function renderBuildGrid() {
         const rotationMarker = shouldShowRotationMarker(part.type) ? `<span class="rotation-marker rot-${rotation}">&#9650;</span>` : "";
         const prediction = heatAnalysis.predictions.get(part);
         const displayedHeat = Math.max(0, Math.min(100, heatAnalysis.componentHeat.get(part) || 0));
-        const overheated = displayedHeat >= 100;
-        const critical = !overheated && displayedHeat >= 76;
-        const heatWarning = overheated
+        const meltdown = prediction?.meltdownTime != null;
+        const overheated = !meltdown && displayedHeat >= 100;
+        const critical = !meltdown && !overheated && displayedHeat >= 76;
+        const heatWarning = meltdown
+          ? `<span class="component-overheat-warning" title="Reactor meltdown predicted — will explode at sustained load" aria-label="Reactor meltdown predicted">☢</span>`
+          : overheated
           ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>`
           : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
         const heatValue = heatView
@@ -491,7 +494,7 @@ export function renderLocalStats() {
   const canAfford = money >= stats.unitCost;
   
   if (dom.combatStyleSelect) {
-    dom.combatStyleSelect.value = state.combatStyle || "charge";
+    dom.combatStyleSelect.value = state.combatStyle || "sentry";
   }
   if (dom.saveDesignButton) {
     const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
@@ -511,7 +514,7 @@ export function renderLocalStats() {
   const statDiagnostics = buildStatDiagnostics(stats);
   const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
   dom.stats.innerHTML = [
-    state.blueprintView === "heat" ? `<div class="heat-design-summary"><strong>Thermal layout</strong><span>Likely hotspot: ${escapeHtml(heat.hotspot)}</span><span>Total cooling: -${heat.coolingRate} H/s</span>${[heat.routeWarning, heat.networkWarning, heat.severWarning].filter(warning => !/^(All|Thermal networks within|No single-frame)/.test(warning)).map(warning => `<span class="heat-summary-warning">${escapeHtml(warning)}</span>`).join("")}</div>` : "",
+    state.blueprintView === "heat" ? `<div class="heat-design-summary"><strong>Thermal layout</strong><span>Likely hotspot: ${escapeHtml(heat.hotspot)}</span><span>Total cooling: -${heat.coolingRate} H/s</span>${[heat.meltdownWarning, heat.routeWarning, heat.networkWarning, heat.severWarning].filter(warning => !/^(All|Thermal networks within|No single-frame|No reactor)/.test(warning)).map(warning => `<span class="heat-summary-warning">${escapeHtml(warning)}</span>`).join("")}</div>` : "",
     statCard("fleet", "Fleet", stats.fleetCount),
     statCard("class", "Class", stats.massClass),
     statCard("hull", "Hull", formatHull(stats.maxHp)),
@@ -526,7 +529,6 @@ export function renderLocalStats() {
     statCard("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
     statCard("thrustRatio", "Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
     statCard("weapons", "Weapons", `${stats.weaponDps} DPS`),
-    stats.coolingBonus > 0 ? statCard("cooling", "Cooling", `${formatPercent(stats.coolingBonus)} reload`) : "",
     stats.captureBonus > 0 ? statCard("capture", "Capture", `+${formatPercent(stats.captureBonus)}`) : "",
     statCard("repair", "Repair", formatRepair(stats.repairRate)),
     statCard("mass", "Mass", formatMass(stats.mass))
@@ -544,7 +546,8 @@ function thermalHoverText(prediction) {
   if (!prediction) return "";
   const labels = globalThis.HeatRules.STATE_LABELS;
   const overheat = prediction.timeToOverheat === null ? "Time until overheat: never" : `Time until overheat: ${prediction.timeToOverheat.toFixed(1)}s`;
-  return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generation: +${prediction.generation.toFixed(1)} H/s\nHeat received: +${prediction.received.toFixed(1)} H/s\nSent through frame: -${prediction.transferredOut.toFixed(1)} H/s\nCooling received: -${prediction.cooling.toFixed(1)} H/s\n${overheat}`;
+  const meltdown = prediction.meltdownTime != null ? `\nREACTOR MELTDOWN predicted at ${prediction.meltdownTime.toFixed(1)}s — explodes, damaging nearby components` : "";
+  return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generation: +${prediction.generation.toFixed(1)} H/s\nHeat received: +${prediction.received.toFixed(1)} H/s\nSent through frame: -${prediction.transferredOut.toFixed(1)} H/s\nCooling received: -${prediction.cooling.toFixed(1)} H/s\n${overheat}${meltdown}`;
 }
 
 function renderFullLoadThermalPanel(fullLoadResult) {
@@ -554,7 +557,8 @@ function renderFullLoadThermalPanel(fullLoadResult) {
   if (!fullLoadResult) return;
   const analysis = fullLoadResult.analysis;
   const tone = analysis.balance.toLowerCase();
-  const statusText = analysis.balance === "Stable" ? "Thermally stable" : analysis.balance === "Marginal" ? "Thermally marginal" : "Thermally unsustainable";
+  const statusText = analysis.meltdownCount > 0 ? "Reactor meltdown predicted"
+    : analysis.balance === "Stable" ? "Thermally stable" : analysis.balance === "Marginal" ? "Thermally marginal" : "Thermally unsustainable";
   const row = (label, value) => `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
   const seconds = value => value === null ? "Never" : `${value.toFixed(1)} s`;
   const equilibrium = analysis.equilibriumTime === null ? "No equilibrium" : `${analysis.equilibriumTime.toFixed(1)} s`;
@@ -566,6 +570,7 @@ function renderFullLoadThermalPanel(fullLoadResult) {
     <div class="thermal-key-stats">
       <div><span>${spareCooling ? "Spare cooling" : "Net heat"}</span><strong class="${spareCooling ? "thermal-good" : "thermal-bad"}">${spareCooling ? `${analysis.reserve.toFixed(1)} H/s` : `+${analysis.net.toFixed(1)} H/s`}</strong></div>
       <div><span>First overheat</span><strong class="${analysis.firstOverheatTime === null ? "thermal-good" : "thermal-bad"}">${seconds(analysis.firstOverheatTime)}</strong></div>
+      <div><span>Reactor meltdown</span><strong class="${analysis.firstMeltdownTime === null ? "thermal-good" : "thermal-bad"}">${seconds(analysis.firstMeltdownTime)}</strong></div>
       <div><span>Peak component heat</span><strong>${Math.round(analysis.peakPredictedHeat * 100)}%</strong></div>
     </div>
     <details class="thermal-detailed-analysis"${state.thermalDetailsOpen ? " open" : ""}>
@@ -576,6 +581,8 @@ function renderFullLoadThermalPanel(fullLoadResult) {
         ${row("Thermal equilibrium", equilibrium)}
         ${row("Expected to overheat", String(analysis.overheatedCount))}
         ${row("First component", analysis.firstOverheatIndex < 0 ? "None" : describeComponentAt(analysis.firstOverheatIndex, state.design))}
+        ${row("Predicted meltdowns", String(analysis.meltdownCount))}
+        ${row("First meltdown", analysis.firstMeltdownIndex < 0 ? "None" : describeComponentAt(analysis.firstMeltdownIndex, state.design))}
         ${row("Hottest network", analysis.hottestNetwork)}
         ${row("Weapon uptime", `${Math.round(analysis.weaponUptime * 100)}%`)}
         ${row("Engine efficiency", `${Math.round(analysis.engineEfficiency * 100)}%`)}
@@ -719,6 +726,8 @@ export function analyzeDesignHeat(design, mode = "full") {
   const timeToOverheat = design.map(() => null);
   const peakRatios = design.map(() => 0);
   const overheatedIndices = new Set();
+  const meltdownTimers = design.map(() => 0);
+  const meltdownTime = design.map(() => null);
   const uptimeTicks = { weapon: 0, engine: 0, shield: 0 };
   const uptimeTotals = { weapon: 0, engine: 0, shield: 0 };
   let firstOverheatTime = null;
@@ -737,13 +746,24 @@ export function analyzeDesignHeat(design, mode = "full") {
     received.fill(0); transferredOut.fill(0); cooling.fill(0);
     for (let i = 0; i < design.length; i += 1) {
       const performance = rules.performanceForState(states[i]);
-      delta[i] += generationRates[i] * performance * dt;
       const stat = PART_STATS[design[i].type] || {};
+      // Mirror the server's heat generation per family: reactors keep producing
+      // steady heat even while overheated (that is what drives meltdowns),
+      // weapons slow their fire rate with heat, and engines/shields/repair run
+      // at their full heat rate until overheat shuts them down entirely.
+      const heatScale = (stat.powerGeneration || 0) > 0 ? 1
+        : stat.weapon ? performance
+        : performance > 0 ? 1 : 0;
+      delta[i] += generationRates[i] * heatScale * dt;
       const category = stat.weapon ? "weapon" : (stat.thrust || 0) > 0 ? "engine" : (stat.shieldRegen || 0) > 0 ? "shield" : null;
       if (category) { uptimeTicks[category] += performance; uptimeTotals[category] += 1; }
     }
     const workingHeat = heat.map((value, i) => Math.max(0, value + delta[i]));
     finalFlows = [];
+    // Two-pass transfer with proportional outflow scaling — must mirror the
+    // server heat sim (src/server/heat.js) so predictions match combat.
+    const pendingTransfers = [];
+    const outflow = design.map(() => 0);
     for (const edge of edges) {
       const frameI = isFrame(design[edge.i].type), frameJ = isFrame(design[edge.j].type);
       const routedI = Number.isFinite(frameCoolingDistance[edge.i]), routedJ = Number.isFinite(frameCoolingDistance[edge.j]);
@@ -751,10 +771,18 @@ export function analyzeDesignHeat(design, mode = "full") {
       if (frameI && frameJ && (routedI || routedJ)) conductivity *= rules.NETWORK_FRAME_BOOST;
       else if ((frameI && routedI) || (frameJ && routedJ)) conductivity *= rules.NETWORK_ATTACHMENT_BOOST;
       const amount = rules.edgeTransfer(workingHeat[edge.i], profiles[edge.i].capacity, workingHeat[edge.j], profiles[edge.j].capacity, conductivity, edge.sharedEdges, dt);
-      delta[edge.i] -= amount; delta[edge.j] += amount;
-      if (amount > 0) { transferredOut[edge.i] += amount; received[edge.j] += amount; }
-      else { received[edge.i] -= amount; transferredOut[edge.j] -= amount; }
-      if (Math.abs(amount) / dt >= 0.35) finalFlows.push({ from: amount > 0 ? edge.i : edge.j, to: amount > 0 ? edge.j : edge.i, amount: Math.abs(amount) / dt });
+      if (amount === 0) continue;
+      pendingTransfers.push({ i: edge.i, j: edge.j, amount });
+      outflow[amount > 0 ? edge.i : edge.j] += Math.abs(amount);
+    }
+    for (const pending of pendingTransfers) {
+      const source = pending.amount > 0 ? pending.i : pending.j;
+      const scale = outflow[source] > workingHeat[source] ? workingHeat[source] / outflow[source] : 1;
+      const amount = pending.amount * scale;
+      delta[pending.i] -= amount; delta[pending.j] += amount;
+      if (amount > 0) { transferredOut[pending.i] += amount; received[pending.j] += amount; }
+      else { received[pending.i] -= amount; transferredOut[pending.j] -= amount; }
+      if (Math.abs(amount) / dt >= 0.35) finalFlows.push({ from: amount > 0 ? pending.i : pending.j, to: amount > 0 ? pending.j : pending.i, amount: Math.abs(amount) / dt });
     }
     for (let i = 0; i < design.length; i += 1) {
       let coolingRate = profiles[i].cooling * profiles[i].retention;
@@ -778,6 +806,16 @@ export function analyzeDesignHeat(design, mode = "full") {
         if (timeToOverheat[i] === null) timeToOverheat[i] = (step + 1) * dt;
         if (firstOverheatTime === null) { firstOverheatTime = (step + 1) * dt; firstOverheatIndex = i; }
       }
+      // Reactor meltdown countdown mirrors the server: the timer runs while a
+      // generator is pinned at overheat and unwinds at double speed otherwise.
+      if ((PART_STATS[design[i].type]?.powerGeneration || 0) > 0) {
+        if (states[i] === rules.STATE.OVERHEATED) {
+          meltdownTimers[i] += dt;
+          if (meltdownTime[i] === null && meltdownTimers[i] >= rules.REACTOR_MELTDOWN_SECONDS) meltdownTime[i] = (step + 1) * dt;
+        } else {
+          meltdownTimers[i] = Math.max(0, meltdownTimers[i] - dt * 2);
+        }
+      }
       if (design[i].type === "heatSink" && ratio >= .9 && heatSinkSaturationTime === null) heatSinkSaturationTime = (step + 1) * dt;
     }
     const totalHeatNow = heat.reduce((sum, value) => sum + value, 0);
@@ -792,8 +830,12 @@ export function analyzeDesignHeat(design, mode = "full") {
   for (let i = 0; i < design.length; i += 1) predictions.set(design[i], {
     heat: peakRatios[i] * profiles[i].capacity, capacity: profiles[i].capacity, ratio: peakRatios[i],
     generation: generationRates[i], received: received[i] / dt, transferredOut: transferredOut[i] / dt,
-    cooling: cooling[i] / dt, state: rules.stateFor(peakRatios[i], rules.STATE.NORMAL), timeToOverheat: timeToOverheat[i]
+    cooling: cooling[i] / dt, state: rules.stateFor(peakRatios[i], rules.STATE.NORMAL), timeToOverheat: timeToOverheat[i],
+    meltdownTime: meltdownTime[i]
   });
+  const meltdownIndices = meltdownTime.map((time, i) => time === null ? -1 : i).filter(i => i >= 0);
+  const firstMeltdownIndex = meltdownIndices.reduce((best, i) => best < 0 || meltdownTime[i] < meltdownTime[best] ? i : best, -1);
+  const firstMeltdownTime = firstMeltdownIndex >= 0 ? meltdownTime[firstMeltdownIndex] : null;
   const hottestIndex = peakRatios.reduce((best, value, i) => value > peakRatios[best] ? i : best, 0);
   const frameSet = new Set(design.map((module, i) => isFrame(module.type) ? i : -1).filter(i => i >= 0));
   const frameVisited = new Set();
@@ -866,9 +908,11 @@ export function analyzeDesignHeat(design, mode = "full") {
     routeWarning: unroutedHot.length ? `${unroutedHot.length} hot component${unroutedHot.length === 1 ? " has" : "s have"} no frame route to cooling` : "All hot systems have a cooling route",
     networkWarning: networks.some(network => network.overloaded) ? `${networks.filter(network => network.overloaded).length} thermal network overloaded` : "Thermal networks within capacity",
     severWarning: criticalFrames.size ? `${criticalFrames.size} frame block${criticalFrames.size === 1 ? "" : "s"} could sever cooling` : "No single-frame cooling bottleneck",
+    meltdownWarning: meltdownIndices.length ? `${meltdownIndices.length} reactor${meltdownIndices.length === 1 ? "" : "s"} predicted to melt down and explode` : "No reactor meltdowns predicted",
     analysis: {
       mode, generation, cooling: coolingRate, net: generation - coolingRate, balance,
       firstOverheatTime, firstOverheatIndex, overheatedCount: overheatedIndices.size,
+      meltdownCount: meltdownIndices.length, firstMeltdownTime, firstMeltdownIndex,
       equilibriumTime, peakPredictedHeat, reserve,
       hottestNetwork: hottestNetwork ? describeThermalNetwork(hottestNetwork.network, design) : "No frame network",
       weaponUptime: uptimeTotals.weapon ? uptimeTicks.weapon / uptimeTotals.weapon : 1,
@@ -1211,8 +1255,8 @@ function buildStatTooltipData(key, stats) {
       }
       return {
         label: "Hull Hit Points",
-        desc: "Total structural health of the ship. Hull damage reduces this value. At 0 HP the ship is destroyed.",
-        formula: "MaxHp = Max(140, Round(RawHP * 0.82))",
+        desc: "Total structural health of the ship, tracked per component along the impact path. The core keeps its own separate pool (45% of hull, minimum 320) outside this total and is only damaged by shots that penetrate to it. The ship dies at 0 hull or when the core is destroyed.",
+        formula: "MaxHp = Max(140, Round(RawHP * 1.15))",
         breakdown: `Core: ${coreHp} HP
 Armor: +${armorHp} HP
 Frames: +${frameHp} HP
@@ -1226,7 +1270,7 @@ Final Hull HP: ${stats.maxHp} HP`
     case "shield":
       return {
         label: "Shield Buffers",
-        desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase this.",
+        desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase this. Blocked damage also heats the shield generators, and recharging generates heat — hot shield modules recharge slower.",
         formula: "MaxShield = Round(RawShield * PowerEfficiency)",
         breakdown: `Raw Shield: ${Math.round(stats.maxShield / Math.max(0.01, stats.efficiency))} SP
 Power Efficiency: ${Math.round(stats.efficiency * 100)}%
@@ -1260,7 +1304,7 @@ Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
       const surplus = stats.powerGeneration - stats.powerUse;
       return {
         label: "Reactor Power Balance",
-        desc: "Generated energy compared to power consumed by active thrusters, shields, and weapons.",
+        desc: "Generated energy compared to power consumed by active thrusters, shields, and weapons. Reactors also produce heat in proportion to their load — an overheated reactor stops generating and melts down (explodes) if it stays pinned at overheat, so give reactors a cooling route. Check the Heat tab for the full thermal analysis.",
         formula: "PowerBalance = PowerGeneration - PowerUse",
         breakdown: `Reactor Generation: +${stats.powerGeneration.toFixed(1)} MW
 Subsystem Consumed: -${stats.powerUse.toFixed(1)} MW
@@ -1351,14 +1395,6 @@ Summary: ${desc}
 Total DPS: ${stats.weaponDps} DPS`
       };
     }
-
-    case "cooling":
-      return {
-        label: "Heat Sink Cooling Speedup",
-        desc: "Active reload recovery rate for all equipped weapons.",
-        formula: "Reload speedup = Sum of Heat Sink values",
-        breakdown: `Reload recovery rate: ${Math.round(stats.coolingBonus * 100)}%`
-      };
 
     case "capture":
       return {

@@ -25,7 +25,7 @@ export function previewColor() {
 }
 
 function styleLabel(style) {
-  const raw = style || "charge";
+  const raw = style || "sentry";
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
@@ -338,7 +338,7 @@ function loadSavedDesign(id) {
   if (!saved) return;
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
-  state.combatStyle = saved.combatStyle || "charge";
+  state.combatStyle = saved.combatStyle || "sentry";
   state.loadedEditorBlueprintId = saved.id;
   
   if (dom.combatStyleSelect) {
@@ -374,7 +374,7 @@ export function saveCurrentDesign() {
     state.savedDesigns = state.savedDesigns.map((design) => design.id === existing.id ? {
       ...design,
       blueprint,
-      combatStyle: state.combatStyle || "charge",
+      combatStyle: state.combatStyle || "sentry",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
       speed: Math.round(stats.maxSpeed),
@@ -392,7 +392,7 @@ export function saveCurrentDesign() {
       id,
       name,
       blueprint,
-      combatStyle: state.combatStyle || "charge",
+      combatStyle: state.combatStyle || "sentry",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
       speed: Math.round(stats.maxSpeed),
@@ -406,7 +406,7 @@ export function saveCurrentDesign() {
   persistSavedDesigns(state.savedDesigns);
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: blueprint, combatStyle: state.combatStyle || "charge" });
+    send({ type: "deploy", design: blueprint, combatStyle: state.combatStyle || "sentry" });
   }
 
   renderSavedDesigns();
