@@ -3,8 +3,9 @@
 import { LOCAL_DESIGN_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
-import { isConnected, isOutOfBounds, isOverlapping } from "./blueprintValidation.js";
+import { validateBlueprint } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
+import { computeStats } from "./componentStats.js";
 
 export function defaultDesign() {
   return [
@@ -32,7 +33,8 @@ export function makeDesignPart(x, y, type, previousRotation = 0) {
   return { x, y, type, rotation };
 }
 
-export function normalizeDesign(input) {
+export function normalizeDesign(input, options = {}) {
+  const { fallbackOnInvalid = true, allowEmpty = false } = options;
   const fallback = defaultDesign();
   const source = Array.isArray(input) ? input : fallback;
 
@@ -72,8 +74,19 @@ export function normalizeDesign(input) {
     clean.push(newPart);
   }
 
-  if (clean.filter((part) => part.type === "core").length !== 1 || !isConnected(clean)) return fallback;
+  if (allowEmpty && clean.length === 0) return clean;
+  const validation = validateBlueprint(clean);
+  if (!validation.ok) return fallbackOnInvalid ? fallback : clean;
   return clean;
+}
+
+function savedDesignSummary(blueprint) {
+  const stats = computeStats(blueprint);
+  return {
+    cost: stats.unitCost,
+    weapons: `${stats.weaponDps} DPS`,
+    speed: Math.round(stats.maxSpeed)
+  };
 }
 
 export function loadDesign() {
@@ -81,12 +94,12 @@ export function loadDesign() {
     const saved = JSON.parse(localStorage.getItem(LOCAL_DESIGN_KEY) || "null");
     if (saved && !Array.isArray(saved) && Array.isArray(saved.modules)) {
       return {
-        modules: normalizeDesign(saved.modules),
+        modules: normalizeDesign(saved.modules, { allowEmpty: true }),
         combatStyle: saved.combatStyle || "sentry"
       };
     }
     return {
-      modules: normalizeDesign(saved),
+      modules: normalizeDesign(saved, { allowEmpty: true }),
       combatStyle: "sentry"
     };
   } catch {
@@ -105,17 +118,24 @@ export function loadSavedDesigns() {
   try {
     const saved = JSON.parse(localStorage.getItem(LOCAL_SAVED_DESIGNS_KEY) || "[]");
     if (!Array.isArray(saved)) return [];
-    return saved.map((design, index) => ({
-      id: String(design.id || `saved-${index}`),
-      name: String(design.name || `Design ${index + 1}`).slice(0, 28),
-      blueprint: normalizeDesign(design.blueprint),
-      combatStyle: design.combatStyle || "sentry",
-      cost: Number(design.cost) || 0,
-      weapons: String(design.weapons || "0/0/0"),
-      speed: Number(design.speed) || 0,
-      createdAt: Number(design.createdAt) || Date.now(),
-      updatedAt: Number(design.updatedAt) || Date.now()
-    })).slice(0, 12);
+    return saved.map((design, index) => {
+      const blueprint = normalizeDesign(design.blueprint, { fallbackOnInvalid: false, allowEmpty: true });
+      const validation = validateBlueprint(blueprint);
+      const summary = savedDesignSummary(blueprint);
+      return {
+        id: String(design.id || `saved-${index}`),
+        name: String(design.name || `Design ${index + 1}`).slice(0, 28),
+        blueprint,
+        invalid: !validation.ok,
+        invalidReason: validation.errors[0] || "Invalid blueprint.",
+        combatStyle: design.combatStyle || "sentry",
+        cost: summary.cost,
+        weapons: summary.weapons,
+        speed: summary.speed,
+        createdAt: Number(design.createdAt) || Date.now(),
+        updatedAt: Number(design.updatedAt) || Date.now()
+      };
+    }).slice(0, 12);
   } catch {
     return [];
   }

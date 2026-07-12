@@ -2,7 +2,12 @@
 import { PART_STATS } from "./parts.js";
 import { getOccupiedCells } from "./footprint.js";
 
+export function coreCount(parts) {
+  return parts.filter((part) => part?.type === "core").length;
+}
+
 export function isConnected(parts) {
+  if (isOverlapping(parts)) return false;
   const core = parts.find((part) => part.type === "core");
   if (!core) return false;
 
@@ -46,6 +51,19 @@ export function isConnected(parts) {
   }
 
   return seenParts.size === parts.length;
+}
+
+export function validateBlueprint(parts, { requireThrust = false, stats = null } = {}) {
+  const errors = [];
+  if (!Array.isArray(parts) || parts.length === 0) errors.push("Invalid design: blueprint is empty.");
+  const cores = Array.isArray(parts) ? coreCount(parts) : 0;
+  if (cores === 0) errors.push("Invalid design: missing core.");
+  else if (cores > 1) errors.push("Invalid design: exactly one core is required.");
+  if (Array.isArray(parts) && isOutOfBounds(parts)) errors.push("Invalid design: modules outside build grid.");
+  if (Array.isArray(parts) && isOverlapping(parts)) errors.push("Invalid design: overlapping modules.");
+  if (Array.isArray(parts) && cores === 1 && !isOverlapping(parts) && !isConnected(parts)) errors.push("Invalid design: disconnected parts.");
+  if (requireThrust && stats && stats.thrust <= 0) errors.push("Invalid design: add at least one engine.");
+  return { ok: errors.length === 0, errors };
 }
 
 export function isOverlapping(parts) {
