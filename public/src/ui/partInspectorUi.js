@@ -237,11 +237,9 @@ function partInspectorDetails(type, stat, effectiveCost) {
       details.push(["Accuracy", `${Math.round(weapon.accuracy * 100)}%`]);
     }
     
-    // Turret Turn
-    const aimSpeed = weapon.aimSpeed ?? (weapon.type === "beam" ? 1.65 : undefined);
-    if (aimSpeed !== undefined) {
-      details.push(["Turret Turn", formatAimSpeed(aimSpeed)]);
-    }
+    // Turret traverse rate comes from the shared TurretRules table, the same
+    // one the server aims with — no weapon snaps instantly any more.
+    details.push(["Turret Turn", formatAimSpeed(globalThis.TurretRules.turnRateFor(weapon))]);
     
     details.push(["Arc", `${weapon.arc || 360} deg`]);
 
