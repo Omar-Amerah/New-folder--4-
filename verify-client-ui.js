@@ -460,4 +460,24 @@ if (!buildGridCss.includes("heat-sink-absorption") || !buildGridCss.includes("ra
   throw new Error("cooling components should remain visually identifiable via non-directional styling");
 }
 
+
+for (const phrase of ["export function setBlueprintView", "cachedHeatAnalysis", "renderThermalHud", "renderHeatContextCard", "thermalRoleMarkup"]) {
+  if (!designerSource.includes(phrase)) throw new Error(`missing contextual heat overlay implementation marker: ${phrase}`);
+}
+for (const phrase of ["blueprintThermalHud", "heatContextCard", "heatFlowOverlayHost", "buildGridStage"]) {
+  if (!fs.readFileSync("public/index.html", "utf8").includes(phrase)) throw new Error(`missing separate heat overlay DOM layer: ${phrase}`);
+}
+if (!designerSource.includes('updateHeatInspectionOverlay(currentHeatAnalysis())')) {
+  throw new Error("hover and inspect should reuse the selected scenario analysis instead of rerunning thermal simulation directly");
+}
+if (!designerSource.includes('view === "local" && directlyRelated && flow.amount >= HEAT_FLOW_LABEL_THRESHOLD')) {
+  throw new Error("local heat-flow mode should label focused first-hop transfers above the named threshold");
+}
+if (!designerSource.includes('state.inspectedHeatPartIndex = null') || !designerSource.includes('event.key === "Escape"')) {
+  throw new Error("pinned thermal inspector should clear on Escape");
+}
+if (!buildGridCss.includes("blueprint-thermal-hud") || !buildGridCss.includes("heat-context-card") || !buildGridCss.includes("thermal-role-indicator")) {
+  throw new Error("missing thermal HUD, contextual card, or role-indicator styles");
+}
+
 console.log("client ui verification passed");

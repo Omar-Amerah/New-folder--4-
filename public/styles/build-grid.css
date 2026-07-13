@@ -165,3 +165,42 @@
 .thermal-route-box { margin-top:10px; padding-top:8px; border-top:1px solid rgba(126,166,205,.18); font-size:12px; color:#dcefff; }
 .thermal-route-path { font-weight:900; color:#fff3c4; margin-bottom:5px; }
 @media (max-width: 860px) { .thermal-transfer-columns { grid-template-columns:1fr; } }
+
+.build-grid-stage { position:relative; width:100%; aspect-ratio:1; isolation:isolate; }
+.build-grid-stage .build-grid { position:absolute; inset:0; }
+.heat-flow-overlay-host { position:absolute; z-index:20; inset:0; pointer-events:none; background:transparent; }
+.heat-flow-overlay-host .heat-flow-overlay { inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); }
+.build-grid.heat-overlay-active .build-cell.occupied::after { z-index:2; mix-blend-mode:screen; }
+.build-grid.heat-overlay-active .build-cell.occupied { overflow:visible; }
+.build-grid.heat-overlay-active .build-cell.heat-ui-critical { border-color:#ff553f; box-shadow:0 0 10px rgba(255,67,51,.5), inset 0 0 0 2px rgba(255,67,51,.7); }
+.build-grid.heat-overlay-active .build-cell.heat-ui-overheated { border-color:#fff; box-shadow:0 0 15px rgba(255,255,255,.62), 0 0 18px rgba(255,30,60,.75), inset 0 0 0 2px rgba(255,255,255,.8); animation:overheated-cell-shell .55s ease-in-out infinite alternate; }
+.thermal-role-indicator { position:absolute; z-index:9; display:grid; place-items:center; width:12px; height:12px; border-radius:4px; border:1px solid rgba(255,255,255,.45); background:rgba(5,10,18,.92); font-size:8px; font-weight:950; line-height:1; pointer-events:none; }
+.thermal-role-indicator.heat-source { right:2px; top:2px; color:#ffb454; border-color:rgba(255,180,84,.65); }
+.thermal-role-indicator.heat-sink-role, .thermal-role-indicator.radiator-role { right:2px; top:16px; color:#7dd3fc; border-color:rgba(125,211,252,.78); box-shadow:0 0 8px rgba(56,189,248,.35); }
+.thermal-role-indicator.heat-pipe-role { left:2px; bottom:14px; color:#ffd166; border-style:dashed; }
+.thermal-role-indicator.bottleneck-role, .thermal-role-indicator.unrouted-role { left:15px; top:2px; color:#fff; background:#b91c1c; border-color:#fecaca; }
+.thermal-role-indicator.meltdown-role { left:2px; top:15px; color:#fffbe8; background:#8b1cf6; border-color:#fde68a; box-shadow:0 0 9px rgba(250,204,21,.6); }
+.blueprint-thermal-hud { position:absolute; z-index:31; top:10px; left:10px; display:grid; grid-template-columns:auto auto; gap:3px 12px; max-width:min(235px,calc(100% - 20px)); padding:8px 10px; border:1px solid rgba(125,211,252,.42); border-radius:10px; background:rgba(3,8,15,.86); color:#dbeafe; font-size:11px; line-height:1.15; box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; backdrop-filter:blur(4px); }
+.blueprint-thermal-hud strong { grid-column:1; color:#7dd3fc; letter-spacing:.08em; text-transform:uppercase; }
+.blueprint-thermal-hud b { grid-column:2; text-align:right; text-transform:uppercase; color:#fef3c7; }
+.blueprint-thermal-hud b.stable { color:#86efac; }
+.blueprint-thermal-hud b.unsustainable { color:#fca5a5; }
+.blueprint-thermal-hud span { color:#9fb4ca; }
+.blueprint-thermal-hud em { color:#fff; font-style:normal; font-weight:900; text-align:right; }
+.heat-context-card { position:absolute; z-index:32; min-width:210px; max-width:260px; padding:9px 10px; border:1px solid rgba(255,209,102,.5); border-radius:10px; background:rgba(4,10,18,.94); color:#dcefff; font-size:11px; line-height:1.2; box-shadow:0 10px 28px rgba(0,0,0,.45); pointer-events:none; backdrop-filter:blur(5px); }
+.heat-context-card.pinned { border-color:rgba(125,211,252,.68); pointer-events:auto; }
+.heat-context-card h4 { margin:0 0 5px; color:#fff; letter-spacing:.05em; text-transform:uppercase; }
+.heat-card-state { margin-bottom:7px; color:#ffc46b; font-weight:950; }
+.heat-card-state small { color:#dbeafe; float:right; }
+.heat-card-grid, .heat-card-transfers { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 9px; }
+.heat-card-grid span, .heat-card-transfers span { color:#9fb4ca; }
+.heat-card-grid strong, .heat-card-transfers strong { color:#fff; text-align:right; }
+.heat-card-transfers h5 { grid-column:1/-1; margin:7px 0 2px; color:#7dd3fc; }
+.heat-context-card .thermal-route-box { margin-top:8px; max-height:130px; overflow:auto; }
+.heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:#120804; stroke-width:.08px; font-size:.34px; font-weight:900; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
+.heat-flow-overlay .incoming-flow-label { fill:#ffd18a; }
+.heat-flow-overlay .outgoing-flow-label { fill:#ffb86b; }
+.blueprint-heat-legend { align-items:center; gap:8px; flex-wrap:wrap; }
+.blueprint-heat-legend::before { content:"Legend: colour = heat state; % = capacity used; arrows = heat direction; thickness = amount; dashed = frame/Heat Pipe; cyan outline = storage/removal; icons = bottleneck/overheat/meltdown."; color:#cfe8ff; font-weight:800; }
+@keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
+@media (max-width:860px) { .blueprint-thermal-hud { grid-template-columns:auto auto; right:8px; left:8px; top:8px; max-width:none; } .blueprint-thermal-hud span:nth-of-type(n+2), .blueprint-thermal-hud em:nth-of-type(n+2) { display:none; } }
