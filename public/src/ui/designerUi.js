@@ -1120,7 +1120,7 @@ function renderHeatFlows(analysis) {
   });
   const renderedEdges = new Set();
   const labeledEdges = new Set();
-  const labelSlots = new Map();
+  const labelRequests = [];
   for (const flow of analysis.flows || []) {
     if (flow.amount < HEAT_FLOW_THRESHOLD) continue;
     const focusedFlow = focus != null && (flow.from === focus || flow.to === focus);
@@ -1163,21 +1163,138 @@ function renderHeatFlows(analysis) {
       const shouldLabel = focusedFlow && !labeledEdges.has(labelEdgeKey);
       if (shouldLabel) {
         labeledEdges.add(labelEdgeKey);
-        const slotKey = `${Math.round((cell.x + 0.5 + dx * 0.3) * 2)},${Math.round((cell.y + 0.5 + dy * 0.3) * 2)}`;
-        const slot = labelSlots.get(slotKey) || 0;
-        labelSlots.set(slotKey, slot + 1);
-        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        label.classList.add("heat-flow-label", "focused-flow-label", flow.to === focus ? "incoming-flow-label" : "outgoing-flow-label");
-        label.setAttribute("x", String(cell.x + 0.5 + dx * 0.3 + dy * (0.08 + slot * 0.08)));
-        label.setAttribute("y", String(cell.y + 0.5 + dy * 0.3 + dx * (0.08 + slot * 0.08)));
-        label.textContent = `${flow.amount.toFixed(1)} H/s`;
-        svg.appendChild(label);
+        labelRequests.push({
+          flow,
+          cell,
+          dx,
+          dy,
+          text: `${flow.amount.toFixed(1)} H/s`,
+          incoming: flow.to === focus
+        });
       }
       drewFlow = true;
     }
     if (drewFlow) continue;
   }
+  renderHeatFlowLabels(svg, labelRequests, focus, occupiedByIndex[focus] || []);
   if (svg.children.length > 1) (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
+}
+
+const BASE_LABEL_CLEARANCE = 0.22;
+const LABEL_LANE_GAP = 0.18;
+const LABEL_ALONG_OFFSET = 0.16;
+const LABEL_ALONG_ADJUSTMENTS = [0, -0.14, 0.14];
+const LABEL_BOUNDARY_PADDING = 0.12;
+const LABEL_ARROWHEAD_GAP = 0.14;
+
+function canonicalEdgeKey(a, b) {
+  const first = a.x < b.x || (a.x === b.x && a.y <= b.y) ? a : b;
+  const second = first === a ? b : a;
+  return `${first.x},${first.y}:${second.x},${second.y}`;
+}
+
+function canonicalEdgeNormal(a, b) {
+  const first = a.x < b.x || (a.x === b.x && a.y <= b.y) ? a : b;
+  const second = first === a ? b : a;
+  const edgeDx = second.x - first.x;
+  const edgeDy = second.y - first.y;
+  return { x: -edgeDy, y: edgeDx };
+}
+
+function clampLabelCenter(value, halfSize) {
+  return Math.min(GRID_SIZE - LABEL_BOUNDARY_PADDING - halfSize, Math.max(LABEL_BOUNDARY_PADDING + halfSize, value));
+}
+
+function labelBox(cx, cy, width, height) {
+  return { left: cx - width / 2, right: cx + width / 2, top: cy - height / 2, bottom: cy + height / 2, width, height };
+}
+
+function overlapArea(a, b) {
+  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  return width * height;
+}
+
+function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
+  if (!labelRequests.length || focus == null) return;
+  const placedLabelBoxes = [];
+  const focusBox = focusCells.length ? {
+    left: Math.min(...focusCells.map(cell => cell.x)) + 0.18,
+    right: Math.max(...focusCells.map(cell => cell.x)) + 0.82,
+    top: Math.min(...focusCells.map(cell => cell.y)) + 0.18,
+    bottom: Math.max(...focusCells.map(cell => cell.y)) + 0.82
+  } : null;
+
+  for (const request of labelRequests) {
+    const { cell, dx, dy, text, incoming } = request;
+    const x1 = cell.x + 0.5 - dx * 0.12;
+    const y1 = cell.y + 0.5 - dy * 0.12;
+    const x2 = cell.x + 0.5 + dx * 0.72;
+    const y2 = cell.y + 0.5 + dy * 0.72;
+    const midpointX = (x1 + x2) / 2;
+    const midpointY = (y1 + y2) / 2;
+    const awayFromFocus = incoming ? -1 : 1;
+    const baseX = midpointX + dx * LABEL_ALONG_OFFSET * awayFromFocus;
+    const baseY = midpointY + dy * LABEL_ALONG_OFFSET * awayFromFocus;
+    const fromCell = { x: cell.x, y: cell.y };
+    const toCell = { x: cell.x + dx, y: cell.y + dy };
+    const edgeKey = canonicalEdgeKey(fromCell, toCell);
+    const canonicalNormal = canonicalEdgeNormal(fromCell, toCell);
+    const preferredSide = incoming ? 1 : -1;
+    const width = Math.max(0.92, text.length * 0.145 + 0.18);
+    const height = 0.38;
+    let best = null;
+
+    for (const side of [preferredSide, -preferredSide]) {
+      for (const distance of [BASE_LABEL_CLEARANCE, BASE_LABEL_CLEARANCE + LABEL_LANE_GAP, BASE_LABEL_CLEARANCE + LABEL_LANE_GAP * 2]) {
+        for (const alongAdjust of LABEL_ALONG_ADJUSTMENTS) {
+          const rawX = baseX + canonicalNormal.x * distance * side + dx * alongAdjust;
+          const rawY = baseY + canonicalNormal.y * distance * side + dy * alongAdjust;
+          const cx = clampLabelCenter(rawX, width / 2);
+          const cy = clampLabelCenter(rawY, height / 2);
+          const box = labelBox(cx, cy, width, height);
+          const outsideDistance = Math.abs(cx - rawX) + Math.abs(cy - rawY);
+          const arrowheadDistance = Math.hypot(cx - x2, cy - y2);
+          const placedOverlap = placedLabelBoxes.reduce((total, placed) => total + overlapArea(box, placed.box), 0);
+          const focusOverlap = focusBox ? overlapArea(box, focusBox) : 0;
+          const score =
+            placedOverlap * 10000 +
+            focusOverlap * 900 +
+            outsideDistance * 120 +
+            (side === preferredSide ? 0 : 180) +
+            Math.max(0, LABEL_ARROWHEAD_GAP - arrowheadDistance) * 1200 +
+            Math.abs(alongAdjust) * 8 +
+            distance * 0.1;
+          if (!best || score < best.score) best = { cx, cy, box, score, edgeKey, side };
+        }
+      }
+    }
+
+    if (!best) continue;
+    placedLabelBoxes.push(best);
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.classList.add("heat-flow-label-group", incoming ? "incoming-flow-label-group" : "outgoing-flow-label-group");
+    group.setAttribute("data-physical-edge", best.edgeKey);
+    group.setAttribute("data-label-side", String(best.side));
+
+    const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    background.classList.add("heat-flow-label-background");
+    background.setAttribute("x", String(best.box.left));
+    background.setAttribute("y", String(best.box.top));
+    background.setAttribute("width", String(width));
+    background.setAttribute("height", String(height));
+    background.setAttribute("rx", ".08");
+    background.setAttribute("ry", ".08");
+    group.appendChild(background);
+
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.classList.add("heat-flow-label", "focused-flow-label", incoming ? "incoming-flow-label" : "outgoing-flow-label");
+    label.setAttribute("x", String(best.cx));
+    label.setAttribute("y", String(best.cy));
+    label.textContent = text;
+    group.appendChild(label);
+    svg.appendChild(group);
+  }
 }
 
 export function heatInteractionDiagnostics() {
