@@ -7,7 +7,7 @@ const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
 const { addBullet, segmentCircleHit } = require("./projectiles");
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents } = require("./componentHealth");
-const { addComponentHeat, addHeatToType, componentPerformance, systemPerformance } = require("./heat");
+const { addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus } = require("./heat");
 const TurretRules = require("../../public/src/shared/turretRules");
 
 const MODULE_SCALE = 13;
@@ -26,15 +26,13 @@ function shipRepairNeed(ship) {
 function updateShipSupport(room, ships, dt, now) {
   for (const ship of ships) {
     if (!ship.stats.repair) continue;
-    let repairPerformance = 0;
-    let repairModules = 0;
+    let effectiveRepairRate = 0;
     for (let i = 0; i < (ship.design || []).length; i += 1) {
-      if (!(PARTS[ship.design[i].type]?.repairRate > 0) || !isComponentAlive(ship, i)) continue;
-      repairPerformance += componentPerformance(ship, i);
-      repairModules += 1;
+      const repairRate = PARTS[ship.design[i].type]?.repairRate || 0;
+      if (repairRate <= 0 || !isComponentAlive(ship, i)) continue;
+      effectiveRepairRate += repairRate * componentPerformance(ship, i);
     }
-    repairPerformance = repairModules ? repairPerformance / repairModules : 0;
-    if (repairPerformance <= 0) continue;
+    if (effectiveRepairRate <= 0) continue;
 
     let target = null;
     let worst = 0;
@@ -68,7 +66,7 @@ function updateShipSupport(room, ships, dt, now) {
     }
 
     if (!target) continue;
-    const heal = ship.stats.repairRate * ship.stats.efficiency * repairPerformance * (ship.thermalPowerFactor ?? 1) * dt;
+    const heal = effectiveRepairRate * ship.stats.efficiency * (ship.thermalPowerFactor ?? 1) * dt;
     repairShipComponents(room, target, heal, now);
 
     // Pick the repair emitter (prefer a dedicated repair beam) as the beam origin.
@@ -156,7 +154,9 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
 
 function updateDecoys(room, ship, dt, now) {
-  if (!ship.stats.decoyCooldown || !ship.stats.decoyRange) return;
+  const decoyCooldown = effectiveComponentBonus(ship, "decoyCooldown");
+  const decoyRange = effectiveComponentBonus(ship, "decoyRange");
+  if (!decoyCooldown || !decoyRange) return;
 
   if (ship.decoyReadyIn === undefined) ship.decoyReadyIn = 0;
   if (ship.decoyReadyIn > 0) {
@@ -164,7 +164,7 @@ function updateDecoys(room, ship, dt, now) {
     return;
   }
 
-  const rangeSq = ship.stats.decoyRange * ship.stats.decoyRange;
+  const rangeSq = decoyRange * decoyRange;
   let used = false;
 
   for (const bullet of room.bullets) {
@@ -173,15 +173,15 @@ function updateDecoys(room, ship, dt, now) {
     const dx = bullet.x - ship.x;
     const dy = bullet.y - ship.y;
     if (dx * dx + dy * dy <= rangeSq) {
-      if (Math.random() <= (ship.stats.decoyChance || 0.85)) {
-        bullet.trackingDisabledFor = ship.stats.decoyConfuseDuration || 1.2;
+      if (Math.random() <= (effectiveComponentBonus(ship, "decoyChance") || 0.85)) {
+        bullet.trackingDisabledFor = effectiveComponentBonus(ship, "decoyConfuseDuration") || 1.2;
       }
       used = true;
     }
   }
 
   if (used) {
-    ship.decoyReadyIn = ship.stats.decoyCooldown;
+    ship.decoyReadyIn = decoyCooldown;
     room.effects.push({ type: "spark", x: ship.x, y: ship.y, at: now });
   }
 }
@@ -217,7 +217,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   const target = findTarget(room, ship, ships);
   ship.combatTargetId = target ? target.id : null;
 
-  const fireRateMultiplier = 1 + (ship.stats.fireRateBonus || 0);
+  const fireRateMultiplier = 1 + effectiveComponentBonus(ship, "fireRateBonus");
 
   (ship.design || []).forEach((module, i) => {
     const part = PARTS[module.type];
@@ -247,7 +247,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         const dx = targetEntity.x - worldX;
         const dy = targetEntity.y - worldY;
         const distance = Math.hypot(dx, dy);
-        const range = ship.stats[family + "Range"] || part.weapon.range;
+        const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
 
         if (distance <= range) {
           const worldAngleToTarget = Math.atan2(dy, dx);
@@ -260,7 +260,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         }
       }
     } else {
-      const range = ship.stats[family + "Range"] || part.weapon.range;
+      const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
       // Keep the ship's assigned target when this weapon can reach it, otherwise
       // fall back to any valid enemy already in this weapon's range so it does
       // not idle while the primary target is out of reach. The assigned target
@@ -303,8 +303,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
     if (family !== "beam" && angleErr > 0.26) return;
 
-    const targetingPerformance = systemPerformance(ship, (candidate, placed) => placed.type === "targetingComputer" || placed.type === "sensorArray" || candidate.utilityEffect === "accuracy");
-    const accuracy = clampNumber(((part.weapon.accuracy || 0.8) + (ship.stats.accuracyBonus || 0)) * targetingPerformance, 0.1, 1);
+    const accuracy = clampNumber((part.weapon.accuracy || 0.8) + effectiveComponentBonus(ship, "accuracyBonus"), 0.1, 1);
     const spreadScale = (1 - accuracy) * (family === "missile" ? 0.35 : 0.22);
     const spread = randomRange(-spreadScale, spreadScale);
     const shotAngle = worldWeaponAngle + spread;
@@ -365,7 +364,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const rangeVal = ship.stats?.beamRange || part.weapon.range;
       const beamRadius = part.weapon.radius || 28;
       const beamEnd = beamImpactPoint(room, muzzle.x, muzzle.y, worldWeaponAngle, rangeVal, beamRadius);
-      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * ship.stats.efficiency * dt, now, {
+      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * ship.stats.efficiency * componentPerformance(ship, i) * (ship.thermalPowerFactor ?? 1) * dt, now, {
         shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1
       });

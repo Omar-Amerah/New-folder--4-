@@ -127,8 +127,13 @@ function handleDiagramHover(event) {
       const thermal = componentThermal(ship, index);
       const percent = Math.round(Math.min(125, thermal.ratio * 100));
       const capacityText = thermal.capacity > 0 ? ` / ${formatHeatAmount(thermal.capacity)} H · ${percent}%` : " H";
-      const perf = globalThis.HeatRules?.performanceForState?.(thermal.state);
-      const perfText = perf != null && perf < 1 ? ` · ${Math.round(perf * 100)}% output` : "";
+      const rules = globalThis.HeatRules;
+      const passive = /frame/i.test(part.type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(part.type);
+      const activePerf = rules?.activeOutputForState?.(thermal.state);
+      const passivePerf = rules?.passiveProtectionForState?.(thermal.state);
+      const perfText = passive && passivePerf != null && passivePerf < 1
+        ? ` · ${Math.round(passivePerf * 100)}% protection`
+        : activePerf != null && activePerf < 1 ? ` · ${Math.round(activePerf * 100)}% output` : "";
       dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${perfText}`;
     } else if (part.type === "core") {
       dom.shipDamageHover.textContent = "Core — indestructible";

@@ -16,7 +16,8 @@
     "test:core-reactor": "node verify-core-reactor.js",
     "test:heat-thermo": "node verify-heat-thermo.js",
     "test:repair-target": "node verify-repair-target.js",
-    "test:combat-review": "node verify-combat-review.js"
+    "test:combat-review": "node verify-combat-review.js",
+    "test:heat-effects": "node verify-heat-effects.js"
   },
   "keywords": [
     "browser-game",

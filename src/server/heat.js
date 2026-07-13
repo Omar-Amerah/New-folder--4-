@@ -3,7 +3,7 @@ const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
 const HeatRules = require("../../public/src/shared/heatRules");
 
-const { TICK_SECONDS, STATE, profile, stateFor, performanceForState, edgeTransfer, edgeConductivity } = HeatRules;
+const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, edgeConductivity } = HeatRules;
 function isThermalRouteType(type) { return /frame/i.test(String(type || "")) || type === "heatPipe"; }
 
 function findExteriorEmptyCells(cellOwners) {
@@ -153,7 +153,7 @@ function addComponentHeat(ship, index, amount) {
 }
 
 function componentPerformance(ship, index) {
-  return performanceForState(ship.componentHeatState?.[index] || STATE.NORMAL);
+  return activeOutputForState(ship.componentHeatState?.[index] || STATE.NORMAL);
 }
 
 function systemPerformance(ship, predicate) {
@@ -272,7 +272,12 @@ function updateShipHeat(ship, dt, room, now) {
   for (let i = 0; i < heat.length; i += 1) {
     const thermal = ship.componentThermals[i];
     let coolingRate = thermal.cooling * thermal.retention;
-    if (ship.design[i].type === "radiator") coolingRate *= thermal.exposedEdges > 0 ? 1 : 0.25;
+    if (ship.design[i].type === "radiator") {
+      const exposure = thermal.exposedEdges > 0 ? 1 : 0.25;
+      const active = thermal.cooling * activeCoolingForState(ship.componentHeatState?.[i] || STATE.NORMAL);
+      const passiveFloor = thermal.cooling * 0.12;
+      coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention;
+    }
     else if (thermal.exposedEdges > 0) coolingRate *= 1.12;
     // Thermodynamics: a hotter body sheds heat faster. Passive dissipation scales
     // with the component's fill ratio — hotspots bleed off quickly — but the floor
@@ -311,7 +316,7 @@ function updateShipHeat(ship, dt, room, now) {
       if (nextState === STATE.OVERHEATED) overheatedCount += 1;
       const output = PARTS[ship.design[i].type]?.powerGeneration || 0;
       nominalPower += output;
-      availablePower += output * performanceForState(nextState);
+      availablePower += output * activeOutputForState(nextState);
       // Reactors (power sources) that stay at overheat failure melt down.
       if (output > 0) {
         if (nextState === STATE.OVERHEATED) {
@@ -385,4 +390,16 @@ function buildHeatDebug(ship) {
   };
 }
 
-module.exports = { STATE, initShipHeat, rebuildThermalNetworks, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance };
+function effectiveComponentBonus(ship, propertyName, predicate) {
+  let total = 0;
+  for (let i = 0; i < (ship.design || []).length; i += 1) {
+    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
+    const placed = ship.design[i];
+    const part = PARTS[placed.type] || {};
+    if (predicate && !predicate(part, placed, i)) continue;
+    total += (part[propertyName] || 0) * componentPerformance(ship, i);
+  }
+  return total;
+}
+
+module.exports = { STATE, initShipHeat, rebuildThermalNetworks, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };

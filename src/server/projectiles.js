@@ -91,7 +91,8 @@ function updateBullets(room, dt, now) {
           desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
         }
 
-        const ecmMod = Math.max(0, 1 - (target.stats.ecmStrength || 0));
+        const { effectiveComponentBonus } = require("./heat");
+        const ecmMod = Math.max(0, 1 - Math.min(0.55, effectiveComponentBonus(target, "ecmStrength")));
         turnRate *= ecmMod;
 
         const current = Math.atan2(bullet.vy, bullet.vx);

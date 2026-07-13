@@ -898,8 +898,32 @@ function renderHeatContextCard(result) {
   dom.heatContextCard.hidden = false;
   dom.heatContextCard.className = "heat-context-card";
   dom.heatContextCard.innerHTML = `<h4>${escapeHtml(PART_DEFS[part.type]?.name || part.type)}</h4><div class="heat-card-state">${escapeHtml(labels[prediction.state] || "Heat")} — ${Math.min(100, Math.round(prediction.ratio * 100))}% <small>${prediction.heat.toFixed(0)} / ${prediction.capacity} H</small></div><div class="heat-card-grid">
-    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Incoming transfer", `+${prediction.received.toFixed(1)} H/s`)}${row("Outgoing transfer", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(coolingLabel, `-${prediction.cooling.toFixed(1)} H/s`)}${exposureRows.join("")}${routeProblemRows.join("")}${row("Net heat change", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${row("Performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
+    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Incoming transfer", `+${prediction.received.toFixed(1)} H/s`)}${row("Outgoing transfer", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(coolingLabel, `-${prediction.cooling.toFixed(1)} H/s`)}${exposureRows.join("")}${routeProblemRows.join("")}${row("Net heat change", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${heatEffectRows(part, prediction).join("")}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
   positionHeatContextCard(index);
+}
+
+
+function heatEffectRows(part, prediction) {
+  const rules = globalThis.HeatRules;
+  const stat = PART_STATS[part.type] || {};
+  const pct = (value) => `${Math.round(value * 100)}%`;
+  const row = (l, v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(v)}</strong>`;
+  const state = prediction.state;
+  if (part.type === "heatPipe") return [row("Heat transfer", "Unaffected")];
+  if (part.type === "heatSink") return [row("Storage", "Unaffected"), row("Cooling output", pct(rules.activeCoolingForState(state)))];
+  if (part.type === "radiator") return [row("Cooling output", pct(rules.activeCoolingForState(state)))];
+  const passive = /frame/i.test(part.type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(part.type);
+  if (passive) {
+    if (part.type === "armor" || part.type === "compositeArmor") return [row("Protection", pct(rules.passiveProtectionForState(state)))];
+    return [row("Structural strength", pct(rules.passiveProtectionForState(state))), row("Damage taken", `×${rules.structuralDamageMultiplierForState(state).toFixed(2)}`)];
+  }
+  if (stat.weapon) return [row(stat.weapon.type === "beam" ? "Beam output" : "Fire rate", pct(rules.activeOutputForState(state)))];
+  if ((stat.thrust || 0) > 0) return [row("Thrust output", pct(rules.activeOutputForState(state))), row("Turn output", pct(rules.activeOutputForState(state)))];
+  if ((stat.powerGeneration || 0) > 0) return [row("Power output", pct(rules.activeOutputForState(state)))];
+  if ((stat.shieldRegen || 0) > 0) return [row("Recharge rate", pct(rules.activeOutputForState(state)))];
+  if ((stat.repairRate || 0) > 0) return [row("Repair output", pct(rules.activeOutputForState(state)))];
+  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength || stat.decoyRange) return [row("Bonus effectiveness", pct(rules.activeOutputForState(state)))];
+  return [];
 }
 
 function positionHeatContextCard(index) {
