@@ -1660,9 +1660,8 @@ function drawComponentPort(size, x, y, radius, accent, innerScale = 0.45) {
   ctx.restore();
 }
 
-function drawSimpleTurret(size, accent, barrels = 1, barrelLength = 0.46, { drawBase = true, drawDetail = true } = {}) {
-  if (drawBase) drawWeaponBase(size);
-  if (!drawDetail) return;
+function drawSimpleTurret(size, accent, barrels = 1, barrelLength = 0.46) {
+  drawWeaponBase(size);
   ctx.save();
   ctx.fillStyle = accent;
   const barrelHeight = barrels === 1 ? 0.18 : 0.11;
@@ -1705,11 +1704,10 @@ function componentArtType(type) {
   return COMPONENT_ART_ALIASES[type] || type;
 }
 
-function drawProfessionalModuleDetail(type, size, color, { drawBase = true, drawDetail = true } = {}) {
+function drawProfessionalModuleDetail(type, size, color) {
   type = componentArtType(type);
   const line = Math.max(0.8, size * 0.065);
   const fine = Math.max(0.7, size * 0.045);
-  if (!drawDetail && !["blaster","autocannon","pointDefense","pointDefenseLaser","flakCannon","beamEmitter","repairBeam"].includes(type)) return false;
 
   if (type === "core") {
     drawRecessedPanel(size, 0.78, 0.78, 0.16);
@@ -1854,16 +1852,15 @@ function drawProfessionalModuleDetail(type, size, color, { drawBase = true, draw
   }
 
   if (type === "blaster") {
-    drawSimpleTurret(size, "#ffd1dc", 1, 0.46, { drawBase, drawDetail });
+    drawSimpleTurret(size, "#ffd1dc", 1, 0.46);
     return true;
   }
   if (type === "autocannon") {
-    drawSimpleTurret(size, "#fdba74", 2, 0.46, { drawBase, drawDetail });
+    drawSimpleTurret(size, "#fdba74", 2, 0.46);
     return true;
   }
   if (type === "pointDefense" || type === "pointDefenseLaser") {
-    drawSimpleTurret(size, "#fda4af", 1, 0.38, { drawBase, drawDetail });
-    if (!drawDetail) return true;
+    drawSimpleTurret(size, "#fda4af", 1, 0.38);
     ctx.strokeStyle = "rgba(255,225,232,0.72)";
     ctx.lineWidth = fine;
     ctx.beginPath();
@@ -1872,8 +1869,7 @@ function drawProfessionalModuleDetail(type, size, color, { drawBase = true, draw
     return true;
   }
   if (type === "flakCannon") {
-    if (drawBase) drawWeaponBase(size);
-    if (!drawDetail) return true;
+    drawWeaponBase(size);
     ctx.fillStyle = "#fb7185";
     roundRect(ctx, { x: size * 0.01, y: -size * 0.24, width: size * 0.43, height: size * 0.14, radius: size * 0.03 }); ctx.fill();
     roundRect(ctx, { x: size * 0.01, y: size * 0.1, width: size * 0.43, height: size * 0.14, radius: size * 0.03 }); ctx.fill();
@@ -1929,8 +1925,7 @@ function drawProfessionalModuleDetail(type, size, color, { drawBase = true, draw
     return true;
   }
   if (type === "beamEmitter" || type === "repairBeam") {
-    if (drawBase) drawWeaponBase(size);
-    if (!drawDetail) return true;
+    drawWeaponBase(size);
     const accent = type === "repairBeam" ? "#4ade80" : "#38bdf8";
     ctx.fillStyle = type === "repairBeam" ? "#166534" : "#075985";
     ctx.fillRect(0, -size * 0.16, size * 0.22, size * 0.32);
@@ -2158,7 +2153,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
   // All currently selectable parts use the unified professional detail set.
   // Legacy branches remain below as compatibility art for any old/custom part
   // ids loaded from storage.
-  if (drawProfessionalModuleDetail(type, size, bodyColor, { drawBase, drawDetail })) {
+  if (drawProfessionalModuleDetail(type, size, bodyColor)) {
     ctx.restore();
     return;
   }
@@ -2657,11 +2652,10 @@ function drawFootprintPort(unit, x, y, radius, accent) {
   ctx.restore();
 }
 
-function drawProfessionalFootprintDetail(type, unit, tilesLong, color, hl, hc, { drawBase = true, drawDetail = true } = {}) {
+function drawProfessionalFootprintDetail(type, unit, tilesLong, color, hl, hc) {
   type = componentArtType(type);
   const line = Math.max(1, unit * 0.075);
   const fine = Math.max(0.7, unit * 0.045);
-  if (!drawDetail && ["railgun","beamEmitter","repairBeam","swarmMissile","torpedo"].includes(type)) return true;
 
   if (type === "engine") {
     // Full-cube propulsion block: bright cowling in the module colour, a rear
@@ -2934,7 +2928,7 @@ export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, colo
     return;
   }
 
-  if (drawProfessionalFootprintDetail(type, unit, tilesLong, bodyColor, hl, hc, { drawBase, drawDetail })) {
+  if (drawProfessionalFootprintDetail(type, unit, tilesLong, bodyColor, hl, hc)) {
     ctx.restore();
     return;
   }

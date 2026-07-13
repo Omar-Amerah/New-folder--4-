@@ -14,33 +14,6 @@ import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponen
 const SHIP_SCALE = 13;
 // Nominal zoom used when baking zoom-compensated line widths into textures.
 const BAKE_NOMINAL_ZOOM = 0.6;
-const TURRET_DEBUG_ARROW_KEY = "__mfa_turret_debug_arrow__";
-
-function turretDebugEnabled() {
-  return typeof window !== "undefined" && window.__mfaDebugTurrets === true;
-}
-
-function weaponComponentIndices(design) {
-  return (design || []).map((part, index) => ({ part, index })).filter(({ part }) => Boolean(PART_STATS[part.type]?.weapon));
-}
-
-function getDebugArrowTexture(env) {
-  let texture = pixiTurretTextureCache.get(TURRET_DEBUG_ARROW_KEY);
-  if (texture) return texture;
-  const halfW = SHIP_SCALE * 3.2;
-  const halfH = SHIP_SCALE * 0.9;
-  texture = pixiBakeTexture(env, halfW * 2, halfH * 2, (bctx) => {
-    bctx.lineWidth = 3;
-    bctx.strokeStyle = "#001018";
-    bctx.fillStyle = "#fff200";
-    bctx.beginPath();
-    bctx.moveTo(0, -5); bctx.lineTo(SHIP_SCALE * 2.8, -5); bctx.lineTo(SHIP_SCALE * 2.8, -13);
-    bctx.lineTo(SHIP_SCALE * 3.8, 0); bctx.lineTo(SHIP_SCALE * 2.8, 13); bctx.lineTo(SHIP_SCALE * 2.8, 5); bctx.lineTo(0, 5);
-    bctx.closePath(); bctx.fill(); bctx.stroke();
-  });
-  pixiTurretTextureCache.set(TURRET_DEBUG_ARROW_KEY, texture);
-  return texture;
-}
 
 const pixiHullTextureCache = registerPixiTextureCache(new Map());
 const pixiTurretTextureCache = registerPixiTextureCache(new Map());
@@ -171,12 +144,11 @@ function createPixiShipView(env) {
   hullSprite.anchor.set(0.5);
   const damageGfx = new PIXI.Graphics(); // persistent destroyed/damaged tints
   const flashGfx = new PIXI.Graphics(); // short-lived hit flashes + penetration trace
-  root.label = root.name = "shipRoot";
-  hullGroup.label = hullGroup.name = "hullGroup";
-  engineGfx.label = engineGfx.name = "engineEffects";
-  hullSprite.label = hullSprite.name = "staticHullSprite";
-  damageGfx.label = damageGfx.name = "damageOverlay";
-  flashGfx.label = flashGfx.name = "flashOverlay";
+  hullGroup.addChild(engineGfx);
+  hullGroup.addChild(hullSprite);
+  hullGroup.addChild(damageGfx);
+  hullGroup.addChild(flashGfx);
+  const hudGfx = new PIXI.Graphics();
   const makeText = (style) => {
     const text = new PIXI.Text({ text: "", style, resolution: 2 });
     text.anchor.set(0.5);
@@ -189,17 +161,6 @@ function createPixiShipView(env) {
   const hudName = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "bold", fill: "#ffffff" });
   const idleName = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fill: "rgba(237,244,255,0.5)" });
   const lostText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 14, fill: "rgba(237,244,255,0.7)" });
-  const turretDebugGfx = new PIXI.Graphics();
-  turretDebugGfx.label = turretDebugGfx.name = "turretDebugOverlay";
-  const turretDebugText = makeText({ fontFamily: "monospace", fontSize: 11, fill: "#fff200", stroke: { color: "rgba(0,0,0,0.9)", width: 3 }, align: "left" });
-  turretDebugText.anchor.set(0, 0);
-  const hudGfx = new PIXI.Graphics();
-  hullGroup.addChild(engineGfx);
-  hullGroup.addChild(hullSprite);
-  hullGroup.addChild(turretDebugGfx);
-  hullGroup.addChild(turretDebugText);
-  hullGroup.addChild(damageGfx);
-  hullGroup.addChild(flashGfx);
   root.addChild(shieldGfx);
   root.addChild(hullGroup);
   root.addChild(hudGfx);
@@ -218,8 +179,6 @@ function createPixiShipView(env) {
     hullSprite,
     damageGfx,
     flashGfx,
-    turretDebugGfx,
-    turretDebugText,
     coreWarnText,
     damageSig: null,
     turretSprites: [],
@@ -318,19 +277,15 @@ function rebuildPixiShipVisual(env, view, design, color, radius, hullKey, ship =
     if (Number.isFinite(previousAngles[i])) return previousAngles[i];
     return moduleRotationToRadians(normalizeRotation(part.rotation));
   });
-  const weaponIndices = weaponComponentIndices(design);
   design.forEach((part, i) => {
-    const weapon = Boolean(PART_STATS[part.type]?.weapon);
-    if (!weapon || !isRotatablePart(part.type)) return;
-    const sprite = new env.PIXI.Sprite(turretDebugEnabled() ? getDebugArrowTexture(env) : getPixiTurretTexture(env, part.type, color));
+    if (!isRotatablePart(part.type)) return;
+    const sprite = new env.PIXI.Sprite(getPixiTurretTexture(env, part.type, color));
     sprite.anchor.set(0.5);
     sprite.scale.set(1 / env.bakeScale);
     // Multi-tile weapons pivot at their footprint centre, not the anchor cell.
     const place = footprintLocalPlacement(part, SHIP_SCALE);
     sprite.position.set(place.cx, place.cy);
     sprite.__designIndex = i;
-    sprite.__weaponType = part.type;
-    sprite.label = sprite.name = `dynamicTurret:${i}:${part.type}`;
     sprite.rotation = view.visualTurretAngles[i];
     sprite.visible = true;
     view.hullGroup.addChild(sprite);
@@ -339,9 +294,6 @@ function rebuildPixiShipVisual(env, view, design, color, radius, hullKey, ship =
   // Keep the damage/flash overlays above the freshly re-added turret sprites.
   view.hullGroup.addChild(view.damageGfx);
   view.hullGroup.addChild(view.flashGfx);
-  if (turretDebugEnabled() && weaponIndices.length !== view.turretSprites.length) {
-    throw new Error(`[turret-debug] weaponComponentCount ${weaponIndices.length} !== dynamicTurretSpriteCount ${view.turretSprites.length}`);
-  }
   view.damageSig = null;
   view.engines = shipEngineNozzles(design, SHIP_SCALE);
   view.hullKey = hullKey;
@@ -600,27 +552,7 @@ function updatePixiEngineExhaust(view, ship, now) {
   }
 }
 
-function updatePixiTurretDebug(env, view, ship, design) {
-  const enabled = turretDebugEnabled();
-  view.turretDebugGfx.visible = enabled; view.turretDebugText.visible = enabled;
-  if (!enabled) { view.turretDebugGfx.clear(); return; }
-  const gfx = view.turretDebugGfx; gfx.clear();
-  const lines = [`backend=${window.__mfaRenderer?.backend || "unknown"} ship=${ship.id}`, `weapons=${weaponComponentIndices(design).length} pixiTurrets=${view.turretSprites.length}`];
-  for (const sprite of view.turretSprites) {
-    const i = sprite.__designIndex; const part = design[i]; const place = footprintLocalPlacement(part, SHIP_SCALE);
-    const auth = ship.weaponAngles?.[i] ?? moduleRotationToRadians(normalizeRotation(part.rotation));
-    const world = (ship.angle || 0) + auth; const renderedWorld = (ship.angle || 0) + sprite.rotation;
-    const baked = Boolean(PART_STATS[part.type]?.weapon);
-    lines.push(`#${i} ${part.type} auth=${auth.toFixed(2)} local=${sprite.rotation.toFixed(2)} world=${renderedWorld.toFixed(2)} vis=${sprite.visible} a=${sprite.alpha.toFixed(2)} parent=${sprite.parent?.name || sprite.parent?.label || "?"} bakedHull=${baked}`);
-    gfx.circle(place.cx, place.cy, 2.8).fill({ color: 0xffe600, alpha: 1 });
-    gfx.moveTo(place.cx, place.cy); gfx.lineTo(place.cx + Math.cos(auth) * 38, place.cy + Math.sin(auth) * 38); gfx.stroke({ width: 2, color: 0xff2525, alpha: 0.95 });
-    gfx.moveTo(place.cx, place.cy); gfx.lineTo(place.cx + Math.cos(sprite.rotation) * 32, place.cy + Math.sin(sprite.rotation) * 32); gfx.stroke({ width: 2, color: 0x00e5ff, alpha: 0.95 });
-  }
-  view.turretDebugText.text = lines.join("\n");
-  view.turretDebugText.position.set(-(ship.radius || 40), (ship.radius || 40) + 10);
-}
-
-function updatePixiTurrets(view, ship, design, env) {
+function updatePixiTurrets(view, ship, design) {
   if (view.boundShipId !== ship.id) {
     view.boundShipId = ship.id;
     view.visualTurretAngles = design.map((part, i) => {
@@ -654,14 +586,8 @@ function updatePixiTurrets(view, ship, design, env) {
     const defaultRelative = moduleRotationToRadians(normalizeRotation(part.rotation));
     const targetRelative = serverAngles[i] !== undefined ? serverAngles[i] : defaultRelative;
     const turnRate = weaponStat ? getWeaponTurnRate(weaponStat) : 3.0;
-    if (turretDebugEnabled()) {
-      sprite.texture = getDebugArrowTexture(env);
-      visualAngles[i] = targetRelative;
-      sprite.rotation = targetRelative;
-    } else {
-      visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
-      sprite.rotation = visualAngles[i];
-    }
+    visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
+    sprite.rotation = visualAngles[i];
     if (state.debugTurrets && performance.now() - (view.turretDebugLastAt || 0) > 500) {
       view.turretDebugLastAt = performance.now();
       // Disabled by default; useful when validating Pixi visual/server angle flow.
@@ -1010,9 +936,7 @@ export function updatePixiShips(env, now, players, bounds) {
       view.hullGroup.alpha = ship.alive ? 1 : 0.32;
       updatePixiShieldRing(view, ship, zoom);
       updatePixiEngineExhaust(view, renderShip, now);
-      // updatePixiTurrets(view, ship, design) -- compatibility assertion: called every rendered ship frame.
-      updatePixiTurrets(view, ship, design, env);
-      updatePixiTurretDebug(env, view, ship, design);
+      updatePixiTurrets(view, ship, design);
       updatePixiComponentDamage(view, ship, design);
       updatePixiDamageFlashes(view, ship, design, performance.now());
       updatePixiCoreWarning(view, ship, zoom);
