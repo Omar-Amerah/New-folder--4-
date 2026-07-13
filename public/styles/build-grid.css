@@ -188,15 +188,15 @@
 .heat-card-grid span[title^="An exterior"], .heat-card-grid span[title^="Exposed radiator"], .heat-card-grid span[title^="Enclosed radiators"] { color:#67e8f9; }
 .heat-card-grid span[title^="An exterior"] + strong, .heat-card-grid span[title^="Exposed radiator"] + strong, .heat-card-grid span[title^="Enclosed radiators"] + strong { color:#a7f3d0; }
 .heat-card-grid .heat-card-warning { color:#fcd34d; }
-.heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.07px; stroke-linejoin:round; font-size:.29px; font-weight:850; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
+.heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.05px; stroke-linejoin:round; font-size:.23px; font-weight:850; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
 .heat-flow-overlay .heat-flow-label-group { pointer-events:none; }
-.heat-flow-overlay .heat-flow-label-background { fill:rgba(3,8,15,.88); stroke-width:.025px; rx:.08px; ry:.08px; }
+.heat-flow-overlay .heat-flow-label-background { fill:rgba(3,8,15,.88); stroke-width:.025px; rx:.06px; ry:.06px; }
 .heat-flow-overlay .incoming-flow-label-group .heat-flow-label-background { stroke:rgba(56,217,255,.65); }
 .heat-flow-overlay .outgoing-flow-label-group .heat-flow-label-background { stroke:rgba(255,154,61,.65); }
 .heat-flow-overlay .incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .outgoing-flow-label { fill:#ffb260; }
 @keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
 
-.heat-flow-overlay .focused-flow-label { font-size:.27px; opacity:1; font-weight:850; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.07px; stroke-linejoin:round; }
+.heat-flow-overlay .focused-flow-label { font-size:.22px; opacity:1; font-weight:850; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.05px; stroke-linejoin:round; }
 .heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .focused-flow-label.outgoing-flow-label { fill:#ffb260; }

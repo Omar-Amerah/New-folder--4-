@@ -40,6 +40,7 @@ export function invalidateHeatAnalysisCache() { cachedHeatAnalysis = null; }
 export function renderBuildGrid() {
   renderBaseBlueprintGrid();
   if (state.blueprintView === "heat") {
+    suppressHeatGridNativeTooltips();
     refreshHeatPresentationSafely();
   } else {
     applyBlueprintPresentation();
@@ -55,12 +56,31 @@ function currentHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOA
   return getScenarioHeatAnalysis(mode);
 }
 
+function blueprintCellTitle(part, partIndex, exhaustAnalysis = null) {
+  if (!part) return "Empty";
+  const blocked = exhaustAnalysis?.blockedEngineIndices?.has(partIndex);
+  if (blocked) return "Blocked exhaust — engine provides no thrust.";
+  return `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`;
+}
+
+function restoreBlueprintCellTitle(cell, part, partIndex, exhaustAnalysis = null) {
+  cell.title = blueprintCellTitle(part, partIndex, exhaustAnalysis);
+  cell.removeAttribute("aria-label");
+}
+
+function suppressHeatGridNativeTooltips() {
+  for (const cell of dom.grid.querySelectorAll(".build-cell")) {
+    cell.removeAttribute("title");
+  }
+}
+
 export function setBlueprintView(view) {
   state.blueprintView = view === "heat" ? "heat" : "build";
   refreshBlueprintControls();
   renderHoverPreview();
 
   if (state.blueprintView === "heat") {
+    suppressHeatGridNativeTooltips();
     refreshHeatPresentationSafely();
   } else {
     clearHeatInspectionState();
@@ -162,9 +182,7 @@ export function renderBaseBlueprintGrid() {
       cell.style.gridColumn = `${originX + 1} / span ${width}`;
       cell.style.gridRow = `${originY + 1} / span ${height}`;
 
-      cell.title = part
-        ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
-        : "Empty";
+      restoreBlueprintCellTitle(cell, part, part ? state.design.indexOf(part) : -1, exhaustAnalysis);
       if (part) {
         const partIndex = state.design.indexOf(part);
         const blockedExhaust = exhaustAnalysis.blockedEngineIndices.has(partIndex);
@@ -172,7 +190,6 @@ export function renderBaseBlueprintGrid() {
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
         cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${exhaustWarning}`;
         cell.dataset.partIndex = String(partIndex);
-        if (blockedExhaust) cell.title = "Blocked exhaust — engine provides no thrust.";
       }
       cell.dataset.x = String(x);
       cell.dataset.y = String(y);
@@ -268,14 +285,18 @@ function applyHeatPresentation(heatAnalysis) {
       cell,
       heatClass,
       markup: `${role}${heatBadge}${heatWarning}`,
-      title: `${PART_DEFS[part.type].name}${thermalHoverText(prediction)}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
+      ariaLabel:
+        `${PART_DEFS[part.type].name}. ` +
+        `${globalThis.HeatRules.STATE_LABELS[prediction.state]}. ` +
+        `${displayedHeat} percent heat capacity used.`
     });
   }
   clearHeatPresentation();
   for (const update of updates) {
     addClassString(update.cell, update.heatClass);
     update.cell.insertAdjacentHTML("beforeend", update.markup);
-    update.cell.title = update.title;
+    update.cell.removeAttribute("title");
+    update.cell.setAttribute("aria-label", update.ariaLabel);
   }
   renderFullLoadThermalPanel(currentHeatAnalysis("full"), heatAnalysis);
   renderThermalHud(heatAnalysis);
@@ -303,6 +324,9 @@ function clearHeatPresentation() {
   clearHeatContextCard();
   if (dom.blueprintThermalHud) { dom.blueprintThermalHud.hidden = true; dom.blueprintThermalHud.innerHTML = ""; }
   dom.grid.classList.remove("heat-inspecting");
+  const exhaustAnalysis = state.blueprintView === "build"
+    ? globalThis.EngineExhaustRules.analyze(state.design, PART_STATS)
+    : null;
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
     for (const className of [...cell.classList]) {
       if (className.startsWith("heat-") || className.startsWith("thermal-") || className.startsWith("radiator-exposed")) cell.classList.remove(className);
@@ -310,9 +334,11 @@ function clearHeatPresentation() {
     cell.querySelectorAll(".component-heat-value, .component-overheat-warning, .component-critical-warning, .thermal-role-indicator").forEach(item => item.remove());
     const index = Number(cell.dataset.partIndex);
     const part = state.design[index];
-    cell.title = part
-      ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
-      : "Empty";
+    if (state.blueprintView === "build") {
+      restoreBlueprintCellTitle(cell, part, index, exhaustAnalysis);
+    } else {
+      cell.removeAttribute("title");
+    }
   }
 }
 
@@ -1110,7 +1136,7 @@ function renderHeatFlows(analysis) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 15 15");
   svg.classList.add("heat-flow-overlay");
-  svg.innerHTML = `<defs><marker id="heat-flow-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff9a3d"/></marker><marker id="heat-flow-arrow-incoming" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#38d9ff"/></marker><marker id="heat-flow-arrow-outgoing" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff9a3d"/></marker></defs>`;
+  svg.innerHTML = `<defs><marker id="heat-flow-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.4" markerHeight="3.4" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff9a3d"/></marker><marker id="heat-flow-arrow-incoming" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.4" markerHeight="3.4" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#38d9ff"/></marker><marker id="heat-flow-arrow-outgoing" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.4" markerHeight="3.4" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff9a3d"/></marker></defs>`;
   const owner = new Map();
   const occupiedByIndex = state.design.map((part, i) => {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
@@ -1149,10 +1175,10 @@ function renderHeatFlows(analysis) {
       if (showAll && focus != null && !focusedFlow) line.classList.add("heat-flow-muted");
       if (focusedFlow) line.classList.add("heat-flow-focus");
       let opacity = 0.44 + strength * 0.46;
-      let width = 0.052 + strength * 0.115;
+      let width = 0.032 + strength * 0.065;
       if (focusedFlow) {
         opacity = Math.min(1, opacity + 0.22);
-        width = Math.min(0.23, width + 0.04);
+        width = Math.min(0.12, width + 0.018);
       } else if (showAll && focus != null) {
         opacity *= 0.55;
       }
@@ -1241,8 +1267,8 @@ function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
     const edgeKey = canonicalEdgeKey(fromCell, toCell);
     const canonicalNormal = canonicalEdgeNormal(fromCell, toCell);
     const preferredSide = incoming ? 1 : -1;
-    const width = Math.max(0.92, text.length * 0.145 + 0.18);
-    const height = 0.38;
+    const width = Math.max(0.72, text.length * 0.112 + 0.12);
+    const height = 0.30;
     let best = null;
 
     for (const side of [preferredSide, -preferredSide]) {
@@ -1283,8 +1309,8 @@ function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
     background.setAttribute("y", String(best.box.top));
     background.setAttribute("width", String(width));
     background.setAttribute("height", String(height));
-    background.setAttribute("rx", ".08");
-    background.setAttribute("ry", ".08");
+    background.setAttribute("rx", ".06");
+    background.setAttribute("ry", ".06");
     group.appendChild(background);
 
     const label = document.createElementNS("http://www.w3.org/2000/svg", "text");

@@ -455,8 +455,20 @@ if (!designerSource.includes('view === "local" && !directlyRelated')) {
 if (!/heat-flow-incoming[^}]+#38d9ff/i.test(buildGridCss) || !/heat-flow-outgoing[^}]+#ff9a3d/i.test(buildGridCss)) {
   throw new Error("directional heat flows should use distinct cyan incoming and amber outgoing colours");
 }
-if (!/focused-flow-label[^}]+font-size:\.27px/i.test(buildGridCss)) {
-  throw new Error("focused H/s flow labels should remain noticeably smaller");
+if (!/focused-flow-label[^}]+font-size:\.22px/i.test(buildGridCss) || !/focused-flow-label[^}]+stroke-width:\.05px/i.test(buildGridCss)) {
+  throw new Error("focused H/s flow labels should remain compact and readable");
+}
+if (!designerSource.includes('markerWidth="3.4" markerHeight="3.4"') || designerSource.includes('markerWidth="5" markerHeight="5"')) {
+  throw new Error("heat transfer arrow markers should use compact dimensions");
+}
+if (!designerSource.includes('let width = 0.032 + strength * 0.065') || !designerSource.includes('width = Math.min(0.12, width + 0.018)')) {
+  throw new Error("heat transfer stroke widths should use the compact range");
+}
+if (!designerSource.includes('const width = Math.max(0.72, text.length * 0.112 + 0.12)') || !designerSource.includes('const height = 0.30')) {
+  throw new Error("heat transfer label collision boxes should match compact label pills");
+}
+if (!designerSource.includes('suppressHeatGridNativeTooltips') || !designerSource.includes('update.cell.removeAttribute("title")') || !designerSource.includes('update.cell.setAttribute("aria-label", update.ariaLabel)')) {
+  throw new Error("heat-view grid cells should suppress native titles and expose aria labels");
 }
 for (const cls of ["low-heat-flow", "moderate-heat-flow", "high-heat-flow", "critical-heat-flow"]) {
   if (!buildGridCss.includes(cls)) throw new Error(`missing warm transfer intensity class: ${cls}`);
