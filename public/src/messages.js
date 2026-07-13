@@ -25,6 +25,8 @@ export function handleServerMessage(message) {
     state.myId = message.id;
     applyServerParts(message.parts || {});
     state.design = normalizeDesign(state.design);
+    state.hoveredHeatPartIndex = null;
+    state.inspectedHeatPartIndex = null;
     renderPalette();
     renderPartInspector();
     renderBuildGrid();
@@ -35,6 +37,8 @@ export function handleServerMessage(message) {
     const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
     if (!localStorage.getItem(LOCAL_DESIGN_KEY)) {
       state.design = normalizeDesign(message.defaultDesign || state.design);
+      state.hoveredHeatPartIndex = null;
+      state.inspectedHeatPartIndex = null;
       renderBuildGrid();
       renderLocalStats();
     }

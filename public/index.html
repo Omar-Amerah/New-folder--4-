@@ -436,6 +436,17 @@
                 <button type="button" data-thermal-load="combat" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
                 <button type="button" data-thermal-load="full" class="active" title="Maximum Sustained Load: all major systems operating continuously">Maximum Sustained Load</button>
               </div>
+              <div id="heatToolControls" class="thermal-tool-controls" role="group" aria-label="Heat mode tool" hidden>
+                <span>Tool</span>
+                <button type="button" data-heat-tool="place" class="active">Place</button>
+                <button type="button" data-heat-tool="inspect">Inspect</button>
+              </div>
+              <div id="heatFlowViewControls" class="thermal-tool-controls" role="group" aria-label="Heat flow view" hidden>
+                <span>Heat Flow View</span>
+                <button type="button" data-heat-flow-view="off">Off</button>
+                <button type="button" data-heat-flow-view="local" class="active">Local</button>
+                <button type="button" data-heat-flow-view="total">Total</button>
+              </div>
               <div id="thermalScenarioLabel" class="thermal-scenario-label" hidden></div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
