@@ -32,14 +32,12 @@ function getScenarioHeatAnalysis(mode = state.thermalLoadMode || "full") {
   return result;
 }
 
-function invalidateHeatAnalysisCache() { cachedHeatAnalysis = null; }
+export function invalidateHeatAnalysisCache() { cachedHeatAnalysis = null; }
 
 export function renderBuildGrid() {
   renderBaseBlueprintGrid();
-  const heatAnalysis = currentHeatAnalysis();
   if (state.blueprintView === "heat") {
-    applyHeatPresentation(heatAnalysis);
-    refreshHeatFlowOverlay(heatAnalysis);
+    refreshHeatPresentationSafely();
   } else {
     applyBlueprintPresentation();
   }
@@ -56,12 +54,11 @@ function currentHeatAnalysis(mode = state.thermalLoadMode || "full") {
 
 export function setBlueprintView(view) {
   state.blueprintView = view === "heat" ? "heat" : "build";
-  const analysis = state.blueprintView === "heat" ? currentHeatAnalysis() : null;
   refreshBlueprintControls();
-  if (analysis) {
-    applyHeatPresentation(analysis);
-    refreshHeatFlowOverlay(analysis);
-    updateHeatInspectionOverlay(analysis);
+  renderHoverPreview();
+
+  if (state.blueprintView === "heat") {
+    refreshHeatPresentationSafely();
   } else {
     clearHeatInspectionState();
     clearHeatPresentation();
@@ -80,7 +77,11 @@ function refreshBlueprintControls() {
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
   if (dom.thermalLoadModes) {
     dom.thermalLoadModes.hidden = !heatView;
-    for (const button of dom.thermalLoadModes.querySelectorAll("[data-thermal-load]")) button.classList.toggle("active", button.dataset.thermalLoad === (state.thermalLoadMode || "full"));
+    for (const button of dom.thermalLoadModes.querySelectorAll("[data-thermal-load]")) {
+      const active = button.dataset.thermalLoad === (state.thermalLoadMode || "full");
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
   }
   if (dom.thermalScenarioLabel) {
     dom.thermalScenarioLabel.hidden = !heatView;
@@ -88,11 +89,19 @@ function refreshBlueprintControls() {
   }
   if (dom.heatToolControls) {
     dom.heatToolControls.hidden = !heatView;
-    for (const button of dom.heatToolControls.querySelectorAll("[data-heat-tool]")) button.classList.toggle("active", button.dataset.heatTool === (state.heatTool || "place"));
+    for (const button of dom.heatToolControls.querySelectorAll("[data-heat-tool]")) {
+      const active = button.dataset.heatTool === (state.heatTool || "place");
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
   }
   if (dom.heatFlowViewControls) {
     dom.heatFlowViewControls.hidden = !heatView;
-    for (const button of dom.heatFlowViewControls.querySelectorAll("[data-heat-flow-view]")) button.classList.toggle("active", button.dataset.heatFlowView === (state.heatFlowView || "local"));
+    for (const button of dom.heatFlowViewControls.querySelectorAll("[data-heat-flow-view]")) {
+      const active = button.dataset.heatFlowView === (state.heatFlowView || "local");
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
   }
 }
 
@@ -174,6 +183,42 @@ function applyBlueprintPresentation() {
   renderFullLoadThermalPanel(null, null);
 }
 
+function addClassString(element, classString) {
+  const tokens = String(classString || "")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (tokens.length) element.classList.add(...tokens);
+}
+
+function refreshHeatPresentationSafely() {
+  try {
+    const analysis = currentHeatAnalysis();
+    applyHeatPresentation(analysis);
+    updateHeatInspectionOverlay(analysis);
+    clearHeatUiError();
+  } catch (error) {
+    console.error("Heat presentation failed", error);
+    showHeatUiError(error);
+  }
+}
+
+function clearHeatUiError() {
+  dom.grid?.classList.remove("heat-ui-error");
+  dom.blueprintThermalHud?.querySelector(".heat-ui-error-message")?.remove();
+}
+
+function showHeatUiError(error) {
+  dom.grid?.classList.add("heat-ui-error");
+  if (!dom.blueprintThermalHud) return;
+  dom.blueprintThermalHud.hidden = false;
+  dom.blueprintThermalHud.querySelector(".heat-ui-error-message")?.remove();
+  const message = document.createElement("div");
+  message.className = "heat-ui-error-message";
+  message.textContent = `Heat rendering failed: ${error?.message || error}`;
+  dom.blueprintThermalHud.prepend(message);
+}
+
 function applyHeatPresentation(heatAnalysis) {
   clearHeatPresentation();
   clearInvalidHeatIndexes();
@@ -182,7 +227,7 @@ function applyHeatPresentation(heatAnalysis) {
     const part = state.design[index];
     if (!part) continue;
     const heatClass = heatAnalysis.componentClasses.get(part) || "";
-    if (heatClass) cell.classList.add(heatClass);
+    addClassString(cell, heatClass);
     const prediction = heatAnalysis.predictions.get(part);
     const displayedHeat = Math.max(0, Math.min(100, heatAnalysis.componentHeat.get(part) || 0));
     const meltdown = prediction?.meltdownTime != null;
@@ -199,7 +244,6 @@ function applyHeatPresentation(heatAnalysis) {
   }
   renderFullLoadThermalPanel(currentHeatAnalysis("full"), heatAnalysis);
   renderThermalHud(heatAnalysis);
-  updateHeatInspectionOverlay(heatAnalysis);
 }
 
 function clearHeatFlowOverlay() {
@@ -243,13 +287,19 @@ function switchToBuildView() { setBlueprintView("build"); }
 
 function assertHeatViewKeepsBaseGridDom() {
   const before = [...dom.grid.querySelectorAll(".build-cell")];
-  switchToHeatView();
+  const priorView = state.blueprintView;
+  state.blueprintView = "heat";
+  refreshBlueprintControls();
+  renderHoverPreview();
   const after = [...dom.grid.querySelectorAll(".build-cell")];
   console.assert(
     before.length === after.length &&
     before.every((cell, index) => cell === after[index]),
     "Heat tab replaced the base grid DOM"
   );
+  state.blueprintView = priorView;
+  refreshBlueprintControls();
+  renderHoverPreview();
 }
 
 function ensureBlueprintGridEventHandlers() {
@@ -308,17 +358,15 @@ function ensureBlueprintGridEventHandlers() {
     });
     dom.blueprintHeatTab?.addEventListener("click", () => {
       setBlueprintView("heat");
-      assertHeatViewKeepsBaseGridDom();
       renderLocalStats();
+      renderPartInspector();
     });
     dom.thermalLoadModes?.addEventListener("click", event => {
       const button = event.target.closest("[data-thermal-load]");
       if (!button) return;
       state.thermalLoadMode = button.dataset.thermalLoad;
-      const analysis = currentHeatAnalysis();
-      applyHeatPresentation(analysis);
-      refreshHeatFlowOverlay(analysis);
       refreshBlueprintControls();
+      refreshHeatPresentationSafely();
       renderLocalStats();
       renderPartInspector();
     });
@@ -327,26 +375,36 @@ function ensureBlueprintGridEventHandlers() {
       if (!button) return;
       state.heatTool = button.dataset.heatTool;
       refreshBlueprintControls();
+      renderHoverPreview();
     });
     dom.heatFlowViewControls?.addEventListener("click", event => {
       const button = event.target.closest("[data-heat-flow-view]");
       if (!button) return;
       state.heatFlowView = button.dataset.heatFlowView;
-      const analysis = currentHeatAnalysis();
-      updateHeatInspectionOverlay(analysis);
-      refreshHeatFlowOverlay(analysis);
       refreshBlueprintControls();
+      refreshHeatPresentationSafely();
     });
     dom.grid.dataset.hasHeatTabs = "true";
   }
 }
 
-export function renderHoverPreview() {
+function removePlacementPreviewElements() {
   for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow")) {
     stale.remove();
   }
+}
 
-  if (state.hoveredCell && state.selectedPart) {
+export function renderHoverPreview() {
+  removePlacementPreviewElements();
+
+  const inspectingHeat =
+    state.blueprintView === "heat" &&
+    (state.heatTool || "place") === "inspect";
+
+  if (inspectingHeat) return;
+  if (!state.hoveredCell || !state.selectedPart) return;
+
+  {
     const selectedType = state.selectedPart;
     const existing = findPartAt(state.hoveredCell.x, state.hoveredCell.y);
     const editingSamePart = existing?.type === selectedType;
@@ -654,6 +712,7 @@ export function removeCell(x, y) {
   if (validation.ok) {
     state.design = next;
     clearInvalidHeatIndexes();
+    invalidateHeatAnalysisCache();
     persistDesign(state.design, state.combatStyle);
     renderBuildGrid();
     renderLocalStats();
@@ -1014,6 +1073,20 @@ function renderHeatFlows(analysis) {
     }
   }
   if (svg.children.length > 1) (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
+}
+
+export function heatInteractionDiagnostics() {
+  const activeScenarioButton = dom.thermalLoadModes?.querySelector("[data-thermal-load].active")?.dataset.thermalLoad || null;
+  return {
+    blueprintView: state.blueprintView,
+    heatTool: state.heatTool || "place",
+    thermalLoadMode: state.thermalLoadMode || "full",
+    activeScenarioButton,
+    percentageBadgeCount: dom.grid.querySelectorAll(".component-heat-value").length,
+    occupiedCellCount: dom.grid.querySelectorAll(".build-cell.occupied").length,
+    previewCount: dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow").length,
+    heatFlowOverlayCount: (dom.heatFlowOverlayHost || dom.grid).querySelectorAll(".heat-flow-overlay").length
+  };
 }
 
 export function setBuildStatus(text, className) {
