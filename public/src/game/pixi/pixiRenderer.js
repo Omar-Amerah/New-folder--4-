@@ -63,8 +63,9 @@ export async function initPixiRenderer() {
     relays: new PIXI.Container(),
     command: new PIXI.Graphics(),
     engineSmoke: new PIXI.Graphics(),
+    enemyBullets: new PIXI.Container(),
     ships: new PIXI.Container(),
-    bullets: new PIXI.Container(),
+    friendlyBullets: new PIXI.Container(),
     effects: new PIXI.Container(),
     effectText: new PIXI.Container(),
     overlay: new PIXI.Graphics(),
@@ -75,8 +76,9 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.relays);
   worldRoot.addChild(layers.command);
   worldRoot.addChild(layers.engineSmoke);
+  worldRoot.addChild(layers.enemyBullets);
   worldRoot.addChild(layers.ships);
-  worldRoot.addChild(layers.bullets);
+  worldRoot.addChild(layers.friendlyBullets);
   worldRoot.addChild(layers.effects);
   worldRoot.addChild(layers.effectText);
   worldRoot.addChild(layers.overlay);
