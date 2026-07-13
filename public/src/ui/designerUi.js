@@ -1208,13 +1208,14 @@ function renderHeatFlows(analysis) {
 }
 
 const MAX_LABEL_ALONG_DISPLACEMENT = 0.20;
-const MAX_LABEL_PERPENDICULAR_DISPLACEMENT = 0.32;
-const LABEL_CLEARANCES = [0.14, 0.23, 0.32];
+const MAX_LABEL_PERPENDICULAR_DISPLACEMENT = 0.42;
+const LABEL_CLEARANCES = [0.20, 0.29, 0.38];
 const LABEL_ALONG_ADJUSTMENTS = [0, -0.10, 0.10];
 const LABEL_BOUNDARY_PADDING = 0.12;
-const MIN_ARROWHEAD_LABEL_DISTANCE = 0.18;
-const LABEL_TEXT_PADDING_X = 0.08;
-const LABEL_TEXT_PADDING_Y = 0.04;
+const MIN_ARROWHEAD_LABEL_DISTANCE = 0.20;
+const LABEL_TEXT_PADDING_X = 0.055;
+const LABEL_TEXT_PADDING_Y = 0.026;
+const LABEL_MAX_WIDTH = 0.86;
 
 function canonicalEdgeKey(a, b) {
   const first = a.x < b.x || (a.x === b.x && a.y <= b.y) ? a : b;
@@ -1272,8 +1273,8 @@ function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
     label.textContent = text;
     group.appendChild(label);
     svg.appendChild(group);
-    const fallbackWidth = Math.max(0.72, text.length * 0.112 + 0.12);
-    const fallbackHeight = 0.30;
+    const fallbackWidth = Math.min(LABEL_MAX_WIDTH, Math.max(0.56, text.length * 0.092 + LABEL_TEXT_PADDING_X * 2));
+    const fallbackHeight = 0.24;
     let textBox = { x: -fallbackWidth / 2 + LABEL_TEXT_PADDING_X, y: -fallbackHeight / 2 + LABEL_TEXT_PADDING_Y, width: fallbackWidth - LABEL_TEXT_PADDING_X * 2, height: fallbackHeight - LABEL_TEXT_PADDING_Y * 2 };
     try {
       const measured = label.getBBox?.();
@@ -1287,7 +1288,7 @@ function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
     const backgroundBox = {
       x: textBox.x - LABEL_TEXT_PADDING_X,
       y: textBox.y - LABEL_TEXT_PADDING_Y,
-      width: textBox.width + LABEL_TEXT_PADDING_X * 2,
+      width: Math.min(LABEL_MAX_WIDTH, textBox.width + LABEL_TEXT_PADDING_X * 2),
       height: textBox.height + LABEL_TEXT_PADDING_Y * 2
     };
     return { backgroundBox, width: backgroundBox.width, height: backgroundBox.height };
@@ -1373,8 +1374,8 @@ function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
     background.setAttribute("y", String(best.backgroundBox.y));
     background.setAttribute("width", String(best.backgroundBox.width));
     background.setAttribute("height", String(best.backgroundBox.height));
-    background.setAttribute("rx", ".06");
-    background.setAttribute("ry", ".06");
+    background.setAttribute("rx", ".045");
+    background.setAttribute("ry", ".045");
     group.appendChild(background);
 
     const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
