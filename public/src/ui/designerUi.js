@@ -1194,6 +1194,7 @@ function renderHeatFlows(analysis) {
           cell,
           dx,
           dy,
+          edgeKey,
           text: `${flow.amount.toFixed(1)} H/s`,
           incoming: flow.to === focus
         });
@@ -1206,12 +1207,14 @@ function renderHeatFlows(analysis) {
   if (svg.children.length > 1) (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
 }
 
-const BASE_LABEL_CLEARANCE = 0.22;
-const LABEL_LANE_GAP = 0.18;
-const LABEL_ALONG_OFFSET = 0.16;
-const LABEL_ALONG_ADJUSTMENTS = [0, -0.14, 0.14];
+const MAX_LABEL_ALONG_DISPLACEMENT = 0.20;
+const MAX_LABEL_PERPENDICULAR_DISPLACEMENT = 0.32;
+const LABEL_CLEARANCES = [0.14, 0.23, 0.32];
+const LABEL_ALONG_ADJUSTMENTS = [0, -0.10, 0.10];
 const LABEL_BOUNDARY_PADDING = 0.12;
-const LABEL_ARROWHEAD_GAP = 0.14;
+const MIN_ARROWHEAD_LABEL_DISTANCE = 0.18;
+const LABEL_TEXT_PADDING_X = 0.08;
+const LABEL_TEXT_PADDING_Y = 0.04;
 
 function canonicalEdgeKey(a, b) {
   const first = a.x < b.x || (a.x === b.x && a.y <= b.y) ? a : b;
@@ -1243,6 +1246,13 @@ function overlapArea(a, b) {
 
 function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
   if (!labelRequests.length || focus == null) return;
+  labelRequests.sort((a, b) =>
+    b.flow.amount - a.flow.amount ||
+    Number(b.incoming) - Number(a.incoming) ||
+    a.edgeKey.localeCompare(b.edgeKey) ||
+    a.flow.from - b.flow.from ||
+    a.flow.to - b.flow.to
+  );
   const placedLabelBoxes = [];
   const focusBox = focusCells.length ? {
     left: Math.min(...focusCells.map(cell => cell.x)) + 0.18,
@@ -1251,49 +1261,95 @@ function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
     bottom: Math.max(...focusCells.map(cell => cell.y)) + 0.82
   } : null;
 
+  function measureLabel(text) {
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.classList.add("heat-flow-label-group");
+    group.style.opacity = "0";
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.classList.add("heat-flow-label", "focused-flow-label");
+    label.setAttribute("x", "0");
+    label.setAttribute("y", "0");
+    label.textContent = text;
+    group.appendChild(label);
+    svg.appendChild(group);
+    const fallbackWidth = Math.max(0.72, text.length * 0.112 + 0.12);
+    const fallbackHeight = 0.30;
+    let textBox = { x: -fallbackWidth / 2 + LABEL_TEXT_PADDING_X, y: -fallbackHeight / 2 + LABEL_TEXT_PADDING_Y, width: fallbackWidth - LABEL_TEXT_PADDING_X * 2, height: fallbackHeight - LABEL_TEXT_PADDING_Y * 2 };
+    try {
+      const measured = label.getBBox?.();
+      if (measured && measured.width > 0 && measured.height > 0) {
+        textBox = { x: measured.x, y: measured.y, width: measured.width, height: measured.height };
+      }
+    } catch (error) {
+      // Browsers without SVG text measurement use the deterministic estimate above.
+    }
+    group.remove();
+    const backgroundBox = {
+      x: textBox.x - LABEL_TEXT_PADDING_X,
+      y: textBox.y - LABEL_TEXT_PADDING_Y,
+      width: textBox.width + LABEL_TEXT_PADDING_X * 2,
+      height: textBox.height + LABEL_TEXT_PADDING_Y * 2
+    };
+    return { backgroundBox, width: backgroundBox.width, height: backgroundBox.height };
+  }
+
   for (const request of labelRequests) {
-    const { cell, dx, dy, text, incoming } = request;
+    const { cell, dx, dy, text, incoming, flow } = request;
     const x1 = cell.x + 0.5 - dx * 0.12;
     const y1 = cell.y + 0.5 - dy * 0.12;
     const x2 = cell.x + 0.5 + dx * 0.72;
     const y2 = cell.y + 0.5 + dy * 0.72;
     const midpointX = (x1 + x2) / 2;
     const midpointY = (y1 + y2) / 2;
-    const awayFromFocus = incoming ? -1 : 1;
-    const baseX = midpointX + dx * LABEL_ALONG_OFFSET * awayFromFocus;
-    const baseY = midpointY + dy * LABEL_ALONG_OFFSET * awayFromFocus;
+    const directionOffset = incoming ? -0.06 : 0.06;
+    const baseX = midpointX + dx * directionOffset;
+    const baseY = midpointY + dy * directionOffset;
     const fromCell = { x: cell.x, y: cell.y };
     const toCell = { x: cell.x + dx, y: cell.y + dy };
     const edgeKey = canonicalEdgeKey(fromCell, toCell);
     const canonicalNormal = canonicalEdgeNormal(fromCell, toCell);
     const preferredSide = incoming ? 1 : -1;
-    const width = Math.max(0.72, text.length * 0.112 + 0.12);
-    const height = 0.30;
+    const { backgroundBox, width, height } = measureLabel(text);
     let best = null;
-
+    const orderedCandidates = [
+      { side: preferredSide, distance: LABEL_CLEARANCES[0], alongAdjust: 0 },
+      { side: preferredSide, distance: LABEL_CLEARANCES[1], alongAdjust: 0 },
+      { side: -preferredSide, distance: LABEL_CLEARANCES[0], alongAdjust: 0 }
+    ];
     for (const side of [preferredSide, -preferredSide]) {
-      for (const distance of [BASE_LABEL_CLEARANCE, BASE_LABEL_CLEARANCE + LABEL_LANE_GAP, BASE_LABEL_CLEARANCE + LABEL_LANE_GAP * 2]) {
+      for (const distance of LABEL_CLEARANCES) {
         for (const alongAdjust of LABEL_ALONG_ADJUSTMENTS) {
-          const rawX = baseX + canonicalNormal.x * distance * side + dx * alongAdjust;
-          const rawY = baseY + canonicalNormal.y * distance * side + dy * alongAdjust;
-          const cx = clampLabelCenter(rawX, width / 2);
-          const cy = clampLabelCenter(rawY, height / 2);
-          const box = labelBox(cx, cy, width, height);
-          const outsideDistance = Math.abs(cx - rawX) + Math.abs(cy - rawY);
-          const arrowheadDistance = Math.hypot(cx - x2, cy - y2);
-          const placedOverlap = placedLabelBoxes.reduce((total, placed) => total + overlapArea(box, placed.box), 0);
-          const focusOverlap = focusBox ? overlapArea(box, focusBox) : 0;
-          const score =
-            placedOverlap * 10000 +
-            focusOverlap * 900 +
-            outsideDistance * 120 +
-            (side === preferredSide ? 0 : 180) +
-            Math.max(0, LABEL_ARROWHEAD_GAP - arrowheadDistance) * 1200 +
-            Math.abs(alongAdjust) * 8 +
-            distance * 0.1;
-          if (!best || score < best.score) best = { cx, cy, box, score, edgeKey, side };
+          if (!orderedCandidates.some(candidate => candidate.side === side && candidate.distance === distance && candidate.alongAdjust === alongAdjust)) {
+            orderedCandidates.push({ side, distance, alongAdjust });
+          }
         }
       }
+    }
+
+    for (const { side, distance, alongAdjust } of orderedCandidates) {
+      const rawX = baseX + canonicalNormal.x * distance * side + dx * alongAdjust;
+      const rawY = baseY + canonicalNormal.y * distance * side + dy * alongAdjust;
+      const cx = clampLabelCenter(rawX, width / 2);
+      const cy = clampLabelCenter(rawY, height / 2);
+      const alongDisplacement = Math.abs((cx - midpointX) * dx + (cy - midpointY) * dy);
+      const perpendicularDisplacement = Math.abs((cx - midpointX) * canonicalNormal.x + (cy - midpointY) * canonicalNormal.y);
+      if (alongDisplacement > MAX_LABEL_ALONG_DISPLACEMENT || perpendicularDisplacement > MAX_LABEL_PERPENDICULAR_DISPLACEMENT) continue;
+      const box = labelBox(cx, cy, width, height);
+      const arrowheadDistance = Math.hypot(cx - x2, cy - y2);
+      if (arrowheadDistance < MIN_ARROWHEAD_LABEL_DISTANCE) continue;
+      const midpointDistance = Math.hypot(cx - midpointX, cy - midpointY);
+      const placedOverlap = placedLabelBoxes.reduce((total, placed) => total + overlapArea(box, placed.box), 0);
+      const focusOverlap = focusBox ? overlapArea(box, focusBox) : 0;
+      const outsideDistance = Math.abs(cx - rawX) + Math.abs(cy - rawY);
+      const score =
+        placedOverlap * 10000 +
+        midpointDistance * 500 +
+        focusOverlap * 900 +
+        outsideDistance * 120 +
+        (side === preferredSide ? 0 : 40) +
+        Math.abs(alongAdjust) * 8 +
+        distance * 0.1;
+      if (!best || score < best.score) best = { cx, cy, box, score, edgeKey, side, backgroundBox };
     }
 
     if (!best) continue;
@@ -1302,21 +1358,29 @@ function renderHeatFlowLabels(svg, labelRequests, focus, focusCells) {
     group.classList.add("heat-flow-label-group", incoming ? "incoming-flow-label-group" : "outgoing-flow-label-group");
     group.setAttribute("data-physical-edge", best.edgeKey);
     group.setAttribute("data-label-side", String(best.side));
+    group.setAttribute("data-flow-from", String(flow.from));
+    group.setAttribute("data-flow-to", String(flow.to));
+    group.setAttribute("data-flow-amount", String(flow.amount));
+    group.setAttribute("data-midpoint-x", String(midpointX));
+    group.setAttribute("data-midpoint-y", String(midpointY));
+    group.setAttribute("data-label-x", String(best.cx));
+    group.setAttribute("data-label-y", String(best.cy));
+    group.setAttribute("transform", `translate(${best.cx} ${best.cy})`);
 
     const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     background.classList.add("heat-flow-label-background");
-    background.setAttribute("x", String(best.box.left));
-    background.setAttribute("y", String(best.box.top));
-    background.setAttribute("width", String(width));
-    background.setAttribute("height", String(height));
+    background.setAttribute("x", String(best.backgroundBox.x));
+    background.setAttribute("y", String(best.backgroundBox.y));
+    background.setAttribute("width", String(best.backgroundBox.width));
+    background.setAttribute("height", String(best.backgroundBox.height));
     background.setAttribute("rx", ".06");
     background.setAttribute("ry", ".06");
     group.appendChild(background);
 
     const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
     label.classList.add("heat-flow-label", "focused-flow-label", incoming ? "incoming-flow-label" : "outgoing-flow-label");
-    label.setAttribute("x", String(best.cx));
-    label.setAttribute("y", String(best.cy));
+    label.setAttribute("x", "0");
+    label.setAttribute("y", "0");
     label.textContent = text;
     group.appendChild(label);
     svg.appendChild(group);
