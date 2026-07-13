@@ -43,6 +43,7 @@ export const state = {
   thermalLoadMode: "full",
   heatTool: "place",
   heatFlowView: "local",
+  showAllHeatFlows: false,
   hoveredHeatPartIndex: null,
   inspectedHeatPartIndex: null,
   shipStatusView: "damage",

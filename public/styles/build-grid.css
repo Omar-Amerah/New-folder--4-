@@ -203,3 +203,8 @@
 .blueprint-heat-legend::before { content:"Legend: colour = heat state; % = capacity used; arrows = heat direction; thickness = amount; dashed = frame/Heat Pipe; cyan outline = storage/removal; icons = bottleneck/overheat/meltdown."; color:#cfe8ff; font-weight:800; }
 @keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
 
+.thermal-tool-controls small { color:#8ea9c2; font-size:10px; font-weight:700; }
+.heat-flow-overlay .total-flow-label { fill:#ffdca3; font-size:.25px; opacity:.7; font-weight:800; }
+.heat-flow-overlay .focused-flow-label { fill:#fff3c4; font-size:.34px; opacity:1; font-weight:950; }
+.heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#ffd18a; }
+.heat-flow-overlay .focused-flow-label.outgoing-flow-label { fill:#ffad5c; }

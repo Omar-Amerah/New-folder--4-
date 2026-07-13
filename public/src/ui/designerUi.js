@@ -22,6 +22,7 @@ const GRID_SIZE = 15;
 const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "Maximum Sustained Load" };
 const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
+const HEAT_FLOW_TOTAL_LABEL_THRESHOLD = 0.5;
 let cachedHeatAnalysis = null;
 
 function getScenarioHeatAnalysis(mode = state.thermalLoadMode || "full") {
@@ -65,6 +66,25 @@ export function setBlueprintView(view) {
   }
 }
 
+
+function migrateHeatFlowViewState() {
+  if (state.heatFlowView === "total") state.showAllHeatFlows = true;
+  if (state.heatFlowView === "local" || state.heatFlowView === "off") state.showAllHeatFlows = false;
+  state.heatFlowView = undefined;
+}
+
+function updateHeatFlowToggleControl() {
+  migrateHeatFlowViewState();
+  const showAll = Boolean(state.showAllHeatFlows);
+  dom.showAllHeatFlows?.classList.toggle("active", showAll);
+  dom.showAllHeatFlows?.setAttribute("aria-pressed", String(showAll));
+  if (dom.heatFlowHint) {
+    dom.heatFlowHint.textContent = showAll
+      ? "Showing the full ship thermal network."
+      : "Hover a component to inspect its direct heat transfers.";
+  }
+}
+
 function refreshBlueprintControls() {
   const heatView = state.blueprintView === "heat";
   dom.grid.classList.toggle("heat-overlay-active", heatView);
@@ -97,11 +117,7 @@ function refreshBlueprintControls() {
   }
   if (dom.heatFlowViewControls) {
     dom.heatFlowViewControls.hidden = !heatView;
-    for (const button of dom.heatFlowViewControls.querySelectorAll("[data-heat-flow-view]")) {
-      const active = button.dataset.heatFlowView === (state.heatFlowView || "local");
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", String(active));
-    }
+    updateHeatFlowToggleControl();
   }
 }
 
@@ -289,7 +305,7 @@ function clearHeatPresentation() {
 
 function refreshHeatFlowOverlay(analysis) {
   clearHeatFlowOverlay();
-  if (state.blueprintView === "heat" && (state.heatFlowView || "local") !== "off") renderHeatFlows(analysis);
+  if (state.blueprintView === "heat") renderHeatFlows(analysis);
 }
 
 function switchToHeatView() { setBlueprintView("heat"); }
@@ -388,12 +404,12 @@ function ensureBlueprintGridEventHandlers() {
       refreshBlueprintControls();
       renderHoverPreview();
     });
-    dom.heatFlowViewControls?.addEventListener("click", event => {
-      const button = event.target.closest("[data-heat-flow-view]");
-      if (!button) return;
-      state.heatFlowView = button.dataset.heatFlowView;
-      refreshBlueprintControls();
-      refreshHeatPresentationSafely();
+    dom.showAllHeatFlows?.addEventListener("click", () => {
+      migrateHeatFlowViewState();
+      state.showAllHeatFlows = !state.showAllHeatFlows;
+      updateHeatFlowToggleControl();
+      refreshHeatFlowOverlay(currentHeatAnalysis());
+      updateHeatInspectionOverlay(currentHeatAnalysis(), { preserveOverlay: true });
     });
     dom.grid.dataset.hasHeatTabs = "true";
   }
@@ -1013,9 +1029,9 @@ function renderFullLoadThermalPanel(fullLoadResult, currentHeatResult = null) {
   });
 }
 
-function updateHeatInspectionOverlay(analysis) {
+function updateHeatInspectionOverlay(analysis, options = {}) {
   clearInvalidHeatIndexes();
-  clearHeatFlowOverlay();
+  if (!options.preserveOverlay) clearHeatFlowOverlay();
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
     cell.classList.remove("heat-related", "heat-unrelated", "heat-pinned");
   }
@@ -1035,14 +1051,23 @@ function updateHeatInspectionOverlay(analysis) {
     cell.classList.toggle("heat-unrelated", connected.size > 0 && !connected.has(index));
   }
   renderHeatContextCard(analysis);
-  if ((state.heatFlowView || "local") !== "off") renderHeatFlows(analysis);
+  if (!options.preserveOverlay) renderHeatFlows(analysis);
 }
 
 function renderHeatFlows(analysis) {
+  migrateHeatFlowViewState();
+  const focus = validHeatIndex(state.inspectedHeatPartIndex)
+    ? state.inspectedHeatPartIndex
+    : validHeatIndex(state.hoveredHeatPartIndex)
+      ? state.hoveredHeatPartIndex
+      : null;
+  const showAll = Boolean(state.showAllHeatFlows);
+  if (!showAll && focus == null) return;
+
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 15 15");
   svg.classList.add("heat-flow-overlay");
-  svg.innerHTML = `<defs><marker id="heat-flow-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.5" markerHeight="3.5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff7a2f"/></marker></defs>`;
+  svg.innerHTML = `<defs><marker id="heat-flow-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.5" markerHeight="3.5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff8a2a"/></marker></defs>`;
   const owner = new Map();
   const occupiedByIndex = state.design.map((part, i) => {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
@@ -1050,42 +1075,53 @@ function renderHeatFlows(analysis) {
     for (const cell of occupied) owner.set(`${cell.x},${cell.y}`, i);
     return occupied;
   });
-  const view = state.heatFlowView || "local";
-  const hover = validHeatIndex(state.hoveredHeatPartIndex) ? state.hoveredHeatPartIndex : null;
-  const pinned = validHeatIndex(state.inspectedHeatPartIndex) ? state.inspectedHeatPartIndex : null;
-  const focus = pinned ?? hover;
-  for (const flow of analysis.flows) {
+  const renderedEdges = new Set();
+  const labelSlots = new Map();
+  for (const flow of analysis.flows || []) {
     if (flow.amount < HEAT_FLOW_THRESHOLD) continue;
-    const directlyRelated = focus == null || flow.from === focus || flow.to === focus;
-    if (view === "local" && !directlyRelated) continue;
+    const focusedFlow = focus != null && (flow.from === focus || flow.to === focus);
+    if (!showAll && !focusedFlow) continue;
     const from = state.design[flow.from];
     const to = state.design[flow.to];
     if (!from || !to) continue;
     const isHeatPipeFlow = from.type === "heatPipe" || to.type === "heatPipe";
     const isFrameFlow = /frame/i.test(from.type) || /frame/i.test(to.type) || isHeatPipeFlow;
+    let drewFlow = false;
     for (const cell of occupiedByIndex[flow.from] || []) for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       if (owner.get(`${cell.x + dx},${cell.y + dy}`) !== flow.to) continue;
+      const edgeKey = `${flow.from}>${flow.to}:${cell.x},${cell.y}:${dx},${dy}`;
+      if (renderedEdges.has(edgeKey)) continue;
+      renderedEdges.add(edgeKey);
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(cell.x + 0.5 - dx * 0.12)); line.setAttribute("y1", String(cell.y + 0.5 - dy * 0.12));
-      line.setAttribute("x2", String(cell.x + 0.5 + dx * 0.72)); line.setAttribute("y2", String(cell.y + 0.5 + dy * 0.72));
+      line.setAttribute("x1", String(cell.x + 0.5 - dx * 0.12));
+      line.setAttribute("y1", String(cell.y + 0.5 - dy * 0.12));
+      line.setAttribute("x2", String(cell.x + 0.5 + dx * 0.72));
+      line.setAttribute("y2", String(cell.y + 0.5 + dy * 0.72));
       line.setAttribute("marker-end", "url(#heat-flow-arrow)");
       const strength = Math.min(1, flow.amount / 5);
       line.classList.add(isFrameFlow ? "frame-heat-flow" : "component-heat-flow", isHeatPipeFlow ? "heat-pipe-heat-flow" : "frame-route-heat-flow", strength >= 0.9 ? "critical-heat-flow" : strength >= 0.58 ? "high-heat-flow" : strength >= 0.28 ? "moderate-heat-flow" : "low-heat-flow");
-      if (focus != null && !directlyRelated) line.classList.add("heat-flow-muted");
-      if (directlyRelated && focus != null) line.classList.add(pinned != null ? "heat-flow-pinned" : "heat-flow-focus");
-      const baseOpacity = 0.18 + strength * 0.62;
-      line.style.opacity = String(Math.min(pinned != null && directlyRelated ? 0.95 : 0.82, baseOpacity + (directlyRelated && focus != null ? 0.16 : 0)));
-      line.style.strokeWidth = String(Math.min(0.16, 0.025 + strength * 0.105 + (pinned != null && directlyRelated ? 0.025 : 0)));
+      if (showAll && focus != null && !focusedFlow) line.classList.add("heat-flow-muted");
+      if (focusedFlow) line.classList.add(validHeatIndex(state.inspectedHeatPartIndex) ? "heat-flow-pinned" : "heat-flow-focus");
+      const focusedBoost = focusedFlow ? 0.05 : 0;
+      const mutedScale = showAll && focus != null && !focusedFlow ? 0.45 : 1;
+      line.style.opacity = String(Math.min(0.95, (0.16 + strength * 0.62 + (focusedFlow ? 0.18 : 0)) * mutedScale));
+      line.style.strokeWidth = String(Math.min(0.18, 0.022 + strength * 0.105 + focusedBoost));
       svg.appendChild(line);
-      if (view === "local" && directlyRelated && flow.amount >= HEAT_FLOW_LABEL_THRESHOLD) {
+      const shouldLabel = focusedFlow || (showAll && focus == null && flow.amount >= HEAT_FLOW_TOTAL_LABEL_THRESHOLD);
+      if (shouldLabel) {
+        const slotKey = `${Math.round((cell.x + 0.5 + dx * 0.3) * 2)},${Math.round((cell.y + 0.5 + dy * 0.3) * 2)}`;
+        const slot = labelSlots.get(slotKey) || 0;
+        labelSlots.set(slotKey, slot + 1);
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        label.classList.add("heat-flow-label", flow.to === focus ? "incoming-flow-label" : "outgoing-flow-label");
-        label.setAttribute("x", String(cell.x + 0.5 + dx * 0.28 + dy * 0.08));
-        label.setAttribute("y", String(cell.y + 0.5 + dy * 0.28 + dx * 0.08));
+        label.classList.add("heat-flow-label", focusedFlow ? "focused-flow-label" : "total-flow-label", flow.to === focus ? "incoming-flow-label" : "outgoing-flow-label");
+        label.setAttribute("x", String(cell.x + 0.5 + dx * 0.3 + dy * (0.08 + slot * 0.08)));
+        label.setAttribute("y", String(cell.y + 0.5 + dy * 0.3 + dx * (0.08 + slot * 0.08)));
         label.textContent = `${flow.amount.toFixed(1)} H/s`;
         svg.appendChild(label);
       }
+      drewFlow = true;
     }
+    if (drewFlow) continue;
   }
   if (svg.children.length > 1) (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
 }
