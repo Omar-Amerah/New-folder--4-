@@ -179,6 +179,7 @@
 .thermal-role-indicator.bottleneck-role, .thermal-role-indicator.unrouted-role { left:15px; top:2px; color:#fff; background:#b91c1c; border-color:#fecaca; }
 .thermal-role-indicator.meltdown-role { left:2px; top:15px; color:#fffbe8; background:#8b1cf6; border-color:#fde68a; box-shadow:0 0 9px rgba(250,204,21,.6); }
 .blueprint-thermal-hud { position:absolute; z-index:31; top:10px; left:10px; display:grid; grid-template-columns:auto auto; gap:3px 12px; max-width:min(235px,calc(100% - 20px)); padding:8px 10px; border:1px solid rgba(125,211,252,.42); border-radius:10px; background:rgba(3,8,15,.86); color:#dbeafe; font-size:11px; line-height:1.15; box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; backdrop-filter:blur(4px); }
+.blueprint-thermal-hud[hidden], .heat-context-card[hidden] { display:none; }
 .blueprint-thermal-hud strong { grid-column:1; color:#7dd3fc; letter-spacing:.08em; text-transform:uppercase; }
 .blueprint-thermal-hud b { grid-column:2; text-align:right; text-transform:uppercase; color:#fef3c7; }
 .blueprint-thermal-hud b.stable { color:#86efac; }
