@@ -119,6 +119,8 @@
 .heat-flow-overlay .hot-heat-flow { color:#ff9a3d; stroke:#ff9a3d; }
 .heat-flow-overlay .cooling-heat-flow { color:#67d9ff; stroke:#67d9ff; }
 .heat-flow-overlay .frame-heat-flow { stroke-dasharray:.18 .12; animation:thermal-flow-route .7s linear infinite; filter:drop-shadow(0 0 .06px currentColor); }
+.heat-flow-overlay .heat-pipe-heat-flow { stroke-dasharray:.04 .06; stroke-width:.09px; filter:drop-shadow(0 0 .09px #38bdf8); }
+.heat-flow-overlay .frame-route-heat-flow { opacity:.72; }
 .build-cell[class*="thermal-network-"] { outline:1px solid rgba(96,165,250,.2); outline-offset:-2px; }
 .build-cell.thermal-network-1 { outline-color:rgba(52,211,153,.28); }
 .build-cell.thermal-network-2 { outline-color:rgba(192,132,252,.28); }

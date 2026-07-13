@@ -77,29 +77,39 @@ function isConnected(modules) {
     }
   }
 
-  const seenParts = new Set();
-  const queue = [];
-
   const coreIndex = modules.indexOf(core);
-  seenParts.add(coreIndex);
-  queue.push(coreIndex);
+  const traverse = (canEnter) => {
+    const seenParts = new Set([coreIndex]);
+    const queue = [coreIndex];
+    for (let i = 0; i < queue.length; i += 1) {
+      const partIndex = queue[i];
+      const cells = partCellsMap.get(partIndex);
 
-  for (let i = 0; i < queue.length; i += 1) {
-    const partIndex = queue[i];
-    const cells = partCellsMap.get(partIndex);
-
-    for (const cell of cells) {
-      for (const [nx, ny] of [[cell.x + 1, cell.y], [cell.x - 1, cell.y], [cell.x, cell.y + 1], [cell.x, cell.y - 1]]) {
-        const neighbor = cellOwner.get(`${nx},${ny}`);
-        if (neighbor !== undefined && !seenParts.has(neighbor)) {
-          seenParts.add(neighbor);
-          queue.push(neighbor);
+      for (const cell of cells) {
+        for (const [nx, ny] of [[cell.x + 1, cell.y], [cell.x - 1, cell.y], [cell.x, cell.y + 1], [cell.x, cell.y - 1]]) {
+          const neighbor = cellOwner.get(`${nx},${ny}`);
+          if (neighbor !== undefined && !seenParts.has(neighbor) && canEnter(neighbor)) {
+            seenParts.add(neighbor);
+            queue.push(neighbor);
+          }
         }
       }
     }
+    return seenParts;
+  };
+
+  const physicallyConnected = traverse(() => true);
+  if (physicallyConnected.size !== modules.length) return false;
+
+  // Heat pipes are mounted services, not hull structure. They may be attached to
+  // the ship as thermal conduits, but no normal component may rely on a heat-pipe
+  // chain as its only path back to the core.
+  const structurallyConnected = traverse(index => modules[index].type !== "heatPipe");
+  for (let i = 0; i < modules.length; i += 1) {
+    if (modules[i].type !== "heatPipe" && !structurallyConnected.has(i)) return false;
   }
 
-  return seenParts.size === modules.length;
+  return true;
 }
 
 function normalizeShipDesignSnapshot(design) {

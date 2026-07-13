@@ -28,29 +28,39 @@ export function isConnected(parts) {
     }
   }
 
-  const seenParts = new Set();
-  const queue = [];
-
   const coreIndex = parts.indexOf(core);
-  seenParts.add(coreIndex);
-  queue.push(coreIndex);
+  const traverse = (canEnter) => {
+    const seenParts = new Set([coreIndex]);
+    const queue = [coreIndex];
 
-  for (let i = 0; i < queue.length; i += 1) {
-    const partIndex = queue[i];
-    const cells = partCellsMap.get(partIndex);
+    for (let i = 0; i < queue.length; i += 1) {
+      const partIndex = queue[i];
+      const cells = partCellsMap.get(partIndex);
 
-    for (const cell of cells) {
-      for (const [nx, ny] of [[cell.x + 1, cell.y], [cell.x - 1, cell.y], [cell.x, cell.y + 1], [cell.x, cell.y - 1]]) {
-        const neighbor = cellOwner.get(`${nx},${ny}`);
-        if (neighbor !== undefined && !seenParts.has(neighbor)) {
-          seenParts.add(neighbor);
-          queue.push(neighbor);
+      for (const cell of cells) {
+        for (const [nx, ny] of [[cell.x + 1, cell.y], [cell.x - 1, cell.y], [cell.x, cell.y + 1], [cell.x, cell.y - 1]]) {
+          const neighbor = cellOwner.get(`${nx},${ny}`);
+          if (neighbor !== undefined && !seenParts.has(neighbor) && canEnter(neighbor)) {
+            seenParts.add(neighbor);
+            queue.push(neighbor);
+          }
         }
       }
     }
+    return seenParts;
+  };
+
+  const physicallyConnected = traverse(() => true);
+  if (physicallyConnected.size !== parts.length) return false;
+
+  // Heat pipes can be attached as service conduits, but they are not hull
+  // structure and cannot be the only support path for other components.
+  const structurallyConnected = traverse(index => parts[index].type !== "heatPipe");
+  for (let i = 0; i < parts.length; i += 1) {
+    if (parts[i].type !== "heatPipe" && !structurallyConnected.has(i)) return false;
   }
 
-  return seenParts.size === parts.length;
+  return true;
 }
 
 export function validateBlueprint(parts, { requireThrust = false, stats = null } = {}) {
@@ -126,6 +136,7 @@ export function explainConnectionProblem(existingParts, partType, x, y, rotation
     return "Not connected: place it so one side touches an existing module";
   }
 
-  return "Not connected: every module needs a side-connected path back to the core";
+  return partType === "heatPipe"
+    ? "Not connected: heat pipes must mount to the ship and connect to a sink or radiator route; they do not provide structural support"
+    : "Not connected: every non-heat-pipe module needs a structural side-connected path back to the core";
 }
-
