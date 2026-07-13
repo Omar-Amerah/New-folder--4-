@@ -23,9 +23,26 @@ const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "
 const HEAT_FLOW_THRESHOLD = 0.05;
 
 export function renderBuildGrid() {
-  dom.grid.textContent = "";
-  const heatAnalysis = analyzeDesignHeat(state.design, state.thermalLoadMode || "full");
-  const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(state.design, PART_STATS);
+  renderBaseBlueprintGrid();
+  const heatAnalysis = currentHeatAnalysis();
+  if (state.blueprintView === "heat") {
+    applyHeatPresentation(heatAnalysis);
+    refreshHeatFlowOverlay(heatAnalysis);
+  } else {
+    applyBlueprintPresentation();
+  }
+  refreshBlueprintControls();
+  renderHoverPreview();
+  // The inspector's "Predicted in this design" rows track the live design and
+  // the selected thermal scenario, so refresh it alongside the grid.
+  renderPartInspector();
+}
+
+function currentHeatAnalysis(mode = state.thermalLoadMode || "full") {
+  return analyzeDesignHeat(state.design, mode);
+}
+
+function refreshBlueprintControls() {
   const heatView = state.blueprintView === "heat";
   dom.grid.classList.toggle("heat-overlay-active", heatView);
   dom.blueprintBuildTab?.classList.toggle("active", !heatView);
@@ -50,8 +67,13 @@ export function renderBuildGrid() {
     dom.heatFlowViewControls.hidden = !heatView;
     for (const button of dom.heatFlowViewControls.querySelectorAll("[data-heat-flow-view]")) button.classList.toggle("active", button.dataset.heatFlowView === (state.heatFlowView || "local"));
   }
-  if (!heatView) clearHeatInspectionState();
-  renderFullLoadThermalPanel(heatView ? analyzeDesignHeat(state.design, "full") : null, heatView ? heatAnalysis : null);
+}
+
+export function renderBaseBlueprintGrid() {
+  dom.grid.textContent = "";
+  clearHeatInspectionState();
+  renderFullLoadThermalPanel(null, null);
+  const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(state.design, PART_STATS);
 
   // Find which cells are already covered by the extension of some component
   const coveredCells = new Set();
@@ -76,8 +98,7 @@ export function renderBuildGrid() {
       const part = byCell.get(`${x},${y}`);
       const cell = document.createElement("button");
       cell.type = "button";
-      const heatClass = part && heatView ? heatAnalysis.componentClasses.get(part) || "" : "";
-      cell.className = `build-cell${part ? ` occupied ${part.type} ${heatClass}` : ""}`;
+      cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
 
       // Anchor stays at (x,y); the visual box is drawn from the rotated
       // footprint's top-left bound so rotated multi-tile parts extend correctly.
@@ -101,27 +122,15 @@ export function renderBuildGrid() {
       cell.style.gridRow = `${originY + 1} / span ${height}`;
 
       cell.title = part
-        ? `${PART_DEFS[part.type].name}${heatView ? thermalHoverText(heatAnalysis.predictions.get(part)) : ""}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
+        ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
         : "Empty";
       if (part) {
         const partIndex = state.design.indexOf(part);
-        const blockedExhaust = !heatView && exhaustAnalysis.blockedEngineIndices.has(partIndex);
+        const blockedExhaust = exhaustAnalysis.blockedEngineIndices.has(partIndex);
         const rotation = normalizeRotation(part.rotation);
-        const prediction = heatAnalysis.predictions.get(part);
-        const displayedHeat = Math.max(0, Math.min(100, heatAnalysis.componentHeat.get(part) || 0));
-        const meltdown = prediction?.meltdownTime != null;
-        const overheated = !meltdown && displayedHeat >= 100;
-        const critical = !meltdown && !overheated && displayedHeat >= 76;
-        const heatWarning = meltdown
-          ? `<span class="component-overheat-warning" title="Reactor meltdown predicted — will explode at sustained load" aria-label="Reactor meltdown predicted">☢</span>`
-          : overheated
-          ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>`
-          : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
-        const heatValue = heatView
-          ? `<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`
-          : "";
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
-        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${heatValue}${exhaustWarning}`;
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${exhaustWarning}`;
+        cell.dataset.partIndex = String(partIndex);
         if (blockedExhaust) cell.title = "Blocked exhaust — engine provides no thrust.";
       }
       cell.dataset.x = String(x);
@@ -130,8 +139,88 @@ export function renderBuildGrid() {
     }
   }
 
-  if (heatView) updateHeatInspectionOverlay(heatAnalysis);
+  ensureBlueprintGridEventHandlers();
+}
 
+function applyBlueprintPresentation() {
+  clearHeatPresentation();
+  renderFullLoadThermalPanel(null, null);
+}
+
+function applyHeatPresentation(heatAnalysis) {
+  clearHeatPresentation();
+  clearInvalidHeatIndexes();
+  for (const cell of dom.grid.querySelectorAll(".build-cell.occupied")) {
+    const index = Number(cell.dataset.partIndex);
+    const part = state.design[index];
+    if (!part) continue;
+    const heatClass = heatAnalysis.componentClasses.get(part) || "";
+    if (heatClass) cell.classList.add(heatClass);
+    const prediction = heatAnalysis.predictions.get(part);
+    const displayedHeat = Math.max(0, Math.min(100, heatAnalysis.componentHeat.get(part) || 0));
+    const meltdown = prediction?.meltdownTime != null;
+    const overheated = !meltdown && displayedHeat >= 100;
+    const critical = !meltdown && !overheated && displayedHeat >= 76;
+    const heatWarning = meltdown
+      ? `<span class="component-overheat-warning" title="Reactor meltdown predicted — will explode at sustained load" aria-label="Reactor meltdown predicted">☢</span>`
+      : overheated
+      ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>`
+      : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
+    cell.insertAdjacentHTML("beforeend", `<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`);
+    cell.title = `${PART_DEFS[part.type].name}${thermalHoverText(prediction)}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`;
+  }
+  renderFullLoadThermalPanel(currentHeatAnalysis("full"), heatAnalysis);
+  updateHeatInspectionOverlay(heatAnalysis);
+}
+
+function clearHeatPresentation() {
+  dom.grid.querySelector(".heat-flow-overlay")?.remove();
+  dom.grid.classList.remove("heat-inspecting");
+  for (const cell of dom.grid.querySelectorAll(".build-cell")) {
+    for (const className of [...cell.classList]) {
+      if (className.startsWith("heat-") || className.startsWith("thermal-") || className.startsWith("radiator-exposed")) cell.classList.remove(className);
+    }
+    cell.querySelectorAll(".component-heat-value, .component-overheat-warning, .component-critical-warning").forEach(item => item.remove());
+    const index = Number(cell.dataset.partIndex);
+    const part = state.design[index];
+    cell.title = part
+      ? `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
+      : "Empty";
+  }
+}
+
+function refreshHeatFlowOverlay(analysis) {
+  dom.grid.querySelector(".heat-flow-overlay")?.remove();
+  if (state.blueprintView === "heat" && (state.heatFlowView || "local") !== "off") renderHeatFlows(analysis);
+}
+
+function switchToHeatView() {
+  state.blueprintView = "heat";
+  const analysis = currentHeatAnalysis();
+  applyHeatPresentation(analysis);
+  refreshHeatFlowOverlay(analysis);
+  refreshBlueprintControls();
+}
+
+function switchToBuildView() {
+  state.blueprintView = "build";
+  clearHeatInspectionState();
+  clearHeatPresentation();
+  refreshBlueprintControls();
+}
+
+function assertHeatViewKeepsBaseGridDom() {
+  const before = [...dom.grid.querySelectorAll(".build-cell")];
+  switchToHeatView();
+  const after = [...dom.grid.querySelectorAll(".build-cell")];
+  console.assert(
+    before.length === after.length &&
+    before.every((cell, index) => cell === after[index]),
+    "Heat tab replaced the base grid DOM"
+  );
+}
+
+function ensureBlueprintGridEventHandlers() {
   if (!dom.grid.dataset.hasDelegatedClick) {
     dom.grid.addEventListener("click", (event) => {
       const cell = event.target.closest(".build-cell");
@@ -182,43 +271,41 @@ export function renderBuildGrid() {
 
   if (!dom.grid.dataset.hasHeatTabs) {
     dom.blueprintBuildTab?.addEventListener("click", () => {
-      state.blueprintView = "build";
-      clearHeatInspectionState();
-      renderBuildGrid();
+      switchToBuildView();
       renderLocalStats();
     });
     dom.blueprintHeatTab?.addEventListener("click", () => {
-      state.blueprintView = "heat";
-      renderBuildGrid();
+      assertHeatViewKeepsBaseGridDom();
       renderLocalStats();
     });
     dom.thermalLoadModes?.addEventListener("click", event => {
       const button = event.target.closest("[data-thermal-load]");
       if (!button) return;
       state.thermalLoadMode = button.dataset.thermalLoad;
-      renderBuildGrid();
+      const analysis = currentHeatAnalysis();
+      applyHeatPresentation(analysis);
+      refreshHeatFlowOverlay(analysis);
+      refreshBlueprintControls();
       renderLocalStats();
+      renderPartInspector();
     });
     dom.heatToolControls?.addEventListener("click", event => {
       const button = event.target.closest("[data-heat-tool]");
       if (!button) return;
       state.heatTool = button.dataset.heatTool;
-      for (const item of dom.heatToolControls.querySelectorAll("[data-heat-tool]")) item.classList.toggle("active", item === button);
+      refreshBlueprintControls();
     });
     dom.heatFlowViewControls?.addEventListener("click", event => {
       const button = event.target.closest("[data-heat-flow-view]");
       if (!button) return;
       state.heatFlowView = button.dataset.heatFlowView;
-      for (const item of dom.heatFlowViewControls.querySelectorAll("[data-heat-flow-view]")) item.classList.toggle("active", item === button);
-      updateHeatInspectionOverlay(analyzeDesignHeat(state.design, state.thermalLoadMode || "full"));
+      const analysis = currentHeatAnalysis();
+      updateHeatInspectionOverlay(analysis);
+      refreshHeatFlowOverlay(analysis);
+      refreshBlueprintControls();
     });
     dom.grid.dataset.hasHeatTabs = "true";
   }
-
-  renderHoverPreview();
-  // The inspector's "Predicted in this design" rows track the live design and
-  // the selected thermal scenario, so refresh it alongside the grid.
-  renderPartInspector();
 }
 
 export function renderHoverPreview() {
