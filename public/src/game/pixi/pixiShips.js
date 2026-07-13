@@ -189,9 +189,16 @@ function createPixiShipView(env) {
     idleName,
     lostText,
     hullKey: null,
+    boundShipId: null,
+    visualTurretAngles: [],
+    turretDebugLastAt: 0,
     names: { hud: null, idle: null },
     release() {
       this.hullKey = null;
+      this.boundShipId = null;
+      this.visualTurretAngles = [];
+      this.damageSig = null;
+      for (const sprite of this.turretSprites) sprite.visible = false;
     }
   };
 }
@@ -258,11 +265,18 @@ function pixiShieldIdPhase(id) {
   return hash / 100;
 }
 
-function rebuildPixiShipVisual(env, view, design, color, radius, hullKey) {
+function rebuildPixiShipVisual(env, view, design, color, radius, hullKey, ship = null) {
   view.hullSprite.texture = getPixiShipHullTexture(env, design, color, radius);
   view.hullSprite.scale.set(1 / env.bakeScale);
+  const previousAngles = view.visualTurretAngles || [];
   for (const sprite of view.turretSprites) sprite.destroy();
   view.turretSprites = [];
+  view.visualTurretAngles = design.map((part, i) => {
+    const serverAngle = ship?.weaponAngles?.[i];
+    if (Number.isFinite(serverAngle)) return serverAngle;
+    if (Number.isFinite(previousAngles[i])) return previousAngles[i];
+    return moduleRotationToRadians(normalizeRotation(part.rotation));
+  });
   design.forEach((part, i) => {
     if (!isRotatablePart(part.type)) return;
     const sprite = new env.PIXI.Sprite(getPixiTurretTexture(env, part.type, color));
@@ -272,6 +286,8 @@ function rebuildPixiShipVisual(env, view, design, color, radius, hullKey) {
     const place = footprintLocalPlacement(part, SHIP_SCALE);
     sprite.position.set(place.cx, place.cy);
     sprite.__designIndex = i;
+    sprite.rotation = view.visualTurretAngles[i];
+    sprite.visible = true;
     view.hullGroup.addChild(sprite);
     view.turretSprites.push(sprite);
   });
@@ -537,11 +553,20 @@ function updatePixiEngineExhaust(view, ship, now) {
 }
 
 function updatePixiTurrets(view, ship, design) {
-  if (!state.weaponAnglesMap) state.weaponAnglesMap = new Map();
-  let visualAngles = state.weaponAnglesMap.get(ship.id);
+  if (view.boundShipId !== ship.id) {
+    view.boundShipId = ship.id;
+    view.visualTurretAngles = design.map((part, i) => {
+      const serverAngle = ship.weaponAngles?.[i];
+      return Number.isFinite(serverAngle) ? serverAngle : moduleRotationToRadians(normalizeRotation(part.rotation));
+    });
+  }
+  let visualAngles = view.visualTurretAngles;
   if (!visualAngles || visualAngles.length !== design.length) {
-    visualAngles = design.map((part) => moduleRotationToRadians(normalizeRotation(part.rotation)));
-    state.weaponAnglesMap.set(ship.id, visualAngles);
+    visualAngles = design.map((part, i) => {
+      const serverAngle = ship.weaponAngles?.[i];
+      return Number.isFinite(serverAngle) ? serverAngle : moduleRotationToRadians(normalizeRotation(part.rotation));
+    });
+    view.visualTurretAngles = visualAngles;
   }
   const serverAngles = ship.weaponAngles || [];
   const dt = state.dt || 0.016;
@@ -563,6 +588,11 @@ function updatePixiTurrets(view, ship, design) {
     const turnRate = weaponStat ? getWeaponTurnRate(weaponStat) : 3.0;
     visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
     sprite.rotation = visualAngles[i];
+    if (state.debugTurrets && performance.now() - (view.turretDebugLastAt || 0) > 500) {
+      view.turretDebugLastAt = performance.now();
+      // Disabled by default; useful when validating Pixi visual/server angle flow.
+      console.debug("pixi turret", { shipId: ship.id, designIndex: i, weaponType: part.type, serverRelativeAngle: targetRelative, visualRelativeAngle: visualAngles[i], hullAngle: ship.angle || 0, finalWorldAngle: (ship.angle || 0) + visualAngles[i] });
+    }
   }
 }
 
@@ -899,7 +929,7 @@ export function updatePixiShips(env, now, players, bounds) {
       const view = pixiShipPool.acquire(ship.id);
       const design = ship.design || player.design || [];
       const hullKey = `${pixiDesignSignature(design)}|${player.color}|${Math.round(ship.radius || 0)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
-      if (view.hullKey !== hullKey) rebuildPixiShipVisual(env, view, design, player.color, ship.radius || 0, hullKey);
+      if (view.hullKey !== hullKey) rebuildPixiShipVisual(env, view, design, player.color, ship.radius || 0, hullKey, ship);
 
       view.root.position.set(renderShip.x, renderShip.y);
       view.hullGroup.rotation = renderShip.angle;
@@ -923,11 +953,6 @@ export function updatePixiShips(env, now, players, bounds) {
 
   pixiShipPool.frameEnd();
 
-  if (state.weaponAnglesMap) {
-    for (const shipId of state.weaponAnglesMap.keys()) {
-      if (!visibleShipIds.has(shipId)) state.weaponAnglesMap.delete(shipId);
-    }
-  }
   for (const id of state.shipHud.keys()) {
     if (!visibleShipIds.has(id)) state.shipHud.delete(id);
   }

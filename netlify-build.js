@@ -133,7 +133,8 @@ const requiredFiles = [
   path.join(__dirname, "public", "client.js"),
   path.join(__dirname, "public", "styles.css"),
   path.join(__dirname, "public", "vendor", "pixi.min.js"),
-  path.join(__dirname, "public", "vendor", "msgpack.min.js")
+  path.join(__dirname, "public", "vendor", "msgpack.min.js"),
+  path.join(__dirname, "public", "src", "shared", "turretRules.js")
 ];
 
 for (const file of requiredFiles) {
