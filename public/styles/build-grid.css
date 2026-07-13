@@ -1,4 +1,4 @@
-/* Blueprint build grid, occupied cells, rotation marker, and placed component glyph overrides. Keep import order in ../design.css unchanged. */
+/* Blueprint build grid, occupied cells, and placed component glyph overrides. Keep import order in ../design.css unchanged. */
 
 .forward-marker {
   margin: 10px 0 5px;
@@ -43,30 +43,6 @@
 
 .build-cell:active {
   transform: none;
-}
-
-.rotation-marker {
-  position: absolute;
-  right: 4px;
-  top: 3px;
-  z-index: 2;
-  color: #fff2c4;
-  font-size: 10px;
-  line-height: 1;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  pointer-events: none;
-}
-
-.rotation-marker.rot-90 {
-  transform: rotate(90deg);
-}
-
-.rotation-marker.rot-180 {
-  transform: rotate(180deg);
-}
-
-.rotation-marker.rot-270 {
-  transform: rotate(270deg);
 }
 
 .build-cell:hover {
