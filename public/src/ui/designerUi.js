@@ -32,6 +32,7 @@ export function renderBuildGrid() {
   dom.blueprintHeatTab?.classList.toggle("active", heatView);
   dom.blueprintBuildTab?.setAttribute("aria-selected", String(!heatView));
   dom.blueprintHeatTab?.setAttribute("aria-selected", String(heatView));
+  if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
   if (dom.thermalLoadModes) {
     dom.thermalLoadModes.hidden = !heatView;

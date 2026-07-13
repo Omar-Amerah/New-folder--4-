@@ -55,6 +55,7 @@ export const dom = {
   grid: document.getElementById("buildGrid"),
   blueprintBuildTab: document.getElementById("blueprintBuildTab"),
   blueprintHeatTab: document.getElementById("blueprintHeatTab"),
+  heatToolbar: document.getElementById("heatToolbar"),
   blueprintHeatLegend: document.getElementById("blueprintHeatLegend"),
   thermalLoadModes: document.getElementById("thermalLoadModes"),
   thermalScenarioLabel: document.getElementById("thermalScenarioLabel"),
