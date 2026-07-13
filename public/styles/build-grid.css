@@ -95,13 +95,13 @@
 .build-cell.heat-critical::after { box-shadow:inset 0 0 18px rgba(255,35,60,.88), 0 0 10px rgba(255,35,60,.35); }
 .build-cell.heat-overheated::after { box-shadow:inset 0 0 20px rgba(255,255,255,.92), 0 0 12px rgba(255,35,60,.8); animation:designer-heat-pulse .45s ease-in-out infinite alternate; }
 .heat-flow-overlay { position:absolute; z-index:2; inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); overflow:visible; color:#ffd166; pointer-events:none; }
-.heat-flow-overlay line { stroke:currentColor; stroke-linecap:round; }
+.heat-flow-overlay line { stroke:currentColor; stroke-linecap:round; filter:drop-shadow(0 0 .1px currentColor); }
 .heat-flow-overlay .low-heat-flow { color:#c58a2a; stroke:#c58a2a; }
 .heat-flow-overlay .moderate-heat-flow { color:#ff9a3d; stroke:#ff9a3d; }
 .heat-flow-overlay .high-heat-flow { color:#ff713d; stroke:#ff713d; }
 .heat-flow-overlay .critical-heat-flow { color:#ff334f; stroke:#ff334f; }
-.heat-flow-overlay .frame-heat-flow { stroke-dasharray:.18 .12; animation:thermal-flow-route .7s linear infinite; filter:drop-shadow(0 0 .06px currentColor); }
-.heat-flow-overlay .heat-pipe-heat-flow { stroke-dasharray:.04 .06; stroke-width:.09px; filter:drop-shadow(0 0 .09px #ff9a3d); }
+.heat-flow-overlay .frame-heat-flow { stroke-dasharray:.18 .12; animation:thermal-flow-route .7s linear infinite; }
+.heat-flow-overlay .heat-pipe-heat-flow { stroke-dasharray:.04 .06; stroke-width:.09px; }
 .heat-flow-overlay .frame-route-heat-flow { opacity:.72; }
 .build-cell[class*="thermal-network-"] { outline:1px solid rgba(96,165,250,.2); outline-offset:-2px; }
 .build-cell.thermal-network-1 { outline-color:rgba(52,211,153,.28); }
@@ -152,7 +152,9 @@
 .build-cell.heat-related { z-index:3; outline:2px solid rgba(103,217,255,.62); outline-offset:-2px; }
 .heat-flow-overlay { z-index:2; background:transparent; mix-blend-mode:normal; }
 .heat-flow-overlay .heat-flow-muted { opacity:.14 !important; }
-.heat-flow-overlay .heat-flow-focus { filter:drop-shadow(0 0 .09px currentColor); }
+.heat-flow-overlay .heat-flow-focus { filter:drop-shadow(0 0 .16px currentColor); }
+.heat-flow-overlay .heat-flow-incoming { color:#38d9ff; stroke:#38d9ff; }
+.heat-flow-overlay .heat-flow-outgoing { color:#ff9a3d; stroke:#ff9a3d; }
 .build-grid-stage { position:relative; flex:0 0 auto; width:min(62vh,620px,100%); min-width:420px; max-width:620px; aspect-ratio:1; isolation:isolate; }
 .build-grid-stage > .build-grid { position:absolute; z-index:1; inset:0; display:grid; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; aspect-ratio:auto; margin:0; }
 .heat-flow-overlay-host { position:absolute; z-index:20; inset:0; pointer-events:none; background:transparent; }
@@ -182,14 +184,14 @@
 .heat-card-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 9px; }
 .heat-card-grid span { color:#9fb4ca; }
 .heat-card-grid strong { color:#fff; text-align:right; }
-.heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:#120804; stroke-width:.08px; font-size:.34px; font-weight:900; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
-.heat-flow-overlay .incoming-flow-label { fill:#ffd18a; }
-.heat-flow-overlay .outgoing-flow-label { fill:#ffb86b; }
+.heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.07px; stroke-linejoin:round; font-size:.29px; font-weight:850; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
+.heat-flow-overlay .incoming-flow-label { fill:#7eeaff; }
+.heat-flow-overlay .outgoing-flow-label { fill:#ffb260; }
 .blueprint-heat-legend { align-items:center; gap:8px; flex-wrap:wrap; }
 .blueprint-heat-legend::before { content:"Legend: colour = heat state; % = capacity used; arrows = heat direction; thickness = amount; dashed = frame/Heat Pipe; cyan outline = storage/removal; icons = bottleneck/overheat/meltdown."; color:#cfe8ff; font-weight:800; }
 @keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
 
 .thermal-tool-controls small { color:#8ea9c2; font-size:10px; font-weight:700; }
-.heat-flow-overlay .focused-flow-label { fill:#fff3c4; font-size:.34px; opacity:1; font-weight:950; }
-.heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#ffd18a; }
-.heat-flow-overlay .focused-flow-label.outgoing-flow-label { fill:#ffad5c; }
+.heat-flow-overlay .focused-flow-label { font-size:.27px; opacity:1; font-weight:850; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.07px; stroke-linejoin:round; }
+.heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#7eeaff; }
+.heat-flow-overlay .focused-flow-label.outgoing-flow-label { fill:#ffb260; }

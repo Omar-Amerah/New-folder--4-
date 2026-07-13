@@ -432,11 +432,13 @@ if (context.shieldRingRadius(shieldedShip) <= shieldedShip.radius) {
 
 const designerSource = fs.readFileSync("public/src/ui/designerUi.js", "utf8");
 const buildGridCss = fs.readFileSync("public/styles/build-grid.css", "utf8");
-if (designerSource.includes("heat-flow-cool") || designerSource.includes("cooling-heat-flow")) {
-  throw new Error("heat transfer arrows must not use blue/cooling flow markers or classes");
+for (const cls of ["heat-flow-incoming", "heat-flow-outgoing", "incoming-flow-label", "outgoing-flow-label"]) {
+  if (!designerSource.includes(cls) && !buildGridCss.includes(cls)) {
+    throw new Error(`missing directional heat-flow visual class: ${cls}`);
+  }
 }
-if (!designerSource.includes('line.setAttribute("marker-end", "url(#heat-flow-arrow)")')) {
-  throw new Error("heat transfer arrows should use the single warm heat-flow arrow marker");
+if (!designerSource.includes("heat-flow-arrow-incoming") || !designerSource.includes("heat-flow-arrow-outgoing")) {
+  throw new Error("focused heat transfer arrows should use direction-specific arrow markers");
 }
 if (!designerSource.includes('for (const cell of occupiedByIndex[flow.from]') || !designerSource.includes(') !== flow.to) continue')) {
   throw new Error("heat transfer arrows should be drawn from flow.from to flow.to only");
@@ -450,8 +452,11 @@ if (!designerSource.includes("Estimated reachable cooling path") || !designerSou
 if (!designerSource.includes('view === "local" && !directlyRelated')) {
   throw new Error("local heat-flow mode should remain first-hop/direct only");
 }
-if (buildGridCss.includes(".heat-flow-overlay .cooling-heat-flow") || /heat-flow-overlay[^}]+#(?:38bdf8|67d9ff|7dd3fc|80,205,255)/i.test(buildGridCss)) {
-  throw new Error("transfer arrow CSS must not style directional heat flows with blue/cyan colours");
+if (!/heat-flow-incoming[^}]+#38d9ff/i.test(buildGridCss) || !/heat-flow-outgoing[^}]+#ff9a3d/i.test(buildGridCss)) {
+  throw new Error("directional heat flows should use distinct cyan incoming and amber outgoing colours");
+}
+if (!/focused-flow-label[^}]+font-size:\.27px/i.test(buildGridCss)) {
+  throw new Error("focused H/s flow labels should remain noticeably smaller");
 }
 for (const cls of ["low-heat-flow", "moderate-heat-flow", "high-heat-flow", "critical-heat-flow"]) {
   if (!buildGridCss.includes(cls)) throw new Error(`missing warm transfer intensity class: ${cls}`);
