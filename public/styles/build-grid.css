@@ -150,20 +150,9 @@
 .thermal-tool-controls button.active { border-color:#67d9ff; background:linear-gradient(180deg,rgba(56,189,248,.28),rgba(30,64,175,.22)); box-shadow:0 0 8px rgba(56,189,248,.24); color:#fff; }
 .build-grid.heat-inspecting .build-cell.heat-unrelated { opacity:.58; filter:saturate(.72); }
 .build-cell.heat-related { z-index:3; outline:2px solid rgba(103,217,255,.62); outline-offset:-2px; }
-.build-cell.heat-pinned { z-index:4; outline:2px solid rgba(255,207,102,.9); box-shadow:0 0 12px rgba(255,207,102,.28), inset 0 0 0 1px rgba(255,207,102,.5); }
 .heat-flow-overlay { z-index:2; background:transparent; mix-blend-mode:normal; }
 .heat-flow-overlay .heat-flow-muted { opacity:.14 !important; }
 .heat-flow-overlay .heat-flow-focus { filter:drop-shadow(0 0 .09px currentColor); }
-.heat-flow-overlay .heat-flow-pinned { filter:drop-shadow(0 0 .13px currentColor); }
-.thermal-inspector-panel { margin-top:12px; border:1px solid rgba(103,217,255,.22); border-radius:10px; padding:10px; background:rgba(4,12,22,.58); }
-.thermal-inspector-panel h4 { margin:0 0 6px; color:#eaf7ff; }
-.thermal-inspector-grid, .thermal-transfer-list { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 9px; font-size:12px; }
-.thermal-inspector-grid span, .thermal-transfer-list span { color:#9fb4ca; }
-.thermal-inspector-grid strong, .thermal-transfer-list strong { color:#f5fbff; text-align:right; }
-.thermal-transfer-columns { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
-.thermal-transfer-columns h5, .thermal-route-box h5 { margin:0 0 5px; color:#cfe8ff; }
-.thermal-route-box { margin-top:10px; padding-top:8px; border-top:1px solid rgba(126,166,205,.18); font-size:12px; color:#dcefff; }
-.thermal-route-path { font-weight:900; color:#fff3c4; margin-bottom:5px; }
 .build-grid-stage { position:relative; flex:0 0 auto; width:min(62vh,620px,100%); min-width:420px; max-width:620px; aspect-ratio:1; isolation:isolate; }
 .build-grid-stage > .build-grid { position:absolute; z-index:1; inset:0; display:grid; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; aspect-ratio:auto; margin:0; }
 .heat-flow-overlay-host { position:absolute; z-index:20; inset:0; pointer-events:none; background:transparent; }
@@ -187,15 +176,12 @@
 .blueprint-thermal-hud span { color:#9fb4ca; }
 .blueprint-thermal-hud em { color:#fff; font-style:normal; font-weight:900; text-align:right; }
 .heat-context-card { position:absolute; z-index:32; min-width:210px; max-width:260px; padding:9px 10px; border:1px solid rgba(255,209,102,.5); border-radius:10px; background:rgba(4,10,18,.94); color:#dcefff; font-size:11px; line-height:1.2; box-shadow:0 10px 28px rgba(0,0,0,.45); pointer-events:none; backdrop-filter:blur(5px); }
-.heat-context-card.pinned { border-color:rgba(125,211,252,.68); pointer-events:auto; }
 .heat-context-card h4 { margin:0 0 5px; color:#fff; letter-spacing:.05em; text-transform:uppercase; }
 .heat-card-state { margin-bottom:7px; color:#ffc46b; font-weight:950; }
 .heat-card-state small { color:#dbeafe; float:right; }
-.heat-card-grid, .heat-card-transfers { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 9px; }
-.heat-card-grid span, .heat-card-transfers span { color:#9fb4ca; }
-.heat-card-grid strong, .heat-card-transfers strong { color:#fff; text-align:right; }
-.heat-card-transfers h5 { grid-column:1/-1; margin:7px 0 2px; color:#7dd3fc; }
-.heat-context-card .thermal-route-box { margin-top:8px; max-height:130px; overflow:auto; }
+.heat-card-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 9px; }
+.heat-card-grid span { color:#9fb4ca; }
+.heat-card-grid strong { color:#fff; text-align:right; }
 .heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:#120804; stroke-width:.08px; font-size:.34px; font-weight:900; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
 .heat-flow-overlay .incoming-flow-label { fill:#ffd18a; }
 .heat-flow-overlay .outgoing-flow-label { fill:#ffb86b; }
@@ -204,7 +190,6 @@
 @keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
 
 .thermal-tool-controls small { color:#8ea9c2; font-size:10px; font-weight:700; }
-.heat-flow-overlay .total-flow-label { fill:#ffdca3; font-size:.25px; opacity:.7; font-weight:800; }
 .heat-flow-overlay .focused-flow-label { fill:#fff3c4; font-size:.34px; opacity:1; font-weight:950; }
 .heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#ffd18a; }
 .heat-flow-overlay .focused-flow-label.outgoing-flow-label { fill:#ffad5c; }

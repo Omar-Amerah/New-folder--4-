@@ -22,7 +22,6 @@ const GRID_SIZE = 15;
 const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "Maximum Sustained Load" };
 const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
-const HEAT_FLOW_TOTAL_LABEL_THRESHOLD = 0.5;
 let cachedHeatAnalysis = null;
 
 function getScenarioHeatAnalysis(mode = state.thermalLoadMode || "full") {
@@ -80,8 +79,8 @@ function updateHeatFlowToggleControl() {
   dom.showAllHeatFlows?.setAttribute("aria-pressed", String(showAll));
   if (dom.heatFlowHint) {
     dom.heatFlowHint.textContent = showAll
-      ? "Showing the full ship thermal network."
-      : "Hover a component to inspect its direct heat transfers.";
+      ? "Showing all heat-flow arrows. Hover a component to view its H/s values."
+      : "Hover a component to view its direct heat transfers and H/s values.";
   }
 }
 
@@ -106,14 +105,6 @@ function refreshBlueprintControls() {
   if (dom.thermalScenarioLabel) {
     dom.thermalScenarioLabel.hidden = !heatView;
     dom.thermalScenarioLabel.textContent = `Predicted component heat — ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || "full"]}`;
-  }
-  if (dom.heatToolControls) {
-    dom.heatToolControls.hidden = !heatView;
-    for (const button of dom.heatToolControls.querySelectorAll("[data-heat-tool]")) {
-      const active = button.dataset.heatTool === (state.heatTool || "place");
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", String(active));
-    }
   }
   if (dom.heatFlowViewControls) {
     dom.heatFlowViewControls.hidden = !heatView;
@@ -334,11 +325,10 @@ function ensureBlueprintGridEventHandlers() {
     dom.grid.addEventListener("click", (event) => {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
-      const pointed = gridCellFromPointer(event.clientX, event.clientY);
-      if (state.blueprintView === "heat" && (state.heatTool || "place") === "inspect") {
-        inspectHeatCell(pointed?.x ?? Number(cell.dataset.x), pointed?.y ?? Number(cell.dataset.y));
+      if (state.blueprintView === "heat") {
         return;
       }
+      const pointed = gridCellFromPointer(event.clientX, event.clientY);
       editCell(
         pointed?.x ?? Number(cell.dataset.x),
         pointed?.y ?? Number(cell.dataset.y)
@@ -368,6 +358,7 @@ function ensureBlueprintGridEventHandlers() {
     dom.grid.addEventListener("contextmenu", (event) => {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
+      if (state.blueprintView === "heat") return;
       event.preventDefault();
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
       removeCell(
@@ -397,13 +388,6 @@ function ensureBlueprintGridEventHandlers() {
       renderLocalStats();
       renderPartInspector();
     });
-    dom.heatToolControls?.addEventListener("click", event => {
-      const button = event.target.closest("[data-heat-tool]");
-      if (!button) return;
-      state.heatTool = button.dataset.heatTool;
-      refreshBlueprintControls();
-      renderHoverPreview();
-    });
     dom.showAllHeatFlows?.addEventListener("click", () => {
       migrateHeatFlowViewState();
       state.showAllHeatFlows = !state.showAllHeatFlows;
@@ -424,11 +408,10 @@ function removePlacementPreviewElements() {
 export function renderHoverPreview() {
   removePlacementPreviewElements();
 
-  const inspectingHeat =
-    state.blueprintView === "heat" &&
-    (state.heatTool || "place") === "inspect";
-
-  if (inspectingHeat) return;
+  if (state.blueprintView === "heat") {
+    removePlacementPreviewElements();
+    return;
+  }
   if (!state.hoveredCell || !state.selectedPart) return;
 
   {
@@ -579,7 +562,6 @@ function findPartAt(x, y) {
 
 function clearHeatInspectionState() {
   state.hoveredHeatPartIndex = null;
-  state.inspectedHeatPartIndex = null;
 }
 
 function validHeatIndex(index) {
@@ -595,23 +577,12 @@ function updateHoveredHeatPart(x, y) {
   updateHeatInspectionOverlay(currentHeatAnalysis());
 }
 
-function inspectHeatCell(x, y) {
-  const part = findPartAt(x, y);
-  state.inspectedHeatPartIndex = part ? state.design.indexOf(part) : null;
-  updateHeatInspectionOverlay(currentHeatAnalysis());
-  renderFullLoadThermalPanel(currentHeatAnalysis("full"), currentHeatAnalysis());
-}
-
 function clearInvalidHeatIndexes() {
   if (!validHeatIndex(state.hoveredHeatPartIndex)) state.hoveredHeatPartIndex = null;
-  if (!validHeatIndex(state.inspectedHeatPartIndex)) state.inspectedHeatPartIndex = null;
 }
 
 export function editCell(x, y) {
-  if (state.blueprintView === "heat" && (state.heatTool || "place") === "inspect") {
-    inspectHeatCell(x, y);
-    return;
-  }
+  if (state.blueprintView === "heat") return;
   const existing = findPartAt(x, y);
   if (existing?.type === "core") return;
 
@@ -721,6 +692,7 @@ export function rotateCell(x, y) {
 }
 
 export function rotateFocusedPart() {
+  if (state.blueprintView === "heat") return;
   const cell = state.hoveredCell || state.selectedCell;
   const part = cell ? findPartAt(cell.x, cell.y) : null;
   if (part && isRotatablePart(part.type)) {
@@ -732,6 +704,7 @@ export function rotateFocusedPart() {
 }
 
 export function removeCell(x, y) {
+  if (state.blueprintView === "heat") return;
   const existing = findPartAt(x, y);
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part !== existing);
@@ -865,21 +838,17 @@ function renderThermalHud(result) {
 }
 
 function renderHeatContextCard(result) {
-  const index = validHeatIndex(state.inspectedHeatPartIndex) ? state.inspectedHeatPartIndex : state.hoveredHeatPartIndex;
+  const index = validHeatIndex(state.hoveredHeatPartIndex) ? state.hoveredHeatPartIndex : null;
   if (!dom.heatContextCard || state.blueprintView !== "heat" || !validHeatIndex(index) || !result) { clearHeatContextCard(); return; }
   const part = state.design[index], prediction = result.predictions.get(part);
   if (!prediction) { clearHeatContextCard(); return; }
   const labels = globalThis.HeatRules.STATE_LABELS;
   const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
   const row = (l,v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(v)}</strong>`;
-  const transferRows = (flows, dir) => flows.map(flow => row(describeThermalComponent(dir === "out" ? flow.to : flow.from, state.design), `${flow.amount.toFixed(1)} H/s`)).join("") || row("None above threshold", "—");
-  const incoming = result.flows.filter(flow => flow.to === index && flow.amount >= HEAT_FLOW_THRESHOLD);
-  const outgoing = result.flows.filter(flow => flow.from === index && flow.amount >= HEAT_FLOW_THRESHOLD);
-  const pinned = validHeatIndex(state.inspectedHeatPartIndex);
   dom.heatContextCard.hidden = false;
-  dom.heatContextCard.className = `heat-context-card${pinned ? " pinned" : ""}`;
+  dom.heatContextCard.className = "heat-context-card";
   dom.heatContextCard.innerHTML = `<h4>${escapeHtml(PART_DEFS[part.type]?.name || part.type)}</h4><div class="heat-card-state">${escapeHtml(labels[prediction.state] || "Heat")} — ${Math.min(100, Math.round(prediction.ratio * 100))}% <small>${prediction.heat.toFixed(0)} / ${prediction.capacity} H</small></div><div class="heat-card-grid">
-    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Received", `+${prediction.received.toFixed(1)} H/s`)}${row("Transferred out", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(part.type === "radiator" ? "Removed" : part.type === "heatSink" ? "Absorbed" : "Removed", `-${prediction.cooling.toFixed(1)} H/s`)}${row("Net", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${row("Performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>${pinned ? `<div class="heat-card-transfers"><h5>Outgoing</h5>${transferRows(outgoing,"out")}<h5>Incoming</h5>${transferRows(incoming,"in")}</div>${coolingRouteMarkup(result,index)}` : ""}`;
+    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Received", `+${prediction.received.toFixed(1)} H/s`)}${row("Transferred out", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(part.type === "radiator" ? "Removed" : part.type === "heatSink" ? "Absorbed" : "Removed", `-${prediction.cooling.toFixed(1)} H/s`)}${row("Net", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${row("Performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
   positionHeatContextCard(index);
 }
 
@@ -901,82 +870,6 @@ function thermalHoverText(prediction) {
   const overheat = prediction.timeToOverheat === null ? "Time until overheat: never" : `Time until overheat: ${prediction.timeToOverheat.toFixed(1)}s`;
   const meltdown = prediction.meltdownTime != null ? `\nREACTOR MELTDOWN predicted at ${prediction.meltdownTime.toFixed(1)}s — explodes, damaging nearby components` : "";
   return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generated: +${prediction.generation.toFixed(1)} H/s\nDirect heat received: +${prediction.received.toFixed(1)} H/s\nDirect heat transferred out: -${prediction.transferredOut.toFixed(1)} H/s\nHeat removed: -${prediction.cooling.toFixed(1)} H/s\n${overheat}${meltdown}`;
-}
-
-function renderPinnedThermalInspector(result) {
-  const index = state.inspectedHeatPartIndex;
-  if (!validHeatIndex(index) || !result) return "";
-  const part = state.design[index];
-  const prediction = result.predictions.get(part);
-  if (!prediction) return "";
-  const labels = globalThis.HeatRules.STATE_LABELS;
-  const sent = result.flows.filter(flow => flow.from === index && flow.amount >= HEAT_FLOW_THRESHOLD);
-  const received = result.flows.filter(flow => flow.to === index && flow.amount >= HEAT_FLOW_THRESHOLD);
-  const row = (label, value) => `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
-  const transferList = flows => flows.length
-    ? flows.map(flow => row(describeThermalComponent(flow.from === index ? flow.to : flow.from, state.design), `${flow.amount.toFixed(1)} H/s`)).join("")
-    : `<span>None above threshold</span><strong>—</strong>`;
-  const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
-  const route = coolingRouteMarkup(result, index);
-  return `<section class="thermal-inspector-panel">
-    <h4>Pinned Thermal Inspector — ${escapeHtml(PART_DEFS[part.type]?.name || part.type)}</h4>
-    <div class="thermal-inspector-grid">
-      ${row("Predicted heat", `${Math.min(100, Math.round(prediction.ratio * 100))}%`)}
-      ${row("Thermal state", labels[prediction.state] || String(prediction.state))}
-      ${row("Heat generated", `+${prediction.generation.toFixed(1)} H/s`)}
-      ${row("Direct heat received", `+${prediction.received.toFixed(1)} H/s`)}
-      ${row("Direct heat transferred out", `-${prediction.transferredOut.toFixed(1)} H/s`)}
-      ${row(part.type === "radiator" ? "Heat removed by radiator" : part.type === "heatSink" ? "Heat absorbed by Heat Sink" : "Heat removed", `-${prediction.cooling.toFixed(1)} H/s`)}
-      ${row("Net heat", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}
-      ${row("Heat capacity", `${prediction.capacity} H`)}
-      ${row("Time until overheat", prediction.timeToOverheat === null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}
-      ${row("Predicted performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}
-      ${row("Reactor-meltdown time", prediction.meltdownTime == null ? "Not applicable" : `${prediction.meltdownTime.toFixed(1)} s`)}
-    </div>
-    <div class="thermal-transfer-columns">
-      <div><h5>Direct outgoing transfers</h5><div class="thermal-transfer-list">${transferList(sent)}</div></div>
-      <div><h5>Direct incoming transfers</h5><div class="thermal-transfer-list">${transferList(received)}</div></div>
-    </div>
-    ${route}
-  </section>`;
-}
-
-function coolingRouteMarkup(result, index) {
-  const route = findCoolingRoute(result, index);
-  const note = "Derived from current direct pairwise heat transfers. This is not authoritative source-to-radiator heat provenance.";
-  if (!route) return `<div class="thermal-route-box"><h5>Estimated reachable cooling path</h5><p>No reachable radiator or Heat Sink is visible in current direct transfer data.</p><p class="thermal-route-note">${escapeHtml(note)}</p></div>`;
-  const names = route.path.map(i => describeThermalComponent(i, state.design)).join(" → ");
-  return `<div class="thermal-route-box"><h5>Estimated reachable cooling path</h5>
-    <p class="thermal-route-note">${escapeHtml(note)}</p>
-    <div class="thermal-route-path">${escapeHtml(names)}</div>
-    <div>Reachable destination: <strong>${escapeHtml(describeThermalComponent(route.destination, state.design))}</strong></div>
-    <div>Steps: <strong>${route.path.length - 1}</strong></div>
-    <div>Destination currently receiving heat: <strong>${route.destinationReceivingHeat ? "Yes" : "No"}</strong></div>
-    <div>Possible bottleneck estimate: <strong>${route.possibleBottleneck ? "Possible single-frame bottleneck" : "Not indicated"}</strong></div>
-  </div>`;
-}
-
-function findCoolingRoute(result, index) {
-  const edges = new Map();
-  for (const flow of result.flows || []) {
-    if (flow.amount < HEAT_FLOW_THRESHOLD) continue;
-    if (!edges.has(flow.from)) edges.set(flow.from, []);
-    edges.get(flow.from).push(flow.to);
-  }
-  const queue = [[index]];
-  const seen = new Set([index]);
-  while (queue.length) {
-    const path = queue.shift();
-    const current = path[path.length - 1];
-    const part = state.design[current];
-    if (current !== index && (part?.type === "radiator" || part?.type === "heatSink")) {
-      return { path, destination: current, destinationReceivingHeat: (result.flows || []).some(flow => flow.to === current && flow.amount >= HEAT_FLOW_THRESHOLD), possibleBottleneck: !!result.criticalFrames?.has?.(path[1]) };
-    }
-    for (const next of edges.get(current) || []) {
-      if (!seen.has(next)) { seen.add(next); queue.push([...path, next]); }
-    }
-  }
-  return null;
 }
 
 function renderFullLoadThermalPanel(fullLoadResult, currentHeatResult = null) {
@@ -1022,8 +915,7 @@ function renderFullLoadThermalPanel(fullLoadResult, currentHeatResult = null) {
         ${row("Heat-sink saturation", analysis.heatSinkSaturationTime === null ? "Never" : `${analysis.heatSinkSaturationTime.toFixed(1)} s`)}
       </div>
       ${actionRows ? `<ul class="thermal-action-list">${actionRows}</ul>` : ""}
-    </details>
-    ${renderPinnedThermalInspector(currentHeatResult || fullLoadResult)}`;
+    </details>`;
   panel.querySelector(".thermal-detailed-analysis")?.addEventListener("toggle", event => {
     state.thermalDetailsOpen = event.target.open;
   });
@@ -1033,11 +925,11 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
   clearInvalidHeatIndexes();
   if (!options.preserveOverlay) clearHeatFlowOverlay();
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
-    cell.classList.remove("heat-related", "heat-unrelated", "heat-pinned");
+    cell.classList.remove("heat-related", "heat-unrelated");
   }
-  dom.grid.classList.toggle("heat-inspecting", state.blueprintView === "heat" && (validHeatIndex(state.hoveredHeatPartIndex) || validHeatIndex(state.inspectedHeatPartIndex)));
+  dom.grid.classList.toggle("heat-inspecting", state.blueprintView === "heat" && validHeatIndex(state.hoveredHeatPartIndex));
   if (state.blueprintView !== "heat") return;
-  const focus = validHeatIndex(state.inspectedHeatPartIndex) ? state.inspectedHeatPartIndex : state.hoveredHeatPartIndex;
+  const focus = validHeatIndex(state.hoveredHeatPartIndex) ? state.hoveredHeatPartIndex : null;
   const connected = new Set(validHeatIndex(focus) ? [focus] : []);
   for (const flow of analysis.flows || []) {
     if (flow.amount < HEAT_FLOW_THRESHOLD) continue;
@@ -1046,7 +938,6 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
   for (const cell of dom.grid.querySelectorAll(".build-cell.occupied")) {
     const part = findPartAt(Number(cell.dataset.x), Number(cell.dataset.y));
     const index = part ? state.design.indexOf(part) : -1;
-    cell.classList.toggle("heat-pinned", index === state.inspectedHeatPartIndex);
     cell.classList.toggle("heat-related", connected.has(index));
     cell.classList.toggle("heat-unrelated", connected.size > 0 && !connected.has(index));
   }
@@ -1056,11 +947,9 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
 
 function renderHeatFlows(analysis) {
   migrateHeatFlowViewState();
-  const focus = validHeatIndex(state.inspectedHeatPartIndex)
-    ? state.inspectedHeatPartIndex
-    : validHeatIndex(state.hoveredHeatPartIndex)
-      ? state.hoveredHeatPartIndex
-      : null;
+  const focus = validHeatIndex(state.hoveredHeatPartIndex)
+    ? state.hoveredHeatPartIndex
+    : null;
   const showAll = Boolean(state.showAllHeatFlows);
   if (!showAll && focus == null) return;
 
@@ -1076,6 +965,7 @@ function renderHeatFlows(analysis) {
     return occupied;
   });
   const renderedEdges = new Set();
+  const labeledEdges = new Set();
   const labelSlots = new Map();
   for (const flow of analysis.flows || []) {
     if (flow.amount < HEAT_FLOW_THRESHOLD) continue;
@@ -1101,19 +991,27 @@ function renderHeatFlows(analysis) {
       const strength = Math.min(1, flow.amount / 5);
       line.classList.add(isFrameFlow ? "frame-heat-flow" : "component-heat-flow", isHeatPipeFlow ? "heat-pipe-heat-flow" : "frame-route-heat-flow", strength >= 0.9 ? "critical-heat-flow" : strength >= 0.58 ? "high-heat-flow" : strength >= 0.28 ? "moderate-heat-flow" : "low-heat-flow");
       if (showAll && focus != null && !focusedFlow) line.classList.add("heat-flow-muted");
-      if (focusedFlow) line.classList.add(validHeatIndex(state.inspectedHeatPartIndex) ? "heat-flow-pinned" : "heat-flow-focus");
-      const focusedBoost = focusedFlow ? 0.05 : 0;
-      const mutedScale = showAll && focus != null && !focusedFlow ? 0.45 : 1;
-      line.style.opacity = String(Math.min(0.95, (0.16 + strength * 0.62 + (focusedFlow ? 0.18 : 0)) * mutedScale));
-      line.style.strokeWidth = String(Math.min(0.18, 0.022 + strength * 0.105 + focusedBoost));
+      if (focusedFlow) line.classList.add("heat-flow-focus");
+      let opacity = 0.38 + strength * 0.48;
+      let width = 0.045 + strength * 0.115;
+      if (focusedFlow) {
+        opacity = Math.min(1, opacity + 0.25);
+        width = Math.min(0.22, width + 0.035);
+      } else if (showAll && focus != null) {
+        opacity *= 0.55;
+      }
+      line.style.opacity = String(opacity);
+      line.style.strokeWidth = String(width);
       svg.appendChild(line);
-      const shouldLabel = focusedFlow || (showAll && focus == null && flow.amount >= HEAT_FLOW_TOTAL_LABEL_THRESHOLD);
+      const labelEdgeKey = `${flow.from}>${flow.to}`;
+      const shouldLabel = focusedFlow && !labeledEdges.has(labelEdgeKey);
       if (shouldLabel) {
+        labeledEdges.add(labelEdgeKey);
         const slotKey = `${Math.round((cell.x + 0.5 + dx * 0.3) * 2)},${Math.round((cell.y + 0.5 + dy * 0.3) * 2)}`;
         const slot = labelSlots.get(slotKey) || 0;
         labelSlots.set(slotKey, slot + 1);
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        label.classList.add("heat-flow-label", focusedFlow ? "focused-flow-label" : "total-flow-label", flow.to === focus ? "incoming-flow-label" : "outgoing-flow-label");
+        label.classList.add("heat-flow-label", "focused-flow-label", flow.to === focus ? "incoming-flow-label" : "outgoing-flow-label");
         label.setAttribute("x", String(cell.x + 0.5 + dx * 0.3 + dy * (0.08 + slot * 0.08)));
         label.setAttribute("y", String(cell.y + 0.5 + dy * 0.3 + dx * (0.08 + slot * 0.08)));
         label.textContent = `${flow.amount.toFixed(1)} H/s`;
@@ -1130,7 +1028,6 @@ export function heatInteractionDiagnostics() {
   const activeScenarioButton = dom.thermalLoadModes?.querySelector("[data-thermal-load].active")?.dataset.thermalLoad || null;
   return {
     blueprintView: state.blueprintView,
-    heatTool: state.heatTool || "place",
     thermalLoadMode: state.thermalLoadMode || "full",
     activeScenarioButton,
     percentageBadgeCount: dom.grid.querySelectorAll(".component-heat-value").length,
@@ -1299,11 +1196,6 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && state.blueprintView === "heat" && state.inspectedHeatPartIndex !== null) {
-      state.inspectedHeatPartIndex = null;
-      updateHeatInspectionOverlay(currentHeatAnalysis());
-      renderFullLoadThermalPanel(currentHeatAnalysis("full"), currentHeatAnalysis());
-    }
     if (event.key === "Escape" && dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
       toggleShipStatusDetails(false);
       dom.shipStatusChip?.focus();
