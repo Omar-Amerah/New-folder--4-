@@ -18,6 +18,7 @@ import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
 import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, syncUrlParams } from "./constants.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
+import { COMPONENT_HEAT_DELTA_STRIDE, componentHeatTupleFromDelta, normalizeComponentHeatTuple } from "./shared/componentHeatSnapshot.js";
 
 export function handleServerMessage(message) {
   if (message.type === "hello") {
@@ -101,21 +102,24 @@ export function handleServerMessage(message) {
             newShip.chp = oldChp;
           }
         }
-        const incomingHeat = newShip.componentHeat || newShip.cheat;
-        const incomingHeatDelta = newShip.componentHeatD || newShip.cheatD;
-        if (incomingHeat && !newShip.cheat) newShip.cheat = incomingHeat;
-        const oldHeat = oldShip?.componentHeat || oldShip?.cheat;
-        if (newShip.cheat === undefined && oldHeat) {
-          if (incomingHeatDelta?.length) {
-            const mergedHeat = oldHeat.map(value => Array.isArray(value) ? value.slice() : value);
-            const stride = incomingHeatDelta === newShip.componentHeatD ? 5 : 3;
-            for (let k = 0; k + stride - 1 < incomingHeatDelta.length; k += stride) {
-              mergedHeat[incomingHeatDelta[k]] = incomingHeatDelta.slice(k + 1, k + stride);
-            }
-            newShip.cheat = mergedHeat;
-          } else newShip.cheat = oldHeat;
+        if (Array.isArray(newShip.componentHeat)) {
+          newShip.componentHeat = newShip.componentHeat
+            .map(entry => normalizeComponentHeatTuple(entry) || [0, 0, 0, 0]);
         }
-        if (newShip.cheat && !newShip.componentHeat) newShip.componentHeat = newShip.cheat;
+        const oldHeat = oldShip?.componentHeat;
+        if (newShip.componentHeat === undefined && oldHeat) {
+          if (Array.isArray(newShip.componentHeatD) && newShip.componentHeatD.length) {
+            const mergedHeat = oldHeat.map(value => Array.isArray(value) ? value.slice() : value);
+            for (let k = 0; k + COMPONENT_HEAT_DELTA_STRIDE <= newShip.componentHeatD.length; k += COMPONENT_HEAT_DELTA_STRIDE) {
+              const update = componentHeatTupleFromDelta(newShip.componentHeatD, k);
+              if (!update || update.index >= mergedHeat.length) continue;
+              mergedHeat[update.index] = update.tuple;
+            }
+            newShip.componentHeat = mergedHeat;
+          } else {
+            newShip.componentHeat = oldHeat;
+          }
+        }
         // Client-only damage feedback (flashes, penetration trace, damage feed,
         // core warnings) derived from what changed between cached and new hp.
         if (oldChp && newShip.chp && newShip.chp !== oldChp) {
