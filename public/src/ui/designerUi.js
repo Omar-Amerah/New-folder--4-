@@ -14,7 +14,7 @@ import { updateEconomyUi } from "./purchaseUi.js";
 import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { renderPartInspector } from "./partInspectorUi.js";
-import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
+import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 
 export { analyzeDesignHeat };
 
@@ -209,6 +209,8 @@ function clearHeatUiError() {
 }
 
 function showHeatUiError(error) {
+  clearHeatFlowOverlay();
+  clearHeatContextCard();
   dom.grid?.classList.add("heat-ui-error");
   if (!dom.blueprintThermalHud) return;
   dom.blueprintThermalHud.hidden = false;
@@ -220,14 +222,13 @@ function showHeatUiError(error) {
 }
 
 function applyHeatPresentation(heatAnalysis) {
-  clearHeatPresentation();
   clearInvalidHeatIndexes();
+  const updates = [];
   for (const cell of dom.grid.querySelectorAll(".build-cell.occupied")) {
     const index = Number(cell.dataset.partIndex);
     const part = state.design[index];
     if (!part) continue;
     const heatClass = heatAnalysis.componentClasses.get(part) || "";
-    addClassString(cell, heatClass);
     const prediction = heatAnalysis.predictions.get(part);
     const displayedHeat = Math.max(0, Math.min(100, heatAnalysis.componentHeat.get(part) || 0));
     const meltdown = prediction?.meltdownTime != null;
@@ -239,8 +240,18 @@ function applyHeatPresentation(heatAnalysis) {
       : overheated
       ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>`
       : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
-    cell.insertAdjacentHTML("beforeend", `${role}<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`);
-    cell.title = `${PART_DEFS[part.type].name}${thermalHoverText(prediction)}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`;
+    updates.push({
+      cell,
+      heatClass,
+      markup: `${role}<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`,
+      title: `${PART_DEFS[part.type].name}${thermalHoverText(prediction)}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`
+    });
+  }
+  clearHeatPresentation();
+  for (const update of updates) {
+    addClassString(update.cell, update.heatClass);
+    update.cell.insertAdjacentHTML("beforeend", update.markup);
+    update.cell.title = update.title;
   }
   renderFullLoadThermalPanel(currentHeatAnalysis("full"), heatAnalysis);
   renderThermalHud(heatAnalysis);
@@ -815,8 +826,12 @@ function thermalRoleMarkup(part, prediction, result, index) {
   }
   if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Heat Pipe conduit" aria-label="Heat Pipe conduit">┄</span>`);
   if (/frame/i.test(part.type) && result.criticalFrames?.has?.(index)) pieces.push(`<span class="thermal-role-indicator bottleneck-role" title="Possible single-frame transfer bottleneck" aria-label="Possible single-frame transfer bottleneck">!</span>`);
-  if ((result.actionItems || []).some(item => item.includes(describeComponentAt(index, state.design)) && /no frame|overloaded/i.test(item))) pieces.push(`<span class="thermal-role-indicator unrouted-role" title="Unrouted or overloaded thermal network" aria-label="Unrouted or overloaded thermal network">⚠</span>`);
-  if (prediction.meltdownTime != null) pieces.push(`<span class="thermal-role-indicator meltdown-role" title="Reactor meltdown in ${prediction.meltdownTime.toFixed(1)} s" aria-label="Reactor meltdown predicted">☢</span>`);
+  const problemIndices = result.problemIndices || {};
+  const networkIds = result.networks
+    ?.filter(network => result.overloadedNetworkIds?.has?.(network.id) && (network.attached?.includes(index) || network.frameIndices?.includes(index)))
+    .map(network => network.id) || [];
+  if (problemIndices.unroutedHot?.has?.(index) || networkIds.length) pieces.push(`<span class="thermal-role-indicator unrouted-role" title="Unrouted or overloaded thermal network" aria-label="Unrouted or overloaded thermal network">⚠</span>`);
+  if (result.problemIndices?.meltdown?.has?.(index) || prediction.meltdownTime != null) pieces.push(`<span class="thermal-role-indicator meltdown-role" title="Reactor meltdown in ${prediction.meltdownTime.toFixed(1)} s" aria-label="Reactor meltdown predicted">☢</span>`);
   return pieces.join("");
 }
 
@@ -841,7 +856,7 @@ function renderHeatContextCard(result) {
   const labels = globalThis.HeatRules.STATE_LABELS;
   const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
   const row = (l,v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(v)}</strong>`;
-  const transferRows = (flows, dir) => flows.map(flow => row(describeComponentAt(dir === "out" ? flow.to : flow.from, state.design), `${flow.amount.toFixed(1)} H/s`)).join("") || row("None above threshold", "—");
+  const transferRows = (flows, dir) => flows.map(flow => row(describeThermalComponent(dir === "out" ? flow.to : flow.from, state.design), `${flow.amount.toFixed(1)} H/s`)).join("") || row("None above threshold", "—");
   const incoming = result.flows.filter(flow => flow.to === index && flow.amount >= HEAT_FLOW_THRESHOLD);
   const outgoing = result.flows.filter(flow => flow.from === index && flow.amount >= HEAT_FLOW_THRESHOLD);
   const pinned = validHeatIndex(state.inspectedHeatPartIndex);
@@ -883,7 +898,7 @@ function renderPinnedThermalInspector(result) {
   const received = result.flows.filter(flow => flow.to === index && flow.amount >= HEAT_FLOW_THRESHOLD);
   const row = (label, value) => `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
   const transferList = flows => flows.length
-    ? flows.map(flow => row(describeComponentAt(flow.from === index ? flow.to : flow.from, state.design), `${flow.amount.toFixed(1)} H/s`)).join("")
+    ? flows.map(flow => row(describeThermalComponent(flow.from === index ? flow.to : flow.from, state.design), `${flow.amount.toFixed(1)} H/s`)).join("")
     : `<span>None above threshold</span><strong>—</strong>`;
   const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
   const route = coolingRouteMarkup(result, index);
@@ -914,11 +929,11 @@ function coolingRouteMarkup(result, index) {
   const route = findCoolingRoute(result, index);
   const note = "Derived from current direct pairwise heat transfers. This is not authoritative source-to-radiator heat provenance.";
   if (!route) return `<div class="thermal-route-box"><h5>Estimated reachable cooling path</h5><p>No reachable radiator or Heat Sink is visible in current direct transfer data.</p><p class="thermal-route-note">${escapeHtml(note)}</p></div>`;
-  const names = route.path.map(i => describeComponentAt(i, state.design)).join(" → ");
+  const names = route.path.map(i => describeThermalComponent(i, state.design)).join(" → ");
   return `<div class="thermal-route-box"><h5>Estimated reachable cooling path</h5>
     <p class="thermal-route-note">${escapeHtml(note)}</p>
     <div class="thermal-route-path">${escapeHtml(names)}</div>
-    <div>Reachable destination: <strong>${escapeHtml(describeComponentAt(route.destination, state.design))}</strong></div>
+    <div>Reachable destination: <strong>${escapeHtml(describeThermalComponent(route.destination, state.design))}</strong></div>
     <div>Steps: <strong>${route.path.length - 1}</strong></div>
     <div>Destination currently receiving heat: <strong>${route.destinationReceivingHeat ? "Yes" : "No"}</strong></div>
     <div>Possible bottleneck estimate: <strong>${route.possibleBottleneck ? "Possible single-frame bottleneck" : "Not indicated"}</strong></div>
@@ -980,9 +995,9 @@ function renderFullLoadThermalPanel(fullLoadResult, currentHeatResult = null) {
         ${row("Actual heat removed", `-${analysis.actualCooling.toFixed(1)} H/s`)}
         ${row("Thermal equilibrium", equilibrium)}
         ${row("Expected to overheat", String(analysis.overheatedCount))}
-        ${row("First component", analysis.firstOverheatIndex < 0 ? "None" : describeComponentAt(analysis.firstOverheatIndex, state.design))}
+        ${row("First component", analysis.firstOverheatIndex < 0 ? "None" : describeThermalComponent(analysis.firstOverheatIndex, state.design))}
         ${row("Predicted meltdowns", String(analysis.meltdownCount))}
-        ${row("First meltdown", analysis.firstMeltdownIndex < 0 ? "None" : describeComponentAt(analysis.firstMeltdownIndex, state.design))}
+        ${row("First meltdown", analysis.firstMeltdownIndex < 0 ? "None" : describeThermalComponent(analysis.firstMeltdownIndex, state.design))}
         ${row("Hottest network", analysis.hottestNetwork)}
         ${row("Weapon uptime", `${Math.round(analysis.weaponUptime * 100)}%`)}
         ${row("Engine efficiency", `${Math.round(analysis.engineEfficiency * 100)}%`)}

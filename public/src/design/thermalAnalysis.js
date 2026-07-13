@@ -255,7 +255,7 @@ export function summariseThermalResult(model, load, simulation) {
   const radiatorCapacitySeconds = design.reduce((sum, module, i) => module.type === "radiator" ? sum + profiles[i].cooling * (exposed[i] ? 1 : .25) * simulatedSeconds : sum, 0);
   const actualCooling = design.reduce((sum, _module, i) => sum + cooling[i] / dt, 0);
   return {
-    componentClasses, componentHeat, predictions, flows: finalFlows, networks, criticalFrames: problems.criticalFrames, exteriorDirections, actionItems,
+    componentClasses, componentHeat, predictions, flows: finalFlows, networks, criticalFrames: problems.criticalFrames, problemIndices: problems.problemIndices, overloadedNetworkIds: problems.overloadedNetworkIds, exteriorDirections, actionItems,
     cooling: coolingRate >= generation * .7 ? "Good" : coolingRate >= generation * .4 ? "Fair" : "Poor",
     sustained: generation > coolingRate * 1.8 ? "High" : generation > coolingRate ? "Moderate" : "Low",
     hotspot: design[hottestIndex] ? `${PART_DEFS[design[hottestIndex].type]?.name || design[hottestIndex].type} cluster` : "None",
@@ -306,7 +306,22 @@ export function findThermalProblems(model, simulation, load) {
   const unroutedHot = generationRates.map((rate, i) => rate > 0 && !routedGenerators[i] && simulation.peakRatios[i] >= rules.THRESHOLDS.hot ? i : -1).filter(i => i >= 0);
   const meltdownIndices = simulation.meltdownTime.map((time, i) => time === null ? -1 : i).filter(i => i >= 0);
   const firstMeltdownIndex = meltdownIndices.reduce((best, i) => best < 0 || simulation.meltdownTime[i] < simulation.meltdownTime[best] ? i : best, -1);
-  return { unroutedHot, overloadedNetworks: networks.filter(network => network.overloaded), criticalFrames, heatSinkSaturationTime: simulation.heatSinkSaturationTime, meltdownIndices, firstMeltdownIndex, firstMeltdownTime: firstMeltdownIndex >= 0 ? simulation.meltdownTime[firstMeltdownIndex] : null };
+  const overloadedNetworks = networks.filter(network => network.overloaded);
+  return {
+    unroutedHot,
+    overloadedNetworks,
+    criticalFrames,
+    heatSinkSaturationTime: simulation.heatSinkSaturationTime,
+    meltdownIndices,
+    firstMeltdownIndex,
+    firstMeltdownTime: firstMeltdownIndex >= 0 ? simulation.meltdownTime[firstMeltdownIndex] : null,
+    problemIndices: {
+      unroutedHot: new Set(unroutedHot),
+      criticalFrames: new Set(criticalFrames),
+      meltdown: new Set(meltdownIndices)
+    },
+    overloadedNetworkIds: new Set(overloadedNetworks.map(network => network.id))
+  };
 }
 
 /**
@@ -318,14 +333,14 @@ export function findThermalProblems(model, simulation, load) {
 export function generateThermalAdvice(problems, model) {
   const { design } = model;
   const actionItems = [];
-  if (problems.unroutedHot.length) actionItems.push(`${describeComponentAt(problems.unroutedHot[0], design)} has no frame/heat-pipe path to a radiator or Heat Sink.`);
+  if (problems.unroutedHot.length) actionItems.push(`${describeThermalComponent(problems.unroutedHot[0], design)} has no frame/heat-pipe path to a radiator or Heat Sink.`);
   if (problems.overloadedNetworks.length) {
     const network = problems.overloadedNetworks[0];
     actionItems.push(`${describeThermalNetwork(network, design)} is overloaded by ${(network.generation - network.cooling).toFixed(1)} H/s; add exposed radiators or split the heat-transfer path.`);
   }
-  if (problems.criticalFrames.size) actionItems.push(`${describeComponentAt([...problems.criticalFrames][0], design)} is a single-frame heat-transfer bottleneck; add a parallel frame or heat-pipe path.`);
+  if (problems.criticalFrames.size) actionItems.push(`${describeThermalComponent([...problems.criticalFrames][0], design)} is a single-frame heat-transfer bottleneck; add a parallel frame or heat-pipe path.`);
   if (problems.heatSinkSaturationTime !== null) actionItems.push(`A heat sink saturates at ${problems.heatSinkSaturationTime.toFixed(1)} s; pair it with more exposed radiator output.`);
-  if (problems.meltdownIndices.length) actionItems.push(`${describeComponentAt(problems.firstMeltdownIndex, design)} is predicted to melt down; transfer reactor heat away or reduce sustained load.`);
+  if (problems.meltdownIndices.length) actionItems.push(`${describeThermalComponent(problems.firstMeltdownIndex, design)} is predicted to melt down; transfer reactor heat away or reduce sustained load.`);
   return actionItems;
 }
 
@@ -379,7 +394,7 @@ function buildThermalNetworks(model, generationRates) {
 
 function isFrame(type) { return /frame/i.test(String(type || "")) || type === "heatPipe"; }
 
-function describeComponentAt(index, design) {
+export function describeThermalComponent(index, design) {
   const module = design[index];
   if (!module) return "None";
   const sameType = design.filter(candidate => candidate.type === module.type);
