@@ -63,12 +63,24 @@
     return STATE.NORMAL;
   }
 
-  function performanceForState(state) {
-    if (state >= STATE.OVERHEATED) return 0;
-    if (state === STATE.CRITICAL) return 0.5;
-    if (state === STATE.HOT) return 0.72;
-    return 1;
+  const ACTIVE_OUTPUT = Object.freeze([1, 1, 0.70, 0.40, 0]);
+  const PASSIVE_PROTECTION = Object.freeze([1, 1, 0.85, 0.65, 0.40]);
+  const ACTIVE_COOLING = Object.freeze([1, 1, 0.75, 0.50, 0]);
+
+  function multiplierFromTable(table, state) {
+    return table[clamp(Number(state) || 0, STATE.NORMAL, STATE.OVERHEATED)] ?? 1;
   }
+
+  function activeOutputForState(state) { return multiplierFromTable(ACTIVE_OUTPUT, state); }
+  function passiveProtectionForState(state) { return multiplierFromTable(PASSIVE_PROTECTION, state); }
+  function activeCoolingForState(state) { return multiplierFromTable(ACTIVE_COOLING, state); }
+
+  function structuralDamageMultiplierForState(state) {
+    return 1 + (1 - passiveProtectionForState(state));
+  }
+
+  // Compatibility alias while older call sites migrate to effect-specific rules.
+  function performanceForState(state) { return activeOutputForState(state); }
 
   function edgeTransfer(aHeat, aCapacity, bHeat, bCapacity, conductivity, sharedEdges, dt) {
     const aRatio = aHeat / Math.max(1, aCapacity);
@@ -83,5 +95,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, performanceForState, edgeTransfer, edgeConductivity });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, performanceForState, edgeTransfer, edgeConductivity });
 }));

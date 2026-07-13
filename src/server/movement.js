@@ -11,6 +11,42 @@ const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
 const ARRIVE_DISTANCE = 16;
 
+function heatWeightedMovementFactors(ship) {
+  let thrustWeighted = 0, thrustTotal = 0, turnWeighted = 0, turnTotal = 0;
+  for (let i = 0; i < (ship.design || []).length; i += 1) {
+    const part = PARTS[ship.design[i].type];
+    if (!part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+    const perf = componentPerformance(ship, i);
+    if ((part.thrust || 0) > 0 && (!ship.validEngineIndices || ship.validEngineIndices.has(i))) {
+      thrustWeighted += part.thrust * perf;
+      thrustTotal += part.thrust;
+    }
+    const turn = Math.max(0, part.turn || 0);
+    if (turn > 0 && (!part.thrust || !ship.validEngineIndices || ship.validEngineIndices.has(i))) {
+      turnWeighted += turn * perf;
+      turnTotal += turn;
+    }
+  }
+  const power = ship.thermalPowerFactor ?? 1;
+  return {
+    thrust: thrustTotal ? thrustWeighted / thrustTotal : 0,
+    turn: turnTotal ? turnWeighted / turnTotal : (thrustTotal ? thrustWeighted / thrustTotal : 0),
+    power
+  };
+}
+
+function heatAdjustedMovementStats(ship, stats) {
+  const factors = heatWeightedMovementFactors(ship);
+  return {
+    ...stats,
+    accel: (stats.accel || 0) * factors.thrust * factors.power,
+    maxSpeed: (stats.maxSpeed || 0) * factors.thrust * factors.power,
+    turnRate: (stats.turnRate || 0) * factors.turn * factors.power,
+    thrustHeatFactor: factors.thrust,
+    turnHeatFactor: factors.turn
+  };
+}
+
 const HOLD_RANGE_RATIO = 0.9;
 const CHARGE_RANGE_RATIO = 0.3;
 const CIRCLE_RANGE_RATIO = 0.8;
@@ -101,7 +137,7 @@ function formationOffset(index, count, spacing, formation) {
 function updateShipMovement(room, ship, dt) {
   ensureMoveTarget(ship);
 
-  const stats = ship.stats || {};
+  const stats = heatAdjustedMovementStats(ship, ship.stats || {});
   const style = getCombatStyle(ship);
   const target = getActiveCombatTarget(room, ship);
 
@@ -285,19 +321,13 @@ function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
   ship.angle = rotateToward(ship.angle, desired, (stats.turnRate || 0) * dt);
 
   const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
-  let enginePerformance = 0;
-  let engineCount = 0;
   for (let i = 0; i < (ship.design || []).length; i += 1) {
     const part = PARTS[ship.design[i].type];
     if (!part?.thrust || (ship.componentHp?.[i] ?? 1) <= 0) continue;
     if (ship.validEngineIndices && !ship.validEngineIndices.has(i)) continue;
-    const performance = componentPerformance(ship, i);
-    enginePerformance += performance;
-    engineCount += 1;
-    if (performance > 0) addComponentHeat(ship, i, (2 + part.thrust * 0.018) * dt);
+    if (componentPerformance(ship, i) > 0) addComponentHeat(ship, i, (2 + part.thrust * 0.018) * dt);
   }
-  const localEfficiency = (engineCount ? enginePerformance / engineCount : 0) * (ship.thermalPowerFactor ?? 1);
-  const thrust = (stats.accel || 0) * alignment * localEfficiency;
+  const thrust = (stats.accel || 0) * alignment;
 
   ship.vx += Math.cos(ship.angle) * thrust * dt;
   ship.vy += Math.sin(ship.angle) * thrust * dt;
@@ -439,17 +469,15 @@ function applyPosition(room, ship, dt) {
 
 function regenerateShield(ship, stats, dt) {
   if (ship.maxShield > 0) {
-    let performance = 0;
-    let count = 0;
+    let recharge = 0;
     for (let i = 0; i < (ship.design || []).length; i += 1) {
       const part = PARTS[ship.design[i].type];
       if (!part?.shieldRegen || (ship.componentHp?.[i] ?? 1) <= 0) continue;
       const local = componentPerformance(ship, i);
-      performance += local;
-      count += 1;
+      recharge += part.shieldRegen * local;
       if (ship.shield < ship.maxShield && local > 0) addComponentHeat(ship, i, part.shieldRegen * 0.7 * dt);
     }
-    ship.shield = Math.min(ship.maxShield, ship.shield + (stats.shieldRegen || 0) * (count ? performance / count : 0) * (ship.thermalPowerFactor ?? 1) * dt);
+    ship.shield = Math.min(ship.maxShield, ship.shield + recharge * (ship.thermalPowerFactor ?? 1) * dt);
   }
 }
 

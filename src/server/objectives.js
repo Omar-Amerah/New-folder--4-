@@ -1,6 +1,7 @@
 // Controls capture point states, capture progress increments, capture rewards, and game score updates.
 
 const { ECONOMY, SCORE_PER_CONTROLLED_POINT } = require("./config");
+const { effectiveComponentBonus } = require("./heat");
 
 function updateCapturePoints(room, ships, dt) {
   const { teamLabel } = require("./players");
@@ -14,7 +15,7 @@ function updateCapturePoints(room, ships, dt) {
         const player = room.players.get(ship.ownerId);
         if (!player) continue;
         const current = counts.get(player.team) || { count: 0, ownerId: ship.ownerId };
-        current.count += 1 + (ship.stats.captureBonus || 0);
+        current.count += 1 + effectiveComponentBonus(ship, "captureBonus");
         counts.set(player.team, current);
       }
     }

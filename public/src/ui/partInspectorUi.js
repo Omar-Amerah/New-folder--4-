@@ -138,25 +138,47 @@ function partThermalDetails(type, stat) {
   if (type === "radiator") effect = "Removes ~14 H/s with an exposed exterior edge (25% output when enclosed); dissipation scales up as it stores more heat.";
   if (type === "armor") effect = "Retains slightly more heat than frame.";
 
-  const hotPenalty = Math.round((1 - rules.performanceForState(rules.STATE.HOT)) * 100);
-  const criticalPenalty = Math.round((1 - rules.performanceForState(rules.STATE.CRITICAL)) * 100);
-  const penaltyTarget = stat.weapon ? "fire rate" : (stat.thrust || 0) > 0 ? "thrust" : (stat.shieldRegen || 0) > 0 ? "recharge rate" : (stat.powerGeneration || 0) > 0 ? "power output" : "performance";
-  const isGenerator = (stat.powerGeneration || 0) > 0;
+  const pct = (value) => `${Math.round(value * 100)}%`;
+  const active = rules.activeOutputForState || rules.performanceForState;
+  const passive = rules.passiveProtectionForState;
+  const cooling = rules.activeCoolingForState;
+  const rows = [
+    ["Heat generation", generation > 0 ? `+${generation.toFixed(1)} H/s — ${cadence}` : "None"],
+    ["Natural cooling", `-${naturalCooling.toFixed(1)} H/s`],
+    ["Base heat capacity", `${capacity} H`]
+  ];
+  const activeLabel = stat.weapon ? (stat.weapon.type === "beam" ? "beam output" : "fire rate")
+    : (stat.thrust || 0) > 0 ? "thrust"
+    : (stat.shieldRegen || 0) > 0 ? "recharge rate"
+    : (stat.repairRate || 0) > 0 ? "repair output"
+    : (stat.powerGeneration || 0) > 0 ? "power output"
+    : (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength || stat.decoyRange) ? "bonus effectiveness" : null;
+  const passiveStructure = /frame/i.test(type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(type);
+  if (activeLabel) {
+    rows.push(["Hot", `${pct(active(rules.STATE.HOT))} ${activeLabel}`]);
+    rows.push(["Critical", `${pct(active(rules.STATE.CRITICAL))} ${activeLabel}`]);
+    rows.push(["Overheated", `${activeLabel.replace(/^./, c => c.toUpperCase())} offline${(stat.powerGeneration || 0) > 0 ? `; meltdown after ${rules.REACTOR_MELTDOWN_SECONDS}s pinned at overheat` : ""}`]);
+  } else if (type === "heatPipe") {
+    rows.push(["Heat penalty", "Transfer unaffected"]);
+  } else if (type === "heatSink") {
+    rows.push(["Storage", "Unaffected"]);
+    rows.push(["Cooling output", `${pct(cooling(rules.STATE.HOT))} Hot / ${pct(cooling(rules.STATE.CRITICAL))} Critical`]);
+  } else if (type === "radiator") {
+    rows.push(["Cooling output", `${pct(cooling(rules.STATE.HOT))} Hot / ${pct(cooling(rules.STATE.CRITICAL))} Critical / passive floor when overheated`]);
+  } else if (passiveStructure) {
+    if (type === "armor" || type === "compositeArmor") {
+      rows.push(["Hot", `${pct(passive(rules.STATE.HOT))} protection`]);
+      rows.push(["Critical", `${pct(passive(rules.STATE.CRITICAL))} protection`]);
+      rows.push(["Overheated", `${pct(passive(rules.STATE.OVERHEATED))} protection`]);
+    } else {
+      rows.push(["Hot", `Takes ×${rules.structuralDamageMultiplierForState(rules.STATE.HOT).toFixed(2)} damage`]);
+      rows.push(["Critical", `Takes ×${rules.structuralDamageMultiplierForState(rules.STATE.CRITICAL).toFixed(2)} damage`]);
+      rows.push(["Overheated", `Takes ×${rules.structuralDamageMultiplierForState(rules.STATE.OVERHEATED).toFixed(2)} damage`]);
+    }
+  }
+  rows.push(["Recovery threshold", `Below ${Math.round(rules.THRESHOLDS.recover * 100)}% heat`], ["Conduction", effect]);
 
-  return {
-    capacity,
-    generation,
-    cadence,
-    details: [
-      ["Heat generation", generation > 0 ? `+${generation.toFixed(1)} H/s — ${cadence}` : "None"],
-      ["Natural cooling", `-${naturalCooling.toFixed(1)} H/s`],
-      ["Base heat capacity", `${capacity} H`],
-      ["Hot / Critical penalty", `-${hotPenalty}% / -${criticalPenalty}% ${penaltyTarget}`],
-      ["Overheat shutdown", isGenerator ? `Output stops; melts down after ${rules.REACTOR_MELTDOWN_SECONDS}s pinned at overheat` : "Temporarily shuts down"],
-      ["Recovery threshold", `Below ${Math.round(rules.THRESHOLDS.recover * 100)}% heat`],
-      ["Conduction", effect]
-    ]
-  };
+  return { capacity, generation, cadence, details: rows };
 }
 
 function inspectorStat(label, value) {

@@ -13,6 +13,7 @@
 const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
+const HeatRules = require("../../public/src/shared/heatRules");
 
 const MODULE_SCALE = 13;
 const GRID_CENTER = 7;
@@ -182,10 +183,13 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
     }
     const part = PARTS[ship.design[idx].type] || PARTS.frame;
     if (part.armorFlatReduction > 0) {
-      remaining = Math.max(0, remaining - part.armorFlatReduction);
+      const protection = HeatRules.passiveProtectionForState(ship.componentHeatState?.[idx] || HeatRules.STATE.NORMAL);
+      remaining = Math.max(0, remaining - Math.max(0, part.armorFlatReduction * protection));
       if (remaining <= 0) break;
     }
-    const dealt = Math.min(ship.componentHp[idx], remaining);
+    const passiveStructure = /frame/i.test(ship.design[idx].type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(ship.design[idx].type);
+    const incoming = passiveStructure ? remaining * HeatRules.structuralDamageMultiplierForState(ship.componentHeatState?.[idx] || HeatRules.STATE.NORMAL) : remaining;
+    const dealt = Math.min(ship.componentHp[idx], incoming);
     if (dealt <= 0) continue;
     ship.componentHp[idx] -= dealt;
     ship.hp -= dealt;
