@@ -956,7 +956,7 @@ function renderHeatFlows(analysis) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 15 15");
   svg.classList.add("heat-flow-overlay");
-  svg.innerHTML = `<defs><marker id="heat-flow-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.5" markerHeight="3.5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff8a2a"/></marker></defs>`;
+  svg.innerHTML = `<defs><marker id="heat-flow-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff9a3d"/></marker><marker id="heat-flow-arrow-incoming" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#38d9ff"/></marker><marker id="heat-flow-arrow-outgoing" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff9a3d"/></marker></defs>`;
   const owner = new Map();
   const occupiedByIndex = state.design.map((part, i) => {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
@@ -987,16 +987,18 @@ function renderHeatFlows(analysis) {
       line.setAttribute("y1", String(cell.y + 0.5 - dy * 0.12));
       line.setAttribute("x2", String(cell.x + 0.5 + dx * 0.72));
       line.setAttribute("y2", String(cell.y + 0.5 + dy * 0.72));
-      line.setAttribute("marker-end", "url(#heat-flow-arrow)");
+      const directionalClass = focusedFlow ? (flow.to === focus ? "heat-flow-incoming" : "heat-flow-outgoing") : "";
+      line.setAttribute("marker-end", directionalClass === "heat-flow-incoming" ? "url(#heat-flow-arrow-incoming)" : directionalClass === "heat-flow-outgoing" ? "url(#heat-flow-arrow-outgoing)" : "url(#heat-flow-arrow)");
       const strength = Math.min(1, flow.amount / 5);
       line.classList.add(isFrameFlow ? "frame-heat-flow" : "component-heat-flow", isHeatPipeFlow ? "heat-pipe-heat-flow" : "frame-route-heat-flow", strength >= 0.9 ? "critical-heat-flow" : strength >= 0.58 ? "high-heat-flow" : strength >= 0.28 ? "moderate-heat-flow" : "low-heat-flow");
+      if (directionalClass) line.classList.add(directionalClass);
       if (showAll && focus != null && !focusedFlow) line.classList.add("heat-flow-muted");
       if (focusedFlow) line.classList.add("heat-flow-focus");
-      let opacity = 0.38 + strength * 0.48;
-      let width = 0.045 + strength * 0.115;
+      let opacity = 0.44 + strength * 0.46;
+      let width = 0.052 + strength * 0.115;
       if (focusedFlow) {
-        opacity = Math.min(1, opacity + 0.25);
-        width = Math.min(0.22, width + 0.035);
+        opacity = Math.min(1, opacity + 0.22);
+        width = Math.min(0.23, width + 0.04);
       } else if (showAll && focus != null) {
         opacity *= 0.55;
       }
