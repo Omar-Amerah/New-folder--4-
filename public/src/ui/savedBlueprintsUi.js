@@ -363,6 +363,7 @@ function loadSavedDesign(id) {
 
   // Re-draw grid and update UI
   import("./designerUi.js").then((mod) => {
+    mod.invalidateHeatAnalysisCache();
     mod.renderBuildGrid();
     mod.renderLocalStats();
   });
@@ -428,6 +429,7 @@ export function saveCurrentDesign() {
   renderSavedDesigns();
   updateEconomyUi();
   import("./designerUi.js").then((mod) => {
+    mod.invalidateHeatAnalysisCache();
     mod.renderBuildGrid();
   });
 }

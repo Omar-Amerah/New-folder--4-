@@ -480,4 +480,23 @@ if (!buildGridCss.includes("blueprint-thermal-hud") || !buildGridCss.includes("h
   throw new Error("missing thermal HUD, contextual card, or role-indicator styles");
 }
 
+if (!designerSource.includes('function addClassString(element, classString)') || !designerSource.includes('element.classList.add(...tokens)')) {
+  throw new Error('heat class strings should be tokenized before classList.add');
+}
+if (designerSource.includes('cell.classList.add(heatClass)')) {
+  throw new Error('multi-class heat strings must not be passed as one DOMTokenList token');
+}
+if (!designerSource.includes('const inspectingHeat =') || !designerSource.includes('if (inspectingHeat) return;')) {
+  throw new Error('heat inspect mode should suppress placement previews immediately');
+}
+if (!designerSource.includes('function removePlacementPreviewElements()') || !designerSource.includes('.build-preview, .engine-exhaust-preview, .engine-thrust-arrow')) {
+  throw new Error('all placement preview elements should be removed by one helper');
+}
+if (!designerSource.includes('refreshHeatPresentationSafely()') || !designerSource.includes('console.error("Heat presentation failed", error)')) {
+  throw new Error('heat presentation should have a visible error boundary');
+}
+if (!designerSource.includes('export function heatInteractionDiagnostics()')) {
+  throw new Error('disabled heat interaction diagnostics helper is missing');
+}
+
 console.log("client ui verification passed");
