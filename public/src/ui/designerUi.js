@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup, shouldShowRotationMarker } from "../design/parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
 import { normalizeRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds, footprintIncludes } from "../design/footprint.js";
@@ -106,7 +106,6 @@ export function renderBuildGrid() {
         const partIndex = state.design.indexOf(part);
         const blockedExhaust = !heatView && exhaustAnalysis.blockedEngineIndices.has(partIndex);
         const rotation = normalizeRotation(part.rotation);
-        const rotationMarker = shouldShowRotationMarker(part.type) ? `<span class="rotation-marker rot-${rotation}">&#9650;</span>` : "";
         const prediction = heatAnalysis.predictions.get(part);
         const displayedHeat = Math.max(0, Math.min(100, heatAnalysis.componentHeat.get(part) || 0));
         const meltdown = prediction?.meltdownTime != null;
@@ -121,7 +120,7 @@ export function renderBuildGrid() {
           ? `<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`
           : "";
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
-        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${rotationMarker}${heatValue}${exhaustWarning}`;
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${heatValue}${exhaustWarning}`;
         if (blockedExhaust) cell.title = "Blocked exhaust — engine provides no thrust.";
       }
       cell.dataset.x = String(x);
