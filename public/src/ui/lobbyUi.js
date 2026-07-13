@@ -1,5 +1,5 @@
 import { resizeArenaRenderer } from "../game/renderController.js";
-import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatEffectsEnabled, getDebugRendererEnabled, setDebugRendererEnabled } from "../game/renderSettings.js";
+import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatEffectsEnabled, getDebugRendererEnabled, setDebugRendererEnabled, getMobileTestingModeEnabled, setMobileTestingModeEnabled } from "../game/renderSettings.js";
 // Handles lobby screens, player wing choices, starting/leaving, rules updates, and host controls.
 
 import { dom } from "./dom.js";
@@ -447,6 +447,9 @@ export function openSettings() {
   if (dom.combatEffectsToggle) {
     dom.combatEffectsToggle.checked = getCombatEffectsEnabled();
   }
+  if (dom.mobileTestingToggle) {
+    dom.mobileTestingToggle.checked = getMobileTestingModeEnabled();
+  }
 }
 
 export function saveServerSetting() {
@@ -589,6 +592,12 @@ if (typeof window !== "undefined") {
     if (dom.combatEffectsToggle) {
       dom.combatEffectsToggle.addEventListener("change", (e) => {
         setCombatEffectsEnabled(e.target.checked);
+      });
+    }
+    if (dom.mobileTestingToggle) {
+      dom.mobileTestingToggle.addEventListener("change", (e) => {
+        setMobileTestingModeEnabled(e.target.checked);
+        showToast(`Mobile testing mode ${e.target.checked ? "on" : "off"}`, e.target.checked ? "good" : "warning");
       });
     }
   });
