@@ -144,10 +144,8 @@
 @keyframes overheated-component-pulse { to { opacity:.58; box-shadow:inset 0 0 18px rgba(255,245,245,.82), 0 0 9px rgba(255,32,67,.5); } }
 
 
-.thermal-tool-controls { display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; margin:0; font-size:11px; color:#9fb4ca; }
-.thermal-tool-controls span { font-weight:800; color:#cfe8ff; text-transform:uppercase; letter-spacing:.04em; }
-.thermal-tool-controls button { border:1px solid rgba(117,145,175,.38); border-radius:6px; background:rgba(10,20,34,.72); color:#d9edff; padding:4px 8px; font-weight:800; cursor:pointer; }
-.thermal-tool-controls button.active { border-color:#67d9ff; background:linear-gradient(180deg,rgba(56,189,248,.28),rgba(30,64,175,.22)); box-shadow:0 0 8px rgba(56,189,248,.24); color:#fff; }
+.heat-flow-row button { border:1px solid rgba(117,145,175,.38); border-radius:6px; background:rgba(10,20,34,.72); color:#d9edff; padding:4px 6px; font-size:10px; font-weight:800; cursor:pointer; }
+.heat-flow-row button.active { border-color:#67d9ff; background:linear-gradient(180deg,rgba(56,189,248,.28),rgba(30,64,175,.22)); box-shadow:0 0 8px rgba(56,189,248,.24); color:#fff; }
 .build-grid.heat-inspecting .build-cell.heat-unrelated { opacity:.58; filter:saturate(.72); }
 .build-cell.heat-related { z-index:3; outline:2px solid rgba(103,217,255,.62); outline-offset:-2px; }
 .heat-flow-overlay { z-index:2; background:transparent; mix-blend-mode:normal; }
@@ -191,11 +189,8 @@
 .heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.07px; stroke-linejoin:round; font-size:.29px; font-weight:850; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
 .heat-flow-overlay .incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .outgoing-flow-label { fill:#ffb260; }
-.blueprint-heat-legend { align-items:center; gap:8px; flex-wrap:wrap; }
-.blueprint-heat-legend::before { content:"Legend: colour = heat state; % = capacity used; arrows = heat direction; thickness = amount; dashed = frame/Heat Pipe; cyan outline = storage/removal; icons = bottleneck/overheat/meltdown."; color:#cfe8ff; font-weight:800; }
 @keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
 
-.thermal-tool-controls small { color:#8ea9c2; font-size:10px; font-weight:700; }
 .heat-flow-overlay .focused-flow-label { font-size:.27px; opacity:1; font-weight:850; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.07px; stroke-linejoin:round; }
 .heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .focused-flow-label.outgoing-flow-label { fill:#ffb260; }

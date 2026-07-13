@@ -18,6 +18,8 @@ function makeStars(count) {
   return stars;
 }
 
+export const DEFAULT_THERMAL_LOAD_MODE = "idle";
+
 export const state = {
   visualShips: new Map(),
   socket: null,
@@ -40,7 +42,7 @@ export const state = {
   hoveredCell: null,
   selectedCell: null,
   blueprintView: "build",
-  thermalLoadMode: "full",
+  thermalLoadMode: DEFAULT_THERMAL_LOAD_MODE,
   heatFlowView: "local",
   showAllHeatFlows: false,
   hoveredHeatPartIndex: null,
