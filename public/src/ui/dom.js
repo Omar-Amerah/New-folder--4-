@@ -65,6 +65,8 @@ export const dom = {
   thermalScenarioLabel: document.getElementById("thermalScenarioLabel"),
   heatToolControls: document.getElementById("heatToolControls"),
   heatFlowViewControls: document.getElementById("heatFlowViewControls"),
+  showAllHeatFlows: document.getElementById("showAllHeatFlows"),
+  heatFlowHint: document.getElementById("heatFlowHint"),
   fullLoadThermalPanel: document.getElementById("fullLoadThermalPanel"),
   buildStatus: document.getElementById("buildStatus"),
   shipStatusChip: document.getElementById("shipStatusChip"),
