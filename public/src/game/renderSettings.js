@@ -71,3 +71,18 @@ export function setDebugRendererEnabled(enabled) {
   cachedDebugRenderer = Boolean(enabled);
   localStorage.setItem("mfa.debugRenderer", cachedDebugRenderer);
 }
+
+
+let cachedMobileTestingMode = null;
+
+export function getMobileTestingModeEnabled() {
+  if (cachedMobileTestingMode === null) {
+    cachedMobileTestingMode = localStorage.getItem("mfa.mobileTestingMode") === "true";
+  }
+  return cachedMobileTestingMode;
+}
+
+export function setMobileTestingModeEnabled(enabled) {
+  cachedMobileTestingMode = Boolean(enabled);
+  localStorage.setItem("mfa.mobileTestingMode", cachedMobileTestingMode);
+}

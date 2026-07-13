@@ -11,6 +11,7 @@ import { updateHud } from "../ui/hudUi.js";
 import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
 import { showToast } from "../ui/toastUi.js";
 import { issueCommand, destructSelectedShips } from "./commands.js";
+import { getMobileTestingModeEnabled } from "./renderSettings.js";
 
 export function handlePointerDown(event) {
   if (!state.snapshot) return;
@@ -40,6 +41,7 @@ export function handlePointerDown(event) {
 
   if (event.button !== 0) return;
 
+  const mobileTestingMode = getMobileTestingModeEnabled();
   const mini = minimapWorldAt(event.clientX, event.clientY);
   if (state.settingRallyPoint) {
     event.preventDefault();
@@ -50,6 +52,19 @@ export function handlePointerDown(event) {
   if (mini) {
     state.camera.x = mini.x;
     state.camera.y = mini.y;
+    state.camera.follow = false;
+    return;
+  }
+
+  if (mobileTestingMode) {
+    state.camDrag = {
+      pointerId: event.pointerId,
+      startCameraX: state.camera.x,
+      startCameraY: state.camera.y,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      commandOnTap: true
+    };
     state.camera.follow = false;
     return;
   }
@@ -88,7 +103,12 @@ export function handlePointerMove(event) {
 export function handlePointerUp(event) {
   if (state.camDrag && state.camDrag.pointerId === event.pointerId) {
     event.preventDefault();
+    const camDrag = state.camDrag;
     state.camDrag = null;
+    const distance = Math.hypot(event.clientX - camDrag.startClientX, event.clientY - camDrag.startClientY);
+    if (camDrag.commandOnTap && distance < 10) {
+      issueCommand(event);
+    }
     return;
   }
 

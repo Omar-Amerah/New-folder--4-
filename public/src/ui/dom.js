@@ -128,6 +128,7 @@ export const dom = {
   renderQualitySelect: document.getElementById("renderQualitySelect"),
   debugOverlayToggle: document.getElementById("debugOverlayToggle"),
   combatEffectsToggle: document.getElementById("combatEffectsToggle"),
+  mobileTestingToggle: document.getElementById("mobileTestingToggle"),
   debugOverlay: document.getElementById("debugOverlay"),
   mainMenuButton: document.getElementById("mainMenuButton"),
   lobbyManagementButton: document.getElementById("lobbyManagementButton"),
