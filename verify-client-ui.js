@@ -429,4 +429,35 @@ if (context.shieldRingRadius(shieldedShip) <= shieldedShip.radius) {
   throw new Error("shield ring should scale outside ship radius");
 }
 
+
+const designerSource = fs.readFileSync("public/src/ui/designerUi.js", "utf8");
+const buildGridCss = fs.readFileSync("public/styles/build-grid.css", "utf8");
+if (designerSource.includes("heat-flow-cool") || designerSource.includes("cooling-heat-flow")) {
+  throw new Error("heat transfer arrows must not use blue/cooling flow markers or classes");
+}
+if (!designerSource.includes('line.setAttribute("marker-end", "url(#heat-flow-arrow)")')) {
+  throw new Error("heat transfer arrows should use the single warm heat-flow arrow marker");
+}
+if (!designerSource.includes('for (const cell of occupiedByIndex[flow.from]') || !designerSource.includes(') !== flow.to) continue')) {
+  throw new Error("heat transfer arrows should be drawn from flow.from to flow.to only");
+}
+for (const phrase of ["Natural cooling", "Cooling received through network", "Complete route:", "Cooling route"]) {
+  if (designerSource.includes(phrase)) throw new Error(`misleading heat UI phrase remains: ${phrase}`);
+}
+if (!designerSource.includes("Estimated reachable cooling path") || !designerSource.includes("not authoritative source-to-radiator heat provenance")) {
+  throw new Error("inferred cooling paths must be labelled as estimates with provenance disclaimer");
+}
+if (!designerSource.includes('view === "local" && !directlyRelated')) {
+  throw new Error("local heat-flow mode should remain first-hop/direct only");
+}
+if (buildGridCss.includes(".heat-flow-overlay .cooling-heat-flow") || /heat-flow-overlay[^}]+#(?:38bdf8|67d9ff|7dd3fc|80,205,255)/i.test(buildGridCss)) {
+  throw new Error("transfer arrow CSS must not style directional heat flows with blue/cyan colours");
+}
+for (const cls of ["low-heat-flow", "moderate-heat-flow", "high-heat-flow", "critical-heat-flow"]) {
+  if (!buildGridCss.includes(cls)) throw new Error(`missing warm transfer intensity class: ${cls}`);
+}
+if (!buildGridCss.includes("heat-sink-absorption") || !buildGridCss.includes("radiator-exposed")) {
+  throw new Error("cooling components should remain visually identifiable via non-directional styling");
+}
+
 console.log("client ui verification passed");
