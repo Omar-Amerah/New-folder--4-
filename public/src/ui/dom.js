@@ -63,7 +63,6 @@ export const dom = {
   blueprintHeatLegend: document.getElementById("blueprintHeatLegend"),
   thermalLoadModes: document.getElementById("thermalLoadModes"),
   thermalScenarioLabel: document.getElementById("thermalScenarioLabel"),
-  heatToolControls: document.getElementById("heatToolControls"),
   heatFlowViewControls: document.getElementById("heatFlowViewControls"),
   showAllHeatFlows: document.getElementById("showAllHeatFlows"),
   heatFlowHint: document.getElementById("heatFlowHint"),

@@ -26,7 +26,6 @@ export function handleServerMessage(message) {
     applyServerParts(message.parts || {});
     state.design = normalizeDesign(state.design);
     state.hoveredHeatPartIndex = null;
-    state.inspectedHeatPartIndex = null;
     renderPalette();
     renderPartInspector();
     renderBuildGrid();
@@ -38,7 +37,6 @@ export function handleServerMessage(message) {
     if (!localStorage.getItem(LOCAL_DESIGN_KEY)) {
       state.design = normalizeDesign(message.defaultDesign || state.design);
       state.hoveredHeatPartIndex = null;
-      state.inspectedHeatPartIndex = null;
       renderBuildGrid();
       renderLocalStats();
     }
