@@ -159,6 +159,8 @@
 .build-grid-stage > .build-grid { position:absolute; z-index:1; inset:0; display:grid; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; aspect-ratio:auto; margin:0; }
 .heat-flow-overlay-host { position:absolute; z-index:20; inset:0; pointer-events:none; background:transparent; }
 .heat-flow-overlay-host .heat-flow-overlay { inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); }
+.heat-flow-overlay-host .exterior-cooling-overlay, .build-grid > .exterior-cooling-overlay { position:absolute; z-index:21; inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); pointer-events:none; overflow:visible; }
+.exterior-cooling-indicator { fill:#5eead4; stroke:rgba(4,10,18,.95); stroke-width:.045px; paint-order:stroke; font-size:.42px; font-weight:950; text-anchor:middle; dominant-baseline:middle; filter:drop-shadow(0 0 .12px rgba(45,212,191,.9)); }
 .build-grid.heat-overlay-active .build-cell.occupied::after { z-index:2; mix-blend-mode:screen; }
 .build-grid.heat-overlay-active .build-cell.occupied { overflow:visible; }
 .build-grid.heat-overlay-active .build-cell.heat-ui-critical { border-color:#ff553f; box-shadow:0 0 10px rgba(255,67,51,.5), inset 0 0 0 2px rgba(255,67,51,.7); }
@@ -184,6 +186,8 @@
 .heat-card-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 9px; }
 .heat-card-grid span { color:#9fb4ca; }
 .heat-card-grid strong { color:#fff; text-align:right; }
+.heat-card-grid span[title^="An exterior"], .heat-card-grid span[title^="Exposed radiator"], .heat-card-grid span[title^="Enclosed radiators"] { color:#67e8f9; }
+.heat-card-grid span[title^="An exterior"] + strong, .heat-card-grid span[title^="Exposed radiator"] + strong, .heat-card-grid span[title^="Enclosed radiators"] + strong { color:#a7f3d0; }
 .heat-flow-overlay .heat-flow-label { fill:#fff3c4; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.07px; stroke-linejoin:round; font-size:.29px; font-weight:850; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
 .heat-flow-overlay .incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .outgoing-flow-label { fill:#ffb260; }
