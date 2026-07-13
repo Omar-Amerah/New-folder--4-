@@ -3,6 +3,7 @@ const assert = require("assert");
 const HeatRules = require("./public/src/shared/heatRules");
 const { initShipHeat, rebuildThermalNetworks, updateShipHeat, buildHeatDebug, addComponentHeat } = require("./src/server/heat");
 const { PARTS } = require("./src/server/components");
+const { validateDesign } = require("./src/server/shipDesign");
 
 function shipFor(design) {
   const hp = design.map(module => PARTS[module.type]?.hp || 40);
@@ -119,5 +120,24 @@ for (let i = 0; i < 400; i += 1) {
 }
 assert(pipeRouted.componentHeat[0] < pipeUncooled.componentHeat[0] * 0.8, "heat pipe did not move hotspot heat to central cooling");
 assert(pipeRouted.componentHeatRadiated[4] > 0, "central radiator did not radiate heat delivered by heat pipes");
+
+assert(HeatRules.profile("heatPipe", PARTS.heatPipe).capacity < HeatRules.profile("frame", PARTS.frame).capacity, "heat pipe stores too much heat compared with frame");
+assert.strictEqual(HeatRules.profile("heatPipe", PARTS.heatPipe).cooling, 0, "heat pipe should not cool by itself");
+assert(HeatRules.profile("heatPipe", PARTS.heatPipe).conductivity > HeatRules.profile("frame", PARTS.frame).conductivity, "heat pipe should conduct better than frame");
+assert(PARTS.heatPipe.hp < PARTS.frame.hp * 0.5, "heat pipe is not structurally weaker than frame");
+
+const unsupportedByPipe = validateDesign([
+  {x:7,y:7,type:"core"},
+  {x:8,y:7,type:"heatPipe"},
+  {x:9,y:7,type:"engine"}
+]);
+assert(!unsupportedByPipe.ok, "heat pipe incorrectly provided structural support between core and engine");
+
+pipeRouted.componentHp[2] = 0;
+rebuildThermalNetworks(pipeRouted);
+pipeRouted.componentHeat.fill(0); pipeRouted.componentHeatRadiated.fill(0); pipeRouted.hasActiveHeat = true;
+for (let i = 0; i < 80; i += 1) { addComponentHeat(pipeRouted, 0, 8); ticks(pipeRouted, 1); }
+assert.strictEqual(pipeRouted.componentHeat[4], 0, "heat crossed a destroyed heat pipe break");
+assert.strictEqual(pipeRouted.componentHeatRadiated[4], 0, "radiator cooled heat through a destroyed heat pipe");
 
 console.log("Heat verification passed");

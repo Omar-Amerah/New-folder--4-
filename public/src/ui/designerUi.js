@@ -623,7 +623,8 @@ function renderHeatFlows(analysis) {
     const from = state.design[flow.from];
     const to = state.design[flow.to];
     if (!from || !to) continue;
-    const isFrameFlow = /frame/i.test(from.type) || /frame/i.test(to.type) || from.type === "heatPipe" || to.type === "heatPipe";
+    const isHeatPipeFlow = from.type === "heatPipe" || to.type === "heatPipe";
+    const isFrameFlow = /frame/i.test(from.type) || /frame/i.test(to.type) || isHeatPipeFlow;
     const coolingFlow = to.type === "radiator" || to.type === "heatSink" || (analysis.predictions.get(to)?.ratio || 0) < 0.35;
     for (const cell of occupiedByIndex[flow.from] || []) for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       if (owner.get(`${cell.x + dx},${cell.y + dy}`) !== flow.to) continue;
@@ -631,7 +632,7 @@ function renderHeatFlows(analysis) {
       line.setAttribute("x1", String(cell.x + 0.5 - dx * 0.12)); line.setAttribute("y1", String(cell.y + 0.5 - dy * 0.12));
       line.setAttribute("x2", String(cell.x + 0.5 + dx * 0.72)); line.setAttribute("y2", String(cell.y + 0.5 + dy * 0.72));
       line.setAttribute("marker-end", `url(#${coolingFlow ? "heat-flow-cool" : "heat-flow-hot"})`);
-      line.classList.add(isFrameFlow ? "frame-heat-flow" : "component-heat-flow", coolingFlow ? "cooling-heat-flow" : "hot-heat-flow");
+      line.classList.add(isFrameFlow ? "frame-heat-flow" : "component-heat-flow", isHeatPipeFlow ? "heat-pipe-heat-flow" : "frame-route-heat-flow", coolingFlow ? "cooling-heat-flow" : "hot-heat-flow");
       line.style.opacity = String(Math.min(0.9, 0.22 + flow.amount / 10));
       line.style.strokeWidth = String(Math.min(0.13, 0.025 + flow.amount / 100));
       svg.appendChild(line);

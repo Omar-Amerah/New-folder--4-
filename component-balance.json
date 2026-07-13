@@ -672,11 +672,11 @@
       "id": "heatPipe",
       "name": "Heat Pipe",
       "category": "Support",
-      "cost": 14,
-      "mass": 2,
-      "hull": 32,
+      "cost": 16,
+      "mass": 2.5,
+      "hull": 16,
       "powerGeneration": 0,
-      "powerUse": 0.1,
+      "powerUse": 0.25,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
@@ -685,7 +685,7 @@
       "repair": 0,
       "utility": "heatTransfer",
       "heat": 0,
-      "description": "High-conductivity thermal conduit that moves heat from nearby components into a shared frame route, enabling centralised radiator banks and heat sinks. It stores little heat and does not cool by itself."
+      "description": "Specialised high-conductivity thermal conduit that transfers heat to a connected sink or radiator route. It removes no heat by itself, stores very little heat, and is structurally weak: use frames for hull support and heat pipes for dedicated long thermal runs."
     },
     {
       "id": "heatSink",

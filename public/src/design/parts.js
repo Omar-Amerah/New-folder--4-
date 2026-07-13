@@ -105,7 +105,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   sensorArray: "Support electronics that extend weapon range for long-distance ships.",
   targetingComputer: "Support computer that improves weapon accuracy.",
   fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
-  heatPipe: "High-conductivity thermal conduit that moves heat from nearby systems into frame routes, enabling centralised radiator banks and heat sinks. It transfers heat but does not cool by itself.",
+  heatPipe: "Specialised high-conductivity thermal conduit that transfers heat to a connected heat sink or radiator route. It does not remove heat, stores very little heat, and is structurally weak, so it cannot replace frames for hull support.",
   heatSink: "High-capacity thermal buffer that soaks heat from connected frames and boosts adjacent components' heat capacity. Pair with radiators to shed the stored heat.",
   radiator: "Continuous heat removal that works best with an exposed exterior edge; only 25% effective when fully enclosed.",
   captureModule: "Objective module that helps dedicated capture ships contest relays.",
