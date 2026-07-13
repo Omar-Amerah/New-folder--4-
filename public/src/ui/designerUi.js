@@ -833,7 +833,7 @@ export function renderLocalStats() {
 function thermalRoleMarkup(part, prediction, result, index) {
   if (!prediction) return "";
   const pieces = [];
-  if (prediction.generation > 0.05) pieces.push(`<span class="thermal-role-indicator heat-source" title="Generating +${prediction.generation.toFixed(1)} H/s" aria-label="Generating +${prediction.generation.toFixed(1)} H/s">↑</span>`);
+  if (prediction.generation > 0.05) pieces.push(`<span class="thermal-role-indicator heat-source" title="Active heat source: +${prediction.generation.toFixed(1)} H/s" aria-label="Active heat source generating ${prediction.generation.toFixed(1)} heat per second">✦</span>`);
   if (part.type === "heatSink") pieces.push(`<span class="thermal-role-indicator heat-sink-role" title="Absorbing ${prediction.cooling.toFixed(1)} H/s; capacity ${prediction.capacity} H" aria-label="Heat Sink absorbing ${prediction.cooling.toFixed(1)} H/s">▢</span>`);
   if (part.type === "radiator") {
     const exposed = result.exteriorDirections?.[index]?.size > 0;

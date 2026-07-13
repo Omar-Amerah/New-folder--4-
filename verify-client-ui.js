@@ -484,6 +484,21 @@ if (!designerSource.includes('state.inspectedHeatPartIndex = null') || !designer
 if (!buildGridCss.includes("blueprint-thermal-hud") || !buildGridCss.includes("heat-context-card") || !buildGridCss.includes("thermal-role-indicator")) {
   throw new Error("missing thermal HUD, contextual card, or role-indicator styles");
 }
+if (!designerSource.includes('prediction.generation > 0.05') || !designerSource.includes('title="Active heat source: +${prediction.generation.toFixed(1)} H/s"') || !designerSource.includes('>✦</span>')) {
+  throw new Error("active heat sources should render as value-specific orange spark indicators above the generation threshold");
+}
+if (designerSource.includes('class="thermal-role-indicator heat-source" title="Generating') || designerSource.includes('heat-source" title="Generating') || designerSource.includes('>↑</span>`')) {
+  throw new Error("heat source indicators must not use the old upward arrow or vague generation tooltip");
+}
+if (!/\.thermal-role-indicator\.heat-source \{[^}]*right:2px;[^}]*top:2px;[^}]*width:10px;[^}]*height:10px;[^}]*font-size:6px;[^}]*box-shadow:0 0 4px rgba\(255,154,61,\.28\);[^}]*opacity:\.9;[^}]*\}/.test(buildGridCss)) {
+  throw new Error("heat source spark should be small, calm, amber, and positioned top-right");
+}
+if (/\.thermal-role-indicator\.heat-source \{[^}]*animation:/i.test(buildGridCss)) {
+  throw new Error("heat source spark must not animate");
+}
+if (!fs.readFileSync("public/index.html", "utf8").includes("orange spark = active heat source")) {
+  throw new Error("heat legend should explain the active heat source spark");
+}
 
 if (!designerSource.includes('function addClassString(element, classString)') || !designerSource.includes('element.classList.add(...tokens)')) {
   throw new Error('heat class strings should be tokenized before classList.add');
