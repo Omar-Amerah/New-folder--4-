@@ -121,25 +121,66 @@
 
 @media (max-width: 900px) {
   .blueprint-designer-layout {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
-  }
-  .designer-left-col,
-  .designer-right-col,
-  .designer-center-col {
-    overflow-y: visible;
-  }
-  .designer-center-col {
-    min-height: 0;
-  }
-  .designer-workspace {
+    display: flex;
+    flex-direction: column;
     height: auto;
+    min-height: 0;
     overflow: visible;
   }
-  .blueprint-designer-panel .build-grid {
-    align-self: start;
-    width: min(100%, 60vh);
+
+  .designer-left-col {
+    order: 1;
+  }
+
+  .designer-center-col {
+    order: 2;
+  }
+
+  .designer-right-col {
+    order: 3;
+  }
+
+  .designer-left-col,
+  .designer-right-col {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .designer-center-col {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
     height: auto;
+    min-height: 0;
+    overflow: visible;
+    gap: 12px;
+  }
+
+  .designer-top,
+  .designer-bottom {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .designer-workspace {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    gap: 6px;
+  }
+
+  .blueprint-designer-panel .build-grid {
+    display: grid;
+    width: min(100%, 600px);
+    height: auto;
+    aspect-ratio: 1;
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 0 auto;
     max-height: none;
   }
 }
