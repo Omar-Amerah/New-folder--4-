@@ -1628,3 +1628,19 @@ function statMarkup(key, label, value, diagnosticStatus = "neutral") {
     </div>
   `;
 }
+
+export function recordBlueprintDesignerGridSize() {
+  const stage = document.getElementById("buildGridStage");
+  const grid = document.getElementById("buildGrid");
+  const stageRect = stage?.getBoundingClientRect();
+  const gridRect = grid?.getBoundingClientRect();
+  return {
+    view: state.blueprintView,
+    stageWidth: stageRect?.width ?? 0,
+    stageHeight: stageRect?.height ?? 0,
+    gridWidth: gridRect?.width ?? 0,
+    gridHeight: gridRect?.height ?? 0
+  };
+}
+
+globalThis.recordBlueprintDesignerGridSize = recordBlueprintDesignerGridSize;
