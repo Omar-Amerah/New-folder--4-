@@ -46,6 +46,7 @@ export const state = {
   hoveredHeatPartIndex: null,
   inspectedHeatPartIndex: null,
   shipStatusView: "damage",
+  debugTurrets: false,
   selectedShipIds: new Set(),
   activeShipGroup: null,
   shipGroups: { group1: new Set(), group2: new Set(), group3: new Set(), group4: new Set(), group5: new Set() },

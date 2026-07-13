@@ -139,4 +139,24 @@ function runTicks(room, me, ships, count, dt) {
   assert(TurretRules.TURN_RATES.pointDefense > TurretRules.TURN_RATES.blaster, "point defense must traverse faster than main guns");
 }
 
+// 6. Pixi visual flow: turret smoothing is per pooled view, ship-relative, and
+// not keyed to snapshot object identity or world hull angle.
+{
+  const fs = require("fs");
+  const pixiSource = fs.readFileSync("./public/src/game/pixi/pixiShips.js", "utf8");
+  const rendererSource = fs.readFileSync("./public/src/game/renderer.js", "utf8");
+  const netlifyBuild = fs.readFileSync("./netlify-build.js", "utf8");
+  assert(/visualTurretAngles/.test(pixiSource), "Pixi ship views must own smoothed turret angles so pooled views can reset them");
+  assert(!/state\.weaponAnglesMap/.test(pixiSource), "Pixi turret rotation must not use the canvas global weapon angle cache");
+  assert(/view\.hullGroup\.rotation\s*=\s*renderShip\.angle/.test(pixiSource), "Pixi hull group should own ship world rotation");
+  assert(/sprite\.rotation\s*=\s*visualAngles\[i\]/.test(pixiSource), "Pixi turret sprites must receive ship-relative visual angles");
+  assert(!/sprite\.rotation\s*=\s*[^;]*(ship|renderShip)\.angle\s*\+/.test(pixiSource), "Pixi turret sprites must not add hull angle a second time");
+  assert(/updatePixiTurrets\(view, ship, design\)/.test(pixiSource), "Pixi turrets must update every rendered ship frame");
+  assert(/debugTurrets:\s*false/.test(fs.readFileSync("./public/src/state.js", "utf8")), "turret debug logging must be disabled by default");
+  assert(/src[\\/", ]+shared[\\/", ]+turretRules\.js/.test(netlifyBuild) || /turretRules\.js/.test(netlifyBuild), "Netlify build must require the shared turret rules asset");
+  for (const type of ["blaster", "autocannon", "railgun", "missile", "torpedo", "swarmMissile", "pointDefense", "flakCannon", "beamEmitter"]) {
+    assert(rendererSource.includes(type), `renderer should include ${type} weapon artwork`);
+  }
+}
+
 console.log("Turret verification passed");

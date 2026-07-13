@@ -2308,12 +2308,12 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.fill();
     ctx.restore();
   } else if (type === "blaster") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#ffd1dc";
     roundRect(ctx, { x: size * 0.02, y: -size * 0.13, width: size * 0.62, height: size * 0.26, radius: size * 0.08 });
     ctx.fill();
   } else if (type === "missile") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#f0dcff";
     ctx.beginPath();
     ctx.moveTo(size * 0.64, 0);
@@ -2323,7 +2323,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.closePath();
     ctx.fill();
   } else if (type === "railgun") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.strokeStyle = "#f4f7ff";
     ctx.lineWidth = Math.max(1.2, size * 0.1);
     ctx.beginPath();
@@ -2335,7 +2335,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.fillStyle = "#7aa4ff";
     ctx.fillRect(size * 0.42, -size * 0.06, size * 0.16, size * 0.12);
   } else if (type === "swarmMissile") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#e9d5ff";
     roundRect(ctx, { x: 0, y: -size * 0.28, width: size * 0.52, height: size * 0.56, radius: size * 0.08 });
     ctx.fill();
@@ -2348,7 +2348,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.arc(size * 0.38, size * 0.12, size * 0.06, 0, Math.PI * 2);
     ctx.fill();
   } else if (type === "autocannon") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#fdba74";
     // Twin barrels: roundRect() starts a new path, so each barrel must be filled
     // on its own — a single shared fill() would only render the last barrel.
@@ -2357,7 +2357,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     roundRect(ctx, { x: size * 0.02, y: size * 0.08, width: size * 0.68, height: size * 0.14, radius: size * 0.04 });
     ctx.fill();
   } else if (type === "torpedo") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#c084fc";
     ctx.beginPath();
     ctx.moveTo(-size * 0.12, -size * 0.24);
@@ -2369,7 +2369,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.fill();
     ctx.stroke();
   } else if (type === "beamEmitter") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#0284c7";
     ctx.fillRect(0, -size * 0.16, size * 0.22, size * 0.32);
     ctx.fillStyle = "#38bdf8";
@@ -2382,7 +2382,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.fill();
     ctx.stroke();
   } else if (type === "aegisProjector") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.strokeStyle = "#34d399";
     ctx.lineWidth = Math.max(1.4, size * 0.1);
     ctx.beginPath();
@@ -2393,7 +2393,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.arc(size * 0.22, 0, size * 0.12, 0, Math.PI * 2);
     ctx.fill();
   } else if (type === "pointDefense" || type === "pointDefenseLaser") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#fda4af";
     roundRect(ctx, { x: 0, y: -size * 0.08, width: size * 0.62, height: size * 0.16, radius: size * 0.04 });
     ctx.fill();
@@ -2401,7 +2401,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     // Left turret
     ctx.save();
     ctx.translate(0, -size * 0.22);
-    drawWeaponBase(size * 0.65);
+    if (drawBase) drawWeaponBase(size * 0.65);
     ctx.fillStyle = "#f43f5e";
     roundRect(ctx, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
     ctx.fill();
@@ -2410,7 +2410,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     // Right turret
     ctx.save();
     ctx.translate(0, size * 0.22);
-    drawWeaponBase(size * 0.65);
+    if (drawBase) drawWeaponBase(size * 0.65);
     ctx.fillStyle = "#f43f5e";
     roundRect(ctx, { x: 0, y: -size * 0.06, width: size * 0.45, height: size * 0.12, radius: size * 0.02 });
     ctx.fill();
@@ -2438,7 +2438,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.arc(size * 0.34, size * 0.29, size * 0.05, 0, Math.PI * 2);
     ctx.fill();
   } else if (type === "repairBeam") {
-    drawWeaponBase(size, color);
+    if (drawBase) drawWeaponBase(size, color);
     ctx.fillStyle = "#15803d";
     ctx.fillRect(0, -size * 0.16, size * 0.22, size * 0.32);
     ctx.fillStyle = "#4ade80";
