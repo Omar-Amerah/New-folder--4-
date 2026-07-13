@@ -21,6 +21,18 @@ export { analyzeDesignHeat };
 const GRID_SIZE = 15;
 const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "Maximum Sustained Load" };
 const HEAT_FLOW_THRESHOLD = 0.05;
+const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
+let cachedHeatAnalysis = null;
+
+function getScenarioHeatAnalysis(mode = state.thermalLoadMode || "full") {
+  const signature = `${mode}|${JSON.stringify(state.design.map(part => [part.type, part.x, part.y, part.rotation || 0]))}`;
+  if (cachedHeatAnalysis?.signature === signature) return cachedHeatAnalysis.result;
+  const result = analyzeDesignHeat(state.design, mode);
+  cachedHeatAnalysis = { signature, result };
+  return result;
+}
+
+function invalidateHeatAnalysisCache() { cachedHeatAnalysis = null; }
 
 export function renderBuildGrid() {
   renderBaseBlueprintGrid();
@@ -39,7 +51,21 @@ export function renderBuildGrid() {
 }
 
 function currentHeatAnalysis(mode = state.thermalLoadMode || "full") {
-  return analyzeDesignHeat(state.design, mode);
+  return getScenarioHeatAnalysis(mode);
+}
+
+export function setBlueprintView(view) {
+  state.blueprintView = view === "heat" ? "heat" : "build";
+  const analysis = state.blueprintView === "heat" ? currentHeatAnalysis() : null;
+  refreshBlueprintControls();
+  if (analysis) {
+    applyHeatPresentation(analysis);
+    refreshHeatFlowOverlay(analysis);
+    updateHeatInspectionOverlay(analysis);
+  } else {
+    clearHeatInspectionState();
+    clearHeatPresentation();
+  }
 }
 
 function refreshBlueprintControls() {
@@ -50,6 +76,7 @@ function refreshBlueprintControls() {
   dom.blueprintBuildTab?.setAttribute("aria-selected", String(!heatView));
   dom.blueprintHeatTab?.setAttribute("aria-selected", String(heatView));
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
+  if (dom.blueprintThermalHud) dom.blueprintThermalHud.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
   if (dom.thermalLoadModes) {
     dom.thermalLoadModes.hidden = !heatView;
@@ -161,26 +188,42 @@ function applyHeatPresentation(heatAnalysis) {
     const meltdown = prediction?.meltdownTime != null;
     const overheated = !meltdown && displayedHeat >= 100;
     const critical = !meltdown && !overheated && displayedHeat >= 76;
+    const role = thermalRoleMarkup(part, prediction, heatAnalysis, index);
     const heatWarning = meltdown
       ? `<span class="component-overheat-warning" title="Reactor meltdown predicted — will explode at sustained load" aria-label="Reactor meltdown predicted">☢</span>`
       : overheated
       ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>`
       : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
-    cell.insertAdjacentHTML("beforeend", `<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`);
+    cell.insertAdjacentHTML("beforeend", `${role}<span class="component-heat-value" title="Predicted heat capacity used" aria-label="Predicted heat capacity used: ${displayedHeat} percent"><small class="heat-badge-icon" aria-hidden="true">♨</small>${displayedHeat}<small>%</small></span>${heatWarning}`);
     cell.title = `${PART_DEFS[part.type].name}${thermalHoverText(prediction)}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`;
   }
   renderFullLoadThermalPanel(currentHeatAnalysis("full"), heatAnalysis);
+  renderThermalHud(heatAnalysis);
   updateHeatInspectionOverlay(heatAnalysis);
 }
 
-function clearHeatPresentation() {
+function clearHeatFlowOverlay() {
+  dom.heatFlowOverlayHost?.replaceChildren();
   dom.grid.querySelector(".heat-flow-overlay")?.remove();
+}
+
+function clearHeatContextCard() {
+  if (!dom.heatContextCard) return;
+  dom.heatContextCard.hidden = true;
+  dom.heatContextCard.innerHTML = "";
+  dom.heatContextCard.className = "heat-context-card";
+}
+
+function clearHeatPresentation() {
+  clearHeatFlowOverlay();
+  clearHeatContextCard();
+  if (dom.blueprintThermalHud) { dom.blueprintThermalHud.hidden = true; dom.blueprintThermalHud.innerHTML = ""; }
   dom.grid.classList.remove("heat-inspecting");
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
     for (const className of [...cell.classList]) {
       if (className.startsWith("heat-") || className.startsWith("thermal-") || className.startsWith("radiator-exposed")) cell.classList.remove(className);
     }
-    cell.querySelectorAll(".component-heat-value, .component-overheat-warning, .component-critical-warning").forEach(item => item.remove());
+    cell.querySelectorAll(".component-heat-value, .component-overheat-warning, .component-critical-warning, .thermal-role-indicator").forEach(item => item.remove());
     const index = Number(cell.dataset.partIndex);
     const part = state.design[index];
     cell.title = part
@@ -190,24 +233,13 @@ function clearHeatPresentation() {
 }
 
 function refreshHeatFlowOverlay(analysis) {
-  dom.grid.querySelector(".heat-flow-overlay")?.remove();
+  clearHeatFlowOverlay();
   if (state.blueprintView === "heat" && (state.heatFlowView || "local") !== "off") renderHeatFlows(analysis);
 }
 
-function switchToHeatView() {
-  state.blueprintView = "heat";
-  const analysis = currentHeatAnalysis();
-  applyHeatPresentation(analysis);
-  refreshHeatFlowOverlay(analysis);
-  refreshBlueprintControls();
-}
+function switchToHeatView() { setBlueprintView("heat"); }
 
-function switchToBuildView() {
-  state.blueprintView = "build";
-  clearHeatInspectionState();
-  clearHeatPresentation();
-  refreshBlueprintControls();
-}
+function switchToBuildView() { setBlueprintView("build"); }
 
 function assertHeatViewKeepsBaseGridDom() {
   const before = [...dom.grid.querySelectorAll(".build-cell")];
@@ -271,10 +303,11 @@ function ensureBlueprintGridEventHandlers() {
 
   if (!dom.grid.dataset.hasHeatTabs) {
     dom.blueprintBuildTab?.addEventListener("click", () => {
-      switchToBuildView();
+      setBlueprintView("build");
       renderLocalStats();
     });
     dom.blueprintHeatTab?.addEventListener("click", () => {
+      setBlueprintView("heat");
       assertHeatViewKeepsBaseGridDom();
       renderLocalStats();
     });
@@ -469,19 +502,19 @@ function validHeatIndex(index) {
 }
 
 function updateHoveredHeatPart(x, y) {
-  if (state.blueprintView !== "heat") return;
+  if (state.blueprintView !== "heat") { clearHeatContextCard(); return; }
   const part = Number.isFinite(x) && Number.isFinite(y) ? findPartAt(x, y) : null;
   const next = part ? state.design.indexOf(part) : null;
   if (state.hoveredHeatPartIndex === next) return;
   state.hoveredHeatPartIndex = next;
-  updateHeatInspectionOverlay(analyzeDesignHeat(state.design, state.thermalLoadMode || "full"));
+  updateHeatInspectionOverlay(currentHeatAnalysis());
 }
 
 function inspectHeatCell(x, y) {
   const part = findPartAt(x, y);
   state.inspectedHeatPartIndex = part ? state.design.indexOf(part) : null;
-  updateHeatInspectionOverlay(analyzeDesignHeat(state.design, state.thermalLoadMode || "full"));
-  renderFullLoadThermalPanel(analyzeDesignHeat(state.design, "full"), analyzeDesignHeat(state.design, state.thermalLoadMode || "full"));
+  updateHeatInspectionOverlay(currentHeatAnalysis());
+  renderFullLoadThermalPanel(currentHeatAnalysis("full"), currentHeatAnalysis());
 }
 
 function clearInvalidHeatIndexes() {
@@ -532,6 +565,7 @@ export function editCell(x, y) {
     }
     state.design = next;
     clearInvalidHeatIndexes();
+    invalidateHeatAnalysisCache();
   } else {
     const newPart = makeDesignPart(targetX, targetY, state.selectedPart, state.previewRotation || 0);
     const next = [...state.design, newPart];
@@ -549,6 +583,7 @@ export function editCell(x, y) {
     if (isConnected(next)) {
       state.design = next;
       clearInvalidHeatIndexes();
+      invalidateHeatAnalysisCache();
     } else {
       const message = explainConnectionProblem(state.design, state.selectedPart, targetX, targetY, newPart.rotation);
       setBuildStatus(message, "warning");
@@ -589,6 +624,7 @@ export function rotateCell(x, y) {
   }
 
   state.design = next;
+  invalidateHeatAnalysisCache();
   if (state.selectedPart === part.type) {
     state.previewRotation = newRotation;
   }
@@ -631,6 +667,7 @@ export function removeCell(x, y) {
 
 export function resetDesign() {
   state.design = defaultDesign();
+  invalidateHeatAnalysisCache();
   clearHeatInspectionState();
   state.loadedEditorBlueprintId = null;
   persistDesign(state.design, state.combatStyle);
@@ -641,6 +678,7 @@ export function resetDesign() {
 
 export function clearDesign() {
   state.design = [];
+  invalidateHeatAnalysisCache();
   clearHeatInspectionState();
   state.loadedEditorBlueprintId = null;
   persistDesign(state.design, state.combatStyle);
@@ -651,7 +689,7 @@ export function clearDesign() {
 
 export function renderLocalStats() {
   const stats = computeStats(state.design);
-  const heat = analyzeDesignHeat(state.design, state.thermalLoadMode || "full");
+  const heat = currentHeatAnalysis();
   const status = getShipStatus(stats);
   const mine = state.mine;
   const money = currentMatchMoney(mine);
@@ -704,6 +742,67 @@ export function renderLocalStats() {
 
   renderShipStatus(status);
   updateEconomyUi();
+}
+
+
+function thermalRoleMarkup(part, prediction, result, index) {
+  if (!prediction) return "";
+  const pieces = [];
+  if (prediction.generation > 0.05) pieces.push(`<span class="thermal-role-indicator heat-source" title="Generating +${prediction.generation.toFixed(1)} H/s" aria-label="Generating +${prediction.generation.toFixed(1)} H/s">↑</span>`);
+  if (part.type === "heatSink") pieces.push(`<span class="thermal-role-indicator heat-sink-role" title="Absorbing ${prediction.cooling.toFixed(1)} H/s; capacity ${prediction.capacity} H" aria-label="Heat Sink absorbing ${prediction.cooling.toFixed(1)} H/s">▢</span>`);
+  if (part.type === "radiator") {
+    const exposed = result.exteriorDirections?.[index]?.size > 0;
+    pieces.push(`<span class="thermal-role-indicator radiator-role" title="Removing ${prediction.cooling.toFixed(1)} H/s; exterior exposure: ${exposed ? "yes" : "no"}" aria-label="Radiator removing ${prediction.cooling.toFixed(1)} H/s">⇱</span>`);
+  }
+  if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Heat Pipe conduit" aria-label="Heat Pipe conduit">┄</span>`);
+  if (/frame/i.test(part.type) && result.criticalFrames?.has?.(index)) pieces.push(`<span class="thermal-role-indicator bottleneck-role" title="Possible single-frame transfer bottleneck" aria-label="Possible single-frame transfer bottleneck">!</span>`);
+  if ((result.actionItems || []).some(item => item.includes(describeComponentAt(index, state.design)) && /no frame|overloaded/i.test(item))) pieces.push(`<span class="thermal-role-indicator unrouted-role" title="Unrouted or overloaded thermal network" aria-label="Unrouted or overloaded thermal network">⚠</span>`);
+  if (prediction.meltdownTime != null) pieces.push(`<span class="thermal-role-indicator meltdown-role" title="Reactor meltdown in ${prediction.meltdownTime.toFixed(1)} s" aria-label="Reactor meltdown predicted">☢</span>`);
+  return pieces.join("");
+}
+
+function renderThermalHud(result) {
+  if (!dom.blueprintThermalHud || state.blueprintView !== "heat" || !result) return;
+  const a = result.analysis;
+  const seconds = value => value == null ? "Never" : `${value.toFixed(1)} s`;
+  const reserve = a.reserve >= 0;
+  dom.blueprintThermalHud.hidden = false;
+  dom.blueprintThermalHud.innerHTML = `<strong>${escapeHtml(THERMAL_SCENARIO_NAMES[a.mode] || a.mode)}</strong><b class="${a.balance.toLowerCase()}">${escapeHtml(a.balance)}</b>
+    <span>${reserve ? "Removal reserve" : "Net heat"}</span><em>${reserve ? a.reserve.toFixed(1) : `+${a.net.toFixed(1)}`} H/s</em>
+    <span>Peak heat</span><em>${Math.round(a.peakPredictedHeat * 100)}%</em>
+    <span>First overheat</span><em>${seconds(a.firstOverheatTime)}</em>
+    <span>Meltdown</span><em>${seconds(a.firstMeltdownTime)}</em>`;
+}
+
+function renderHeatContextCard(result) {
+  const index = validHeatIndex(state.inspectedHeatPartIndex) ? state.inspectedHeatPartIndex : state.hoveredHeatPartIndex;
+  if (!dom.heatContextCard || state.blueprintView !== "heat" || !validHeatIndex(index) || !result) { clearHeatContextCard(); return; }
+  const part = state.design[index], prediction = result.predictions.get(part);
+  if (!prediction) { clearHeatContextCard(); return; }
+  const labels = globalThis.HeatRules.STATE_LABELS;
+  const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
+  const row = (l,v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(v)}</strong>`;
+  const transferRows = (flows, dir) => flows.map(flow => row(describeComponentAt(dir === "out" ? flow.to : flow.from, state.design), `${flow.amount.toFixed(1)} H/s`)).join("") || row("None above threshold", "—");
+  const incoming = result.flows.filter(flow => flow.to === index && flow.amount >= HEAT_FLOW_THRESHOLD);
+  const outgoing = result.flows.filter(flow => flow.from === index && flow.amount >= HEAT_FLOW_THRESHOLD);
+  const pinned = validHeatIndex(state.inspectedHeatPartIndex);
+  dom.heatContextCard.hidden = false;
+  dom.heatContextCard.className = `heat-context-card${pinned ? " pinned" : ""}`;
+  dom.heatContextCard.innerHTML = `<h4>${escapeHtml(PART_DEFS[part.type]?.name || part.type)}</h4><div class="heat-card-state">${escapeHtml(labels[prediction.state] || "Heat")} — ${Math.min(100, Math.round(prediction.ratio * 100))}% <small>${prediction.heat.toFixed(0)} / ${prediction.capacity} H</small></div><div class="heat-card-grid">
+    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Received", `+${prediction.received.toFixed(1)} H/s`)}${row("Transferred out", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(part.type === "radiator" ? "Removed" : part.type === "heatSink" ? "Absorbed" : "Removed", `-${prediction.cooling.toFixed(1)} H/s`)}${row("Net", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${row("Performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>${pinned ? `<div class="heat-card-transfers"><h5>Outgoing</h5>${transferRows(outgoing,"out")}<h5>Incoming</h5>${transferRows(incoming,"in")}</div>${coolingRouteMarkup(result,index)}` : ""}`;
+  positionHeatContextCard(index);
+}
+
+function positionHeatContextCard(index) {
+  const card = dom.heatContextCard, stage = dom.gridStage || dom.grid;
+  const cell = dom.grid.querySelector(`.build-cell[data-part-index="${index}"]`);
+  if (!card || !stage || !cell || typeof stage.getBoundingClientRect !== "function") return;
+  const sr = stage.getBoundingClientRect(), cr = cell.getBoundingClientRect();
+  const cardWidth = Math.min(260, Math.max(210, card.offsetWidth || 230));
+  const leftSide = cr.right + cardWidth + 12 > sr.right;
+  const x = Math.max(8, Math.min(sr.width - cardWidth - 8, (leftSide ? cr.left - sr.left - cardWidth - 10 : cr.right - sr.left + 10)));
+  const y = Math.max(8, Math.min(sr.height - 130, cr.top - sr.top));
+  card.style.left = `${x}px`; card.style.top = `${y}px`; card.style.maxWidth = `${cardWidth}px`;
 }
 
 function thermalHoverText(prediction) {
@@ -842,7 +941,7 @@ function renderFullLoadThermalPanel(fullLoadResult, currentHeatResult = null) {
 
 function updateHeatInspectionOverlay(analysis) {
   clearInvalidHeatIndexes();
-  dom.grid.querySelector(".heat-flow-overlay")?.remove();
+  clearHeatFlowOverlay();
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
     cell.classList.remove("heat-related", "heat-unrelated", "heat-pinned");
   }
@@ -861,6 +960,7 @@ function updateHeatInspectionOverlay(analysis) {
     cell.classList.toggle("heat-related", connected.has(index));
     cell.classList.toggle("heat-unrelated", connected.size > 0 && !connected.has(index));
   }
+  renderHeatContextCard(analysis);
   if ((state.heatFlowView || "local") !== "off") renderHeatFlows(analysis);
 }
 
@@ -903,9 +1003,17 @@ function renderHeatFlows(analysis) {
       line.style.opacity = String(Math.min(pinned != null && directlyRelated ? 0.95 : 0.82, baseOpacity + (directlyRelated && focus != null ? 0.16 : 0)));
       line.style.strokeWidth = String(Math.min(0.16, 0.025 + strength * 0.105 + (pinned != null && directlyRelated ? 0.025 : 0)));
       svg.appendChild(line);
+      if (view === "local" && directlyRelated && flow.amount >= HEAT_FLOW_LABEL_THRESHOLD) {
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.classList.add("heat-flow-label", flow.to === focus ? "incoming-flow-label" : "outgoing-flow-label");
+        label.setAttribute("x", String(cell.x + 0.5 + dx * 0.28 + dy * 0.08));
+        label.setAttribute("y", String(cell.y + 0.5 + dy * 0.28 + dx * 0.08));
+        label.textContent = `${flow.amount.toFixed(1)} H/s`;
+        svg.appendChild(label);
+      }
     }
   }
-  if (svg.children.length > 1) dom.grid.appendChild(svg);
+  if (svg.children.length > 1) (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
 }
 
 export function setBuildStatus(text, className) {
@@ -1069,8 +1177,8 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && state.blueprintView === "heat" && state.inspectedHeatPartIndex !== null) {
       state.inspectedHeatPartIndex = null;
-      updateHeatInspectionOverlay(analyzeDesignHeat(state.design, state.thermalLoadMode || "full"));
-      renderFullLoadThermalPanel(analyzeDesignHeat(state.design, "full"), analyzeDesignHeat(state.design, state.thermalLoadMode || "full"));
+      updateHeatInspectionOverlay(currentHeatAnalysis());
+      renderFullLoadThermalPanel(currentHeatAnalysis("full"), currentHeatAnalysis());
     }
     if (event.key === "Escape" && dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
       toggleShipStatusDetails(false);
