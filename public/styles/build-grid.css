@@ -92,10 +92,12 @@
 .build-cell.heat-overheated::after { box-shadow:inset 0 0 20px rgba(255,255,255,.92), 0 0 12px rgba(255,35,60,.8); animation:designer-heat-pulse .45s ease-in-out infinite alternate; }
 .heat-flow-overlay { position:absolute; z-index:6; inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); overflow:visible; color:#ffd166; pointer-events:none; }
 .heat-flow-overlay line { stroke:currentColor; stroke-linecap:round; }
-.heat-flow-overlay .hot-heat-flow { color:#ff9a3d; stroke:#ff9a3d; }
-.heat-flow-overlay .cooling-heat-flow { color:#67d9ff; stroke:#67d9ff; }
+.heat-flow-overlay .low-heat-flow { color:#c58a2a; stroke:#c58a2a; }
+.heat-flow-overlay .moderate-heat-flow { color:#ff9a3d; stroke:#ff9a3d; }
+.heat-flow-overlay .high-heat-flow { color:#ff713d; stroke:#ff713d; }
+.heat-flow-overlay .critical-heat-flow { color:#ff334f; stroke:#ff334f; }
 .heat-flow-overlay .frame-heat-flow { stroke-dasharray:.18 .12; animation:thermal-flow-route .7s linear infinite; filter:drop-shadow(0 0 .06px currentColor); }
-.heat-flow-overlay .heat-pipe-heat-flow { stroke-dasharray:.04 .06; stroke-width:.09px; filter:drop-shadow(0 0 .09px #38bdf8); }
+.heat-flow-overlay .heat-pipe-heat-flow { stroke-dasharray:.04 .06; stroke-width:.09px; filter:drop-shadow(0 0 .09px #ff9a3d); }
 .heat-flow-overlay .frame-route-heat-flow { opacity:.72; }
 .build-cell[class*="thermal-network-"] { outline:1px solid rgba(96,165,250,.2); outline-offset:-2px; }
 .build-cell.thermal-network-1 { outline-color:rgba(52,211,153,.28); }

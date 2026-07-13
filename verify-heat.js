@@ -66,7 +66,7 @@ const builds = neighbour.heatAdjacencyBuilds;
 ticks(neighbour, 10);
 assert.strictEqual(neighbour.heatAdjacencyBuilds, builds, "adjacency rebuilt during heat ticks");
 
-// Cached frame networks carry heat several cells to central cooling and sever on destruction.
+// Cached frame networks carry heat several cells to a central radiator and sever on destruction.
 const routed = shipFor([
   {x:6,y:7,type:"blaster"}, {x:7,y:7,type:"frame"}, {x:8,y:7,type:"frame"},
   {x:9,y:7,type:"frame"}, {x:10,y:7,type:"radiator"}
@@ -81,13 +81,13 @@ assert.strictEqual(routed.thermalNetworkBuilds, networkBuilds, "thermal network 
 routed.componentHp[2] = 0;
 rebuildThermalNetworks(routed);
 assert(routed.thermalNetworks.length >= 2, "destroyed frame did not sever cached network");
-assert.notDeepStrictEqual(routed.componentThermalNetworks[0], routed.componentThermalNetworks[4], "generator stayed routed to cooling through destroyed frame");
+assert.notDeepStrictEqual(routed.componentThermalNetworks[0], routed.componentThermalNetworks[4], "generator stayed connected to radiator heat-transfer path through destroyed frame");
 routed.componentHeat.fill(0); routed.hasActiveHeat = true;
 for (let i = 0; i < 80; i += 1) { addComponentHeat(routed, 0, 8); ticks(routed, 1); }
 assert.strictEqual(routed.componentHeat[4], 0, "heat crossed a destroyed frame break");
 routed.componentHp[2] = routed.componentMaxHp[2];
 rebuildThermalNetworks(routed);
-assert.deepStrictEqual(routed.componentThermalNetworks[0], routed.componentThermalNetworks[4], "restored frame did not reconnect cooling route");
+assert.deepStrictEqual(routed.componentThermalNetworks[0], routed.componentThermalNetworks[4], "restored frame did not reconnect the heat-transfer path");
 
 // Same long frame route is noticeably cooler with a radiator, even though the
 // radiator itself stays near 0 because it removes incoming heat immediately.
@@ -100,10 +100,10 @@ for (let i = 0; i < 500; i += 1) {
 assert(withRadiator.componentHeat[0] < withoutRadiator.componentHeat[0] * 0.85, "radiator did not meaningfully reduce distant hotspot");
 assert(withRadiator.componentHeat[1] > withRadiator.componentHeat[2] && withRadiator.componentHeat[2] > withRadiator.componentHeat[3], "frame route lacks source-to-radiator gradient");
 const debug = buildHeatDebug(withRadiator);
-assert(debug.components[4].removedByRadiatorPerSecond > 0, "radiator debug output did not record network cooling");
+assert(debug.components[4].removedByRadiatorPerSecond > 0, "radiator debug output did not record heat removed through network");
 assert(debug.networks[0].attachedRadiators.includes(4) && debug.networks[0].attachedHeatSources.includes(0), "network debug attachments missing");
 
-// Heat pipes form lightweight thermal routes that let ships move heat into a central cooling bank.
+// Heat pipes form lightweight thermal routes that let ships move heat into a central radiator bank.
 const pipeRouted = shipFor([
   {x:6,y:7,type:"blaster"}, {x:7,y:7,type:"heatPipe"}, {x:8,y:7,type:"heatPipe"},
   {x:9,y:7,type:"heatPipe"}, {x:10,y:7,type:"radiator"}
@@ -113,12 +113,12 @@ const pipeUncooled = shipFor([
   {x:9,y:7,type:"heatPipe"}, {x:10,y:7,type:"frame"}
 ]);
 assert.strictEqual(pipeRouted.thermalNetworks.length, 1, "heat pipes were not cached as one thermal route");
-assert(pipeRouted.thermalNetworks[0].generators.includes(0) && pipeRouted.thermalNetworks[0].radiators.includes(4), "heat-pipe route did not attach source and central radiator");
+assert(pipeRouted.thermalNetworks[0].generators.includes(0) && pipeRouted.thermalNetworks[0].radiators.includes(4), "heat-pipe path did not attach source and central radiator");
 for (let i = 0; i < 400; i += 1) {
   addComponentHeat(pipeRouted, 0, 2); addComponentHeat(pipeUncooled, 0, 2);
   ticks(pipeRouted, 1); ticks(pipeUncooled, 1);
 }
-assert(pipeRouted.componentHeat[0] < pipeUncooled.componentHeat[0] * 0.8, "heat pipe did not move hotspot heat to central cooling");
+assert(pipeRouted.componentHeat[0] < pipeUncooled.componentHeat[0] * 0.8, "heat pipe did not move hotspot heat to the central radiator");
 assert(pipeRouted.componentHeatRadiated[4] > 0, "central radiator did not radiate heat delivered by heat pipes");
 
 assert(HeatRules.profile("heatPipe", PARTS.heatPipe).capacity < HeatRules.profile("frame", PARTS.frame).capacity, "heat pipe stores too much heat compared with frame");

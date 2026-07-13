@@ -9,7 +9,7 @@ const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 /**
  * Build immutable topology and rule profiles for a ship design.
  * @param {Array<{type:string,x:number,y:number,rotation?:number}>} design - Blueprint modules indexed by component id.
- * @returns {object} Thermal model containing profiles, footprints, adjacency, exposure, frame networks, and cooling routes.
+ * @returns {object} Thermal model containing profiles, footprints, adjacency, exposure, frame networks, and heat-transfer paths to cooling components.
  */
 export function buildThermalModel(design) {
   const rules = globalThis.HeatRules;
@@ -261,9 +261,9 @@ export function summariseThermalResult(model, load, simulation) {
     hotspot: design[hottestIndex] ? `${PART_DEFS[design[hottestIndex].type]?.name || design[hottestIndex].type} cluster` : "None",
     exposure: !radiators ? "None" : exposedRadiators === radiators ? "Good" : exposedRadiators ? "Fair" : "Poor",
     coolingRate: coolingRate.toFixed(1),
-    routeWarning: problems.unroutedHot.length ? `${problems.unroutedHot.length} hot component${problems.unroutedHot.length === 1 ? " has" : "s have"} no frame route to cooling` : "All hot systems have a cooling route",
+    routeWarning: problems.unroutedHot.length ? `${problems.unroutedHot.length} hot component${problems.unroutedHot.length === 1 ? " has" : "s have"} no frame path to a radiator or Heat Sink` : "All hot systems can reach a radiator or Heat Sink",
     networkWarning: problems.overloadedNetworks.length ? `${problems.overloadedNetworks.length} thermal network overloaded` : "Thermal networks within capacity",
-    severWarning: problems.criticalFrames.size ? `${problems.criticalFrames.size} frame block${problems.criticalFrames.size === 1 ? "" : "s"} could sever cooling` : "No single-frame cooling bottleneck",
+    severWarning: problems.criticalFrames.size ? `${problems.criticalFrames.size} frame block${problems.criticalFrames.size === 1 ? "" : "s"} could sever heat transfer to cooling components` : "No single-frame heat-transfer bottleneck",
     meltdownWarning: problems.meltdownIndices.length ? `${problems.meltdownIndices.length} reactor${problems.meltdownIndices.length === 1 ? "" : "s"} predicted to melt down and explode` : "No reactor meltdowns predicted",
     analysis: {
       mode: load.mode, generation, cooling: coolingRate, net: generation - coolingRate, balance,
@@ -318,14 +318,14 @@ export function findThermalProblems(model, simulation, load) {
 export function generateThermalAdvice(problems, model) {
   const { design } = model;
   const actionItems = [];
-  if (problems.unroutedHot.length) actionItems.push(`${describeComponentAt(problems.unroutedHot[0], design)} has no frame/heat-pipe route to a radiator or heat sink.`);
+  if (problems.unroutedHot.length) actionItems.push(`${describeComponentAt(problems.unroutedHot[0], design)} has no frame/heat-pipe path to a radiator or Heat Sink.`);
   if (problems.overloadedNetworks.length) {
     const network = problems.overloadedNetworks[0];
-    actionItems.push(`${describeThermalNetwork(network, design)} is overloaded by ${(network.generation - network.cooling).toFixed(1)} H/s; add exposed radiators or split the route.`);
+    actionItems.push(`${describeThermalNetwork(network, design)} is overloaded by ${(network.generation - network.cooling).toFixed(1)} H/s; add exposed radiators or split the heat-transfer path.`);
   }
-  if (problems.criticalFrames.size) actionItems.push(`${describeComponentAt([...problems.criticalFrames][0], design)} is a single-frame cooling bottleneck; add a parallel frame or heat-pipe path.`);
+  if (problems.criticalFrames.size) actionItems.push(`${describeComponentAt([...problems.criticalFrames][0], design)} is a single-frame heat-transfer bottleneck; add a parallel frame or heat-pipe path.`);
   if (problems.heatSinkSaturationTime !== null) actionItems.push(`A heat sink saturates at ${problems.heatSinkSaturationTime.toFixed(1)} s; pair it with more exposed radiator output.`);
-  if (problems.meltdownIndices.length) actionItems.push(`${describeComponentAt(problems.firstMeltdownIndex, design)} is predicted to melt down; route reactor heat away or reduce sustained load.`);
+  if (problems.meltdownIndices.length) actionItems.push(`${describeComponentAt(problems.firstMeltdownIndex, design)} is predicted to melt down; transfer reactor heat away or reduce sustained load.`);
   return actionItems;
 }
 

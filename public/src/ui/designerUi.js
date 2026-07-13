@@ -591,7 +591,7 @@ export function renderLocalStats() {
   const statDiagnostics = buildStatDiagnostics(stats);
   const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
   dom.stats.innerHTML = [
-    state.blueprintView === "heat" ? `<div class="heat-design-summary"><strong>Thermal layout</strong><span>Likely hotspot: ${escapeHtml(heat.hotspot)}</span><span>Total cooling: -${heat.coolingRate} H/s</span>${[heat.meltdownWarning, heat.routeWarning, heat.networkWarning, heat.severWarning].filter(warning => !/^(All|Thermal networks within|No single-frame|No reactor)/.test(warning)).map(warning => `<span class="heat-summary-warning">${escapeHtml(warning)}</span>`).join("")}</div>` : "",
+    state.blueprintView === "heat" ? `<div class="heat-design-summary"><strong>Thermal layout</strong><span>Likely hotspot: ${escapeHtml(heat.hotspot)}</span><span>Heat removal capacity: -${heat.coolingRate} H/s</span>${[heat.meltdownWarning, heat.routeWarning, heat.networkWarning, heat.severWarning].filter(warning => !/^(All|Thermal networks within|No single-frame|No reactor)/.test(warning)).map(warning => `<span class="heat-summary-warning">${escapeHtml(warning)}</span>`).join("")}</div>` : "",
     statCard("fleet", "Fleet", stats.fleetCount),
     statCard("class", "Class", stats.massClass),
     statCard("hull", "Hull", formatHull(stats.maxHp)),
@@ -624,7 +624,7 @@ function thermalHoverText(prediction) {
   const labels = globalThis.HeatRules.STATE_LABELS;
   const overheat = prediction.timeToOverheat === null ? "Time until overheat: never" : `Time until overheat: ${prediction.timeToOverheat.toFixed(1)}s`;
   const meltdown = prediction.meltdownTime != null ? `\nREACTOR MELTDOWN predicted at ${prediction.meltdownTime.toFixed(1)}s — explodes, damaging nearby components` : "";
-  return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generation: +${prediction.generation.toFixed(1)} H/s\nHeat received: +${prediction.received.toFixed(1)} H/s\nSent through frame: -${prediction.transferredOut.toFixed(1)} H/s\nCooling received: -${prediction.cooling.toFixed(1)} H/s\n${overheat}${meltdown}`;
+  return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generated: +${prediction.generation.toFixed(1)} H/s\nDirect heat received: +${prediction.received.toFixed(1)} H/s\nDirect heat transferred out: -${prediction.transferredOut.toFixed(1)} H/s\nHeat removed: -${prediction.cooling.toFixed(1)} H/s\n${overheat}${meltdown}`;
 }
 
 function renderPinnedThermalInspector(result) {
@@ -647,20 +647,19 @@ function renderPinnedThermalInspector(result) {
     <div class="thermal-inspector-grid">
       ${row("Predicted heat", `${Math.min(100, Math.round(prediction.ratio * 100))}%`)}
       ${row("Thermal state", labels[prediction.state] || String(prediction.state))}
-      ${row("Heat generation", `+${prediction.generation.toFixed(1)} H/s`)}
-      ${row("Heat received", `+${prediction.received.toFixed(1)} H/s`)}
-      ${row("Heat sent", `-${prediction.transferredOut.toFixed(1)} H/s`)}
-      ${row("Natural cooling", `-${prediction.cooling.toFixed(1)} H/s`)}
-      ${row("Cooling received through network", `-${prediction.cooling.toFixed(1)} H/s`)}
+      ${row("Heat generated", `+${prediction.generation.toFixed(1)} H/s`)}
+      ${row("Direct heat received", `+${prediction.received.toFixed(1)} H/s`)}
+      ${row("Direct heat transferred out", `-${prediction.transferredOut.toFixed(1)} H/s`)}
+      ${row(part.type === "radiator" ? "Heat removed by radiator" : part.type === "heatSink" ? "Heat absorbed by Heat Sink" : "Heat removed", `-${prediction.cooling.toFixed(1)} H/s`)}
       ${row("Net heat", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}
       ${row("Heat capacity", `${prediction.capacity} H`)}
       ${row("Time until overheat", prediction.timeToOverheat === null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}
-      ${row("Predicted output efficiency", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}
+      ${row("Predicted performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}
       ${row("Reactor-meltdown time", prediction.meltdownTime == null ? "Not applicable" : `${prediction.meltdownTime.toFixed(1)} s`)}
     </div>
     <div class="thermal-transfer-columns">
-      <div><h5>Heat sent to</h5><div class="thermal-transfer-list">${transferList(sent)}</div></div>
-      <div><h5>Heat received from</h5><div class="thermal-transfer-list">${transferList(received)}</div></div>
+      <div><h5>Direct outgoing transfers</h5><div class="thermal-transfer-list">${transferList(sent)}</div></div>
+      <div><h5>Direct incoming transfers</h5><div class="thermal-transfer-list">${transferList(received)}</div></div>
     </div>
     ${route}
   </section>`;
@@ -668,15 +667,16 @@ function renderPinnedThermalInspector(result) {
 
 function coolingRouteMarkup(result, index) {
   const route = findCoolingRoute(result, index);
-  if (!route) return `<div class="thermal-route-box"><h5>Cooling route</h5><p>No radiator or heat sink route could be established from current flow data.</p></div>`;
+  const note = "Derived from current direct pairwise heat transfers. This is not authoritative source-to-radiator heat provenance.";
+  if (!route) return `<div class="thermal-route-box"><h5>Estimated reachable cooling path</h5><p>No reachable radiator or Heat Sink is visible in current direct transfer data.</p><p class="thermal-route-note">${escapeHtml(note)}</p></div>`;
   const names = route.path.map(i => describeComponentAt(i, state.design)).join(" → ");
-  return `<div class="thermal-route-box"><h5>Cooling route</h5>
+  return `<div class="thermal-route-box"><h5>Estimated reachable cooling path</h5>
+    <p class="thermal-route-note">${escapeHtml(note)}</p>
     <div class="thermal-route-path">${escapeHtml(names)}</div>
-    <div>Cooling destination: <strong>${escapeHtml(describeComponentAt(route.destination, state.design))}</strong></div>
-    <div>Route length: <strong>${route.path.length - 1}</strong></div>
-    <div>Complete route: <strong>${route.complete ? "Yes" : "No"}</strong></div>
-    <div>Network overloaded: <strong>${route.overloaded ? "Yes" : "No"}</strong></div>
-    <div>Bottleneck: <strong>${route.bottleneck ? "Possible single-frame bottleneck" : "Not detected"}</strong></div>
+    <div>Reachable destination: <strong>${escapeHtml(describeComponentAt(route.destination, state.design))}</strong></div>
+    <div>Steps: <strong>${route.path.length - 1}</strong></div>
+    <div>Destination currently receiving heat: <strong>${route.destinationReceivingHeat ? "Yes" : "No"}</strong></div>
+    <div>Possible bottleneck estimate: <strong>${route.possibleBottleneck ? "Possible single-frame bottleneck" : "Not indicated"}</strong></div>
   </div>`;
 }
 
@@ -694,8 +694,7 @@ function findCoolingRoute(result, index) {
     const current = path[path.length - 1];
     const part = state.design[current];
     if (current !== index && (part?.type === "radiator" || part?.type === "heatSink")) {
-      const network = (result.networks || []).find(net => net.attachedComponents?.includes(index) || net.frameIndices?.includes(index));
-      return { path, destination: current, complete: true, overloaded: !!network?.overloaded, bottleneck: !!result.criticalFrames?.has?.(path[1]) };
+      return { path, destination: current, destinationReceivingHeat: (result.flows || []).some(flow => flow.to === current && flow.amount >= HEAT_FLOW_THRESHOLD), possibleBottleneck: !!result.criticalFrames?.has?.(path[1]) };
     }
     for (const next of edges.get(current) || []) {
       if (!seen.has(next)) { seen.add(next); queue.push([...path, next]); }
@@ -723,7 +722,7 @@ function renderFullLoadThermalPanel(fullLoadResult, currentHeatResult = null) {
     <p>Maximum Sustained Load — all major systems operating continuously.</p>
     <div class="thermal-analysis-status ${tone}">${escapeHtml(statusText)}</div>
     <div class="thermal-key-stats">
-      <div><span>${spareCooling ? "Spare cooling" : "Net heat"}</span><strong class="${spareCooling ? "thermal-good" : "thermal-bad"}">${spareCooling ? `${analysis.reserve.toFixed(1)} H/s` : `+${analysis.net.toFixed(1)} H/s`}</strong></div>
+      <div><span>${spareCooling ? "Removal reserve" : "Net heat"}</span><strong class="${spareCooling ? "thermal-good" : "thermal-bad"}">${spareCooling ? `${analysis.reserve.toFixed(1)} H/s` : `+${analysis.net.toFixed(1)} H/s`}</strong></div>
       <div><span>First overheat</span><strong class="${analysis.firstOverheatTime === null ? "thermal-good" : "thermal-bad"}">${seconds(analysis.firstOverheatTime)}</strong></div>
       <div><span>Reactor meltdown</span><strong class="${analysis.firstMeltdownTime === null ? "thermal-good" : "thermal-bad"}">${seconds(analysis.firstMeltdownTime)}</strong></div>
       <div><span>Peak component heat</span><strong>${Math.round(analysis.peakPredictedHeat * 100)}%</strong></div>
@@ -782,7 +781,7 @@ function renderHeatFlows(analysis) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 15 15");
   svg.classList.add("heat-flow-overlay");
-  svg.innerHTML = `<defs><marker id="heat-flow-hot" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.5" markerHeight="3.5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff9a3d"/></marker><marker id="heat-flow-cool" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.5" markerHeight="3.5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#67d9ff"/></marker></defs>`;
+  svg.innerHTML = `<defs><marker id="heat-flow-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.5" markerHeight="3.5" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff7a2f"/></marker></defs>`;
   const owner = new Map();
   const occupiedByIndex = state.design.map((part, i) => {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
@@ -803,17 +802,16 @@ function renderHeatFlows(analysis) {
     if (!from || !to) continue;
     const isHeatPipeFlow = from.type === "heatPipe" || to.type === "heatPipe";
     const isFrameFlow = /frame/i.test(from.type) || /frame/i.test(to.type) || isHeatPipeFlow;
-    const coolingFlow = to.type === "radiator" || to.type === "heatSink" || (analysis.predictions.get(to)?.ratio || 0) < 0.35;
     for (const cell of occupiedByIndex[flow.from] || []) for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       if (owner.get(`${cell.x + dx},${cell.y + dy}`) !== flow.to) continue;
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", String(cell.x + 0.5 - dx * 0.12)); line.setAttribute("y1", String(cell.y + 0.5 - dy * 0.12));
       line.setAttribute("x2", String(cell.x + 0.5 + dx * 0.72)); line.setAttribute("y2", String(cell.y + 0.5 + dy * 0.72));
-      line.setAttribute("marker-end", `url(#${coolingFlow ? "heat-flow-cool" : "heat-flow-hot"})`);
-      line.classList.add(isFrameFlow ? "frame-heat-flow" : "component-heat-flow", isHeatPipeFlow ? "heat-pipe-heat-flow" : "frame-route-heat-flow", coolingFlow ? "cooling-heat-flow" : "hot-heat-flow");
+      line.setAttribute("marker-end", "url(#heat-flow-arrow)");
+      const strength = Math.min(1, flow.amount / 5);
+      line.classList.add(isFrameFlow ? "frame-heat-flow" : "component-heat-flow", isHeatPipeFlow ? "heat-pipe-heat-flow" : "frame-route-heat-flow", strength >= 0.9 ? "critical-heat-flow" : strength >= 0.58 ? "high-heat-flow" : strength >= 0.28 ? "moderate-heat-flow" : "low-heat-flow");
       if (focus != null && !directlyRelated) line.classList.add("heat-flow-muted");
       if (directlyRelated && focus != null) line.classList.add(pinned != null ? "heat-flow-pinned" : "heat-flow-focus");
-      const strength = Math.min(1, flow.amount / 5);
       const baseOpacity = 0.18 + strength * 0.62;
       line.style.opacity = String(Math.min(pinned != null && directlyRelated ? 0.95 : 0.82, baseOpacity + (directlyRelated && focus != null ? 0.16 : 0)));
       line.style.strokeWidth = String(Math.min(0.16, 0.025 + strength * 0.105 + (pinned != null && directlyRelated ? 0.025 : 0)));
@@ -1181,7 +1179,7 @@ Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
       const surplus = stats.powerGeneration - stats.powerUse;
       return {
         label: "Reactor Power Balance",
-        desc: "Generated energy compared to power consumed by active thrusters, shields, and weapons. Reactors also produce heat in proportion to their load — an overheated reactor stops generating and melts down (explodes) if it stays pinned at overheat, so give reactors a cooling route. Check the Heat tab for the full thermal analysis.",
+        desc: "Generated energy compared to power consumed by active thrusters, shields, and weapons. Reactors also produce heat in proportion to their load — an overheated reactor stops generating and melts down (explodes) if it stays pinned at overheat, so give reactors a heat-transfer path to a radiator or Heat Sink. Check the Heat tab for the full thermal analysis.",
         formula: "PowerBalance = PowerGeneration - PowerUse",
         breakdown: `Reactor Generation: +${stats.powerGeneration.toFixed(1)} MW
 Subsystem Consumed: -${stats.powerUse.toFixed(1)} MW

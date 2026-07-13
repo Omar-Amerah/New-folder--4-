@@ -1,6 +1,6 @@
 "use strict";
 // Group 6 (thermodynamics): a hotter component sheds heat faster, and heat
-// routes through frames into a central heat sink (centralised cooling layout).
+// routes through frames into a central heat sink (centralised heat-buffer layout).
 const assert = require("assert");
 const { initShipHeat, updateShipHeat } = require("./src/server/heat");
 const { PARTS } = require("./src/server/components");
