@@ -128,8 +128,9 @@ export function renderArena(now) {
   drawCommandTarget(now);
   drawRallyPoint(now);
   drawEngineSmokeTrails(now, bounds);
+  drawBullets(players, bounds, false);
   drawShips(players, bounds);
-  drawBullets(players, bounds);
+  drawBullets(players, bounds, true);
   drawEffects();
   drawSelectionBox();
   ctx.restore();
@@ -539,7 +540,16 @@ export function bulletRenderPosition(bullet, elapsed) {
   return { x: bullet.x + bullet.vx * t, y: bullet.y + bullet.vy * t };
 }
 
-export function drawBullets(players, bounds) {
+export function isFriendlyProjectile(bullet, players) {
+  if (!bullet) return false;
+  if (bullet.ownerId === state.myId) return true;
+  if (!players) players = playerMap();
+  const mine = state.mine || players.get(state.myId);
+  const owner = players.get(bullet.ownerId);
+  return Boolean(mine?.team && owner?.team && mine.team === owner.team);
+}
+
+export function drawBullets(players, bounds, friendlyLayer = null) {
   const snap = state.snapshot;
   if (!snap) return;
   if (!players) players = playerMap(); // fallback
@@ -548,11 +558,14 @@ export function drawBullets(players, bounds) {
   const elapsed = Math.min(0.15, (now - (state.snapshotReceivedAt || now)) / 1000);
 
   for (const bullet of snap.bullets) {
-    if (state.debugStats) state.debugStats.totalBullets++;
+    if (state.debugStats && friendlyLayer !== true) state.debugStats.totalBullets++;
 
     const { x: renderX, y: renderY } = bulletRenderPosition(bullet, elapsed);
 
     if (bounds && !isCircleVisible(renderX, renderY, 20, bounds)) continue;
+
+    const friendly = isFriendlyProjectile(bullet, players);
+    if (friendlyLayer !== null && friendly !== friendlyLayer) continue;
 
     if (state.debugStats) state.debugStats.drawnBullets++;
 

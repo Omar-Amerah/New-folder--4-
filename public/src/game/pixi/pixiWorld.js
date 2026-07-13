@@ -4,7 +4,7 @@
 import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
-import { isCircleVisible, getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, activeEngineSmoke } from "../renderer.js";
+import { isCircleVisible, getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, activeEngineSmoke, isFriendlyProjectile } from "../renderer.js";
 import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
 
@@ -13,7 +13,8 @@ const PIXI_BAKE_NOMINAL_ZOOM = 0.6;
 let gridCache = { width: 0, height: 0, zoom: 0 };
 let pixiMapStatics = null;
 let pixiRelayPool = null;
-let pixiBulletPool = null;
+let pixiEnemyBulletPool = null;
+let pixiFriendlyBulletPool = null;
 let pixiEffectTextPool = null;
 let pixiEffectsGfx = null;
 
@@ -314,15 +315,19 @@ function getPixiBulletTexture(env, bullet, color) {
   return entry;
 }
 
+function createPixiBulletPool(env, layer) {
+  return createPixiKeyedPool(layer, () => {
+    const sprite = new env.PIXI.Sprite();
+    sprite.anchor.set(0.5);
+    return { root: sprite, textureKey: null };
+  });
+}
+
 function updatePixiBullets(env, players, bounds) {
-  if (!pixiBulletPool) {
-    pixiBulletPool = createPixiKeyedPool(env.layers.bullets, () => {
-      const sprite = new env.PIXI.Sprite();
-      sprite.anchor.set(0.5);
-      return { root: sprite, textureKey: null };
-    });
-  }
-  pixiBulletPool.frameStart();
+  if (!pixiEnemyBulletPool) pixiEnemyBulletPool = createPixiBulletPool(env, env.layers.enemyBullets);
+  if (!pixiFriendlyBulletPool) pixiFriendlyBulletPool = createPixiBulletPool(env, env.layers.friendlyBullets);
+  pixiEnemyBulletPool.frameStart();
+  pixiFriendlyBulletPool.frameStart();
   const snap = state.snapshot;
   if (snap && snap.bullets) {
     const now = performance.now();
@@ -335,7 +340,8 @@ function updatePixiBullets(env, players, bounds) {
 
       const owner = players.get(bullet.ownerId);
       const color = owner?.color || "#ffffff";
-      const view = pixiBulletPool.acquire(bullet.id);
+      const friendly = isFriendlyProjectile(bullet, players);
+      const view = (friendly ? pixiFriendlyBulletPool : pixiEnemyBulletPool).acquire(bullet.id);
       const isTracer = bullet.type !== "rail" && bullet.type !== "missile" && bullet.type !== "pdShot";
       const textureKey = `${getPixiBakeGeneration()}|${isTracer ? `tracer|${color}` : `${bullet.type}|${bullet.subtype || ""}`}`;
       if (view.textureKey !== textureKey) {
@@ -347,7 +353,8 @@ function updatePixiBullets(env, players, bounds) {
       view.root.rotation = Math.atan2(bullet.vy, bullet.vx);
     }
   }
-  pixiBulletPool.frameEnd();
+  pixiEnemyBulletPool.frameEnd();
+  pixiFriendlyBulletPool.frameEnd();
 }
 
 // --- Effects ---------------------------------------------------------------------
