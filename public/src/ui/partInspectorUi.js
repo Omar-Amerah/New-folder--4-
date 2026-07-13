@@ -6,7 +6,7 @@ import { PART_DEFS, PART_STATS, isRotatablePart, partCategory, partDescription, 
 import { escapeHtml } from "../shared/formatting.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPowerUse, formatPowerGeneration, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
 import { estimatePartEffectiveCost } from "../design/componentStats.js";
-import { analyzeDesignHeat } from "./designerUi.js";
+import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
 
 export function renderPartInspector() {
   const type = state.selectedPart;
