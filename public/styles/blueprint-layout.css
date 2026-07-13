@@ -1,12 +1,14 @@
-/* Blueprint designer modal, column layout, workspace sizing, and mobile layout adjustment. Keep import order in ../design.css unchanged. */
+/* Blueprint designer modal, desktop column layout, and workspace sizing. Keep import order in ../design.css unchanged. */
 
 .blueprint-designer-panel {
   width: 96vw;
   height: 94vh;
+  min-width: 1180px;
   max-width: none;
   max-height: none;
   display: flex;
   flex-direction: column;
+  overflow: auto;
 }
 
 .blueprint-designer-layout {
@@ -52,17 +54,16 @@
 }
 
 .designer-workspace {
-  display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
-  align-items: start;
-  justify-items: center;
-  justify-content: center;
-  gap: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   overflow: auto;
   position: relative;
-  width: 100%;
-  height: 100%;
   padding-bottom: 4px;
 }
 
@@ -108,84 +109,6 @@
   margin: 0;
 }
 
-.blueprint-designer-panel .build-grid {
-  /* width auto lets aspect-ratio derive width from the available height, so the
-     grid stays square and centered instead of stretching to fill wide columns. */
-  align-self: stretch;
-  width: auto;
-  height: 100%;
-  min-height: 240px;
-  max-height: 100%;
-  max-width: 100%;
-  aspect-ratio: 1;
-  margin: 0 auto;
-}
-
-@media (max-width: 900px) {
-  .blueprint-designer-layout {
-    display: flex;
-    flex-direction: column;
-    height: auto;
-    min-height: 0;
-    overflow: visible;
-  }
-
-  .designer-left-col {
-    order: 1;
-  }
-
-  .designer-center-col {
-    order: 2;
-  }
-
-  .designer-right-col {
-    order: 3;
-  }
-
-  .designer-left-col,
-  .designer-right-col {
-    overflow: visible;
-    padding-right: 0;
-  }
-
-  .designer-center-col {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: auto;
-    min-height: 0;
-    overflow: visible;
-    gap: 12px;
-  }
-
-  .designer-top,
-  .designer-bottom {
-    overflow: visible;
-    padding-right: 0;
-  }
-
-  .designer-workspace {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    height: auto;
-    min-height: 0;
-    overflow: visible;
-    gap: 6px;
-  }
-
-  .blueprint-designer-panel .build-grid {
-    display: grid;
-    width: min(100%, 600px);
-    height: auto;
-    aspect-ratio: 1;
-    flex: 0 0 auto;
-    align-self: center;
-    margin: 0 auto;
-    max-height: none;
-  }
-}
 .blueprint-designer-panel .menu-head {
   flex-shrink: 0;
   margin-bottom: 20px;

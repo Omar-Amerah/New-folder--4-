@@ -164,10 +164,8 @@
 .thermal-transfer-columns h5, .thermal-route-box h5 { margin:0 0 5px; color:#cfe8ff; }
 .thermal-route-box { margin-top:10px; padding-top:8px; border-top:1px solid rgba(126,166,205,.18); font-size:12px; color:#dcefff; }
 .thermal-route-path { font-weight:900; color:#fff3c4; margin-bottom:5px; }
-@media (max-width: 860px) { .thermal-transfer-columns { grid-template-columns:1fr; } }
-
-.build-grid-stage { position:relative; width:100%; aspect-ratio:1; isolation:isolate; }
-.build-grid-stage .build-grid { position:absolute; inset:0; }
+.build-grid-stage { position:relative; flex:0 0 auto; width:min(62vh,620px,100%); min-width:420px; max-width:620px; aspect-ratio:1; isolation:isolate; }
+.build-grid-stage > .build-grid { position:absolute; z-index:1; inset:0; display:grid; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; aspect-ratio:auto; margin:0; }
 .heat-flow-overlay-host { position:absolute; z-index:20; inset:0; pointer-events:none; background:transparent; }
 .heat-flow-overlay-host .heat-flow-overlay { inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); }
 .build-grid.heat-overlay-active .build-cell.occupied::after { z-index:2; mix-blend-mode:screen; }
@@ -203,4 +201,4 @@
 .blueprint-heat-legend { align-items:center; gap:8px; flex-wrap:wrap; }
 .blueprint-heat-legend::before { content:"Legend: colour = heat state; % = capacity used; arrows = heat direction; thickness = amount; dashed = frame/Heat Pipe; cyan outline = storage/removal; icons = bottleneck/overheat/meltdown."; color:#cfe8ff; font-weight:800; }
 @keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
-@media (max-width:860px) { .blueprint-thermal-hud { grid-template-columns:auto auto; right:8px; left:8px; top:8px; max-width:none; } .blueprint-thermal-hud span:nth-of-type(n+2), .blueprint-thermal-hud em:nth-of-type(n+2) { display:none; } }
+
