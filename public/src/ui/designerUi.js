@@ -217,6 +217,7 @@ function clearHeatUiError() {
 
 function showHeatUiError(error) {
   clearHeatFlowOverlay();
+  clearExteriorCoolingIndicators();
   clearHeatContextCard();
   dom.grid?.classList.add("heat-ui-error");
   if (!dom.blueprintThermalHud) return;
@@ -269,6 +270,10 @@ function clearHeatFlowOverlay() {
   dom.grid.querySelector(".heat-flow-overlay")?.remove();
 }
 
+function clearExteriorCoolingIndicators() {
+  (dom.heatFlowOverlayHost || dom.grid)?.querySelectorAll(".exterior-cooling-overlay").forEach(item => item.remove());
+}
+
 function clearHeatContextCard() {
   if (!dom.heatContextCard) return;
   dom.heatContextCard.hidden = true;
@@ -278,6 +283,7 @@ function clearHeatContextCard() {
 
 function clearHeatPresentation() {
   clearHeatFlowOverlay();
+  clearExteriorCoolingIndicators();
   clearHeatContextCard();
   if (dom.blueprintThermalHud) { dom.blueprintThermalHud.hidden = true; dom.blueprintThermalHud.innerHTML = ""; }
   dom.grid.classList.remove("heat-inspecting");
@@ -296,7 +302,11 @@ function clearHeatPresentation() {
 
 function refreshHeatFlowOverlay(analysis) {
   clearHeatFlowOverlay();
-  if (state.blueprintView === "heat") renderHeatFlows(analysis);
+  clearExteriorCoolingIndicators();
+  if (state.blueprintView === "heat") {
+    renderHeatFlows(analysis);
+    renderExteriorCoolingIndicators(analysis);
+  }
 }
 
 function switchToHeatView() { setBlueprintView("heat"); }
@@ -569,7 +579,7 @@ function validHeatIndex(index) {
 }
 
 function updateHoveredHeatPart(x, y) {
-  if (state.blueprintView !== "heat") { clearHeatContextCard(); return; }
+  if (state.blueprintView !== "heat") { clearHeatContextCard(); clearExteriorCoolingIndicators(); return; }
   const part = Number.isFinite(x) && Number.isFinite(y) ? findPartAt(x, y) : null;
   const next = part ? state.design.indexOf(part) : null;
   if (state.hoveredHeatPartIndex === next) return;
@@ -844,23 +854,74 @@ function renderHeatContextCard(result) {
   if (!prediction) { clearHeatContextCard(); return; }
   const labels = globalThis.HeatRules.STATE_LABELS;
   const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
-  const row = (l,v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(v)}</strong>`;
+  const row = (l,v, title = "") => `<span${title ? ` title="${escapeHtml(title)}"` : ""}>${escapeHtml(l)}</span><strong${title ? ` title="${escapeHtml(title)}"` : ""}>${escapeHtml(v)}</strong>`;
+  const coolingLabel = part.type === "radiator" ? "Radiated to space" : "Passive cooling";
+  const exposureRows = [];
+  const destroyed = prediction.state === globalThis.HeatRules.STATE?.DESTROYED || prediction.ratio >= 1.25;
+  const isExposed = (prediction.exposedEdges || 0) > 0;
+  const multiplier = prediction.exposureCoolingMultiplier ?? 1;
+  if (!destroyed && part.type === "radiator") {
+    exposureRows.push(row(
+      "↗ Exterior exposure",
+      isExposed ? "Full radiator output" : "25% radiator output",
+      isExposed ? "Exposed radiator edge" : "Enclosed radiators operate at 25% output."
+    ));
+  } else if (isExposed && prediction.cooling > 0 && multiplier !== 1) {
+    exposureRows.push(row(
+      "↗ Exterior exposure",
+      "+12% cooling",
+      "An exterior edge increases this component's passive cooling by 12%."
+    ));
+  }
   dom.heatContextCard.hidden = false;
   dom.heatContextCard.className = "heat-context-card";
   dom.heatContextCard.innerHTML = `<h4>${escapeHtml(PART_DEFS[part.type]?.name || part.type)}</h4><div class="heat-card-state">${escapeHtml(labels[prediction.state] || "Heat")} — ${Math.min(100, Math.round(prediction.ratio * 100))}% <small>${prediction.heat.toFixed(0)} / ${prediction.capacity} H</small></div><div class="heat-card-grid">
-    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Received", `+${prediction.received.toFixed(1)} H/s`)}${row("Transferred out", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(part.type === "radiator" ? "Removed" : part.type === "heatSink" ? "Absorbed" : "Removed", `-${prediction.cooling.toFixed(1)} H/s`)}${row("Net", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${row("Performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
+    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Incoming transfer", `+${prediction.received.toFixed(1)} H/s`)}${row("Outgoing transfer", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(coolingLabel, `-${prediction.cooling.toFixed(1)} H/s`)}${exposureRows.join("")}${row("Net heat change", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${row("Performance", `${Math.round((globalThis.HeatRules.performanceForState?.(prediction.state) ?? 1) * 100)}%`)}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
   positionHeatContextCard(index);
 }
 
 function positionHeatContextCard(index) {
   const card = dom.heatContextCard, stage = dom.gridStage || dom.grid;
-  const cell = dom.grid.querySelector(`.build-cell[data-part-index="${index}"]`);
-  if (!card || !stage || !cell || typeof stage.getBoundingClientRect !== "function") return;
-  const sr = stage.getBoundingClientRect(), cr = cell.getBoundingClientRect();
+  const cells = [...dom.grid.querySelectorAll(`.build-cell[data-part-index="${index}"]`)];
+  if (!card || !stage || !cells.length || typeof stage.getBoundingClientRect !== "function") return;
+  const sr = stage.getBoundingClientRect();
+  const gridRect = dom.grid.getBoundingClientRect();
+  const rects = cells.map(cell => cell.getBoundingClientRect());
+  const cr = {
+    left: Math.min(...rects.map(rect => rect.left)),
+    right: Math.max(...rects.map(rect => rect.right)),
+    top: Math.min(...rects.map(rect => rect.top)),
+    bottom: Math.max(...rects.map(rect => rect.bottom))
+  };
   const cardWidth = Math.min(260, Math.max(210, card.offsetWidth || 230));
-  const leftSide = cr.right + cardWidth + 12 > sr.right;
-  const x = Math.max(8, Math.min(sr.width - cardWidth - 8, (leftSide ? cr.left - sr.left - cardWidth - 10 : cr.right - sr.left + 10)));
-  const y = Math.max(8, Math.min(sr.height - 130, cr.top - sr.top));
+  const cardHeight = Math.max(110, card.offsetHeight || 130);
+  const cellSize = gridRect.width / GRID_SIZE;
+  const clearance = cellSize + 14;
+  const boundary = 8;
+  const component = { left: cr.left - sr.left, right: cr.right - sr.left, top: cr.top - sr.top, bottom: cr.bottom - sr.top };
+  const keepClear = { left: component.left - cellSize, right: component.right + cellSize, top: component.top - cellSize, bottom: component.bottom + cellSize };
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const overlapArea = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  const centredY = component.top + ((component.bottom - component.top) - cardHeight) / 2;
+  const centredX = component.left + ((component.right - component.left) - cardWidth) / 2;
+  const rawCandidates = [
+    { side: "right", x: component.right + clearance, y: centredY },
+    { side: "left", x: component.left - cardWidth - clearance, y: centredY },
+    { side: "below", x: centredX, y: component.bottom + clearance },
+    { side: "above", x: centredX, y: component.top - cardHeight - clearance }
+  ];
+  const candidates = rawCandidates.map((candidate, order) => {
+    const x = clamp(candidate.x, boundary, sr.width - cardWidth - boundary);
+    const y = clamp(candidate.y, boundary, sr.height - cardHeight - boundary);
+    const rect = { left: x, right: x + cardWidth, top: y, bottom: y + cardHeight };
+    const fits = candidate.x >= boundary && candidate.x + cardWidth <= sr.width - boundary && candidate.y >= boundary && candidate.y + cardHeight <= sr.height - boundary;
+    return { ...candidate, order, x, y, fits, keepOverlap: overlapArea(rect, keepClear), componentOverlap: overlapArea(rect, component) };
+  });
+  const best = candidates
+    .filter(candidate => candidate.fits && candidate.keepOverlap === 0 && candidate.componentOverlap === 0)[0]
+    || [...candidates].sort((a, b) => (a.keepOverlap + a.componentOverlap * 3) - (b.keepOverlap + b.componentOverlap * 3) || Number(b.fits) - Number(a.fits) || a.order - b.order)[0];
+  const x = best.x;
+  const y = best.y;
   card.style.left = `${x}px`; card.style.top = `${y}px`; card.style.maxWidth = `${cardWidth}px`;
 }
 
@@ -923,12 +984,15 @@ function renderFullLoadThermalPanel(fullLoadResult, currentHeatResult = null) {
 
 function updateHeatInspectionOverlay(analysis, options = {}) {
   clearInvalidHeatIndexes();
-  if (!options.preserveOverlay) clearHeatFlowOverlay();
+  if (!options.preserveOverlay) {
+    clearHeatFlowOverlay();
+    clearExteriorCoolingIndicators();
+  }
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
     cell.classList.remove("heat-related", "heat-unrelated");
   }
   dom.grid.classList.toggle("heat-inspecting", state.blueprintView === "heat" && validHeatIndex(state.hoveredHeatPartIndex));
-  if (state.blueprintView !== "heat") return;
+  if (state.blueprintView !== "heat") { clearExteriorCoolingIndicators(); return; }
   const focus = validHeatIndex(state.hoveredHeatPartIndex) ? state.hoveredHeatPartIndex : null;
   const connected = new Set(validHeatIndex(focus) ? [focus] : []);
   for (const flow of analysis.flows || []) {
@@ -942,7 +1006,51 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
     cell.classList.toggle("heat-unrelated", connected.size > 0 && !connected.has(index));
   }
   renderHeatContextCard(analysis);
-  if (!options.preserveOverlay) renderHeatFlows(analysis);
+  if (!options.preserveOverlay) {
+    renderHeatFlows(analysis);
+    renderExteriorCoolingIndicators(analysis);
+  }
+}
+
+function renderExteriorCoolingIndicators(analysis) {
+  clearExteriorCoolingIndicators();
+  const focus = validHeatIndex(state.hoveredHeatPartIndex) ? state.hoveredHeatPartIndex : null;
+  if (state.blueprintView !== "heat" || focus == null || !analysis) return;
+  const part = state.design[focus];
+  const prediction = part ? analysis.predictions?.get(part) : null;
+  const directions = prediction?.exteriorDirections || [];
+  if (!part || !directions.length) return;
+  const cells = [...dom.grid.querySelectorAll(`.build-cell[data-part-index="${focus}"]`)];
+  if (!cells.length) return;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${GRID_SIZE} ${GRID_SIZE}`);
+  svg.classList.add("exterior-cooling-overlay");
+  const directionSet = new Set(directions);
+  const titleText = part.type === "radiator" ? "Exposed radiator edge" : "Exterior cooling edge: +12% passive cooling";
+  const byDirection = {
+    left: { dx: -1, dy: 0, char: "←", x: cell => cell.x - 0.12, y: cell => cell.y + 0.5 },
+    right: { dx: 1, dy: 0, char: "→", x: cell => cell.x + 1.12, y: cell => cell.y + 0.5 },
+    top: { dx: 0, dy: -1, char: "↑", x: cell => cell.x + 0.5, y: cell => cell.y - 0.12 },
+    bottom: { dx: 0, dy: 1, char: "↓", x: cell => cell.x + 0.5, y: cell => cell.y + 1.12 }
+  };
+  for (const cellEl of cells) {
+    const cell = { x: Number(cellEl.dataset.x), y: Number(cellEl.dataset.y) };
+    for (const direction of directionSet) {
+      const meta = byDirection[direction];
+      if (!meta || findPartAt(cell.x + meta.dx, cell.y + meta.dy)) continue;
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.classList.add("exterior-cooling-indicator", `exterior-cooling-${direction}`);
+      text.setAttribute("x", String(meta.x(cell)));
+      text.setAttribute("y", String(meta.y(cell)));
+      text.setAttribute("aria-label", titleText);
+      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      title.textContent = titleText;
+      text.appendChild(title);
+      text.appendChild(document.createTextNode(meta.char));
+      svg.appendChild(text);
+    }
+  }
+  if (svg.children.length) (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
 }
 
 function renderHeatFlows(analysis) {

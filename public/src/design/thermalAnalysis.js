@@ -217,12 +217,19 @@ export function summariseThermalResult(model, load, simulation) {
   const { generationRates } = load;
   const { peakRatios, received, transferredOut, cooling, dt, timeToOverheat, meltdownTime, overheatedIndices, uptimeTotals, uptimeTicks, equilibriumTime, firstOverheatTime, firstOverheatIndex, finalFlows, heatSinkSaturationTime, radiatorRemovedTotal, simulatedSeconds } = simulation;
   const predictions = new Map();
-  for (let i = 0; i < design.length; i += 1) predictions.set(design[i], {
-    heat: peakRatios[i] * profiles[i].capacity, capacity: profiles[i].capacity, ratio: peakRatios[i],
-    generation: generationRates[i], received: received[i] / dt, transferredOut: transferredOut[i] / dt,
-    cooling: cooling[i] / dt, state: rules.stateFor(peakRatios[i], rules.STATE.NORMAL), timeToOverheat: timeToOverheat[i],
-    meltdownTime: meltdownTime[i]
-  });
+  for (let i = 0; i < design.length; i += 1) {
+    const isRadiator = design[i].type === "radiator";
+    const isExposed = exposed[i] > 0;
+    predictions.set(design[i], {
+      heat: peakRatios[i] * profiles[i].capacity, capacity: profiles[i].capacity, ratio: peakRatios[i],
+      generation: generationRates[i], received: received[i] / dt, transferredOut: transferredOut[i] / dt,
+      cooling: cooling[i] / dt, state: rules.stateFor(peakRatios[i], rules.STATE.NORMAL), timeToOverheat: timeToOverheat[i],
+      meltdownTime: meltdownTime[i],
+      exposedEdges: exposed[i],
+      exteriorDirections: [...exteriorDirections[i]],
+      exposureCoolingMultiplier: isRadiator ? (isExposed ? 1 : 0.25) : (isExposed ? 1.12 : 1)
+    });
+  }
   const networks = buildThermalNetworks(model, generationRates);
   const problems = findThermalProblems(model, { ...simulation, networks }, load);
   const actionItems = generateThermalAdvice(problems, model);
