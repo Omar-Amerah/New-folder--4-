@@ -160,3 +160,26 @@
 @keyframes heat-sink-ring { from { transform:scale(.72); opacity:.8; } to { transform:scale(1.12); opacity:0; } }
 @keyframes overheat-warning-pulse { to { transform:scale(1.08); filter:brightness(1.25); } }
 @keyframes overheated-component-pulse { to { opacity:.58; box-shadow:inset 0 0 18px rgba(255,245,245,.82), 0 0 9px rgba(255,32,67,.5); } }
+
+
+.thermal-tool-controls { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:6px 0; font-size:11px; color:#9fb4ca; }
+.thermal-tool-controls span { font-weight:800; color:#cfe8ff; text-transform:uppercase; letter-spacing:.04em; }
+.thermal-tool-controls button { border:1px solid rgba(117,145,175,.38); border-radius:6px; background:rgba(10,20,34,.72); color:#d9edff; padding:4px 8px; font-weight:800; cursor:pointer; }
+.thermal-tool-controls button.active { border-color:#67d9ff; background:linear-gradient(180deg,rgba(56,189,248,.28),rgba(30,64,175,.22)); box-shadow:0 0 8px rgba(56,189,248,.24); color:#fff; }
+.build-grid.heat-inspecting .build-cell.heat-unrelated { opacity:.58; filter:saturate(.72); }
+.build-cell.heat-related { z-index:5; outline:2px solid rgba(103,217,255,.62); outline-offset:-2px; }
+.build-cell.heat-pinned { z-index:6; outline:2px solid rgba(255,207,102,.9); box-shadow:0 0 12px rgba(255,207,102,.28), inset 0 0 0 1px rgba(255,207,102,.5); }
+.heat-flow-overlay { z-index:4; }
+.heat-flow-overlay .heat-flow-muted { opacity:.14 !important; }
+.heat-flow-overlay .heat-flow-focus { filter:drop-shadow(0 0 .09px currentColor); }
+.heat-flow-overlay .heat-flow-pinned { filter:drop-shadow(0 0 .13px currentColor); }
+.thermal-inspector-panel { margin-top:12px; border:1px solid rgba(103,217,255,.22); border-radius:10px; padding:10px; background:rgba(4,12,22,.58); }
+.thermal-inspector-panel h4 { margin:0 0 6px; color:#eaf7ff; }
+.thermal-inspector-grid, .thermal-transfer-list { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 9px; font-size:12px; }
+.thermal-inspector-grid span, .thermal-transfer-list span { color:#9fb4ca; }
+.thermal-inspector-grid strong, .thermal-transfer-list strong { color:#f5fbff; text-align:right; }
+.thermal-transfer-columns { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+.thermal-transfer-columns h5, .thermal-route-box h5 { margin:0 0 5px; color:#cfe8ff; }
+.thermal-route-box { margin-top:10px; padding-top:8px; border-top:1px solid rgba(126,166,205,.18); font-size:12px; color:#dcefff; }
+.thermal-route-path { font-weight:900; color:#fff3c4; margin-bottom:5px; }
+@media (max-width: 860px) { .thermal-transfer-columns { grid-template-columns:1fr; } }

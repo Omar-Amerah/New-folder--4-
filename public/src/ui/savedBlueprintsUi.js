@@ -347,6 +347,8 @@ function loadSavedDesign(id) {
   }
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
+  state.hoveredHeatPartIndex = null;
+  state.inspectedHeatPartIndex = null;
   state.combatStyle = saved.combatStyle || "sentry";
   state.loadedEditorBlueprintId = saved.id;
   
