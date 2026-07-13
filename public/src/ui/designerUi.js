@@ -1,7 +1,10 @@
 // Manages the builder grid, tile placement, connectivity rules, stats previews, and validation indicators.
 
 import { dom } from "./dom.js";
-import { state } from "../state.js";
+import {
+  state,
+  DEFAULT_THERMAL_LOAD_MODE
+} from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
 import { normalizeRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
@@ -24,7 +27,7 @@ const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
 
-function getScenarioHeatAnalysis(mode = state.thermalLoadMode || "full") {
+function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE) {
   const signature = `${mode}|${JSON.stringify(state.design.map(part => [part.type, part.x, part.y, part.rotation || 0]))}`;
   if (cachedHeatAnalysis?.signature === signature) return cachedHeatAnalysis.result;
   const result = analyzeDesignHeat(state.design, mode);
@@ -48,7 +51,7 @@ export function renderBuildGrid() {
   renderPartInspector();
 }
 
-function currentHeatAnalysis(mode = state.thermalLoadMode || "full") {
+function currentHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE) {
   return getScenarioHeatAnalysis(mode);
 }
 
@@ -77,11 +80,6 @@ function updateHeatFlowToggleControl() {
   const showAll = Boolean(state.showAllHeatFlows);
   dom.showAllHeatFlows?.classList.toggle("active", showAll);
   dom.showAllHeatFlows?.setAttribute("aria-pressed", String(showAll));
-  if (dom.heatFlowHint) {
-    dom.heatFlowHint.textContent = showAll
-      ? "Showing all heat-flow arrows. Hover a component to view its H/s values."
-      : "Hover a component to view its direct heat transfers and H/s values.";
-  }
 }
 
 function refreshBlueprintControls() {
@@ -97,14 +95,14 @@ function refreshBlueprintControls() {
   if (dom.thermalLoadModes) {
     dom.thermalLoadModes.hidden = !heatView;
     for (const button of dom.thermalLoadModes.querySelectorAll("[data-thermal-load]")) {
-      const active = button.dataset.thermalLoad === (state.thermalLoadMode || "full");
+      const active = button.dataset.thermalLoad === (state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     }
   }
   if (dom.thermalScenarioLabel) {
     dom.thermalScenarioLabel.hidden = !heatView;
-    dom.thermalScenarioLabel.textContent = `Predicted component heat — ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || "full"]}`;
+    dom.thermalScenarioLabel.textContent = `Predicted component heat — ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE]}`;
   }
   if (dom.heatFlowViewControls) {
     dom.heatFlowViewControls.hidden = !heatView;
@@ -1138,7 +1136,7 @@ export function heatInteractionDiagnostics() {
   const activeScenarioButton = dom.thermalLoadModes?.querySelector("[data-thermal-load].active")?.dataset.thermalLoad || null;
   return {
     blueprintView: state.blueprintView,
-    thermalLoadMode: state.thermalLoadMode || "full",
+    thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE,
     activeScenarioButton,
     percentageBadgeCount: dom.grid.querySelectorAll(".component-heat-value").length,
     occupiedCellCount: dom.grid.querySelectorAll(".build-cell.occupied").length,

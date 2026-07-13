@@ -1,7 +1,7 @@
 // Renders descriptions and detailed properties for the currently selected part.
 
 import { dom } from "./dom.js";
-import { state } from "../state.js";
+import { state, DEFAULT_THERMAL_LOAD_MODE } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partCategory, partDescription, partIconMarkup } from "../design/parts.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPowerUse, formatPowerGeneration, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
@@ -66,7 +66,7 @@ function thermalSectionMarkup(type, stat, thermal) {
   let predictedRows = "";
   let explainer = "";
   if (placed.length) {
-    const analysis = analyzeDesignHeat(state.design, state.thermalLoadMode || "full");
+    const analysis = analyzeDesignHeat(state.design, state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
     const prediction = placed
       .map(part => analysis.predictions.get(part))
       .filter(Boolean)

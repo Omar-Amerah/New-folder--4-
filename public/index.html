@@ -431,19 +431,43 @@
                 <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false">Heat</button>
               </div>
               <div id="heatToolbar" class="heat-toolbar" hidden>
-                <div id="blueprintHeatLegend" class="blueprint-heat-legend" hidden><span>Cool 0–25%</span><span>Warm 26–50%</span><span>Hot 51–75%</span><span>Critical 76–99%</span><span>Overheated 100%</span></div>
-                <div id="thermalLoadModes" class="thermal-load-modes" role="group" aria-label="Thermal prediction scenario" hidden>
-                  <button type="button" data-thermal-load="idle" title="Idle: systems mostly inactive">Idle</button>
-                  <button type="button" data-thermal-load="combat" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
-                  <button type="button" data-thermal-load="full" class="active" title="Maximum Sustained Load: all major systems operating continuously">Maximum Sustained Load</button>
-                </div>
-                <div id="heatFlowViewControls" class="thermal-tool-controls" role="group" aria-label="Heat flows" hidden>
-                  <span>Heat flows</span>
-                  <button type="button" id="showAllHeatFlows" aria-pressed="false">Show all heat flows</button>
-                  <small id="heatFlowHint">Hover a component to view its direct heat transfers and H/s values.</small>
+                <div class="heat-control-panel">
+                  <div class="heat-control-row heat-scenario-row">
+                    <span class="heat-control-label">Scenario</span>
+                    <div id="thermalLoadModes" class="thermal-load-modes" role="group" aria-label="Thermal prediction scenario" hidden>
+                      <button type="button" data-thermal-load="idle" class="active" aria-pressed="true" title="Idle: systems mostly inactive">Idle</button>
+                      <button type="button" data-thermal-load="combat" aria-pressed="false" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
+                      <button type="button" data-thermal-load="full" aria-pressed="false" title="Maximum Sustained Load: all major systems operating continuously">Maximum Sustained Load</button>
+                    </div>
+                  </div>
+                  <div id="heatFlowViewControls" class="heat-control-row heat-flow-row" role="group" aria-label="Heat flows" hidden>
+                    <span class="heat-control-label">Flows</span>
+                    <button type="button" id="showAllHeatFlows" aria-pressed="false">Show all flows</button>
+                    <small id="heatFlowHint">Hover a component for direct flows and H/s values.</small>
+                  </div>
+                  <details id="blueprintHeatLegend" class="blueprint-heat-legend" hidden>
+                    <summary>Legend</summary>
+                    <div class="heat-legend-content">
+                      <section>
+                        <h4>Heat states</h4>
+                        <div class="heat-state-list"><span>Cool 0–25%</span><span>Warm 26–50%</span><span>Hot 51–75%</span><span>Critical 76–99%</span><span>Overheated 100%</span></div>
+                      </section>
+                      <section>
+                        <h4>Overlay meaning</h4>
+                        <ul>
+                          <li>arrow direction = heat movement</li>
+                          <li>thickness = transfer amount</li>
+                          <li>dashed = Frame or Heat Pipe route</li>
+                          <li>cyan outward arrow = exterior cooling</li>
+                          <li>percentage = heat-capacity usage</li>
+                          <li>warning icons = thermal problems</li>
+                        </ul>
+                      </section>
+                    </div>
+                  </details>
                 </div>
               </div>
-              <div id="thermalScenarioLabel" class="thermal-scenario-label" hidden></div>
+              <div id="thermalScenarioLabel" class="sr-only" aria-live="polite" hidden></div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGridStage" class="build-grid-stage">
                 <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
