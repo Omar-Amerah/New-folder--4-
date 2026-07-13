@@ -6,6 +6,24 @@ const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
 const { getPlayerRallyPoint } = require("./ships");
 
+// Component heat network format:
+//   componentHeat: array of [heat value, state, ratio, capacity] tuples.
+//   componentHeatD: flat compact deltas [component index, heat value, state, ratio, capacity, ...].
+// Keep these positions explicit so compact deltas do not rely on hidden stride assumptions.
+const COMPONENT_HEAT_VALUE = 0;
+const COMPONENT_HEAT_STATE = 1;
+const COMPONENT_HEAT_RATIO = 2;
+const COMPONENT_HEAT_CAPACITY = 3;
+const COMPONENT_HEAT_DELTA_STRIDE = 5;
+
+function buildComponentHeatTuple(ship, index) {
+  const capacity = Math.round((ship.componentThermals?.[index]?.capacity || 0) * 10) / 10;
+  const value = ship.componentHeat[index];
+  const heat = Number.isFinite(value) ? Math.round(value) : 0;
+  const ratio = capacity > 0 ? Math.round((heat / capacity) * 1000) / 1000 : 0;
+  return [heat, ship.componentHeatState[index] || 0, ratio, capacity];
+}
+
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
 function buildSharedSnapshot(room, now, sendStatic) {
@@ -58,12 +76,7 @@ function buildSharedSnapshot(room, now, sendStatic) {
       // Full authoritative component-hp sync rides along with the design.
       if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
       if (ship.componentHeat) {
-        entry.cheat = ship.componentHeat.map((value, i) => {
-          const capacity = Math.round((ship.componentThermals?.[i]?.capacity || 0) * 10) / 10;
-          const ratio = capacity > 0 ? Math.round((value / capacity) * 1000) / 1000 : 0;
-          return [Math.round(value), ship.componentHeatState[i], ratio, capacity];
-        });
-        entry.componentHeat = entry.cheat;
+        entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
       }
     } else if (ship.dirtyComponents && ship.dirtyComponents.size) {
       // Otherwise only ship the components whose hp changed since the last
@@ -75,14 +88,17 @@ function buildSharedSnapshot(room, now, sendStatic) {
       entry.chpD = delta;
     }
     if (!sendStatic && ship.dirtyHeat?.size) {
-      entry.cheatD = [];
+      entry.componentHeatD = [];
       for (const index of ship.dirtyHeat) {
-        const capacity = Math.round((ship.componentThermals?.[index]?.capacity || 0) * 10) / 10;
-        const value = ship.componentHeat[index];
-        const ratio = capacity > 0 ? Math.round((value / capacity) * 1000) / 1000 : 0;
-        entry.cheatD.push(index, Math.round(value), ship.componentHeatState[index], ratio, capacity);
+        const tuple = buildComponentHeatTuple(ship, index);
+        entry.componentHeatD.push(
+          index,
+          tuple[COMPONENT_HEAT_VALUE],
+          tuple[COMPONENT_HEAT_STATE],
+          tuple[COMPONENT_HEAT_RATIO],
+          tuple[COMPONENT_HEAT_CAPACITY]
+        );
       }
-      entry.componentHeatD = entry.cheatD;
     }
     ships.push(entry);
   }

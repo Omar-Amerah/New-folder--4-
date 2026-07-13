@@ -13,6 +13,7 @@ const srcFiles = [
   "shared/movementStats.js",
   "shared/formatting.js",
   "shared/ids.js",
+  "shared/componentHeatSnapshot.js",
   "design/rotation.js",
   "design/statFormatting.js",
   "design/parts.js",
@@ -40,11 +41,13 @@ const srcFiles = [
   "game/effects.js",
   "game/camera.js",
   "game/selection.js",
+  "game/componentDamage.js",
   "game/commands.js",
   "game/input.js",
   "game/renderSettings.js",
   "game/debugOverlay.js",
   "game/renderer.js",
+  "ui/shipDamagePanelUi.js",
   "game/pixi/pixiBake.js",
   "game/pixi/pixiScreenUi.js",
   "game/pixi/pixiWorld.js",
@@ -70,8 +73,9 @@ try {
     content = content.replace(/"use strict";\r?\n?/g, "");
     content = content.replace(/'use strict';\r?\n?/g, "");
 
-    // Strip imports (single-line imports)
-    content = content.replace(/^\s*import\s+.*;?$/gm, "");
+    // Strip imports (single-line and multi-line imports)
+    content = content.replace(/^\s*import[\s\S]*?from\s+["'][^"']+["'];?\s*$/gm, "");
+    content = content.replace(/^\s*import\s+["'][^"']+["'];?\s*$/gm, "");
 
     // Strip exports, but preserve the definitions
     content = content.replace(/^\s*export\s+const\s+/gm, "const ");

@@ -18,6 +18,7 @@ import {
   drawModuleFlash,
   componentHealthRatio
 } from "../game/renderer.js";
+import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, COMPONENT_HEAT_VALUE, normalizeComponentHeatTuple } from "../shared/componentHeatSnapshot.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -28,7 +29,7 @@ import {
   DAMAGED_RATIO
 } from "../game/componentDamage.js";
 
-const GRID_CENTER = 7;
+const SHIP_DAMAGE_GRID_CENTER = 7;
 
 let bound = false;
 let hoverContext = null; // { ship, cellMap, cellSize, originX, originY, hoverIndex }
@@ -36,14 +37,14 @@ let hoverContext = null; // { ship, cellMap, cellSize, originX, originY, hoverIn
 const HEAT_LABELS = ["Cool", "Warm", "Hot", "Critical", "Overheated"];
 
 function componentThermal(ship, index) {
-  const data = ship.componentHeat?.[index] || ship.cheat?.[index] || [];
+  const data = normalizeComponentHeatTuple(ship.componentHeat?.[index]) || [];
   const part = ship.design?.[index];
   const profile = part ? globalThis.HeatRules?.profile?.(part.type, PART_STATS[part.type] || {}) : null;
-  const heat = Number(data[0]) || 0;
-  const stateValue = Number(data[1]) || 0;
-  const capacity = Number(data[3]) || Number(profile?.capacity) || 0;
-  const ratio = Number.isFinite(Number(data[2])) && Number(data[2]) > 0
-    ? Number(data[2])
+  const heat = Number(data[COMPONENT_HEAT_VALUE]) || 0;
+  const stateValue = Number(data[COMPONENT_HEAT_STATE]) || 0;
+  const capacity = Number(data[COMPONENT_HEAT_CAPACITY]) || Number(profile?.capacity) || 0;
+  const ratio = Number.isFinite(Number(data[COMPONENT_HEAT_RATIO])) && Number(data[COMPONENT_HEAT_RATIO]) > 0
+    ? Number(data[COMPONENT_HEAT_RATIO])
     : capacity > 0 ? heat / capacity : 0;
   return { heat, state: stateValue, capacity, ratio: Math.max(0, ratio) };
 }
@@ -112,8 +113,8 @@ function handleDiagramHover(event) {
   const rect = canvas.getBoundingClientRect();
   const x = (event.clientX - rect.left) * (canvas.width / rect.width);
   const y = (event.clientY - rect.top) * (canvas.height / rect.height);
-  const gx = Math.round(GRID_CENTER + (x - hoverContext.originX) / hoverContext.cellSize);
-  const gy = Math.round(GRID_CENTER + (y - hoverContext.originY) / hoverContext.cellSize);
+  const gx = Math.round(SHIP_DAMAGE_GRID_CENTER + (x - hoverContext.originX) / hoverContext.cellSize);
+  const gy = Math.round(SHIP_DAMAGE_GRID_CENTER + (y - hoverContext.originY) / hoverContext.cellSize);
   const index = hoverContext.cellMap.get(`${gx},${gy}`);
   const previous = hoverContext.hoverIndex;
   hoverContext.hoverIndex = index;
@@ -152,8 +153,8 @@ function componentScreenRect(cells, cellSize, originX, originY) {
   }
   const half = cellSize / 2;
   return {
-    x: originX + (minGx - GRID_CENTER) * cellSize - half,
-    y: originY + (minGy - GRID_CENTER) * cellSize - half,
+    x: originX + (minGx - SHIP_DAMAGE_GRID_CENTER) * cellSize - half,
+    y: originY + (minGy - SHIP_DAMAGE_GRID_CENTER) * cellSize - half,
     w: (maxGx - minGx + 1) * cellSize,
     h: (maxGy - minGy + 1) * cellSize
   };
@@ -204,8 +205,8 @@ function drawDiagram(ship) {
   const pad = 18; // keeps weapon barrels and hp bars inside the frame
   const cellSize = Math.max(6, Math.floor(Math.min((canvas.width - pad) / cols, (canvas.height - pad) / rows)));
   // Ship-grid origin (cell 7,7 centre) positioned so the design bbox is centred.
-  const originX = canvas.width / 2 - ((minX + maxX) / 2 - GRID_CENTER) * cellSize;
-  const originY = canvas.height / 2 - ((minY + maxY) / 2 - GRID_CENTER) * cellSize;
+  const originX = canvas.width / 2 - ((minX + maxX) / 2 - SHIP_DAMAGE_GRID_CENTER) * cellSize;
+  const originY = canvas.height / 2 - ((minY + maxY) / 2 - SHIP_DAMAGE_GRID_CENTER) * cellSize;
   const hoverIndex = hoverContext?.ship === ship ? hoverContext.hoverIndex : undefined;
   hoverContext = { ship, cellMap, cellSize, originX, originY, hoverIndex };
 
