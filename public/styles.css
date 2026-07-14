@@ -553,8 +553,11 @@ h2 {
 
 .damage-legend {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
+  gap: 4px 8px;
+  max-width: 100%;
+  min-width: 0;
   font-size: 10px;
   color: #8ea3c2;
 }
@@ -568,6 +571,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .legend-dot {

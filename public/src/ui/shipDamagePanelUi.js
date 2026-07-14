@@ -12,7 +12,7 @@ import { drawRotatingWeaponTop } from "../game/componentArt.js";
 import { drawPlacedStaticComponent } from "../game/staticComponentComposition.js";
 import { isRotatingWeaponPart, authoritativeWeaponAngle } from "../game/weaponAim.js";
 import { updateComponentHeatTrends, componentHeatTrend } from "../game/componentHeatTrend.js";
-import { footprintLocalPlacement } from "../game/shipGeometry.js";
+import { footprintLocalPlacement, footprintCorners } from "../game/shipGeometry.js";
 import { componentHealthRatio } from "../game/shipVitals.js";
 import { drawModuleDamage, drawModuleFlash } from "../game/componentDamageCanvas.js";
 import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, COMPONENT_HEAT_VALUE, normalizeComponentHeatTuple } from "../shared/componentHeatSnapshot.js";
@@ -282,6 +282,56 @@ function componentScreenRect(cells, cellSize, originX, originY) {
   };
 }
 
+
+function projectShipLocalToDiagram(point) {
+  // drawDiagram renders ship-local art after rotate(-90deg), so the projected
+  // screen-space diagram axes are (x, y) -> (y, -x) before origin/scale.
+  return { x: point.y, y: -point.x };
+}
+
+function componentFootprintGeometry(part, unit = 1) {
+  const place = footprintLocalPlacement(part, unit);
+  const halfLong = (place.tilesLong * unit) / 2;
+  const halfCross = (place.tilesCross * unit) / 2;
+  const corners = footprintCorners(place, halfLong, halfCross).slice(0, 4);
+  const cells = getOccupiedCells(part.x, part.y, PART_STATS[part.type]?.footprint || { width: 1, height: 1 }, part.rotation || 0);
+  return { place, cells, diagramCorners: corners.map(projectShipLocalToDiagram) };
+}
+
+function includePoint(bounds, point) {
+  if (point.x < bounds.minX) bounds.minX = point.x;
+  if (point.y < bounds.minY) bounds.minY = point.y;
+  if (point.x > bounds.maxX) bounds.maxX = point.x;
+  if (point.y > bounds.maxY) bounds.maxY = point.y;
+}
+
+function shipDamageDiagramGeometry(ship, canvasWidth, canvasHeight, pad = 18) {
+  const cellMap = new Map();
+  const cellsByIndex = [];
+  const footprintByIndex = [];
+  const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+  ship.design.forEach((part, i) => {
+    const geometry = componentFootprintGeometry(part, 1);
+    cellsByIndex[i] = geometry.cells;
+    footprintByIndex[i] = geometry;
+    for (const cell of geometry.cells) cellMap.set(`${cell.x},${cell.y}`, i);
+    for (const corner of geometry.diagramCorners) includePoint(bounds, corner);
+  });
+
+  if (!ship.design.length || !Number.isFinite(bounds.minX)) {
+    bounds.minX = bounds.minY = -0.5;
+    bounds.maxX = bounds.maxY = 0.5;
+  }
+
+  const width = Math.max(1, bounds.maxX - bounds.minX);
+  const height = Math.max(1, bounds.maxY - bounds.minY);
+  const cellSize = Math.max(6, Math.floor(Math.min((canvasWidth - pad * 2) / width, (canvasHeight - pad * 2) / height)));
+  const originX = canvasWidth / 2 - ((bounds.minX + bounds.maxX) / 2) * cellSize;
+  const originY = canvasHeight / 2 - ((bounds.minY + bounds.maxY) / 2) * cellSize;
+  return { cellMap, cellsByIndex, footprintByIndex, bounds, cellSize, originX, originY, pad };
+}
+
 function hpBarColor(ratio) {
   if (ratio <= CRITICAL_RATIO) return "#ef4444";
   if (ratio < DAMAGED_RATIO) return "#fbb040";
@@ -323,29 +373,12 @@ function drawDiagram(ship) {
   if (!drawCtx) return;
   drawCtx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Occupied cells per component (blueprint grid coordinates) + bounding box.
-  const cellMap = new Map();
-  const cellsByIndex = [];
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  ship.design.forEach((part, i) => {
-    const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
-    cellsByIndex[i] = cells;
-    for (const cell of cells) {
-      cellMap.set(`${cell.x},${cell.y}`, i);
-      if (cell.x < minX) minX = cell.x;
-      if (cell.y < minY) minY = cell.y;
-      if (cell.x > maxX) maxX = cell.x;
-      if (cell.y > maxY) maxY = cell.y;
-    }
-  });
-  const cols = maxX - minX + 1;
-  const rows = maxY - minY + 1;
-  const pad = 18; // keeps weapon barrels and hp bars inside the frame
-  const cellSize = Math.max(6, Math.floor(Math.min((canvas.width - pad) / cols, (canvas.height - pad) / rows)));
-  // Ship-grid origin (cell 7,7 centre) positioned so the design bbox is centred.
-  const originX = canvas.width / 2 - ((minX + maxX) / 2 - SHIP_DAMAGE_GRID_CENTER) * cellSize;
-  const originY = canvas.height / 2 - ((minY + maxY) / 2 - SHIP_DAMAGE_GRID_CENTER) * cellSize;
+  // Authoritative per-component footprints and bounds. The design bounds come
+  // from the same footprintLocalPlacement()/drawPlacedStaticComponent() geometry
+  // used to render art, not just anchor cells, so rotated multi-cell parts that
+  // extend right, left, above, or below their anchor cannot be clipped.
+  const geometry = shipDamageDiagramGeometry(ship, canvas.width, canvas.height);
+  const { cellMap, cellsByIndex, cellSize, originX, originY } = geometry;
   // Snapshots replace ship objects each frame, so interaction state is keyed
   // by ship id: the selection survives replacement objects for the same ship
   // and is dropped when a different ship (or an invalid index) shows up.
@@ -356,7 +389,7 @@ function drawDiagram(ship) {
   const hoverIndex = sameShip && validComponentIndex(ship, diagramInteraction.hoverIndex)
     ? diagramInteraction.hoverIndex
     : undefined;
-  diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, cellMap, cellSize, originX, originY };
+  diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, cellMap, cellSize, originX, originY, bounds: geometry.bounds };
 
   const player = state.snapshot?.players?.find((candidate) => candidate.id === ship.ownerId);
   const trim = player?.color || "#8fd8ff";

@@ -334,7 +334,85 @@ vm.runInContext(`
   }
   dom.shipDamageCanvas.width = 360;
   dom.shipDamageCanvas.height = 360;
+  PART_STATS.reactor.footprint = { width: 2, height: 1 };
+  PART_STATS.reactor.rotatable = true;
 `, context);
+
+// Heat/status legends are wider than narrow mobile side panels; they must wrap
+// instead of overflowing and being clipped beside the diagram.
+const stylesCss = fs.readFileSync("public/styles.css", "utf8");
+const damageLegendRule = stylesCss.match(/\.damage-legend\s*\{([\s\S]*?)\}/)?.[1] || "";
+const damageLegendItemRule = stylesCss.match(/\.damage-legend span\s*\{([\s\S]*?)\}/)?.[1] || "";
+assert(/flex-wrap\s*:\s*wrap/.test(damageLegendRule), "status legends must wrap on narrow panels instead of clipping");
+assert(/max-width\s*:\s*100%/.test(damageLegendRule), "status legends must stay within the side panel width");
+assert(/white-space\s*:\s*nowrap/.test(damageLegendItemRule), "individual legend labels should stay intact while the legend wraps between items");
+
+// Damage diagram geometry: multi-cell reactor artwork must contribute its full
+// rotated footprint to bounds, scaling, overlays, hit testing, and padding.
+const diagramGeometryChecks = vm.runInContext(`
+  function makeReactorEdgeShip(rotation, anchorX, anchorY = 7) {
+    return makePanelShip({
+      id: "reactor-edge-" + rotation,
+      design: [
+        { x: 7, y: 7, type: "core" },
+        { x: 8, y: 7, type: "frame" },
+        { x: anchorX, y: anchorY, type: "reactor", rotation }
+      ],
+      chp: [100, 40, 62],
+      componentHeat: [[0,0,0,85],[0,0,0,85],[20,0,0.2,100]],
+      heatNow: 20,
+      heatMax: 100
+    });
+  }
+  function boundsPadding(geometry, width = 360, height = 360) {
+    const left = geometry.originX + geometry.bounds.minX * geometry.cellSize;
+    const right = width - (geometry.originX + geometry.bounds.maxX * geometry.cellSize);
+    const top = geometry.originY + geometry.bounds.minY * geometry.cellSize;
+    const bottom = height - (geometry.originY + geometry.bounds.maxY * geometry.cellSize);
+    return { left, right, top, bottom };
+  }
+  function reactorCells(geometry) {
+    return [...geometry.cellMap.entries()].filter(([, index]) => index === 2).map(([key]) => key).sort((a, b) => {
+      const [ax, ay] = a.split(",").map(Number);
+      const [bx, by] = b.split(",").map(Number);
+      return ax - bx || ay - by;
+    });
+  }
+  function checkShip(ship) {
+    installPanelSnapshot([ship], ship.id);
+    renderShipDamagePanel();
+    const geometry = diagramInteraction;
+    const pads = boundsPadding(geometry);
+    return {
+      cells: reactorCells(geometry),
+      pads,
+      equalHorizontal: Math.abs(pads.left - pads.right),
+      equalVertical: Math.abs(pads.top - pads.bottom),
+      minPad: Math.min(pads.left, pads.right, pads.top, pads.bottom),
+      width: geometry.bounds.maxX - geometry.bounds.minX,
+      height: geometry.bounds.maxY - geometry.bounds.minY
+    };
+  }
+  ({
+    right: checkShip(makeReactorEdgeShip(0, 9)),
+    mirrored: checkShip(makeReactorEdgeShip(180, 10)),
+    up: checkShip(makeReactorEdgeShip(90, 9)),
+    down: checkShip(makeReactorEdgeShip(270, 9))
+  })
+`, context);
+assert.strictEqual(JSON.stringify(diagramGeometryChecks.right.cells), JSON.stringify(["9,7", "10,7"]),
+  "rotation 0 reactor must contribute both horizontal cells at the right edge");
+assert.strictEqual(JSON.stringify(diagramGeometryChecks.mirrored.cells), JSON.stringify(["9,7", "10,7"]),
+  "rotation 180 reactor must contribute the cell left of its anchor and its anchor cell");
+assert.strictEqual(JSON.stringify(diagramGeometryChecks.up.cells), JSON.stringify(["9,7", "9,8"]),
+  "rotation 90 reactor must contribute both vertical cells");
+assert.strictEqual(JSON.stringify(diagramGeometryChecks.down.cells), JSON.stringify(["9,6", "9,7"]),
+  "rotation 270 reactor must include the cell above its anchor");
+for (const [name, result] of Object.entries(diagramGeometryChecks)) {
+  assert(result.minPad >= 18, `${name} reactor artwork must remain inside canvas with intended padding, got ${JSON.stringify(result.pads)}`);
+  assert(result.equalHorizontal < 1e-9, `${name} reactor diagram must be horizontally centred with equal padding, got ${JSON.stringify(result.pads)}`);
+  assert(result.equalVertical < 1e-9, `${name} reactor diagram must be vertically centred with equal padding, got ${JSON.stringify(result.pads)}`);
+}
 
 // Fractional overall heat in the summary (3.5 / 1100 H -> 0.3%, not 0%).
 const summaryChecks = vm.runInContext(`
