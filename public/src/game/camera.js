@@ -1,6 +1,6 @@
 // Manages camera panning, scroll zoom ratios, coordinate mappings, and edge bounding limits.
 
-import { dom, ctx } from "../ui/dom.js";
+import { dom } from "../ui/dom.js";
 import { state } from "../state.js";
 import { clamp } from "../shared/math.js";
 import { ownLiveShips } from "./selection.js";
@@ -44,12 +44,6 @@ export function updateCamera(dt) {
 
   state.camera.x = clamp(state.camera.x, 0, state.world.width);
   state.camera.y = clamp(state.camera.y, 0, state.world.height);
-}
-
-export function applyCamera(rect) {
-  ctx.translate(rect.width / 2, rect.height / 2);
-  ctx.scale(state.camera.zoom, state.camera.zoom);
-  ctx.translate(-state.camera.x, -state.camera.y);
 }
 
 export function screenToWorld(clientX, clientY) {

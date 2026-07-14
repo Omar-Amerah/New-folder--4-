@@ -12,7 +12,7 @@ import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.j
 import { drawShipStructure, drawModule, drawFootprintComponent } from "../game/componentArt.js";
 import { footprintLocalPlacement } from "../game/shipGeometry.js";
 import { componentHealthRatio } from "../game/shipVitals.js";
-import { drawModuleDamage, drawModuleFlash } from "../game/renderer.js";
+import { drawModuleDamage, drawModuleFlash } from "../game/componentDamageCanvas.js";
 import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, COMPONENT_HEAT_VALUE, normalizeComponentHeatTuple } from "../shared/componentHeatSnapshot.js";
 import {
   componentMaxFromShip,

@@ -3,7 +3,7 @@
 
 import { dom } from "../../ui/dom.js";
 import { state } from "../../state.js";
-import { getMinimapStaticLayer } from "../renderer.js";
+import { getMinimapStaticLayer } from "../worldArt.js";
 import { pixiBakeScreenTexture } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
 
@@ -194,4 +194,26 @@ export function updatePixiScreenUi(env, now, players, rect) {
     views.joinText.position.set(rect.width / 2, rect.height / 2);
     state.minimap = null;
   }
+}
+
+// Tears down screen-UI display objects and their view-owned (non-cache)
+// textures — the per-size backdrop and the minimap static layer — then clears
+// module-global state so a re-initialized renderer starts fresh.
+export function destroyPixiScreenUi(env) {
+  if (screenUiViews) {
+    const bt = screenUiViews.backdrop.texture;
+    if (bt && bt !== env.PIXI.Texture.WHITE) bt.destroy(true);
+    screenUiViews.backdrop.destroy({ children: true, texture: false, textureSource: false });
+    screenUiViews.starContainer.destroy({ children: true, texture: false, textureSource: false });
+    screenUiViews.joinText.destroy({ children: true, texture: false, textureSource: false });
+    screenUiViews = null;
+  }
+  if (minimapView) {
+    const mt = minimapView.staticSprite.texture;
+    if (mt && mt !== env.PIXI.Texture.EMPTY) mt.destroy(true);
+    if (minimapView.root.parent) minimapView.root.parent.removeChild(minimapView.root);
+    minimapView.root.destroy({ children: true, texture: false, textureSource: false });
+    minimapView = null;
+  }
+  backdropSize = { width: 0, height: 0 };
 }

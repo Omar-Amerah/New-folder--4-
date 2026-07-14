@@ -1,18 +1,20 @@
-// PixiJS (WebGL) arena renderer backend. Initialized on demand by renderController.
-// Drives the same interpolation/camera/state logic as the Canvas 2D renderer,
-// but renders through a GPU scene graph with baked textures and pooled sprites.
+// PixiJS (WebGL) arena renderer — the one and only arena backend. Initialized on
+// demand by renderController. Drives interpolation/camera/state each frame and
+// renders through a GPU scene graph with baked textures and pooled sprites.
 
-import { dom } from "../../ui/dom.js";
+import { dom, replaceArenaCanvas } from "../../ui/dom.js";
 import { state } from "../../state.js";
 import { updateCamera } from "../camera.js";
-import { interpolateShips, getViewportWorldBounds } from "../renderer.js";
+import { bindArenaPointerListeners } from "../input.js";
+import { interpolateShips } from "../renderInterpolation.js";
+import { getViewportWorldBounds } from "../viewportCulling.js";
 import { getRenderQuality, getRenderQualityDprCap } from "../renderSettings.js";
 import { setDebugFrameStats, updateDebugOverlay } from "../debugOverlay.js";
 import { playerMap } from "../../ui/scoreboardUi.js";
-import { pixiFlushBakedTextures } from "./pixiBake.js";
-import { updatePixiWorld } from "./pixiWorld.js";
-import { updatePixiShips } from "./pixiShips.js";
-import { updatePixiScreenUi } from "./pixiScreenUi.js";
+import { advancePixiBakeGeneration, flushAllPixiTextureCaches } from "./pixiBake.js";
+import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
+import { updatePixiShips, destroyPixiShipPool } from "./pixiShips.js";
+import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
 
 let pixiEnv = null;
 let pixiFrameCount = 0;
@@ -34,9 +36,23 @@ export function getPixiEnv() {
   return pixiEnv;
 }
 
+// Tracks canvas elements that have already hosted a Pixi WebGL context. A GL
+// context cannot be recreated on such a canvas, so a re-init swaps in a fresh
+// one.
+const usedArenaCanvases = new WeakSet();
+
 export async function initPixiRenderer() {
   if (pixiEnv) return pixiEnv;
   const PIXI = await import("pixi.js");
+
+  // On a re-initialization, the previous WebGL context is gone but its canvas
+  // remains; give the new application a fresh canvas and re-bind pointer input.
+  if (usedArenaCanvases.has(dom.canvas)) {
+    const fresh = replaceArenaCanvas();
+    bindArenaPointerListeners(fresh);
+  }
+  usedArenaCanvases.add(dom.canvas);
+
   const rect = dom.canvas.getBoundingClientRect();
   const quality = getRenderQuality();
 
@@ -52,7 +68,7 @@ export async function initPixiRenderer() {
     background: "#040710"
   });
 
-  // Layer order mirrors the Canvas renderer's draw order.
+  // Layer order defines the arena draw order (back to front).
   const backdropRoot = new PIXI.Container();
   const worldRoot = new PIXI.Container();
   const layers = {
@@ -145,14 +161,35 @@ export function resizePixiRenderer() {
   if (quality !== pixiEnv.quality) {
     pixiEnv.quality = quality;
     pixiEnv.bakeScale = pixiBakeScaleForQuality(quality);
-    pixiFlushBakedTextures();
+    // Advance the bake generation so new-generation textures are baked and
+    // referenced; old-generation textures are destroyed only after their final
+    // lease releases (no in-use texture is destroyed).
+    advancePixiBakeGeneration();
   }
 }
 
+// Full teardown. Order matters: release every texture lease (via pool/view
+// destruction) BEFORE flushing the caches, so each cache-owned texture is
+// destroyed exactly once; then destroy the Application WITHOUT letting it
+// destroy sprite textures (they are cache-owned and already handled).
 export function destroyPixiRenderer() {
   if (!pixiEnv) return;
-  pixiEnv.app.ticker.remove(pixiFrame);
-  pixiFlushBakedTextures();
-  pixiEnv.app.destroy({ removeView: false }, { children: true, texture: true });
+  const env = pixiEnv;
+  // 1. Stop the render loop.
+  env.app.ticker.remove(pixiFrame);
+  // 2-6. Destroy pools/views (releases every texture lease; resets globals).
+  destroyPixiShipPool();
+  destroyPixiWorld();
+  destroyPixiScreenUi(env);
+  // 7. Now that no lease remains, destroy every cache-owned texture exactly once.
+  flushAllPixiTextureCaches();
+  // 8. Destroy the Application. texture:false — textures are cache-owned and
+  // already destroyed above; letting Pixi destroy shared sprite textures would
+  // double-destroy them.
+  env.app.destroy({ removeView: false }, { children: true, texture: false, textureSource: false });
+  // 9. Clear module-global references.
   pixiEnv = null;
+  pixiFrameCount = 0;
+  pixiLastFpsTime = 0;
+  pixiCurrentFps = 0;
 }

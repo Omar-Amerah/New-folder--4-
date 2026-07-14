@@ -154,17 +154,15 @@ export const dom = {
   confirmAcceptButton: document.getElementById("confirmAcceptButton")
 };
 
-// The 2D context is acquired lazily: the PixiJS backend needs the canvas free
-// for a WebGL context, so only the Canvas 2D fallback ever calls acquireArenaCtx().
+// Shared "current 2D target" for offscreen Canvas artwork. The arena is rendered
+// by PixiJS (WebGL), so the arena canvas never gets a 2D context. `ctx` is null
+// except while withCanvasContext() has it pointed at an offscreen bake surface
+// or a UI canvas (component icons, thumbnails, ship damage panel, Pixi texture
+// baking). Nothing calls getContext("2d") on the arena canvas.
 export let ctx = null;
 
-export function acquireArenaCtx() {
-  if (!ctx) ctx = dom.canvas.getContext("2d", { alpha: false });
-  return ctx;
-}
-
-// Temporarily points the shared ctx at another 2D context so existing draw
-// functions can render into offscreen canvases (used for texture baking).
+// Temporarily points the shared ctx at another 2D context so the offscreen
+// artwork routines can render into offscreen/UI canvases.
 export function withCanvasContext(tempCtx, fn) {
   const previous = ctx;
   ctx = tempCtx;
@@ -175,12 +173,13 @@ export function withCanvasContext(tempCtx, fn) {
   }
 }
 
-// Recovery path: if a failed WebGL init claimed the canvas, a fresh element is
-// needed before a 2D context can be obtained again.
-export function replaceArenaCanvasElement() {
+// Swaps the arena canvas for a fresh clone. A WebGL context cannot be
+// re-created on a canvas that already hosted (and then lost) one, so a renderer
+// re-initialization must run on a brand-new canvas element. Returns the new
+// element; callers re-bind any per-canvas listeners.
+export function replaceArenaCanvas() {
   const fresh = dom.canvas.cloneNode(false);
-  dom.canvas.replaceWith(fresh);
+  if (dom.canvas.parentNode) dom.canvas.replaceWith(fresh);
   dom.canvas = fresh;
-  ctx = null;
   return fresh;
 }

@@ -137,8 +137,7 @@ function runTicks(room, me, ships, count, dt) {
   assert(/TurretRules\.turnRateFor/.test(combatSource), "server combat must delegate turret turn rates to shared TurretRules");
   const html = fs.readFileSync("./public/index.html", "utf8");
   assert(/src\/shared\/turretRules\.js/.test(html), "index.html must load the shared turretRules script");
-  // Both the Canvas fallback and Pixi renderer must consume the shared lookup.
-  assert(/from "\.\/weaponAim\.js"/.test(fs.readFileSync("./public/src/game/renderer.js", "utf8")), "canvas renderer must import turret aim helpers from weaponAim");
+  // The Pixi renderer (the only arena renderer) consumes the shared lookup.
   assert(/from "\.\.\/weaponAim\.js"/.test(fs.readFileSync("./public/src/game/pixi/pixiShips.js", "utf8")), "pixi renderer must import turret aim helpers from weaponAim");
   // Point defense stays the fastest traverse so missile interception still works.
   assert(TurretRules.TURN_RATES.pointDefense > TurretRules.TURN_RATES.blaster, "point defense must traverse faster than main guns");
