@@ -430,7 +430,7 @@ function updatePixiTurrets(env, view, ship, design) {
       if (instant || isNewBinding) {
         visual = target;
       } else {
-        const turnRate = sprite.__weaponStat ? getWeaponTurnRate(sprite.__weaponStat) : 3.0;
+        const turnRate = sprite.__weaponStat ? getWeaponTurnRate(sprite.__weaponStat) : getWeaponTurnRate(sprite.__partType === "repairBeam" ? "beam" : null);
         visual = approachAngle(visual, target, turnRate * dt);
       }
     }
@@ -747,7 +747,9 @@ function updatePixiShipLabels(view, ship, player, zoom) {
 
 function drawPixiSelectionRing(env, gfx, ship, zoom) {
   const player = state.snapshot?.players?.find((p) => p.id === ship.ownerId);
-  const color = player ? player.color : "#ffca57";
+  const mine = state.mine || state.snapshot?.players?.find((p) => p.id === state.myId);
+  const friendly = ship.ownerId === state.myId || Boolean(mine?.team && player?.team && mine.team === player.team);
+  const color = friendly ? "#4ade80" : (player ? player.color : "#ffca57");
   const size = ship.radius + 12;
   const arm = Math.max(5, size * 0.22);
 

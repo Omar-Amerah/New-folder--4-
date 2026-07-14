@@ -11,7 +11,7 @@ import { angleDifference } from "../shared/math.js";
 // weapon. Rotatable structural silhouettes (wings, diagonal halves) are static
 // hull artwork drawn at their blueprint rotation, not turrets.
 export function isRotatingWeaponPart(type) {
-  return isRotatablePart(type) && Boolean(PART_STATS[type]?.weapon);
+  return isRotatablePart(type) && (Boolean(PART_STATS[type]?.weapon) || type === "repairBeam");
 }
 
 // Design indices of every rotating weapon in a design (uncompressed: these are
