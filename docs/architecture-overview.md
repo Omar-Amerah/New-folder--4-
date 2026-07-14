@@ -196,3 +196,7 @@ close) — driven by `players.js` and `maybeStartMatch`.
 
 These are review inputs for later sections; none are addressed in this PR beyond
 what test determinism strictly required.
+
+## Section 4: maps and active-match progression
+
+Map generation is deterministic once a per-room `mapSeed` has been created. The generated seed is included in static map data so production reports can be replayed by tests. Map validation runs immediately after generation; development/test builds fail with the seed while production falls back to a minimal safe arena.

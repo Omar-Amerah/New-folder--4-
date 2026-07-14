@@ -1,0 +1,85 @@
+"use strict";
+
+const assert = require("assert");
+const { WORLD_SIZES, ASTEROID_DENSITY, SCORE_PER_CONTROLLED_POINT } = require("./src/server/config");
+const { generateMap, chooseWorldSize } = require("./src/server/rooms");
+const { validateGeneratedMap } = require("./src/server/mapValidation");
+const { updateCapturePoints, updateScoring, getTeamWithFullControl, getPlayerWithFullControl } = require("./src/server/objectives");
+
+function assertMap(seed, world, mode, density) {
+  const input = { seed, world: world.label, mode, density };
+  const first = generateMap("TEST", world, mode, density, { seed });
+  const second = generateMap("TEST", world, mode, density, { seed });
+  assert.deepStrictEqual(first, second, `map generation is not deterministic ${JSON.stringify(input)}`);
+  const validation = validateGeneratedMap(first, world, { seed });
+  assert.strictEqual(validation.ok, true, `invalid map ${JSON.stringify(input)}: ${validation.errors.join("; ")}`);
+  assert.strictEqual(first.seed, seed >>> 0, `seed was not preserved ${JSON.stringify(input)}`);
+  if (density === "none") assert.strictEqual(first.asteroids.length, 0, `none density created asteroids ${JSON.stringify(input)}`);
+  return first;
+}
+
+function testMapInvariants() {
+  const seeds = [0, 1, 7, 42, 12345, 0xdeadbeef, 0xffffffff];
+  for (const world of WORLD_SIZES) {
+    for (const mode of ["teams", "solo"]) {
+      for (const density of Object.keys(ASTEROID_DENSITY)) {
+        for (const seed of seeds) assertMap(seed, world, mode, density);
+      }
+    }
+  }
+  assert.deepStrictEqual(chooseWorldSize(1).label, "Duel");
+  assert.deepStrictEqual(chooseWorldSize(4).label, "Skirmish");
+  assert.deepStrictEqual(chooseWorldSize(12).label, "Grand battle");
+}
+
+function makeRoom(mode = "teams") {
+  const players = new Map([
+    ["p1", { id: "p1", name: "One", team: mode === "solo" ? "p1" : "blue", captures: 0, score: 0, money: 0, earned: 0, maxMoney: 9999, ready: true, ships: [] }],
+    ["p2", { id: "p2", name: "Two", team: mode === "solo" ? "p2" : "red", captures: 0, score: 0, money: 0, earned: 0, maxMoney: 9999, ready: true, ships: [] }]
+  ]);
+  return {
+    code: "TEST",
+    clients: new Set(),
+    phase: "active",
+    rules: { gameMode: mode },
+    players,
+    points: [{ id: "A", x: 100, y: 100, radius: 80, ownerId: null, ownerTeam: null, progress: 0, contested: false }],
+    winner: null,
+    winnerAt: 0,
+    controlVictory: { team: null, playerId: null, startedAt: null, remaining: null, requiredSeconds: 20 },
+    lastScoreAt: 0,
+    maxScore: 900
+  };
+}
+
+function testObjectives() {
+  let room = makeRoom("teams");
+  updateCapturePoints(room, [{ x: 100, y: 100, ownerId: "p1", alive: true, stats: {}, design: [] }], 10);
+  assert.strictEqual(room.points[0].ownerTeam, "blue", "team capture should set ownerTeam");
+  assert.strictEqual(room.points[0].ownerId, "p1", "team capture should keep credit ownerId");
+  assert.strictEqual(room.players.get("p1").captures, 1, "capture credit once to capturing team member");
+  room.points[0].progress = 1;
+  room.lastScoreAt = 0;
+  updateScoring(room, 1000);
+  assert.strictEqual(room.players.get("p1").score, 14 + SCORE_PER_CONTROLLED_POINT, "controlled relay score should accrue to owning team");
+  assert.strictEqual(getTeamWithFullControl(room), "blue", "full team control should be detected");
+
+  room = makeRoom("teams");
+  updateCapturePoints(room, [
+    { x: 100, y: 100, ownerId: "p1", alive: true, stats: {}, design: [] },
+    { x: 100, y: 100, ownerId: "p2", alive: true, stats: {}, design: [] }
+  ], 10);
+  assert.strictEqual(room.points[0].contested, true, "equal enemies should contest relay");
+  assert.strictEqual(room.points[0].ownerTeam, null, "contested neutral relay should not change owner");
+
+  room = makeRoom("solo");
+  updateCapturePoints(room, [{ x: 100, y: 100, ownerId: "p1", alive: true, stats: {}, design: [] }], 10);
+  assert.strictEqual(room.points[0].ownerTeam, "p1", "solo ownerTeam stores player ownership key for compatibility");
+  assert.strictEqual(room.points[0].ownerId, "p1", "solo capture should set ownerId to player");
+  room.points[0].progress = 1;
+  assert.strictEqual(getPlayerWithFullControl(room), "p1", "solo full control should use player id");
+}
+
+testMapInvariants();
+testObjectives();
+console.log("Map generation and objective invariant checks passed");

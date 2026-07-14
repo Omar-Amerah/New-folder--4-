@@ -38,7 +38,12 @@
     "test:production-path": "node verify-production-path.js",
     "check:components": "node verify-components.js",
     "test:components": "node verify-components.js",
-    "test:component-catalogue": "node verify-component-catalogue.js"
+    "test:component-catalogue": "node verify-component-catalogue.js",
+    "test:maps": "node verify-maps-objectives.js",
+    "test:map-invariants": "node verify-maps-objectives.js",
+    "test:objectives": "node verify-maps-objectives.js",
+    "test:scoring": "node verify-maps-objectives.js",
+    "test:match-progression": "node verify-maps-objectives.js"
   },
   "keywords": [
     "browser-game",

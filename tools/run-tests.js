@@ -36,7 +36,8 @@ const GROUPS = {
     "verify-core-reactor.js",
     "verify-combat-review.js",
     "verify-repair-target.js",
-    "verify-engine-exhaust.js"
+    "verify-engine-exhaust.js",
+    "verify-maps-objectives.js"
   ],
   // Module/room-lifecycle integration tests. The obsolete generated
   // public/client.js VM harnesses were removed from required suites so tests

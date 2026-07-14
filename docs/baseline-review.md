@@ -187,3 +187,7 @@ protocol, UI, renderer, or server-logic files were modified.**
 - Missing import detection is now required by `npm run check` through `verify-module-boundaries.js` and `verify-module-imports.js`.
 - Snapshot merge risk is reduced by pure helpers and direct tests; reconnect race coverage remains deferred.
 - Browser-suite execution still depends on a Playwright Chromium binary; in this environment `npx playwright install chromium` returned HTTP 403, so browser tests remain environment-limited here.
+
+## Section 4 baseline follow-up
+
+Map generation now records a reproducible seed, validates generated geometry, and exposes the seed in static snapshots. Objective scoring now has an idempotent victory finalizer and uses solo player ownership for solo relay scoring while preserving team ownership semantics for teams mode.

@@ -342,9 +342,14 @@ function removePlayerFromRoom(room, player, reason) {
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   for (const point of room.points) {
     if (point.ownerId === player.id) {
-      point.ownerId = null;
-      point.ownerTeam = null;
-      point.progress = 0;
+      if (room.rules?.gameMode === "solo") {
+        point.ownerId = null;
+        point.ownerTeam = null;
+        point.progress = 0;
+      } else {
+        const teammate = [...room.players.values()].find((candidate) => candidate.id !== player.id && candidate.team === player.team && !candidate.removed);
+        point.ownerId = teammate?.id || null;
+      }
       point.contested = false;
     }
   }

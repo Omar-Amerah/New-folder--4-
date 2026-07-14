@@ -1,7 +1,7 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY } = require("./config");
-const { randomRange, performanceNow } = require("./utils");
+const { randomRange, performanceNow, seededRandom, rngRange, hashString } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { normalizeShipDesignSnapshot } = require("./shipDesign");
 
@@ -14,12 +14,13 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const stats = { ...(options.stats || player.stats || computeStats(player.design)) };
   const design = normalizeShipDesignSnapshot(options.design || player.design);
   const spawn = getPlayerSpawn(room, player.id);
+  const spawnRng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:${index}:${room.nextEntityId}`)) >>> 0);
   const offset = index - Math.floor(player.shipCap / 2);
   const ySpread = Math.sin(index * 1.7) * 27;
   const spawnPoint = nearestClearPoint(
     room,
-    spawn.x + offset * 8 + randomRange(-13, 13),
-    spawn.y + ySpread + randomRange(-16, 16),
+    spawn.x + offset * 8 + rngRange(spawnRng, -13, 13),
+    spawn.y + ySpread + rngRange(spawnRng, -16, 16),
     Math.max(46, stats.radius * 0.72)
   );
   const ship = {
@@ -47,9 +48,9 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     design,
     cost: stats.unitCost,
     radius: stats.radius,
-    blasterCooldown: randomRange(0.08, 0.42),
-    missileCooldown: randomRange(0.35, 0.9),
-    railgunCooldown: randomRange(0.45, 1.4),
+    blasterCooldown: rngRange(spawnRng, 0.08, 0.42),
+    missileCooldown: rngRange(spawnRng, 0.35, 0.9),
+    railgunCooldown: rngRange(spawnRng, 0.45, 1.4),
     repairPulseAt: 0,
     focusTargetId: null,
     lastDamagedBy: null

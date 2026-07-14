@@ -25,3 +25,7 @@
 | `leaveLobby` | Yes | any joined player | `players.leaveLobby` | left/room updates |
 
 Message semantics and wire formats were not changed in Section 1. This document is an audit inventory; later router extraction should preserve these rows as acceptance criteria.
+
+## Section 4 static map metadata
+
+Static `state` snapshots include `map.seed`, `map.name`, `map.relays`, `map.asteroids`, `map.clouds`, `map.safeZones`, `world`, and `mapSizeLabel`. Dynamic snapshots update `points`, `objectiveControl`, and `controlVictory` without replacing cached static map data.

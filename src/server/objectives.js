@@ -114,43 +114,63 @@ function resetControlVictory(room, broadcastReset = false) {
   }
 }
 
-function finalizeTeamControlVictory(room, team, now) {
-  const { teamLabel } = require("./players");
+function finalizeMatchWinner(room, winner, now, message) {
+  if (room.winner || room.phase === "ended") return false;
   const { finalizeMatchRewards } = require("./economy");
   const { broadcastRoom, broadcastSnapshot } = require("./messages");
+  room.winner = winner;
+  room.winnerAt = now;
+  room.phase = "ended";
+  resetControlVictory(room, false);
+  finalizeMatchRewards(room);
+  broadcastRoom(room, { type: "notice", message });
+  broadcastSnapshot(room, now, true);
+  return true;
+}
 
+function finalizeTeamControlVictory(room, team, now) {
+  const { teamLabel } = require("./players");
   const winningPlayer = [...room.players.values()].find(p => p.team === team);
   const teamName = teamLabel(room, team, winningPlayer ? winningPlayer.name : `Wing ${team}`);
 
-  room.winner = {
+  finalizeMatchWinner(room, {
     id: winningPlayer ? winningPlayer.id : null,
     team: team,
-    name: teamName
-  };
-  room.winnerAt = now;
-  room.phase = "ended";
-  finalizeMatchRewards(room);
-  broadcastRoom(room, { type: "notice", message: `${teamName} won the match` });
-  broadcastSnapshot(room, now, true);
+    name: teamName,
+    reason: "control"
+  }, now, `${teamName} won the match`);
 }
 
 function finalizeSoloControlVictory(room, playerId, now) {
-  const { finalizeMatchRewards } = require("./economy");
-  const { broadcastRoom, broadcastSnapshot } = require("./messages");
-
   const player = room.players.get(playerId);
   const playerName = player ? player.name : "A player";
 
-  room.winner = {
+  finalizeMatchWinner(room, {
     id: playerId,
-    team: player ? player.team : null,
-    name: playerName
-  };
-  room.winnerAt = now;
-  room.phase = "ended";
-  finalizeMatchRewards(room);
-  broadcastRoom(room, { type: "notice", message: `${playerName} won the match` });
-  broadcastSnapshot(room, now, true);
+    team: player ? player.team : playerId,
+    name: playerName,
+    reason: "control"
+  }, now, `${playerName} won the match`);
+}
+
+function topScoringSide(room) {
+  const sides = new Map();
+  for (const player of room.players.values()) {
+    const side = room.rules?.gameMode === "solo" ? player.id : player.team;
+    sides.set(side, (sides.get(side) || 0) + Math.floor(player.score || 0));
+  }
+  return [...sides.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0] || null;
+}
+
+function finalizeScoreVictoryIfNeeded(room, now) {
+  if (!room.maxScore) return false;
+  const top = topScoringSide(room);
+  if (!top || top[1] < room.maxScore) return false;
+  const side = top[0];
+  const player = room.rules?.gameMode === "solo" ? room.players.get(side) : [...room.players.values()].find((candidate) => candidate.team === side);
+  const { teamLabel } = require("./players");
+  const name = room.rules?.gameMode === "solo" ? (player?.name || "A player") : teamLabel(room, side, `Wing ${side}`);
+  return finalizeMatchWinner(room, { id: player?.id || null, team: player?.team || side, name, reason: "score" }, now, `${name} won by reaching ${room.maxScore} score`);
 }
 
 function updateScoring(room, now) {
@@ -161,12 +181,17 @@ function updateScoring(room, now) {
   if (tickScore) {
     room.lastScoreAt = now;
     for (const point of room.points) {
-      if (!point.ownerTeam || point.progress < 0.98) continue;
+      if (point.contested || point.progress < 0.98) continue;
+      const ownerKey = room.rules?.gameMode === "solo" ? point.ownerId : point.ownerTeam;
+      if (!ownerKey) continue;
       for (const player of room.players.values()) {
-        if (player.team === point.ownerTeam) player.score += SCORE_PER_CONTROLLED_POINT;
+        const playerKey = room.rules?.gameMode === "solo" ? player.id : player.team;
+        if (playerKey === ownerKey) player.score += SCORE_PER_CONTROLLED_POINT;
       }
     }
   }
+
+  if (finalizeScoreVictoryIfNeeded(room, now)) return;
 
   // 2. Authoritative Control Victory win conditions
   const { teamLabel } = require("./players");
@@ -214,5 +239,10 @@ function updateScoring(room, now) {
 
 module.exports = {
   updateCapturePoints,
-  updateScoring
+  updateScoring,
+  resetControlVictory,
+  getTeamWithFullControl,
+  getPlayerWithFullControl,
+  finalizeMatchWinner,
+  finalizeScoreVictoryIfNeeded
 };

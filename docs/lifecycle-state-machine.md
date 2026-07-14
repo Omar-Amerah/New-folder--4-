@@ -86,3 +86,7 @@ This document covers lobby, room, player identity, reconnect, admin and match li
 - Closed rooms cannot accept reconnects.
 - Kicked or explicitly removed slots cannot be resumed.
 - A stale socket cannot mutate a reclaimed player slot.
+
+## Section 4 rematch and reset note
+
+Lobby rule changes and design/rematch generation create a new map seed and reset objective ownership. Returning to lobby clears active match state but preserves the displayed map until rules change or the next design phase regenerates it. Winner finalization is idempotent and stops later score/control ticks from overwriting match end state.

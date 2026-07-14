@@ -21,13 +21,15 @@ const {
   performanceNow
 } = require("./utils");
 const { sanitizeRoomCode } = require("./validation");
+const { validateGeneratedMap } = require("./mapValidation");
 
 const rooms = new Map();
 const closedRoomCodes = new Map();
 
 function createRoom(code) {
   const world = chooseWorldSize(1);
-  const map = generateMap(code, world, DEFAULT_ROOM_RULES.gameMode, DEFAULT_ROOM_RULES.asteroidDensity);
+  const mapSeed = createMapSeed(code);
+  const map = generateMap(code, world, DEFAULT_ROOM_RULES.gameMode, DEFAULT_ROOM_RULES.asteroidDensity, { seed: mapSeed });
   return {
     code,
     adminId: null,
@@ -40,6 +42,7 @@ function createRoom(code) {
     bullets: [],
     effects: [],
     map,
+    mapSeed,
     points: map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 })),
     kickedIds: new Set(),
     kickedNames: new Set(),
@@ -81,7 +84,8 @@ function setRoomRules(room, requester, updates) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.map = generateMap(room.code, world, room.rules.gameMode, room.rules.asteroidDensity);
+  room.mapSeed = createMapSeed(room.code);
+  room.map = generateMap(room.code, world, room.rules.gameMode, room.rules.asteroidDensity, { seed: room.mapSeed });
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
 
   for (const player of room.players.values()) {
@@ -136,8 +140,12 @@ function applyGameModeTeams(room) {
   }
 }
 
-function generateMap(roomCode, world, gameMode, asteroidDensity) {
-  const seed = (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode)) >>> 0;
+function createMapSeed(roomCode = "") {
+  return (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode) ^ Date.now()) >>> 0;
+}
+
+function generateMap(roomCode, world, gameMode, asteroidDensity, options = {}) {
+  const seed = Number.isInteger(options.seed) ? (options.seed >>> 0) : createMapSeed(roomCode);
   const rng = seededRandom(seed);
   const safeZones = generateSafeZones(world, gameMode);
   const densityMultiplier = ASTEROID_DENSITY[asteroidDensity] ?? ASTEROID_DENSITY.medium;
@@ -151,27 +159,43 @@ function generateMap(roomCode, world, gameMode, asteroidDensity) {
         radius: 160
       }
     ];
-    return {
+    return validateMapOrFallback({
       seed,
       name: "Testing Sandbox",
       relays,
       asteroids: [],
       clouds: generateClouds(rng, world),
       safeZones
-    };
+    }, world, { roomCode, gameMode, asteroidDensity });
   }
 
   const relays = generateRelays(rng, world, safeZones);
   const asteroids = generateAsteroids(rng, world, relays, safeZones, densityMultiplier);
   const clouds = generateClouds(rng, world);
 
-  return {
+  return validateMapOrFallback({
     seed,
     name: MAP_NAMES[seed % MAP_NAMES.length],
     relays,
     asteroids,
     clouds,
     safeZones
+  }, world, { roomCode, gameMode, asteroidDensity });
+}
+
+function validateMapOrFallback(map, world, context = {}) {
+  const validation = validateGeneratedMap(map, world, { seed: map?.seed });
+  if (validation.ok) return map;
+  const message = `Generated invalid map seed=${validation.seed} room=${context.roomCode || "?"}: ${validation.errors.join("; ")}`;
+  if (process.env.NODE_ENV !== "production") throw new Error(message);
+  console.error(message);
+  return {
+    seed: map?.seed >>> 0,
+    name: "Fallback Arena",
+    relays: [{ id: "A", x: Math.round(world.width * 0.5), y: Math.round(world.height * 0.5), radius: 160 }],
+    asteroids: [],
+    clouds: [],
+    safeZones: generateSafeZones(world, context.gameMode || "teams")
   };
 }
 
@@ -195,12 +219,21 @@ function generateSafeZones(world, gameMode) {
 function generateRelays(rng, world, safeZones) {
   const relays = [];
 
-  // Always one central relay (add first so mirrored pairs check clearance against it)
-  relays.push({
-    x: world.width * 0.5 + rngRange(rng, -200, 200),
-    y: world.height * 0.5 + rngRange(rng, -200, 200),
-    radius: rngRange(rng, 150, 180)
-  });
+  // Always one central relay (add first so mirrored pairs check clearance against it).
+  // Keep it deterministic but validate against solo top/bottom spawn zones.
+  let centralRelay = { x: world.width * 0.5, y: world.height * 0.5, radius: rngRange(rng, 150, 180) };
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const candidate = {
+      x: world.width * 0.5 + rngRange(rng, -200, 200),
+      y: world.height * 0.5 + rngRange(rng, -200, 200),
+      radius: centralRelay.radius
+    };
+    if (circlesClear(candidate, safeZones, 500)) {
+      centralRelay = candidate;
+      break;
+    }
+  }
+  relays.push(centralRelay);
 
   // Try to place up to 3 pairs of mirrored relays
   const pairCount = rng() > 0.6 ? 3 : 2;
@@ -391,7 +424,8 @@ function prepareArenaForCurrentPlayers(room) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.map = generateMap(room.code, world, room.rules?.gameMode || "teams", room.rules?.asteroidDensity);
+  room.mapSeed = createMapSeed(room.code);
+  room.map = generateMap(room.code, world, room.rules?.gameMode || "teams", room.rules?.asteroidDensity, { seed: room.mapSeed });
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
   room.bullets = [];
   room.effects = [];
@@ -481,7 +515,9 @@ module.exports = {
   sanitizeMapSize,
   sanitizeGameMode,
   applyGameModeTeams,
+  createMapSeed,
   generateMap,
+  validateMapOrFallback,
   generateRelays,
   addMirroredRelayPair,
   generateAsteroids,
