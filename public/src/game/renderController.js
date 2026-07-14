@@ -3,7 +3,7 @@
 // Canvas 2D is still used elsewhere to bake Pixi textures and UI artwork.)
 
 import { dom } from "../ui/dom.js";
-import { initPixiRenderer, resizePixiRenderer } from "./pixi/pixiRenderer.js";
+import { initPixiRenderer, resizePixiRenderer, getPixiRuntimeDiagnostics } from "./pixi/pixiRenderer.js";
 
 let activeBackend = null;
 
@@ -34,7 +34,7 @@ export function resizeArenaRenderer() {
 
 function publishRendererBackend() {
   if (typeof window !== "undefined") {
-    window.__mfaRenderer = { backend: activeBackend };
+    window.__mfaRenderer = { backend: activeBackend, diagnostics: getPixiRuntimeDiagnostics };
   }
 }
 
