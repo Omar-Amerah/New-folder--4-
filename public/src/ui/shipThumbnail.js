@@ -10,7 +10,8 @@
 import { PART_DEFS, isRotatablePart } from "../design/parts.js";
 import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
 import { withCanvasContext } from "./dom.js";
-import { drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement } from "../game/renderer.js";
+import { drawShipStructure, drawModule, drawFootprintComponent } from "../game/componentArt.js";
+import { moduleLocalPosition, footprintLocalPlacement } from "../game/shipGeometry.js";
 
 const THUMB_SCALE = 13; // must match the arena's SHIP_SCALE so proportions are right
 const THUMB_DPR = 2;

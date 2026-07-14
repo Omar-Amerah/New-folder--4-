@@ -1,25 +1,54 @@
-// Ship rendering for the PixiJS arena renderer: baked hull sprites, rotating
-// turret sprites, per-frame HUD bars, name labels, and selection overlays.
-// Hull art is baked by replaying the Canvas 2D module drawing into textures.
+// Ship rendering for the PixiJS arena renderer.
+//
+// Each ship is a persistent PixiShipView (see pixiShipView.js) with an explicit
+// scene graph: a baked static hull sprite, one persistent turret sprite per
+// rotating weapon, and separate damage/flash/effect/label layers. Static hull
+// art is baked once (only rebuilt when the design signature, colour, radius
+// bounds or bake generation change); ordinary snapshot updates only move and
+// re-angle existing display objects. Turret sprites carry the authoritative
+// ship-relative weapon angle, so their world direction is (hull rotation +
+// turret local rotation) — the visible barrel tracks exactly what the server
+// aims.
 
 import { state } from "../../state.js";
-import { clamp } from "../../shared/math.js";
-import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
-import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
-import { isCircleVisible, drawShipStructure, drawModule, drawFootprintComponent, moduleLocalPosition, footprintLocalPlacement, updateShipHud, getWeaponTurnRate, approachAngle, hullColorForRatio, shieldRatioForShip, shieldRingRadius, shipEngineNozzles, aliveEngineNozzles, engineThrustRatio, emitEngineSmoke, maxSpeedForRenderedShip, componentHealthRatio, computeManeuverJets } from "../renderer.js";
-import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
+import { clamp, approachAngle } from "../../shared/math.js";
+import { PART_STATS } from "../../design/parts.js";
+import { normalizeRotation } from "../../design/rotation.js";
+import { isCircleVisible } from "../renderer.js";
+import { footprintLocalPlacement, footprintCorners } from "../shipGeometry.js";
+import { componentHealthRatio, shieldRatioForShip, shieldRingRadius, hullColorForRatio } from "../shipVitals.js";
+import {
+  getWeaponTurnRate,
+  authoritativeWeaponAngle,
+  defaultWeaponRelativeAngle,
+  weaponRelativeToWorld,
+  rotatingWeaponIndices
+} from "../weaponAim.js";
+import {
+  aliveEngineNozzles,
+  engineThrustRatio,
+  emitEngineSmoke,
+  maxSpeedForRenderedShip,
+  computeManeuverJets,
+  updateShipHud
+} from "../shipDynamics.js";
+import { createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
+import {
+  SHIP_SCALE,
+  createPixiShipView,
+  rebuildPixiShipStatic,
+  setHullFrameRotation,
+  pixiStaticSignature,
+  bakePixiTurretArrowTexture
+} from "./pixiShipView.js";
 import { getEffectDensity } from "../renderSettings.js";
 import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
 
-const SHIP_SCALE = 13;
-// Nominal zoom used when baking zoom-compensated line widths into textures.
-const BAKE_NOMINAL_ZOOM = 0.6;
-
-const pixiHullTextureCache = registerPixiTextureCache(new Map());
-const pixiTurretTextureCache = registerPixiTextureCache(new Map());
 const pixiDesignSignatures = new WeakMap();
 let pixiShipPool = null;
 let pixiGradientCache = new Map();
+let pixiArrowTexture = null;
+let pixiArrowTextureGen = -1;
 
 function pixiDesignSignature(design) {
   let signature = pixiDesignSignatures.get(design);
@@ -30,93 +59,12 @@ function pixiDesignSignature(design) {
   return signature;
 }
 
-function getPixiShipHullTexture(env, design, color, radius) {
-  const key = `${pixiDesignSignature(design)}|${color}|${Math.round(radius)}|${env.bakeScale}`;
-  let texture = pixiHullTextureCache.get(key);
-  if (texture) return texture;
-
-  let maxAbsX = radius + 12;
-  let maxAbsY = radius + 12;
-  for (const part of design) {
-    const { x, y } = moduleLocalPosition(part, SHIP_SCALE);
-    maxAbsX = Math.max(maxAbsX, Math.abs(x));
-    maxAbsY = Math.max(maxAbsY, Math.abs(y));
-  }
-  // Extra pad so multi-tile non-rotatable parts (engine/reactor/capacitor) that
-  // extend a tile beyond their anchor cell are not clipped by the bake bounds.
-  const pad = SHIP_SCALE * 1.6 + 16;
-  const halfW = maxAbsX + pad;
-  const halfH = maxAbsY + pad;
-
-  texture = pixiBakeTexture(env, halfW * 2, halfH * 2, (bctx) => {
-    drawShipStructure(design, SHIP_SCALE, color);
-    for (const part of design) {
-      const def = PART_DEFS[part.type] || PART_DEFS.frame;
-      const place = footprintLocalPlacement(part, SHIP_SCALE);
-      const rotatable = isRotatablePart(part.type);
-      const weapon = Boolean(PART_STATS[part.type]?.weapon);
-      if (rotatable && !weapon) continue;
-      if (place.multi) {
-        bctx.save();
-        bctx.translate(place.cx, place.cy);
-        bctx.rotate(place.longAxisAngle);
-        drawFootprintComponent({ type: part.type, unit: SHIP_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color, drawDetail: !weapon });
-        bctx.restore();
-      } else {
-        if (part.type === "maneuverThruster") {
-          bctx.save();
-          bctx.translate(place.cx, place.cy);
-          bctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-          drawModule({ x: 0, y: 0, size: SHIP_SCALE, color: def.color, type: part.type, trim: color, drawDetail: !weapon });
-          bctx.restore();
-        } else {
-          drawModule({ x: place.cx, y: place.cy, size: SHIP_SCALE, color: def.color, type: part.type, trim: color, drawDetail: !weapon });
-        }
-      }
-    }
-    // Direction indicator (drawn by drawShip after the module loop).
-    bctx.strokeStyle = color;
-    bctx.lineWidth = 2.5 / BAKE_NOMINAL_ZOOM;
-    bctx.beginPath();
-    bctx.moveTo(radius + 8, 0);
-    bctx.lineTo(radius - 8, -7);
-    bctx.lineTo(radius - 8, 7);
-    bctx.closePath();
-    bctx.stroke();
-  });
-  // Simple bounded eviction: baked hulls are per design+color and can pile up
-  // across long sessions with many opponents.
-  if (pixiHullTextureCache.size > 96) {
-    const oldestKey = pixiHullTextureCache.keys().next().value;
-    const oldest = pixiHullTextureCache.get(oldestKey);
-    pixiHullTextureCache.delete(oldestKey);
-    if (oldest) oldest.destroy(true);
-  }
-  pixiHullTextureCache.set(key, texture);
-  return texture;
+function turretDebugEnabled() {
+  return typeof window !== "undefined" && window.__mfaDebugTurrets === true;
 }
 
-function getPixiTurretTexture(env, partType, trim) {
-  const key = `${partType}|${trim}|${env.bakeScale}`;
-  let texture = pixiTurretTextureCache.get(key);
-  if (texture) return texture;
-  const def = PART_DEFS[partType] || PART_DEFS.frame;
-  const footprint = PART_STATS[partType]?.footprint || { width: 1, height: 1 };
-  const tilesLong = Math.max(footprint.width || 1, footprint.height || 1);
-  const tilesCross = Math.min(footprint.width || 1, footprint.height || 1);
-  const multi = tilesLong > 1 || tilesCross > 1;
-  const weapon = Boolean(PART_STATS[partType]?.weapon);
-  // Extent must cover the elongated barrel (canonical art spans ±tilesLong/2).
-  const halfExtent = SHIP_SCALE * (multi ? tilesLong * 0.62 + 1.0 : 2.1);
-  texture = pixiBakeTexture(env, halfExtent * 2, halfExtent * 2, () => {
-    if (multi) {
-      drawFootprintComponent({ type: partType, unit: SHIP_SCALE, tilesLong, tilesCross, color: def.color, trim, drawBase: !weapon });
-    } else {
-      drawModule({ x: 0, y: 0, size: SHIP_SCALE, color: def.color, type: partType, trim, drawBase: !weapon });
-    }
-  });
-  pixiTurretTextureCache.set(key, texture);
-  return texture;
+function forcedArrowEnabled() {
+  return typeof window !== "undefined" && window.__mfaDebugTurretArrows === true;
 }
 
 function getPixiBarGradient(env, id, stops, vertical) {
@@ -134,75 +82,6 @@ function getPixiBarGradient(env, id, stops, vertical) {
   return gradient;
 }
 
-function createPixiShipView(env) {
-  const PIXI = env.PIXI;
-  const root = new PIXI.Container();
-  const shieldGfx = new PIXI.Graphics();
-  const hullGroup = new PIXI.Container();
-  const engineGfx = new PIXI.Graphics(); // exhaust plumes, drawn behind the hull
-  const hullSprite = new PIXI.Sprite();
-  hullSprite.anchor.set(0.5);
-  const damageGfx = new PIXI.Graphics(); // persistent destroyed/damaged tints
-  const flashGfx = new PIXI.Graphics(); // short-lived hit flashes + penetration trace
-  hullGroup.addChild(engineGfx);
-  hullGroup.addChild(hullSprite);
-  hullGroup.addChild(damageGfx);
-  hullGroup.addChild(flashGfx);
-  const hudGfx = new PIXI.Graphics();
-  const makeText = (style) => {
-    const text = new PIXI.Text({ text: "", style, resolution: 2 });
-    text.anchor.set(0.5);
-    text.visible = false;
-    return text;
-  };
-  const coreWarnText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "900", fill: "#ff5f5f", stroke: { color: "rgba(10,4,4,0.8)", width: 3 } });
-  const shieldText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 12, fontWeight: "900", fill: "#ffffff", stroke: { color: "rgba(0,0,0,0.65)", width: 2 } });
-  const hullText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 12, fontWeight: "900", fill: "#ffffff", stroke: { color: "rgba(0,0,0,0.65)", width: 2 } });
-  const hudName = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "bold", fill: "#ffffff" });
-  const idleName = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fill: "rgba(237,244,255,0.5)" });
-  const lostText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 14, fill: "rgba(237,244,255,0.7)" });
-  root.addChild(shieldGfx);
-  root.addChild(hullGroup);
-  root.addChild(hudGfx);
-  root.addChild(shieldText);
-  root.addChild(hullText);
-  root.addChild(hudName);
-  root.addChild(idleName);
-  root.addChild(lostText);
-  root.addChild(coreWarnText);
-  return {
-    root,
-    shieldGfx,
-    hullGroup,
-    engineGfx,
-    engines: [],
-    hullSprite,
-    damageGfx,
-    flashGfx,
-    coreWarnText,
-    damageSig: null,
-    turretSprites: [],
-    hudGfx,
-    shieldText,
-    hullText,
-    hudName,
-    idleName,
-    lostText,
-    hullKey: null,
-    boundShipId: null,
-    visualTurretAngles: [],
-    turretDebugLastAt: 0,
-    names: { hud: null, idle: null },
-    release() {
-      this.hullKey = null;
-      this.boundShipId = null;
-      this.visualTurretAngles = [];
-      this.damageSig = null;
-      for (const sprite of this.turretSprites) sprite.visible = false;
-    }
-  };
-}
-
 function updatePixiShieldRing(view, ship, zoom) {
   const gfx = view.shieldGfx;
   gfx.clear();
@@ -218,8 +97,6 @@ function updatePixiShieldRing(view, ship, zoom) {
   }
 
   const ringRadius = shieldRingRadius(ship);
-  // Toned down (mirrors the canvas renderer) so the shield does not wash the ship
-  // blue and hide its team colour.
   const alpha = 0.12 + ratio * 0.3;
   const lineWidth = Math.max(1.7, ringRadius * 0.04) / zoom;
   const now = performance.now() * 0.001;
@@ -241,7 +118,7 @@ function updatePixiShieldRing(view, ship, zoom) {
     gfx.arc(0, 0, ringRadius, start, end);
     gfx.stroke({
       width: lineWidth,
-      color: fill > 0 ? "#38d5ff" : "#38d5ff",
+      color: "#38d5ff",
       alpha: fill > 0 ? alpha * (0.34 + fill * 0.66) : alpha * 0.12
     });
   }
@@ -265,49 +142,6 @@ function pixiShieldIdPhase(id) {
   return hash / 100;
 }
 
-function rebuildPixiShipVisual(env, view, design, color, radius, hullKey, ship = null) {
-  view.hullSprite.texture = getPixiShipHullTexture(env, design, color, radius);
-  view.hullSprite.scale.set(1 / env.bakeScale);
-  const previousAngles = view.visualTurretAngles || [];
-  for (const sprite of view.turretSprites) sprite.destroy();
-  view.turretSprites = [];
-  view.visualTurretAngles = design.map((part, i) => {
-    const serverAngle = ship?.weaponAngles?.[i];
-    if (Number.isFinite(serverAngle)) return serverAngle;
-    if (Number.isFinite(previousAngles[i])) return previousAngles[i];
-    return moduleRotationToRadians(normalizeRotation(part.rotation));
-  });
-  design.forEach((part, i) => {
-    if (!isRotatablePart(part.type)) return;
-    const sprite = new env.PIXI.Sprite(getPixiTurretTexture(env, part.type, color));
-    sprite.anchor.set(0.5);
-    sprite.scale.set(1 / env.bakeScale);
-    // Multi-tile weapons pivot at their footprint centre, not the anchor cell.
-    const place = footprintLocalPlacement(part, SHIP_SCALE);
-    sprite.position.set(place.cx, place.cy);
-    sprite.__designIndex = i;
-    sprite.rotation = view.visualTurretAngles[i];
-    sprite.visible = true;
-    view.hullGroup.addChild(sprite);
-    view.turretSprites.push(sprite);
-  });
-  // Keep the damage/flash overlays above the freshly re-added turret sprites.
-  view.hullGroup.addChild(view.damageGfx);
-  view.hullGroup.addChild(view.flashGfx);
-  view.damageSig = null;
-  view.engines = shipEngineNozzles(design, SHIP_SCALE);
-  view.hullKey = hullKey;
-}
-
-// Corner positions of a (possibly rotated) footprint rect in ship-local space.
-function footprintCorners(place, halfW, halfH) {
-  const ang = place.multi ? place.longAxisAngle : 0;
-  const cos = Math.cos(ang);
-  const sin = Math.sin(ang);
-  const pt = (x, y) => ({ x: place.cx + x * cos - y * sin, y: place.cy + x * sin + y * cos });
-  return [pt(-halfW, -halfH), pt(halfW, -halfH), pt(halfW, halfH), pt(-halfW, halfH), pt];
-}
-
 function tracePoly(gfx, corners) {
   gfx.moveTo(corners[0].x, corners[0].y);
   gfx.lineTo(corners[1].x, corners[1].y);
@@ -316,12 +150,11 @@ function tracePoly(gfx, corners) {
   gfx.closePath();
 }
 
-// Persistent status tints over damaged components (amber), critical ones (red),
-// and destroyed ones (dark broken slab). Redrawn only when the quantized damage
-// signature changes, so healthy ships cost nothing per frame. The Component
-// Damage View toggle strengthens the tints and is part of the signature.
+// Persistent status tints over damaged/critical/destroyed components. Redrawn
+// only when the quantized damage signature changes. Drawn in the DamageOverlay
+// layer (a child of HullContainer), i.e. in hull-rotated ship-local space.
 function updatePixiComponentDamage(view, ship, design) {
-  const gfx = view.damageGfx;
+  const gfx = view.damageOverlay;
   if (!ship.chp) {
     if (view.damageSig !== null) {
       gfx.clear();
@@ -377,11 +210,10 @@ function updatePixiComponentDamage(view, ship, design) {
   }
 }
 
-// Short-lived hit flashes (orange = armour, red/white = internal, bright pop =
-// destroyed) plus the faint penetration trace. Fully client-side timers; the
-// graphics clear themselves once nothing is active, so idle ships skip work.
+// Short-lived hit flashes plus the faint penetration trace, in the FlashOverlay
+// layer (hull-rotated ship-local space).
 function updatePixiDamageFlashes(view, ship, design, now) {
-  const gfx = view.flashGfx;
+  const gfx = view.flashOverlay;
   if (!ship.alive || !hasActiveDamageVisuals(ship.id, now)) {
     if (gfx.visible) {
       gfx.clear();
@@ -447,7 +279,6 @@ function updatePixiDamageFlashes(view, ship, design, now) {
   }
 }
 
-// CORE EXPOSED / CORE DAMAGED / CORE CRITICAL callout above the ship.
 function updatePixiCoreWarning(view, ship, zoom) {
   const warning = ship.alive ? activeCoreWarning(ship.id, performance.now()) : null;
   const text = view.coreWarnText;
@@ -471,7 +302,7 @@ function pixiEngineIdPhase(id) {
   return hash / 159;
 }
 
-// Animated exhaust plume behind each engine, intensity driven by forward thrust.
+// Animated exhaust plume behind each engine, drawn in the EffectsBelow layer.
 function updatePixiEngineExhaust(view, ship, now) {
   const gfx = view.engineGfx;
   gfx.clear();
@@ -486,8 +317,6 @@ function updatePixiEngineExhaust(view, ship, now) {
   const liveEngines = aliveEngineNozzles(ship, view.engines);
   emitEngineSmoke(ship, liveEngines, SHIP_SCALE, now);
 
-  // Lateral maneuvering-thruster jets (fire only while turning); drawn even when
-  // the main engines are idle, so a rotating-in-place ship still shows them.
   const jets = computeManeuverJets(ship, ship.design || [], SHIP_SCALE, now);
   if (jets) {
     for (const jet of jets) {
@@ -510,7 +339,6 @@ function updatePixiEngineExhaust(view, ship, now) {
 
   const t = now * 0.001;
   const phase = pixiEngineIdPhase(ship.id);
-  // Match the canvas renderer: 20% smaller max plume, outer glow dimmed on low graphics.
   const PLUME_SIZE = 0.8;
   const glow = 0.55 + 0.45 * getEffectDensity();
   for (let e = 0; e < liveEngines.length; e += 1) {
@@ -524,7 +352,6 @@ function updatePixiEngineExhaust(view, ship, now) {
     const ca = Math.cos(angle), sa = Math.sin(angle);
     const pt = (x, y) => ({ x: ox + x * ca - y * sa, y: oy + x * sa + y * ca });
 
-    // Outer glow plume (wide, faint).
     let p0 = pt(0, -halfW * 1.15), p1 = pt(-len * .55, -halfW * .7), p2 = pt(-len, 0), p3 = pt(-len * .55, halfW * .7), p4 = pt(0, halfW * 1.15);
     gfx.moveTo(p0.x, p0.y);
     gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
@@ -532,7 +359,6 @@ function updatePixiEngineExhaust(view, ship, now) {
     gfx.closePath();
     gfx.fill({ color: "#2b7bff", alpha: (0.18 + intensity * 0.22) * glow });
 
-    // Inner flame body.
     const innerLen = len * 0.72;
     p0 = pt(0, -halfW * .72); p1 = pt(-innerLen * .5, -halfW * .42); p2 = pt(-innerLen, 0); p3 = pt(-innerLen * .5, halfW * .42); p4 = pt(0, halfW * .72);
     gfx.moveTo(p0.x, p0.y);
@@ -541,7 +367,6 @@ function updatePixiEngineExhaust(view, ship, now) {
     gfx.closePath();
     gfx.fill({ color: "#63e6ff", alpha: 0.5 + intensity * 0.4 });
 
-    // Hot core near the nozzle.
     const coreLen = len * 0.4;
     p0 = pt(.5, -halfW * .42); p1 = pt(-coreLen * .5, -halfW * .24); p2 = pt(-coreLen, 0); p3 = pt(-coreLen * .5, halfW * .24); p4 = pt(.5, halfW * .42);
     gfx.moveTo(p0.x, p0.y);
@@ -552,48 +377,135 @@ function updatePixiEngineExhaust(view, ship, now) {
   }
 }
 
-function updatePixiTurrets(view, ship, design) {
-  if (view.boundShipId !== ship.id) {
-    view.boundShipId = ship.id;
-    view.visualTurretAngles = design.map((part, i) => {
-      const serverAngle = ship.weaponAngles?.[i];
-      return Number.isFinite(serverAngle) ? serverAngle : moduleRotationToRadians(normalizeRotation(part.rotation));
-    });
-  }
-  let visualAngles = view.visualTurretAngles;
-  if (!visualAngles || visualAngles.length !== design.length) {
-    visualAngles = design.map((part, i) => {
-      const serverAngle = ship.weaponAngles?.[i];
-      return Number.isFinite(serverAngle) ? serverAngle : moduleRotationToRadians(normalizeRotation(part.rotation));
-    });
-    view.visualTurretAngles = visualAngles;
-  }
-  const serverAngles = ship.weaponAngles || [];
+// Drives the persistent turret sprites from the authoritative ship-relative
+// weapon angle. Direct assignment first (so a bug in the transform chain shows
+// immediately), then optional smoothing toward the target at the shared
+// traverse rate using shortest-angle interpolation.
+function updatePixiTurrets(env, view, ship, design) {
+  ensureForcedArrowState(env, view);
+
+  const isNewShip = view.boundShipId !== ship.id;
+  if (isNewShip) view.boundShipId = ship.id;
+
   const dt = state.dt || 0.016;
+  const smoothing = typeof window === "undefined" || window.__mfaDisableTurretSmoothing !== true;
+
   for (const sprite of view.turretSprites) {
     const i = sprite.__designIndex;
     const part = design[i];
     if (!part) continue;
+
+    const target = authoritativeWeaponAngle(ship, i, part);
     const healthRatio = componentHealthRatio(ship, i);
-    if (healthRatio !== null && healthRatio <= 0) {
+    const destroyed = healthRatio !== null && healthRatio <= 0;
+
+    let visual = view.visualTurretAngles.get(i);
+    if (!Number.isFinite(visual) || isNewShip) visual = target;
+
+    if (destroyed) {
       // Destroyed turrets freeze in place and read as knocked out.
       sprite.alpha = 0.3;
-      sprite.rotation = visualAngles[i];
-      continue;
+    } else {
+      sprite.alpha = 1;
+      if (smoothing && !isNewShip) {
+        const turnRate = sprite.__weaponStat ? getWeaponTurnRate(sprite.__weaponStat) : 3.0;
+        visual = approachAngle(visual, target, turnRate * dt);
+      } else {
+        // Direct assignment: the visible barrel is exactly the authoritative
+        // relative angle. Do NOT add the hull angle here — the HullContainer
+        // already carries it.
+        visual = target;
+      }
     }
-    sprite.alpha = 1;
-    const weaponStat = PART_STATS[part.type]?.weapon;
-    const defaultRelative = moduleRotationToRadians(normalizeRotation(part.rotation));
-    const targetRelative = serverAngles[i] !== undefined ? serverAngles[i] : defaultRelative;
-    const turnRate = weaponStat ? getWeaponTurnRate(weaponStat) : 3.0;
-    visualAngles[i] = approachAngle(visualAngles[i], targetRelative, turnRate * dt);
-    sprite.rotation = visualAngles[i];
-    if (state.debugTurrets && performance.now() - (view.turretDebugLastAt || 0) > 500) {
-      view.turretDebugLastAt = performance.now();
-      // Disabled by default; useful when validating Pixi visual/server angle flow.
-      console.debug("pixi turret", { shipId: ship.id, designIndex: i, weaponType: part.type, serverRelativeAngle: targetRelative, visualRelativeAngle: visualAngles[i], hullAngle: ship.angle || 0, finalWorldAngle: (ship.angle || 0) + visualAngles[i] });
+
+    view.visualTurretAngles.set(i, visual);
+    sprite.rotation = visual;
+  }
+}
+
+// Applies / clears forced-arrow debug textures when the flag changes.
+function ensureForcedArrowState(env, view) {
+  const want = forcedArrowEnabled();
+  if (want === view.forcedArrowActive) return;
+  view.forcedArrowActive = want;
+  if (want && (!pixiArrowTexture || pixiArrowTextureGen !== getPixiBakeGeneration())) {
+    pixiArrowTexture = bakePixiTurretArrowTexture(env);
+    pixiArrowTextureGen = getPixiBakeGeneration();
+  }
+  for (const sprite of view.turretSprites) {
+    sprite.texture = want ? pixiArrowTexture : sprite.__baseTexture;
+  }
+}
+
+// Runtime visual diagnostics for turret tracking. Draws, per turret:
+//   red   line = authoritative world direction (hull + server relative angle)
+//   cyan  line = actual rendered turret world direction (from sprite transform)
+//   yellow dot = the turret pivot
+// The red and cyan lines must overlap. Also logs per-turret fields and asserts
+// rotatingWeaponCount === turretSpriteCount. Enable with
+//   window.__mfaDebugTurrets = true
+// and force obvious arrows with window.__mfaDebugTurretArrows = true.
+function drawPixiTurretDiagnostics(view, overlay, ship, design, renderShip, zoom) {
+  const hullAngle = renderShip.angle || 0;
+  const cos = Math.cos(hullAngle);
+  const sin = Math.sin(hullAngle);
+  const rotIndices = rotatingWeaponIndices(design);
+  const len = Math.max(26, (ship.radius || 26) * 1.4);
+
+  const lines = [`ship ${ship.id} rot=${rotIndices.length} sprites=${view.turretSprites.length}`];
+  if (rotIndices.length !== view.turretSprites.length) {
+    const have = new Set(view.turretSprites.map((s) => s.__designIndex));
+    const missing = rotIndices.filter((i) => !have.has(i));
+    const seen = new Map();
+    for (const s of view.turretSprites) seen.set(s.__designIndex, (seen.get(s.__designIndex) || 0) + 1);
+    const dupes = [...seen.entries()].filter(([, n]) => n > 1).map(([i]) => i);
+    console.error(`[mfaDebugTurrets] rotatingWeaponCount(${rotIndices.length}) !== turretSpriteCount(${view.turretSprites.length}) ship ${ship.id}`,
+      { missingDesignIndices: missing, duplicateDesignIndices: dupes });
+    lines.push(`MISMATCH missing=[${missing}] dup=[${dupes}]`);
+  }
+
+  for (const sprite of view.turretSprites) {
+    const i = sprite.__designIndex;
+    const part = design[i];
+    if (!part) continue;
+    const place = footprintLocalPlacement(part, SHIP_SCALE);
+    // Pivot in world space.
+    const pivotX = renderShip.x + place.cx * cos - place.cy * sin;
+    const pivotY = renderShip.y + place.cx * sin + place.cy * cos;
+
+    // Authoritative world direction (server relative + hull).
+    const relAuthoritative = authoritativeWeaponAngle(ship, i, part);
+    const worldAuthoritative = weaponRelativeToWorld(hullAngle, relAuthoritative);
+    // Actual rendered world direction from the live sprite transform.
+    const worldRendered = hullAngle + sprite.rotation;
+
+    overlay.moveTo(pivotX, pivotY);
+    overlay.lineTo(pivotX + Math.cos(worldAuthoritative) * len, pivotY + Math.sin(worldAuthoritative) * len);
+    overlay.stroke({ width: 3 / zoom, color: 0xff0033, alpha: 0.9 });
+
+    overlay.moveTo(pivotX, pivotY);
+    overlay.lineTo(pivotX + Math.cos(worldRendered) * len * 0.82, pivotY + Math.sin(worldRendered) * len * 0.82);
+    overlay.stroke({ width: 1.4 / zoom, color: 0x00e5ff, alpha: 0.95 });
+
+    overlay.circle(pivotX, pivotY, Math.max(2.2, 3 / zoom));
+    overlay.fill({ color: 0xffe600, alpha: 0.95 });
+
+    if (performance.now() - (view.turretDebugLastAt || 0) > 500) {
+      lines.push(`#${i} ${sprite.__partType} rel=${relAuthoritative.toFixed(2)} loc=${sprite.rotation.toFixed(2)} hull=${hullAngle.toFixed(2)} world=${worldRendered.toFixed(2)} vis=${sprite.visible} a=${sprite.alpha.toFixed(2)} par=${sprite.parent?.label || "?"}`);
     }
   }
+
+  if (performance.now() - (view.turretDebugLastAt || 0) > 500) {
+    view.turretDebugLastAt = performance.now();
+    console.debug("[mfaDebugTurrets]\n" + lines.join("\n"));
+  }
+
+  const dt = view.debugText;
+  dt.text = `backend=${(typeof window !== "undefined" && window.__mfaRenderer?.backend) || "pixi"}  ${lines[0]}`;
+  const size = Math.max(9, 10 / zoom);
+  dt.scale.set(size / 9);
+  dt.position.set(-(ship.radius || 26), (ship.radius || 26) + 20 / zoom);
+  dt.visible = true;
 }
 
 function drawPixiHudFrame(gfx, x, y, width, height, color, warning, zoom) {
@@ -682,7 +594,6 @@ function drawPixiShieldStatusBar(env, gfx, options) {
       { offset: 0.42, color: "rgba(255,255,255,0.08)" },
       { offset: 1, color: "rgba(255,255,255,0.0)" }
     ], true));
-
   }
 
   const cells = 8;
@@ -752,7 +663,6 @@ function updatePixiHealthBars(env, view, ship, player, zoom) {
     });
     setPixiBarText(view.shieldText, ship.shield, ship.maxShield, shieldHeight, barX + barWidth / 2, shieldY + shieldHeight / 2);
   } else {
-    // Dashed "no shield" line.
     const dash = 4 / zoom;
     for (let dx = 0; dx < barWidth; dx += dash * 2) {
       gfx.moveTo(barX + dx, shieldY + 2);
@@ -798,7 +708,6 @@ function updatePixiShipLabels(view, ship, player, zoom) {
   } else {
     view.idleName.visible = false;
   }
-  // The HUD name is only shown while bars are visible; hide it alongside them.
   if (!ship.alive) view.hudName.visible = false;
 
   if (!ship.alive) {
@@ -836,7 +745,6 @@ function drawPixiSelectionRing(env, gfx, ship, zoom) {
   const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0);
   if (maxRange <= 0) return;
 
-  // Dashed max-range ring (Pixi has no dash support; approximate with arc segments).
   const dashLen = 6 / zoom;
   const gapLen = 10 / zoom;
   const circumference = Math.PI * 2 * maxRange;
@@ -845,7 +753,6 @@ function drawPixiSelectionRing(env, gfx, ship, zoom) {
   const dashArc = dashAngle * (dashLen / (dashLen + gapLen));
   for (let i = 0; i < dashCount; i += 1) {
     const startAngle = i * dashAngle;
-    // Seed the current point at the dash start so arc() does not connect from (0,0).
     gfx.moveTo(ship.x + Math.cos(startAngle) * maxRange, ship.y + Math.sin(startAngle) * maxRange);
     gfx.arc(ship.x, ship.y, maxRange, startAngle, startAngle + dashArc);
   }
@@ -861,7 +768,7 @@ function drawPixiSelectionRing(env, gfx, ship, zoom) {
     const { cx: px, cy: py } = footprintLocalPlacement(part, SHIP_SCALE);
     const gunWorldX = ship.x + px * cos - py * sin;
     const gunWorldY = ship.y + px * sin + py * cos;
-    const defaultRelativeFacing = moduleRotationToRadians(normalizeRotation(part.rotation));
+    const defaultRelativeFacing = defaultWeaponRelativeAngle(part);
     const arcRadians = (weaponStat.arc || 360) * Math.PI / 180;
     const gunRange = ship[weaponStat.type + "Range"] || weaponStat.range || maxRange;
     const arcCenterWorld = ship.angle + defaultRelativeFacing;
@@ -912,6 +819,7 @@ export function updatePixiShips(env, now, players, bounds) {
   const snap = state.snapshot;
   const zoom = state.camera.zoom;
   const overlay = env.layers.overlay;
+  const debug = turretDebugEnabled();
   const visibleShipIds = new Set();
 
   if (snap && snap.ships) {
@@ -928,20 +836,31 @@ export function updatePixiShips(env, now, players, bounds) {
 
       const view = pixiShipPool.acquire(ship.id);
       const design = ship.design || player.design || [];
-      const hullKey = `${pixiDesignSignature(design)}|${player.color}|${Math.round(ship.radius || 0)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
-      if (view.hullKey !== hullKey) rebuildPixiShipVisual(env, view, design, player.color, ship.radius || 0, hullKey, ship);
+      const staticKey = pixiStaticSignature(pixiDesignSignature(design), player.color, ship.radius || 0, env.bakeScale);
+      // Static content is rebuilt ONLY when the signature changes — never on a
+      // position/angle/weaponAngle/hp/shield/heat update.
+      if (view.staticKey !== staticKey) {
+        rebuildPixiShipStatic(env, view, design, player.color, ship.radius || 0, staticKey);
+        view.boundShipId = null; // force turret angle re-seed for the new static content
+      }
 
       view.root.position.set(renderShip.x, renderShip.y);
-      view.hullGroup.rotation = renderShip.angle;
-      view.hullGroup.alpha = ship.alive ? 1 : 0.32;
+      setHullFrameRotation(view, renderShip.angle);
+      view.hullContainer.alpha = ship.alive ? 1 : 0.32;
       updatePixiShieldRing(view, ship, zoom);
       updatePixiEngineExhaust(view, renderShip, now);
-      updatePixiTurrets(view, ship, design);
+      updatePixiTurrets(env, view, ship, design);
       updatePixiComponentDamage(view, ship, design);
       updatePixiDamageFlashes(view, ship, design, performance.now());
       updatePixiCoreWarning(view, ship, zoom);
       updatePixiHealthBars(env, view, { ...renderShip, radius: ship.radius || 0 }, player, zoom);
       updatePixiShipLabels(view, renderShip, player, zoom);
+
+      if (debug) {
+        drawPixiTurretDiagnostics(view, overlay, ship, design, renderShip, zoom);
+      } else if (view.debugText.visible) {
+        view.debugText.visible = false;
+      }
 
       if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom);
       if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom);
@@ -958,4 +877,41 @@ export function updatePixiShips(env, now, players, bounds) {
   }
 
   pruneComponentDamage(visibleShipIds, performance.now());
+}
+
+// Test/diagnostic hook: exposes the live turret-sprite state for a ship id so
+// browser tests can assert real rendered rotations and world transforms without
+// scraping pixels. Returns null when no view is bound to that ship.
+export function __pixiTurretDebugInfo(shipId) {
+  if (!pixiShipPool) return null;
+  const view = pixiShipPool.peek ? pixiShipPool.peek(shipId) : null;
+  if (!view) return null;
+  const hullAngle = view.hullContainer.rotation;
+  return {
+    shipId,
+    hullRotation: hullAngle,
+    turretCount: view.turretSprites.length,
+    turrets: view.turretSprites.map((s) => {
+      const wt = s.worldTransform;
+      return {
+        designIndex: s.__designIndex,
+        partType: s.__partType,
+        localRotation: s.rotation,
+        worldRotation: hullAngle + s.rotation,
+        worldTransformRotation: Math.atan2(wt.b, wt.a),
+        visible: s.visible,
+        alpha: s.alpha,
+        parentLabel: s.parent?.label || null,
+        x: wt.tx,
+        y: wt.ty
+      };
+    })
+  };
+}
+
+// Expose the live turret inspection hook so browser tests (and manual
+// debugging) can read real rendered rotations/world transforms. Works in both
+// the ES-module dev build and the concatenated production bundle.
+if (typeof window !== "undefined") {
+  window.__mfaTurretDebugInfo = __pixiTurretDebugInfo;
 }

@@ -6,7 +6,7 @@
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
 import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
 import { withCanvasContext } from "./dom.js";
-import { drawModule, drawFootprintComponent } from "../game/renderer.js";
+import { drawModule, drawFootprintComponent } from "../game/componentArt.js";
 
 const CELL = 40; // logical px per footprint cell
 const PAD = 0; // full cubes meet the exact blueprint-cell bounds

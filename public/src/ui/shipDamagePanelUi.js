@@ -9,15 +9,10 @@ import { state } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
 import { getOccupiedCells } from "../design/footprint.js";
 import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
-import {
-  drawShipStructure,
-  drawModule,
-  drawFootprintComponent,
-  footprintLocalPlacement,
-  drawModuleDamage,
-  drawModuleFlash,
-  componentHealthRatio
-} from "../game/renderer.js";
+import { drawShipStructure, drawModule, drawFootprintComponent } from "../game/componentArt.js";
+import { footprintLocalPlacement } from "../game/shipGeometry.js";
+import { componentHealthRatio } from "../game/shipVitals.js";
+import { drawModuleDamage, drawModuleFlash } from "../game/renderer.js";
 import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, COMPONENT_HEAT_VALUE, normalizeComponentHeatTuple } from "../shared/componentHeatSnapshot.js";
 import {
   componentMaxFromShip,

@@ -93,6 +93,13 @@ export function createPixiKeyedPool(container, create) {
         }
       }
     },
+    // Returns the live view currently bound to key, or null. Read-only; used by
+    // diagnostics/tests to inspect a ship's display objects without scraping
+    // pixels.
+    peek(key) {
+      const entry = active.get(key);
+      return entry ? entry.view : null;
+    },
     activeCount() {
       return active.size;
     }
