@@ -200,6 +200,25 @@ async function main() {
       assert.ok(blasterInfo.turrets[0].visible && blasterInfo.turrets[0].alpha > 0.9, "turret should be visible");
     });
 
+    // 1b. Regression: rebuilding static Pixi ship content must handle blueprint
+    //     component rotations for rotating weapons. This exercises
+    //     rebuildPixiShipStatic through the real Pixi renderer with a non-zero
+    //     weapon component rotation and no authoritative weapon angle entry; the
+    //     turret sprite should be created at the default blueprint-facing angle.
+    await check("rotated weapon rebuild creates turret at default angle", async () => {
+      const d = design([7, 7, "core"], [8, 7, "blaster", 90]);
+      const snap = snapshotWith("ship-rotated-default", d, { weaponAngles: [] });
+      await page.evaluate((s) => window.__mfaTest.setShip(s), snap);
+      await page.evaluate(() => window.__mfaTest.frames(4));
+      const info = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-rotated-default"));
+      assert.ok(info, "no debug info for rotated default ship");
+      assert.strictEqual(info.turretCount, 1, `turretCount was ${info.turretCount}`);
+      assert.strictEqual(info.turrets[0].partType, "blaster");
+      assert.strictEqual(info.turrets[0].designIndex, 1, "turret must keep original design index");
+      assert.ok(Math.abs(info.turrets[0].localRotation - Math.PI / 2) < EPS, `default turret rotation ${info.turrets[0].localRotation}, expected ${Math.PI / 2}`);
+      assert.ok(info.turrets[0].visible && info.turrets[0].alpha > 0.9, "rotated default turret should be visible");
+    });
+
     // 2. Changing the authoritative weapon angle rotates the sprite and its
     //    world transform, and visibly changes the rendered barrel (screenshot).
     await check("authoritative angle change rotates turret + pixels", async () => {
