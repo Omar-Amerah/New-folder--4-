@@ -77,18 +77,30 @@ const ENEMY_DESIGN = [
   { x: 8, y: 6, type: "armor", rotation: 0 }
 ];
 async function canvasStats(page) {
-  return page.evaluate(() => {
-    const canvas = document.getElementById("arenaCanvas");
-    const rect = canvas.getBoundingClientRect();
+  // drawImage() from a WebGL canvas reads a cleared buffer once the frame has
+  // been presented (preserveDrawingBuffer is false), which reports a black
+  // arena even when rendering is fine. Screenshot the canvas element instead
+  // (compositor output, always populated) and measure lit pixels by decoding
+  // the PNG back inside the page with 2D canvas APIs.
+  const canvas = page.locator("#arenaCanvas");
+  const box = await canvas.boundingBox();
+  const png = await canvas.screenshot({ type: "png" });
+  return page.evaluate(async ({ base64, width, height }) => {
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("failed to decode arena screenshot"));
+      img.src = `data:image/png;base64,${base64}`;
+    });
     const copy = document.createElement("canvas");
-    copy.width = Math.max(1, Math.floor(rect.width)); copy.height = Math.max(1, Math.floor(rect.height));
+    copy.width = Math.max(1, Math.floor(img.width)); copy.height = Math.max(1, Math.floor(img.height));
     const ctx = copy.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(canvas, 0, 0, copy.width, copy.height);
+    ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, copy.width, copy.height).data;
     let lit = 0, total = 0;
     for (let i = 0; i < data.length; i += 16) { total++; if (data[i] + data[i + 1] + data[i + 2] > 18) lit++; }
-    return { width: rect.width, height: rect.height, litRatio: lit / total };
-  });
+    return { width, height, litRatio: lit / total };
+  }, { base64: png.toString("base64"), width: box?.width || 0, height: box?.height || 0 });
 }
 async function shot(page, name) { fs.mkdirSync(SHOT_DIR, { recursive: true }); await page.screenshot({ path: path.join(SHOT_DIR, name), fullPage: true }); }
 async function runDensity(browser, density) {
@@ -134,7 +146,13 @@ async function runDensity(browser, density) {
   const afterMiddle = await page.evaluate(() => ({ ...window.__mfaState.camera }));
   await page.keyboard.down("Space"); await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx - 120, cy - 40); await page.mouse.up(); await page.keyboard.up("Space"); await sleep(100);
   const afterSpaceDrag = await page.evaluate(() => ({ ...window.__mfaState.camera }));
-  await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx + 70, cy + 70); await page.mouse.up(); await sleep(100);
+  // A plain left drag is a selection marquee, not a camera pan — but selecting
+  // own ships deliberately re-enables camera follow (selection.js), which then
+  // eases the camera toward the fleet and would fail the stay-still check.
+  // Drag over the empty left-middle arena area (away from the centered fleet,
+  // the top HUD and the bottom purchase bar) so nothing gets selected.
+  const ex = canvasBox.x + 30, ey = canvasBox.y + canvasBox.height / 2;
+  await page.mouse.move(ex, ey); await page.mouse.down(); await page.mouse.move(ex + 70, ey + 70); await page.mouse.up(); await sleep(100);
   const afterLeftDrag = await page.evaluate(() => ({ ...window.__mfaState.camera }));
 
   const diagnostics = await page.evaluate((shipId) => ({

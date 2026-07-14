@@ -10,6 +10,19 @@ node server.js
 
 Open `http://localhost:3000`. Friends on the same network can use the LAN URL printed by the server and the same room code. Friends over the internet need the port exposed through your router or a tunnel.
 
+## Testing
+
+```powershell
+npm ci
+npm run check        # build + static/syntax validation (fast)
+npm run test:unit    # fast deterministic module tests
+npm run test:all     # full suite (unit, integration, protocol, browser)
+```
+
+Browser tests need Playwright Chromium (`npx playwright install chromium`).
+See `docs/testing-inventory.md` for what each suite covers and
+`docs/architecture-overview.md` for how the pieces fit together.
+
 ## Deploy
 
 ### Netlify static site
