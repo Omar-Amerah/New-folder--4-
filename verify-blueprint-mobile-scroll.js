@@ -4,12 +4,12 @@ const http = require("http");
 const { spawn } = require("child_process");
 const { chromium } = require("playwright");
 
-const PORT = Number(process.env.PORT || 5544);
+const { launchChromium } = require("./verify-pixi-browser-support.js");
+
+// TEST_PORT (not the production PORT default) so this test never collides with
+// a locally running game server.
+const PORT = Number(process.env.TEST_PORT || 5621);
 const BASE = `http://127.0.0.1:${PORT}`;
-const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || [
-  "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-  "/opt/pw-browsers/chromium/chrome-linux/chrome"
-].find((path) => require("fs").existsSync(path));
 
 function waitForServer(timeoutMs = 15000) {
   const start = Date.now();
@@ -33,7 +33,26 @@ function approx(actual, expected, tolerance = 4) {
   return Math.abs(actual - expected) <= tolerance;
 }
 
+// The client opens the main-menu overlay at boot, which covers the side-panel
+// Blueprint Designer button and intercepts pointer events. Hide the boot menu
+// screens (as the other browser tests do) so the button is clickable.
+async function dismissMenus(page) {
+  // The client bootstrap is async and calls openMainMenu() late; hiding the
+  // overlays before that would race and lose. Wait for the menu to be shown.
+  await page.waitForFunction(() => {
+    const el = document.getElementById("mainMenuScreen");
+    return el && !el.hidden;
+  }, null, { timeout: 15000 });
+  await page.evaluate(() => {
+    for (const id of ["mainMenuScreen", "lobbyManagementScreen", "settingsScreen"]) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = true;
+    }
+  });
+}
+
 async function inspectMobile(page) {
+  await dismissMenus(page);
   await page.click("#openBlueprintDesignerButton");
   await page.waitForSelector("#blueprintDesignerScreen:not([hidden]) .blueprint-designer-panel");
 
@@ -78,9 +97,12 @@ async function inspectMobile(page) {
     const closeButton = document.getElementById("closeBlueprintDesignerButton");
     const close = closeButton.getBoundingClientRect();
     const maxScrollLeft = overlay.scrollWidth - overlay.clientWidth;
+    // Read the scroll position BEFORE closing: a hidden (display:none) overlay
+    // has no layout and reports scrollLeft 0.
+    const scrollLeftAtMax = overlay.scrollLeft;
     closeButton.click();
     return {
-      scrollLeft: overlay.scrollLeft,
+      scrollLeft: scrollLeftAtMax,
       maxScrollLeft,
       right,
       saved,
@@ -104,6 +126,7 @@ async function inspectMobile(page) {
 }
 
 async function inspectDesktop(page) {
+  await dismissMenus(page);
   await page.click("#openBlueprintDesignerButton");
   const result = await page.evaluate(() => {
     const overlay = document.getElementById("blueprintDesignerScreen");
@@ -126,12 +149,11 @@ async function inspectDesktop(page) {
 }
 
 (async () => {
-  if (!CHROME) throw new Error("no chromium binary found under /opt/pw-browsers");
   const server = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(PORT) }, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", (chunk) => process.stderr.write(chunk));
   try {
     await waitForServer();
-    const browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    const browser = await launchChromium(chromium);
     try {
       for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 430, height: 932 }]) {
         const page = await browser.newPage({ viewport, isMobile: true, hasTouch: true });

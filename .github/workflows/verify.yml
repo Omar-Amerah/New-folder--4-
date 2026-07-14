@@ -1,0 +1,76 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The verify scripts spawn their own game servers on fixed per-test ports, so
+# each job runs the suites sequentially in a single process tree — never start
+# a second copy of a suite in the same job.
+
+jobs:
+  static-and-unit:
+    name: Static checks + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Production build + static/syntax checks
+        run: npm run check
+      - name: Unit tests
+        run: npm run test:unit
+
+  server-integration:
+    name: Integration + protocol tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Integration tests (module + bundled-client harness)
+        run: npm run test:integration
+      - name: Protocol tests (real server.js + WebSocket + MessagePack smoke)
+        run: npm run test:protocol
+
+  browser:
+    name: Browser tests (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # The browser verify scripts honour SHOT_DIR for their screenshots;
+      # collect them in one place so failures can be inspected.
+      SHOT_DIR: ${{ github.workspace }}/test-artifacts/screenshots
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests (real server + real frontend in headless Chromium)
+        run: npm run test:browser
+      - name: Upload screenshots and logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-artifacts
+          path: |
+            test-artifacts/
+            /tmp/mfa-*
+          if-no-files-found: ignore
+          retention-days: 7

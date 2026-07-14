@@ -152,9 +152,12 @@ async function main() {
       throw new Error("economy fields missing from snapshot");
     }
     const moneyBefore = alphaState.money;
+    // Require a LATER active-phase snapshot: waitFor scans message history, and
+    // earlier lobby-phase states carry the (higher) starting money with an
+    // empty ships array, which would satisfy a bare money comparison.
     const laterState = await alpha.waitFor(
       (message) => {
-        if (message.type !== "state") return false;
+        if (message.type !== "state" || message.phase !== "active" || !(message.time > state.time)) return false;
         const player = message.players.find((candidate) => candidate.name === "Alpha");
         return player && player.money > moneyBefore;
       },
@@ -163,6 +166,20 @@ async function main() {
     const laterAlpha = laterState.players.find((player) => player.name === "Alpha");
     if (laterAlpha.income <= 0) {
       throw new Error("income was not positive");
+    }
+
+    // Baseline smoke: after movement commands and further simulation ticks, a
+    // later snapshot must still carry valid finite ship state (no NaN/Infinity
+    // leaking out of the movement/combat simulation).
+    if (!Array.isArray(laterState.ships) || laterState.ships.length === 0) {
+      throw new Error("later snapshot lost its ships");
+    }
+    for (const ship of laterState.ships) {
+      for (const field of ["x", "y", "vx", "vy", "angle", "hp"]) {
+        if (!Number.isFinite(ship[field])) {
+          throw new Error(`ship ${ship.id} field ${field} is not finite after movement command`);
+        }
+      }
     }
 
     alpha.close();

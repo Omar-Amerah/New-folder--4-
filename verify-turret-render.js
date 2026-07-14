@@ -222,6 +222,12 @@ async function main() {
     // 2. Changing the authoritative weapon angle rotates the sprite and its
     //    world transform, and visibly changes the rendered barrel (screenshot).
     await check("authoritative angle change rotates turret + pixels", async () => {
+      // Check 1b replaced the injected snapshot with a different ship, so
+      // re-inject the blaster ship checks 2-5 operate on (setShip replaces
+      // state.snapshot wholesale).
+      const d = design([7, 7, "core"], [8, 7, "blaster"]);
+      await page.evaluate((snap) => window.__mfaTest.setShip(snap), snapshotWith("ship-blaster", d));
+      await page.evaluate(() => window.__mfaTest.frames(4));
       // Use direct assignment so the visible barrel is exactly the authoritative
       // angle (no smoothing) — proves the transform, per the task.
       await page.evaluate(() => { window.__mfaDisableTurretSmoothing = true; });

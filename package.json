@@ -6,8 +6,14 @@
   "scripts": {
     "start": "node server.js",
     "build": "node netlify-build.js",
-    "check": "npm run build && node --check server.js && node --check public/client.js && node --check verify-runtime.js && node --check verify-client-ui.js && node --check verify-heat-panel.js && node --check verify-turret-client.js && node --check verify-live-turrets.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node verify-canvas-removal.js && node verify-lobby-refresh-reconnect.js && npm run test:pixi-browser",
-    "verify": "npm run build && node verify-canvas-removal.js && node verify-runtime.js && node verify-client-ui.js && node verify-heat-panel.js && node verify-turret-client.js && npm run test:pixi-browser && npm run test:live-turrets && npm run test:match-start-render",
+    "check": "npm run build && node --check server.js && node --check public/client.js && node --check netlify-build.js && node --check tools/run-tests.js && node --check verify-runtime.js && node --check verify-client-ui.js && node --check verify-heat-panel.js && node --check verify-turret-client.js && node --check verify-live-turrets.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node --check verify-match-start-render.js && node --check verify-blueprint-mobile-scroll.js && node verify-canvas-removal.js",
+    "test:unit": "node tools/run-tests.js unit",
+    "test:integration": "npm run build && node tools/run-tests.js integration",
+    "test:protocol": "node tools/run-tests.js protocol",
+    "test:smoke": "node tools/run-tests.js protocol",
+    "test:browser": "npm run build && node tools/run-tests.js browser",
+    "test:all": "npm run check && node tools/run-tests.js all",
+    "verify": "npm run test:all",
     "test:canvas-removal": "node verify-canvas-removal.js",
     "test:pixi-lifecycle": "node verify-pixi-lifecycle.js",
     "test:pixi-browser": "node verify-turret-render.js && node verify-pixi-lifecycle.js",
@@ -37,6 +43,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.2",
     "pixi.js": "^8.19.0"
