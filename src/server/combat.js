@@ -26,19 +26,46 @@ function shipRepairNeed(ship) {
 function updateShipSupport(room, ships, dt, now) {
   for (const ship of ships) {
     if (!ship.stats.repair) continue;
-    let effectiveRepairRate = 0;
+
+    const activeRepairModules = [];
+    const activeRepairBeams = [];
     for (let i = 0; i < (ship.design || []).length; i += 1) {
-      const repairRate = PARTS[ship.design[i].type]?.repairRate || 0;
+      const module = ship.design[i];
+      const repairRate = PARTS[module.type]?.repairRate || 0;
       if (repairRate <= 0 || !isComponentAlive(ship, i)) continue;
-      effectiveRepairRate += repairRate * componentPerformance(ship, i);
+      const performance = componentPerformance(ship, i);
+      if (performance <= 0) continue;
+      const entry = { index: i, module, repairRate, performance, output: repairRate * performance };
+      activeRepairModules.push(entry);
+      if (module.type === "repairBeam") activeRepairBeams.push(entry);
     }
-    if (effectiveRepairRate <= 0) continue;
+    if (activeRepairModules.length === 0) continue;
+
+    // Local repair modules are self-maintenance only. They must never choose an
+    // allied ship the way repair beams do, otherwise a cheap repair module acts
+    // like a ranged support beam without the intended turret/targeting cost.
+    const selfRepairRate = activeRepairModules
+      .filter((entry) => entry.module.type !== "repairBeam")
+      .reduce((sum, entry) => sum + entry.output, 0);
+    if (selfRepairRate > 0 && shipRepairNeed(ship) > 0) {
+      const heal = selfRepairRate * ship.stats.efficiency * (ship.thermalPowerFactor ?? 1) * dt;
+      repairShipComponents(room, ship, heal, now);
+      for (const entry of activeRepairModules) {
+        if (entry.module.type !== "repairBeam") addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * dt);
+      }
+    }
+
+    // Dedicated repair beams are the only repair parts that can project healing
+    // onto another ship. They still use normal repair output and heat, but they
+    // also traverse like beam weapons and emit a green beam from their muzzle.
+    const beamRepairRate = activeRepairBeams.reduce((sum, entry) => sum + entry.output, 0);
+    if (beamRepairRate <= 0) continue;
 
     let target = null;
     let worst = 0;
 
-    // A player-assigned repair target takes priority while it is a valid, damaged
-    // ally in range; it is cleared once destroyed.
+    // A player-assigned repair target takes priority while it is a valid,
+    // damaged ally in range; it is cleared once destroyed.
     if (ship.repairTargetId) {
       const assigned = room.ships.get(ship.repairTargetId);
       if (!assigned || !assigned.alive) {
@@ -66,21 +93,16 @@ function updateShipSupport(room, ships, dt, now) {
     }
 
     if (!target) continue;
-    const heal = effectiveRepairRate * ship.stats.efficiency * (ship.thermalPowerFactor ?? 1) * dt;
+    const heal = beamRepairRate * ship.stats.efficiency * (ship.thermalPowerFactor ?? 1) * dt;
     repairShipComponents(room, target, heal, now);
 
-    // Pick the repair emitter (prefer a dedicated repair beam) as the beam origin.
-    let emitterIndex = -1;
-    for (let i = 0; i < (ship.design || []).length; i += 1) {
-      const repairRate = PARTS[ship.design[i].type]?.repairRate || 0;
-      if (repairRate > 0 && isComponentAlive(ship, i) && componentPerformance(ship, i) > 0) {
-        addComponentHeat(ship, i, (1.5 + repairRate * 0.35) * dt);
-        if (emitterIndex === -1 || ship.design[i].type === "repairBeam") emitterIndex = i;
-      }
+    for (const entry of activeRepairBeams) {
+      addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * dt);
     }
 
-    if (emitterIndex === -1) continue;
-    const emitter = ship.design[emitterIndex];
+    const emitterEntry = activeRepairBeams[0];
+    const emitterIndex = emitterEntry.index;
+    const emitter = emitterEntry.module;
     const origin = weaponModuleWorldPosition(ship, emitter);
 
     // Rotate the emitter turret toward the repair target at the shared beam

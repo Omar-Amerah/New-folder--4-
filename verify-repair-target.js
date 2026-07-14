@@ -63,4 +63,53 @@ function makeRoom() {
   assert(shipRepairNeed(componentDamaged) > 0, "component-only damage should request repairs");
 }
 
+
+// 5. Local repair modules heal only their own ship; they must not project
+// healing to an allied ship.
+{
+  const { updateShipSupport } = require("./src/server/combat");
+  const repairShip = {
+    id: "local-repair", ownerId: "me", alive: true, x: 0, y: 0,
+    design: [{ type: "repair" }], stats: { repair: 1, repairRange: 410, efficiency: 1 }, thermalPowerFactor: 1,
+    hp: 80, maxHp: 100, componentHp: [30], componentMaxHp: [48], dirtyComponents: new Set()
+  };
+  const ally = {
+    id: "ally-damaged", ownerId: "friend", alive: true, x: 20, y: 0,
+    design: [{ type: "core" }], stats: {}, hp: 20, maxHp: 100,
+    componentHp: [20], componentMaxHp: [100], dirtyComponents: new Set()
+  };
+  const room = makeRoom().room;
+  room.ships = new Map([[repairShip.id, repairShip], [ally.id, ally]]);
+  room.effects = [];
+  updateShipSupport(room, [repairShip, ally], 1, 1000);
+  assert(repairShip.hp > 80 || repairShip.componentHp[0] > 30, "local repair should heal its own ship");
+  assert.strictEqual(ally.hp, 20, "local repair must not heal allied hull");
+  assert.strictEqual(ally.componentHp[0], 20, "local repair must not heal allied components");
+}
+
+// 6. Dedicated repair beams heal allied ships and produce a green beam effect
+// while updating the repair turret's authoritative angle.
+{
+  const { updateShipSupport } = require("./src/server/combat");
+  const beamShip = {
+    id: "beam-repair", ownerId: "me", alive: true, x: 0, y: 0, angle: 0,
+    design: [{ x: 7, y: 7, type: "core", rotation: 0 }, { x: 8, y: 7, type: "repairBeam", rotation: 0 }],
+    stats: { repair: 1, repairRange: 410, efficiency: 1 }, thermalPowerFactor: 1,
+    hp: 100, maxHp: 100, componentHp: [100, 48], componentMaxHp: [100, 48], dirtyComponents: new Set()
+  };
+  const ally = {
+    id: "ally-beam-target", ownerId: "friend", alive: true, x: 100, y: 60,
+    design: [{ type: "core" }], stats: {}, hp: 20, maxHp: 100,
+    componentHp: [20], componentMaxHp: [100], dirtyComponents: new Set()
+  };
+  const room = makeRoom().room;
+  room.ships = new Map([[beamShip.id, beamShip], [ally.id, ally]]);
+  room.effects = [];
+  updateShipSupport(room, [beamShip, ally], 1, 1000);
+  assert(ally.hp > 20 || ally.componentHp[0] > 20, "repair beam should heal allied damage");
+  assert(room.effects.some((effect) => effect.type === "repairbeam"), "repair beam should emit a visible beam effect");
+  assert(Number.isFinite(beamShip.weaponAngles?.[1]), "repair beam turret should publish an authoritative angle");
+}
+
+
 console.log("Repair-target verification passed");

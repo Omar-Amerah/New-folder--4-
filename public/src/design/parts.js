@@ -747,6 +747,8 @@ export const FALLBACK_PART_STATS = {
     energyStorage: 0, repairRate: 11,
     repair: 1,
     weapon: null,
+    rotatable: true,
+    rotationRequired: true,
     utilityEffect: "repair"
   }
 };
