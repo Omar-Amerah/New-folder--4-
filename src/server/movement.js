@@ -6,11 +6,11 @@ const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
+const { selectOwnedLivingShips } = require("./selection");
 
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
 const ARRIVE_DISTANCE = 16;
-const MAX_COMMAND_SHIP_IDS = 64;
 const MAX_MOVEMENT_DT = 0.25;
 const MOVEMENT_SUBSTEP = 1 / 30;
 
@@ -59,18 +59,13 @@ function shipCollisionRadius(ship) {
 }
 
 function commandShips(room, player, x, y, options = {}) {
-  const command = normalizeCommandSelection(options.shipIds);
+  const command = selectOwnedLivingShips(player, options.shipIds);
   if (!command.ok) return { ok: false, code: command.code, commanded: 0 };
 
-  let ships = player.ships.filter((ship) => ship.alive);
-
-  // Omitted shipIds preserve the long-standing "all owned live ships" order.
-  // An explicitly supplied empty array commands no ships, and malformed arrays
-  // never fall back to every ship.
-  if (command.explicit) {
-    if (command.ids.size === 0) return { ok: true, code: "empty-selection", commanded: 0 };
-    ships = ships.filter((ship) => command.ids.has(ship.id));
-  }
+  // Omitted shipIds intentionally preserve the long-standing "all owned live ships" order.
+  // Explicit [] selects no ships; malformed input never falls back to every ship.
+  let ships = command.ships;
+  if (command.explicit && command.ids.size === 0) return { ok: true, code: "empty-selection", commanded: 0 };
 
   ships = ships.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
   if (ships.length === 0) return { ok: true, code: "no-authorized-ships", commanded: 0 };
@@ -113,20 +108,6 @@ function commandShips(room, player, x, y, options = {}) {
     }
   }
   return { ok: true, code: "commanded", commanded: plan.slots.length, plan };
-}
-
-function normalizeCommandSelection(shipIds) {
-  if (shipIds === undefined || shipIds === null) return { ok: true, explicit: false, ids: null };
-  if (!Array.isArray(shipIds)) return { ok: false, explicit: true, code: "malformed-ship-ids" };
-  if (shipIds.length > MAX_COMMAND_SHIP_IDS) return { ok: false, explicit: true, code: "too-many-ship-ids" };
-  const ids = new Set();
-  for (const raw of shipIds) {
-    if (typeof raw !== "string" && typeof raw !== "number") return { ok: false, explicit: true, code: "malformed-ship-id" };
-    const id = String(raw).trim();
-    if (!id || id.length > 48) return { ok: false, explicit: true, code: "malformed-ship-id" };
-    ids.add(id);
-  }
-  return { ok: true, explicit: true, ids };
 }
 
 function planFormation(room, ships, options = {}) {

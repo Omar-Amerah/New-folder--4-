@@ -52,6 +52,7 @@ function createRoom(code) {
     lastEmptyAt: 0,
     lastScoreAt: performanceNow(),
     winner: null,
+    rewardsFinalizedForWinner: null,
     winnerAt: 0,
     maxScore: MATCH_SCORE,
     controlVictory: {
@@ -492,6 +493,7 @@ function resetMatch(room, now) {
   const { broadcastRoom } = require("./messages");
 
   room.winner = null;
+  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.lastScoreAt = now;
   for (const point of room.points) {

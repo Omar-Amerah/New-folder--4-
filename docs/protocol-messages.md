@@ -72,3 +72,9 @@ angle/target fields; Section 7 only tightened server-side validation and orderin
 - `deploy` in the design phase remains the ready/save-design command.
 - `deploy` in the active phase now saves the player's editor blueprint and future-purchase combat style only. It does **not** mutate deployed ships; deployed-ship style changes must use `setCombatStyle`.
 - `buyShip` carries an immutable design and combat-style snapshot in the request. The server validates the submitted snapshot and executes the purchase from that payload rather than rereading later editor state.
+
+## Catch-up Part 2 selected-fleet and purchase safety
+
+Selected-fleet messages (`command`, `setCombatStyle`, `destruct`, and target-bearing movement commands) share one server-side selection contract. Omitted `shipIds` intentionally means all owned, living, non-removed ships only for commands that document all-fleet behavior; explicit `shipIds: []` means no ships; malformed selections are rejected and never fall back to all ships. Duplicate IDs collapse, unknown/enemy/dead/removed IDs are ignored safely, oversized arrays are rejected, and stale replaced sockets are rejected before command handling.
+
+Purchase responses remain authoritative. `purchaseResult` includes accepted request ID, result code, count, unit/total cost, created ship IDs, remaining money, active ship count, and cap. Later snapshots must agree, and enemy snapshots do not expose private economy fields.

@@ -117,7 +117,9 @@ function executePurchase(room, player, request, now) {
     deployedFleetCost: player.deployedFleetCost,
     shipsBuilt: player.shipsBuilt || 0,
     shipsLength: player.ships.length,
-    nextEntityId: room.nextEntityId
+    nextEntityId: room.nextEntityId,
+    effectsLength: room.effects.length,
+    lastBuildError: player.lastBuildError || ""
   };
 
   try {
@@ -132,10 +134,17 @@ function executePurchase(room, player, request, now) {
   } catch {
     for (const ship of createdShips) {
       ship.removed = true;
+      ship.alive = false;
       room.ships.delete(ship.id);
     }
     player.ships.length = original.shipsLength;
     room.nextEntityId = original.nextEntityId;
+    room.effects.length = original.effectsLength;
+    player.money = original.money;
+    player.spent = original.spent;
+    player.deployedFleetCost = original.deployedFleetCost;
+    player.shipsBuilt = original.shipsBuilt;
+    player.lastBuildError = original.lastBuildError;
     return makePurchaseFailure(requestId, "spawn-failed", "Could not spawn ship");
   }
 
@@ -217,6 +226,8 @@ function updateEconomy(room, dt) {
 
 function finalizeMatchRewards(room) {
   if (!room.winner) return;
+  if (room.rewardsFinalizedForWinner === room.winner.team) return;
+  room.rewardsFinalizedForWinner = room.winner.team;
   const players = [...room.players.values()];
   for (const player of players) {
     const didWin = player.team === room.winner.team;

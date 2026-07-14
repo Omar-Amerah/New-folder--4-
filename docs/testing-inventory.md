@@ -168,3 +168,11 @@ idempotency and swept projectile asteroid-first precedence with deterministic se
 | `npm run test:objectives` | Objective/scoring verifier entry point. |
 
 Only the commands above that are wired to executable verifier scripts are documented here.
+
+## Catch-up Part 2 focused commands
+
+- `npm run test:selection` covers selected-fleet normalization, explicit empty selections, malformed destruct, duplicate collapse, mixed enemy/owned IDs, and self-destruct idempotency.
+- `npm run test:economy-sequence` runs a seeded economy sequence with income, purchase success/failures, replay/conflict, reward idempotency, and orphan checks.
+- `npm run test:purchases-protocol` covers the purchase protocol-focused executor checks currently available in the Node harness.
+- `npm run test:bots` covers deterministic bot think intervals, movement offsets, safe empty objectives, winner stop, and failed bot purchases.
+- `npm run test:movement` and `npm run test:movement-protocol` cover movement command normalization and deterministic movement scenarios.

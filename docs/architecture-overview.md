@@ -217,3 +217,7 @@ idempotent finalization; see [combat-targeting-weapons.md](combat-targeting-weap
 ## Catch-up Part 1 architecture updates
 
 Blueprint persistence is isolated in `public/src/design/blueprintStorage.js` with versioned envelopes and safe read/write helpers. Active-match editor saves are isolated from deployed ships: server `deploy` during active play updates only future purchase state, while `setCombatStyle` remains the explicit deployed-ship mutation command.
+
+## Catch-up Part 2 architecture notes
+
+Selected-fleet command authorization is centralized in `src/server/selection.js`, keeping command, style, destruct, focus, repair, and rally-adjacent movement semantics consistent. Bot decisions derive deterministic random streams from map seed, bot ID, and decision sequence so one bot's random consumption does not perturb another bot. Economy mutations remain server-authoritative through the atomic purchase executor and reward finalizer.

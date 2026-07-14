@@ -46,3 +46,9 @@ Readiness validates that the selected starter design is valid and affordable, bu
 Income is calculated on the server from base income plus fully owned relays. Team mode keys relay income by team; solo mode keys it by player-owned team IDs. Disconnected grace-period players remain in `room.players`, keep their ships, and continue receiving active-match income until permanently removed. Permanently removed players are deleted from the room and receive no further income.
 
 Capture rewards are awarded once when relay ownership flips; all players on the capturing team receive the configured capture bonus. Kill bounties are awarded once in `destroyShip` to the credited attacker when attacker and victim owners differ. Self-destruction and environmental/no-attacker destruction do not pay a bounty. Match rewards are finalized once by the winner finalizer and are display-only within the current room; they do not create long-term progression.
+
+## Catch-up Part 2 completion notes
+
+The purchase executor now snapshots and restores all persistent transaction state if spawning fails: created ships are removed from the room map and player array, entity IDs and effects are rewound, accounting fields (`money`, `spent`, `deployedFleetCost`, `shipsBuilt`) and `lastBuildError` are restored, and failed spawn requests do not enter the successful idempotency path. Request IDs remain bounded and replay-safe: identical successful replays return the original result without charging or spawning again, while conflicting reuse is rejected.
+
+Reward finalization is guarded in the reward layer so repeated calls for the same winner team do not add money/earned twice or replace reward history with a second calculation.

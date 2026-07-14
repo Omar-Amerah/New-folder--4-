@@ -102,3 +102,7 @@ active room maps.
 ## Catch-up Part 1 lifecycle test status
 
 Deterministic lifecycle coverage remains concentrated in `verify-lifecycle.js`, `verify-reconnect.js`, and `verify-lobby-refresh-reconnect.js`. These scripts are wired into `npm run test:integration` and the direct `npm run test:lifecycle` alias. They use controlled timers or short deterministic reconnect windows rather than long manual waits.
+
+## Catch-up Part 2 stale attachment and rematch rules
+
+Inbound gameplay commands are accepted only from the current socket attachment for a player. Replaced/stale sockets receive an error before selection, purchase, destruct, combat-style, rally, or movement state can change. Rematch/reset clears purchase idempotency caches, rally points, reward-finalization guards, and round accounting before starter deployment is evaluated.

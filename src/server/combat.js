@@ -758,11 +758,12 @@ function pushDamageEffect(room, ship, now, amount, isShield) {
 const SELF_DESTRUCT_MS = 1400;
 
 function requestSelfDestruct(room, player, shipIds, now) {
-  const idSet = Array.isArray(shipIds) && shipIds.length ? new Set(shipIds.map((id) => String(id))) : null;
+  const { selectOwnedLivingShips } = require("./selection");
+  const selected = selectOwnedLivingShips(player, shipIds);
+  if (!selected.ok) return 0;
   let count = 0;
-  for (const ship of player.ships) {
-    if (!ship.alive || ship.removed || ship.selfDestructAt) continue;
-    if (idSet && !idSet.has(ship.id)) continue;
+  for (const ship of selected.ships) {
+    if (ship.selfDestructAt) continue;
     ship.selfDestructStart = now;
     ship.selfDestructAt = now + SELF_DESTRUCT_MS;
     ship.nextDestructSparkAt = 0;

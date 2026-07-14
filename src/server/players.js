@@ -451,6 +451,7 @@ function maybeStartMatch(room, now) {
   if (!players.length || players.some((player) => !player.ready)) return;
   room.phase = "active";
   room.winner = null;
+  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.matchStartedAt = now;
   room.controlVictory = {
@@ -484,6 +485,7 @@ function startDesignPhase(room, requester) {
   prepareArenaForCurrentPlayers(room);
   room.phase = "design";
   room.winner = null;
+  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.controlVictory = {
     team: null,
@@ -518,6 +520,7 @@ function restartFromEnd(room, requester) {
   prepareArenaForCurrentPlayers(room);
   room.phase = "design";
   room.winner = null;
+  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.controlVictory = {
     team: null,
@@ -553,6 +556,7 @@ function returnToLobbyPhase(room, requester) {
 function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
   room.phase = "lobby";
   room.winner = null;
+  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   for (const ship of room.ships.values()) {
     ship.removed = true;

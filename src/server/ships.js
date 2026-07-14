@@ -1,7 +1,7 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY } = require("./config");
-const { randomRange, performanceNow, seededRandom, rngRange, hashString } = require("./utils");
+const { performanceNow, seededRandom, rngRange, hashString } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { normalizeShipDesignSnapshot } = require("./shipDesign");
 
@@ -117,7 +117,7 @@ function addBot(room, requester) {
     color,
     team,
     isBot: true,
-    ai: { nextThinkAt: 0, objectiveId: null },
+    ai: { nextThinkAt: 0, objectiveId: null, decisionSeq: 0 },
     ready: false,
     design,
     stats: computeStats(design),
@@ -159,7 +159,11 @@ function updateBots(room, now) {
 
   for (const player of room.players.values()) {
     if (!player.isBot || !player.ready || now < player.ai.nextThinkAt) continue;
-    player.ai.nextThinkAt = now + randomRange(900, 1700);
+    const ai = player.ai || (player.ai = { nextThinkAt: 0, objectiveId: null, decisionSeq: 0 });
+    const seq = ai.decisionSeq || 0;
+    const rng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:bot:${seq}`)) >>> 0);
+    ai.decisionSeq = seq + 1;
+    ai.nextThinkAt = now + rngRange(rng, 900, 1700);
     const currentCost = player.stats?.unitCost || computeStats(player.design).unitCost;
     if (player.money >= currentCost) {
       buyShip(room, player, now, { silent: true });
@@ -180,10 +184,15 @@ function updateBots(room, now) {
       continue;
     }
 
-    const objective = room.points
-      .filter((point) => point.ownerTeam !== player.team || point.progress < 0.95)
-      .sort((a, b) => distanceToFleet(ships, a) - distanceToFleet(ships, b))[0] || room.points[Math.floor(Math.random() * room.points.length)];
-    commandShips(room, player, objective.x + randomRange(-80, 80), objective.y + randomRange(-80, 80), {
+    const objectives = (room.points || [])
+      .filter((point) => point && (point.ownerTeam !== player.team || point.progress < 0.95))
+      .sort((a, b) => {
+        const diff = distanceToFleet(ships, a) - distanceToFleet(ships, b);
+        return diff || String(a.id || `${a.x},${a.y}`).localeCompare(String(b.id || `${b.x},${b.y}`));
+      });
+    const objective = objectives[0] || (room.points || [])[0];
+    if (!objective) continue;
+    commandShips(room, player, objective.x + rngRange(rng, -80, 80), objective.y + rngRange(rng, -80, 80), {
       formation: ships.length > 3 ? "clump" : "line"
     });
   }
