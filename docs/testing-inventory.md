@@ -154,3 +154,17 @@ combat npm aliases. It covers allegiance matrices, ship-level and per-weapon
 stable target tie-breaking, point-defence protected-ship priority, destruction
 idempotency and swept projectile asteroid-first precedence with deterministic seed
 `1234`.
+
+## Catch-up Part 1 additions
+
+| Command | Purpose |
+|---|---|
+| `npm run test:blueprint-storage` | Versioned blueprint-storage envelopes, legacy migrations, corrupt JSON, unknown versions, unavailable storage, quota failures, and idempotence. |
+| `npm run test:blueprint-parity` | Client/server shared blueprint parity checks. |
+| `npm run test:component-indexes` | Snapshot merge/static reconstruction component-index alignment checks. |
+| `npm run test:lifecycle` | Deterministic reconnect/lifecycle coverage. |
+| `npm run test:spawn-planner` | Spawn/map invariant verifier entry point. |
+| `npm run test:map-invariants` | Map invariant verifier entry point. |
+| `npm run test:objectives` | Objective/scoring verifier entry point. |
+
+Only the commands above that are wired to executable verifier scripts are documented here.

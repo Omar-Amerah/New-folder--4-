@@ -1,4 +1,4 @@
-// Handles localStorage persistence, blueprint validation wrappers, default designs, and formatting migrations.
+// Handles localStorage persistence, blueprint validation wrappers, default designs, and versioned storage migrations.
 
 import { LOCAL_DESIGN_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
@@ -6,6 +6,10 @@ import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { validateBlueprint } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import { computeStats } from "./componentStats.js";
+
+export const BLUEPRINT_STORAGE_VERSION = 1;
+export const MAX_SAVED_DESIGNS = 12;
+export const MAX_LOADOUTS = 8;
 
 export function defaultDesign() {
   return [
@@ -15,8 +19,6 @@ export function defaultDesign() {
     { x: 8, y: 8, type: "engine" },
     { x: 6, y: 7, type: "blaster" },
     { x: 8, y: 7, type: "blaster" },
-    // Side maneuvering thrusters: main engines no longer turn the ship, so the
-    // starting design needs off-centre thrusters to steer.
     { x: 5, y: 7, type: "maneuverThruster" },
     { x: 9, y: 7, type: "maneuverThruster" },
     { x: 7, y: 6, type: "shield" },
@@ -24,6 +26,38 @@ export function defaultDesign() {
     { x: 8, y: 6, type: "armor" },
     { x: 7, y: 9, type: "battery" }
   ];
+}
+
+function nowIso() { return new Date().toISOString(); }
+function safeStyle(value, fallback = "sentry") { return ["charge", "circle", "sentry", "hold"].includes(value) ? value : fallback; }
+function storage() {
+  try {
+    if (typeof localStorage === "undefined" || !localStorage) return null;
+    return localStorage;
+  } catch { return null; }
+}
+function readJson(key, fallback) {
+  const s = storage();
+  if (!s) return { ok: false, unavailable: true, value: fallback };
+  try {
+    const raw = s.getItem(key);
+    if (raw == null || raw === "") return { ok: true, value: fallback, empty: true };
+    return { ok: true, value: JSON.parse(raw) };
+  } catch (error) {
+    return { ok: false, corrupt: true, error, value: fallback };
+  }
+}
+function writeJson(key, value) {
+  const s = storage();
+  if (!s) return false;
+  try { s.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+}
+function envelope(kind, payload, timestamps = {}) {
+  const stamp = nowIso();
+  return { schemaVersion: BLUEPRINT_STORAGE_VERSION, kind, payload, createdAt: timestamps.createdAt || stamp, updatedAt: timestamps.updatedAt || stamp };
+}
+function isEnvelope(value, kind) {
+  return value && typeof value === "object" && !Array.isArray(value) && value.kind === kind && Object.hasOwn(value, "schemaVersion") && Object.hasOwn(value, "payload");
 }
 
 export function makeDesignPart(x, y, type, previousRotation = 0) {
@@ -37,43 +71,27 @@ export function normalizeDesign(input, options = {}) {
   const { fallbackOnInvalid = true, allowEmpty = false } = options;
   const fallback = defaultDesign();
   const source = Array.isArray(input) ? input : fallback;
-
-  // If this is an old blueprint centered on 3,3 (core at 3,3), shift it by +4,+4 to center it in 15x15.
   const oldCore = source.find(p => p && p.type === "core" && Math.trunc(Number(p.x)) === 3 && Math.trunc(Number(p.y)) === 3);
   const offsetX = oldCore ? 4 : 0;
   const offsetY = oldCore ? 4 : 0;
-
   const occupied = new Set();
   const clean = [];
-
   for (const raw of source) {
     const x = Math.trunc(Number(raw?.x)) + offsetX;
     const y = Math.trunc(Number(raw?.y)) + offsetY;
     const type = String(raw?.type || "");
-
     if (x < 0 || x > 14 || y < 0 || y > 14 || !PART_DEFS[type]) continue;
-
     const newPart = makeDesignPart(x, y, type, raw?.rotation);
-    const stat = PART_STATS[type] || PART_STATS.frame;
-    const footprint = stat.footprint || { width: 1, height: 1 };
+    const footprint = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
     const cells = getOccupiedCells(x, y, footprint, newPart.rotation);
-
-    let overlap = false;
-    let outOfBounds = false;
+    let bad = false;
     for (const cell of cells) {
-      if (cell.x < 0 || cell.x > 14 || cell.y < 0 || cell.y > 14) outOfBounds = true;
-      if (occupied.has(`${cell.x},${cell.y}`)) overlap = true;
+      if (cell.x < 0 || cell.x > 14 || cell.y < 0 || cell.y > 14 || occupied.has(`${cell.x},${cell.y}`)) bad = true;
     }
-
-    if (overlap || outOfBounds) continue;
-
-    for (const cell of cells) {
-      occupied.add(`${cell.x},${cell.y}`);
-    }
-
+    if (bad) continue;
+    for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
     clean.push(newPart);
   }
-
   if (allowEmpty && clean.length === 0) return clean;
   const validation = validateBlueprint(clean);
   if (!validation.ok) return fallbackOnInvalid ? fallback : clean;
@@ -82,85 +100,73 @@ export function normalizeDesign(input, options = {}) {
 
 function savedDesignSummary(blueprint) {
   const stats = computeStats(blueprint);
+  return { cost: stats.unitCost, weapons: `${stats.weaponDps} DPS`, speed: Math.round(stats.maxSpeed) };
+}
+function normalizeSavedDesign(design, index) {
+  if (!design || typeof design !== "object" || Array.isArray(design)) return null;
+  const blueprint = normalizeDesign(design.blueprint || design.modules || design.design, { fallbackOnInvalid: false, allowEmpty: true });
+  if (!blueprint.length) return null;
+  const validation = validateBlueprint(blueprint);
+  const summary = savedDesignSummary(blueprint);
   return {
-    cost: stats.unitCost,
-    weapons: `${stats.weaponDps} DPS`,
-    speed: Math.round(stats.maxSpeed)
+    id: String(design.id || `saved-${index}`).slice(0, 64),
+    name: String(design.name || `Design ${index + 1}`).slice(0, 28),
+    blueprint,
+    invalid: !validation.ok,
+    invalidReason: validation.errors[0] || "Invalid blueprint.",
+    combatStyle: safeStyle(design.combatStyle, "sentry"),
+    cost: summary.cost,
+    weapons: summary.weapons,
+    speed: summary.speed,
+    createdAt: Number(design.createdAt) || Date.now(),
+    updatedAt: Number(design.updatedAt) || Date.now()
   };
 }
 
+export function migrateDesignStorage(value) {
+  if (isEnvelope(value, "current-design")) {
+    if (value.schemaVersion > BLUEPRINT_STORAGE_VERSION) return { modules: defaultDesign(), combatStyle: "sentry", unknownVersion: true };
+    value = value.payload;
+  }
+  if (value && !Array.isArray(value) && typeof value === "object" && Array.isArray(value.modules)) {
+    return { modules: normalizeDesign(value.modules, { allowEmpty: true }), combatStyle: safeStyle(value.combatStyle, "sentry") };
+  }
+  return { modules: normalizeDesign(value, { allowEmpty: true }), combatStyle: "sentry" };
+}
+export function designEnvelope(design, combatStyle = "sentry", timestamps = {}) {
+  return envelope("current-design", { modules: normalizeDesign(design, { allowEmpty: true }), combatStyle: safeStyle(combatStyle, "sentry") }, timestamps);
+}
 export function loadDesign() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(LOCAL_DESIGN_KEY) || "null");
-    if (saved && !Array.isArray(saved) && Array.isArray(saved.modules)) {
-      return {
-        modules: normalizeDesign(saved.modules, { allowEmpty: true }),
-        combatStyle: saved.combatStyle || "sentry"
-      };
-    }
-    return {
-      modules: normalizeDesign(saved, { allowEmpty: true }),
-      combatStyle: "sentry"
-    };
-  } catch {
-    return {
-      modules: normalizeDesign(null),
-      combatStyle: "sentry"
-    };
+  const read = readJson(LOCAL_DESIGN_KEY, null);
+  if (!read.ok) return { modules: normalizeDesign(null), combatStyle: "sentry" };
+  return migrateDesignStorage(read.value);
+}
+export function persistDesign(design, combatStyle = "sentry") { return writeJson(LOCAL_DESIGN_KEY, designEnvelope(design, combatStyle)); }
+
+export function migrateSavedDesignsStorage(value) {
+  if (isEnvelope(value, "saved-designs")) {
+    if (value.schemaVersion > BLUEPRINT_STORAGE_VERSION) return [];
+    value = value.payload;
   }
+  const list = Array.isArray(value) ? value : Array.isArray(value?.designs) ? value.designs : [];
+  return list.map(normalizeSavedDesign).filter(Boolean).slice(0, MAX_SAVED_DESIGNS);
 }
+export function savedDesignsEnvelope(savedDesigns, timestamps = {}) { return envelope("saved-designs", migrateSavedDesignsStorage(savedDesigns), timestamps); }
+export function loadSavedDesigns() { const read = readJson(LOCAL_SAVED_DESIGNS_KEY, []); return read.ok ? migrateSavedDesignsStorage(read.value) : []; }
+export function persistSavedDesigns(savedDesigns) { return writeJson(LOCAL_SAVED_DESIGNS_KEY, savedDesignsEnvelope(savedDesigns)); }
 
-export function persistDesign(design, combatStyle = "sentry") {
-  localStorage.setItem(LOCAL_DESIGN_KEY, JSON.stringify({ modules: design, combatStyle }));
-}
-
-export function loadSavedDesigns() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(LOCAL_SAVED_DESIGNS_KEY) || "[]");
-    if (!Array.isArray(saved)) return [];
-    return saved.map((design, index) => {
-      const blueprint = normalizeDesign(design.blueprint, { fallbackOnInvalid: false, allowEmpty: true });
-      const validation = validateBlueprint(blueprint);
-      const summary = savedDesignSummary(blueprint);
-      return {
-        id: String(design.id || `saved-${index}`),
-        name: String(design.name || `Design ${index + 1}`).slice(0, 28),
-        blueprint,
-        invalid: !validation.ok,
-        invalidReason: validation.errors[0] || "Invalid blueprint.",
-        combatStyle: design.combatStyle || "sentry",
-        cost: summary.cost,
-        weapons: summary.weapons,
-        speed: summary.speed,
-        createdAt: Number(design.createdAt) || Date.now(),
-        updatedAt: Number(design.updatedAt) || Date.now()
-      };
-    }).slice(0, 12);
-  } catch {
-    return [];
+export function migrateLoadoutsStorage(value) {
+  if (isEnvelope(value, "loadouts")) {
+    if (value.schemaVersion > BLUEPRINT_STORAGE_VERSION) return [];
+    value = value.payload;
   }
+  const list = Array.isArray(value) ? value : Array.isArray(value?.loadouts) ? value.loadouts : [];
+  return list.slice(0, MAX_LOADOUTS).map((lo, index) => ({
+    id: String(lo?.id || `loadout-${index}`).slice(0, 64),
+    name: String(lo?.name || `Loadout ${index + 1}`).slice(0, 20),
+    designIds: Array.isArray(lo?.designIds) ? lo.designIds.map(String).slice(0, MAX_SAVED_DESIGNS) : []
+  }));
 }
-
-export function persistSavedDesigns(savedDesigns) {
-  localStorage.setItem(LOCAL_SAVED_DESIGNS_KEY, JSON.stringify(savedDesigns.slice(0, 12)));
-}
-
-// Loadouts are named tabs in the purchase bar, each a curated list of saved-design
-// ids. The implicit "All" tab is not stored; only user-created loadouts persist.
-export function loadLoadouts() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(LOCAL_LOADOUTS_KEY) || "[]");
-    if (!Array.isArray(stored)) return [];
-    return stored.slice(0, 8).map((lo, index) => ({
-      id: String(lo.id || `loadout-${index}`),
-      name: String(lo.name || `Loadout ${index + 1}`).slice(0, 20),
-      designIds: Array.isArray(lo.designIds) ? lo.designIds.map(String).slice(0, 12) : []
-    }));
-  } catch {
-    return [];
-  }
-}
-
-export function persistLoadouts(loadouts) {
-  localStorage.setItem(LOCAL_LOADOUTS_KEY, JSON.stringify(loadouts.slice(0, 8)));
-}
+export function loadoutsEnvelope(loadouts, timestamps = {}) { return envelope("loadouts", migrateLoadoutsStorage(loadouts), timestamps); }
+export function loadLoadouts() { const read = readJson(LOCAL_LOADOUTS_KEY, []); return read.ok ? migrateLoadoutsStorage(read.value) : []; }
+export function persistLoadouts(loadouts) { return writeJson(LOCAL_LOADOUTS_KEY, loadoutsEnvelope(loadouts)); }

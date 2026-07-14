@@ -25,6 +25,7 @@ const GROUPS = {
   unit: [
     "verify-module-boundaries.js",
     "verify-module-imports.js",
+    "verify-blueprint-storage.js",
     "verify-snapshot-merge.js",
     "verify-shared-parity.js",
     "verify-movement.js",

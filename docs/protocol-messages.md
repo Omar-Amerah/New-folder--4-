@@ -66,3 +66,9 @@ exact purchase cost so enemy economy is not leaked during active matches.
 No client-to-server message shape changed. Combat snapshots continue to carry
 existing HP, shield, alive, projectile/effect and design-index-aligned weapon
 angle/target fields; Section 7 only tightened server-side validation and ordering.
+
+## Catch-up Part 1 protocol notes
+
+- `deploy` in the design phase remains the ready/save-design command.
+- `deploy` in the active phase now saves the player's editor blueprint and future-purchase combat style only. It does **not** mutate deployed ships; deployed-ship style changes must use `setCombatStyle`.
+- `buyShip` carries an immutable design and combat-style snapshot in the request. The server validates the submitted snapshot and executes the purchase from that payload rather than rereading later editor state.

@@ -124,18 +124,9 @@ function handleMessage(client, message) {
     }
 
     if (client.room.phase === "active") {
-      let updatedCount = 0;
-      for (const ship of client.player.ships) {
-        if (!ship.alive) continue;
-        ship.combatStyle = combatStyle;
-        ship.orbitDir = undefined;
-        ship.lastOrbitTargetId = null;
-        updatedCount++;
-      }
-      if (process.env.NODE_ENV !== "production") {
-        console.log(`[DEBUG] Updated combatStyle of ${updatedCount} live ships for player ${client.player.id} to: ${combatStyle}`);
-      }
-      broadcastSnapshot(client.room, performanceNow(), true);
+      // Saving the editor blueprint during a live match updates only the future-purchase
+      // design/style snapshot. Existing ships are immutable unless the explicit
+      // setCombatStyle command targets deployed ships.
     }
 
     client.room.lastStaticSnapshotAt = 0;
