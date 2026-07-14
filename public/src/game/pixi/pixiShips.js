@@ -382,6 +382,22 @@ function updatePixiEngineExhaust(view, ship, now) {
 // added here. The angle is smoothed toward the target at the shared traverse
 // rate with shortest-angle interpolation; it snaps on (re)bind, and destroyed
 // turrets freeze and dim.
+// Last received authoritative angle per "shipId:designIndex", with the time it
+// last changed — read-only diagnostics for __mfaLiveTurretDiagnostics. Bounded:
+// cleared wholesale when it grows past a sane fleet size.
+const liveTurretAngleTrace = new Map();
+const LIVE_TURRET_TRACE_LIMIT = 2048;
+
+function traceReceivedTurretAngle(shipId, designIndex, rawAngle) {
+  if (!Number.isFinite(rawAngle)) return;
+  if (liveTurretAngleTrace.size > LIVE_TURRET_TRACE_LIMIT) liveTurretAngleTrace.clear();
+  const key = `${shipId}:${designIndex}`;
+  const previous = liveTurretAngleTrace.get(key);
+  if (!previous || previous.angle !== rawAngle) {
+    liveTurretAngleTrace.set(key, { angle: rawAngle, changedAt: performance.now() });
+  }
+}
+
 function updatePixiTurrets(env, view, ship, design) {
   ensureForcedArrowState(env, view);
 
@@ -399,6 +415,7 @@ function updatePixiTurrets(env, view, ship, design) {
     const part = design[i];
     if (!part) continue;
 
+    traceReceivedTurretAngle(ship.id, i, ship.weaponAngles?.[i]);
     const target = authoritativeWeaponAngle(ship, i, part);
     const healthRatio = componentHealthRatio(ship, i);
     const destroyed = healthRatio !== null && healthRatio <= 0;
@@ -941,6 +958,35 @@ export function __pixiTurretDebugInfo(shipId) {
   };
 }
 
+// Read-only live turret diagnostics for a ship id: per rotating weapon, what
+// authoritative angle was received, what is actually rendered, and whether the
+// angle is present/changing. For debugging live tracking issues only — reads
+// snapshot + view state and never mutates anything.
+export function __pixiLiveTurretDiagnostics(shipId) {
+  const ship = state.snapshot?.ships?.find((candidate) => candidate.id === shipId);
+  if (!ship || !Array.isArray(ship.design)) return null;
+  const view = pixiShipPool && pixiShipPool.peek ? pixiShipPool.peek(shipId) : null;
+  const hullAngle = view ? view.hullContainer.rotation : Number(ship.angle) || 0;
+  const now = performance.now();
+  return rotatingWeaponIndices(ship.design).map((designIndex) => {
+    const raw = ship.weaponAngles?.[designIndex];
+    const anglePresent = Number.isFinite(raw);
+    const sprite = view ? view.turretSprites.find((candidate) => candidate.__designIndex === designIndex) || null : null;
+    const trace = liveTurretAngleTrace.get(`${shipId}:${designIndex}`);
+    return {
+      designIndex,
+      partType: ship.design[designIndex]?.type || null,
+      receivedAuthoritativeAngle: anglePresent ? raw : null,
+      renderedLocalAngle: sprite ? sprite.rotation : null,
+      renderedWorldAngle: sprite ? weaponRelativeToWorld(hullAngle, sprite.rotation) : null,
+      hullAngle,
+      anglePresent,
+      angleChangedRecently: Boolean(trace && now - trace.changedAt < 3000),
+      targetId: ship.combatTargetId ?? null
+    };
+  });
+}
+
 // Read-only Pixi texture diagnostics: cache generation, per-cache entry/ref
 // counts, created/destroyed texture totals, and ship-view counts. Returns plain
 // data — no mutable cache objects are exposed.
@@ -972,5 +1018,6 @@ export function pixiTextureDiagnosticsSnapshot() {
 // concatenated production bundle.
 if (typeof window !== "undefined") {
   window.__mfaTurretDebugInfo = __pixiTurretDebugInfo;
+  window.__mfaLiveTurretDiagnostics = __pixiLiveTurretDiagnostics;
   window.__mfaPixiTextureDiagnostics = pixiTextureDiagnosticsSnapshot;
 }

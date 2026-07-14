@@ -42,13 +42,13 @@ async function main() {
     alpha = await openClient("Alpha");
     beta = await openClient("Beta");
 
+    // Alpha must complete its join (and become room admin) before Beta joins;
+    // sending both concurrently races the server's processing order and can
+    // make Beta the admin, failing the addBot step below.
     alpha.send({ type: "join", name: "Alpha", room: ROOM });
+    await alpha.waitFor((message) => message.type === "joined" && message.room === ROOM, "alpha did not join");
     beta.send({ type: "join", name: "Beta", room: ROOM });
-
-    await Promise.all([
-      alpha.waitFor((message) => message.type === "joined" && message.room === ROOM, "alpha did not join"),
-      beta.waitFor((message) => message.type === "joined" && message.room === ROOM, "beta did not join")
-    ]);
+    await beta.waitFor((message) => message.type === "joined" && message.room === ROOM, "beta did not join");
 
     alpha.send({ type: "addBot" });
 
@@ -240,14 +240,17 @@ function makeNoEngineDesign() {
 }
 
 function makeExpensiveDesign() {
-  const design = [];
-  for (let y = 0; y <= 6; y += 1) {
-    for (const x of [0, 3, 6, 9, 12]) {
-      design.push({ x, y, type: "railgun" });
+  // A structurally VALID design (single core, engine, connected 1x1 blasters)
+  // whose cost far exceeds the 1100 starting money, so the rejection exercises
+  // the affordability check rather than blueprint validation.
+  const design = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }];
+  for (let y = 3; y <= 7; y += 1) {
+    for (let x = 3; x <= 11; x += 1) {
+      if (x === 7 && (y === 7 || y === 6)) continue;
+      design.push({ x, y, type: "blaster" });
     }
   }
-  design.push({ x: 6, y: 7, type: "core" });
-  design.push({ x: 0, y: 7, type: "engine" });
+  design.push({ x: 7, y: 6, type: "blaster" });
   return design;
 }
 

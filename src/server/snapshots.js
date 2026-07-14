@@ -2,6 +2,7 @@
 
 const { round } = require("./utils");
 const { teamLabel } = require("./players");
+const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
 const { getPlayerRallyPoint } = require("./ships");
@@ -209,6 +210,10 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
   return {
     type: "state",
     room: room.code,
+    // Frontend/backend build identification: the client compares these against
+    // its own protocol support to detect a stale separately-deployed backend.
+    protocolVersion: PROTOCOL_VERSION,
+    serverBuildSha: SERVER_BUILD_SHA,
     phase: room.phase,
     adminId: room.adminId,
     mapSizeLabel: sendStatic ? room.mapSizeLabel : undefined,

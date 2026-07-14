@@ -8,3 +8,4 @@ node_modules/
 # Local runtime artifacts
 *.log
 server.pid
+public/build-sha.js

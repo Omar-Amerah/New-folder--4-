@@ -32,10 +32,37 @@ export function defaultWeaponRelativeAngle(part) {
 
 // The latest authoritative ship-relative weapon angle for design[index]:
 // the server's ship.weaponAngles entry when present, else the blueprint facing.
+// The blueprint fallback keeps production rendering instead of crashing, but a
+// rotating weapon missing its authoritative angle means the live snapshot is
+// malformed (typically a stale separately-deployed backend), so development
+// gets a deduplicated warning instead of the problem being silently concealed.
+const missingAngleWarned = new Set();
+
+function warnMissingWeaponAngle(ship, index, part) {
+  const key = `${ship?.id}:${index}`;
+  if (missingAngleWarned.has(key)) return;
+  missingAngleWarned.add(key);
+  const backend = globalThis.__mfaServerBuild || {};
+  const length = Array.isArray(ship?.weaponAngles) ? ship.weaponAngles.length : "none";
+  console.warn(
+    `[mfa] Missing authoritative weapon angle: shipId=${ship?.id} designIndex=${index} partType=${part?.type} ` +
+    `weaponAnglesLength=${length} frontendBuild=${globalThis.__mfaFrontendBuild || "dev"} ` +
+    `backendBuild=${backend.buildSha || "unknown"} backendProtocol=${backend.protocolVersion ?? "unknown"} — ` +
+    `falling back to the blueprint angle; if this is a live server the WebSocket backend is stale and needs redeploying.`
+  );
+}
+
+// Test hook: clears the per-ship/per-index warning dedupe set.
+export function resetMissingWeaponAngleWarnings() {
+  missingAngleWarned.clear();
+}
+
 export function authoritativeWeaponAngle(ship, index, part) {
   const angle = ship?.weaponAngles?.[index];
   if (Number.isFinite(angle)) return angle;
-  return defaultWeaponRelativeAngle(part || ship?.design?.[index]);
+  const resolvedPart = part || ship?.design?.[index];
+  if (isRotatingWeaponPart(resolvedPart?.type)) warnMissingWeaponAngle(ship, index, resolvedPart);
+  return defaultWeaponRelativeAngle(resolvedPart);
 }
 
 // Ship-relative -> world weapon angle. World = hull rotation + relative.

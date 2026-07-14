@@ -3,6 +3,7 @@
 const { WORLD, ECONOMY, DEFAULT_DESIGN, MAX_MESSAGE_BYTES } = require("./config");
 const { PARTS } = require("./components");
 const { leaveRoom } = require("./players");
+const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 
 const sockets = new Set();
 let nextClientId = 1;
@@ -30,6 +31,8 @@ function createClient(socket) {
   send(client, {
     type: "hello",
     id: client.id,
+    protocolVersion: PROTOCOL_VERSION,
+    serverBuildSha: SERVER_BUILD_SHA,
     world: WORLD,
     parts: PARTS,
     economy: {

@@ -83,11 +83,53 @@ function serveBuffer(req, res, { data, gzip, contentType, cacheControl }) {
   res.end(data);
 }
 
+// Development-only turret aim diagnostics (never enabled in production unless
+// MFA_TURRET_DEBUG=1 is set explicitly). Returns the full per-weapon aim/fire
+// decision state for a room so live tracking issues can be inspected without
+// bloating normal snapshots.
+const TURRET_DEBUG_ENABLED = process.env.NODE_ENV !== "production" || process.env.MFA_TURRET_DEBUG === "1";
+
+function handleTurretDebugRequest(requestUrl, res) {
+  const { buildShipTurretDiagnostics } = require("./src/server/combat");
+  const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./src/server/buildInfo");
+  const roomCode = String(requestUrl.searchParams.get("room") || "").toUpperCase();
+  const shipId = requestUrl.searchParams.get("ship") || null;
+  const room = rooms.get(roomCode);
+  if (!room) {
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "room not found", room: roomCode }));
+    return;
+  }
+  const ships = [];
+  for (const ship of room.ships.values()) {
+    if (ship.removed || (shipId && ship.id !== shipId)) continue;
+    ships.push({ shipId: ship.id, alive: ship.alive, turrets: buildShipTurretDiagnostics(room, ship) });
+  }
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+  res.end(JSON.stringify({
+    room: roomCode,
+    phase: room.phase,
+    protocolVersion: PROTOCOL_VERSION,
+    serverBuildSha: SERVER_BUILD_SHA,
+    ships
+  }));
+}
+
 // HTTP request handler for static files and balance JSON
 function handleHttpRequest(req, res) {
   const requestUrl = new URL(req.url, "http://localhost");
   let pathname = decodeURIComponent(requestUrl.pathname);
   if (pathname === "/") pathname = "/index.html";
+
+  if (pathname === "/debug/turrets") {
+    if (!TURRET_DEBUG_ENABLED) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return;
+    }
+    handleTurretDebugRequest(requestUrl, res);
+    return;
+  }
 
   if (pathname === "/component-balance.json") {
     serveBuffer(req, res, {

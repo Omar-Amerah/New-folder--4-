@@ -23,8 +23,11 @@
   function turnRateFor(weapon) {
     if (!weapon) return TURN_RATES.default;
     if (typeof weapon === "string") return TURN_RATES[weapon] ?? TURN_RATES.default;
-    if (Number.isFinite(weapon.aimSpeed)) return weapon.aimSpeed;
-    if (Number.isFinite(weapon.turretTurnRate)) return weapon.turretTurnRate;
+    // Overrides must be positive finite numbers. A zero/null aimSpeed (e.g.
+    // from a serialization round trip that turned undefined into null/0) must
+    // never freeze the traverse — fall through to the family table instead.
+    if (Number.isFinite(weapon.aimSpeed) && weapon.aimSpeed > 0) return weapon.aimSpeed;
+    if (Number.isFinite(weapon.turretTurnRate) && weapon.turretTurnRate > 0) return weapon.turretTurnRate;
     const family = weapon.type || weapon.family;
     return TURN_RATES[family] ?? TURN_RATES.default;
   }

@@ -107,6 +107,29 @@ try {
   process.exit(1);
 }
 
+// 1a. Emit the frontend build SHA as a tiny classic script loaded before the
+// app so both the ES-module dev build and the bundled client report the same
+// build. Netlify provides COMMIT_REF; local builds fall back to git, then "dev".
+function resolveFrontendBuildSha() {
+  const fromEnv = process.env.MFA_BUILD_SHA || process.env.COMMIT_REF || "";
+  if (fromEnv) return String(fromEnv).trim();
+  try {
+    const { execSync } = require("child_process");
+    const sha = execSync("git rev-parse HEAD", { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (sha) return sha;
+  } catch {
+    // Not a git checkout.
+  }
+  return "dev";
+}
+const frontendBuildSha = resolveFrontendBuildSha();
+fs.writeFileSync(
+  path.join(__dirname, "public", "build-sha.js"),
+  `globalThis.__MFA_BUILD_SHA__ = ${JSON.stringify(frontendBuildSha)};\n`,
+  "utf8"
+);
+console.log(`Frontend build SHA: ${frontendBuildSha}`);
+
 // 1b. Vendor the PixiJS browser ESM bundle (served as .js because the server MIME map has no .mjs entry)
 const pixiSource = path.join(__dirname, "node_modules", "pixi.js", "dist", "pixi.min.mjs");
 const vendorDir = path.join(__dirname, "public", "vendor");
@@ -144,7 +167,9 @@ const requiredFiles = [
   path.join(__dirname, "public", "styles.css"),
   path.join(__dirname, "public", "vendor", "pixi.min.js"),
   path.join(__dirname, "public", "vendor", "msgpack.min.js"),
-  path.join(__dirname, "public", "src", "shared", "turretRules.js")
+  path.join(__dirname, "public", "src", "shared", "turretRules.js"),
+  path.join(__dirname, "public", "src", "shared", "protocolVersion.js"),
+  path.join(__dirname, "public", "build-sha.js")
 ];
 
 for (const file of requiredFiles) {
