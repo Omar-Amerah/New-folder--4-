@@ -1,7 +1,7 @@
 // Renderer-neutral turret aiming math: which parts are rotating weapons, the
 // authoritative ship-relative weapon angle for a design slot, relative/world
 // angle conversion, and the shared traverse-rate lookup. No Canvas, no Pixi,
-// no DOM — both renderers (and tests) import these.
+// no DOM — the Pixi arena renderer (and tests) import these.
 
 import { PART_STATS, isRotatablePart } from "../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../design/rotation.js";

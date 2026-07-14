@@ -1,6 +1,6 @@
 // Renderer-neutral ship status math: per-component health ratios, shield
 // ratios/radii, and hull-bar colour ramps. No Canvas, no Pixi, no DOM — both
-// the Canvas fallback and the Pixi renderer import these.
+// the Pixi arena renderer imports these.
 
 import { clamp } from "../shared/math.js";
 import { PART_STATS } from "../design/parts.js";

@@ -25,7 +25,7 @@
 
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
-import { pixiBakeTexture, getPixiBakeGeneration } from "./pixiBake.js";
+import { pixiBakeTexture, getPixiBakeGeneration, createPixiTextureCache } from "./pixiBake.js";
 import {
   drawShipStructure,
   drawModule,
@@ -40,6 +40,44 @@ import { isRotatingWeaponPart } from "../weaponAim.js";
 export const SHIP_SCALE = 13;
 // Nominal zoom used when baking zoom-compensated line widths into textures.
 const BAKE_NOMINAL_ZOOM = 0.6;
+
+// Cache-owned, reference-counted textures. Identical ships share one hull
+// texture; identical weapon types share one turret texture; one arrow texture
+// is shared by every forced-arrow debug sprite. Views hold LEASES only and must
+// never destroy these textures directly.
+const hullTextureCache = createPixiTextureCache("shipHull");
+const turretTextureCache = createPixiTextureCache("shipTurret");
+const arrowTextureCache = createPixiTextureCache("turretArrow");
+
+// Options that guarantee a Sprite.destroy() never destroys a cache-owned
+// texture or its source (Pixi v8).
+const SPRITE_DESTROY_OPTS = { children: false, texture: false, textureSource: false };
+
+// Hull texture key == the static signature (design + colour + radius bounds +
+// bake scale + generation); every field that changes the baked hull is present.
+function hullTextureKey(staticKey) {
+  return staticKey;
+}
+// Turret art depends only on part type + bake scale + generation (the rotating
+// top uses the part's own colour, not the team colour).
+function turretTextureKey(partType, bakeScale) {
+  return `${partType}|${bakeScale}|${getPixiBakeGeneration()}`;
+}
+function arrowTextureKey(bakeScale) {
+  return `debug-arrow|${bakeScale}|${getPixiBakeGeneration()}`;
+}
+
+// Lease accessors. Consumers store the returned lease and call lease.release()
+// exactly once when done; the cache owns destruction.
+export function acquireHullLease(env, design, color, radius, staticKey) {
+  return hullTextureCache.acquire(hullTextureKey(staticKey), () => bakePixiHullTexture(env, design, color, radius));
+}
+export function acquireTurretLease(env, partType) {
+  return turretTextureCache.acquire(turretTextureKey(partType, env.bakeScale), () => bakePixiTurretTexture(env, partType));
+}
+export function acquireTurretArrowLease(env) {
+  return arrowTextureCache.acquire(arrowTextureKey(env.bakeScale), () => bakePixiTurretArrowTexture(env));
+}
 
 // --- Static hull texture ------------------------------------------------------
 // The hull carries the structural spine plus every component's STATIC art:
@@ -101,7 +139,7 @@ export function bakePixiHullTexture(env, design, color, radius) {
         drawModule({ x: place.cx, y: place.cy, size: SHIP_SCALE, color: def.color, type: part.type, trim: color });
       }
     }
-    // Forward direction indicator, matching the Canvas renderer's arrowhead.
+    // Forward direction indicator (the ship's nose arrowhead).
     bctx.strokeStyle = color;
     bctx.lineWidth = 2.5 / BAKE_NOMINAL_ZOOM;
     bctx.beginPath();
@@ -266,6 +304,9 @@ export function createPixiShipView(env) {
     turretsByDesignIndex: new Map(),
     visualTurretAngles: new Map(),
     forcedArrowActive: false,
+    // Texture leases (non-owning). Released on rebuild / recycle / destroy.
+    hullLease: null,
+    arrowLease: null,
     // Labels / HUD
     hudGfx,
     shieldText,
@@ -297,20 +338,45 @@ export function setHullFrameRotation(view, angle) {
   view.hullContainer.rotation = angle;
 }
 
+// Releases every texture lease this view holds (hull, per-turret, arrow) and
+// clears the turret sprites. Safe to call more than once. Sprites are destroyed
+// WITHOUT destroying their cache-owned textures.
+function releaseShipViewLeases(view) {
+  for (const sprite of view.turretSprites) {
+    if (sprite.__lease) {
+      sprite.__lease.release();
+      sprite.__lease = null;
+    }
+    sprite.__baseTexture = null;
+    if (!sprite.destroyed) sprite.destroy(SPRITE_DESTROY_OPTS);
+  }
+  view.turretSprites = [];
+  view.turretsByDesignIndex.clear();
+  view.turretContainer.removeChildren();
+  if (view.arrowLease) {
+    view.arrowLease.release();
+    view.arrowLease = null;
+  }
+  if (view.hullLease) {
+    view.hullLease.release();
+    view.hullLease = null;
+  }
+  // The hull sprite's texture is cache-owned; drop the reference without
+  // destroying it.
+  view.staticHullSprite.texture = null;
+}
+
 // Full per-ship visual reset, used when a pooled view is handed to another ship
 // and when a view is recycled. Removes stale turrets, clears index maps, angle
-// state, damage signatures, effects, and visibility/alpha.
+// state, damage signatures, effects, visibility/alpha, and releases all leases.
 export function resetPixiShipView(view) {
   view.staticKey = null;
   view.boundShipId = null;
   view.damageSig = null;
   view.turretDebugLastAt = 0;
   view.forcedArrowActive = false;
-  for (const sprite of view.turretSprites) sprite.destroy();
-  view.turretSprites = [];
-  view.turretsByDesignIndex.clear();
+  releaseShipViewLeases(view);
   view.visualTurretAngles.clear();
-  view.turretContainer.removeChildren();
   view.otherAnimated.removeChildren();
   view.engines = [];
   view.damageOverlay.clear();
@@ -325,29 +391,54 @@ export function resetPixiShipView(view) {
   view.debugText.visible = false;
 }
 
+// Full teardown for pool destruction: release leases, then destroy every
+// display object (never its cache-owned textures) and detach the root.
+export function destroyPixiShipView(view) {
+  releaseShipViewLeases(view);
+  view.visualTurretAngles.clear();
+  if (view.root) {
+    if (view.root.parent) view.root.parent.removeChild(view.root);
+    view.root.destroy({ children: true, texture: false, textureSource: false });
+  }
+}
+
 // (Re)build the static hull sprite and the persistent turret sprites for a
 // design. Called only when the static signature changes — never on ordinary
 // snapshot/position/angle/weaponAngle updates.
 export function rebuildPixiShipStatic(env, view, design, color, radius, staticKey) {
-  // Static hull.
-  const hullTexture = bakePixiHullTexture(env, design, color, radius);
-  if (view.staticHullSprite.texture && view.staticHullSprite.__owned) {
-    view.staticHullSprite.texture.destroy(true);
-  }
-  view.staticHullSprite.texture = hullTexture;
-  view.staticHullSprite.__owned = true;
+  // Static hull: acquire the replacement lease FIRST, assign its texture, then
+  // release the old one — so no frame ever references a destroyed texture and
+  // an identical re-acquire keeps a positive refcount throughout.
+  const previousHullLease = view.hullLease;
+  const hullLease = acquireHullLease(env, design, color, radius, staticKey);
+  view.hullLease = hullLease;
+  view.staticHullSprite.texture = hullLease.texture;
   view.staticHullSprite.scale.set(1 / env.bakeScale);
+  if (previousHullLease) previousHullLease.release();
 
   // Persistent turrets: exactly one per rotating weapon, keyed by ORIGINAL
-  // design index (never a compressed weapon-list index).
-  for (const sprite of view.turretSprites) sprite.destroy();
+  // design index (never a compressed weapon-list index). Release the old turret
+  // leases/sprites, then acquire fresh shared leases so identical weapon types
+  // reference the exact same Texture object.
+  for (const sprite of view.turretSprites) {
+    if (sprite.__lease) sprite.__lease.release();
+    sprite.__lease = null;
+    sprite.__baseTexture = null;
+    if (!sprite.destroyed) sprite.destroy(SPRITE_DESTROY_OPTS);
+  }
   view.turretSprites = [];
   view.turretsByDesignIndex.clear();
   view.turretContainer.removeChildren();
+  view.forcedArrowActive = false;
+  if (view.arrowLease) {
+    view.arrowLease.release();
+    view.arrowLease = null;
+  }
 
   design.forEach((part, i) => {
     if (!isRotatingWeaponPart(part.type)) return;
-    const sprite = new env.PIXI.Sprite(bakePixiTurretTexture(env, part.type));
+    const lease = acquireTurretLease(env, part.type);
+    const sprite = new env.PIXI.Sprite(lease.texture);
     sprite.label = `Turret[${i}] ${part.type}`;
     sprite.anchor.set(0.5);
     sprite.scale.set(1 / env.bakeScale);
@@ -357,7 +448,8 @@ export function rebuildPixiShipStatic(env, view, design, color, radius, staticKe
     sprite.__designIndex = i;
     sprite.__partType = part.type;
     sprite.__weaponStat = PART_STATS[part.type]?.weapon || null;
-    sprite.__baseTexture = sprite.texture;
+    sprite.__lease = lease;
+    sprite.__baseTexture = lease.texture;
     sprite.rotation = defaultTurretAngle(part);
     sprite.visible = true;
     view.turretContainer.addChild(sprite);

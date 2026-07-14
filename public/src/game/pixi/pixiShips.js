@@ -14,7 +14,7 @@ import { state } from "../../state.js";
 import { clamp, approachAngle } from "../../shared/math.js";
 import { PART_STATS } from "../../design/parts.js";
 import { normalizeRotation } from "../../design/rotation.js";
-import { isCircleVisible } from "../renderer.js";
+import { isCircleVisible } from "../viewportCulling.js";
 import { footprintLocalPlacement, footprintCorners } from "../shipGeometry.js";
 import { componentHealthRatio, shieldRatioForShip, shieldRingRadius, hullColorForRatio } from "../shipVitals.js";
 import {
@@ -32,14 +32,14 @@ import {
   computeManeuverJets,
   updateShipHud
 } from "../shipDynamics.js";
-import { createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
+import { createPixiKeyedPool, getPixiBakeGeneration, pixiTextureDiagnostics } from "./pixiBake.js";
 import {
   SHIP_SCALE,
   createPixiShipView,
   rebuildPixiShipStatic,
   setHullFrameRotation,
   pixiStaticSignature,
-  bakePixiTurretArrowTexture
+  acquireTurretArrowLease
 } from "./pixiShipView.js";
 import { getEffectDensity } from "../renderSettings.js";
 import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
@@ -47,8 +47,6 @@ import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponen
 const pixiDesignSignatures = new WeakMap();
 let pixiShipPool = null;
 let pixiGradientCache = new Map();
-let pixiArrowTexture = null;
-let pixiArrowTextureGen = -1;
 
 function pixiDesignSignature(design) {
   let signature = pixiDesignSignatures.get(design);
@@ -423,17 +421,24 @@ function updatePixiTurrets(env, view, ship, design) {
   }
 }
 
-// Applies / clears forced-arrow debug textures when the flag changes.
+// Applies / clears forced-arrow debug textures when the flag changes. The base
+// turret leases stay held throughout; only a shared arrow lease is acquired
+// while arrows are active, so repeated toggles never leak textures.
 function ensureForcedArrowState(env, view) {
   const want = forcedArrowEnabled();
   if (want === view.forcedArrowActive) return;
   view.forcedArrowActive = want;
-  if (want && (!pixiArrowTexture || pixiArrowTextureGen !== getPixiBakeGeneration())) {
-    pixiArrowTexture = bakePixiTurretArrowTexture(env);
-    pixiArrowTextureGen = getPixiBakeGeneration();
-  }
-  for (const sprite of view.turretSprites) {
-    sprite.texture = want ? pixiArrowTexture : sprite.__baseTexture;
+  if (want) {
+    if (!view.arrowLease) view.arrowLease = acquireTurretArrowLease(env);
+    for (const sprite of view.turretSprites) sprite.texture = view.arrowLease.texture;
+  } else {
+    for (const sprite of view.turretSprites) {
+      if (sprite.__baseTexture) sprite.texture = sprite.__baseTexture;
+    }
+    if (view.arrowLease) {
+      view.arrowLease.release();
+      view.arrowLease = null;
+    }
   }
 }
 
@@ -879,6 +884,25 @@ export function updatePixiShips(env, now, players, bounds) {
   pruneComponentDamage(visibleShipIds, performance.now());
 }
 
+// Tears down the ship pool (releasing every texture lease and destroying display
+// objects without their cache-owned textures) and resets module-global state.
+// Called by destroyPixiRenderer().
+export function destroyPixiShipPool() {
+  if (pixiShipPool) {
+    pixiShipPool.destroy();
+    pixiShipPool = null;
+  }
+  pixiGradientCache = new Map();
+}
+
+// Live counts of ship views for texture diagnostics.
+export function pixiShipViewCounts() {
+  return {
+    activeShipViews: pixiShipPool ? pixiShipPool.activeCount() : 0,
+    freeShipViews: pixiShipPool ? pixiShipPool.freeCount() : 0
+  };
+}
+
 // Test/diagnostic hook: exposes the live turret-sprite state for a ship id so
 // browser tests can assert real rendered rotations and world transforms without
 // scraping pixels. Returns null when no view is bound to that ship.
@@ -909,9 +933,36 @@ export function __pixiTurretDebugInfo(shipId) {
   };
 }
 
-// Expose the live turret inspection hook so browser tests (and manual
-// debugging) can read real rendered rotations/world transforms. Works in both
-// the ES-module dev build and the concatenated production bundle.
+// Read-only Pixi texture diagnostics: cache generation, per-cache entry/ref
+// counts, created/destroyed texture totals, and ship-view counts. Returns plain
+// data — no mutable cache objects are exposed.
+export function pixiTextureDiagnosticsSnapshot() {
+  const base = pixiTextureDiagnostics();
+  const counts = pixiShipViewCounts();
+  let staleEntries = 0;
+  let liveRefs = 0;
+  for (const c of base.caches) {
+    staleEntries += c.stale;
+    liveRefs += c.refs;
+  }
+  return {
+    generation: base.generation,
+    createdTextures: base.createdTextures,
+    destroyedTextures: base.destroyedTextures,
+    staleEntries,
+    liveReferenceCount: liveRefs,
+    caches: base.caches,
+    cacheNames: base.caches.map((c) => c.name),
+    activeShipViews: counts.activeShipViews,
+    freeShipViews: counts.freeShipViews
+  };
+}
+
+// Expose the live turret inspection + texture diagnostics hooks so browser tests
+// (and manual debugging) can read real rendered rotations/world transforms and
+// texture lifecycle state. Works in both the ES-module dev build and the
+// concatenated production bundle.
 if (typeof window !== "undefined") {
   window.__mfaTurretDebugInfo = __pixiTurretDebugInfo;
+  window.__mfaPixiTextureDiagnostics = pixiTextureDiagnosticsSnapshot;
 }

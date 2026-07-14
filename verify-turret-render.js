@@ -14,20 +14,11 @@ const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
 const { chromium } = require("playwright");
+const { launchChromium } = require("./verify-pixi-browser-support.js");
 
 const PORT = Number(process.env.TEST_PORT || 5599);
 const BASE = `http://127.0.0.1:${PORT}`;
-const CHROME = process.env.PW_CHROME
-  || firstExisting([
-    "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-    "/opt/pw-browsers/chromium/chrome-linux/chrome"
-  ]);
 const SHOT_DIR = process.env.SHOT_DIR || path.join(require("os").tmpdir(), "mfa-turret-shots");
-
-function firstExisting(paths) {
-  for (const p of paths) if (fs.existsSync(p)) return p;
-  return undefined;
-}
 
 function waitForServer(timeoutMs = 15000) {
   const start = Date.now();
@@ -159,7 +150,6 @@ function pixelsDiffer(a, b) {
 const EPS = 0.02;
 
 async function main() {
-  if (!CHROME) throw new Error("no chromium binary found under /opt/pw-browsers");
   const server = spawn("node", ["server.js"], {
     cwd: __dirname,
     env: { ...process.env, PORT: String(PORT) },
@@ -172,11 +162,7 @@ async function main() {
   let browser;
   try {
     await waitForServer();
-    browser = await chromium.launch({
-      headless: true,
-      executablePath: CHROME,
-      args: ["--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
-    });
+    browser = await launchChromium(chromium);
     const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
     const pageErrors = [];
     page.on("pageerror", (e) => pageErrors.push(e.message));

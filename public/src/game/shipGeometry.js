@@ -1,7 +1,7 @@
 // Renderer-neutral ship-local geometry: where each blueprint part sits on a
 // ship, footprint centres/dimensions, component pivots, and engine nozzle
 // placement. Pure math over the design data — no Canvas, no Pixi, no DOM —
-// so both the Canvas fallback and the Pixi renderer share one source of truth.
+// so the Pixi arena renderer and the blueprint/UI bakers share one source of truth.
 
 import { PART_STATS } from "../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../design/rotation.js";
@@ -21,8 +21,8 @@ export function moduleLocalPosition(part, scale) {
 // Where and how a (possibly multi-tile) part should be drawn on a ship, in the
 // ship's local space: the footprint's centre (the component's pivot), its tile
 // dimensions, and the angle that aligns a canonical +x-forward component with
-// the footprint's long axis. Used by both renderers so blueprint and in-game
-// visuals stay consistent.
+// the footprint's long axis. Used by the arena renderer and the blueprint/UI
+// bakers so blueprint and in-game visuals stay consistent.
 export function footprintLocalPlacement(part, scale) {
   const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
   const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);

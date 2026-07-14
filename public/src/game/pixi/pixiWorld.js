@@ -4,11 +4,11 @@
 import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
-import { isCircleVisible, getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, activeEngineSmoke, isFriendlyProjectile } from "../renderer.js";
-import { pixiBakeTexture, registerPixiTextureCache, createPixiKeyedPool, getPixiBakeGeneration } from "./pixiBake.js";
+import { isCircleVisible } from "../viewportCulling.js";
+import { getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, isFriendlyProjectile } from "../worldArt.js";
+import { activeEngineSmoke } from "../shipDynamics.js";
+import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
-
-const PIXI_BAKE_NOMINAL_ZOOM = 0.6;
 
 let gridCache = { width: 0, height: 0, zoom: 0 };
 let pixiMapStatics = null;
@@ -18,9 +18,24 @@ let pixiFriendlyBulletPool = null;
 let pixiEffectTextPool = null;
 let pixiEffectsGfx = null;
 
-const pixiAsteroidTextureCache = registerPixiTextureCache(new Map());
-const pixiNebulaTextureCache = registerPixiTextureCache(new Map());
-const pixiBulletTextureCache = registerPixiTextureCache(new Map());
+// Reference-counted texture caches. World object views hold LEASES only; the
+// cache owns destruction (see pixiBake.js).
+const asteroidTextureCache = createPixiTextureCache("asteroid");
+const nebulaTextureCache = createPixiTextureCache("nebula");
+const bulletTextureCache = createPixiTextureCache("bullet");
+
+// Stable string ids for map objects (asteroids/clouds) so their per-object
+// textures can be keyed in the string-keyed lease caches.
+const worldObjectIds = new WeakMap();
+let worldObjectIdSeq = 0;
+function worldObjectId(obj) {
+  let id = worldObjectIds.get(obj);
+  if (id === undefined) {
+    id = ++worldObjectIdSeq;
+    worldObjectIds.set(obj, id);
+  }
+  return id;
+}
 
 function updatePixiGrid(env) {
   const gfx = env.layers.grid;
@@ -47,26 +62,41 @@ function updatePixiGrid(env) {
 
 // --- Map features (safe zones, nebulas, asteroids) ---------------------------
 
-function getPixiAsteroidTexture(env, asteroid) {
-  let texture = pixiAsteroidTextureCache.get(asteroid);
-  if (texture) return texture;
+function acquireAsteroidLease(env, asteroid) {
   const radius = asteroid.radius || 60;
   // Padding covers the 1.2x shape multiplier plus the baked drop shadow.
   const half = radius * 1.3 + 26;
-  texture = pixiBakeTexture(env, half * 2, half * 2, () => {
+  const key = `${worldObjectId(asteroid)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+  return asteroidTextureCache.acquire(key, () => pixiBakeTexture(env, half * 2, half * 2, () => {
     drawAsteroid({ ...asteroid, x: 0, y: 0, rotation: 0, spin: 0 }, 0);
-  });
-  pixiAsteroidTextureCache.set(asteroid, texture);
-  return texture;
+  }));
 }
 
-function getPixiNebulaTexture(env, cloud) {
-  let entry = pixiNebulaTextureCache.get(cloud);
-  if (entry) return entry;
+function acquireNebulaLease(env, cloud) {
   const sprite = getNebulaSprite(cloud);
-  entry = { texture: env.PIXI.Texture.from(sprite.canvas), extent: sprite.extent };
-  pixiNebulaTextureCache.set(cloud, entry);
-  return entry;
+  const key = `${worldObjectId(cloud)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+  const lease = nebulaTextureCache.acquire(key, () => env.PIXI.Texture.from(sprite.canvas));
+  return { lease, extent: sprite.extent };
+}
+
+// A pooled world-object view that owns a single texture lease and releases it
+// on recycle / pool destruction.
+function makeLeasedSpriteView(env) {
+  const sprite = new env.PIXI.Sprite();
+  sprite.anchor.set(0.5);
+  return {
+    root: sprite,
+    lease: null,
+    textureKey: null,
+    release() {
+      if (this.lease) {
+        this.lease.release();
+        this.lease = null;
+      }
+      this.textureKey = null;
+      this.root.texture = null;
+    }
+  };
 }
 
 function buildPixiSafeZones(env, gfx, zones) {
@@ -98,16 +128,8 @@ function updatePixiMapFeatures(env, now, bounds) {
     pixiMapStatics = {
       map: null,
       zonesGfx,
-      nebulaPool: createPixiKeyedPool(featureLayer, () => {
-        const sprite = new env.PIXI.Sprite();
-        sprite.anchor.set(0.5);
-        return { root: sprite };
-      }),
-      asteroidPool: createPixiKeyedPool(featureLayer, () => {
-        const sprite = new env.PIXI.Sprite();
-        sprite.anchor.set(0.5);
-        return { root: sprite };
-      })
+      nebulaPool: createPixiKeyedPool(featureLayer, () => makeLeasedSpriteView(env)),
+      asteroidPool: createPixiKeyedPool(featureLayer, () => makeLeasedSpriteView(env))
     };
   }
   if (pixiMapStatics.map !== map) {
@@ -121,13 +143,15 @@ function updatePixiMapFeatures(env, now, bounds) {
     for (const cloud of map.clouds || []) {
       if (bounds && !isCircleVisible(cloud.x, cloud.y, Math.max(cloud.rx || 300, cloud.ry || 180), bounds)) continue;
       const view = pixiMapStatics.nebulaPool.acquire(cloud);
-      const generation = getPixiBakeGeneration();
-      if (view.fresh || view.generation !== generation) {
-        view.generation = generation;
-        const entry = getPixiNebulaTexture(env, cloud);
-        view.root.texture = entry.texture;
-        view.root.width = entry.extent * 2;
-        view.root.height = entry.extent * 2;
+      const key = `${worldObjectId(cloud)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+      if (view.textureKey !== key) {
+        const { lease, extent } = acquireNebulaLease(env, cloud);
+        if (view.lease) view.lease.release();
+        view.lease = lease;
+        view.textureKey = key;
+        view.root.texture = lease.texture;
+        view.root.width = extent * 2;
+        view.root.height = extent * 2;
         view.root.position.set(cloud.x, cloud.y);
         view.root.rotation = cloud.rotation || 0;
       }
@@ -137,10 +161,13 @@ function updatePixiMapFeatures(env, now, bounds) {
       if (bounds && !isCircleVisible(asteroid.x, asteroid.y, asteroid.radius || 60, bounds)) continue;
       if (state.debugStats) state.debugStats.drawnAsteroids++;
       const view = pixiMapStatics.asteroidPool.acquire(asteroid);
-      const generation = getPixiBakeGeneration();
-      if (view.fresh || view.generation !== generation) {
-        view.generation = generation;
-        view.root.texture = getPixiAsteroidTexture(env, asteroid);
+      const key = `${worldObjectId(asteroid)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+      if (view.textureKey !== key) {
+        const lease = acquireAsteroidLease(env, asteroid);
+        if (view.lease) view.lease.release();
+        view.lease = lease;
+        view.textureKey = key;
+        view.root.texture = lease.texture;
         view.root.scale.set(1 / env.bakeScale);
         view.root.position.set(asteroid.x, asteroid.y);
       }
@@ -296,31 +323,28 @@ function updatePixiCommandTarget(env, now) {
 
 // --- Bullets ---------------------------------------------------------------------
 
-function getPixiBulletTexture(env, bullet, color) {
+function bulletArtKey(bullet, color) {
   const isTracer = bullet.type !== "rail" && bullet.type !== "missile" && bullet.type !== "pdShot";
-  const key = isTracer ? `tracer|${color}` : `${bullet.type}|${bullet.subtype || ""}`;
-  let entry = pixiBulletTextureCache.get(key);
-  if (entry) return entry;
-  // Extents cover the largest art per type plus baked glow.
-  let halfW = 24;
-  let halfH = 12;
-  if (bullet.type === "rail") { halfW = 48; halfH = 18; }
-  else if (bullet.type === "missile") { halfW = 44; halfH = 20; }
-  else if (bullet.type === "pdShot") { halfW = 18; halfH = 12; }
-  const texture = pixiBakeTexture(env, halfW * 2, halfH * 2, () => {
-    drawBulletVisual({ type: bullet.type, subtype: bullet.subtype }, color);
+  return isTracer ? `tracer|${color}` : `${bullet.type}|${bullet.subtype || ""}`;
+}
+
+function acquireBulletLease(env, bullet, color) {
+  const key = `${bulletArtKey(bullet, color)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+  return bulletTextureCache.acquire(key, () => {
+    // Extents cover the largest art per type plus baked glow.
+    let halfW = 24;
+    let halfH = 12;
+    if (bullet.type === "rail") { halfW = 48; halfH = 18; }
+    else if (bullet.type === "missile") { halfW = 44; halfH = 20; }
+    else if (bullet.type === "pdShot") { halfW = 18; halfH = 12; }
+    return pixiBakeTexture(env, halfW * 2, halfH * 2, () => {
+      drawBulletVisual({ type: bullet.type, subtype: bullet.subtype }, color);
+    });
   });
-  entry = { texture };
-  pixiBulletTextureCache.set(key, entry);
-  return entry;
 }
 
 function createPixiBulletPool(env, layer) {
-  return createPixiKeyedPool(layer, () => {
-    const sprite = new env.PIXI.Sprite();
-    sprite.anchor.set(0.5);
-    return { root: sprite, textureKey: null };
-  });
+  return createPixiKeyedPool(layer, () => makeLeasedSpriteView(env));
 }
 
 function updatePixiBullets(env, players, bounds) {
@@ -342,11 +366,13 @@ function updatePixiBullets(env, players, bounds) {
       const color = owner?.color || "#ffffff";
       const friendly = isFriendlyProjectile(bullet, players);
       const view = (friendly ? pixiFriendlyBulletPool : pixiEnemyBulletPool).acquire(bullet.id);
-      const isTracer = bullet.type !== "rail" && bullet.type !== "missile" && bullet.type !== "pdShot";
-      const textureKey = `${getPixiBakeGeneration()}|${isTracer ? `tracer|${color}` : `${bullet.type}|${bullet.subtype || ""}`}`;
+      const textureKey = `${getPixiBakeGeneration()}|${env.bakeScale}|${bulletArtKey(bullet, color)}`;
       if (view.textureKey !== textureKey) {
+        const lease = acquireBulletLease(env, bullet, color);
+        if (view.lease) view.lease.release();
+        view.lease = lease;
         view.textureKey = textureKey;
-        view.root.texture = getPixiBulletTexture(env, bullet, color).texture;
+        view.root.texture = lease.texture;
         view.root.scale.set(1 / env.bakeScale);
       }
       view.root.position.set(renderX, renderY);
@@ -596,4 +622,28 @@ export function updatePixiWorld(env, now, players, bounds, rect) {
   updatePixiBullets(env, players, bounds);
   updatePixiEffects(env, now, bounds);
   updatePixiSelectionBox(env);
+}
+
+// Tears down every world-object pool (releasing texture leases and destroying
+// display objects without their cache-owned textures) and clears module-global
+// state so a re-initialized renderer starts fresh. The texture caches are
+// flushed centrally by the renderer after all leases are released.
+export function destroyPixiWorld() {
+  if (pixiMapStatics) {
+    pixiMapStatics.nebulaPool.destroy();
+    pixiMapStatics.asteroidPool.destroy();
+    if (pixiMapStatics.zonesGfx?.parent) pixiMapStatics.zonesGfx.parent.removeChild(pixiMapStatics.zonesGfx);
+    pixiMapStatics.zonesGfx?.destroy();
+    pixiMapStatics = null;
+  }
+  if (pixiRelayPool) { pixiRelayPool.destroy(); pixiRelayPool = null; }
+  if (pixiEnemyBulletPool) { pixiEnemyBulletPool.destroy(); pixiEnemyBulletPool = null; }
+  if (pixiFriendlyBulletPool) { pixiFriendlyBulletPool.destroy(); pixiFriendlyBulletPool = null; }
+  if (pixiEffectTextPool) { pixiEffectTextPool.destroy(); pixiEffectTextPool = null; }
+  if (pixiEffectsGfx) {
+    if (pixiEffectsGfx.parent) pixiEffectsGfx.parent.removeChild(pixiEffectsGfx);
+    pixiEffectsGfx.destroy();
+    pixiEffectsGfx = null;
+  }
+  gridCache = { width: 0, height: 0, zoom: 0 };
 }

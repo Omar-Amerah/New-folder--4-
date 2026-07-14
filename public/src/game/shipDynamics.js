@@ -1,7 +1,7 @@
 // Renderer-neutral ship dynamics presentation state: derived thrust/speed
 // ratios, live engine-nozzle filtering, engine-smoke particle simulation,
 // maneuvering-jet computation, and the ship HUD lag values. Pure state + math
-// (no Canvas, no Pixi, no DOM); both renderers consume these and draw the
+// (no Canvas, no Pixi, no DOM); the Pixi arena renderer consumes these and draws the
 // results with their own primitives.
 
 import { state } from "../state.js";

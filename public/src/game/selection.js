@@ -1,6 +1,5 @@
 // Manages drag box overlays, own live ships, selection lists, and bounds overlap mathematics.
 
-import { ctx } from "../ui/dom.js";
 import { state } from "../state.js";
 import { updateHud } from "../ui/hudUi.js";
 
@@ -61,22 +60,4 @@ export function findShipAt(x, y, predicate) {
     }
   }
   return best;
-}
-
-export function drawSelectionBox() {
-  if (!state.drag) return;
-  const a = state.drag.startWorld;
-  const b = state.drag.currentWorld;
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
-  const width = Math.abs(a.x - b.x);
-  const height = Math.abs(a.y - b.y);
-  if (width < 12 && height < 12) return;
-  ctx.save();
-  ctx.fillStyle = "rgba(56,213,255,0.08)";
-  ctx.strokeStyle = "rgba(56,213,255,0.82)";
-  ctx.lineWidth = 2 / state.camera.zoom;
-  ctx.fillRect(x, y, width, height);
-  ctx.strokeRect(x, y, width, height);
-  ctx.restore();
 }

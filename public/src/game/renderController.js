@@ -1,80 +1,67 @@
-// Chooses and boots the arena rendering backend: PixiJS (WebGL) when available, Canvas 2D as fallback.
+// Boots the arena renderer. There is one backend only: PixiJS (WebGL). There is
+// no Canvas 2D arena fallback and no Canvas arena animation loop. (Offscreen
+// Canvas 2D is still used elsewhere to bake Pixi textures and UI artwork.)
 
-import { dom, acquireArenaCtx, replaceArenaCanvasElement } from "../ui/dom.js";
-import { resizeCanvas, frame } from "./renderer.js";
+import { dom } from "../ui/dom.js";
 import { initPixiRenderer, resizePixiRenderer } from "./pixi/pixiRenderer.js";
-import { bindArenaPointerListeners } from "./input.js";
 
 let activeBackend = null;
 
+// Retained for callers/tests. Its only successful value is "pixi".
 export function getActiveRendererBackend() {
   return activeBackend;
 }
 
 export async function initArenaRenderer() {
   if (activeBackend) return activeBackend;
-  const forced = readForcedRendererBackend();
-  if (forced === "canvas") {
-    console.warn("[render] Canvas 2D renderer forced via mfa.rendererBackend.");
-    return startCanvas2dFallback();
-  }
-  if (!probeWebGlSupport()) {
-    console.error("[render] WebGL unavailable, falling back to Canvas 2D renderer.");
-    return startCanvas2dFallback();
-  }
   try {
     await initPixiRenderer();
     activeBackend = "pixi";
     publishRendererBackend();
     return activeBackend;
   } catch (err) {
-    console.error("[render] PixiJS init failed, falling back to Canvas 2D renderer:", err);
-    return startCanvas2dFallback();
+    // No silent fallback: WebGL is required. Surface a clear fatal message and
+    // stop — do not start any alternative renderer or partial game loop.
+    console.error("[render] PixiJS/WebGL initialization failed:", err);
+    showWebGlFatalMessage();
+    throw err;
   }
 }
 
 export function resizeArenaRenderer() {
-  if (activeBackend === "pixi") {
-    resizePixiRenderer();
-  } else if (activeBackend === "canvas2d") {
-    resizeCanvas();
-  }
-}
-
-function readForcedRendererBackend() {
-  try {
-    return localStorage.getItem("mfa.rendererBackend");
-  } catch {
-    return null;
-  }
-}
-
-// Probes WebGL on a scratch canvas so a doomed init never claims the arena canvas.
-function probeWebGlSupport() {
-  try {
-    const probe = document.createElement("canvas");
-    return Boolean(probe.getContext("webgl2") || probe.getContext("webgl"));
-  } catch {
-    return false;
-  }
-}
-
-function startCanvas2dFallback() {
-  if (!acquireArenaCtx()) {
-    // A failed WebGL init may have claimed the canvas; swap in a fresh element.
-    replaceArenaCanvasElement();
-    bindArenaPointerListeners(dom.canvas);
-    acquireArenaCtx();
-  }
-  resizeCanvas();
-  requestAnimationFrame(frame);
-  activeBackend = "canvas2d";
-  publishRendererBackend();
-  return activeBackend;
+  if (activeBackend === "pixi") resizePixiRenderer();
 }
 
 function publishRendererBackend() {
   if (typeof window !== "undefined") {
     window.__mfaRenderer = { backend: activeBackend };
+  }
+}
+
+// Renders a clear, user-facing fatal message in the arena area. No fallback
+// renderer is started.
+function showWebGlFatalMessage() {
+  const message = "This game requires WebGL to render the battle.";
+  try {
+    const host = dom.canvas?.parentElement || document.body;
+    if (!host) return;
+    let overlay = document.getElementById("arenaFatalMessage");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "arenaFatalMessage";
+      overlay.setAttribute("role", "alert");
+      overlay.style.cssText = [
+        "position:absolute", "inset:0", "display:flex",
+        "align-items:center", "justify-content:center", "text-align:center",
+        "padding:24px", "z-index:50", "pointer-events:none",
+        "color:#e8f0ff", "background:rgba(4,7,16,0.92)",
+        "font:600 18px/1.5 system-ui, sans-serif"
+      ].join(";");
+      host.appendChild(overlay);
+    }
+    overlay.textContent = message;
+    overlay.hidden = false;
+  } catch {
+    // If even the DOM message cannot be shown, the console error above stands.
   }
 }
