@@ -7,7 +7,7 @@
     "start": "node server.js",
     "build": "node netlify-build.js",
     "check": "npm run build && node --check server.js && node --check public/client.js && node --check verify-runtime.js && node --check verify-client-ui.js && node --check verify-heat-panel.js && node --check verify-turret-client.js && node --check verify-live-turrets.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node verify-canvas-removal.js && node verify-lobby-refresh-reconnect.js",
-    "verify": "npm run build && node verify-canvas-removal.js && node verify-runtime.js && node verify-client-ui.js && node verify-heat-panel.js && node verify-turret-client.js && npm run test:pixi-browser",
+    "verify": "npm run build && node verify-canvas-removal.js && node verify-runtime.js && node verify-client-ui.js && node verify-heat-panel.js && node verify-turret-client.js && npm run test:pixi-browser && npm run test:live-turrets && npm run test:match-start-render",
     "test:canvas-removal": "node verify-canvas-removal.js",
     "test:pixi-lifecycle": "node verify-pixi-lifecycle.js",
     "test:pixi-browser": "node verify-turret-render.js && node verify-pixi-lifecycle.js",
@@ -25,7 +25,8 @@
     "test:heat-thermo": "node verify-heat-thermo.js",
     "test:repair-target": "node verify-repair-target.js",
     "test:combat-review": "node verify-combat-review.js",
-    "test:heat-effects": "node verify-heat-effects.js"
+    "test:heat-effects": "node verify-heat-effects.js",
+    "test:match-start-render": "node verify-match-start-render.js"
   },
   "keywords": [
     "browser-game",

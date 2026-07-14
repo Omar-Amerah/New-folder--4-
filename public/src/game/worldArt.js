@@ -70,20 +70,17 @@ export function getNebulaSprite(cloud) {
 }
 
 // --- Asteroid art (bakes into the shared ctx) --------------------------------
-const asteroidGradientCache = new Map();
-
 function getAsteroidGradient(radius, shade) {
-  const key = `${radius}|${shade}`;
-  let gradient = asteroidGradientCache.get(key);
-  if (!gradient) {
-    const base = shade === "warm" ? "#5a4939" : "#394657";
-    const edge = shade === "warm" ? "#ad8b64" : "#8495aa";
-    gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
-    gradient.addColorStop(0, edge);
-    gradient.addColorStop(0.38, base);
-    gradient.addColorStop(1, "#171d26");
-    asteroidGradientCache.set(key, gradient);
-  }
+  // CanvasGradient instances are bound to the CanvasRenderingContext2D that
+  // created them. Pixi texture baking points the shared ctx at a fresh offscreen
+  // canvas per texture, so reusing a gradient from a previous bake can throw on
+  // the first active map frame and leave the WebGL canvas black.
+  const base = shade === "warm" ? "#5a4939" : "#394657";
+  const edge = shade === "warm" ? "#ad8b64" : "#8495aa";
+  const gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
+  gradient.addColorStop(0, edge);
+  gradient.addColorStop(0.38, base);
+  gradient.addColorStop(1, "#171d26");
   return gradient;
 }
 

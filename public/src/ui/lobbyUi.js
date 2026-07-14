@@ -315,7 +315,14 @@ export function joinRoom(roomCode = "") {
   updateLobbyState();
 }
 
+function releaseClickedControlFocus() {
+  if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === "BUTTON") {
+    document.activeElement.blur();
+  }
+}
+
 export function deployDesign() {
+  releaseClickedControlFocus();
   const stats = computeStats(state.design);
   const mine = state.mine;
   const isDesignStage = state.phase === "design";
@@ -334,6 +341,7 @@ export function deployDesign() {
 }
 
 export function startDesign() {
+  releaseClickedControlFocus();
   send({ type: "startDesign" });
 }
 

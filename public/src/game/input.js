@@ -157,7 +157,7 @@ export function handleKeyDown(event) {
     rotateFocusedPart();
     return;
   }
-  if (tag === "INPUT" || tag === "SELECT" || tag === "BUTTON") return;
+  if (tag === "INPUT" || tag === "SELECT") return;
   state.keys.add(key);
 
   if (

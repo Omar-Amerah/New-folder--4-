@@ -11,7 +11,7 @@ import { getViewportWorldBounds } from "../viewportCulling.js";
 import { getRenderQuality, getRenderQualityDprCap } from "../renderSettings.js";
 import { setDebugFrameStats, updateDebugOverlay } from "../debugOverlay.js";
 import { playerMap } from "../../ui/scoreboardUi.js";
-import { advancePixiBakeGeneration, flushAllPixiTextureCaches } from "./pixiBake.js";
+import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagnostics } from "./pixiBake.js";
 import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
 import { updatePixiShips, destroyPixiShipPool } from "./pixiShips.js";
 import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
@@ -20,6 +20,8 @@ let pixiEnv = null;
 let pixiFrameCount = 0;
 let pixiLastFpsTime = 0;
 let pixiCurrentFps = 0;
+let pixiFatalFrameError = null;
+let pixiContextLost = false;
 
 function computePixiResolution() {
   return Math.max(1, Math.min(getRenderQualityDprCap(), window.devicePixelRatio || 1));
@@ -102,6 +104,13 @@ export async function initPixiRenderer() {
   app.stage.addChild(worldRoot);
   app.stage.addChild(layers.screenUiRoot);
 
+  pixiFatalFrameError = null;
+  pixiContextLost = false;
+  dom.canvas.addEventListener("webglcontextlost", (event) => {
+    pixiContextLost = true;
+    console.error("[pixi] WebGL context lost", event);
+  }, { once: true });
+
   pixiEnv = {
     PIXI,
     app,
@@ -115,39 +124,122 @@ export async function initPixiRenderer() {
 }
 
 function pixiFrame() {
-  if (!pixiEnv) return;
+  if (!pixiEnv || pixiFatalFrameError) return;
+  let lastRenderStage = "start";
   const start = performance.now();
-  const now = start;
-  const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrameAt) / 1000));
-  state.lastFrameAt = now;
-  state.dt = dt;
-  state.debugStats = { drawnShips: 0, totalShips: 0, drawnBullets: 0, totalBullets: 0, drawnAsteroids: 0, totalAsteroids: 0, drawnEffects: 0, totalEffects: 0 };
+  try {
+    const now = start;
+    const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrameAt) / 1000));
+    state.lastFrameAt = now;
+    state.dt = dt;
+    state.debugStats = { drawnShips: 0, totalShips: 0, drawnBullets: 0, totalBullets: 0, drawnAsteroids: 0, totalAsteroids: 0, drawnEffects: 0, totalEffects: 0 };
 
-  interpolateShips(dt, now);
-  updateCamera(dt);
+    lastRenderStage = "interpolateShips";
+    interpolateShips(dt, now);
+    lastRenderStage = "updateCamera";
+    updateCamera(dt);
 
-  const app = pixiEnv.app;
-  const rect = { width: app.screen.width, height: app.screen.height };
-  const worldRoot = pixiEnv.layers.worldRoot;
-  worldRoot.position.set(rect.width / 2, rect.height / 2);
-  worldRoot.scale.set(state.camera.zoom);
-  worldRoot.pivot.set(state.camera.x, state.camera.y);
+    const app = pixiEnv.app;
+    const rect = { width: app.screen.width, height: app.screen.height };
+    const worldRoot = pixiEnv.layers.worldRoot;
+    worldRoot.position.set(rect.width / 2, rect.height / 2);
+    worldRoot.scale.set(state.camera.zoom);
+    worldRoot.pivot.set(state.camera.x, state.camera.y);
 
-  const bounds = getViewportWorldBounds(rect);
-  const players = state.snapshot ? playerMap() : new Map();
-  pixiEnv.layers.overlay.clear();
-  updatePixiWorld(pixiEnv, now, players, bounds, rect);
-  updatePixiShips(pixiEnv, now, players, bounds);
-  updatePixiScreenUi(pixiEnv, now, players, rect);
+    lastRenderStage = "getViewportWorldBounds";
+    const bounds = getViewportWorldBounds(rect);
+    const players = state.snapshot ? playerMap() : new Map();
+    pixiEnv.layers.overlay.clear();
+    lastRenderStage = "updatePixiWorld";
+    updatePixiWorld(pixiEnv, now, players, bounds, rect);
+    lastRenderStage = "updatePixiShips";
+    updatePixiShips(pixiEnv, now, players, bounds);
+    lastRenderStage = "updatePixiScreenUi";
+    updatePixiScreenUi(pixiEnv, now, players, rect);
 
-  pixiFrameCount += 1;
-  if (now - pixiLastFpsTime > 1000) {
-    pixiCurrentFps = Math.round((pixiFrameCount * 1000) / (now - pixiLastFpsTime));
-    pixiFrameCount = 0;
-    pixiLastFpsTime = now;
+    pixiFrameCount += 1;
+    if (now - pixiLastFpsTime > 1000) {
+      pixiCurrentFps = Math.round((pixiFrameCount * 1000) / (now - pixiLastFpsTime));
+      pixiFrameCount = 0;
+      pixiLastFpsTime = now;
+    }
+    setDebugFrameStats(pixiCurrentFps, performance.now() - start, "pixi");
+    updateDebugOverlay(now);
+  } catch (err) {
+    handleFatalPixiFrameError(err, lastRenderStage);
   }
-  setDebugFrameStats(pixiCurrentFps, performance.now() - start, "pixi");
-  updateDebugOverlay(now);
+}
+
+function collectFatalPixiDiagnostics(error, stage) {
+  const app = pixiEnv?.app;
+  const canvasRect = dom.canvas?.getBoundingClientRect?.();
+  const snapshot = state.snapshot;
+  return {
+    stage,
+    errorName: error?.name || "Error",
+    errorMessage: error?.message || String(error),
+    stack: error?.stack || String(error),
+    phase: state.phase,
+    room: state.room,
+    snapshot: {
+      ships: snapshot?.ships?.length || 0,
+      asteroids: snapshot?.map?.asteroids?.length || state.map?.asteroids?.length || 0,
+      clouds: snapshot?.map?.clouds?.length || state.map?.clouds?.length || 0,
+      safeZones: snapshot?.map?.safeZones?.length || state.map?.safeZones?.length || 0,
+      bullets: snapshot?.bullets?.length || 0,
+      effects: snapshot?.effects?.length || 0
+    },
+    canvasCss: { width: canvasRect?.width || 0, height: canvasRect?.height || 0 },
+    renderer: {
+      width: app?.renderer?.width || 0,
+      height: app?.renderer?.height || 0,
+      screenWidth: app?.screen?.width || 0,
+      screenHeight: app?.screen?.height || 0,
+      resolution: app?.renderer?.resolution || 0,
+      tickerStarted: !!app?.ticker?.started
+    },
+    camera: { ...state.camera },
+    world: state.world ? { ...state.world } : null,
+    textures: pixiTextureDiagnostics(),
+    webglContextLost: pixiContextLost
+  };
+}
+
+function showFatalPixiErrorPanel(diagnostics) {
+  let panel = document.getElementById("pixiFatalErrorPanel");
+  if (!panel) {
+    panel = document.createElement("section");
+    panel.id = "pixiFatalErrorPanel";
+    panel.setAttribute("role", "alert");
+    panel.style.cssText = "position:fixed;inset:72px 24px auto 24px;z-index:10000;max-height:70vh;overflow:auto;background:#170b13;color:#ffdce7;border:1px solid #ff5f91;border-radius:12px;padding:16px;font:13px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;box-shadow:0 12px 40px #000a;";
+    document.body.appendChild(panel);
+  }
+  panel.innerHTML = `<h2 style="margin:0 0 8px;font:700 16px system-ui;color:#fff">Rendering stopped after a fatal Pixi frame error</h2><pre style="white-space:pre-wrap;margin:0"></pre>`;
+  panel.querySelector("pre").textContent = JSON.stringify(diagnostics, null, 2);
+}
+
+function handleFatalPixiFrameError(error, stage) {
+  if (pixiFatalFrameError) return;
+  pixiFatalFrameError = collectFatalPixiDiagnostics(error, stage);
+  pixiEnv?.app?.ticker?.stop();
+  console.error("[pixi] fatal frame error", pixiFatalFrameError);
+  showFatalPixiErrorPanel(pixiFatalFrameError);
+}
+
+export function getPixiRuntimeDiagnostics() {
+  const app = pixiEnv?.app;
+  return {
+    initialized: !!pixiEnv,
+    fatalFrameError: pixiFatalFrameError,
+    webglContextLost: pixiContextLost,
+    tickerStarted: !!app?.ticker?.started,
+    screenWidth: app?.screen?.width || 0,
+    screenHeight: app?.screen?.height || 0,
+    rendererWidth: app?.renderer?.width || 0,
+    rendererHeight: app?.renderer?.height || 0,
+    resolution: app?.renderer?.resolution || 0,
+    textures: pixiTextureDiagnostics()
+  };
 }
 
 export function resizePixiRenderer() {
@@ -192,4 +284,6 @@ export function destroyPixiRenderer() {
   pixiFrameCount = 0;
   pixiLastFpsTime = 0;
   pixiCurrentFps = 0;
+  pixiFatalFrameError = null;
+  pixiContextLost = false;
 }
