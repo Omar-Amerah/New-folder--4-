@@ -375,18 +375,24 @@ function updatePixiEngineExhaust(view, ship, now) {
   }
 }
 
-// Drives the persistent turret sprites from the authoritative ship-relative
-// weapon angle. Direct assignment first (so a bug in the transform chain shows
-// immediately), then optional smoothing toward the target at the shared
-// traverse rate using shortest-angle interpolation.
+// Drives the persistent turret sprites toward the authoritative ship-relative
+// weapon angle (ship.weaponAngles[designIndex]). Each turret sprite lives in the
+// hull frame, so setting sprite.rotation to the ship-relative angle places the
+// barrel at (hull rotation + relative) in world space — the hull angle is never
+// added here. The angle is smoothed toward the target at the shared traverse
+// rate with shortest-angle interpolation; it snaps on (re)bind, and destroyed
+// turrets freeze and dim.
 function updatePixiTurrets(env, view, ship, design) {
   ensureForcedArrowState(env, view);
 
-  const isNewShip = view.boundShipId !== ship.id;
-  if (isNewShip) view.boundShipId = ship.id;
+  // Re-seed smoothed angles when this pooled view starts rendering a new ship.
+  const isNewBinding = view.boundShipId !== ship.id;
+  if (isNewBinding) view.boundShipId = ship.id;
 
   const dt = state.dt || 0.016;
-  const smoothing = typeof window === "undefined" || window.__mfaDisableTurretSmoothing !== true;
+  // Smoothing is the normal path; tests can force an instant snap for pixel
+  // comparisons via window.__mfaDisableTurretSmoothing.
+  const instant = typeof window !== "undefined" && window.__mfaDisableTurretSmoothing === true;
 
   for (const sprite of view.turretSprites) {
     const i = sprite.__designIndex;
@@ -398,21 +404,17 @@ function updatePixiTurrets(env, view, ship, design) {
     const destroyed = healthRatio !== null && healthRatio <= 0;
 
     let visual = view.visualTurretAngles.get(i);
-    if (!Number.isFinite(visual) || isNewShip) visual = target;
+    if (!Number.isFinite(visual)) visual = target;
 
     if (destroyed) {
-      // Destroyed turrets freeze in place and read as knocked out.
-      sprite.alpha = 0.3;
+      sprite.alpha = 0.3; // knocked out: freeze in place
     } else {
       sprite.alpha = 1;
-      if (smoothing && !isNewShip) {
+      if (instant || isNewBinding) {
+        visual = target;
+      } else {
         const turnRate = sprite.__weaponStat ? getWeaponTurnRate(sprite.__weaponStat) : 3.0;
         visual = approachAngle(visual, target, turnRate * dt);
-      } else {
-        // Direct assignment: the visible barrel is exactly the authoritative
-        // relative angle. Do NOT add the hull angle here — the HullContainer
-        // already carries it.
-        visual = target;
       }
     }
 
@@ -911,9 +913,15 @@ export function __pixiTurretDebugInfo(shipId) {
   const view = pixiShipPool.peek ? pixiShipPool.peek(shipId) : null;
   if (!view) return null;
   const hullAngle = view.hullContainer.rotation;
+  const engWt = view.engineGfx ? view.engineGfx.worldTransform : null;
   return {
     shipId,
     hullRotation: hullAngle,
+    // World rotation of the engine-effects layer: must equal the hull rotation
+    // (the exhaust is anchored to the ship body and turns with it).
+    engineWorldRotation: engWt ? Math.atan2(engWt.b, engWt.a) : null,
+    engineVisible: view.engineGfx ? view.engineGfx.visible : false,
+    engineParentLabel: view.engineGfx?.parent?.label || null,
     turretCount: view.turretSprites.length,
     turrets: view.turretSprites.map((s) => {
       const wt = s.worldTransform;

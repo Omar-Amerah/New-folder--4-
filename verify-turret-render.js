@@ -336,6 +336,51 @@ async function main() {
       assert.ok(pixelsDiffer(normalShot, arrowShot), "forced-arrow mode did not change the rendered turret");
     });
 
+    // 10. Real gameplay path: with smoothing ENABLED (the default), a turret
+    //     sweeps toward a changed authoritative angle and reaches it.
+    await check("turret tracks its target under smoothing (real gameplay)", async () => {
+      await page.evaluate(() => { window.__mfaDisableTurretSmoothing = false; });
+      const d = design([7, 7, "core"], [8, 7, "blaster"]);
+      await page.evaluate((s) => window.__mfaTest.setShip(s), snapshotWith("ship-smooth", d));
+      await page.evaluate(() => window.__mfaTest.setHullAngle("ship-smooth", 0));
+      await page.evaluate(() => window.__mfaTest.setWeaponAngle("ship-smooth", 1, 0));
+      await page.evaluate(() => window.__mfaTest.frames(4));
+      const start = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-smooth"));
+      // Aim 1.4 rad away; the turret must move toward it and, given enough
+      // frames, converge — proving the smoothing path actually drives rotation.
+      await page.evaluate(() => window.__mfaTest.setWeaponAngle("ship-smooth", 1, 1.4));
+      await page.evaluate(() => window.__mfaTest.frames(2));
+      const mid = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-smooth"));
+      await page.evaluate(() => window.__mfaTest.frames(30));
+      const end = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-smooth"));
+      const s0 = start.turrets[0].localRotation;
+      const sMid = mid.turrets[0].localRotation;
+      const sEnd = end.turrets[0].localRotation;
+      assert.ok(Math.abs(sMid - s0) > 0.01, `turret must start moving toward target (start ${s0.toFixed(3)}, mid ${sMid.toFixed(3)})`);
+      assert.ok(sMid > s0 - EPS && sMid < 1.4 + EPS, `turret must move toward target monotonically (mid ${sMid.toFixed(3)})`);
+      assert.ok(Math.abs(sEnd - 1.4) < 0.05, `turret must converge on the target angle (ended ${sEnd.toFixed(3)}, expected ~1.4)`);
+    });
+
+    // 11. Engine exhaust is anchored to the ship body: it lives in the hull
+    //     frame and its world rotation tracks the hull, so a turning ship's
+    //     exhaust turns with it (regression: exhaust used to stay put).
+    await check("engine exhaust follows hull rotation", async () => {
+      const d = design([7, 7, "core"], [6, 7, "engine"], [8, 7, "blaster"]);
+      // Moving forward toward a target so the exhaust plume is active.
+      await page.evaluate((s) => window.__mfaTest.setShip(s), snapshotWith("ship-engine", d, { vx: 200, vy: 0, targetX: 3000, targetY: 950 }));
+      await page.evaluate(() => window.__mfaTest.setHullAngle("ship-engine", 0));
+      await page.evaluate(() => window.__mfaTest.frames(5));
+      const at0 = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-engine"));
+      assert.strictEqual(at0.engineParentLabel, "HullContainer", "engine effects must live inside the hull frame");
+      assert.ok(at0.engineVisible, "engine exhaust should be active while thrusting");
+      assert.ok(Math.abs(at0.engineWorldRotation - at0.hullRotation) < EPS, `engine world rotation must equal hull rotation at 0 (eng ${at0.engineWorldRotation}, hull ${at0.hullRotation})`);
+      await page.evaluate(() => window.__mfaTest.setHullAngle("ship-engine", 1.2));
+      await page.evaluate(() => window.__mfaTest.frames(5));
+      const at1 = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-engine"));
+      assert.ok(Math.abs(at1.hullRotation - 1.2) < EPS, `hull should be at 1.2 (was ${at1.hullRotation})`);
+      assert.ok(Math.abs(at1.engineWorldRotation - at1.hullRotation) < EPS, `engine world rotation must track the hull after turning (eng ${at1.engineWorldRotation}, hull ${at1.hullRotation})`);
+    });
+
     await check("no uncaught page errors during rendering", () => {
       assert.strictEqual(pageErrors.length, 0, `page errors:\n${pageErrors.join("\n")}`);
     });

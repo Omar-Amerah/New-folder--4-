@@ -2,26 +2,29 @@
 //
 // Each ship on screen is one persistent PixiShipView with an explicit tree:
 //
-//   ShipRoot                 - world position
-//     EffectsBelow           - engine exhaust / maneuver jets (behind hull)
-//     ShieldRing             - shield arc ring (radial; below hull)
+//   ShipRoot                 - world position (NO rotation)
+//     ShieldRing             - shield arc ring (radial; rotation irrelevant)
 //     HullContainer          - hull world rotation
+//       EffectsBelow         - engine exhaust / maneuver jets (behind hull)
 //       StaticHullSprite     - baked hull: structure + static component art
 //       StaticWeaponMounts   - baked non-directional weapon sockets/housings
-//       DynamicComponents    - hull-frame layer for animated parts
+//       DynamicComponents    - animated parts
 //         TurretContainer    - one persistent turret sprite per rotating weapon
 //         OtherAnimatedComponents
 //       DamageOverlay        - persistent damage tints (ship-local)
 //       FlashOverlay         - short-lived hit flashes (ship-local)
-//     EffectsAbove           - reserved above-hull effects
-//     WorldLabels            - HUD bars, names, core warning
+//       EffectsAbove         - above-hull effects
+//     WorldLabels            - HUD bars, names, core warning (screen-aligned)
 //
-// ShipRoot owns world position. The hull frame (HullContainer plus the
-// DynamicComponents/DamageOverlay/FlashOverlay layers) owns the hull world
-// rotation. Each turret sprite owns ONLY its ship-relative weapon rotation, so
-// its world direction is (hull rotation + turret local rotation). Static hull
-// textures never contain rotating weapon tops; turret textures contain only
-// the rotating top on a transparent, centre-pivoted, +x-forward frame.
+// ShipRoot owns world position. HullContainer owns the hull world rotation, and
+// EVERYTHING anchored to the ship body is inside it — engine exhaust, the hull
+// sprite, turrets and overlays — so any ship-local drawing rotates with the
+// ship (a turned ship's exhaust points the right way; a turret at its
+// ship-relative angle ends up at hull+relative in world space). The shield ring
+// (radial) and world labels (screen-aligned HUD) deliberately stay at the root,
+// outside the hull rotation. Static hull textures never contain rotating weapon
+// tops; turret textures contain only the rotating top on a transparent,
+// centre-pivoted, +x-forward frame.
 
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
@@ -239,18 +242,27 @@ export function createPixiShipView(env) {
   const flashOverlay = new PIXI.Graphics();
   flashOverlay.label = "FlashOverlay";
 
+  const effectsAbove = new PIXI.Graphics();
+  effectsAbove.label = "EffectsAbove";
+  const worldLabels = new PIXI.Container();
+  worldLabels.label = "WorldLabels";
+
+  // Everything that is anchored to the ship body lives INSIDE HullContainer so
+  // it inherits the hull's world rotation: engine exhaust (drawn behind the
+  // hull), the static hull sprite + weapon mounts, the rotating turrets, the
+  // damage/flash overlays, and any above-hull effects. Because they are all in
+  // the hull frame, a ship-local drawing (an exhaust plume pointing along the
+  // engine's local axis, a turret at its ship-relative angle) rotates with the
+  // ship automatically — no per-layer rotation bookkeeping.
   dynamicComponents.addChild(turretContainer);
   dynamicComponents.addChild(otherAnimated);
+  hullContainer.addChild(effectsBelow);      // engine exhaust / maneuver jets (behind hull)
   hullContainer.addChild(staticHullSprite);
   hullContainer.addChild(staticWeaponMounts);
   hullContainer.addChild(dynamicComponents);
   hullContainer.addChild(damageOverlay);
   hullContainer.addChild(flashOverlay);
-
-  const effectsAbove = new PIXI.Graphics();
-  effectsAbove.label = "EffectsAbove";
-  const worldLabels = new PIXI.Container();
-  worldLabels.label = "WorldLabels";
+  hullContainer.addChild(effectsAbove);      // above-hull effects
 
   const hudGfx = new PIXI.Graphics();
   const makeText = (style) => {
@@ -276,10 +288,11 @@ export function createPixiShipView(env) {
   worldLabels.addChild(coreWarnText);
   worldLabels.addChild(debugText);
 
-  root.addChild(effectsBelow);
+  // ShipRoot owns world position. The shield ring is radial (rotation is
+  // irrelevant) and world labels are screen-aligned HUD, so both stay at the
+  // root — outside the hull rotation.
   root.addChild(shieldRing);
   root.addChild(hullContainer);
-  root.addChild(effectsAbove);
   root.addChild(worldLabels);
 
   return {
