@@ -221,3 +221,11 @@ Blueprint persistence is isolated in `public/src/design/blueprintStorage.js` wit
 ## Catch-up Part 2 architecture notes
 
 Selected-fleet command authorization is centralized in `src/server/selection.js`, keeping command, style, destruct, focus, repair, and rally-adjacent movement semantics consistent. Bot decisions derive deterministic random streams from map seed, bot ID, and decision sequence so one bot's random consumption does not perturb another bot. Economy mutations remain server-authoritative through the atomic purchase executor and reward finalizer.
+
+## Completed Catch-up Parts 1–3
+
+Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
+
+## Deliberately deferred to Sections 8–13
+
+The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.

@@ -4,7 +4,7 @@
 // pass/fail summary, and exits non-zero if any child failed.
 //
 // Usage: node tools/run-tests.js <group> [group...]
-// Groups: unit, integration, protocol, browser, all
+// Groups: unit, integration, protocol, smoke, browser, soak, all
 //
 // Deliberate behaviour:
 //   - child stdout/stderr are inherited (nothing is swallowed);
@@ -37,6 +37,7 @@ const GROUPS = {
     "verify-core-reactor.js",
     "verify-combat-review.js",
     "verify-combat-determinism.js",
+    "verify-combat-catchup.js",
     "verify-repair-target.js",
     "verify-engine-exhaust.js",
     "verify-maps-objectives.js"
@@ -54,14 +55,22 @@ const GROUPS = {
   protocol: [
     "verify-runtime.js"
   ],
-  // Required production-path browser smoke. The optional Pixi visual browser
-  // scripts remain available as direct npm scripts but require a local Chromium
-  // binary; this required group keeps CI focused on the deployed ES-module path.
-  browser: [
+  // Production-path smoke: real server process and HTTP asset checks only.
+  smoke: [
     "verify-production-path.js"
+  ],
+  // Required browser gameplay: real server, real production frontend, real
+  // Chromium, real browser input, WebSockets and MessagePack snapshots.
+  browser: [
+    "verify-live-turrets.js"
+  ],
+  // Sustained high-entity deterministic server simulation with bounded-state
+  // and performance measurements.
+  soak: [
+    "verify-soak.js"
   ]
 };
-GROUPS.all = [...GROUPS.unit, ...GROUPS.integration, ...GROUPS.protocol, ...GROUPS.browser];
+GROUPS.all = [...GROUPS.unit, ...GROUPS.integration, ...GROUPS.protocol, ...GROUPS.smoke, ...GROUPS.browser, ...GROUPS.soak];
 
 function runScript(script) {
   const startedAt = Date.now();
