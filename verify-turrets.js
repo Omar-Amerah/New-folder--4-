@@ -127,35 +127,63 @@ function runTicks(room, me, ships, count, dt) {
   assert(Math.abs(spawnOffset - expected) < 0.01, `railgun bullet spawned ${spawnOffset.toFixed(2)}px from pivot, expected ${expected.toFixed(2)} (barrel tip)`);
 }
 
-// 5. Client and server share one traverse-rate table.
+// 5. Client and server share one traverse-rate table. The client's rate lookup
+// now lives in the renderer-neutral weaponAim module, imported by both renderers.
 {
-  const rendererSource = require("fs").readFileSync("./public/src/game/renderer.js", "utf8");
-  assert(/globalThis\.TurretRules\.turnRateFor/.test(rendererSource), "client renderer must delegate turret turn rates to shared TurretRules");
-  const combatSource = require("fs").readFileSync("./src/server/combat.js", "utf8");
+  const fs = require("fs");
+  const weaponAimSource = fs.readFileSync("./public/src/game/weaponAim.js", "utf8");
+  assert(/globalThis\.TurretRules\.turnRateFor/.test(weaponAimSource), "client weaponAim must delegate turret turn rates to shared TurretRules");
+  const combatSource = fs.readFileSync("./src/server/combat.js", "utf8");
   assert(/TurretRules\.turnRateFor/.test(combatSource), "server combat must delegate turret turn rates to shared TurretRules");
-  const html = require("fs").readFileSync("./public/index.html", "utf8");
+  const html = fs.readFileSync("./public/index.html", "utf8");
   assert(/src\/shared\/turretRules\.js/.test(html), "index.html must load the shared turretRules script");
+  // Both the Canvas fallback and Pixi renderer must consume the shared lookup.
+  assert(/from "\.\/weaponAim\.js"/.test(fs.readFileSync("./public/src/game/renderer.js", "utf8")), "canvas renderer must import turret aim helpers from weaponAim");
+  assert(/from "\.\.\/weaponAim\.js"/.test(fs.readFileSync("./public/src/game/pixi/pixiShips.js", "utf8")), "pixi renderer must import turret aim helpers from weaponAim");
   // Point defense stays the fastest traverse so missile interception still works.
   assert(TurretRules.TURN_RATES.pointDefense > TurretRules.TURN_RATES.blaster, "point defense must traverse faster than main guns");
 }
 
-// 6. Pixi visual flow: turret smoothing is per pooled view, ship-relative, and
-// not keyed to snapshot object identity or world hull angle.
+// 6. Pixi scene graph: persistent turret sprites, ship-relative rotation applied
+// on a hull-rotated frame (never double-adding the hull angle), and static
+// content rebuilt only on a signature change.
 {
   const fs = require("fs");
   const pixiSource = fs.readFileSync("./public/src/game/pixi/pixiShips.js", "utf8");
-  const rendererSource = fs.readFileSync("./public/src/game/renderer.js", "utf8");
+  const viewSource = fs.readFileSync("./public/src/game/pixi/pixiShipView.js", "utf8");
+  const artSource = fs.readFileSync("./public/src/game/componentArt.js", "utf8");
   const netlifyBuild = fs.readFileSync("./netlify-build.js", "utf8");
+
+  // Per-view smoothed turret angles, reset on pool reuse; no canvas global cache.
   assert(/visualTurretAngles/.test(pixiSource), "Pixi ship views must own smoothed turret angles so pooled views can reset them");
   assert(!/state\.weaponAnglesMap/.test(pixiSource), "Pixi turret rotation must not use the canvas global weapon angle cache");
-  assert(/view\.hullGroup\.rotation\s*=\s*renderShip\.angle/.test(pixiSource), "Pixi hull group should own ship world rotation");
-  assert(/sprite\.rotation\s*=\s*visualAngles\[i\]/.test(pixiSource), "Pixi turret sprites must receive ship-relative visual angles");
+
+  // The hull frame owns the hull world rotation; turret sprites receive only the
+  // ship-relative visual angle and must never add the hull angle a second time.
+  assert(/setHullFrameRotation\(view,\s*renderShip\.angle\)/.test(pixiSource), "Pixi ships must drive the hull frame from the rendered ship angle");
+  assert(/hullContainer\.rotation\s*=\s*angle/.test(viewSource), "HullContainer must own the hull world rotation");
+  assert(/sprite\.rotation\s*=\s*visual\b/.test(pixiSource), "Pixi turret sprites must receive the ship-relative visual angle");
   assert(!/sprite\.rotation\s*=\s*[^;]*(ship|renderShip)\.angle\s*\+/.test(pixiSource), "Pixi turret sprites must not add hull angle a second time");
-  assert(/updatePixiTurrets\(view, ship, design\)/.test(pixiSource), "Pixi turrets must update every rendered ship frame");
+  assert(/updatePixiTurrets\(env,\s*view,\s*ship,\s*design\)/.test(pixiSource), "Pixi turrets must update every rendered ship frame");
+
+  // One persistent turret per ORIGINAL design index, retained across snapshots.
+  assert(/turretsByDesignIndex/.test(viewSource), "Pixi views must key persistent turrets by original design index");
+  assert(/sprite\.__designIndex\s*=\s*i/.test(viewSource), "turret sprites must store their original design index");
+  // Static content rebuilt only when the static signature changes.
+  assert(/view\.staticKey\s*!==\s*staticKey/.test(pixiSource), "Pixi static hull/turrets must rebuild only on a signature change");
+  assert(/rebuildPixiShipStatic/.test(pixiSource), "Pixi ships must have an explicit static rebuild path");
+  // Debug parity assertion between rotating weapons and turret sprites exists.
+  assert(/rotatingWeaponCount/.test(pixiSource) && /turretSpriteCount/.test(pixiSource), "debug mode must assert rotatingWeaponCount === turretSpriteCount");
+  // Forced-arrow debug mode to separate transform bugs from artwork bugs.
+  assert(/__mfaDebugTurretArrows/.test(pixiSource), "Pixi renderer must support a forced-arrow debug mode");
+
+  // Explicit static/dynamic artwork split APIs, covering every weapon type.
+  assert(/drawStaticComponentBase/.test(artSource) && /drawStaticWeaponMount/.test(artSource) && /drawRotatingWeaponTop/.test(artSource), "componentArt must expose explicit static/dynamic weapon APIs");
   assert(/debugTurrets:\s*false/.test(fs.readFileSync("./public/src/state.js", "utf8")), "turret debug logging must be disabled by default");
-  assert(/src[\\/", ]+shared[\\/", ]+turretRules\.js/.test(netlifyBuild) || /turretRules\.js/.test(netlifyBuild), "Netlify build must require the shared turret rules asset");
+  assert(/turretRules\.js/.test(netlifyBuild), "Netlify build must require the shared turret rules asset");
+  assert(/pixiShipView\.js/.test(netlifyBuild), "Netlify build must bundle the Pixi ship view module");
   for (const type of ["blaster", "autocannon", "railgun", "missile", "torpedo", "swarmMissile", "pointDefense", "flakCannon", "beamEmitter"]) {
-    assert(rendererSource.includes(type), `renderer should include ${type} weapon artwork`);
+    assert(artSource.includes(type), `componentArt should include ${type} weapon artwork`);
   }
 }
 
