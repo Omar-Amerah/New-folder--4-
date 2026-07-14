@@ -4,7 +4,7 @@
 // turn; engine stacking still shows diminishing efficiency.
 const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
-const { segmentCircleClearance } = require("./src/server/movement");
+const { segmentCircleClearance, commandShips, planFormation, updateShipMovement, updateShipSeparation, nearestClearPoint } = require("./src/server/movement");
 
 // Build a design with `engineCount` engines (clear downward exhaust in their own
 // columns) plus enough reactors to stay powered, a core, and optional dead mass.
@@ -99,6 +99,64 @@ function run() {
   const clearRoute = segmentCircleClearance(0, 0, 1000, 0, 500, 200, 120);
   assert(blockedRoute.blocked, "destination behind an asteroid should flag the route as blocked");
   assert(!clearRoute.blocked, "route outside asteroid clearance should remain clear");
+
+  // 8. Command authorization semantics: omitted ids command all owned ships, but
+  // an explicit empty or malformed selection never falls back to all ships.
+  const room = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map(), players: new Map() };
+  const player = { id: "p1", team: "blue", ships: [] };
+  const enemy = { id: "p2", team: "red", ships: [] };
+  room.players.set(player.id, player);
+  room.players.set(enemy.id, enemy);
+  for (const id of ["s1", "s2", "s10"]) {
+    const ship = { id, ownerId: player.id, alive: true, x: 100, y: 100, vx: 0, vy: 0, angle: 0, radius: 40, stats: { accel: 0, maxSpeed: 0, turnRate: 0 }, design: [] };
+    player.ships.push(ship);
+    room.ships.set(id, ship);
+  }
+  const enemyShip = { id: "e1", ownerId: enemy.id, alive: true, x: 100, y: 100, vx: 0, vy: 0, angle: 0, radius: 40, stats: {}, design: [] };
+  enemy.ships.push(enemyShip);
+  room.ships.set(enemyShip.id, enemyShip);
+  assert.strictEqual(commandShips(room, player, 500, 500, { shipIds: [] }).commanded, 0, "explicit empty selection should command no ships");
+  assert.strictEqual(player.ships.filter((ship) => ship.targetX === 500).length, 0, "empty selection must not mutate all ships");
+  assert.strictEqual(commandShips(room, player, 500, 500, { shipIds: ["s2", "e1", "s2"] }).commanded, 1, "mixed ids should command only owned live ships once");
+  assert.strictEqual(enemyShip.targetX, undefined, "enemy ship must not be mutated by command");
+  assert.strictEqual(commandShips(room, player, 700, 700, {}).commanded, 3, "omitted selection intentionally commands all owned live ships");
+  assert.strictEqual(commandShips(room, player, 900, 900, { shipIds: Array.from({ length: 65 }, (_, i) => `s${i}`) }).ok, false, "oversized command arrays should be rejected");
+
+  // 9. Formation planning is deterministic, stable under reversed selection order,
+  // size-aware, centered, in bounds, and obstacle-adjusted without collapsing all slots.
+  room.map.asteroids = [{ x: 1000, y: 800, radius: 100 }];
+  player.ships[2].radius = 90;
+  const planA = planFormation(room, player.ships, { x: 1000, y: 800, formation: "line" });
+  const planB = planFormation(room, player.ships.slice().reverse(), { x: 1000, y: 800, formation: "line" });
+  assert.deepStrictEqual(planA.slots.map((slot) => slot.shipId), planB.slots.map((slot) => slot.shipId), "formation assignment should not depend on selection order");
+  assert(planA.slots.every((slot) => Number.isFinite(slot.x) && Number.isFinite(slot.y)), "formation slots must stay finite");
+  assert(planA.slots.every((slot) => slot.x >= 42 && slot.x <= room.world.width - 42 && slot.y >= 42 && slot.y <= room.world.height - 42), "formation slots must stay in bounds");
+  const uniqueSlotPositions = new Set(planA.slots.map((slot) => `${Math.round(slot.x)},${Math.round(slot.y)}`));
+  assert(uniqueSlotPositions.size > 1, "obstacle adjustment must not collapse all slots to one point");
+  const oneShip = planFormation(room, [player.ships[0]], { x: 300, y: 300, formation: "wedge" });
+  assert(Math.hypot(oneShip.slots[0].x - 300, oneShip.slots[0].y - 300) < 1e-6, "one-ship formation targets requested clear location");
+
+  // 10. Movement dt safety: non-positive/non-finite dt is ignored, large dt is
+  // clamped/subdivided, and invalid state is sanitized back to finite values.
+  const moving = { id: "m1", ownerId: player.id, alive: true, x: 200, y: 200, vx: 0, vy: 0, angle: 0, targetX: 1000, targetY: 200, radius: 35, stats: { accel: 120, maxSpeed: 180, turnRate: Math.PI }, design: [], componentHp: [] };
+  updateShipMovement(room, moving, NaN);
+  assert.strictEqual(moving.x, 200, "NaN dt should not move the ship");
+  updateShipMovement(room, moving, 5);
+  assert(Number.isFinite(moving.x) && Number.isFinite(moving.vx) && Math.hypot(moving.vx, moving.vy) <= moving.stats.maxSpeed + 1e-6, "large dt should remain finite and speed-capped");
+  moving.x = Infinity;
+  moving.vx = NaN;
+  updateShipMovement(room, moving, 1 / 30);
+  assert(Number.isFinite(moving.x) && Number.isFinite(moving.vx), "movement state should be sanitized to finite values");
+
+  // 11. Exact-overlap separation uses a deterministic direction and converges.
+  const overlapA = { id: "a", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
+  const overlapB = { id: "b", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
+  updateShipSeparation(room, [overlapB, overlapA], 1 / 30);
+  assert(Math.hypot(overlapA.x - overlapB.x, overlapA.y - overlapB.y) > 0, "overlapped ships should separate deterministically");
+
+  // 12. Nearest-clear-point reports metadata and clears all asteroid constraints when possible.
+  const clear = nearestClearPoint(room, 1000, 800, 48);
+  assert(clear.adjusted && clear.clear && clear.reason === "adjusted", "clear-point helper should expose successful adjustment metadata");
 
   console.log("Movement verification passed");
   console.log(`  speeds 1..8 engines: ${[1,2,3,4,5,6,7,8].map((n) => computeStats(buildShip(n)).maxSpeed).join(", ")}`);
