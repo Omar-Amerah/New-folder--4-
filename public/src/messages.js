@@ -4,7 +4,7 @@ import { state } from "./state.js";
 import { dom } from "./ui/dom.js";
 import { applyServerParts } from "./design/parts.js";
 import { normalizeDesign } from "./design/blueprintStorage.js";
-import { renderBuildGrid, renderLocalStats } from "./ui/designerUi.js";
+import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats } from "./ui/designerUi.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderSavedDesigns } from "./ui/savedBlueprintsUi.js";
@@ -25,6 +25,7 @@ export function handleServerMessage(message) {
     state.myId = message.id;
     applyServerParts(message.parts || {});
     state.design = normalizeDesign(state.design);
+    invalidateHeatAnalysisCache();
     state.hoveredHeatPartIndex = null;
     renderPalette();
     renderPartInspector();
@@ -36,6 +37,7 @@ export function handleServerMessage(message) {
     const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
     if (!localStorage.getItem(LOCAL_DESIGN_KEY)) {
       state.design = normalizeDesign(message.defaultDesign || state.design);
+      invalidateHeatAnalysisCache();
       state.hoveredHeatPartIndex = null;
       renderBuildGrid();
       renderLocalStats();

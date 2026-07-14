@@ -21,6 +21,7 @@ const srcFiles = [
   "design/componentStats.js",
   "design/blueprintValidation.js",
   "design/blueprintStorage.js",
+  "design/thermalAnalysis.js",
   "state.js",
   "ui/dom.js",
   "ui/toastUi.js",

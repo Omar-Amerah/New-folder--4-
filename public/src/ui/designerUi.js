@@ -27,15 +27,64 @@ const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
 
-function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE) {
-  const signature = `${mode}|${JSON.stringify(state.design.map(part => [part.type, part.x, part.y, part.rotation || 0]))}`;
-  if (cachedHeatAnalysis?.signature === signature) return cachedHeatAnalysis.result;
-  const result = analyzeDesignHeat(state.design, mode);
-  cachedHeatAnalysis = { signature, result };
+function heatDesignSignature(design, mode) {
+  return `${mode}|${JSON.stringify(
+    design.map(part => [part.type, part.x, part.y, part.rotation || 0])
+  )}`;
+}
+
+function cachedPartReferencesMatch(design) {
+  const references = cachedHeatAnalysis?.partReferences;
+
+  return Boolean(
+    references &&
+    references.length === design.length &&
+    references.every((part, index) => part === design[index])
+  );
+}
+
+export function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE) {
+  const design = state.design;
+  const signature = heatDesignSignature(design, mode);
+
+  if (
+    cachedHeatAnalysis?.signature === signature &&
+    cachedPartReferencesMatch(design)
+  ) {
+    return cachedHeatAnalysis.result;
+  }
+
+  const result = analyzeDesignHeat(design, mode);
+  cachedHeatAnalysis = {
+    signature,
+    partReferences: [...design],
+    result
+  };
   return result;
 }
 
 export function invalidateHeatAnalysisCache() { cachedHeatAnalysis = null; }
+
+function heatAnalysisMatchesCurrentDesign(analysis) {
+  if (!analysis) return false;
+
+  return state.design.every(part =>
+    analysis.predictions?.has(part) &&
+    analysis.componentHeat?.has(part) &&
+    analysis.componentClasses?.has(part)
+  );
+}
+
+function freshCurrentHeatAnalysis() {
+  let analysis = currentHeatAnalysis();
+
+  if (!heatAnalysisMatchesCurrentDesign(analysis)) {
+    invalidateHeatAnalysisCache();
+    analysis = currentHeatAnalysis();
+  }
+
+  return analysis;
+}
 
 export function renderBuildGrid() {
   renderBaseBlueprintGrid();
@@ -214,8 +263,15 @@ function addClassString(element, classString) {
 }
 
 function refreshHeatPresentationSafely() {
+  clearHeatUiError();
+
   try {
-    const analysis = currentHeatAnalysis();
+    const analysis = freshCurrentHeatAnalysis();
+
+    if (!heatAnalysisMatchesCurrentDesign(analysis)) {
+      throw new Error("Thermal analysis does not match current design");
+    }
+
     applyHeatPresentation(analysis);
     updateHeatInspectionOverlay(analysis);
     clearHeatUiError();
@@ -240,7 +296,7 @@ function showHeatUiError(error) {
   dom.blueprintThermalHud.querySelector(".heat-ui-error-message")?.remove();
   const message = document.createElement("div");
   message.className = "heat-ui-error-message";
-  message.textContent = `Heat rendering failed: ${error?.message || error}`;
+  message.textContent = "Heat view could not be loaded. Please reopen the Heat tab.";
   dom.blueprintThermalHud.prepend(message);
 }
 
@@ -253,6 +309,9 @@ function applyHeatPresentation(heatAnalysis) {
     if (!part) continue;
     const heatClass = heatAnalysis.componentClasses.get(part) || "";
     const prediction = heatAnalysis.predictions.get(part);
+    if (!prediction) {
+      throw new Error(`Missing heat prediction for component ${index}`);
+    }
     const displayedHeat = Math.max(
       0,
       Math.min(
@@ -264,6 +323,7 @@ function applyHeatPresentation(heatAnalysis) {
     const overheated = !meltdown && displayedHeat >= 100;
     const critical = !meltdown && !overheated && displayedHeat >= 76;
     const role = thermalRoleMarkup(part, prediction, heatAnalysis, index);
+    const stateLabel = globalThis.HeatRules.STATE_LABELS[prediction.state] || "Cool";
     const threeDigitHeat = displayedHeat >= 100;
     const heatBadge = `<span
       class="component-heat-value${threeDigitHeat
@@ -287,7 +347,7 @@ function applyHeatPresentation(heatAnalysis) {
       markup: `${role}${heatBadge}${heatWarning}`,
       ariaLabel:
         `${PART_DEFS[part.type].name}. ` +
-        `${globalThis.HeatRules.STATE_LABELS[prediction.state]}. ` +
+        `${stateLabel}. ` +
         `${displayedHeat} percent heat capacity used.`
     });
   }
@@ -1397,7 +1457,11 @@ export function heatInteractionDiagnostics() {
     percentageBadgeCount: dom.grid.querySelectorAll(".component-heat-value").length,
     occupiedCellCount: dom.grid.querySelectorAll(".build-cell.occupied").length,
     previewCount: dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow").length,
-    heatFlowOverlayCount: (dom.heatFlowOverlayHost || dom.grid).querySelectorAll(".heat-flow-overlay").length
+    heatFlowOverlayCount: (dom.heatFlowOverlayHost || dom.grid).querySelectorAll(".heat-flow-overlay").length,
+    heatCacheSignature: cachedHeatAnalysis?.signature || null,
+    heatCachePartReferencesMatch: cachedPartReferencesMatch(state.design),
+    heatAnalysisMatchesCurrentDesign: heatAnalysisMatchesCurrentDesign(cachedHeatAnalysis?.result),
+    heatUiErrorVisible: Boolean(dom.blueprintThermalHud?.querySelector(".heat-ui-error-message") || dom.grid?.classList.contains("heat-ui-error"))
   };
 }
 
