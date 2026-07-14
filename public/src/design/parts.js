@@ -752,16 +752,29 @@ export const FALLBACK_PART_STATS = {
 };
 
 export let PART_STATS = buildPartStatsFromBalance(null, FALLBACK_PART_STATS);
+let componentCatalogueAuthority = "fallback";
+
+export function componentCatalogueSource() {
+  return componentCatalogueAuthority;
+}
 
 export function applyComponentBalance(balance) {
+  // HTTP balance data is useful for menu/offline rendering, but once a hello
+  // message supplies the server-normalized catalogue it must not be allowed to
+  // race in late and overwrite authoritative gameplay preview data.
+  if (componentCatalogueAuthority === "server") return false;
   PART_STATS = { ...normalizeRuntimeParts(FALLBACK_PART_STATS), ...buildPartStatsFromBalance(balance, FALLBACK_PART_STATS) };
+  componentCatalogueAuthority = "http";
   clearComponentIconCache(); // footprints may have changed, rebake icons
+  return true;
 }
 
 export function applyServerParts(parts) {
   const normalized = normalizeRuntimeParts(parts);
-  PART_STATS = { ...PART_STATS, ...normalized };
+  PART_STATS = { ...normalizeRuntimeParts(FALLBACK_PART_STATS), ...normalized };
+  componentCatalogueAuthority = "server";
   clearComponentIconCache();
+  return true;
 }
 
 export function isRotatablePart(type) {

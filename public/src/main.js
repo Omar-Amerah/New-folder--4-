@@ -239,7 +239,8 @@ async function loadComponentBalance() {
     const response = await fetch("/component-balance.json", { cache: "no-store" });
     if (!response.ok) return;
     const balance = await response.json();
-    applyComponentBalance(balance);
+    const applied = applyComponentBalance(balance);
+    if (!applied) return;
     renderPalette();
     renderPartInspector();
     renderBuildGrid();

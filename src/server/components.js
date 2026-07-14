@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const { COMPONENT_BALANCE_PATH } = require("./config");
+const { assertValidComponentBalance } = require("./componentSchema");
 
 function toNumber(value, fallback = 0) {
   const number = Number(value);
@@ -848,7 +849,7 @@ function normalizeBalanceComponent(component) {
   return Object.freeze(part);
 }
 
-const COMPONENT_BALANCE = loadComponentBalance();
+const COMPONENT_BALANCE = assertValidComponentBalance(loadComponentBalance(), { filePath: COMPONENT_BALANCE_PATH });
 const PARTS = buildPartsFromBalance(COMPONENT_BALANCE, FALLBACK_PARTS);
 
 module.exports = {
