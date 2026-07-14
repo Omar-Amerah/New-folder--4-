@@ -6,9 +6,10 @@ import {
   DEFAULT_THERMAL_LOAD_MODE
 } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
+import { createPlacementCandidate, findPartAtCell } from "../design/placementCandidate.js";
 import { normalizeRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
-import { getOccupiedCells, getFootprintBounds, footprintIncludes } from "../design/footprint.js";
+import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
 import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { showToast } from "./toastUi.js";
@@ -528,44 +529,26 @@ export function renderHoverPreview() {
 
   {
     const selectedType = state.selectedPart;
-    const existing = findPartAt(state.hoveredCell.x, state.hoveredCell.y);
-    const editingSamePart = existing?.type === selectedType;
-    // Replacing a multi-cell component uses the exact hovered square. The old
-    // component is still removed as one object, but the replacement no longer
-    // jumps back to its anchor (for example the left side of a 2x1 reactor).
-    let targetX = editingSamePart ? existing.x : state.hoveredCell.x;
-    let targetY = editingSamePart ? existing.y : state.hoveredCell.y;
-    let rotation = placementRotation(selectedType, state.previewRotation || 0);
-
-    const stat = PART_STATS[selectedType] || PART_STATS.frame;
-    const footprint = stat.footprint || { width: 1, height: 1 };
-
-    // Determine validity
-    let isValid = true;
-    const candidatePart = makeDesignPart(targetX, targetY, selectedType, rotation);
-    rotation = candidatePart.rotation;
-    const nextDesign = existing
-      ? state.design.map(p => p === existing ? candidatePart : p)
-      : [...state.design, candidatePart];
-
-    if (isOutOfBounds(nextDesign) || isOverlapping(nextDesign)) {
-      isValid = false;
-    } else if (!isConnected(nextDesign)) {
-      isValid = false;
-    }
-
-    // Draw the preview box from the rotated footprint's top-left bound so it
-    // aligns exactly with where the placed part will render.
-    const bounds = getFootprintBounds(targetX, targetY, footprint, rotation);
+    const candidate = createPlacementCandidate({
+      grid: state.hoveredCell,
+      componentType: selectedType,
+      rotation: state.previewRotation || 0,
+      design: state.design,
+      catalogue: PART_STATS
+    });
+    if (!candidate.part) return;
+    const footprint = (PART_STATS[selectedType] || PART_STATS.frame).footprint || { width: 1, height: 1 };
+    const bounds = getFootprintBounds(candidate.part.x, candidate.part.y, footprint, candidate.normalizedRotation);
 
     const preview = document.createElement("div");
-    preview.className = `build-preview ${isValid ? "valid" : "invalid"}`;
-    preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", rotation);
+    preview.className = `build-preview ${candidate.ok ? "valid" : "invalid"}`;
+    preview.title = candidate.message || "";
+    preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", candidate.normalizedRotation);
     positionPreviewOverlay(preview, bounds.minX, bounds.minY, bounds.width, bounds.height);
     dom.grid.appendChild(preview);
-    const candidateIndex = nextDesign.indexOf(candidatePart);
+    const candidateIndex = candidate.nextDesign.indexOf(candidate.part);
     const candidateStat = PART_STATS[selectedType] || {};
-    if (candidateStat.thrust > 0) renderEngineExhaustPreview(nextDesign, candidateIndex, isValid);
+    if (candidateStat.thrust > 0) renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
   }
 }
 
@@ -662,14 +645,7 @@ function gridCellFromPointer(clientX, clientY) {
 }
 
 function findPartAt(x, y) {
-  for (const part of state.design) {
-    const stat = PART_STATS[part.type] || PART_STATS.frame;
-    const footprint = stat.footprint || { width: 1, height: 1 };
-    if (footprintIncludes(part.x, part.y, footprint, part.rotation || 0, x, y)) {
-      return part;
-    }
-  }
-  return null;
+  return findPartAtCell(state.design, PART_STATS, x, y);
 }
 
 function clearHeatInspectionState() {
@@ -698,68 +674,31 @@ export function editCell(x, y) {
   const existing = findPartAt(x, y);
   if (existing?.type === "core") return;
 
-  // A different replacement part starts on the exact square clicked, even when
-  // that square belongs to the extension of a multi-cell component.
-  let targetX = existing?.type === state.selectedPart ? existing.x : x;
-  let targetY = existing?.type === state.selectedPart ? existing.y : y;
+  const candidate = createPlacementCandidate({
+    grid: { x, y },
+    componentType: state.selectedPart,
+    rotation: state.previewRotation || 0,
+    design: state.design,
+    catalogue: PART_STATS
+  });
 
-  state.selectedCell = { x: targetX, y: targetY };
+  state.selectedCell = { x: candidate.part?.x ?? x, y: candidate.part?.y ?? y };
 
-  if (existing) {
-    if (existing.type === state.selectedPart) {
-      if (isRotatablePart(existing.type)) {
-        rotateCell(existing.x, existing.y);
-      }
-      return;
-    }
-    const newPart = makeDesignPart(targetX, targetY, state.selectedPart, placementRotation(state.selectedPart, state.previewRotation || 0));
-    const next = state.design.map((part) => part === existing ? newPart : part);
-
-    if (isOutOfBounds(next)) {
-      setBuildStatus("Outside build grid", "error");
-      showToast("Outside build grid", "error");
-      return;
-    }
-    if (isOverlapping(next)) {
-      setBuildStatus("Overlaps another component", "error");
-      showToast("Overlaps another component", "error");
-      return;
-    }
-    if (!isConnected(next)) {
-      const message = explainConnectionProblem(state.design.filter(p => p !== existing), state.selectedPart, targetX, targetY, newPart.rotation);
-      setBuildStatus(message, "warning");
-      showToast(message, "warning");
-      return;
-    }
-    state.design = next;
-    clearInvalidHeatIndexes();
-    invalidateHeatAnalysisCache();
-  } else {
-    const newPart = makeDesignPart(targetX, targetY, state.selectedPart, state.previewRotation || 0);
-    const next = [...state.design, newPart];
-
-    if (isOutOfBounds(next)) {
-      setBuildStatus("Outside build grid", "error");
-      showToast("Outside build grid", "error");
-      return;
-    }
-    if (isOverlapping(next)) {
-      setBuildStatus("Overlaps another component", "error");
-      showToast("Overlaps another component", "error");
-      return;
-    }
-    if (isConnected(next)) {
-      state.design = next;
-      clearInvalidHeatIndexes();
-      invalidateHeatAnalysisCache();
-    } else {
-      const message = explainConnectionProblem(state.design, state.selectedPart, targetX, targetY, newPart.rotation);
-      setBuildStatus(message, "warning");
-      showToast(message, "warning");
-      return;
-    }
+  if (existing?.type === state.selectedPart) {
+    if (isRotatablePart(existing.type)) rotateCell(existing.x, existing.y);
+    return;
   }
 
+  if (!candidate.ok) {
+    const level = candidate.reasonCode === "disconnected" ? "warning" : "error";
+    setBuildStatus(candidate.message, level);
+    showToast(candidate.message, level);
+    return;
+  }
+
+  state.design = candidate.nextDesign;
+  clearInvalidHeatIndexes();
+  invalidateHeatAnalysisCache();
   persistDesign(state.design, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
