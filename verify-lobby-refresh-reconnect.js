@@ -39,13 +39,13 @@ assert.strictEqual(originalRoom.players.size, 1, "the lobby should initially con
 // Simulate the refresh race: the replacement socket joins before the browser's
 // old socket has emitted its close event, so the old player still says connected.
 const refreshedClient = makeClient("p101");
-joinRoom(refreshedClient, { type: "join", room: roomCode, name: "Pilot-259", team: "blue" });
+joinRoom(refreshedClient, { type: "join", room: roomCode, name: "Pilot-259", team: "blue", resumeToken: originalPlayer.resumeToken });
 
 assert.strictEqual(originalRoom.players.size, 1, "refreshing must not add a duplicate lobby player");
 assert.strictEqual(originalRoom.clients.size, 1, "only the refreshed socket should remain attached");
 assert.strictEqual(refreshedClient.player, originalPlayer, "the refreshed client should reclaim the existing player state");
-assert.strictEqual(refreshedClient.player.id, "p101", "the reclaimed player should use the new socket id");
-assert.strictEqual(originalRoom.adminId, "p101", "admin ownership should follow the refreshed socket");
+assert.strictEqual(refreshedClient.player.id, originalPlayer.id, "the reclaimed player should keep its stable player id");
+assert.strictEqual(originalRoom.adminId, originalPlayer.id, "admin ownership should stay on the stable player id");
 assert.strictEqual(originalClient.room, null, "the stale client must be detached before its close event");
 assert.strictEqual(originalClient.player, null, "the stale client must no longer own the player slot");
 assert.strictEqual(originalClient.socket.destroyed, true, "the stale socket should be closed");

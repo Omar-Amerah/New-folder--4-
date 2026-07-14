@@ -43,7 +43,8 @@ const GROUPS = {
   // cannot pass because ES-module imports were stripped into one global scope.
   integration: [
     "verify-reconnect.js",
-    "verify-lobby-refresh-reconnect.js"
+    "verify-lobby-refresh-reconnect.js",
+    "verify-lifecycle.js"
   ],
   // Real server.js process + real WebSockets + MessagePack snapshots.
   // Also the baseline lobby-to-active-match smoke flow.

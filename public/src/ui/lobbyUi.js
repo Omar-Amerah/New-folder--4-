@@ -16,6 +16,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { normalizeDesign } from "../design/blueprintStorage.js";
 import { computeStats } from "../design/componentStats.js";
 import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, LOCAL_FORMATION_KEY, syncUrlParams } from "../constants.js";
+import { getResumeCredential } from "../reconnectStorage.js";
 
 const ASTEROID_DENSITY_LABELS = {
   none: "None",
@@ -310,7 +311,7 @@ export function joinRoom(roomCode = "") {
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
   state.joiningLobby = true;
   connect(getSocketUrl(), () => {
-    send({ type: "join", name, room: roomCode, team: teamValue() });
+    send({ type: "join", name, room: roomCode, team: teamValue(), resumeToken: getResumeCredential(roomCode) });
   });
   updateLobbyState();
 }

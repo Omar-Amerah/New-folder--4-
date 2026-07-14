@@ -15,12 +15,13 @@
   //   1 = original MessagePack snapshot protocol (no version field on the wire).
   //   2 = authoritative per-design-index ship.weaponAngles in every snapshot,
   //       plus protocolVersion/serverBuildSha identification fields.
-  const PROTOCOL_VERSION = 2;
+  //   3 = stable room-scoped player IDs and private resumeToken credentials.
+  const PROTOCOL_VERSION = 3;
 
   // Highest protocol this client build understands. A server reporting a newer
   // protocol is actually incompatible and is rejected with a clear message
   // (differing build SHAs alone never block play).
-  const MAX_SUPPORTED_PROTOCOL = 2;
+  const MAX_SUPPORTED_PROTOCOL = 3;
 
   // Minimum protocol that guarantees authoritative weapon angles. Backends
   // below (or not reporting) this need redeploying; turret verification cannot

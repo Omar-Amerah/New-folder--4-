@@ -1,12 +1,50 @@
 // Handles player join, leave, name updates, team assignment, re-connection matching, and admin promotion checks.
 
+const crypto = require("crypto");
 const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN } = require("./config");
 const { sanitizeName, sanitizeTeam } = require("./validation");
 const { performanceNow } = require("./utils");
 
 // A player who drops (refresh or brief disconnect) keeps their ships and state
 // for this long; the server only despawns them if no reconnection arrives first.
-const RECONNECT_GRACE_MS = 10000;
+const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS || 10000);
+const MAX_RESUME_TOKEN_LENGTH = 128;
+let nextStablePlayerId = 1;
+
+function makePlayerId(room) {
+  let id;
+  do { id = `pl${nextStablePlayerId++}`; } while (room.players.has(id));
+  return id;
+}
+
+function makeResumeToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function normalizePlayerName(name) {
+  return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function safeEqualToken(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length === 0 || a.length > MAX_RESUME_TOKEN_LENGTH || b.length > MAX_RESUME_TOKEN_LENGTH) return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
+}
+
+function findPlayerByResumeToken(room, token) {
+  if (typeof token !== "string" || token.length > MAX_RESUME_TOKEN_LENGTH) return null;
+  for (const player of room.players.values()) {
+    if (!player.isBot && !player.removed && safeEqualToken(token, player.resumeToken)) return player;
+  }
+  return null;
+}
+
+function findReservedNameOwner(room, requestedName, exceptId = null) {
+  const key = normalizePlayerName(requestedName);
+  return [...room.players.values()].find((p) => !p.removed && p.id !== exceptId && normalizePlayerName(p.name) === key) || null;
+}
 
 // Ships are only removed when a player truly leaves (deliberate leave/kick, or
 // the reconnect grace period elapses). The server stays authoritative for this.
@@ -29,6 +67,7 @@ function joinRoom(client, message) {
   const requestedCode = sanitizeRoomCode(message.room);
   const code = requestedCode || require("./rooms").makeRoomCode();
   const requestedName = sanitizeName(message.name, `Pilot ${client.id.slice(1)}`);
+  const resumeToken = typeof message.resumeToken === "string" ? message.resumeToken.slice(0, MAX_RESUME_TOKEN_LENGTH) : "";
 
   if (!requestedCode) {
     for (const existingRoom of Array.from(rooms.values())) {
@@ -52,75 +91,33 @@ function joinRoom(client, message) {
     rooms.set(code, room);
   }
 
-  let existingPlayer = [...room.players.values()].find(
-    (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === false
-  );
+  let existingPlayer = findPlayerByResumeToken(room, resumeToken);
 
-  // A fast page refresh can race ahead of the old socket's close in any phase,
-  // including the lobby. Reclaim the existing slot instead of adding a duplicate
-  // player with the same browser-persisted name.
-  if (!existingPlayer) {
-    const stale = [...room.players.values()].find(
-      (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === true
-    );
-    if (stale) {
-      for (const oldClient of [...room.clients]) {
-        if (oldClient !== client && oldClient.player === stale) {
-          // Detach first so the orphaned socket's eventual close does not tear
-          // down the slot we are reclaiming.
-          oldClient.room = null;
-          oldClient.player = null;
-          room.clients.delete(oldClient);
-          try { oldClient.socket.destroy(); } catch { /* already gone */ }
-        }
-      }
-      if (stale.disconnectTimeout) {
-        clearTimeout(stale.disconnectTimeout);
-        stale.disconnectTimeout = null;
-      }
-      stale.connected = false;
-      existingPlayer = stale;
-    }
+  if (resumeToken && !existingPlayer) {
+    send(client, { type: "error", message: "Reconnect credential expired or invalid. Please join as a new player." });
+    return;
+  }
+
+  const nameOwner = findReservedNameOwner(room, requestedName, existingPlayer?.id);
+  if (nameOwner) {
+    send(client, { type: "error", message: nameOwner.connected === false ? "Name temporarily reserved by a disconnected player" : "Name already in use" });
+    return;
   }
 
   if (existingPlayer) {
-    leaveRoom(client);
-
-    const oldPlayerId = existingPlayer.id;
-    client.room = room;
-    client.player = existingPlayer;
-    existingPlayer.id = client.id;
-    existingPlayer.connected = true;
-
-    // Ships (and their in-flight bullets) survived the grace period under the old
-    // player id; re-point them at the reconnected client so control is restored.
-    for (const ship of existingPlayer.ships) {
-      ship.ownerId = client.id;
-    }
-    for (const bullet of room.bullets) {
-      if (bullet.ownerId === oldPlayerId) bullet.ownerId = client.id;
-    }
-
-    // Clear out any pending deletion timeout if they rejoined in the lobby
+    if (client.room || client.player) leaveRoom(client);
+    attachClientToPlayer(room, existingPlayer, client);
     if (existingPlayer.disconnectTimeout) {
       clearTimeout(existingPlayer.disconnectTimeout);
       existingPlayer.disconnectTimeout = null;
     }
-
+    existingPlayer.connected = true;
+    existingPlayer.removed = false;
     room.clients.add(client);
-    room.players.delete(oldPlayerId);
-    room.players.set(client.id, existingPlayer);
-
-    // If the reconnected player was admin, their admin ID needs to match their new client ID
-    if (room.adminId === oldPlayerId) {
-      room.adminId = client.id;
-    } else {
-      ensureAdmin(room);
-    }
-
+    ensureAdmin(room);
     room.lastEmptyAt = 0;
 
-    send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
+    send(client, { type: "joined", id: existingPlayer.id, resumeToken: existingPlayer.resumeToken, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
     broadcastSnapshot(room, performanceNow(), true);
     checkEmptyLobby(room);
@@ -137,7 +134,7 @@ function joinRoom(client, message) {
     return;
   }
 
-  if (room.kickedIds?.has(client.id) || room.kickedNames?.has(requestedName.toLowerCase())) {
+  if (room.kickedIds?.has(client.id) || room.kickedNames?.has(normalizePlayerName(requestedName))) {
     send(client, { type: "error", message: "You were kicked from this room by the host." });
     return;
   }
@@ -153,7 +150,7 @@ function joinRoom(client, message) {
   }
 
   const player = {
-    id: client.id,
+    id: makePlayerId(room),
     name: requestedName,
     color,
     team: sanitizeTeamForMode(room, message.team, client.id),
@@ -180,31 +177,61 @@ function joinRoom(client, message) {
     losses: 0,
     captures: 0,
     connected: true,
-    lastReadyAt: 0
+    lastReadyAt: 0,
+    resumeToken: makeResumeToken(),
+    attachmentId: 0,
+    removed: false
   };
 
-  client.room = room;
-  client.player = player;
+  attachClientToPlayer(room, player, client);
   room.clients.add(client);
   room.players.set(player.id, player);
   ensureAdmin(room);
   room.lastEmptyAt = 0;
 
-  send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
+  send(client, { type: "joined", id: player.id, resumeToken: player.resumeToken, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });
   broadcastSnapshot(room, performanceNow(), true);
   checkEmptyLobby(room);
 }
 
+function isCurrentAttachment(client) {
+  return Boolean(client && client.room && client.player && client.player.client === client && client.player.attachmentId === client.attachmentId);
+}
+
+function attachClientToPlayer(room, player, client) {
+  const oldClient = player.client;
+  player.attachmentId = (player.attachmentId || 0) + 1;
+  player.client = client;
+  client.room = room;
+  client.player = player;
+  client.attachmentId = player.attachmentId;
+  if (oldClient && oldClient !== client) {
+    room.clients.delete(oldClient);
+    oldClient.room = null;
+    oldClient.player = null;
+    oldClient.replaced = true;
+    try { oldClient.socket.destroy(); } catch { /* already closed */ }
+  }
+}
+
 function leaveRoom(client, explicitLeave = false) {
   if (client.room && client.player) {
     const { room, player } = client;
+    const current = isCurrentAttachment(client);
     room.clients.delete(client);
-
+    if (!current) {
+      client.room = null;
+      client.player = null;
+      return;
+    }
+    player.client = null;
     player.connected = false;
 
     if (explicitLeave) {
       // Deliberate leave/kick: remove the player and their ships immediately.
+      player.resumeToken = null;
+      player.removed = true;
       despawnPlayerShips(room, player);
       room.players.delete(player.id);
       if (room.adminId === player.id) {
@@ -216,7 +243,9 @@ function leaveRoom(client, explicitLeave = false) {
       // are only despawned if no reconnection arrives before the timer fires.
       if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
       player.disconnectTimeout = setTimeout(() => {
-        if (!player.connected && room.players.has(player.id)) {
+        if (!player.connected && !player.client && room.players.has(player.id)) {
+          player.resumeToken = null;
+          player.removed = true;
           despawnPlayerShips(room, player);
           room.players.delete(player.id);
           if (room.adminId === player.id) {
@@ -248,6 +277,7 @@ function leaveRoom(client, explicitLeave = false) {
   if (client.room) checkEmptyLobby(client.room);
   client.room = null;
   client.player = null;
+  client.attachmentId = 0;
 }
 
 function leaveLobby(client) {
@@ -291,7 +321,7 @@ function kickPlayer(room, requester, targetId) {
 
   removePlayerFromRoom(room, target, "kicked");
   room.kickedIds.add(target.id);
-  room.kickedNames.add(target.name.toLowerCase());
+  room.kickedNames.add(normalizePlayerName(target.name));
   broadcastRoom(room, { type: "notice", message: `${target.name} was kicked` });
   if (room.phase === "design") maybeStartMatch(room, performanceNow());
   broadcastSnapshot(room, performanceNow());
@@ -305,6 +335,9 @@ function removePlayerFromRoom(room, player, reason) {
     room.ships.delete(ship.id);
   }
   player.ships = [];
+  player.resumeToken = null;
+  player.removed = true;
+  if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
   room.players.delete(player.id);
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   for (const point of room.points) {
@@ -323,6 +356,7 @@ function removePlayerFromRoom(room, player, reason) {
       room.clients.delete(client);
       client.room = null;
       client.player = null;
+      client.attachmentId = 0;
     }
   }
 
@@ -405,7 +439,7 @@ function resetRoundPlayerStats(player) {
 function maybeStartMatch(room, now) {
   if (room.phase !== "design") return;
   const { broadcastRoom, broadcastSnapshot } = require("./messages");
-  const players = [...room.players.values()].filter((player) => player.connected !== false);
+  const players = [...room.players.values()].filter((player) => !player.removed && !player.isBot ? (player.connected !== false || player.disconnectTimeout) : !player.removed);
   if (!players.length || players.some((player) => !player.ready)) return;
   room.phase = "active";
   room.winner = null;
@@ -571,6 +605,12 @@ function closeLobby(room, requester) {
   const code = room.code;
   const { rememberClosedRoom, rooms } = require("./rooms");
   rememberClosedRoom(code);
+  for (const player of room.players.values()) {
+    if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
+    player.resumeToken = null;
+    player.removed = true;
+    player.client = null;
+  }
   for (const client of [...room.clients]) {
     send(client, { type: "closed", message: requester === null ? "Lobby closed due to inactivity" : "The room admin closed this lobby" });
     client.room = null;
@@ -592,6 +632,9 @@ module.exports = {
   ensureAdmin,
   isAdmin,
   sanitizeTeamForMode,
+  isCurrentAttachment,
+  findReservedNameOwner,
+  normalizePlayerName,
   balanceTeam,
   teamLabel,
   resetPlayerForMatch,
