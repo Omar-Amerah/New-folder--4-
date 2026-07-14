@@ -72,3 +72,8 @@ The game remembers that server URL locally and includes it when you copy invites
 - Use the minimap to jump the camera. Mouse wheel zooms; WASD or arrow keys pan; `F` follows your fleet; `Q` selects all live ships.
 - Add bots from the lobby controls for practice or fuller team matches.
 - Hold relays and destroy enemy ships to score. First side to the match score wins, then the admin chooses restart or close.
+
+
+## Frontend build path
+
+The production frontend has one authoritative execution path: `public/index.html` loads `public/src/main.js` as a native ES module. `npm run build` vendors PixiJS and MessagePack into `public/vendor/` and emits `public/build-sha.js`; it does not generate `public/client.js` or strip imports/exports. Architecture checks in `npm run check` verify relative imports, source-root boundaries, and the absence of the obsolete generated bundle.

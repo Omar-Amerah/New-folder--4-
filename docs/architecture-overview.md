@@ -152,13 +152,11 @@ close) — driven by `players.js` and `maybeStartMatch`.
 
 ## F. Current architectural risks (documented, deliberately not fixed here)
 
-- **R1 — Generated `public/client.js` vs the ES-module frontend.**
-  `public/index.html` loads `/src/main.js` as native ES modules; `netlify-build.js`
-  *also* concatenates all modules into `public/client.js` via regex import/export
-  stripping. Production serves the ES modules; the bundle is only exercised by the
-  VM-harness tests. Two builds of the same app can drift, and the regex bundler is
-  fragile (e.g. multi-line named imports/exports). The browser tests run the real
-  ES-module path; the bundle tests do not test what production runs.
+- **R1 — Frontend execution path (resolved in Section 1).**
+  `public/index.html` loads `/src/main.js` as the single production ES-module entry.
+  `netlify-build.js` no longer creates `public/client.js`; required tests no longer
+  execute a regex-stripped global bundle. `verify-module-boundaries.js`,
+  `verify-module-imports.js`, and `verify-production-path.js` protect this path.
 - **R2 — Global mutable client state.** Every client module imports and freely
   mutates the single `state` object; there is no change tracking, making UI/render
   interactions hard to reason about and test in isolation.
@@ -181,10 +179,11 @@ close) — driven by `players.js` and `maybeStartMatch`.
 - **R8 — Name-based reconnect identity.** Reconnection matches players by
   case-insensitive name within a room (`players.js`); a joiner with the same name
   can adopt a disconnected player's fleet — spoofable identity, no tokens.
-- **R9 — Static vs delta snapshot reconstruction.** Dynamic snapshots omit designs,
+- **R9 — Static vs delta snapshot reconstruction (partly mitigated in Section 1).** Dynamic snapshots omit designs,
   map, rules and stats; the client re-attaches them from caches keyed by ship id.
-  A missed static snapshot (e.g. join race) leaves ships without designs; tests
-  cover the happy path only.
+  The merge logic now lives in pure `public/src/snapshotMerge.js` helpers with
+  deterministic tests for malformed and incomplete deltas. Broader reconnect race
+  coverage remains deferred.
 - **R10 — Browser tests depend on Playwright binaries.** All five browser tests
   need a Chromium install (portable resolution in `verify-pixi-browser-support.js`:
   `PW_CHROME` → `/opt/pw-browsers/*` → Playwright default). Without a browser the

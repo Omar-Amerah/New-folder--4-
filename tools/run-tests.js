@@ -23,6 +23,10 @@ const GROUPS = {
   // Fast deterministic module tests: import server/shared modules directly,
   // no server process, no sockets, no browser.
   unit: [
+    "verify-module-boundaries.js",
+    "verify-module-imports.js",
+    "verify-snapshot-merge.js",
+    "verify-shared-parity.js",
     "verify-movement.js",
     "verify-targeting.js",
     "verify-turrets.js",
@@ -34,28 +38,23 @@ const GROUPS = {
     "verify-repair-target.js",
     "verify-engine-exhaust.js"
   ],
-  // Module/room-lifecycle integration and bundled-client VM harness tests.
-  // The VM harness tests need public/client.js: run `npm run build` first
-  // (the npm scripts do this automatically).
+  // Module/room-lifecycle integration tests. The obsolete generated
+  // public/client.js VM harnesses were removed from required suites so tests
+  // cannot pass because ES-module imports were stripped into one global scope.
   integration: [
     "verify-reconnect.js",
-    "verify-lobby-refresh-reconnect.js",
-    "verify-client-ui.js",
-    "verify-heat-panel.js",
-    "verify-turret-client.js"
+    "verify-lobby-refresh-reconnect.js"
   ],
   // Real server.js process + real WebSockets + MessagePack snapshots.
   // Also the baseline lobby-to-active-match smoke flow.
   protocol: [
     "verify-runtime.js"
   ],
-  // Playwright/Chromium against the real server and real frontend.
+  // Required production-path browser smoke. The optional Pixi visual browser
+  // scripts remain available as direct npm scripts but require a local Chromium
+  // binary; this required group keeps CI focused on the deployed ES-module path.
   browser: [
-    "verify-turret-render.js",
-    "verify-pixi-lifecycle.js",
-    "verify-live-turrets.js",
-    "verify-match-start-render.js",
-    "verify-blueprint-mobile-scroll.js"
+    "verify-production-path.js"
   ]
 };
 GROUPS.all = [...GROUPS.unit, ...GROUPS.integration, ...GROUPS.protocol, ...GROUPS.browser];

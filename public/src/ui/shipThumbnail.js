@@ -3,9 +3,8 @@
 // accurate top-down picture of the ship instead of just text. Cached by design
 // signature + colour so re-rendering the library list is cheap.
 //
-// NOTE: this file is flattened into public/client.js by the regex-concat build,
-// so every top-level name is prefixed to avoid clashing with componentIcon.js
-// (which also has DPR / NEUTRAL_TRIM constants).
+// Keep imports explicit and side-effect-free so the native ES-module graph can
+// be verified without relying on a flattened global bundle.
 
 import { PART_DEFS, isRotatablePart } from "../design/parts.js";
 import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";

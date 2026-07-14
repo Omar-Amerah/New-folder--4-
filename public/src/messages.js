@@ -18,7 +18,7 @@ import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
 import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
-import { COMPONENT_HEAT_DELTA_STRIDE, componentHeatTupleFromDelta, normalizeComponentHeatTuple } from "./shared/componentHeatSnapshot.js";
+import { mergeCachedShipFields, mergeStaticPlayerFields } from "./snapshotMerge.js";
 
 // Records the backend's protocol/build identification and reports skew. The
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
@@ -138,57 +138,17 @@ export function handleServerMessage(message) {
   if (message.type === "state") {
     recordServerBuild(message);
     const previousPhase = state.phase;
-    if (state.snapshot && state.snapshot.players && message.players) {
-      const oldPlayers = new Map(state.snapshot.players.map(p => [p.id, p]));
-      for (const newPlayer of message.players) {
-        const oldPlayer = oldPlayers.get(newPlayer.id);
-        if (oldPlayer) {
-          if (newPlayer.design === undefined) newPlayer.design = oldPlayer.design;
-          if (newPlayer.stats === undefined) newPlayer.stats = oldPlayer.stats;
-        }
-      }
+    if (state.snapshot?.players && message.players) {
+      message.players = mergeStaticPlayerFields(state.snapshot.players, message.players);
     }
-    // The server sends each ship's design once (it never changes after spawn);
-    // reuse the cached copy from the previous snapshot on later updates.
-    // Component hp (`chp`) works the same way: a full array rides along with the
-    // design, later snapshots only carry `chpD` deltas of [index, hp, ...].
-    if (state.snapshot && state.snapshot.ships && message.ships) {
+    // The server sends each ship's design and full component arrays once; reuse
+    // cached static data and apply compact deltas through pure merge helpers.
+    if (state.snapshot?.ships && message.ships) {
       const oldShips = new Map(state.snapshot.ships.map(s => [s.id, s]));
+      message.ships = mergeCachedShipFields(state.snapshot.ships, message.ships);
       for (const newShip of message.ships) {
         const oldShip = oldShips.get(newShip.id);
-        if (newShip.design === undefined && oldShip) newShip.design = oldShip.design;
         const oldChp = oldShip?.chp;
-        if (newShip.chp === undefined && oldChp) {
-          if (newShip.chpD && newShip.chpD.length) {
-            const merged = oldChp.slice();
-            for (let k = 0; k + 1 < newShip.chpD.length; k += 2) {
-              merged[newShip.chpD[k]] = newShip.chpD[k + 1];
-            }
-            newShip.chp = merged;
-          } else {
-            newShip.chp = oldChp;
-          }
-        }
-        if (Array.isArray(newShip.componentHeat)) {
-          newShip.componentHeat = newShip.componentHeat
-            .map(entry => normalizeComponentHeatTuple(entry) || [0, 0, 0, 0]);
-        }
-        const oldHeat = oldShip?.componentHeat;
-        if (newShip.componentHeat === undefined && oldHeat) {
-          if (Array.isArray(newShip.componentHeatD) && newShip.componentHeatD.length) {
-            const mergedHeat = oldHeat.map(value => Array.isArray(value) ? value.slice() : value);
-            for (let k = 0; k + COMPONENT_HEAT_DELTA_STRIDE <= newShip.componentHeatD.length; k += COMPONENT_HEAT_DELTA_STRIDE) {
-              const update = componentHeatTupleFromDelta(newShip.componentHeatD, k);
-              if (!update || update.index >= mergedHeat.length) continue;
-              mergedHeat[update.index] = update.tuple;
-            }
-            newShip.componentHeat = mergedHeat;
-          } else {
-            newShip.componentHeat = oldHeat;
-          }
-        }
-        // Client-only damage feedback (flashes, penetration trace, damage feed,
-        // core warnings) derived from what changed between cached and new hp.
         if (oldChp && newShip.chp && newShip.chp !== oldChp) {
           recordComponentHpChanges(newShip, oldChp, newShip.chp);
         }

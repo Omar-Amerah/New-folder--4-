@@ -193,7 +193,8 @@ function runTicks(room, me, ships, count, dt) {
   assert(/drawStaticComponentBase/.test(artSource) && /drawStaticWeaponMount/.test(artSource) && /drawRotatingWeaponTop/.test(artSource), "componentArt must expose explicit static/dynamic weapon APIs");
   assert(/debugTurrets:\s*false/.test(fs.readFileSync("./public/src/state.js", "utf8")), "turret debug logging must be disabled by default");
   assert(/turretRules\.js/.test(netlifyBuild), "Netlify build must require the shared turret rules asset");
-  assert(/pixiShipView\.js/.test(netlifyBuild), "Netlify build must bundle the Pixi ship view module");
+  assert(!/client\.js|Strip imports/.test(netlifyBuild), "Netlify build must not regex-bundle client modules");
+  assert(/type=["']module["'][^>]+\/src\/main\.js/.test(fs.readFileSync("./public/index.html", "utf8")), "production must load the Pixi ship view through the ES-module graph");
   for (const type of ["blaster", "autocannon", "railgun", "missile", "torpedo", "swarmMissile", "pointDefense", "flakCannon", "beamEmitter"]) {
     assert(artSource.includes(type), `componentArt should include ${type} weapon artwork`);
   }

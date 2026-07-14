@@ -119,8 +119,8 @@ naming/documentation.
 ### Low
 
 - **F10 — Dead files.** `_heatcheck.js` (puppeteer-core + hardcoded Windows Chrome
-  path — cannot run in this repo) and the generated `public/blueprint-fix.js`
-  placeholder. Documented; deletion deferred.
+  path — cannot run in this repo) and the formerly generated `public/blueprint-fix.js`
+  placeholder. Section 1 removed the placeholder with the obsolete build path.
 - **F11 — Naming.** `verify-canvas-removal.js` is a source grep, not a behaviour
   test; VM-harness tests test the generated bundle rather than the ES modules
   production loads (see architecture risk R1). Documentation only.
@@ -179,3 +179,11 @@ protocol, UI, renderer, or server-logic files were modified.**
 - Deleting `_heatcheck.js` and unused aliases.
 - Any consolidation of duplicate/overlapping tests.
 - Coverage for the F6 gaps (new tests belong to their system's review section).
+
+
+## Section 1 reclassification
+
+- The dual frontend path risk is resolved: `public/client.js` is no longer generated or required, and production remains `public/index.html` -> `/src/main.js`.
+- Missing import detection is now required by `npm run check` through `verify-module-boundaries.js` and `verify-module-imports.js`.
+- Snapshot merge risk is reduced by pure helpers and direct tests; reconnect race coverage remains deferred.
+- Browser-suite execution still depends on a Playwright Chromium binary; in this environment `npx playwright install chromium` returned HTTP 403, so browser tests remain environment-limited here.
