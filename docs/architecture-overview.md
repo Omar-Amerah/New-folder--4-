@@ -229,3 +229,7 @@ Catch-up Parts 1–3 are now represented by required, behavior-named suites inst
 ## Deliberately deferred to Sections 8–13
 
 The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+
+## Deterministic spawn planner
+
+Server spawning is planned by `src/server/spawnPlanner.js`. The planner sorts stable player IDs, groups players by solo sector or team side, reserves a radius large enough for the starter fleet, and performs a bounded deterministic fallback search when a preferred slot intersects another reservation, an asteroid, a relay, or world bounds. Blue and red teams use mirrored side treatment; solo players are distributed around deterministic sectors. Failures include the map seed, player IDs, team layout, and attempted positions.

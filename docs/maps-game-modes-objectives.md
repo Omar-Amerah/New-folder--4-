@@ -69,3 +69,7 @@ Catch-up Parts 1–3 are now represented by required, behavior-named suites inst
 ## Deliberately deferred to Sections 8–13
 
 The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+
+## Objective and victory test expectations
+
+Objective coverage must distinguish capture, scoring, victory finalization, and reset behavior. Capture and scoring rates, countdown duration, and reward values are balance constants and must not be changed by test catch-up work. Broader capture/victory/reset cases beyond the current invariant suite are intentionally deferred to Section 8 proper.

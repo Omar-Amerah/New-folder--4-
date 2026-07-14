@@ -86,3 +86,7 @@ Catch-up Parts 1–3 are now represented by required, behavior-named suites inst
 ## Deliberately deferred to Sections 8–13
 
 The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+
+## Protocol test suite
+
+The required protocol group now includes runtime, purchase, and movement protocol scenarios. These tests use a real server process, real WebSockets, MessagePack-encoded messages/snapshots, safe ports, and non-zero failure exits.

@@ -27,7 +27,9 @@ const GROUPS = {
     "verify-module-imports.js",
     "verify-blueprint-storage.js",
     "verify-snapshot-merge.js",
-    "verify-shared-parity.js",
+    "verify-blueprint-parity.js",
+    "verify-spawn-planner.js",
+    "verify-component-indexes.js",
     "verify-movement.js",
     "verify-targeting.js",
     "verify-turrets.js",
@@ -53,7 +55,9 @@ const GROUPS = {
   // Real server.js process + real WebSockets + MessagePack snapshots.
   // Also the baseline lobby-to-active-match smoke flow.
   protocol: [
-    "verify-runtime.js"
+    "verify-runtime.js",
+    "verify-purchases-protocol.js",
+    "verify-movement-protocol.js"
   ],
   // Production-path smoke: real server process and HTTP asset checks only.
   smoke: [
