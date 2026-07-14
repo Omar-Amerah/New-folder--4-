@@ -60,7 +60,9 @@ function buildSharedSnapshot(room, now, sendStatic) {
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     };
     if (ship.blockedEngineIndices?.size) entry.engBlocked = [...ship.blockedEngineIndices];
-    entry.heat = Math.round((ship.heatPressure || 0) * 100);
+    // One decimal place so ships below 0.5% pressure don't flatten to 0%.
+    const heatPercent = Math.max(0, (ship.heatPressure || 0) * 100);
+    entry.heat = Math.round(heatPercent * 10) / 10;
     entry.heatNow = Math.round((ship.currentHeat || 0) * 10) / 10;
     entry.heatMax = Math.round((ship.maxHeat || 0) * 10) / 10;
     entry.hot = ship.hotComponentCount || 0;
