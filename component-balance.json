@@ -2,7 +2,7 @@
   "notes": [
     "Active selectable component balance sheet and runtime source of truth for client and server balance.",
     "Hidden legacy size variants are intentionally omitted from this file and from the palette.",
-    "Edit component values here; server.js normalizes this file into runtime PARTS and public/client.js loads the same file for UI stats.",
+    "Edit component values here; server.js normalizes this file into runtime PARTS and the native ES-module frontend loads the same file for UI stats.",
     "Units: cost $, mass T, hull HP, power MW, shield SP, shieldRegen SP/s, thrust kN, energy MJ, repair HP/s, range m, radius m, projectileSpeed m/s."
   ],
   "shipCostLimits": {

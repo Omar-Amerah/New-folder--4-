@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "build": "node netlify-build.js",
-    "check": "npm run build && node --check server.js && node --check public/client.js && node --check netlify-build.js && node --check tools/run-tests.js && node --check verify-runtime.js && node --check verify-client-ui.js && node --check verify-heat-panel.js && node --check verify-turret-client.js && node --check verify-live-turrets.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node --check verify-match-start-render.js && node --check verify-blueprint-mobile-scroll.js && node verify-canvas-removal.js",
+    "check": "npm run build && npm run test:architecture && npm run test:module-imports && node --check server.js && node --check netlify-build.js && node --check tools/run-tests.js && node --check verify-runtime.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node --check verify-match-start-render.js && node --check verify-blueprint-mobile-scroll.js && node verify-canvas-removal.js",
     "test:unit": "node tools/run-tests.js unit",
     "test:integration": "npm run build && node tools/run-tests.js integration",
     "test:protocol": "node tools/run-tests.js protocol",
@@ -19,10 +19,8 @@
     "test:pixi-browser": "node verify-turret-render.js && node verify-pixi-lifecycle.js",
     "test:turrets": "node verify-turrets.js",
     "test:turret-render": "node verify-turret-render.js",
-    "test:turret-client": "node verify-turret-client.js",
     "test:live-turrets": "node verify-live-turrets.js",
-    "test:heat": "node verify-heat.js && node verify-heat-panel.js",
-    "test:heat-panel": "node verify-heat-panel.js",
+    "test:heat": "node verify-heat.js",
     "test:engine-exhaust": "node verify-engine-exhaust.js",
     "test:movement": "node verify-movement.js",
     "test:targeting": "node verify-targeting.js",
@@ -32,7 +30,12 @@
     "test:repair-target": "node verify-repair-target.js",
     "test:combat-review": "node verify-combat-review.js",
     "test:heat-effects": "node verify-heat-effects.js",
-    "test:match-start-render": "node verify-match-start-render.js"
+    "test:match-start-render": "node verify-match-start-render.js",
+    "test:architecture": "node verify-module-boundaries.js",
+    "test:module-imports": "node verify-module-imports.js",
+    "test:shared-parity": "node verify-shared-parity.js",
+    "test:snapshot-merge": "node verify-snapshot-merge.js",
+    "test:production-path": "node verify-production-path.js"
   },
   "keywords": [
     "browser-game",

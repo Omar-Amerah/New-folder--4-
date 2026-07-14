@@ -1,0 +1,22 @@
+"use strict";
+const assert = require("assert");
+(async () => {
+  const m = await import("./public/src/snapshotMerge.js");
+  const oldPlayers = [{ id: "p1", design: [1], stats: { cost: 1 }, name: "A" }];
+  assert.deepStrictEqual(m.mergeStaticPlayerFields(oldPlayers, [{ id: "p1", name: "B" }])[0].design, [1]);
+  const hp = [10, 20, 30];
+  assert.deepStrictEqual(m.applyComponentHpDelta(hp, [1, 5, 99, 1, 2]), [10, 5, 30]);
+  assert.deepStrictEqual(hp, [10, 20, 30]);
+  assert.deepStrictEqual(m.applyComponentHpDelta(hp, [1]), [10, 20, 30]);
+  const heat = [[1,0,0.1,10], [2,1,0.2,10]];
+  const mergedHeat = m.applyComponentHeatDelta(heat, [1, 7, 2, 0.7, 10, 8, 1, 1, 1, 1]);
+  assert.deepStrictEqual(mergedHeat, [[1,0,0.1,10], [7,2,0.7,10]]);
+  assert.notStrictEqual(mergedHeat, heat);
+  assert.notStrictEqual(mergedHeat[0], heat[0]);
+  assert.deepStrictEqual(m.applyComponentHeatDelta(heat, [1, 9]), [[1,0,0.1,10], [2,1,0.2,10]]);
+  const ships = m.mergeCachedShipFields([{ id: "s", design: [{ type: "core" }], chp: [3], componentHeat: heat }], [{ id: "s", chpD: [0, 2], componentHeatD: [0, 3, 1, 0.3, 10] }]);
+  assert.deepStrictEqual(ships[0].design, [{ type: "core" }]);
+  assert.deepStrictEqual(ships[0].chp, [2]);
+  assert.deepStrictEqual(ships[0].componentHeat[0], [3,1,0.3,10]);
+  console.log("Snapshot merge verification passed");
+})().catch((err) => { console.error(err); process.exit(1); });

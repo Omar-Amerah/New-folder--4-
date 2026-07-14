@@ -75,12 +75,13 @@ if (!/WebGL/.test(ctrl)) {
   fail("renderController must surface a WebGL-required fatal message on init failure");
 }
 
-// 6. The build must not list the deleted files and must list the new modules.
+// 6. The production frontend path must be native ES modules, not the deleted
+// regex-concatenated classic bundle.
 const build = fs.readFileSync(path.join(__dirname, "netlify-build.js"), "utf8");
-if (/game\/renderer\.js/.test(build)) fail("netlify-build.js must not bundle game/renderer.js");
-for (const rel of ["game/renderInterpolation.js", "game/viewportCulling.js", "game/componentDamageCanvas.js", "game/worldArt.js"]) {
-  if (!build.includes(rel)) fail(`netlify-build.js must bundle ${rel}`);
-}
+const index = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+if (/game\/renderer\.js/.test(build)) fail("netlify-build.js must not reference game/renderer.js");
+if (/client\.js|bundledCode|Strip imports/.test(build)) fail("netlify-build.js must not generate a regex-stripped client.js bundle");
+if (!/type=["']module["'][^>]+\/src\/main\.js/.test(index)) fail("index.html must load the Pixi app through /src/main.js as an ES module");
 
 if (failures.length) {
   console.error("Canvas-arena-removal guard FAILED:");

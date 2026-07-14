@@ -13,7 +13,7 @@ Test levels used below:
   modules directly; no server process, no sockets, no DOM.
 - **module integration** — several server modules driven together in-process
   (rooms/players lifecycle with fake sockets), or the *bundled* client
-  (`public/client.js`) executed in a Node `vm` sandbox with a fake DOM.
+  (removed in Section 1) previously executed `public/client.js` in a Node `vm` sandbox with a fake DOM.
 - **server integration / protocol** — spawns the real `server.js` process and talks
   to it over real WebSockets with MessagePack.
 - **browser e2e / visual** — Playwright headless Chromium loading the real frontend
@@ -35,9 +35,9 @@ Test levels used below:
 | `verify-engine-exhaust.js` | unit | Engine exhaust state from component state | shared engineExhaust, componentHealth | – | – | – | – | – | – |
 | `verify-reconnect.js` | module integration | Brief disconnect keeps ships for grace period | players, rooms | – | – | – | – | – | – |
 | `verify-lobby-refresh-reconnect.js` | module integration | Lobby refresh/rejoin flow with fake sockets | players, rooms | – | – | – | – | – | – |
-| `verify-client-ui.js` | module integration (bundle/VM) | Client UI logic of the **bundled** `public/client.js` in a Node `vm` with fake DOM + fake WebSocket | lobby UI, designer UI, state | – | fake | – | import swallowed | – | fake |
+| `verify-module-boundaries.js` | architecture | Static import/require graph and production frontend path | client/server modules | ✔ | – | – | ✔ | – | – |
 | `verify-heat-panel.js` | module integration (bundle/VM) | Selected-ship Heat panel display logic against bundled client | heat display, snapshot merge | – | fake | – | import swallowed | – | fake |
-| `verify-turret-client.js` | module integration (bundle/VM) | Client turret diagnostics, blueprint fallback, protocol compatibility check | client turrets, protocol version | – | fake | ✔ (compat check) | import swallowed | – | fake |
+| `verify-module-imports.js` | architecture regression | Temporary missing-import fixture proves checker fails unresolved imports | client ES modules | ✔ | – | – | ✔ | – | – |
 | `verify-canvas-removal.js` | static source scan | Greps client sources: the removed Canvas-2D arena backend must not resurface | render architecture guard | – | – | – | – | – | – |
 | `verify-runtime.js` | server integration / protocol (**baseline smoke**) | Two real WS clients: join, admin, bots, rules, design phase, invalid-design rejections, deploy, active match, economy, kick rejection, finite ship state | rooms, players, lobby rules, shipDesign, economy, snapshots, protocol | ✔ spawned | ✔ | ✔ | – | – | – |
 | `verify-turret-render.js` | browser e2e / visual | Pixi turret sprites track authoritative weapon angles; screenshot pixel diffs | Pixi renderer, turret art, weaponAim | ✔ spawned | – (synthetic snapshots) | – | ✔ | ✔ | ✔ |
@@ -57,7 +57,7 @@ Test levels used below:
 | verify-runtime.js | syntax-check only | executed | – | |
 | verify-client-ui.js | syntax-check only | executed | – | |
 | verify-heat-panel.js | syntax-check only | executed | `test:heat`, `test:heat-panel` | |
-| verify-turret-client.js | syntax-check only | executed | `test:turret-client` | |
+| verify-turret-client.js | retired bundle/VM harness | not in required suites | – | replaced by ES-module architecture checks |
 | verify-turret-render.js | executed (via `test:pixi-browser`) | executed | `test:turret-render`, `test:pixi-browser` | |
 | verify-pixi-lifecycle.js | executed (via `test:pixi-browser`) | executed | `test:pixi-lifecycle`, `test:pixi-browser` | |
 | verify-live-turrets.js | syntax-check only | executed | `test:live-turrets` | |
@@ -113,7 +113,7 @@ Key observations:
   test that requires `npm run build` first) — the name suggests unit heat logic only.
 - `verify-canvas-removal.js` is not a behavioural test; it is a source grep guard.
 - The bundle/VM tests (`verify-client-ui.js`, `verify-heat-panel.js`,
-  `verify-turret-client.js`) fail confusingly if `public/client.js` is stale or
+  retired VM harnesses fail confusingly if re-run without the obsolete generated bundle or
   missing; they test the *generated bundle*, not the ES modules that
   `public/index.html` actually loads in production (see architecture risks).
 
@@ -129,3 +129,12 @@ Key observations:
 - `npm run check` — build + `node --check` syntax validation + the static
   canvas-removal scan only.
 - All previous `test:*` aliases are retained unchanged.
+
+
+## Section 1 additions
+
+- `npm run test:architecture` runs `verify-module-boundaries.js`.
+- `npm run test:module-imports` proves missing client imports fail a required check.
+- `npm run test:snapshot-merge` covers pure static-field and delta reconstruction helpers.
+- `npm run test:shared-parity` compares client/server deterministic footprint rules and shared heat tuple constants.
+- `npm run test:production-path` builds, starts the real server, requests `public/index.html`, verifies `/src/main.js`, and asserts obsolete `public/client.js` is absent.
