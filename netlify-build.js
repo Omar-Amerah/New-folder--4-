@@ -51,6 +51,8 @@ const srcFiles = [
   "game/shipVitals.js",
   "game/weaponAim.js",
   "game/componentArt.js",
+  "game/staticComponentComposition.js",
+  "game/componentHeatTrend.js",
   "game/shipDynamics.js",
   "game/renderInterpolation.js",
   "game/viewportCulling.js",

@@ -32,7 +32,11 @@ export function updateHud() {
   const overheatedCount = heatShips.reduce((sum, ship) => sum + (Number(ship.overheated) || 0), 0);
   const heatText = formatHeatPercent(heat);
   // The bar keeps the real fractional width even when the text reads below 1%.
-  if (dom.heatHudFill) dom.heatHudFill.style.width = `${Math.min(100, heat)}%`;
+  if (dom.heatHudFill) {
+    const visualHeat = `${Math.max(0, Math.min(100, heat))}%`;
+    if (typeof dom.heatHudFill.style.setProperty === "function") dom.heatHudFill.style.setProperty("--heat-percent", visualHeat);
+    else dom.heatHudFill.style.width = visualHeat;
+  }
   if (dom.heatHudLabel) dom.heatHudLabel.textContent = overheatedCount ? `HEAT ${heatText} · ${overheatedCount} OVERHEATED` : hotCount ? `HEAT ${heatText} · ${hotCount} HOT` : `HEAT ${heatText}`;
   if (dom.heatHud) {
     dom.heatHud.className = `heat-hud${overheatedCount ? " overheated" : hotCount ? " hot" : ""}`;

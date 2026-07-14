@@ -27,17 +27,13 @@
 // centre-pivoted, +x-forward frame.
 
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
-import { moduleRotationToRadians, normalizeRotation } from "../../design/rotation.js";
 import { pixiBakeTexture, getPixiBakeGeneration, createPixiTextureCache } from "./pixiBake.js";
 import {
   drawShipStructure,
-  drawModule,
-  drawFootprintComponent,
-  drawStaticComponentBase,
-  drawStaticWeaponMount,
   drawRotatingWeaponTop
 } from "../componentArt.js";
 import { moduleLocalPosition, footprintLocalPlacement, shipEngineNozzles } from "../shipGeometry.js";
+import { drawPlacedStaticComponent } from "../staticComponentComposition.js";
 import { isRotatingWeaponPart } from "../weaponAim.js";
 
 export const SHIP_SCALE = 13;
@@ -106,41 +102,7 @@ export function bakePixiHullTexture(env, design, color, radius) {
     for (const part of design) {
       const def = PART_DEFS[part.type] || PART_DEFS.frame;
       const place = footprintLocalPlacement(part, SHIP_SCALE);
-      const rotatable = isRotatablePart(part.type);
-      const weapon = Boolean(PART_STATS[part.type]?.weapon);
-      // Structural rotatables (wings, diagonals) show direction through their
-      // own silhouette; they are not turrets and stay part of the hull.
-      if (rotatable && !weapon) {
-        drawStaticRotatableHull(bctx, part, place, def, color);
-        continue;
-      }
-      if (weapon) {
-        // Static half of a rotating weapon: occupied block + non-directional
-        // mount, at the blueprint (long-axis) orientation. No rotating top.
-        bctx.save();
-        bctx.translate(place.cx, place.cy);
-        if (place.multi) bctx.rotate(place.longAxisAngle);
-        drawStaticComponentBase({ type: part.type, unit: SHIP_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
-        drawStaticWeaponMount({ type: part.type, unit: SHIP_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color });
-        bctx.restore();
-        continue;
-      }
-      // Ordinary (non-weapon) component: full static art.
-      if (place.multi) {
-        bctx.save();
-        bctx.translate(place.cx, place.cy);
-        bctx.rotate(place.longAxisAngle);
-        drawFootprintComponent({ type: part.type, unit: SHIP_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
-        bctx.restore();
-      } else if (part.type === "maneuverThruster") {
-        bctx.save();
-        bctx.translate(place.cx, place.cy);
-        bctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-        drawModule({ x: 0, y: 0, size: SHIP_SCALE, color: def.color, type: part.type, trim: color });
-        bctx.restore();
-      } else {
-        drawModule({ x: place.cx, y: place.cy, size: SHIP_SCALE, color: def.color, type: part.type, trim: color });
-      }
+      drawPlacedStaticComponent(bctx, { part, place, unit: SHIP_SCALE, color: def.color, trim: color });
     }
     // Forward direction indicator (the ship's nose arrowhead).
     bctx.strokeStyle = color;
@@ -152,21 +114,6 @@ export function bakePixiHullTexture(env, design, color, radius) {
     bctx.closePath();
     bctx.stroke();
   });
-}
-
-// Structural rotatable silhouettes (wings, diagonal halves) baked at their
-// blueprint rotation as static hull art.
-function drawStaticRotatableHull(bctx, part, place, def, color) {
-  bctx.save();
-  bctx.translate(place.cx, place.cy);
-  if (place.multi) {
-    bctx.rotate(place.longAxisAngle);
-    drawFootprintComponent({ type: part.type, unit: SHIP_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
-  } else {
-    bctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-    drawModule({ x: 0, y: 0, size: SHIP_SCALE, color: def.color, type: part.type, trim: color });
-  }
-  bctx.restore();
 }
 
 // --- Turret texture -----------------------------------------------------------

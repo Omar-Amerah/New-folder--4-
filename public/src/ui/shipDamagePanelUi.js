@@ -6,10 +6,12 @@
 
 import { dom, withCanvasContext } from "./dom.js";
 import { state } from "../state.js";
-import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
+import { PART_DEFS, PART_STATS } from "../design/parts.js";
 import { getOccupiedCells } from "../design/footprint.js";
-import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
-import { drawShipStructure, drawModule, drawFootprintComponent } from "../game/componentArt.js";
+import { drawRotatingWeaponTop } from "../game/componentArt.js";
+import { drawPlacedStaticComponent } from "../game/staticComponentComposition.js";
+import { isRotatingWeaponPart, authoritativeWeaponAngle } from "../game/weaponAim.js";
+import { updateComponentHeatTrends, componentHeatTrend } from "../game/componentHeatTrend.js";
 import { footprintLocalPlacement } from "../game/shipGeometry.js";
 import { componentHealthRatio } from "../game/shipVitals.js";
 import { drawModuleDamage, drawModuleFlash } from "../game/componentDamageCanvas.js";
@@ -65,11 +67,27 @@ function renderHeatSummary(ship) {
   const hot = Number(ship.hot) || 0;
   const overheated = Number(ship.overheated) || 0;
   summary.hidden = false;
+  let fastestHeat = null, fastestCool = null;
+  ship.design?.forEach((part, i) => {
+    const trend = componentHeatTrend(i);
+    if (trend.direction === "warming" && (!fastestHeat || trend.smoothedRate > fastestHeat.rate)) fastestHeat = { index: i, rate: trend.smoothedRate, name: partDisplayName(part.type) };
+    if (trend.direction === "cooling" && (!fastestCool || trend.smoothedRate < fastestCool.rate)) fastestCool = { index: i, rate: trend.smoothedRate, name: partDisplayName(part.type) };
+  });
   summary.innerHTML = `
     <div><span title="Aggregate stored heat across the whole ship — individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
     <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
-    <div><span>Overheated</span><strong>${overheated}</strong></div>`;
+    <div><span>Overheated</span><strong>${overheated}</strong></div>
+    ${fastestHeat ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestHeat.index}"><span>Fastest heating</span><strong>${fastestHeat.name} ${formatHeatRate(fastestHeat.rate)}</strong></button>` : ""}
+    ${fastestCool ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestCool.index}"><span>Fastest cooling</span><strong>${fastestCool.name} ${formatHeatRate(fastestCool.rate)}</strong></button>` : ""}`;
+  summary.querySelectorAll(".heat-trend-jump").forEach((button) => button.addEventListener("click", () => {
+    diagramInteraction = diagramInteraction || { shipId: ship.id };
+    diagramInteraction.shipId = ship.id;
+    diagramInteraction.componentIndex = Number(button.dataset.componentIndex);
+    diagramInteraction.hoverIndex = undefined;
+    refreshComponentReadout(ship);
+    drawDiagram(ship);
+  }));
   checkShipHeatConsistency(ship);
 }
 
@@ -130,7 +148,11 @@ function renderComponentHeatReadout(ship, index) {
   const perfText = passive && passivePerf != null && passivePerf < 1
     ? ` · ${Math.round(passivePerf * 100)}% protection`
     : activePerf != null && activePerf < 1 ? ` · ${Math.round(activePerf * 100)}% output` : "";
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${perfText}`;
+  const trend = componentHeatTrend(index);
+  const trendText = trend.direction === "warming" ? ` — Warming ${formatHeatRate(trend.smoothedRate)}`
+    : trend.direction === "cooling" ? ` — Cooling ${formatHeatRate(trend.smoothedRate)}`
+    : trend.direction === "stable" ? " — Stable" : "";
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}`;
 }
 
 function renderComponentDamageReadout(ship, index) {
@@ -266,13 +288,30 @@ function hpBarColor(ratio) {
   return "#4ade80";
 }
 
-function heatColor(stateValue) {
-  if (stateValue >= 4) return "#fff1f2";
-  if (stateValue === 3) return "#ff334f";
-  if (stateValue === 2) return "#ff713d";
-  if (stateValue === 1) return "#fbbf24";
-  return "#38bdf8";
+const HEAT_STOPS = [
+  [0, "#38d5ff"], [0.12, "#38bdf8"], [0.25, "#ff7043"],
+  [0.42, "#ff3b3b"], [0.68, "#ff183f"], [0.86, "#ed0038"], [1, "#b80024"]
+];
+function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function heatColor(ratio) {
+  const r = Math.max(0, Math.min(1, Number(ratio) || 0));
+  for (let i = 1; i < HEAT_STOPS.length; i += 1) {
+    const [at, color] = HEAT_STOPS[i];
+    if (r <= at) {
+      const [prevAt, prevColor] = HEAT_STOPS[i - 1];
+      const t = (r - prevAt) / Math.max(0.0001, at - prevAt);
+      const a = hexToRgb(prevColor), b = hexToRgb(color);
+      return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
+    }
+  }
+  return "#b80024";
 }
+function makeHeatGradient(ctx, x, w) {
+  const g = ctx.createLinearGradient(x, 0, x + w, 0);
+  for (const [stop, color] of HEAT_STOPS) g.addColorStop(stop, color);
+  return g;
+}
+function formatHeatRate(rate) { const v = Number(rate) || 0; return `${v > 0 ? "+" : "−"}${Math.abs(v).toFixed(1)} H/s`; }
 
 // Renders the ship with its real component art (same drawModule pipeline as
 // the arena), rotated so the nose points up like the blueprint grid, then
@@ -329,8 +368,6 @@ function drawDiagram(ship) {
     drawCtx.save();
     drawCtx.translate(originX, originY);
     drawCtx.rotate(-Math.PI / 2);
-    drawShipStructure(ship.design, cellSize, trim);
-
     ship.design.forEach((part, i) => {
       const def = PART_DEFS[part.type] || PART_DEFS.frame;
       const place = footprintLocalPlacement(part, cellSize);
@@ -339,33 +376,26 @@ function drawDiagram(ship) {
       const halfLong = (place.tilesLong * cellSize) / 2;
       const halfCross = (place.tilesCross * cellSize) / 2;
       drawCtx.save();
-      drawCtx.translate(place.cx, place.cy);
       if (destroyed) drawCtx.globalAlpha *= 0.6;
-      if (isRotatablePart(part.type)) {
-        drawCtx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-        if (place.multi) {
-          drawFootprintComponent({ type: part.type, unit: cellSize, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
-        } else {
-          drawModule({ x: 0, y: 0, size: cellSize, color: def.color, type: part.type, trim });
-        }
-      } else if (place.multi) {
-        drawCtx.rotate(place.longAxisAngle);
-        drawFootprintComponent({ type: part.type, unit: cellSize, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim });
-      } else {
-        if (part.type === "maneuverThruster") {
-          drawCtx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-        }
-        drawModule({ x: 0, y: 0, size: cellSize, color: def.color, type: part.type, trim });
+      drawPlacedStaticComponent(drawCtx, { part, place, unit: cellSize, color: def.color, trim });
+      if (isRotatingWeaponPart(part.type)) {
+        drawCtx.save();
+        drawCtx.translate(place.cx, place.cy);
+        drawCtx.rotate(authoritativeWeaponAngle(ship, i, part));
+        drawRotatingWeaponTop({ type: part.type, unit: cellSize, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color });
+        drawCtx.restore();
       }
+      drawCtx.translate(place.cx, place.cy);
+      drawCtx.rotate(place.longAxisAngle);
       if (state.shipStatusView !== "heat") {
         drawModuleDamage(drawCtx, ratio, halfLong, halfCross, now);
         drawModuleFlash(drawCtx, componentFlash(ship.id, i, now), halfLong, halfCross);
       }
       if (state.shipStatusView === "heat") {
         const thermal = componentThermal(ship, i);
-        if (thermal.state > 0 || thermal.heat > 0) {
-          drawCtx.fillStyle = heatColor(thermal.state);
-          drawCtx.globalAlpha = thermal.state >= 3 ? 0.42 + Math.sin(now / 140) * 0.12 : Math.min(0.42, 0.08 + thermal.ratio * 0.34);
+        if (thermal.heat > 0) {
+          drawCtx.fillStyle = heatColor(thermal.ratio);
+          drawCtx.globalAlpha = Math.min(0.58, 0.08 + thermal.ratio * 0.5);
           drawCtx.fillRect(-halfLong, -halfCross, halfLong * 2, halfCross * 2);
         }
       }
@@ -390,8 +420,35 @@ function drawDiagram(ship) {
       const y = rect.y + rect.h - barH - 1;
       drawCtx.fillStyle = "rgba(3, 8, 15, 0.82)";
       drawCtx.fillRect(rect.x + 1, y, rect.w - 2, barH);
-      drawCtx.fillStyle = heatColor(thermal.state);
-      drawCtx.fillRect(rect.x + 1, y, Math.max(1, (rect.w - 2) * Math.min(1, thermal.ratio)), barH);
+      drawCtx.save();
+      drawCtx.beginPath();
+      drawCtx.rect(rect.x + 1, y, Math.max(1, (rect.w - 2) * Math.min(1, thermal.ratio)), barH);
+      drawCtx.clip();
+      drawCtx.fillStyle = makeHeatGradient(drawCtx, rect.x + 1, rect.w - 2);
+      drawCtx.fillRect(rect.x + 1, y, rect.w - 2, barH);
+      drawCtx.restore();
+      if (thermal.ratio >= 0.86) { drawCtx.strokeStyle = "rgba(255,24,63,.55)"; drawCtx.strokeRect(rect.x + 1, y, rect.w - 2, barH); }
+      const trend = componentHeatTrend(i);
+      if (trend.direction === "warming" || trend.direction === "cooling") {
+        const warming = trend.direction === "warming";
+        const cx = Math.min(canvas.width - 8, Math.max(8, rect.x + rect.w / 2));
+        const ty = Math.min(canvas.height - 10, Math.max(10, rect.y + 8));
+        drawCtx.fillStyle = warming ? "#ffb020" : "#38d5ff";
+        drawCtx.strokeStyle = "rgba(0,0,0,.75)";
+        drawCtx.lineWidth = 2;
+        drawCtx.beginPath();
+        if (warming) { drawCtx.moveTo(cx, ty - 6); drawCtx.lineTo(cx - 6, ty + 5); drawCtx.lineTo(cx + 6, ty + 5); }
+        else { drawCtx.moveTo(cx, ty + 6); drawCtx.lineTo(cx - 6, ty - 5); drawCtx.lineTo(cx + 6, ty - 5); }
+        drawCtx.closePath(); drawCtx.stroke(); drawCtx.fill();
+        if (rect.w > cellSize * 1.5) {
+          const label = formatHeatRate(trend.smoothedRate).replace(" H/s", "");
+          drawCtx.font = `900 ${Math.max(8, Math.min(11, cellSize * 0.28))}px system-ui`;
+          const tw = drawCtx.measureText(label).width + 8;
+          const px = Math.min(canvas.width - tw - 2, Math.max(2, cx + 8));
+          drawCtx.fillStyle = "rgba(3,8,15,.82)"; drawCtx.fillRect(px, ty - 8, tw, 14);
+          drawCtx.fillStyle = warming ? "#ffd17a" : "#9befff"; drawCtx.fillText(label, px + 4, ty + 3);
+        }
+      }
     } else if (state.shipStatusView !== "heat" && ratio !== null && ratio > 0 && ratio < 0.999) {
       const barH = Math.max(2, cellSize * 0.14);
       const y = rect.y + rect.h - barH - 1;
@@ -477,6 +534,7 @@ export function renderShipDamagePanel() {
     return;
   }
   panel.hidden = false;
+  if (heatView) updateComponentHeatTrends(ship, state.snapshotReceivedAt, state.room);
   drawDiagram(ship);
   // Every new snapshot re-renders the readout from the latest ship object so
   // the component line below the diagram can never show stale values.
