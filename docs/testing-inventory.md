@@ -138,3 +138,7 @@ Key observations:
 - `npm run test:snapshot-merge` covers pure static-field and delta reconstruction helpers.
 - `npm run test:shared-parity` compares client/server deterministic footprint rules and shared heat tuple constants.
 - `npm run test:production-path` builds, starts the real server, requests `public/index.html`, verifies `/src/main.js`, and asserts obsolete `public/client.js` is absent.
+
+## Section 4 map/objective tests
+
+- `npm run test:maps` / `node verify-maps-objectives.js`: deterministic map generation, generated-map validation, asteroid-density coverage, team/solo capture, contested capture, relay score, and full-control ownership checks.

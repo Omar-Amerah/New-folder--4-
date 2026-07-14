@@ -64,3 +64,7 @@ Necessary exceptions remain documented warnings: shared UMD modules under `publi
 - Resolved: snapshot static/delta merge logic is isolated in `public/src/snapshotMerge.js` and directly tested.
 - Guarded: missing imports fail `npm run check` through `verify-module-boundaries.js` and the temporary-fixture regression in `verify-module-imports.js`.
 - Deferred: broad UI/client cycles, server router extraction, and transport-neutral send/broadcast extraction remain for later sections because changing them safely requires larger protocol/lifecycle test coverage.
+
+## Section 4 map/objective boundaries
+
+`src/server/rooms.js` owns room lifecycle decisions and map seed creation. `src/server/mapValidation.js` owns pure generated-map schema and invariant checks. `src/server/objectives.js` is the score and victory authority for relay capture, periodic relay score, control victory, and idempotent winner finalization.
