@@ -51,7 +51,12 @@
     "test:support": "node verify-repair-target.js && node verify-combat-review.js",
     "test:combat-soak": "node verify-combat-determinism.js",
     "test:combat-protocol": "npm run test:protocol",
-    "test:combat-browser": "npm run test:browser"
+    "test:combat-browser": "npm run test:browser",
+    "test:blueprint-storage": "node verify-blueprint-storage.js",
+    "test:blueprint-parity": "node verify-shared-parity.js",
+    "test:component-indexes": "node verify-snapshot-merge.js",
+    "test:lifecycle": "node verify-lifecycle.js",
+    "test:spawn-planner": "node verify-maps-objectives.js"
   },
   "keywords": [
     "browser-game",

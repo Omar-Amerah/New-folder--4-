@@ -199,3 +199,7 @@ rather than balance. It added room-injectable combat RNG for authoritative sprea
 and decoy rolls, stable tie-breaks for target selection, point-defence priority
 correction from owner-id comparison to ship-id comparison, swept projectile
 collision precedence and duplicate-destruction protection.
+
+## Catch-up Part 1 follow-up
+
+This pass adds versioned blueprint-storage migration coverage and active-blueprint isolation for live matches. It does not start the Section 8 heat/power review and does not rebalance gameplay values.

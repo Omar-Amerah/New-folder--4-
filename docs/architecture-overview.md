@@ -213,3 +213,7 @@ collisions, support/repair, weapon aiming/firing, heat, projectiles, capture and
 scoring in that order. Target acquisition, per-weapon fallback, point defence,
 projectile impacts and destruction now use explicit deterministic tie-breaks and
 idempotent finalization; see [combat-targeting-weapons.md](combat-targeting-weapons.md).
+
+## Catch-up Part 1 architecture updates
+
+Blueprint persistence is isolated in `public/src/design/blueprintStorage.js` with versioned envelopes and safe read/write helpers. Active-match editor saves are isolated from deployed ships: server `deploy` during active play updates only future purchase state, while `setCombatStyle` remains the explicit deployed-ship mutation command.

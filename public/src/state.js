@@ -3,6 +3,8 @@
 import { WORLD_FALLBACK } from "./constants.js";
 import { loadDesign, loadSavedDesigns, loadLoadouts } from "./design/blueprintStorage.js";
 
+const initialDesign = loadDesign();
+
 function makeStars(count) {
   const stars = [];
   for (let i = 0; i < count; i += 1) {
@@ -27,8 +29,8 @@ export const state = {
   room: "",
   world: { ...WORLD_FALLBACK },
   parts: {},
-  design: loadDesign().modules,
-  combatStyle: loadDesign().combatStyle,
+  design: initialDesign.modules,
+  combatStyle: initialDesign.combatStyle,
   savedDesigns: loadSavedDesigns(),
   loadedEditorBlueprintId: null,
   draggingSavedDesignId: null,

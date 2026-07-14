@@ -97,3 +97,9 @@ Pointer-to-grid conversion reads the current grid DOM rectangle at interaction t
 8. Active-match purchase sends the selected blueprint; the server validates and charges authoritative cost only on successful buy.
 9. Spawned ships keep design array order stable for component HP, heat, weapon cooldowns, weapon angles, destroyed-engine indexes, and diagrams.
 10. Snapshots and rendering consume those arrays by design index; client display normalization must not reorder live server designs.
+
+## Catch-up Part 1 verification additions
+
+Blueprint persistence is now described in `docs/blueprint-storage.md` and covered by `npm run test:blueprint-storage`. The storage migration path normalizes rotations and multi-cell footprints using the same placement helpers as the designer.
+
+Client/server blueprint parity remains covered by `verify-shared-parity.js` / `npm run test:blueprint-parity`, which compares shared footprint and stat calculations against server-side authoritative modules. The server remains authoritative; the client preview is only a purchase/editor estimate.

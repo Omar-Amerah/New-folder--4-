@@ -98,3 +98,7 @@ first finalization records the destruction timestamp, zeroes components, emits t
 wreck/explosion effect and awards loss/kill/bounty accounting where applicable;
 later duplicate calls are no-ops until normal wreck removal deletes the ship from
 active room maps.
+
+## Catch-up Part 1 lifecycle test status
+
+Deterministic lifecycle coverage remains concentrated in `verify-lifecycle.js`, `verify-reconnect.js`, and `verify-lobby-refresh-reconnect.js`. These scripts are wired into `npm run test:integration` and the direct `npm run test:lifecycle` alias. They use controlled timers or short deterministic reconnect windows rather than long manual waits.
