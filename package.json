@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "build": "node netlify-build.js",
-    "check": "npm run build && node --check server.js && node --check public/client.js && node --check verify-runtime.js && node --check verify-client-ui.js && node --check verify-heat-panel.js && node --check verify-turret-client.js && node --check verify-live-turrets.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node verify-canvas-removal.js",
+    "check": "npm run build && node --check server.js && node --check public/client.js && node --check verify-runtime.js && node --check verify-client-ui.js && node --check verify-heat-panel.js && node --check verify-turret-client.js && node --check verify-live-turrets.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node verify-canvas-removal.js && node verify-lobby-refresh-reconnect.js",
     "verify": "npm run build && node verify-canvas-removal.js && node verify-runtime.js && node verify-client-ui.js && node verify-heat-panel.js && node verify-turret-client.js && npm run test:pixi-browser",
     "test:canvas-removal": "node verify-canvas-removal.js",
     "test:pixi-lifecycle": "node verify-pixi-lifecycle.js",
@@ -20,7 +20,7 @@
     "test:engine-exhaust": "node verify-engine-exhaust.js",
     "test:movement": "node verify-movement.js",
     "test:targeting": "node verify-targeting.js",
-    "test:reconnect": "node verify-reconnect.js",
+    "test:reconnect": "node verify-reconnect.js && node verify-lobby-refresh-reconnect.js",
     "test:core-reactor": "node verify-core-reactor.js",
     "test:heat-thermo": "node verify-heat-thermo.js",
     "test:repair-target": "node verify-repair-target.js",

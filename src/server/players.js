@@ -56,11 +56,10 @@ function joinRoom(client, message) {
     (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === false
   );
 
-  // A fast page refresh during an active game often races ahead of the old
-  // socket's close, so the previous player is still marked connected when the
-  // rejoin arrives. Reclaim that slot instead of rejecting the returning player
-  // with "game already started".
-  if (!existingPlayer && room.phase !== "lobby") {
+  // A fast page refresh can race ahead of the old socket's close in any phase,
+  // including the lobby. Reclaim the existing slot instead of adding a duplicate
+  // player with the same browser-persisted name.
+  if (!existingPlayer) {
     const stale = [...room.players.values()].find(
       (p) => p.name.toLowerCase() === requestedName.toLowerCase() && p.connected === true
     );
@@ -124,7 +123,7 @@ function joinRoom(client, message) {
     send(client, { type: "joined", id: client.id, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
     broadcastSnapshot(room, performanceNow(), true);
-  checkEmptyLobby(room);
+    checkEmptyLobby(room);
     return;
   }
 
@@ -603,4 +602,3 @@ module.exports = {
   returnToLobbyPhase,
   closeLobby
 };
-
