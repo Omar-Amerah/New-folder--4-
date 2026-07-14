@@ -146,3 +146,11 @@ Key observations:
 ## Section 6 movement additions
 
 `node verify-movement.js` now covers command selection semantics, enemy-ID rejection, deterministic formation planning, obstacle-adjusted slots, movement `dt` safety/sanitization, exact-overlap ship separation, and clear-point metadata in addition to the pre-existing engine/stat and route-clearance checks.
+
+## Section 7 combat tests
+
+`verify-combat-determinism.js` was added to the fast unit suite and to the new
+combat npm aliases. It covers allegiance matrices, ship-level and per-weapon
+stable target tie-breaking, point-defence protected-ship priority, destruction
+idempotency and swept projectile asteroid-first precedence with deterministic seed
+`1234`.

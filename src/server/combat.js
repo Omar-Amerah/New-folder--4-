@@ -2,7 +2,7 @@
 
 const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
-const { randomRange, clampNumber, angleDifference, rotateToward } = require("./utils");
+const { rngRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
 const { addBullet, segmentCircleHit } = require("./projectiles");
@@ -124,7 +124,19 @@ function updateShipSupport(room, ships, dt, now) {
 }
 
 
-function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships) {
+function stableId(value) {
+  return String(value?.id ?? value ?? "");
+}
+
+function isStableIdBefore(a, b) {
+  return stableId(a).localeCompare(stableId(b)) < 0;
+}
+
+function roomCombatRandom(room) {
+  return typeof room?.combatRandom === "function" ? room.combatRandom : Math.random;
+}
+
+function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null) {
   let best = null;
   let bestScore = -Infinity;
   const rangeSq = weapon.range * weapon.range;
@@ -138,8 +150,8 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
     if (distSq <= rangeSq && !isLineBlocked(room, worldX, worldY, bullet.x, bullet.y, 4)) {
       let score = -distSq;
-      if (bullet.targetId === shipOwnerId) score += 10000000;
-      else score += 5000000;
+      if (protectedShipId && bullet.targetId === protectedShipId) score += 10000000;
+      else if (ships.some((ally) => ally?.alive && ally.id === bullet.targetId && areAllies(room, shipOwnerId, ally.ownerId))) score += 5000000;
 
       const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "ship"];
       const pIndex = priorityList.indexOf(bullet.type);
@@ -147,7 +159,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
           score -= pIndex * 100000;
       }
 
-      if (score > bestScore) {
+      if (score > bestScore || (score === bestScore && (!best || isStableIdBefore(bullet, best.entity)))) {
         bestScore = score;
         best = { type: 'projectile', entity: bullet };
       }
@@ -164,7 +176,8 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     const dx = other.x - worldX;
     const dy = other.y - worldY;
     const dist = Math.hypot(dx, dy);
-    if (dist <= weapon.range && dist < bestShipDist && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) {
+    if (dist <= weapon.range && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)
+      && (dist < bestShipDist || (dist === bestShipDist && (!bestShip || isStableIdBefore(other, bestShip))))) {
       bestShip = other;
       bestShipDist = dist;
     }
@@ -190,12 +203,12 @@ function updateDecoys(room, ship, dt, now) {
   let used = false;
 
   for (const bullet of room.bullets) {
-    if (!bullet.interceptable || bullet.life <= 0 || bullet.targetId !== ship.id) continue;
+    if (!bullet.interceptable || bullet.life <= 0 || bullet.targetId !== ship.id || !areEnemies(room, ship.ownerId, bullet.ownerId)) continue;
 
     const dx = bullet.x - ship.x;
     const dy = bullet.y - ship.y;
     if (dx * dx + dy * dy <= rangeSq) {
-      if (Math.random() <= (effectiveComponentBonus(ship, "decoyChance") || 0.85)) {
+      if (roomCombatRandom(room)() <= (effectiveComponentBonus(ship, "decoyChance") || 0.85)) {
         bullet.trackingDisabledFor = effectiveComponentBonus(ship, "decoyConfuseDuration") || 1.2;
       }
       used = true;
@@ -283,7 +296,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     let aimEntity = null;
 
     if (family === "pointDefense") {
-      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, part.weapon, ships);
+      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, part.weapon, ships, ship.id);
       aimEntity = currentPdTarget ? currentPdTarget.entity : null;
     } else {
       // Keep the ship's assigned target when this weapon can reach it, otherwise
@@ -350,7 +363,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const accuracy = clampNumber((part.weapon.accuracy || 0.8) + effectiveComponentBonus(ship, "accuracyBonus"), 0.1, 1);
     const spreadScale = (1 - accuracy) * (family === "missile" ? 0.35 : 0.22);
-    const spread = randomRange(-spreadScale, spreadScale);
+    const spread = rngRange(roomCombatRandom(room), -spreadScale, spreadScale);
     const shotAngle = worldWeaponAngle + spread;
 
     const muzzle = weaponMuzzleWorldPosition(ship, module, worldWeaponAngle, family);
@@ -432,7 +445,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
          const speed = part.weapon.projectileSpeed || 1000;
          const life = part.weapon.range / speed;
          const targetEnt = currentPdTarget.entity;
-         const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + randomRange(-0.05, 0.05);
+         const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -0.05, 0.05);
 
          addBullet(room, {
             type: "pdShot",
@@ -684,6 +697,8 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
 }
 
 function destroyShip(room, ship, attackerId, now) {
+  if (!ship || ship.destroyFinalizedAt || ship.removed) return false;
+  ship.destroyFinalizedAt = now;
   ship.alive = false;
   ship.removeAt = now + 3200;
   ship.hp = 0;
@@ -708,6 +723,7 @@ function destroyShip(room, ship, attackerId, now) {
     attacker.earned += bounty;
     attacker.score += 30 + Math.round(bounty * 0.4);
   }
+  return true;
 }
 
 // Fast-repeating damage (beams tick 30x/s) accumulates into the most recent
@@ -767,6 +783,8 @@ function updateSelfDestructingShips(room, now) {
 }
 
 function detonateSelfDestruct(room, ship, now) {
+  if (!ship || ship.destroyFinalizedAt || ship.removed) return false;
+  ship.destroyFinalizedAt = now;
   ship.selfDestructAt = 0;
   ship.alive = false;
   ship.hp = 0;
@@ -783,6 +801,7 @@ function detonateSelfDestruct(room, ship, now) {
     victim.losses += 1;
     victim.lostFleetCost += ship.cost || ship.stats?.unitCost || 0;
   }
+  return true;
 }
 
 function updateDestroyedShips(room, now) {
@@ -808,7 +827,7 @@ function findTarget(room, ship, ships) {
 
   if (ship.focusTargetId) {
     const focused = ships.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
-    if (focused) {
+    if (focused && focused.alive) {
       const focusedDistance = Math.hypot(focused.x - ship.x, focused.y - ship.y);
       if (focusedDistance <= Math.max(range, ship.stats.railgunRange, ship.stats.beamRange || 0) * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
     }
@@ -817,7 +836,8 @@ function findTarget(room, ship, ships) {
   for (const other of ships) {
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
     const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
-    if (distance < bestDistance && distance <= Math.max(range, ship.stats.railgunRange, ship.stats.beamRange || 0) && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) {
+    if (distance <= Math.max(range, ship.stats.railgunRange, ship.stats.beamRange || 0) && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)
+      && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best))))) {
       best = other;
       bestDistance = distance;
     }
@@ -841,7 +861,8 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range)
   for (const other of ships) {
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
     const distance = Math.hypot(other.x - worldX, other.y - worldY);
-    if (distance <= range && distance < bestDistance && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) {
+    if (distance <= range && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)
+      && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best))))) {
       best = other;
       bestDistance = distance;
     }
@@ -951,6 +972,7 @@ module.exports = {
   requestSelfDestruct,
   updateSelfDestructingShips,
   findTarget,
+  findPointDefenseTarget,
   pickWeaponFireTarget,
   buildShipTurretDiagnostics,
   isLineBlocked,

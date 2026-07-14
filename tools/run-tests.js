@@ -35,6 +35,7 @@ const GROUPS = {
     "verify-heat-effects.js",
     "verify-core-reactor.js",
     "verify-combat-review.js",
+    "verify-combat-determinism.js",
     "verify-repair-target.js",
     "verify-engine-exhaust.js",
     "verify-maps-objectives.js"

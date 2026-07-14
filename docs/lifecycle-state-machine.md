@@ -90,3 +90,11 @@ This document covers lobby, room, player identity, reconnect, admin and match li
 ## Section 4 rematch and reset note
 
 Lobby rule changes and design/rematch generation create a new map seed and reset objective ownership. Returning to lobby clears active match state but preserves the displayed map until rules change or the next design phase regenerates it. Winner finalization is idempotent and stops later score/control ticks from overwriting match end state.
+
+## Section 7 destruction lifecycle note
+
+Lethal combat damage and self-destruction now finalize a ship at most once. The
+first finalization records the destruction timestamp, zeroes components, emits the
+wreck/explosion effect and awards loss/kill/bounty accounting where applicable;
+later duplicate calls are no-ops until normal wreck removal deletes the ship from
+active room maps.
