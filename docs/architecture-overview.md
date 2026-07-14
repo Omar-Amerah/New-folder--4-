@@ -197,6 +197,10 @@ close) — driven by `players.js` and `maybeStartMatch`.
 These are review inputs for later sections; none are addressed in this PR beyond
 what test determinism strictly required.
 
+## Section 6: movement and commands
+
+Movement commands now have an explicit server contract in [movement-command-architecture.md](movement-command-architecture.md). The server preserves omitted-`shipIds` all-owned command behaviour, treats an explicit empty selection as no-op, rejects malformed/oversized selections safely, and plans deterministic line/wedge/clump formation slots before authoritative movement integration. Movement ticks ignore invalid `dt`, clamp/subdivide unusually large `dt`, sanitize finite pose/target state, and run stable living-ship separation after per-ship integration.
+
 ## Section 4: maps and active-match progression
 
 Map generation is deterministic once a per-room `mapSeed` has been created. The generated seed is included in static map data so production reports can be replayed by tests. Map validation runs immediately after generation; development/test builds fail with the seed while production falls back to a minimal safe arena.

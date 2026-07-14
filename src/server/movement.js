@@ -10,6 +10,9 @@ const { addComponentHeat, componentPerformance } = require("./heat");
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
 const ARRIVE_DISTANCE = 16;
+const MAX_COMMAND_SHIP_IDS = 64;
+const MAX_MOVEMENT_DT = 0.25;
+const MOVEMENT_SUBSTEP = 1 / 30;
 
 function heatWeightedMovementFactors(ship) {
   let thrustWeighted = 0, thrustTotal = 0, turnWeighted = 0, turnTotal = 0;
@@ -56,17 +59,21 @@ function shipCollisionRadius(ship) {
 }
 
 function commandShips(room, player, x, y, options = {}) {
-  const shipIdSet = Array.isArray(options.shipIds)
-    ? new Set(options.shipIds.map((id) => String(id)).slice(0, 24))
-    : null;
+  const command = normalizeCommandSelection(options.shipIds);
+  if (!command.ok) return { ok: false, code: command.code, commanded: 0 };
 
   let ships = player.ships.filter((ship) => ship.alive);
 
-  if (shipIdSet && shipIdSet.size > 0) {
-    ships = ships.filter((ship) => shipIdSet.has(ship.id));
+  // Omitted shipIds preserve the long-standing "all owned live ships" order.
+  // An explicitly supplied empty array commands no ships, and malformed arrays
+  // never fall back to every ship.
+  if (command.explicit) {
+    if (command.ids.size === 0) return { ok: true, code: "empty-selection", commanded: 0 };
+    ships = ships.filter((ship) => command.ids.has(ship.id));
   }
 
-  if (ships.length === 0) return;
+  ships = ships.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  if (ships.length === 0) return { ok: true, code: "no-authorized-ships", commanded: 0 };
 
   const target = findShipById(room, options.targetId);
   const focusTargetId = target && target.alive && areEnemies(room, player.id, target.ownerId)
@@ -80,20 +87,20 @@ function commandShips(room, player, x, y, options = {}) {
     : null;
   const hasRepairBeam = (ship) => (ship.design || []).some((module) => module.type === "repairBeam");
 
-  const formation = options.formation || "line";
-  const spacing = clampNumber(62 + ships[0].radius * 0.55, 58, 110);
+  const destination = nearestClearPoint(room, x, y, Math.max(42, Math.max(...ships.map((ship) => ship.radius || 0)) * 0.72));
+  const plan = planFormation(room, ships, {
+    x: destination.x,
+    y: destination.y,
+    formation: options.formation || "line",
+    direction: Number.isFinite(options.direction) ? options.direction : null
+  });
 
-  ships.forEach((ship, index) => {
-    const offset = formationOffset(index, ships.length, spacing, formation);
-    const targetPoint = nearestClearPoint(
-      room,
-      x + offset.x,
-      y + offset.y,
-      Math.max(42, ship.radius * 0.72)
-    );
-
-    ship.targetX = targetPoint.x;
-    ship.targetY = targetPoint.y;
+  for (const slot of plan.slots) {
+    const ship = slot.ship;
+    ship.targetX = slot.x;
+    ship.targetY = slot.y;
+    ship.formationX = slot.offsetX;
+    ship.formationY = slot.offsetY;
 
     ship.focusTargetId = focusTargetId;
     ship.repairTargetId = repairTargetId && hasRepairBeam(ship) ? repairTargetId : null;
@@ -104,7 +111,51 @@ function commandShips(room, player, x, y, options = {}) {
       ship.orbitDir = undefined;
       ship.lastOrbitTargetId = null;
     }
+  }
+  return { ok: true, code: "commanded", commanded: plan.slots.length, plan };
+}
+
+function normalizeCommandSelection(shipIds) {
+  if (shipIds === undefined || shipIds === null) return { ok: true, explicit: false, ids: null };
+  if (!Array.isArray(shipIds)) return { ok: false, explicit: true, code: "malformed-ship-ids" };
+  if (shipIds.length > MAX_COMMAND_SHIP_IDS) return { ok: false, explicit: true, code: "too-many-ship-ids" };
+  const ids = new Set();
+  for (const raw of shipIds) {
+    if (typeof raw !== "string" && typeof raw !== "number") return { ok: false, explicit: true, code: "malformed-ship-id" };
+    const id = String(raw).trim();
+    if (!id || id.length > 48) return { ok: false, explicit: true, code: "malformed-ship-id" };
+    ids.add(id);
+  }
+  return { ok: true, explicit: true, ids };
+}
+
+function planFormation(room, ships, options = {}) {
+  const formation = options.formation || "line";
+  const orderedShips = ships.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const maxRadius = Math.max(0, ...orderedShips.map((ship) => ship.radius || 0));
+  const spacing = clampNumber(62 + maxRadius * 0.75, 58, 132);
+  const destination = nearestClearPoint(room, options.x, options.y, Math.max(42, maxRadius * 0.72));
+  const direction = Number.isFinite(options.direction) ? options.direction : 0;
+  const cos = Math.cos(direction);
+  const sin = Math.sin(direction);
+  const slots = orderedShips.map((ship, index) => {
+    const offset = formationOffset(index, orderedShips.length, Math.max(spacing, (ship.radius || 0) * 1.5), formation);
+    const worldX = destination.x + offset.x * cos - offset.y * sin;
+    const worldY = destination.y + offset.x * sin + offset.y * cos;
+    const clearance = Math.max(42, (ship.radius || 0) * 0.72);
+    const clear = nearestClearPoint(room, worldX, worldY, clearance);
+    return {
+      ship,
+      shipId: ship.id,
+      x: clear.x,
+      y: clear.y,
+      offsetX: offset.x,
+      offsetY: offset.y,
+      clearance,
+      adjusted: clear.adjusted
+    };
   });
+  return { x: destination.x, y: destination.y, formation, direction, slots, adjustedDestination: destination.adjusted };
 }
 
 function formationOffset(index, count, spacing, formation) {
@@ -135,6 +186,24 @@ function formationOffset(index, count, spacing, formation) {
 }
 
 function updateShipMovement(room, ship, dt) {
+  const safeDt = Number(dt);
+  if (!Number.isFinite(safeDt) || safeDt <= 0) return;
+  const total = Math.min(safeDt, MAX_MOVEMENT_DT);
+  if (total > MOVEMENT_SUBSTEP * 1.01) {
+    let remaining = total;
+    while (remaining > 0) {
+      const step = Math.min(MOVEMENT_SUBSTEP, remaining);
+      updateShipMovementStep(room, ship, step);
+      remaining -= step;
+    }
+    sanitizeMovementState(room, ship);
+    return;
+  }
+  updateShipMovementStep(room, ship, total);
+  sanitizeMovementState(room, ship);
+}
+
+function updateShipMovementStep(room, ship, dt) {
   ensureMoveTarget(ship);
 
   const stats = heatAdjustedMovementStats(ship, ship.stats || {});
@@ -183,8 +252,21 @@ function getCombatStyle(ship) {
 }
 
 function ensureMoveTarget(ship) {
+  if (!Number.isFinite(ship.x)) ship.x = 0;
+  if (!Number.isFinite(ship.y)) ship.y = 0;
+  if (!Number.isFinite(ship.vx)) ship.vx = 0;
+  if (!Number.isFinite(ship.vy)) ship.vy = 0;
+  if (!Number.isFinite(ship.angle)) ship.angle = 0;
   if (!Number.isFinite(ship.targetX)) ship.targetX = ship.x;
   if (!Number.isFinite(ship.targetY)) ship.targetY = ship.y;
+}
+
+function sanitizeMovementState(room, ship) {
+  ensureMoveTarget(ship);
+  ship.x = clampNumber(ship.x, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
+  ship.y = clampNumber(ship.y, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
+  ship.targetX = clampNumber(ship.targetX, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
+  ship.targetY = clampNumber(ship.targetY, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
 }
 
 function getActiveCombatTarget(room, ship) {
@@ -442,7 +524,11 @@ function applyDamping(ship, distance, isCircleOrbit, dt) {
 
 function applySpeedLimit(ship, stats) {
   const maxSpeed = stats.maxSpeed || 0;
-  if (maxSpeed <= 0) return;
+  if (maxSpeed <= 0) {
+    ship.vx = 0;
+    ship.vy = 0;
+    return;
+  }
 
   const speed = Math.hypot(ship.vx, ship.vy);
   if (speed <= maxSpeed) return;
@@ -482,19 +568,28 @@ function regenerateShield(ship, stats, dt) {
 }
 
 function updateShipSeparation(room, ships, dt) {
-  for (let i = 0; i < ships.length; i += 1) {
-    for (let j = i + 1; j < ships.length; j += 1) {
-      const a = ships[i];
-      const b = ships[j];
+  const safeDt = Number.isFinite(Number(dt)) && Number(dt) > 0 ? Math.min(Number(dt), MAX_MOVEMENT_DT) : 0;
+  const ordered = ships.filter((ship) => ship.alive).slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  for (let i = 0; i < ordered.length; i += 1) {
+    for (let j = i + 1; j < ordered.length; j += 1) {
+      const a = ordered[i];
+      const b = ordered[j];
 
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
+      let dx = b.x - a.x;
+      let dy = b.y - a.y;
       const distSq = dx * dx + dy * dy;
 
       const minimum = shipCollisionRadius(a) + shipCollisionRadius(b);
       if (distSq >= minimum * minimum) continue;
 
-      const distance = Math.sqrt(distSq) || 1;
+      let distance = Math.sqrt(distSq);
+      if (distance < 0.001) {
+        const hash = String(a.id).localeCompare(String(b.id), undefined, { numeric: true }) <= 0 ? 1 : -1;
+        const angle = hash > 0 ? 0 : Math.PI;
+        dx = Math.cos(angle);
+        dy = Math.sin(angle);
+        distance = 1;
+      }
       const push = (minimum - distance) * 0.5;
 
       const nx = dx / distance;
@@ -505,7 +600,7 @@ function updateShipSeparation(room, ships, dt) {
       b.x = clampNumber(b.x + nx * push, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
       b.y = clampNumber(b.y + ny * push, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
 
-      const impulse = push * dt * 9;
+      const impulse = push * safeDt * 9;
 
       a.vx -= nx * impulse;
       a.vy -= ny * impulse;
@@ -558,13 +653,18 @@ function resolveMapCollision(room, ship) {
 }
 
 function nearestClearPoint(room, x, y, clearance) {
-  let px = clampNumber(x, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
-  let py = clampNumber(y, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
+  const startX = Number.isFinite(Number(x)) ? Number(x) : room.world.width * 0.5;
+  const startY = Number.isFinite(Number(y)) ? Number(y) : room.world.height * 0.5;
+  let px = clampNumber(startX, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
+  let py = clampNumber(startY, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
+  let adjusted = px !== startX || py !== startY;
+  let passes = 0;
 
   const asteroids = room.map?.asteroids || [];
 
   for (let pass = 0; pass < 8; pass += 1) {
-    let adjusted = false;
+    passes = pass + 1;
+    let passAdjusted = false;
 
     for (const asteroid of asteroids) {
       const dx = px - asteroid.x;
@@ -585,12 +685,21 @@ function nearestClearPoint(room, x, y, clearance) {
       py = clampNumber(py, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
 
       adjusted = true;
+      passAdjusted = true;
     }
 
-    if (!adjusted) break;
+    if (!passAdjusted) break;
   }
 
-  return { x: px, y: py };
+  let clear = true;
+  for (const asteroid of asteroids) {
+    if (Math.hypot(px - asteroid.x, py - asteroid.y) < asteroid.radius + clearance - 0.001) {
+      clear = false;
+      break;
+    }
+  }
+
+  return { x: px, y: py, adjusted, passes, clear, reason: clear ? (adjusted ? "adjusted" : "clear") : "blocked" };
 }
 
 function findOptimalHullAngle(ship, target) {
@@ -663,6 +772,7 @@ function findOptimalHullAngle(ship, target) {
 module.exports = {
   commandShips,
   formationOffset,
+  planFormation,
   updateShipMovement,
   updateShipSeparation,
   resolveFleetMapCollisions,

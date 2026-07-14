@@ -142,3 +142,7 @@ Key observations:
 ## Section 4 map/objective tests
 
 - `npm run test:maps` / `node verify-maps-objectives.js`: deterministic map generation, generated-map validation, asteroid-density coverage, team/solo capture, contested capture, relay score, and full-control ownership checks.
+
+## Section 6 movement additions
+
+`node verify-movement.js` now covers command selection semantics, enemy-ID rejection, deterministic formation planning, obstacle-adjusted slots, movement `dt` safety/sanitization, exact-overlap ship separation, and clear-point metadata in addition to the pre-existing engine/stat and route-clearance checks.

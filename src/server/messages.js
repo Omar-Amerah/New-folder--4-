@@ -224,7 +224,7 @@ function handleMessage(client, message) {
     const x = clampNumber(message.x, 0, client.room.world.width);
     const y = clampNumber(message.y, 0, client.room.world.height);
     commandShips(client.room, client.player, x, y, {
-      shipIds: Array.isArray(message.shipIds) ? message.shipIds : null,
+      shipIds: Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined,
       targetId: typeof message.targetId === "string" ? message.targetId : null,
       formation: sanitizeFormation(message.formation)
     });
