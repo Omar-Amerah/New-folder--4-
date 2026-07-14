@@ -27,6 +27,10 @@
 // centre-pivoted, +x-forward frame.
 
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../../design/parts.js";
+import {
+  moduleRotationToRadians,
+  normalizeRotation
+} from "../../design/rotation.js";
 import { pixiBakeTexture, getPixiBakeGeneration, createPixiTextureCache } from "./pixiBake.js";
 import {
   drawShipStructure,
