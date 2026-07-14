@@ -17,6 +17,7 @@ import { renderScoreboard } from "./ui/scoreboardUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
 import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
+import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { mergeCachedShipFields, mergeStaticPlayerFields } from "./snapshotMerge.js";
 
@@ -116,6 +117,7 @@ export function handleServerMessage(message) {
     state.phase = message.phase || "lobby";
     state.adminId = message.adminId || null;
     state.rules = { ...state.rules, ...(message.rules || {}) };
+    if (message.resumeToken) saveResumeCredential(message.room, message.resumeToken);
     state.selectedShipIds.clear();
     state.activeShipGroup = null;
     dom.roomCode.value = message.room;
@@ -209,6 +211,7 @@ export function handleServerMessage(message) {
   if (message.type === "error") {
     state.joiningLobby = false;
     if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
+    if (/credential expired|credential.*invalid/i.test(message.message || "")) clearResumeCredential(state.room || dom.roomCode?.value);
     if (/closed|kicked/i.test(message.message || "")) forgetActiveRoom();
     if (!state.room || !dom.mainMenuScreen?.hidden) {
       import("./ui/lobbyUi.js").then((mod) => {
@@ -224,6 +227,7 @@ export function handleServerMessage(message) {
 
   if (message.type === "kicked" || message.type === "closed" || message.type === "leftLobby") {
     const tone = message.type === "kicked" ? "error" : "warning";
+    clearResumeCredential(state.room || dom.roomCode?.value);
     forgetActiveRoom();
     lobbyUi.returnToMainMenu(message.message || "Left lobby", tone);
   }

@@ -75,7 +75,7 @@ function handleMessage(client, message) {
     return;
   }
 
-  const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase } = require("./players");
+  const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase, isCurrentAttachment, findReservedNameOwner } = require("./players");
   const { validateDesign } = require("./shipDesign");
   const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { validateBuyShip, buyShip } = require("./economy");
@@ -91,6 +91,11 @@ function handleMessage(client, message) {
 
   if (!client.room || !client.player) {
     send(client, { type: "error", message: "Join a room first" });
+    return;
+  }
+
+  if (!isCurrentAttachment(client)) {
+    send(client, { type: "error", message: "This connection is no longer active for that player" });
     return;
   }
 
@@ -287,7 +292,12 @@ function handleMessage(client, message) {
 
   if (message.type === "setName") {
     const oldName = client.player.name;
-    client.player.name = sanitizeName(message.name, client.player.name);
+    const nextName = sanitizeName(message.name, client.player.name);
+    if (findReservedNameOwner(client.room, nextName, client.player.id)) {
+      send(client, { type: "error", message: "Name already in use" });
+      return;
+    }
+    client.player.name = nextName;
     if (oldName !== client.player.name) {
       broadcastRoom(client.room, { type: "notice", message: `${oldName} changed name to ${client.player.name}` });
       broadcastSnapshot(client.room, performanceNow(), true);

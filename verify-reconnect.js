@@ -7,7 +7,7 @@ const { leaveRoom } = require("./src/server/players");
 
 function makeContext() {
   const ship = { id: "s1", ownerId: "p1", alive: true, removed: false };
-  const player = { id: "p1", name: "Pilot", connected: true, isBot: false, ships: [ship] };
+  const player = { id: "p1", name: "Pilot", connected: true, isBot: false, ships: [ship], attachmentId: 1, resumeToken: "token" };
   const room = {
     phase: "battle",
     clients: new Set(),
@@ -17,7 +17,8 @@ function makeContext() {
     world: { width: 4000, height: 4000 },
     adminId: "p1"
   };
-  const client = { id: "p1", room, player, socket: { destroy() {} } };
+  const client = { id: "c1", room, player, attachmentId: 1, socket: { destroy() {} } };
+  player.client = client;
   room.clients.add(client);
   room.players.set("p1", player);
   room.ships.set("s1", ship);
