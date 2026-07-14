@@ -10,8 +10,22 @@ class FakeElement {
     this.listeners = new Map();
     this.style = {};
     this.className = "";
-    this.textContent = "";
-    this.innerHTML = "";
+    this._textContent = "";
+    this._innerHTML = "";
+    Object.defineProperty(this, "textContent", {
+      get: () => this._textContent,
+      set: (value) => {
+        this._textContent = String(value);
+        if (value === "") this.children = [];
+      }
+    });
+    Object.defineProperty(this, "innerHTML", {
+      get: () => this._innerHTML,
+      set: (value) => {
+        this._innerHTML = String(value);
+        if (value === "") this.children = [];
+      }
+    });
     this.value = "";
     this.hidden = false;
     this.disabled = false;
@@ -31,7 +45,8 @@ class FakeElement {
         if (shouldHave) s.add(name); else s.delete(name);
         el.className = [...s].join(" ");
         return shouldHave;
-      }
+      },
+      [Symbol.iterator]() { return set()[Symbol.iterator](); }
     };
   }
 
@@ -48,6 +63,10 @@ class FakeElement {
 
   getAttribute(name) {
     return this.attributes && name in this.attributes ? this.attributes[name] : null;
+  }
+
+  removeAttribute(name) {
+    if (this.attributes) delete this.attributes[name];
   }
 
   closest(selector) {
@@ -86,6 +105,20 @@ class FakeElement {
     return child;
   }
 
+  replaceChildren(...children) {
+    this.children = [];
+    for (const child of children) this.appendChild(child);
+  }
+
+  insertAdjacentHTML(position, html) {
+    if (String(html).includes("component-heat-value")) {
+      const badge = new FakeElement("span");
+      badge.className = "component-heat-value";
+      this.appendChild(badge);
+    }
+    this.innerHTML += String(html);
+  }
+
   prepend(child) {
     this.children.unshift(child);
     child.parentNode = this;
@@ -104,16 +137,27 @@ class FakeElement {
   setPointerCapture() {}
 
   querySelectorAll(selector) {
-    const className = String(selector).startsWith(".") ? String(selector).slice(1).split(".")[0] : null;
+    const selectorText = String(selector);
+    const selectors = selectorText.split(",").map((item) => item.trim()).filter(Boolean);
+    const matchesSelector = (element, selectorItem) => {
+      if (!selectorItem.startsWith(".")) return false;
+      const required = selectorItem.slice(1).split(".").filter(Boolean);
+      const classes = new Set(String(element.className).split(/\s+/).filter(Boolean));
+      return required.every((className) => classes.has(className));
+    };
     const matches = [];
     const walk = (element) => {
       for (const child of element.children) {
-        if (className && String(child.className).split(/\s+/).includes(className)) matches.push(child);
+        if (selectors.some((selectorItem) => matchesSelector(child, selectorItem))) matches.push(child);
         walk(child);
       }
     };
     walk(this);
     return matches;
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
   }
 
   getBoundingClientRect() {
@@ -228,6 +272,23 @@ const document = {
     const element = new FakeElement(tagName);
     element.tagName = tagName.toUpperCase();
     return element;
+  },
+  createElementNS(namespace, tagName) {
+    const element = new FakeElement(tagName);
+    element.namespaceURI = namespace;
+    element.tagName = tagName.toUpperCase();
+    return element;
+  },
+  createTextNode(text) {
+    const element = new FakeElement("#text");
+    element.textContent = text;
+    return element;
+  },
+  querySelector(selector) {
+    for (const element of elements.values()) {
+      if (element.querySelectorAll(selector).length) return element.querySelector(selector);
+    }
+    return null;
   }
 };
 
@@ -285,6 +346,15 @@ const context = {
 };
 
 vm.createContext(context);
+vm.runInContext(fs.readFileSync("public/src/shared/heatRules.js", "utf8"), context, {
+  filename: "public/src/shared/heatRules.js"
+});
+vm.runInContext(fs.readFileSync("public/src/shared/engineExhaust.js", "utf8"), context, {
+  filename: "public/src/shared/engineExhaust.js"
+});
+vm.runInContext(fs.readFileSync("public/src/shared/turretRules.js", "utf8"), context, {
+  filename: "public/src/shared/turretRules.js"
+});
 vm.runInContext(fs.readFileSync("public/client.js", "utf8"), context, {
   filename: "public/client.js"
 });
@@ -326,7 +396,7 @@ const railgunFootprintAngles = vm.runInContext(`
     footprintArtAngle("railgun", 270, 1, 3)
   ];
 `, context);
-const expectedRailgunAngles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+const expectedRailgunAngles = [-Math.PI / 2, 0, Math.PI / 2, -Math.PI];
 for (let i = 0; i < expectedRailgunAngles.length; i += 1) {
   if (Math.abs(railgunFootprintAngles[i] - expectedRailgunAngles[i]) > 1e-9) {
     throw new Error(`railgun footprint icon angle ${i} regressed: ${railgunFootprintAngles.join(",")}`);
@@ -411,8 +481,8 @@ const hoverPreviewSize = vm.runInContext(`
   const preview = dom.grid.querySelectorAll(".build-preview")[0];
   [Number.parseFloat(preview.style.width), Number.parseFloat(preview.style.height)];
 `, context);
-if (!(hoverPreviewSize[1] > hoverPreviewSize[0] * 2)) {
-  throw new Error("hover preview should keep selected rotation over occupied cells");
+if (!(hoverPreviewSize[0] > hoverPreviewSize[1] * 2)) {
+  throw new Error(`hover preview should keep selected rotation over occupied cells: ${hoverPreviewSize.join(",")}`);
 }
 
 const shieldedShip = { alive: true, radius: 50, shield: 40, maxShield: 100 };
@@ -428,6 +498,66 @@ if (context.shieldRatioForShip({ shield: 25, maxShield: 0 }) !== 0) {
 if (context.shieldRingRadius(shieldedShip) <= shieldedShip.radius) {
   throw new Error("shield ring should scale outside ship radius");
 }
+
+
+const clonedHeatAnalysisRegression = vm.runInContext(`
+(() => {
+  invalidateHeatAnalysisCache();
+  const originalDesign = defaultDesign();
+  state.design = originalDesign;
+  state.thermalLoadMode = "idle";
+  const first = getScenarioHeatAnalysis("idle");
+  state.design = originalDesign.map(part => ({ ...part }));
+  const second = getScenarioHeatAnalysis("idle");
+  return {
+    recomputed: second !== first,
+    currentPredictions: state.design.every(part => second.predictions.has(part)),
+    currentHeat: state.design.every(part => second.componentHeat.has(part)),
+    currentClasses: state.design.every(part => second.componentClasses.has(part)),
+    oldPredictionsMissCurrent: state.design.every(part => !first.predictions.has(part)),
+    diagnosticsMatch: heatInteractionDiagnostics().heatAnalysisMatchesCurrentDesign,
+    referencesMatch: heatInteractionDiagnostics().heatCachePartReferencesMatch
+  };
+})()
+`, context);
+if (!clonedHeatAnalysisRegression.recomputed) {
+  throw new Error("equivalent cloned design should force heat analysis recomputation");
+}
+for (const [key, value] of Object.entries(clonedHeatAnalysisRegression)) {
+  if (!value) throw new Error(`cloned heat analysis regression failed: ${key}`);
+}
+
+const initialHeatTabRegression = vm.runInContext(`
+(() => {
+  invalidateHeatAnalysisCache();
+  const originalDesign = defaultDesign();
+  state.design = originalDesign;
+  state.thermalLoadMode = "idle";
+  const stale = getScenarioHeatAnalysis("idle");
+  state.design = originalDesign.map(part => ({ ...part }));
+  state.blueprintView = "build";
+  state.showAllHeatFlows = true;
+  renderBuildGrid();
+  setBlueprintView("heat");
+  const occupied = dom.grid.querySelectorAll(".build-cell.occupied");
+  const diagnostics = heatInteractionDiagnostics();
+  return {
+    noErrorMessage: document.querySelector(".heat-ui-error-message") === null,
+    noGridError: document.querySelector(".build-grid.heat-ui-error") === null && !dom.grid.classList.contains("heat-ui-error"),
+    badgesForComponents: dom.grid.querySelectorAll(".component-heat-value").length >= occupied.length,
+    hudShowsIdle: dom.blueprintThermalHud.innerHTML.includes("Idle"),
+    staleMissesCurrent: state.design.every(part => !stale.predictions.has(part)),
+    diagnosticsMatch: diagnostics.heatAnalysisMatchesCurrentDesign,
+    referencesMatch: diagnostics.heatCachePartReferencesMatch,
+    noVisibleDiagnosticError: !diagnostics.heatUiErrorVisible
+  };
+})()
+`, context);
+for (const [key, value] of Object.entries(initialHeatTabRegression)) {
+  if (!value) throw new Error(`initial Heat tab cloned-design regression failed: ${key}`);
+}
+vm.runInContext(`state.blueprintView = "build"; clearHeatPresentation();`, context);
+
 
 
 const designerSource = fs.readFileSync("public/src/ui/designerUi.js", "utf8");

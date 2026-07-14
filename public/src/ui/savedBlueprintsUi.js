@@ -13,6 +13,7 @@ import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
+import { invalidateHeatAnalysisCache } from "./designerUi.js";
 
 
 export function weaponAbbrevText(stats) {
@@ -347,6 +348,7 @@ function loadSavedDesign(id) {
   }
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
+  invalidateHeatAnalysisCache();
   state.hoveredHeatPartIndex = null;
   state.combatStyle = saved.combatStyle || "sentry";
   state.loadedEditorBlueprintId = saved.id;
