@@ -138,35 +138,69 @@ function updateBullets(room, dt, now) {
     }
 
     const rockHit = projectileMapImpact(room, previousX, previousY, bullet);
+
+    let earliest = null;
+    const recordHit = (candidate) => {
+      if (!candidate) return;
+      if (!earliest || candidate.t < earliest.t || (candidate.t === earliest.t && String(candidate.entityId || "").localeCompare(String(earliest.entityId || "")) < 0)) {
+        earliest = candidate;
+      }
+    };
+
     if (rockHit) {
-      room.effects.push({ type: "rockhit", x: rockHit.x, y: rockHit.y, at: now });
-      continue;
+      recordHit({ kind: "asteroid", t: rockHit.t, x: rockHit.x, y: rockHit.y, entityId: "asteroid" });
     }
 
-    let hit = false;
     for (const ship of liveShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? 14 : bullet.type === "rail" ? 9 : 6;
 
-      const dx = ship.x - bullet.x;
-      const dy = ship.y - bullet.y;
-
-      // While the shield holds, it presents a clean bubble hitbox: the projectile
-      // is stopped at the shield perimeter and the impact flashes on the shield,
-      // never reaching the hull modules. The damage model is unchanged — damageShip
-      // still applies the same shield/hull split — this only moves where the bullet
-      // dies and which impact effect plays. A near-empty shield (below SHIELD_HIT_MIN)
-      // reads as down so impacts land on the hull.
+      // While the shield holds, it presents a clean swept bubble hitbox. The
+      // earliest collision across asteroids and all valid enemy ships wins.
       if (ship.shield >= SHIELD_HIT_MIN) {
         const ringR = shieldCollisionRadius(ship) + hitRadius;
-        if (dx * dx + dy * dy > ringR * ringR) continue;
+        const shieldHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ringR);
+        if (!shieldHit) continue;
+        recordHit({ kind: "ship", t: shieldHit.t, x: shieldHit.x, y: shieldHit.y, ship, entityId: ship.id, shield: true });
+        continue;
+      }
 
-        damageShip(room, ship, bullet.damage, bullet.ownerId, now, bullet.x, bullet.y, {
-          shieldDamageMultiplier: bullet.shieldDamageMultiplier,
-          hullDamageMultiplier: bullet.hullDamageMultiplier
-        });
-        // Impact point on the shield surface, along the incoming bullet direction.
-        const ang = Math.atan2(bullet.y - ship.y, bullet.x - ship.x);
+      const hullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ship.radius + hitRadius);
+      if (!hullHit) continue;
+
+      // Shield down: bullets must strike an actual hull module. Test the swept
+      // segment against each live module and choose the earliest module impact,
+      // with design index as the deterministic tie-breaker.
+      const coords = getShipModuleWorldCoords(ship);
+      const componentHp = ship.componentHp;
+      let moduleHit = null;
+      const collisionR = 8.5 + hitRadius;
+      for (let i = 0; i < coords.length; i++) {
+        if (componentHp && componentHp[i] <= 0) continue;
+        const m = coords[i];
+        const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, m.x, m.y, collisionR);
+        if (hit && (!moduleHit || hit.t < moduleHit.t || (hit.t === moduleHit.t && i < moduleHit.index))) {
+          moduleHit = { ...hit, index: i };
+        }
+      }
+      if (moduleHit) {
+        recordHit({ kind: "ship", t: moduleHit.t, x: moduleHit.x, y: moduleHit.y, ship, entityId: ship.id, shield: false });
+      }
+    }
+
+    if (earliest?.kind === "asteroid") {
+      room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
+      continue;
+    }
+
+    if (earliest?.kind === "ship") {
+      const ship = earliest.ship;
+      damageShip(room, ship, bullet.damage, bullet.ownerId, now, earliest.x, earliest.y, {
+        shieldDamageMultiplier: bullet.shieldDamageMultiplier,
+        hullDamageMultiplier: bullet.hullDamageMultiplier
+      });
+      if (earliest.shield) {
+        const ang = Math.atan2(earliest.y - ship.y, earliest.x - ship.x);
         const surfaceR = shieldCollisionRadius(ship);
         room.effects.push({
           type: "shieldhit",
@@ -177,46 +211,13 @@ function updateBullets(room, dt, now) {
           ny: Math.sin(ang),
           at: now
         });
-        hit = true;
-        break;
+      } else {
+        room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: earliest.x, y: earliest.y, at: now });
       }
-
-      // Shield down: bullets must strike an actual hull module.
-      const r = ship.radius + hitRadius;
-      if (dx * dx + dy * dy > r * r) continue;
-
-      // Narrow-phase: check distance to precomputed individual hull module world positions
-      let moduleHit = false;
-      const coords = getShipModuleWorldCoords(ship);
-      const collisionR = 8.5 + hitRadius;
-      const collisionR2 = collisionR * collisionR;
-
-      const componentHp = ship.componentHp;
-      for (let i = 0; i < coords.length; i++) {
-        // Destroyed components no longer block shots; hits pass through to
-        // whatever alive module sits behind them (or miss entirely).
-        if (componentHp && componentHp[i] <= 0) continue;
-        const m = coords[i];
-        const mdx = m.x - bullet.x;
-        const mdy = m.y - bullet.y;
-        if (mdx * mdx + mdy * mdy <= collisionR2) {
-          moduleHit = true;
-          break;
-        }
-      }
-
-      if (moduleHit) {
-        damageShip(room, ship, bullet.damage, bullet.ownerId, now, bullet.x, bullet.y, {
-          shieldDamageMultiplier: bullet.shieldDamageMultiplier,
-          hullDamageMultiplier: bullet.hullDamageMultiplier
-        });
-        room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: bullet.x, y: bullet.y, at: now });
-        hit = true;
-        break;
-      }
+      continue;
     }
 
-    if (!hit) kept.push(bullet);
+    kept.push(bullet);
   }
 
   room.bullets = kept;

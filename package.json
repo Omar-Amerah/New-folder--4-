@@ -44,7 +44,14 @@
     "test:objectives": "node verify-maps-objectives.js",
     "test:scoring": "node verify-maps-objectives.js",
     "test:match-progression": "node verify-maps-objectives.js",
-    "test:economy": "node verify-economy.js"
+    "test:economy": "node verify-economy.js",
+    "test:combat": "node verify-combat-determinism.js && node verify-combat-review.js",
+    "test:projectiles": "node verify-combat-determinism.js",
+    "test:point-defense": "node verify-combat-determinism.js",
+    "test:support": "node verify-repair-target.js && node verify-combat-review.js",
+    "test:combat-soak": "node verify-combat-determinism.js",
+    "test:combat-protocol": "npm run test:protocol",
+    "test:combat-browser": "npm run test:browser"
   },
   "keywords": [
     "browser-game",

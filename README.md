@@ -77,3 +77,12 @@ The game remembers that server URL locally and includes it when you copy invites
 ## Frontend build path
 
 The production frontend has one authoritative execution path: `public/index.html` loads `public/src/main.js` as a native ES module. `npm run build` vendors PixiJS and MessagePack into `public/vendor/` and emits `public/build-sha.js`; it does not generate `public/client.js` or strip imports/exports. Architecture checks in `npm run check` verify relative imports, source-root boundaries, and the absence of the obsolete generated bundle.
+
+## Combat targeting summary
+
+The server is authoritative for combat. Attack focus commands select an enemy
+ship-level target, but each weapon still checks its own range, line of sight,
+firing arc, cooldown, component health and safe-zone restrictions before firing.
+Turrets may visibly track while reloading or while a safe zone blocks fire.
+Repair beams target damaged allies, while ordinary weapons and point defence do
+not damage allies under the current rules.

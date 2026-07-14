@@ -60,3 +60,9 @@ Purchase request IDs are idempotent per player/room for a bounded period: 2
 minutes or the latest 64 entries. Identical replays return the original result;
 conflicting replays are rejected. Public construction notices intentionally omit
 exact purchase cost so enemy economy is not leaked during active matches.
+
+## Section 7 combat snapshot note
+
+No client-to-server message shape changed. Combat snapshots continue to carry
+existing HP, shield, alive, projectile/effect and design-index-aligned weapon
+angle/target fields; Section 7 only tightened server-side validation and ordering.

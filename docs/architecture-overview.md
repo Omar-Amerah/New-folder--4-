@@ -204,3 +204,12 @@ Movement commands now have an explicit server contract in [movement-command-arch
 ## Section 4: maps and active-match progression
 
 Map generation is deterministic once a per-room `mapSeed` has been created. The generated seed is included in static map data so production reports can be replayed by tests. Map validation runs immediately after generation; development/test builds fail with the seed while production falls back to a minimal safe arena.
+
+## Section 7 combat authority update
+
+Combat remains server-authoritative. Active ticks execute bot decisions, economy,
+self-destruct countdowns, destroyed-ship removal, movement, separation, map
+collisions, support/repair, weapon aiming/firing, heat, projectiles, capture and
+scoring in that order. Target acquisition, per-weapon fallback, point defence,
+projectile impacts and destruction now use explicit deterministic tie-breaks and
+idempotent finalization; see [combat-targeting-weapons.md](combat-targeting-weapons.md).

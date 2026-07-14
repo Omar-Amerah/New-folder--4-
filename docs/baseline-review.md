@@ -191,3 +191,11 @@ protocol, UI, renderer, or server-logic files were modified.**
 ## Section 4 baseline follow-up
 
 Map generation now records a reproducible seed, validates generated geometry, and exposes the seed in static snapshots. Objective scoring now has an idempotent victory finalizer and uses solo player ownership for solo relay scoring while preserving team ownership semantics for teams mode.
+
+## Section 7 combat review addendum
+
+The Section 7 pass focused on deterministic and idempotent combat correctness
+rather than balance. It added room-injectable combat RNG for authoritative spread
+and decoy rolls, stable tie-breaks for target selection, point-defence priority
+correction from owner-id comparison to ship-id comparison, swept projectile
+collision precedence and duplicate-destruction protection.

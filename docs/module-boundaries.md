@@ -68,3 +68,11 @@ Necessary exceptions remain documented warnings: shared UMD modules under `publi
 ## Section 4 map/objective boundaries
 
 `src/server/rooms.js` owns room lifecycle decisions and map seed creation. `src/server/mapValidation.js` owns pure generated-map schema and invariant checks. `src/server/objectives.js` is the score and victory authority for relay capture, periodic relay score, control victory, and idempotent winner finalization.
+
+## Section 7 combat boundaries
+
+`src/server/combat.js` owns allegiance, ship-level targeting, per-weapon fire
+target selection, support/repair, turret diagnostics, damage and destruction.
+`src/server/projectiles.js` owns projectile movement and swept collision ordering.
+Shared turret geometry remains in `public/src/shared/turretRules.js` and is
+consumed by both server muzzle rules and client rendering.
