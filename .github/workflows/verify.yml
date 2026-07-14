@@ -41,8 +41,12 @@ jobs:
         run: npm ci
       - name: Integration tests (module + bundled-client harness)
         run: npm run test:integration
-      - name: Protocol tests (real server.js + WebSocket + MessagePack smoke)
+      - name: Protocol tests (real server.js + WebSocket + MessagePack)
         run: npm run test:protocol
+      - name: Production path smoke (real server HTTP assets)
+        run: npm run test:smoke
+      - name: Deterministic server soak
+        run: npm run test:soak
 
   browser:
     name: Browser tests (Playwright)

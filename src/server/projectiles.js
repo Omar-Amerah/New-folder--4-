@@ -57,6 +57,11 @@ function updateBullets(room, dt, now) {
   const kept = [];
 
   for (const bullet of room.bullets) {
+    if (!Number.isFinite(bullet.x) || !Number.isFinite(bullet.y)
+      || !Number.isFinite(bullet.vx) || !Number.isFinite(bullet.vy)
+      || !Number.isFinite(bullet.life) || !Number.isFinite(bullet.damage || 0)) {
+      continue;
+    }
     bullet.life -= dt;
     if (bullet.life <= 0) {
       if (bullet.type === "missile" || bullet.type === "pdShot") {
