@@ -203,3 +203,7 @@ collision precedence and duplicate-destruction protection.
 ## Catch-up Part 1 follow-up
 
 This pass adds versioned blueprint-storage migration coverage and active-blueprint isolation for live matches. It does not start the Section 8 heat/power review and does not rebalance gameplay values.
+
+## Catch-up Part 2 baseline delta
+
+The remaining Sections 0-7 hazards addressed here are selected-fleet safety parity, purchase rollback completeness, reward idempotency, deterministic bot random streams, and focused economy/movement/bot/protocol test commands. Storage, lifecycle, spawning, and objective work from the earlier catch-up were not redone, and Section 8 heat/power review was not started.

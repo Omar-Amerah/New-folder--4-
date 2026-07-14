@@ -81,6 +81,7 @@ function handleMessage(client, message) {
   const { buyShip, executePurchase } = require("./economy");
   const { commandShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
+  const { selectOwnedLivingShips } = require("./selection");
   const { addBot } = require("./ships");
   const { setRoomRules } = require("./rooms");
 
@@ -176,19 +177,16 @@ function handleMessage(client, message) {
   if (message.type === "setCombatStyle") {
     if (client.room.phase !== "active") return;
     const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
-    const shipIdSet = Array.isArray(message.shipIds)
-      ? new Set(message.shipIds.map((id) => String(id)).slice(0, 64))
-      : null;
+    const selected = selectOwnedLivingShips(client.player, Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined);
+    if (!selected.ok) return;
     let updatedCount = 0;
-    for (const ship of client.player.ships) {
-      if (!ship.alive) continue;
-      if (shipIdSet && shipIdSet.size > 0 && !shipIdSet.has(ship.id)) continue;
+    for (const ship of selected.ships) {
       ship.combatStyle = combatStyle;
       ship.orbitDir = undefined;
       ship.lastOrbitTargetId = null;
       updatedCount++;
     }
-    if (!shipIdSet || shipIdSet.size === 0) client.player.combatStyle = combatStyle;
+    if (!selected.explicit) client.player.combatStyle = combatStyle;
     if (updatedCount > 0) broadcastSnapshot(client.room, performanceNow());
     return;
   }
@@ -224,7 +222,7 @@ function handleMessage(client, message) {
 
   if (message.type === "destruct") {
     if (client.room.phase !== "active") return;
-    const shipIds = Array.isArray(message.shipIds) ? message.shipIds.slice(0, 64) : null;
+    const shipIds = Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined;
     requestSelfDestruct(client.room, client.player, shipIds, performanceNow());
     return;
   }

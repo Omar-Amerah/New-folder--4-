@@ -65,3 +65,7 @@ Movement uses the spawned design's maximum ship-level weapon range (`blaster`, `
 ## Rally and bot movement
 
 Rally points are clamped to the world and adjusted away from asteroids on the server. Setting a rally point does not command existing ships; newly purchased ships receive the current authoritative rally target. Bots use the same `commandShips` path as players, so bot target validation, formation planning and obstacle adjustment remain server-authoritative and deterministic.
+
+## Catch-up Part 2 selection attachment rules
+
+Movement uses the shared selected-ship normalizer. Omitted `shipIds` is the intentional all-owned-live fleet shortcut for movement, while explicit empty arrays command zero ships. Focus and repair targets are applied only to the normalized owned living selection; enemy IDs in `shipIds` cannot be commanded and allied/enemy target IDs are validated by relationship before being attached.
