@@ -9,6 +9,13 @@ export const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
 export const LOCAL_LOADOUTS_KEY = "modular-fleet-loadouts-v1";
 export const LOCAL_ACTIVE_ROOM_KEY = "modular-fleet-active-room-v1";
 
+// Frontend build identification. The deploy pipeline (netlify-build.js) emits
+// /build-sha.js which sets globalThis.__MFA_BUILD_SHA__ before the app loads;
+// local dev without a build reports "dev". Compared against the backend's
+// serverBuildSha to diagnose frontend/backend deploy skew.
+export const FRONTEND_BUILD = (typeof globalThis !== "undefined" && globalThis.__MFA_BUILD_SHA__) || "dev";
+if (typeof globalThis !== "undefined") globalThis.__mfaFrontendBuild = FRONTEND_BUILD;
+
 export const WORLD_FALLBACK = { width: 3200, height: 1900 };
 export const PURCHASE_PENDING_MS = 2500;
 export const PART_CATEGORIES = ["Structure", "Power", "Engines", "Defence", "Weapons", "Support", "Utility"];

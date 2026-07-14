@@ -16,12 +16,74 @@ import { renderSideControls } from "./ui/sidePanelUi.js";
 import { renderScoreboard } from "./ui/scoreboardUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
-import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, syncUrlParams } from "./constants.js";
+import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { COMPONENT_HEAT_DELTA_STRIDE, componentHeatTupleFromDelta, normalizeComponentHeatTuple } from "./shared/componentHeatSnapshot.js";
 
+// Records the backend's protocol/build identification and reports skew. The
+// frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
+// stale backend is a real failure mode: it must be called out instead of being
+// silently masked by client fallbacks. Differing build SHAs alone never block
+// play — only an actually incompatible (newer-than-supported) protocol is
+// rejected. Returns "ok", "stale", or "incompatible".
+const protocolReportedFor = new Set();
+export function checkServerProtocol(info) {
+  const protocol = globalThis.MFAProtocol || {};
+  const maxSupported = protocol.MAX_SUPPORTED_PROTOCOL ?? 2;
+  const anglesMin = protocol.WEAPON_ANGLES_PROTOCOL ?? 2;
+  const version = Number.isFinite(Number(info?.protocolVersion)) ? Number(info.protocolVersion) : null;
+  const backendSha = info?.buildSha || "unknown";
+  const reportKey = `${version}:${backendSha}`;
+  const alreadyReported = protocolReportedFor.has(reportKey);
+  if (!alreadyReported) protocolReportedFor.add(reportKey);
+
+  if (version !== null && version > maxSupported) {
+    if (!alreadyReported) {
+      console.error(
+        `[mfa] Incompatible WebSocket protocol: server speaks v${version}, this client supports up to v${maxSupported}. ` +
+        `Refresh to get the current frontend build. frontend=${FRONTEND_BUILD} backend=${backendSha}`
+      );
+    }
+    return "incompatible";
+  }
+
+  if (version === null || version < anglesMin) {
+    if (!alreadyReported) {
+      console.warn(
+        `[mfa] Stale WebSocket backend detected: protocolVersion=${version ?? "missing"} (authoritative weapon ` +
+        `angles require v${anglesMin}). Turret verification cannot be claimed against this backend — the ` +
+        `WebSocket server needs redeploying/restarting from the current main commit. ` +
+        `frontend=${FRONTEND_BUILD} backend=${backendSha}`
+      );
+    }
+    return "stale";
+  }
+
+  return "ok";
+}
+
+function recordServerBuild(message) {
+  const info = {
+    protocolVersion: message.protocolVersion ?? null,
+    buildSha: message.serverBuildSha || null
+  };
+  const previous = state.server;
+  if (previous && previous.protocolVersion === info.protocolVersion && previous.buildSha === info.buildSha) {
+    return previous.compatibility;
+  }
+  info.compatibility = checkServerProtocol(info);
+  state.server = info;
+  // Read-only debug handle for diagnostics and the missing-angle warning.
+  globalThis.__mfaServerBuild = { ...info };
+  return info.compatibility;
+}
+
 export function handleServerMessage(message) {
   if (message.type === "hello") {
+    recordServerBuild(message);
+    if (state.server?.compatibility === "incompatible") {
+      showToast("Server protocol is newer than this client build — refresh the page.", "error");
+    }
     state.myId = message.id;
     applyServerParts(message.parts || {});
     state.design = normalizeDesign(state.design);
@@ -74,6 +136,7 @@ export function handleServerMessage(message) {
   }
 
   if (message.type === "state") {
+    recordServerBuild(message);
     const previousPhase = state.phase;
     if (state.snapshot && state.snapshot.players && message.players) {
       const oldPlayers = new Map(state.snapshot.players.map(p => [p.id, p]));

@@ -204,15 +204,24 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   if (!ship.beamEffectsAt) {
     ship.beamEffectsAt = new Array(ship.design ? ship.design.length : 0).fill(0);
   }
+  if (!ship.weaponDesiredAngles) {
+    ship.weaponDesiredAngles = new Array(ship.design ? ship.design.length : 0).fill(null);
+  }
+  if (!ship.weaponAimTargetIds) {
+    ship.weaponAimTargetIds = new Array(ship.design ? ship.design.length : 0).fill(null);
+  }
+  if (!ship.weaponFireTargetIds) {
+    ship.weaponFireTargetIds = new Array(ship.design ? ship.design.length : 0).fill(null);
+  }
 
   for (let i = 0; i < ship.weaponCooldowns.length; i += 1) {
     ship.weaponCooldowns[i] = Math.max(0, ship.weaponCooldowns[i] - dt);
   }
 
-  if (isInSafeZone(room, ship.x, ship.y)) {
-    ship.combatTargetId = null;
-    return; // Cannot fire from spawn
-  }
+  // Safe zones block FIRING only — never aiming. Target acquisition and
+  // turret traverse continue so protected ships visibly track threats instead
+  // of freezing at the blueprint angle in spawn.
+  const firingBlockedBySafeZone = isInSafeZone(room, ship.x, ship.y);
 
   const target = findTarget(room, ship, ships);
   ship.combatTargetId = target ? target.id : null;
@@ -222,9 +231,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   (ship.design || []).forEach((module, i) => {
     const part = PARTS[module.type];
     if (!part?.weapon) return;
-    if (!isComponentAlive(ship, i)) return; // destroyed weapons stop firing
-    const heatPerformance = componentPerformance(ship, i) * (ship.thermalPowerFactor ?? 1);
-    if (heatPerformance <= 0) return;
+    if (!isComponentAlive(ship, i)) {
+      // Destroyed weapons neither aim nor fire; the client freezes their art.
+      ship.weaponAimTargetIds[i] = null;
+      ship.weaponFireTargetIds[i] = null;
+      return;
+    }
 
     const family = part.weapon.type;
     const cooldown = ship.weaponCooldowns[i] || 0;
@@ -233,53 +245,46 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const weaponOrigin = weaponModuleWorldPosition(ship, module);
     const worldX = weaponOrigin.x;
     const worldY = weaponOrigin.y;
+    const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
 
     const defaultRelative = moduleRotationToRadians(normalizeRotation(module.rotation));
-    let desiredRelative = defaultRelative;
-    let isTracking = false;
+
+    // Aiming and firing use separate targets. fireTarget must satisfy the
+    // existing rules (inside this weapon's range, line of sight); aimTarget is
+    // what the turret visually tracks — the fire target when one exists,
+    // otherwise the ship's assigned/combat target so the barrel orients toward
+    // the enemy before it enters firing range. Point defence only ever tracks
+    // a plausible PD target (findPointDefenseTarget's own rules, which already
+    // include its ship fallback).
     let currentPdTarget = null;
     let weaponTarget = null;
+    let aimEntity = null;
 
     if (family === "pointDefense") {
       currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, part.weapon, ships);
-      if (currentPdTarget) {
-        const targetEntity = currentPdTarget.entity;
-        const dx = targetEntity.x - worldX;
-        const dy = targetEntity.y - worldY;
-        const distance = Math.hypot(dx, dy);
-        const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
-
-        if (distance <= range) {
-          const worldAngleToTarget = Math.atan2(dy, dx);
-          const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
-          const diff = angleDifference(defaultRelative, relativeAngleToTarget);
-          if (Math.abs(diff) <= arcRadians / 2) {
-            desiredRelative = relativeAngleToTarget;
-            isTracking = true;
-          }
-        }
-      }
+      aimEntity = currentPdTarget ? currentPdTarget.entity : null;
     } else {
-      const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
       // Keep the ship's assigned target when this weapon can reach it, otherwise
       // fall back to any valid enemy already in this weapon's range so it does
       // not idle while the primary target is out of reach. The assigned target
       // itself is retained at the ship level and resumed once it is attackable.
       weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range);
-      if (weaponTarget) {
-        const dx = weaponTarget.x - worldX;
-        const dy = weaponTarget.y - worldY;
-        const distance = Math.hypot(dx, dy);
+      aimEntity = weaponTarget || (target && target.alive ? target : null);
+    }
 
-        if (distance <= range) {
-          const worldAngleToTarget = Math.atan2(dy, dx);
-          const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
-          const diff = angleDifference(defaultRelative, relativeAngleToTarget);
-          if (Math.abs(diff) <= arcRadians / 2) {
-            desiredRelative = relativeAngleToTarget;
-            isTracking = true;
-          }
-        }
+    // The desired angle is clamped by the weapon's fixed blueprint arc: targets
+    // outside the arc are not tracked. With no valid aim target the turret
+    // sweeps back toward its blueprint facing (rotateToward keeps this smooth —
+    // it never snaps).
+    let desiredRelative = defaultRelative;
+    let isTracking = false;
+    if (aimEntity) {
+      const worldAngleToTarget = Math.atan2(aimEntity.y - worldY, aimEntity.x - worldX);
+      const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
+      const diff = angleDifference(defaultRelative, relativeAngleToTarget);
+      if (Math.abs(diff) <= arcRadians / 2) {
+        desiredRelative = relativeAngleToTarget;
+        isTracking = true;
       }
     }
 
@@ -287,14 +292,32 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
     ship.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
 
+    // Development/diagnostic trace of the aim decision (cheap flat writes; read
+    // by buildShipTurretDiagnostics and the dev debug endpoint).
+    ship.weaponDesiredAngles[i] = desiredRelative;
+    ship.weaponAimTargetIds[i] = isTracking && aimEntity ? aimEntity.id ?? null : null;
+    ship.weaponFireTargetIds[i] = family === "pointDefense"
+      ? (currentPdTarget ? currentPdTarget.entity.id ?? null : null)
+      : (weaponTarget ? weaponTarget.id ?? null : null);
+
+    // ---- Firing permission (independent of aiming) ----
+    // Protected ships never fire: no projectile, no beam damage, no firing
+    // heat, and the cooldown is not consumed as though a shot fired.
+    if (firingBlockedBySafeZone) return;
+
+    // Unpowered/overheated weapons may keep aiming but cannot fire.
+    const heatPerformance = componentPerformance(ship, i) * (ship.thermalPowerFactor ?? 1);
+    if (heatPerformance <= 0) return;
+
     // Tracking is continuous while reloading. Only firing is cooldown-gated;
     // otherwise the visible turret freezes between shots and snaps at fire time.
     if (cooldown > 0) return;
 
+    // Fire only at an in-range target the turret is actually tracking in-arc.
     if (family === "pointDefense") {
       if (!currentPdTarget || !isTracking) return;
     } else {
-      if (!weaponTarget || !isTracking) return;
+      if (!weaponTarget || !isTracking || aimEntity !== weaponTarget) return;
     }
 
     const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
@@ -833,6 +856,61 @@ function getWeaponTurnRate(weapon) {
   return TurretRules.turnRateFor(weapon);
 }
 
+// Development/test diagnostics for turret aiming: one entry per weapon module
+// with the full aim/fire decision state for the ship's latest tick. Used by
+// the dev-only /debug/turrets endpoint and the turret verification tests.
+// Never included in normal production snapshots.
+function buildShipTurretDiagnostics(room, ship) {
+  const entries = [];
+  const safeZoneFiringBlocked = isInSafeZone(room, ship.x, ship.y);
+  (ship.design || []).forEach((module, i) => {
+    const part = PARTS[module.type];
+    if (!part?.weapon) return;
+    const defaultRelativeAngle = moduleRotationToRadians(normalizeRotation(module.rotation));
+    const rawCurrent = ship.weaponAngles?.[i];
+    const currentRelativeAngle = Number.isFinite(rawCurrent) ? rawCurrent : null;
+    const rawDesired = ship.weaponDesiredAngles?.[i];
+    const desiredRelativeAngle = Number.isFinite(rawDesired) ? rawDesired : null;
+    const aimTargetId = ship.weaponAimTargetIds?.[i] ?? null;
+    const fireTargetId = ship.weaponFireTargetIds?.[i] ?? null;
+    const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
+    const arcRadians = (part.weapon.arc || 360) * Math.PI / 180;
+    const origin = weaponModuleWorldPosition(ship, module);
+
+    // Distance/range/arc are evaluated against the aim target when it is a
+    // ship the room still knows about (PD bullet targets have no ship entry).
+    const targetShip = aimTargetId ? room.ships?.get?.(aimTargetId) || null : null;
+    let targetDistance = null;
+    let inFiringRange = null;
+    let inFixedArc = null;
+    if (targetShip) {
+      targetDistance = Math.hypot(targetShip.x - origin.x, targetShip.y - origin.y);
+      inFiringRange = targetDistance <= range;
+      inFixedArc = isTargetInWeaponArc(ship, module, targetShip, arcRadians);
+    }
+
+    entries.push({
+      shipId: ship.id,
+      designIndex: i,
+      componentType: module.type,
+      defaultRelativeAngle,
+      currentRelativeAngle,
+      desiredRelativeAngle,
+      hullWorldAngle: ship.angle,
+      weaponWorldAngle: currentRelativeAngle === null ? null : ship.angle + currentRelativeAngle,
+      aimTargetId,
+      fireTargetId,
+      targetDistance,
+      inFiringRange,
+      inFixedArc,
+      safeZoneFiringBlocked,
+      componentAlive: isComponentAlive(ship, i),
+      thermalPerformance: componentPerformance(ship, i) * (ship.thermalPowerFactor ?? 1)
+    });
+  });
+  return entries;
+}
+
 module.exports = {
   updateShipSupport,
   shipRepairNeed,
@@ -852,6 +930,7 @@ module.exports = {
   updateSelfDestructingShips,
   findTarget,
   pickWeaponFireTarget,
+  buildShipTurretDiagnostics,
   isLineBlocked,
   areAllies,
   areEnemies

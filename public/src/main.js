@@ -28,6 +28,11 @@ if (dom.combatStyleSelect) {
 // and automated browser checks. Not used by game code.
 window.__mfaState = state;
 
+// Debug/test handle: send a message through the live WebSocket. Lets the
+// end-to-end turret test drive real lobby/deploy/command messages over the
+// real protocol (never used by game code).
+window.__mfaNetSend = (message) => send(message);
+
 // Register core window listeners
 window.addEventListener("resize", resizeArenaRenderer);
 window.addEventListener("keydown", handleKeyDown);

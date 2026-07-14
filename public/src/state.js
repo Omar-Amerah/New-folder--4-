@@ -61,6 +61,9 @@ export const state = {
   },
   settingRallyPoint: false,
   snapshot: null,
+  // Backend identification from hello/state messages:
+  // { protocolVersion, buildSha, compatibility: "ok" | "stale" | "incompatible" }
+  server: null,
   mine: null,
   map: null,
   phase: "offline",

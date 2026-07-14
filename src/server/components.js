@@ -21,9 +21,13 @@ function makeWeapon(type, stats) {
   const damage = Number(stats.damage) || 0;
   
   let tracking = stats.tracking || 0;
-  let aimSpeed = stats.aimSpeed;
+  // aimSpeed is an optional traverse-rate override. Keep only real finite
+  // values so a null (e.g. from a serialization round trip) can never become
+  // Number(null) === 0 and freeze the turret traverse.
+  let aimSpeed = stats.aimSpeed === null || stats.aimSpeed === undefined ? undefined : Number(stats.aimSpeed);
+  if (!Number.isFinite(aimSpeed)) aimSpeed = undefined;
   if (type === "beam") {
-    if (stats.tracking && !stats.aimSpeed) {
+    if (stats.tracking && aimSpeed === undefined) {
       aimSpeed = 1.65;
     }
     tracking = 0; // beam weapons do not have tracking

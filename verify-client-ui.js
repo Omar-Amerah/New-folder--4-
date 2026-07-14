@@ -3,6 +3,14 @@
 const fs = require("fs");
 const vm = require("vm");
 
+// The bundle boots the arena renderer at load, which dynamic-imports pixi.js.
+// The vm harness has no module loader, so that rejection is expected and not
+// part of what this file verifies — swallow exactly that error, fail on others.
+process.on("unhandledRejection", (err) => {
+  if (err && err.code === "ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING") return;
+  throw err;
+});
+
 class FakeElement {
   constructor(id = "") {
     this.id = id;
@@ -576,10 +584,14 @@ if (!designerSource.includes('for (const cell of occupiedByIndex[flow.from]') ||
 for (const phrase of ["Natural cooling", "Cooling received through network", "Complete route:", "Cooling route"]) {
   if (designerSource.includes(phrase)) throw new Error(`misleading heat UI phrase remains: ${phrase}`);
 }
-if (!designerSource.includes("Estimated reachable cooling path") || !designerSource.includes("not authoritative source-to-radiator heat provenance")) {
+// The inferred cooling-path preview has been removed from the designer; if it
+// ever returns, it must again be labelled as an estimate with a provenance
+// disclaimer rather than presented as authoritative routing.
+if (designerSource.includes("reachable cooling path")
+  && (!designerSource.includes("Estimated reachable cooling path") || !designerSource.includes("not authoritative source-to-radiator heat provenance"))) {
   throw new Error("inferred cooling paths must be labelled as estimates with provenance disclaimer");
 }
-if (!designerSource.includes('view === "local" && !directlyRelated')) {
+if (!designerSource.includes("if (!showAll && !focusedFlow) continue;")) {
   throw new Error("local heat-flow mode should remain first-hop/direct only");
 }
 if (!/heat-flow-incoming[^}]+#38d9ff/i.test(buildGridCss) || !/heat-flow-outgoing[^}]+#ff9a3d/i.test(buildGridCss)) {
@@ -617,11 +629,12 @@ for (const phrase of ["blueprintThermalHud", "heatContextCard", "heatFlowOverlay
 if (!designerSource.includes('updateHeatInspectionOverlay(currentHeatAnalysis())')) {
   throw new Error("hover and inspect should reuse the selected scenario analysis instead of rerunning thermal simulation directly");
 }
-if (!designerSource.includes('view === "local" && directlyRelated && flow.amount >= HEAT_FLOW_LABEL_THRESHOLD')) {
-  throw new Error("local heat-flow mode should label focused first-hop transfers above the named threshold");
+if (!designerSource.includes("const shouldLabel = focusedFlow && !labeledEdges.has(labelEdgeKey);")
+  || !designerSource.includes("if (flow.amount < HEAT_FLOW_THRESHOLD) continue;")) {
+  throw new Error("local heat-flow mode should label focused first-hop transfers above the display threshold");
 }
-if (!designerSource.includes('state.inspectedHeatPartIndex = null') || !designerSource.includes('event.key === "Escape"')) {
-  throw new Error("pinned thermal inspector should clear on Escape");
+if (!designerSource.includes("state.hoveredHeatPartIndex = null") || !designerSource.includes('event.key === "Escape"')) {
+  throw new Error("the thermal inspection focus must be clearable (hover reset + Escape handling)");
 }
 if (!buildGridCss.includes("blueprint-thermal-hud") || !buildGridCss.includes("heat-context-card") || !buildGridCss.includes("thermal-role-indicator")) {
   throw new Error("missing thermal HUD, contextual card, or role-indicator styles");
@@ -648,7 +661,8 @@ if (!designerSource.includes('function addClassString(element, classString)') ||
 if (designerSource.includes('cell.classList.add(heatClass)')) {
   throw new Error('multi-class heat strings must not be passed as one DOMTokenList token');
 }
-if (!designerSource.includes('const inspectingHeat =') || !designerSource.includes('if (inspectingHeat) return;')) {
+if (!designerSource.includes('if (state.blueprintView === "heat") {')
+  || !/if \(state\.blueprintView === "heat"\) \{\s*removePlacementPreviewElements\(\);\s*return;/.test(designerSource)) {
   throw new Error('heat inspect mode should suppress placement previews immediately');
 }
 if (!designerSource.includes('function removePlacementPreviewElements()') || !designerSource.includes('.build-preview, .engine-exhaust-preview, .engine-thrust-arrow')) {
