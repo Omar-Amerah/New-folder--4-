@@ -14,6 +14,7 @@ const srcFiles = [
   "shared/formatting.js",
   "shared/ids.js",
   "shared/componentHeatSnapshot.js",
+  "shared/heatDisplay.js",
   "design/rotation.js",
   "design/statFormatting.js",
   "design/parts.js",

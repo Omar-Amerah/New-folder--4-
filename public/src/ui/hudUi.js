@@ -2,6 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
+import { shipHeatPercent, formatHeatPercent } from "../shared/heatDisplay.js";
 
 export function updateHud() {
   if (!state.snapshot) return;
@@ -24,11 +25,15 @@ export function updateHud() {
   dom.objectiveLabel.textContent = target ? target.label : "None";
   const selected = myShips.filter(ship => state.selectedShipIds.has(ship.id));
   const heatShips = selected.length ? selected : myShips;
-  const heat = heatShips.length ? Math.max(...heatShips.map(ship => Number(ship.heat) || 0)) : 0;
+  // Derived from the same heatNow/heatMax stored values the detail panel
+  // shows, so the HUD percentage can never disagree with the stored readout.
+  const heat = heatShips.length ? Math.max(...heatShips.map(shipHeatPercent)) : 0;
   const hotCount = heatShips.reduce((sum, ship) => sum + (Number(ship.hot) || 0), 0);
   const overheatedCount = heatShips.reduce((sum, ship) => sum + (Number(ship.overheated) || 0), 0);
-  if (dom.heatHudFill) dom.heatHudFill.style.width = `${heat}%`;
-  if (dom.heatHudLabel) dom.heatHudLabel.textContent = overheatedCount ? `HEAT ${heat}% · ${overheatedCount} OVERHEATED` : hotCount ? `HEAT ${heat}% · ${hotCount} HOT` : `HEAT ${heat}%`;
+  const heatText = formatHeatPercent(heat);
+  // The bar keeps the real fractional width even when the text reads below 1%.
+  if (dom.heatHudFill) dom.heatHudFill.style.width = `${Math.min(100, heat)}%`;
+  if (dom.heatHudLabel) dom.heatHudLabel.textContent = overheatedCount ? `HEAT ${heatText} · ${overheatedCount} OVERHEATED` : hotCount ? `HEAT ${heatText} · ${hotCount} HOT` : `HEAT ${heatText}`;
   if (dom.heatHud) {
     dom.heatHud.className = `heat-hud${overheatedCount ? " overheated" : hotCount ? " hot" : ""}`;
     dom.heatHud.title = `${hotCount} hot component${hotCount === 1 ? "" : "s"}, ${overheatedCount} overheated`;

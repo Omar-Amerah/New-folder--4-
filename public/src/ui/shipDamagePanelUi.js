@@ -1,6 +1,6 @@
 // Selected-ship damage panel: a mini rendering of the actual ship (real
 // component art via the shared drawModule pipeline, blueprint-up orientation)
-// with live status tints, per-component hp bars, hover highlight + readout,
+// with live status tints, per-component hp bars, hover/tap highlight + readout,
 // the recent-damage feed, and core warnings. Everything renders from the
 // client-side ship/component state already received — no extra server traffic.
 
@@ -14,6 +14,7 @@ import { footprintLocalPlacement } from "../game/shipGeometry.js";
 import { componentHealthRatio } from "../game/shipVitals.js";
 import { drawModuleDamage, drawModuleFlash } from "../game/componentDamageCanvas.js";
 import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, COMPONENT_HEAT_VALUE, normalizeComponentHeatTuple } from "../shared/componentHeatSnapshot.js";
+import { shipHeatPercent, formatHeatPercent, checkShipHeatConsistency } from "../shared/heatDisplay.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -27,7 +28,12 @@ import {
 const SHIP_DAMAGE_GRID_CENTER = 7;
 
 let bound = false;
-let hoverContext = null; // { ship, cellMap, cellSize, originX, originY, hoverIndex }
+// Diagram interaction context. Tracks the selected ship by id (snapshots
+// replace ship objects every frame, so object identity must never be used)
+// plus the geometry needed to hit-test pointer events against the last drawn
+// diagram. componentIndex is a persistent tap selection; hoverIndex is the
+// transient mouse hover.
+let diagramInteraction = null; // { shipId, componentIndex, hoverIndex, cellMap, cellSize, originX, originY }
 
 const HEAT_LABELS = ["Cool", "Warm", "Hot", "Critical", "Overheated"];
 
@@ -51,17 +57,20 @@ function formatHeatAmount(value) {
 function renderHeatSummary(ship) {
   const summary = dom.shipHeatSummary;
   if (!summary) return;
-  const heat = Math.round(Number(ship.heat) || 0);
   const heatNow = Number(ship.heatNow) || 0;
   const heatMax = Number(ship.heatMax) || 0;
+  // Derive the percentage from the same stored/capacity values displayed
+  // beside it so the two lines can never look mathematically impossible.
+  const percentText = formatHeatPercent(shipHeatPercent(ship));
   const hot = Number(ship.hot) || 0;
   const overheated = Number(ship.overheated) || 0;
   summary.hidden = false;
   summary.innerHTML = `
-    <div><span>Ship heat</span><strong>${heat}%</strong></div>
+    <div><span title="Aggregate stored heat across the whole ship — individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
     <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
     <div><span>Overheated</span><strong>${overheated}</strong></div>`;
+  checkShipHeatConsistency(ship);
 }
 
 function statusFor(ratio) {
@@ -84,62 +93,153 @@ function selectedSingleShip() {
   return ship;
 }
 
+function validComponentIndex(ship, index) {
+  return Number.isInteger(index) && index >= 0 && index < (ship?.design?.length || 0);
+}
+
+// The component index the readout/highlight should show for the current ship:
+// the transient mouse hover wins over the persistent tap selection.
+function activeComponentIndex(ship) {
+  if (!diagramInteraction || diagramInteraction.shipId !== ship.id) return undefined;
+  if (validComponentIndex(ship, diagramInteraction.hoverIndex)) return diagramInteraction.hoverIndex;
+  if (validComponentIndex(ship, diagramInteraction.componentIndex)) return diagramInteraction.componentIndex;
+  return undefined;
+}
+
+function readoutPlaceholder() {
+  return state.shipStatusView === "heat" ? "Tap or hover a component" : "Hover a component";
+}
+
+function clearComponentReadout() {
+  if (dom.shipDamageHover) dom.shipDamageHover.textContent = readoutPlaceholder();
+}
+
+// Renders the heat readout for one component from the latest ship snapshot:
+// name, current heat, capacity, local percentage, heat state, and any active
+// output/passive protection penalty.
+function renderComponentHeatReadout(ship, index) {
+  if (!dom.shipDamageHover) return;
+  const part = ship.design[index];
+  const thermal = componentThermal(ship, index);
+  const percentText = formatHeatPercent(Math.min(125, thermal.ratio * 100));
+  const capacityText = thermal.capacity > 0 ? ` / ${formatHeatAmount(thermal.capacity)} H · ${percentText}` : " H";
+  const rules = globalThis.HeatRules;
+  const passive = /frame/i.test(part.type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(part.type);
+  const activePerf = rules?.activeOutputForState?.(thermal.state);
+  const passivePerf = rules?.passiveProtectionForState?.(thermal.state);
+  const perfText = passive && passivePerf != null && passivePerf < 1
+    ? ` · ${Math.round(passivePerf * 100)}% protection`
+    : activePerf != null && activePerf < 1 ? ` · ${Math.round(activePerf * 100)}% output` : "";
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${perfText}`;
+}
+
+function renderComponentDamageReadout(ship, index) {
+  if (!dom.shipDamageHover) return;
+  const part = ship.design[index];
+  if (part.type === "core") {
+    dom.shipDamageHover.textContent = "Core — indestructible";
+    return;
+  }
+  const max = componentMaxFromShip(ship, index);
+  const hp = ship.chp[index] ?? 0;
+  const status = statusFor(max > 0 ? hp / max : 0);
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.max(0, Math.round(hp))}/${Math.round(max)} — ${statusLabel(status)}`;
+}
+
+// Re-renders the component readout from the latest ship snapshot object. Used
+// by both pointer/touch selection and every renderShipDamagePanel() pass so a
+// value from an older snapshot can never remain on screen.
+function refreshComponentReadout(ship) {
+  if (!dom.shipDamageHover) return;
+  const index = ship ? activeComponentIndex(ship) : undefined;
+  if (!ship || index === undefined) {
+    clearComponentReadout();
+    return;
+  }
+  if (state.shipStatusView === "heat") renderComponentHeatReadout(ship, index);
+  else renderComponentDamageReadout(ship, index);
+}
+
+function clearDiagramSelection() {
+  if (!diagramInteraction) return;
+  diagramInteraction.componentIndex = undefined;
+  diagramInteraction.hoverIndex = undefined;
+}
+
 function bindOnce() {
   if (bound) return;
   bound = true;
   const canvas = dom.shipDamageCanvas;
   if (canvas) {
-    canvas.addEventListener("mousemove", handleDiagramHover);
-    canvas.addEventListener("mouseleave", () => {
-      if (dom.shipDamageHover) dom.shipDamageHover.textContent = "Hover a component";
-      if (hoverContext && hoverContext.hoverIndex !== undefined) {
-        hoverContext.hoverIndex = undefined;
-        drawDiagram(hoverContext.ship);
-      }
-    });
+    // Pointer events cover mouse, touch, and pen. Taps on the diagram are a
+    // deliberate selection gesture, so disable browser panning over it.
+    if (canvas.style) canvas.style.touchAction = "none";
+    canvas.addEventListener("pointermove", handleDiagramPointerMove);
+    canvas.addEventListener("pointerdown", handleDiagramPointerDown);
+    canvas.addEventListener("pointerleave", handleDiagramPointerLeave);
   }
-  dom.shipDamageTab?.addEventListener("click", () => { state.shipStatusView = "damage"; renderShipDamagePanel(); });
-  dom.shipHeatTab?.addEventListener("click", () => { state.shipStatusView = "heat"; renderShipDamagePanel(); });
+  dom.shipDamageTab?.addEventListener("click", () => { switchStatusView("damage"); });
+  dom.shipHeatTab?.addEventListener("click", () => { switchStatusView("heat"); });
 }
 
-function handleDiagramHover(event) {
-  if (!hoverContext || !dom.shipDamageHover) return;
+function switchStatusView(view) {
+  if (state.shipStatusView !== view) {
+    state.shipStatusView = view;
+    // A heat readout must not linger on the Damage tab (or vice versa).
+    clearDiagramSelection();
+    clearComponentReadout();
+  }
+  renderShipDamagePanel();
+}
+
+function diagramIndexAt(event) {
+  if (!diagramInteraction) return undefined;
   const canvas = event.currentTarget;
   const rect = canvas.getBoundingClientRect();
   const x = (event.clientX - rect.left) * (canvas.width / rect.width);
   const y = (event.clientY - rect.top) * (canvas.height / rect.height);
-  const gx = Math.round(SHIP_DAMAGE_GRID_CENTER + (x - hoverContext.originX) / hoverContext.cellSize);
-  const gy = Math.round(SHIP_DAMAGE_GRID_CENTER + (y - hoverContext.originY) / hoverContext.cellSize);
-  const index = hoverContext.cellMap.get(`${gx},${gy}`);
-  const previous = hoverContext.hoverIndex;
-  hoverContext.hoverIndex = index;
-  if (index === undefined) {
-    dom.shipDamageHover.textContent = "Hover a component";
+  const gx = Math.round(SHIP_DAMAGE_GRID_CENTER + (x - diagramInteraction.originX) / diagramInteraction.cellSize);
+  const gy = Math.round(SHIP_DAMAGE_GRID_CENTER + (y - diagramInteraction.originY) / diagramInteraction.cellSize);
+  return diagramInteraction.cellMap.get(`${gx},${gy}`);
+}
+
+function handleDiagramPointerMove(event) {
+  const ship = selectedSingleShip();
+  if (!ship || !diagramInteraction || diagramInteraction.shipId !== ship.id) return;
+  // Touch/pen select via deliberate taps in pointerdown; a moving finger
+  // should not drag the hover readout around.
+  if (event.pointerType && event.pointerType !== "mouse") return;
+  const index = diagramIndexAt(event);
+  const changed = diagramInteraction.hoverIndex !== index;
+  diagramInteraction.hoverIndex = index;
+  refreshComponentReadout(ship);
+  if (changed) drawDiagram(ship);
+}
+
+function handleDiagramPointerDown(event) {
+  const ship = selectedSingleShip();
+  if (!ship || !diagramInteraction || diagramInteraction.shipId !== ship.id) return;
+  // The diagram is a status readout: never let its taps fall through to
+  // battlefield movement/selection handlers.
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  const index = diagramIndexAt(event);
+  // Tapping a component selects it persistently; tapping outside clears.
+  diagramInteraction.componentIndex = index;
+  if (event.pointerType && event.pointerType !== "mouse") diagramInteraction.hoverIndex = undefined;
+  refreshComponentReadout(ship);
+  drawDiagram(ship);
+}
+
+function handleDiagramPointerLeave() {
+  if (diagramInteraction) diagramInteraction.hoverIndex = undefined;
+  const ship = selectedSingleShip();
+  if (ship && diagramInteraction && diagramInteraction.shipId === ship.id) {
+    refreshComponentReadout(ship);
+    drawDiagram(ship);
   } else {
-    const ship = hoverContext.ship;
-    const part = ship.design[index];
-    if (state.shipStatusView === "heat") {
-      const thermal = componentThermal(ship, index);
-      const percent = Math.round(Math.min(125, thermal.ratio * 100));
-      const capacityText = thermal.capacity > 0 ? ` / ${formatHeatAmount(thermal.capacity)} H · ${percent}%` : " H";
-      const rules = globalThis.HeatRules;
-      const passive = /frame/i.test(part.type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(part.type);
-      const activePerf = rules?.activeOutputForState?.(thermal.state);
-      const passivePerf = rules?.passiveProtectionForState?.(thermal.state);
-      const perfText = passive && passivePerf != null && passivePerf < 1
-        ? ` · ${Math.round(passivePerf * 100)}% protection`
-        : activePerf != null && activePerf < 1 ? ` · ${Math.round(activePerf * 100)}% output` : "";
-      dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${perfText}`;
-    } else if (part.type === "core") {
-      dom.shipDamageHover.textContent = "Core — indestructible";
-    } else {
-      const max = componentMaxFromShip(ship, index);
-      const hp = ship.chp[index] ?? 0;
-      const status = statusFor(max > 0 ? hp / max : 0);
-      dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.max(0, Math.round(hp))}/${Math.round(max)} — ${statusLabel(status)}`;
-    }
+    clearComponentReadout();
   }
-  if (previous !== index) drawDiagram(hoverContext.ship);
 }
 
 // Screen-space bounding rect of a component's occupied cells on the diagram.
@@ -176,8 +276,8 @@ function heatColor(stateValue) {
 
 // Renders the ship with its real component art (same drawModule pipeline as
 // the arena), rotated so the nose points up like the blueprint grid, then
-// layers status tints, hit flashes, hp bars, the core marker, and the hover
-// highlight on top.
+// layers status tints, hit flashes, hp bars, the core marker, and the
+// hover/selection highlight on top.
 function drawDiagram(ship) {
   const canvas = dom.shipDamageCanvas;
   const drawCtx = canvas?.getContext("2d");
@@ -207,8 +307,17 @@ function drawDiagram(ship) {
   // Ship-grid origin (cell 7,7 centre) positioned so the design bbox is centred.
   const originX = canvas.width / 2 - ((minX + maxX) / 2 - SHIP_DAMAGE_GRID_CENTER) * cellSize;
   const originY = canvas.height / 2 - ((minY + maxY) / 2 - SHIP_DAMAGE_GRID_CENTER) * cellSize;
-  const hoverIndex = hoverContext?.ship === ship ? hoverContext.hoverIndex : undefined;
-  hoverContext = { ship, cellMap, cellSize, originX, originY, hoverIndex };
+  // Snapshots replace ship objects each frame, so interaction state is keyed
+  // by ship id: the selection survives replacement objects for the same ship
+  // and is dropped when a different ship (or an invalid index) shows up.
+  const sameShip = diagramInteraction?.shipId === ship.id;
+  const componentIndex = sameShip && validComponentIndex(ship, diagramInteraction.componentIndex)
+    ? diagramInteraction.componentIndex
+    : undefined;
+  const hoverIndex = sameShip && validComponentIndex(ship, diagramInteraction.hoverIndex)
+    ? diagramInteraction.hoverIndex
+    : undefined;
+  diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, cellMap, cellSize, originX, originY };
 
   const player = state.snapshot?.players?.find((candidate) => candidate.id === ship.ownerId);
   const trim = player?.color || "#8fd8ff";
@@ -293,8 +402,9 @@ function drawDiagram(ship) {
     }
   });
 
-  if (hoverIndex !== undefined && ship.design[hoverIndex]) {
-    const rect = componentScreenRect(cellsByIndex[hoverIndex], cellSize, originX, originY);
+  const highlightIndex = hoverIndex !== undefined ? hoverIndex : componentIndex;
+  if (highlightIndex !== undefined && ship.design[highlightIndex]) {
+    const rect = componentScreenRect(cellsByIndex[highlightIndex], cellSize, originX, originY);
     drawCtx.strokeStyle = "rgba(255, 255, 255, 0.85)";
     drawCtx.lineWidth = 1.5;
     drawCtx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
@@ -361,12 +471,16 @@ export function renderShipDamagePanel() {
   const ship = selectedSingleShip();
   if (!ship) {
     if (!panel.hidden) panel.hidden = true;
-    hoverContext = null;
+    diagramInteraction = null;
+    clearComponentReadout();
     if (dom.shipHeatSummary) dom.shipHeatSummary.hidden = true;
     return;
   }
   panel.hidden = false;
   drawDiagram(ship);
+  // Every new snapshot re-renders the readout from the latest ship object so
+  // the component line below the diagram can never show stale values.
+  refreshComponentReadout(ship);
   if (heatView) {
     renderHeatSummary(ship);
     if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
