@@ -78,7 +78,7 @@ function handleMessage(client, message) {
   const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase, isCurrentAttachment, findReservedNameOwner } = require("./players");
   const { validateDesign } = require("./shipDesign");
   const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
-  const { validateBuyShip, buyShip } = require("./economy");
+  const { buyShip, executePurchase } = require("./economy");
   const { commandShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
   const { addBot } = require("./ships");
@@ -153,49 +153,32 @@ function handleMessage(client, message) {
 
   if (message.type === "buyShip") {
     const requestId = sanitizeRequestId(message.requestId);
-    if (client.room.phase !== "active") {
-      send(client, { type: "purchaseResult", ok: false, requestId, message: "Ships can only be built after the match starts" });
+    if (!requestId) {
+      send(client, { type: "purchaseResult", ok: false, requestId, code: "invalid-request", message: "Invalid purchase request" });
       return;
     }
+    const now = performanceNow();
     const count = clampNumber(message.count, 1, 5);
     const purchaseDesign = validateDesign(message.design);
     if (!purchaseDesign.ok) {
-      send(client, { type: "purchaseResult", ok: false, requestId, message: purchaseDesign.reason });
+      send(client, { type: "purchaseResult", ok: false, requestId, code: "invalid-design", message: purchaseDesign.reason });
       return;
     }
-    const validation = validateBuyShip(client.room, client.player, count, purchaseDesign.stats);
-    if (!validation.ok) {
-      client.player.lastBuildError = validation.reason;
-      send(client, { type: "purchaseResult", ok: false, requestId, message: validation.reason });
-      return;
-    }
-    const createdShips = [];
     const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
-
-    for (let i = 0; i < validation.count; i += 1) {
-      const ship = buyShip(client.room, client.player, performanceNow(), {
-        prevalidated: true,
-        stats: validation.shipStats,
-        design: purchaseDesign.modules,
-        combatStyle,
-        silent: true
-      });
-      if (ship) createdShips.push(ship);
-    }
-    send(client, {
-      type: "purchaseResult",
-      ok: true,
+    const result = executePurchase(client.room, client.player, {
       requestId,
-      count: createdShips.length,
-      totalCost: validation.totalCost,
-      shipIds: createdShips.map((ship) => ship.id),
-      money: Math.floor(client.player.money)
-    });
+      count,
+      stats: purchaseDesign.stats,
+      design: purchaseDesign.modules,
+      combatStyle
+    }, now);
+    send(client, result);
+    if (!result.ok || result.duplicate) return;
     broadcastRoom(client.room, {
       type: "notice",
-      message: `${client.player.name} built ${createdShips.length} ship${createdShips.length === 1 ? "" : "s"} for $${validation.totalCost}`
+      message: `${client.player.name} built ${result.count} ship${result.count === 1 ? "" : "s"}`
     });
-    broadcastSnapshot(client.room, performanceNow());
+    broadcastSnapshot(client.room, now);
     return;
   }
 

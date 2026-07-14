@@ -29,3 +29,34 @@ Message semantics and wire formats were not changed in Section 1. This document 
 ## Section 4 static map metadata
 
 Static `state` snapshots include `map.seed`, `map.name`, `map.relays`, `map.asteroids`, `map.clouds`, `map.safeZones`, `world`, and `mapSizeLabel`. Dynamic snapshots update `points`, `objectiveControl`, and `controlVictory` without replacing cached static map data.
+
+## Section 5 purchase-result contract
+
+`buyShip` remains a client intent only. The server recomputes the authoritative
+ship stats/cost from the supplied immutable design snapshot and validates phase,
+readiness, funds, and living fleet slots before committing an all-or-nothing
+transaction.
+
+`purchaseResult` success fields:
+
+- `requestId` — sanitized request ID supplied by the client.
+- `ok: true` and `code: "ok"`.
+- `count` — number of ships created.
+- `unitCost` and `totalCost` — authoritative server costs.
+- `shipIds` — created authoritative ship IDs.
+- `money` — resulting floored current money.
+- `activeShips` and `shipCap` — authoritative cap reconciliation.
+
+`purchaseResult` failure fields:
+
+- `requestId`.
+- `ok: false`.
+- `code` — one of `invalid-phase`, `invalid-design`, `insufficient-funds`,
+  `fleet-cap`, `stale-connection`, `invalid-request`,
+  `duplicate-request-conflict`, or `spawn-failed` where applicable.
+- `message` — player-safe human-readable text.
+
+Purchase request IDs are idempotent per player/room for a bounded period: 2
+minutes or the latest 64 entries. Identical replays return the original result;
+conflicting replays are rejected. Public construction notices intentionally omit
+exact purchase cost so enemy economy is not leaked during active matches.

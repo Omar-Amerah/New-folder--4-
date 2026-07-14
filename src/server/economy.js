@@ -7,6 +7,18 @@ const { normalizeShipDesignSnapshot } = require("./shipDesign");
 const { spawnShip } = require("./ships");
 const { validateBuildShip } = require("./validation");
 
+const PURCHASE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
+const MAX_PURCHASE_REQUESTS = 64;
+
+function activeFleetCount(player) {
+  return player.ships.filter((ship) => ship.alive).length;
+}
+
+function finiteMoney(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, number) : fallback;
+}
+
 function buyShip(room, player, now, options = {}) {
   if (!player.ready) return null;
   const stats = options.stats || player.stats || computeStats(player.design);
@@ -21,13 +33,13 @@ function buyShip(room, player, now, options = {}) {
     }
   }
 
-  player.money -= stats.unitCost;
-  player.spent += stats.unitCost;
-  player.deployedFleetCost += stats.unitCost;
   player.shipsBuilt = (player.shipsBuilt || 0) + 1;
-  const activeCount = player.ships.filter((ship) => ship.alive).length;
+  const activeCount = activeFleetCount(player);
   const combatStyle = options.combatStyle || player.combatStyle || "sentry";
   const ship = spawnShip(room, player, now, activeCount, { stats, design, combatStyle });
+  player.money = finiteMoney(player.money - stats.unitCost);
+  player.spent = finiteMoney(player.spent + stats.unitCost);
+  player.deployedFleetCost = finiteMoney(player.deployedFleetCost + stats.unitCost);
   if (!options.starter && !options.silent) {
     const { broadcastRoom } = require("./messages");
     broadcastRoom(room, { type: "notice", message: `${player.name} built a ship for $${stats.unitCost}` });
@@ -35,23 +47,140 @@ function buyShip(room, player, now, options = {}) {
   return ship;
 }
 
+function getPurchaseRequestCache(player) {
+  if (!player.purchaseRequests) player.purchaseRequests = new Map();
+  return player.purchaseRequests;
+}
+
+function prunePurchaseRequestCache(player, now) {
+  const cache = getPurchaseRequestCache(player);
+  for (const [requestId, entry] of cache) {
+    if (now - entry.at > PURCHASE_IDEMPOTENCY_TTL_MS) cache.delete(requestId);
+  }
+  while (cache.size > MAX_PURCHASE_REQUESTS) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+function stablePayloadSignature(payload) {
+  return JSON.stringify({
+    count: payload.count,
+    combatStyle: payload.combatStyle || "",
+    design: (payload.design || []).map((part) => ({
+      x: part.x,
+      y: part.y,
+      type: part.type,
+      rotation: part.rotation || 0
+    }))
+  });
+}
+
+function makePurchaseFailure(requestId, code, message) {
+  return { type: "purchaseResult", ok: false, requestId, code, message };
+}
+
+function executePurchase(room, player, request, now) {
+  prunePurchaseRequestCache(player, now);
+  const requestId = String(request.requestId || "");
+  if (!requestId) {
+    return makePurchaseFailure(requestId, "invalid-request", "Invalid purchase request");
+  }
+  if (!player.client || player.removed) {
+    return makePurchaseFailure(requestId, "stale-connection", "This connection is no longer active for that player");
+  }
+
+  const signature = stablePayloadSignature(request);
+  const cache = getPurchaseRequestCache(player);
+  const previous = cache.get(requestId);
+  if (previous) {
+    if (previous.signature === signature) return { ...previous.result, duplicate: true };
+    return makePurchaseFailure(requestId, "duplicate-request-conflict", "Purchase request ID was already used");
+  }
+
+  const validation = validateBuyShip(room, player, request.count, request.stats);
+  if (!validation.ok) {
+    player.lastBuildError = validation.reason;
+    const result = makePurchaseFailure(requestId, validation.code || "invalid-request", validation.reason);
+    cache.set(requestId, { at: now, signature, result });
+    prunePurchaseRequestCache(player, now);
+    return result;
+  }
+
+  const design = normalizeShipDesignSnapshot(request.design);
+  const combatStyle = request.combatStyle || player.combatStyle || "sentry";
+  const createdShips = [];
+  const original = {
+    money: player.money,
+    spent: player.spent,
+    deployedFleetCost: player.deployedFleetCost,
+    shipsBuilt: player.shipsBuilt || 0,
+    shipsLength: player.ships.length,
+    nextEntityId: room.nextEntityId
+  };
+
+  try {
+    for (let i = 0; i < validation.count; i += 1) {
+      const index = activeFleetCount(player) + i;
+      createdShips.push(spawnShip(room, player, now, index, {
+        stats: validation.shipStats,
+        design,
+        combatStyle
+      }));
+    }
+  } catch {
+    for (const ship of createdShips) {
+      ship.removed = true;
+      room.ships.delete(ship.id);
+    }
+    player.ships.length = original.shipsLength;
+    room.nextEntityId = original.nextEntityId;
+    return makePurchaseFailure(requestId, "spawn-failed", "Could not spawn ship");
+  }
+
+  player.money = finiteMoney(player.money - validation.totalCost);
+  player.spent = finiteMoney(player.spent + validation.totalCost);
+  player.deployedFleetCost = finiteMoney(player.deployedFleetCost + validation.totalCost);
+  player.shipsBuilt = original.shipsBuilt + createdShips.length;
+  player.lastBuildError = "";
+
+  const result = {
+    type: "purchaseResult",
+    ok: true,
+    requestId,
+    code: "ok",
+    count: createdShips.length,
+    unitCost: validation.shipStats.unitCost,
+    totalCost: validation.totalCost,
+    shipIds: createdShips.map((ship) => ship.id),
+    money: Math.floor(player.money),
+    activeShips: activeFleetCount(player),
+    shipCap: player.shipCap
+  };
+  cache.set(requestId, { at: now, signature, result });
+  prunePurchaseRequestCache(player, now);
+  return result;
+}
+
 function validateBuyShip(room, player, count = 1, stats = null) {
   if (room.phase !== "active") {
-    return { ok: false, reason: "Ships can only be built after the match starts" };
+    return { ok: false, code: "invalid-phase", reason: "Ships can only be built after the match starts" };
   }
   if (!player.ready) {
-    return { ok: false, reason: "Invalid design: save a blueprint first." };
+    return { ok: false, code: "invalid-design", reason: "Invalid design: save a blueprint first." };
   }
   const shipStats = stats || player.stats || computeStats(player.design);
   if (shipStats.thrust <= 0) {
-    return { ok: false, reason: "Invalid design: add at least one engine." };
+    return { ok: false, code: "invalid-design", reason: "Invalid design: add at least one engine." };
   }
   const requestedCount = clampNumber(count, 1, 5);
-  const activeCount = player.ships.filter((ship) => ship.alive).length;
+  const activeCount = activeFleetCount(player);
   if (activeCount + requestedCount > player.shipCap) {
     const remainingSlots = Math.max(0, player.shipCap - activeCount);
     return {
       ok: false,
+      code: "fleet-cap",
       reason: requestedCount === 1
         ? `Fleet cap reached: ${activeCount}/${player.shipCap} ships active`
         : `Not enough fleet slots: ${remainingSlots} available, ${requestedCount} requested`
@@ -59,7 +188,7 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   }
   const totalCost = shipStats.unitCost * requestedCount;
   if (player.money < totalCost) {
-    return { ok: false, reason: `Not enough money: need $${totalCost - Math.floor(player.money)} more` };
+    return { ok: false, code: "insufficient-funds", reason: `Not enough money: need $${Math.ceil(totalCost - player.money)} more` };
   }
   return { ok: true, shipStats, count: requestedCount, totalCost };
 }
@@ -80,7 +209,7 @@ function updateEconomy(room, dt) {
 
     const relays = ownedRelays.get(player.team) || 0;
     player.income = ECONOMY.baseIncome + relays * ECONOMY.relayIncome;
-    const gained = player.income * dt;
+    const gained = finiteMoney(player.income * dt);
     player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + gained);
     player.earned += gained;
   }
@@ -168,9 +297,12 @@ function getActiveFleetCost(player) {
 
 module.exports = {
   buyShip,
+  executePurchase,
   validateBuyShip,
   updateEconomy,
   finalizeMatchRewards,
   calculateBattleReward,
-  getActiveFleetCost
+  getActiveFleetCost,
+  activeFleetCount,
+  PURCHASE_IDEMPOTENCY_TTL_MS
 };

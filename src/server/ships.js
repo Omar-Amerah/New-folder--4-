@@ -139,8 +139,10 @@ function addBot(room, requester) {
     losses: 0,
     captures: 0,
     connected: true,
-    lastReadyAt: 0
+    lastReadyAt: 0,
+    purchaseRequests: new Map()
   };
+  if (room.rules?.gameMode === "solo") player.team = player.id;
 
   room.players.set(player.id, player);
   broadcastRoom(room, { type: "notice", message: `${player.name} joined as a bot` });

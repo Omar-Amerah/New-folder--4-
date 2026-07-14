@@ -180,8 +180,10 @@ function joinRoom(client, message) {
     lastReadyAt: 0,
     resumeToken: makeResumeToken(),
     attachmentId: 0,
-    removed: false
+    removed: false,
+    purchaseRequests: new Map()
   };
+  if (room.rules?.gameMode === "solo") player.team = player.id;
 
   attachClientToPlayer(room, player, client);
   room.clients.add(client);
@@ -421,6 +423,7 @@ function resetPlayerForMatch(room, player, now, options = {}) {
   player.lostFleetCost = 0;
   player.lastReward = null;
   player.lastBuildError = "";
+  if (player.purchaseRequests) player.purchaseRequests.clear();
   player.rallyPoint = null;
   room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
   if (options.spawn && player.ready) {
