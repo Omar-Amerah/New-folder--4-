@@ -111,3 +111,7 @@ Catch-up Parts 1–3 are now represented by required, behavior-named suites inst
 ## Deliberately deferred to Sections 8–13
 
 The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+
+## Design-time parity contract
+
+The server remains authoritative for design validation and ship statistics. The client preview is expected to match server calculations for occupied cells, rotated footprints, cost, mass, HP, shields, power, efficiency, movement, weapon ranges, repair output, capture and utility bonuses using the tolerances documented in `docs/testing-inventory.md`. Client warning text is display-only and must not be treated as an authoritative parity field.

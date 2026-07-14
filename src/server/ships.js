@@ -251,33 +251,8 @@ function chooseBotTeam(room, requester, fallbackId) {
 }
 
 function getPlayerSpawn(room, playerId) {
-  const spawnRadius = 275;
-  const sideInset = spawnRadius;
-  const player = room.players.get(playerId);
-  if (player?.team === "blue") {
-    const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "blue").map((candidate) => candidate.id).sort();
-    const index = Math.max(0, teamMates.indexOf(playerId));
-    const lanes = [0, -0.32, 0.32, -0.6, 0.6, -0.45, 0.45];
-    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (spawnRadius * 0.7);
-    return { x: sideInset, y: spawnY, angle: 0 };
-  }
-  if (player?.team === "red") {
-    const teamMates = [...room.players.values()].filter((candidate) => candidate.team === "red").map((candidate) => candidate.id).sort();
-    const index = Math.max(0, teamMates.indexOf(playerId));
-    const lanes = [0, 0.32, -0.32, 0.6, -0.6, 0.45, -0.45];
-    const spawnY = room.world.height * 0.5 + lanes[index % lanes.length] * (spawnRadius * 0.7);
-    return { x: room.world.width - sideInset, y: spawnY, angle: Math.PI };
-  }
-
-  const ids = [...room.players.keys()].sort();
-  const index = Math.max(0, ids.indexOf(playerId));
-  const slots = [
-    { x: sideInset, y: room.world.height * 0.5, angle: 0 },
-    { x: room.world.width - sideInset, y: room.world.height * 0.5, angle: Math.PI },
-    { x: room.world.width * 0.5, y: sideInset, angle: Math.PI / 2 },
-    { x: room.world.width * 0.5, y: room.world.height - sideInset, angle: -Math.PI / 2 }
-  ];
-  return slots[index % slots.length];
+  const { getPlannedSpawn } = require("./spawnPlanner");
+  return getPlannedSpawn(room, playerId);
 }
 
 function getPlayerRallyPoint(room, player) {

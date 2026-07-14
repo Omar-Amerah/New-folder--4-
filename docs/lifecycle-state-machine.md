@@ -114,3 +114,7 @@ Catch-up Parts 1–3 are now represented by required, behavior-named suites inst
 ## Deliberately deferred to Sections 8–13
 
 The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+
+## Timer and cleanup test expectations
+
+Lifecycle tests are expected to cover grace entry, reconnect-before-expiry, stale expiry callbacks, permanent removal, explicit leave, kick, room closure, empty-room cleanup cancellation, admin disconnect/promotion, duplicate-name handling during grace, and stale replaced sockets. Public snapshots must not expose resume tokens, and removed IDs must not remain invalid active owners.

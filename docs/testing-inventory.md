@@ -184,3 +184,11 @@ Catch-up Parts 1–3 are now represented by required, behavior-named suites inst
 ## Deliberately deferred to Sections 8–13
 
 The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+
+## Section 8 catch-up truthful taxonomy
+
+- `npm run test:spawn-planner` now runs `verify-spawn-planner.js`, a dedicated deterministic planner suite for solo counts 1, 2, 3, 4, 5, 8 and 12; 1v1; balanced teams; 7v1; 10v2; mixed human/bot rooms; large starter reservations; obstructed preferred positions; deterministic replay; and no-legal-placement failure reporting.
+- `npm run test:blueprint-parity` now runs `verify-blueprint-parity.js`. It loads the server-normalized component catalogue into the client preview and compares authoritative design-time stats with explicit tolerances: exact for integer/stat fields, 1 unit for rounded acceleration/effective thrust, and 0.01 for rounded speed/turn displays. Client warnings remain display-only copy and are not an exact authoritative parity field.
+- `npm run test:component-indexes` now runs `verify-component-indexes.js`, covering design creation, spawn, full and dynamic snapshots, component damage/destruction/repair deltas, heat deltas, reconnect reconstruction, ship removal, and new-ship cache isolation.
+- `npm run test:protocol` now executes the real runtime, purchase protocol, and movement protocol scenarios through `tools/run-tests.js`; each scenario starts a real server process and uses real WebSockets and MessagePack snapshots.
+- `npm run test:objectives` and `npm run test:match-progression` still point at `verify-maps-objectives.js`; this remains a focused map/objective invariant suite and broader objective/victory coverage is deferred to Section 8 proper rather than overstated here.
