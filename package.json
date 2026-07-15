@@ -12,7 +12,7 @@
     "test:protocol": "node tools/run-tests.js protocol",
     "test:smoke": "node tools/run-tests.js smoke",
     "test:browser": "npm run build && node tools/run-tests.js browser",
-    "test:all": "npm run check && node tools/run-tests.js all && npm run test:snapshot-contract && npm run test:snapshot-resync && npm run test:network-backpressure && npm run test:network-soak",
+    "test:all": "npm run check && node tools/run-tests.js all && npm run test:camera && npm run test:input && npm run test:interpolation && npm run test:selection && npm run test:snapshot-contract && npm run test:snapshot-resync && npm run test:network-backpressure && npm run test:network-soak && npm run test:renderer-browser && npm run test:renderer-soak",
     "verify": "npm run test:all",
     "test:canvas-removal": "node verify-canvas-removal.js",
     "test:pixi-lifecycle": "node verify-pixi-lifecycle.js",
@@ -78,7 +78,12 @@
     "test:snapshot-resync": "node verify-snapshot-resync.js",
     "test:network-backpressure": "node verify-network-backpressure.js",
     "test:network-soak": "node verify-network-soak.js",
-    "test:messagepack-codec": "node verify-network-protocol.js --codec-only"
+    "test:messagepack-codec": "node verify-network-protocol.js --codec-only",
+    "test:camera": "node verify-camera-transforms.js",
+    "test:input": "node verify-input-lifecycle.js",
+    "test:interpolation": "node verify-render-interpolation.js",
+    "test:renderer-browser": "npm run build && node verify-renderer-input-browser.js",
+    "test:renderer-soak": "npm run build && node verify-renderer-interaction-soak.js"
   },
   "keywords": [
     "browser-game",

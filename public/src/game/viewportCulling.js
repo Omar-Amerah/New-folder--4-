@@ -1,24 +1,7 @@
-// Viewport / culling math for the arena renderer. Pure geometry over the camera
-// state — no Canvas, Pixi, or DOM. Used to skip off-screen world objects.
+// Viewport / culling math for the arena renderer. Pure geometry over the camera state.
 
 import { state } from "../state.js";
+import { cameraViewportWorldBounds } from "./camera.js";
 
-// World-space bounds of the current viewport, expanded by `padding` world units
-// so objects just off-screen still draw while panning.
-export function getViewportWorldBounds(rect, padding = 160) {
-  const w = rect.width / state.camera.zoom;
-  const h = rect.height / state.camera.zoom;
-  return {
-    left: state.camera.x - w / 2 - padding,
-    right: state.camera.x + w / 2 + padding,
-    top: state.camera.y - h / 2 - padding,
-    bottom: state.camera.y + h / 2 + padding
-  };
-}
-
-export function isCircleVisible(x, y, radius, bounds) {
-  return x + radius >= bounds.left &&
-         x - radius <= bounds.right &&
-         y + radius >= bounds.top &&
-         y - radius <= bounds.bottom;
-}
+export function getViewportWorldBounds(rect, padding = 160) { return cameraViewportWorldBounds(state.camera, { left: 0, top: 0, width: rect.width, height: rect.height }, state.world, padding); }
+export function isCircleVisible(x, y, radius, bounds) { return x + radius >= bounds.left && x - radius <= bounds.right && y + radius >= bounds.top && y - radius <= bounds.bottom; }

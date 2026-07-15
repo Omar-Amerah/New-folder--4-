@@ -237,3 +237,11 @@ Chromium setup remains a hard requirement for CI. The browser job runs `npm ci`,
 - `npm run test:snapshot-resync` covers client rejection reasons that request a full state.
 - `npm run test:network-backpressure` covers deterministic transport write backpressure framing behavior.
 - `npm run test:network-soak` maps to the existing soak runner for sustained network/gameplay coverage.
+
+## Section 10A tests
+
+- `npm run test:camera` covers pure camera transforms, viewport clamps, cursor zoom, and minimap parity.
+- `npm run test:input` covers idempotent binding, canvas replacement, cancellation, and anchored wheel zoom with DOM doubles.
+- `npm run test:interpolation` covers timestamped render history, interpolation, bounded extrapolation, epoch reset, and snapshot immutability.
+- `npm run test:renderer-browser` runs a real Chromium/WebGL smoke matrix at 900x700, 1280x900, and 1600x900.
+- `npm run test:renderer-soak` runs a bounded Chromium interaction soak.

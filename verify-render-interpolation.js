@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+globalThis.document = globalThis.document || { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], body: null, addEventListener(){}, removeEventListener(){}, activeElement: null, visibilityState: 'visible' };
+globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener(){}, removeEventListener(){} };
+globalThis.performance = globalThis.performance || { now: () => Date.now() };
+const { state } = await import('./public/src/state.js');
+const { resetRenderHistory, acceptSnapshotForRender, visualForShip, interpolateShips, EXTRAPOLATION_CAP_MS } = await import('./public/src/game/renderInterpolation.js');
+resetRenderHistory(); state.snapshotNetwork={stateEpoch:1,snapshotSeq:0};
+acceptSnapshotForRender({stateEpoch:1,snapshotSeq:1,simulationTimeMs:1000,ships:[{id:'s',x:0,y:0,angle:Math.PI-0.1,vx:100,vy:0,alive:true}]}, 1);
+acceptSnapshotForRender({stateEpoch:1,snapshotSeq:2,simulationTimeMs:1100,ships:[{id:'s',x:100,y:0,angle:-Math.PI+0.1,vx:100,vy:0,alive:true}]}, 2);
+let v=visualForShip({id:'s',alive:true},1050); assert(Math.abs(v.x-50)<1e-9); assert(Math.abs(Math.abs(v.angle)-Math.PI)<0.11);
+v=visualForShip({id:'s',alive:true},2000); assert(v.x<=100+100*EXTRAPOLATION_CAP_MS/1000+1e-9);
+const snap={stateEpoch:1,snapshotSeq:2,simulationTimeMs:1100,ships:[{id:'s',x:100,y:0,angle:0,alive:true}]}; state.snapshot=structuredClone(snap); interpolateShips(.016,10); assert.deepEqual(state.snapshot,snap);
+acceptSnapshotForRender({stateEpoch:2,snapshotSeq:1,simulationTimeMs:0,ships:[{id:'n',x:5,y:6,angle:0,alive:true}]},3); assert.equal(visualForShip({id:'s',alive:true},0),null); assert.equal(visualForShip({id:'n',alive:false},0),null);
+console.log('Render interpolation verification passed');

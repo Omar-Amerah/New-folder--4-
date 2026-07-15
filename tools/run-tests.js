@@ -48,7 +48,9 @@ const GROUPS = {
     "verify-combat-catchup.js",
     "verify-repair-target.js",
     "verify-engine-exhaust.js",
-    "verify-maps-objectives.js"
+    "verify-maps-objectives.js",
+    "verify-camera-transforms.js",
+    "verify-render-interpolation.js"
   ],
   // Module/room-lifecycle integration tests. The obsolete generated
   // public/client.js VM harnesses were removed from required suites so tests
@@ -56,7 +58,9 @@ const GROUPS = {
   integration: [
     "verify-reconnect.js",
     "verify-lobby-refresh-reconnect.js",
-    "verify-lifecycle.js"
+    "verify-lifecycle.js",
+    "verify-input-lifecycle.js",
+    "verify-pixi-lifecycle.js"
   ],
   // Real server.js process + real WebSockets + MessagePack snapshots.
   // Also the baseline lobby-to-active-match smoke flow.
@@ -72,13 +76,15 @@ const GROUPS = {
   // Chromium, real browser input, WebSockets and MessagePack snapshots.
   browser: [
     "verify-live-turrets.js",
-    "verify-heat-browser.js"
+    "verify-heat-browser.js",
+    "verify-renderer-input-browser.js"
   ],
   // Sustained high-entity deterministic server simulation with bounded-state
   // and performance measurements.
   soak: [
     "verify-soak.js",
-    "verify-heat-soak.js"
+    "verify-heat-soak.js",
+    "verify-renderer-interaction-soak.js"
   ]
 };
 GROUPS.all = [...GROUPS.unit, ...GROUPS.integration, ...GROUPS.protocol, ...GROUPS.smoke, ...GROUPS.browser, ...GROUPS.soak];
