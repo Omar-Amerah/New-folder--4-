@@ -9,6 +9,7 @@ import { playerMap } from "../ui/scoreboardUi.js";
 import { formationForCommand } from "../ui/sidePanelUi.js";
 
 export function issueCommand(event) {
+  if (event?.currentTarget && event.target !== event.currentTarget) return;
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
   if (state.phase !== "active") return;
   const mini = minimapWorldAt(event.clientX, event.clientY);

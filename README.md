@@ -119,3 +119,10 @@ npm run test:network-browser
 ### Snapshot resynchronization
 
 The multiplayer protocol uses MessagePack state snapshots with explicit room epochs and per-epoch sequence numbers. Clients recover from missed compact state by requesting one viewer-filtered full snapshot without leaving the room; reconnects also require a fresh full baseline before compact updates resume.
+
+### Arena controls
+
+- Mouse wheel zooms around the cursor; middle drag or Space + left drag pans.
+- `F` follows the selected living ships or, with no selection, your living fleet.
+- `0` resets zoom to fit; `C` centres the selected ships or your fleet.
+- Click selects owned living ships, Shift-click toggles, drag selects intersecting ships, Shift-drag adds, `Q` selects all owned living ships, and Escape clears selection.

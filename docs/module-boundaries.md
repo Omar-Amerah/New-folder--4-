@@ -87,3 +87,7 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 
 ## Section 9A networking ownership
 `protocol.js` owns compatibility policy; `clientSchemas.js` owns accepted client-message shapes and limits; `websocketServer.js` owns frame compliance and connection buffers; `messages.js` owns schema-gated dispatch; `players.js` owns stable player identity and attachment generation. Snapshot epoch/resync ownership is reserved for Section 9B.
+
+## Renderer/camera/input ownership
+
+Networking owns accepted snapshots, epochs, sequences, and simulation timestamps. `renderInterpolation` owns temporary visual transforms and bounded sample history. `camera` owns world/screen/minimap conversions and viewport-aware bounds. `input` translates arena gestures into camera actions, selection, or commands. `selection` owns selectable-entity filtering and visual-position hit tests. Pixi owns only scene graph, pools, and texture leases.

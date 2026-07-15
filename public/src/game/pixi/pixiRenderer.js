@@ -5,9 +5,10 @@
 import { dom, replaceArenaCanvas } from "../../ui/dom.js";
 import { state } from "../../state.js";
 import { updateCamera } from "../camera.js";
-import { bindArenaPointerListeners } from "../input.js";
+import { bindArenaPointerListeners, unbindArenaPointerListeners, inputDiagnostics } from "../input.js";
 import { interpolateShips } from "../renderInterpolation.js";
 import { getViewportWorldBounds } from "../viewportCulling.js";
+import { cameraViewportWorldBounds } from "../camera.js";
 import { getRenderQuality, getRenderQualityDprCap } from "../renderSettings.js";
 import { setDebugFrameStats, updateDebugOverlay } from "../debugOverlay.js";
 import { playerMap } from "../../ui/scoreboardUi.js";
@@ -238,7 +239,18 @@ export function getPixiRuntimeDiagnostics() {
     rendererWidth: app?.renderer?.width || 0,
     rendererHeight: app?.renderer?.height || 0,
     resolution: app?.renderer?.resolution || 0,
-    textures: pixiTextureDiagnostics()
+    textures: pixiTextureDiagnostics(),
+    cssCanvasWidth: dom.canvas?.getBoundingClientRect?.().width || 0,
+    cssCanvasHeight: dom.canvas?.getBoundingClientRect?.().height || 0,
+    camera: { x: state.camera.x, y: state.camera.y, zoom: state.camera.zoom },
+    viewportWorldBounds: cameraViewportWorldBounds(state.camera, dom.canvas?.getBoundingClientRect?.() || { width: app?.screen?.width || 0, height: app?.screen?.height || 0, left: 0, top: 0 }),
+    interpolationDelay: state.renderHistory?.delayMs || 0,
+    latestAcceptedSimulationTime: state.renderHistory?.latestSimulationTimeMs || null,
+    currentRenderSimulationTime: state.renderHistory?.renderSimulationTimeMs || null,
+    visualShipCount: state.visualShips?.size || 0,
+    authoritativeShipCount: state.snapshot?.ships?.length || 0,
+    selectedShipIds: [...state.selectedShipIds],
+    input: inputDiagnostics()
   };
 }
 
@@ -267,8 +279,10 @@ export function resizePixiRenderer() {
 export function destroyPixiRenderer() {
   if (!pixiEnv) return;
   const env = pixiEnv;
-  // 1. Stop the render loop.
+  // 1. Stop the render loop and input.
   env.app.ticker.remove(pixiFrame);
+  env.app.ticker.stop();
+  unbindArenaPointerListeners();
   // 2-6. Destroy pools/views (releases every texture lease; resets globals).
   destroyPixiShipPool();
   destroyPixiWorld();

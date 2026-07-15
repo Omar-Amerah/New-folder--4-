@@ -248,3 +248,7 @@ Runtime heat keeps immutable design indexes and physical adjacency, but effectiv
 
 ## Section 9A networking architecture update
 The transport contract is now explicit: `/socket` upgrades to raw WebSocket, application data is production MessagePack only, client traffic is schema-validated before dispatch, and protocol version 4 join negotiation gates gameplay. The hand-rolled parser was hardened rather than replaced so deployment remains dependency-light and existing `/socket` MessagePack behavior is preserved.
+
+## Section 10A renderer interaction model
+
+Camera math now lives in `public/src/game/camera.js`; input, selection, Pixi, and culling call those helpers rather than recomputing coordinate conversions. The Pixi world root uses the same camera centre and zoom that pointer hit testing uses. Rendering consumes accepted snapshot timestamps through bounded render history and derives temporary visual ship transforms without mutating the authoritative snapshot.

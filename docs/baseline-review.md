@@ -240,3 +240,7 @@ The previous baseline risk around hand-rolled WebSocket framing is reduced by ex
 ## Section 9B baseline review
 
 Per-client snapshot baselines replaced room-global static assumptions for outbound selection. A connection that joins, reconnects, changes epoch, observes a static revision mismatch, or requests resync is marked full-required. Payload sharing is only allowed across matching privacy/team class, epoch, snapshot kind, compact base sequence, and static revision. Resume credentials, request caches, pending purchases, enemy economy, and tokens are not snapshot fields.
+
+## Section 10A baseline update
+
+The baseline renderer remains PixiJS only. Section 10A adds camera transform helpers, viewport-aware bounds, cursor-anchored zoom, input lifecycle cleanup, visual-position selection, and authoritative timestamp render interpolation. Section 10B should defer deeper performance and pooling optimization.

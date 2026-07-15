@@ -20,6 +20,7 @@ import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } 
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { mergeSnapshotTransaction } from "./snapshotMerge.js";
+import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterpolation.js";
 import { disableReconnect, send } from "./network.js";
 
 // Records the backend's protocol/build identification and reports skew. The
@@ -123,6 +124,7 @@ export function handleServerMessage(message) {
     if (message.resumeToken) saveResumeCredential(message.room, message.resumeToken);
     state.selectedShipIds.clear();
     state.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 };
+    resetRenderHistory();
     state.activeShipGroup = null;
     dom.roomCode.value = message.room;
     dom.currentRoomCode.textContent = message.room;
@@ -160,6 +162,7 @@ export function handleServerMessage(message) {
       if (oldShip?.chp && newShip.chp && newShip.chp !== oldShip.chp) recordComponentHpChanges(newShip, oldShip.chp, newShip.chp);
     }
     state.snapshot = accepted;
+    acceptSnapshotForRender(accepted, state.snapshotReceivedAt);
     state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
     state.room = accepted.room;
     state.world = accepted.world || state.world;
