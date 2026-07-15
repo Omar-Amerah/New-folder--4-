@@ -12,7 +12,7 @@
     "test:protocol": "node tools/run-tests.js protocol",
     "test:smoke": "node tools/run-tests.js smoke",
     "test:browser": "npm run build && node tools/run-tests.js browser",
-    "test:all": "npm run check && node tools/run-tests.js all && npm run test:renderer-pools && npm run test:renderer-culling && npm run test:renderer-textures && npm run test:renderer-quality && npm run test:renderer-structure && npm run test:camera && npm run test:input && npm run test:interpolation && npm run test:selection && npm run test:snapshot-contract && npm run test:snapshot-resync && npm run test:network-backpressure && npm run test:network-soak && npm run test:renderer-browser && npm run test:renderer-performance && npm run test:webgl-context && npm run test:renderer-soak",
+    "test:all": "npm run check && node tools/run-tests.js all",
     "verify": "npm run test:all",
     "test:canvas-removal": "node verify-canvas-removal.js",
     "test:pixi-lifecycle": "node verify-pixi-lifecycle.js",
@@ -59,7 +59,7 @@
     "test:selection": "node verify-selection.js",
     "test:economy-sequence": "node verify-economy-sequence.js",
     "test:bots": "node verify-bots.js",
-    "test:soak": "node tools/run-tests.js soak",
+    "test:soak": "node tools/run-tests.js server-soak",
     "test:thermal-topology": "node verify-thermal-topology.js",
     "test:heat-transfer": "node verify-heat-transfer.js",
     "test:heat-cooling": "node verify-heat-cooling.js",
@@ -90,7 +90,8 @@
     "test:renderer-quality": "node verify-renderer-quality.js",
     "test:renderer-structure": "node verify-renderer-structural-updates.js",
     "test:renderer-performance": "npm run build && node verify-renderer-performance-browser.js",
-    "test:webgl-context": "npm run build && node verify-webgl-context-browser.js"
+    "test:webgl-context": "npm run build && node verify-webgl-context-browser.js",
+    "test:all-non-browser": "npm run check && node tools/run-tests.js all-non-browser"
   },
   "keywords": [
     "browser-game",

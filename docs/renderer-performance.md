@@ -53,3 +53,7 @@ The browser diagnostics exposed as `window.__mfaRenderer.diagnostics()` are read
 
 CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context` with the normal browser group, and runs `npm run test:renderer-soak` in a separate real-Chromium job. Failure artifacts are written under `test-artifacts/` with screenshots, diagnostics, reports, server logs, viewport, DPR, quality, pool, texture, scene and console data where available.
 
+
+## Test taxonomy and CI ownership
+
+Renderer tests are split by runtime dependency. Deterministic renderer structure, pool, culling, texture and quality checks run in non-browser suites and in `npm run test:all-non-browser`. Browser renderer checks (`verify-renderer-input-browser.js`, `verify-renderer-performance-browser.js`, `verify-webgl-context-browser.js`, `verify-pixi-lifecycle.js`, and the short `verify-renderer-interaction-soak.js`) run under `npm run test:browser` and require Playwright Chromium plus WebGL. The long production renderer soak is isolated behind `npm run test:renderer-soak`; it is not included in the server soak group and is owned by the dedicated renderer-soak CI job.

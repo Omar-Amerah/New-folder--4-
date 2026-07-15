@@ -257,3 +257,7 @@ The browser diagnostics exposed as `window.__mfaRenderer.diagnostics()` are read
 
 CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context` with the normal browser group, and runs `npm run test:renderer-soak` in a separate real-Chromium job. Failure artifacts are written under `test-artifacts/` with screenshots, diagnostics, reports, server logs, viewport, DPR, quality, pool, texture, scene and console data where available.
 
+
+## 7. Section 10 taxonomy update
+
+A later grouped-runner audit found a taxonomy defect rather than a Pixi lifecycle defect: `verify-pixi-lifecycle.js` was in the integration group even though it imports Playwright and launches real Chromium/WebGL/Pixi. The same audit found that normal server soak included Chromium renderer soaks. The correction keeps integration and server soak browser-free, moves Pixi lifecycle into the browser group, keeps the long renderer soak in the dedicated renderer-soak group, and makes `test:all` deduplicate all required scripts exactly once while documenting that it requires Chromium. A new `test:all-non-browser` command covers the full non-browser umbrella.

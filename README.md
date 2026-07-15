@@ -12,16 +12,20 @@ Open `http://localhost:3000`. Friends on the same network can use the LAN URL pr
 
 ## Testing
 
-```powershell
-npm ci
-npm run check        # build + static/syntax validation (fast)
-npm run test:unit    # fast deterministic module tests
-npm run test:all     # full suite (unit, integration, protocol, browser)
+```bash
+npm run check                 # build + static/syntax checks
+npm run test:unit             # fast deterministic module/static tests
+npm run test:integration      # browser-free module/lifecycle integration
+npm run test:protocol         # real server + WebSocket/MessagePack protocol checks
+npm run test:smoke            # production HTTP asset smoke
+npm run test:soak             # browser-free deterministic server/simulation soak
+npm run test:all-non-browser  # complete non-browser umbrella; does not launch Chromium
+npm run test:browser          # real Chromium/WebGL/Pixi browser coverage
+npm run test:renderer-soak    # dedicated long real Chromium/WebGL/Pixi renderer soak
+npm run test:all              # complete umbrella; requires Chromium
 ```
 
-Browser tests need Playwright Chromium (`npx playwright install chromium`).
-See `docs/testing-inventory.md` for what each suite covers and
-`docs/architecture-overview.md` for how the pieces fit together.
+CI keeps the same dependency split: the server-integration job does not install Chromium and runs integration/protocol/smoke/server-soak only; the browser job installs Playwright Chromium and runs `test:browser`; the renderer-soak job installs Playwright Chromium and runs only `test:renderer-soak`. Browser tests fail strictly if Chromium, WebGL or Pixi cannot initialize; they are not skipped or downgraded.
 
 ## Deploy
 
