@@ -13,6 +13,7 @@ export const SNAPSHOT_REJECTION = Object.freeze({
 });
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
+function isNullish(value) { return value === undefined || value === null; }
 
 export function mergeStaticPlayerFields(previousPlayers, nextPlayers) {
   if (!Array.isArray(previousPlayers) || !Array.isArray(nextPlayers)) return nextPlayers;
@@ -22,7 +23,7 @@ export function mergeStaticPlayerFields(previousPlayers, nextPlayers) {
     if (!oldPlayer) return player;
     const merged = { ...oldPlayer, ...player };
     for (const key of ["design", "stats", "name", "team", "colour", "color"]) {
-      if (merged[key] === undefined) merged[key] = oldPlayer[key];
+      if (isNullish(merged[key])) merged[key] = oldPlayer[key];
     }
     return merged;
   });
@@ -92,12 +93,12 @@ export function mergeCachedShipFields(previousShips, nextShips) {
     const oldShip = oldShips.get(ship.id);
     if (!oldShip) return { ...ship, componentHeat: normalizeComponentHeatSnapshot(ship.componentHeat) };
     const merged = { ...ship };
-    if (merged.design === undefined) merged.design = oldShip.design;
-    if (merged.chp === undefined) {
+    if (isNullish(merged.design)) merged.design = oldShip.design;
+    if (isNullish(merged.chp)) {
       const hp = applyComponentHpDelta(oldShip.chp, merged.chpD);
       if (hp !== undefined) merged.chp = hp;
     }
-    if (merged.componentHeat !== undefined) merged.componentHeat = normalizeComponentHeatSnapshot(merged.componentHeat);
+    if (!isNullish(merged.componentHeat)) merged.componentHeat = normalizeComponentHeatSnapshot(merged.componentHeat);
     else {
       const heat = applyComponentHeatDelta(oldShip.componentHeat, merged.componentHeatD);
       if (heat !== undefined) merged.componentHeat = heat;
@@ -128,7 +129,7 @@ function validateShipDeltas(previous, message) {
   const oldShips = new Map((previous?.ships || []).map((ship) => [ship.id, ship]));
   for (const ship of message.ships || []) {
     const old = oldShips.get(ship.id);
-    if (!old && (ship.chpD || ship.componentHeatD || ship.design === undefined)) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE };
+    if (!old && (ship.chpD || ship.componentHeatD || isNullish(ship.design))) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE };
     if (ship.chpD) { const r = validateComponentHpDelta(old?.chp, ship.chpD); if (!r.ok) return r; }
     if (ship.componentHeatD) { const r = validateComponentHeatDelta(old?.componentHeat, ship.componentHeatD); if (!r.ok) return r; }
   }
@@ -148,7 +149,7 @@ export function mergeCompactSnapshot(previous, message) {
   const next = clone(message);
   next.players = mergeStaticPlayerFields(previous.players, next.players || []);
   next.ships = mergeCachedShipFields(previous.ships, next.ships || []);
-  for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (next[key] === undefined) next[key] = clone(previous[key]);
+  for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = clone(previous[key]);
   return { ok: true, snapshot: next, networkState: { stateEpoch: next.stateEpoch, snapshotSeq: next.snapshotSeq, staticRevision: next.staticRevision, hasFullBaseline: true } };
 }
 

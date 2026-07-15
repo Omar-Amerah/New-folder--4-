@@ -175,7 +175,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
       if (ship.alive) activeShips += 1;
     }
 
-    players.push({
+    const packet = {
       id: player.id,
       name: player.name,
       color: player.color,
@@ -199,16 +199,19 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
       kills: player.kills,
       losses: player.losses,
       captures: player.captures,
-      design: sendStatic ? player.design : undefined,
-      stats: sendStatic ? summarizeStats(player.stats || computeStats(player.design)) : undefined,
       rallyPoint: getPlayerRallyPoint(room, player),
       rallyPointCustom: Boolean(player.rallyPoint),
       shipsBuilt: player.shipsBuilt || 0,
       lostFleetCost: Math.floor(player.lostFleetCost || 0)
-    });
+    };
+    if (sendStatic) {
+      packet.design = player.design;
+      packet.stats = summarizeStats(player.stats || computeStats(player.design));
+    }
+    players.push(packet);
   }
 
-  return {
+  const snapshot = {
     type: "state",
     room: room.code,
     // Frontend/backend build identification: the client compares these against
@@ -226,9 +229,6 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     createdAtMs: Date.now(),
     phase: room.phase,
     adminId: room.adminId,
-    mapSizeLabel: sendStatic ? room.mapSizeLabel : undefined,
-    world: sendStatic ? room.world : undefined,
-    map: sendStatic ? room.map : undefined,
     players,
     ships: shared.ships,
     bullets: shared.bullets,
@@ -237,7 +237,6 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     winner: room.winner,
     matchStartedAt: room.matchStartedAt,
     maxScore: room.maxScore,
-    rules: sendStatic ? room.rules : undefined,
     controlVictory: room.controlVictory ? {
       active: Boolean(room.controlVictory.team || room.controlVictory.playerId),
       team: room.controlVictory.team,
@@ -249,6 +248,13 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     objectiveControl: shared.objectiveControl,
     time: Math.floor(now)
   };
+  if (sendStatic) {
+    snapshot.mapSizeLabel = room.mapSizeLabel;
+    snapshot.world = room.world;
+    snapshot.map = room.map;
+    snapshot.rules = room.rules;
+  }
+  return snapshot;
 }
 
 // Marks every current ship design as broadcast so subsequent dynamic snapshots
