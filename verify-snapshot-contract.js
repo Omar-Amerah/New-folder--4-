@@ -121,8 +121,9 @@ const { snapshotRoom } = require("./src/server/snapshots");
 
   assert.equal(m.inspectSnapshotEnvelope(r2.networkState, compact2).reason, "duplicate-sequence");
   assert.equal(m.inspectSnapshotEnvelope(r2.networkState, {...compact2,snapshotSeq:1}).reason, "stale-sequence");
-  assert.equal(m.inspectSnapshotEnvelope(r1.networkState, {...compact2,snapshotSeq:3,baseSnapshotSeq:2}).reason, "sequence-gap");
-  assert.equal(m.inspectSnapshotEnvelope(r1.networkState, {...compact2,baseSnapshotSeq:0}).reason, "wrong-base");
+  assert.equal(m.inspectSnapshotEnvelope(r1.networkState, {...compact2,snapshotSeq:10,baseSnapshotSeq:1}).ok, true, "compact sequence may skip when base matches current baseline");
+  assert.equal(m.inspectSnapshotEnvelope(r1.networkState, {...compact2,snapshotSeq:10,baseSnapshotSeq:2}).reason, "sequence-gap");
+  assert.equal(m.inspectSnapshotEnvelope(r1.networkState, {...compact2,snapshotSeq:10,baseSnapshotSeq:0}).reason, "wrong-base");
   assert.equal(m.inspectSnapshotEnvelope(r1.networkState, {...compact2,stateEpoch:2,snapshotSeq:1}).reason, "missing-baseline");
   assert.equal(m.inspectSnapshotEnvelope({stateEpoch:2,snapshotSeq:1,hasFullBaseline:true}, {...compact2,stateEpoch:1}).reason, "stale-epoch");
   assert.equal(m.inspectSnapshotEnvelope({stateEpoch:1,snapshotSeq:0,hasFullBaseline:false}, compact2).reason, "missing-baseline");

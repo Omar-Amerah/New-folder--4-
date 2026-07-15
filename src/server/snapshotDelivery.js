@@ -34,13 +34,14 @@ function sendFullSnapshot(client, now = performanceNow(), reason = 'client-reque
 function needsFull(room, b, forceStatic) { const out = b._client ? getOutbound(b._client) : null; return forceStatic || b.fullRequired || b.staticRevisionKnown !== (room.staticRevision || 1) || !b.lastWrittenFullSeq || !b.lastWrittenSeq || b.queuedSnapshotKind === 'full'; }
 function broadcastSnapshot(room, now, forceStatic = false) {
   if (room.clients.size === 0) return;
+  const broadcastSeq = nextSeq(room);
   for (const client of room.clients) {
     const b = ensureSnapshotBaseline(client, room); b._client = client;
     const existing = getOutbound(client).snapshot;
     let full = needsFull(room, b, forceStatic);
     if (!full && existing?.meta?.snapshotKind === 'compact') { full = true; diag(client).promotions += 1; }
     if (!full && existing?.meta?.snapshotKind === 'full') continue;
-    const seq = nextSeq(room); const base = full ? null : b.lastWrittenSeq;
+    const seq = broadcastSeq; const base = full ? null : b.lastWrittenSeq;
     const meta = { stateEpoch: room.stateEpoch || 1, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', staticRevision: room.staticRevision || 1, completeStatic: full };
     const payload = buildPayload(room, client, now, full, seq, base);
     diag(client)[full ? 'fullBuilt' : 'compactBuilt'] += 1;

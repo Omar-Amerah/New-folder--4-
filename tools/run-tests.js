@@ -117,6 +117,7 @@ const GROUPS = {
     "verify-heat-soak.js",
     "verify-resync-reason-contract.js",
     "verify-snapshot-coalescing.js",
+    "verify-snapshot-multiclient-sequencing.js",
     "verify-snapshot-contract.js",
     "verify-snapshot-resync.js",
     "verify-network-backpressure.js",
@@ -217,7 +218,17 @@ function main(argv) {
   }
   if (failed.length > 0) {
     console.error("FAILED:");
-    for (const result of failed) console.error(`- ${result.script} — exit code ${result.exitCode}${result.signal ? `, signal ${result.signal}` : ""}`);
+    const artifactDirs = {
+      "verify-heat-browser.js": "test-artifacts/screenshots/heat-browser/",
+      "verify-pixi-lifecycle.js": "test-artifacts/pixi-lifecycle/"
+    };
+    console.error("Passed:");
+    for (const result of results.filter((item) => item.ok)) console.error(`- ${result.script}`);
+    console.error("Failed:");
+    for (const result of failed) {
+      const pointer = artifactDirs[result.script] ? ` — see ${artifactDirs[result.script]}` : "";
+      console.error(`- ${result.script} — exit code ${result.exitCode}${result.signal ? `, signal ${result.signal}` : ""}${pointer}`);
+    }
     process.exit(1);
   }
 }

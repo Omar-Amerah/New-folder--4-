@@ -8,7 +8,8 @@
 //
 // Run: node verify-pixi-lifecycle.js   (starts its own server on PORT 5600)
 
-const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const assert = require("assert");
 const { chromium } = require("playwright");
 const {
@@ -19,38 +20,57 @@ const {
   DISMISS_MENUS,
   design,
   snapshotManyShips,
-  snapshotWith
+  snapshotWith,
+  uniquePort
 } = require("./verify-pixi-browser-support.js");
 
-const PORT = Number(process.env.TEST_PORT || 5600);
+const ARTIFACT_DIR = path.join(__dirname, "test-artifacts", "pixi-lifecycle");
+const PORT = uniquePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 const results = [];
-function check(name, fn) {
-  return Promise.resolve().then(fn).then(
-    () => { results.push([true, name]); console.log("  ok  -", name); },
-    (err) => { results.push([false, name]); console.log("  FAIL-", name, "\n       ", err.message); }
-  );
+let currentPage = null;
+async function collectDiagnostics() {
+  if (!currentPage) return null;
+  try { return await currentPage.evaluate(() => ({
+    textures: typeof window.__mfaPixiTextureDiagnostics === "function" ? window.__mfaPixiTextureDiagnostics() : null,
+    renderer: window.__mfaRenderer?.diagnostics?.() || null,
+    appGeneration: window.__mfaRenderer?.diagnostics?.().applicationGeneration ?? null,
+    bakeGeneration: window.__mfaPixiTextureDiagnostics?.().generation ?? null
+  })); } catch { return null; }
+}
+async function check(name, fn) {
+  const startedAt = new Date().toISOString(); const before = await collectDiagnostics();
+  try { await fn(); const after = await collectDiagnostics(); results.push({ passed:true, ok:true, name, startedAt, endedAt:new Date().toISOString(), before, after }); console.log("  ok  -", name); }
+  catch (err) { const after = await collectDiagnostics(); results.push({ passed:false, ok:false, name, startedAt, endedAt:new Date().toISOString(), assertionMessage:err.message, stack:err.stack, before, after }); console.log("  FAIL-", name, "\n       ", err.message); }
 }
 
 // Reads window.__mfaPixiTextureDiagnostics() in the page.
 function diag(page) {
   return page.evaluate(() => window.__mfaPixiTextureDiagnostics());
 }
-function cacheEntry(d, name) {
-  return d.caches.find((c) => c.name === name) || { entries: 0, live: 0, refs: 0, stale: 0 };
-}
+function findCacheEntry(d, name) { return d?.caches?.find((c) => c.name === name) || null; }
+function optionalCacheEntry(d, name) { return findCacheEntry(d, name) || { name, entries: 0, live: 0, refs: 0, stale: 0 }; }
+function requireCacheEntry(d, name) { const entry = findCacheEntry(d, name); assert.ok(entry, `required texture cache ${name} was not present`); return entry; }
+function cacheEntry(d, name) { return requireCacheEntry(d, name); }
 
 async function main() {
+  fs.rmSync(ARTIFACT_DIR, { recursive: true, force: true }); fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const { server, getLog } = startServer(PORT);
   let browser;
+  let pageErrors = [];
+  let consoleErrors = [];
   try {
     await waitForServer(BASE);
     browser = await launchChromium(chromium);
-    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
-    const pageErrors = [];
-    page.on("pageerror", (e) => pageErrors.push(e.message));
+    const context = await browser.newContext({ viewport: { width: 1024, height: 700 }, deviceScaleFactor: 1 });
+    await context.clearCookies();
+    const page = await context.newPage(); currentPage = page;
+    pageErrors = []; consoleErrors = [];
+    page.on("pageerror", (e) => pageErrors.push({ message:e.message, stack:e.stack }));
+    page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
     await page.goto(`${BASE}/index.html`, { waitUntil: "load" });
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
     await page.addScriptTag({ content: PAGE_HELPERS });
     await page.evaluate(DISMISS_MENUS);
 
@@ -195,7 +215,7 @@ async function main() {
         await page.evaluate(() => window.__mfaTest.frames(3));
       }
       const d = await diag(page);
-      const arrow = cacheEntry(d, "arrowTurret") || cacheEntry(d, "turretArrow");
+      const arrow = findCacheEntry(d, "turretArrow") || findCacheEntry(d, "arrowTurret") || optionalCacheEntry(d, "turretArrow");
       // After disabling, no arrow lease is held.
       assert.ok(arrow.refs === 0, `arrow refcount should be 0 when disabled, got ${arrow.refs}`);
       // At most one arrow texture entry exists (shared), and turret base texture
@@ -235,16 +255,26 @@ async function main() {
       assert.strictEqual(pageErrors.length, 0, `page errors:\n${pageErrors.join("\n")}`);
     });
   } finally {
-    if (browser) await browser.close().catch(() => {});
-    server.kill("SIGKILL");
+    if (browser && !results.some((r) => !r.ok)) await browser.close().catch(() => {});
+    if (!results.some((r) => !r.ok)) server.kill("SIGKILL");
   }
 
-  const failed = results.filter(([ok]) => !ok);
+  const failed = results.filter((r) => !r.ok);
+  fs.writeFileSync(path.join(ARTIFACT_DIR, "checks.json"), JSON.stringify(results, null, 2));
   console.log(`\nPixi texture-lifecycle checks: ${results.length - failed.length}/${results.length} passed`);
   if (failed.length) {
-    console.error("FAILED:\n" + failed.map(([, n]) => "  - " + n).join("\n"));
+    fs.writeFileSync(path.join(ARTIFACT_DIR, "diagnostics.json"), JSON.stringify(await collectDiagnostics(), null, 2));
+    if (currentPage) await currentPage.screenshot({ path: path.join(ARTIFACT_DIR, "failure.png"), fullPage: true }).catch(()=>{});
+    fs.writeFileSync(path.join(ARTIFACT_DIR, "server.log"), getLog());
+    fs.writeFileSync(path.join(ARTIFACT_DIR, "page-errors.json"), JSON.stringify(pageErrors, null, 2));
+    fs.writeFileSync(path.join(ARTIFACT_DIR, "console.json"), JSON.stringify(consoleErrors, null, 2));
+    console.error("FAILED:\n" + failed.map((r) => "  - " + r.name).join("\n"));
+    if (browser) await browser.close().catch(() => {});
+    server.kill("SIGKILL");
     process.exit(1);
   }
+  if (browser) await browser.close().catch(() => {});
+  server.kill("SIGKILL");
   console.log("Pixi texture-lifecycle verification passed");
 }
 

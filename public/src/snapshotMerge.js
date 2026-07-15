@@ -119,8 +119,10 @@ export function inspectSnapshotEnvelope(networkState, message) {
   if (message.snapshotKind === "full") return { ok: true, kind: "full" };
   if (message.snapshotKind !== "compact") return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT };
   if (epoch > currentEpoch || !networkState?.hasFullBaseline) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE };
-  if (seq !== currentSeq + 1) return { ok: false, reason: SNAPSHOT_REJECTION.SEQUENCE_GAP };
-  if (Number(message.baseSnapshotSeq) !== currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.WRONG_BASE };
+  const baseSeq = Number(message.baseSnapshotSeq);
+  if (!Number.isInteger(baseSeq) || baseSeq < 1) return { ok: false, reason: SNAPSHOT_REJECTION.WRONG_BASE };
+  if (baseSeq > currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.SEQUENCE_GAP };
+  if (baseSeq < currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.WRONG_BASE };
   if (message.staticRevision !== undefined && networkState.staticRevision !== undefined && Number(message.staticRevision) !== Number(networkState.staticRevision)) return { ok: false, reason: SNAPSHOT_REJECTION.STATIC_REVISION_MISMATCH };
   return { ok: true, kind: "compact" };
 }

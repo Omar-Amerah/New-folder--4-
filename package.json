@@ -108,7 +108,8 @@
     "test:playwright-evaluate-args": "node verify-playwright-evaluate-arguments.js verify-renderer-performance-browser.js verify-renderer-soak.js verify-webgl-context-browser.js verify-browser-websocket-payloads.js verify-active-match-browser-support.js",
     "test:websocket-handler-errors": "node verify-websocket-handler-errors.js",
     "test:resync-reasons": "node verify-resync-reason-contract.js",
-    "test:snapshot-coalescing": "node verify-snapshot-coalescing.js"
+    "test:snapshot-coalescing": "node verify-snapshot-coalescing.js",
+    "test:snapshot-multiclient": "node verify-snapshot-multiclient-sequencing.js"
   },
   "keywords": [
     "browser-game",
