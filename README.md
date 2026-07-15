@@ -98,3 +98,7 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 ### Spawn fairness and test taxonomy
 
 Matches use deterministic server-side spawn planning based on stable player IDs, team/solo layout, map seed, world bounds, and map hazards. Starter fleets reserve non-overlapping space without increasing map size. Dedicated npm commands describe the coverage they actually execute; see `docs/testing-inventory.md` for current details and deferred Section 8-13 items.
+
+### Spawn protection policy
+
+Spawn protection is generated from the server's deterministic spawn plan. Team zones protect only ships on that team; enemies entering the same circle are not protected. Solo zones protect only their owning player. A protected ship cannot fire from the zone, and targets protected by their own/team zone ignore incoming damage. Clients render the authoritative `map.safeZones` snapshot, but the server is the only authority for protection decisions.

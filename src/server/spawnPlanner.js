@@ -35,16 +35,68 @@ function planSpawns(room, options = {}) {
   return results;
 }
 
-function getPlannedSpawn(room, playerId) {
-  if (!room.__spawnPlan || room.__spawnPlanKey !== planKey(room)) {
-    room.__spawnPlan = planSpawns(room);
-    room.__spawnPlanKey = planKey(room);
+function planSpawnRegions(room, options = {}) {
+  const spawns = planSpawns(room, options);
+  const players = new Map([...(room.players?.values?.() || [])].map((p) => [p.id, p]));
+  const solo = room.rules?.gameMode === "solo";
+  const groups = new Map();
+  for (const spawn of spawns) {
+    const player = players.get(spawn.playerId);
+    const team = normalizeTeam(player?.team) || player?.team;
+    const key = solo ? `player:${spawn.playerId}` : `team:${team || spawn.playerId}:player:${spawn.playerId}`;
+    if (!groups.has(key)) groups.set(key, { ownerId: solo ? spawn.playerId : null, team: solo ? null : team, spawns: [] });
+    groups.get(key).spawns.push(spawn);
   }
-  return room.__spawnPlan.find((spawn) => spawn.playerId === playerId) || { x: room.world.width / 2, y: room.world.height / 2, angle: 0, reservedRadius: 180 };
+  const safeZones = [];
+  for (const group of groups.values()) {
+    const cx = group.spawns.reduce((sum, s) => sum + s.x, 0) / group.spawns.length;
+    const cy = group.spawns.reduce((sum, s) => sum + s.y, 0) / group.spawns.length;
+    let radius = 0;
+    for (const s of group.spawns) radius = Math.max(radius, Math.hypot(s.x - cx, s.y - cy) + s.reservedRadius);
+    radius = Math.ceil(radius);
+    const zone = {
+      id: group.ownerId ? `spawn-player-${group.ownerId}` : `spawn-team-${group.team}-${group.spawns[0].playerId}`,
+      x: round(cx),
+      y: round(cy),
+      radius,
+      color: group.team === "blue" ? "rgba(63,214,255,0.06)" : group.team === "red" ? "rgba(255,95,126,0.06)" : "rgba(255,255,255,0.06)",
+      isSpawn: true,
+      spawnPlayerIds: group.spawns.map((s) => s.playerId).sort()
+    };
+    if (group.ownerId) zone.ownerId = group.ownerId;
+    if (group.team) zone.team = group.team;
+    if (!zoneInsideWorld(zone, room.world || { width: 5120, height: 3040 })) throw new Error(`Unable to plan legal spawn safe zone: ${zone.id} outside world bounds`);
+    safeZones.push(zone);
+  }
+  for (let i = 0; i < safeZones.length; i += 1) for (let j = i + 1; j < safeZones.length; j += 1) {
+    const a = safeZones[i], b = safeZones[j];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < a.radius + b.radius) throw new Error(`Unable to plan legal spawn safe zones: ${a.id} overlaps ${b.id}`);
+  }
+  return { spawns, safeZones, key: planKey(room) };
+}
+
+function getSpawnRegionPlan(room) {
+  if (!room.__spawnRegionPlan || room.__spawnPlanKey !== planKey(room)) {
+    room.__spawnRegionPlan = planSpawnRegions(room);
+    room.__spawnPlan = room.__spawnRegionPlan.spawns;
+    room.__spawnPlanKey = room.__spawnRegionPlan.key;
+  }
+  return room.__spawnRegionPlan;
+}
+
+function getPlannedSpawn(room, playerId) {
+  return getSpawnRegionPlan(room).spawns.find((spawn) => spawn.playerId === playerId) || { x: room.world.width / 2, y: room.world.height / 2, angle: 0, reservedRadius: 180 };
 }
 
 function planKey(room) {
-  return JSON.stringify({ seed: room.mapSeed || room.map?.seed || 0, ids: [...room.players.values()].map((p) => [p.id, p.team, p.shipCap, p.stats?.radius]).sort() });
+  return JSON.stringify({ seed: room.mapSeed || room.map?.seed || 0, mode: room.rules?.gameMode, world: [room.world?.width, room.world?.height], ids: [...room.players.values()].map((p) => [p.id, p.team, p.shipCap, p.stats?.radius, p.stats?.fleetCount, p.isBot]).sort() });
+}
+
+function invalidateSpawnPlan(room) {
+  if (!room) return;
+  delete room.__spawnPlan;
+  delete room.__spawnRegionPlan;
+  delete room.__spawnPlanKey;
 }
 
 function reservationRadius(player, options = {}) {
@@ -57,12 +109,13 @@ function preferredSlots(world, solo, player, players, seed, radius) {
   const ids = players.map((p) => p.id).sort();
   const byTeam = new Map();
   for (const p of players) {
-    const key = solo ? p.id : (p.team === "red" || p.team === "blue" ? p.team : p.id);
+    const team = normalizeTeam(p.team);
+    const key = solo ? p.id : (team || p.id);
     if (!byTeam.has(key)) byTeam.set(key, []);
     byTeam.get(key).push(p);
   }
   for (const group of byTeam.values()) group.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  const teamKey = solo ? player.id : (player.team === "red" || player.team === "blue" ? player.team : player.id);
+  const teamKey = solo ? player.id : (normalizeTeam(player.team) || player.id);
   const group = byTeam.get(teamKey) || [player];
   const index = group.findIndex((p) => p.id === player.id);
   const count = group.length;
@@ -111,18 +164,21 @@ function findLegalSlot(slot, radius, world, map, reservations, player, players, 
 
 function inOwnSector(c, radius, world, player, players, room) {
   if (room.rules?.gameMode === "solo") return c.x >= radius && c.x <= world.width - radius && c.y >= radius && c.y <= world.height - radius;
-  if (player.team === "blue") return c.x <= world.width * 0.42;
-  if (player.team === "red") return c.x >= world.width * 0.58;
+  const team = normalizeTeam(player.team);
+  if (team === "blue") return c.x <= world.width * 0.42;
+  if (team === "red") return c.x >= world.width * 0.58;
   return true;
 }
 function isLegal(c, radius, world, map, reservations) {
   if (c.x < radius || c.x > world.width - radius || c.y < radius || c.y > world.height - radius) return false;
   for (const r of reservations) if (Math.hypot(c.x - r.x, c.y - r.y) < radius + r.radius) return false;
-  for (const a of map.asteroids || []) if (Math.hypot(c.x - a.x, c.y - a.y) < radius + (a.radius || 0) + 24) return false;
-  for (const relay of map.relays || []) if (Math.hypot(c.x - relay.x, c.y - relay.y) < radius + (relay.radius || 0) + 32) return false;
+  for (const a of map.asteroids || []) if (Math.hypot(c.x - a.x, c.y - a.y) < radius + (a.radius || 0) + 220) return false;
+  for (const relay of map.relays || []) if (Math.hypot(c.x - relay.x, c.y - relay.y) < radius + (relay.radius || 0) + 500) return false;
   return true;
 }
 function summarizeTeams(players) { return players.map((p) => ({ id: p.id, team: p.team, bot: !!p.isBot })); }
+function normalizeTeam(team) { if (team === "blue" || team === 0 || team === "0") return "blue"; if (team === "red" || team === 1 || team === "1") return "red"; return null; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function round(v) { return Math.round(v * 100) / 100; }
-module.exports = { planSpawns, getPlannedSpawn, reservationRadius };
+function zoneInsideWorld(zone, world) { return zone.x - zone.radius >= 0 && zone.x + zone.radius <= world.width && zone.y - zone.radius >= 0 && zone.y + zone.radius <= world.height; }
+module.exports = { planSpawns, planSpawnRegions, getSpawnRegionPlan, getPlannedSpawn, reservationRadius, invalidateSpawnPlan };

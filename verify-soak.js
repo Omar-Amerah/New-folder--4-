@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("assert");
-const { createRoom, resetMatch } = require("./src/server/rooms");
+const { createRoom, resetMatch, prepareArenaForCurrentPlayers } = require("./src/server/rooms");
 const { computeStats } = require("./src/server/shipStats");
 const { spawnShip, getLiveShips } = require("./src/server/ships");
 const { updateEconomy } = require("./src/server/economy");
@@ -40,6 +40,7 @@ function assertFiniteEntity(room) {
 const memBefore = process.memoryUsage().heapUsed;
 const room = createRoom("SOAK"); room.phase = "active"; room.rules.gameMode = "teams"; room.combatRandom = seededRandom(SEED); room.map.asteroids = room.map.asteroids.slice(0, 20);
 for (let i=0;i<PLAYER_COUNT;i++) { const p = player(`${i%2?"bot":"human"}${i}`, i % 2, designs[i % designs.length]); room.players.set(p.id, p); }
+prepareArenaForCurrentPlayers(room);
 let now = performanceNow();
 for (const p of room.players.values()) for (let i=0;i<SHIPS_PER_PLAYER;i++) spawnShip(room, p, now, i, { design:p.design, stats:p.stats, combatStyle:i%2?"charge":"sentry" });
 let peakShips=0, peakBullets=0, peakEffects=0, worstTick=0, totalTick=0;

@@ -22,6 +22,7 @@ const {
 } = require("./utils");
 const { sanitizeRoomCode } = require("./validation");
 const { validateGeneratedMap } = require("./mapValidation");
+const { getSpawnRegionPlan, invalidateSpawnPlan } = require("./spawnPlanner");
 
 const rooms = new Map();
 const closedRoomCodes = new Map();
@@ -82,11 +83,12 @@ function setRoomRules(room, requester, updates) {
 
   room.rules = sanitizeRoomRules({ ...room.rules, ...updates }, room.players.size);
   applyGameModeTeams(room);
+  invalidateSpawnPlan(room);
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
   room.mapSeed = createMapSeed(room.code);
-  room.map = generateMap(room.code, world, room.rules.gameMode, room.rules.asteroidDensity, { seed: room.mapSeed });
+  room.map = generateMapWithAuthoritativeSafeZones(room);
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
 
   for (const player of room.players.values()) {
@@ -148,7 +150,7 @@ function createMapSeed(roomCode = "") {
 function generateMap(roomCode, world, gameMode, asteroidDensity, options = {}) {
   const seed = Number.isInteger(options.seed) ? (options.seed >>> 0) : createMapSeed(roomCode);
   const rng = seededRandom(seed);
-  const safeZones = generateSafeZones(world, gameMode);
+  const safeZones = options.safeZones || generateSafeZones(world, gameMode);
   const densityMultiplier = ASTEROID_DENSITY[asteroidDensity] ?? ASTEROID_DENSITY.medium;
 
   if (world.label === "Testing") {
@@ -215,6 +217,20 @@ function generateSafeZones(world, gameMode) {
     zones.push({ x: world.width * 0.5, y: world.height - sideInset, radius: spawnRadius, color: "rgba(255,255,255,0.06)", isSpawn: true });
   }
   return zones;
+}
+
+function applyAuthoritativeSafeZones(room) {
+  invalidateSpawnPlan(room);
+  const plan = getSpawnRegionPlan(room);
+  room.map.safeZones = plan.safeZones;
+  return plan;
+}
+
+function generateMapWithAuthoritativeSafeZones(room) {
+  room.map = { seed: room.mapSeed, name: "Planning", relays: [], asteroids: [], clouds: [], safeZones: [] };
+  invalidateSpawnPlan(room);
+  const plan = getSpawnRegionPlan(room);
+  return generateMap(room.code, room.world, room.rules?.gameMode || "teams", room.rules?.asteroidDensity, { seed: room.mapSeed, safeZones: plan.safeZones });
 }
 
 function generateRelays(rng, world, safeZones) {
@@ -426,7 +442,8 @@ function prepareArenaForCurrentPlayers(room) {
   room.world = world;
   room.mapSizeLabel = world.label;
   room.mapSeed = createMapSeed(room.code);
-  room.map = generateMap(room.code, world, room.rules?.gameMode || "teams", room.rules?.asteroidDensity, { seed: room.mapSeed });
+  invalidateSpawnPlan(room);
+  room.map = generateMapWithAuthoritativeSafeZones(room);
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
   room.bullets = [];
   room.effects = [];
@@ -496,6 +513,7 @@ function resetMatch(room, now) {
   room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.lastScoreAt = now;
+  applyAuthoritativeSafeZones(room);
   for (const point of room.points) {
     point.ownerId = null;
     point.ownerTeam = null;
@@ -526,6 +544,8 @@ module.exports = {
   makeAsteroid,
   generateClouds,
   generateSafeZones,
+  applyAuthoritativeSafeZones,
+  generateMapWithAuthoritativeSafeZones,
   canPlaceMapCircle,
   circlesClear,
   prepareArenaForCurrentPlayers,
@@ -537,4 +557,3 @@ module.exports = {
   pruneClosedRoomCodes,
   resetMatch
 };
-

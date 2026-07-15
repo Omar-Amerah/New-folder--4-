@@ -219,3 +219,7 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 ## Final catch-up before Section 8
 
 Completed catch-up items: deterministic spawn planner module and dedicated tests, real blueprint parity corpus, component-index lifecycle integrity test, protocol-suite wiring for runtime/purchase/movement, and truthful command aliases. Deferred to Sections 8-13: exhaustive lifecycle clock scenarios, exhaustive objective/victory matrix, focused lifecycle/combat protocol additions, and the broader Playwright gameplay path.
+
+## Final focused correction before Section 8
+
+The fixed two-team/four-solo safe-zone layout has been replaced by generated zones derived from the deterministic spawn planner. The correction also removes the misleading purchase/movement protocol wrapper aliases that repeated the runtime smoke scenario. Deferred Sections 8-13 work is unchanged: Section 8 is heat, power and component health, and the broad final regression pass remains Section 13.

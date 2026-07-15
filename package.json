@@ -58,9 +58,7 @@
     "test:spawn-planner": "node verify-spawn-planner.js",
     "test:selection": "node verify-selection.js",
     "test:economy-sequence": "node verify-economy-sequence.js",
-    "test:purchases-protocol": "node verify-purchases-protocol.js",
     "test:bots": "node verify-bots.js",
-    "test:movement-protocol": "node verify-movement-protocol.js",
     "test:soak": "node tools/run-tests.js soak"
   },
   "keywords": [

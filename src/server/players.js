@@ -188,6 +188,7 @@ function joinRoom(client, message) {
   attachClientToPlayer(room, player, client);
   room.clients.add(client);
   room.players.set(player.id, player);
+  require("./spawnPlanner").invalidateSpawnPlan(room);
   ensureAdmin(room);
   room.lastEmptyAt = 0;
 
