@@ -27,12 +27,12 @@ const path = require("path");
 const assert = require("assert");
 const msgpack = require("@msgpack/msgpack");
 const { chromium } = require("playwright");
-const { launchChromium } = require("./verify-pixi-browser-support.js");
+const { launchChromium, uniquePort, uniqueRoom, defaultArtifactDir, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
 
-const PORT = Number(process.env.TEST_PORT || 5603);
+const PORT = Number(process.env.TEST_PORT || uniquePort());
 const BASE = `http://127.0.0.1:${PORT}`;
-const ROOM = "TRRTE2E";
-const SHOT_DIR = process.env.SHOT_DIR || path.join(require("os").tmpdir(), "mfa-live-turret-shots");
+const ROOM = process.env.TEST_ROOM || uniqueRoom("live-turrets");
+const SHOT_DIR = process.env.SHOT_DIR || defaultArtifactDir("live-turrets");
 
 for (const required of ["public/vendor/pixi.min.js", "public/vendor/msgpack.min.js", "public/build-sha.js"]) {
   if (!fs.existsSync(required)) {
@@ -227,21 +227,31 @@ async function main() {
   server.stderr.on("data", (d) => { serverLog += d; });
 
   let browser;
+  let page;
   const enemy = new NetClient("enemy");
-  const report = {};
+  const report = { script: "verify-live-turrets.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], snapshots: [] };
 
   try {
     await waitForServer();
     browser = await launchChromium(chromium);
-    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
-    const pageErrors = [];
-    page.on("pageerror", (e) => pageErrors.push(e.message));
+    page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    const pageErrors = report.pageErrors;
+    page.on("pageerror", (e) => pageErrors.push({ at: Date.now(), message: e.message, stack: e.stack }));
+    page.on("console", (m) => report.console.push({ at: Date.now(), type: m.type(), text: m.text() }));
+    page.on("requestfailed", (r) => report.failedRequests.push({ at: Date.now(), url: r.url(), method: r.method(), failure: r.failure()?.errorText || "unknown" }));
+    page.on("websocket", (ws) => {
+      const entry = { at: Date.now(), url: ws.url(), errors: [], closed: false };
+      report.websocket.push(entry);
+      ws.on("socketerror", (err) => entry.errors.push({ at: Date.now(), message: err.message }));
+      ws.on("close", () => { entry.closed = true; entry.closedAt = Date.now(); });
+    });
 
     // 1. The Chromium client joins the room through the real UI/auto-join path
     //    (first joiner => room admin).
     await page.goto(`${BASE}/index.html?room=${ROOM}`, { waitUntil: "load" });
     await page.waitForFunction((room) => window.__mfaState?.room === room && window.__mfaState?.myId, ROOM, { timeout: 20000 });
     const browserPlayerId = await page.evaluate(() => window.__mfaState.myId);
+    report.browserPlayerId = browserPlayerId;
 
     // 2. Frontend/backend identification is present on the real hello message.
     const serverInfo = await page.evaluate(() => ({ ...(window.__mfaState.server || {}) }));
@@ -265,6 +275,7 @@ async function main() {
     enemy.send({ type: "join", room: ROOM, name: "EnemyBrick", team: "red" });
     await until(() => enemy.latest.joined, 10000, "enemy joined room");
     const enemyPlayerId = enemy.latest.joined.id;
+    report.enemyPlayerId = enemyPlayerId;
 
     // Make sure the two players are on opposing teams.
     enemy.send({ type: "setTeam", team: "red" });
@@ -291,6 +302,7 @@ async function main() {
     const enemyShip = await until(() => enemy.state()?.ships?.find((s) => s.ownerId === enemyPlayerId && s.alive), 10000, "enemy ship spawn");
     const shooterId = shooterShip.id;
     const enemyId = enemyShip.id;
+    report.shipIds = { shooterId, enemyId };
 
     await check("shooter design + authoritative angle field arrive over the wire", () => {
       const ship = enemy.ship(shooterId);
@@ -470,27 +482,53 @@ async function main() {
     });
 
     await check("no uncaught page errors during the live match", () => {
-      assert.strictEqual(pageErrors.length, 0, `page errors:\n${pageErrors.join("\n")}`);
+      assert.strictEqual(pageErrors.length, 0, `page errors:\n${pageErrors.map((e) => e.message || e).join("\n")}`);
+      const consoleErrors = report.console.filter((m) => m.type === "error");
+      assert.strictEqual(consoleErrors.length, 0, `console errors:\n${consoleErrors.map((e) => e.text).join("\n")}`);
+      assert.strictEqual(report.failedRequests.length, 0, `failed requests:\n${report.failedRequests.map((e) => `${e.method} ${e.url}: ${e.failure}`).join("\n")}`);
     });
 
     await browser.close();
   } catch (err) {
+    report.error = { message: err.message, stack: err.stack };
+    report.serverLogTail = serverLog.split("\n").slice(-80).join("\n");
+    report.snapshots = enemy.snapshots.slice(-5).map(({ at, state }) => ({
+      at,
+      phase: state.phase,
+      ships: state.ships?.map((ship) => ({
+        id: ship.id,
+        ownerId: ship.ownerId,
+        alive: ship.alive,
+        x: ship.x,
+        y: ship.y,
+        targetId: ship.targetId,
+        weaponAngles: ship.weaponAngles
+      }))
+    }));
+    fs.mkdirSync(SHOT_DIR, { recursive: true });
+    if (page) await page.screenshot({ path: path.join(SHOT_DIR, "failure.png"), fullPage: true }).catch(() => {});
+    writeJsonArtifact(path.join(SHOT_DIR, "diagnostics.json"), report);
+    fs.writeFileSync(path.join(SHOT_DIR, "server.log"), serverLog);
     console.error("live turret test aborted:", err.message);
-    console.error("server log tail:\n" + serverLog.split("\n").slice(-25).join("\n"));
+    console.error("diagnostics written to " + SHOT_DIR);
+    console.error("server log tail:\n" + report.serverLogTail);
     results.push([false, `aborted: ${err.message}`]);
   } finally {
     enemy.close();
+    if (page) await page.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
     server.kill("SIGKILL");
   }
 
   const fmt = (value) => (Number.isFinite(value) ? value.toFixed(4) : String(value));
-  console.log(`\nScreenshots written to ${SHOT_DIR}`);
+  console.log(`\nScreenshots and diagnostics written to ${SHOT_DIR}`);
   console.log("Live turret report:");
   console.log(`  first received angle : ${fmt(report.firstReceivedAngle)} rad`);
   console.log(`  changed target angle : ${fmt(report.changedTargetAngle)} rad (world bearing)`);
   console.log(`  final received angle : ${fmt(report.finalReceivedAngle)} rad (ship-relative)`);
   console.log(`  final rendered angle : ${fmt(report.finalRenderedAngle)} rad (sprite local)`);
+  console.log(`  room                 : ${ROOM}`);
+  console.log(`  port                 : ${PORT}`);
   console.log(`  backend build SHA    : ${report.backendBuild}`);
   console.log(`  frontend build SHA   : ${report.frontendBuild}`);
 

@@ -210,3 +210,16 @@ The duplicate protocol wrapper commands `test:purchases-protocol` and `test:move
 - Protocol/integration: `verify-heat-protocol.js` runs in `npm run test:protocol` against real `server.js`, WebSockets and MessagePack.
 - Browser: `verify-heat-browser.js` runs in `npm run test:browser` against the production frontend in Playwright Chromium; missing Chromium is a hard failure.
 - Soak: `verify-heat-soak.js` runs in `npm run test:soak` with dedicated thermal assertions rather than aliasing the generic soak.
+
+## Browser verifier repair notes (Section 8 follow-up)
+
+The Section 8 browser job failure was isolated to the required Playwright group (`npm run test:browser`), which runs `verify-live-turrets.js` followed by `verify-heat-browser.js` after a production build. Static, unit, integration, protocol, smoke, and soak checks had already passed, and the CI browser-install step completed, so the repair stayed focused on browser verifier determinism and diagnostics rather than networking or gameplay redesign.
+
+Root cause: the browser verifiers still had brittle shared-state assumptions. `verify-live-turrets.js` used a fixed port (`5603`) and fixed room (`TRRTE2E`), while `verify-heat-browser.js` used a fixed port (`32188`) plus a terse one-line harness with fixed waits. Those choices made failures hard to diagnose and left the heat browser assertions exposed to stale client state immediately after heat changed. The heat verifier now waits for a full authoritative snapshot containing the selected ship, design, and component heat before opening the Heat tab, waits for the browser snapshot to contain the same heated ship before asserting UI text, and sends its movement command for the selected ship explicitly.
+
+Current required browser coverage:
+
+- `verify-live-turrets.js` starts a real Node server, opens the production frontend in Playwright Chromium, joins an opposing real WebSocket/MessagePack client, starts a real match, verifies rendered ships, movement to engagement positions, target acquisition, authoritative turret rotation, and projectile direction. It now uses a unique room and safely allocated per-process port by default and records room, port, player IDs, ship IDs, screenshots, server output, page errors, console errors, failed requests, WebSocket errors, and snapshot summaries on failure.
+- `verify-heat-browser.js` starts its own real Node server, opens the production frontend in Playwright Chromium, joins a real WebSocket/MessagePack bot, starts a real match, verifies authoritative heat data, Heat panel rendering, fractional heat percentages, component selection, and that Heat panel interaction does not issue an unintended battlefield movement command. It now uses a unique room and safely allocated per-process port by default and writes `failure.png`, `diagnostics.json`, and `server.log` under the browser artifact directory on failure.
+
+Chromium setup remains a hard requirement for CI. The browser job runs `npm ci`, then `npx --no-install playwright install --with-deps chromium` so the downloaded Chromium revision matches the Playwright package version from `package-lock.json`, then runs the real browser group. Failure artifacts are uploaded from `test-artifacts/` and `/tmp/mfa-*` only after a failed job step; artifact upload does not mask the browser command exit code.

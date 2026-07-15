@@ -223,3 +223,13 @@ Completed catch-up items: deterministic spawn planner module and dedicated tests
 ## Final focused correction before Section 8
 
 The fixed two-team/four-solo safe-zone layout has been replaced by generated zones derived from the deterministic spawn planner. The correction also removes the misleading purchase/movement protocol wrapper aliases that repeated the runtime smoke scenario. Deferred Sections 8-13 work is unchanged: Section 8 is heat, power and component health, and the broad final regression pass remains Section 13.
+
+## Focused browser-test repair before Section 9
+
+The latest Section 8 GitHub Actions verification narrowed the remaining failure to the required Playwright browser job: dependency installation, static checks, unit tests, integration tests, protocol tests, smoke checks, and soak checks were green, and Chromium installation had completed before the browser execution step failed. The browser group remains `verify-live-turrets.js` and `verify-heat-browser.js`; no protocol, snapshot, reconnect, backpressure, renderer, camera, HUD, or gameplay redesign was made for this repair.
+
+The underlying issue was browser verifier fragility rather than missing Chromium. Both verifiers now isolate their execution with unique room codes and safely allocated ports, and the Heat verifier no longer relies on a fixed post-command delay before reading the UI. Instead, it waits for authoritative heat-bearing snapshots from the real MessagePack stream and then waits for the production frontend's browser snapshot to contain the selected heated ship before asserting the Heat panel. Cleanup now closes bot sockets, pages, browsers, and child servers from `finally` paths.
+
+Diagnostics were expanded for future CI failures. The live turret verifier records room, port, browser/enemy player IDs, shooter/enemy ship IDs, page errors, console messages, failed requests, WebSocket errors, server logs, screenshots, and tail snapshot summaries. The Heat browser verifier records room, port, player IDs, ship IDs, selected ship ID, heat state, page errors, console messages, failed requests, WebSocket errors, server logs, screenshot, and tail snapshot summaries. Browser artifacts are collected by the GitHub Actions browser job from `test-artifacts/` and `/tmp/mfa-*` after failure.
+
+The required CI Chromium setup is `npx --no-install playwright install --with-deps chromium` after `npm ci`, ensuring that the browser revision is resolved from the repository-installed Playwright package instead of an ambient or mismatched global package. Browser failures remain hard failures; artifact upload is guarded with `if: failure()` and does not replace the browser command's exit status.
