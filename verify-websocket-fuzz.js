@@ -1,0 +1,5 @@
+const assert=require('assert'); const {WebSocketFrameParser}=require('./src/server/wsFrameParser');
+let seed=Number(process.argv[2]||123); function rnd(){seed=(seed*1664525+1013904223)>>>0; return seed/2**32}
+function frame(payload, opcode=2, fin=true, masked=true){const data=Buffer.from(payload);const h=Buffer.from([(fin?128:0)|opcode,(masked?128:0)|data.length]);const m=Buffer.from([7,8,9,10]);if(!masked)return Buffer.concat([Buffer.from([h[0],data.length]),data]);const p=Buffer.alloc(data.length);for(let i=0;i<data.length;i++)p[i]=data[i]^m[i%4];return Buffer.concat([h,m,p]);}
+for(let i=0;i<200;i++){const p=new WebSocketFrameParser({maxUnreadBytes:1024});const valid=rnd()>.25;const f=frame(Buffer.alloc(Math.floor(rnd()*20),i), valid?2:3, true, rnd()>.1);let events=[];for(let off=0;off<f.length;){const n=1+Math.floor(rnd()*5);events=events.concat(p.push(f.subarray(off,off+n)));off+=n;}assert(events.length>=0);assert(p.diagnostics().bufferedBytes<=1024)}
+console.log('websocket fuzz verification passed');
