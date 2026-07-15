@@ -102,6 +102,7 @@ const GROUPS = {
     "verify-live-turrets.js",
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",
+    "verify-browser-websocket-payloads.js",
     "verify-pixi-lifecycle.js",
     "verify-renderer-performance-browser.js",
     "verify-webgl-context-browser.js"
