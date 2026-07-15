@@ -102,7 +102,8 @@
     "test:websocket-fragmentation": "node verify-websocket-fragmentation.js",
     "test:websocket-lifecycle": "node verify-websocket-lifecycle.js",
     "test:websocket-fuzz": "node verify-websocket-fuzz.js",
-    "test:websocket-soak": "node verify-websocket-soak.js"
+    "test:websocket-soak": "node verify-websocket-soak.js",
+    "test:browser-websocket-payloads": "npm run build && node verify-browser-websocket-payloads.js"
   },
   "keywords": [
     "browser-game",

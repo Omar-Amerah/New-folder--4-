@@ -21,7 +21,7 @@ import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { mergeSnapshotTransaction } from "./snapshotMerge.js";
 import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterpolation.js";
-import { disableReconnect, send } from "./network.js";
+import { disableReconnect, send, recordNetworkEvent } from "./network.js";
 
 // Records the backend's protocol/build identification and reports skew. The
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
@@ -113,6 +113,7 @@ export function handleServerMessage(message) {
   if (message.type === "joined") {
     state.joiningLobby = false;
     state.myId = message.playerId || message.id;
+    recordNetworkEvent("joined", { playerId: state.myId });
     state.connectionId = message.connectionId || state.connectionId;
     state.attachmentId = message.attachmentId || null;
     state.room = message.room;
@@ -148,12 +149,14 @@ export function handleServerMessage(message) {
     const previousPhase = state.phase;
     const result = mergeSnapshotTransaction(state.snapshot, state.snapshotNetwork, message);
     if (!result.ok) {
+      recordNetworkEvent("snapshotRejected", { reason: result.reason });
       if (!["stale-epoch", "stale-sequence", "duplicate-sequence"].includes(result.reason)) {
         requestFullState(result.reason);
       }
       return;
     }
     state.snapshotNetwork = { ...result.networkState, resyncing: false, lastResyncRequestAt: state.snapshotNetwork?.lastResyncRequestAt || 0 };
+    recordNetworkEvent("acceptedSnapshot", { stateEpoch: state.snapshotNetwork.stateEpoch, snapshotSeq: state.snapshotNetwork.snapshotSeq, snapshotKind: message.snapshotKind || null });
     state.snapshotReceivedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     const accepted = result.snapshot;
     const oldShips = new Map((state.snapshot?.ships || []).map((s) => [s.id, s]));
@@ -219,6 +222,7 @@ function requestFullState(reason) {
 
   if (message.type === "notice") {
     if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
+    recordNetworkEvent("notice", { message: message.message });
     addNotice(message.message, "good");
     return;
   }
@@ -226,6 +230,7 @@ function requestFullState(reason) {
   if (message.type === "error") {
     state.joiningLobby = false;
     if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
+    recordNetworkEvent("error", { code: message.code || null, message: message.message || "Server error", requestId: message.requestId || null, retryable: Boolean(message.retryable) });
     if (message.code === "credential-expired" || message.code === "credential-invalid") { clearResumeCredential(state.room || dom.roomCode?.value); disableReconnect(message.code); }
     if (["room-closed", "kicked", "incompatible-protocol"].includes(message.code)) { disableReconnect(message.code); forgetActiveRoom(); }
     if (!state.room || !dom.mainMenuScreen?.hidden) {
