@@ -62,7 +62,10 @@
     "test:soak": "node tools/run-tests.js soak",
     "test:thermal-topology": "node verify-thermal-topology.js",
     "test:heat-transfer": "node verify-heat-transfer.js",
-    "test:heat-cooling": "node verify-heat-cooling.js"
+    "test:heat-cooling": "node verify-heat-cooling.js",
+    "test:power": "node verify-power.js",
+    "test:component-health": "node verify-component-health.js",
+    "test:meltdown": "node verify-meltdown.js"
   },
   "keywords": [
     "browser-game",

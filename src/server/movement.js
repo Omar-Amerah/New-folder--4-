@@ -536,15 +536,25 @@ function applyPosition(room, ship, dt) {
 
 function regenerateShield(ship, stats, dt) {
   if (ship.maxShield > 0) {
+    const missingShield = Math.max(0, ship.maxShield - ship.shield);
     let recharge = 0;
+    const heatEntries = [];
     for (let i = 0; i < (ship.design || []).length; i += 1) {
       const part = PARTS[ship.design[i].type];
       if (!part?.shieldRegen || (ship.componentHp?.[i] ?? 1) <= 0) continue;
       const local = componentPerformance(ship, i);
-      recharge += part.shieldRegen * local;
-      if (ship.shield < ship.maxShield && local > 0) addComponentHeat(ship, i, part.shieldRegen * 0.7 * dt);
+      const contribution = part.shieldRegen * local;
+      recharge += contribution;
+      if (contribution > 0) heatEntries.push({ index: i, contribution, baseRegen: part.shieldRegen });
     }
-    ship.shield = Math.min(ship.maxShield, ship.shield + recharge * (ship.thermalPowerFactor ?? 1) * dt);
+    const actualRecharge = Math.min(missingShield, recharge * (ship.thermalPowerFactor ?? 1) * dt);
+    if (actualRecharge > 0 && recharge > 0) {
+      for (const entry of heatEntries) {
+        const componentActual = actualRecharge * (entry.contribution / recharge);
+        addComponentHeat(ship, entry.index, componentActual * 0.7);
+      }
+    }
+    ship.shield = Math.min(ship.maxShield, ship.shield + actualRecharge);
   }
 }
 
