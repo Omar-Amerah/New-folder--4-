@@ -12,7 +12,7 @@
     "test:protocol": "node tools/run-tests.js protocol",
     "test:smoke": "node tools/run-tests.js smoke",
     "test:browser": "npm run build && node tools/run-tests.js browser",
-    "test:all": "npm run check && node tools/run-tests.js all",
+    "test:all": "npm run check && node tools/run-tests.js all && npm run test:snapshot-contract && npm run test:snapshot-resync && npm run test:network-backpressure && npm run test:network-soak",
     "verify": "npm run test:all",
     "test:canvas-removal": "node verify-canvas-removal.js",
     "test:pixi-lifecycle": "node verify-pixi-lifecycle.js",
@@ -73,7 +73,11 @@
     "test:protocol-schema": "node verify-protocol-schema.js",
     "test:network-connections": "node verify-network-connections.js",
     "test:network-protocol": "node verify-network-protocol.js",
-    "test:network-browser": "npm run build && node verify-network-browser.js"
+    "test:network-browser": "npm run build && node verify-network-browser.js",
+    "test:snapshot-contract": "node verify-snapshot-contract.js",
+    "test:snapshot-resync": "node verify-snapshot-resync.js",
+    "test:network-backpressure": "node verify-network-backpressure.js",
+    "test:network-soak": "node tools/run-tests.js soak"
   },
   "keywords": [
     "browser-game",

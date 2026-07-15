@@ -20,7 +20,8 @@ function createClient(socket) {
     player: null,
     joinedAt: Date.now(),
     lastMessageAt: Date.now(),
-    isClosed: false
+    isClosed: false,
+    snapshotBaseline: { stateEpoch: 0, lastSentSeq: 0, lastFullSeq: 0, fullRequired: true, staticRevisionKnown: 0, queuedSnapshotKind: null, backpressure: "healthy" }
   };
 
   sockets.add(client);
@@ -170,7 +171,7 @@ function writeFrame(socket, payload, opcode = 0x1) {
     header.writeUInt32BE(length, 6);
   }
 
-  socket.write(Buffer.concat([header, payload]));
+  return socket.write(Buffer.concat([header, payload]));
 }
 
 function closeClient(client, code, reason) {

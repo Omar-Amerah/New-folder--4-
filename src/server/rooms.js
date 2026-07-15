@@ -64,8 +64,40 @@ function createRoom(code) {
       requiredSeconds: 20
     },
     rules: { ...DEFAULT_ROOM_RULES },
-    playerColors: new Map()
+    playerColors: new Map(),
+    stateEpoch: 1,
+    snapshotSeq: 0,
+    staticRevision: 1,
+    componentCatalogueRevision: 1
   };
+}
+
+function bumpStateEpoch(room, reason = "state-reset") {
+  room.stateEpoch = Math.max(1, Number(room.stateEpoch) || 1) + 1;
+  room.snapshotSeq = 0;
+  room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;
+  room.lastEpochReason = reason;
+  for (const ship of room.ships?.values?.() || []) {
+    ship.designSent = false;
+    ship.dirtyComponents?.clear?.();
+    ship.dirtyHeat?.clear?.();
+  }
+  for (const client of room.clients || []) {
+    if (client.snapshotBaseline) {
+      client.snapshotBaseline.fullRequired = true;
+      client.snapshotBaseline.stateEpoch = room.stateEpoch;
+      client.snapshotBaseline.lastSentSeq = 0;
+      client.snapshotBaseline.lastFullSeq = 0;
+    }
+  }
+}
+
+function touchStaticRevision(room, reason = "static-change") {
+  room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;
+  room.lastStaticReason = reason;
+  for (const client of room.clients || []) {
+    if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
+  }
 }
 
 function setRoomRules(room, requester, updates) {
@@ -82,6 +114,7 @@ function setRoomRules(room, requester, updates) {
   }
 
   room.rules = sanitizeRoomRules({ ...room.rules, ...updates }, room.players.size);
+  bumpStateEpoch(room, "rule-regeneration");
   applyGameModeTeams(room);
   invalidateSpawnPlan(room);
   const world = chooseRoomWorld(room);
@@ -438,6 +471,7 @@ function circlesClear(circle, others, buffer) {
 }
 
 function prepareArenaForCurrentPlayers(room) {
+  bumpStateEpoch(room, "arena-preparation");
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
@@ -506,6 +540,7 @@ function pruneClosedRoomCodes(now) {
 }
 
 function resetMatch(room, now) {
+  bumpStateEpoch(room, "new-match");
   const { resetRoundPlayerStats, resetPlayerForMatch } = require("./players");
   const { broadcastRoom } = require("./messages");
 
@@ -530,6 +565,8 @@ module.exports = {
   rooms,
   closedRoomCodes,
   createRoom,
+  bumpStateEpoch,
+  touchStaticRevision,
   setRoomRules,
   sanitizeRoomRules,
   sanitizeMapSize,

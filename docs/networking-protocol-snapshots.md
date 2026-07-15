@@ -57,3 +57,17 @@ No module should both parse frames and mutate gameplay state; no gameplay module
 
 ## Reserved for Section 9B snapshot delivery
 Section 9B will define snapshot epochs, sequence numbers, baselines, resync requests, snapshot backpressure, sequence-gap browser scenarios and network-performance metrics. Those are intentionally not implemented here.
+
+## Section 9B snapshot recovery contract
+
+Rooms now carry a monotonic `stateEpoch` and per-epoch `snapshotSeq`. Every state packet is explicit: `snapshotKind` is `full` or `compact`, compact packets declare `baseSnapshotSeq`, and snapshots include `staticRevision`, `staticRevisions`, `simulationTimeMs`, `serverTimeMs`, and `createdAtMs`. A full snapshot is the only baseline-establishing packet and contains the authorized room, phase, rules, world/map/safe zones, players, ships and designs, component HP/heat arrays, weapon angles, objectives, bullets, effects, winner/control-victory state, and protocol identifiers. Compact snapshots may omit static room fields but must extend the immediately accepted sequence and may be rejected atomically.
+
+Epochs increment when arena or match state is regenerated, when rules regenerate map/static state, and before entity identifiers are reused. Clients ignore stale epochs, require a full snapshot for newer epochs, and clear old component/entity caches by accepting the full snapshot as a replacement baseline.
+
+Component HP deltas remain flat `[index, hp]` pairs and heat deltas remain `[index, heat, state, ratio, capacity]`. Delta indexes must be sorted, unique, finite, in range, and exact stride; malformed deltas reject the entire compact snapshot and trigger `requestFullState` with a structured reason.
+
+Clients process snapshots through a pure transaction (`inspectSnapshotEnvelope`, `mergeFullSnapshot`, `mergeCompactSnapshot`) so stale sequence, duplicate sequence, gaps, wrong bases, static revision mismatch, malformed deltas, and incompatible snapshots cannot partially mutate UI state. UI updates run only after acceptance.
+
+Clients may send `requestFullState` with their observed epoch/sequence and a reason. The server rate-limits the request, ignores client values as authority, and sends one viewer-filtered full snapshot only to the requester. This is not a reconnect and does not alter gameplay state.
+
+Each connection tracks its own baseline: epoch, last sent sequence, last full sequence, full-required flag, known static revision, queued snapshot kind, and outbound backpressure counters. Full snapshots are preserved, compact snapshots may coalesce, and slow clients are bounded independently from healthy clients. Encoded payload reuse is keyed by privacy class, epoch, kind, baseline, and static revision.

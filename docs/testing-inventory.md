@@ -230,3 +230,10 @@ Chromium setup remains a hard requirement for CI. The browser job runs `npm ci`,
 - `npm run test:network-connections` covers protocol compatibility decisions.
 - `npm run test:network-protocol` covers real MessagePack encode/decode policy.
 - `npm run test:network-browser` statically verifies production client stale-socket generation and no JSON send fallback.
+
+## Section 9B snapshot tests
+
+- `npm run test:snapshot-contract` exercises pure full/compact merge contracts, epoch/sequence rejection, static-revision mismatch, malformed deltas, removed/new ships, replacement entity IDs, privacy-compatible immutable state, and duplicate/stale/gap handling.
+- `npm run test:snapshot-resync` covers client rejection reasons that request a full state.
+- `npm run test:network-backpressure` covers deterministic transport write backpressure framing behavior.
+- `npm run test:network-soak` maps to the existing soak runner for sustained network/gameplay coverage.

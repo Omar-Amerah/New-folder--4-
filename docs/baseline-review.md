@@ -236,3 +236,7 @@ The required CI Chromium setup is `npx --no-install playwright install --with-de
 
 ## Section 9A networking baseline closure
 The previous baseline risk around hand-rolled WebSocket framing is reduced by explicit parser rejection rules and raw-frame verification. Protocol skew is now negotiated in `join` with version 4 and stable error codes. Snapshot sequence, baseline and resync risks remain deferred to Section 9B.
+
+## Section 9B baseline review
+
+Per-client snapshot baselines replaced room-global static assumptions for outbound selection. A connection that joins, reconnects, changes epoch, observes a static revision mismatch, or requests resync is marked full-required. Payload sharing is only allowed across matching privacy/team class, epoch, snapshot kind, compact base sequence, and static revision. Resume credentials, request caches, pending purchases, enemy economy, and tokens are not snapshot fields.

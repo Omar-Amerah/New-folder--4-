@@ -107,3 +107,13 @@ State messages may include `componentHeat` full tuples as `[heat, state, ratio, 
 Protocol version 4 makes compatibility negotiation explicit. `join` must include `protocolVersion`, `minProtocolVersion`, `maxProtocolVersion`, `frontendBuildSha` and `capabilities`; the server requires `messagepack` and accepts only compatible range 4..4. Stable error codes include `incompatible-protocol`, `missing-capability`, `invalid-payload`, `invalid-type`, `unknown-type`, `invalid-request`, `invalid-room`, `invalid-design`, `invalid-ship-ids`, `join-required`, `stale-attachment`, `bad-message`, `message-too-large` and `protocol-error`.
 
 The accepted client-message registry is `src/server/clientSchemas.js`: ping, join, deploy, buyShip, setCombatStyle, setRallyPoint, resetRallyPoint, command, destruct, setTeam, addBot, setRules, setName, startDesign, kick, restart, returnToLobby, restartLobby, closeLobby and leaveLobby. Unknown fields are ignored only after generic bounds validation; domain handlers remain authoritative for permission and phase checks.
+
+### requestFullState
+
+Client-to-server recovery message validated by the normal schema path:
+
+```json
+{ "type": "requestFullState", "stateEpoch": 3, "lastSnapshotSeq": 42, "reason": "sequence-gap" }
+```
+
+Allowed reasons include `missing-baseline`, `sequence-gap`, `epoch-change`, `malformed-delta`, and `static-revision-mismatch`. The server treats the numeric fields as diagnostics only and replies with a requester-only full `state` snapshot using normal viewer privacy filtering.

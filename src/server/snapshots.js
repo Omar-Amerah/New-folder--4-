@@ -34,6 +34,7 @@ function buildSharedSnapshot(room, now, sendStatic) {
     const entry = {
       id: ship.id,
       ownerId: ship.ownerId,
+      designRevision: ship.designRevision || 1,
       x: round(ship.x),
       y: round(ship.y),
       vx: round(ship.vx),
@@ -85,14 +86,14 @@ function buildSharedSnapshot(room, now, sendStatic) {
       // Otherwise only ship the components whose hp changed since the last
       // broadcast, as a flat [index, hp, index, hp, ...] delta.
       const delta = [];
-      for (const index of ship.dirtyComponents) {
+      for (const index of [...ship.dirtyComponents].sort((a, b) => a - b)) {
         delta.push(index, Math.round(ship.componentHp[index] * 10) / 10);
       }
       entry.chpD = delta;
     }
     if (!sendStatic && ship.dirtyHeat?.size) {
       entry.componentHeatD = [];
-      for (const index of ship.dirtyHeat) {
+      for (const index of [...ship.dirtyHeat].sort((a, b) => a - b)) {
         const tuple = buildComponentHeatTuple(ship, index);
         entry.componentHeatD.push(
           index,
@@ -214,6 +215,15 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     // its own protocol support to detect a stale separately-deployed backend.
     protocolVersion: PROTOCOL_VERSION,
     serverBuildSha: SERVER_BUILD_SHA,
+    stateEpoch: room.stateEpoch || 1,
+    snapshotSeq: room._buildingSnapshotSeq || room.snapshotSeq || 0,
+    snapshotKind: sendStatic ? "full" : "compact",
+    baseSnapshotSeq: sendStatic ? null : Math.max(0, (room._buildingSnapshotSeq || room.snapshotSeq || 1) - 1),
+    staticRevision: room.staticRevision || 1,
+    staticRevisions: { world: room.staticRevision || 1, map: room.staticRevision || 1, rules: room.staticRevision || 1, playerDesign: room.staticRevision || 1, shipDesign: room.staticRevision || 1, componentCatalogue: room.componentCatalogueRevision || 1 },
+    simulationTimeMs: Math.floor(now),
+    serverTimeMs: Date.now(),
+    createdAtMs: Date.now(),
     phase: room.phase,
     adminId: room.adminId,
     mapSizeLabel: sendStatic ? room.mapSizeLabel : undefined,
