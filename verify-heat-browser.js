@@ -168,11 +168,11 @@ async function until(fn, what, timeoutMs = 15000) {
   let myId;
   const { mergeSnapshotTransaction } = await import("./public/src/snapshotMerge.js");
   const bot = new Client(mergeSnapshotTransaction);
-  const diagnostics = { script: "verify-heat-browser.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], phases: [], snapshots: [] };
+  const diagnostics = { script: "verify-heat-browser.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], commandFramesSent: 0, phases: [], snapshots: [] };
   try {
     await waitForServer(BASE);
     browser = await launchChromium(chromium);
-    page = await browser.newPage({ viewport: { width: 900, height: 700 }, hasTouch: true });
+    page = await browser.newPage({ viewport: { width: Number(process.env.TEST_VIEWPORT_WIDTH || 900), height: Number(process.env.TEST_VIEWPORT_HEIGHT || 700) }, hasTouch: true });
     page.on("pageerror", (e) => diagnostics.pageErrors.push({ at: Date.now(), message: e.message, stack: e.stack }));
     page.on("console", (m) => diagnostics.console.push({ at: Date.now(), type: m.type(), text: m.text() }));
     page.on("requestfailed", (r) => diagnostics.failedRequests.push({ at: Date.now(), url: r.url(), method: r.method(), failure: r.failure()?.errorText || "unknown" }));
@@ -180,6 +180,12 @@ async function until(fn, what, timeoutMs = 15000) {
       const entry = { at: Date.now(), url: ws.url(), errors: [], closed: false };
       diagnostics.websocket.push(entry);
       ws.on("socketerror", (err) => entry.errors.push({ at: Date.now(), message: err.message }));
+      ws.on("framesent", (frame) => {
+        try {
+          const payload = frame.payload instanceof Buffer ? msgpack.decode(frame.payload) : JSON.parse(String(frame.payload));
+          if (payload?.type === "command") diagnostics.commandFramesSent += 1;
+        } catch {}
+      });
       ws.on("close", () => { entry.closed = true; entry.closedAt = Date.now(); });
     });
 
@@ -230,13 +236,80 @@ async function until(fn, what, timeoutMs = 15000) {
 
     const summary = await page.locator("#shipHeatSummary").textContent();
     assert(/\d/.test(summary || ""), "whole-ship heat values render");
-    const canvas = page.locator("#shipDamageCanvas");
-    const box = await canvas.boundingBox();
-    assert(box, "heat canvas visible");
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await until(() => page.locator("#shipDamageHover").textContent().then((t) => /H|Cool|Warm|Hot/.test(t || "")), "component heat readout");
-    assert.strictEqual(await page.evaluate(() => globalThis.__mfaLastMoveFromHeatPanel || false), false, "panel did not set movement sentinel");
-    await page.touchscreen.tap(box.x + box.width / 2 + 12, box.y + box.height / 2);
+
+    const initialReadout = await page.locator("#shipDamageHover").textContent();
+    assert(/Tap or hover a component/i.test(initialReadout || ""), `initial component readout placeholder missing: ${initialReadout}`);
+
+    const layoutAtCenter = await page.evaluate(async (id) => {
+      const canvas = document.querySelector("#shipDamageCanvas");
+      const box = canvas?.getBoundingClientRect();
+      const x = box ? box.left + box.width / 2 : null;
+      const y = box ? box.top + box.height / 2 : null;
+      const mod = await import("/src/ui/shipDamagePanelUi.js");
+      const hit = x == null ? null : document.elementFromPoint(x, y);
+      const rectOf = (selector) => {
+        const el = document.querySelector(selector);
+        const r = el?.getBoundingClientRect();
+        return r ? { x: r.left, y: r.top, width: r.width, height: r.height, bottom: r.bottom, right: r.right } : null;
+      };
+      const score = document.querySelector(".score-panel");
+      return {
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        scorePanel: { rect: rectOf(".score-panel"), scrollTop: score?.scrollTop ?? null, clientHeight: score?.clientHeight ?? null, scrollHeight: score?.scrollHeight ?? null },
+        shipStatusPanel: rectOf("#shipDamagePanel"),
+        canvas: rectOf("#shipDamageCanvas"),
+        heatReadout: rectOf("#shipDamageHover"),
+        purchaseBar: rectOf("#purchaseBar"),
+        intendedClick: { x, y },
+        elementFromPoint: hit ? { tag: hit.tagName, id: hit.id || null, className: String(hit.className || "") } : null,
+        isCanvas: hit === canvas,
+        diagram: x == null ? null : mod.shipDamageDiagramDiagnostics(id, x, y)
+      };
+    }, ship.id);
+    diagnostics.previousCenterClick = layoutAtCenter;
+
+    await page.locator("#shipDamageCanvas").scrollIntoViewIfNeeded();
+    await page.locator("#shipDamageHover").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(250);
+
+    const componentTarget = await until(async () => page.evaluate(async (id) => {
+      const ship = window.__mfaState?.snapshot?.ships?.find((s) => s.id === id);
+      const mod = await import("/src/ui/shipDamagePanelUi.js");
+      const candidates = [ship?.design?.findIndex((part) => part.type === "core") ?? -1]
+        .concat((ship?.componentHeat || []).map((entry, index) => ({ entry, index }))
+          .filter(({ entry }) => Array.isArray(entry) && entry.some((v) => Number.isFinite(Number(v))))
+          .map(({ index }) => index));
+      for (const index of candidates) {
+        if (!Number.isInteger(index) || index < 0) continue;
+        const point = mod.shipDamageComponentClientPoint(id, index);
+        if (!point) continue;
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.id === "shipDamageCanvas") {
+          return { ...point, elementFromPoint: { tag: hit.tagName, id: hit.id, className: String(hit.className || "") }, diagnostics: mod.shipDamageDiagramDiagnostics(id, point.x, point.y) };
+        }
+      }
+      return null;
+    }, ship.id), "unobstructed component heat target");
+    diagnostics.componentTarget = componentTarget;
+    assert.strictEqual(componentTarget.elementFromPoint.id, "shipDamageCanvas", `component point obstructed: ${JSON.stringify(componentTarget)}`);
+    assert.strictEqual(componentTarget.diagnostics.mappedIndex, componentTarget.componentIndex, `component point maps to wrong index: ${JSON.stringify(componentTarget)}`);
+
+    const beforeCommands = diagnostics.commandFramesSent;
+    await page.mouse.move(componentTarget.x, componentTarget.y);
+    await page.mouse.click(componentTarget.x, componentTarget.y);
+    const afterMouseCommands = diagnostics.commandFramesSent;
+    const afterMouseReadout = await until(() => page.locator("#shipDamageHover").textContent().then((t) => t && t !== initialReadout ? t : null), "component heat readout after mouse click");
+    assert(componentTarget.componentName && afterMouseReadout.includes(componentTarget.componentName), `readout lacks selected component identity (${componentTarget.componentName}): ${afterMouseReadout}`);
+    assert(/\d+(?:\.\d+)?(?:\s*\/\s*\d+(?:\.\d+)?)?\s*H/.test(afterMouseReadout), `readout lacks finite heat amount/capacity: ${afterMouseReadout}`);
+    assert(/Cool|Warm|Hot|Critical|Overheated/.test(afterMouseReadout), `readout lacks thermal state: ${afterMouseReadout}`);
+
+    await page.touchscreen.tap(componentTarget.x, componentTarget.y);
+    const afterTouchCommands = diagnostics.commandFramesSent;
+    const afterTouchReadout = await page.locator("#shipDamageHover").textContent();
+    assert(/\d+(?:\.\d+)?(?:\s*\/\s*\d+(?:\.\d+)?)?\s*H/.test(afterTouchReadout || "") && /Cool|Warm|Hot|Critical|Overheated/.test(afterTouchReadout || ""), `touch readout invalid: ${afterTouchReadout}`);
+    diagnostics.movementCommands = { beforeCommands, afterMouseCommands, afterTouchCommands };
+    assert.strictEqual(afterMouseCommands, beforeCommands, "mouse heat panel click issued movement command");
+    assert.strictEqual(afterTouchCommands, beforeCommands, "touch heat panel tap issued movement command");
     const frac = await page.evaluate(async () => { const m = await import("/src/shared/heatDisplay.js"); return m.formatHeatPercent(m.shipHeatPercent({ heatNow: 3.5, heatMax: 1100 })); });
     assert.strictEqual(frac, "0.3%", "fractional percentage displays");
     await page.evaluate(() => { window.__mfaState.selectedShipIds = new Set(); window.__mfaState.selectedShipId = null; });
