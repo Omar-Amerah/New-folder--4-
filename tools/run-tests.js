@@ -34,8 +34,14 @@ const GROUPS = {
     "verify-targeting.js",
     "verify-turrets.js",
     "verify-heat.js",
+    "verify-thermal-topology.js",
+    "verify-heat-transfer.js",
+    "verify-heat-cooling.js",
     "verify-heat-thermo.js",
     "verify-heat-effects.js",
+    "verify-power.js",
+    "verify-component-health.js",
+    "verify-meltdown.js",
     "verify-core-reactor.js",
     "verify-combat-review.js",
     "verify-combat-determinism.js",
@@ -55,7 +61,8 @@ const GROUPS = {
   // Real server.js process + real WebSockets + MessagePack snapshots.
   // Also the baseline lobby-to-active-match smoke flow.
   protocol: [
-    "verify-runtime.js"
+    "verify-runtime.js",
+    "verify-heat-protocol.js"
   ],
   // Production-path smoke: real server process and HTTP asset checks only.
   smoke: [
@@ -64,12 +71,14 @@ const GROUPS = {
   // Required browser gameplay: real server, real production frontend, real
   // Chromium, real browser input, WebSockets and MessagePack snapshots.
   browser: [
-    "verify-live-turrets.js"
+    "verify-live-turrets.js",
+    "verify-heat-browser.js"
   ],
   // Sustained high-entity deterministic server simulation with bounded-state
   // and performance measurements.
   soak: [
-    "verify-soak.js"
+    "verify-soak.js",
+    "verify-heat-soak.js"
   ]
 };
 GROUPS.all = [...GROUPS.unit, ...GROUPS.integration, ...GROUPS.protocol, ...GROUPS.smoke, ...GROUPS.browser, ...GROUPS.soak];

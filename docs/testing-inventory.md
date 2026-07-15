@@ -203,3 +203,10 @@ The duplicate protocol wrapper commands `test:purchases-protocol` and `test:move
 - `npm run test:heat-protocol` — real server snapshot builders plus MessagePack round trip, component heat delta merge, reconnect/reset and deterministic meltdown assertions.
 - `npm run test:heat-browser` — focused live Heat panel assertions for fractional percentages, component selection, mobile taps and stale-readout prevention.
 - `npm run test:heat-soak` — deterministic high-entity soak covering mixed thermal gameplay with bounded state and performance telemetry.
+
+## Section 8D required heat test taxonomy
+
+- Unit/runtime: `verify-thermal-topology.js`, `verify-heat-transfer.js`, `verify-heat-cooling.js`, `verify-heat-effects.js`, `verify-power.js`, `verify-component-health.js`, `verify-meltdown.js` run in `npm run test:unit` and therefore `npm run test:all`.
+- Protocol/integration: `verify-heat-protocol.js` runs in `npm run test:protocol` against real `server.js`, WebSockets and MessagePack.
+- Browser: `verify-heat-browser.js` runs in `npm run test:browser` against the production frontend in Playwright Chromium; missing Chromium is a hard failure.
+- Soak: `verify-heat-soak.js` runs in `npm run test:soak` with dedicated thermal assertions rather than aliasing the generic soak.

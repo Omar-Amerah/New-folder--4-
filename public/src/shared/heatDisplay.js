@@ -39,14 +39,31 @@ const CONSISTENCY_WARN_INTERVAL_MS = 5000;
 export function checkShipHeatConsistency(ship, warn = true) {
   const tuples = Array.isArray(ship?.componentHeat) ? ship.componentHeat : [];
   const componentCount = tuples.length;
+  const hp = Array.isArray(ship?.chp) ? ship.chp : Array.isArray(ship?.componentHp) ? ship.componentHp : null;
+  if (!hp && componentCount > 0) {
+    return {
+      ok: true,
+      insufficientData: true,
+      shipId: ship?.id,
+      summaryTotal: Math.max(0, Number(ship?.heatNow) || 0),
+      componentTotal: null,
+      tolerance: null,
+      difference: null,
+      componentCount
+    };
+  }
   const summaryTotal = Math.max(0, Number(ship?.heatNow) || 0);
   let componentTotal = 0;
-  for (const tuple of tuples) {
+  let includedCount = 0;
+  for (let i = 0; i < tuples.length; i += 1) {
+    if (hp && !(Number(hp[i]) > 0)) continue;
+    const tuple = tuples[i];
     componentTotal += Math.max(0, Number(tuple?.[COMPONENT_HEAT_VALUE]) || 0);
+    includedCount += 1;
   }
   // Each component heat value is rounded to the nearest integer for network
   // transmission, so allow up to ~0.55 H of drift per component.
-  const tolerance = Math.max(1, componentCount * 0.55);
+  const tolerance = Math.max(1, includedCount * 0.55);
   const difference = Math.abs(componentTotal - summaryTotal);
   const ok = componentCount === 0 || difference <= tolerance;
   if (!ok && warn) {
@@ -60,5 +77,5 @@ export function checkShipHeatConsistency(ship, warn = true) {
       );
     }
   }
-  return { ok, shipId: ship?.id, summaryTotal, componentTotal, tolerance, difference, componentCount };
+  return { ok, insufficientData: false, shipId: ship?.id, summaryTotal, componentTotal, tolerance, difference, componentCount, includedCount };
 }
