@@ -8,14 +8,55 @@ const { updateCapturePoints, updateScoring, getTeamWithFullControl, getPlayerWit
 
 function assertMap(seed, world, mode, density) {
   const input = { seed, world: world.label, mode, density };
-  const first = generateMap("TEST", world, mode, density, { seed });
-  const second = generateMap("TEST", world, mode, density, { seed });
+  let first;
+  let second;
+  try {
+    first = generateMap("TEST", world, mode, density, { seed });
+    second = generateMap("TEST", world, mode, density, { seed });
+  } catch (error) {
+    error.message = `map generation failed ${JSON.stringify(input)}: ${error.message}`;
+    throw error;
+  }
   assert.deepStrictEqual(first, second, `map generation is not deterministic ${JSON.stringify(input)}`);
   const validation = validateGeneratedMap(first, world, { seed });
   assert.strictEqual(validation.ok, true, `invalid map ${JSON.stringify(input)}: ${validation.errors.join("; ")}`);
+  assertAsteroidClearance(first, input);
   assert.strictEqual(first.seed, seed >>> 0, `seed was not preserved ${JSON.stringify(input)}`);
   if (density === "none") assert.strictEqual(first.asteroids.length, 0, `none density created asteroids ${JSON.stringify(input)}`);
   return first;
+}
+
+function assertAsteroidClearance(map, input) {
+  for (let i = 0; i < map.asteroids.length; i += 1) {
+    const a = map.asteroids[i];
+    for (let j = i + 1; j < map.asteroids.length; j += 1) {
+      const b = map.asteroids[j];
+      assert.ok(
+        Math.hypot(a.x - b.x, a.y - b.y) >= a.radius + b.radius + 220,
+        `asteroid ${a.id} overlaps asteroid ${b.id} after rounding ${JSON.stringify(input)}`
+      );
+    }
+  }
+}
+
+function testDeterministicMapRegressionSeeds() {
+  const world = WORLD_SIZES.find((candidate) => candidate.label === "Duel");
+  for (const seed of [2204914662, 105750278]) {
+    assertMap(seed, world, "teams", "high");
+  }
+}
+
+function testDeterministicMapSeedSweep() {
+  const worlds = WORLD_SIZES.filter((world) => world.label === "Grand battle");
+  const modes = ["teams"];
+  const densities = Object.keys(ASTEROID_DENSITY).filter((density) => density !== "none");
+  const combinations = worlds.flatMap((world) => modes.flatMap((mode) => densities.map((density) => ({ world, mode, density }))));
+  const seedCount = 10000;
+  for (let index = 0; index < seedCount; index += 1) {
+    const { world, mode, density } = combinations[index % combinations.length];
+    const seed = index >>> 0;
+    assertMap(seed, world, mode, density);
+  }
 }
 
 function testMapInvariants() {
@@ -81,5 +122,7 @@ function testObjectives() {
 }
 
 testMapInvariants();
+testDeterministicMapRegressionSeeds();
+testDeterministicMapSeedSweep();
 testObjectives();
 console.log("Map generation and objective invariant checks passed");
