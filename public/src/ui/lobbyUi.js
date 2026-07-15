@@ -4,7 +4,7 @@ import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatE
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { send, getSocketUrl, getConfiguredServerUrl, connect } from "../network.js";
+import { send, getSocketUrl, getConfiguredServerUrl, connect, disableReconnect } from "../network.js";
 import { showToast } from "./toastUi.js";
 import { renderSavedDesigns } from "./savedBlueprintsUi.js";
 import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
@@ -285,9 +285,8 @@ export function createGame() {
   localStorage.setItem(LOCAL_TEAM_KEY, teamValue());
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
   state.joiningLobby = true;
-  connect(getSocketUrl(), () => {
-    send(withClientProtocol({ type: "join", name, room: "", team: teamValue() }));
-  });
+  const joinPayload = { type: "join", name, room: "", team: teamValue() };
+  connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
   updateLobbyState();
 }
 
@@ -310,9 +309,8 @@ export function joinRoom(roomCode = "") {
   localStorage.setItem(LOCAL_TEAM_KEY, teamValue());
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
   state.joiningLobby = true;
-  connect(getSocketUrl(), () => {
-    send(withClientProtocol({ type: "join", name, room: roomCode, team: teamValue(), resumeToken: getResumeCredential(roomCode) }));
-  });
+  const joinPayload = { type: "join", name, room: roomCode, team: teamValue(), resumeToken: getResumeCredential(roomCode) };
+  connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
   updateLobbyState();
 }
 
@@ -355,10 +353,12 @@ export function returnToLobby() {
 }
 
 export function closeLobby() {
+  disableReconnect("room-closed");
   send({ type: "closeLobby" });
 }
 
 export function leaveLobby() {
+  disableReconnect("explicit-leave");
   send({ type: "leaveLobby" });
 }
 

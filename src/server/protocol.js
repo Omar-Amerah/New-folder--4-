@@ -8,9 +8,11 @@ const REQUIRED_CAPABILITIES = Object.freeze(['messagepack']);
 const OPTIONAL_CAPABILITIES = Object.freeze(['resume-v1', 'heartbeat-v1']);
 
 const ERROR_CODES = Object.freeze({
-  BAD_MESSAGE: 'bad-message', MESSAGE_TOO_LARGE: 'message-too-large', PROTOCOL_ERROR: 'protocol-error',
+  BAD_MESSAGE: 'bad-message', INVALID_TYPE: 'invalid-type', UNKNOWN_TYPE: 'unknown-type', MESSAGE_TOO_LARGE: 'message-too-large', PROTOCOL_ERROR: 'protocol-error',
   INCOMPATIBLE_PROTOCOL: 'incompatible-protocol', MISSING_CAPABILITY: 'missing-capability', JOIN_REQUIRED: 'join-required',
-  STALE_ATTACHMENT: 'stale-attachment', RATE_LIMITED: 'rate-limited', INVALID_REQUEST: 'invalid-request', INVALID_PAYLOAD: 'invalid-payload'
+  STALE_ATTACHMENT: 'stale-attachment', CREDENTIAL_INVALID: 'credential-invalid', CREDENTIAL_EXPIRED: 'credential-expired', ROOM_CLOSED: 'room-closed', KICKED: 'kicked',
+  RATE_LIMITED: 'rate-limited', INVALID_REQUEST: 'invalid-request', INVALID_PAYLOAD: 'invalid-payload', WRONG_PHASE: 'wrong-phase', ADMIN_REQUIRED: 'admin-required', PLAYER_NOT_FOUND: 'player-not-found', ROOM_FULL: 'room-full', DUPLICATE_NAME: 'duplicate-name', INVALID_TEAM: 'invalid-team', INVALID_RULES: 'invalid-rules',
+  INVALID_DESIGN: 'invalid-design', INSUFFICIENT_FUNDS: 'insufficient-funds', FLEET_CAP: 'fleet-cap', DUPLICATE_REQUEST_CONFLICT: 'duplicate-request-conflict', SPAWN_FAILED: 'spawn-failed', INVALID_SELECTION: 'invalid-selection', INVALID_COMMAND: 'invalid-command', INVALID_TARGET: 'invalid-target', INVALID_RALLY: 'invalid-rally', INVALID_COMBAT_STYLE: 'invalid-combat-style', RESYNC_RATE_LIMITED: 'resync-rate-limited', INVALID_RESYNC_REQUEST: 'invalid-resync-request', NO_CURRENT_ROOM: 'no-current-room'
 });
 
 function protocolInfo() {

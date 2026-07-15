@@ -21,7 +21,8 @@ function createClient(socket) {
     joinedAt: Date.now(),
     lastMessageAt: Date.now(),
     isClosed: false,
-    snapshotBaseline: { stateEpoch: 0, lastSentSeq: 0, lastFullSeq: 0, fullRequired: true, staticRevisionKnown: 0, queuedSnapshotKind: null, backpressure: "healthy" }
+    snapshotBaseline: { stateEpoch: 0, lastSentSeq: 0, lastFullSeq: 0, fullRequired: true, staticRevisionKnown: 0, queuedSnapshotKind: null, backpressure: "healthy" },
+    heartbeat: { lastInboundAt: Date.now(), lastPongAt: Date.now(), pingIntervalMs: 10000, pongTimeoutMs: 30000, maxSilentMs: 45000, pingTimer: null }
   };
 
   sockets.add(client);
@@ -30,6 +31,7 @@ function createClient(socket) {
   socket.on("data", (chunk) => handleSocketData(client, chunk));
   socket.on("close", () => finalizeClient(client));
   socket.on("error", () => finalizeClient(client));
+  startHeartbeat(client);
 
   const { send } = require("./messages");
   send(client, {
@@ -79,6 +81,7 @@ function handleSocketData(client, chunk) {
     if (frame.opcode === 0xA) continue;
 
     if (frame.opcode === 0x9) {
+      client.heartbeat.lastPongAt = Date.now();
       writeFrame(client.socket, frame.payload, 0xA);
       continue;
     }
@@ -90,6 +93,7 @@ function handleSocketData(client, chunk) {
       const { decodeBinary } = require("./wsCodec");
       const message = decodeBinary(frame.payload);
       client.lastMessageAt = Date.now();
+      client.heartbeat.lastInboundAt = client.lastMessageAt;
       handleMessage(client, message);
     } catch {
       send(client, { type: "error", code: "bad-message", message: "Bad MessagePack message" });
@@ -174,6 +178,18 @@ function writeFrame(socket, payload, opcode = 0x1) {
   return socket.write(Buffer.concat([header, payload]));
 }
 
+function startHeartbeat(client) {
+  const tick = () => {
+    if (client.isClosed) return;
+    const now = Date.now();
+    const hb = client.heartbeat;
+    if (now - Math.max(hb.lastInboundAt, hb.lastPongAt) > hb.maxSilentMs) { closeClient(client, 1001, 'heartbeat-timeout'); return; }
+    try { writeFrame(client.socket, Buffer.from(String(now)), 0x9); } catch { closeClient(client, 1011, 'heartbeat-failed'); return; }
+    hb.pingTimer = setTimeout(tick, hb.pingIntervalMs); hb.pingTimer.unref?.();
+  };
+  client.heartbeat.pingTimer = setTimeout(tick, client.heartbeat.pingIntervalMs); client.heartbeat.pingTimer.unref?.();
+}
+
 function closeClient(client, code, reason) {
   if (client.isClosed) return;
   finalizeClient(client);
@@ -194,6 +210,8 @@ function finalizeClient(client) {
   if (client.isClosed) return;
   client.isClosed = true;
   sockets.delete(client);
+  if (client.heartbeat?.pingTimer) clearTimeout(client.heartbeat.pingTimer);
+  try { require("./messages").resetOutbound(client); } catch {}
   leaveRoom(client);
 }
 
@@ -204,5 +222,6 @@ module.exports = {
   readFrame,
   writeFrame,
   closeClient,
-  finalizeClient
+  finalizeClient,
+  startHeartbeat
 };
