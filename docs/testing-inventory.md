@@ -197,3 +197,9 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 `npm run test:spawn-planner` now exercises the real deterministic spawn/safe-zone plan for 1, 2, 3, 4, 5, 8 and 12 solo players; 1v1, balanced, 7v1 and 10v2 teams; mixed humans and bots; large ships; large starter quantities; obstructed preferred positions; deterministic replay; rematch/layout cache invalidation; impossible-layout diagnostics; and direct combat safe-zone policy checks.
 
 The duplicate protocol wrapper commands `test:purchases-protocol` and `test:movement-protocol` were removed because they only required `verify-runtime.js` and did not provide dedicated purchase or movement protocol assertions. `npm run test:protocol` now truthfully runs the single real-network protocol smoke test, `verify-runtime.js`, once. Focused purchase and movement protocol scenarios remain deferred until genuine harness-backed tests are added; broader final regression belongs to Section 13, while Section 8 is heat, power and component health.
+
+## Section 8C focused heat commands
+
+- `npm run test:heat-protocol` — real server snapshot builders plus MessagePack round trip, component heat delta merge, reconnect/reset and deterministic meltdown assertions.
+- `npm run test:heat-browser` — focused live Heat panel assertions for fractional percentages, component selection, mobile taps and stale-readout prevention.
+- `npm run test:heat-soak` — deterministic high-entity soak covering mixed thermal gameplay with bounded state and performance telemetry.

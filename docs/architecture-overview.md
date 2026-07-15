@@ -237,3 +237,7 @@ Server spawning is planned by `src/server/spawnPlanner.js`. The planner sorts st
 ## Spawn/safe-zone plan ownership
 
 `spawnPlanner.js` owns the deterministic spawn-region plan. `rooms.js` applies that plan to `room.map.safeZones` when rules change, players or bots alter the layout, the arena is prepared, or a rematch resets the match. `ships.js` reads planned spawns from the same cache for human and bot fleets. `combat.js` checks the generated zones with explicit `team` or `ownerId` ownership, and `snapshots.js` publishes the same `room.map.safeZones` list to clients. This removes the previous split between planner spawns and fixed legacy safe-zone layouts.
+
+## Section 8C heat snapshots and parity
+
+Heat is authoritative on the server and component-index aligned with immutable ship designs. Runtime snapshots expose aggregate stored heat/capacity plus full or delta component heat tuples; clients merge those tuples without reusing removed-ship arrays. Designer heat output is labelled as prediction and shares rules with runtime where applicable. See [Heat, Power and Component Health](heat-power-component-health.md).

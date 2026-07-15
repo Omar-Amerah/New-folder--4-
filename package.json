@@ -65,7 +65,10 @@
     "test:heat-cooling": "node verify-heat-cooling.js",
     "test:power": "node verify-power.js",
     "test:component-health": "node verify-component-health.js",
-    "test:meltdown": "node verify-meltdown.js"
+    "test:meltdown": "node verify-meltdown.js",
+    "test:heat-protocol": "node verify-heat-protocol.js",
+    "test:heat-browser": "npm run build && node verify-heat-browser.js",
+    "test:heat-soak": "node verify-soak.js"
   },
   "keywords": [
     "browser-game",
