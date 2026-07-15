@@ -78,3 +78,31 @@ jobs:
             /tmp/mfa-*
           if-no-files-found: ignore
           retention-days: 7
+
+
+  renderer-soak:
+    name: Renderer soak (real Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Renderer soak
+        run: npm run test:renderer-soak
+      - name: Upload renderer-soak artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-soak-artifacts
+          path: |
+            test-artifacts/
+            /tmp/mfa-*
+          if-no-files-found: ignore
+          retention-days: 7

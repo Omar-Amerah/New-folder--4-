@@ -14,7 +14,8 @@ import { setDebugFrameStats, updateDebugOverlay } from "../debugOverlay.js";
 import { playerMap } from "../../ui/scoreboardUi.js";
 import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagnostics } from "./pixiBake.js";
 import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
-import { updatePixiShips, destroyPixiShipPool } from "./pixiShips.js";
+import { updatePixiShips, destroyPixiShipPool, pixiShipViewCounts } from "./pixiShips.js";
+import { recordRendererFrame, rendererMetricsSnapshot, resetRendererMetrics, setRendererMetricsPhase } from "../rendererMetrics.js";
 import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
 
 let pixiEnv = null;
@@ -23,6 +24,9 @@ let pixiLastFpsTime = 0;
 let pixiCurrentFps = 0;
 let pixiFatalFrameError = null;
 let pixiContextLost = false;
+let pixiApplicationGeneration = 0;
+let pixiContextRecoveryAttempts = 0;
+let pixiLastVisibilityChangeAt = 0;
 
 function computePixiResolution() {
   return Math.max(1, Math.min(getRenderQualityDprCap(), window.devicePixelRatio || 1));
@@ -106,10 +110,28 @@ export async function initPixiRenderer() {
 
   pixiFatalFrameError = null;
   pixiContextLost = false;
-  dom.canvas.addEventListener("webglcontextlost", (event) => {
+  pixiApplicationGeneration += 1;
+  resetRendererMetrics("startup");
+  const contextLostHandler = (event) => {
+    event.preventDefault?.();
     pixiContextLost = true;
-    console.error("[pixi] WebGL context lost", event);
-  }, { once: true });
+    state.contextLossDiagnostics = collectFatalPixiDiagnostics(new Error("WebGL context lost"), "webglcontextlost");
+    app.ticker.stop();
+    try { import("../input.js").then((mod) => mod.cancelArenaPointerState("webglcontextlost")); } catch {}
+    console.error("[pixi] WebGL context lost", state.contextLossDiagnostics);
+  };
+  const contextRestoredHandler = () => {
+    pixiContextLost = false;
+    state.lastFrameAt = performance.now();
+    if (pixiContextRecoveryAttempts < 1) {
+      pixiContextRecoveryAttempts += 1;
+      app.ticker.start();
+    } else {
+      showFatalPixiErrorPanel({ ...(state.contextLossDiagnostics || {}), stage: "webglcontextrestore-limit", recoveryLimitReached: true });
+    }
+  };
+  dom.canvas.addEventListener("webglcontextlost", contextLostHandler);
+  dom.canvas.addEventListener("webglcontextrestored", contextRestoredHandler);
 
   pixiEnv = {
     PIXI,
@@ -165,10 +187,21 @@ function pixiFrame() {
     }
     setDebugFrameStats(pixiCurrentFps, performance.now() - start, "pixi");
     updateDebugOverlay(now);
+    const durationMs = performance.now() - start;
+    recordRendererFrame({ at: now, durationMs, visible: state.debugStats.drawnShips + state.debugStats.drawnBullets + state.debugStats.drawnAsteroids + state.debugStats.drawnEffects, culled: Math.max(0, state.debugStats.totalShips + state.debugStats.totalBullets + state.debugStats.totalAsteroids + state.debugStats.totalEffects - state.debugStats.drawnShips - state.debugStats.drawnBullets - state.debugStats.drawnAsteroids - state.debugStats.drawnEffects), entityViews: pixiShipViewCounts().activeShipViews, poolCount: pixiShipViewCounts().activeShipViews + pixiShipViewCounts().freeShipViews, sceneChildren: app.stage.children.length, qualityProfile: pixiEnv.quality, rendererResolution: app.renderer.resolution });
   } catch (err) {
     handleFatalPixiFrameError(err, lastRenderStage);
   }
 }
+
+function sceneChildCounts(app) {
+  if (!app) return {};
+  const out = { stage: app.stage?.children?.length || 0 };
+  if (pixiEnv?.layers) for (const [name, layer] of Object.entries(pixiEnv.layers)) out[name] = layer?.children?.length || 0;
+  return out;
+}
+
+function finiteCamera(camera) { return { x: Number.isFinite(camera?.x) ? camera.x : 0, y: Number.isFinite(camera?.y) ? camera.y : 0, zoom: Number.isFinite(camera?.zoom) ? camera.zoom : 1, follow: !!camera?.follow }; }
 
 function collectFatalPixiDiagnostics(error, stage) {
   const app = pixiEnv?.app;
@@ -198,7 +231,10 @@ function collectFatalPixiDiagnostics(error, stage) {
       resolution: app?.renderer?.resolution || 0,
       tickerStarted: !!app?.ticker?.started
     },
-    camera: { ...state.camera },
+    camera: finiteCamera(state.camera),
+    sceneChildCounts: sceneChildCounts(app),
+    pools: pixiShipViewCounts(),
+    metrics: rendererMetricsSnapshot(),
     world: state.world ? { ...state.world } : null,
     textures: pixiTextureDiagnostics(),
     webglContextLost: pixiContextLost
@@ -228,28 +264,53 @@ function handleFatalPixiFrameError(error, stage) {
 
 export function getPixiRuntimeDiagnostics() {
   const app = pixiEnv?.app;
+  const canvasRect = dom.canvas?.getBoundingClientRect?.() || { width: 0, height: 0, left: 0, top: 0 };
+  const textures = pixiTextureDiagnostics();
+  const textureEntries = textures.caches.reduce((sum, cache) => sum + cache.entries, 0);
+  const textureLeaseCounts = textures.caches.reduce((sum, cache) => sum + cache.refs, 0);
+  const zeroLeaseEntries = textures.caches.reduce((sum, cache) => sum + cache.zeroLease, 0);
+  const ships = pixiShipViewCounts();
+  const metrics = rendererMetricsSnapshot({ activeEntityViews: ships.activeShipViews, activePoolCount: ships.activeShipViews + ships.freeShipViews, textureCacheEntries: textureEntries, zeroLeaseEntries, sceneChildCounts: sceneChildCounts(app), qualityProfile: pixiEnv?.quality, rendererResolution: app?.renderer?.resolution });
   return {
     initialized: !!pixiEnv,
     fatalFrameError: pixiFatalFrameError,
     webglContextLost: pixiContextLost,
+    webglContextState: pixiContextLost ? "lost" : (app ? "active" : "uninitialized"),
+    applicationGeneration: pixiApplicationGeneration,
+    activeTickerCount: app?.ticker?.started ? 1 : 0,
     tickerStarted: !!app?.ticker?.started,
     screenWidth: app?.screen?.width || 0,
     screenHeight: app?.screen?.height || 0,
     rendererWidth: app?.renderer?.width || 0,
     rendererHeight: app?.renderer?.height || 0,
     resolution: app?.renderer?.resolution || 0,
-    textures: pixiTextureDiagnostics(),
-    cssCanvasWidth: dom.canvas?.getBoundingClientRect?.().width || 0,
-    cssCanvasHeight: dom.canvas?.getBoundingClientRect?.().height || 0,
-    camera: { x: state.camera.x, y: state.camera.y, zoom: state.camera.zoom },
-    viewportWorldBounds: cameraViewportWorldBounds(state.camera, dom.canvas?.getBoundingClientRect?.() || { width: app?.screen?.width || 0, height: app?.screen?.height || 0, left: 0, top: 0 }),
+    textures,
+    textureEntries,
+    textureLeaseCounts,
+    textureCreationCount: textures.createdTextures,
+    textureDestructionCount: textures.destroyedTextures,
+    cssCanvasWidth: canvasRect.width || 0,
+    cssCanvasHeight: canvasRect.height || 0,
+    dpr: window.devicePixelRatio || 1,
+    qualityProfile: pixiEnv?.quality || getRenderQuality(),
+    camera: finiteCamera(state.camera),
+    viewportWorldBounds: cameraViewportWorldBounds(state.camera, canvasRect),
     interpolationDelay: state.renderHistory?.delayMs || 0,
     latestAcceptedSimulationTime: state.renderHistory?.latestSimulationTimeMs || null,
     currentRenderSimulationTime: state.renderHistory?.renderSimulationTimeMs || null,
-    visualShipCount: state.visualShips?.size || 0,
+    visualShipCount: state.visualShips?.size || ships.activeShipViews || 0,
+    visualEntityCounts: { ships: ships.activeShipViews, projectiles: state.snapshot?.bullets?.length || 0, effects: state.snapshot?.effects?.length || 0 },
     authoritativeShipCount: state.snapshot?.ships?.length || 0,
+    authoritativeEntityCounts: { ships: state.snapshot?.ships?.length || 0, projectiles: state.snapshot?.bullets?.length || 0, effects: state.snapshot?.effects?.length || 0 },
+    visibleCount: metrics.visibleCount,
+    culledCount: metrics.culledCount,
+    pools: { ships },
+    sceneChildCounts: sceneChildCounts(app),
+    frameMetrics: metrics,
     selectedShipIds: [...state.selectedShipIds],
-    input: inputDiagnostics()
+    input: inputDiagnostics(),
+    latestContextLossDiagnostics: state.contextLossDiagnostics || null,
+    lastVisibilityChangeAt: pixiLastVisibilityChangeAt
   };
 }
 
@@ -268,6 +329,7 @@ export function resizePixiRenderer() {
     // referenced; old-generation textures are destroyed only after their final
     // lease releases (no in-use texture is destroyed).
     advancePixiBakeGeneration();
+    setRendererMetricsPhase("transition", { reset: true });
   }
 }
 
@@ -299,4 +361,18 @@ export function destroyPixiRenderer() {
   pixiCurrentFps = 0;
   pixiFatalFrameError = null;
   pixiContextLost = false;
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    pixiLastVisibilityChangeAt = performance.now();
+    state.lastFrameAt = pixiLastVisibilityChangeAt;
+    if (document.visibilityState === "hidden") setRendererMetricsPhase("cleanup");
+    else setRendererMetricsPhase("steady");
+  });
+}
+
+if (typeof window !== "undefined") {
+  window.__mfaSetRendererMetricsPhase = (phase, options) => setRendererMetricsPhase(phase, options);
+  window.__mfaInjectPixiFrameFailure = (message = "Injected test frame failure") => { pixiFatalFrameError = null; handleFatalPixiFrameError(new Error(message), "test-injected-frame-failure"); return getPixiRuntimeDiagnostics(); };
 }
