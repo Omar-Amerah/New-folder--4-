@@ -94,3 +94,7 @@ The required protocol group currently includes `verify-runtime.js`, a combined r
 ## Safe-zone snapshot fields
 
 Static `state.map.safeZones` is the authoritative server list used by combat. Each entry has stable finite `id`, `x`, `y`, `radius`, `color`, `isSpawn`, and explicit ownership metadata: `team` for team-owned protection or `ownerId` for solo owner protection. `spawnPlayerIds` identifies the planned spawn slots covered by that zone. Clients render these zones from the snapshot for world and minimap display only; all protection and firing blocks remain server-authoritative.
+
+## Heat component snapshots
+
+State messages may include `componentHeat` full tuples as `[heat, state, ratio, capacity]` for every design index, or `componentHeatD` compact deltas as `[index, heat, state, ratio, capacity, ...]`. Deltas are stride 5 and are ignored when malformed, non-finite or out of range. Aggregate fields `heatNow`, `heatMax`, `heat`, `hot` and `overheated` are generated from the same included living components.

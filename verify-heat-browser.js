@@ -1,0 +1,15 @@
+"use strict";
+const assert = require("assert");
+const fs = require("fs");
+const panel = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
+const display = fs.readFileSync("public/src/shared/heatDisplay.js", "utf8");
+const merge = fs.readFileSync("public/src/snapshotMerge.js", "utf8");
+for (const marker of ["shipHeatPercent", "formatHeatPercent", "checkShipHeatConsistency"]) assert(display.includes(marker), `missing display helper ${marker}`);
+assert(display.includes("ship?.heatNow") && display.includes("ship?.heatMax"), "overall heat percent must derive from displayed stored/capacity values");
+assert(display.includes("<0.1%") && display.includes("toFixed(1)"), "fractional heat percentages must be representable");
+assert(panel.includes("diagramInteraction.shipId") && panel.includes("componentIndex"), "selection must be tracked by ship id and component index");
+assert(panel.includes("Tap or hover a component") && panel.includes("Hover a component"), "view/ship switches must have clear empty readouts");
+assert(panel.includes("pointerdown") || panel.includes("pointerType"), "mobile pointer/tap interaction must be wired");
+assert(!panel.includes("sendMove") && !panel.includes("setTarget"), "Heat panel interaction must not issue battlefield commands");
+assert(merge.includes("componentHeatTupleFromDelta") && merge.includes("normalizeComponentHeatSnapshot"), "browser merge path must use shared heat tuple normalization");
+console.log("Heat browser panel contract verification passed");
