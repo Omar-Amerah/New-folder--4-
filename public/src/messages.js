@@ -20,7 +20,7 @@ import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } 
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { mergeSnapshotTransaction } from "./snapshotMerge.js";
-import { send } from "./network.js";
+import { disableReconnect, send } from "./network.js";
 
 // Records the backend's protocol/build identification and reports skew. The
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
@@ -187,7 +187,7 @@ function requestFullState(reason) {
   net.resyncing = true;
   net.lastResyncRequestAt = now;
   lobbyUi.setConnectionStatus("connecting", "Resynchronizing");
-  send({ type: "requestFullState", stateEpoch: net.stateEpoch || 0, lastSnapshotSeq: net.snapshotSeq || 0, reason: reason || "missing-baseline" });
+  send({ type: "requestFullState", epoch: net.stateEpoch || 0, sequence: net.snapshotSeq || 0, reason: reason || "client-request" });
 }
 
   if (message.type === "purchaseResult") {
@@ -223,8 +223,8 @@ function requestFullState(reason) {
   if (message.type === "error") {
     state.joiningLobby = false;
     if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
-    if (/credential expired|credential.*invalid/i.test(message.message || "")) clearResumeCredential(state.room || dom.roomCode?.value);
-    if (/closed|kicked/i.test(message.message || "")) forgetActiveRoom();
+    if (message.code === "credential-expired" || message.code === "credential-invalid") { clearResumeCredential(state.room || dom.roomCode?.value); disableReconnect(message.code); }
+    if (["room-closed", "kicked", "incompatible-protocol"].includes(message.code)) { disableReconnect(message.code); forgetActiveRoom(); }
     if (!state.room || !dom.mainMenuScreen?.hidden) {
       import("./ui/lobbyUi.js").then((mod) => {
         mod.showMenuNotice(message.message || "Server error", "error");
@@ -239,6 +239,7 @@ function requestFullState(reason) {
 
   if (message.type === "kicked" || message.type === "closed" || message.type === "leftLobby") {
     const tone = message.type === "kicked" ? "error" : "warning";
+    disableReconnect(message.type);
     clearResumeCredential(state.room || dom.roomCode?.value);
     forgetActiveRoom();
     lobbyUi.returnToMainMenu(message.message || "Left lobby", tone);

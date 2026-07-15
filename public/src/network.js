@@ -5,6 +5,7 @@ import { dom } from "./ui/dom.js";
 import { LOCAL_SERVER_KEY } from "./constants.js";
 import { handleServerMessage } from "./messages.js";
 import { setConnectionStatus, updateLobbyState } from "./ui/lobbyUi.js";
+import { getResumeCredential } from "./reconnectStorage.js";
 
 // The production wire protocol is MessagePack over binary WebSocket frames.
 // Missing MessagePack is a fatal local transport error, not a silent JSON fallback.
@@ -26,7 +27,37 @@ function wsDecode(data) {
   return mp.decode(new Uint8Array(data));
 }
 
-export function connect(url, onOpenCallback) {
+const RECONNECT = { baseMs: 300, maxMs: 4000, jitterMs: 250, maxDurationMs: 25000, heartbeatIntervalMs: 10000, heartbeatTimeoutMs: 30000 };
+function clearReconnectTimer(){ if(state.reconnect?.timer){ clearTimeout(state.reconnect.timer); state.reconnect.timer=null; } }
+function clearHeartbeat(){ if(state.heartbeat?.timer) clearInterval(state.heartbeat.timer); if(state.heartbeat?.timeout) clearTimeout(state.heartbeat.timeout); state.heartbeat={}; }
+export function disableReconnect(reason="explicit") { state.reconnectAllowed=false; state.disconnectIntent=reason; clearReconnectTimer(); }
+function scheduleReconnect(url, joinPayload){
+  if(!state.reconnectAllowed || !joinPayload?.room) return false;
+  const r=state.reconnect ||= { attempts:0, startedAt:performance.now(), timer:null, url, joinPayload };
+  r.url=url; r.joinPayload=joinPayload;
+  if(r.timer) return true;
+  if(performance.now()-r.startedAt>RECONNECT.maxDurationMs){ setConnectionStatus("error","Reconnect failed"); return false; }
+  const delay=Math.min(RECONNECT.maxMs, RECONNECT.baseMs * 2 ** r.attempts) + Math.floor(Math.random()*RECONNECT.jitterMs);
+  r.attempts += 1; setConnectionStatus("reconnecting","Reconnecting");
+  r.timer=setTimeout(()=>{ r.timer=null; connect(url, ()=>send(withClientProtocol({...joinPayload, resumeToken:getResumeCredential(joinPayload.room)})), { reconnect:true, joinPayload }); }, delay);
+  return true;
+}
+function startHeartbeat(generation, socket){
+  clearHeartbeat();
+  state.heartbeat={ timer:setInterval(()=>{
+    if(state.connectionGeneration!==generation || state.socket!==socket || socket.readyState!==WebSocket.OPEN) return;
+    const nonce=`${generation}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    state.lastPingAt=performance.now(); send({type:"ping", at:state.lastPingAt, clientPingNonce:nonce});
+    if(state.heartbeat.timeout) clearTimeout(state.heartbeat.timeout);
+    state.heartbeat.timeout=setTimeout(()=>{ if(state.connectionGeneration===generation && state.socket===socket){ try{socket.close();}catch{} scheduleReconnect(state.reconnect?.url || getSocketUrl(), state.reconnect?.joinPayload); } }, RECONNECT.heartbeatTimeoutMs);
+  }, RECONNECT.heartbeatIntervalMs) };
+}
+
+export function connect(url, onOpenCallback, options = {}) {
+  clearReconnectTimer();
+  clearHeartbeat();
+  if (!options.reconnect) state.reconnect = { attempts:0, startedAt:performance.now(), timer:null, url, joinPayload: options.joinPayload || null };
+  if (options.joinPayload) { state.reconnectAllowed = true; state.reconnect.joinPayload = options.joinPayload; state.reconnect.url = url; }
   if (state.socket) {
     try {
       state.socket.close();
@@ -45,7 +76,8 @@ export function connect(url, onOpenCallback) {
 
   socket.addEventListener("open", () => {
     if (state.connectionGeneration !== generation || state.socket !== socket) return;
-    setConnectionStatus("online", "Connected");
+    setConnectionStatus(options.reconnect ? "reconnected" : "online", options.reconnect ? "Resumed" : "Connected");
+    startHeartbeat(generation, socket);
     if (onOpenCallback) onOpenCallback();
   });
 
@@ -61,19 +93,18 @@ export function connect(url, onOpenCallback) {
 
   socket.addEventListener("close", () => {
     if (state.connectionGeneration === generation && state.socket === socket) {
+      clearHeartbeat();
+      if (state.reconnectAllowed && scheduleReconnect(url, state.reconnect?.joinPayload)) return;
       setConnectionStatus("offline", "Disconnected");
-      import("./ui/lobbyUi.js").then((mod) => {
-        mod.returnToMainMenu("Disconnected from server", "error");
-      });
+      import("./ui/lobbyUi.js").then((mod) => { mod.returnToMainMenu("Disconnected from server", "error"); });
     }
   });
 
   socket.addEventListener("error", () => {
     if (state.connectionGeneration === generation && state.socket === socket) {
+      if (state.reconnectAllowed && scheduleReconnect(url, state.reconnect?.joinPayload)) return;
       setConnectionStatus("error", "Network error");
-      import("./ui/lobbyUi.js").then((mod) => {
-        mod.returnToMainMenu("Network connection failed", "error");
-      });
+      import("./ui/lobbyUi.js").then((mod) => { mod.returnToMainMenu("Network connection failed", "error"); });
     }
   });
 }

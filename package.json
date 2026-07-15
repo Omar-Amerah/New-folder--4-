@@ -77,7 +77,8 @@
     "test:snapshot-contract": "node verify-snapshot-contract.js",
     "test:snapshot-resync": "node verify-snapshot-resync.js",
     "test:network-backpressure": "node verify-network-backpressure.js",
-    "test:network-soak": "node tools/run-tests.js soak"
+    "test:network-soak": "node verify-network-soak.js",
+    "test:messagepack-codec": "node verify-network-protocol.js --codec-only"
   },
   "keywords": [
     "browser-game",
