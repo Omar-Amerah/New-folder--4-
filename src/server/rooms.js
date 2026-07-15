@@ -346,6 +346,7 @@ function generateAsteroids(rng, world, relays, safeZones, densityMultiplier = 1)
   if (densityMultiplier <= 0) return asteroids;
   // Exclude safe zones (relays checked dynamically with noise)
   const reserved = safeZones.map(s => ({ x: s.x, y: s.y, radius: s.radius + 200 }));
+  const asteroidClearance = 225;
 
   const pairCount = Math.round((8 + Math.floor(rng() * 8)) * densityMultiplier);
 
@@ -363,15 +364,19 @@ function generateAsteroids(rng, world, relays, safeZones, densityMultiplier = 1)
         y: world.height - asteroid.y,
         radius
       };
-      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 220, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 220, world)) {
+      const roundedAsteroid = roundMapCircle(asteroid);
+      const roundedMirror = roundMapCircle(mirror);
+      if (!canPlaceMapCircle(roundedAsteroid, reserved, asteroids, asteroidClearance, world) ||
+          !canPlaceMapCircle(roundedMirror, reserved, asteroids, asteroidClearance, world) ||
+          !circlesClear(roundedAsteroid, [roundedMirror], asteroidClearance)) {
         continue;
       }
-      if (!circlesClearWithNoise(asteroid, relays, 200, 500, rng) || !circlesClearWithNoise(mirror, relays, 200, 500, rng)) {
+      if (!circlesClearWithNoise(roundedAsteroid, relays, 200, 500, rng) || !circlesClearWithNoise(roundedMirror, relays, 200, 500, rng)) {
         continue;
       }
       asteroids.push(
-        makeAsteroid(rng, `R${asteroids.length + 1}`, asteroid),
-        makeAsteroid(rng, `R${asteroids.length + 2}`, mirror)
+        makeAsteroid(rng, `R${asteroids.length + 1}`, roundedAsteroid),
+        makeAsteroid(rng, `R${asteroids.length + 2}`, roundedMirror)
       );
       break;
     }
@@ -392,21 +397,33 @@ function generateAsteroids(rng, world, relays, safeZones, densityMultiplier = 1)
           y: world.height - asteroid.y,
           radius
         };
-        if (!canPlaceMapCircle(asteroid, reserved, asteroids, 220, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 220, world)) {
+        const roundedAsteroid = roundMapCircle(asteroid);
+        const roundedMirror = roundMapCircle(mirror);
+        if (!canPlaceMapCircle(roundedAsteroid, reserved, asteroids, asteroidClearance, world) ||
+            !canPlaceMapCircle(roundedMirror, reserved, asteroids, asteroidClearance, world) ||
+            !circlesClear(roundedAsteroid, [roundedMirror], asteroidClearance)) {
           continue;
         }
-        if (!circlesClearWithNoise(asteroid, relays, 200, 500, rng) || !circlesClearWithNoise(mirror, relays, 200, 500, rng)) {
+        if (!circlesClearWithNoise(roundedAsteroid, relays, 200, 500, rng) || !circlesClearWithNoise(roundedMirror, relays, 200, 500, rng)) {
           continue;
         }
         asteroids.push(
-          makeAsteroid(rng, `R${asteroids.length + 1}`, asteroid),
-          makeAsteroid(rng, `R${asteroids.length + 2}`, mirror)
+          makeAsteroid(rng, `R${asteroids.length + 1}`, roundedAsteroid),
+          makeAsteroid(rng, `R${asteroids.length + 2}`, roundedMirror)
         );
         break;
       }
   }
 
   return asteroids;
+}
+
+function roundMapCircle(circle) {
+  return {
+    x: Math.round(circle.x),
+    y: Math.round(circle.y),
+    radius: Math.round(circle.radius)
+  };
 }
 
 function makeAsteroid(rng, id, asteroid) {
