@@ -1,0 +1,15 @@
+"use strict";
+const assert = require("assert");
+const HeatRules = require("./public/src/shared/heatRules");
+const { initShipHeat, updateShipHeat, addComponentHeat, rebuildThermalNetworks } = require("./src/server/heat");
+const { PARTS } = require("./src/server/components");
+function shipFor(design){ const hp=design.map(m=>PARTS[m.type]?.hp||40); const ship={alive:true,design,componentHp:hp.slice(),componentMaxHp:hp.slice(),stats:{powerUse:0,powerGeneration:1},dirtyComponents:new Set()}; initShipHeat(ship); return ship; }
+function tick(s){ s.hasActiveHeat=true; updateShipHeat(s,0.2); }
+let a=shipFor([{x:0,y:0,type:"frame"},{x:1,y:0,type:"heatSink"}]); a.componentHeat[0]=50; const sum0=a.componentHeat.reduce((x,y)=>x+y,0); tick(a); assert(a.componentHeat[1]>0&&a.componentHeat[0]<50,"heat moves from higher normalized ratio to lower"); assert(a.componentHeat.reduce((x,y)=>x+y,0)<sum0,"cooling may remove heat after transfer");
+let b=shipFor([{x:0,y:0,type:"frame"},{x:1,y:0,type:"frame"},{x:0,y:1,type:"frame"}]); b.componentHeat=[1,0,0]; tick(b); assert(b.componentHeat.every(Number.isFinite)&&b.componentHeat.every(v=>v>=0),"multi-neighbour transfer remains finite and non-negative"); assert(b.componentHeat[0]>=0,"source cannot export more than it holds");
+function internalSum(design, heat){ const s=shipFor(design); s.componentThermals.forEach(t=>{t.cooling=0;t.retention=1;}); s.componentHeat=heat.slice(); s.componentCurrentHeat=s.componentHeat; tick(s); return s.componentHeat.reduce((x,y)=>x+y,0); }
+assert(Math.abs(internalSum([{x:0,y:0,type:"frame"},{x:1,y:0,type:"frame"}], [80,0])-80)<1e-9,"two-component internal transfer conserves heat");
+assert(Math.abs(internalSum([{x:0,y:0,type:"frame"},{x:1,y:0,type:"frame"},{x:0,y:1,type:"frame"}], [80,10,0])-90)<1e-9,"multi-neighbour internal transfer conserves heat");
+let pipe=shipFor([{x:0,y:0,type:"blaster"},{x:1,y:0,type:"heatPipe"},{x:2,y:0,type:"radiator"}]); pipe.componentHp[1]=0; rebuildThermalNetworks(pipe); for(let i=0;i<30;i++){addComponentHeat(pipe,0,10);tick(pipe);} assert.strictEqual(pipe.componentHeat[2],0,"transfer stops through destroyed thermal routes");
+for(let seed=0;seed<20;seed++){ const s=shipFor([{x:0,y:0,type:"frame"},{x:1,y:0,type:"frame"},{x:2,y:0,type:"heatSink"},{x:1,y:1,type:"radiator"}]); s.componentHeat=s.componentHeat.map((_,i)=>((seed+3)*(i+5)*17)%120); s.componentCurrentHeat=s.componentHeat; tick(s); s.componentHeat.forEach((v,i)=>{assert(Number.isFinite(v),`finite heat ${seed}:${i}`); assert(v>=0,`non-negative heat ${seed}:${i}`); assert(v<=s.componentThermals[i].capacity*1.25+1e-9,`clamped heat ${seed}:${i}`);});}
+console.log("Heat transfer verification passed");
