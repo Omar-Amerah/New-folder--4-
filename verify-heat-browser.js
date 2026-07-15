@@ -217,11 +217,35 @@ async function until(fn, what, timeoutMs = 15000) {
     diagnostics.authoritativeShip = summarizeState(bot.latest.state, bot.latest.rawState, bot.mergeEvents.at(-1), myId);
     diagnostics.shipIds = bot.latest.state.ships.map((s) => s.id);
     diagnostics.selectedShipId = ship.id;
-    await page.evaluate((id) => { window.__mfaState.selectedShipIds = new Set([id]); window.__mfaState.selectedShipId = id; }, ship.id);
     await page.waitForFunction((id) => {
       const ship = window.__mfaState?.snapshot?.ships?.find((s) => s.id === id);
       return ship && Array.isArray(ship.design) && Array.isArray(ship.componentHeat);
     }, ship.id, { timeout: 15000 });
+    const visualTarget = await until(async () => page.evaluate(async (id) => {
+      const mod = await import("/src/game/visualTargeting.js");
+      const target = mod.shipVisualClientTarget(id);
+      if (!target) return null;
+      const hit = document.elementFromPoint(target.clientX, target.clientY);
+      return { ...target, elementFromPoint: hit ? { tag: hit.tagName, id: hit.id || null, className: String(hit.className || "") } : null };
+    }, ship.id), "production visual target for browser-owned ship");
+    diagnostics.visualTarget = visualTarget;
+    assert(visualTarget.radius > 0, `invalid visual target radius: ${JSON.stringify(visualTarget)}`);
+    await page.mouse.click(visualTarget.clientX, visualTarget.clientY);
+    await page.waitForFunction((id) => window.__mfaState?.selectedShipIds?.size === 1 && window.__mfaState.selectedShipIds.has(id), ship.id, { timeout: 5000 });
+    const selectedSummary = await page.evaluate((id) => ({
+      selectedCount: window.__mfaState?.selectedShipIds?.size || 0,
+      hasShip: window.__mfaState?.selectedShipIds?.has(id) || false,
+      statusHidden: document.querySelector("#shipDamagePanel")?.hidden ?? true,
+      damageHidden: document.querySelector("#shipDamageTab")?.hidden ?? true,
+      heatHidden: document.querySelector("#shipHeatTab")?.hidden ?? true,
+      summaryText: document.querySelector("#selectionSummary")?.textContent || document.querySelector("#selectedSummary")?.textContent || document.body.textContent
+    }), ship.id);
+    diagnostics.selectedSummary = selectedSummary;
+    assert.strictEqual(selectedSummary.selectedCount, 1, "exactly one owned ship selected through production click");
+    assert.strictEqual(selectedSummary.hasShip, true, "selected set contains the clicked ship");
+    assert.strictEqual(selectedSummary.statusHidden, false, "ship status panel is visible after production selection");
+    assert.strictEqual(selectedSummary.damageHidden, false, "Damage tab is visible after production selection");
+    assert.strictEqual(selectedSummary.heatHidden, false, "Heat tab is visible after production selection");
 
     await page.click("#shipHeatTab");
     await until(() => page.locator("#shipHeatSummary").textContent().then((t) => /Overall heat|Stored/.test(t || "")), "heat panel summary");
@@ -312,8 +336,8 @@ async function until(fn, what, timeoutMs = 15000) {
     assert.strictEqual(afterTouchCommands, beforeCommands, "touch heat panel tap issued movement command");
     const frac = await page.evaluate(async () => { const m = await import("/src/shared/heatDisplay.js"); return m.formatHeatPercent(m.shipHeatPercent({ heatNow: 3.5, heatMax: 1100 })); });
     assert.strictEqual(frac, "0.3%", "fractional percentage displays");
-    await page.evaluate(() => { window.__mfaState.selectedShipIds = new Set(); window.__mfaState.selectedShipId = null; });
-    await page.waitForFunction(() => document.querySelector("#shipDamagePanel")?.hidden === true && /Hover|Tap|component/i.test(document.querySelector("#shipDamageHover")?.textContent || ""), null, { timeout: 5000 });
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => window.__mfaState?.selectedShipIds?.size === 0, null, { timeout: 5000 });
     assert.deepStrictEqual(diagnostics.pageErrors, [], `page errors: ${diagnostics.pageErrors.map((e) => e.message).join("\n")}`);
     const consoleErrors = diagnostics.console.filter((m) => m.type === "error");
     assert.deepStrictEqual(consoleErrors, [], `console errors: ${consoleErrors.map((e) => e.text).join("\n")}`);

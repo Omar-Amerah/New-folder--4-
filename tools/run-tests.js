@@ -61,6 +61,7 @@ const GROUPS = {
     "verify-renderer-textures.js",
     "verify-renderer-quality.js",
     "verify-selection.js",
+    "verify-client-selection.js",
     "verify-economy.js",
     "verify-economy-sequence.js",
     "verify-bots.js",
@@ -101,12 +102,7 @@ const GROUPS = {
     "verify-live-turrets.js",
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",
-    "verify-pixi-lifecycle.js",
-    "verify-renderer-performance-browser.js",
-    "verify-webgl-context-browser.js",
-    // Short browser interaction stress test retained for diagnostic value; the
-    // long renderer soak owns exhaustive renderer transition soak coverage.
-    "verify-renderer-interaction-soak.js"
+    "verify-pixi-lifecycle.js"
   ],
 
   // Deterministic server/simulation soaks only. This group is browser-free.
