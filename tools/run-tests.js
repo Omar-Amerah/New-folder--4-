@@ -88,7 +88,8 @@ const GROUPS = {
     "verify-websocket-frames.js",
     "verify-protocol-schema.js",
     "verify-network-connections.js",
-    "verify-network-protocol.js"
+    "verify-network-protocol.js",
+    "verify-websocket-handler-errors.js"
   ],
 
   // Production-path smoke: real server process and HTTP asset checks only.
@@ -103,6 +104,7 @@ const GROUPS = {
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",
     "verify-browser-websocket-payloads.js",
+    "verify-browser-sequential-rooms.js",
     "verify-pixi-lifecycle.js",
     "verify-renderer-performance-browser.js",
     "verify-webgl-context-browser.js"
