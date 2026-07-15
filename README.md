@@ -115,3 +115,7 @@ npm run test:network-connections
 npm run test:network-protocol
 npm run test:network-browser
 ```
+
+### Snapshot resynchronization
+
+The multiplayer protocol uses MessagePack state snapshots with explicit room epochs and per-epoch sequence numbers. Clients recover from missed compact state by requesting one viewer-filtered full snapshot without leaving the room; reconnects also require a fresh full baseline before compact updates resume.

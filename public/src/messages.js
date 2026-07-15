@@ -19,7 +19,8 @@ import { showToast, addNotice } from "./ui/toastUi.js";
 import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
-import { mergeCachedShipFields, mergeStaticPlayerFields } from "./snapshotMerge.js";
+import { mergeSnapshotTransaction } from "./snapshotMerge.js";
+import { send } from "./network.js";
 
 // Records the backend's protocol/build identification and reports skew. The
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
@@ -121,6 +122,7 @@ export function handleServerMessage(message) {
     state.rules = { ...state.rules, ...(message.rules || {}) };
     if (message.resumeToken) saveResumeCredential(message.room, message.resumeToken);
     state.selectedShipIds.clear();
+    state.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 };
     state.activeShipGroup = null;
     dom.roomCode.value = message.room;
     dom.currentRoomCode.textContent = message.room;
@@ -142,32 +144,30 @@ export function handleServerMessage(message) {
   if (message.type === "state") {
     recordServerBuild(message);
     const previousPhase = state.phase;
-    if (state.snapshot?.players && message.players) {
-      message.players = mergeStaticPlayerFields(state.snapshot.players, message.players);
-    }
-    // The server sends each ship's design and full component arrays once; reuse
-    // cached static data and apply compact deltas through pure merge helpers.
-    if (state.snapshot?.ships && message.ships) {
-      const oldShips = new Map(state.snapshot.ships.map(s => [s.id, s]));
-      message.ships = mergeCachedShipFields(state.snapshot.ships, message.ships);
-      for (const newShip of message.ships) {
-        const oldShip = oldShips.get(newShip.id);
-        const oldChp = oldShip?.chp;
-        if (oldChp && newShip.chp && newShip.chp !== oldChp) {
-          recordComponentHpChanges(newShip, oldChp, newShip.chp);
-        }
+    const result = mergeSnapshotTransaction(state.snapshot, state.snapshotNetwork, message);
+    if (!result.ok) {
+      if (!["stale-epoch", "stale-sequence", "duplicate-sequence"].includes(result.reason)) {
+        requestFullState(result.reason);
       }
+      return;
     }
+    state.snapshotNetwork = { ...result.networkState, resyncing: false, lastResyncRequestAt: state.snapshotNetwork?.lastResyncRequestAt || 0 };
     state.snapshotReceivedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
-    state.snapshot = message;
+    const accepted = result.snapshot;
+    const oldShips = new Map((state.snapshot?.ships || []).map((s) => [s.id, s]));
+    for (const newShip of accepted.ships || []) {
+      const oldShip = oldShips.get(newShip.id);
+      if (oldShip?.chp && newShip.chp && newShip.chp !== oldShip.chp) recordComponentHpChanges(newShip, oldShip.chp, newShip.chp);
+    }
+    state.snapshot = accepted;
     state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
-    state.room = message.room;
-    state.world = message.world || state.world;
-    state.map = message.map || state.map;
-    state.phase = message.phase || state.phase;
-    state.adminId = message.adminId || state.adminId;
-    state.rules = { ...state.rules, ...(message.rules || {}) };
-    dom.roomLabel.textContent = message.room;
+    state.room = accepted.room;
+    state.world = accepted.world || state.world;
+    state.map = accepted.map || state.map;
+    state.phase = accepted.phase || state.phase;
+    state.adminId = accepted.adminId || state.adminId;
+    state.rules = { ...state.rules, ...(accepted.rules || {}) };
+    dom.roomLabel.textContent = accepted.room;
     purchaseUi.reconcilePendingPurchasesWithSnapshot();
     pruneSelection();
     updateHud();
@@ -179,6 +179,16 @@ export function handleServerMessage(message) {
     if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) lobbyUi.hideMenuScreens();
     return;
   }
+
+function requestFullState(reason) {
+  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const net = state.snapshotNetwork || (state.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false });
+  if (net.resyncing && now - (net.lastResyncRequestAt || 0) < 1000) return;
+  net.resyncing = true;
+  net.lastResyncRequestAt = now;
+  lobbyUi.setConnectionStatus("connecting", "Resynchronizing");
+  send({ type: "requestFullState", stateEpoch: net.stateEpoch || 0, lastSnapshotSeq: net.snapshotSeq || 0, reason: reason || "missing-baseline" });
+}
 
   if (message.type === "purchaseResult") {
     const pending = message.requestId ? purchaseUi.clearPendingPurchase(message.requestId) : null;

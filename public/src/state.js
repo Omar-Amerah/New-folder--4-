@@ -65,6 +65,7 @@ export const state = {
   },
   settingRallyPoint: false,
   snapshot: null,
+  snapshotNetwork: { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 },
   // Backend identification from hello/state messages:
   // { protocolVersion, buildSha, compatibility: "ok" | "stale" | "incompatible" }
   server: null,

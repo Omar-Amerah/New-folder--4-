@@ -7,6 +7,10 @@ const { negotiate, ERROR_CODES, serverEnvelope } = require("./protocol");
 
 // Binary WebSocket opcode (0x2) — outbound game data is MessagePack, not text.
 const BINARY_OPCODE = 0x2;
+const CONTROL_QUEUE_BYTE_LIMIT = 256 * 1024;
+const SNAPSHOT_QUEUE_LIMIT = 2;
+const TOTAL_QUEUE_BYTE_LIMIT = 768 * 1024;
+const BLOCKED_CLOSE_MS = 15000;
 let cachedWriteFrame = null;
 let cachedCloseClient = null;
 
@@ -25,14 +29,64 @@ function send(client, data) {
 }
 
 // `payload` is a pre-encoded MessagePack Buffer (encode once, fan out to many).
-function sendRaw(client, payload) {
+function getOutbound(client) {
+  if (!client.outbound) client.outbound = { control: [], snapshot: null, bytes: 0, controlBytes: 0, flushing: false, blockedSince: 0, coalescedSnapshots: 0 };
+  return client.outbound;
+}
+
+function frameBytes(payload) { return Buffer.isBuffer(payload) ? payload.length + 14 : 14; }
+
+function enqueueRaw(client, payload, options = {}) {
   if (client.isClosed || client.socket.destroyed) return;
+  const out = getOutbound(client);
+  const bytes = frameBytes(payload);
+  const kind = options.kind || 'control';
+  if (kind === 'snapshot-compact') {
+    if (out.snapshot) { out.bytes -= out.snapshot.bytes; out.coalescedSnapshots += 1; }
+    out.snapshot = { payload, bytes, kind };
+    out.bytes += bytes;
+  } else if (kind === 'snapshot-full') {
+    if (out.snapshot?.kind === 'snapshot-compact') { out.bytes -= out.snapshot.bytes; out.snapshot = null; }
+    out.control.push({ payload, bytes, kind });
+    out.bytes += bytes; out.controlBytes += bytes;
+  } else {
+    out.control.push({ payload, bytes, kind });
+    out.bytes += bytes; out.controlBytes += bytes;
+  }
+  if (out.controlBytes > CONTROL_QUEUE_BYTE_LIMIT || out.bytes > TOTAL_QUEUE_BYTE_LIMIT || out.control.length > 128) {
+    getCloseClient()(client, 1013, 'Outbound queue limit');
+    return;
+  }
+  flushOutbound(client);
+}
+
+function flushOutbound(client) {
+  const out = getOutbound(client);
+  if (out.flushing || client.isClosed || client.socket.destroyed) return;
+  out.flushing = true;
   try {
-    getWriteFrame()(client.socket, payload, BINARY_OPCODE);
+    while (out.control.length || out.snapshot) {
+      const item = out.control.length ? out.control.shift() : out.snapshot;
+      if (!out.control.length && item === out.snapshot) out.snapshot = null;
+      const ok = getWriteFrame()(client.socket, item.payload, BINARY_OPCODE);
+      out.bytes -= item.bytes;
+      if (item.kind !== 'snapshot-compact') out.controlBytes -= item.bytes;
+      if (!ok) {
+        out.blockedSince ||= Date.now();
+        client.socket.once?.('drain', () => { out.blockedSince = 0; flushOutbound(client); });
+        setTimeout(() => { if (!client.isClosed && out.blockedSince && Date.now() - out.blockedSince >= BLOCKED_CLOSE_MS) getCloseClient()(client, 1013, 'Outbound backpressure'); }, BLOCKED_CLOSE_MS + 25).unref?.();
+        break;
+      }
+    }
   } catch {
-    getCloseClient()(client, 1011, "Send failed");
+    getCloseClient()(client, 1011, 'Send failed');
+  } finally {
+    out.flushing = false;
   }
 }
+
+// `payload` is a pre-encoded MessagePack Buffer (encode once, fan out to many).
+function sendRaw(client, payload, options = {}) { enqueueRaw(client, payload, options); }
 
 function sendPlayer(room, player, data) {
   for (const client of room.clients) {
@@ -48,24 +102,57 @@ function broadcastRoom(room, data) {
   for (const client of room.clients) sendRaw(client, payload);
 }
 
+function ensureSnapshotBaseline(client, room) {
+  if (!client.snapshotBaseline) client.snapshotBaseline = {};
+  const b = client.snapshotBaseline;
+  if (b.stateEpoch !== (room.stateEpoch || 1)) {
+    b.stateEpoch = room.stateEpoch || 1;
+    b.lastSentSeq = 0;
+    b.lastFullSeq = 0;
+    b.fullRequired = true;
+    b.staticRevisionKnown = 0;
+  }
+  if (b.fullRequired === undefined) b.fullRequired = true;
+  return b;
+}
+
+function sendFullSnapshot(client, now = performanceNow(), reason = 'resync') {
+  if (!client.room) return;
+  const room = client.room;
+  const { snapshotRoom, buildSharedSnapshot } = require('./snapshots');
+  const b = ensureSnapshotBaseline(client, room);
+  const seq = (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1);
+  room._buildingSnapshotSeq = seq;
+  const shared = buildSharedSnapshot(room, now, true);
+  const payload = encodeMessage(snapshotRoom(room, now, client.player, true, shared));
+  delete room._buildingSnapshotSeq;
+  b.lastSentSeq = seq; b.lastFullSeq = seq; b.fullRequired = false; b.staticRevisionKnown = room.staticRevision || 1; b.queuedSnapshotKind = 'full';
+  sendRaw(client, payload, { kind: 'snapshot-full' });
+}
+
 function broadcastSnapshot(room, now, forceStatic = false) {
   if (room.clients.size === 0) return;
-  const { snapshotRoom, buildSharedSnapshot, markShipDesignsSent } = require("./snapshots");
-
-  // Everything except per-player economy visibility is identical for all viewers,
-  // and economy visibility only depends on the viewer's team — so build the bulky
-  // shared arrays once and serialize once per team instead of once per client.
-  const shared = buildSharedSnapshot(room, now, forceStatic);
-  const byTeam = new Map();
+  const { snapshotRoom, buildSharedSnapshot, markShipDesignsSent } = require('./snapshots');
+  const seq = (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1);
+  room._buildingSnapshotSeq = seq;
+  const fullShared = forceStatic ? buildSharedSnapshot(room, now, true) : null;
+  const compactShared = forceStatic ? null : buildSharedSnapshot(room, now, false);
+  const byVariant = new Map();
   for (const client of room.clients) {
-    const key = client.player ? `t:${client.player.team}` : "spectator";
-    let payload = byTeam.get(key);
+    const b = ensureSnapshotBaseline(client, room);
+    const full = forceStatic || b.fullRequired || b.staticRevisionKnown !== (room.staticRevision || 1) || b.lastSentSeq !== seq - 1;
+    const shared = full ? (fullShared || buildSharedSnapshot(room, now, true)) : compactShared;
+    const key = `${client.player ? `t:${client.player.team}` : 'spectator'}|e:${room.stateEpoch}|rev:${room.staticRevision}|kind:${full ? 'full':'compact'}|base:${full ? 0 : b.lastSentSeq}`;
+    let payload = byVariant.get(key);
     if (payload === undefined) {
-      payload = encodeMessage(snapshotRoom(room, now, client.player, forceStatic, shared));
-      byTeam.set(key, payload);
+      payload = encodeMessage(snapshotRoom(room, now, client.player, full, shared));
+      byVariant.set(key, payload);
     }
-    sendRaw(client, payload);
+    b.lastSentSeq = seq; b.queuedSnapshotKind = full ? 'full' : 'compact';
+    if (full) { b.lastFullSeq = seq; b.fullRequired = false; b.staticRevisionKnown = room.staticRevision || 1; }
+    sendRaw(client, payload, { kind: full ? 'snapshot-full' : 'snapshot-compact' });
   }
+  delete room._buildingSnapshotSeq;
   markShipDesignsSent(room);
 }
 
@@ -109,6 +196,16 @@ function handleMessage(client, message) {
 
   if (!isCurrentAttachment(client)) {
     send(client, { type: "error", code: ERROR_CODES.STALE_ATTACHMENT, message: "This connection is no longer active for that player", requestId: message.requestId });
+    return;
+  }
+
+  if (message.type === "requestFullState") {
+    const now = Date.now();
+    client.lastFullStateRequestAt ||= 0;
+    if (now - client.lastFullStateRequestAt < 1000) return;
+    client.lastFullStateRequestAt = now;
+    if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
+    sendFullSnapshot(client, performanceNow(), message.reason || "client-request");
     return;
   }
 
@@ -325,6 +422,7 @@ module.exports = {
   send,
   sendPlayer,
   broadcastRoom,
+  sendFullSnapshot,
   broadcastSnapshot,
   handleMessage
 };
