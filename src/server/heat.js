@@ -54,12 +54,8 @@ function initShipHeat(ship) {
     }
   }
 
-  ship.componentThermals = design.map((module, i) => {
-    const thermal = { ...profile(module.type, PARTS[module.type] || {}), exposedEdges: exposedEdges[i] };
-    const adjacentSinks = [...edgeCounts[i].keys()].filter(index => design[index]?.type === "heatSink").length;
-    thermal.capacity += adjacentSinks * 35;
-    return thermal;
-  });
+  ship.componentThermals = design.map((module, i) => ({ ...profile(module.type, PARTS[module.type] || {}), exposedEdges: exposedEdges[i] }));
+  ship.componentBaseHeatCapacity = ship.componentThermals.map(item => item.capacity);
   ship.componentAdjacency = edgeCounts.map((edges, i) => [...edges].map(([index, sharedEdges]) => ({
     index,
     sharedEdges,
@@ -73,6 +69,8 @@ function initShipHeat(ship) {
   ship.componentHeatGenerated = design.map(() => 0);
   ship.componentHeatReceived = design.map(() => 0);
   ship.componentHeatRemoved = design.map(() => 0);
+  ship.componentHeatTransferredOut = design.map(() => 0);
+  ship.componentHeatCooled = design.map(() => 0);
   ship.componentHeatSentThroughFrame = design.map(() => 0);
   ship.componentHeatRadiated = design.map(() => 0);
   ship.heatGeneratedThisTick = ship.componentHeatGenerated;
@@ -81,7 +79,7 @@ function initShipHeat(ship) {
   ship.componentHeatInput = design.map(() => 0);
   ship.heatAccumulator = 0;
   ship.currentHeat = 0;
-  ship.maxHeat = ship.componentThermals.reduce((sum, item) => sum + item.capacity, 0);
+  recalculateEffectiveThermalCapacities(ship);
   ship.heatPressure = 0;
   ship.hotComponentCount = 0;
   ship.overheatedComponentCount = 0;
@@ -91,6 +89,38 @@ function initShipHeat(ship) {
   ship.heatAdjacencyBuilds = (ship.heatAdjacencyBuilds || 0) + 1;
   ship.dirtyHeat = new Set(design.map((_, i) => i));
   rebuildThermalNetworks(ship);
+}
+
+function recalculateEffectiveThermalCapacities(ship) {
+  if (!ship.componentThermals) return;
+  const design = ship.design || [];
+  if (!ship.componentBaseHeatCapacity || ship.componentBaseHeatCapacity.length !== design.length) {
+    ship.componentBaseHeatCapacity = ship.componentThermals.map((thermal, index) => profile(design[index]?.type, PARTS[design[index]?.type] || {}).capacity || thermal.capacity || 0);
+  }
+  for (let i = 0; i < design.length; i += 1) {
+    const adjacentLiveSinks = new Set();
+    for (const edge of ship.componentAdjacency?.[i] || []) {
+      const index = edge.index;
+      if (design[index]?.type === "heatSink" && (ship.componentHp?.[index] ?? 1) > 0) adjacentLiveSinks.add(index);
+    }
+    const capacity = ship.componentBaseHeatCapacity[i] + adjacentLiveSinks.size * 35;
+    ship.componentThermals[i].capacity = capacity;
+    if (ship.componentHeatCapacity) ship.componentHeatCapacity[i] = capacity;
+    if (ship.componentHeat && Number.isFinite(ship.componentHeat[i])) {
+      ship.componentHeat[i] = Math.max(0, Math.min(capacity * 1.25, ship.componentHeat[i]));
+    }
+    ship.dirtyHeat?.add?.(i);
+  }
+  let totalHeat = 0;
+  let totalCapacity = 0;
+  for (let i = 0; i < design.length; i += 1) {
+    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
+    totalHeat += Math.max(0, Number(ship.componentHeat?.[i]) || 0);
+    totalCapacity += ship.componentThermals[i].capacity;
+  }
+  ship.currentHeat = totalHeat;
+  ship.maxHeat = totalCapacity;
+  ship.heatPressure = totalCapacity > 0 ? totalHeat / totalCapacity : 0;
 }
 
 function rebuildThermalNetworks(ship) {
@@ -193,10 +223,13 @@ function updateShipHeat(ship, dt, room, now) {
   if (!ship.alive || !ship.componentHeat) return;
   const pending = ship.componentHeatInput.some(value => value > 0);
   if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending) return;
-  ship.heatAccumulator += dt;
+  const MAX_THERMAL_STEPS = 8;
+  const MAX_THERMAL_BACKLOG_SECONDS = TICK_SECONDS * MAX_THERMAL_STEPS;
+  ship.heatAccumulator = Math.min((ship.heatAccumulator || 0) + Math.max(0, dt || 0), MAX_THERMAL_BACKLOG_SECONDS);
   if (ship.heatAccumulator < TICK_SECONDS) return;
-  const elapsed = Math.min(0.6, ship.heatAccumulator);
-  ship.heatAccumulator = 0;
+  const steps = Math.min(MAX_THERMAL_STEPS, Math.floor(ship.heatAccumulator / TICK_SECONDS));
+  const elapsed = steps * TICK_SECONDS;
+  ship.heatAccumulator = Math.max(0, ship.heatAccumulator - elapsed);
   ship.lastHeatTickDelta = elapsed;
 
   const heat = ship.componentHeat;
@@ -204,6 +237,10 @@ function updateShipHeat(ship, dt, room, now) {
   ship.componentHeatGenerated.fill(0);
   ship.componentHeatReceived.fill(0);
   ship.componentHeatRemoved.fill(0);
+  if (!ship.componentHeatTransferredOut) ship.componentHeatTransferredOut = heat.map(() => 0);
+  if (!ship.componentHeatCooled) ship.componentHeatCooled = heat.map(() => 0);
+  ship.componentHeatTransferredOut.fill(0);
+  ship.componentHeatCooled.fill(0);
   ship.componentHeatSentThroughFrame.fill(0);
   ship.componentHeatRadiated.fill(0);
   let remainsActive = false;
@@ -260,12 +297,12 @@ function updateShipHeat(ship, dt, room, now) {
     delta[i] -= transfer;
     delta[j] += transfer;
     if (transfer > 0) {
-      ship.componentHeatRemoved[i] += transfer;
+      ship.componentHeatTransferredOut[i] += transfer;
       ship.componentHeatReceived[j] += transfer;
       if (throughFrame) ship.componentHeatSentThroughFrame[i] += transfer;
     } else if (transfer < 0) {
       ship.componentHeatReceived[i] -= transfer;
-      ship.componentHeatRemoved[j] -= transfer;
+      ship.componentHeatTransferredOut[j] -= transfer;
       if (throughFrame) ship.componentHeatSentThroughFrame[j] -= transfer;
     }
   }
@@ -292,6 +329,7 @@ function updateShipHeat(ship, dt, room, now) {
     coolingRate *= tempFactor;
     const removed = Math.min(Math.max(0, heat[i] + delta[i]), coolingRate * elapsed);
     ship.componentHeatRemoved[i] += removed;
+    ship.componentHeatCooled[i] += removed;
     if (ship.design[i].type === "radiator") ship.componentHeatRadiated[i] = removed;
     delta[i] -= removed;
   }
@@ -347,7 +385,7 @@ function updateShipHeat(ship, dt, room, now) {
     network.totalCoolingCapacity = network.sinks.reduce((sum, index) => sum + ship.componentThermals[index].cooling, 0)
       + network.radiators.reduce((sum, index) => sum + ship.componentThermals[index].cooling * (ship.componentThermals[index].exposedEdges ? 1 : 0.25), 0);
     network.totalCooling = network.radiators.reduce((sum, index) => sum + ship.componentHeatRadiated[index], 0)
-      + network.sinks.reduce((sum, index) => sum + ship.componentHeatRemoved[index], 0);
+      + network.sinks.reduce((sum, index) => sum + ship.componentHeatCooled[index], 0);
     const generation = network.generators.reduce((sum, index) => sum + HeatRules.activityHeat(ship.design[index].type, PARTS[ship.design[index].type] || {}), 0);
     network.overloaded = generation > network.totalCoolingCapacity;
   }
@@ -380,6 +418,8 @@ function buildHeatDebug(ship) {
       currentHeat: ship.componentHeat?.[index] || 0,
       generatedPerSecond: (ship.componentHeatGenerated?.[index] || 0) / dt,
       receivedFromNetworkPerSecond: (ship.componentHeatReceived?.[index] || 0) / dt,
+      transferredOutPerSecond: (ship.componentHeatTransferredOut?.[index] || 0) / dt,
+      cooledPerSecond: (ship.componentHeatCooled?.[index] || 0) / dt,
       sentThroughFramePerSecond: (ship.componentHeatSentThroughFrame?.[index] || 0) / dt,
       removedByRadiatorPerSecond: (ship.componentHeatRadiated?.[index] || 0) / dt
     })),
@@ -406,4 +446,4 @@ function effectiveComponentBonus(ship, propertyName, predicate) {
   return total;
 }
 
-module.exports = { STATE, initShipHeat, rebuildThermalNetworks, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };
+module.exports = { STATE, initShipHeat, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };

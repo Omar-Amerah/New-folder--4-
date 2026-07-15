@@ -241,3 +241,7 @@ Server spawning is planned by `src/server/spawnPlanner.js`. The planner sorts st
 ## Section 8C heat snapshots and parity
 
 Heat is authoritative on the server and component-index aligned with immutable ship designs. Runtime snapshots expose aggregate stored heat/capacity plus full or delta component heat tuples; clients merge those tuples without reusing removed-ship arrays. Designer heat output is labelled as prediction and shares rules with runtime where applicable. See [Heat, Power and Component Health](heat-power-component-health.md).
+
+### Section 8D thermal invariants
+
+Runtime heat keeps immutable design indexes and physical adjacency, but effective component capacity is recalculated from living adjacent heat sinks after sink destruction or repair. Whole-ship aggregates include living components only; destroyed components may retain tuple heat for display/history. Internal transfer is debugged separately from cooling/radiation so conservation checks use generated heat minus actual heat leaving the ship. Thermal updates retain normal stalled elapsed time through bounded substeps and clamp excessive backlog at 1.6 seconds.

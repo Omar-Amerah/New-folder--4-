@@ -71,3 +71,13 @@ The broader suites (`test:unit`, `test:integration`, `test:protocol`, `test:brow
 ## Deferred wiring
 
 Section 8C does not redesign the Heat interface, rebalance heat, change HUD layout, alter arrow rendering or introduce production test-only controls. Future work may add deeper electrical storage modelling, richer telemetry dashboards or additional production browser scenarios without changing these snapshot and parity contracts.
+
+## Section 8D cleanup policy
+
+Effective thermal capacity is the base profile capacity plus bonuses from currently living adjacent heat sinks. Physical adjacency remains immutable, but `recalculateEffectiveThermalCapacities(ship)` reapplies live sink bonuses whenever component lifecycle changes; a destroyed sink gives no neighbor bonus and a repaired sink restores it without creating heat. Stored component heat is clamped to the existing `capacity * 1.25` policy after capacity changes.
+
+Destroyed components retain stored heat in their component tuple, but authoritative whole-ship heat (`heatNow`, `heatMax`, pressure and hot counts) includes only living components. Client diagnostics therefore compare the same living set when component HP is available and report `insufficientData` instead of warning when HP is unavailable.
+
+Thermal accounting now separates internal transfer from true heat removal: `componentHeatTransferredOut` and `componentHeatReceived` describe redistribution, while `componentHeatCooled` and `componentHeatRadiated` describe heat leaving the ship. Network `totalCooling` counts only actual cooling/radiation.
+
+Thermal frame stalls are bounded, not discarded: elapsed time accumulates, up to eight 0.2-second thermal substeps are processed per update, and backlog is clamped to 1.6 seconds to prevent spiral-of-death loops.

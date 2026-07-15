@@ -228,6 +228,7 @@ function onComponentDestroyed(room, ship, index, now) {
   recalcEffectiveStats(ship);
   {
     const heat = require("./heat");
+    heat.recalculateEffectiveThermalCapacities(ship);
     if (heat.isThermalRouteType(module.type)) heat.rebuildThermalNetworks(ship);
   }
 }
@@ -365,6 +366,7 @@ function repairShipComponents(room, ship, amount, now) {
       recalcEffectiveStats(ship);
       {
         const heat = require("./heat");
+        heat.recalculateEffectiveThermalCapacities(ship);
         if (heat.isThermalRouteType(ship.design[idx].type)) heat.rebuildThermalNetworks(ship);
       }
     }

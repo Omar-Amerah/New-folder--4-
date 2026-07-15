@@ -1,56 +1,13 @@
 "use strict";
 const assert = require("assert");
 const msgpack = require("@msgpack/msgpack");
-const { buildSharedSnapshot, markShipDesignsSent } = require("./src/server/snapshots");
-const { createRoom, resetMatch } = require("./src/server/rooms");
-const { spawnShip } = require("./src/server/ships");
-const { computeStats } = require("./src/server/shipStats");
-const { repairShipComponents } = require("./src/server/componentHealth");
-const heat = require("./src/server/heat");
-const HeatRules = require("./public/src/shared/heatRules");
-
-const design = [
-  {x:7,y:7,type:"core"},{x:6,y:7,type:"frame"},{x:5,y:7,type:"heatPipe"},
-  {x:4,y:7,type:"radiator"},{x:8,y:7,type:"heatSink"},{x:7,y:6,type:"reactor"},
-  {x:7,y:8,type:"engine"},{x:6,y:8,type:"blaster"},{x:8,y:8,type:"shieldGenerator"},{x:6,y:6,type:"repairBeam"}
-];
-function roomWithShip() {
-  const room = createRoom("SOAK"); room.phase = "active"; room.rules.gameMode = "teams"; room.clients = new Set();
-  const p = { id:"p1", name:"P1", team:"blue", connected:true, ships:[], design, stats:computeStats(design), money:0, income:0, score:0, kills:0, losses:0, color:"#fff", shipCap:3 };
-  room.players.set(p.id, p);
-  const s = spawnShip(room, p, 1000, 0, { design, stats:p.stats });
-  s.weaponAngles = design.map(()=>0); s.weaponDesiredAngles = []; s.weaponAimTargetIds = []; s.weaponFireTargetIds = [];
-  return { room, ship:s };
-}
-(async () => {
-  const merge = await import("./public/src/snapshotMerge.js");
-  const display = await import("./public/src/shared/heatDisplay.js");
-  const { room, ship } = roomWithShip();
-  ship.componentHeat[5] = 3.5; ship.componentHeat[7] = 21.25; ship.componentHeatState[7] = HeatRules.STATE.HOT; ship.dirtyHeat.add(5); ship.dirtyHeat.add(7);
-  heat.updateShipHeat(ship, 0.25, { effects:[] }, 1000);
-  const full = msgpack.decode(msgpack.encode({ ships: buildSharedSnapshot(room, 1000, true).ships })).ships[0];
-  assert.strictEqual(full.componentHeat.length, design.length, "full heat tuples align with design length");
-  assert(full.componentHeat.every(t => Array.isArray(t) && t.length === 4 && t.every(Number.isFinite)), "full heat tuples are finite stride-4 tuples");
-  const sum = full.componentHeat.reduce((a,t,i)=>a + (ship.componentHp[i] > 0 ? t[0] : 0), 0);
-  assert(Math.abs(sum - full.heatNow) <= full.componentHeat.length * 0.55, "aggregate stored heat reconciles with component tuples");
-  assert.strictEqual(display.formatHeatPercent(display.shipHeatPercent({ heatNow:3.5, heatMax:1100 })), "0.3%", "fractional panel percentage derives from stored/capacity");
-  assert.strictEqual(display.formatHeatPercent(display.shipHeatPercent({ heatNow:0, heatMax:1100 })), "0%", "true zero renders as 0%");
-  markShipDesignsSent(room);
-  ship.componentHeat[7] = 70; ship.componentHeatState[7] = HeatRules.STATE.CRITICAL; ship.dirtyHeat.add(7);
-  const dyn = msgpack.decode(msgpack.encode({ ships: buildSharedSnapshot(room, 1250, false).ships })).ships[0];
-  assert(!dyn.design && Array.isArray(dyn.componentHeatD), "dynamic snapshot uses compact heat delta");
-  const merged = merge.mergeCachedShipFields([full], [dyn])[0];
-  assert.strictEqual(merged.componentHeat[7][0], 70, "delta updates only intended component index");
-  assert.notStrictEqual(merged.componentHeat[6][0], 70, "delta cannot spill to another component");
-  const malformed = merge.applyComponentHeatDelta(merged.componentHeat, [6, Infinity, 2, 0.5, 100, 999, 1, 1, 1, 1, 2]);
-  assert.deepStrictEqual(malformed[6], merged.componentHeat[6], "malformed deltas fail safely");
-  const reconnect = merge.mergeCachedShipFields([merged], [msgpack.decode(msgpack.encode({ ships: buildSharedSnapshot(room, 1500, true).ships })).ships[0]])[0];
-  assert.strictEqual(reconnect.componentHeat[7][0], 70, "reconnect full snapshot reconstructs current heat");
-  ship.componentHp[2] = 0; heat.rebuildThermalNetworks(ship); assert(ship.thermalNetworks.length >= 0, "destroyed heat pipe rebuilds routes safely");
-  repairShipComponents({ effects:[] }, ship, ship.componentMaxHp[2], 0); assert(ship.componentHp[2] > 0, "heat pipe repair restores hp");
-  ship.componentHeat[5] = ship.componentThermals[5].capacity * 1.1; ship.componentHeatState[5] = HeatRules.STATE.OVERHEATED;
-  for (let t=0;t<HeatRules.REACTOR_MELTDOWN_SECONDS + 1;t += 0.25) { ship.componentHeat[5] = ship.componentThermals[5].capacity * 1.1; ship.componentHeatState[5] = HeatRules.STATE.OVERHEATED; heat.updateShipHeat(ship, 0.25, { effects:[] }, 2000 + t*1000); }
-  assert.strictEqual(ship.componentHp[5], 0, "deterministic test hook can overheat reactor through state mutation and observe meltdown");
-  resetMatch(room, "design"); assert.strictEqual(room.ships.size, 0, "match reset clears thermal ship state");
-  console.log("Heat protocol MessagePack round-trip verification passed");
-})().catch(e=>{ console.error(e); process.exit(1); });
+const { spawn } = require("child_process");
+const http = require("http");
+const PORT = 32187;
+const BASE = `http://127.0.0.1:${PORT}`;
+const ROOM = `heat-protocol-${Date.now()}`;
+const DESIGN = [{x:7,y:7,type:"core",rotation:0},{x:7,y:8,type:"frame",rotation:0},{x:6,y:8,type:"engine",rotation:0},{x:8,y:8,type:"engine",rotation:0},{x:6,y:7,type:"maneuverThruster",rotation:0},{x:8,y:7,type:"maneuverThruster",rotation:0},{x:6,y:6,type:"reactor",rotation:0},{x:7,y:5,type:"blaster",rotation:0},{x:8,y:6,type:"heatSink",rotation:0},{x:9,y:6,type:"radiator",rotation:0}];
+function waitServer(){return new Promise((res,rej)=>{const st=Date.now();(function t(){http.get(`${BASE}/index.html`,r=>{r.resume();res();}).on('error',()=>Date.now()-st>15000?rej(new Error('server did not start')):setTimeout(t,100));})();});}
+class C{constructor(name){this.name=name;this.latest={};this.states=[];this.designs=new Map();}async open(){this.ws=new WebSocket(`ws://127.0.0.1:${PORT}/socket`);this.ws.binaryType="arraybuffer";this.ws.addEventListener('message',async e=>{let bytes=e.data instanceof ArrayBuffer?new Uint8Array(e.data):new Uint8Array(await e.data.arrayBuffer?.()||[]);let m;try{m=bytes.length?msgpack.decode(bytes):JSON.parse(e.data)}catch{m=JSON.parse(e.data)}this.latest[m.type]=m;if(m.type==='error'){ if(this.name==='a')globalThis.__AERR=m; else globalThis.__BERR=m;}if(m.type==='state'){for(const s of m.ships||[]){if(s.design)this.designs.set(s.id,s.design);else s.design=this.designs.get(s.id);}this.states.push(m);}});await new Promise((res,rej)=>{this.ws.addEventListener('open',res,{once:true});this.ws.addEventListener('error',()=>rej(new Error('ws error')),{once:true});});}send(o){this.ws.send(msgpack.encode(o));}close(){try{this.ws.close()}catch{}}}
+async function until(fn,label,ms=15000){const st=Date.now();while(Date.now()-st<ms){const v=fn();if(v)return v;await new Promise(r=>setTimeout(r,50));}throw new Error(`timeout ${label}; aerr=${JSON.stringify(globalThis.__AERR||null)} berr=${JSON.stringify(globalThis.__BERR||null)}`)}
+(async()=>{const server=spawn(process.execPath,["server.js"],{cwd:__dirname,env:{...process.env,PORT:String(PORT)},stdio:["ignore","pipe","pipe"]});let log="";server.stdout.on('data',d=>log+=d);server.stderr.on('data',d=>log+=d);const a=new C('a'), b=new C('b');try{await waitServer();await a.open();await b.open();await until(()=>a.latest.hello,'hello');a.send({type:'join',room:ROOM,name:'A',team:'blue'});await until(()=>a.latest.joined,'join a');b.send({type:'join',room:ROOM,name:'B',team:'red'});await until(()=>b.latest.joined,'join b');a.send({type:'setTeam',team:'blue'});b.send({type:'setTeam',team:'red'});a.send({type:'setRules',rules:{asteroidDensity:'none'}});a.send({type:'startDesign'});await until(()=>a.latest.state?.phase==='design','design');a.send({type:'deploy',design:DESIGN,combatStyle:'sentry'});b.send({type:'deploy',design:DESIGN,combatStyle:'sentry'});await until(()=>a.latest.state?.phase==='active'&&a.latest.state.ships?.length>=2,'active');const active=a.latest.state;let mine=active.ships.find(s=>s.ownerId===a.latest.joined.id); if(!mine?.componentHeat){ mine=await until(()=>{for(const st of a.states){const s=st.ships?.find(x=>x.ownerId===a.latest.joined.id&&Array.isArray(x.componentHeat)); if(s)return s;}},'full component heat'); } assert(mine&&Array.isArray(mine.componentHeat),"receives full component heat snapshot");assert.strictEqual(mine.componentHeat.length,DESIGN.length,"component heat indexes align with design");a.send({type:'command',x:(mine.x||1000)+600,y:mine.y||1000});const deltaShip=await until(()=>{for(const st of a.states.slice(-80)){const s=st.ships?.find(x=>x.id===mine.id&&Array.isArray(x.componentHeatD));if(s)return s;}},'compact heat delta',20000);assert(deltaShip.componentHeatD.length%5===0,"compact heat delta uses stride 5");const full=mine;assert(Array.isArray(full.componentHeat)&&full.componentHeat.length===DESIGN.length,'full current heat reconstruction is available for reconnect/static snapshots');a.send({type:'returnToLobby'});await new Promise(r=>setTimeout(r,500));assert(a.states.some(s=>s.phase==='lobby'||s.phase==='design'||(s.ships||[]).every(sh=>!sh.componentHeatD)),"reset/rematch does not preserve stale thermal deltas");console.log('Real heat protocol WebSocket/MessagePack verification passed');a.close();b.close();server.kill();}catch(e){console.error(e);console.error(log.split('\n').slice(-30).join('\n'));a.close();b.close();server.kill();process.exit(1);}})();

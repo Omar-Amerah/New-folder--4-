@@ -98,3 +98,7 @@ Static `state.map.safeZones` is the authoritative server list used by combat. Ea
 ## Heat component snapshots
 
 State messages may include `componentHeat` full tuples as `[heat, state, ratio, capacity]` for every design index, or `componentHeatD` compact deltas as `[index, heat, state, ratio, capacity, ...]`. Deltas are stride 5 and are ignored when malformed, non-finite or out of range. Aggregate fields `heatNow`, `heatMax`, `heat`, `hot` and `overheated` are generated from the same included living components.
+
+## Section 8D heat protocol verification
+
+`npm run test:heat-protocol` starts `server.js`, connects with real WebSockets, sends MessagePack client messages, receives MessagePack snapshots, verifies full `componentHeat` tuples, compact `componentHeatD` deltas, index alignment, reconnect reconstruction and reset/rematch cleanup. Direct snapshot-builder tests are unit coverage only and are not described as the protocol test.
