@@ -26,8 +26,37 @@ const DESIGN = [
 ];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function snapshotShipDiagnostics(state, preferredShipId) {
+  const ships = Array.isArray(state?.ships) ? state.ships : [];
+  const ship = (preferredShipId && ships.find((s) => s.id === preferredShipId)) || ships.find((s) => s && (s.componentHeatD || s.componentHeat || s.design || s.chp)) || ships[0];
+  return {
+    stateEpoch: state?.stateEpoch,
+    snapshotSeq: state?.snapshotSeq,
+    snapshotKind: state?.snapshotKind,
+    baseSnapshotSeq: state?.baseSnapshotSeq,
+    staticRevision: state?.staticRevision,
+    shipId: ship?.id,
+    ownerId: ship?.ownerId,
+    hasDesign: Array.isArray(ship?.design),
+    hasComponentHp: Array.isArray(ship?.chp),
+    hasComponentHeat: Array.isArray(ship?.componentHeat),
+    componentHeatDLength: Array.isArray(ship?.componentHeatD) ? ship.componentHeatD.length : 0,
+    heatNow: ship?.heatNow,
+    heatMax: ship?.heatMax
+  };
+}
+
 class Client {
-  constructor() { this.latest = {}; this.snapshots = []; this.events = []; }
+  constructor(snapshotMerge) {
+    this.mergeSnapshotTransaction = snapshotMerge.mergeSnapshotTransaction;
+    this.latest = {};
+    this.rawSnapshots = [];
+    this.mergedSnapshots = [];
+    this.snapshots = this.rawSnapshots;
+    this.events = [];
+    this.mergedSnapshot = null;
+    this.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false };
+  }
   open() {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://127.0.0.1:${PORT}/socket`);
@@ -40,15 +69,49 @@ class Client {
         let message;
         try { message = event.data instanceof ArrayBuffer ? msgpack.decode(new Uint8Array(event.data)) : JSON.parse(event.data); }
         catch (err) { this.events.push({ type: "decode-error", at: Date.now(), message: err.message }); return; }
-        this.latest[message.type] = message;
-        if (message.type === "state") {
-          this.snapshots.push({ at: Date.now(), state: message });
-          if (this.snapshots.length > 120) this.snapshots.shift();
+        if (message.type !== "state") {
+          this.latest[message.type] = message;
+          return;
         }
+        const at = Date.now();
+        const rawMeta = snapshotShipDiagnostics(message, this.selectedShipId);
+        this.latest.rawState = message;
+        this.rawSnapshots.push({ at, state: message, meta: { ...rawMeta, mergeAccepted: undefined, rejectionReason: undefined } });
+        if (this.rawSnapshots.length > 120) this.rawSnapshots.shift();
+        const result = this.mergeSnapshotTransaction(this.mergedSnapshot, this.snapshotNetwork, message);
+        const mergeEvent = {
+          type: result.ok ? "snapshot-accepted" : "snapshot-rejected",
+          at,
+          accepted: !!result.ok,
+          reason: result.ok ? undefined : result.reason,
+          previousNetwork: { ...this.snapshotNetwork },
+          raw: rawMeta
+        };
+        if (!result.ok) {
+          this.events.push(mergeEvent);
+          this.latest.snapshotMerge = mergeEvent;
+          const last = this.rawSnapshots[this.rawSnapshots.length - 1];
+          if (last) last.meta = { ...last.meta, mergeAccepted: false, rejectionReason: result.reason };
+          if (!["stale-epoch", "stale-sequence", "duplicate-sequence"].includes(result.reason)) this.unexpectedSnapshotRejection = mergeEvent;
+          return;
+        }
+        this.mergedSnapshot = result.snapshot;
+        this.snapshotNetwork = result.networkState;
+        this.latest.state = this.mergedSnapshot;
+        const mergedMeta = snapshotShipDiagnostics(this.mergedSnapshot, this.selectedShipId);
+        this.latest.snapshotMerge = { ...mergeEvent, networkState: { ...this.snapshotNetwork }, merged: mergedMeta };
+        const last = this.rawSnapshots[this.rawSnapshots.length - 1];
+        if (last) last.meta = { ...last.meta, mergeAccepted: true, rejectionReason: undefined };
+        this.mergedSnapshots.push({ at, state: this.mergedSnapshot, meta: { ...mergedMeta, mergeAccepted: true, rejectionReason: undefined } });
+        if (this.mergedSnapshots.length > 120) this.mergedSnapshots.shift();
       });
     });
   }
   send(message) { this.ws.send(msgpack.encode(message)); }
+  selectShipForDiagnostics(id) { this.selectedShipId = id; }
+  assertNoUnexpectedSnapshotRejection() {
+    if (this.unexpectedSnapshotRejection) throw new Error(`unexpected snapshot merge rejection: ${this.unexpectedSnapshotRejection.reason}`);
+  }
   close() { try { this.ws?.close(); } catch {} }
 }
 
@@ -67,7 +130,8 @@ async function until(fn, what, timeoutMs = 15000) {
   const { server, getLog } = startServer(PORT);
   let browser;
   let page;
-  const bot = new Client();
+  const snapshotMerge = await import("./public/src/snapshotMerge.js");
+  const bot = new Client(snapshotMerge);
   const diagnostics = { script: "verify-heat-browser.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], phases: [], snapshots: [] };
   try {
     await waitForServer(BASE);
@@ -94,30 +158,37 @@ async function until(fn, what, timeoutMs = 15000) {
     diagnostics.botPlayerId = bot.latest.joined.playerId || bot.latest.joined.id;
     await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none" } }));
     await page.evaluate(() => window.__mfaNetSend({ type: "startDesign" }));
-    await until(() => bot.latest.state?.phase === "design", "design phase");
+    await until(() => { bot.assertNoUnexpectedSnapshotRejection(); return bot.latest.state?.phase === "design"; }, "design phase");
     diagnostics.phases.push({ phase: "design", at: Date.now() });
     await page.evaluate((design) => window.__mfaNetSend({ type: "deploy", design, combatStyle: "sentry" }), DESIGN);
     bot.send({ type: "deploy", design: DESIGN, combatStyle: "sentry" });
-    await until(() => bot.latest.state?.phase === "active", "active phase");
+    await until(() => { bot.assertNoUnexpectedSnapshotRejection(); return bot.latest.state?.phase === "active"; }, "active phase");
     diagnostics.phases.push({ phase: "active", at: Date.now() });
 
-    const ship = await until(() => bot.latest.state?.ships?.find((s) => s.ownerId === myId && s.alive && Array.isArray(s.design) && Array.isArray(s.componentHeat)), "authoritative heat snapshot with selected ship");
+    const ship = await until(() => {
+      bot.assertNoUnexpectedSnapshotRejection();
+      const candidate = bot.latest.state?.ships?.find((s) => s.ownerId === myId && s.alive && Array.isArray(s.design) && Array.isArray(s.chp) && Array.isArray(s.componentHeat) && s.componentHeat.length === s.design.length && bot.latest.state?.map && bot.latest.state?.world && bot.latest.state?.rules && bot.latest.state?.players?.find((p) => p.id === myId));
+      return candidate;
+    }, "authoritative heat snapshot with selected ship");
+    bot.selectShipForDiagnostics(ship.id);
     diagnostics.shipIds = bot.latest.state.ships.map((s) => s.id);
     diagnostics.selectedShipId = ship.id;
+    diagnostics.selectedMergedSnapshot = snapshotShipDiagnostics(bot.latest.state, ship.id);
+    diagnostics.selectedRawSnapshot = snapshotShipDiagnostics(bot.latest.rawState, ship.id);
     await page.evaluate((id) => { window.__mfaState.selectedShipIds = new Set([id]); window.__mfaState.selectedShipId = id; }, ship.id);
     await page.waitForFunction((id) => {
       const ship = window.__mfaState?.snapshot?.ships?.find((s) => s.id === id);
-      return ship && Array.isArray(ship.design) && Array.isArray(ship.componentHeat);
+      return ship && Array.isArray(ship.design) && Array.isArray(ship.componentHeat) && ship.componentHeat.length === ship.design.length;
     }, ship.id, { timeout: 15000 });
 
     await page.click("#shipHeatTab");
     await until(() => page.locator("#shipHeatSummary").textContent().then((t) => /Overall heat|Stored/.test(t || "")), "heat panel summary");
     await page.evaluate((id) => window.__mfaNetSend({ type: "command", shipIds: [id], x: 1800, y: 1300 }), ship.id);
-    const heated = await until(() => bot.latest.state?.ships?.find((s) => s.id === ship.id && Number(s.heatNow) > 0 && Array.isArray(s.componentHeat)), "authoritative heat update", 20000);
+    const heated = await until(() => { bot.assertNoUnexpectedSnapshotRejection(); return bot.latest.state?.ships?.find((s) => s.id === ship.id && Number(s.heatNow) > 0 && Number(s.heatMax) > 0 && Array.isArray(s.design) && Array.isArray(s.componentHeat) && s.componentHeat.length === s.design.length); }, "authoritative heat update", 20000);
     diagnostics.heat = { heatNow: heated.heatNow, heatMax: heated.heatMax, hot: heated.hot, overheated: heated.overheated, componentHeat: heated.componentHeat };
     await page.waitForFunction((id) => {
       const ship = window.__mfaState?.snapshot?.ships?.find((s) => s.id === id);
-      return ship && Number(ship.heatNow) > 0 && !document.querySelector("#shipHeatSummary")?.hidden;
+      return ship && Array.isArray(ship.design) && Array.isArray(ship.componentHeat) && ship.componentHeat.length === ship.design.length && Number(ship.heatNow) > 0 && !document.querySelector("#shipHeatSummary")?.hidden;
     }, ship.id, { timeout: 15000 });
 
     const summary = await page.locator("#shipHeatSummary").textContent();
@@ -141,7 +212,9 @@ async function until(fn, what, timeoutMs = 15000) {
   } catch (err) {
     diagnostics.error = { message: err.message, stack: err.stack };
     diagnostics.serverLogTail = getLog().split("\n").slice(-80).join("\n");
-    diagnostics.snapshots = bot.snapshots.slice(-5).map(({ at, state }) => ({ at, phase: state.phase, players: state.players?.map((p) => ({ id: p.id, team: p.team })), ships: state.ships?.map((s) => ({ id: s.id, ownerId: s.ownerId, alive: s.alive, x: s.x, y: s.y, heatNow: s.heatNow, heatMax: s.heatMax, targetId: s.targetId })) }));
+    diagnostics.snapshotMergeEvents = bot.events.filter((e) => e.type?.startsWith("snapshot-")).slice(-20);
+    diagnostics.rawSnapshots = bot.rawSnapshots.slice(-5).map(({ at, state, meta }) => ({ at, phase: state.phase, players: state.players?.map((p) => ({ id: p.id, team: p.team })), meta, ships: state.ships?.map((s) => ({ id: s.id, ownerId: s.ownerId, alive: s.alive, x: s.x, y: s.y, heatNow: s.heatNow, heatMax: s.heatMax, targetId: s.targetId, hasDesign: Array.isArray(s.design), hasComponentHp: Array.isArray(s.chp), hasComponentHeat: Array.isArray(s.componentHeat), componentHeatDLength: Array.isArray(s.componentHeatD) ? s.componentHeatD.length : 0 })) }));
+    diagnostics.mergedSnapshots = bot.mergedSnapshots.slice(-5).map(({ at, state, meta }) => ({ at, phase: state.phase, players: state.players?.map((p) => ({ id: p.id, team: p.team, hasDesign: Array.isArray(p.design), hasStats: !!p.stats })), meta, ships: state.ships?.map((s) => ({ id: s.id, ownerId: s.ownerId, alive: s.alive, x: s.x, y: s.y, heatNow: s.heatNow, heatMax: s.heatMax, targetId: s.targetId, hasDesign: Array.isArray(s.design), hasComponentHp: Array.isArray(s.chp), hasComponentHeat: Array.isArray(s.componentHeat), componentHeatDLength: Array.isArray(s.componentHeatD) ? s.componentHeatD.length : 0 })) }));
     if (page) await page.screenshot({ path: path.join(ARTIFACT_DIR, "failure.png"), fullPage: true }).catch(() => {});
     writeJsonArtifact(path.join(ARTIFACT_DIR, "diagnostics.json"), diagnostics);
     fs.writeFileSync(path.join(ARTIFACT_DIR, "server.log"), getLog());
