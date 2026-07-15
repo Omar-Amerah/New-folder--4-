@@ -41,9 +41,13 @@ Culling uses pure geometry (circles, rectangles, and lines/trails) against expan
 
 Low caps DPR at 1.25, uses 1.5 bake scale, and reduces decorative particle/trail density while retaining projectiles, selection, ownership, damage, and warnings. Medium caps DPR at 1.5 and uses balanced 2.0 bake scale. High caps DPR at 2.0, uses 2.5 bake scale, and enables the richest bounded effects. Manual switching persists in existing settings storage and advances texture generation without touching networking state.
 
-## Deferred to Section 10B2
+## Section 10C2 active-match Chromium renderer verification
 
-Real Chromium performance scenarios, long-running renderer soak, visibility/background-tab behaviour, WebGL context-loss recovery, CI performance jobs, and browser artifacts are intentionally deferred.
+Section 10C2 replaces menu-only renderer checks with real active-match load. The performance browser test launches `server.js`, the production frontend, real WebSockets/MessagePack, Chromium and Pixi/WebGL, then drives deterministic startup, warm-up, normal-load, heavy-load, culling and cleanup/transition phases. A scenario is invalid unless authoritative ships, visual ships, active ship views, visible entities and texture entries are non-zero after warm-up.
+
+Frame diagnostics distinguish `rendererWorkMs` (time spent executing the Pixi update) from `callbackIntervalMs` and `callbackHz` (ticker/requestAnimationFrame cadence), so tests never infer displayed FPS from renderer work duration. Bounded phase buckets cover startup, warm-up, steady, transition and cleanup.
+
+The WebGL context check now loses and restores context during an active match, verifies networking and authoritative state survive while unsafe rendering stops, and exercises the bounded fatal-frame diagnostic path. The dedicated renderer soak runs at least three complete active gameplay cycles with entity churn, camera/selection/minimap-style input, viewport resizing, quality changes, full-state recovery, epoch/lobby transitions and resource measurements at load and cleanup.
 
 ## Section 10B2 Chromium renderer verification
 
@@ -51,7 +55,7 @@ Section 10B2 adds real Chromium/WebGL diagnostics and CI coverage for renderer p
 
 The browser diagnostics exposed as `window.__mfaRenderer.diagnostics()` are read-only, bounded, serializable summaries and intentionally omit resume credentials, private tokens, and full private snapshots. Frame measurements are split into startup, warm-up, steady, transition, and cleanup phases so texture-bake startup frames are not used as steady-state performance.
 
-CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context` with the normal browser group, and runs `npm run test:renderer-soak` in a separate real-Chromium job. Failure artifacts are written under `test-artifacts/` with screenshots, diagnostics, reports, server logs, viewport, DPR, quality, pool, texture, scene and console data where available.
+CI runs `verify-renderer-performance-browser.js` and `verify-webgl-context-browser.js` with the normal browser group, and runs `npm run test:renderer-soak` in a separate real-Chromium job. Failure artifacts are written under `test-artifacts/` with screenshots, diagnostics, reports, server logs, viewport, DPR, quality, pool, texture, scene and console data where available.
 
 
 ## Test taxonomy and CI ownership
