@@ -286,7 +286,7 @@ export function createGame() {
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
   state.joiningLobby = true;
   connect(getSocketUrl(), () => {
-    send({ type: "join", name, room: "", team: teamValue() });
+    send(withClientProtocol({ type: "join", name, room: "", team: teamValue() }));
   });
   updateLobbyState();
 }
@@ -311,7 +311,7 @@ export function joinRoom(roomCode = "") {
   localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
   state.joiningLobby = true;
   connect(getSocketUrl(), () => {
-    send({ type: "join", name, room: roomCode, team: teamValue(), resumeToken: getResumeCredential(roomCode) });
+    send(withClientProtocol({ type: "join", name, room: roomCode, team: teamValue(), resumeToken: getResumeCredential(roomCode) }));
   });
   updateLobbyState();
 }

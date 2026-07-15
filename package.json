@@ -68,7 +68,12 @@
     "test:meltdown": "node verify-meltdown.js",
     "test:heat-protocol": "node verify-heat-protocol.js",
     "test:heat-browser": "npm run build && node verify-heat-browser.js",
-    "test:heat-soak": "node verify-heat-soak.js"
+    "test:heat-soak": "node verify-heat-soak.js",
+    "test:websocket-frames": "node verify-websocket-frames.js",
+    "test:protocol-schema": "node verify-protocol-schema.js",
+    "test:network-connections": "node verify-network-connections.js",
+    "test:network-protocol": "node verify-network-protocol.js",
+    "test:network-browser": "npm run build && node verify-network-browser.js"
   },
   "keywords": [
     "browser-game",

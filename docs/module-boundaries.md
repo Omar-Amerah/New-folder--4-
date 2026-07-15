@@ -84,3 +84,6 @@ Catch-up Parts 1–3 are now represented by required, behavior-named suites inst
 ## Deliberately deferred to Sections 8–13
 
 The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+
+## Section 9A networking ownership
+`protocol.js` owns compatibility policy; `clientSchemas.js` owns accepted client-message shapes and limits; `websocketServer.js` owns frame compliance and connection buffers; `messages.js` owns schema-gated dispatch; `players.js` owns stable player identity and attachment generation. Snapshot epoch/resync ownership is reserved for Section 9B.

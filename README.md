@@ -102,3 +102,16 @@ Matches use deterministic server-side spawn planning based on stable player IDs,
 ### Spawn protection policy
 
 Spawn protection is generated from the server's deterministic spawn plan. Team zones protect only ships on that team; enemies entering the same circle are not protected. Solo zones protect only their owning player. A protected ship cannot fire from the zone, and targets protected by their own/team zone ignore incoming damage. Clients render the authoritative `map.safeZones` snapshot, but the server is the only authority for protection decisions.
+
+## Networking protocol notes
+The browser and server use raw WebSockets at `/socket` with MessagePack binary frames in production. Protocol version 4 requires clients to send compatibility fields and the `messagepack` capability in `join`. Reconnect preserves the stable room `playerId` through a private room-scoped resume credential while each transport receives a new `connectionId`.
+
+Useful networking checks:
+
+```bash
+npm run test:websocket-frames
+npm run test:protocol-schema
+npm run test:network-connections
+npm run test:network-protocol
+npm run test:network-browser
+```

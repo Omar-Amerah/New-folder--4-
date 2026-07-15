@@ -2,6 +2,8 @@
 
 const { clampNumber, performanceNow } = require("./utils");
 const { encodeMessage } = require("./wsCodec");
+const { validateClientMessage } = require("./clientSchemas");
+const { negotiate, ERROR_CODES, serverEnvelope } = require("./protocol");
 
 // Binary WebSocket opcode (0x2) — outbound game data is MessagePack, not text.
 const BINARY_OPCODE = 0x2;
@@ -19,7 +21,7 @@ function getCloseClient() {
 }
 
 function send(client, data) {
-  sendRaw(client, encodeMessage(data));
+  sendRaw(client, encodeMessage(serverEnvelope(client, data)));
 }
 
 // `payload` is a pre-encoded MessagePack Buffer (encode once, fan out to many).
@@ -68,10 +70,14 @@ function broadcastSnapshot(room, now, forceStatic = false) {
 }
 
 function handleMessage(client, message) {
-  if (!message || typeof message.type !== "string") return;
+  const schema = validateClientMessage(message);
+  if (!schema.ok) {
+    send(client, { type: "error", code: schema.code, message: schema.message, requestId: message?.requestId });
+    return;
+  }
 
   if (message.type === "ping") {
-    send(client, { type: "pong", at: Number(message.at) || 0, serverTime: Date.now() });
+    send(client, { type: "pong", at: Number(message.at) || 0, clientPingNonce: message.clientPingNonce, serverTimeMs: Date.now() });
     return;
   }
 
@@ -86,17 +92,23 @@ function handleMessage(client, message) {
   const { setRoomRules } = require("./rooms");
 
   if (message.type === "join") {
+    const negotiated = negotiate(message);
+    if (!negotiated.ok) {
+      send(client, { type: "error", code: negotiated.code, message: negotiated.message, retryable: false, requestId: message.requestId });
+      return;
+    }
+    client.protocol = { protocolVersion: message.protocolVersion, minProtocolVersion: message.minProtocolVersion, maxProtocolVersion: message.maxProtocolVersion, frontendBuildSha: message.frontendBuildSha || null, capabilities: message.capabilities || [] };
     joinRoom(client, message);
     return;
   }
 
   if (!client.room || !client.player) {
-    send(client, { type: "error", message: "Join a room first" });
+    send(client, { type: "error", code: ERROR_CODES.JOIN_REQUIRED, message: "Join a room first", requestId: message.requestId });
     return;
   }
 
   if (!isCurrentAttachment(client)) {
-    send(client, { type: "error", message: "This connection is no longer active for that player" });
+    send(client, { type: "error", code: ERROR_CODES.STALE_ATTACHMENT, message: "This connection is no longer active for that player", requestId: message.requestId });
     return;
   }
 

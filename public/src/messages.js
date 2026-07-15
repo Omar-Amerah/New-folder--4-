@@ -85,7 +85,7 @@ export function handleServerMessage(message) {
     if (state.server?.compatibility === "incompatible") {
       showToast("Server protocol is newer than this client build — refresh the page.", "error");
     }
-    state.myId = message.id;
+    state.connectionId = message.connectionId || message.id;
     applyServerParts(message.parts || {});
     state.design = normalizeDesign(state.design);
     invalidateHeatAnalysisCache();
@@ -110,7 +110,9 @@ export function handleServerMessage(message) {
 
   if (message.type === "joined") {
     state.joiningLobby = false;
-    state.myId = message.id;
+    state.myId = message.playerId || message.id;
+    state.connectionId = message.connectionId || state.connectionId;
+    state.attachmentId = message.attachmentId || null;
     state.room = message.room;
     state.world = message.world || state.world;
     state.map = message.map || state.map;

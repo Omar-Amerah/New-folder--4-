@@ -45,9 +45,9 @@ async function main() {
     // Alpha must complete its join (and become room admin) before Beta joins;
     // sending both concurrently races the server's processing order and can
     // make Beta the admin, failing the addBot step below.
-    alpha.send({ type: "join", name: "Alpha", room: ROOM });
+    alpha.send({ type: "join", name: "Alpha", room: ROOM, protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
     await alpha.waitFor((message) => message.type === "joined" && message.room === ROOM, "alpha did not join");
-    beta.send({ type: "join", name: "Beta", room: ROOM });
+    beta.send({ type: "join", name: "Beta", room: ROOM, protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
     await beta.waitFor((message) => message.type === "joined" && message.room === ROOM, "beta did not join");
 
     alpha.send({ type: "addBot" });
@@ -208,7 +208,7 @@ function openClient(name) {
       defaultDesign: null,
       messages,
       send(data) {
-        socket.send(JSON.stringify(data));
+        socket.send(msgpack.encode(data));
       },
       close() {
         socket.close();
