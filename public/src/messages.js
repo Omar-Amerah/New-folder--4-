@@ -20,6 +20,7 @@ import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } 
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { mergeSnapshotTransaction } from "./snapshotMerge.js";
+import { buildRequestFullStateMessage } from "./snapshotResync.js";
 import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterpolation.js";
 import { disableReconnect, send, recordNetworkEvent } from "./network.js";
 
@@ -193,7 +194,9 @@ function requestFullState(reason) {
   net.resyncing = true;
   net.lastResyncRequestAt = now;
   lobbyUi.setConnectionStatus("connecting", "Resynchronizing");
-  send({ type: "requestFullState", epoch: net.stateEpoch || 0, sequence: net.snapshotSeq || 0, reason: reason || "client-request" });
+  const resync = buildRequestFullStateMessage(net, reason || "client-request");
+  recordNetworkEvent("notice", { type: "requestFullState", localReason: resync.localReason, wireReason: resync.wireReason, epoch: resync.message.epoch, sequence: resync.message.sequence });
+  send(resync.message);
 }
 
   if (message.type === "purchaseResult") {

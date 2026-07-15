@@ -44,7 +44,8 @@ function getOutbound(client) {
 function frameBytes(payload) { return Buffer.isBuffer(payload) ? payload.length + 14 : 14; }
 function clearBlockedTimer(out) { if (out.blockedCloseTimer) clearTimeout(out.blockedCloseTimer); out.blockedCloseTimer = null; }
 function removeDrain(client, out) { if (out.drainListener && client.socket?.off) client.socket.off('drain', out.drainListener); out.drainListener = null; }
-function resetOutbound(client) { const out = getOutbound(client); removeDrain(client, out); clearBlockedTimer(out); out.control = []; out.snapshot = null; out.bytes = 0; out.controlBytes = 0; out.blocked = false; out.blockedSince = 0; }
+function notifySnapshot(item, event, client) { try { item?.snapshotCallbacks?.[event]?.(item.snapshotMeta || null, client, event); } catch {} }
+function resetOutbound(client) { const out = getOutbound(client); removeDrain(client, out); clearBlockedTimer(out); if (out.snapshot) notifySnapshot(out.snapshot, 'reset', client); for (const item of out.control || []) notifySnapshot(item, 'reset', client); out.control = []; out.snapshot = null; out.bytes = 0; out.controlBytes = 0; out.blocked = false; out.blockedSince = 0; }
 
 function enqueueRaw(client, payload, options = {}) {
   if (client.isClosed || client.socket.destroyed) return;
@@ -52,12 +53,15 @@ function enqueueRaw(client, payload, options = {}) {
   const bytes = frameBytes(payload);
   const kind = options.kind || 'control';
   if (kind === 'snapshot-compact') {
-    if (out.snapshot) { out.bytes = Math.max(0, out.bytes - out.snapshot.bytes); out.coalescedSnapshots += 1; }
-    out.snapshot = { payload, bytes, kind };
+    if (out.snapshot) { out.bytes = Math.max(0, out.bytes - out.snapshot.bytes); out.coalescedSnapshots += 1; notifySnapshot(out.snapshot, 'replaced', client); }
+    out.snapshot = { payload, bytes, kind, snapshotMeta: options.snapshotMeta || null, snapshotCallbacks: options.snapshotCallbacks || null };
+    notifySnapshot(out.snapshot, 'queued', client);
     out.bytes += bytes;
   } else if (kind === 'snapshot-full') {
-    if (out.snapshot?.kind === 'snapshot-compact') { out.bytes = Math.max(0, out.bytes - out.snapshot.bytes); out.snapshot = null; }
-    out.control.push({ payload, bytes, kind });
+    if (out.snapshot?.kind === 'snapshot-compact') { out.bytes = Math.max(0, out.bytes - out.snapshot.bytes); notifySnapshot(out.snapshot, 'dropped', client); out.snapshot = null; }
+    const item = { payload, bytes, kind, snapshotMeta: options.snapshotMeta || null, snapshotCallbacks: options.snapshotCallbacks || null };
+    out.control.push(item);
+    notifySnapshot(item, 'queued', client);
     out.bytes += bytes; out.controlBytes += bytes;
   } else {
     out.control.push({ payload, bytes, kind });
@@ -97,6 +101,7 @@ function flushOutbound(client) {
       const item = out.control.length ? out.control.shift() : out.snapshot;
       if (!out.control.length && item === out.snapshot) out.snapshot = null;
       const ok = writeFrame(client.socket, item.payload, BINARY_OPCODE);
+      notifySnapshot(item, 'written', client);
       out.bytes = Math.max(0, out.bytes - item.bytes);
       if (item.kind !== 'snapshot-compact') out.controlBytes = Math.max(0, out.controlBytes - item.bytes);
       if (!ok) markBlocked(client, out);

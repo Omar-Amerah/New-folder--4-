@@ -221,7 +221,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     stateEpoch: room.stateEpoch || 1,
     snapshotSeq: room._buildingSnapshotSeq || room.snapshotSeq || 0,
     snapshotKind: sendStatic ? "full" : "compact",
-    baseSnapshotSeq: sendStatic ? null : Math.max(0, (room._buildingSnapshotSeq || room.snapshotSeq || 1) - 1),
+    baseSnapshotSeq: sendStatic ? null : Math.max(0, room._buildingBaseSnapshotSeq ?? ((room._buildingSnapshotSeq || room.snapshotSeq || 1) - 1)),
     staticRevision: room.staticRevision || 1,
     staticRevisions: { world: room.staticRevision || 1, map: room.staticRevision || 1, rules: room.staticRevision || 1, playerDesign: room.staticRevision || 1, shipDesign: room.staticRevision || 1, componentCatalogue: room.componentCatalogueRevision || 1 },
     simulationTimeMs: Math.floor(now),

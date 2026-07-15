@@ -30,7 +30,7 @@ function wsDecode(data) {
 const RECONNECT = { baseMs: 300, maxMs: 4000, jitterMs: 250, maxDurationMs: 25000, heartbeatIntervalMs: 10000, heartbeatTimeoutMs: 30000 };
 function netDiag() {
   if (typeof globalThis === "undefined") return null;
-  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null };
+  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, eventCounter: 0 };
 }
 function markSentType(type) {
   const diag = netDiag();
@@ -42,11 +42,11 @@ function markSentType(type) {
 export function recordNetworkEvent(kind, value) {
   const diag = netDiag();
   if (!diag) return;
-  const boundedPush = (key, entry, limit = 10) => { diag[key] ||= []; diag[key].push({ ...entry, timestamp: Date.now() }); while (diag[key].length > limit) diag[key].shift(); };
+  const boundedPush = (key, entry, limit = 10) => { diag[key] ||= []; diag.eventCounter = (diag.eventCounter || 0) + 1; diag[key].push({ id: diag.eventCounter, ...entry, timestamp: Date.now() }); while (diag[key].length > limit) diag[key].shift(); };
   if (kind === "error") boundedPush("latestErrors", value);
   if (kind === "notice") boundedPush("latestNotices", value);
   if (kind === "joined") diag.latestJoinedPlayerId = value?.playerId || null;
-  if (kind === "acceptedSnapshot") { diag.latestAcceptedStateEpoch = value?.stateEpoch ?? null; diag.latestAcceptedSnapshotSequence = value?.snapshotSeq ?? null; diag.latestAcceptedSnapshotKind = value?.snapshotKind ?? null; }
+  if (kind === "acceptedSnapshot") { diag.eventCounter = (diag.eventCounter || 0) + 1; diag.latestAcceptedStateEpoch = value?.stateEpoch ?? null; diag.latestAcceptedSnapshotSequence = value?.snapshotSeq ?? null; diag.latestAcceptedSnapshotKind = value?.snapshotKind ?? null; diag.latestAcceptedSnapshotEventId = diag.eventCounter; }
   if (kind === "snapshotRejected") diag.latestSnapshotRejectionReason = value?.reason || null;
 }
 function markReceivedType(type) {
@@ -132,7 +132,7 @@ export function connect(url, onOpenCallback, options = {}) {
 
   socket.addEventListener("close", (event) => {
     const diag = netDiag();
-    if (diag) { diag.socketCloses ||= []; diag.socketCloses.push({ code: event.code, reason: event.reason, clean: event.wasClean, timestamp: Date.now() }); if (diag.socketCloses.length > 10) diag.socketCloses.shift(); }
+    if (diag) { diag.socketCloses ||= []; diag.eventCounter = (diag.eventCounter || 0) + 1; diag.socketCloses.push({ id: diag.eventCounter, code: event.code, reason: event.reason, clean: event.wasClean, timestamp: Date.now() }); if (diag.socketCloses.length > 10) diag.socketCloses.shift(); }
     if (state.connectionGeneration === generation && state.socket === socket) {
       clearHeartbeat();
       if (state.reconnectAllowed && scheduleReconnect(url, state.reconnect?.joinPayload)) return;
