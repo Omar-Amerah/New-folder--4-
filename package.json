@@ -97,7 +97,12 @@
     "test:message-dispatch": "node verify-message-dispatch.js",
     "test:message-permissions": "node verify-message-permissions.js",
     "test:server-dependencies": "node verify-server-dependencies.js",
-    "test:server-lifecycle": "node verify-server-lifecycle.js"
+    "test:server-lifecycle": "node verify-server-lifecycle.js",
+    "test:websocket-handshake": "node verify-websocket-handshake.js",
+    "test:websocket-fragmentation": "node verify-websocket-fragmentation.js",
+    "test:websocket-lifecycle": "node verify-websocket-lifecycle.js",
+    "test:websocket-fuzz": "node verify-websocket-fuzz.js",
+    "test:websocket-soak": "node verify-websocket-soak.js"
   },
   "keywords": [
     "browser-game",

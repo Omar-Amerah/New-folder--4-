@@ -36,12 +36,14 @@ function serveBuffer(req, res, { data, gzip, contentType, cacheControl }) {
   };
   if (gzip && acceptsGzip(req)) {
     headers["content-encoding"] = "gzip";
+    headers["content-length"] = gzip.length;
     res.writeHead(200, headers);
-    res.end(gzip);
+    res.end(req.method === "HEAD" ? undefined : gzip);
     return;
   }
+  headers["content-length"] = data.length;
   res.writeHead(200, headers);
-  res.end(data);
+  res.end(req.method === "HEAD" ? undefined : data);
 }
 
 // Development-only turret aim diagnostics (never enabled in production unless
@@ -76,10 +78,77 @@ function handleTurretDebugRequest(requestUrl, res) {
   }));
 }
 
+
+function sendUpgradeError(socket, status, message, headers = {}) {
+  const reason = message || http.STATUS_CODES[status] || "Error";
+  const lines = [`HTTP/1.1 ${status} ${reason}`, "Connection: close", "Content-Type: text/plain; charset=utf-8"];
+  for (const [k, v] of Object.entries(headers)) lines.push(`${k}: ${v}`);
+  lines.push("", reason);
+  try { socket.write(lines.join("\r\n")); } finally { socket.destroy(); }
+}
+
+function headerValues(req, name) {
+  const out = [];
+  const n = name.toLowerCase();
+  for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i].toLowerCase() === n) out.push(req.rawHeaders[i + 1]);
+  return out;
+}
+
+function hasToken(value, token) {
+  return String(value || "").split(",").map((v) => v.trim().toLowerCase()).includes(token.toLowerCase());
+}
+
+function normalizeOrigin(value) {
+  const u = new URL(value);
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("bad origin");
+  const port = u.port || (u.protocol === "https:" ? "443" : "80");
+  return `${u.protocol}//${u.hostname.toLowerCase()}:${port}`;
+}
+
+function isOriginAllowed(req, options = {}) {
+  const origin = req.headers.origin;
+  const allowMissing = options.allowMissingOrigin ?? process.env.WS_ALLOW_MISSING_ORIGIN !== "0";
+  const allowlist = (options.allowedOrigins || process.env.WS_ALLOWED_ORIGINS || (process.env.NODE_ENV === "production" ? "" : "*")).split(",").map((v) => v.trim()).filter(Boolean);
+  if (!origin) return allowMissing;
+  let normalized;
+  try { normalized = normalizeOrigin(origin); } catch { return false; }
+  if (allowlist.includes("*")) return true;
+  for (const allowed of allowlist) {
+    try { if (normalizeOrigin(allowed) === normalized) return true; } catch {}
+  }
+  try {
+    const host = req.headers.host;
+    if (host && normalizeOrigin(`${req.socket.encrypted ? "https" : "http"}://${host}`) === normalized) return true;
+  } catch {}
+  return false;
+}
+
+function validateWebSocketUpgrade(req, socket, options = {}) {
+  let url;
+  try { url = new URL(req.url, "http://localhost"); } catch { return sendUpgradeError(socket, 400, "Bad Request"); }
+  if (url.pathname !== (options.socketPath || "/socket")) return sendUpgradeError(socket, 404, "Not Found");
+  if (req.method !== "GET") return sendUpgradeError(socket, 405, "Method Not Allowed", { Allow: "GET" });
+  for (const h of ["upgrade", "connection", "sec-websocket-key", "sec-websocket-version"]) {
+    if (headerValues(req, h).length !== 1) return sendUpgradeError(socket, 400, "Bad Request");
+  }
+  if (!hasToken(req.headers.upgrade, "websocket") || !hasToken(req.headers.connection, "upgrade")) return sendUpgradeError(socket, 400, "Bad Request");
+  if (req.headers["sec-websocket-version"] !== "13") return sendUpgradeError(socket, 426, "Upgrade Required", { "Sec-WebSocket-Version": "13" });
+  const key = String(req.headers["sec-websocket-key"] || "").trim();
+  if (!/^[A-Za-z0-9+/]{22}==$/u.test(key)) return sendUpgradeError(socket, 400, "Bad Request");
+  if (Buffer.from(key, "base64").length !== 16) return sendUpgradeError(socket, 400, "Bad Request");
+  if (!isOriginAllowed(req, options)) return sendUpgradeError(socket, 403, "Forbidden");
+  return key;
+}
+
 // HTTP request handler for static files and balance JSON
 function handleHttpRequest(req, res) {
-  const requestUrl = new URL(req.url, "http://localhost");
-  let pathname = decodeURIComponent(requestUrl.pathname);
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("referrer-policy", "no-referrer");
+  if (!["GET", "HEAD"].includes(req.method)) { res.writeHead(405, { allow: "GET, HEAD" }); res.end(); return; }
+  let requestUrl;
+  try { requestUrl = new URL(req.url, "http://localhost"); } catch { res.writeHead(400); res.end("Bad request"); return; }
+  let pathname;
+  try { pathname = decodeURIComponent(requestUrl.pathname); } catch { res.writeHead(400); res.end("Bad request"); return; }
   if (pathname === "/") pathname = "/index.html";
 
   if (pathname === "/debug/turrets") {
@@ -154,11 +223,8 @@ function createGameServer(options = {}) {
   transport.configureTransport({ handleMessage: messages.handleMessage, send: messages.send, resetOutbound: messages.resetOutbound });
 
   httpServer.on("upgrade", (req, socket) => {
-    let url;
-    try { url = new URL(req.url, "http://localhost"); } catch { socket.destroy(); return; }
-    if (url.pathname !== "/socket" || req.headers.upgrade?.toLowerCase() !== "websocket") { socket.destroy(); return; }
-    const key = req.headers["sec-websocket-key"];
-    if (!key) { socket.destroy(); return; }
+    const key = validateWebSocketUpgrade(req, socket, options);
+    if (!key) return;
     const accept = crypto.createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
     socket.write(["HTTP/1.1 101 Switching Protocols", "Upgrade: websocket", "Connection: Upgrade", `Sec-WebSocket-Accept: ${accept}`, "", ""].join("\r\n"));
     transport.createClient(socket);
@@ -213,4 +279,4 @@ if (require.main === module) {
   }).catch((err) => { console.error(err); process.exit(1); });
 }
 
-module.exports = { createGameServer, handleHttpRequest, handleTurretDebugRequest };
+module.exports = { createGameServer, handleHttpRequest, handleTurretDebugRequest, validateWebSocketUpgrade, isOriginAllowed };

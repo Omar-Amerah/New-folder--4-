@@ -33,3 +33,7 @@ The intended acyclic direction is: composition root -> transport/router/outbound
 ## Deferred work
 
 Low-level RFC 6455 fragmentation and frame-parser hardening remains deferred to Section 11B. Reconnect identity hardening remains deferred to a later identity/persistence section.
+
+## Section 11B WebSocket transport notes
+
+WebSocket transport hardening is documented in `docs/websocket-transport.md`. The server now validates the RFC 6455 version-13 upgrade before sending `101`, supports exact allowlisted origins for split frontend/backend deployments, rejects production text frames, reconstructs fragmented binary messages before MessagePack decode, accepts interleaved control frames, validates close payloads and UTF-8 close reasons, and bounds unread and aggregate message buffers. New transport checks cover handshake, fragmentation, lifecycle, fuzz, and soak behaviour through the `test:websocket-*` scripts.
