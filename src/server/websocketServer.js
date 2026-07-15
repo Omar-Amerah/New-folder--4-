@@ -11,6 +11,16 @@ const { protocolInfo } = require("./protocol");
 const sockets = new Set();
 let nextClientId = 1;
 
+let messageHandler = null;
+let helloSender = null;
+let outboundReset = null;
+
+function configureTransport(deps = {}) {
+  messageHandler = deps.handleMessage || messageHandler;
+  helloSender = deps.send || helloSender;
+  outboundReset = deps.resetOutbound || outboundReset;
+}
+
 function createClient(socket) {
   const client = {
     id: `c${nextClientId++}`,
@@ -33,8 +43,7 @@ function createClient(socket) {
   socket.on("error", () => finalizeClient(client));
   startHeartbeat(client);
 
-  const { send } = require("./messages");
-  send(client, {
+  if (helloSender) helloSender(client, {
     type: "hello",
     id: client.id,
     ...protocolInfo(),
@@ -61,8 +70,6 @@ function handleSocketData(client, chunk) {
     closeClient(client, 1009, "Connection buffer too large");
     return;
   }
-
-  const { send, handleMessage } = require("./messages");
 
   while (client.buffer.length >= 2) {
     const frame = readFrame(client.buffer);
@@ -94,9 +101,9 @@ function handleSocketData(client, chunk) {
       const message = decodeBinary(frame.payload);
       client.lastMessageAt = Date.now();
       client.heartbeat.lastInboundAt = client.lastMessageAt;
-      handleMessage(client, message);
+      if (messageHandler) messageHandler(client, message);
     } catch {
-      send(client, { type: "error", code: "bad-message", message: "Bad MessagePack message" });
+      if (helloSender) helloSender(client, { type: "error", code: "bad-message", message: "Bad MessagePack message" });
     }
   }
 }
@@ -211,12 +218,13 @@ function finalizeClient(client) {
   client.isClosed = true;
   sockets.delete(client);
   if (client.heartbeat?.pingTimer) clearTimeout(client.heartbeat.pingTimer);
-  try { require("./messages").resetOutbound(client); } catch {}
+  try { if (outboundReset) outboundReset(client); } catch {}
   leaveRoom(client);
 }
 
 module.exports = {
   sockets,
+  configureTransport,
   createClient,
   handleSocketData,
   readFrame,

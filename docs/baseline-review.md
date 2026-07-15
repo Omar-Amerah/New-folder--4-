@@ -261,3 +261,8 @@ CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context`
 ## 7. Section 10 taxonomy update
 
 A later grouped-runner audit found a taxonomy defect rather than a Pixi lifecycle defect: `verify-pixi-lifecycle.js` was in the integration group even though it imports Playwright and launches real Chromium/WebGL/Pixi. The same audit found that normal server soak included Chromium renderer soaks. The correction keeps integration and server soak browser-free, moves Pixi lifecycle into the browser group, keeps the long renderer soak in the dedicated renderer-soak group, and makes `test:all` deduplicate all required scripts exactly once while documenting that it requires Chromium. A new `test:all-non-browser` command covers the full non-browser umbrella.
+
+
+## Section 11A server composition notes
+
+Server startup is now exposed through `createGameServer(options)` in `server.js`, while production CLI behaviour remains `node server.js`. Inbound route metadata lives in `src/server/routeRegistry.js`; outbound queues live in `src/server/outbound.js`; snapshot delivery lives in `src/server/snapshotDelivery.js`; deterministic tick ordering lives in `src/server/simulation.js`. Section 11B still owns WebSocket fragmentation and low-level RFC 6455 parser hardening.

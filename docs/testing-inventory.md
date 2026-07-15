@@ -273,3 +273,8 @@ Chromium ownership is split deliberately:
 - `npm run test:all-non-browser` is the complete non-browser umbrella: `check`, unit, integration, protocol, smoke, deterministic server soak, snapshot/network checks, and deterministic renderer pool/culling/texture/quality/structure tests. It must not launch Playwright Chromium.
 
 The short `verify-renderer-interaction-soak.js` is retained in the browser group as a one-pass browser interaction stress diagnostic. It is not part of server soak, and the long `verify-renderer-soak.js` remains isolated in the renderer-soak group so CI does not execute it twice.
+
+
+## Section 11A server composition notes
+
+Server startup is now exposed through `createGameServer(options)` in `server.js`, while production CLI behaviour remains `node server.js`. Inbound route metadata lives in `src/server/routeRegistry.js`; outbound queues live in `src/server/outbound.js`; snapshot delivery lives in `src/server/snapshotDelivery.js`; deterministic tick ordering lives in `src/server/simulation.js`. Section 11B still owns WebSocket fragmentation and low-level RFC 6455 parser hardening.

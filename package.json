@@ -92,7 +92,12 @@
     "test:renderer-performance": "npm run build && node verify-renderer-performance-browser.js",
     "test:webgl-context": "npm run build && node verify-webgl-context-browser.js",
     "test:all-non-browser": "npm run check && node tools/run-tests.js all-non-browser",
-    "test:client-selection": "node verify-client-selection.js"
+    "test:client-selection": "node verify-client-selection.js",
+    "test:message-routes": "node verify-message-route-inventory.js",
+    "test:message-dispatch": "node verify-message-dispatch.js",
+    "test:message-permissions": "node verify-message-permissions.js",
+    "test:server-dependencies": "node verify-server-dependencies.js",
+    "test:server-lifecycle": "node verify-server-lifecycle.js"
   },
   "keywords": [
     "browser-game",
