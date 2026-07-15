@@ -28,7 +28,7 @@ jobs:
         run: npm run test:unit
 
   server-integration:
-    name: Integration + protocol tests
+    name: Integration + protocol + server soak
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,7 +39,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Integration tests (module + bundled-client harness)
+      - name: Integration tests (browser-free module/lifecycle)
         run: npm run test:integration
       - name: Protocol tests (real server.js + WebSocket + MessagePack)
         run: npm run test:protocol

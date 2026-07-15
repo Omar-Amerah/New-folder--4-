@@ -265,3 +265,7 @@ The browser diagnostics exposed as `window.__mfaRenderer.diagnostics()` are read
 
 CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context` with the normal browser group, and runs `npm run test:renderer-soak` in a separate real-Chromium job. Failure artifacts are written under `test-artifacts/` with screenshots, diagnostics, reports, server logs, viewport, DPR, quality, pool, texture, scene and console data where available.
 
+
+## G. Test runner dependency boundaries
+
+The required suites now preserve runtime boundaries. Integration tests are browser-free module/lifecycle tests and do not launch Playwright. Server soak is also browser-free and covers deterministic simulation, heat, snapshot and network pressure checks. The browser group owns ordinary real-Chromium/WebGL/Pixi coverage. The renderer-soak group owns the long real-Chromium production renderer soak. `npm run test:all` is the complete umbrella and requires Chromium; `npm run test:all-non-browser` is the complete non-browser umbrella for clean server-only environments.

@@ -258,3 +258,18 @@ The browser diagnostics exposed as `window.__mfaRenderer.diagnostics()` are read
 
 CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context` with the normal browser group, and runs `npm run test:renderer-soak` in a separate real-Chromium job. Failure artifacts are written under `test-artifacts/` with screenshots, diagnostics, reports, server logs, viewport, DPR, quality, pool, texture, scene and console data where available.
 
+
+## Section 10 test taxonomy correction
+
+The grouped runner now treats browser/runtime dependencies as the source of truth, not verifier filenames. `npm run test:integration` is browser-free: it runs reconnect, lobby refresh/reconnect, lifecycle, input lifecycle and deterministic renderer structural update checks only. `verify-pixi-lifecycle.js` was moved out because it imports Playwright, launches Chromium, and validates real WebGL/Pixi lifecycle behavior.
+
+`npm run test:soak` is now the deterministic server-soak suite (`verify-soak.js`, `verify-heat-soak.js`, snapshot contract/resync, and network backpressure/soak checks). It no longer runs `verify-renderer-interaction-soak.js` or `verify-renderer-soak.js`, both of which launch Chromium.
+
+Chromium ownership is split deliberately:
+
+- `npm run test:browser` owns normal browser coverage: live turrets, heat browser, renderer input browser, Pixi lifecycle, renderer performance, WebGL context, and the retained short renderer interaction stress test.
+- `npm run test:renderer-soak` owns only the long renderer soak (`verify-renderer-soak.js`) and requires real Chromium, WebGL, Pixi and the production frontend.
+- `npm run test:all` is the complete umbrella and therefore requires Chromium.
+- `npm run test:all-non-browser` is the complete non-browser umbrella: `check`, unit, integration, protocol, smoke, deterministic server soak, snapshot/network checks, and deterministic renderer pool/culling/texture/quality/structure tests. It must not launch Playwright Chromium.
+
+The short `verify-renderer-interaction-soak.js` is retained in the browser group as a one-pass browser interaction stress diagnostic. It is not part of server soak, and the long `verify-renderer-soak.js` remains isolated in the renderer-soak group so CI does not execute it twice.
