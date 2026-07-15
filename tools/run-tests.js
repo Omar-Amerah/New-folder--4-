@@ -102,7 +102,9 @@ const GROUPS = {
     "verify-live-turrets.js",
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",
-    "verify-pixi-lifecycle.js"
+    "verify-pixi-lifecycle.js",
+    "verify-renderer-performance-browser.js",
+    "verify-webgl-context-browser.js"
   ],
 
   // Deterministic server/simulation soaks only. This group is browser-free.
