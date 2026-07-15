@@ -244,3 +244,7 @@ Per-client snapshot baselines replaced room-global static assumptions for outbou
 ## Section 10A baseline update
 
 The baseline renderer remains PixiJS only. Section 10A adds camera transform helpers, viewport-aware bounds, cursor-anchored zoom, input lifecycle cleanup, visual-position selection, and authoritative timestamp render interpolation. Section 10B should defer deeper performance and pooling optimization.
+
+## Section 10B1 renderer performance notes
+
+Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.

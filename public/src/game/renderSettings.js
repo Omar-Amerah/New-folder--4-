@@ -1,9 +1,17 @@
 
+export const RENDER_QUALITY_PROFILES = Object.freeze({
+  low: Object.freeze({ name: "low", dprCap: 1.25, bakeScale: 1.5, effectDensity: 0.4, trailDensity: 0.35, particleDensity: 0.35 }),
+  medium: Object.freeze({ name: "medium", dprCap: 1.5, bakeScale: 2.0, effectDensity: 0.72, trailDensity: 0.7, particleDensity: 0.7 }),
+  high: Object.freeze({ name: "high", dprCap: 2.0, bakeScale: 2.5, effectDensity: 1, trailDensity: 1, particleDensity: 1 })
+});
+export function renderQualityProfile(name = getRenderQuality()) { return RENDER_QUALITY_PROFILES[name] || RENDER_QUALITY_PROFILES.medium; }
+function storageGet(key) { return typeof localStorage !== "undefined" ? localStorage.getItem(key) : null; }
+function storageSet(key, value) { if (typeof localStorage !== "undefined") localStorage.setItem(key, value); }
 let cachedRenderQuality = null;
 
 export function getRenderQuality() {
   if (cachedRenderQuality !== null) return cachedRenderQuality;
-  const stored = localStorage.getItem("mfa.renderQuality");
+  const stored = storageGet("mfa.renderQuality");
   if (["low", "medium", "high"].includes(stored)) {
     cachedRenderQuality = stored;
   } else {
@@ -14,7 +22,7 @@ export function getRenderQuality() {
 
 export function setRenderQuality(quality) {
   if (["low", "medium", "high"].includes(quality)) {
-    localStorage.setItem("mfa.renderQuality", quality);
+    storageSet("mfa.renderQuality", quality);
     cachedRenderQuality = quality;
   }
 }
@@ -28,9 +36,7 @@ export function qualityShadowBlur(value) {
 
 export function getRenderQualityDprCap() {
   const q = getRenderQuality();
-  if (q === "low") return 1.25;
-  if (q === "medium") return 1.5;
-  return 2.0;
+  return renderQualityProfile(q).dprCap;
 }
 
 // Multiplier for non-essential particle density (engine smoke, trails, sparks,
@@ -38,9 +44,7 @@ export function getRenderQualityDprCap() {
 // numbers — is never gated by this. Low graphics thins particles heavily.
 export function getEffectDensity() {
   const q = getRenderQuality();
-  if (q === "low") return 0.4;
-  if (q === "medium") return 0.72;
-  return 1;
+  return renderQualityProfile(q).effectDensity;
 }
 
 // These flags are read every frame in the render loop, so cache them instead of
@@ -50,26 +54,26 @@ let cachedDebugRenderer = null;
 
 export function getCombatEffectsEnabled() {
   if (cachedCombatEffects === null) {
-    cachedCombatEffects = localStorage.getItem("mfa.combatEffects") !== "false";
+    cachedCombatEffects = storageGet("mfa.combatEffects") !== "false";
   }
   return cachedCombatEffects;
 }
 
 export function setCombatEffectsEnabled(enabled) {
   cachedCombatEffects = Boolean(enabled);
-  localStorage.setItem("mfa.combatEffects", cachedCombatEffects);
+  storageSet("mfa.combatEffects", cachedCombatEffects);
 }
 
 export function getDebugRendererEnabled() {
   if (cachedDebugRenderer === null) {
-    cachedDebugRenderer = localStorage.getItem("mfa.debugRenderer") === "true";
+    cachedDebugRenderer = storageGet("mfa.debugRenderer") === "true";
   }
   return cachedDebugRenderer;
 }
 
 export function setDebugRendererEnabled(enabled) {
   cachedDebugRenderer = Boolean(enabled);
-  localStorage.setItem("mfa.debugRenderer", cachedDebugRenderer);
+  storageSet("mfa.debugRenderer", cachedDebugRenderer);
 }
 
 
@@ -77,12 +81,12 @@ let cachedMobileTestingMode = null;
 
 export function getMobileTestingModeEnabled() {
   if (cachedMobileTestingMode === null) {
-    cachedMobileTestingMode = localStorage.getItem("mfa.mobileTestingMode") === "true";
+    cachedMobileTestingMode = storageGet("mfa.mobileTestingMode") === "true";
   }
   return cachedMobileTestingMode;
 }
 
 export function setMobileTestingModeEnabled(enabled) {
   cachedMobileTestingMode = Boolean(enabled);
-  localStorage.setItem("mfa.mobileTestingMode", cachedMobileTestingMode);
+  storageSet("mfa.mobileTestingMode", cachedMobileTestingMode);
 }

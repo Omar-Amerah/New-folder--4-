@@ -38,3 +38,7 @@ Canvas listeners are idempotent and return an unbind function. Canvas replacemen
 ## Deferred Section 10B work
 
 Section 10B should focus on deeper culling, pool sizing, texture-cache pressure, render-quality heuristics, and long-duration performance telemetry after the correctness contracts above remain stable.
+
+## Section 10B1 renderer performance notes
+
+Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.

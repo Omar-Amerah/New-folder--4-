@@ -50,7 +50,11 @@ const GROUPS = {
     "verify-engine-exhaust.js",
     "verify-maps-objectives.js",
     "verify-camera-transforms.js",
-    "verify-render-interpolation.js"
+    "verify-render-interpolation.js",
+    "verify-renderer-pools.js",
+    "verify-renderer-culling.js",
+    "verify-renderer-textures.js",
+    "verify-renderer-quality.js"
   ],
   // Module/room-lifecycle integration tests. The obsolete generated
   // public/client.js VM harnesses were removed from required suites so tests
@@ -60,7 +64,8 @@ const GROUPS = {
     "verify-lobby-refresh-reconnect.js",
     "verify-lifecycle.js",
     "verify-input-lifecycle.js",
-    "verify-pixi-lifecycle.js"
+    "verify-pixi-lifecycle.js",
+    "verify-renderer-structural-updates.js"
   ],
   // Real server.js process + real WebSockets + MessagePack snapshots.
   // Also the baseline lobby-to-active-match smoke flow.

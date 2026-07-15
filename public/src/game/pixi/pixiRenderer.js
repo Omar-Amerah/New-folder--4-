@@ -9,7 +9,7 @@ import { bindArenaPointerListeners, unbindArenaPointerListeners, inputDiagnostic
 import { interpolateShips } from "../renderInterpolation.js";
 import { getViewportWorldBounds } from "../viewportCulling.js";
 import { cameraViewportWorldBounds } from "../camera.js";
-import { getRenderQuality, getRenderQualityDprCap } from "../renderSettings.js";
+import { getRenderQuality, getRenderQualityDprCap, renderQualityProfile } from "../renderSettings.js";
 import { setDebugFrameStats, updateDebugOverlay } from "../debugOverlay.js";
 import { playerMap } from "../../ui/scoreboardUi.js";
 import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagnostics } from "./pixiBake.js";
@@ -30,10 +30,9 @@ function computePixiResolution() {
 
 // Baked art must stay crisp at max zoom (1.45) times the DPR cap.
 function pixiBakeScaleForQuality(quality) {
-  if (quality === "low") return 1.5;
-  if (quality === "medium") return 2.0;
-  return 2.5;
+  return renderQualityProfile(quality).bakeScale;
 }
+export { pixiBakeScaleForQuality };
 
 export function getPixiEnv() {
   return pixiEnv;
