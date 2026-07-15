@@ -56,6 +56,7 @@ jobs:
       # The browser verify scripts honour SHOT_DIR for their screenshots;
       # collect them in one place so failures can be inspected.
       SHOT_DIR: ${{ github.workspace }}/test-artifacts/screenshots
+      TEST_SUMMARY_PATH: ${{ github.workspace }}/test-artifacts/browser-summary.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,6 +96,8 @@ jobs:
       - name: Install Playwright Chromium
         run: npx --no-install playwright install --with-deps chromium
       - name: Renderer soak
+        env:
+          TEST_SUMMARY_PATH: ${{ github.workspace }}/test-artifacts/renderer-soak-summary.json
         run: npm run test:renderer-soak
       - name: Upload renderer-soak artifacts on failure
         if: failure()
