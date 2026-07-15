@@ -110,32 +110,42 @@ export async function initPixiRenderer() {
 
   pixiFatalFrameError = null;
   pixiContextLost = false;
+  pixiContextRecoveryAttempts = 0;
   pixiApplicationGeneration += 1;
+  const generation = pixiApplicationGeneration;
+  const canvas = dom.canvas;
   resetRendererMetrics("startup");
+  const isStaleApplication = () => generation !== pixiApplicationGeneration || pixiEnv?.app !== app;
   const contextLostHandler = (event) => {
     event.preventDefault?.();
+    if (isStaleApplication() || !app?.ticker) return;
     pixiContextLost = true;
     state.contextLossDiagnostics = collectFatalPixiDiagnostics(new Error("WebGL context lost"), "webglcontextlost");
-    app.ticker.stop();
+    app.ticker?.stop?.();
     try { import("../input.js").then((mod) => mod.cancelArenaPointerState("webglcontextlost")); } catch {}
     console.error("[pixi] WebGL context lost", state.contextLossDiagnostics);
   };
   const contextRestoredHandler = () => {
+    if (isStaleApplication() || !app?.ticker) return;
     pixiContextLost = false;
     state.lastFrameAt = performance.now();
     if (pixiContextRecoveryAttempts < 1) {
       pixiContextRecoveryAttempts += 1;
-      app.ticker.start();
+      app.ticker?.start?.();
     } else {
       showFatalPixiErrorPanel({ ...(state.contextLossDiagnostics || {}), stage: "webglcontextrestore-limit", recoveryLimitReached: true });
     }
   };
-  dom.canvas.addEventListener("webglcontextlost", contextLostHandler);
-  dom.canvas.addEventListener("webglcontextrestored", contextRestoredHandler);
+  canvas.addEventListener("webglcontextlost", contextLostHandler);
+  canvas.addEventListener("webglcontextrestored", contextRestoredHandler);
 
   pixiEnv = {
     PIXI,
     app,
+    canvas,
+    contextLostHandler,
+    contextRestoredHandler,
+    generation,
     layers,
     quality,
     bakeScale: pixiBakeScaleForQuality(quality)
@@ -340,9 +350,12 @@ export function resizePixiRenderer() {
 export function destroyPixiRenderer() {
   if (!pixiEnv) return;
   const env = pixiEnv;
-  // 1. Stop the render loop and input.
-  env.app.ticker.remove(pixiFrame);
-  env.app.ticker.stop();
+  // 1. Remove canvas context listeners before destroying the application,
+  // then stop the render loop and input.
+  env.canvas?.removeEventListener?.("webglcontextlost", env.contextLostHandler);
+  env.canvas?.removeEventListener?.("webglcontextrestored", env.contextRestoredHandler);
+  env.app?.ticker?.remove?.(pixiFrame);
+  env.app?.ticker?.stop?.();
   unbindArenaPointerListeners();
   // 2-6. Destroy pools/views (releases every texture lease; resets globals).
   destroyPixiShipPool();
@@ -361,6 +374,8 @@ export function destroyPixiRenderer() {
   pixiCurrentFps = 0;
   pixiFatalFrameError = null;
   pixiContextLost = false;
+  pixiContextRecoveryAttempts = 0;
+  state.contextLossDiagnostics = null;
 }
 
 if (typeof document !== "undefined") {
