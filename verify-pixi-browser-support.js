@@ -10,6 +10,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const os = require("os");
 const { spawn } = require("child_process");
 
 function discoverChrome() {
@@ -58,6 +59,27 @@ function startServer(port) {
   server.stdout.on("data", (d) => { log += d; });
   server.stderr.on("data", (d) => { log += d; });
   return { server, getLog: () => log };
+}
+
+function uniquePort() {
+  if (process.env.TEST_PORT) return Number(process.env.TEST_PORT);
+  const base = 30000 + (process.pid % 20000);
+  return base + Math.floor(Math.random() * 2000);
+}
+
+function uniqueRoom(prefix) {
+  const safePrefix = String(prefix || "browser").replace(/[^a-z0-9-]/gi, "-");
+  return `${safePrefix}-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function writeJsonArtifact(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function defaultArtifactDir(name) {
+  const root = process.env.TEST_ARTIFACT_DIR || process.env.SHOT_DIR || path.join(os.tmpdir(), "mfa-browser-artifacts");
+  return path.join(root, name);
 }
 
 function waitForServer(base, timeoutMs = 15000) {
@@ -177,6 +199,10 @@ module.exports = {
   launchChromium,
   startServer,
   waitForServer,
+  uniquePort,
+  uniqueRoom,
+  writeJsonArtifact,
+  defaultArtifactDir,
   PAGE_HELPERS,
   DISMISS_MENUS,
   design,
