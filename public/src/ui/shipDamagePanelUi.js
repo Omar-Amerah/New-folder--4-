@@ -282,6 +282,69 @@ function componentScreenRect(cells, cellSize, originX, originY) {
   };
 }
 
+export function shipDamageComponentClientPoint(shipId, componentIndex) {
+  const canvas = dom.shipDamageCanvas;
+  const ship = selectedSingleShip();
+  if (!canvas || !ship || ship.id !== shipId || !validComponentIndex(ship, componentIndex)) return null;
+  const geometry = diagramInteraction?.shipId === ship.id
+    ? diagramInteraction
+    : shipDamageDiagramGeometry(ship, canvas.width, canvas.height);
+  const cells = geometry.cellsByIndex?.[componentIndex];
+  if (!cells?.length) return null;
+  const rect = componentScreenRect(cells, geometry.cellSize, geometry.originX, geometry.originY);
+  const canvasRect = canvas.getBoundingClientRect();
+  if (!canvasRect.width || !canvasRect.height) return null;
+  const canvasX = rect.x + rect.w / 2;
+  const canvasY = rect.y + rect.h / 2;
+  return {
+    x: canvasRect.left + canvasX * (canvasRect.width / canvas.width),
+    y: canvasRect.top + canvasY * (canvasRect.height / canvas.height),
+    canvasX,
+    canvasY,
+    componentIndex,
+    componentType: ship.design[componentIndex]?.type || null,
+    componentName: ship.design[componentIndex] ? partDisplayName(ship.design[componentIndex].type) : null,
+    rect: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
+    canvasRect: { x: canvasRect.left, y: canvasRect.top, width: canvasRect.width, height: canvasRect.height }
+  };
+}
+
+export function shipDamageDiagramDiagnostics(shipId, clientX, clientY) {
+  const canvas = dom.shipDamageCanvas;
+  const ship = selectedSingleShip();
+  const rect = canvas?.getBoundingClientRect?.();
+  const geometry = ship && canvas ? (diagramInteraction?.shipId === ship.id
+    ? diagramInteraction
+    : shipDamageDiagramGeometry(ship, canvas.width, canvas.height)) : null;
+  let canvasX = null, canvasY = null, mappedIndex;
+  if (canvas && rect?.width && rect?.height && Number.isFinite(clientX) && Number.isFinite(clientY)) {
+    canvasX = (clientX - rect.left) * (canvas.width / rect.width);
+    canvasY = (clientY - rect.top) * (canvas.height / rect.height);
+    if (geometry) {
+      const gx = Math.round(SHIP_DAMAGE_GRID_CENTER + (canvasX - geometry.originX) / geometry.cellSize);
+      const gy = Math.round(SHIP_DAMAGE_GRID_CENTER + (canvasY - geometry.originY) / geometry.cellSize);
+      mappedIndex = geometry.cellMap?.get(`${gx},${gy}`);
+    }
+  }
+  return {
+    ready: !!(canvas && ship && geometry && ship.id === shipId),
+    shipId: ship?.id || null,
+    requestedShipId: shipId,
+    canvasX,
+    canvasY,
+    mappedIndex: mappedIndex ?? null,
+    interaction: geometry ? {
+      shipId: geometry.shipId || ship?.id || null,
+      componentIndex: geometry.componentIndex,
+      hoverIndex: geometry.hoverIndex,
+      cellSize: geometry.cellSize,
+      originX: geometry.originX,
+      originY: geometry.originY,
+      bounds: geometry.bounds
+    } : null
+  };
+}
+
 
 function projectShipLocalToDiagram(point) {
   // drawDiagram renders ship-local art after rotate(-90deg), so the projected
@@ -389,7 +452,7 @@ function drawDiagram(ship) {
   const hoverIndex = sameShip && validComponentIndex(ship, diagramInteraction.hoverIndex)
     ? diagramInteraction.hoverIndex
     : undefined;
-  diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, cellMap, cellSize, originX, originY, bounds: geometry.bounds };
+  diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, cellMap, cellsByIndex, cellSize, originX, originY, bounds: geometry.bounds };
 
   const player = state.snapshot?.players?.find((candidate) => candidate.id === ship.ownerId);
   const trim = player?.color || "#8fd8ff";
