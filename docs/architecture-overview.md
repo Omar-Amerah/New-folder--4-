@@ -269,3 +269,8 @@ CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context`
 ## G. Test runner dependency boundaries
 
 The required suites now preserve runtime boundaries. Integration tests are browser-free module/lifecycle tests and do not launch Playwright. Server soak is also browser-free and covers deterministic simulation, heat, snapshot and network pressure checks. The browser group owns ordinary real-Chromium/WebGL/Pixi coverage. The renderer-soak group owns the long real-Chromium production renderer soak. `npm run test:all` is the complete umbrella and requires Chromium; `npm run test:all-non-browser` is the complete non-browser umbrella for clean server-only environments.
+
+
+## Section 11A server composition notes
+
+Server startup is now exposed through `createGameServer(options)` in `server.js`, while production CLI behaviour remains `node server.js`. Inbound route metadata lives in `src/server/routeRegistry.js`; outbound queues live in `src/server/outbound.js`; snapshot delivery lives in `src/server/snapshotDelivery.js`; deterministic tick ordering lives in `src/server/simulation.js`. Section 11B still owns WebSocket fragmentation and low-level RFC 6455 parser hardening.
