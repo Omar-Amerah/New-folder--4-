@@ -15,6 +15,7 @@
 //   - all is the complete umbrella and therefore requires Chromium.
 
 const { spawnSync } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
@@ -114,6 +115,8 @@ const GROUPS = {
   "server-soak": [
     "verify-soak.js",
     "verify-heat-soak.js",
+    "verify-resync-reason-contract.js",
+    "verify-snapshot-coalescing.js",
     "verify-snapshot-contract.js",
     "verify-snapshot-resync.js",
     "verify-network-backpressure.js",
@@ -151,9 +154,12 @@ function runScript(script) {
   const durationMs = Date.now() - startedAt;
   return {
     script,
+    startTime: new Date(startedAt).toISOString(),
+    endTime: new Date(startedAt + durationMs).toISOString(),
     durationMs,
     exitCode: result.status,
     signal: result.signal || null,
+    passed: result.status === 0,
     ok: result.status === 0
   };
 }
@@ -192,8 +198,26 @@ function main(argv) {
   }
   console.log("=================================================");
   console.log(`${results.length - failed.length}/${results.length} passed`);
+  const summary = {
+    groups: requested,
+    scripts,
+    startTime: results[0]?.startTime || new Date().toISOString(),
+    endTime: new Date().toISOString(),
+    durationMs: results.reduce((sum, result) => sum + result.durationMs, 0),
+    results: results.map(({ script, startTime, endTime, durationMs, exitCode, signal, passed }) => ({ script, startTime, endTime, durationMs, exitCode, signal, passed, failed: !passed })),
+    firstFailedScript: failed[0]?.script || null,
+    totalPassed: results.length - failed.length,
+    totalFailed: failed.length,
+    passed: failed.length === 0,
+    failed: failed.length > 0
+  };
+  if (process.env.TEST_SUMMARY_PATH) {
+    fs.mkdirSync(path.dirname(process.env.TEST_SUMMARY_PATH), { recursive: true });
+    fs.writeFileSync(process.env.TEST_SUMMARY_PATH, JSON.stringify(summary, null, 2));
+  }
   if (failed.length > 0) {
-    console.error(`FAILED: ${failed.map((result) => result.script).join(", ")}`);
+    console.error("FAILED:");
+    for (const result of failed) console.error(`- ${result.script} — exit code ${result.exitCode}${result.signal ? `, signal ${result.signal}` : ""}`);
     process.exit(1);
   }
 }

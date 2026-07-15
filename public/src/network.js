@@ -30,7 +30,7 @@ function wsDecode(data) {
 const RECONNECT = { baseMs: 300, maxMs: 4000, jitterMs: 250, maxDurationMs: 25000, heartbeatIntervalMs: 10000, heartbeatTimeoutMs: 30000 };
 function netDiag() {
   if (typeof globalThis === "undefined") return null;
-  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null };
+  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null };
 }
 function markSentType(type) {
   const diag = netDiag();
@@ -46,6 +46,7 @@ export function recordNetworkEvent(kind, value) {
   if (kind === "error") boundedPush("latestErrors", value);
   if (kind === "notice") boundedPush("latestNotices", value);
   if (kind === "joined") diag.latestJoinedPlayerId = value?.playerId || null;
+  if (["acceptedSnapshot","snapshotRejected","resyncRequested"].includes(kind)) { diag.snapshotEvents ||= []; const event = { id: ++diag.snapshotEventId, kind, ...value, timestamp: Date.now() }; diag.snapshotEvents.push(event); while (diag.snapshotEvents.length > 100) diag.snapshotEvents.shift(); if (kind === "acceptedSnapshot" && value?.snapshotKind === "full") { diag.acceptedFullEventCount = (diag.acceptedFullEventCount || 0) + 1; diag.latestCompletedResyncEventId = event.id; diag.lastRecoveredRejection = diag.lastSnapshotRejection || null; diag.unresolvedRejectionCount = 0; } if (kind === "snapshotRejected") { diag.unresolvedRejectionCount = (diag.unresolvedRejectionCount || 0) + 1; diag.lastSnapshotRejection = event; } }
   if (kind === "acceptedSnapshot") { diag.latestAcceptedStateEpoch = value?.stateEpoch ?? null; diag.latestAcceptedSnapshotSequence = value?.snapshotSeq ?? null; diag.latestAcceptedSnapshotKind = value?.snapshotKind ?? null; }
   if (kind === "snapshotRejected") diag.latestSnapshotRejectionReason = value?.reason || null;
 }

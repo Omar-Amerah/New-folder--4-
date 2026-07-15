@@ -106,7 +106,9 @@
     "test:browser-websocket-payloads": "npm run build && node verify-browser-websocket-payloads.js",
     "test:browser-sequential-rooms": "npm run build && node verify-browser-sequential-rooms.js",
     "test:playwright-evaluate-args": "node verify-playwright-evaluate-arguments.js verify-renderer-performance-browser.js verify-renderer-soak.js verify-webgl-context-browser.js verify-browser-websocket-payloads.js verify-active-match-browser-support.js",
-    "test:websocket-handler-errors": "node verify-websocket-handler-errors.js"
+    "test:websocket-handler-errors": "node verify-websocket-handler-errors.js",
+    "test:resync-reasons": "node verify-resync-reason-contract.js",
+    "test:snapshot-coalescing": "node verify-snapshot-coalescing.js"
   },
   "keywords": [
     "browser-game",

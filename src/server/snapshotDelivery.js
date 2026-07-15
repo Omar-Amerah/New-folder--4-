@@ -1,59 +1,51 @@
 const { encodeMessage } = require("./wsCodec");
 const { performanceNow } = require("./utils");
-const { sendRaw } = require("./outbound");
+const { sendRaw, getOutbound } = require("./outbound");
 const { snapshotRoom, buildSharedSnapshot, markShipDesignsSent } = require("./snapshots");
 
+function diag(client) { return client.snapshotDeliveryDiagnostics ||= { fullBuilt: 0, compactBuilt: 0, queued: 0, written: 0, replaced: 0, dropped: 0, reset: 0, promotions: 0, recoveryRequests: 0, completedRecoveries: 0 }; }
 function ensureSnapshotBaseline(client, room) {
   if (!client.snapshotBaseline) client.snapshotBaseline = {};
-  const b = client.snapshotBaseline;
-  if (b.stateEpoch !== (room.stateEpoch || 1)) {
-    b.stateEpoch = room.stateEpoch || 1;
-    b.lastSentSeq = 0;
-    b.lastFullSeq = 0;
-    b.fullRequired = true;
-    b.staticRevisionKnown = 0;
-  }
+  const b = client.snapshotBaseline; const epoch = room.stateEpoch || 1;
+  if (b.stateEpoch !== epoch) Object.assign(b, { stateEpoch: epoch, lastWrittenSeq: 0, lastWrittenFullSeq: 0, lastQueuedSeq: 0, queuedSnapshotKind: null, queuedBaseSeq: null, queuedStaticRevision: 0, fullRequired: true, staticRevisionKnown: 0 });
   if (b.fullRequired === undefined) b.fullRequired = true;
+  b.lastSentSeq = b.lastWrittenSeq || 0; // compatibility alias: written, not merely generated/queued.
   return b;
 }
-
-function sendFullSnapshot(client, now = performanceNow(), reason = 'resync') {
-  if (!client.room) return;
-  const room = client.room;
-  const b = ensureSnapshotBaseline(client, room);
-  const seq = (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1);
-  room._buildingSnapshotSeq = seq;
-  const shared = buildSharedSnapshot(room, now, true);
-  const payload = encodeMessage(snapshotRoom(room, now, client.player, true, shared));
-  delete room._buildingSnapshotSeq;
-  b.lastSentSeq = seq; b.lastFullSeq = seq; b.fullRequired = false; b.staticRevisionKnown = room.staticRevision || 1; b.queuedSnapshotKind = 'full';
-  sendRaw(client, payload, { kind: 'snapshot-full' });
+function onSnapshotLifecycle(client, outcome, meta) {
+  const b = ensureSnapshotBaseline(client, client.room || { stateEpoch: meta?.stateEpoch || 1 }); const d = diag(client); d[outcome] = (d[outcome] || 0) + 1;
+  if (outcome === 'queued') { b.lastQueuedSeq = meta.snapshotSeq; b.queuedSnapshotKind = meta.snapshotKind; b.queuedBaseSeq = meta.baseSnapshotSeq ?? null; b.queuedStaticRevision = meta.staticRevision || 0; }
+  if (outcome === 'replaced' || outcome === 'dropped' || outcome === 'reset') { if (b.lastQueuedSeq === meta.snapshotSeq) { b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; } }
+  if (outcome === 'written') { b.lastWrittenSeq = meta.snapshotSeq; b.lastSentSeq = b.lastWrittenSeq; b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; if (meta.snapshotKind === 'full') { b.lastWrittenFullSeq = meta.snapshotSeq; b.fullRequired = false; b.staticRevisionKnown = meta.staticRevision || 1; d.completedRecoveries += 1; } }
 }
-
+function buildPayload(room, client, now, full, seq, baseSeq) {
+  room._buildingSnapshotSeq = seq; room._buildingBaseSnapshotSeq = baseSeq;
+  const shared = buildSharedSnapshot(room, now, full);
+  const snap = snapshotRoom(room, now, client.player, full, shared);
+  delete room._buildingSnapshotSeq; delete room._buildingBaseSnapshotSeq;
+  return encodeMessage(snap);
+}
+function enqueueSnapshot(client, payload, meta) { sendRaw(client, payload, { kind: meta.snapshotKind === 'full' ? 'snapshot-full' : 'snapshot-compact', snapshotMeta: meta, onSnapshotLifecycle: (outcome, itemMeta) => onSnapshotLifecycle(client, outcome, itemMeta) }); }
+function nextSeq(room) { return (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1); }
+function sendFullSnapshot(client, now = performanceNow(), reason = 'client-request') {
+  if (!client.room) return; const room = client.room; const b = ensureSnapshotBaseline(client, room); const seq = nextSeq(room); const meta = { stateEpoch: room.stateEpoch || 1, snapshotSeq: seq, baseSnapshotSeq: null, snapshotKind: 'full', staticRevision: room.staticRevision || 1, completeStatic: true, reason };
+  const payload = buildPayload(room, client, now, true, seq, null); diag(client).fullBuilt += 1; if (reason) diag(client).recoveryRequests += 1; enqueueSnapshot(client, payload, meta);
+}
+function needsFull(room, b, forceStatic) { const out = b._client ? getOutbound(b._client) : null; return forceStatic || b.fullRequired || b.staticRevisionKnown !== (room.staticRevision || 1) || !b.lastWrittenFullSeq || !b.lastWrittenSeq || b.queuedSnapshotKind === 'full'; }
 function broadcastSnapshot(room, now, forceStatic = false) {
   if (room.clients.size === 0) return;
-  const seq = (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1);
-  room._buildingSnapshotSeq = seq;
-  const fullShared = forceStatic ? buildSharedSnapshot(room, now, true) : null;
-  const compactShared = forceStatic ? null : buildSharedSnapshot(room, now, false);
-  const byVariant = new Map();
   for (const client of room.clients) {
-    const b = ensureSnapshotBaseline(client, room);
-    const full = forceStatic || b.fullRequired || b.staticRevisionKnown !== (room.staticRevision || 1) || b.lastSentSeq !== seq - 1;
-    const shared = full ? (fullShared || buildSharedSnapshot(room, now, true)) : compactShared;
-    const key = `${client.player ? `t:${client.player.team}` : 'spectator'}|e:${room.stateEpoch}|rev:${room.staticRevision}|kind:${full ? 'full':'compact'}|base:${full ? 0 : b.lastSentSeq}`;
-    let payload = byVariant.get(key);
-    if (payload === undefined) {
-      payload = encodeMessage(snapshotRoom(room, now, client.player, full, shared));
-      byVariant.set(key, payload);
-    }
-    b.lastSentSeq = seq; b.queuedSnapshotKind = full ? 'full' : 'compact';
-    if (full) { b.lastFullSeq = seq; b.fullRequired = false; b.staticRevisionKnown = room.staticRevision || 1; }
-    sendRaw(client, payload, { kind: full ? 'snapshot-full' : 'snapshot-compact' });
+    const b = ensureSnapshotBaseline(client, room); b._client = client;
+    const existing = getOutbound(client).snapshot;
+    let full = needsFull(room, b, forceStatic);
+    if (!full && existing?.meta?.snapshotKind === 'compact') { full = true; diag(client).promotions += 1; }
+    if (!full && existing?.meta?.snapshotKind === 'full') continue;
+    const seq = nextSeq(room); const base = full ? null : b.lastWrittenSeq;
+    const meta = { stateEpoch: room.stateEpoch || 1, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', staticRevision: room.staticRevision || 1, completeStatic: full };
+    const payload = buildPayload(room, client, now, full, seq, base);
+    diag(client)[full ? 'fullBuilt' : 'compactBuilt'] += 1;
+    enqueueSnapshot(client, payload, meta);
   }
-  delete room._buildingSnapshotSeq;
   markShipDesignsSent(room);
 }
-
-
-module.exports = { ensureSnapshotBaseline, sendFullSnapshot, broadcastSnapshot };
+module.exports = { ensureSnapshotBaseline, sendFullSnapshot, broadcastSnapshot, onSnapshotLifecycle };
