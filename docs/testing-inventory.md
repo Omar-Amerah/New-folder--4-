@@ -245,3 +245,7 @@ Chromium setup remains a hard requirement for CI. The browser job runs `npm ci`,
 - `npm run test:interpolation` covers timestamped render history, interpolation, bounded extrapolation, epoch reset, and snapshot immutability.
 - `npm run test:renderer-browser` runs a real Chromium/WebGL smoke matrix at 900x700, 1280x900, and 1600x900.
 - `npm run test:renderer-soak` runs a bounded Chromium interaction soak.
+
+## Section 10B1 renderer performance notes
+
+Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.

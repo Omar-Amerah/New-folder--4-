@@ -91,3 +91,7 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 ## Renderer/camera/input ownership
 
 Networking owns accepted snapshots, epochs, sequences, and simulation timestamps. `renderInterpolation` owns temporary visual transforms and bounded sample history. `camera` owns world/screen/minimap conversions and viewport-aware bounds. `input` translates arena gestures into camera actions, selection, or commands. `selection` owns selectable-entity filtering and visual-position hit tests. Pixi owns only scene graph, pools, and texture leases.
+
+## Section 10B1 renderer performance notes
+
+Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.

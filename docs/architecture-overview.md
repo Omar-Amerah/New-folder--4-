@@ -252,3 +252,7 @@ The transport contract is now explicit: `/socket` upgrades to raw WebSocket, app
 ## Section 10A renderer interaction model
 
 Camera math now lives in `public/src/game/camera.js`; input, selection, Pixi, and culling call those helpers rather than recomputing coordinate conversions. The Pixi world root uses the same camera centre and zoom that pointer hit testing uses. Rendering consumes accepted snapshot timestamps through bounded render history and derives temporary visual ship transforms without mutating the authoritative snapshot.
+
+## Section 10B1 renderer performance notes
+
+Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.

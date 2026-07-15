@@ -126,3 +126,7 @@ The multiplayer protocol uses MessagePack state snapshots with explicit room epo
 - `F` follows the selected living ships or, with no selection, your living fleet.
 - `0` resets zoom to fit; `C` centres the selected ships or your fleet.
 - Click selects owned living ships, Shift-click toggles, drag selects intersecting ships, Shift-drag adds, `Q` selects all owned living ships, and Escape clears selection.
+
+## Section 10B1 renderer performance notes
+
+Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.

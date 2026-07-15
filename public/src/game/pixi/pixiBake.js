@@ -35,7 +35,7 @@ let destroyedTextureCount = 0;
 
 // Soft cap on retained refs==0 (idle-but-reusable) entries per cache before the
 // oldest are evicted, bounding memory across long sessions with many designs.
-const CACHE_IDLE_CAP = 128;
+export const CACHE_IDLE_CAP = 128;
 
 export function getPixiBakeGeneration() {
   return pixiBakeGeneration;
@@ -82,6 +82,7 @@ function destroyCacheTexture(entry) {
 export function createPixiTextureCache(name) {
   // key -> { texture, refs, generation, key, destroyed, stale }
   const entries = new Map();
+  let duplicateReleases = 0;
 
   function maybeEvictIdle() {
     if (entries.size <= CACHE_IDLE_CAP) return;
@@ -118,7 +119,7 @@ export function createPixiTextureCache(name) {
       return {
         texture: entry.texture,
         release() {
-          if (released) return; // idempotent: decrement exactly once
+          if (released) { duplicateReleases += 1; return false; }
           released = true;
           entry.refs -= 1;
           if (entry.refs <= 0 && (entry.stale || entry.generation !== pixiBakeGeneration)) {
@@ -127,6 +128,7 @@ export function createPixiTextureCache(name) {
           } else {
             maybeEvictIdle();
           }
+          return true;
         }
       };
     },
@@ -151,16 +153,25 @@ export function createPixiTextureCache(name) {
       entries.clear();
     },
 
+    trimZeroLease(limit = CACHE_IDLE_CAP) {
+      for (const [key, entry] of entries) {
+        if (entries.size <= limit) break;
+        if (entry.refs <= 0) { destroyCacheTexture(entry); entries.delete(key); }
+      }
+    },
+
     diagnostics() {
       let live = 0;
       let stale = 0;
       let refs = 0;
+      let zeroLease = 0;
       for (const entry of entries.values()) {
         if (!entry.destroyed) live += 1;
         if (entry.stale) stale += 1;
         refs += entry.refs;
+        if (entry.refs <= 0) zeroLease += 1;
       }
-      return { name, entries: entries.size, live, stale, refs };
+      return { name, entries: entries.size, live, stale, refs, zeroLease, duplicateReleases };
     }
   };
 
