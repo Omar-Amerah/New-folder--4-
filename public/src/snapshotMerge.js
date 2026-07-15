@@ -20,9 +20,10 @@ export function mergeStaticPlayerFields(previousPlayers, nextPlayers) {
   return nextPlayers.map((player) => {
     const oldPlayer = oldPlayers.get(player.id);
     if (!oldPlayer) return player;
-    const merged = { ...player };
-    if (merged.design === undefined) merged.design = oldPlayer.design;
-    if (merged.stats === undefined) merged.stats = oldPlayer.stats;
+    const merged = { ...oldPlayer, ...player };
+    for (const key of ["design", "stats", "name", "team", "colour", "color"]) {
+      if (merged[key] === undefined) merged[key] = oldPlayer[key];
+    }
     return merged;
   });
 }
