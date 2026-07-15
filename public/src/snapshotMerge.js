@@ -108,20 +108,29 @@ export function mergeCachedShipFields(previousShips, nextShips) {
 }
 
 export function inspectSnapshotEnvelope(networkState, message) {
-  if (!message || message.type !== "state") return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT };
+  const diagnostic = {
+    snapshotSeq: message?.snapshotSeq,
+    baseSnapshotSeq: message?.baseSnapshotSeq,
+    snapshotKind: message?.snapshotKind,
+    shipId: null,
+    designMissing: false,
+    componentHpBaselineMissing: false,
+    componentHeatBaselineMissing: false
+  };
+  if (!message || message.type !== "state") return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT, ...diagnostic };
   const epoch = Number(message.stateEpoch), seq = Number(message.snapshotSeq);
-  if (!Number.isInteger(epoch) || epoch < 1 || !Number.isInteger(seq) || seq < 1) return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT };
+  if (!Number.isInteger(epoch) || epoch < 1 || !Number.isInteger(seq) || seq < 1) return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT, ...diagnostic };
   const currentEpoch = Number(networkState?.stateEpoch) || 0;
   const currentSeq = Number(networkState?.snapshotSeq) || 0;
-  if (epoch < currentEpoch) return { ok: false, reason: SNAPSHOT_REJECTION.STALE_EPOCH };
-  if (epoch === currentEpoch && seq < currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.STALE_SEQUENCE };
-  if (epoch === currentEpoch && seq === currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.DUPLICATE_SEQUENCE };
+  if (epoch < currentEpoch) return { ok: false, reason: SNAPSHOT_REJECTION.STALE_EPOCH, ...diagnostic };
+  if (epoch === currentEpoch && seq < currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.STALE_SEQUENCE, ...diagnostic };
+  if (epoch === currentEpoch && seq === currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.DUPLICATE_SEQUENCE, ...diagnostic };
   if (message.snapshotKind === "full") return { ok: true, kind: "full" };
-  if (message.snapshotKind !== "compact") return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT };
-  if (epoch > currentEpoch || !networkState?.hasFullBaseline) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE };
-  if (seq !== currentSeq + 1) return { ok: false, reason: SNAPSHOT_REJECTION.SEQUENCE_GAP };
-  if (Number(message.baseSnapshotSeq) !== currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.WRONG_BASE };
-  if (message.staticRevision !== undefined && networkState.staticRevision !== undefined && Number(message.staticRevision) !== Number(networkState.staticRevision)) return { ok: false, reason: SNAPSHOT_REJECTION.STATIC_REVISION_MISMATCH };
+  if (message.snapshotKind !== "compact") return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT, ...diagnostic };
+  if (epoch > currentEpoch || !networkState?.hasFullBaseline) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE, ...diagnostic };
+  if (seq !== currentSeq + 1) return { ok: false, reason: SNAPSHOT_REJECTION.SEQUENCE_GAP, ...diagnostic };
+  if (Number(message.baseSnapshotSeq) !== currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.WRONG_BASE, ...diagnostic };
+  if (message.staticRevision !== undefined && networkState.staticRevision !== undefined && Number(message.staticRevision) !== Number(networkState.staticRevision)) return { ok: false, reason: SNAPSHOT_REJECTION.STATIC_REVISION_MISMATCH, ...diagnostic };
   return { ok: true, kind: "compact" };
 }
 
@@ -129,9 +138,9 @@ function validateShipDeltas(previous, message) {
   const oldShips = new Map((previous?.ships || []).map((ship) => [ship.id, ship]));
   for (const ship of message.ships || []) {
     const old = oldShips.get(ship.id);
-    if (!old && (ship.chpD || ship.componentHeatD || isNullish(ship.design))) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE };
-    if (ship.chpD) { const r = validateComponentHpDelta(old?.chp, ship.chpD); if (!r.ok) return r; }
-    if (ship.componentHeatD) { const r = validateComponentHeatDelta(old?.componentHeat, ship.componentHeatD); if (!r.ok) return r; }
+    if (!old && (ship.chpD || ship.componentHeatD || isNullish(ship.design))) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE, snapshotSeq: message.snapshotSeq, baseSnapshotSeq: message.baseSnapshotSeq, snapshotKind: message.snapshotKind, shipId: ship.id, designMissing: isNullish(ship.design), componentHpBaselineMissing: Boolean(ship.chpD), componentHeatBaselineMissing: Boolean(ship.componentHeatD) };
+    if (ship.chpD) { const r = validateComponentHpDelta(old?.chp, ship.chpD); if (!r.ok) return { ...r, snapshotSeq: message.snapshotSeq, baseSnapshotSeq: message.baseSnapshotSeq, snapshotKind: message.snapshotKind, shipId: ship.id, designMissing: false, componentHpBaselineMissing: !Array.isArray(old?.chp), componentHeatBaselineMissing: false }; }
+    if (ship.componentHeatD) { const r = validateComponentHeatDelta(old?.componentHeat, ship.componentHeatD); if (!r.ok) return { ...r, snapshotSeq: message.snapshotSeq, baseSnapshotSeq: message.baseSnapshotSeq, snapshotKind: message.snapshotKind, shipId: ship.id, designMissing: false, componentHpBaselineMissing: false, componentHeatBaselineMissing: !Array.isArray(old?.componentHeat) }; }
   }
   return { ok: true };
 }
