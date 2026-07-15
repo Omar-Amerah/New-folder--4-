@@ -68,8 +68,61 @@ function uniquePort() {
 }
 
 function uniqueRoom(prefix) {
-  const safePrefix = String(prefix || "browser").replace(/[^a-z0-9-]/gi, "-");
-  return `${safePrefix}-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  // Production URL room codes are uppercased and truncated to eight chars.
+  // Generate exactly that shape once so the URL, Node clients, and assertions
+  // all use the same value without scattered slice/toUpperCase fixes.
+  const safePrefix = String(prefix || "browser").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const first = (safePrefix[0] || "B").replace(/[^A-Z0-9]/, "B");
+  const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let n = (Date.now() ^ (process.pid << 8) ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  let suffix = "";
+  for (let i = 0; i < 7; i += 1) {
+    suffix += alphabet[n % alphabet.length];
+    n = Math.floor(n / alphabet.length) ^ Math.floor(Math.random() * alphabet.length);
+  }
+  return `${first}${suffix}`.slice(0, 8);
+}
+
+async function collectReadiness(page, expectedRoom) {
+  return page.evaluate((room) => {
+    const state = window.__mfaState || null;
+    const net = window.__mfaNetworkDiagnostics || {};
+    return {
+      mainModuleLoaded: Boolean(window.__mfaMainLoaded),
+      stateExists: Boolean(state),
+      websocketCreated: Boolean(net.websocketCreated || state?.socket),
+      websocketOpened: Boolean(net.websocketOpened || state?.socket?.readyState === WebSocket.OPEN),
+      helloReceived: Boolean(net.helloReceived || state?.server?.protocolVersion),
+      protocolAccepted: state?.server?.compatibility === "ok" || Boolean(net.protocolAccepted),
+      joinPacketSent: Boolean(net.joinPacketSent || net.sentTypes?.some((entry) => entry.type === "join")),
+      joinedMessageReceived: Boolean(net.joinedReceived || state?.room),
+      roomExpected: room,
+      roomActual: state?.room || null,
+      roomMatches: state?.room === room,
+      myId: state?.myId || null,
+      myIdPopulated: Boolean(state?.myId),
+      firstFullSnapshotReceived: Boolean(net.firstFullSnapshotReceived || state?.snapshot),
+      server: state?.server || null,
+      socketReadyState: state?.socket?.readyState ?? null,
+      sentTypes: net.sentTypes || [],
+      receivedTypes: net.receivedTypes || []
+    };
+  }, expectedRoom);
+}
+
+async function waitForBrowserReady(page, expectedRoom, diagnostics, timeoutMs = 20000) {
+  const start = Date.now();
+  let last = null;
+  while (Date.now() - start <= timeoutMs) {
+    last = await collectReadiness(page, expectedRoom);
+    if (diagnostics) diagnostics.readiness = last;
+    if (last.mainModuleLoaded && last.stateExists && last.websocketCreated && last.websocketOpened
+      && last.helloReceived && last.protocolAccepted && last.joinPacketSent
+      && last.joinedMessageReceived && last.roomMatches && last.myIdPopulated
+      && last.firstFullSnapshotReceived) return last;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`browser initial readiness timeout after ${timeoutMs}ms: ${JSON.stringify(last, null, 2)}`);
 }
 
 function writeJsonArtifact(file, value) {
@@ -201,6 +254,8 @@ module.exports = {
   waitForServer,
   uniquePort,
   uniqueRoom,
+  collectReadiness,
+  waitForBrowserReady,
   writeJsonArtifact,
   defaultArtifactDir,
   PAGE_HELPERS,
