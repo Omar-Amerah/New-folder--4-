@@ -278,7 +278,7 @@ function generateRelays(rng, world, safeZones) {
       y: world.height * 0.5 + rngRange(rng, -200, 200),
       radius: centralRelay.radius
     };
-    if (circlesClear(candidate, safeZones, 500)) {
+    if (circlesClear(candidate, safeZones, 505)) {
       centralRelay = candidate;
       break;
     }
@@ -324,7 +324,7 @@ function addMirroredRelayPair(rng, relays, bounds, world, safeZones) {
     // Check clearance against other relays (wider distance), between the pair itself, and against safe zones
     if (circlesClear(relay, relays, 800) && circlesClear(mirror, relays, 800) &&
         circlesClear(relay, [mirror], 800) &&
-        circlesClear(relay, safeZones, 500) && circlesClear(mirror, safeZones, 500)) {
+        circlesClear(relay, safeZones, 505) && circlesClear(mirror, safeZones, 505)) {
       relays.push(relay, mirror);
       return true;
     }
@@ -363,10 +363,10 @@ function generateAsteroids(rng, world, relays, safeZones, densityMultiplier = 1)
         y: world.height - asteroid.y,
         radius
       };
-      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 220, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 220, world)) {
+      if (!canPlaceMapCircle(asteroid, reserved, asteroids, 225, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 225, world) || !circlesClear(asteroid, [mirror], 225)) {
         continue;
       }
-      if (!circlesClearWithNoise(asteroid, relays, 200, 500, rng) || !circlesClearWithNoise(mirror, relays, 200, 500, rng)) {
+      if (!circlesClearWithNoise(asteroid, relays, 205, 500, rng) || !circlesClearWithNoise(mirror, relays, 205, 500, rng)) {
         continue;
       }
       asteroids.push(
@@ -392,10 +392,10 @@ function generateAsteroids(rng, world, relays, safeZones, densityMultiplier = 1)
           y: world.height - asteroid.y,
           radius
         };
-        if (!canPlaceMapCircle(asteroid, reserved, asteroids, 220, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 220, world)) {
+        if (!canPlaceMapCircle(asteroid, reserved, asteroids, 225, world) || !canPlaceMapCircle(mirror, reserved, asteroids, 225, world) || !circlesClear(asteroid, [mirror], 225)) {
           continue;
         }
-        if (!circlesClearWithNoise(asteroid, relays, 200, 500, rng) || !circlesClearWithNoise(mirror, relays, 200, 500, rng)) {
+        if (!circlesClearWithNoise(asteroid, relays, 205, 500, rng) || !circlesClearWithNoise(mirror, relays, 205, 500, rng)) {
           continue;
         }
         asteroids.push(

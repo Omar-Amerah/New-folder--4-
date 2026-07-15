@@ -3,7 +3,7 @@ const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN
 const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setRallyPoint','resetRallyPoint','command','destruct','setTeam','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
 const COMBAT = new Set(['sentry','charge','circle','hold']);
 const FORMATIONS = new Set(['line','wedge','clump']);
-const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
+const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot','missing-baseline','wrong-base','static-revision-mismatch','malformed-delta','incompatible-snapshot']);
 const SCHEMAS = Object.freeze(Object.fromEntries(TYPES.map((t)=>[t, Object.freeze({ type:t })])));
 function isPlainObject(v){return !!v && typeof v==='object' && !Array.isArray(v) && (Object.getPrototypeOf(v)===Object.prototype || Object.getPrototypeOf(v)===null);}
 function finiteNumbers(value, depth=0){ if(depth>MAX_DEPTH)return false; if(typeof value==='number')return Number.isFinite(value); if(Array.isArray(value))return value.length<=MAX_ARRAY&&value.every((v)=>finiteNumbers(v,depth+1)); if(isPlainObject(value))return Object.values(value).every((v)=>finiteNumbers(v,depth+1)); return true; }
