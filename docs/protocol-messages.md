@@ -102,3 +102,8 @@ State messages may include `componentHeat` full tuples as `[heat, state, ratio, 
 ## Section 8D heat protocol verification
 
 `npm run test:heat-protocol` starts `server.js`, connects with real WebSockets, sends MessagePack client messages, receives MessagePack snapshots, verifies full `componentHeat` tuples, compact `componentHeatD` deltas, index alignment, reconnect reconstruction and reset/rematch cleanup. Direct snapshot-builder tests are unit coverage only and are not described as the protocol test.
+
+## Section 9A protocol compatibility and schemas
+Protocol version 4 makes compatibility negotiation explicit. `join` must include `protocolVersion`, `minProtocolVersion`, `maxProtocolVersion`, `frontendBuildSha` and `capabilities`; the server requires `messagepack` and accepts only compatible range 4..4. Stable error codes include `incompatible-protocol`, `missing-capability`, `invalid-payload`, `invalid-type`, `unknown-type`, `invalid-request`, `invalid-room`, `invalid-design`, `invalid-ship-ids`, `join-required`, `stale-attachment`, `bad-message`, `message-too-large` and `protocol-error`.
+
+The accepted client-message registry is `src/server/clientSchemas.js`: ping, join, deploy, buyShip, setCombatStyle, setRallyPoint, resetRallyPoint, command, destruct, setTeam, addBot, setRules, setName, startDesign, kick, restart, returnToLobby, restartLobby, closeLobby and leaveLobby. Unknown fields are ignored only after generic bounds validation; domain handlers remain authoritative for permission and phase checks.

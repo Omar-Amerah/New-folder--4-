@@ -223,3 +223,10 @@ Current required browser coverage:
 - `verify-heat-browser.js` starts its own real Node server, opens the production frontend in Playwright Chromium, joins a real WebSocket/MessagePack bot, starts a real match, verifies authoritative heat data, Heat panel rendering, fractional heat percentages, component selection, and that Heat panel interaction does not issue an unintended battlefield movement command. It now uses a unique room and safely allocated per-process port by default and writes `failure.png`, `diagnostics.json`, and `server.log` under the browser artifact directory on failure.
 
 Chromium setup remains a hard requirement for CI. The browser job runs `npm ci`, then `npx --no-install playwright install --with-deps chromium` so the downloaded Chromium revision matches the Playwright package version from `package-lock.json`, then runs the real browser group. Failure artifacts are uploaded from `test-artifacts/` and `/tmp/mfa-*` only after a failed job step; artifact upload does not mask the browser command exit code.
+
+## Section 9A networking tests
+- `npm run test:websocket-frames` covers raw frame boundaries, masking, RSV/opcode rejection, fragmentation policy, control-frame limits, coalescing and maximum payloads.
+- `npm run test:protocol-schema` covers the accepted message registry and logical bounds.
+- `npm run test:network-connections` covers protocol compatibility decisions.
+- `npm run test:network-protocol` covers real MessagePack encode/decode policy.
+- `npm run test:network-browser` statically verifies production client stale-socket generation and no JSON send fallback.

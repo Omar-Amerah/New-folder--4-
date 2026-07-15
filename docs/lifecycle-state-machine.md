@@ -118,3 +118,6 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 ## Timer and cleanup test expectations
 
 Lifecycle tests are expected to cover grace entry, reconnect-before-expiry, stale expiry callbacks, permanent removal, explicit leave, kick, room closure, empty-room cleanup cancellation, admin disconnect/promotion, duplicate-name handling during grace, and stale replaced sockets. Public snapshots must not expose resume tokens, and removed IDs must not remain invalid active owners.
+
+## Section 9A connection attachment identity
+`connectionId` identifies the current WebSocket transport and changes on reconnect. `playerId` identifies the stable room slot and owns ships, admin status and economy. Reattaching with a valid private resume credential preserves `playerId`, creates a new `connectionId`, increments `attachmentId`, and makes stale sockets non-authoritative.

@@ -89,7 +89,7 @@ async function until(fn, what, timeoutMs = 15000) {
     diagnostics.playerId = myId;
 
     await bot.open();
-    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "red" });
+    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "red", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
     await until(() => bot.latest.joined, "bot join");
     diagnostics.botPlayerId = bot.latest.joined.id;
     await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none" } }));

@@ -6,22 +6,24 @@ import { LOCAL_SERVER_KEY } from "./constants.js";
 import { handleServerMessage } from "./messages.js";
 import { setConnectionStatus, updateLobbyState } from "./ui/lobbyUi.js";
 
-// The server speaks MessagePack over binary WebSocket frames (vendored global
-// `MessagePack`, loaded via a <script> tag in index.html). We fall back to JSON
-// if the library is unavailable (e.g. the test sandbox) so nothing hard-breaks.
-function wsEncode(message) {
+// The production wire protocol is MessagePack over binary WebSocket frames.
+// Missing MessagePack is a fatal local transport error, not a silent JSON fallback.
+function requireMessagePack() {
   const mp = globalThis.MessagePack;
-  return mp ? mp.encode(message) : JSON.stringify(message);
+  if (!mp || typeof mp.encode !== "function" || typeof mp.decode !== "function") {
+    throw new Error("MessagePack bundle unavailable; cannot use production WebSocket protocol");
+  }
+  return mp;
+}
+
+function wsEncode(message) {
+  return requireMessagePack().encode(message);
 }
 
 function wsDecode(data) {
-  const mp = globalThis.MessagePack;
-  if (data instanceof ArrayBuffer) {
-    const bytes = new Uint8Array(data);
-    return mp ? mp.decode(bytes) : JSON.parse(new TextDecoder().decode(bytes));
-  }
-  // Text frame (JSON) — legacy/fallback path.
-  return JSON.parse(data);
+  const mp = requireMessagePack();
+  if (!(data instanceof ArrayBuffer)) throw new Error("Server sent unsupported text WebSocket frame");
+  return mp.decode(new Uint8Array(data));
 }
 
 export function connect(url, onOpenCallback) {
@@ -34,17 +36,21 @@ export function connect(url, onOpenCallback) {
   }
 
   setConnectionStatus("connecting", "Connecting");
+  const generation = (state.connectionGeneration || 0) + 1;
+  state.connectionGeneration = generation;
   const socket = new WebSocket(url);
   socket.binaryType = "arraybuffer";
   state.socket = socket;
   updateLobbyState();
 
   socket.addEventListener("open", () => {
+    if (state.connectionGeneration !== generation || state.socket !== socket) return;
     setConnectionStatus("online", "Connected");
     if (onOpenCallback) onOpenCallback();
   });
 
   socket.addEventListener("message", (event) => {
+    if (state.connectionGeneration !== generation || state.socket !== socket) return;
     try {
       const message = wsDecode(event.data);
       handleServerMessage(message);
@@ -54,7 +60,7 @@ export function connect(url, onOpenCallback) {
   });
 
   socket.addEventListener("close", () => {
-    if (state.socket === socket) {
+    if (state.connectionGeneration === generation && state.socket === socket) {
       setConnectionStatus("offline", "Disconnected");
       import("./ui/lobbyUi.js").then((mod) => {
         mod.returnToMainMenu("Disconnected from server", "error");
@@ -63,7 +69,7 @@ export function connect(url, onOpenCallback) {
   });
 
   socket.addEventListener("error", () => {
-    if (state.socket === socket) {
+    if (state.connectionGeneration === generation && state.socket === socket) {
       setConnectionStatus("error", "Network error");
       import("./ui/lobbyUi.js").then((mod) => {
         mod.returnToMainMenu("Network connection failed", "error");
@@ -73,8 +79,12 @@ export function connect(url, onOpenCallback) {
 }
 
 export function send(message) {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    console.warn("Cannot send while WebSocket is offline", message?.type);
+    return false;
+  }
   state.socket.send(wsEncode(message));
+  return true;
 }
 
 export function getSocketUrl() {
@@ -106,4 +116,15 @@ export function normalizeSocketUrl(value) {
   } catch {
     return value;
   }
+}
+
+export function withClientProtocol(message) {
+  return {
+    protocolVersion: globalThis.MFAProtocol?.PROTOCOL_VERSION ?? 4,
+    minProtocolVersion: globalThis.MFAProtocol?.MIN_SUPPORTED_PROTOCOL ?? 4,
+    maxProtocolVersion: globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 4,
+    frontendBuildSha: globalThis.MFA_FRONTEND_BUILD_SHA || "dev",
+    capabilities: ["messagepack", "resume-v1", "heartbeat-v1"],
+    ...message
+  };
 }

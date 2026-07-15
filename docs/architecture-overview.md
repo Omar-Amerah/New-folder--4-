@@ -245,3 +245,6 @@ Heat is authoritative on the server and component-index aligned with immutable s
 ### Section 8D thermal invariants
 
 Runtime heat keeps immutable design indexes and physical adjacency, but effective component capacity is recalculated from living adjacent heat sinks after sink destruction or repair. Whole-ship aggregates include living components only; destroyed components may retain tuple heat for display/history. Internal transfer is debugged separately from cooling/radiation so conservation checks use generated heat minus actual heat leaving the ship. Thermal updates retain normal stalled elapsed time through bounded substeps and clamp excessive backlog at 1.6 seconds.
+
+## Section 9A networking architecture update
+The transport contract is now explicit: `/socket` upgrades to raw WebSocket, application data is production MessagePack only, client traffic is schema-validated before dispatch, and protocol version 4 join negotiation gates gameplay. The hand-rolled parser was hardened rather than replaced so deployment remains dependency-light and existing `/socket` MessagePack behavior is preserved.

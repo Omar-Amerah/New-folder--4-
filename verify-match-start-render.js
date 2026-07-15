@@ -123,7 +123,7 @@ async function runDensity(browser, density) {
     await until(() => page.evaluate((d) => window.__mfaState.rules?.asteroidDensity === d, density), 10000, `${density} rules`);
   }
   await enemy.connect(); await until(() => enemy.latest.hello, 10000, "enemy hello");
-  enemy.send({ type: "join", room, name: `Enemy-${density}`, team: "red" });
+  enemy.send({ type: "join", room, name: `Enemy-${density}`, team: "red", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
   await until(() => enemy.latest.joined, 10000, "enemy joined");
   enemy.send({ type: "setTeam", team: "red" });
   await page.click("#startDesignButton");

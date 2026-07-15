@@ -1,0 +1,13 @@
+const assert = require('assert');
+const { validateClientMessage, SCHEMAS } = require('./src/server/clientSchemas');
+for (const type of Object.keys(SCHEMAS)) assert.strictEqual(validateClientMessage({ type }).ok, true, type);
+assert.strictEqual(validateClientMessage(null).code, 'invalid-payload');
+assert.strictEqual(validateClientMessage({}).code, 'invalid-type');
+assert.strictEqual(validateClientMessage({ type:'missing' }).code, 'unknown-type');
+assert.strictEqual(validateClientMessage({ type:'ping', n: Infinity }).ok, false);
+assert.strictEqual(validateClientMessage({ type:'ping', s: 'x'.repeat(300) }).ok, false);
+assert.strictEqual(validateClientMessage({ type:'command', shipIds: Array(65).fill('s') }).code, 'invalid-ship-ids');
+assert.strictEqual(validateClientMessage({ type:'buyShip', requestId: '../bad' }).code, 'invalid-request');
+assert.strictEqual(validateClientMessage({ type:'join', room: 'bad room' }).code, 'invalid-room');
+assert.strictEqual(validateClientMessage({ type:'deploy', design: Array(257).fill({}) }).code, 'invalid-design');
+console.log('protocol schema verification passed');

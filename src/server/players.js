@@ -117,7 +117,7 @@ function joinRoom(client, message) {
     ensureAdmin(room);
     room.lastEmptyAt = 0;
 
-    send(client, { type: "joined", id: existingPlayer.id, resumeToken: existingPlayer.resumeToken, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
+    send(client, { type: "joined", id: existingPlayer.id, playerId: existingPlayer.id, connectionId: client.id, attachmentId: client.attachmentId, resumeToken: existingPlayer.resumeToken, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
     broadcastRoom(room, { type: "notice", message: `${existingPlayer.name} reconnected` });
     broadcastSnapshot(room, performanceNow(), true);
     checkEmptyLobby(room);
@@ -192,7 +192,7 @@ function joinRoom(client, message) {
   ensureAdmin(room);
   room.lastEmptyAt = 0;
 
-  send(client, { type: "joined", id: player.id, resumeToken: player.resumeToken, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
+  send(client, { type: "joined", id: player.id, playerId: player.id, connectionId: client.id, attachmentId: client.attachmentId, resumeToken: player.resumeToken, room: room.code, world: room.world, map: room.map, phase: room.phase, adminId: room.adminId, rules: room.rules });
   broadcastRoom(room, { type: "notice", message: `${player.name} joined ${room.code}` });
   broadcastSnapshot(room, performanceNow(), true);
   checkEmptyLobby(room);

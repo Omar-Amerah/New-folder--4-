@@ -16,17 +16,20 @@
   //   2 = authoritative per-design-index ship.weaponAngles in every snapshot,
   //       plus protocolVersion/serverBuildSha identification fields.
   //   3 = stable room-scoped player IDs and private resumeToken credentials.
-  const PROTOCOL_VERSION = 3;
+  //   4 = explicit compatibility negotiation, connectionId/playerId split,
+  //       MessagePack-only production client traffic and stable error codes.
+  const PROTOCOL_VERSION = 4;
 
   // Highest protocol this client build understands. A server reporting a newer
   // protocol is actually incompatible and is rejected with a clear message
   // (differing build SHAs alone never block play).
-  const MAX_SUPPORTED_PROTOCOL = 3;
+  const MIN_SUPPORTED_PROTOCOL = 4;
+  const MAX_SUPPORTED_PROTOCOL = 4;
 
   // Minimum protocol that guarantees authoritative weapon angles. Backends
   // below (or not reporting) this need redeploying; turret verification cannot
   // be claimed against them.
   const WEAPON_ANGLES_PROTOCOL = 2;
 
-  return Object.freeze({ PROTOCOL_VERSION, MAX_SUPPORTED_PROTOCOL, WEAPON_ANGLES_PROTOCOL });
+  return Object.freeze({ PROTOCOL_VERSION, MIN_SUPPORTED_PROTOCOL, MAX_SUPPORTED_PROTOCOL, WEAPON_ANGLES_PROTOCOL });
 }));

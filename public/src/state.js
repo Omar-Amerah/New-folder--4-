@@ -25,6 +25,8 @@ export const DEFAULT_THERMAL_LOAD_MODE = "idle";
 export const state = {
   visualShips: new Map(),
   socket: null,
+  connectionGeneration: 0,
+  connectionId: null,
   myId: null,
   room: "",
   world: { ...WORLD_FALLBACK },
