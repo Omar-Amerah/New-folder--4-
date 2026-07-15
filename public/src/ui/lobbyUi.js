@@ -4,7 +4,7 @@ import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatE
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { send, getSocketUrl, getConfiguredServerUrl, connect, disableReconnect } from "../network.js";
+import { send, getSocketUrl, getConfiguredServerUrl, connect, disableReconnect, withClientProtocol } from "../network.js";
 import { showToast } from "./toastUi.js";
 import { renderSavedDesigns } from "./savedBlueprintsUi.js";
 import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";

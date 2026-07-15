@@ -6,7 +6,7 @@ const os = require("os");
 const path = require("path");
 const msgpack = require("@msgpack/msgpack");
 const { chromium } = require("playwright");
-const { launchChromium, startServer, waitForServer, uniquePort, uniqueRoom, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
+const { launchChromium, startServer, waitForServer, uniquePort, uniqueRoom, waitForBrowserReady, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
 
 const PORT = Number(process.env.TEST_PORT || uniquePort());
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -48,7 +48,7 @@ class Client {
       });
     });
   }
-  send(message) { this.ws.send(JSON.stringify(message)); }
+  send(message) { this.ws.send(msgpack.encode(message)); }
   close() { try { this.ws?.close(); } catch {} }
 }
 
@@ -84,14 +84,14 @@ async function until(fn, what, timeoutMs = 15000) {
     });
 
     await page.goto(`${BASE}/index.html?room=${ROOM}`, { waitUntil: "load" });
-    await page.waitForFunction((room) => window.__mfaState?.room === room && window.__mfaState?.myId, ROOM, { timeout: 20000 });
+    await waitForBrowserReady(page, ROOM, diagnostics, 20000);
     const myId = await page.evaluate(() => window.__mfaState.myId);
     diagnostics.playerId = myId;
 
     await bot.open();
     bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "red", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
     await until(() => bot.latest.joined, "bot join");
-    diagnostics.botPlayerId = bot.latest.joined.id;
+    diagnostics.botPlayerId = bot.latest.joined.playerId || bot.latest.joined.id;
     await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none" } }));
     await page.evaluate(() => window.__mfaNetSend({ type: "startDesign" }));
     await until(() => bot.latest.state?.phase === "design", "design phase");

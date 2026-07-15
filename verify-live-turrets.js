@@ -27,7 +27,7 @@ const path = require("path");
 const assert = require("assert");
 const msgpack = require("@msgpack/msgpack");
 const { chromium } = require("playwright");
-const { launchChromium, uniquePort, uniqueRoom, defaultArtifactDir, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
+const { launchChromium, uniquePort, uniqueRoom, defaultArtifactDir, waitForBrowserReady, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
 
 const PORT = Number(process.env.TEST_PORT || uniquePort());
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -84,7 +84,7 @@ function httpGetJson(url) {
   });
 }
 
-// A real WebSocket client speaking the real protocol: JSON text frames out,
+// A real WebSocket client speaking the real protocol: MessagePack binary frames out,
 // MessagePack binary snapshots in. Caches per-ship designs the way the real
 // client does (the server sends each design once).
 class NetClient {
@@ -128,7 +128,7 @@ class NetClient {
     });
   }
 
-  send(message) { this.ws.send(JSON.stringify(message)); }
+  send(message) { this.ws.send(msgpack.encode(message)); }
   state() { return this.latest.state || null; }
   ship(id) { return this.state()?.ships?.find((candidate) => candidate.id === id) || null; }
   close() { try { this.ws.close(); } catch { /* gone */ } }
@@ -249,7 +249,7 @@ async function main() {
     // 1. The Chromium client joins the room through the real UI/auto-join path
     //    (first joiner => room admin).
     await page.goto(`${BASE}/index.html?room=${ROOM}`, { waitUntil: "load" });
-    await page.waitForFunction((room) => window.__mfaState?.room === room && window.__mfaState?.myId, ROOM, { timeout: 20000 });
+    await waitForBrowserReady(page, ROOM, report, 20000);
     const browserPlayerId = await page.evaluate(() => window.__mfaState.myId);
     report.browserPlayerId = browserPlayerId;
 
@@ -274,7 +274,7 @@ async function main() {
     });
     enemy.send({ type: "join", room: ROOM, name: "EnemyBrick", team: "red", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
     await until(() => enemy.latest.joined, 10000, "enemy joined room");
-    const enemyPlayerId = enemy.latest.joined.id;
+    const enemyPlayerId = enemy.latest.joined.playerId || enemy.latest.joined.id;
     report.enemyPlayerId = enemyPlayerId;
 
     // Make sure the two players are on opposing teams.

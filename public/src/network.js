@@ -28,6 +28,27 @@ function wsDecode(data) {
 }
 
 const RECONNECT = { baseMs: 300, maxMs: 4000, jitterMs: 250, maxDurationMs: 25000, heartbeatIntervalMs: 10000, heartbeatTimeoutMs: 30000 };
+function netDiag() {
+  if (typeof globalThis === "undefined") return null;
+  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [] };
+}
+function markSentType(type) {
+  const diag = netDiag();
+  if (!diag) return;
+  diag.sentTypes.push({ type, at: Date.now() });
+  if (diag.sentTypes.length > 50) diag.sentTypes.shift();
+  if (type === "join") diag.joinPacketSent = true;
+}
+function markReceivedType(type) {
+  const diag = netDiag();
+  if (!diag) return;
+  diag.receivedTypes.push({ type, at: Date.now() });
+  if (diag.receivedTypes.length > 50) diag.receivedTypes.shift();
+  if (type === "hello") diag.helloReceived = true;
+  if (type === "joined") diag.joinedReceived = true;
+  if (type === "state") diag.firstFullSnapshotReceived = true;
+}
+
 function clearReconnectTimer(){ if(state.reconnect?.timer){ clearTimeout(state.reconnect.timer); state.reconnect.timer=null; } }
 function clearHeartbeat(){ if(state.heartbeat?.timer) clearInterval(state.heartbeat.timer); if(state.heartbeat?.timeout) clearTimeout(state.heartbeat.timeout); state.heartbeat={}; }
 export function disableReconnect(reason="explicit") { state.reconnectAllowed=false; state.disconnectIntent=reason; clearReconnectTimer(); }
@@ -70,12 +91,16 @@ export function connect(url, onOpenCallback, options = {}) {
   const generation = (state.connectionGeneration || 0) + 1;
   state.connectionGeneration = generation;
   const socket = new WebSocket(url);
+  const diag = netDiag();
+  if (diag) { diag.websocketCreated = true; diag.websocketUrl = url; }
   socket.binaryType = "arraybuffer";
   state.socket = socket;
   updateLobbyState();
 
   socket.addEventListener("open", () => {
     if (state.connectionGeneration !== generation || state.socket !== socket) return;
+    const diag = netDiag();
+    if (diag) diag.websocketOpened = true;
     setConnectionStatus(options.reconnect ? "reconnected" : "online", options.reconnect ? "Resumed" : "Connected");
     startHeartbeat(generation, socket);
     if (onOpenCallback) onOpenCallback();
@@ -85,7 +110,10 @@ export function connect(url, onOpenCallback, options = {}) {
     if (state.connectionGeneration !== generation || state.socket !== socket) return;
     try {
       const message = wsDecode(event.data);
+      markReceivedType(message?.type);
       handleServerMessage(message);
+      const diag = netDiag();
+      if (diag && message?.type === "hello") diag.protocolAccepted = state.server?.compatibility === "ok";
     } catch (err) {
       console.error("Failed to parse incoming WS message:", err);
     }
@@ -115,6 +143,7 @@ export function send(message) {
     return false;
   }
   state.socket.send(wsEncode(message));
+  markSentType(message?.type);
   return true;
 }
 
