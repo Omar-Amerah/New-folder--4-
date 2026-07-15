@@ -111,11 +111,26 @@ async function collectReadiness(page, expectedRoom) {
 }
 
 async function waitForBrowserReady(page, expectedRoom, diagnostics, timeoutMs = 20000) {
+  const cursors = await page.evaluate(() => {
+    const d = window.__mfaNetworkDiagnostics || {};
+    return { errors: d.latestErrors?.length || 0, closes: d.socketCloses?.length || 0, received: d.receivedTypes?.length || 0, sent: d.sentTypes?.length || 0 };
+  }).catch(() => ({ errors: 0, closes: 0, received: 0, sent: 0 }));
   const start = Date.now();
   let last = null;
   while (Date.now() - start <= timeoutMs) {
     last = await collectReadiness(page, expectedRoom);
     if (diagnostics) diagnostics.readiness = last;
+    const fresh = await page.evaluate((c) => {
+      const d = window.__mfaNetworkDiagnostics || {};
+      return {
+        errors: (d.latestErrors || []).slice(c.errors),
+        closes: (d.socketCloses || []).slice(c.closes),
+        sentTypes: (d.sentTypes || []).slice(c.sent),
+        receivedTypes: (d.receivedTypes || []).slice(c.received)
+      };
+    }, cursors).catch(() => ({ errors: [], closes: [], sentTypes: [], receivedTypes: [] }));
+    if (fresh.errors.length) throw new Error(`browser join failed with new protocol error: ${JSON.stringify({ expectedRoom, fresh, last }, null, 2)}`);
+    if (fresh.closes.length || last.socketReadyState === 3) throw new Error(`browser join socket closed: ${JSON.stringify({ expectedRoom, fresh, last }, null, 2)}`);
     if (last.mainModuleLoaded && last.stateExists && last.websocketCreated && last.websocketOpened
       && last.helloReceived && last.protocolAccepted && last.joinPacketSent
       && last.joinedMessageReceived && last.roomMatches && last.myIdPopulated

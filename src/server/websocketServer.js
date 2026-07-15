@@ -13,6 +13,17 @@ let nextClientId = 1;
 let messageHandler = null;
 let helloSender = null;
 let outboundReset = null;
+const transportDiagnostics = { malformedMessages: [], handlerFailures: [] };
+function boundedPush(key, value, limit = 25) {
+  transportDiagnostics[key].push({ ...value, at: Date.now() });
+  while (transportDiagnostics[key].length > limit) transportDiagnostics[key].shift();
+}
+function sanitizeStack(error) {
+  return String(error?.stack || error?.message || error || "").split("\n").slice(0, 8).join("\n");
+}
+function sendTransportError(client, payload) {
+  if (helloSender) helloSender(client, { type: "error", ...payload });
+}
 
 function configureTransport(deps = {}) {
   messageHandler = deps.handleMessage || messageHandler;
@@ -73,17 +84,33 @@ function handleSocketData(client, chunk) {
     if (event.type === "pong") { client.heartbeat.lastPongAt = Date.now(); continue; }
     if (event.type === "ping") { client.heartbeat.lastInboundAt = Date.now(); writeFrame(client.socket, event.payload, 0xA); continue; }
     if (event.type === "message") {
+      const { decodeBinary } = require("./wsCodec");
+      let message;
       try {
-        const { decodeBinary } = require("./wsCodec");
-        const message = decodeBinary(event.payload);
-        if (!message || typeof message !== "object" || Array.isArray(message)) throw new Error("bad message shape");
-        client.lastMessageAt = Date.now();
-        client.heartbeat.lastInboundAt = client.lastMessageAt;
-        if (messageHandler) messageHandler(client, message);
-      } catch {
+        message = decodeBinary(event.payload);
+      } catch (error) {
         client.badMessageCount = (client.badMessageCount || 0) + 1;
-        if (helloSender) helloSender(client, { type: "error", code: "bad-message", message: "Bad MessagePack message" });
+        boundedPush("malformedMessages", { clientId: client.id, roomCode: client.room?.code || null, stage: "messagepack-decode", bytes: event.payload?.length || 0, error: String(error?.message || error).slice(0, 160), strikes: client.badMessageCount });
+        sendTransportError(client, { type: "error", code: "bad-message", message: "Bad MessagePack message", stage: "messagepack-decode" });
         if (client.badMessageCount >= 3) { closeClient(client, 1003, "bad-message"); return; }
+        continue;
+      }
+      if (!message || typeof message !== "object" || Array.isArray(message)) {
+        client.badMessageCount = (client.badMessageCount || 0) + 1;
+        boundedPush("malformedMessages", { clientId: client.id, roomCode: client.room?.code || null, stage: "decoded-shape", bytes: event.payload?.length || 0, type: typeof message, strikes: client.badMessageCount });
+        sendTransportError(client, { type: "error", code: "bad-message", message: "Bad MessagePack message", stage: "decoded-shape" });
+        if (client.badMessageCount >= 3) { closeClient(client, 1003, "bad-message"); return; }
+        continue;
+      }
+      client.lastMessageAt = Date.now();
+      client.heartbeat.lastInboundAt = client.lastMessageAt;
+      try {
+        if (messageHandler) messageHandler(client, message);
+      } catch (error) {
+        const diagnostic = { clientId: client.id, roomCode: client.room?.code || null, routeType: typeof message.type === "string" ? message.type : null, stage: "route-dispatch", error: String(error?.message || error).slice(0, 160), stack: sanitizeStack(error) };
+        boundedPush("handlerFailures", diagnostic);
+        console.error("[websocket handler failure]", JSON.stringify(diagnostic));
+        sendTransportError(client, { type: "error", code: "internal-error", message: "Internal server error", retryable: true, requestId: message.requestId, stage: "route-dispatch", routeType: diagnostic.routeType });
       }
     }
   }
@@ -165,5 +192,6 @@ module.exports = {
   writeFrame,
   closeClient,
   finalizeClient,
-  startHeartbeat
+  startHeartbeat,
+  transportDiagnostics
 };
