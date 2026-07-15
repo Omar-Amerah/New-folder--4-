@@ -73,36 +73,10 @@ function buildSharedSnapshot(room, now, sendStatic) {
       const span = ship.selfDestructAt - ship.selfDestructStart;
       entry.destructProgress = span > 0 ? round(Math.max(0, Math.min(1, (now - ship.selfDestructStart) / span))) : 1;
     }
-    // A ship's design never changes after spawn, so only send it on static
-    // snapshots or the first broadcast that includes the ship. Clients cache it.
-    if (sendStatic || !ship.designSent) {
-      entry.design = ship.design || [];
-      // Full authoritative component-hp sync rides along with the design.
-      if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
-      if (ship.componentHeat) {
-        entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
-      }
-    } else if (ship.dirtyComponents && ship.dirtyComponents.size) {
-      // Otherwise only ship the components whose hp changed since the last
-      // broadcast, as a flat [index, hp, index, hp, ...] delta.
-      const delta = [];
-      for (const index of [...ship.dirtyComponents].sort((a, b) => a - b)) {
-        delta.push(index, Math.round(ship.componentHp[index] * 10) / 10);
-      }
-      entry.chpD = delta;
-    }
-    if (!sendStatic && ship.dirtyHeat?.size) {
-      entry.componentHeatD = [];
-      for (const index of [...ship.dirtyHeat].sort((a, b) => a - b)) {
-        const tuple = buildComponentHeatTuple(ship, index);
-        entry.componentHeatD.push(
-          index,
-          tuple[COMPONENT_HEAT_VALUE],
-          tuple[COMPONENT_HEAT_STATE],
-          tuple[COMPONENT_HEAT_RATIO],
-          tuple[COMPONENT_HEAT_CAPACITY]
-        );
-      }
+    if (sendStatic) {
+      appendFullShipBaseline(entry, ship);
+    } else {
+      appendShipDeltas(entry, ship);
     }
     ships.push(entry);
   }
@@ -162,7 +136,72 @@ function buildSharedSnapshot(room, now, sendStatic) {
   };
 }
 
-function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null) {
+function getKnownShipDesigns(client) {
+  if (!client) return new Map();
+  if (!client.knownShipDesignRevisions) client.knownShipDesignRevisions = new Map();
+  return client.knownShipDesignRevisions;
+}
+
+function appendFullShipBaseline(entry, ship) {
+  delete entry.chpD;
+  delete entry.componentHeatD;
+  entry.design = ship.design || [];
+  if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
+  if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
+}
+
+function appendShipDeltas(entry, ship) {
+  if (ship.dirtyComponents && ship.dirtyComponents.size) {
+    const delta = [];
+    for (const index of [...ship.dirtyComponents].sort((a, b) => a - b)) {
+      delta.push(index, Math.round(ship.componentHp[index] * 10) / 10);
+    }
+    entry.chpD = delta;
+  }
+  if (ship.dirtyHeat?.size) {
+    entry.componentHeatD = [];
+    for (const index of [...ship.dirtyHeat].sort((a, b) => a - b)) {
+      const tuple = buildComponentHeatTuple(ship, index);
+      entry.componentHeatD.push(
+        index,
+        tuple[COMPONENT_HEAT_VALUE],
+        tuple[COMPONENT_HEAT_STATE],
+        tuple[COMPONENT_HEAT_RATIO],
+        tuple[COMPONENT_HEAT_CAPACITY]
+      );
+    }
+  }
+}
+
+function buildClientShips(room, sharedShips, client, sendStatic) {
+  const known = getKnownShipDesigns(client);
+  return sharedShips.map((base) => {
+    const entry = { ...base };
+    const ship = room.ships.get(entry.id);
+    if (!ship || ship.removed) return entry;
+    const revision = ship.designRevision || 1;
+    if (sendStatic || known.get(ship.id) !== revision) appendFullShipBaseline(entry, ship);
+    else appendShipDeltas(entry, ship);
+    return entry;
+  });
+}
+
+function collectSnapshotDesignRevisions(snapshot) {
+  const revisions = [];
+  for (const ship of snapshot?.ships || []) {
+    if (ship.design) revisions.push([ship.id, ship.designRevision || 1]);
+  }
+  return revisions;
+}
+
+function markSnapshotDesignsWritten(client, designRevisions = []) {
+  const known = getKnownShipDesigns(client);
+  for (const [shipId, revision] of designRevisions) known.set(shipId, revision);
+}
+
+function markShipDesignsSent() {}
+
+function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null) {
   if (!shared) shared = buildSharedSnapshot(room, now, sendStatic);
 
   const phaseEnded = room.phase === "ended";
@@ -230,7 +269,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     phase: room.phase,
     adminId: room.adminId,
     players,
-    ships: shared.ships,
+    ships: buildClientShips(room, shared.ships, client, sendStatic),
     bullets: shared.bullets,
     points: shared.points,
     effects: shared.effects,
@@ -257,16 +296,6 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
   return snapshot;
 }
 
-// Marks every current ship design as broadcast so subsequent dynamic snapshots
-// omit it, and flushes the per-ship component-hp deltas that were just sent.
-function markShipDesignsSent(room) {
-  for (const ship of room.ships.values()) {
-    if (!ship.designSent) ship.designSent = true;
-    if (ship.dirtyComponents && ship.dirtyComponents.size) ship.dirtyComponents.clear();
-    if (ship.dirtyHeat && ship.dirtyHeat.size) ship.dirtyHeat.clear();
-  }
-}
-
 function canViewPlayerEconomy(viewer, player) {
   if (!viewer || !player) return false;
   if (viewer.id === player.id) return true;
@@ -276,6 +305,8 @@ function canViewPlayerEconomy(viewer, player) {
 module.exports = {
   snapshotRoom,
   buildSharedSnapshot,
+  collectSnapshotDesignRevisions,
+  markSnapshotDesignsWritten,
   markShipDesignsSent,
   canViewPlayerEconomy
 };
