@@ -82,14 +82,17 @@ const GROUPS = {
   browser: [
     "verify-live-turrets.js",
     "verify-heat-browser.js",
-    "verify-renderer-input-browser.js"
+    "verify-renderer-input-browser.js",
+    "verify-renderer-performance-browser.js",
+    "verify-webgl-context-browser.js"
   ],
   // Sustained high-entity deterministic server simulation with bounded-state
   // and performance measurements.
   soak: [
     "verify-soak.js",
     "verify-heat-soak.js",
-    "verify-renderer-interaction-soak.js"
+    "verify-renderer-interaction-soak.js",
+    "verify-renderer-soak.js"
   ]
 };
 GROUPS.all = [...GROUPS.unit, ...GROUPS.integration, ...GROUPS.protocol, ...GROUPS.smoke, ...GROUPS.browser, ...GROUPS.soak];

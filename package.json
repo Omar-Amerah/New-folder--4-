@@ -12,7 +12,7 @@
     "test:protocol": "node tools/run-tests.js protocol",
     "test:smoke": "node tools/run-tests.js smoke",
     "test:browser": "npm run build && node tools/run-tests.js browser",
-    "test:all": "npm run check && node tools/run-tests.js all && npm run test:renderer-pools && npm run test:renderer-culling && npm run test:renderer-textures && npm run test:renderer-quality && npm run test:renderer-structure && npm run test:camera && npm run test:input && npm run test:interpolation && npm run test:selection && npm run test:snapshot-contract && npm run test:snapshot-resync && npm run test:network-backpressure && npm run test:network-soak && npm run test:renderer-browser && npm run test:renderer-soak",
+    "test:all": "npm run check && node tools/run-tests.js all && npm run test:renderer-pools && npm run test:renderer-culling && npm run test:renderer-textures && npm run test:renderer-quality && npm run test:renderer-structure && npm run test:camera && npm run test:input && npm run test:interpolation && npm run test:selection && npm run test:snapshot-contract && npm run test:snapshot-resync && npm run test:network-backpressure && npm run test:network-soak && npm run test:renderer-browser && npm run test:renderer-performance && npm run test:webgl-context && npm run test:renderer-soak",
     "verify": "npm run test:all",
     "test:canvas-removal": "node verify-canvas-removal.js",
     "test:pixi-lifecycle": "node verify-pixi-lifecycle.js",
@@ -83,12 +83,14 @@
     "test:input": "node verify-input-lifecycle.js",
     "test:interpolation": "node verify-render-interpolation.js",
     "test:renderer-browser": "npm run build && node verify-renderer-input-browser.js",
-    "test:renderer-soak": "npm run build && node verify-renderer-interaction-soak.js",
+    "test:renderer-soak": "npm run build && node verify-renderer-soak.js",
     "test:renderer-pools": "node verify-renderer-pools.js",
     "test:renderer-culling": "node verify-renderer-culling.js",
     "test:renderer-textures": "node verify-renderer-textures.js",
     "test:renderer-quality": "node verify-renderer-quality.js",
-    "test:renderer-structure": "node verify-renderer-structural-updates.js"
+    "test:renderer-structure": "node verify-renderer-structural-updates.js",
+    "test:renderer-performance": "npm run build && node verify-renderer-performance-browser.js",
+    "test:webgl-context": "npm run build && node verify-webgl-context-browser.js"
   },
   "keywords": [
     "browser-game",
