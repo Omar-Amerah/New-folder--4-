@@ -239,6 +239,7 @@ function handleMessage(client, message) {
       return;
     }
     client.player.team = sanitizeTeam(message.team, balanceTeam(client.room));
+    require("./spawnPlanner").invalidateSpawnPlan(client.room);
     broadcastRoom(client.room, { type: "notice", message: `${client.player.name} changed wing` });
     broadcastSnapshot(client.room, performanceNow(), true);
     return;

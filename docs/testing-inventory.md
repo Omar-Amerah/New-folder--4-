@@ -173,9 +173,8 @@ Only the commands above that are wired to executable verifier scripts are docume
 
 - `npm run test:selection` covers selected-fleet normalization, explicit empty selections, malformed destruct, duplicate collapse, mixed enemy/owned IDs, and self-destruct idempotency.
 - `npm run test:economy-sequence` runs a seeded economy sequence with income, purchase success/failures, replay/conflict, reward idempotency, and orphan checks.
-- `npm run test:purchases-protocol` covers the purchase protocol-focused executor checks currently available in the Node harness.
 - `npm run test:bots` covers deterministic bot think intervals, movement offsets, safe empty objectives, winner stop, and failed bot purchases.
-- `npm run test:movement` and `npm run test:movement-protocol` cover movement command normalization and deterministic movement scenarios.
+- `npm run test:movement` covers movement command normalization and deterministic movement scenarios.
 
 ## Completed Catch-up Parts 1–3
 
@@ -190,5 +189,11 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 - `npm run test:spawn-planner` now runs `verify-spawn-planner.js`, a dedicated deterministic planner suite for solo counts 1, 2, 3, 4, 5, 8 and 12; 1v1; balanced teams; 7v1; 10v2; mixed human/bot rooms; large starter reservations; obstructed preferred positions; deterministic replay; and no-legal-placement failure reporting.
 - `npm run test:blueprint-parity` now runs `verify-blueprint-parity.js`. It loads the server-normalized component catalogue into the client preview and compares authoritative design-time stats with explicit tolerances: exact for integer/stat fields, 1 unit for rounded acceleration/effective thrust, and 0.01 for rounded speed/turn displays. Client warnings remain display-only copy and are not an exact authoritative parity field.
 - `npm run test:component-indexes` now runs `verify-component-indexes.js`, covering design creation, spawn, full and dynamic snapshots, component damage/destruction/repair deltas, heat deltas, reconnect reconstruction, ship removal, and new-ship cache isolation.
-- `npm run test:protocol` now executes the real runtime, purchase protocol, and movement protocol scenarios through `tools/run-tests.js`; each scenario starts a real server process and uses real WebSockets and MessagePack snapshots.
-- `npm run test:objectives` and `npm run test:match-progression` still point at `verify-maps-objectives.js`; this remains a focused map/objective invariant suite and broader objective/victory coverage is deferred to Section 8 proper rather than overstated here.
+- `npm run test:protocol` now executes only `verify-runtime.js`, the combined real-network protocol smoke test. Dedicated purchase and movement protocol wrappers were removed because they did not add focused assertions.
+- `npm run test:objectives` and `npm run test:match-progression` still point at `verify-maps-objectives.js`; this remains a focused map/objective invariant suite and broader objective/victory coverage is deferred to the Section 13 final regression pass rather than overstated here.
+
+## Spawn/protocol correction before Section 8
+
+`npm run test:spawn-planner` now exercises the real deterministic spawn/safe-zone plan for 1, 2, 3, 4, 5, 8 and 12 solo players; 1v1, balanced, 7v1 and 10v2 teams; mixed humans and bots; large ships; large starter quantities; obstructed preferred positions; deterministic replay; rematch/layout cache invalidation; impossible-layout diagnostics; and direct combat safe-zone policy checks.
+
+The duplicate protocol wrapper commands `test:purchases-protocol` and `test:movement-protocol` were removed because they only required `verify-runtime.js` and did not provide dedicated purchase or movement protocol assertions. `npm run test:protocol` now truthfully runs the single real-network protocol smoke test, `verify-runtime.js`, once. Focused purchase and movement protocol scenarios remain deferred until genuine harness-backed tests are added; broader final regression belongs to Section 13, while Section 8 is heat, power and component health.

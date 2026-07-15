@@ -221,10 +221,14 @@ function updateDecoys(room, ship, dt, now) {
   }
 }
 
-function isInSafeZone(room, x, y) {
+function isInSafeZone(room, x, y, shipOrPlayer = null) {
   if (!room.map || !room.map.safeZones) return false;
+  const player = shipOrPlayer?.ownerId ? room.players?.get(shipOrPlayer.ownerId) : shipOrPlayer;
   for (const zone of room.map.safeZones) {
-    if (Math.hypot(x - zone.x, y - zone.y) <= zone.radius) return true;
+    if (Math.hypot(x - zone.x, y - zone.y) > zone.radius) continue;
+    if (zone.ownerId) return Boolean(player && player.id === zone.ownerId);
+    if (zone.team) return Boolean(player && player.team === zone.team);
+    return true;
   }
   return false;
 }
@@ -256,7 +260,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   // Safe zones block FIRING only — never aiming. Target acquisition and
   // turret traverse continue so protected ships visibly track threats instead
   // of freezing at the blueprint angle in spawn.
-  const firingBlockedBySafeZone = isInSafeZone(room, ship.x, ship.y);
+  const firingBlockedBySafeZone = isInSafeZone(room, ship.x, ship.y, ship);
 
   const target = findTarget(room, ship, ships);
   ship.combatTargetId = target ? target.id : null;
@@ -641,7 +645,7 @@ function isTargetInWeaponArc(ship, module, target, arcRadians) {
 }
 
 function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, options = {}) {
-  if (isInSafeZone(room, ship.x, ship.y)) return; // Invincible in spawn
+  if (isInSafeZone(room, ship.x, ship.y, ship)) return; // Invincible in own/team spawn
 
   if (ship.stats.frontDamageReduction && sourceX !== undefined && sourceY !== undefined) {
     if (isDamageFromFront(ship, sourceX, sourceY, ship.stats.frontArc)) {
@@ -906,7 +910,7 @@ function getWeaponTurnRate(weapon) {
 // Never included in normal production snapshots.
 function buildShipTurretDiagnostics(room, ship) {
   const entries = [];
-  const safeZoneFiringBlocked = isInSafeZone(room, ship.x, ship.y);
+  const safeZoneFiringBlocked = isInSafeZone(room, ship.x, ship.y, ship);
   (ship.design || []).forEach((module, i) => {
     const part = PARTS[module.type];
     if (!part?.weapon) return;
@@ -976,6 +980,7 @@ module.exports = {
   findPointDefenseTarget,
   pickWeaponFireTarget,
   buildShipTurretDiagnostics,
+  isInSafeZone,
   isLineBlocked,
   areAllies,
   areEnemies

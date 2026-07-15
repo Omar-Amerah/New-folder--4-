@@ -233,3 +233,7 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 ## Deterministic spawn planner
 
 Server spawning is planned by `src/server/spawnPlanner.js`. The planner sorts stable player IDs, groups players by solo sector or team side, reserves a radius large enough for the starter fleet, and performs a bounded deterministic fallback search when a preferred slot intersects another reservation, an asteroid, a relay, or world bounds. Blue and red teams use mirrored side treatment; solo players are distributed around deterministic sectors. Failures include the map seed, player IDs, team layout, and attempted positions.
+
+## Spawn/safe-zone plan ownership
+
+`spawnPlanner.js` owns the deterministic spawn-region plan. `rooms.js` applies that plan to `room.map.safeZones` when rules change, players or bots alter the layout, the arena is prepared, or a rematch resets the match. `ships.js` reads planned spawns from the same cache for human and bot fleets. `combat.js` checks the generated zones with explicit `team` or `ownerId` ownership, and `snapshots.js` publishes the same `room.map.safeZones` list to clients. This removes the previous split between planner spawns and fixed legacy safe-zone layouts.

@@ -72,4 +72,12 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 
 ## Objective and victory test expectations
 
-Objective coverage must distinguish capture, scoring, victory finalization, and reset behavior. Capture and scoring rates, countdown duration, and reward values are balance constants and must not be changed by test catch-up work. Broader capture/victory/reset cases beyond the current invariant suite are intentionally deferred to Section 8 proper.
+Objective coverage must distinguish capture, scoring, victory finalization, and reset behavior. Capture and scoring rates, countdown duration, and reward values are balance constants and must not be changed by test catch-up work. Broader capture/victory/reset cases beyond the current invariant suite are intentionally deferred to the Section 13 final regression pass.
+
+## Spawn safe-zone authority
+
+Safe zones are now derived from the same deterministic spawn-region plan that places players. The planner keys on map seed, game mode, world size, player IDs, teams, bot flags, fleet cap and ship/fleet reservation statistics; rule, team, bot, player-layout, arena-preparation and rematch changes invalidate the cached plan before new zones are exposed. Each planned spawn has exactly one generated spawn zone containing its starter-fleet reservation radius. Zones are checked against world bounds, relays and asteroids using the same generated `map.safeZones` list consumed by combat and snapshots.
+
+Team mode creates generated team-owned spawn zones (`team: blue` or `team: red`) for the planned spawn slots. A ship standing in a zone matching its team is protected and cannot fire while protected; allies of that team receive the same spawn protection. Enemies entering that geometry are not protected. Projectiles or beams that resolve against a protected target do no damage, and ships that move into their own/team zone after firing are still blocked from further firing while protected.
+
+Solo mode creates generated owner-owned zones (`ownerId`) for each player spawn slot. Only the owner receives protection in that zone; another solo player entering it is treated as an enemy and is not protected. This keeps spawn protection tied to spawning players rather than turning all generated zones into permanent universal shelters.

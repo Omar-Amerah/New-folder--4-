@@ -89,4 +89,8 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 
 ## Protocol test suite
 
-The required protocol group now includes runtime, purchase, and movement protocol scenarios. These tests use a real server process, real WebSockets, MessagePack-encoded messages/snapshots, safe ports, and non-zero failure exits.
+The required protocol group currently includes `verify-runtime.js`, a combined real-network protocol smoke test using a real server process, real WebSockets, MessagePack-encoded messages/snapshots, safe ports, and non-zero failure exits. The former purchase and movement wrapper commands were removed because they duplicated this scenario without dedicated assertions.
+
+## Safe-zone snapshot fields
+
+Static `state.map.safeZones` is the authoritative server list used by combat. Each entry has stable finite `id`, `x`, `y`, `radius`, `color`, `isSpawn`, and explicit ownership metadata: `team` for team-owned protection or `ownerId` for solo owner protection. `spawnPlayerIds` identifies the planned spawn slots covered by that zone. Clients render these zones from the snapshot for world and minimap display only; all protection and firing blocks remain server-authoritative.

@@ -103,6 +103,7 @@ function findShipById(room, id) {
 function addBot(room, requester) {
   const { chooseBotTeam } = require("./ships");
   const { broadcastRoom } = require("./messages");
+  const { invalidateSpawnPlan } = require("./spawnPlanner");
   if (room.players.size >= (room.rules?.maxPlayers ?? MAX_PLAYERS_PER_ROOM)) return;
 
   const id = `bot${room.nextBotId++}`;
@@ -145,6 +146,7 @@ function addBot(room, requester) {
   if (room.rules?.gameMode === "solo") player.team = player.id;
 
   room.players.set(player.id, player);
+  invalidateSpawnPlan(room);
   broadcastRoom(room, { type: "notice", message: `${player.name} joined as a bot` });
   const { broadcastSnapshot } = require("./messages");
   broadcastSnapshot(room, performanceNow(), true);
@@ -257,6 +259,7 @@ function getPlayerSpawn(room, playerId) {
 
 function getPlayerRallyPoint(room, player) {
   if (!room || !player) return null;
+  if (room.phase === "lobby") return null;
   const rally = player.rallyPoint;
   if (rally && Number.isFinite(rally.x) && Number.isFinite(rally.y)) {
     return {

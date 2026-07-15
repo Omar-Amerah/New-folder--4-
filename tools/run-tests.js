@@ -55,9 +55,7 @@ const GROUPS = {
   // Real server.js process + real WebSockets + MessagePack snapshots.
   // Also the baseline lobby-to-active-match smoke flow.
   protocol: [
-    "verify-runtime.js",
-    "verify-purchases-protocol.js",
-    "verify-movement-protocol.js"
+    "verify-runtime.js"
   ],
   // Production-path smoke: real server process and HTTP asset checks only.
   smoke: [

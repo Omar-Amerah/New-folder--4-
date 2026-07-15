@@ -55,7 +55,9 @@ function validateGeneratedMap(map, world, options = {}) {
   function validateSafeZones(items) {
     for (const zone of items) {
       if (!isFiniteNumber(zone.x) || !isFiniteNumber(zone.y) || !(zone.radius > 0)) errors.push("safe zone must have finite x/y and positive radius");
+      if (zone.id != null && typeof zone.id !== "string") errors.push("safe zone id must be a string when present");
       if (zone.team != null && typeof zone.team !== "string") errors.push("safe zone team must be a string when present");
+      if (zone.ownerId != null && typeof zone.ownerId !== "string") errors.push("safe zone ownerId must be a string when present");
       if (typeof zone.color !== "string" || !zone.color) errors.push("safe zone color must be present");
     }
   }
