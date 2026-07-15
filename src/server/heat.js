@@ -4,7 +4,10 @@ const { getOccupiedCells } = require("./footprint");
 const HeatRules = require("../../public/src/shared/heatRules");
 
 const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, edgeConductivity } = HeatRules;
-function isThermalRouteType(type) { return /frame/i.test(String(type || "")) || type === "heatPipe"; }
+function isThermalRouteType(type) {
+  const normalized = String(type || "");
+  return normalized === "heatPipe" || /frame/i.test(normalized);
+}
 
 function findExteriorEmptyCells(cellOwners) {
   const occupied = [...cellOwners.keys()].map(key => key.split(",").map(Number));
@@ -273,8 +276,9 @@ function updateShipHeat(ship, dt, room, now) {
     const thermal = ship.componentThermals[i];
     let coolingRate = thermal.cooling * thermal.retention;
     if (ship.design[i].type === "radiator") {
+      const alive = (ship.componentHp?.[i] ?? 1) > 0;
       const exposure = thermal.exposedEdges > 0 ? 1 : 0.25;
-      const active = thermal.cooling * activeCoolingForState(ship.componentHeatState?.[i] || STATE.NORMAL);
+      const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[i] || STATE.NORMAL) : 0;
       const passiveFloor = thermal.cooling * 0.12;
       coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention;
     }
@@ -402,4 +406,4 @@ function effectiveComponentBonus(ship, propertyName, predicate) {
   return total;
 }
 
-module.exports = { STATE, initShipHeat, rebuildThermalNetworks, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };
+module.exports = { STATE, initShipHeat, rebuildThermalNetworks, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };

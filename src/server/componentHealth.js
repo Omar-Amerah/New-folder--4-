@@ -226,7 +226,10 @@ function onComponentDestroyed(room, ship, index, now) {
     return;
   }
   recalcEffectiveStats(ship);
-  if (/frame/i.test(module.type)) require("./heat").rebuildThermalNetworks(ship);
+  {
+    const heat = require("./heat");
+    if (heat.isThermalRouteType(module.type)) heat.rebuildThermalNetworks(ship);
+  }
 }
 
 // Approximate footprint-center of a component in blueprint-grid tiles.
@@ -360,7 +363,10 @@ function repairShipComponents(room, ship, amount, now) {
     if (wasDestroyed && ship.componentHp[idx] > 0) {
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       recalcEffectiveStats(ship);
-      if (/frame/i.test(ship.design[idx].type)) require("./heat").rebuildThermalNetworks(ship);
+      {
+        const heat = require("./heat");
+        if (heat.isThermalRouteType(ship.design[idx].type)) heat.rebuildThermalNetworks(ship);
+      }
     }
   }
   return healed;

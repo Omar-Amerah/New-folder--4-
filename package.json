@@ -59,7 +59,10 @@
     "test:selection": "node verify-selection.js",
     "test:economy-sequence": "node verify-economy-sequence.js",
     "test:bots": "node verify-bots.js",
-    "test:soak": "node tools/run-tests.js soak"
+    "test:soak": "node tools/run-tests.js soak",
+    "test:thermal-topology": "node verify-thermal-topology.js",
+    "test:heat-transfer": "node verify-heat-transfer.js",
+    "test:heat-cooling": "node verify-heat-cooling.js"
   },
   "keywords": [
     "browser-game",
