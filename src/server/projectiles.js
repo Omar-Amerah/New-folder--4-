@@ -1,6 +1,9 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
 const { clampNumber, rotateToward } = require("./utils");
+const { BALANCE } = require("./balanceConfig");
+const PROJECTILES = BALANCE.projectiles;
+const MISSILE_GUIDANCE = BALANCE.missileGuidance;
 
 function addBullet(room, bullet) {
   bullet.id = `b${room.nextEntityId++}`;
@@ -11,18 +14,18 @@ function addBullet(room, bullet) {
 // bullets flash on the hull instead of the shield bubble. This is purely cosmetic
 // (a trickle of shield regen otherwise keeps a depleted shield fractionally above
 // zero); damageShip's shield/hull damage split is unaffected.
-const SHIELD_HIT_MIN = 10;
+const SHIELD_HIT_MIN = PROJECTILES.shieldHitMinimum;
 
 // Shield bubble radius used for projectile collision — must match the client's
 // rendered shield ring (renderer.js shieldRingRadius) so bullets visually stop
 // exactly at the ring the player sees.
 function shieldCollisionRadius(ship) {
   const radius = Number(ship?.radius) || 0;
-  return Math.max(30, radius + Math.max(8, radius * 0.18));
+  return Math.max(PROJECTILES.shieldCollision.minimumRadius, radius + Math.max(PROJECTILES.shieldCollision.flatPadding, radius * PROJECTILES.shieldCollision.radiusMultiplier));
 }
 
 function projectileMapImpact(room, x1, y1, bullet) {
-  const margin = bullet.type === "missile" ? 8 : bullet.type === "rail" ? 3 : 5;
+  const margin = bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
   let hit = null;
   for (const asteroid of room.map?.asteroids || []) {
     const impact = segmentCircleHit(x1, y1, bullet.x, bullet.y, asteroid.x, asteroid.y, asteroid.radius + margin);
@@ -81,28 +84,28 @@ function updateBullets(room, dt, now) {
       const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
         let desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
-        let turnRate = 0.1; // Weak tracking during arming delay
+        let turnRate = MISSILE_GUIDANCE.armingTurnRate; // Weak tracking during arming delay
 
         if (bullet.age >= (bullet.trackingDelay || 0)) {
-          const tracking = clampNumber(bullet.tracking ?? 0.5, 0, 1);
-          const baseTurnRate = bullet.baseTurnRate ?? 0.7;
-          const trackingTurnRate = bullet.maxTurnRate ?? (0.45 + tracking * tracking * 4.2);
+          const tracking = clampNumber(bullet.tracking ?? MISSILE_GUIDANCE.defaultTracking, 0, 1);
+          const baseTurnRate = bullet.baseTurnRate ?? MISSILE_GUIDANCE.baseTurnRate;
+          const trackingTurnRate = bullet.maxTurnRate ?? (MISSILE_GUIDANCE.turnRateBase + tracking * tracking * MISSILE_GUIDANCE.turnRateTrackingSquaredMultiplier);
           turnRate = baseTurnRate + trackingTurnRate;
 
           // Add slight lead prediction only for high-tracking missiles
-          const leadStrength = tracking * 0.35;
+          const leadStrength = tracking * MISSILE_GUIDANCE.leadStrengthMultiplier;
           const predictedX = target.x + (target.vx || 0) * leadStrength;
           const predictedY = target.y + (target.vy || 0) * leadStrength;
           desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
         }
 
         const { effectiveComponentBonus } = require("./heat");
-        const ecmMod = Math.max(0, 1 - Math.min(0.55, effectiveComponentBonus(target, "ecmStrength")));
+        const ecmMod = Math.max(0, 1 - Math.min(MISSILE_GUIDANCE.ecmCap, effectiveComponentBonus(target, "ecmStrength")));
         turnRate *= ecmMod;
 
         const current = Math.atan2(bullet.vy, bullet.vx);
         const next = rotateToward(current, desired, turnRate * dt);
-        const speed = Math.min(bullet.maxSpeed || 460, Math.hypot(bullet.vx, bullet.vy) + 95 * dt);
+        const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, Math.hypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
       }
@@ -112,7 +115,7 @@ function updateBullets(room, dt, now) {
     bullet.x += bullet.vx * dt;
     bullet.y += bullet.vy * dt;
 
-    if (bullet.x < -80 || bullet.x > room.world.width + 80 || bullet.y < -80 || bullet.y > room.world.height + 80) {
+    if (bullet.x < -PROJECTILES.worldPadding || bullet.x > room.world.width + PROJECTILES.worldPadding || bullet.y < -PROJECTILES.worldPadding || bullet.y > room.world.height + PROJECTILES.worldPadding) {
       continue;
     }
 
@@ -127,7 +130,7 @@ function updateBullets(room, dt, now) {
           if (target && target.interceptable && target.life > 0) {
              const dx = target.x - bullet.x;
              const dy = target.y - bullet.y;
-             if (dx * dx + dy * dy <= 400) { // 20 radius
+             if (dx * dx + dy * dy <= PROJECTILES.interceptRadius * PROJECTILES.interceptRadius) {
                 target.hp -= bullet.damage;
                 bullet.life = 0;
                 room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
@@ -158,7 +161,7 @@ function updateBullets(room, dt, now) {
 
     for (const ship of liveShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
-      const hitRadius = bullet.type === "missile" ? 14 : bullet.type === "rail" ? 9 : 6;
+      const hitRadius = bullet.type === "missile" ? PROJECTILES.hitRadius.missile : bullet.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
 
       // While the shield holds, it presents a clean swept bubble hitbox. The
       // earliest collision across asteroids and all valid enemy ships wins.

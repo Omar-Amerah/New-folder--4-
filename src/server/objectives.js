@@ -1,6 +1,7 @@
 // Controls capture point states, capture progress increments, capture rewards, and game score updates.
 
 const { ECONOMY, SCORE_PER_CONTROLLED_POINT } = require("./config");
+const { BALANCE } = require("./balanceConfig");
 const { effectiveComponentBonus } = require("./heat");
 
 function updateCapturePoints(room, ships, dt) {
@@ -23,7 +24,7 @@ function updateCapturePoints(room, ships, dt) {
     const contenders = [...counts.entries()].sort((a, b) => b[1].count - a[1].count);
     point.contested = false;
     if (contenders.length === 0) {
-      point.progress = Math.max(0, point.progress - 0.08 * dt);
+      point.progress = Math.max(0, point.progress - BALANCE.capture.neutralDecayPerSecond * dt);
       continue;
     }
 
@@ -33,7 +34,7 @@ function updateCapturePoints(room, ships, dt) {
     }
 
     const [leaderTeam, leader] = contenders[0];
-    const captureRate = (0.1 + leader.count * 0.045) * dt;
+    const captureRate = (BALANCE.capture.baseCaptureRate + leader.count * BALANCE.capture.captureRatePerShip) * dt;
 
     if (point.ownerTeam === leaderTeam) {
       point.progress = Math.min(1, point.progress + captureRate);
@@ -42,13 +43,13 @@ function updateCapturePoints(room, ships, dt) {
       if (point.progress <= 0) {
         point.ownerTeam = leaderTeam;
         point.ownerId = leader.ownerId;
-        point.progress = Math.min(1, captureRate * 3);
+        point.progress = Math.min(1, captureRate * BALANCE.capture.newOwnerProgressMultiplier);
         for (const player of room.players.values()) {
           if (player.team === leaderTeam) {
             player.captures += 1;
             player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + ECONOMY.captureBonus);
             player.earned += ECONOMY.captureBonus;
-            player.score += 14;
+            player.score += BALANCE.capture.captureScore;
           }
         }
         broadcastRoom(room, {
