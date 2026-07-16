@@ -40,6 +40,15 @@ async function main() {
     await waitFor(() => output.join("").includes(`http://localhost:${PORT}`), 4000, "server did not start");
 
     alpha = await openClient("Alpha");
+    alpha.send({ type: "join", name: "Creator", room: "", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
+    const createdJoin = await alpha.waitFor((message) => message.type === "joined" && /^[A-Z2-9]{5}$/.test(message.room || ""), "create-game join did not return generated room code");
+    await alpha.waitFor((message) => message.type === "state" && message.phase === "lobby" && message.room === createdJoin.room && message.players.some((player) => player.name === "Creator"), "create-game did not receive first full lobby snapshot");
+    if (alpha.messages.some((message) => message.type === "error" && message.code === "invalid-room")) {
+      throw new Error("create-game emitted invalid-room for empty room");
+    }
+    alpha.close();
+
+    alpha = await openClient("Alpha");
     beta = await openClient("Beta");
 
     // Alpha must complete its join (and become room admin) before Beta joins;
