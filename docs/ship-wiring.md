@@ -99,13 +99,32 @@ equal-split bonus preview, and designer warnings (unpowered components,
 support modules without compatible weapons, incompatible Data routes, removed
 invalid segments, empty networks, unroutable requests).
 
-## Deliberately not implemented yet
+## Runtime Power authority (Phase 5C)
 
-Runtime power shutdown, per-network efficiency, actual bonus splitting,
-distance loss, diminishing returns, wire damage, network rebuilding after
-component destruction, redundancy analysis, power priorities, junctions, cable
-capacity/heat, combat visuals, and any thermal-simulation changes. Component
-balance, combat, heat, damage, movement, and pricing are unchanged.
+At spawn the server analyzes the normalized, ship-owned wiring snapshot and
+stores a compact entry at every immutable design index. Entries are `source`,
+`powered`, `underpowered`, `disconnected`, or `passive`; destroyed health
+always overrides their operational multiplier to zero. Consumers in a valid
+short network share `generation / demand`, clamped to 0–1. Transit cells never
+make their owning component an endpoint.
+
+The one component multiplier gates engines, manoeuvre thrusters, gyroscopes,
+weapons, shield capacity/recharge, repair and active utility bonuses. Weapon
+cooldowns remain component-indexed and are divided by the multiplier, while
+projectile damage, speed and range retain their base behaviour. Static ship
+snapshots expose only compact component state/multiplier tuples; wiring and the
+full analysis are not sent in high-frequency updates.
+
+### Temporary Phase 5D limitation
+
+The analysis intentionally describes the intact spawn topology. Destroying a
+component stops that component immediately, but this phase does **not** remove
+destroyed-source generation, break routes through destroyed transit cells,
+remove destroyed demand, discover redundant routes, or otherwise rebuild the
+network. Those event-driven topology changes are Phase 5D work; the simulation
+does not perform Power analysis every frame. Power priorities, load shedding,
+cable capacity/heat/durability, tiers beyond `standard`, and Data bonus
+distribution also remain out of scope.
 
 ## Verification
 
@@ -128,9 +147,8 @@ Only logical connection endpoints are functional members. A component whose
 footprint is crossed is transit-only. Unique source generation and consumer
 demand come from the supplied component catalogue. Status is `online`,
 `underpowered`, `unpowered`, `idle`, or `empty`, and calculated available
-efficiency is informational: Phase 5B does not apply it to gameplay.
+efficiency feeds the Phase 5C server-owned component runtime state.
 
 The server's `analyzeShipPower` wrapper creates `ship.powerAnalysis` once at
 spawn from the normalized, intact blueprint. Client-provided derived values are
-ignored. Re-analysis after damage and all runtime allocation/effects remain
-deferred to Phase 5D (with further wiring behavior deferred to Phase 5C).
+ignored. Re-analysis after damage remains deferred to Phase 5D.

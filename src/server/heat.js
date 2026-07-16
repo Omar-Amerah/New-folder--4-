@@ -435,13 +435,14 @@ function buildHeatDebug(ship) {
 }
 
 function effectiveComponentBonus(ship, propertyName, predicate) {
+  const { getComponentPowerMultiplier } = require("./componentPower");
   let total = 0;
   for (let i = 0; i < (ship.design || []).length; i += 1) {
     if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
     const placed = ship.design[i];
     const part = PARTS[placed.type] || {};
     if (predicate && !predicate(part, placed, i)) continue;
-    total += (part[propertyName] || 0) * componentPerformance(ship, i);
+    total += (part[propertyName] || 0) * componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
   }
   return total;
 }

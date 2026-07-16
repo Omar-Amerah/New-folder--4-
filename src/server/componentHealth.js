@@ -208,6 +208,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
 }
 
 function onComponentDestroyed(room, ship, index, now) {
+  require("./componentPower").setComponentPowerDestroyed(ship, index, true);
   const module = ship.design[index];
   if (room) {
     const cos = Math.cos(ship.angle);
@@ -321,7 +322,8 @@ function recalcEffectiveStats(ship) {
   if (!alive.length) return;
   const next = computeStats(alive);
   for (const key of EFFECTIVE_STAT_KEYS) ship.stats[key] = next[key];
-  ship.maxShield = next.maxShield;
+  const { effectiveShieldStats } = require("./componentPower");
+  ship.maxShield = effectiveShieldStats(ship).capacity;
   if (ship.shield > ship.maxShield) ship.shield = ship.maxShield;
   updateEngineExhaustState(ship);
 }
@@ -362,6 +364,7 @@ function repairShipComponents(room, ship, amount, now) {
     remaining -= heal;
     healed += heal;
     if (wasDestroyed && ship.componentHp[idx] > 0) {
+      require("./componentPower").setComponentPowerDestroyed(ship, idx, false);
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       recalcEffectiveStats(ship);
       {
