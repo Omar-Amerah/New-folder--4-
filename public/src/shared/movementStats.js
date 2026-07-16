@@ -34,12 +34,13 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
   for (let i = 0; i < (modules || []).length; i += 1) {
     const module = modules[i]; const part = parts[module.type] || parts.frame || {};
     const blocked = options.isBlockedEngine?.(i, module, part) || false;
-    if ((part.thrust || 0) > 0 && !blocked) mainEngineValues.push((part.thrust || 0) * ENGINE_TURN_PER_THRUST);
-    if (module.type === 'gyroscope' && (part.turn || 0) > 0) gyroscopeValues.push(part.turn || 0);
+    const multiplier = clamp(options.componentMultiplier?.(i, module, part) ?? 1, 0, 1);
+    if ((part.thrust || 0) > 0 && !blocked && multiplier > 0) mainEngineValues.push((part.thrust || 0) * ENGINE_TURN_PER_THRUST * multiplier);
+    if (module.type === 'gyroscope' && (part.turn || 0) > 0 && multiplier > 0) gyroscopeValues.push((part.turn || 0) * multiplier);
     if (module.type === 'maneuverThruster' && (part.turn || 0) > 0 && !blocked) {
       const localY = (Number(module.y) || 0) - centerOfMass.y;
       const lever = clamp(leverSettings.minimumLever + Math.abs(localY) * leverSettings.leverPerCell, leverSettings.minimumLever, leverSettings.maximumLever);
-      const value = (part.turn || 0) * lever;
+      const value = (part.turn || 0) * lever * multiplier;
       const sign = maneuverThrusterTorqueSign(module, centerOfMass);
       const record = { index: i, value, lever, sign, localY, rotation: Number(module.rotation) === 270 ? 270 : 90 };
       maneuverThrusters.push(record);
@@ -48,8 +49,8 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
   }
   return { centerOfMass, mainEngineVectorTurn: effectiveStackedValue(mainEngineValues, 0.85), gyroscopeTurn: effectiveStackedValue(gyroscopeValues, 0.92), clockwiseManeuverTurn: effectiveStackedValue(clockwiseThrusterValues, 0.92), anticlockwiseManeuverTurn: effectiveStackedValue(anticlockwiseThrusterValues, 0.92), maneuverThrusters };
 }
-export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs }) {
-  const safeMass = Math.max(mass, 1); const movementPowerMultiplier = calculateMovementPowerMultiplier(powerGeneration, powerUse); const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.1; const powerEfficiency = clamp(powerRatio, 0, 1.1);
+export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, movementPowerMultiplier: suppliedPowerMultiplier }) {
+  const safeMass = Math.max(mass, 1); const movementPowerMultiplier = suppliedPowerMultiplier === undefined ? calculateMovementPowerMultiplier(powerGeneration, powerUse) : clamp(suppliedPowerMultiplier, 0, 1.08); const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.1; const powerEfficiency = clamp(powerRatio, 0, 1.1);
   const engines = (engineThrustValues || []).map((value,index)=>({thrust:value,mass:(engineMassValues&&engineMassValues[index])||0})).sort((a,b)=>b.thrust-a.thrust);
   const engineMassTotal = engines.reduce((s,e)=>s+e.mass,0); const nonEngineMass = Math.max(1, safeMass-engineMassTotal);
   let effectiveThrust=0,cumulativeThrust=0,runningSpeed=0,runningMass=nonEngineMass;

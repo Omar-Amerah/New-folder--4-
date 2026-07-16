@@ -6,7 +6,7 @@ const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
-const { calculateCenterOfMass, maneuverThrusterTorqueSign, calculateMovementPowerMultiplier } = require("../../public/src/shared/movementStats.js");
+const { calculateCenterOfMass, calculateDirectionalTurnInputs, calculateMovementPowerMultiplier, calculateMovementStats, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const { selectOwnedLivingShips } = require("./selection");
 const { getComponentPowerMultiplier, effectiveShieldStats } = require("./componentPower");
@@ -17,45 +17,29 @@ const ARRIVE_DISTANCE = 16;
 const MAX_MOVEMENT_DT = 0.25;
 const MOVEMENT_SUBSTEP = 1 / 30;
 
-function heatWeightedMovementFactors(ship) {
-  let thrustWeighted = 0, thrustTotal = 0, turnWeighted = 0, turnTotal = 0;
-  for (let i = 0; i < (ship.design || []).length; i += 1) {
-    const part = PARTS[ship.design[i].type];
-    if (!part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
-    const perf = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
-    if ((part.thrust || 0) > 0 && (!ship.validEngineIndices || ship.validEngineIndices.has(i))) {
-      thrustWeighted += part.thrust * perf;
-      thrustTotal += part.thrust;
-    }
-    const turn = Math.max(0, part.turn || 0);
-    if (turn > 0 && (!part.thrust || !ship.validEngineIndices || ship.validEngineIndices.has(i))) {
-      turnWeighted += turn * perf;
-      turnTotal += turn;
-    }
-  }
-  const power = 1;
-  return {
-    thrust: thrustTotal ? thrustWeighted / thrustTotal : 0,
-    turn: turnTotal ? turnWeighted / turnTotal : (thrustTotal ? thrustWeighted / thrustTotal : 0),
-    power
-  };
-}
-
 function heatAdjustedMovementStats(ship, stats) {
-  const factors = heatWeightedMovementFactors(ship);
-  // computeStats retains aggregate Power figures for display/compatibility, but
-  // its legacy ship-wide movement penalty must not stack with per-network Power.
-  const legacyPower = Math.max(0.0001, calculateMovementPowerMultiplier(stats.powerGeneration || 0, stats.powerUse || 0));
-  return {
-    ...stats,
-    accel: ((stats.accel || 0) / legacyPower) * factors.thrust * factors.power,
-    maxSpeed: ((stats.maxSpeed || 0) / legacyPower) * factors.thrust * factors.power,
-    turnRate: ((stats.turnRate || 0) / legacyPower) * factors.turn * factors.power,
-    turnRateLeft: ((stats.turnRateLeft ?? stats.turnRate ?? 0) / legacyPower) * factors.turn * factors.power,
-    turnRateRight: ((stats.turnRateRight ?? stats.turnRate ?? 0) / legacyPower) * factors.turn * factors.power,
-    thrustHeatFactor: factors.thrust,
-    turnHeatFactor: factors.turn
-  };
+  const design = ship.design || [];
+  const multiplier = (i) => (ship.componentHp?.[i] ?? 1) > 0
+    ? componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i) : 0;
+  const engineThrustValues = [], engineMassValues = [];
+  design.forEach((module, i) => {
+    const part = PARTS[module.type] || {};
+    const output = multiplier(i);
+    if ((part.thrust || 0) > 0 && output > 0 && (!ship.validEngineIndices || ship.validEngineIndices.has(i))) {
+      engineThrustValues.push(part.thrust * output);
+      engineMassValues.push(part.mass || 0);
+    }
+  });
+  const directionalTurnInputs = calculateDirectionalTurnInputs(design, PARTS, {
+    componentMultiplier: multiplier,
+    isBlockedEngine: (i, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && ship.validEngineIndices && !ship.validEngineIndices.has(i)
+  });
+  return { ...stats, ...calculateMovementStats({ mass: stats.mass, thrust: stats.thrust, turnBonus: 0,
+    powerGeneration: stats.powerGeneration, powerUse: stats.powerUse, engineThrustValues, engineMassValues,
+    // Preserve the established surplus-Power bonus, but never reapply a
+    // ship-wide deficit after consumers have been scaled individually.
+    directionalTurnInputs, movementPowerMultiplier: Math.max(1,
+      calculateMovementPowerMultiplier(stats.powerGeneration || 0, stats.powerUse || 0)) }) };
 }
 
 function directionalTurnRate(stats, current, desired) {
@@ -559,11 +543,9 @@ function applyDamping(ship, distance, isCircleOrbit, dt) {
 
 function applySpeedLimit(ship, stats) {
   const maxSpeed = stats.maxSpeed || 0;
-  if (maxSpeed <= 0) {
-    ship.vx = 0;
-    ship.vy = 0;
-    return;
-  }
+  // A powered speed cap governs active propulsion, not momentum. With no
+  // operational engine, damping/collisions/boundaries remain the only brakes.
+  if (maxSpeed <= 0) return;
 
   const speed = Math.hypot(ship.vx, ship.vy);
   if (speed <= maxSpeed) return;

@@ -66,6 +66,7 @@
     "test:heat-transfer": "node verify-heat-transfer.js",
     "test:heat-cooling": "node verify-heat-cooling.js",
     "test:power": "node verify-power.js && node verify-power-analysis.js && node verify-power-runtime.js && node verify-power-damage.js",
+    "test:power-hardening": "node verify-power-hardening.js",
     "test:component-health": "node verify-component-health.js",
     "test:meltdown": "node verify-meltdown.js",
     "test:heat-protocol": "node verify-heat-protocol.js",
