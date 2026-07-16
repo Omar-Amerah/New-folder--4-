@@ -6,9 +6,10 @@ const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
-const { calculateCenterOfMass, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
+const { calculateCenterOfMass, maneuverThrusterTorqueSign, calculateMovementPowerMultiplier } = require("../../public/src/shared/movementStats.js");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const { selectOwnedLivingShips } = require("./selection");
+const { getComponentPowerMultiplier, effectiveShieldStats } = require("./componentPower");
 
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
@@ -21,7 +22,7 @@ function heatWeightedMovementFactors(ship) {
   for (let i = 0; i < (ship.design || []).length; i += 1) {
     const part = PARTS[ship.design[i].type];
     if (!part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
-    const perf = componentPerformance(ship, i);
+    const perf = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
     if ((part.thrust || 0) > 0 && (!ship.validEngineIndices || ship.validEngineIndices.has(i))) {
       thrustWeighted += part.thrust * perf;
       thrustTotal += part.thrust;
@@ -32,7 +33,7 @@ function heatWeightedMovementFactors(ship) {
       turnTotal += turn;
     }
   }
-  const power = ship.thermalPowerFactor ?? 1;
+  const power = 1;
   return {
     thrust: thrustTotal ? thrustWeighted / thrustTotal : 0,
     turn: turnTotal ? turnWeighted / turnTotal : (thrustTotal ? thrustWeighted / thrustTotal : 0),
@@ -42,13 +43,16 @@ function heatWeightedMovementFactors(ship) {
 
 function heatAdjustedMovementStats(ship, stats) {
   const factors = heatWeightedMovementFactors(ship);
+  // computeStats retains aggregate Power figures for display/compatibility, but
+  // its legacy ship-wide movement penalty must not stack with per-network Power.
+  const legacyPower = Math.max(0.0001, calculateMovementPowerMultiplier(stats.powerGeneration || 0, stats.powerUse || 0));
   return {
     ...stats,
-    accel: (stats.accel || 0) * factors.thrust * factors.power,
-    maxSpeed: (stats.maxSpeed || 0) * factors.thrust * factors.power,
-    turnRate: (stats.turnRate || 0) * factors.turn * factors.power,
-    turnRateLeft: (stats.turnRateLeft ?? stats.turnRate ?? 0) * factors.turn * factors.power,
-    turnRateRight: (stats.turnRateRight ?? stats.turnRate ?? 0) * factors.turn * factors.power,
+    accel: ((stats.accel || 0) / legacyPower) * factors.thrust * factors.power,
+    maxSpeed: ((stats.maxSpeed || 0) / legacyPower) * factors.thrust * factors.power,
+    turnRate: ((stats.turnRate || 0) / legacyPower) * factors.turn * factors.power,
+    turnRateLeft: ((stats.turnRateLeft ?? stats.turnRate ?? 0) / legacyPower) * factors.turn * factors.power,
+    turnRateRight: ((stats.turnRateRight ?? stats.turnRate ?? 0) / legacyPower) * factors.turn * factors.power,
     thrustHeatFactor: factors.thrust,
     turnHeatFactor: factors.turn
   };
@@ -91,7 +95,7 @@ function heatActiveManeuverThrusters(ship, turnActivity, dt) {
     if (module.type !== "maneuverThruster" || !part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
     if (!exhaustAnalysis.validEngineIndices.has(i)) continue;
     if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
-    const perf = componentPerformance(ship, i);
+    const perf = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
     if (perf > 0) addComponentHeat(ship, i, (2 + (part.lateralThrust || 0) * 0.018) * Math.abs(turnActivity) * perf * dt);
   }
 }
@@ -437,7 +441,8 @@ function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
     const part = PARTS[ship.design[i].type];
     if (!part?.thrust || (ship.componentHp?.[i] ?? 1) <= 0) continue;
     if (ship.validEngineIndices && !ship.validEngineIndices.has(i)) continue;
-    if (componentPerformance(ship, i) > 0) addComponentHeat(ship, i, (2 + part.thrust * 0.018) * dt);
+    const activity = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
+    if (activity > 0) addComponentHeat(ship, i, (2 + part.thrust * 0.018) * activity * dt);
   }
   const thrust = (stats.accel || 0) * alignment;
 
@@ -584,6 +589,9 @@ function applyPosition(room, ship, dt) {
 }
 
 function regenerateShield(ship, stats, dt) {
+  const effective = effectiveShieldStats(ship);
+  ship.maxShield = Math.max(0, effective.capacity);
+  ship.shield = Math.max(0, Math.min(Number(ship.shield) || 0, ship.maxShield));
   if (ship.maxShield > 0) {
     const missingShield = Math.max(0, ship.maxShield - ship.shield);
     let recharge = 0;
@@ -591,12 +599,12 @@ function regenerateShield(ship, stats, dt) {
     for (let i = 0; i < (ship.design || []).length; i += 1) {
       const part = PARTS[ship.design[i].type];
       if (!part?.shieldRegen || (ship.componentHp?.[i] ?? 1) <= 0) continue;
-      const local = componentPerformance(ship, i);
+      const local = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
       const contribution = part.shieldRegen * local;
       recharge += contribution;
       if (contribution > 0) heatEntries.push({ index: i, contribution, baseRegen: part.shieldRegen });
     }
-    const actualRecharge = Math.min(missingShield, recharge * (ship.thermalPowerFactor ?? 1) * dt);
+    const actualRecharge = Math.min(missingShield, recharge * dt);
     if (actualRecharge > 0 && recharge > 0) {
       for (const entry of heatEntries) {
         const componentActual = actualRecharge * (entry.contribution / recharge);

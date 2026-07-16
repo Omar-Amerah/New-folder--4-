@@ -67,7 +67,8 @@ export function aliveEngineNozzles(ship, nozzles) {
   return nozzles.filter((nozzle) => {
     if (blocked.has(nozzle.index)) return false;
     const ratio = componentHealthRatio(ship, nozzle.index);
-    return ratio === null || ratio > 0;
+    const power = Number(ship.componentPower?.[nozzle.index]?.[2] ?? 1);
+    return (ratio === null || ratio > 0) && power > 0;
   });
 }
 
@@ -218,9 +219,11 @@ export function computeManeuverJets(ship, design, scale, now) {
     if (module.type !== "maneuverThruster") continue;
     if ((componentHealthRatio(ship, i) ?? 1) <= 0) continue;
     if (exhaustAnalysis && !exhaustAnalysis.validEngineIndices.has(i)) continue;
+    const power = clamp(Number(ship.componentPower?.[i]?.[2] ?? 1), 0, 1);
+    if (power <= 0) continue;
     if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
     const localY = Math.abs((Number(module.y) || 0) - centerOfMass.y);
-    const value = Math.max(0.001, localY);
+    const value = Math.max(0.001, localY) * power;
     contributors.push({ index: i, module, value });
     total += value;
   }

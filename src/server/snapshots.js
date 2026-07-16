@@ -147,6 +147,10 @@ function appendFullShipBaseline(entry, ship) {
   delete entry.chpD;
   delete entry.componentHeatD;
   entry.design = ship.design || [];
+  if (ship.componentPower?.byComponentIndex) {
+    entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
+    entry.powerStatus = ship.powerStatus;
+  }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
 }
