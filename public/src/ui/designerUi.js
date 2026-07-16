@@ -20,6 +20,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { formatPowerState } from "./section13bUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
+import { calculateCenterOfMass } from "../shared/movementStats.js";
 
 export { analyzeDesignHeat };
 
@@ -111,7 +112,7 @@ function blueprintCellTitle(part, partIndex, exhaustAnalysis = null) {
   if (!part) return "Empty";
   const blocked = exhaustAnalysis?.blockedEngineIndices?.has(partIndex);
   if (blocked) return "Blocked exhaust — engine provides no thrust.";
-  return `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`;
+  return `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`;
 }
 
 function restoreBlueprintCellTitle(cell, part, partIndex, exhaustAnalysis = null) {
@@ -237,7 +238,7 @@ export function renderBaseBlueprintGrid() {
       if (part) {
         const partIndex = state.design.indexOf(part);
         const blockedExhaust = exhaustAnalysis.blockedEngineIndices.has(partIndex);
-        const rotation = normalizeRotation(part.rotation);
+        const rotation = normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x);
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
         cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${exhaustWarning}`;
         cell.dataset.partIndex = String(partIndex);
@@ -511,7 +512,7 @@ function ensureBlueprintGridEventHandlers() {
 }
 
 function removePlacementPreviewElements() {
-  for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow")) {
+  for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-force, .maneuver-preview-torque, .maneuver-preview-weak")) {
     stale.remove();
   }
 }
@@ -542,7 +543,42 @@ export function renderHoverPreview() {
     dom.grid.appendChild(preview);
     const candidateIndex = candidate.nextDesign.indexOf(candidate.part);
     const candidateStat = PART_STATS[selectedType] || {};
-    if (candidateStat.thrust > 0) renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
+    if (selectedType === "maneuverThruster") renderManeuverThrusterPreview(candidate.part, candidate.ok, candidate.nextDesign);
+    else if (candidateStat.thrust > 0) renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
+  }
+}
+
+function renderManeuverThrusterPreview(part, placementValid, design) {
+  const rotation = normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x);
+  const nozzleSide = rotation === 270 ? 1 : -1;
+  const plume = document.createElement("div");
+  plume.className = `maneuver-preview-plume ${placementValid ? "valid" : "invalid"} ${nozzleSide < 0 ? "left" : "right"}`;
+  plume.title = nozzleSide < 0 ? "Nozzle plume left; force right" : "Nozzle plume right; force left";
+  positionPreviewOverlay(plume, part.x + nozzleSide * 0.44, part.y + 0.28, 0.5, 0.44);
+  dom.grid.appendChild(plume);
+
+  const force = document.createElement("div");
+  force.className = `maneuver-preview-force ${placementValid ? "valid" : "invalid"}`;
+  force.textContent = nozzleSide < 0 ? "→" : "←";
+  force.title = "Force direction";
+  positionPreviewOverlay(force, part.x + (nozzleSide < 0 ? 0.58 : -0.08), part.y + 0.04, 0.5, 0.5);
+  dom.grid.appendChild(force);
+
+  const torque = document.createElement("div");
+  torque.className = `maneuver-preview-torque ${placementValid ? "valid" : "invalid"}`;
+  const centerOfMass = calculateCenterOfMass(Array.isArray(design) ? design : state.design, PART_STATS);
+  torque.textContent = part.y < centerOfMass.y ? (nozzleSide < 0 ? "↻" : "↺") : (nozzleSide < 0 ? "↺" : "↻");
+  torque.title = "Resulting turn direction";
+  positionPreviewOverlay(torque, part.x + 0.18, part.y + 0.55, 0.64, 0.42);
+  dom.grid.appendChild(torque);
+
+  if (Math.abs((Number(part.y) || 0) - centerOfMass.y) < 0.75) {
+    const weak = document.createElement("div");
+    weak.className = `maneuver-preview-weak ${placementValid ? "valid" : "invalid"}`;
+    weak.textContent = "weak";
+    weak.title = "Weak torque near the centre of mass";
+    positionPreviewOverlay(weak, part.x + 0.06, part.y + 0.02, 0.88, 0.28);
+    dom.grid.appendChild(weak);
   }
 }
 
@@ -1388,7 +1424,7 @@ export function heatInteractionDiagnostics() {
     activeScenarioButton,
     percentageBadgeCount: dom.grid.querySelectorAll(".component-heat-value").length,
     occupiedCellCount: dom.grid.querySelectorAll(".build-cell.occupied").length,
-    previewCount: dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow").length,
+    previewCount: dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-force, .maneuver-preview-torque, .maneuver-preview-weak").length,
     heatFlowOverlayCount: (dom.heatFlowOverlayHost || dom.grid).querySelectorAll(".heat-flow-overlay").length,
     heatCacheSignature: cachedHeatAnalysis?.signature || null,
     heatCachePartReferencesMatch: cachedPartReferencesMatch(state.design),

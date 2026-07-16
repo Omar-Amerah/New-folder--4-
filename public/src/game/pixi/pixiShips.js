@@ -318,13 +318,24 @@ function updatePixiEngineExhaust(view, ship, now) {
   const jets = computeManeuverJets(ship, ship.design || [], SHIP_SCALE, now);
   if (jets) {
     for (const jet of jets) {
-      const tipX = jet.x + jet.aft * jet.len;
-      gfx.moveTo(jet.x, jet.y - 2.4);
-      gfx.quadraticCurveTo(jet.x + jet.aft * jet.len * 0.6, jet.y - 1, tipX, jet.y);
-      gfx.quadraticCurveTo(jet.x + jet.aft * jet.len * 0.6, jet.y + 1, jet.x, jet.y + 2.4);
+      const dx = Number.isFinite(jet.directionX) ? jet.directionX : 0;
+      const dy = Number.isFinite(jet.directionY) ? jet.directionY : 0;
+      const mag = Math.hypot(dx, dy) || 1;
+      const ux = dx / mag;
+      const uy = dy / mag;
+      const px = -uy;
+      const py = ux;
+      const halfW = 2.4;
+      const tipX = jet.x + ux * jet.len;
+      const tipY = jet.y + uy * jet.len;
+      const c1x = jet.x + ux * jet.len * 0.6;
+      const c1y = jet.y + uy * jet.len * 0.6;
+      gfx.moveTo(jet.x + px * halfW, jet.y + py * halfW);
+      gfx.quadraticCurveTo(c1x + px, c1y + py, tipX, tipY);
+      gfx.quadraticCurveTo(c1x - px, c1y - py, jet.x - px * halfW, jet.y - py * halfW);
       gfx.closePath();
       gfx.fill({ color: "#7dd3ff", alpha: jet.plumeAlpha });
-      gfx.circle(jet.x + jet.aft * jet.len * 0.28, jet.y, 1.7);
+      gfx.circle(jet.x + ux * jet.len * 0.28, jet.y + uy * jet.len * 0.28, 1.7);
       gfx.fill({ color: "#eafcff", alpha: jet.coreAlpha });
     }
   }

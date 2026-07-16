@@ -146,7 +146,10 @@ export function applyServerParts(parts) {
 export function isRotatablePart(type) {
   if (FIXED_ORIENTATION_PARTS.has(type)) return false;
   const stat = PART_STATS[type] || {};
-  if (stat.category === "Engines") return stat.thrust > 0 && stat.rotationRequired === true;
+  const allowed = Array.isArray(stat.allowedRotations)
+    ? stat.allowedRotations.map(Number).filter(Number.isFinite)
+    : [];
+  if (allowed.length > 1) return true;
   return stat.category === "Weapons"
     || (stat.category === "Defence" && Boolean(stat.weapon))
     || stat.rotatable === true
@@ -326,6 +329,7 @@ export function normalizeBalanceComponent(component) {
     shield: numberOr(component.shield, 0),
     shieldRegen: numberOr(component.shieldRegen, 0),
     thrust: numberOr(component.thrust, 0),
+    lateralThrust: numberOr(component.lateralThrust, 0),
     turn: numberOr(component.turn, 0),
     energyStorage: numberOr(component.energyStorage ?? component.energy, 0),
     repairRate,

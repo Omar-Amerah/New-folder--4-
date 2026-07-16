@@ -161,11 +161,15 @@ function shipAngularVelocity(ship, now) {
 
 // Computes the lateral thruster jets to draw this frame (ship-local space,
 // forward = +x). Jets fire only while the hull is rotating; each maneuvering
-// thruster offset from the centreline pulses fore/aft to match the turn
-// direction, so only the thrusters "being used" animate. Shared by both
+// thruster offset from the centreline emits from its left/right nozzle to match
+// the turn direction, so only the thrusters "being used" animate. Shared by both
 // renderers. Returns null when nothing should draw.
 export function computeManeuverJets(ship, design, scale, now) {
-  const activity = Number.isFinite(ship.turnActivity) ? clamp(ship.turnActivity, -1, 1) : 0;
+  let activity = Number.isFinite(ship.turnActivity) ? clamp(ship.turnActivity, -1, 1) : null;
+  if (activity === null) {
+    const angularVelocity = shipAngularVelocity(ship, now);
+    activity = Math.abs(angularVelocity) > 0.01 ? clamp(angularVelocity / 2, -1, 1) : 0;
+  }
   const speed = Math.abs(activity);
   if (speed < 0.01 || !ship.alive) return null;
   const desiredSign = Math.sign(activity);
@@ -193,8 +197,9 @@ export function computeManeuverJets(ship, design, scale, now) {
     const intensity = speed * Math.min(1, share * contributors.length);
     jets.push({
       x: place.cx,
-      y: place.cy + nozzleSide * scale * 0.34,
-      aft: nozzleSide,
+      y: place.cy + nozzleSide * scale * 0.5,
+      directionX: 0,
+      directionY: nozzleSide,
       len: clamp(intensity * 10, 2.5, 10) * flicker * (0.55 + 0.45 * density),
       plumeAlpha: 0.32 * intensity * flicker * density,
       coreAlpha: 0.58 * intensity * flicker * density
