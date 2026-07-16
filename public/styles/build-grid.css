@@ -200,3 +200,12 @@
 .heat-flow-overlay .focused-flow-label { font-size:.19px; opacity:1; font-weight:850; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.05px; stroke-linejoin:round; }
 .heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .focused-flow-label.outgoing-flow-label { fill:#ffb260; }
+.maneuver-preview-plume { position:absolute; z-index:31; pointer-events:none; border-radius:999px; background:linear-gradient(90deg, rgba(125,211,252,.05), rgba(125,211,252,.46), rgba(234,252,255,.75)); box-shadow:0 0 8px rgba(125,211,252,.45); }
+.maneuver-preview-plume.left { transform:skewX(-14deg); }
+.maneuver-preview-plume.right { transform:skewX(14deg) scaleX(-1); }
+.maneuver-preview-plume.invalid { background:linear-gradient(90deg, rgba(255,77,103,.05), rgba(255,77,103,.42), rgba(255,210,218,.68)); box-shadow:0 0 8px rgba(255,77,103,.4); }
+.maneuver-preview-force, .maneuver-preview-torque { position:absolute; z-index:32; display:grid; place-items:center; pointer-events:none; color:#7dd3fc; font-size:20px; font-weight:950; text-shadow:0 0 5px #075985; }
+.maneuver-preview-torque { font-size:18px; color:#c4b5fd; }
+.maneuver-preview-force.invalid, .maneuver-preview-torque.invalid { color:#ff6079; text-shadow:0 0 5px #700; }
+.maneuver-preview-weak { position:absolute; z-index:33; display:grid; place-items:center; pointer-events:none; border-radius:999px; background:rgba(250,204,21,.18); color:#fde68a; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; text-shadow:0 0 4px #713f12; }
+.maneuver-preview-weak.invalid { background:rgba(255,77,103,.18); color:#fecdd3; }
