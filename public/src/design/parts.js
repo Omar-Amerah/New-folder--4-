@@ -75,7 +75,7 @@ const MARKERLESS_ROTATABLE_PARTS = new Set([
   "wingCompositeArmor"
 ]);
 
-const FIXED_ORIENTATION_PARTS = new Set(["engine"]);
+const FIXED_ORIENTATION_PARTS = new Set(["engine", "maneuverThruster"]);
 
 export const PART_DESCRIPTIONS = Object.freeze({
   core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",

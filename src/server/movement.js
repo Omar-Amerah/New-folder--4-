@@ -7,6 +7,7 @@ const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = 
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
 const { calculateCenterOfMass, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
+const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const { selectOwnedLivingShips } = require("./selection");
 
 const WORLD_MARGIN = 42;
@@ -73,10 +74,13 @@ function heatActiveManeuverThrusters(ship, turnActivity, dt) {
   if (!turnActivity || !Number.isFinite(turnActivity)) return;
   const desiredSign = Math.sign(turnActivity);
   const centerOfMass = calculateCenterOfMass(ship.design || [], PARTS);
+  const alive = (ship.design || []).map((_, i) => (ship.componentHp?.[i] ?? 1) > 0);
+  const exhaustAnalysis = EngineExhaustRules.analyze(ship.design || [], PARTS, { alive });
   for (let i = 0; i < (ship.design || []).length; i += 1) {
     const module = ship.design[i];
     const part = PARTS[module.type];
     if (module.type !== "maneuverThruster" || !part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+    if (!exhaustAnalysis.validEngineIndices.has(i)) continue;
     if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
     const perf = componentPerformance(ship, i);
     if (perf > 0) addComponentHeat(ship, i, (2 + (part.lateralThrust || 0) * 0.018) * Math.abs(turnActivity) * perf * dt);

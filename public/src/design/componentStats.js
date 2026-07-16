@@ -59,7 +59,7 @@ export function computeStats(modules) {
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
     const part = PART_STATS[module.type] || PART_STATS.frame;
-    const blockedEngine = part.thrust > 0 && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
+    const blockedEngine = (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
 
     cost += part.cost;
     mass += part.mass;
@@ -126,6 +126,10 @@ export function computeStats(modules) {
   const power = powerGeneration - powerUse;
   const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
 
+  const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PART_STATS, {
+    centerOfMass,
+    isBlockedEngine: (index, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index)
+  });
   const movement = calculateMovementStats({
     mass,
     thrust,
@@ -134,7 +138,8 @@ export function computeStats(modules) {
     powerUse,
     engineThrustValues,
     engineMassValues,
-    turnModuleValues
+    turnModuleValues,
+    directionalTurnInputs
   });
 
   ecmStrength = Math.min(ecmStrength, 0.55);
