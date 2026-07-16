@@ -69,13 +69,14 @@ function footprintArtAngle(type, rotationDeg, wCells, hCells) {
 }
 
 export function componentIconDataUrl(type, rotationDeg = 0) {
-  const { width: w, height: h } = rotatedFootprint(type, rotationDeg);
-  const key = `${type}|${w}x${h}|${normalizeRotation(rotationDeg)}`;
+  const iconRotation = type === "maneuverThruster" && ![90, 270].includes(Number(rotationDeg)) ? 270 : rotationDeg;
+  const { width: w, height: h } = rotatedFootprint(type, iconRotation);
+  const key = `${type}|${w}x${h}|${normalizeRotation(iconRotation)}`;
   const cached = iconCache.get(key);
   if (cached !== undefined) return cached;
   let url = "";
   try {
-    url = bakeIcon(type, w, h, rotationDeg);
+    url = bakeIcon(type, w, h, iconRotation);
   } catch (error) {
     // One broken vector must not abort palette/grid rendering and leave the
     // Blueprint Designer in a half-cleared state. Cache the empty fallback so
