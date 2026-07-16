@@ -5,7 +5,9 @@ import { PART_STATS } from "./parts.js";
 import { SHIP_ECONOMY } from "../constants.js";
 import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
-import { calculateMovementStats, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
+import { calculateMovementStats,
+  calculateCenterOfMass,
+  calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
 
 export function computeStats(modules) {
   const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(modules, PART_STATS);
@@ -52,19 +54,7 @@ export function computeStats(modules) {
     pointDefense: weaponAccumulator()
   };
 
-  // Centre of mass (mass-weighted) so maneuvering thrusters farther from it get a
-  // longer lever arm and contribute more turning torque (mirrors the server).
-  let comX = 0;
-  let comY = 0;
-  let comMass = 0;
-  for (const module of modules) {
-    const mm = ((PART_STATS[module.type] || PART_STATS.frame).mass || 0) + 0.5;
-    comX += module.x * mm;
-    comY += module.y * mm;
-    comMass += mm;
-  }
-  comX = comMass ? comX / comMass : 0;
-  comY = comMass ? comY / comMass : 0;
+  const centerOfMass = calculateCenterOfMass(modules, PART_STATS);
 
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
@@ -82,15 +72,11 @@ export function computeStats(modules) {
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
-    turnBonus += blockedEngine ? 0 : part.turn;
+    if (module.type !== "maneuverThruster" && module.type !== "gyroscope") turnBonus += blockedEngine ? 0 : part.turn;
 
     if (part.thrust > 0 && !blockedEngine) {
       engineThrustValues.push(part.thrust);
       engineMassValues.push(part.mass || 0);
-    }
-    if (part.turn > 0 && !blockedEngine) {
-      const lever = Math.hypot(module.x - comX, module.y - comY);
-      turnModuleValues.push(part.turn * clamp(0.6 + lever * 0.28, 0.5, 2));
     }
 
     energyStorage += part.energyStorage || 0;
@@ -182,6 +168,8 @@ export function computeStats(modules) {
     pointDefense,
     mass,
     turnRate: movement.turnRate,
+    turnRateLeft: movement.turnRateLeft,
+    turnRateRight: movement.turnRateRight,
     repair,
     shield: maxShield,
     modules,
@@ -212,6 +200,8 @@ export function computeStats(modules) {
     accel: Math.round(movement.accel),
     maxSpeed: movement.maxSpeed,
     turnRate: movement.turnRate,
+    turnRateLeft: movement.turnRateLeft,
+    turnRateRight: movement.turnRateRight,
     massClass: movement.massClass,
     speedCap: movement.speedCap,
     turnCap: movement.turnCap,

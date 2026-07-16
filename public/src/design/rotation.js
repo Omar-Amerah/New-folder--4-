@@ -1,8 +1,18 @@
 // Handles modular part rotation math, degrees normalization, and radians translation.
 
-export function normalizeRotation(value) {
+export function normalizeRotation(value, allowedRotations = null, legacyX = null) {
+  const allowed = Array.isArray(allowedRotations) && allowedRotations.length ? allowedRotations.map(Number) : [0, 90, 180, 270];
   const rotation = Number(value);
-  return [0, 90, 180, 270].includes(rotation) ? rotation : 0;
+  if (allowed.includes(rotation)) return rotation;
+  if (allowed.includes(90) && allowed.includes(270) && allowed.length === 2) return legacySideRotation(legacyX);
+  return allowed.includes(0) ? 0 : allowed[0];
+}
+
+export function nextRotation(current, allowedRotations = null) {
+  const allowed = Array.isArray(allowedRotations) && allowedRotations.length ? allowedRotations.map(Number) : [0, 90, 180, 270];
+  const normalized = normalizeRotation(current, allowed);
+  const index = allowed.indexOf(normalized);
+  return allowed[(index + 1) % allowed.length];
 }
 
 export function moduleRotationToRadians(rotation) {
@@ -12,13 +22,10 @@ export function moduleRotationToRadians(rotation) {
   return 0;
 }
 
-// Maneuver thrusters are not user-rotatable. Their direction is derived from
-// which side of the 15x15 blueprint they occupy: the left-side nozzle/exhaust
-// points left, the right-side nozzle/exhaust points right, and a centreline
-// thruster retains its forward orientation.
-export function maneuverThrusterAutoRotation(x, gridCenter = 7) {
+export function legacySideRotation(x, gridCenter = 7) {
   const column = Number(x);
-  if (column < gridCenter) return 90;
   if (column > gridCenter) return 270;
-  return 0;
+  return 90;
 }
+
+export const maneuverThrusterAutoRotation = legacySideRotation;

@@ -32,7 +32,7 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
   const editingSamePart = existing?.type === type;
   const targetX = editingSamePart ? existing.x : x;
   const targetY = editingSamePart ? existing.y : y;
-  const normalizedRotation = isRotatablePart(type) ? normalizeRotation(rotation) : 0;
+  const normalizedRotation = isRotatablePart(type) ? normalizeRotation(rotation, catalogue[type]?.allowedRotations, targetX) : 0;
   const part = makeDesignPart(targetX, targetY, type, normalizedRotation);
   const occupiedCells = cellsFor(part, catalogue);
   const outOfBoundsCells = occupiedCells.filter(cell => cell.x < 0 || cell.x >= GRID_SIZE || cell.y < 0 || cell.y >= GRID_SIZE);

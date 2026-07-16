@@ -7,7 +7,7 @@ import {
 } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
 import { createPlacementCandidate, findPartAtCell } from "../design/placementCandidate.js";
-import { normalizeRotation } from "../design/rotation.js";
+import { normalizeRotation, nextRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
@@ -567,7 +567,7 @@ function renderEngineExhaustPreview(design, engineIndex, placementValid) {
 }
 
 function placementRotation(type, rotation) {
-  return isRotatablePart(type) ? normalizeRotation(rotation) : 0;
+  return isRotatablePart(type) ? normalizeRotation(rotation, PART_STATS[type]?.allowedRotations) : 0;
 }
 
 function positionPreviewOverlay(preview, x, y, width, height) {
@@ -703,7 +703,7 @@ export function rotateCell(x, y) {
   const part = state.design.find((candidate) => candidate.x === x && candidate.y === y);
   if (!part || !isRotatablePart(part.type)) return false;
 
-  const newRotation = (normalizeRotation(part.rotation) + 90) % 360;
+  const newRotation = nextRotation(part.rotation, PART_STATS[part.type]?.allowedRotations);
   const next = state.design.map((candidate) => candidate === part
     ? { ...candidate, rotation: newRotation }
     : candidate);
@@ -742,7 +742,7 @@ export function rotateFocusedPart() {
   if (part && isRotatablePart(part.type)) {
     rotateCell(part.x, part.y);
   } else if (state.selectedPart && isRotatablePart(state.selectedPart)) {
-    state.previewRotation = (normalizeRotation(state.previewRotation || 0) + 90) % 360;
+    state.previewRotation = nextRotation(state.previewRotation || 0, PART_STATS[state.selectedPart]?.allowedRotations);
     renderHoverPreview();
   }
 }
@@ -825,7 +825,7 @@ export function renderLocalStats() {
     statCard("hull", "Hull", formatHull(stats.maxHp)),
     statCard("shield", "Shield", formatShield(stats.maxShield)),
     statCard("speed", "Speed", formatSpeed(Math.round(stats.maxSpeed))),
-    statCard("turn", "Turn", `${stats.turnRate.toFixed(2)} rad/s`),
+    statCard("turn", "Turn", directionalTurnText(stats)),
     statCard("power", "Power Gen/Req", formatPowerState(stats.powerGeneration, stats.powerUse, stats.powerEfficiency)),
     statCard("thrust", "Effective Thrust", formatThrust(stats.effectiveThrust)),
     statCard("engineEfficiency", "Engine Efficiency", formatPercent(stats.engineEfficiency)),
@@ -1740,9 +1740,9 @@ Final Speed: ${Math.round(stats.maxSpeed)} m/s`
     case "turn":
       return {
         label: "Hull Turn Rate",
-        desc: "Maximum turning and orientation rate. Faster turning ships lock onto and track quick targets better.",
+        desc: "Directional hull turn rates. Uneven values indicate manoeuvre thrusters favour one turn direction; neither direction is automatically better.",
         formula: "TurnRate = SoftCap(RawTurn, TurnCap, 0.2)",
-        breakdown: `Effective Turn Modifier: ${stats.turnRate.toFixed(2)} rad/s (${Math.round(stats.turnRate * (180 / Math.PI))} deg/s)
+        breakdown: `Reliable Turn: ${stats.turnRate.toFixed(2)} rad/s (${Math.round(stats.turnRate * (180 / Math.PI))} deg/s)\nLeft Turn: ${(stats.turnRateLeft ?? stats.turnRate).toFixed(2)} rad/s\nRight Turn: ${(stats.turnRateRight ?? stats.turnRate).toFixed(2)} rad/s
 Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
       };
 
@@ -1911,6 +1911,13 @@ function costBreakdownInnerMarkup(breakdown) {
 }
 
 const DIAGNOSTIC_LEVELS = new Set(["neutral", "good", "warning", "bad"]);
+
+function directionalTurnText(stats) {
+  const left = Number(stats.turnRateLeft ?? stats.turnRate ?? 0);
+  const right = Number(stats.turnRateRight ?? stats.turnRate ?? 0);
+  if (Math.abs(left - right) < 0.01) return `${left.toFixed(2)} rad/s`;
+  return `L ${left.toFixed(2)} / R ${right.toFixed(2)} rad/s`;
+}
 
 function buildStatDiagnostics(stats) {
   return {

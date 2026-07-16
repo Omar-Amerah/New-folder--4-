@@ -9,8 +9,8 @@ const HeatRules = require("./public/src/shared/heatRules.js");
 const { PARTS } = require("./src/server/components");
 
 const TOLERANCE = 1e-9;
-const FIELD_TOLERANCE = { accel: 1, turnRate: 0.01, maxSpeed: 0.01, effectiveThrust: 1, engineEfficiency: 1e-6 };
-const fields = ["cost","unitCost","mass","maxHp","maxShield","shieldRegen","powerGeneration","powerUse","power","efficiency","thrust","effectiveThrust","engineEfficiency","powerEfficiency","powerDebuff","energyStorage","accel","maxSpeed","turnRate","massClass","speedCap","turnCap","thrustRatio","blaster","missile","railgun","beam","repair","repairRate","blasterRange","missileRange","railgunRange","beamRange","captureBonus","accuracyBonus","fireRateBonus","fleetCount","pointDefense"];
+const FIELD_TOLERANCE = { accel: 1, turnRate: 0.01, turnRateLeft: 0.01, turnRateRight: 0.01, maxSpeed: 0.01, effectiveThrust: 1, engineEfficiency: 1e-6 };
+const fields = ["cost","unitCost","mass","maxHp","maxShield","shieldRegen","powerGeneration","powerUse","power","efficiency","thrust","effectiveThrust","engineEfficiency","powerEfficiency","powerDebuff","energyStorage","accel","maxSpeed","turnRate","turnRateLeft","turnRateRight","massClass","speedCap","turnCap","thrustRatio","blaster","missile","railgun","beam","repair","repairRate","blasterRange","missileRange","railgunRange","beamRange","captureBonus","accuracyBonus","fireRateBonus","fleetCount","pointDefense"];
 const corpus = {
   defaultDesign: [{x:3,y:3,type:"core"},{x:3,y:4,type:"engine"},{x:2,y:3,type:"blaster"},{x:4,y:3,type:"reactor"}],
   minimumValid: [{x:3,y:3,type:"core"}],

@@ -77,21 +77,26 @@ function run() {
   const nearThruster = computeStats([
     { x: 7, y: 7, type: "core" },
     { x: 8, y: 7, type: "reactor" },
-    { x: 6, y: 7, type: "maneuverThruster" }
+    { x: 7, y: 8, type: "engine" },
+    { x: 7, y: 6, type: "maneuverThruster", rotation: 90 }
   ]);
   const farThruster = computeStats([
     { x: 7, y: 7, type: "core" },
     { x: 8, y: 7, type: "reactor" },
-    { x: 1, y: 7, type: "maneuverThruster" }
+    { x: 7, y: 8, type: "engine" },
+    { x: 7, y: 6, type: "frame" },
+    { x: 7, y: 5, type: "frame" },
+    { x: 7, y: 4, type: "maneuverThruster", rotation: 90 }
   ]);
   // Main engines vector a little thrust for turning, so an engines-only ship
   // can rotate — but adding a maneuver thruster must make it noticeably faster.
   const enginesOnly = computeStats(buildShip(3));
   assert(enginesOnly.turnRate > 0, "a ship with only main engines should turn (slowly)");
   const enginesPlusThruster = computeStats([...buildShip(3), { x: 12, y: 7, type: "maneuverThruster" }]);
-  assert(enginesPlusThruster.turnRate > enginesOnly.turnRate, `adding a maneuver thruster should raise turn rate (engines=${enginesOnly.turnRate} +thruster=${enginesPlusThruster.turnRate})`);
-  assert(nearThruster.turnRate > 0 && farThruster.turnRate > 0, "thruster ships should be able to turn");
-  assert(farThruster.turnRate > nearThruster.turnRate, `a thruster far from the centre of mass should turn faster (near=${nearThruster.turnRate} far=${farThruster.turnRate})`);
+  assert(Math.max(enginesPlusThruster.turnRateLeft, enginesPlusThruster.turnRateRight) > enginesOnly.turnRate, `adding a maneuver thruster should raise at least one directional turn rate (engines=${enginesOnly.turnRate} left=${enginesPlusThruster.turnRateLeft} right=${enginesPlusThruster.turnRateRight})`);
+  assert(enginesPlusThruster.turnRate === Math.min(enginesPlusThruster.turnRateLeft, enginesPlusThruster.turnRateRight), "turnRate remains the lower directional rate");
+  assert(nearThruster.turnRateRight > 0 && farThruster.turnRateRight > 0, "thruster ships should be able to turn directionally");
+  assert(farThruster.turnRateRight > nearThruster.turnRateRight, `a thruster far from the centre of mass should turn faster (near=${nearThruster.turnRateRight} far=${farThruster.turnRateRight})`);
 
   // 7. Asteroid route checks use the whole command segment, so a right-click
   // destination behind an asteroid is recognized before the ship noses into it.

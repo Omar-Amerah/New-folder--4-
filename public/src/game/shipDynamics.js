@@ -7,6 +7,8 @@
 import { state } from "../state.js";
 import { clamp, approach } from "../shared/math.js";
 import { computeStats } from "../design/componentStats.js";
+import { PART_STATS } from "../design/parts.js";
+import { calculateCenterOfMass, maneuverThrusterTorqueSign } from "../shared/movementStats.js";
 import { getEffectDensity } from "./renderSettings.js";
 import { footprintLocalPlacement } from "./shipGeometry.js";
 import { componentHealthRatio } from "./shipVitals.js";
@@ -163,30 +165,43 @@ function shipAngularVelocity(ship, now) {
 // direction, so only the thrusters "being used" animate. Shared by both
 // renderers. Returns null when nothing should draw.
 export function computeManeuverJets(ship, design, scale, now) {
-  const av = shipAngularVelocity(ship, now);
-  const speed = Math.abs(av);
-  if (speed < 0.12 || !ship.alive) return null;
+  const activity = Number.isFinite(ship.turnActivity) ? clamp(ship.turnActivity, -1, 1) : 0;
+  const speed = Math.abs(activity);
+  if (speed < 0.01 || !ship.alive) return null;
+  const desiredSign = Math.sign(activity);
   const density = getEffectDensity();
   const flicker = 0.7 + 0.3 * Math.sin(now * 0.05);
-  const jets = [];
+  const centerOfMass = calculateCenterOfMass(design, PART_STATS);
+  const contributors = [];
+  let total = 0;
   for (let i = 0; i < design.length; i += 1) {
-    if (design[i].type !== "maneuverThruster") continue;
+    const module = design[i];
+    if (module.type !== "maneuverThruster") continue;
     if ((componentHealthRatio(ship, i) ?? 1) <= 0) continue;
-    if ((ship.engBlocked || []).includes(i)) continue;
-    const place = footprintLocalPlacement(design[i], scale);
-    if (Math.abs(place.cy) < 2) continue;
+    if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
+    const localY = Math.abs((Number(module.y) || 0) - centerOfMass.y);
+    const value = Math.max(0.001, localY);
+    contributors.push({ index: i, module, value });
+    total += value;
+  }
+  const jets = [];
+  for (const contributor of contributors) {
+    const place = footprintLocalPlacement(contributor.module, scale);
+    const rotation = Number(contributor.module.rotation) === 270 ? 270 : 90;
+    const nozzleSide = rotation === 90 ? -1 : 1;
+    const share = total > 0 ? contributor.value / total : 1 / contributors.length;
+    const intensity = speed * Math.min(1, share * contributors.length);
     jets.push({
       x: place.cx,
-      y: place.cy,
-      aft: Math.sign(av * place.cy) >= 0 ? 1 : -1,
-      len: clamp(speed * 9, 3, 11) * flicker * (0.5 + 0.5 * density),
-      plumeAlpha: 0.34 * flicker * density,
-      coreAlpha: 0.6 * flicker * density
+      y: place.cy + nozzleSide * scale * 0.34,
+      aft: nozzleSide,
+      len: clamp(intensity * 10, 2.5, 10) * flicker * (0.55 + 0.45 * density),
+      plumeAlpha: 0.32 * intensity * flicker * density,
+      coreAlpha: 0.58 * intensity * flicker * density
     });
   }
   return jets.length ? jets : null;
 }
-
 // Smoothed HUD hp/shield display values with the lagging "recent damage" bar.
 export function updateShipHud(ship, now) {
   const previous = state.shipHud.get(ship.id) || {
