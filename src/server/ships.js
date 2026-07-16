@@ -3,7 +3,7 @@
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
 const { performanceNow, seededRandom, rngRange, hashString } = require("./utils");
 const { computeStats } = require("./shipStats");
-const { normalizeShipDesignSnapshot } = require("./shipDesign");
+const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
 
 function spawnShip(room, player, now, index = 0, options = {}) {
   const { nearestClearPoint } = require("./movement");
@@ -12,7 +12,11 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   // Shallow-clone: destroyed components mutate top-level stat fields per ship,
   // and the source stats object is shared by every ship of the player.
   const stats = { ...(options.stats || player.stats || computeStats(player.design)) };
-  const design = normalizeShipDesignSnapshot(options.design || player.design);
+  const blueprint = createShipBlueprintSnapshot(
+    options.design || player.design,
+    options.wiring !== undefined ? options.wiring : player.wiring
+  );
+  const { design, wiring } = blueprint;
   const spawn = getPlayerSpawn(room, player.id);
   const spawnRng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:${index}:${room.nextEntityId}`)) >>> 0);
   const offset = index - Math.floor(player.shipCap / 2);
@@ -46,6 +50,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     maxShield: stats.maxShield,
     stats,
     design,
+    wiring,
     cost: stats.unitCost,
     radius: stats.radius,
     blasterCooldown: rngRange(spawnRng, 0.08, 0.42),
@@ -110,6 +115,7 @@ function addBot(room, requester) {
   const color = COLORS[room.colorCursor % COLORS.length];
   room.colorCursor += 1;
   const design = chooseBotDesign(room.nextBotId);
+  const wiring = createGeneratedPowerWiring(design);
   const team = chooseBotTeam(room, requester, id);
   const name = BOT_NAMES[(room.nextBotId - 2) % BOT_NAMES.length];
   const player = {
@@ -121,6 +127,7 @@ function addBot(room, requester) {
     ai: { nextThinkAt: 0, objectiveId: null, decisionSeq: 0 },
     ready: false,
     design,
+    wiring,
     stats: computeStats(design),
     ships: [],
     money: room.rules?.startingMoney ?? ECONOMY.startingMoney,

@@ -69,6 +69,52 @@ function validateWiring(modules, wiring) {
   return { ok: true, wiring: normalized, droppedSegments };
 }
 
+// The single boundary used by ship creation.  Returning fresh clones here makes
+// blueprint state a value: neither a later editor save nor another ship can
+// mutate an existing ship's design/wiring snapshot.
+function createShipBlueprintSnapshot(design, wiring) {
+  const normalizedDesign = normalizeShipDesignSnapshot(design);
+  const normalizedWiring = validateWiring(normalizedDesign, wiring).wiring;
+  return {
+    design: normalizedDesign.map((part) => ({ ...part })),
+    wiring: WiringRules.cloneWiring(normalizedWiring)
+  };
+}
+
+// Deterministic server-only wiring for generated ships. Each consumer gets the
+// shortest occupied-cell route from the lowest-index reachable Power source.
+function createGeneratedPowerWiring(design) {
+  const modules = normalizeShipDesignSnapshot(design);
+  const occupied = new Map();
+  modules.forEach((module, index) => WiringRules.moduleCells(module, PARTS)
+    .forEach((cell) => occupied.set(WiringRules.cellKey(cell.x, cell.y), { ...cell, index })));
+  const sources = modules.map((module, index) => ({ module, index }))
+    .filter(({ module }) => WiringRules.isPowerSourceType(module.type));
+  let wiring = WiringRules.emptyWiring();
+  modules.forEach((module, targetIndex) => {
+    if (!WiringRules.isPowerConsumer(module.type, PARTS)) return;
+    let best = null;
+    for (const { index: sourceIndex } of sources) {
+      const starts = WiringRules.moduleCells(modules[sourceIndex], PARTS);
+      const targets = new Set(WiringRules.moduleCells(module, PARTS).map((cell) => WiringRules.cellKey(cell.x, cell.y)));
+      const queue = starts.map((cell) => [cell]);
+      const seen = new Set(starts.map((cell) => WiringRules.cellKey(cell.x, cell.y)));
+      let route = null;
+      for (let cursor = 0; cursor < queue.length && !route; cursor += 1) {
+        const path = queue[cursor]; const cell = path.at(-1);
+        if (targets.has(WiringRules.cellKey(cell.x, cell.y))) { route = path; break; }
+        for (const [x, y] of [[cell.x, cell.y - 1], [cell.x - 1, cell.y], [cell.x + 1, cell.y], [cell.x, cell.y + 1]]) {
+          const key = WiringRules.cellKey(x, y);
+          if (occupied.has(key) && !seen.has(key)) { seen.add(key); queue.push([...path, { x, y }]); }
+        }
+      }
+      if (route && (!best || route.length < best.route.length || (route.length === best.route.length && sourceIndex < best.sourceIndex))) best = { route, sourceIndex };
+    }
+    if (best && best.route.length > 1) wiring = WiringRules.addConnection(wiring, "power", best.sourceIndex, targetIndex, best.route, modules, PARTS);
+  });
+  return wiring;
+}
+
 function isConnected(modules) {
   const core = modules.find((part) => part.type === "core");
   if (!core) return false;
@@ -170,6 +216,8 @@ function normalizeRotation(value, allowedRotations, x) {
 module.exports = {
   validateDesign,
   validateWiring,
+  createShipBlueprintSnapshot,
+  createGeneratedPowerWiring,
   isConnected,
   normalizeShipDesignSnapshot,
   normalizeRotation,
