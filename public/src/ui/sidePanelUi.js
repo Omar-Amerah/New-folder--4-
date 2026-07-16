@@ -7,6 +7,7 @@ import { showToast } from "./toastUi.js";
 import { updateHud } from "./hudUi.js";
 import { ownLiveShips, pruneSelection } from "../game/selection.js";
 import { renderShipDamagePanel } from "./shipDamagePanelUi.js";
+import { STYLE_DESCRIPTIONS, selectedShipSummary, commonStyle } from "./section13bUi.js";
 
 const SHIP_GROUP_DEFS = [
   { id: "group1", label: "Group 1" },
@@ -25,10 +26,10 @@ const FORMATION_OPTIONS = [
 ];
 
 const SELECTED_COMBAT_STYLES = [
-  { id: "charge", label: "Charge" },
-  { id: "hold", label: "Hold" },
-  { id: "sentry", label: "Sentry" },
-  { id: "circle", label: "Circle" }
+  { id: "charge", label: "Charge", description: STYLE_DESCRIPTIONS.charge },
+  { id: "hold", label: "Hold", description: STYLE_DESCRIPTIONS.hold },
+  { id: "sentry", label: "Sentry", description: STYLE_DESCRIPTIONS.sentry },
+  { id: "circle", label: "Circle", description: STYLE_DESCRIPTIONS.circle }
 ];
 
 const GROUP_COMBAT_STYLES = [
@@ -254,7 +255,9 @@ function renderSelectionControls() {
     button.classList.toggle("active", Boolean(style && activeStyle === style));
     const def = SELECTED_COMBAT_STYLES.find((item) => item.id === style);
     if (def && button.textContent !== def.label) button.textContent = def.label;
+    if (def) { button.title = def.description; button.setAttribute("aria-description", def.description); }
   }
+  renderSelectedSummary(selectedShips);
   renderShipDamagePanel();
 }
 
@@ -294,9 +297,7 @@ function setSelectedCombatStyle(style) {
     renderSelectionControls();
     return;
   }
-  for (const ship of state.snapshot?.ships || []) {
-    if (shipIds.includes(ship.id)) ship.combatStyle = style;
-  }
+  state.pendingCombatStyle = { style, shipIds: [...shipIds], at: performance.now() };
   send({ type: "setCombatStyle", combatStyle: style, shipIds });
   renderSelectionControls();
 }
@@ -375,10 +376,19 @@ function selectedLiveShips() {
   return ownLiveShips().filter((ship) => selected.has(ship.id));
 }
 
-function commonCombatStyle(ships) {
-  if (ships.length === 0) return null;
-  const first = normalizeCombatStyle(ships[0].combatStyle);
-  return ships.every((ship) => normalizeCombatStyle(ship.combatStyle) === first) ? first : null;
+function commonCombatStyle(ships) { return commonStyle(ships); }
+
+function renderSelectedSummary(selectedShips) {
+  if (!dom.selectionPanelCount) return;
+  const pending = state.pendingCombatStyle;
+  if (pending && (performance.now() - pending.at > 3000 || selectedShips.every((ship) => !pending.shipIds.includes(ship.id) || normalizeCombatStyle(ship.combatStyle) === pending.style))) {
+    state.pendingCombatStyle = null;
+  }
+  const summary = selectedShipSummary(selectedShips);
+  const pendingText = state.pendingCombatStyle ? ` · Pending ${state.pendingCombatStyle.style}` : "";
+  dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${summary.style}` : ""}${pendingText}`;
+  dom.selectionPanelCount.title = summary.text;
+  dom.selectionPanelCount.setAttribute("aria-label", summary.text + pendingText);
 }
 
 function normalizeCombatStyle(style) {

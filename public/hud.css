@@ -971,3 +971,6 @@
 .heat-hud.overheated { color:#ff718a; animation:heat-pulse .8s ease-in-out infinite alternate; }
 .heat-hud.overheated b { background:#ff5575; }
 @keyframes heat-pulse { to { opacity:.62; } }
+.hud-team { --hud-accent:#5eead4; --hud-glow:rgba(94,234,212,.18); }
+.hud-team::before { background:var(--hud-accent); }
+.top-hud { flex-wrap:wrap; }

@@ -3,6 +3,7 @@
 import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { shipHeatPercent, formatHeatPercent } from "../shared/heatDisplay.js";
+import { formatFleet, formatTeamHud } from "./section13bUi.js";
 
 export function updateHud() {
   if (!state.snapshot) return;
@@ -12,7 +13,8 @@ export function updateHud() {
   const relays = state.snapshot.points.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length;
   const income = mine?.income ?? 0;
   const target = currentTarget();
-  dom.fleetLabel.textContent = `${myShips.length}`;
+  if (dom.teamHud) dom.teamHud.textContent = formatTeamHud(myTeam);
+  dom.fleetLabel.textContent = formatFleet(myShips.length, state.rules?.shipCap ?? mine?.shipCap);
   dom.moneyHud.textContent = `$${mine?.money ?? 0}`;
   if (dom.incomeHud) {
     dom.incomeHud.textContent = `+$${Math.round(income)}/s`;

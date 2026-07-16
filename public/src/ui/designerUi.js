@@ -18,6 +18,7 @@ import { updateEconomyUi } from "./purchaseUi.js";
 import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { renderPartInspector } from "./partInspectorUi.js";
+import { formatPowerState } from "./section13bUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 
 export { analyzeDesignHeat };
@@ -833,7 +834,7 @@ export function renderLocalStats() {
     statCard("shield", "Shield", formatShield(stats.maxShield)),
     statCard("speed", "Speed", formatSpeed(Math.round(stats.maxSpeed))),
     statCard("turn", "Turn", `${stats.turnRate.toFixed(2)} rad/s`),
-    statCard("power", "Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`),
+    statCard("power", "Power Gen/Req", formatPowerState(stats.powerGeneration, stats.powerUse, stats.powerEfficiency)),
     statCard("thrust", "Effective Thrust", formatThrust(stats.effectiveThrust)),
     statCard("engineEfficiency", "Engine Efficiency", formatPercent(stats.engineEfficiency)),
     statCard("powerEfficiency", "Power Efficiency", formatPercent(stats.powerEfficiency)),
