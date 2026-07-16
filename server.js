@@ -12,6 +12,7 @@ const { PORT, PUBLIC_DIR, MIME, TICK_HZ, SNAPSHOT_HZ, ROOM_IDLE_MS } = require("
 const { COMPONENT_BALANCE } = require("./src/server/components");
 const { performanceNow, getLocalUrls } = require("./src/server/utils");
 const { rooms, pruneClosedRoomCodes } = require("./src/server/rooms");
+const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./src/server/buildInfo");
 const transport = require("./src/server/websocketServer");
 const messages = require("./src/server/messages");
 const { broadcastSnapshot } = require("./src/server/snapshotDelivery");
@@ -79,6 +80,48 @@ function handleTurretDebugRequest(requestUrl, res) {
 }
 
 
+
+function configuredAllowedOrigins(options = {}) {
+  return String(options.allowedOrigins ?? process.env.WS_ALLOWED_ORIGINS ?? (process.env.NODE_ENV === "production" ? "" : "*")).split(",").map((v) => v.trim()).filter(Boolean);
+}
+
+function originPolicySummary(options = {}) {
+  const allowlist = configuredAllowedOrigins(options);
+  return {
+    mode: allowlist.includes("*") ? "wildcard" : "allowlist",
+    count: allowlist.filter((v) => v !== "*").length
+  };
+}
+
+function isHealthOriginAllowed(req, options = {}) {
+  return isOriginAllowed(req, { ...options, allowMissingOrigin: true });
+}
+
+function handleHealthRequest(req, res, options = {}) {
+  const headers = {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store"
+  };
+  const origin = req.headers.origin;
+  if (origin && isHealthOriginAllowed(req, options)) {
+    headers["access-control-allow-origin"] = origin;
+    headers.vary = "Origin";
+  }
+  const body = JSON.stringify({
+    ok: true,
+    service: "modular-fleet-arena",
+    protocolVersion: PROTOCOL_VERSION,
+    serverBuildSha: SERVER_BUILD_SHA,
+    uptimeSeconds: Math.floor(process.uptime()),
+    activeRooms: rooms.size,
+    activeClients: transport.sockets.size,
+    originPolicy: originPolicySummary(options).mode === "wildcard" ? "wildcard" : "allowlist"
+  });
+  headers["content-length"] = Buffer.byteLength(body);
+  res.writeHead(200, headers);
+  res.end(req.method === "HEAD" ? undefined : body);
+}
+
 function sendUpgradeError(socket, status, message, headers = {}) {
   const reason = message || http.STATUS_CODES[status] || "Error";
   const lines = [`HTTP/1.1 ${status} ${reason}`, "Connection: close", "Content-Type: text/plain; charset=utf-8"];
@@ -108,7 +151,7 @@ function normalizeOrigin(value) {
 function isOriginAllowed(req, options = {}) {
   const origin = req.headers.origin;
   const allowMissing = options.allowMissingOrigin ?? process.env.WS_ALLOW_MISSING_ORIGIN !== "0";
-  const allowlist = (options.allowedOrigins || process.env.WS_ALLOWED_ORIGINS || (process.env.NODE_ENV === "production" ? "" : "*")).split(",").map((v) => v.trim()).filter(Boolean);
+  const allowlist = configuredAllowedOrigins(options);
   if (!origin) return allowMissing;
   let normalized;
   try { normalized = normalizeOrigin(origin); } catch { return false; }
@@ -141,7 +184,7 @@ function validateWebSocketUpgrade(req, socket, options = {}) {
 }
 
 // HTTP request handler for static files and balance JSON
-function handleHttpRequest(req, res) {
+function handleHttpRequest(req, res, options = {}) {
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("referrer-policy", "no-referrer");
   if (!["GET", "HEAD"].includes(req.method)) { res.writeHead(405, { allow: "GET, HEAD" }); res.end(); return; }
@@ -149,6 +192,7 @@ function handleHttpRequest(req, res) {
   try { requestUrl = new URL(req.url, "http://localhost"); } catch { res.writeHead(400); res.end("Bad request"); return; }
   let pathname;
   try { pathname = decodeURIComponent(requestUrl.pathname); } catch { res.writeHead(400); res.end("Bad request"); return; }
+  if (pathname === "/health") { handleHealthRequest(req, res, options); return; }
   if (pathname === "/") pathname = "/index.html";
 
   if (pathname === "/debug/turrets") {
@@ -214,7 +258,7 @@ function handleHttpRequest(req, res) {
 function createGameServer(options = {}) {
   const port = options.port ?? PORT;
   const host = options.host || "0.0.0.0";
-  const httpServer = http.createServer(handleHttpRequest);
+  const httpServer = http.createServer((req, res) => handleHttpRequest(req, res, options));
   const timers = new Map();
   const diagnosticsState = { started: false, stopped: true, shutdown: "idle" };
   let lastTick = performanceNow();
@@ -236,6 +280,21 @@ function createGameServer(options = {}) {
       httpServer.once("error", reject);
       httpServer.listen(port, host, () => {
         diagnosticsState.started = true; diagnosticsState.stopped = false;
+        const policy = originPolicySummary(options);
+        const summary = {
+          serverBuildSha: SERVER_BUILD_SHA,
+          protocolVersion: PROTOCOL_VERSION,
+          port: httpServer.address()?.port || port,
+          nodeEnv: process.env.NODE_ENV || "development",
+          originPolicyMode: policy.mode,
+          allowedOriginCount: policy.count,
+          healthPath: "/health",
+          websocketPath: options.socketPath || "/socket"
+        };
+        console.log(`[mfa] deployment ${JSON.stringify(summary)}`);
+        if ((process.env.NODE_ENV === "production") && configuredAllowedOrigins(options).length === 0) {
+          console.warn("Production WebSocket origin allowlist is empty. Cross-origin frontends such as Netlify will be rejected.");
+        }
         timers.set("cleanup", setInterval(() => { const now = Date.now(); pruneClosedRoomCodes(now); for (const room of rooms.values()) if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) rooms.delete(room.code); }, 60_000));
         timers.set("simulation", setInterval(() => { const now = performanceNow(); const dt = Math.min(0.06, Math.max(0.001, (now - lastTick) / 1000)); lastTick = now; for (const room of rooms.values()) tickRoom(room, dt, now); }, 1000 / TICK_HZ));
         timers.set("snapshot", setInterval(() => { const now = performanceNow(); for (const room of rooms.values()) if (room.phase === "active") broadcastSnapshot(room, now); }, 1000 / SNAPSHOT_HZ));
@@ -279,4 +338,4 @@ if (require.main === module) {
   }).catch((err) => { console.error(err); process.exit(1); });
 }
 
-module.exports = { createGameServer, handleHttpRequest, handleTurretDebugRequest, validateWebSocketUpgrade, isOriginAllowed };
+module.exports = { createGameServer, handleHttpRequest, handleHealthRequest, handleTurretDebugRequest, validateWebSocketUpgrade, isOriginAllowed, configuredAllowedOrigins, originPolicySummary };

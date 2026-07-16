@@ -51,6 +51,10 @@ export function checkServerProtocol(info) {
     return "incompatible";
   }
 
+  if (backendSha && backendSha !== "unknown" && FRONTEND_BUILD && backendSha !== FRONTEND_BUILD && !alreadyReported) {
+    console.warn(`[mfa] Frontend/backend build mismatch: frontend=${FRONTEND_BUILD} backend=${backendSha}. Protocols are compatible; play may continue.`);
+  }
+
   if (version === null || version < anglesMin) {
     if (!alreadyReported) {
       console.warn(

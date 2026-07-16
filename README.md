@@ -29,7 +29,33 @@ CI keeps the same dependency split: the server-integration job does not install 
 
 ## Deploy
 
-### Netlify static site
+The production deployment is split-origin: Netlify serves the static frontend, while Render runs the persistent Node/WebSocket multiplayer backend. Netlify cannot run the long-lived multiplayer server process.
+
+### Render multiplayer backend
+
+Use the included `render.yaml` Blueprint or configure the service manually with these settings:
+
+- Service type: Web Service
+- Runtime: Node
+- Build command: `npm ci`
+- Start command: `node server.js`
+- Health check path: `/health`
+- Port: use Render's provided `PORT` environment variable; do not hardcode a port
+- Environment variables:
+  - `NODE_ENV=production`
+  - `WS_ALLOWED_ORIGINS=https://fastidious-raindrop-a14031.netlify.app`
+
+`WS_ALLOWED_ORIGINS` must contain exact frontend origins with no trailing slash. For multiple frontend domains, use comma-separated exact origins, for example `https://main.example,https://preview.example`. Do not use wildcard origins in production. Render free services may sleep, so the first multiplayer connection after inactivity can take about a minute while the service wakes.
+
+The backend exposes a safe readiness endpoint at `/health`. Verify a backend deploy by opening:
+
+```text
+https://new-folder-4-65uk.onrender.com/health
+```
+
+Then verify the full deployment by creating a real room from the Netlify frontend.
+
+### Netlify static frontend
 
 Netlify should publish the browser files from `public/`.
 
@@ -41,25 +67,13 @@ Build settings:
 - Publish directory: `public`
 - Functions directory: leave blank
 
-The included `netlify.toml` sets these values automatically for Git deploys.
-
-### Multiplayer server
-
-Netlify static hosting does not run the persistent Node/WebSocket server used by multiplayer rooms. Deploy `server.js` to a service that supports long-running Node servers and WebSockets, such as Render, Railway, Fly.io, or a VPS.
-
-Server settings for those hosts:
-
-- Build command: `npm install` or blank
-- Start command: `node server.js`
-- Port: use the host-provided `PORT` environment variable
-
-After the server is deployed, open the Netlify site with:
+The included `netlify.toml` sets these values automatically for Git deploys. The production URL format for the current deployment is:
 
 ```text
-https://your-site.netlify.app/?server=wss://your-game-server.example.com
+https://fastidious-raindrop-a14031.netlify.app/?server=wss%3A%2F%2Fnew-folder-4-65uk.onrender.com
 ```
 
-The game remembers that server URL locally and includes it when you copy invites.
+The `server` URL parameter is saved in the browser's local settings and reused for invites. If the Render hostname changes, update the saved server setting in the game settings or open the Netlify site with a fresh `?server=wss%3A%2F%2F...` URL.
 
 ## Controls
 
