@@ -28,9 +28,10 @@ function wsDecode(data) {
 }
 
 const RECONNECT = { baseMs: 300, maxMs: 4000, jitterMs: 250, maxDurationMs: 25000, heartbeatIntervalMs: 10000, heartbeatTimeoutMs: 30000 };
+const CONNECTION_TIMEOUT_MS = 12000;
 function netDiag() {
   if (typeof globalThis === "undefined") return null;
-  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null };
+  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], connectionFailures: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null };
 }
 function markSentType(type) {
   const diag = netDiag();
@@ -58,6 +59,76 @@ function markReceivedType(type) {
   if (type === "hello") diag.helloReceived = true;
   if (type === "joined") diag.joinedReceived = true;
   if (type === "state") diag.firstFullSnapshotReceived = true;
+}
+
+
+function stageOf(attempt) {
+  if (attempt?.joinedReceived) return "joined received";
+  if (attempt?.joinSent) return "join sent";
+  if (attempt?.helloReceived) return "hello received";
+  if (attempt?.opened) return "socket opened";
+  return "creating socket";
+}
+
+function urlHostname(url) {
+  try { return new URL(url).hostname || "unknown"; } catch { return "invalid"; }
+}
+
+function connectionFailureMessage(category) {
+  switch (category) {
+    case "timeout": return "The game server did not respond. It may be waking up or temporarily offline. Wait a moment and try again.";
+    case "origin-rejected": return "The multiplayer server rejected this website. Check the server’s allowed origin configuration.";
+    case "invalid-url": return "The multiplayer server address is invalid. Open Settings and check the server URL.";
+    case "closed-before-join": return "Connected to the server, but the game could not be created or joined.";
+    case "unavailable":
+    default: return "Could not reach the multiplayer server. Check the server address or confirm that the server is running.";
+  }
+}
+
+function categorizeConnectionFailure(kind, attempt, event) {
+  if (kind === "timeout") return "timeout";
+  if (kind === "invalid-url") return "invalid-url";
+  const reason = String(event?.reason || "").toLowerCase();
+  if (event?.code === 1008 || event?.code === 403 || reason.includes("403") || reason.includes("origin")) return "origin-rejected";
+  if (attempt?.opened && !attempt?.joinedReceived) return "closed-before-join";
+  return "unavailable";
+}
+
+function recordConnectionFailure(attempt, category, event) {
+  const diag = netDiag();
+  if (!diag) return;
+  const entry = {
+    hostname: urlHostname(attempt?.url || ""),
+    stage: stageOf(attempt),
+    elapsedMs: Math.max(0, Math.round(performance.now() - (attempt?.startedAt || performance.now()))),
+    closeCode: event?.code ?? null,
+    closeReason: event?.reason || "",
+    opened: Boolean(attempt?.opened),
+    helloReceived: Boolean(attempt?.helloReceived),
+    joinSent: Boolean(attempt?.joinSent),
+    category,
+    timestamp: Date.now()
+  };
+  diag.connectionFailures ||= [];
+  diag.connectionFailures.push(entry);
+  while (diag.connectionFailures.length > 10) diag.connectionFailures.shift();
+  diag.latestConnectionFailure = entry;
+}
+
+function failConnectionAttempt(attempt, category, event) {
+  if (!attempt || attempt.failed) return;
+  attempt.failed = true;
+  if (attempt.timeout) { clearTimeout(attempt.timeout); attempt.timeout = null; }
+  const message = connectionFailureMessage(category);
+  recordConnectionFailure(attempt, category, event);
+  state.joiningLobby = false;
+  state.reconnectAllowed = false;
+  setConnectionStatus("error", message);
+  updateLobbyState();
+  import("./ui/lobbyUi.js").then((mod) => {
+    mod.showMenuNotice(message, "error");
+    mod.updateLobbyState();
+  });
 }
 
 function clearReconnectTimer(){ if(state.reconnect?.timer){ clearTimeout(state.reconnect.timer); state.reconnect.timer=null; } }
@@ -91,6 +162,7 @@ export function connect(url, onOpenCallback, options = {}) {
   clearHeartbeat();
   if (!options.reconnect) state.reconnect = { attempts:0, startedAt:performance.now(), timer:null, url, joinPayload: options.joinPayload || null };
   if (options.joinPayload) { state.reconnectAllowed = true; state.reconnect.joinPayload = options.joinPayload; state.reconnect.url = url; }
+  if (state.connectionAttempt?.timeout) { clearTimeout(state.connectionAttempt.timeout); state.connectionAttempt.timeout = null; }
   if (state.socket) {
     try {
       state.socket.close();
@@ -102,17 +174,34 @@ export function connect(url, onOpenCallback, options = {}) {
   setConnectionStatus("connecting", "Connecting");
   const generation = (state.connectionGeneration || 0) + 1;
   state.connectionGeneration = generation;
-  const socket = new WebSocket(url);
+  let socket;
+  let attempt = null;
+  try {
+    socket = new WebSocket(url);
+  } catch (err) {
+    attempt = { url, startedAt: performance.now() };
+    failConnectionAttempt(attempt, "invalid-url");
+    return;
+  }
+  attempt = { url, startedAt: performance.now(), opened: false, helloReceived: false, joinSent: false, joinedReceived: false, serverErrorReceived: false, failed: false, timeout: null };
   const diag = netDiag();
-  if (diag) { diag.websocketCreated = true; diag.websocketUrl = url; }
+  if (diag) { diag.websocketCreated = true; diag.websocketUrl = url; diag.websocketUrlHostname = urlHostname(url); diag.connectionStage = "creating socket"; }
   socket.binaryType = "arraybuffer";
   state.socket = socket;
+  state.connectionAttempt = attempt;
   updateLobbyState();
+  attempt.timeout = setTimeout(() => {
+    if (state.connectionGeneration !== generation || state.socket !== socket || attempt.opened) return;
+    try { socket.close(); } catch {}
+    failConnectionAttempt(attempt, "timeout");
+  }, CONNECTION_TIMEOUT_MS);
 
   socket.addEventListener("open", () => {
     if (state.connectionGeneration !== generation || state.socket !== socket) return;
+    if (attempt.timeout) { clearTimeout(attempt.timeout); attempt.timeout = null; }
+    attempt.opened = true;
     const diag = netDiag();
-    if (diag) diag.websocketOpened = true;
+    if (diag) { diag.websocketOpened = true; diag.connectionStage = stageOf(attempt); }
     setConnectionStatus(options.reconnect ? "reconnected" : "online", options.reconnect ? "Resumed" : "Connected");
     startHeartbeat(generation, socket);
     if (onOpenCallback) onOpenCallback();
@@ -123,6 +212,10 @@ export function connect(url, onOpenCallback, options = {}) {
     try {
       const message = wsDecode(event.data);
       markReceivedType(message?.type);
+      if (message?.type === "hello") attempt.helloReceived = true;
+      if (message?.type === "joined") attempt.joinedReceived = true;
+      if (message?.type === "error") attempt.serverErrorReceived = true;
+      { const diag = netDiag(); if (diag) diag.connectionStage = stageOf(attempt); }
       handleServerMessage(message);
       const diag = netDiag();
       if (diag && message?.type === "hello") diag.protocolAccepted = state.server?.compatibility === "ok";
@@ -136,6 +229,11 @@ export function connect(url, onOpenCallback, options = {}) {
     if (diag) { diag.socketCloses ||= []; diag.socketCloses.push({ code: event.code, reason: event.reason, clean: event.wasClean, timestamp: Date.now() }); if (diag.socketCloses.length > 10) diag.socketCloses.shift(); }
     if (state.connectionGeneration === generation && state.socket === socket) {
       clearHeartbeat();
+      if (attempt.timeout) { clearTimeout(attempt.timeout); attempt.timeout = null; }
+      if (!attempt.joinedReceived) {
+        if (attempt.serverErrorReceived) { state.joiningLobby = false; updateLobbyState(); return; }
+        failConnectionAttempt(attempt, categorizeConnectionFailure("close", attempt, event), event); return;
+      }
       if (state.reconnectAllowed && scheduleReconnect(url, state.reconnect?.joinPayload)) return;
       setConnectionStatus("offline", "Disconnected");
       import("./ui/lobbyUi.js").then((mod) => { mod.returnToMainMenu("Disconnected from server", "error"); });
@@ -144,6 +242,8 @@ export function connect(url, onOpenCallback, options = {}) {
 
   socket.addEventListener("error", () => {
     if (state.connectionGeneration === generation && state.socket === socket) {
+      if (attempt.timeout) { clearTimeout(attempt.timeout); attempt.timeout = null; }
+      if (!attempt.joinedReceived) { failConnectionAttempt(attempt, categorizeConnectionFailure("error", attempt)); return; }
       if (state.reconnectAllowed && scheduleReconnect(url, state.reconnect?.joinPayload)) return;
       setConnectionStatus("error", "Network error");
       import("./ui/lobbyUi.js").then((mod) => { mod.returnToMainMenu("Network connection failed", "error"); });
@@ -158,6 +258,7 @@ export function send(message) {
   }
   state.socket.send(wsEncode(message));
   markSentType(message?.type);
+  if (message?.type === "join" && state.connectionAttempt) state.connectionAttempt.joinSent = true;
   return true;
 }
 

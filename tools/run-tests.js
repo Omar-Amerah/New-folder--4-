@@ -77,6 +77,7 @@ const GROUPS = {
   integration: [
     "verify-reconnect.js",
     "verify-lobby-refresh-reconnect.js",
+    "verify-connection-errors.js",
     "verify-lifecycle.js",
     "verify-input-lifecycle.js",
     "verify-renderer-structural-updates.js"
