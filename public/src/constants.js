@@ -2,15 +2,19 @@
 
 import { GENERATED_BALANCE } from "./generatedBalance.js";
 
-export const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
+// Blueprint storage moved to new keys when wiring was added (schema v2).
+// Old keys ("modular-fleet-design-v2", "...-saved-designs-v1", "...-loadouts-v1",
+// "...-design-last-good-v1") are intentionally never read: users with old data
+// simply start from the current default ship with its default wiring.
+export const LOCAL_DESIGN_KEY = "modular-fleet-design-v3";
 export const LOCAL_NAME_KEY = "modular-fleet-name-v1";
 export const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
 export const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
 export const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
-export const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
-export const LOCAL_LOADOUTS_KEY = "modular-fleet-loadouts-v1";
+export const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v2";
+export const LOCAL_LOADOUTS_KEY = "modular-fleet-loadouts-v2";
 export const LOCAL_ACTIVE_ROOM_KEY = "modular-fleet-active-room-v1";
-export const LOCAL_DESIGN_BACKUP_KEY = "modular-fleet-design-last-good-v1";
+export const LOCAL_DESIGN_BACKUP_KEY = "modular-fleet-design-last-good-v2";
 
 // Frontend build identification. The deploy pipeline (netlify-build.js) emits
 // /build-sha.js which sets globalThis.__MFA_BUILD_SHA__ before the app loads;

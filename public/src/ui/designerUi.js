@@ -21,6 +21,16 @@ import { renderPartInspector } from "./partInspectorUi.js";
 import { formatPowerState } from "./section13bUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
+import {
+  refreshWiringPresentation,
+  clearWiringPresentation,
+  handleWiringCellClick,
+  handleWiringCellHover,
+  handleWiringGridLeave,
+  syncWiringWithDesign,
+  resetWiringToDefault,
+  clearAllWiring
+} from "./wiringUi.js";
 
 export { analyzeDesignHeat };
 
@@ -94,6 +104,9 @@ export function renderBuildGrid() {
   if (state.blueprintView === "heat") {
     suppressHeatGridNativeTooltips();
     refreshHeatPresentationSafely();
+  } else if (state.blueprintView === "wiring") {
+    applyBlueprintPresentation();
+    refreshWiringPresentation();
   } else {
     applyBlueprintPresentation();
   }
@@ -127,7 +140,7 @@ function suppressHeatGridNativeTooltips() {
 }
 
 export function setBlueprintView(view) {
-  state.blueprintView = view === "heat" ? "heat" : "build";
+  state.blueprintView = view === "heat" ? "heat" : view === "wiring" ? "wiring" : "build";
   refreshBlueprintControls();
   renderHoverPreview();
 
@@ -137,6 +150,12 @@ export function setBlueprintView(view) {
   } else {
     clearHeatInspectionState();
     clearHeatPresentation();
+  }
+
+  if (state.blueprintView === "wiring") {
+    refreshWiringPresentation();
+  } else {
+    clearWiringPresentation();
   }
 }
 
@@ -156,11 +175,18 @@ function updateHeatFlowToggleControl() {
 
 function refreshBlueprintControls() {
   const heatView = state.blueprintView === "heat";
+  const wiringView = state.blueprintView === "wiring";
+  const buildView = !heatView && !wiringView;
   dom.grid.classList.toggle("heat-overlay-active", heatView);
-  dom.blueprintBuildTab?.classList.toggle("active", !heatView);
+  dom.grid.classList.toggle("wiring-overlay-active", wiringView);
+  dom.blueprintBuildTab?.classList.toggle("active", buildView);
   dom.blueprintHeatTab?.classList.toggle("active", heatView);
-  dom.blueprintBuildTab?.setAttribute("aria-selected", String(!heatView));
+  dom.blueprintWiringTab?.classList.toggle("active", wiringView);
+  dom.blueprintBuildTab?.setAttribute("aria-selected", String(buildView));
   dom.blueprintHeatTab?.setAttribute("aria-selected", String(heatView));
+  dom.blueprintWiringTab?.setAttribute("aria-selected", String(wiringView));
+  if (dom.wiringToolbar) dom.wiringToolbar.hidden = !wiringView;
+  if (dom.wiringStatusPanel && !wiringView) dom.wiringStatusPanel.hidden = true;
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
   if (dom.blueprintThermalHud) dom.blueprintThermalHud.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
@@ -441,10 +467,13 @@ function ensureBlueprintGridEventHandlers() {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
-      editCell(
-        pointed?.x ?? Number(cell.dataset.x),
-        pointed?.y ?? Number(cell.dataset.y)
-      );
+      const x = pointed?.x ?? Number(cell.dataset.x);
+      const y = pointed?.y ?? Number(cell.dataset.y);
+      if (state.blueprintView === "wiring") {
+        handleWiringCellClick(x, y);
+        return;
+      }
+      editCell(x, y);
     });
     // Hover preview is delegated so cells are never rebuilt mid-click:
     // rebuilding on hover destroyed the mousedown target, so no click event fired.
@@ -459,18 +488,26 @@ function ensureBlueprintGridEventHandlers() {
       const y = pointed?.y ?? Number(cell.dataset.y);
       if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) return;
       state.hoveredCell = { x, y };
+      if (state.blueprintView === "wiring") {
+        handleWiringCellHover(x, y);
+        return;
+      }
       updateHoveredHeatPart(x, y);
       renderHoverPreview();
     });
     dom.grid.addEventListener("mouseleave", () => {
       state.hoveredCell = null;
+      if (state.blueprintView === "wiring") {
+        handleWiringGridLeave();
+        return;
+      }
       updateHoveredHeatPart(null, null);
       renderHoverPreview();
     });
     dom.grid.addEventListener("contextmenu", (event) => {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
-      if (state.blueprintView === "heat") return;
+      if (state.blueprintView === "heat" || state.blueprintView === "wiring") return;
       event.preventDefault();
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
       removeCell(
@@ -490,6 +527,10 @@ function ensureBlueprintGridEventHandlers() {
       setBlueprintView("heat");
       renderLocalStats();
       renderPartInspector();
+    });
+    dom.blueprintWiringTab?.addEventListener("click", () => {
+      setBlueprintView("wiring");
+      renderLocalStats();
     });
     dom.thermalLoadModes?.addEventListener("click", event => {
       const button = event.target.closest("[data-thermal-load]");
@@ -520,6 +561,7 @@ function removePlacementPreviewElements() {
 export function renderHoverPreview() {
   removePlacementPreviewElements();
 
+  if (state.blueprintView === "wiring") return;
   if (!state.hoveredCell || !state.selectedPart) return;
 
   {
@@ -689,6 +731,7 @@ function clearInvalidHeatIndexes() {
 }
 
 export function editCell(x, y) {
+  if (state.blueprintView === "wiring") return;
   if (!state.selectedPart) return;
   const existing = findPartAt(x, y);
   if (existing?.type === "core") return;
@@ -718,7 +761,8 @@ export function editCell(x, y) {
   state.design = candidate.nextDesign;
   clearInvalidHeatIndexes();
   invalidateHeatAnalysisCache();
-  persistDesign(state.design, state.combatStyle);
+  syncWiringWithDesign();
+  persistDesign(state.design, state.wiring, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
@@ -751,10 +795,11 @@ export function rotateCell(x, y) {
 
   state.design = next;
   invalidateHeatAnalysisCache();
+  syncWiringWithDesign();
   if (state.selectedPart === part.type) {
     state.previewRotation = newRotation;
   }
-  persistDesign(state.design, state.combatStyle);
+  persistDesign(state.design, state.wiring, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
@@ -762,6 +807,7 @@ export function rotateCell(x, y) {
 }
 
 export function rotateFocusedPart() {
+  if (state.blueprintView === "wiring") return;
   const cell = state.hoveredCell || state.selectedCell;
   const part = cell ? findPartAt(cell.x, cell.y) : null;
   if (part && isRotatablePart(part.type)) {
@@ -773,7 +819,7 @@ export function rotateFocusedPart() {
 }
 
 export function removeCell(x, y) {
-  if (state.blueprintView === "heat") return;
+  if (state.blueprintView === "heat" || state.blueprintView === "wiring") return;
   const existing = findPartAt(x, y);
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part !== existing);
@@ -782,7 +828,8 @@ export function removeCell(x, y) {
     state.design = next;
     clearInvalidHeatIndexes();
     invalidateHeatAnalysisCache();
-    persistDesign(state.design, state.combatStyle);
+    syncWiringWithDesign();
+    persistDesign(state.design, state.wiring, state.combatStyle);
     renderBuildGrid();
     renderLocalStats();
     renderSavedDesigns();
@@ -798,7 +845,9 @@ export function resetDesign() {
   invalidateHeatAnalysisCache();
   clearHeatInspectionState();
   state.loadedEditorBlueprintId = null;
-  persistDesign(state.design, state.combatStyle);
+  // Reset Design restores the default modules together with default wiring.
+  resetWiringToDefault();
+  persistDesign(state.design, state.wiring, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
@@ -809,7 +858,8 @@ export function clearDesign() {
   invalidateHeatAnalysisCache();
   clearHeatInspectionState();
   state.loadedEditorBlueprintId = null;
-  persistDesign(state.design, state.combatStyle);
+  clearAllWiring();
+  persistDesign(state.design, state.wiring, state.combatStyle);
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();

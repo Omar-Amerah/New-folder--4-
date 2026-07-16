@@ -51,7 +51,7 @@ function handleMessage(client, message) {
   }
 
   const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase, isCurrentAttachment, findReservedNameOwner } = require("./players");
-  const { validateDesign } = require("./shipDesign");
+  const { validateDesign, validateWiring } = require("./shipDesign");
   const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
   const { commandShips } = require("./movement");
@@ -107,6 +107,11 @@ function handleMessage(client, message) {
       return;
     }
     client.player.design = design.modules;
+    // Server-side wiring normalization: only raw segments are accepted, and
+    // networks/connectivity are re-derived — client results are never trusted.
+    // A deploy without a wiring field keeps the player's previous wiring
+    // (re-normalized against the new modules) instead of wiping it.
+    client.player.wiring = validateWiring(design.modules, message.wiring !== undefined ? message.wiring : client.player.wiring).wiring;
     client.player.stats = design.stats;
     const combatStyle = sanitizeCombatStyle(message.combatStyle, sanitizeCombatStyle(client.player.combatStyle));
     client.player.combatStyle = combatStyle;
@@ -148,6 +153,11 @@ function handleMessage(client, message) {
       return;
     }
     const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
+    // Wiring is validated/normalized server-side but is not yet part of the
+    // purchase payload: ships don't consume wiring, and keeping it out of the
+    // request preserves the requestId idempotency signature.
+    const purchaseWiring = validateWiring(purchaseDesign.modules, message.wiring).wiring;
+    if (message.wiring !== undefined) client.player.wiring = purchaseWiring;
     const result = executePurchase(client.room, client.player, {
       requestId,
       count,

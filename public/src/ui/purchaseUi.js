@@ -6,7 +6,7 @@ import { showToast } from "./toastUi.js";
 import { send } from "../network.js";
 import { computeStats } from "../design/componentStats.js";
 import { isConnected } from "../design/blueprintValidation.js";
-import { normalizeDesign, persistLoadouts } from "../design/blueprintStorage.js";
+import { normalizeDesign, normalizeWiring, persistLoadouts } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
 import { makePurchaseRequestId, makeDesignId } from "../shared/ids.js";
@@ -125,6 +125,7 @@ export function buyPurchaseOption(optionId) {
   send({
     type: "buyShip",
     design: option.blueprint,
+    wiring: option.wiring,
     combatStyle: option.combatStyle || state.combatStyle || "charge",
     count: state.purchaseQuantity,
     requestId
@@ -258,6 +259,7 @@ export function getPurchaseOptions() {
     name: "Current Design",
     source: "editor",
     blueprint: state.design.map((part) => ({ ...part })),
+    wiring: normalizeWiring(state.wiring, state.design),
     combatStyle: state.combatStyle || "charge",
     stats: computeStats(state.design)
   };
@@ -275,14 +277,18 @@ export function getPurchaseOptions() {
 
   return [
     current,
-    ...designs.map((saved) => ({
-      id: saved.id,
-      name: saved.name,
-      source: "saved",
-      blueprint: normalizeDesign(saved.blueprint).map((part) => ({ ...part })),
-      combatStyle: saved.combatStyle || "charge",
-      stats: computeStats(saved.blueprint)
-    }))
+    ...designs.map((saved) => {
+      const modules = normalizeDesign(saved.blueprint);
+      return {
+        id: saved.id,
+        name: saved.name,
+        source: "saved",
+        blueprint: modules.map((part) => ({ ...part })),
+        wiring: normalizeWiring(saved.wiring, modules),
+        combatStyle: saved.combatStyle || "charge",
+        stats: computeStats(saved.blueprint)
+      };
+    })
   ];
 }
 

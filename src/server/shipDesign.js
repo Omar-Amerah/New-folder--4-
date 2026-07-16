@@ -4,6 +4,7 @@ const { PARTS } = require("./components");
 const { computeStats } = require("./shipStats");
 const { DEFAULT_DESIGN } = require("./config");
 const { getOccupiedCells } = require("./footprint");
+const WiringRules = require("../../public/src/shared/wiringRules");
 
 function validateDesign(input) {
   if (!Array.isArray(input)) return { ok: false, reason: "Invalid design: no blueprint was sent." };
@@ -54,6 +55,18 @@ function validateDesign(input) {
   if (stats.thrust <= 0) return { ok: false, reason: "Invalid design: add at least one engine." };
 
   return { ok: true, modules: clean, stats };
+}
+
+// Independently normalizes and validates client-supplied wiring against the
+// already-validated module list. The server never trusts client network ids,
+// connectivity results, connected-component lists, bonuses or powered states —
+// only raw segments are read, and everything else is re-derived from them.
+// Malformed, floating, duplicate or excess segments are dropped rather than
+// rejecting the blueprint (disconnected wiring is a designer warning, not a
+// blocking error).
+function validateWiring(modules, wiring) {
+  const { wiring: normalized, droppedSegments } = WiringRules.normalizeWiring(wiring, modules, PARTS);
+  return { ok: true, wiring: normalized, droppedSegments };
 }
 
 function isConnected(modules) {
@@ -156,6 +169,7 @@ function normalizeRotation(value, allowedRotations, x) {
 
 module.exports = {
   validateDesign,
+  validateWiring,
   isConnected,
   normalizeShipDesignSnapshot,
   normalizeRotation,

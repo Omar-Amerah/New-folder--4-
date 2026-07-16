@@ -106,6 +106,24 @@ const MAP_CLOUD_COLORS = [
   "255,95,126"
 ];
 
+// Default Power wiring for DEFAULT_DESIGN: a bus along the y=7 grid line plus
+// a drop to the engine, joining Core + Reactor + Aux Generator to every
+// powered component. The default ship has no Data-support module, so Data
+// wiring is empty. Kept in sync with defaultWiring() in
+// public/src/design/blueprintStorage.js.
+const DEFAULT_WIRING = Object.freeze({
+  version: 1,
+  power: Object.freeze([
+    Object.freeze({ x1: 5, y1: 7, x2: 6, y2: 7 }),
+    Object.freeze({ x1: 6, y1: 7, x2: 7, y2: 7 }),
+    Object.freeze({ x1: 7, y1: 7, x2: 8, y2: 7 }),
+    Object.freeze({ x1: 8, y1: 7, x2: 9, y2: 7 }),
+    Object.freeze({ x1: 7, y1: 7, x2: 7, y2: 8 }),
+    Object.freeze({ x1: 7, y1: 8, x2: 7, y2: 9 })
+  ]),
+  data: Object.freeze([])
+});
+
 const DEFAULT_DESIGN = Object.freeze([
   { x: 7, y: 7, type: "core" },
 
@@ -152,5 +170,6 @@ module.exports = {
   BOT_NAMES,
   MAP_NAMES,
   MAP_CLOUD_COLORS,
-  DEFAULT_DESIGN
+  DEFAULT_DESIGN,
+  DEFAULT_WIRING
 };

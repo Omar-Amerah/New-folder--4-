@@ -331,6 +331,7 @@ export function deployDesign() {
     send({
       type: "deploy",
       design: state.design,
+      wiring: state.wiring,
       combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "charge"
     });
     send({ type: "ready" });
@@ -653,6 +654,11 @@ export function bindSettingsRecoveryControls() {
     const file = event.target.files?.[0]; if (!file) return;
     try {
       const result = importBlueprints(JSON.parse(await file.text()), state.savedDesigns, state.loadouts);
+      if (result.incompatibleVersion) {
+        showToast("This export file uses an old blueprint format without wiring and cannot be imported.", "error");
+        event.target.value = "";
+        return;
+      }
       state.savedDesigns = result.designs; state.loadouts = result.loadouts;
       persistSavedDesigns(state.savedDesigns); persistLoadouts(state.loadouts); renderSavedDesigns(); renderPurchaseBar(); showToast(`Imported ${result.accepted}; rejected ${result.rejected}`, result.rejected ? "warning" : "good");
     } catch { showToast("Blueprint import file was not valid JSON", "error"); }
