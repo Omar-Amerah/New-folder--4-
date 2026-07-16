@@ -111,7 +111,8 @@
     "test:snapshot-coalescing": "node verify-snapshot-coalescing.js",
     "test:snapshot-multiclient-strict": "node verify-snapshot-multiclient-strict.js",
     "balance:check": "node tools/balance-check.js",
-    "balance:summary": "node tools/balance-summary.js"
+    "balance:summary": "node tools/balance-summary.js",
+    "release:check": "node tools/release-check.js"
   },
   "keywords": [
     "browser-game",
