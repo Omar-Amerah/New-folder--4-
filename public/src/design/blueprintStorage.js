@@ -2,7 +2,7 @@
 
 import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
-import { normalizeRotation } from "./rotation.js";
+import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { validateBlueprint } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import { computeStats } from "./componentStats.js";
@@ -68,7 +68,9 @@ function isEnvelope(value, kind) {
 
 export function makeDesignPart(x, y, type, previousRotation = 0) {
   const allowed = PART_STATS[type]?.allowedRotations;
-  const rotation = isRotatablePart(type) ? normalizeRotation(previousRotation, allowed, x) : 0;
+  const rotation = type === "maneuverThruster"
+    ? maneuverThrusterAutoRotation(x)
+    : isRotatablePart(type) ? normalizeRotation(previousRotation, allowed, x) : 0;
   return { x, y, type, rotation };
 }
 
