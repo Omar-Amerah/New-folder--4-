@@ -14,20 +14,19 @@ export const MAX_LOADOUTS = 8;
 export function defaultDesign() {
   return [
     { x: 7, y: 7, type: "core" },
+    { x: 6, y: 8, type: "frame" },
     { x: 7, y: 8, type: "frame" },
-    { x: 6, y: 8, type: "engine" },
-    { x: 8, y: 8, type: "engine" },
-    { x: 6, y: 7, type: "blaster" },
-    { x: 8, y: 7, type: "blaster" },
-    { x: 5, y: 7, type: "maneuverThruster" },
-    { x: 9, y: 7, type: "maneuverThruster" },
+    { x: 8, y: 8, type: "frame" },
+    { x: 7, y: 9, type: "engine" },
+    { x: 5, y: 7, type: "reactor", rotation: 0 },
+    { x: 8, y: 6, type: "beamEmitter", rotation: 0 },
     { x: 7, y: 6, type: "shield" },
-    { x: 6, y: 6, type: "armor" },
-    { x: 8, y: 6, type: "armor" },
-    { x: 7, y: 9, type: "battery" }
+    { x: 5, y: 8, type: "gyroscope" },
+    { x: 9, y: 7, type: "auxGenerator" },
+    { x: 5, y: 6, type: "radiator" },
+    { x: 9, y: 6, type: "radiator" }
   ];
 }
-
 function nowIso() { return new Date().toISOString(); }
 function safeStyle(value, fallback = "sentry") { return ["charge", "circle", "sentry", "hold"].includes(value) ? value : fallback; }
 function storage() {
@@ -98,6 +97,47 @@ export function normalizeDesign(input, options = {}) {
   return clean;
 }
 
+const PREVIOUS_STOCK_DEFAULTS = [
+  [
+    { x: 7, y: 7, type: "core" },
+    { x: 7, y: 8, type: "frame" },
+    { x: 6, y: 8, type: "engine" },
+    { x: 8, y: 8, type: "engine" },
+    { x: 6, y: 7, type: "blaster" },
+    { x: 8, y: 7, type: "blaster" },
+    { x: 5, y: 7, type: "maneuverThruster" },
+    { x: 9, y: 7, type: "maneuverThruster" },
+    { x: 7, y: 6, type: "shield" },
+    { x: 6, y: 6, type: "armor" },
+    { x: 8, y: 6, type: "armor" },
+    { x: 7, y: 9, type: "battery" }
+  ],
+  [
+    { x: 7, y: 7, type: "core" },
+    { x: 7, y: 8, type: "frame" },
+    { x: 6, y: 8, type: "engine" },
+    { x: 8, y: 8, type: "engine" },
+    { x: 6, y: 7, type: "blaster" },
+    { x: 8, y: 7, type: "blaster" },
+    { x: 5, y: 7, type: "maneuverThruster" },
+    { x: 9, y: 7, type: "maneuverThruster" },
+    { x: 7, y: 6, type: "shield" },
+    { x: 6, y: 6, type: "armor" },
+    { x: 8, y: 6, type: "armor" }
+  ]
+];
+
+function designSignature(design) {
+  return normalizeDesign(design, { fallbackOnInvalid: false, allowEmpty: true })
+    .map((part) => `${part.x},${part.y},${part.type},${part.rotation || 0}`)
+    .sort()
+    .join("|");
+}
+function matchesPreviousStockDefault(design) {
+  const signature = designSignature(design);
+  return PREVIOUS_STOCK_DEFAULTS.some((stock) => designSignature(stock) === signature);
+}
+
 function savedDesignSummary(blueprint) {
   const stats = computeStats(blueprint);
   return { cost: stats.unitCost, weapons: `${stats.weaponDps} DPS`, speed: Math.round(stats.maxSpeed) };
@@ -129,9 +169,11 @@ export function migrateDesignStorage(value) {
     value = value.payload;
   }
   if (value && !Array.isArray(value) && typeof value === "object" && Array.isArray(value.modules)) {
-    return { modules: normalizeDesign(value.modules, { allowEmpty: true }), combatStyle: safeStyle(value.combatStyle, "sentry") };
+    const modules = matchesPreviousStockDefault(value.modules) ? defaultDesign() : normalizeDesign(value.modules, { allowEmpty: true });
+    return { modules, combatStyle: safeStyle(value.combatStyle, "sentry") };
   }
-  return { modules: normalizeDesign(value, { allowEmpty: true }), combatStyle: "sentry" };
+  const modules = matchesPreviousStockDefault(value) ? defaultDesign() : normalizeDesign(value, { allowEmpty: true });
+  return { modules, combatStyle: "sentry" };
 }
 export function designEnvelope(design, combatStyle = "sentry", timestamps = {}) {
   return envelope("current-design", { modules: normalizeDesign(design, { allowEmpty: true }), combatStyle: safeStyle(combatStyle, "sentry") }, timestamps);

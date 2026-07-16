@@ -108,18 +108,17 @@ const MAP_CLOUD_COLORS = [
 
 const DEFAULT_DESIGN = Object.freeze([
   { x: 7, y: 7, type: "core" },
+  { x: 6, y: 8, type: "frame" },
   { x: 7, y: 8, type: "frame" },
-  { x: 6, y: 8, type: "engine" },
-  { x: 8, y: 8, type: "engine" },
-  { x: 6, y: 7, type: "blaster" },
-  { x: 8, y: 7, type: "blaster" },
-  // Side maneuvering thrusters so the starting ship can turn (main engines no
-  // longer provide turn); placed off-centre for a useful turning lever arm.
-  { x: 5, y: 7, type: "maneuverThruster" },
-  { x: 9, y: 7, type: "maneuverThruster" },
+  { x: 8, y: 8, type: "frame" },
+  { x: 7, y: 9, type: "engine" },
+  { x: 5, y: 7, type: "reactor", rotation: 0 },
+  { x: 8, y: 6, type: "beamEmitter", rotation: 0 },
   { x: 7, y: 6, type: "shield" },
-  { x: 6, y: 6, type: "armor" },
-  { x: 8, y: 6, type: "armor" }
+  { x: 5, y: 8, type: "gyroscope" },
+  { x: 9, y: 7, type: "auxGenerator" },
+  { x: 5, y: 6, type: "radiator" },
+  { x: 9, y: 6, type: "radiator" }
 ]);
 
 module.exports = {

@@ -1,6 +1,6 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
-const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY } = require("./config");
+const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
 const { performanceNow, seededRandom, rngRange, hashString } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { normalizeShipDesignSnapshot } = require("./shipDesign");
@@ -200,47 +200,9 @@ function updateBots(room, now) {
   }
 }
 
-function chooseBotDesign(seed) {
-  const heavy = [
-    { x: 3, y: 3, type: "core" },
-    { x: 2, y: 3, type: "armor" },
-    { x: 4, y: 3, type: "armor" },
-    { x: 3, y: 2, type: "shield" },
-    { x: 3, y: 4, type: "reactor" },
-    { x: 2, y: 4, type: "engine" },
-    { x: 4, y: 4, type: "engine" },
-    { x: 3, y: 1, type: "railgun" },
-    { x: 2, y: 2, type: "blaster" },
-    { x: 4, y: 2, type: "blaster" },
-    { x: 3, y: 5, type: "battery" }
-  ];
-  const skirmish = [
-    { x: 3, y: 3, type: "core" },
-    { x: 2, y: 3, type: "blaster" },
-    { x: 4, y: 3, type: "blaster" },
-    { x: 3, y: 2, type: "missile" },
-    { x: 3, y: 4, type: "reactor" },
-    { x: 2, y: 4, type: "engine" },
-    { x: 4, y: 4, type: "engine" },
-    { x: 1, y: 4, type: "engine" },
-    { x: 5, y: 4, type: "engine" },
-    { x: 3, y: 5, type: "battery" }
-  ];
-  const support = [
-    { x: 3, y: 3, type: "core" },
-    { x: 3, y: 2, type: "shield" },
-    { x: 2, y: 3, type: "repair" },
-    { x: 4, y: 3, type: "repair" },
-    { x: 3, y: 4, type: "reactor" },
-    { x: 2, y: 4, type: "engine" },
-    { x: 4, y: 4, type: "engine" },
-    { x: 2, y: 2, type: "blaster" },
-    { x: 4, y: 2, type: "missile" },
-    { x: 3, y: 5, type: "battery" }
-  ];
-  return [heavy, skirmish, support][seed % 3].map((part) => ({ ...part }));
+function chooseBotDesign() {
+  return DEFAULT_DESIGN.map((part) => ({ ...part }));
 }
-
 function chooseBotTeam(room, requester, fallbackId) {
   if (room.rules?.gameMode === "solo") return fallbackId;
 

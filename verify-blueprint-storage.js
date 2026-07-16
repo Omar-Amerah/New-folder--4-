@@ -29,10 +29,28 @@ const legacy7 = [
   { x: 2, y: 3, type: "blaster", rotation: 90 }
 ];
 const current = defaultDesign();
+const previousStock = [
+  { x: 7, y: 7, type: "core" },
+  { x: 7, y: 8, type: "frame" },
+  { x: 6, y: 8, type: "engine" },
+  { x: 8, y: 8, type: "engine" },
+  { x: 6, y: 7, type: "blaster" },
+  { x: 8, y: 7, type: "blaster" },
+  { x: 5, y: 7, type: "maneuverThruster" },
+  { x: 9, y: 7, type: "maneuverThruster" },
+  { x: 7, y: 6, type: "shield" },
+  { x: 6, y: 6, type: "armor" },
+  { x: 8, y: 6, type: "armor" },
+  { x: 7, y: 9, type: "battery" }
+];
 
 installStorage(new MemoryStorage());
 assert.equal(migrateDesignStorage(legacy7).modules[0].x, 7, "old 7x7 centered design migrates to 15x15 center");
 assert.equal(migrateDesignStorage({ modules: legacy7, combatStyle: "circle" }).combatStyle, "circle", "legacy object preserves valid combat style");
+assert.deepEqual(migrateDesignStorage(previousStock).modules, current, "untouched previous stock default migrates to the new stock default");
+const modifiedPreviousStock = previousStock.map((part) => ({ ...part }));
+modifiedPreviousStock.push({ x: 4, y: 7, type: "frame" });
+assert.notDeepEqual(migrateDesignStorage(modifiedPreviousStock).modules, current, "modified previous stock default is preserved instead of migrated");
 assert.equal(migrateDesignStorage(designEnvelope(current, "hold")).combatStyle, "hold", "current envelope round trips combat style");
 assert.equal(migrateDesignStorage({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 10, kind: "current-design", payload: { modules: [] } }).unknownVersion, true, "future current-design version is rejected safely");
 

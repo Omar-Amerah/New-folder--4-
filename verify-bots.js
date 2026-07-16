@@ -1,7 +1,7 @@
 "use strict";
 const assert = require("assert");
 const { createRoom } = require("./src/server/rooms");
-const { addBot, updateBots } = require("./src/server/ships");
+const { addBot, updateBots, chooseBotDesign } = require("./src/server/ships");
 const { DEFAULT_DESIGN } = require("./src/server/config");
 const { computeStats } = require("./src/server/shipStats");
 const { buyShip } = require("./src/server/economy");
@@ -18,4 +18,21 @@ function setup(seed=12345) { const room=createRoom("BOT"); room.phase="active"; 
  const {room,bot}=setup(888); bot.money=0; const before={ships:bot.ships.length,spent:bot.spent}; updateBots(room,1000); assert.strictEqual(bot.ships.length,before.ships,"failed bot purchase changes nothing"); assert.strictEqual(bot.spent,before.spent,"failed bot purchase preserves accounting");
  room.winner={team:"blue"}; const next=bot.ai.nextThinkAt; updateBots(room,next+1); assert.strictEqual(bot.ai.nextThinkAt,next,"bots stop after winner");
 }
-console.log("Deterministic bot safety checks passed; seeds: 777, 888");
+
+{
+ const {room,bot}=setup(999);
+ assert.deepStrictEqual(bot.design, DEFAULT_DESIGN.map(p => ({...p})), "addBot assigns the stock default blueprint");
+ assert.deepStrictEqual(computeStats(bot.design), computeStats(DEFAULT_DESIGN), "bot design statistics match DEFAULT_DESIGN statistics");
+ const startingMoney = bot.money = 700;
+ const bought = buyShip(room, bot, 0, { silent: true });
+ assert(bought && bought.ownerId === bot.id, "bot starter purchasing succeeds");
+ assert.strictEqual(bot.spent, bot.stats.unitCost, "bot purchase deducts the stock unit cost");
+ assert.strictEqual(bot.money, startingMoney - bot.stats.unitCost, "bot starter purchase leaves the correct balance");
+ const a = chooseBotDesign();
+ const b = chooseBotDesign();
+ a[0].x = 99;
+ assert.notStrictEqual(b[0].x, 99, "two bots receive independent cloned designs");
+ assert.notStrictEqual(DEFAULT_DESIGN[0].x, 99, "bot design mutation cannot mutate DEFAULT_DESIGN");
+}
+
+console.log("Deterministic bot safety checks passed; seeds: 777, 888, 999");
