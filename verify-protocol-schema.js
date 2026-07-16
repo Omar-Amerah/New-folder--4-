@@ -6,6 +6,11 @@ const valid={
  ping:{type:'ping',at:1,clientPingNonce:'n'}, join:{type:'join',name:'A',room:'ABCD',protocolVersion:4,capabilities:['messagepack']}, requestFullState:{type:'requestFullState',epoch:1,sequence:1,reason:'client-request'}, deploy:{type:'deploy',design}, buyShip:{type:'buyShip',requestId:'r1',design,count:1}, setCombatStyle:{type:'setCombatStyle',combatStyle:'sentry',shipIds:[]}, setRallyPoint:{type:'setRallyPoint',x:1,y:2}, resetRallyPoint:{type:'resetRallyPoint'}, command:{type:'command',x:1,y:2,shipIds:[],formation:'line'}, destruct:{type:'destruct',shipIds:[]}, setTeam:{type:'setTeam',team:'blue'}, addBot:{type:'addBot'}, setRules:{type:'setRules',rules:{gameMode:'teams'}}, setName:{type:'setName',name:'Ace'}, startDesign:{type:'startDesign'}, kick:{type:'kick',targetId:'p1'}, restart:{type:'restart'}, returnToLobby:{type:'returnToLobby'}, restartLobby:{type:'restartLobby'}, closeLobby:{type:'closeLobby'}, leaveLobby:{type:'leaveLobby'}
 };
 for(const [type,msg] of Object.entries(valid)) assert.equal(validateClientMessage(msg).ok,true, `${type} valid minimum`);
+assert.equal(validateClientMessage({...valid.join, room:''}).ok, true, 'join accepts empty room for Create Game');
+assert.equal(validateClientMessage({...valid.join, room:'ABCD'}).ok, true, 'join accepts valid non-empty room');
+assert.equal(validateClientMessage({...valid.join, room:'   '}).code, 'invalid-room', 'join rejects whitespace-only room');
+assert.equal(validateClientMessage({...valid.join, room:'@@@'}).code, 'invalid-room', 'join rejects malformed non-empty room');
+{ const missingRoom = {...valid.join}; delete missingRoom.room; assert.equal(validateClientMessage(missingRoom).ok, false, 'join still requires room field'); }
 for(const type of ['buyShip','deploy']) assert.equal(validateClientMessage({type}).ok,false, `${type} requires payload`);
 assert.equal(validateClientMessage({type:'command'}).ok,false);
 assert.equal(validateClientMessage({type:'buyShip',requestId:'bad space',design}).code,'invalid-request');

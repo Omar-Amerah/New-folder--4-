@@ -12,7 +12,6 @@ function decodeServerMessage(data) {
 }
 
 const PORT = 3107;
-const ROOM = "SMOKE";
 const url = `ws://127.0.0.1:${PORT}/socket`;
 
 if (typeof WebSocket === "undefined") {
@@ -42,13 +41,25 @@ async function main() {
     alpha = await openClient("Alpha");
     beta = await openClient("Beta");
 
-    // Alpha must complete its join (and become room admin) before Beta joins;
+    // Alpha uses the Create Game path: an empty room requests a generated room
+    // code, then the server must confirm the join and deliver a full snapshot.
+    // Alpha must complete this first (and become room admin) before Beta joins;
     // sending both concurrently races the server's processing order and can
     // make Beta the admin, failing the addBot step below.
-    alpha.send({ type: "join", name: "Alpha", room: ROOM, protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
-    await alpha.waitFor((message) => message.type === "joined" && message.room === ROOM, "alpha did not join");
-    beta.send({ type: "join", name: "Beta", room: ROOM, protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
-    await beta.waitFor((message) => message.type === "joined" && message.room === ROOM, "beta did not join");
+    const createGameJoin = { type: "join", name: "Alpha", room: "", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] };
+    if (createGameJoin.room !== "") throw new Error("Create Game join payload must send room: empty string");
+    alpha.send(createGameJoin);
+    const alphaJoined = await alpha.waitFor(
+      (message) => message.type === "joined" && typeof message.room === "string" && /^[A-Z0-9]+$/.test(message.room),
+      "alpha did not create and join a generated room"
+    );
+    const room = alphaJoined.room;
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.snapshotKind === "full" && message.room === room,
+      "alpha did not receive first full snapshot after Create Game"
+    );
+    beta.send({ type: "join", name: "Beta", room, protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
+    await beta.waitFor((message) => message.type === "joined" && message.room === room, "beta did not join");
 
     alpha.send({ type: "addBot" });
 
