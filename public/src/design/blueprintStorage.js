@@ -14,17 +14,24 @@ export const MAX_LOADOUTS = 8;
 export function defaultDesign() {
   return [
     { x: 7, y: 7, type: "core" },
-    { x: 6, y: 8, type: "frame" },
-    { x: 7, y: 8, type: "frame" },
-    { x: 8, y: 8, type: "frame" },
-    { x: 7, y: 9, type: "engine" },
-    { x: 5, y: 7, type: "reactor", rotation: 0 },
-    { x: 8, y: 6, type: "beamEmitter", rotation: 0 },
-    { x: 7, y: 6, type: "shield" },
-    { x: 5, y: 8, type: "gyroscope" },
-    { x: 9, y: 7, type: "auxGenerator" },
+
+    { x: 6, y: 5, type: "armor" },
+    { x: 7, y: 5, type: "armor" },
+    { x: 8, y: 5, type: "compositeArmor" },
+
     { x: 5, y: 6, type: "radiator" },
-    { x: 9, y: 6, type: "radiator" }
+    { x: 6, y: 6, type: "reactor", rotation: 90 },
+    { x: 7, y: 6, type: "shield" },
+    { x: 8, y: 6, type: "missile", rotation: 0 },
+
+    { x: 5, y: 7, type: "shield" },
+    { x: 8, y: 7, type: "gyroscope" },
+    { x: 9, y: 7, type: "frame" },
+
+    { x: 6, y: 8, type: "auxGenerator" },
+    { x: 7, y: 8, type: "frame" },
+
+    { x: 7, y: 9, type: "engine" }
   ];
 }
 function nowIso() { return new Date().toISOString(); }
@@ -97,6 +104,20 @@ export function normalizeDesign(input, options = {}) {
 }
 
 const PREVIOUS_STOCK_DEFAULTS = [
+  [
+    { x: 7, y: 7, type: "core" },
+    { x: 6, y: 8, type: "frame" },
+    { x: 7, y: 8, type: "frame" },
+    { x: 8, y: 8, type: "frame" },
+    { x: 7, y: 9, type: "engine" },
+    { x: 5, y: 7, type: "reactor", rotation: 0 },
+    { x: 8, y: 6, type: "beamEmitter", rotation: 0 },
+    { x: 7, y: 6, type: "shield" },
+    { x: 5, y: 8, type: "gyroscope" },
+    { x: 9, y: 7, type: "auxGenerator" },
+    { x: 5, y: 6, type: "radiator" },
+    { x: 9, y: 6, type: "radiator" }
+  ],
   [
     { x: 7, y: 7, type: "core" },
     { x: 7, y: 8, type: "frame" },
