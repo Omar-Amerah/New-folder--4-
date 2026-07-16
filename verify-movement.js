@@ -1,10 +1,25 @@
 "use strict";
 // Group 1 acceptance: adding a powered engine must never reduce max speed,
-// acceleration or effective thrust; unpowered/engineless ships cannot move or
-// turn; engine stacking still shows diminishing efficiency.
+// acceleration or effective thrust; forward motion still requires a main
+// engine, while independent turning systems can rotate a drifting hull.
 const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
 const { segmentCircleClearance, commandShips, planFormation, updateShipMovement, updateShipSeparation, nearestClearPoint } = require("./src/server/movement");
+const { initComponentState } = require("./src/server/componentHealth");
+const { initializeComponentPower } = require("./src/server/componentPower");
+const { initShipHeat } = require("./src/server/heat");
+const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
+
+function runtimeShip(design, overrides = {}) {
+  const stats = computeStats(design);
+  const ship = { id: "runtime", ownerId: "p1", alive: true, x: 300, y: 300, vx: 0, vy: 0, angle: 0,
+    targetX: 300, targetY: 600, arrived: false, isManualMove: true, radius: stats.radius, design,
+    wiring: createGeneratedPowerWiring(design), stats, ...overrides };
+  initComponentState(ship);
+  initializeComponentPower(ship);
+  initShipHeat(ship);
+  return ship;
+}
 
 // Build a design with `engineCount` engines (clear downward exhaust in their own
 // columns) plus enough reactors to stay powered, a core, and optional dead mass.
@@ -34,9 +49,58 @@ function run() {
   assert.strictEqual(noEngineStats.accel, 0, "engineless ship should have 0 acceleration");
   assert.strictEqual(noEngineStats.turnRate, 0, "engineless ship should have 0 turn rate");
 
-  // Gyroscope alone (turn but no thrust) must not enable rotation.
+  // Gyroscope-only hulls have symmetric turn authority without forward thrust.
   const gyroOnly = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "reactor" }, { x: 6, y: 7, type: "gyroscope" }];
-  assert.strictEqual(computeStats(gyroOnly).turnRate, 0, "gyroscope without an engine should not rotate the ship");
+  const gyroOnlyStats = computeStats(gyroOnly);
+  assert.strictEqual(gyroOnlyStats.maxSpeed, 0, "gyroscope must not provide forward speed");
+  assert.strictEqual(gyroOnlyStats.accel, 0, "gyroscope must not provide forward acceleration");
+  assert(gyroOnlyStats.turnRateLeft > 0 && gyroOnlyStats.turnRateRight > 0, "gyroscope without an engine should rotate both ways");
+
+  // Component-local runtime authority: drifting, restoration, disconnection,
+  // destruction and under-Power scaling all use the shared/server path.
+  const gyroDrifter = runtimeShip(gyroOnly, { vx: 75, vy: 0 });
+  const driftBefore = Math.hypot(gyroDrifter.vx, gyroDrifter.vy);
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, gyroDrifter, 1 / 30);
+  assert(gyroDrifter.angle > 0, "powered Gyroscope turns toward the movement target while drifting");
+  assert(Math.hypot(gyroDrifter.vx, gyroDrifter.vy) > 0 && Math.hypot(gyroDrifter.vx, gyroDrifter.vy) <= driftBefore, "Gyroscope-only ship preserves bounded drift without accelerating");
+
+  const engineDesign = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "reactor" }, { x: 7, y: 8, type: "engine" }, { x: 6, y: 7, type: "gyroscope" }];
+  const restored = runtimeShip(engineDesign, { vx: 40, targetX: 1000, targetY: 300 });
+  restored.componentPower.byComponentIndex[2].operationalMultiplier = 0;
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, restored, 1 / 30);
+  const offlineVelocity = restored.vx;
+  assert(offlineVelocity > 0, "losing Engine Power preserves existing velocity");
+  restored.componentPower.byComponentIndex[2].operationalMultiplier = 1;
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, restored, 1 / 30);
+  assert(restored.vx > offlineVelocity, "restored Engine resumes acceleration without resetting velocity");
+
+  const disconnectedGyro = runtimeShip(gyroOnly);
+  disconnectedGyro.componentPower.byComponentIndex[2].operationalMultiplier = 0;
+  const noGyroStatsBefore = disconnectedGyro.angle;
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, disconnectedGyro, 1 / 30);
+  assert.strictEqual(disconnectedGyro.angle, noGyroStatsBefore, "disconnected Gyroscope contributes zero turn authority");
+
+  const thrusterOnly = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "reactor" }, { x: 7, y: 6, type: "frame" }, { x: 7, y: 5, type: "maneuverThruster", rotation: 90 }];
+  const thrusterStats = computeStats(thrusterOnly);
+  assert.strictEqual(thrusterStats.accel, 0, "Manoeuvre Thruster does not provide forward acceleration");
+  assert((thrusterStats.turnRateLeft > 0) !== (thrusterStats.turnRateRight > 0), "one directional Manoeuvre Thruster supports exactly one turn direction");
+  const destroyedThruster = runtimeShip(thrusterOnly);
+  destroyedThruster.componentHp[3] = 0;
+  const destroyedAngle = destroyedThruster.angle;
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, destroyedThruster, 1 / 30);
+  assert.strictEqual(destroyedThruster.angle, destroyedAngle, "destroyed Manoeuvre Thruster contributes zero");
+  const underpoweredThruster = runtimeShip(thrusterOnly);
+  const supportedDirection = thrusterStats.turnRateRight > 0 ? 1 : -1;
+  underpoweredThruster.targetX = 300 + Math.cos(supportedDirection) * 300;
+  underpoweredThruster.targetY = 300 + Math.sin(supportedDirection) * 300;
+  underpoweredThruster.componentPower.byComponentIndex[3].operationalMultiplier = 0.5;
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, underpoweredThruster, 1 / 30);
+  assert(Math.abs(underpoweredThruster.angle) > 0, "underpowered turning component retains proportional non-zero authority");
+  const fullPowerThruster = runtimeShip(thrusterOnly);
+  fullPowerThruster.targetX = underpoweredThruster.targetX;
+  fullPowerThruster.targetY = underpoweredThruster.targetY;
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, fullPowerThruster, 1 / 30);
+  assert(Math.abs(underpoweredThruster.angle) < Math.abs(fullPowerThruster.angle), "underpowered turning output scales below full-Power authority");
 
   // 2. Monotonicity: adding a powered engine never worsens movement.
   let prev = null;

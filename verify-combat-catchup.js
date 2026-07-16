@@ -4,6 +4,7 @@ const assert = require("assert");
 const { seededRandom } = require("./src/server/utils");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState } = require("./src/server/componentHealth");
+const { initShipHeat } = require("./src/server/heat");
 const { updateShipWeapons, updateShipSupport, findTarget, pickWeaponFireTarget, findPointDefenseTarget, damageShip, destroyShip, requestSelfDestruct, updateSelfDestructingShips, weaponModuleWorldPosition, weaponMuzzleWorldPosition, weaponMuzzleDistance, moduleRotationToRadians, isTargetInWeaponArc, buildShipTurretDiagnostics } = require("./src/server/combat");
 const { updateBullets } = require("./src/server/projectiles");
 
@@ -13,6 +14,7 @@ function ship(id, ownerId, x, y, design) {
   s.stats = computeStats(s.design);
   s.maxHp = s.stats.maxHp; s.hp = s.maxHp; s.maxShield = s.stats.maxShield || 0; s.shield = s.maxShield;
   initComponentState(s);
+  initShipHeat(s);
   return s;
 }
 function room(ships = []) {
@@ -42,7 +44,7 @@ function tickWeapons(r, s, ships, steps = 80) { for (let i = 0; i < steps; i++) 
   assert.strictEqual(pickWeaponFireTarget(r, shooter, [far, near], 0, 0, far, 250).id, near.id, "weapon-specific range picks reachable fallback");
   assert(isTargetInWeaponArc(shooter, design[2], near, Math.PI * 2), "360-degree blaster arc includes target");
   shooter.componentHp[2] = 0; tickWeapons(r, shooter, [shooter, near, far]); assert(!shooter.weaponFireTargetIds?.[2], "destroyed weapon does not select fire target");
-  shooter.componentHp[2] = shooter.componentMaxHp[2]; shooter.thermalPowerFactor = 0; const bulletsBefore = r.bullets.length; tickWeapons(r, shooter, [shooter, near, far]); assert.strictEqual(r.bullets.length, bulletsBefore, "disabled thermal/power performance prevents firing");
+  shooter.componentHp[2] = shooter.componentMaxHp[2]; shooter.componentHeatState[2] = 4; const bulletsBefore = r.bullets.length; tickWeapons(r, shooter, [shooter, near, far]); assert.strictEqual(r.bullets.length, bulletsBefore, "overheated component-local performance prevents firing");
 }
 
 // Turret/muzzle parity invariants for weapon families, repair beams, rotations, hull angles, edge components.
