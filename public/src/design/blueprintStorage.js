@@ -1,6 +1,6 @@
 // Handles localStorage persistence, blueprint validation wrappers, default designs, and versioned storage migrations.
 
-import { LOCAL_DESIGN_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
+import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { validateBlueprint } from "./blueprintValidation.js";
@@ -138,10 +138,21 @@ export function designEnvelope(design, combatStyle = "sentry", timestamps = {}) 
 }
 export function loadDesign() {
   const read = readJson(LOCAL_DESIGN_KEY, null);
-  if (!read.ok) return { modules: normalizeDesign(null), combatStyle: "sentry" };
-  return migrateDesignStorage(read.value);
+  if (!read.ok) {
+    const backup = readJson(LOCAL_DESIGN_BACKUP_KEY, null);
+    if (backup.ok && backup.value) return { ...migrateDesignStorage(backup.value), recovered: true };
+    return { modules: normalizeDesign(null), combatStyle: "sentry", recovered: Boolean(read.corrupt), fallback: true };
+  }
+  const migrated = migrateDesignStorage(read.value);
+  if (migrated.unknownVersion) return { ...migrated, recovered: true };
+  return migrated;
 }
-export function persistDesign(design, combatStyle = "sentry") { return writeJson(LOCAL_DESIGN_KEY, designEnvelope(design, combatStyle)); }
+export function persistDesign(design, combatStyle = "sentry") {
+  const env = designEnvelope(design, combatStyle);
+  const ok = writeJson(LOCAL_DESIGN_KEY, env);
+  if (ok && validateBlueprint(env.payload.modules).ok) writeJson(LOCAL_DESIGN_BACKUP_KEY, env);
+  return ok;
+}
 
 export function migrateSavedDesignsStorage(value) {
   if (isEnvelope(value, "saved-designs")) {
@@ -170,3 +181,32 @@ export function migrateLoadoutsStorage(value) {
 export function loadoutsEnvelope(loadouts, timestamps = {}) { return envelope("loadouts", migrateLoadoutsStorage(loadouts), timestamps); }
 export function loadLoadouts() { const read = readJson(LOCAL_LOADOUTS_KEY, []); return read.ok ? migrateLoadoutsStorage(read.value) : []; }
 export function persistLoadouts(loadouts) { return writeJson(LOCAL_LOADOUTS_KEY, loadoutsEnvelope(loadouts)); }
+
+
+export function exportBlueprints(savedDesigns, loadouts = []) {
+  return envelope("blueprint-export", { designs: migrateSavedDesignsStorage(savedDesigns), loadouts: migrateLoadoutsStorage(loadouts) });
+}
+
+export function importBlueprints(value, existingDesigns = [], existingLoadouts = []) {
+  const source = isEnvelope(value, "blueprint-export") ? value.payload : value;
+  if (isEnvelope(value, "blueprint-export") && value.schemaVersion > BLUEPRINT_STORAGE_VERSION) {
+    return { designs: existingDesigns.slice(0, MAX_SAVED_DESIGNS), loadouts: existingLoadouts.slice(0, MAX_LOADOUTS), accepted: 0, rejected: 0, futureVersion: true };
+  }
+  const incoming = Array.isArray(source?.designs) ? source.designs : Array.isArray(source) ? source : [];
+  const byId = new Set(existingDesigns.map((d) => String(d.id)));
+  const out = existingDesigns.slice(0, MAX_SAVED_DESIGNS);
+  let accepted = 0;
+  let rejected = 0;
+  for (let i = 0; i < incoming.length; i += 1) {
+    if (out.length >= MAX_SAVED_DESIGNS) { rejected += 1; continue; }
+    const normalized = normalizeSavedDesign(incoming[i], i);
+    if (!normalized || normalized.invalid) { rejected += 1; continue; }
+    let id = normalized.id;
+    if (byId.has(id)) id = `${id}-import-${Date.now().toString(36)}-${i}`.slice(0, 64);
+    normalized.id = id;
+    byId.add(id);
+    out.push(normalized);
+    accepted += 1;
+  }
+  return { designs: out, loadouts: migrateLoadoutsStorage(existingLoadouts), accepted, rejected };
+}

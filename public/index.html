@@ -199,7 +199,12 @@
           <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter code">
           <button id="joinButton" type="button">Join</button>
         </div>
-        <div id="mainMenuNotice" class="menu-notice" hidden></div>
+        <div id="roomRecoveryCard" class="recovery-card" hidden>
+          <strong>Recover room <span id="roomRecoveryCode">----</span></strong>
+          <span id="roomRecoveryStatus">Saved room can be resumed.</span>
+          <div class="utility-row"><button id="resumeRoomButton" type="button">Resume</button><button id="forgetRoomButton" type="button" class="secondary">Forget room</button></div>
+        </div>
+        <div id="mainMenuNotice" class="menu-notice" aria-live="polite" hidden></div>
       </div>
     </section>
 
@@ -306,48 +311,12 @@
 
     <section id="settingsScreen" class="menu-screen" hidden aria-label="Settings">
       <div class="menu-panel">
-        <div class="menu-head">
-          <div>
-            <span>Settings</span>
-            <h2>Connection</h2>
-          </div>
-          <button id="settingsCloseButton" type="button" class="secondary">Close</button>
-        </div>
-
-        <label for="serverUrlInput">Server URL</label>
-        <input id="serverUrlInput" autocomplete="off" placeholder="https://your-render-service.onrender.com">
-        <div class="utility-row">
-          <button id="saveServerButton" type="button">Save server</button>
-          <button id="clearServerButton" type="button" class="secondary">Use current host</button>
-        </div>
-        <div class="menu-head" style="margin-top: 1.5rem;">
-          <div>
-            <h2>Graphics</h2>
-          </div>
-        </div>
-
-        <label for="renderQualitySelect">Render Quality</label>
-        <select id="renderQualitySelect" style="margin-bottom: 1rem;">
-          <option value="low">Low</option>
-          <option value="medium" selected>Medium</option>
-          <option value="high">High</option>
-        </select>
-
-        <label class="checkbox-label">
-          <input type="checkbox" id="debugOverlayToggle">
-          Show Debug Overlay (F3)
-        </label>
-
-        <label class="checkbox-label">
-          <input type="checkbox" id="combatEffectsToggle" checked>
-          Show Combat Effects
-        </label>
-
-        <label class="checkbox-label">
-          <input type="checkbox" id="mobileTestingToggle">
-          Mobile testing mode (drag to pan, tap to move ships)
-        </label>
-
+        <div class="menu-head"><div><span>Settings</span><h2>Preferences</h2></div><button id="settingsCloseButton" type="button" class="secondary">Close</button></div>
+        <fieldset class="settings-group"><legend>Multiplayer server</legend><label for="serverUrlInput">Server address</label><input id="serverUrlInput" autocomplete="off" placeholder="https://your-render-service.onrender.com"><div class="utility-row"><button id="saveServerButton" type="button">Save server</button><button id="clearServerButton" type="button" class="secondary">Use current host</button></div></fieldset>
+        <fieldset class="settings-group"><legend>Graphics</legend><label for="renderQualitySelect">Render quality</label><select id="renderQualitySelect"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><label class="checkbox-label" for="combatEffectsToggle"><input type="checkbox" id="combatEffectsToggle"> Show combat effects</label><label class="checkbox-label" for="debugOverlayToggle"><input type="checkbox" id="debugOverlayToggle"> Show debug overlay (F3)</label></fieldset>
+        <fieldset class="settings-group"><legend>Gameplay preferences</legend><label for="settingsTeamSelect">Preferred team</label><select id="settingsTeamSelect"><option value="blue">Blue wing</option><option value="red">Red wing</option></select><label for="settingsFormationSelect">Formation</label><select id="settingsFormationSelect"><option value="line">Line</option><option value="wedge">Wedge</option><option value="clump">Clump</option></select><label class="checkbox-label" for="mobileTestingToggle"><input type="checkbox" id="mobileTestingToggle"> Mobile testing mode</label></fieldset>
+        <fieldset class="settings-group"><legend>Accessibility</legend><label class="checkbox-label" for="reducedMotionToggle"><input type="checkbox" id="reducedMotionToggle"> Reduce motion</label><label for="interfaceScaleSelect">Interface scale</label><select id="interfaceScaleSelect"><option value="0.9">Compact 90%</option><option value="1">Default 100%</option><option value="1.1">Large 110%</option><option value="1.2">Extra large 120%</option></select></fieldset>
+        <fieldset class="settings-group"><legend>Storage and recovery</legend><div id="storageStatus" class="storage-status" aria-live="polite"></div><div class="utility-row wrap"><button id="resetSettingsButton" type="button" class="secondary">Reset settings</button><button id="clearCurrentBlueprintButton" type="button" class="secondary">Clear current blueprint</button><button id="clearSavedBlueprintsButton" type="button" class="secondary">Clear saved blueprints and loadouts</button><button id="forgetRecoverableRoomButton" type="button" class="secondary">Forget recoverable room</button></div><div class="utility-row wrap"><button id="exportBlueprintsButton" type="button">Export blueprints</button><button id="importBlueprintsButton" type="button" class="secondary">Import blueprints</button><input id="importBlueprintsInput" type="file" accept="application/json,.json" hidden></div></fieldset>
       </div>
     </section>
 

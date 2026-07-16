@@ -235,7 +235,7 @@ function requestFullState(reason) {
     state.joiningLobby = false;
     if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
     recordNetworkEvent("error", { code: message.code || null, message: message.message || "Server error", requestId: message.requestId || null, retryable: Boolean(message.retryable) });
-    if (message.code === "credential-expired" || message.code === "credential-invalid") { clearResumeCredential(state.room || dom.roomCode?.value); disableReconnect(message.code); }
+    if (message.code === "credential-expired" || message.code === "credential-invalid") { const staleRoom = state.room || dom.roomCode?.value; clearResumeCredential(staleRoom); disableReconnect(message.code); forgetActiveRoom(); lobbyUi.returnToMainMenu(message.message || "Room resume expired", "error"); return; }
     if (["room-closed", "kicked", "incompatible-protocol"].includes(message.code)) { disableReconnect(message.code); forgetActiveRoom(); }
     if (!state.room || !dom.mainMenuScreen?.hidden) {
       import("./ui/lobbyUi.js").then((mod) => {

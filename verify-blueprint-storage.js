@@ -9,9 +9,12 @@ const constants = await import("./public/src/constants.js");
 const {
   BLUEPRINT_STORAGE_VERSION, MAX_LOADOUTS, MAX_SAVED_DESIGNS, defaultDesign, designEnvelope, loadDesign, loadLoadouts,
   loadSavedDesigns, loadoutsEnvelope, migrateDesignStorage, migrateLoadoutsStorage, migrateSavedDesignsStorage,
-  normalizeDesign, persistDesign, persistLoadouts, persistSavedDesigns, savedDesignsEnvelope
+  normalizeDesign, persistDesign, persistLoadouts, persistSavedDesigns, savedDesignsEnvelope, exportBlueprints, importBlueprints
 } = storageMod;
-const { LOCAL_DESIGN_KEY, LOCAL_LOADOUTS_KEY, LOCAL_SAVED_DESIGNS_KEY } = constants;
+const { LOCAL_DESIGN_KEY, LOCAL_LOADOUTS_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_SERVER_KEY, LOCAL_DESIGN_BACKUP_KEY } = constants;
+
+const prefsMod = await import("./public/src/localPreferences.js");
+const { DEFAULT_PREFERENCES, LOCAL_PREFERENCES_KEY, loadPreferences, persistPreferences, validatePreferences } = prefsMod;
 
 class MemoryStorage {
   constructor({ quotaFail = false } = {}) { this.map = new Map(); this.quotaFail = quotaFail; }
@@ -77,4 +80,34 @@ assert.equal(inMemory.length, current.length, "quota failure cannot erase caller
 const once = migrateSavedDesignsStorage(malformedList);
 const twice = migrateSavedDesignsStorage(savedDesignsEnvelope(once));
 assert.deepEqual(twice.map(d => d.id), once.map(d => d.id), "repeated migration is idempotent");
+
+
+installStorage(new MemoryStorage());
+assert.equal(loadPreferences().preferences.renderQuality, DEFAULT_PREFERENCES.renderQuality, "settings defaults load");
+assert.equal(validatePreferences({ preferredTeam: "green", renderQuality: "ultra", interfaceScale: 5 }).preferredTeam, "blue", "invalid settings fall back");
+installStorage(new MemoryStorage());
+localStorage.setItem(LOCAL_NAME_KEY, "Ace"); localStorage.setItem(LOCAL_TEAM_KEY, "red"); localStorage.setItem(LOCAL_FORMATION_KEY, "wedge"); localStorage.setItem(LOCAL_SERVER_KEY, "https://example.test/path?token=secret"); localStorage.setItem("mfa.renderQuality", "low");
+const migratedPrefs = loadPreferences().preferences;
+assert.equal(migratedPrefs.pilotName, "Ace", "legacy pilot name migrates");
+assert.equal(migratedPrefs.preferredTeam, "red", "legacy team migrates");
+assert.equal(migratedPrefs.serverUrl, "https://example.test/path", "server setting sanitizes during migration");
+localStorage.setItem(LOCAL_PREFERENCES_KEY, "not json");
+assert.equal(loadPreferences().recovered, true, "corrupt settings recovery is reported");
+installStorage(undefined);
+assert.equal(persistPreferences(DEFAULT_PREFERENCES), false, "unavailable settings storage write fails safely");
+
+installStorage(new MemoryStorage());
+const goodEnvelope = designEnvelope(current, "hold");
+localStorage.setItem(LOCAL_DESIGN_BACKUP_KEY, JSON.stringify(goodEnvelope));
+localStorage.setItem(LOCAL_DESIGN_KEY, "not-json");
+assert.equal(loadDesign().combatStyle, "hold", "last-known-good current blueprint restores after corruption");
+const exported = exportBlueprints([{ id: "ok", name: "Ok", blueprint: current }], []);
+const imp = importBlueprints(exported, [{ id: "ok", name: "Existing", blueprint: current }], []);
+assert.equal(imp.accepted, 1, "valid import accepted");
+assert.equal(new Set(imp.designs.map((d) => d.id)).size, imp.designs.length, "duplicate imported IDs are renamed safely");
+const badImp = importBlueprints({ designs: [{ id: "bad", blueprint: [{ x: 999, y: 999, type: "nope" }] }] }, [], []);
+assert.equal(badImp.accepted, 0, "invalid imports are rejected");
+assert.equal(importBlueprints({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).futureVersion, true, "future import schema is rejected");
+assert.equal(importBlueprints({ designs: Array.from({ length: 20 }, (_, i) => ({ id: `i${i}`, blueprint: current })) }, [], []).designs.length, MAX_SAVED_DESIGNS, "import enforces saved-design limit");
+
 console.log("Blueprint storage verification passed");

@@ -9,17 +9,21 @@ import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPoin
 import { openBlueprintDesigner, closeBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
 import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
-import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer } from "./ui/lobbyUi.js";
+import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
 import { handleKeyDown, bindArenaPointerListeners } from "./game/input.js";
-import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "./constants.js";
+import { LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "./constants.js";
+import { loadPreferences, persistPreferences, applyInterfacePreferences } from "./localPreferences.js";
+import { bindRoomRecoveryCard, renderRecoveryCard } from "./ui/roomRecoveryUi.js";
 import { send, getConfiguredServerUrl, persistServerQueryParam } from "./network.js";
 import { applyComponentBalance } from "./design/parts.js";
 
-// Initialize input values from localStorage
-dom.pilotName.value = localStorage.getItem(LOCAL_NAME_KEY) || `Pilot-${Math.floor(100 + Math.random() * 900)}`;
-dom.teamSelect.value = localStorage.getItem(LOCAL_TEAM_KEY) === "red" ? "red" : "blue";
-dom.formationSelect.value = localStorage.getItem(LOCAL_FORMATION_KEY) || "line";
+const loadedPreferences = loadPreferences().preferences;
+if (!loadedPreferences.pilotName) loadedPreferences.pilotName = `Pilot-${Math.floor(100 + Math.random() * 900)}`;
+applyInterfacePreferences(loadedPreferences);
+dom.pilotName.value = loadedPreferences.pilotName;
+dom.teamSelect.value = loadedPreferences.preferredTeam;
+dom.formationSelect.value = loadedPreferences.formation;
 if (dom.combatStyleSelect) {
   dom.combatStyleSelect.value = state.combatStyle || "sentry";
 }
@@ -36,7 +40,15 @@ window.__mfaNetSend = (message) => send(message);
 
 // Register core window listeners
 window.addEventListener("resize", resizeArenaRenderer);
-window.addEventListener("keydown", handleKeyDown);
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (dom.confirmModal && !dom.confirmModal.hidden) { closeConfirmModal(); return; }
+    if (dom.mainMenuScreen && !dom.mainMenuScreen.hidden) { if (!dom.mainMenuCloseButton?.disabled) hideMenuScreens(); return; }
+    if (dom.lobbyManagementScreen && !dom.lobbyManagementScreen.hidden) { hideMenuScreens(); return; }
+    if (dom.settingsScreen && !dom.settingsScreen.hidden) { hideMenuScreens(); return; }
+  }
+  handleKeyDown(event);
+});
 window.addEventListener("keyup", (event) => state.keys.delete(event.key.toLowerCase()));
 
 // Register main DOM actions
@@ -152,7 +164,7 @@ dom.asteroidDensitySelect?.addEventListener("change", sendRulesUpdate);
 
 // Team select updates
 dom.teamSelect?.addEventListener("change", () => {
-  localStorage.setItem(LOCAL_TEAM_KEY, dom.teamSelect.value);
+  persistPreferences({ ...loadPreferences().preferences, preferredTeam: dom.teamSelect.value });
   if (state.room && state.socket && state.socket.readyState === WebSocket.OPEN) {
     send({ type: "setTeam", team: dom.teamSelect.value });
   }
@@ -162,7 +174,7 @@ dom.teamSelect?.addEventListener("change", () => {
 dom.pilotName?.addEventListener("change", () => {
   const name = String(dom.pilotName.value || "").trim().slice(0, 18);
   if (name) {
-    localStorage.setItem(LOCAL_NAME_KEY, name);
+    persistPreferences({ ...loadPreferences().preferences, pilotName: name });
     if (state.room && state.socket && state.socket.readyState === WebSocket.OPEN) {
       send({ type: "setName", name });
     }
@@ -171,7 +183,7 @@ dom.pilotName?.addEventListener("change", () => {
 
 // Formation updates
 dom.formationSelect?.addEventListener("change", () => {
-  localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
+  persistPreferences({ ...loadPreferences().preferences, formation: dom.formationSelect.value });
 });
 
 // Purchase quantity updates
@@ -196,6 +208,8 @@ bindKickButtonContainer(dom.scoreList);
 if (dom.canvas) bindArenaPointerListeners(dom.canvas);
 
 // Initialize bootstrapping
+bindRoomRecoveryCard();
+bindSettingsRecoveryControls();
 initializeClient();
 
 async function initializeClient() {
@@ -235,6 +249,7 @@ async function initializeClient() {
     }
   }
   syncUrlParams();
+  renderRecoveryCard();
 }
 
 async function loadComponentBalance() {
