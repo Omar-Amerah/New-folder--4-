@@ -27,9 +27,9 @@ const { getSpawnRegionPlan, invalidateSpawnPlan } = require("./spawnPlanner");
 const rooms = new Map();
 const closedRoomCodes = new Map();
 
-function createRoom(code) {
+function createRoom(code, options = {}) {
   const world = chooseWorldSize(1);
-  const mapSeed = createMapSeed(code);
+  const mapSeed = options.seed == null ? createMapSeed(code) : Number(options.seed) >>> 0;
   const map = generateMap(code, world, DEFAULT_ROOM_RULES.gameMode, DEFAULT_ROOM_RULES.asteroidDensity, { seed: mapSeed });
   return {
     code,
@@ -272,17 +272,25 @@ function generateRelays(rng, world, safeZones) {
 
   // Always one central relay (add first so mirrored pairs check clearance against it).
   // Keep it deterministic but validate against solo top/bottom spawn zones.
-  let centralRelay = { x: world.width * 0.5, y: world.height * 0.5, radius: rngRange(rng, 150, 180) };
+  const centralRadius = rngRange(rng, 150, 180);
+  let centralRelay = null;
   for (let attempt = 0; attempt < 24; attempt += 1) {
-    const candidate = {
+    const candidate = roundMapCircle({
       x: world.width * 0.5 + rngRange(rng, -200, 200),
       y: world.height * 0.5 + rngRange(rng, -200, 200),
-      radius: centralRelay.radius
-    };
+      radius: centralRadius
+    });
     if (circlesClear(candidate, safeZones, 500)) {
       centralRelay = candidate;
       break;
     }
+  }
+  if (!centralRelay) {
+    const fallback = roundMapCircle({ x: world.width * 0.5, y: world.height * 0.5, radius: centralRadius });
+    if (!circlesClear(fallback, safeZones, 500)) {
+      throw new Error("Unable to place a valid central relay with required safe-zone clearance");
+    }
+    centralRelay = fallback;
   }
   relays.push(centralRelay);
 
@@ -302,25 +310,23 @@ function generateRelays(rng, world, safeZones) {
     .sort((a, b) => a.x - b.x || a.y - b.y)
     .map((relay, index) => ({
       id: String.fromCharCode(65 + index),
-      x: Math.round(relay.x),
-      y: Math.round(relay.y),
-      radius: Math.round(relay.radius)
+      ...relay
     }));
 }
 
 function addMirroredRelayPair(rng, relays, bounds, world, safeZones) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const radius = rngRange(rng, 140, 170);
-    const relay = {
+    const relay = roundMapCircle({
       x: rngRange(rng, bounds.minX, bounds.maxX),
       y: rngRange(rng, bounds.minY, bounds.maxY),
       radius
-    };
-    const mirror = {
+    });
+    const mirror = roundMapCircle({
       x: world.width - relay.x,
       y: world.height - relay.y,
       radius
-    };
+    });
 
     // Check clearance against other relays (wider distance), between the pair itself, and against safe zones
     if (circlesClear(relay, relays, 800) && circlesClear(mirror, relays, 800) &&
