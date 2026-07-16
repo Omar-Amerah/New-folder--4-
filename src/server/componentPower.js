@@ -1,80 +1,126 @@
-// Authoritative, spawn-time Power allocation for Wiring v2.
-//
-// The topology is intentionally an intact-blueprint snapshot. Component death
-// immediately makes that component inoperable, but source/transit destruction,
-// demand removal and redundant-route rebuilding are Phase 5D work. In
-// particular, never call initializeComponentPower from the simulation loop.
+// Damage-aware, event-driven runtime Power/Data wiring state. ship.wiring is
+// always the immutable normalized blueprint; all battle damage lives here.
 
 const { PARTS } = require("./components");
 const { analyzeShipPower } = require("./shipDesign");
+const WiringRules = require("../../public/src/shared/wiringRules");
 const { clampNumber } = require("./utils");
 
-const SOURCE_TYPES = new Set(["core", "reactor", "auxiliaryGenerator"]);
+const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
 
-function initializeComponentPower(ship) {
-  const design = Array.isArray(ship?.design) ? ship.design : [];
-  let analysis;
-  try {
-    analysis = analyzeShipPower(design, ship.wiring);
-  } catch (_) {
-    analysis = { networks: [] };
+function componentOccupancy(design) {
+  const occupied = new Map();
+  design.forEach((module, index) => WiringRules.moduleCells(module, PARTS)
+    .forEach((cell) => occupied.set(WiringRules.cellKey(cell.x, cell.y), index)));
+  return occupied;
+}
+
+function deriveRuntimeKind(ship, kind, occupied) {
+  const blueprint = ship.wiring?.[kind] || { sections: [], connections: [] };
+  const operationalSectionIds = new Set();
+  const disabledSectionIds = new Set();
+  const sectionHosts = new Map();
+  for (const section of blueprint.sections || []) {
+    const cells = WiringRules.sectionCells(section);
+    const hosts = [...new Set(cells.map((cell) => occupied.get(WiringRules.cellKey(cell.x, cell.y))))];
+    sectionHosts.set(section.id, hosts);
+    const operational = hosts.length > 0 && !hosts.includes(undefined)
+      && hosts.every((index) => (ship.componentHp?.[index] ?? 1) > 0);
+    (operational ? operationalSectionIds : disabledSectionIds).add(section.id);
   }
-  const networks = Array.isArray(analysis?.networks) ? analysis.networks : [];
+
+  const operationalConnectionIds = new Set();
+  const brokenConnectionIds = new Set();
+  const operationalConnections = [];
+  for (const connection of blueprint.connections || []) {
+    const id = WiringRules.connectionKey(connection);
+    const sourceAlive = (ship.componentHp?.[connection.sourceIndex] ?? 0) > 0;
+    const targetAlive = (ship.componentHp?.[connection.targetIndex] ?? 0) > 0;
+    // The blueprint has already passed Wiring v2 role, terminal and chain
+    // validation. Retaining its exact ordered section list preserves those
+    // guarantees; health can only remove a section or endpoint.
+    const complete = sourceAlive && targetAlive && connection.sectionIds.length > 0
+      && connection.sectionIds.every((sectionId) => operationalSectionIds.has(sectionId));
+    (complete ? operationalConnectionIds : brokenConnectionIds).add(id);
+    if (complete) operationalConnections.push({ ...connection, sectionIds: [...connection.sectionIds] });
+  }
+  const used = new Set(operationalConnections.flatMap((connection) => connection.sectionIds));
+  const operationalWiring = {
+    sections: (blueprint.sections || []).filter((section) => used.has(section.id)).map((section) => ({ ...section })),
+    connections: operationalConnections
+  };
+  return { operationalSectionIds, disabledSectionIds, operationalConnectionIds, brokenConnectionIds, sectionHosts, operationalWiring };
+}
+
+function stateSignature(runtime) {
+  const values = [];
+  for (const kind of ["power", "data"]) {
+    values.push(kind, ...[...runtime[kind].operationalSectionIds].sort(), "|", ...[...runtime[kind].operationalConnectionIds].sort(), ";");
+  }
+  return values.join(",");
+}
+
+function rebuildShipWiringState(ship, reason = "component-boundary", options = {}) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const occupied = componentOccupancy(design);
+  const power = deriveRuntimeKind(ship, "power", occupied);
+  const data = deriveRuntimeKind(ship, "data", occupied);
+  const runtimeWiring = { version: WiringRules.WIRING_VERSION, power: power.operationalWiring, data: data.operationalWiring };
+  let analysis;
+  try { analysis = analyzeShipPower(design, runtimeWiring); } catch (_) { analysis = { networks: [] }; }
+  let dataAnalysis;
+  try { dataAnalysis = WiringRules.analyzeWiring(design, runtimeWiring, PARTS).data; } catch (_) { dataAnalysis = { networks: [] }; }
+  const runtime = { power, data, powerNetworks: analysis.networks || [], dataNetworks: dataAnalysis.networks || [], reason };
+  const wiringSignature = stateSignature(runtime);
+  if (ship._wiringStateSignature !== wiringSignature) {
+    ship._wiringStateSignature = wiringSignature;
+    ship.wiringRevision = (ship.wiringRevision || 0) + 1;
+  }
+
   const membership = new Map();
-  for (const network of networks) {
+  for (const network of analysis.networks || []) {
     const generation = Math.max(0, Number(network.generationMw) || 0);
     const demand = Math.max(0, Number(network.demandMw) || 0);
     const efficiency = demand <= 0 ? 1 : clampNumber(generation / demand, 0, 1);
-    for (const index of network.consumerIndices || []) {
+    for (const index of [...(network.consumerIndices || []), ...(network.sourceIndices || [])])
       if (!membership.has(index)) membership.set(index, { network, generation, efficiency });
-    }
-    for (const index of network.sourceIndices || []) {
-      if (!membership.has(index)) membership.set(index, { network, generation, efficiency });
-    }
   }
-
   const byComponentIndex = design.map((module, index) => {
     const part = PARTS[module.type] || {};
-    const live = (ship.componentHp?.[index] ?? 1) > 0;
+    const alive = (ship.componentHp?.[index] ?? 1) > 0;
     const source = SOURCE_TYPES.has(module.type) || (Number(part.powerGeneration) || 0) > 0;
     const consumer = !source && (Number(part.powerUse) || 0) > 0;
     const member = membership.get(index);
-    let state = "passive";
-    let multiplier = 1;
-    if (!live) { state = "destroyed"; multiplier = 0; }
+    let state = "passive", multiplier = 1;
+    if (!alive) { state = "destroyed"; multiplier = 0; }
     else if (source) state = "source";
     else if (consumer && (!member || member.generation <= 0)) { state = "disconnected"; multiplier = 0; }
     else if (consumer && member.efficiency < 1) { state = "underpowered"; multiplier = member.efficiency; }
     else if (consumer) state = "powered";
-    return {
-      state,
-      intactState: state,
-      networkId: member?.network?.id ?? null,
-      availableEfficiency: clampNumber(member?.efficiency ?? (consumer ? 0 : 1), 0, 1),
-      operationalMultiplier: clampNumber(multiplier, 0, 1)
-    };
+    return { state, networkId: member?.network?.id ?? null, availableEfficiency: clampNumber(member?.efficiency ?? (consumer ? 0 : 1), 0, 1), operationalMultiplier: clampNumber(multiplier, 0, 1) };
   });
+  const powerSignature = byComponentIndex.map((entry) => `${entry.state}:${entry.networkId}:${entry.operationalMultiplier}`).join("|");
+  if (ship._powerStateSignature !== powerSignature) {
+    ship._powerStateSignature = powerSignature;
+    ship.powerRevision = (ship.powerRevision || 0) + 1;
+    ship.dirtyPower = true;
+  }
+  ship.runtimeWiring = runtime;
   ship.powerAnalysis = analysis;
   ship.componentPower = { byComponentIndex };
   ship.powerStatus = summarizePower(byComponentIndex);
-  return ship.componentPower;
+
+  if (!options.skipRuntimeStats && ship.alive !== false) require("./componentHealth").recalcEffectiveStats(ship);
+  else if (ship.alive === false) { ship.maxShield = 0; ship.shield = 0; }
+  return runtime;
 }
+
+function initializeComponentPower(ship) { rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true }); return ship.componentPower; }
 
 function getComponentPowerMultiplier(ship, componentIndex) {
   if ((ship?.componentHp?.[componentIndex] ?? 1) <= 0) return 0;
   const value = ship?.componentPower?.byComponentIndex?.[componentIndex]?.operationalMultiplier;
-  // Legacy/unit-test ships without wiring state retain their former behaviour;
-  // every real spawn initializes componentPower before dependent runtime state.
   return clampNumber(Number.isFinite(value) ? value : 1, 0, 1);
-}
-
-function setComponentPowerDestroyed(ship, componentIndex, destroyed) {
-  const entry = ship?.componentPower?.byComponentIndex?.[componentIndex];
-  if (!entry) return;
-  entry.state = destroyed ? "destroyed" : entry.intactState;
-  entry.operationalMultiplier = destroyed ? 0 : clampNumber(entry.availableEfficiency, 0, 1);
-  if (entry.state === "source" || entry.state === "passive" || entry.state === "powered") entry.operationalMultiplier = 1;
-  ship.powerStatus = summarizePower(ship.componentPower.byComponentIndex);
 }
 
 function summarizePower(entries) {
@@ -84,8 +130,7 @@ function summarizePower(entries) {
 }
 
 function effectiveShieldStats(ship) {
-  let capacity = 0;
-  let recharge = 0;
+  let capacity = 0, recharge = 0;
   for (let i = 0; i < (ship.design || []).length; i += 1) {
     if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
     const part = PARTS[ship.design[i].type] || {};
@@ -96,4 +141,4 @@ function effectiveShieldStats(ship) {
   return { capacity: Number.isFinite(capacity) ? capacity : 0, recharge: Number.isFinite(recharge) ? recharge : 0 };
 }
 
-module.exports = { initializeComponentPower, getComponentPowerMultiplier, setComponentPowerDestroyed, effectiveShieldStats };
+module.exports = { initializeComponentPower, rebuildShipWiringState, getComponentPowerMultiplier, effectiveShieldStats };

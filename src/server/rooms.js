@@ -81,6 +81,7 @@ function bumpStateEpoch(room, reason = "state-reset") {
     ship.designSent = false;
     ship.dirtyComponents?.clear?.();
     ship.dirtyHeat?.clear?.();
+    ship.dirtyPower = false;
   }
   for (const client of room.clients || []) {
     if (client.snapshotBaseline) {

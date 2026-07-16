@@ -150,12 +150,22 @@ function appendFullShipBaseline(entry, ship) {
   if (ship.componentPower?.byComponentIndex) {
     entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
     entry.powerStatus = ship.powerStatus;
+    entry.powerRevision = ship.powerRevision || 0;
+    entry.wiringRevision = ship.wiringRevision || 0;
+    entry.wiringStatus = wiringStatus(ship);
   }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
 }
 
 function appendShipDeltas(entry, ship) {
+  if (ship.dirtyPower && ship.componentPower?.byComponentIndex) {
+    entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
+    entry.powerStatus = ship.powerStatus;
+    entry.powerRevision = ship.powerRevision || 0;
+    entry.wiringRevision = ship.wiringRevision || 0;
+    entry.wiringStatus = wiringStatus(ship);
+  }
   if (ship.dirtyComponents && ship.dirtyComponents.size) {
     const delta = [];
     for (const index of [...ship.dirtyComponents].sort((a, b) => a - b)) {
@@ -176,6 +186,18 @@ function appendShipDeltas(entry, ship) {
       );
     }
   }
+}
+
+function wiringStatus(ship) {
+  const runtime = ship.runtimeWiring;
+  return runtime ? {
+    powerNetworks: runtime.powerNetworks.length,
+    brokenPowerConnections: runtime.power.brokenConnectionIds.size,
+    disabledPowerSections: runtime.power.disabledSectionIds.size,
+    dataNetworks: runtime.dataNetworks.length,
+    brokenDataConnections: runtime.data.brokenConnectionIds.size,
+    disabledDataSections: runtime.data.disabledSectionIds.size
+  } : undefined;
 }
 
 function buildClientShips(room, sharedShips, client, sendStatic) {

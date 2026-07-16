@@ -208,7 +208,6 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
 }
 
 function onComponentDestroyed(room, ship, index, now) {
-  require("./componentPower").setComponentPowerDestroyed(ship, index, true);
   const module = ship.design[index];
   if (room) {
     const cos = Math.cos(ship.angle);
@@ -224,14 +223,27 @@ function onComponentDestroyed(room, ship, index, now) {
   }
   if (module.type === "core") {
     ship.coreDestroyed = true;
+    requestWiringRebuild(ship, "component-destroyed");
     return;
   }
-  recalcEffectiveStats(ship);
+  requestWiringRebuild(ship, "component-destroyed");
   {
     const heat = require("./heat");
     heat.recalculateEffectiveThermalCapacities(ship);
     if (heat.isThermalRouteType(module.type)) heat.rebuildThermalNetworks(ship);
   }
+}
+
+function requestWiringRebuild(ship, reason) {
+  if (ship._deferWiringRebuild) { ship._pendingWiringRebuild = reason; return; }
+  require("./componentPower").rebuildShipWiringState(ship, reason);
+}
+
+function flushWiringRebuild(ship) {
+  if (!ship._pendingWiringRebuild) return;
+  const reason = ship._pendingWiringRebuild;
+  ship._pendingWiringRebuild = null;
+  requestWiringRebuild(ship, reason);
 }
 
 // Approximate footprint-center of a component in blueprint-grid tiles.
@@ -272,6 +284,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
     }
   };
 
+  ship._deferWiringRebuild = (ship._deferWiringRebuild || 0) + 1;
   // The reactor is destroyed outright.
   applyToComponent(index, ship.componentHp[index]);
 
@@ -284,7 +297,8 @@ function detonateComponent(room, ship, index, radius, damage, now) {
   }
 
   if (ship.hp < 0) ship.hp = 0;
-  recalcEffectiveStats(ship);
+  ship._deferWiringRebuild -= 1;
+  flushWiringRebuild(ship);
   if (room) {
     const cos = Math.cos(ship.angle);
     const sin = Math.sin(ship.angle);
@@ -341,6 +355,7 @@ function repairShipComponents(room, ship, amount, now) {
 
   let healed = 0;
   let remaining = amount;
+  ship._deferWiringRebuild = (ship._deferWiringRebuild || 0) + 1;
   while (remaining > 0.0001) {
     let idx = -1;
     let worstMissing = 0.0001;
@@ -364,9 +379,8 @@ function repairShipComponents(room, ship, amount, now) {
     remaining -= heal;
     healed += heal;
     if (wasDestroyed && ship.componentHp[idx] > 0) {
-      require("./componentPower").setComponentPowerDestroyed(ship, idx, false);
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
-      recalcEffectiveStats(ship);
+      requestWiringRebuild(ship, "component-repaired");
       {
         const heat = require("./heat");
         heat.recalculateEffectiveThermalCapacities(ship);
@@ -374,6 +388,8 @@ function repairShipComponents(room, ship, amount, now) {
       }
     }
   }
+  ship._deferWiringRebuild -= 1;
+  flushWiringRebuild(ship);
   return healed;
 }
 
@@ -387,6 +403,7 @@ function zeroAllComponents(ship) {
       ship.dirtyComponents.add(i);
     }
   }
+  require("./componentPower").rebuildShipWiringState(ship, "ship-destroyed", { skipRuntimeStats: true });
 }
 
 // Dev-only consistency check: ship.hp must equal the non-core component sum
