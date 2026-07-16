@@ -69,7 +69,8 @@ const GROUPS = {
     "verify-shared-parity.js",
     "verify-canvas-removal.js",
     "verify-components.js",
-    "verify-component-catalogue.js"
+    "verify-component-catalogue.js",
+    "verify-section13b-ui.js"
   ],
 
   // Browser-free module/room/input lifecycle integration. These may use fake

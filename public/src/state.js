@@ -88,6 +88,8 @@ export const state = {
   purchaseErrors: new Map(),
   purchasePointer: null,
   savedDesignPointer: null,
+  compareSavedBlueprintId: null,
+  pendingCombatStyle: null,
   pendingDeleteDesignId: null,
   pendingKickTargetId: null,
   kickPointer: null,

@@ -85,6 +85,7 @@ export const dom = {
   blueprintCostStatus: document.getElementById("blueprintCostStatus"),
   blueprintCostBreakdown: document.getElementById("blueprintCostBreakdown"),
   roomLabel: document.getElementById("roomLabel"),
+  teamHud: document.getElementById("teamHudLabel"),
   fleetLabel: document.getElementById("fleetLabel"),
   relayLabel: document.getElementById("relayLabel"),
   moneyHud: document.getElementById("moneyHudLabel"),

@@ -1100,3 +1100,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .recovery-card, .storage-status { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 12px 0; background: rgba(255,255,255,.04); display: grid; gap: 6px; }
 .reduced-motion * { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+.blueprint-comparison { border:1px solid rgba(125,211,252,.24); border-radius:12px; padding:10px; background:rgba(8,14,24,.72); }
+.comparison-grid { display:grid; gap:4px; font-size:12px; }
+.comparison-row { display:grid; grid-template-columns:1.3fr .8fr .8fr .8fr; gap:6px; align-items:center; }
+.comparison-head { color:#9fb7cf; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+.combat-style-controls button[aria-description] { position:relative; }

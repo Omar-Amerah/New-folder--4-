@@ -13,6 +13,7 @@ import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
+import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
 import { invalidateHeatAnalysisCache } from "./designerUi.js";
 let modalReturnFocus = null;
 
@@ -51,6 +52,8 @@ export function renderSavedDesigns() {
   // it is populated only by pressing Edit, never by clicking a card.
   const editing = state.savedDesigns.find((d) => d.id === state.loadedEditorBlueprintId);
   if (editing) dom.savedDesignList.appendChild(buildInspector(editing, color));
+  const comparison = buildComparison();
+  if (comparison) dom.savedDesignList.appendChild(comparison);
 
   for (const saved of state.savedDesigns) {
     dom.savedDesignList.appendChild(buildCard(saved, color));
@@ -92,6 +95,7 @@ function buildCard(saved, color) {
       <div class="bp-chips">${isInvalid ? escapeHtml(saved.invalidReason || "Invalid blueprint") : statChips(stats)}</div>
     </div>
     <div class="bp-actions saved-design-actions">
+      <button type="button" data-saved-action="compare" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""} title="Compare with current editor design">Compare</button>
       <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit</button>
       <button type="button" data-saved-action="duplicate" data-saved-id="${escapeHtml(saved.id)}" title="Duplicate">⧉</button>
       <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}" title="Delete">✕</button>
@@ -240,7 +244,9 @@ export function handleSavedDesignKeyboardClick(event) {
 }
 
 export function runSavedDesignAction(action, id) {
-  if (action === "load") loadSavedDesign(id);
+  if (action === "compare") compareSavedDesign(id);
+  else if (action === "clearCompare") { state.compareSavedBlueprintId = null; renderSavedDesigns(); }
+  else if (action === "load") loadSavedDesign(id);
   else if (action === "duplicate") duplicateSavedDesign(id);
   else if (action === "delete") deleteSavedDesign(id);
 }
@@ -437,4 +443,28 @@ export function saveCurrentDesign() {
     mod.invalidateHeatAnalysisCache();
     mod.renderBuildGrid();
   });
+}
+
+
+function compareSavedDesign(id) {
+  const saved = state.savedDesigns.find((design) => design.id === id);
+  if (!saved || saved.invalid) return;
+  state.compareSavedBlueprintId = id;
+  renderSavedDesigns();
+}
+
+function buildComparison() {
+  const saved = state.savedDesigns.find((design) => design.id === state.compareSavedBlueprintId);
+  if (!saved) return null;
+  const panel = document.createElement("section");
+  panel.className = "blueprint-comparison";
+  panel.setAttribute("aria-label", `Comparing current design with ${saved.name}`);
+  const rows = blueprintComparisonRows(state.design, saved.blueprint);
+  panel.innerHTML = `
+    <div class="section-heading compact"><h3>Comparison: ${escapeHtml(saved.name)}</h3><button type="button" class="secondary" data-saved-action="clearCompare" data-saved-id="${escapeHtml(saved.id)}">Clear</button></div>
+    <div class="comparison-grid" role="table" aria-label="Current design versus saved blueprint statistics">
+      <div role="row" class="comparison-row comparison-head"><span>Stat</span><span>Current</span><span>Saved</span><span>Difference</span></div>
+      ${rows.map((row) => `<div role="row" class="comparison-row"><span>${escapeHtml(row.label)}</span><span>${formatNumber(row.current)} ${escapeHtml(row.unit)}</span><span>${formatNumber(row.saved)} ${escapeHtml(row.unit)}</span><span aria-label="Difference ${formatDelta(row.delta, row.unit)}">${formatDelta(row.delta, row.unit)}</span></div>`).join("")}
+    </div>`;
+  return panel;
 }
