@@ -131,12 +131,12 @@ function normalizeShipDesignSnapshot(design) {
 
 function normalizePartRotation(type, x, rotation) {
   const allowed = (PARTS[type] || {}).allowedRotations;
-  return isRotatablePart(type) ? normalizeRotation(rotation, allowed, x) : 0;
+  return type === "maneuverThruster" ? legacySideRotation(x) : isRotatablePart(type) ? normalizeRotation(rotation, allowed, x) : 0;
 }
 
 function isRotatablePart(type) {
   const part = PARTS[type] || {};
-  if (type === "engine") return false;
+  if (type === "engine" || type === "maneuverThruster") return false;
   if (Array.isArray(part.allowedRotations) && part.allowedRotations.length) return true;
   if (part.category === "Engines") return part.thrust > 0 && part.rotationRequired === true;
   return part.category === "Weapons"
@@ -144,7 +144,7 @@ function isRotatablePart(type) {
     || part.rotationRequired === true;
 }
 
-function legacySideRotation(x) { return Number(x) > 7 ? 270 : 90; }
+function legacySideRotation(x) { return Number(x) < 7 ? 90 : 270; }
 
 function normalizeRotation(value, allowedRotations, x) {
   const allowed = Array.isArray(allowedRotations) && allowedRotations.length ? allowedRotations.map(Number) : [0, 90, 180, 270];

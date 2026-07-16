@@ -28,4 +28,7 @@ export function legacySideRotation(x, gridCenter = 7) {
   return 90;
 }
 
-export const maneuverThrusterAutoRotation = legacySideRotation;
+export function maneuverThrusterAutoRotation(x, gridCenter = 7) {
+  const column = Number(x);
+  return column < gridCenter ? 90 : 270;
+}

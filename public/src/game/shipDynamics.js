@@ -176,12 +176,15 @@ export function computeManeuverJets(ship, design, scale, now) {
   const density = getEffectDensity();
   const flicker = 0.7 + 0.3 * Math.sin(now * 0.05);
   const centerOfMass = calculateCenterOfMass(design, PART_STATS);
+  const alive = design.map((_, i) => (componentHealthRatio(ship, i) ?? 1) > 0);
+  const exhaustAnalysis = globalThis.EngineExhaustRules?.analyze?.(design, PART_STATS, { alive });
   const contributors = [];
   let total = 0;
   for (let i = 0; i < design.length; i += 1) {
     const module = design[i];
     if (module.type !== "maneuverThruster") continue;
     if ((componentHealthRatio(ship, i) ?? 1) <= 0) continue;
+    if (exhaustAnalysis && !exhaustAnalysis.validEngineIndices.has(i)) continue;
     if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
     const localY = Math.abs((Number(module.y) || 0) - centerOfMass.y);
     const value = Math.max(0.001, localY);

@@ -72,7 +72,7 @@ function computeStats(modules) {
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
     const part = PARTS[module.type] || PARTS.frame;
-    const blockedEngine = part.thrust > 0 && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
+    const blockedEngine = (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
     cost += part.cost;
     mass += part.mass;
     maxHp += part.hp;
@@ -125,7 +125,7 @@ function computeStats(modules) {
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PARTS, {
     centerOfMass,
     leverSettings: BALANCE.movement?.maneuverThrusterLever,
-    isBlockedEngine: (index, module, part) => (part.thrust || 0) > 0 && !exhaustAnalysis.validEngineIndices.has(index)
+    isBlockedEngine: (index, module, part) => ((part.thrust || 0) > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index)
   });
   const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);

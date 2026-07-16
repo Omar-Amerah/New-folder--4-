@@ -653,7 +653,7 @@ export function showPurchaseTooltip(optionId, event) {
       ${tooltipStat("Hull", formatHull(stats.maxHp))}
       ${tooltipStat("Shield", `${formatShield(stats.maxShield)} (+${stats.shieldRegen}/s)`)}
       ${tooltipStat("Speed", formatSpeed(Math.round(stats.maxSpeed)))}
-      ${tooltipStat("Turn", stats.turnRate.toFixed(2))}
+      ${tooltipStat(Math.abs(Number(stats.turnRateLeft ?? stats.turnRate ?? 0) - Number(stats.turnRateRight ?? stats.turnRate ?? 0)) < 0.01 ? "Turn rate" : "Turn L/R", Math.abs(Number(stats.turnRateLeft ?? stats.turnRate ?? 0) - Number(stats.turnRateRight ?? stats.turnRate ?? 0)) < 0.01 ? `${Number(stats.turnRateLeft ?? stats.turnRate ?? 0).toFixed(2)}` : `${Number(stats.turnRateLeft ?? stats.turnRate ?? 0).toFixed(2)} / ${Number(stats.turnRateRight ?? stats.turnRate ?? 0).toFixed(2)}`)}
       ${tooltipStat("Mass", formatMass(stats.mass))}
       ${tooltipStat("Power Use/Gen", `${stats.powerUse}/${stats.powerGeneration} MW`)}
       ${tooltipStat("Energy", formatEnergy(stats.energyStorage))}
