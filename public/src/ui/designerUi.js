@@ -439,9 +439,6 @@ function ensureBlueprintGridEventHandlers() {
     dom.grid.addEventListener("click", (event) => {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
-      if (state.blueprintView === "heat") {
-        return;
-      }
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
       editCell(
         pointed?.x ?? Number(cell.dataset.x),
@@ -522,10 +519,6 @@ function removePlacementPreviewElements() {
 export function renderHoverPreview() {
   removePlacementPreviewElements();
 
-  if (state.blueprintView === "heat") {
-    removePlacementPreviewElements();
-    return;
-  }
   if (!state.hoveredCell || !state.selectedPart) return;
 
   {
@@ -671,7 +664,7 @@ function clearInvalidHeatIndexes() {
 }
 
 export function editCell(x, y) {
-  if (state.blueprintView === "heat") return;
+  if (!state.selectedPart) return;
   const existing = findPartAt(x, y);
   if (existing?.type === "core") return;
 
@@ -744,7 +737,6 @@ export function rotateCell(x, y) {
 }
 
 export function rotateFocusedPart() {
-  if (state.blueprintView === "heat") return;
   const cell = state.hoveredCell || state.selectedCell;
   const part = cell ? findPartAt(cell.x, cell.y) : null;
   if (part && isRotatablePart(part.type)) {

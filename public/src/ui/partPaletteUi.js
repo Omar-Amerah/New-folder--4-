@@ -41,11 +41,13 @@ export function renderPalette() {
     button.title = `${PART_DEFS[type].name} | ${partCategory(type)} | cost ${stat.cost} | mass ${stat.mass}`;
     button.innerHTML = `${partIconMarkup(type)}<span class="part-name">${PART_DEFS[type].name}</span>`;
     button.addEventListener("click", () => {
-      state.selectedPart = type;
+      const wasSelected = state.selectedPart === type;
+      state.selectedPart = wasSelected ? null : type;
       state.selectedPartCategory = partCategory(type);
       state.previewRotation = 0;
       renderPalette();
       renderPartInspector();
+      for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow")) stale.remove();
     });
     list.appendChild(button);
   }
