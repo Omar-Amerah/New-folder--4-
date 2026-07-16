@@ -97,6 +97,7 @@
   filter: drop-shadow(0 0 0.14px #5b8cff) drop-shadow(0 0 0.2px #5b8cff); /* blue selection glow */
 }
 .wiring-overlay .wire-net-working { stroke: #45e07c; }  /* green: connected and working */
+.wiring-overlay .wire-net-underpowered { stroke: #ffd166; } /* yellow: connected but short */
 .wiring-overlay .wire-net-broken { stroke: #ff5f6b; }   /* red: no source / not working */
 
 .wiring-overlay .wire-dim { opacity: 0.16; }
@@ -128,6 +129,7 @@
 .wiring-overlay .wire-comp-connected-source { stroke: #45e07c; }                        /* green */
 .wiring-overlay .wire-comp-connected-dest { stroke: #45e07c; stroke-dasharray: 0.18 0.1; }
 .wiring-overlay .wire-comp-disconnected { stroke: #ff5f6b; stroke-dasharray: 0.12 0.1; } /* red */
+.wiring-overlay .wire-comp-underpowered { stroke: #ffd166; stroke-dasharray: 0.12 0.1; }
 .wiring-overlay .wire-comp-route-source { stroke: #ffffff; stroke-width: 0.09; }
 .wiring-overlay .wire-comp-candidate { stroke: rgba(255, 255, 255, 0.55); stroke-dasharray: 0.08 0.12; }
 
