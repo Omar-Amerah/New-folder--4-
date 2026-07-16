@@ -13,7 +13,7 @@ import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign,
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
 import { handleKeyDown, bindArenaPointerListeners } from "./game/input.js";
 import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "./constants.js";
-import { send, getConfiguredServerUrl } from "./network.js";
+import { send, getConfiguredServerUrl, persistServerQueryParam } from "./network.js";
 import { applyComponentBalance } from "./design/parts.js";
 
 // Initialize input values from localStorage
@@ -217,6 +217,9 @@ async function initializeClient() {
       send({ type: "ping", at: performance.now() });
     }
   }, 3000);
+
+  // Persist the server query parameter before syncUrlParams can remove it.
+  persistServerQueryParam();
 
   // Auto-connect if URL parameter room or active local room exists
   const roomFromUrl = new URLSearchParams(location.search).get("room");
