@@ -226,29 +226,42 @@ function onComponentDestroyed(room, ship, index, now) {
   }
   if (module.type === "core") {
     ship.coreDestroyed = true;
-    requestWiringRebuild(ship, "component-destroyed");
-    require("./heat").rebuildRuntimeExposure(ship);
+    requestComponentLifecycleRefresh(ship, { exposure: true, wiringTopology: true });
     return;
   }
-  requestWiringRebuild(ship, "component-destroyed");
-  {
-    const heat = require("./heat");
-    heat.recalculateEffectiveThermalCapacities(ship, module.type === "heatSink" ? index : null);
-    heat.rebuildRuntimeExposure(ship);
-    if (heat.isThermalRouteType(module.type)) heat.rebuildThermalNetworks(ship);
-  }
+  const heat = require("./heat");
+  requestComponentLifecycleRefresh(ship, {
+    thermalCapacity: true,
+    exposure: module.type === "frame",
+    thermalRoutes: heat.isThermalRouteType(module.type),
+    wiringTopology: true
+  });
 }
 
-function requestWiringRebuild(ship, reason) {
-  if (ship._deferWiringRebuild) { ship._pendingWiringRebuild = reason; return; }
-  require("./componentPower").rebuildShipWiringState(ship, reason);
+function beginComponentLifecycleBatch(ship) {
+  ship._componentLifecycleDepth = (ship._componentLifecycleDepth || 0) + 1;
 }
 
-function flushWiringRebuild(ship) {
-  if (!ship._pendingWiringRebuild) return;
-  const reason = ship._pendingWiringRebuild;
-  ship._pendingWiringRebuild = null;
-  requestWiringRebuild(ship, reason);
+function requestComponentLifecycleRefresh(ship, flags = {}) {
+  ship._componentLifecycleDirty ||= {};
+  for (const [flag, value] of Object.entries(flags)) if (value) ship._componentLifecycleDirty[flag] = true;
+  if (!ship._componentLifecycleDepth) flushComponentLifecycleRefresh(ship);
+}
+
+function flushComponentLifecycleRefresh(ship) {
+  const flags = ship._componentLifecycleDirty;
+  if (!flags) return;
+  ship._componentLifecycleDirty = null;
+  const heat = require("./heat");
+  if (flags.thermalCapacity) heat.recalculateEffectiveThermalCapacities(ship);
+  if (flags.exposure) heat.rebuildRuntimeExposure(ship);
+  if (flags.thermalRoutes) heat.rebuildThermalNetworks(ship);
+  if (flags.wiringTopology) require("./componentPower").rebuildShipWiringState(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
+}
+
+function endComponentLifecycleBatch(ship) {
+  ship._componentLifecycleDepth = Math.max(0, (ship._componentLifecycleDepth || 1) - 1);
+  if (!ship._componentLifecycleDepth) flushComponentLifecycleRefresh(ship);
 }
 
 // Approximate footprint-center of a component in blueprint-grid tiles.
@@ -290,7 +303,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
     }
   };
 
-  ship._deferWiringRebuild = (ship._deferWiringRebuild || 0) + 1;
+  beginComponentLifecycleBatch(ship);
   // The reactor is destroyed outright.
   applyToComponent(index, ship.componentHp[index]);
 
@@ -303,8 +316,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
   }
 
   if (ship.hp < 0) ship.hp = 0;
-  ship._deferWiringRebuild -= 1;
-  flushWiringRebuild(ship);
+  endComponentLifecycleBatch(ship);
   if (room) {
     const cos = Math.cos(ship.angle);
     const sin = Math.sin(ship.angle);
@@ -361,7 +373,7 @@ function repairShipComponents(room, ship, amount, now) {
 
   let healed = 0;
   let remaining = amount;
-  ship._deferWiringRebuild = (ship._deferWiringRebuild || 0) + 1;
+  beginComponentLifecycleBatch(ship);
   while (remaining > 0.0001) {
     let idx = -1;
     let worstMissing = 0.0001;
@@ -387,17 +399,12 @@ function repairShipComponents(room, ship, amount, now) {
     healed += heal;
     if (wasDestroyed && ship.componentHp[idx] > 0) {
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
-      requestWiringRebuild(ship, "component-repaired");
-      {
-        const heat = require("./heat");
-        heat.recalculateEffectiveThermalCapacities(ship, ship.design[idx].type === "heatSink" ? idx : null);
-        heat.rebuildRuntimeExposure(ship);
-        if (heat.isThermalRouteType(ship.design[idx].type)) heat.rebuildThermalNetworks(ship);
-      }
+      const heat = require("./heat");
+      requestComponentLifecycleRefresh(ship, { thermalCapacity: true,
+        exposure: ship.design[idx].type === "frame", thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), wiringTopology: true });
     }
   }
-  ship._deferWiringRebuild -= 1;
-  flushWiringRebuild(ship);
+  endComponentLifecycleBatch(ship);
   return healed;
 }
 
@@ -405,13 +412,17 @@ function repairShipComponents(room, ship, amount, now) {
 // with ship.hp === 0 and clients render the whole wreck as knocked out.
 function zeroAllComponents(ship) {
   if (!ship.componentHp) return;
+  beginComponentLifecycleBatch(ship);
   for (let i = 0; i < ship.componentHp.length; i += 1) {
     if (ship.componentHp[i] !== 0) {
       ship.componentHp[i] = 0;
       ship.dirtyComponents.add(i);
     }
   }
-  require("./componentPower").rebuildShipWiringState(ship, "ship-destroyed", { skipRuntimeStats: true });
+  if (ship.componentMeltdown) ship.componentMeltdown.fill(0);
+  ship.hp = 0;
+  requestComponentLifecycleRefresh(ship, { thermalCapacity: true, exposure: true, thermalRoutes: true, wiringTopology: true });
+  endComponentLifecycleBatch(ship);
 }
 
 // Dev-only consistency check: ship.hp must equal the non-core component sum
@@ -438,4 +449,5 @@ module.exports = {
   updateEngineExhaustState,
   repairShipComponents,
   assertComponentHpConsistency
+  ,beginComponentLifecycleBatch, requestComponentLifecycleRefresh, endComponentLifecycleBatch, flushComponentLifecycleRefresh
 };

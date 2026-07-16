@@ -41,10 +41,10 @@ const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
 
-function heatDesignSignature(design, mode) {
+function heatDesignSignature(design, wiring, mode) {
   return `${mode}|${JSON.stringify(
     design.map(part => [part.type, part.x, part.y, part.rotation || 0])
-  )}`;
+  )}|${JSON.stringify(wiring)}`;
 }
 
 function cachedPartReferencesMatch(design) {
@@ -59,7 +59,7 @@ function cachedPartReferencesMatch(design) {
 
 export function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE) {
   const design = state.design;
-  const signature = heatDesignSignature(design, mode);
+  const signature = heatDesignSignature(design, state.wiring, mode);
 
   if (
     cachedHeatAnalysis?.signature === signature &&
@@ -68,7 +68,7 @@ export function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_
     return cachedHeatAnalysis.result;
   }
 
-  const result = analyzeDesignHeat(design, mode);
+  const result = analyzeDesignHeat(design, state.wiring, mode);
   cachedHeatAnalysis = {
     signature,
     partReferences: [...design],

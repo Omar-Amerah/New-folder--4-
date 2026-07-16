@@ -79,6 +79,17 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
     ship.wiringRevision = (ship.wiringRevision || 0) + 1;
   }
 
+  ship.runtimeWiring = runtime;
+  ship.powerAnalysis = analysis;
+  applyShipPowerAllocation(ship, options);
+  return runtime;
+}
+
+// Reuses topology, membership and nominal demand. Thermal source changes only
+// alter generation/allocation, so Data analysis and wiringRevision stay intact.
+function applyShipPowerAllocation(ship, options = {}) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const runtimeNetworks = ship.runtimeWiring?.powerNetworks || [];
   const membership = new Map();
   for (const network of runtimeNetworks) {
     const generation = (network.sourceIndices || []).reduce((sum, index) => {
@@ -114,19 +125,18 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
     ship.powerRevision = (ship.powerRevision || 0) + 1;
     ship.dirtyPower = true;
   }
-  ship.runtimeWiring = runtime;
-  ship.powerAnalysis = analysis;
   ship.componentPower = { byComponentIndex };
   ship.powerStatus = summarizePower(byComponentIndex);
 
   if (!options.skipRuntimeStats && ship.alive !== false) require("./componentHealth").recalcEffectiveStats(ship);
   else if (ship.alive === false) { ship.maxShield = 0; ship.shield = 0; }
-  return runtime;
+  return ship.componentPower;
 }
 
 function initializeComponentPower(ship) { rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true }); return ship.componentPower; }
 function reallocateShipPower(ship, reason = "source-availability") {
-  return rebuildShipWiringState(ship, reason);
+  if (!ship.runtimeWiring?.powerNetworks) return rebuildShipWiringState(ship, reason);
+  return applyShipPowerAllocation(ship);
 }
 
 function getComponentPowerMultiplier(ship, componentIndex) {
@@ -153,4 +163,4 @@ function effectiveShieldStats(ship) {
   return { capacity: Number.isFinite(capacity) ? capacity : 0, recharge: Number.isFinite(recharge) ? recharge : 0 };
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, getComponentPowerMultiplier, effectiveShieldStats };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, getComponentPowerMultiplier, effectiveShieldStats };
