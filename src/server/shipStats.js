@@ -2,6 +2,7 @@
 
 const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
+const { BALANCE } = require("./balanceConfig");
 const { clampNumber, round } = require("./utils");
 const {
   calculateMovementStats,
@@ -132,7 +133,7 @@ function computeStats(modules) {
 
   // Sustain modules use sharp diminishing returns so stacking regen cannot erase focused damage.
   shieldRegen = effectiveStackedValue(shieldRegenValues, 0.72);
-  repairRate = effectiveStackedValue(repairRateValues, 0.62);
+  repairRate = effectiveStackedValue(repairRateValues, BALANCE.repair.stackingMultiplier);
   const power = powerGeneration - powerUse;
   const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
   const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues });
@@ -142,7 +143,8 @@ function computeStats(modules) {
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
   const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam });
   const unitCost = costBreakdown.total;
-  const fleetCount = clampNumber(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
+  const f = BALANCE.shipPricing.fleetCountFormulaInputs;
+  const fleetCount = clampNumber(Math.floor(f.base / Math.max(f.minimumDivisor, unitCost * f.unitCostMultiplier + mass * f.massMultiplier)), f.minimum, f.maximum);
   const weapons = summarizeWeaponTotals(weaponTotals);
   const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
   if (exhaustAnalysis.blockedEngineIndices.size) warnings.push(`${exhaustAnalysis.blockedEngineIndices.size} blocked engine${exhaustAnalysis.blockedEngineIndices.size === 1 ? "" : "s"}: blocked exhaust provides no thrust.`);
@@ -220,7 +222,7 @@ function computeStats(modules) {
     weapons,
     warnings,
     costBreakdown,
-    repairRange: repair > 0 ? 410 : 0,
+    repairRange: repair > 0 ? BALANCE.repair.repairRange : 0,
     radius: round(radius),
     fleetCount
   };

@@ -30,6 +30,18 @@ function validateNumberObject(object, fields, path, errors) {
   }
 }
 
+
+function validateRequiredSection(balance, key, errors) {
+  if (!balance[key] || typeof balance[key] !== "object" || Array.isArray(balance[key])) errors.push(`component-balance.json.${key} must be an object.`);
+}
+function validateFiniteMap(object, path, errors) {
+  if (!object || typeof object !== "object") return;
+  for (const [key, value] of Object.entries(object)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) validateFiniteMap(value, `${path}.${key}`, errors);
+    else if (typeof value === "number" && !Number.isFinite(value)) errors.push(`${path}.${key} must be finite.`);
+  }
+}
+
 function validateComponentBalance(balance, { filePath = "component-balance.json" } = {}) {
   const errors = [];
   if (!balance || typeof balance !== "object" || Array.isArray(balance)) {
@@ -38,6 +50,14 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   if (!Array.isArray(balance.components)) {
     return { ok: false, errors: [`${filePath}.components must be an array.`] };
   }
+  for (const key of ["metadata","shipPricing","economy","rewards","match","movement","projectiles","missileGuidance","fleetLimits","capture","repair"]) validateRequiredSection(balance, key, errors);
+  validateFiniteMap(balance, filePath, errors);
+  if (balance.shipPricing) {
+    if (balance.shipPricing.minimum > balance.shipPricing.maximum) errors.push(`${filePath}.shipPricing minimum must be <= maximum.`);
+    for (const family of Object.keys(balance.shipPricing.weaponPremiums || {})) if (!VALID_WEAPON_FAMILIES.has(family)) errors.push(`${filePath}.shipPricing.weaponPremiums has unknown family ${family}.`);
+  }
+  if (balance.economy && balance.economy.shipCap < 0) errors.push(`${filePath}.economy.shipCap must be non-negative.`);
+  if (balance.match && balance.match.matchScore < 0) errors.push(`${filePath}.match.matchScore must be non-negative.`);
 
   const seen = new Set();
   balance.components.forEach((component, index) => {

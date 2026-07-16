@@ -109,7 +109,9 @@
     "test:websocket-handler-errors": "node verify-websocket-handler-errors.js",
     "test:resync-reasons": "node verify-resync-reason-contract.js",
     "test:snapshot-coalescing": "node verify-snapshot-coalescing.js",
-    "test:snapshot-multiclient-strict": "node verify-snapshot-multiclient-strict.js"
+    "test:snapshot-multiclient-strict": "node verify-snapshot-multiclient-strict.js",
+    "balance:check": "node tools/balance-check.js",
+    "balance:summary": "node tools/balance-summary.js"
   },
   "keywords": [
     "browser-game",

@@ -1,10 +1,10 @@
 // Owns global game constants, default rules, board layouts, and network/tick configurations.
 
 const path = require("path");
+const { COMPONENT_BALANCE_PATH, BALANCE } = require("./balanceConfig");
 
 const PORT = Number(process.env.PORT || 5544);
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "public");
-const COMPONENT_BALANCE_PATH = path.join(__dirname, "..", "..", "component-balance.json");
 
 const WORLD = { width: 5120, height: 3040 };
 
@@ -22,35 +22,12 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_PLAYERS_PER_ROOM = 12;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const CLOSED_ROOM_CODE_TTL_MS = 24 * 60 * 60 * 1000;
-const MATCH_SCORE = 900;
-const SCORE_PER_CONTROLLED_POINT = 7;
+const MATCH_SCORE = BALANCE.match.matchScore;
+const SCORE_PER_CONTROLLED_POINT = BALANCE.match.scorePerControlledPoint;
 
-const ECONOMY = Object.freeze({
-  startingMoney: 700,
-  maxMoney: 9999,
-  baseIncome: 25,
-  relayIncome: 10,
-  killBountyRatio: 0.28,
-  killBountyMin: 24,
-  captureBonus: 70,
-  shipCap: 30,
-  baseShipCost: 48,
-  partCostMultiplier: 1.32,
-  massCostMultiplier: 0.9,
-  hullCostMultiplier: 0.012,
-  shieldCostMultiplier: 0.05,
-  repairCostMultiplier: 0.8,
-  largeShipThreshold: 400,
-  largeShipCostTax: 0.15,
-  hugeShipThreshold: 700,
-  hugeShipCostTax: 0.25,
-  weaponPremiums: Object.freeze({
-    blaster: 18,
-    missile: 32,
-    railgun: 48,
-    beam: 42
-  })
-});
+const ECONOMY = Object.freeze({ ...BALANCE.economy, ...BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...BALANCE.shipPricing.weaponPremiums }) });
+
+const REWARDS = Object.freeze({ ...BALANCE.rewards });
 
 // Asteroid count multipliers relative to the original generation amount, which
 // is now the "high" setting. "medium" is the default; "none" disables asteroids.
@@ -70,20 +47,6 @@ const DEFAULT_ROOM_RULES = Object.freeze({
   asteroidDensity: "medium"
 });
 
-const REWARDS = Object.freeze({
-  baseReward: 30,
-  victoryBonus: 80,
-  lossSupport: 35,
-  minimumWinReward: 90,
-  minimumLossReward: 35,
-  destroyedEnemyCostMultiplier: 0.35,
-  maxDestroyedReward: 250,
-  lossDestroyedMultiplier: 0.18,
-  survivalBonusPerShip: 15,
-  efficiencyBonusScale: 45,
-  maxEfficiencyBonus: 80,
-  minimumOverpowerRewardMultiplier: 0.65
-});
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
