@@ -325,18 +325,23 @@ function updatePixiEngineExhaust(view, ship, now) {
       const uy = dy / mag;
       const px = -uy;
       const py = ux;
-      const halfW = 2.4;
-      const tipX = jet.x + ux * jet.len;
-      const tipY = jet.y + uy * jet.len;
-      const c1x = jet.x + ux * jet.len * 0.6;
-      const c1y = jet.y + uy * jet.len * 0.6;
-      gfx.moveTo(jet.x + px * halfW, jet.y + py * halfW);
-      gfx.quadraticCurveTo(c1x + px, c1y + py, tipX, tipY);
-      gfx.quadraticCurveTo(c1x - px, c1y - py, jet.x - px * halfW, jet.y - py * halfW);
-      gfx.closePath();
-      gfx.fill({ color: "#7dd3ff", alpha: jet.plumeAlpha });
-      gfx.circle(jet.x + ux * jet.len * 0.28, jet.y + uy * jet.len * 0.28, 1.7);
-      gfx.fill({ color: "#eafcff", alpha: jet.coreAlpha });
+      const halfW = Number.isFinite(jet.halfW) ? jet.halfW : 2.2;
+      const drawPlume = (lenScale, widthScale, color, alpha, noseOffset = 0) => {
+        const len = jet.len * lenScale;
+        const width = halfW * widthScale;
+        const tipX = jet.x + ux * (len + noseOffset);
+        const tipY = jet.y + uy * (len + noseOffset);
+        const c1x = jet.x + ux * len * 0.58;
+        const c1y = jet.y + uy * len * 0.58;
+        gfx.moveTo(jet.x + px * width, jet.y + py * width);
+        gfx.quadraticCurveTo(c1x + px * width * 0.55, c1y + py * width * 0.55, tipX, tipY);
+        gfx.quadraticCurveTo(c1x - px * width * 0.55, c1y - py * width * 0.55, jet.x - px * width, jet.y - py * width);
+        gfx.closePath();
+        gfx.fill({ color, alpha });
+      };
+      drawPlume(1, 1.15, "#163f9f", jet.plumeAlpha);
+      drawPlume(0.72, 0.72, "#63e6ff", jet.innerAlpha);
+      drawPlume(0.36, 0.38, "#eafcff", jet.coreAlpha, 0.4);
     }
   }
 

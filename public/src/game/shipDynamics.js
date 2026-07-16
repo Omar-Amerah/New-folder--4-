@@ -14,6 +14,10 @@ import { footprintLocalPlacement } from "./shipGeometry.js";
 import { componentHealthRatio } from "./shipVitals.js";
 
 const renderedDesignStatsCache = new WeakMap();
+const MANEUVER_JET_FADE_SECONDS = 0.16;
+const MANEUVER_JET_RISE_SECONDS = 0.09;
+const MANEUVER_JET_MIN_ACTIVITY = 0.01;
+const MANEUVER_JET_VISUAL_LIMIT = 512;
 
 export function maxSpeedForRenderedShip(ship) {
   if (ship?.stats?.maxSpeed) return ship.stats.maxSpeed;
@@ -159,22 +163,51 @@ function shipAngularVelocity(ship, now) {
   return av;
 }
 
+function stableManeuverPhase(shipId, componentIndex = 0) {
+  const source = `${shipId || ""}:${componentIndex}`;
+  let hash = 2166136261;
+  for (let i = 0; i < source.length; i += 1) {
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 4294967296) * Math.PI * 2;
+}
+
+function smoothedManeuverActivity(ship, rawActivity, now) {
+  if (!state.maneuverJetVisuals) state.maneuverJetVisuals = new Map();
+  if (state.maneuverJetVisuals.size > MANEUVER_JET_VISUAL_LIMIT) state.maneuverJetVisuals.clear();
+  const key = ship?.id || "__unknown";
+  const previous = state.maneuverJetVisuals.get(key) || { intensity: 0, direction: 0, lastSeenAt: now };
+  const dt = clamp((now - previous.lastSeenAt) / 1000, 0, 0.05);
+  const raw = Number.isFinite(rawActivity) ? clamp(rawActivity, -1, 1) : 0;
+  const rawMagnitude = Math.abs(raw);
+  const rawDirection = rawMagnitude >= MANEUVER_JET_MIN_ACTIVITY ? Math.sign(raw) : 0;
+  const direction = rawDirection || previous.direction || 0;
+  const target = rawDirection ? rawMagnitude : 0;
+  const tau = target > previous.intensity ? MANEUVER_JET_RISE_SECONDS : MANEUVER_JET_FADE_SECONDS;
+  const rate = tau > 0 ? 1 - Math.exp(-dt / tau) : 1;
+  const intensity = approach(previous.intensity, target, rate);
+  state.maneuverJetVisuals.set(key, { intensity, direction, lastSeenAt: now });
+  return { intensity, direction };
+}
+
 // Computes the lateral thruster jets to draw this frame (ship-local space,
-// forward = +x). Jets fire only while the hull is rotating; each maneuvering
-// thruster offset from the centreline emits from its left/right nozzle to match
-// the turn direction, so only the thrusters "being used" animate. Shared by both
-// renderers. Returns null when nothing should draw.
+// forward = +x). Jets use smoothed visual activity so snapshot jitter does not
+// pop the plume on/off; while fading out they retain the last real turn side.
+// Each maneuvering thruster offset from the centreline emits from its left/right
+// nozzle to match the turn direction, so only the thrusters "being used" animate.
+// Shared by both renderers. Returns null when nothing should draw.
 export function computeManeuverJets(ship, design, scale, now) {
   let activity = Number.isFinite(ship.turnActivity) ? clamp(ship.turnActivity, -1, 1) : null;
   if (activity === null) {
     const angularVelocity = shipAngularVelocity(ship, now);
     activity = Math.abs(angularVelocity) > 0.01 ? clamp(angularVelocity / 2, -1, 1) : 0;
   }
-  const speed = Math.abs(activity);
-  if (speed < 0.01 || !ship.alive) return null;
-  const desiredSign = Math.sign(activity);
+  const visual = smoothedManeuverActivity(ship, activity, now);
+  const speed = visual.intensity;
+  if (speed < 0.01 || !ship.alive || !visual.direction) return null;
+  const desiredSign = visual.direction;
   const density = getEffectDensity();
-  const flicker = 0.7 + 0.3 * Math.sin(now * 0.05);
   const centerOfMass = calculateCenterOfMass(design, PART_STATS);
   const alive = design.map((_, i) => (componentHealthRatio(ship, i) ?? 1) > 0);
   const exhaustAnalysis = globalThis.EngineExhaustRules?.analyze?.(design, PART_STATS, { alive });
@@ -198,14 +231,17 @@ export function computeManeuverJets(ship, design, scale, now) {
     const nozzleSide = rotation === 90 ? -1 : 1;
     const share = total > 0 ? contributor.value / total : 1 / contributors.length;
     const intensity = speed * Math.min(1, share * contributors.length);
+    const pulse = 0.975 + 0.025 * Math.sin(now * 0.006 + stableManeuverPhase(ship.id, contributor.index));
     jets.push({
       x: place.cx,
       y: place.cy + nozzleSide * scale * 0.5,
       directionX: 0,
       directionY: nozzleSide,
-      len: clamp(intensity * 10, 2.5, 10) * flicker * (0.55 + 0.45 * density),
-      plumeAlpha: 0.32 * intensity * flicker * density,
-      coreAlpha: 0.58 * intensity * flicker * density
+      halfW: clamp(scale * (0.13 + intensity * 0.07), 1.7, 2.8) * pulse,
+      len: clamp(scale * (0.34 + intensity * 0.66), 4.5, 13) * pulse * (0.72 + 0.28 * density),
+      plumeAlpha: (0.14 + 0.2 * intensity) * density,
+      innerAlpha: (0.28 + 0.38 * intensity) * density,
+      coreAlpha: (0.42 + 0.42 * intensity) * density
     });
   }
   return jets.length ? jets : null;
