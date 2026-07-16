@@ -36,7 +36,7 @@
     const engines=new Map();
     for (let i=0;i<design.length;i+=1) {
       const module=design[i], part=parts[module.type]||{};
-      if (!(part.thrust>0) || alive[i]===false) continue;
+      if (!((part.thrust>0) || module.type === "maneuverThruster") || alive[i]===false) continue;
       const exhaust=exhaustDirection(module.rotation), thrust={x:exhaust.x===0?0:-exhaust.x,y:exhaust.y===0?0:-exhaust.y};
       const own=new Set(cellsByIndex[i].map(cell=>`${cell.x},${cell.y}`));
       const nozzleCells=cellsByIndex[i].filter(cell=>!own.has(`${cell.x+exhaust.x},${cell.y+exhaust.y}`));

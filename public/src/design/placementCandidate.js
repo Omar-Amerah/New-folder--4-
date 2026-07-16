@@ -1,7 +1,7 @@
 import { isConnected, isOutOfBounds, isOverlapping, explainConnectionProblem } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import { isRotatablePart } from "./parts.js";
-import { normalizeRotation } from "./rotation.js";
+import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { makeDesignPart } from "./blueprintStorage.js";
 
 export const GRID_SIZE = 15;
@@ -32,7 +32,7 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
   const editingSamePart = existing?.type === type;
   const targetX = editingSamePart ? existing.x : x;
   const targetY = editingSamePart ? existing.y : y;
-  const normalizedRotation = isRotatablePart(type) ? normalizeRotation(rotation, catalogue[type]?.allowedRotations, targetX) : 0;
+  const normalizedRotation = type === "maneuverThruster" ? maneuverThrusterAutoRotation(targetX) : isRotatablePart(type) ? normalizeRotation(rotation, catalogue[type]?.allowedRotations, targetX) : 0;
   const part = makeDesignPart(targetX, targetY, type, normalizedRotation);
   const occupiedCells = cellsFor(part, catalogue);
   const outOfBoundsCells = occupiedCells.filter(cell => cell.x < 0 || cell.x >= GRID_SIZE || cell.y < 0 || cell.y >= GRID_SIZE);
@@ -59,6 +59,13 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
   } else if (!isConnected(nextDesign)) {
     reasonCode = "disconnected";
     message = explainConnectionProblem(baseDesign, type, targetX, targetY, part.rotation);
+  } else if (type === "maneuverThruster") {
+    const idx = nextDesign.indexOf(part);
+    const exhaust = globalThis.EngineExhaustRules?.analyze?.(nextDesign, catalogue);
+    if (exhaust && !exhaust.validEngineIndices.has(idx)) {
+      reasonCode = "blocked-exhaust";
+      message = "Lateral exhaust path blocked";
+    }
   }
 
   return {

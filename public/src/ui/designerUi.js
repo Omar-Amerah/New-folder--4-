@@ -543,8 +543,10 @@ export function renderHoverPreview() {
     dom.grid.appendChild(preview);
     const candidateIndex = candidate.nextDesign.indexOf(candidate.part);
     const candidateStat = PART_STATS[selectedType] || {};
-    if (selectedType === "maneuverThruster") renderManeuverThrusterPreview(candidate.part, candidate.ok, candidate.nextDesign);
-    else if (candidateStat.thrust > 0) renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
+    if (selectedType === "maneuverThruster") {
+      renderManeuverThrusterPreview(candidate.part, candidate.ok, candidate.nextDesign);
+      renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
+    } else if (candidateStat.thrust > 0) renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
   }
 }
 
@@ -603,7 +605,7 @@ function renderEngineExhaustPreview(design, engineIndex, placementValid) {
 }
 
 function placementRotation(type, rotation) {
-  return isRotatablePart(type) ? normalizeRotation(rotation, PART_STATS[type]?.allowedRotations) : 0;
+  return type === "maneuverThruster" ? 0 : isRotatablePart(type) ? normalizeRotation(rotation, PART_STATS[type]?.allowedRotations) : 0;
 }
 
 function positionPreviewOverlay(preview, x, y, width, height) {
@@ -1951,8 +1953,8 @@ const DIAGNOSTIC_LEVELS = new Set(["neutral", "good", "warning", "bad"]);
 function directionalTurnText(stats) {
   const left = Number(stats.turnRateLeft ?? stats.turnRate ?? 0);
   const right = Number(stats.turnRateRight ?? stats.turnRate ?? 0);
-  if (Math.abs(left - right) < 0.01) return `${left.toFixed(2)} rad/s`;
-  return `L ${left.toFixed(2)} / R ${right.toFixed(2)} rad/s`;
+  if (Math.abs(left - right) < 0.01) return `Turn rate ${left.toFixed(2)} rad/s`;
+  return `Left ${left.toFixed(2)} / Right ${right.toFixed(2)} rad/s`;
 }
 
 function buildStatDiagnostics(stats) {

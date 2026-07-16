@@ -33,10 +33,10 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
   const mainEngineValues = [], gyroscopeValues = [], clockwiseThrusterValues = [], anticlockwiseThrusterValues = [], maneuverThrusters = [];
   for (let i = 0; i < (modules || []).length; i += 1) {
     const module = modules[i]; const part = parts[module.type] || parts.frame || {};
-    if (options.isBlockedEngine?.(i, module, part)) continue;
-    if ((part.thrust || 0) > 0) mainEngineValues.push((part.thrust || 0) * ENGINE_TURN_PER_THRUST);
+    const blocked = options.isBlockedEngine?.(i, module, part) || false;
+    if ((part.thrust || 0) > 0 && !blocked) mainEngineValues.push((part.thrust || 0) * ENGINE_TURN_PER_THRUST);
     if (module.type === 'gyroscope' && (part.turn || 0) > 0) gyroscopeValues.push(part.turn || 0);
-    if (module.type === 'maneuverThruster' && (part.turn || 0) > 0) {
+    if (module.type === 'maneuverThruster' && (part.turn || 0) > 0 && !blocked) {
       const localY = (Number(module.y) || 0) - centerOfMass.y;
       const lever = clamp(leverSettings.minimumLever + Math.abs(localY) * leverSettings.leverPerCell, leverSettings.minimumLever, leverSettings.maximumLever);
       const value = (part.turn || 0) * lever;
