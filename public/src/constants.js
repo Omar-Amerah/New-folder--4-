@@ -8,6 +8,7 @@ export const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
 export const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v1";
 export const LOCAL_LOADOUTS_KEY = "modular-fleet-loadouts-v1";
 export const LOCAL_ACTIVE_ROOM_KEY = "modular-fleet-active-room-v1";
+export const LOCAL_DESIGN_BACKUP_KEY = "modular-fleet-design-last-good-v1";
 
 // Frontend build identification. The deploy pipeline (netlify-build.js) emits
 // /build-sha.js which sets globalThis.__MFA_BUILD_SHA__ before the app loads;

@@ -14,6 +14,7 @@ import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
 import { invalidateHeatAnalysisCache } from "./designerUi.js";
+let modalReturnFocus = null;
 
 
 export function weaponAbbrevText(stats) {
@@ -297,6 +298,7 @@ export function deleteSavedDesign(id) {
 }
 
 export function openDeleteDesignModal(saved) {
+  modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.pendingDeleteDesignId = saved.id;
   state.pendingKickTargetId = null;
   if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Delete blueprint?";
@@ -310,6 +312,8 @@ export function closeConfirmModal() {
   state.pendingDeleteDesignId = null;
   state.pendingKickTargetId = null;
   if (dom.confirmModal) dom.confirmModal.hidden = true;
+  modalReturnFocus?.focus?.();
+  modalReturnFocus = null;
 }
 
 export function confirmModalAction() {

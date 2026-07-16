@@ -15,7 +15,11 @@ import { closeBlueprintDesigner } from "./designerScreenUi.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { normalizeDesign } from "../design/blueprintStorage.js";
 import { computeStats } from "../design/componentStats.js";
-import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, LOCAL_FORMATION_KEY, syncUrlParams } from "../constants.js";
+import { LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "../constants.js";
+import { loadPreferences, persistPreferences, resetPreferences, applyInterfacePreferences } from "../localPreferences.js";
+import { categoryPresence, clearCurrentBlueprint, clearSavedBlueprintsAndLoadouts, forgetRecoverableRoom } from "../storageRecovery.js";
+import { exportBlueprints, importBlueprints, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
+import { renderRecoveryCard } from "./roomRecoveryUi.js";
 import { getResumeCredential } from "../reconnectStorage.js";
 
 const ASTEROID_DENSITY_LABELS = {
@@ -281,9 +285,7 @@ export function createGame() {
     showMenuNotice("Name required to host", "error");
     return;
   }
-  localStorage.setItem(LOCAL_NAME_KEY, name);
-  localStorage.setItem(LOCAL_TEAM_KEY, teamValue());
-  localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
+  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
   state.joiningLobby = true;
   const joinPayload = { type: "join", name, room: "", team: teamValue() };
   connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
@@ -305,9 +307,7 @@ export function joinRoom(roomCode = "") {
     showMenuNotice("Name required to join", "error");
     return;
   }
-  localStorage.setItem(LOCAL_NAME_KEY, name);
-  localStorage.setItem(LOCAL_TEAM_KEY, teamValue());
-  localStorage.setItem(LOCAL_FORMATION_KEY, dom.formationSelect.value);
+  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
   state.joiningLobby = true;
   const joinPayload = { type: "join", name, room: roomCode, team: teamValue(), resumeToken: getResumeCredential(roomCode) };
   connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
@@ -423,6 +423,7 @@ export function hideMenuScreens() {
 
 export function openMainMenu() {
   showMenuScreen(dom.mainMenuScreen);
+  renderRecoveryCard();
 }
 
 export function showMenuNotice(message, tone = "warning") {
@@ -444,11 +445,17 @@ export function openLobbyManagement() {
 
 export function openSettings() {
   showMenuScreen(dom.settingsScreen);
+  const prefs = loadPreferences().preferences;
   if (dom.serverUrlInput) {
-    dom.serverUrlInput.value = getConfiguredServerUrl();
+    dom.serverUrlInput.value = getConfiguredServerUrl() || prefs.serverUrl;
   }
+  if (dom.settingsTeamSelect) dom.settingsTeamSelect.value = prefs.preferredTeam;
+  if (dom.settingsFormationSelect) dom.settingsFormationSelect.value = prefs.formation;
+  if (dom.reducedMotionToggle) dom.reducedMotionToggle.checked = prefs.reducedMotion;
+  if (dom.interfaceScaleSelect) dom.interfaceScaleSelect.value = String(prefs.interfaceScale);
+  renderStorageStatus();
   if (dom.renderQualitySelect) {
-    dom.renderQualitySelect.value = getRenderQuality();
+    dom.renderQualitySelect.value = prefs.renderQuality || getRenderQuality();
   }
   if (dom.debugOverlayToggle) {
     dom.debugOverlayToggle.checked = getDebugRendererEnabled();
@@ -464,6 +471,7 @@ export function openSettings() {
 export function saveServerSetting() {
   const value = String(dom.serverUrlInput?.value || "").trim();
   if (value) {
+    persistPreferences({ ...loadPreferences().preferences, serverUrl: value });
     localStorage.setItem(LOCAL_SERVER_KEY, value);
     showToast("Server URL saved", "good");
   } else {
@@ -473,6 +481,7 @@ export function saveServerSetting() {
 }
 
 export function clearServerSetting() {
+  persistPreferences({ ...loadPreferences().preferences, serverUrl: "" });
   localStorage.removeItem(LOCAL_SERVER_KEY);
   if (dom.serverUrlInput) dom.serverUrlInput.value = "";
   showToast("Using default server URL", "warning");
@@ -609,5 +618,44 @@ if (typeof window !== "undefined") {
         showToast(`Mobile testing mode ${e.target.checked ? "on" : "off"}`, e.target.checked ? "good" : "warning");
       });
     }
+  });
+}
+
+
+export function renderStorageStatus() {
+  if (!dom.storageStatus) return;
+  const p = categoryPresence();
+  dom.storageStatus.textContent = `Present: settings ${p.settings ? "yes" : "no"}, current blueprint ${p.currentBlueprint ? "yes" : "no"}, saved blueprints ${p.savedBlueprints ? "yes" : "no"}, loadouts ${p.loadouts ? "yes" : "no"}, recoverable room ${p.recoverableRoom ? "yes" : "no"}.`;
+}
+
+function confirmAction(message, action) {
+  if (!confirm(message)) return;
+  action();
+  renderStorageStatus();
+  renderRecoveryCard();
+}
+
+export function bindSettingsRecoveryControls() {
+  dom.settingsTeamSelect?.addEventListener("change", (e) => { persistPreferences({ ...loadPreferences().preferences, preferredTeam: e.target.value }); dom.teamSelect.value = e.target.value; });
+  dom.settingsFormationSelect?.addEventListener("change", (e) => { persistPreferences({ ...loadPreferences().preferences, formation: e.target.value }); dom.formationSelect.value = e.target.value; });
+  dom.reducedMotionToggle?.addEventListener("change", (e) => { const prefs = { ...loadPreferences().preferences, reducedMotion: e.target.checked }; persistPreferences(prefs); applyInterfacePreferences(prefs); });
+  dom.interfaceScaleSelect?.addEventListener("change", (e) => { const prefs = { ...loadPreferences().preferences, interfaceScale: Number(e.target.value) }; persistPreferences(prefs); applyInterfacePreferences(prefs); });
+  dom.resetSettingsButton?.addEventListener("click", () => confirmAction("Reset settings? Saved blueprints will be kept.", () => { resetPreferences(); applyInterfacePreferences(loadPreferences().preferences); openSettings(); }));
+  dom.clearCurrentBlueprintButton?.addEventListener("click", () => confirmAction("Clear the current blueprint? Saved blueprints will be kept.", clearCurrentBlueprint));
+  dom.clearSavedBlueprintsButton?.addEventListener("click", () => confirmAction("Clear saved blueprints and loadouts?", clearSavedBlueprintsAndLoadouts));
+  dom.forgetRecoverableRoomButton?.addEventListener("click", () => confirmAction("Forget recoverable room state?", forgetRecoverableRoom));
+  dom.exportBlueprintsButton?.addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(exportBlueprints(state.savedDesigns, state.loadouts), null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "mfa-blueprints.json"; a.click(); URL.revokeObjectURL(a.href);
+  });
+  dom.importBlueprintsButton?.addEventListener("click", () => dom.importBlueprintsInput?.click());
+  dom.importBlueprintsInput?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    try {
+      const result = importBlueprints(JSON.parse(await file.text()), state.savedDesigns, state.loadouts);
+      state.savedDesigns = result.designs; state.loadouts = result.loadouts;
+      persistSavedDesigns(state.savedDesigns); persistLoadouts(state.loadouts); renderSavedDesigns(); renderPurchaseBar(); showToast(`Imported ${result.accepted}; rejected ${result.rejected}`, result.rejected ? "warning" : "good");
+    } catch { showToast("Blueprint import file was not valid JSON", "error"); }
+    event.target.value = "";
   });
 }
