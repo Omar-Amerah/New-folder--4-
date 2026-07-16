@@ -12,6 +12,7 @@ const { PORT, PUBLIC_DIR, MIME, TICK_HZ, SNAPSHOT_HZ, ROOM_IDLE_MS } = require("
 const { COMPONENT_BALANCE } = require("./src/server/components");
 const { performanceNow, getLocalUrls } = require("./src/server/utils");
 const { rooms, pruneClosedRoomCodes } = require("./src/server/rooms");
+const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./src/server/buildInfo");
 const transport = require("./src/server/websocketServer");
 const messages = require("./src/server/messages");
 const { broadcastSnapshot } = require("./src/server/snapshotDelivery");
@@ -105,21 +106,43 @@ function normalizeOrigin(value) {
   return `${u.protocol}//${u.hostname.toLowerCase()}:${port}`;
 }
 
+function configuredAllowedOrigins(options = {}) {
+  return (options.allowedOrigins ?? process.env.WS_ALLOWED_ORIGINS ?? (process.env.NODE_ENV === "production" ? "" : "*"))
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function websocketOriginPolicy(options = {}) {
+  const allowlist = configuredAllowedOrigins(options);
+  const production = process.env.NODE_ENV === "production";
+  const wildcard = allowlist.includes("*");
+  return {
+    mode: wildcard && !production ? "development-wildcard" : allowlist.length ? "exact-allowlist" : "same-origin-or-missing",
+    allowedOriginCount: allowlist.filter((v) => v !== "*").length,
+    wildcardEnabled: wildcard && !production
+  };
+}
+
 function isOriginAllowed(req, options = {}) {
   const origin = req.headers.origin;
   const allowMissing = options.allowMissingOrigin ?? process.env.WS_ALLOW_MISSING_ORIGIN !== "0";
-  const allowlist = (options.allowedOrigins || process.env.WS_ALLOWED_ORIGINS || (process.env.NODE_ENV === "production" ? "" : "*")).split(",").map((v) => v.trim()).filter(Boolean);
+  const allowlist = configuredAllowedOrigins(options);
+  const production = process.env.NODE_ENV === "production";
   if (!origin) return allowMissing;
   let normalized;
   try { normalized = normalizeOrigin(origin); } catch { return false; }
-  if (allowlist.includes("*")) return true;
+  if (!production && allowlist.includes("*")) return true;
   for (const allowed of allowlist) {
+    if (allowed === "*") continue;
     try { if (normalizeOrigin(allowed) === normalized) return true; } catch {}
   }
-  try {
-    const host = req.headers.host;
-    if (host && normalizeOrigin(`${req.socket.encrypted ? "https" : "http"}://${host}`) === normalized) return true;
-  } catch {}
+  if (!production) {
+    try {
+      const host = req.headers.host;
+      if (host && normalizeOrigin(`${req.socket.encrypted ? "https" : "http"}://${host}`) === normalized) return true;
+    } catch {}
+  }
   return false;
 }
 
@@ -140,6 +163,33 @@ function validateWebSocketUpgrade(req, socket, options = {}) {
   return key;
 }
 
+function shortSha(value) { return String(value || "dev").slice(0, 12); }
+
+function healthPayload() {
+  const policy = websocketOriginPolicy();
+  return {
+    ok: true,
+    service: "modular-fleet-arena",
+    protocolVersion: PROTOCOL_VERSION,
+    serverBuildSha: shortSha(SERVER_BUILD_SHA),
+    uptimeSeconds: Math.floor(process.uptime()),
+    activeRooms: rooms.size,
+    activeClients: transport.sockets.size,
+    originPolicy: { mode: policy.mode, allowedOriginCount: policy.allowedOriginCount }
+  };
+}
+
+function handleHealthRequest(req, res) {
+  const body = Buffer.from(JSON.stringify(healthPayload()));
+  res.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "access-control-allow-origin": "*",
+    "content-length": req.method === "HEAD" ? 0 : body.length
+  });
+  res.end(req.method === "HEAD" ? undefined : body);
+}
+
 // HTTP request handler for static files and balance JSON
 function handleHttpRequest(req, res) {
   res.setHeader("x-content-type-options", "nosniff");
@@ -150,6 +200,11 @@ function handleHttpRequest(req, res) {
   let pathname;
   try { pathname = decodeURIComponent(requestUrl.pathname); } catch { res.writeHead(400); res.end("Bad request"); return; }
   if (pathname === "/") pathname = "/index.html";
+
+  if (pathname === "/health") {
+    handleHealthRequest(req, res);
+    return;
+  }
 
   if (pathname === "/debug/turrets") {
     if (!TURRET_DEBUG_ENABLED) {
@@ -232,6 +287,10 @@ function createGameServer(options = {}) {
 
   function start() {
     if (diagnosticsState.started) throw new Error("Server already started");
+    const policy = websocketOriginPolicy(options);
+    if (process.env.NODE_ENV === "production" && policy.allowedOriginCount === 0) {
+      console.warn("Production WebSocket origin allowlist is empty. Cross-origin frontends such as Netlify will be rejected.");
+    }
     return new Promise((resolve, reject) => {
       httpServer.once("error", reject);
       httpServer.listen(port, host, () => {
@@ -274,9 +333,11 @@ if (require.main === module) {
   process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
   instance.start().then(() => {
     const actual = instance.address()?.port || PORT;
+    const policy = websocketOriginPolicy();
     console.log(`Modular Fleet Arena running on http://localhost:${actual}`);
+    console.log(`[deploy] build=${shortSha(SERVER_BUILD_SHA)} protocol=${PROTOCOL_VERSION} port=${actual} NODE_ENV=${process.env.NODE_ENV || "development"} wsOriginMode=${policy.mode} allowedOriginCount=${policy.allowedOriginCount} healthPath=/health socketPath=/socket`);
     for (const address of getLocalUrls(actual)) console.log(`LAN: ${address}`);
   }).catch((err) => { console.error(err); process.exit(1); });
 }
 
-module.exports = { createGameServer, handleHttpRequest, handleTurretDebugRequest, validateWebSocketUpgrade, isOriginAllowed };
+module.exports = { createGameServer, handleHttpRequest, handleHealthRequest, handleTurretDebugRequest, validateWebSocketUpgrade, isOriginAllowed, websocketOriginPolicy };

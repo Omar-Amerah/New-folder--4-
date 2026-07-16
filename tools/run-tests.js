@@ -96,12 +96,14 @@ const GROUPS = {
 
   // Production-path smoke: real server process and HTTP asset checks only.
   smoke: [
-    "verify-production-path.js"
+    "verify-production-path.js",
+    "verify-deployment-health.js"
   ],
 
   // Required browser gameplay/renderer coverage: real server, production
   // frontend, Playwright Chromium, WebGL and Pixi. Missing Chromium is a hard failure.
   browser: [
+    "verify-split-origin-browser.js",
     "verify-live-turrets.js",
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",
