@@ -1,4 +1,6 @@
 
+import { loadPreferences, persistPreferences } from "../localPreferences.js";
+
 export const RENDER_QUALITY_PROFILES = Object.freeze({
   low: Object.freeze({ name: "low", dprCap: 1.25, bakeScale: 1.5, effectDensity: 0.4, trailDensity: 0.35, particleDensity: 0.35 }),
   medium: Object.freeze({ name: "medium", dprCap: 1.5, bakeScale: 2.0, effectDensity: 0.72, trailDensity: 0.7, particleDensity: 0.7 }),
@@ -11,7 +13,7 @@ let cachedRenderQuality = null;
 
 export function getRenderQuality() {
   if (cachedRenderQuality !== null) return cachedRenderQuality;
-  const stored = storageGet("mfa.renderQuality");
+  const stored = loadPreferences().preferences.renderQuality || storageGet("mfa.renderQuality");
   if (["low", "medium", "high"].includes(stored)) {
     cachedRenderQuality = stored;
   } else {
@@ -22,6 +24,7 @@ export function getRenderQuality() {
 
 export function setRenderQuality(quality) {
   if (["low", "medium", "high"].includes(quality)) {
+    persistPreferences({ ...loadPreferences().preferences, renderQuality: quality });
     storageSet("mfa.renderQuality", quality);
     cachedRenderQuality = quality;
   }
@@ -54,14 +57,15 @@ let cachedDebugRenderer = null;
 
 export function getCombatEffectsEnabled() {
   if (cachedCombatEffects === null) {
-    cachedCombatEffects = storageGet("mfa.combatEffects") !== "false";
+    cachedCombatEffects = loadPreferences().preferences.combatEffectsEnabled;
   }
   return cachedCombatEffects;
 }
 
 export function setCombatEffectsEnabled(enabled) {
   cachedCombatEffects = Boolean(enabled);
-  storageSet("mfa.combatEffects", cachedCombatEffects);
+  persistPreferences({ ...loadPreferences().preferences, combatEffectsEnabled: cachedCombatEffects });
+  storageSet("mfa.combatEffects", String(cachedCombatEffects));
 }
 
 export function getDebugRendererEnabled() {
