@@ -57,6 +57,8 @@ export const state = {
     sourceIndex: null,
     path: [],
     hoverCell: null,
+    livePointer: null,
+    dragging: false,
     undoStack: []
   },
   thermalLoadMode: DEFAULT_THERMAL_LOAD_MODE,

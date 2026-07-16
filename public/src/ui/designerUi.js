@@ -27,6 +27,7 @@ import {
   handleWiringCellClick,
   handleWiringCellHover,
   handleWiringGridLeave,
+  suppressWiringClick,
   syncWiringWithDesign,
   resetWiringToDefault,
   clearAllWiring
@@ -464,6 +465,7 @@ function assertHeatViewKeepsBaseGridDom() {
 function ensureBlueprintGridEventHandlers() {
   if (!dom.grid.dataset.hasDelegatedClick) {
     dom.grid.addEventListener("click", (event) => {
+      if (state.blueprintView === "wiring" && suppressWiringClick()) return;
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
