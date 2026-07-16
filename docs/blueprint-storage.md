@@ -1,11 +1,11 @@
 # Blueprint storage
 
 The client stores blueprint editor data in explicit versioned envelopes in `localStorage`.
-The current schema version is `1` and every stored value has this shape:
+The current schema version is `2` and every stored value has this shape:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "kind": "current-design | saved-designs | loadouts",
   "payload": {},
   "createdAt": "ISO timestamp",
@@ -15,21 +15,36 @@ The current schema version is `1` and every stored value has this shape:
 
 ## Keys and payloads
 
-- `modular-fleet-design-v2` stores the current editor design payload:
-  `{ "modules": [...], "combatStyle": "sentry|charge|circle|hold" }`.
-- `modular-fleet-saved-designs-v1` stores up to 12 saved blueprint records.
-- `modular-fleet-loadouts-v1` stores up to 8 custom loadout records. The implicit
+- `modular-fleet-design-v3` stores the current editor design payload:
+  `{ "modules": [...], "wiring": { "version": 1, "power": [...], "data": [...] }, "combatStyle": "sentry|charge|circle|hold" }`.
+- `modular-fleet-saved-designs-v2` stores up to 12 saved blueprint records; each
+  record keeps an independent copy of its `blueprint` modules and `wiring`.
+- `modular-fleet-loadouts-v2` stores up to 8 custom loadout records. The implicit
   `All` loadout is not persisted.
+- `modular-fleet-design-last-good-v2` keeps the last valid current-design
+  envelope for corruption recovery.
 
-## Migration and safety rules
+Wire segments are unit-length orthogonal grid edges `{ "x1": 7, "y1": 6, "x2": 8, "y2": 6 }`
+on the 15×15 blueprint's grid points (0–15). Power and Data are separate segment
+lists that may share edges. Networks, connectivity, and bonus previews are never
+stored — they are derived from the segments by the shared engine in
+`public/src/shared/wiringRules.js` (see `docs/ship-wiring.md`).
 
-The loader migrates all legacy shapes still supported by the app: a raw module
-array, the old `{ modules, combatStyle }` current-design object, raw saved-design
-arrays, and raw loadout arrays. Old 7x7-centred blueprints with the core at
-`3,3` are shifted to the 15x15 editor centre at `7,7`. Component rotations are
-normalized through the same editor placement rules used for new parts, and
-multi-cell footprints are rechecked while invalid overlapping/out-of-bounds
-entries are quarantined.
+## Version-break and safety rules
+
+Schema v2 is a deliberate hard break: pre-wiring keys
+(`modular-fleet-design-v2`, `modular-fleet-saved-designs-v1`,
+`modular-fleet-loadouts-v1`, `modular-fleet-design-last-good-v1`) are never
+read, and v1 or future envelopes found under the new keys are discarded. A user
+with old data simply receives the current default ship with its default Power
+wiring; there is no migration path. Blueprint export files from schema v1 are
+rejected on import (`incompatibleVersion`).
+
+Component rotations are normalized through the same editor placement rules used
+for new parts, multi-cell footprints are rechecked, and invalid
+overlapping/out-of-bounds entries are quarantined. Wiring is re-normalized
+against the stored modules on every load and save, so floating, duplicate, or
+malformed segments never persist.
 
 Malformed saved-design entries are skipped independently so one bad entry does
 not erase the valid list. Corrupt JSON, wrong top-level types, unavailable
@@ -40,15 +55,17 @@ in-memory design when the write fails.
 
 ## Verification
 
-Run the dedicated storage migration suite with:
+Run the dedicated storage suite with:
 
 ```sh
 npm run test:blueprint-storage
 ```
 
-This executes `verify-blueprint-storage.js`, covering legacy formats, current
-version round trip, corrupt JSON, partial corruption, unknown versions,
-unavailable storage, quota/write failure, and repeated idempotent migration.
+This executes `verify-blueprint-storage.js`, covering the v2 hard break from
+pre-wiring storage, modules+wiring round trips, independent wiring copies,
+export/import with wiring, corrupt JSON, partial corruption, unknown versions,
+unavailable storage, and quota/write failure. The shared wiring engine itself
+is covered by `npm run test:wiring` (`verify-wiring.js`).
 
 ## Completed Catch-up Parts 1–3
 

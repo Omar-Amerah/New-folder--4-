@@ -1,7 +1,7 @@
 // Handles player join, leave, name updates, team assignment, re-connection matching, and admin promotion checks.
 
 const crypto = require("crypto");
-const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN } = require("./config");
+const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN, DEFAULT_WIRING } = require("./config");
 const { sanitizeName, sanitizeTeam } = require("./validation");
 const { performanceNow } = require("./utils");
 
@@ -158,6 +158,11 @@ function joinRoom(client, message) {
     ai: null,
     ready: false,
     design: DEFAULT_DESIGN.map((part) => ({ ...part })),
+    wiring: {
+      version: DEFAULT_WIRING.version,
+      power: DEFAULT_WIRING.power.map((segment) => ({ ...segment })),
+      data: DEFAULT_WIRING.data.map((segment) => ({ ...segment }))
+    },
     stats: computeStats(DEFAULT_DESIGN),
     ships: [],
     money: room.rules.startingMoney,

@@ -1,5 +1,6 @@
 const { sanitizeRoomCode } = require('./validation');
-const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64;
+const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
+const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
 const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setRallyPoint','resetRallyPoint','command','destruct','setTeam','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
 const COMBAT = new Set(['sentry','charge','circle','hold']);
 const FORMATIONS = new Set(['line','wedge','clump']);
@@ -15,6 +16,22 @@ const num=(v,min=-1e6,max=1e6)=>typeof v==='number'&&Number.isFinite(v)&&v>=min&
 const id=(v)=>typeof v==='string'&&v.length>=1&&v.length<=64;
 function validShipIds(v){ return Array.isArray(v)&&v.length<=MAX_SHIP_IDS&&v.every(id); }
 function validDesign(v){ return Array.isArray(v)&&v.length>0&&v.length<=MAX_DESIGN&&v.every((e)=>isPlainObject(e)&&str(e.part||e.type||e.id||'x',128)); }
+// Wiring payloads: { version?, power?, data? } holding wire segments as
+// { x1, y1, x2, y2 } grid-point integers. Only shape/size is checked here —
+// geometry, attachment and networks are re-derived server-side by WiringRules.
+function validWireSegment(s){ if(!isPlainObject(s))return false; if(Object.keys(s).length>4)return false; return ['x1','y1','x2','y2'].every((k)=>Number.isInteger(s[k])&&s[k]>=0&&s[k]<=POINT_MAX); }
+function validWiring(v){
+  if(!isPlainObject(v))return false;
+  if(Object.keys(v).some((k)=>!['version','power','data'].includes(k)))return false;
+  if(v.version!==undefined&&!int(v.version,1,9))return false;
+  for(const kind of ['power','data']){
+    const list=v[kind];
+    if(list===undefined)continue;
+    if(!Array.isArray(list)||list.length>MAX_WIRE_SEGMENTS)return false;
+    if(!list.every(validWireSegment))return false;
+  }
+  return true;
+}
 function validRules(v){ return isPlainObject(v)&&Object.keys(v).length<=32; }
 function fail(code,message){ return {ok:false,code,message}; }
 function checkRequired(m, fields){ for(const f of fields) if(!Object.prototype.hasOwnProperty.call(m,f)) return fail('invalid-payload',`Missing required field: ${f}`); return null; }
@@ -46,8 +63,15 @@ function validateClientMessage(message){
   if(message.room!==undefined&&message.room!==''&&(typeof message.room!=='string'||!sanitizeRoomCode(message.room)))return fail('invalid-room','Invalid room code');
   if(message.shipIds!==undefined&&!validShipIds(message.shipIds))return fail('invalid-selection','Invalid ship selection');
   if(message.design!==undefined&&!validDesign(message.design))return fail('invalid-design','Invalid design payload');
-  if(!finiteNumbers(message)||tooLongStrings(message))return fail('invalid-payload','Message fields exceed protocol limits');
+  if(message.wiring!==undefined){
+    if(message.type!=='deploy'&&message.type!=='buyShip')return fail('invalid-payload','Wiring is only accepted on blueprint messages');
+    if(!validWiring(message.wiring))return fail('invalid-wiring','Invalid wiring payload');
+  }
+  // Wiring segment lists may legitimately exceed the generic MAX_ARRAY bound;
+  // they were fully validated above, so exclude them from the generic sweep.
+  const generic=message.wiring===undefined?message:{...message,wiring:0};
+  if(!finiteNumbers(generic)||tooLongStrings(generic))return fail('invalid-payload','Message fields exceed protocol limits');
   const specific=validateSpecific(message); if(specific)return specific;
   return {ok:true,schema:SCHEMAS[message.type]};
 }
-module.exports={SCHEMAS,validateClientMessage,limits:{MAX_TYPE,MAX_STRING,MAX_ARRAY,MAX_DEPTH,MAX_DESIGN,MAX_SHIP_IDS}};
+module.exports={SCHEMAS,validateClientMessage,limits:{MAX_TYPE,MAX_STRING,MAX_ARRAY,MAX_DEPTH,MAX_DESIGN,MAX_SHIP_IDS,MAX_WIRE_SEGMENTS}};

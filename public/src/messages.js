@@ -3,8 +3,9 @@
 import { state } from "./state.js";
 import { dom } from "./ui/dom.js";
 import { applyServerParts } from "./design/parts.js";
-import { normalizeDesign } from "./design/blueprintStorage.js";
+import { normalizeDesign, normalizeWiring, defaultWiring } from "./design/blueprintStorage.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats } from "./ui/designerUi.js";
+import { resetWiringEditorState } from "./ui/wiringUi.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderSavedDesigns } from "./ui/savedBlueprintsUi.js";
@@ -16,7 +17,7 @@ import { renderSideControls } from "./ui/sidePanelUi.js";
 import { renderScoreboard } from "./ui/scoreboardUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
-import { LOCAL_ACTIVE_ROOM_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
+import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { mergeSnapshotTransaction } from "./snapshotMerge.js";
@@ -91,6 +92,8 @@ export function handleServerMessage(message) {
     state.connectionId = message.connectionId || message.id;
     applyServerParts(message.parts || {});
     state.design = normalizeDesign(state.design);
+    state.wiring = normalizeWiring(state.wiring, state.design);
+    resetWiringEditorState();
     invalidateHeatAnalysisCache();
     state.hoveredHeatPartIndex = null;
     renderPalette();
@@ -100,9 +103,9 @@ export function handleServerMessage(message) {
     renderSavedDesigns();
     state.world = message.world || { ...WORLD_FALLBACK };
     state.rules = { ...state.rules, ...(message.economy || {}) };
-    const LOCAL_DESIGN_KEY = "modular-fleet-design-v2";
     if (!localStorage.getItem(LOCAL_DESIGN_KEY)) {
       state.design = normalizeDesign(message.defaultDesign || state.design);
+      state.wiring = normalizeWiring(message.defaultWiring || defaultWiring(), state.design);
       invalidateHeatAnalysisCache();
       state.hoveredHeatPartIndex = null;
       renderBuildGrid();

@@ -405,6 +405,27 @@
               <div class="blueprint-view-tabs" role="tablist" aria-label="Blueprint view">
                 <button id="blueprintBuildTab" type="button" role="tab" aria-selected="true">Blueprint</button>
                 <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false">Heat</button>
+                <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false">Wiring</button>
+              </div>
+              <div id="wiringToolbar" class="wiring-toolbar" hidden>
+                <div class="wiring-control-row" role="group" aria-label="Wiring network type">
+                  <span class="wiring-control-label">Network</span>
+                  <button type="button" id="wiringModePower" class="wiring-mode-power active" aria-pressed="true" title="Edit Power wiring (amber)">Power</button>
+                  <button type="button" id="wiringModeData" class="wiring-mode-data" aria-pressed="false" title="Edit Data wiring (cyan)">Data</button>
+                </div>
+                <div class="wiring-control-row" role="group" aria-label="Wiring tool">
+                  <span class="wiring-control-label">Tool</span>
+                  <button type="button" id="wiringToolRoute" class="active" aria-pressed="true" title="Click a source component, hover a destination to preview the shortest route, click to confirm">Auto Route</button>
+                  <button type="button" id="wiringToolErase" aria-pressed="false" title="Click a wire segment to remove it">Erase</button>
+                </div>
+                <div class="wiring-control-row" role="group" aria-label="Wiring actions">
+                  <button type="button" id="wiringUndoButton" title="Undo last wiring action">Undo</button>
+                  <button type="button" id="wiringClearNetworkButton" title="Remove every segment of the selected component's network">Clear selected network</button>
+                  <button type="button" id="wiringClearPowerButton" title="Remove all Power wiring">Clear all Power</button>
+                  <button type="button" id="wiringClearDataButton" title="Remove all Data wiring">Clear all Data</button>
+                  <button type="button" id="wiringShowAllButton" aria-pressed="false" title="Show Power and Data networks at the same time">Show all networks</button>
+                </div>
+                <small id="wiringHint" class="wiring-hint" aria-live="polite"></small>
               </div>
               <div id="heatToolbar" class="heat-toolbar" hidden>
                 <div class="heat-control-panel">
@@ -451,6 +472,7 @@
               <div id="buildGridStage" class="build-grid-stage">
                 <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
                 <div id="heatFlowOverlayHost" class="heat-flow-overlay-host" aria-hidden="true"></div>
+                <div id="wiringOverlayHost" class="wiring-overlay-host"></div>
                 <div id="blueprintThermalHud" class="blueprint-thermal-hud" hidden></div>
                 <div id="heatContextCard" class="heat-context-card" hidden></div>
               </div>
@@ -469,6 +491,7 @@
 
           <div class="designer-right-col">
             <section id="fullLoadThermalPanel" class="full-load-thermal-panel" hidden></section>
+            <section id="wiringStatusPanel" class="wiring-status-panel" hidden aria-label="Wiring status"></section>
             <div id="partInspector" class="part-inspector"></div>
             <div id="statsGrid" class="stats-grid"></div>
             <div class="saved-designs">
@@ -497,6 +520,7 @@
     <script src="/src/shared/heatRules.js?v=local-heat-4"></script>
     <script src="/src/shared/engineExhaust.js?v=engine-exhaust-1"></script>
     <script src="/src/shared/turretRules.js?v=turret-rules-1"></script>
+    <script src="/src/shared/wiringRules.js?v=wiring-rules-1"></script>
     <script type="module" src="/src/main.js?v=local-heat-4"></script>
   </body>
 </html>

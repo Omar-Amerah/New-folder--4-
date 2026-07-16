@@ -32,6 +32,7 @@ export const state = {
   world: { ...WORLD_FALLBACK },
   parts: {},
   design: initialDesign.modules,
+  wiring: initialDesign.wiring,
   combatStyle: initialDesign.combatStyle,
   savedDesigns: loadSavedDesigns(),
   loadedEditorBlueprintId: null,
@@ -46,6 +47,18 @@ export const state = {
   hoveredCell: null,
   selectedCell: null,
   blueprintView: "build",
+  // Wiring editor view state: mode is the network kind being edited, tool is
+  // "route" (auto route) or "erase", selection/source are component indices.
+  wiringUi: {
+    mode: "power",
+    tool: "route",
+    selectedIndex: null,
+    sourceIndex: null,
+    hoverIndex: null,
+    previewRoute: null,
+    showAllNetworks: false,
+    undoStack: []
+  },
   thermalLoadMode: DEFAULT_THERMAL_LOAD_MODE,
   heatFlowView: "local",
   showAllHeatFlows: false,

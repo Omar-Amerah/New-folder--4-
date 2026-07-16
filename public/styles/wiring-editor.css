@@ -1,0 +1,199 @@
+/* Wiring editor view: toolbar, wire overlay and status panel.
+   Colour language: amber = Power, cyan = Data, green = connected/working,
+   red = disconnected/invalid, yellow = warnings, blue = selected network. */
+
+.wiring-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(126, 160, 210, 0.28);
+  border-radius: 10px;
+  background: rgba(10, 18, 32, 0.82);
+  margin-bottom: 8px;
+}
+
+.wiring-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.wiring-control-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8ea6c8;
+  min-width: 58px;
+}
+
+.wiring-toolbar button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(126, 160, 210, 0.35);
+  background: rgba(20, 32, 52, 0.9);
+  color: #cfe0f5;
+  cursor: pointer;
+}
+
+.wiring-toolbar button:hover { border-color: rgba(160, 196, 245, 0.7); }
+.wiring-toolbar button:disabled { opacity: 0.45; cursor: default; }
+.wiring-toolbar button.active {
+  border-color: #6fa8ff;
+  background: rgba(56, 92, 150, 0.55);
+  color: #ffffff;
+}
+.wiring-toolbar .wiring-mode-power.active { border-color: #ffb84d; background: rgba(150, 102, 26, 0.4); }
+.wiring-toolbar .wiring-mode-data.active { border-color: #38d9ff; background: rgba(24, 110, 138, 0.45); }
+
+.wiring-hint { color: #9db4d6; font-size: 11px; }
+
+/* Slightly dim the component grid while wiring so wires stay readable. */
+.build-grid.wiring-overlay-active .build-cell {
+  filter: brightness(0.72) saturate(0.8);
+}
+.build-grid.wiring-overlay-active .build-cell:hover {
+  filter: brightness(0.95) saturate(0.95);
+}
+
+.wiring-overlay-host {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.wiring-overlay {
+  position: absolute;
+  /* Match the grid's padding box exactly like the heat-flow overlay. */
+  inset: 8px;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  overflow: visible;
+}
+
+.wiring-overlay line {
+  stroke-linecap: round;
+  fill: none;
+}
+
+.wiring-overlay .wire-power {
+  stroke: #ffb84d; /* amber */
+  stroke-width: 0.09;
+  opacity: 0.92;
+}
+
+.wiring-overlay .wire-data {
+  stroke: #38d9ff; /* cyan */
+  stroke-width: 0.09;
+  opacity: 0.92;
+  stroke-dasharray: 0.22 0.1;
+}
+
+.wiring-overlay .wire-net-selected {
+  stroke-width: 0.13;
+  filter: drop-shadow(0 0 0.14px #5b8cff) drop-shadow(0 0 0.2px #5b8cff); /* blue selection glow */
+}
+.wiring-overlay .wire-net-working { stroke: #45e07c; }  /* green: connected and working */
+.wiring-overlay .wire-net-broken { stroke: #ff5f6b; }   /* red: no source / not working */
+
+.wiring-overlay .wire-dim { opacity: 0.16; }
+
+.wiring-overlay .wire-hit {
+  stroke: transparent;
+  stroke-width: 0.34;
+  pointer-events: none;
+}
+/* The host itself stays pointer-events:none so grid hover/click keeps working
+   in Erase mode; only the wire hit-strokes re-enable pointer events. */
+.wiring-overlay-host.wiring-erase-active .wire-hit {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.wiring-overlay-host.wiring-erase-active .wire-hit:hover { stroke: rgba(255, 95, 107, 0.35); }
+
+.wiring-overlay .wire-preview {
+  stroke-width: 0.12;
+  stroke-dasharray: 0.16 0.12;
+  animation: wiring-preview-march 0.9s linear infinite;
+}
+.wiring-overlay .wire-preview.valid.wire-preview-power { stroke: #ffd27f; }
+.wiring-overlay .wire-preview.valid.wire-preview-data { stroke: #8deaff; }
+.wiring-overlay .wire-preview.invalid { stroke: #ff5f6b; }
+
+@keyframes wiring-preview-march {
+  to { stroke-dashoffset: -0.56; }
+}
+
+.wiring-overlay rect {
+  fill: none;
+  stroke-width: 0.07;
+}
+.wiring-overlay .wire-comp-selected { stroke: #6fa8ff; stroke-width: 0.09; }           /* blue */
+.wiring-overlay .wire-comp-connected-source { stroke: #45e07c; }                        /* green */
+.wiring-overlay .wire-comp-connected-dest { stroke: #45e07c; stroke-dasharray: 0.18 0.1; }
+.wiring-overlay .wire-comp-disconnected { stroke: #ff5f6b; stroke-dasharray: 0.12 0.1; } /* red */
+.wiring-overlay .wire-comp-route-source { stroke: #ffffff; stroke-width: 0.09; }
+.wiring-overlay .wire-comp-candidate { stroke: rgba(255, 255, 255, 0.55); stroke-dasharray: 0.08 0.12; }
+
+.wiring-overlay .wire-port {
+  fill: #6fa8ff;
+  stroke: #0b1526;
+  stroke-width: 0.03;
+}
+
+/* Status panel */
+.wiring-status-panel {
+  border: 1px solid rgba(126, 160, 210, 0.28);
+  border-radius: 10px;
+  background: rgba(10, 18, 32, 0.82);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #cfe0f5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wiring-status-panel h3 { margin: 0; font-size: 13px; }
+.wiring-status-panel h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8ea6c8;
+}
+
+.wiring-selection h4 { margin-bottom: 4px; color: #cfe0f5; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.wiring-selection-grid { display: flex; flex-direction: column; gap: 2px; }
+.wiring-selection-grid > div { display: flex; justify-content: space-between; gap: 10px; }
+.wiring-selection-grid span { color: #8ea6c8; }
+.wiring-selection-empty { color: #9db4d6; }
+
+.wiring-summary-section { border-top: 1px solid rgba(126, 160, 210, 0.18); padding-top: 6px; }
+.wiring-summary-line { margin-bottom: 4px; color: #9db4d6; }
+
+.wiring-network-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 2px 0;
+}
+.wiring-network-row em { grid-column: 2 / 4; font-style: normal; color: #8ea6c8; font-size: 11px; }
+.wiring-network-row.wiring-network-broken span:nth-child(2) { color: #ff9aa3; }
+
+.wiring-swatch { width: 10px; height: 4px; border-radius: 2px; display: inline-block; }
+.wiring-swatch-power { background: #ffb84d; }
+.wiring-swatch-data { background: #38d9ff; }
+
+.wiring-good { color: #45e07c; }
+.wiring-bad { color: #ff5f6b; }
+.wiring-warn { color: #ffd94d; } /* yellow warnings */
+
+.wiring-warnings ul { margin: 0; padding-left: 16px; color: #ffd94d; }
+.wiring-warnings li { margin: 2px 0; }
+
+.wiring-empty-note { color: #8ea6c8; font-size: 11px; }

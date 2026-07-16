@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { computeStats } from "../design/componentStats.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
-import { normalizeDesign, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
+import { normalizeDesign, normalizeWiring, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
 import { validateBlueprint } from "../design/blueprintValidation.js";
 import { showToast } from "./toastUi.js";
 import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
@@ -15,6 +15,7 @@ import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
 import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
 import { invalidateHeatAnalysisCache } from "./designerUi.js";
+import { resetWiringEditorState } from "./wiringUi.js";
 let modalReturnFocus = null;
 
 
@@ -261,11 +262,14 @@ export function duplicateSavedDesign(id) {
     return;
   }
   const source = state.savedDesigns[index];
+  const copyBlueprint = normalizeDesign(source.blueprint, { fallbackOnInvalid: false, allowEmpty: true }).map((part) => ({ ...part }));
   const copy = {
     ...source,
     id: makeDesignId(),
     name: `${source.name} copy`.slice(0, 28),
-    blueprint: normalizeDesign(source.blueprint, { fallbackOnInvalid: false, allowEmpty: true }).map((part) => ({ ...part })),
+    blueprint: copyBlueprint,
+    // Independent wiring copy so editing the duplicate never touches the source.
+    wiring: normalizeWiring(source.wiring, copyBlueprint),
     invalid: Boolean(source.invalid),
     invalidReason: source.invalidReason || "Invalid blueprint.",
     createdAt: Date.now(),
@@ -358,18 +362,22 @@ function loadSavedDesign(id) {
   }
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
+  // Load an independent copy of the saved wiring alongside the modules, and
+  // drop wiring-editor selection/undo state that referenced the old design.
+  state.wiring = normalizeWiring(saved.wiring, valid);
+  resetWiringEditorState();
   invalidateHeatAnalysisCache();
   state.hoveredHeatPartIndex = null;
   state.combatStyle = saved.combatStyle || "sentry";
   state.loadedEditorBlueprintId = saved.id;
-  
+
   if (dom.combatStyleSelect) {
     dom.combatStyleSelect.value = state.combatStyle;
   }
-  
-  // Save design to localStorage v2
+
+  // Save design to localStorage (schema v2: modules + wiring)
   import("../design/blueprintStorage.js").then((mod) => {
-    mod.persistDesign(state.design, state.combatStyle);
+    mod.persistDesign(state.design, state.wiring, state.combatStyle);
   });
 
   // Re-draw grid and update UI
@@ -390,6 +398,8 @@ function saveBlueprintButtonText() {
 
 export function saveCurrentDesign() {
   const blueprint = state.design.map((part) => ({ ...part }));
+  // Saved designs keep an independent copy of the wiring arrays.
+  const wiring = normalizeWiring(state.wiring, blueprint);
   const stats = computeStats(blueprint);
   const validation = validateBlueprint(blueprint, { requireThrust: true, stats });
   if (!validation.ok) {
@@ -402,6 +412,7 @@ export function saveCurrentDesign() {
     state.savedDesigns = state.savedDesigns.map((design) => design.id === existing.id ? {
       ...design,
       blueprint,
+      wiring,
       combatStyle: state.combatStyle || "sentry",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
@@ -420,6 +431,7 @@ export function saveCurrentDesign() {
       id,
       name,
       blueprint,
+      wiring,
       combatStyle: state.combatStyle || "sentry",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
@@ -434,7 +446,7 @@ export function saveCurrentDesign() {
   persistSavedDesigns(state.savedDesigns);
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: blueprint, combatStyle: state.combatStyle || "sentry" });
+    send({ type: "deploy", design: blueprint, wiring, combatStyle: state.combatStyle || "sentry" });
   }
 
   renderSavedDesigns();
