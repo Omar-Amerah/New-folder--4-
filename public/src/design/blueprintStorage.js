@@ -43,24 +43,11 @@ export function defaultDesign() {
   ];
 }
 
-// Default Power wiring: one bus along the y=7 grid line plus a drop to the
-// engine. It joins the Core, Reactor and Aux Generator to every powered
-// component of the default layout. The default ship carries no Data-support
-// module, so its Data wiring is empty. Kept in sync with
-// src/server/config.js DEFAULT_WIRING.
+// Wiring v2 intentionally starts empty. The retired v1 edge data is cleared,
+// and players create explicit terminal-to-terminal routes manually.
 export function defaultWiring() {
-  return {
-    version: 1,
-    power: [
-      { x1: 5, y1: 7, x2: 6, y2: 7 },
-      { x1: 6, y1: 7, x2: 7, y2: 7 },
-      { x1: 7, y1: 7, x2: 8, y2: 7 },
-      { x1: 8, y1: 7, x2: 9, y2: 7 },
-      { x1: 7, y1: 7, x2: 7, y2: 8 },
-      { x1: 7, y1: 8, x2: 7, y2: 9 }
-    ],
-    data: []
-  };
+  // Version 1 edge data is intentionally discarded; players place v2 routes manually.
+  return { version: 2, power: { sections: [], connections: [] }, data: { sections: [], connections: [] } };
 }
 
 export function normalizeWiring(wiring, modules) {
@@ -70,20 +57,24 @@ export function normalizeWiring(wiring, modules) {
 }
 
 // If the shared engine script is unavailable (stale-cached index.html, a test
-// importing this module without the shim), pass stored segments through with a
-// bounded shape instead of returning empty wiring — otherwise the next
+// importing this module without the shim), preserve bounded v2 routes rather
+// than returning empty wiring — otherwise the next
 // persistDesign() would permanently wipe the user's saved wiring. Real
 // normalization happens once the engine is present again.
 function preservedWiringFallback(wiring) {
-  const list = (value) => Array.isArray(value)
-    ? value.slice(0, 240).map((segment) => ({
-        x1: Math.trunc(Number(segment?.x1)) || 0,
-        y1: Math.trunc(Number(segment?.y1)) || 0,
-        x2: Math.trunc(Number(segment?.x2)) || 0,
-        y2: Math.trunc(Number(segment?.y2)) || 0
-      }))
-    : [];
-  return { version: 1, power: list(wiring?.power), data: list(wiring?.data) };
+  const empty = () => ({ sections: [], connections: [] });
+  if (wiring?.version !== 2) return { version: 2, power: empty(), data: empty() };
+  const kind = (value) => ({
+    sections: Array.isArray(value?.sections) ? value.sections.slice(0, 480).map((section) => ({
+      id: String(section?.id || ""), x1: Math.trunc(Number(section?.x1)), y1: Math.trunc(Number(section?.y1)),
+      x2: Math.trunc(Number(section?.x2)), y2: Math.trunc(Number(section?.y2)), tier: section?.tier === "standard" ? "standard" : "standard"
+    })) : [],
+    connections: Array.isArray(value?.connections) ? value.connections.slice(0, 240).map((connection) => ({
+      sourceIndex: Math.trunc(Number(connection?.sourceIndex)), targetIndex: Math.trunc(Number(connection?.targetIndex)),
+      sectionIds: Array.isArray(connection?.sectionIds) ? connection.sectionIds.slice(0, 224).map(String) : []
+    })) : []
+  });
+  return { version: 2, power: kind(wiring.power), data: kind(wiring.data) };
 }
 
 function nowIso() { return new Date().toISOString(); }

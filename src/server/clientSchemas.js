@@ -16,22 +16,12 @@ const num=(v,min=-1e6,max=1e6)=>typeof v==='number'&&Number.isFinite(v)&&v>=min&
 const id=(v)=>typeof v==='string'&&v.length>=1&&v.length<=64;
 function validShipIds(v){ return Array.isArray(v)&&v.length<=MAX_SHIP_IDS&&v.every(id); }
 function validDesign(v){ return Array.isArray(v)&&v.length>0&&v.length<=MAX_DESIGN&&v.every((e)=>isPlainObject(e)&&str(e.part||e.type||e.id||'x',128)); }
-// Wiring payloads: { version?, power?, data? } holding wire segments as
-// { x1, y1, x2, y2 } grid-point integers. Only shape/size is checked here —
-// geometry, attachment and networks are re-derived server-side by WiringRules.
-function validWireSegment(s){ if(!isPlainObject(s))return false; if(Object.keys(s).length>4)return false; return ['x1','y1','x2','y2'].every((k)=>Number.isInteger(s[k])&&s[k]>=0&&s[k]<=POINT_MAX); }
-function validWiring(v){
-  if(!isPlainObject(v))return false;
-  if(Object.keys(v).some((k)=>!['version','power','data'].includes(k)))return false;
-  if(v.version!==undefined&&!int(v.version,1,9))return false;
-  for(const kind of ['power','data']){
-    const list=v[kind];
-    if(list===undefined)continue;
-    if(!Array.isArray(list)||list.length>MAX_WIRE_SEGMENTS)return false;
-    if(!list.every(validWireSegment))return false;
-  }
-  return true;
-}
+// Wiring v2 separates canonical physical sections (which own tier) from
+// logical terminal connections (which reference ordered section ids).
+function validWireSection(s){return isPlainObject(s)&&Object.keys(s).every(k=>['id','x1','y1','x2','y2','tier'].includes(k))&&str(s.id,64)&&['x1','y1','x2','y2'].every(k=>int(s[k],0,POINT_MAX))&&(s.tier===undefined||str(s.tier,32));}
+function validWireConnection(c){return isPlainObject(c)&&Object.keys(c).every(k=>['sourceIndex','targetIndex','sectionIds'].includes(k))&&int(c.sourceIndex,0,MAX_DESIGN-1)&&int(c.targetIndex,0,MAX_DESIGN-1)&&Array.isArray(c.sectionIds)&&c.sectionIds.length>0&&c.sectionIds.length<=224&&c.sectionIds.every(id=>str(id,64));}
+function validWireKind(k){return isPlainObject(k)&&Object.keys(k).every(key=>['sections','connections'].includes(key))&&Array.isArray(k.sections)&&k.sections.length<=480&&k.sections.every(validWireSection)&&Array.isArray(k.connections)&&k.connections.length<=MAX_WIRE_SEGMENTS&&k.connections.every(validWireConnection);}
+function validWiring(v){return isPlainObject(v)&&v.version===2&&Object.keys(v).every(k=>['version','power','data'].includes(k))&&validWireKind(v.power)&&validWireKind(v.data);}
 function validRules(v){ return isPlainObject(v)&&Object.keys(v).length<=32; }
 function fail(code,message){ return {ok:false,code,message}; }
 function checkRequired(m, fields){ for(const f of fields) if(!Object.prototype.hasOwnProperty.call(m,f)) return fail('invalid-payload',`Missing required field: ${f}`); return null; }

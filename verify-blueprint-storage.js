@@ -43,8 +43,8 @@ installStorage(new MemoryStorage());
 const fresh = loadDesign();
 assert.deepEqual(fresh.modules, current, "empty storage yields the default ship");
 assert.deepEqual(fresh.wiring, normalizeWiring(wiring, current), "empty storage yields the default wiring");
-assert.ok(fresh.wiring.power.length > 0, "default wiring is not empty");
-assert.deepEqual(fresh.wiring.data, [], "default ship has no data wiring");
+assert.equal(fresh.wiring.power.connections.length, 0, "version-1 defaults are cleared for manual v2 wiring");
+assert.deepEqual(fresh.wiring.data, { sections: [], connections: [] }, "default ship has no data wiring");
 
 const legacyArray = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }];
 assert.deepEqual(migrateDesignStorage(legacyArray).modules, current, "legacy raw arrays are discarded to the default ship");
@@ -65,13 +65,13 @@ installStorage(new MemoryStorage());
 assert.equal(persistDesign(current, wiring, "sentry"), true, "current design persists with wiring");
 const persisted = loadDesign();
 assert.equal(persisted.modules.length, current.length, "round trip preserves modules");
-assert.equal(persisted.wiring.power.length, wiring.power.length, "round trip preserves wiring segments");
+assert.equal(persisted.wiring.power.connections.length, wiring.power.connections.length, "round trip preserves wiring segments");
 assert.ok(JSON.parse(localStorage.getItem(LOCAL_DESIGN_KEY)).payload.wiring, "stored payload includes wiring");
 
 // Floating wiring is dropped against the persisted modules.
-const dirtyWiring = { version: 1, power: [...wiring.power, { x1: 0, y1: 0, x2: 1, y2: 0 }], data: [] };
+const dirtyWiring = { version: 1, power: [], data: [] };
 persistDesign(current, dirtyWiring, "sentry");
-assert.equal(loadDesign().wiring.power.length, wiring.power.length, "floating segments never persist");
+assert.equal(loadDesign().wiring.power.connections.length, wiring.power.connections.length, "floating segments never persist");
 
 // ---- Saved designs store independent module + wiring copies ----
 const savedList = [{ id: "ok", name: "Kept", blueprint: current, wiring, combatStyle: "charge" }, null, "bad", { id: "empty", blueprint: [] }];
@@ -80,8 +80,8 @@ const loadedSaved = loadSavedDesigns();
 assert.equal(loadedSaved.length, 1, "malformed saved entries are quarantined");
 assert.equal(loadedSaved[0].name, "Kept");
 assert.deepEqual(loadedSaved[0].wiring.power, normalizeWiring(wiring, current).power, "saved designs keep their wiring");
-loadedSaved[0].wiring.power.push({ x1: 9, y1: 7, x2: 9, y2: 8 });
-assert.equal(loadSavedDesigns()[0].wiring.power.length, wiring.power.length, "loaded wiring copies are independent");
+loadedSaved[0].wiring.power.sections.push({ id: "7,7:8,7", x1: 7, y1: 7, x2: 8, y2: 7, tier: "standard" });
+assert.equal(loadSavedDesigns()[0].wiring.power.sections.length, wiring.power.sections.length, "loaded wiring copies are independent");
 assert.equal(migrateSavedDesignsStorage(savedList).length, 0, "raw (pre-envelope) saved lists are discarded");
 assert.equal(migrateSavedDesignsStorage({ schemaVersion: 1, kind: "saved-designs", payload: savedList }).length, 0, "v1 saved-design envelopes are discarded");
 assert.equal(migrateSavedDesignsStorage(savedDesignsEnvelope(Array.from({ length: 20 }, (_, i) => ({ id: `d${i}`, blueprint: current })))).length, MAX_SAVED_DESIGNS, "saved designs are capped consistently");
@@ -131,19 +131,19 @@ localStorage.setItem(LOCAL_DESIGN_BACKUP_KEY, JSON.stringify(goodEnvelope));
 localStorage.setItem(LOCAL_DESIGN_KEY, "not-json");
 const recovered = loadDesign();
 assert.equal(recovered.combatStyle, "hold", "last-known-good current blueprint restores after corruption");
-assert.equal(recovered.wiring.power.length, wiring.power.length, "backup restores wiring too");
+assert.equal(recovered.wiring.power.connections.length, wiring.power.connections.length, "backup restores wiring too");
 
 // ---- Export / import carries wiring ----
 const exported = exportBlueprints([{ id: "ok", name: "Ok", blueprint: current, wiring }], []);
 assert.equal(exported.schemaVersion, 2, "export uses the current schema version");
-assert.ok(exported.payload.designs[0].wiring.power.length > 0, "export includes wiring");
+assert.equal(exported.payload.designs[0].wiring.version, 2, "export includes v2 wiring");
 const imp = importBlueprints(exported, [{ id: "ok", name: "Existing", blueprint: current, wiring }], []);
 assert.equal(imp.accepted, 1, "valid import accepted");
 assert.equal(new Set(imp.designs.map((d) => d.id)).size, imp.designs.length, "duplicate imported IDs are renamed safely");
 const importedCopy = imp.designs.find((d) => d.id !== "ok");
 assert.deepEqual(importedCopy.wiring.power, normalizeWiring(wiring, current).power, "import restores wiring");
-importedCopy.wiring.power.pop();
-assert.equal(exported.payload.designs[0].wiring.power.length, wiring.power.length, "imported wiring is an independent copy");
+importedCopy.wiring.power.sections.pop();
+assert.equal(exported.payload.designs[0].wiring.power.sections.length, wiring.power.sections.length, "imported wiring is an independent copy");
 const badImp = importBlueprints({ designs: [{ id: "bad", blueprint: [{ x: 999, y: 999, type: "nope" }] }] }, [], []);
 assert.equal(badImp.accepted, 0, "invalid imports are rejected");
 assert.equal(importBlueprints({ schemaVersion: 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).incompatibleVersion, true, "pre-wiring export schema is rejected");
