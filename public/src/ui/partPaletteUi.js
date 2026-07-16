@@ -47,7 +47,7 @@ export function renderPalette() {
       state.previewRotation = wasSelected ? 0 : (PART_STATS[type]?.allowedRotations?.[0] ?? 0);
       renderPalette();
       renderPartInspector();
-      for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-force, .maneuver-preview-torque, .maneuver-preview-weak")) stale.remove();
+      for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-weak")) stale.remove();
     });
     list.appendChild(button);
   }
