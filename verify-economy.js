@@ -42,7 +42,7 @@ function makePlayer(id, team = "blue") {
 }
 
 function makeActiveRoom() {
-  const room = createRoom("ECON");
+  const room = createRoom("ECON", { seed: 42 });
   room.phase = "active";
   room.players.clear();
   room.ships.clear();

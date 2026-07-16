@@ -41,8 +41,24 @@ function assertAsteroidClearance(map, input) {
 
 function testDeterministicMapRegressionSeeds() {
   const world = WORLD_SIZES.find((candidate) => candidate.label === "Duel");
-  for (const seed of [2204914662, 105750278]) {
+  for (const seed of [2204914662, 105750278, 2591174599]) {
     assertMap(seed, world, "teams", "high");
+  }
+}
+
+function testRoundedRelayClearanceRegression() {
+  const seed = 2591174599;
+  const world = WORLD_SIZES.find((candidate) => candidate.label === "Duel");
+  const first = assertMap(seed, world, "teams", "high");
+  const second = generateMap("TEST", world, "teams", "high", { seed });
+  assert.deepStrictEqual(first.relays, second.relays, "relay placement changed for the same seed");
+  for (const relay of first.relays) {
+    assert(Number.isInteger(relay.x) && Number.isInteger(relay.y) && Number.isInteger(relay.radius),
+      `relay ${relay.id} was not stored with rounded geometry`);
+    for (const [index, zone] of first.safeZones.entries()) {
+      assert(Math.hypot(relay.x - zone.x, relay.y - zone.y) >= relay.radius + zone.radius + 500,
+        `relay ${relay.id} overlaps safe zone ${index} after rounding`);
+    }
   }
 }
 
@@ -123,6 +139,7 @@ function testObjectives() {
 
 testMapInvariants();
 testDeterministicMapRegressionSeeds();
+testRoundedRelayClearanceRegression();
 testDeterministicMapSeedSweep();
 testObjectives();
 console.log("Map generation and objective invariant checks passed");
