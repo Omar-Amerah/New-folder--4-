@@ -66,8 +66,17 @@ function rotateShipToward(ship, desired, stats, dt) {
   const next = rotateToward(before, desired, rate * dt);
   const applied = Math.abs(angleDifference(before, next));
   ship.angle = next;
-  ship.turnActivity = rate > 0 ? clampNumber((applied / Math.max(rate * dt, 1e-9)) * Math.sign(angleDifference(before, next)), -1, 1) : 0;
-  heatActiveManeuverThrusters(ship, ship.turnActivity, dt);
+  const turnActivity = rate > 0 ? clampNumber((applied / Math.max(rate * dt, 1e-9)) * Math.sign(angleDifference(before, next)), -1, 1) : 0;
+  preserveTurnActivity(ship, turnActivity);
+  heatActiveManeuverThrusters(ship, turnActivity, dt);
+}
+
+function preserveTurnActivity(ship, turnActivity) {
+  if (!Number.isFinite(turnActivity)) return;
+  const activity = clampNumber(turnActivity, -1, 1);
+  if (Math.abs(activity) < 0.01) return;
+  const current = Number.isFinite(ship.turnActivity) ? clampNumber(ship.turnActivity, -1, 1) : 0;
+  if (Math.abs(activity) >= Math.abs(current)) ship.turnActivity = activity;
 }
 
 function heatActiveManeuverThrusters(ship, turnActivity, dt) {
@@ -206,6 +215,7 @@ function formationOffset(index, count, spacing, formation) {
 function updateShipMovement(room, ship, dt) {
   const safeDt = Number(dt);
   if (!Number.isFinite(safeDt) || safeDt <= 0) return;
+  ship.turnActivity = 0;
   const total = Math.min(safeDt, MAX_MOVEMENT_DT);
   if (total > MOVEMENT_SUBSTEP * 1.01) {
     let remaining = total;
@@ -275,7 +285,8 @@ function ensureMoveTarget(ship) {
   if (!Number.isFinite(ship.vx)) ship.vx = 0;
   if (!Number.isFinite(ship.vy)) ship.vy = 0;
   if (!Number.isFinite(ship.angle)) ship.angle = 0;
-  ship.turnActivity = 0;
+  if (!Number.isFinite(ship.turnActivity)) ship.turnActivity = 0;
+  else ship.turnActivity = clampNumber(ship.turnActivity, -1, 1);
   if (!Number.isFinite(ship.targetX)) ship.targetX = ship.x;
   if (!Number.isFinite(ship.targetY)) ship.targetY = ship.y;
 }
