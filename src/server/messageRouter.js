@@ -153,9 +153,6 @@ function handleMessage(client, message) {
       return;
     }
     const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
-    // Wiring is validated/normalized server-side but is not yet part of the
-    // purchase payload: ships don't consume wiring, and keeping it out of the
-    // request preserves the requestId idempotency signature.
     const purchaseWiring = validateWiring(purchaseDesign.modules, message.wiring).wiring;
     if (message.wiring !== undefined) client.player.wiring = purchaseWiring;
     const result = executePurchase(client.room, client.player, {
@@ -163,6 +160,7 @@ function handleMessage(client, message) {
       count,
       stats: purchaseDesign.stats,
       design: purchaseDesign.modules,
+      wiring: purchaseWiring,
       combatStyle
     }, now);
     send(client, result);

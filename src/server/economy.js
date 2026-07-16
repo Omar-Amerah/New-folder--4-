@@ -3,7 +3,7 @@
 const { ECONOMY, REWARDS } = require("./config");
 const { clampNumber, round } = require("./utils");
 const { computeStats } = require("./shipStats");
-const { normalizeShipDesignSnapshot } = require("./shipDesign");
+const { createShipBlueprintSnapshot } = require("./shipDesign");
 const { spawnShip } = require("./ships");
 const { validateBuildShip } = require("./validation");
 
@@ -22,7 +22,8 @@ function finiteMoney(value, fallback = 0) {
 function buyShip(room, player, now, options = {}) {
   if (!player.ready) return null;
   const stats = options.stats || player.stats || computeStats(player.design);
-  const design = normalizeShipDesignSnapshot(options.design || player.design);
+  const blueprint = createShipBlueprintSnapshot(options.design || player.design, options.wiring !== undefined ? options.wiring : player.wiring);
+  const { design, wiring } = blueprint;
   if (!options.prevalidated) {
     const validation = options.starter
       ? validateBuildShip(room, player, stats)
@@ -36,7 +37,7 @@ function buyShip(room, player, now, options = {}) {
   player.shipsBuilt = (player.shipsBuilt || 0) + 1;
   const activeCount = activeFleetCount(player);
   const combatStyle = options.combatStyle || player.combatStyle || "sentry";
-  const ship = spawnShip(room, player, now, activeCount, { stats, design, combatStyle });
+  const ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle });
   player.money = finiteMoney(player.money - stats.unitCost);
   player.spent = finiteMoney(player.spent + stats.unitCost);
   player.deployedFleetCost = finiteMoney(player.deployedFleetCost + stats.unitCost);
@@ -65,15 +66,22 @@ function prunePurchaseRequestCache(player, now) {
 }
 
 function stablePayloadSignature(payload) {
+  const blueprint = createShipBlueprintSnapshot(payload.design, payload.wiring);
+  const canonicalKind = (kind) => ({
+    sections: kind.sections.map((section) => ({ ...section })).sort((a, b) => a.id.localeCompare(b.id)),
+    connections: kind.connections.map((connection) => ({ ...connection, sectionIds: [...connection.sectionIds] }))
+      .sort((a, b) => `${a.sourceIndex}>${a.targetIndex}:${a.sectionIds.join(";")}`.localeCompare(`${b.sourceIndex}>${b.targetIndex}:${b.sectionIds.join(";")}`))
+  });
   return JSON.stringify({
     count: payload.count,
     combatStyle: payload.combatStyle || "",
-    design: (payload.design || []).map((part) => ({
+    design: blueprint.design.map((part) => ({
       x: part.x,
       y: part.y,
       type: part.type,
       rotation: part.rotation || 0
-    }))
+    })),
+    wiring: { version: blueprint.wiring.version, power: canonicalKind(blueprint.wiring.power), data: canonicalKind(blueprint.wiring.data) }
   });
 }
 
@@ -108,7 +116,8 @@ function executePurchase(room, player, request, now) {
     return result;
   }
 
-  const design = normalizeShipDesignSnapshot(request.design);
+  const blueprint = createShipBlueprintSnapshot(request.design, request.wiring);
+  const { design, wiring } = blueprint;
   const combatStyle = request.combatStyle || player.combatStyle || "sentry";
   const createdShips = [];
   const original = {
@@ -128,11 +137,12 @@ function executePurchase(room, player, request, now) {
       createdShips.push(spawnShip(room, player, now, index, {
         stats: validation.shipStats,
         design,
+        wiring,
         combatStyle
       }));
     }
   } catch {
-    for (const ship of createdShips) {
+    for (const ship of player.ships.slice(original.shipsLength)) {
       ship.removed = true;
       ship.alive = false;
       room.ships.delete(ship.id);
