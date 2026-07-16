@@ -67,19 +67,17 @@ function renderHeatSummary(ship) {
   const hot = Number(ship.hot) || 0;
   const overheated = Number(ship.overheated) || 0;
   summary.hidden = false;
-  let fastestHeat = null, fastestCool = null;
+  let fastestHeat = null;
   ship.design?.forEach((part, i) => {
     const trend = componentHeatTrend(i);
     if (trend.direction === "warming" && (!fastestHeat || trend.smoothedRate > fastestHeat.rate)) fastestHeat = { index: i, rate: trend.smoothedRate, name: partDisplayName(part.type) };
-    if (trend.direction === "cooling" && (!fastestCool || trend.smoothedRate < fastestCool.rate)) fastestCool = { index: i, rate: trend.smoothedRate, name: partDisplayName(part.type) };
   });
   summary.innerHTML = `
     <div><span title="Aggregate stored heat across the whole ship — individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
     <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
     <div><span>Overheated</span><strong>${overheated}</strong></div>
-    ${fastestHeat ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestHeat.index}"><span>Fastest heating</span><strong>${fastestHeat.name} ${formatHeatRate(fastestHeat.rate)}</strong></button>` : ""}
-    ${fastestCool ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestCool.index}"><span>Fastest cooling</span><strong>${fastestCool.name} ${formatHeatRate(fastestCool.rate)}</strong></button>` : ""}`;
+    ${fastestHeat ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestHeat.index}"><span>Fastest heating</span><strong>${fastestHeat.name} ${formatHeatRate(fastestHeat.rate)}</strong></button>` : ""}`;
   summary.querySelectorAll(".heat-trend-jump").forEach((button) => button.addEventListener("click", () => {
     diagramInteraction = diagramInteraction || { shipId: ship.id };
     diagramInteraction.shipId = ship.id;
