@@ -152,3 +152,28 @@ Server startup is now exposed through `createGameServer(options)` in `server.js`
 ## Section 11B WebSocket transport notes
 
 WebSocket transport hardening is documented in `docs/websocket-transport.md`. The server now validates the RFC 6455 version-13 upgrade before sending `101`, supports exact allowlisted origins for split frontend/backend deployments, rejects production text frames, reconstructs fragmented binary messages before MessagePack decode, accepts interleaved control frames, validates close payloads and UTF-8 close reasons, and bounds unread and aggregate message buffers. New transport checks cover handshake, fragmentation, lifecycle, fuzz, and soak behaviour through the `test:websocket-*` scripts.
+
+## Deployment hardening: Render backend + Netlify frontend
+
+### Render backend
+
+Use Render for the persistent Node/WebSocket multiplayer server. Configure:
+
+- **Build command:** `npm ci`
+- **Start command:** `node server.js`
+- **Health check path:** `/health`
+- **Environment variable:** `WS_ALLOWED_ORIGINS=https://fastidious-raindrop-a14031.netlify.app`
+
+Do not add a trailing slash to `WS_ALLOWED_ORIGINS`; it must be the exact frontend origin. Multiple frontend domains are comma-separated exact origins, for example `https://one.example,https://two.example`. Render provides the `PORT` environment variable used by the server. Free Render services may sleep, so the first connection can take about a minute while the service wakes.
+
+The public `/health` endpoint is intentionally readable cross-origin so the frontend can distinguish an online backend with a rejected WebSocket from an offline or waking backend. Public health access does not grant WebSocket access: `/socket` still requires an exact origin from `WS_ALLOWED_ORIGINS` in production.
+
+### Netlify frontend
+
+Use Netlify only for the static browser client:
+
+- **Build command:** `npm run build`
+- **Publish directory:** `public`
+- **Production URL:** `https://fastidious-raindrop-a14031.netlify.app/?server=wss%3A%2F%2Fnew-folder-4-65uk.onrender.com`
+
+Netlify cannot host the persistent multiplayer server because rooms require a long-running Node process with WebSocket support. If the Render hostname changes, update the saved server address in the client settings or reload the Netlify URL with a new `server=` WebSocket URL.

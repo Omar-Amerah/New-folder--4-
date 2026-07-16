@@ -29,6 +29,7 @@ function wsDecode(data) {
 
 const RECONNECT = { baseMs: 300, maxMs: 4000, jitterMs: 250, maxDurationMs: 25000, heartbeatIntervalMs: 10000, heartbeatTimeoutMs: 30000 };
 const CONNECTION_TIMEOUT_MS = 12000;
+const HEALTH_TIMEOUT_MS = 2500;
 function netDiag() {
   if (typeof globalThis === "undefined") return null;
   return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], connectionFailures: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null };
@@ -74,10 +75,44 @@ function urlHostname(url) {
   try { return new URL(url).hostname || "unknown"; } catch { return "invalid"; }
 }
 
+function shortBuild(value) { return String(value || "unknown").slice(0, 12); }
+
+function healthUrlForSocket(socketUrl) {
+  const url = new URL(socketUrl);
+  if (url.protocol === "wss:") url.protocol = "https:";
+  else if (url.protocol === "ws:") url.protocol = "http:";
+  else throw new Error("Unsupported WebSocket protocol");
+  url.pathname = "/health";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+async function probeHealth(socketUrl) {
+  const started = performance.now();
+  let healthUrl;
+  try { healthUrl = healthUrlForSocket(socketUrl); } catch { return { category: "offline", error: "invalid-health-url" }; }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+  try {
+    const response = await fetch(healthUrl, { method: "GET", cache: "no-store", signal: controller.signal });
+    const latency = Math.max(0, Math.round(performance.now() - started));
+    let body = null;
+    try { body = await response.json(); } catch {}
+    return { category: response.ok ? "online" : "offline", status: response.status, latency, body, healthHostname: urlHostname(healthUrl) };
+  } catch (err) {
+    return { category: err?.name === "AbortError" ? "timeout" : "offline", latency: Math.max(0, Math.round(performance.now() - started)), healthHostname: urlHostname(healthUrl) };
+  } finally { clearTimeout(timer); }
+}
+
 function connectionFailureMessage(category) {
   switch (category) {
-    case "timeout": return "The game server did not respond. It may be waking up or temporarily offline. Wait a moment and try again.";
-    case "origin-rejected": return "The multiplayer server rejected this website. Check the server’s allowed origin configuration.";
+    case "health-timeout": return "The multiplayer server may be waking up. Wait about a minute and try again.";
+    case "incompatible-protocol": return "The multiplayer server is running an incompatible version. Redeploy the backend from the current main branch.";
+    case "health-online-ws-rejected": return "The multiplayer server is online, but the WebSocket connection was rejected. Check WS_ALLOWED_ORIGINS and the /socket configuration.";
+    case "offline": return "The multiplayer server is offline, waking up, or using an incorrect address.";
+    case "timeout": return "The multiplayer server may be waking up. Wait about a minute and try again.";
+    case "origin-rejected": return "The multiplayer server is online, but the WebSocket connection was rejected. Check WS_ALLOWED_ORIGINS and the /socket configuration.";
     case "invalid-url": return "The multiplayer server address is invalid. Open Settings and check the server URL.";
     case "closed-before-join": return "Connected to the server, but the game could not be created or joined.";
     case "unavailable":
@@ -94,15 +129,21 @@ function categorizeConnectionFailure(kind, attempt, event) {
   return "unavailable";
 }
 
-function recordConnectionFailure(attempt, category, event) {
+function recordConnectionFailure(attempt, category, event, health = null) {
   const diag = netDiag();
   if (!diag) return;
   const entry = {
-    hostname: urlHostname(attempt?.url || ""),
+    websocketHostname: urlHostname(attempt?.url || ""),
+    healthHostname: health?.healthHostname || null,
+    healthStatus: health?.status ?? null,
+    healthLatencyMs: health?.latency ?? null,
+    protocolVersion: health?.body?.protocolVersion ?? state.server?.protocolVersion ?? null,
+    backendBuildSha: shortBuild(health?.body?.serverBuildSha || state.server?.buildSha),
+    frontendBuildSha: shortBuild(globalThis.MFA_FRONTEND_BUILD_SHA || "dev"),
     stage: stageOf(attempt),
     elapsedMs: Math.max(0, Math.round(performance.now() - (attempt?.startedAt || performance.now()))),
     closeCode: event?.code ?? null,
-    closeReason: event?.reason || "",
+    closeReason: String(event?.reason || "").slice(0, 80),
     opened: Boolean(attempt?.opened),
     helloReceived: Boolean(attempt?.helloReceived),
     joinSent: Boolean(attempt?.joinSent),
@@ -115,17 +156,30 @@ function recordConnectionFailure(attempt, category, event) {
   diag.latestConnectionFailure = entry;
 }
 
-function failConnectionAttempt(attempt, category, event) {
+async function failConnectionAttempt(attempt, category, event) {
   if (!attempt || attempt.failed) return;
   attempt.failed = true;
   if (attempt.timeout) { clearTimeout(attempt.timeout); attempt.timeout = null; }
+  let health = null;
+  if (!["invalid-url", "incompatible-protocol"].includes(category)) {
+    health = await probeHealth(attempt.url);
+    if (health.category === "timeout") category = "health-timeout";
+    else if (health.category === "online" && !attempt.joinedReceived) {
+      const pv = Number(health.body?.protocolVersion);
+      const max = Number(globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 4);
+      if (Number.isFinite(pv) && pv > max) category = "incompatible-protocol";
+      else category = "health-online-ws-rejected";
+    } else if (health.category === "offline") category = "offline";
+  }
   const message = connectionFailureMessage(category);
-  recordConnectionFailure(attempt, category, event);
+  recordConnectionFailure(attempt, category, event, health);
   state.joiningLobby = false;
   state.reconnectAllowed = false;
+  state.reconnect = { attempts:0, startedAt:performance.now(), timer:null, url:attempt.url, joinPayload:null };
   setConnectionStatus("error", message);
   updateLobbyState();
   import("./ui/lobbyUi.js").then((mod) => {
+    mod.openMainMenu?.();
     mod.showMenuNotice(message, "error");
     mod.updateLobbyState();
   });
@@ -185,7 +239,7 @@ export function connect(url, onOpenCallback, options = {}) {
   }
   attempt = { url, startedAt: performance.now(), opened: false, helloReceived: false, joinSent: false, joinedReceived: false, serverErrorReceived: false, failed: false, timeout: null };
   const diag = netDiag();
-  if (diag) { diag.websocketCreated = true; diag.websocketUrl = url; diag.websocketUrlHostname = urlHostname(url); diag.connectionStage = "creating socket"; }
+  if (diag) { diag.websocketCreated = true; diag.websocketHostname = urlHostname(url); diag.connectionStage = "creating socket"; }
   socket.binaryType = "arraybuffer";
   state.socket = socket;
   state.connectionAttempt = attempt;
