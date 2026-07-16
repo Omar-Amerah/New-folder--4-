@@ -46,7 +46,12 @@ export const GENERATED_BALANCE = {
         "softTurnCap": "0.72 rad/s"
       }
     ],
-    "turnScaling": "Smaller ships keep a higher base turn rate. Mass turn penalty now scales from mass / 82 so light and medium ships turn more responsively while capital ships remain slow."
+    "turnScaling": "Smaller ships keep a higher base turn rate. Mass turn penalty now scales from mass / 82 so light and medium ships turn more responsively while capital ships remain slow.",
+    "maneuverThrusterLever": {
+      "minimumLever": 0.35,
+      "leverPerCell": 0.35,
+      "maximumLever": 1.75
+    }
   },
   "components": [
     {
@@ -370,12 +375,17 @@ export const GENERATED_BALANCE = {
       "powerUse": 1.8,
       "shield": 0,
       "shieldRegen": 0,
-      "thrust": 85,
+      "thrust": 0,
       "turn": 0.52,
       "energy": 0,
       "repair": 0,
-      "rotatable": false,
-      "description": "Fixed forward-facing control thruster that improves turning more than raw speed."
+      "rotatable": true,
+      "description": "Lateral side thruster that provides directional torque. Faces left or right only and does not increase forward speed.",
+      "lateralThrust": 85,
+      "allowedRotations": [
+        90,
+        270
+      ]
     },
     {
       "id": "aegisProjector",
@@ -1077,4 +1087,5 @@ export const GENERATED_BALANCE = {
     "repairRange": 410,
     "stackingMultiplier": 0.62
   }
-};
+}
+;

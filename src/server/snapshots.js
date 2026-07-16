@@ -40,6 +40,7 @@ function buildSharedSnapshot(room, now, sendStatic) {
       vx: round(ship.vx),
       vy: round(ship.vy),
       angle: round(ship.angle),
+      turnActivity: Math.max(-1, Math.min(1, Number.isFinite(ship.turnActivity) ? ship.turnActivity : 0)),
       combatStyle: ship.combatStyle || "sentry",
       targetX: round(ship.targetX),
       targetY: round(ship.targetY),

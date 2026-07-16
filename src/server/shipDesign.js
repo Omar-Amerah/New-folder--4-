@@ -130,28 +130,28 @@ function normalizeShipDesignSnapshot(design) {
 }
 
 function normalizePartRotation(type, x, rotation) {
-  if (type === "maneuverThruster") return maneuverThrusterAutoRotation(x);
-  return isRotatablePart(type) ? normalizeRotation(rotation) : 0;
+  const allowed = (PARTS[type] || {}).allowedRotations;
+  return isRotatablePart(type) ? normalizeRotation(rotation, allowed, x) : 0;
 }
 
 function isRotatablePart(type) {
   const part = PARTS[type] || {};
-  if (type === "engine" || type === "maneuverThruster") return false;
+  if (type === "engine") return false;
+  if (Array.isArray(part.allowedRotations) && part.allowedRotations.length) return true;
   if (part.category === "Engines") return part.thrust > 0 && part.rotationRequired === true;
   return part.category === "Weapons"
     || (part.category === "Defence" && Boolean(part.weapon))
     || part.rotationRequired === true;
 }
 
-function maneuverThrusterAutoRotation(x) {
-  if (x < 7) return 90;
-  if (x > 7) return 270;
-  return 0;
-}
+function legacySideRotation(x) { return Number(x) > 7 ? 270 : 90; }
 
-function normalizeRotation(value) {
+function normalizeRotation(value, allowedRotations, x) {
+  const allowed = Array.isArray(allowedRotations) && allowedRotations.length ? allowedRotations.map(Number) : [0, 90, 180, 270];
   const rotation = Number(value);
-  return [0, 90, 180, 270].includes(rotation) ? rotation : 0;
+  if (allowed.includes(rotation)) return rotation;
+  if (allowed.length === 2 && allowed.includes(90) && allowed.includes(270)) return legacySideRotation(x);
+  return allowed.includes(0) ? 0 : allowed[0];
 }
 
 module.exports = {

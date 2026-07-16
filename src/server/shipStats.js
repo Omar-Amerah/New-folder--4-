@@ -6,6 +6,8 @@ const { BALANCE } = require("./balanceConfig");
 const { clampNumber, round } = require("./utils");
 const {
   calculateMovementStats,
+  calculateCenterOfMass,
+  calculateDirectionalTurnInputs,
   calculateSystemEfficiency,
   calculateMovementPowerMultiplier,
   effectiveStackedValue,
@@ -65,19 +67,7 @@ function computeStats(modules) {
   let minY = 3;
   let maxY = 3;
 
-  // Centre of mass (mass-weighted) — maneuvering thrusters farther from it swing
-  // the ship on a longer lever arm and so contribute more turning torque.
-  let comX = 0;
-  let comY = 0;
-  let comMass = 0;
-  for (const module of modules) {
-    const mm = ((PARTS[module.type] || PARTS.frame).mass || 0) + 0.5;
-    comX += module.x * mm;
-    comY += module.y * mm;
-    comMass += mm;
-  }
-  comX = comMass ? comX / comMass : 0;
-  comY = comMass ? comY / comMass : 0;
+  const centerOfMass = calculateCenterOfMass(modules, PARTS);
 
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
@@ -92,14 +82,10 @@ function computeStats(modules) {
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
-    turnBonus += blockedEngine ? 0 : part.turn;
+    if (module.type !== "maneuverThruster" && module.type !== "gyroscope") turnBonus += blockedEngine ? 0 : part.turn;
     if (part.thrust > 0 && !blockedEngine) {
       engineThrustValues.push(part.thrust);
       engineMassValues.push(part.mass || 0);
-    }
-    if (part.turn > 0 && !blockedEngine) {
-      const lever = Math.hypot(module.x - comX, module.y - comY);
-      turnModuleValues.push(part.turn * clampNumber(0.6 + lever * 0.28, 0.5, 2));
     }
     energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
@@ -136,7 +122,12 @@ function computeStats(modules) {
   repairRate = effectiveStackedValue(repairRateValues, BALANCE.repair.stackingMultiplier);
   const power = powerGeneration - powerUse;
   const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
-  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues });
+  const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PARTS, {
+    centerOfMass,
+    leverSettings: BALANCE.movement?.maneuverThrusterLever,
+    isBlockedEngine: (index, module, part) => (part.thrust || 0) > 0 && !exhaustAnalysis.validEngineIndices.has(index)
+  });
+  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
   applyWeaponUtilityBonuses(weaponTotals, { rangeBonus, accuracyBonus, fireRateBonus, coolingBonus });
   ecmStrength = Math.min(ecmStrength, 0.55);
@@ -146,7 +137,9 @@ function computeStats(modules) {
   const f = BALANCE.shipPricing.fleetCountFormulaInputs;
   const fleetCount = clampNumber(Math.floor(f.base / Math.max(f.minimumDivisor, unitCost * f.unitCostMultiplier + mass * f.massMultiplier)), f.minimum, f.maximum);
   const weapons = summarizeWeaponTotals(weaponTotals);
-  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
+  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate,
+    turnRateLeft: movement.turnRateLeft,
+    turnRateRight: movement.turnRateRight, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
   if (exhaustAnalysis.blockedEngineIndices.size) warnings.push(`${exhaustAnalysis.blockedEngineIndices.size} blocked engine${exhaustAnalysis.blockedEngineIndices.size === 1 ? "" : "s"}: blocked exhaust provides no thrust.`);
 
   return {
@@ -168,6 +161,8 @@ function computeStats(modules) {
     accel: round(movement.accel),
     maxSpeed: round(movement.maxSpeed),
     turnRate: round(movement.turnRate),
+    turnRateLeft: round(movement.turnRateLeft),
+    turnRateRight: round(movement.turnRateRight),
     massClass: movement.massClass,
     speedCap: movement.speedCap,
     turnCap: movement.turnCap,
@@ -324,6 +319,9 @@ function shipWarnings(stats) {
   if (stats.speedCapped) warnings.push("Large hull: speed capped by mass");
   if (stats.powerDebuff > 0.08 && stats.thrust > 0) warnings.push(`Underpowered systems: movement reduced ${Math.round(stats.powerDebuff * 100)}%. Add reactors.`);
   if (stats.effectiveThrust > 0 && (stats.mass > 85 || stats.turnRate < 0.85)) warnings.push("Heavy ship: turning will be slow");
+  if (stats.effectiveThrust > 0 && (stats.turnRateLeft || 0) < 0.15) warnings.push("No meaningful left-turn capability");
+  if (stats.effectiveThrust > 0 && (stats.turnRateRight || 0) < 0.15) warnings.push("No meaningful right-turn capability");
+  if (stats.modules.some((module) => module.type === "maneuverThruster" && Math.abs((module.y || 0) - 7) < 0.75)) warnings.push("Manoeuvre thrusters near the centre provide weak torque");
   if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
   if (stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
   if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack");
@@ -383,6 +381,8 @@ module.exports = {
   weaponRange,
   summarizeWeaponTotals,
   calculateMovementStats,
+  calculateCenterOfMass,
+  calculateDirectionalTurnInputs,
   calculateSystemEfficiency,
   calculateMovementPowerMultiplier,
   effectiveStackedValue,

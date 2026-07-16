@@ -75,7 +75,7 @@ const MARKERLESS_ROTATABLE_PARTS = new Set([
   "wingCompositeArmor"
 ]);
 
-const FIXED_ORIENTATION_PARTS = new Set(["engine", "maneuverThruster"]);
+const FIXED_ORIENTATION_PARTS = new Set(["engine"]);
 
 export const PART_DESCRIPTIONS = Object.freeze({
   core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
@@ -276,6 +276,7 @@ export function normalizeRuntimePart(part = {}) {
     shield: numberOr(part.shield, 0),
     shieldRegen: numberOr(part.shieldRegen, 0),
     thrust: numberOr(part.thrust, 0),
+    lateralThrust: numberOr(part.lateralThrust, 0),
     turn: numberOr(part.turn, 0),
     energyStorage: numberOr(part.energyStorage ?? part.energy, 0),
     repairRate,
@@ -293,6 +294,7 @@ export function normalizeRuntimePart(part = {}) {
     // hello/state message replaces the locally loaded component definition.
     rotatable: Boolean(part.rotatable || part.rotationRequired),
     rotationRequired: Boolean(part.rotationRequired || part.rotatable),
+    allowedRotations: Array.isArray(part.allowedRotations) ? part.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: numberOr(part.ecmStrength, 0),
     decoyRange: numberOr(part.decoyRange, 0),
     decoyCooldown: numberOr(part.decoyCooldown, 0),
@@ -338,6 +340,7 @@ export function normalizeBalanceComponent(component) {
     heat: numberOr(component.heat, 0),
     rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
+    allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: numberOr(component.ecmStrength, 0),
     decoyRange: numberOr(component.decoyRange, 0),
     decoyCooldown: numberOr(component.decoyCooldown, 0),

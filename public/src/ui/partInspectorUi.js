@@ -46,7 +46,7 @@ export function renderPartInspector() {
       ${inspectorStat("Hull", formatHull(stat.hp))}
       ${inspectorStat("Power", partPowerText(stat))}
       ${inspectorStat("Shield", formatShield(stat.shield))}
-      ${inspectorStat("Thrust", formatThrust(stat.thrust))}
+      ${inspectorStat(type === "maneuverThruster" ? "Lateral thrust" : "Thrust", formatThrust(type === "maneuverThruster" ? stat.lateralThrust : stat.thrust))}
       ${inspectorStat("Storage", formatEnergy(stat.energyStorage))}
       ${inspectorStat("Repair", formatRepair(stat.repairRate))}
     </div>
@@ -289,6 +289,19 @@ function partInspectorDetails(type, stat, effectiveCost) {
     }
 
     return details.filter(Boolean);
+  }
+
+  if (type === "maneuverThruster") {
+    const rotation = state.previewRotation === 270 ? 270 : 90;
+    return [
+      ["Lateral thrust", formatThrust(stat.lateralThrust || 0)],
+      ["Turn contribution", `${stat.turn || 0} base, scaled by front/rear lever arm`],
+      ["Allowed facing", "Left or right only"],
+      ["Current exhaust", rotation === 90 ? "Left nozzle" : "Right nozzle"],
+      ["Current force", rotation === 90 ? "Pushes right" : "Pushes left"],
+      ["Forward speed", "Does not increase forward speed"],
+      ["Placement note", "Distance ahead/behind the centre of mass affects turning strength"]
+    ];
   }
 
   if (type === "engine") {

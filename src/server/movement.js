@@ -6,6 +6,7 @@ const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
+const { calculateCenterOfMass, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
 const { selectOwnedLivingShips } = require("./selection");
 
 const WORLD_MARGIN = 42;
@@ -45,9 +46,41 @@ function heatAdjustedMovementStats(ship, stats) {
     accel: (stats.accel || 0) * factors.thrust * factors.power,
     maxSpeed: (stats.maxSpeed || 0) * factors.thrust * factors.power,
     turnRate: (stats.turnRate || 0) * factors.turn * factors.power,
+    turnRateLeft: (stats.turnRateLeft ?? stats.turnRate ?? 0) * factors.turn * factors.power,
+    turnRateRight: (stats.turnRateRight ?? stats.turnRate ?? 0) * factors.turn * factors.power,
     thrustHeatFactor: factors.thrust,
     turnHeatFactor: factors.turn
   };
+}
+
+function directionalTurnRate(stats, current, desired) {
+  const diff = angleDifference(current, desired);
+  if (Math.abs(diff) < 1e-9) return 0;
+  return diff > 0 ? (stats.turnRateRight ?? stats.turnRate ?? 0) : (stats.turnRateLeft ?? stats.turnRate ?? 0);
+}
+
+function rotateShipToward(ship, desired, stats, dt) {
+  const before = ship.angle || 0;
+  const rate = directionalTurnRate(stats, before, desired);
+  const next = rotateToward(before, desired, rate * dt);
+  const applied = Math.abs(angleDifference(before, next));
+  ship.angle = next;
+  ship.turnActivity = rate > 0 ? clampNumber((applied / Math.max(rate * dt, 1e-9)) * Math.sign(angleDifference(before, next)), -1, 1) : 0;
+  heatActiveManeuverThrusters(ship, ship.turnActivity, dt);
+}
+
+function heatActiveManeuverThrusters(ship, turnActivity, dt) {
+  if (!turnActivity || !Number.isFinite(turnActivity)) return;
+  const desiredSign = Math.sign(turnActivity);
+  const centerOfMass = calculateCenterOfMass(ship.design || [], PARTS);
+  for (let i = 0; i < (ship.design || []).length; i += 1) {
+    const module = ship.design[i];
+    const part = PARTS[module.type];
+    if (module.type !== "maneuverThruster" || !part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+    if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
+    const perf = componentPerformance(ship, i);
+    if (perf > 0) addComponentHeat(ship, i, (2 + (part.lateralThrust || 0) * 0.018) * Math.abs(turnActivity) * perf * dt);
+  }
 }
 
 const HOLD_RANGE_RATIO = 0.9;
@@ -238,6 +271,7 @@ function ensureMoveTarget(ship) {
   if (!Number.isFinite(ship.vx)) ship.vx = 0;
   if (!Number.isFinite(ship.vy)) ship.vy = 0;
   if (!Number.isFinite(ship.angle)) ship.angle = 0;
+  ship.turnActivity = 0;
   if (!Number.isFinite(ship.targetX)) ship.targetX = ship.x;
   if (!Number.isFinite(ship.targetY)) ship.targetY = ship.y;
 }
@@ -381,7 +415,7 @@ function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
   }
 
   const desired = getDesiredMoveAngle(room, ship);
-  ship.angle = rotateToward(ship.angle, desired, (stats.turnRate || 0) * dt);
+  rotateShipToward(ship, desired, stats, dt);
 
   const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
   for (let i = 0; i < (ship.design || []).length; i += 1) {
@@ -487,7 +521,7 @@ function rotateHullForCombat(room, ship, stats, target, dt) {
   if (!combatTarget || !combatTarget.alive) return;
 
   const desired = findOptimalHullAngle(ship, combatTarget);
-  ship.angle = rotateToward(ship.angle, desired, (stats.turnRate || 0) * dt);
+  rotateShipToward(ship, desired, stats, dt);
 }
 
 function applyDamping(ship, distance, isCircleOrbit, dt) {

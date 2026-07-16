@@ -20,7 +20,7 @@ export function renderPalette() {
       const first = Object.keys(PART_DEFS).find((type) => isPalettePart(type) && partCategory(type) === category);
       if (first) {
         state.selectedPart = first;
-        state.previewRotation = 0;
+        state.previewRotation = PART_STATS[first]?.allowedRotations?.[0] ?? 0;
       }
       renderPalette();
       renderPartInspector();
@@ -44,7 +44,7 @@ export function renderPalette() {
       const wasSelected = state.selectedPart === type;
       state.selectedPart = wasSelected ? null : type;
       state.selectedPartCategory = partCategory(type);
-      state.previewRotation = 0;
+      state.previewRotation = wasSelected ? 0 : (PART_STATS[type]?.allowedRotations?.[0] ?? 0);
       renderPalette();
       renderPartInspector();
       for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow")) stale.remove();
