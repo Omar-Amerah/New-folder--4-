@@ -1,8 +1,199 @@
-const assert=require('assert');const {spawn}=require('child_process');const fs=require('fs');const path=require('path');const {chromium}=require('playwright');
-const ART=path.join(__dirname,'test-artifacts','split-origin');fs.mkdirSync(ART,{recursive:true});
-function port(){return 24000+Math.floor(Math.random()*20000)}
-function start(name,port,env){const logs=[];const p=spawn(process.execPath,['server.js'],{cwd:__dirname,env:{...process.env,PORT:String(port),...env},stdio:['ignore','pipe','pipe']});p.stdout.on('data',d=>logs.push(`[out] ${d}`));p.stderr.on('data',d=>logs.push(`[err] ${d}`));p.exitPromise=new Promise(r=>p.on('exit',(c,s)=>r({c,s})));p.logs=logs;p.name=name;return p}
-async function waitHttp(url,timeout=10000){const end=Date.now()+timeout;let last;while(Date.now()<end){try{const r=await fetch(url);if(r.status<500)return r}catch(e){last=e}await new Promise(r=>setTimeout(r,100))}throw last||new Error('not ready '+url)}
-async function stop(p){if(!p||p.killed)return; p.kill('SIGTERM'); const t=setTimeout(()=>p.kill('SIGKILL'),3000); await p.exitPromise.finally(()=>clearTimeout(t));}
-async function scenario(browser,name,backendEnv,wsPath='/socket',expect){const fp=port(),bp=port();let front,back,ctx;const diag={name,frontPort:fp,backPort:bp,consoleErrors:[],pageErrors:[]};try{front=start('front',fp,{NODE_ENV:'development'});const resolvedBackendEnv=typeof backendEnv==='function'?backendEnv(fp,bp):backendEnv;back=resolvedBackendEnv?start('back',bp,resolvedBackendEnv):null;await waitHttp(`http://127.0.0.1:${fp}/index.html`);if(back)await waitHttp(`http://127.0.0.1:${bp}/health`);ctx=await browser.newContext({viewport:{width:1000,height:800}});const page=await ctx.newPage();page.on('console',m=>{if(m.type()==='error')diag.consoleErrors.push(m.text())});page.on('pageerror',e=>diag.pageErrors.push(e.message));await page.goto(`http://127.0.0.1:${fp}/index.html`,{waitUntil:'load'});await page.evaluate(()=>{localStorage.clear();sessionStorage.clear();});const ws=`ws://127.0.0.1:${bp}${wsPath}`;await page.goto(`http://127.0.0.1:${fp}/index.html?server=${encodeURIComponent(ws)}`,{waitUntil:'load'});await page.waitForFunction(()=>window.__mfaMainLoaded===true,null,{timeout:15000});await page.waitForFunction(()=>{const e=document.querySelector('#mainMenuScreen');return e&&!e.hidden},null,{timeout:15000});await page.waitForFunction(()=>{const b=document.querySelector('#createButton');return b&&!b.hidden&&!b.disabled},null,{timeout:15000});if(back){const readable=await page.evaluate(async u=>{const r=await fetch(u);return {ok:r.ok,status:r.status,cors:r.headers.get('access-control-allow-origin'),body:await r.json()};},`http://127.0.0.1:${bp}/health`);diag.health=readable;assert(readable.ok,`${name}: /health readable`);}await page.fill('#pilotName',`Pilot-${name}`);await page.click('#createButton');if(expect==='success'){await page.waitForFunction(()=>window.__mfaNetworkDiagnostics?.joinedReceived,{timeout:15000});await page.waitForFunction(()=>window.__mfaNetworkDiagnostics?.firstFullSnapshotReceived,{timeout:15000});const state=await page.evaluate(()=>({room:window.__mfaState.room,warning:document.querySelector('#mainMenuNotice')?.textContent||'',diag:window.__mfaNetworkDiagnostics,builds:{front:window.__mfaFrontendBuild,back:window.__mfaState.server?.buildSha}}));assert(state.room,`${name}: generated room code populated`);diag.result=state;}else{await page.waitForFunction(()=>window.__mfaNetworkDiagnostics?.latestConnectionFailure?.category,{timeout:12000});await page.waitForFunction(()=>{const b=document.querySelector('#createButton');return b&&!b.disabled&&!b.classList.contains('is-loading')&&!document.querySelector('#mainMenuScreen').hidden},null,{timeout:12000});const state=await page.evaluate(()=>({notice:document.querySelector('#mainMenuNotice')?.textContent||'',failure:window.__mfaNetworkDiagnostics.latestConnectionFailure,joining:window.__mfaState.joiningLobby,buttonDisabled:document.querySelector('#createButton').disabled}));if(expect==='offline')assert(/offline|waking|incorrect address/i.test(state.notice),`${name}: offline message`);else assert(/online.*WebSocket connection was rejected|WS_ALLOWED_ORIGINS|\/socket/i.test(state.notice),`${name}: ws rejected/config message`);assert.equal(state.joining,false,`${name}: joining reset`);assert.equal(state.buttonDisabled,false,`${name}: create usable`);diag.result=state;}assert.deepEqual(diag.pageErrors,[],`${name}: no page errors`);fs.writeFileSync(path.join(ART,`${name}.json`),JSON.stringify(diag,null,2));return diag;}catch(e){if(ctx){const pages=ctx.pages();if(pages[0])await pages[0].screenshot({path:path.join(ART,`${name}.png`)}).catch(()=>{});}diag.error=e.stack;diag.frontLog=front?.logs.join('');diag.backLog=back?.logs.join('');fs.writeFileSync(path.join(ART,`${name}-failure.json`),JSON.stringify(diag,null,2));throw e;}finally{if(ctx)await ctx.close().catch(()=>{});await stop(front);await stop(back);}}
-(async()=>{const browser=await chromium.launch({headless:true});try{let bp;await scenario(browser,'allowed',(fp)=>({NODE_ENV:'production',WS_ALLOWED_ORIGINS:`http://127.0.0.1:${fp}`}),'/socket','success');await scenario(browser,'rejected',{NODE_ENV:'production',WS_ALLOWED_ORIGINS:'http://127.0.0.1:1'},'/socket','rejected');await scenario(browser,'wrong-path',(fp)=>({NODE_ENV:'production',WS_ALLOWED_ORIGINS:`http://127.0.0.1:${fp}`}),'/wrong','rejected');bp=port();await scenario(browser,'offline',null,'/socket','offline');await scenario(browser,'build-mismatch',(fp)=>({NODE_ENV:'production',WS_ALLOWED_ORIGINS:`http://127.0.0.1:${fp}`,MFA_BUILD_SHA:'backend-build-mismatch'}),'/socket','success');console.log('split-origin browser verification passed');}finally{await browser.close().catch(()=>{});}})().catch(e=>{console.error(e);process.exit(1)});
+const assert = require("assert");
+const { execFileSync, spawn } = require("child_process");
+const fs = require("fs");
+const http = require("http");
+const path = require("path");
+const { chromium } = require("playwright");
+
+const ROOT = __dirname;
+const PUBLIC_DIR = path.join(ROOT, "public");
+const ARTIFACT_DIR = path.join(ROOT, "test-artifacts", "split-origin");
+fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+
+function allocatePort() {
+  return 24000 + Math.floor(Math.random() * 20000);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForHttp(url, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (response.status < 500) return response;
+    } catch (error) {
+      lastError = error;
+    }
+    await wait(100);
+  }
+  throw lastError || new Error(`Timed out waiting for ${url}`);
+}
+
+function contentTypeFor(filePath) {
+  if (filePath.endsWith(".html")) return "text/html; charset=utf-8";
+  if (filePath.endsWith(".js")) return "text/javascript; charset=utf-8";
+  if (filePath.endsWith(".css")) return "text/css; charset=utf-8";
+  if (filePath.endsWith(".json")) return "application/json; charset=utf-8";
+  if (filePath.endsWith(".png")) return "image/png";
+  if (filePath.endsWith(".svg")) return "image/svg+xml";
+  return "application/octet-stream";
+}
+
+function safePublicPath(requestUrl) {
+  const url = new URL(requestUrl, "http://127.0.0.1");
+  const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+  const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep)) return null;
+  return filePath;
+}
+
+function startStaticFrontend(port) {
+  const logs = [];
+  let rejectedUpgradeCount = 0;
+  const server = http.createServer((req, res) => {
+    const filePath = safePublicPath(req.url || "/");
+    if (!filePath) {
+      res.writeHead(403).end("Forbidden");
+      return;
+    }
+    fs.readFile(filePath, (error, data) => {
+      if (error) {
+        logs.push(`[http] ${req.method} ${req.url} -> 404`);
+        res.writeHead(404).end("Not found");
+        return;
+      }
+      logs.push(`[http] ${req.method} ${req.url} -> 200`);
+      res.writeHead(200, { "content-type": contentTypeFor(filePath) });
+      res.end(data);
+    });
+  });
+  server.on("upgrade", (req, socket) => {
+    rejectedUpgradeCount += 1;
+    logs.push(`[upgrade] rejected ${req.url}`);
+    socket.destroy();
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve({
+        logs,
+        origin: `http://127.0.0.1:${port}`,
+        close: () => new Promise((done) => server.close(done)),
+        get rejectedUpgradeCount() { return rejectedUpgradeCount; }
+      });
+    });
+  });
+}
+
+function startBackend(port, frontendOrigin) {
+  const logs = [];
+  const child = spawn(process.execPath, ["server.js"], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: String(port),
+      WS_ALLOWED_ORIGINS: frontendOrigin
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  child.stdout.on("data", (chunk) => logs.push(`[out] ${chunk}`));
+  child.stderr.on("data", (chunk) => logs.push(`[err] ${chunk}`));
+  child.exitPromise = new Promise((resolve) => child.on("exit", (code, signal) => resolve({ code, signal })));
+  child.logs = logs;
+  return child;
+}
+
+async function stopBackend(child) {
+  if (!child || child.killed) return;
+  child.kill("SIGTERM");
+  const killer = setTimeout(() => child.kill("SIGKILL"), 3000);
+  await child.exitPromise.finally(() => clearTimeout(killer));
+}
+
+async function runSmokeTest() {
+  execFileSync("npm", ["run", "build"], { cwd: ROOT, stdio: "inherit" });
+
+  const frontendPort = allocatePort();
+  const backendPort = allocatePort();
+  const diagnostics = { frontendPort, backendPort, pageErrors: [], consoleErrors: [] };
+  let frontend;
+  let backend;
+  let browser;
+  let context;
+  let page;
+
+  try {
+    frontend = await startStaticFrontend(frontendPort);
+    backend = startBackend(backendPort, frontend.origin);
+    await waitForHttp(`${frontend.origin}/index.html`);
+    await waitForHttp(`http://127.0.0.1:${backendPort}/health`);
+
+    browser = await chromium.launch({ headless: true });
+    context = await browser.newContext({ viewport: { width: 1000, height: 800 } });
+    page = await context.newPage();
+    page.on("pageerror", (error) => diagnostics.pageErrors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") diagnostics.consoleErrors.push(message.text());
+    });
+
+    const backendSocketUrl = `ws://127.0.0.1:${backendPort}/socket`;
+    const appUrl = `${frontend.origin}/index.html?server=${encodeURIComponent(backendSocketUrl)}`;
+    await page.goto(appUrl, { waitUntil: "load" });
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.goto(appUrl, { waitUntil: "load" });
+
+    await page.waitForFunction(() => window.__mfaMainLoaded === true, null, { timeout: 15000 });
+    await page.waitForFunction(() => {
+      const menu = document.querySelector("#mainMenuScreen");
+      const create = document.querySelector("#createButton");
+      return menu && !menu.hidden && create && !create.hidden && !create.disabled;
+    }, null, { timeout: 15000 });
+
+    await page.fill("#pilotName", "Pilot-split-origin");
+    await page.click("#createButton");
+    await page.waitForFunction(() => window.__mfaNetworkDiagnostics?.joinedReceived, null, { timeout: 15000 });
+    await page.waitForFunction(() => window.__mfaNetworkDiagnostics?.firstFullSnapshotReceived, null, { timeout: 15000 });
+
+    const result = await page.evaluate(() => ({
+      room: window.__mfaState?.room || "",
+      configuredServer: localStorage.getItem("modular-fleet-server-url-v1"),
+      diagnostics: window.__mfaNetworkDiagnostics
+    }));
+    diagnostics.result = result;
+
+    assert.match(result.room, /^[A-Z0-9]{4,8}$/, "generated room code populated");
+    assert.equal(result.configuredServer, backendSocketUrl, "server query parameter persisted before URL sync");
+    assert.equal(result.diagnostics?.websocketHostname, "127.0.0.1", "browser connected to backend host");
+    assert.equal(frontend.rejectedUpgradeCount, 0, "static frontend did not receive a WebSocket fallback");
+    assert.deepEqual(diagnostics.pageErrors, [], "no page errors");
+
+    fs.writeFileSync(path.join(ARTIFACT_DIR, "fresh-split-origin.json"), JSON.stringify(diagnostics, null, 2));
+    console.log("fresh split-origin browser verification passed");
+  } catch (error) {
+    diagnostics.error = error.stack || String(error);
+    diagnostics.frontendLog = frontend?.logs?.join("") || "";
+    diagnostics.backendLog = backend?.logs?.join("") || "";
+    if (page) await page.screenshot({ path: path.join(ARTIFACT_DIR, "fresh-split-origin-failure.png") }).catch(() => {});
+    fs.writeFileSync(path.join(ARTIFACT_DIR, "fresh-split-origin-failure.json"), JSON.stringify(diagnostics, null, 2));
+    throw error;
+  } finally {
+    if (context) await context.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
+    if (frontend) await frontend.close().catch(() => {});
+    await stopBackend(backend);
+  }
+}
+
+runSmokeTest().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

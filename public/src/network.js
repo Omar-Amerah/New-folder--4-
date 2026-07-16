@@ -324,15 +324,36 @@ export function getSocketUrl() {
   return `${protocol}//${location.host}/socket`;
 }
 
-export function getConfiguredServerUrl() {
+export function persistServerQueryParam() {
   if (typeof location === "undefined" || typeof localStorage === "undefined") return "";
   const params = new URLSearchParams(location.search);
   const fromUrl = params.get("server");
-  if (fromUrl) {
-    localStorage.setItem(LOCAL_SERVER_KEY, fromUrl);
-    return fromUrl;
+  if (!fromUrl) return "";
+  const serverUrl = sanitizeServerSetting(fromUrl);
+  if (!serverUrl) return "";
+  localStorage.setItem(LOCAL_SERVER_KEY, serverUrl);
+  return serverUrl;
+}
+
+export function getConfiguredServerUrl() {
+  if (typeof location === "undefined" || typeof localStorage === "undefined") return "";
+  return persistServerQueryParam() || localStorage.getItem(LOCAL_SERVER_KEY) || "";
+}
+
+function sanitizeServerSetting(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    if (!["ws:", "wss:", "http:", "https:"].includes(url.protocol)) return "";
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return normalizeSocketUrl(url.toString());
+  } catch {
+    return "";
   }
-  return localStorage.getItem(LOCAL_SERVER_KEY) || "";
 }
 
 export function normalizeSocketUrl(value) {
