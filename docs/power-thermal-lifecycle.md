@@ -31,3 +31,21 @@ Destroyed generators contribute neither nominal nor available generation. Repair
 ## Meltdown policy
 
 Only live power generators are meltdown-eligible. A generator must remain in `OVERHEATED` state for the full configured delay. Leaving overheat reduces its timer by the existing recovery rule. Destroyed reactors do not continue ticking. When a meltdown detonates, its timer is reset, the reactor is destroyed, nearby components take footprint-centre component damage, and one boom effect is emitted. Detonation damage is HP damage rather than heat, so it does not cause an instant heat chain reaction.
+# Phase 5E runtime ownership
+
+Power topology, nominal live generation, demand, and per-component network
+membership are rebuilt only on wiring/component boundary events. Movement and
+active utilities may apply the cached multiplier with current thermal
+performance each tick; they do not rebuild topology or reapply the legacy
+ship-wide deficit penalty.
+
+Radiator cooling is split explicitly: 12% of catalogue cooling is a passive
+radiative floor, while the remaining active state-dependent output requires
+component Power and scales by its network multiplier. Heat capacity,
+conductivity, Heat Pipe routing, and natural dissipation remain passive.
+
+Generator steady heat uses demand/generation from the source's own cached live
+network. Nominal source generation does not currently fall with temperature;
+existing overheat failure and meltdown behavior remains separate. Coupling
+thermal source derating back into network efficiency is deferred to balancing
+to avoid an intra-tick feedback loop.

@@ -315,7 +315,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
 const EFFECTIVE_STAT_KEYS = [
   "mass", "shieldRegen", "powerGeneration", "powerUse", "power", "efficiency",
   "thrust", "effectiveThrust", "engineEfficiency", "thrustRatio", "energyStorage",
-  "accel", "maxSpeed", "turnRate", "massClass", "speedCap", "turnCap",
+  "accel", "maxSpeed", "turnRate", "turnRateLeft", "turnRateRight", "massClass", "speedCap", "turnCap",
   "powerEfficiency", "powerDebuff",
   "blaster", "missile", "railgun", "beam", "pointDefense",
   "repair", "repairRate", "repairRange",

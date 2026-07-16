@@ -173,7 +173,7 @@ function updateShipSupport(room, ships, dt, now) {
       const heal = selfRepairRate * dt;
       repairShipComponents(room, ship, heal, now);
       for (const entry of activeRepairModules) {
-        if (entry.module.type !== "repairBeam") addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * dt);
+        if (entry.module.type !== "repairBeam") addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * entry.performance * dt);
       }
     }
 
@@ -219,7 +219,7 @@ function updateShipSupport(room, ships, dt, now) {
     repairShipComponents(room, target, heal, now);
 
     for (const entry of activeRepairBeams) {
-      addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * dt);
+      addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * entry.performance * dt);
     }
 
     const emitterEntry = activeRepairBeams[0];
@@ -580,11 +580,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const rangeVal = ship.stats?.beamRange || part.weapon.range;
       const beamRadius = part.weapon.radius || 28;
       const beamEnd = beamImpactPoint(room, muzzle.x, muzzle.y, worldWeaponAngle, rangeVal, beamRadius);
-      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * componentPerformance(ship, i) * dt, now, {
+      const beamPerformance = componentPerformance(ship, i) * powerMultiplier;
+      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * beamPerformance * dt, now, {
         shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1
       });
-      addComponentHeat(ship, i, Math.max(3, Math.sqrt(part.weapon.damage || 1)) * dt);
+      addComponentHeat(ship, i, Math.max(3, Math.sqrt(part.weapon.damage || 1)) * beamPerformance * dt);
       if (now - (ship.beamEffectsAt[i] || 0) > 55) {
         ship.beamEffectsAt[i] = now;
         room.effects.push({

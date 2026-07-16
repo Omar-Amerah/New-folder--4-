@@ -252,7 +252,10 @@ function updateShipHeat(ship, dt, room, now) {
     const part = PARTS[ship.design[i].type] || {};
     const thermal = ship.componentThermals[i];
     const damagedMultiplier = alive && ship.componentMaxHp?.[i] ? 1 + 0.15 * (1 - ship.componentHp[i] / ship.componentMaxHp[i]) : 1;
-    const load = part.powerGeneration > 0 ? Math.min(1, (ship.stats.powerUse || 0) / Math.max(1, ship.stats.powerGeneration || 1)) : 0;
+    const powerNetwork = part.powerGeneration > 0 && ship.powerAnalysis?.networks?.find(network => network.sourceIndices?.includes(i));
+    const networkGeneration = Number(powerNetwork?.generationMw ?? powerNetwork?.generation) || 0;
+    const networkDemand = Number(powerNetwork?.demandMw ?? powerNetwork?.demand) || 0;
+    const load = networkGeneration > 0 ? Math.min(1, Math.max(0, networkDemand / networkGeneration)) : 0;
     const steady = alive && part.powerGeneration > 0 ? (2 + part.powerGeneration * 0.42) * load * elapsed * damagedMultiplier : 0;
     const generated = alive ? ship.componentHeatInput[i] * damagedMultiplier + steady : 0;
     ship.componentHeatInput[i] = 0;
@@ -315,7 +318,10 @@ function updateShipHeat(ship, dt, room, now) {
     if (ship.design[i].type === "radiator") {
       const alive = (ship.componentHp?.[i] ?? 1) > 0;
       const exposure = thermal.exposedEdges > 0 ? 1 : 0.25;
-      const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[i] || STATE.NORMAL) : 0;
+      // Twelve percent is passive radiative loss. The remaining active output
+      // requires live component Power and scales independently per network.
+      const power = require("./componentPower").getComponentPowerMultiplier(ship, i);
+      const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[i] || STATE.NORMAL) * power : 0;
       const passiveFloor = thermal.cooling * 0.12;
       coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention;
     }

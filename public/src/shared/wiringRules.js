@@ -142,13 +142,30 @@
   function segmentKey(section) { return section.id || sectionIdFromCells({ x: section.x1, y: section.y1 }, { x: section.x2, y: section.y2 }); }
 
   function buildNetworks(modules, kindValue, catalogue, kind) {
-    const connections = kindValue.connections; const parent = connections.map((_, index) => index);
+    // Canonical connection order makes derived IDs stable without persisting
+    // them in Wiring v2.
+    const connections = kindValue.connections.slice().sort((a, b) => connectionKey(a).localeCompare(connectionKey(b), undefined, { numeric: true })); const parent = connections.map((_, index) => index);
     const find = (index) => parent[index] === index ? index : (parent[index] = find(parent[index]));
     const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[b] = a; };
-    const owner = new Map();
-    connections.forEach((connection, index) => connection.sectionIds.forEach((id) => { if (owner.has(id)) union(index, owner.get(id)); else owner.set(id, index); }));
-    const groups = new Map(); connections.forEach((connection, index) => { const root = find(index); if (!groups.has(root)) groups.set(root, []); groups.get(root).push(connection); });
     const sectionMap = new Map(kindValue.sections.map((section) => [section.id, section]));
+    const owner = new Map(); const cellOwner = new Map(); const sourceOwner = new Map(); const targetOwner = new Map();
+    connections.forEach((connection, index) => {
+      connection.sectionIds.forEach((id) => {
+        if (owner.has(id)) union(index, owner.get(id)); else owner.set(id, index);
+        // Physical branches and section endpoints meeting at one cell are a
+        // single conductor. Merely crossing the same component footprint is
+        // insufficient because only actual section cells participate.
+        for (const cell of sectionCells(sectionMap.get(id))) {
+          const key = cellKey(cell.x, cell.y);
+          if (cellOwner.has(key)) union(index, cellOwner.get(key)); else cellOwner.set(key, index);
+        }
+      });
+      if (kind === "data") {
+        if (sourceOwner.has(connection.sourceIndex)) union(index, sourceOwner.get(connection.sourceIndex)); else sourceOwner.set(connection.sourceIndex, index);
+        if (targetOwner.has(connection.targetIndex)) union(index, targetOwner.get(connection.targetIndex)); else targetOwner.set(connection.targetIndex, index);
+      }
+    });
+    const groups = new Map(); connections.forEach((connection, index) => { const root = find(index); if (!groups.has(root)) groups.set(root, []); groups.get(root).push(connection); });
     const networks = [...groups.values()].map((group, index) => {
       const sectionIds = [...new Set(group.flatMap((connection) => connection.sectionIds))];
       const componentIndices = [...new Set(group.flatMap((connection) => [connection.sourceIndex, connection.targetIndex]))];
