@@ -29,6 +29,30 @@ function findExteriorEmptyCells(cellOwners) {
   return exterior;
 }
 
+// Exposure is runtime hull state: destroyed footprints are openings, while the
+// immutable design/cell arrays remain untouched for stable protocol indexes.
+function rebuildRuntimeExposure(ship) {
+  if (!ship.componentThermals) return;
+  const owners = new Map();
+  const cellsByComponent = [];
+  for (let i = 0; i < (ship.design || []).length; i += 1) {
+    const module = ship.design[i];
+    const cells = getOccupiedCells(module.x, module.y, PARTS[module.type]?.footprint || { width: 1, height: 1 }, module.rotation || 0);
+    cellsByComponent[i] = cells;
+    if ((ship.componentHp?.[i] ?? 1) > 0) for (const cell of cells) owners.set(`${cell.x},${cell.y}`, i);
+  }
+  const exterior = findExteriorEmptyCells(owners);
+  for (let i = 0; i < cellsByComponent.length; i += 1) {
+    let exposedEdges = 0;
+    if ((ship.componentHp?.[i] ?? 1) > 0) for (const cell of cellsByComponent[i]) for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      if (owners.get(`${cell.x + dx},${cell.y + dy}`) === undefined && exterior.has(`${cell.x + dx},${cell.y + dy}`)) exposedEdges += 1;
+    }
+    if (ship.componentThermals[i].exposedEdges !== exposedEdges) ship.dirtyHeat?.add?.(i);
+    ship.componentThermals[i].exposedEdges = exposedEdges;
+  }
+  ship.heatExposureBuilds = (ship.heatExposureBuilds || 0) + 1;
+}
+
 function initShipHeat(ship) {
   const design = ship.design || [];
   const cellOwners = new Map();
@@ -91,24 +115,32 @@ function initShipHeat(ship) {
   rebuildThermalNetworks(ship);
 }
 
-function recalculateEffectiveThermalCapacities(ship) {
+function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
   if (!ship.componentThermals) return;
   const design = ship.design || [];
   if (!ship.componentBaseHeatCapacity || ship.componentBaseHeatCapacity.length !== design.length) {
     ship.componentBaseHeatCapacity = ship.componentThermals.map((thermal, index) => profile(design[index]?.type, PARTS[design[index]?.type] || {}).capacity || thermal.capacity || 0);
   }
-  for (let i = 0; i < design.length; i += 1) {
-    const adjacentLiveSinks = new Set();
+  const affected = changedSinkIndex === null ? design.map((_, i) => i)
+    : [changedSinkIndex, ...(ship.componentAdjacency?.[changedSinkIndex] || []).map(edge => edge.index)];
+  for (const i of new Set(affected)) {
+    let adjacencyBonus = 0;
     for (const edge of ship.componentAdjacency?.[i] || []) {
       const index = edge.index;
-      if (design[index]?.type === "heatSink" && (ship.componentHp?.[index] ?? 1) > 0) adjacentLiveSinks.add(index);
+      if (design[index]?.type === "heatSink") {
+        const max = Math.max(0, ship.componentMaxHp?.[index] || 0);
+        adjacencyBonus += 35 * HeatRules.clamp(max > 0 ? ship.componentHp[index] / max : ((ship.componentHp?.[index] ?? 1) > 0 ? 1 : 0), 0, 1);
+      }
     }
-    const capacity = ship.componentBaseHeatCapacity[i] + adjacentLiveSinks.size * 35;
+    const max = Math.max(0, ship.componentMaxHp?.[i] || 0);
+    const health = HeatRules.clamp(max > 0 ? ship.componentHp[i] / max : ((ship.componentHp?.[i] ?? 1) > 0 ? 1 : 0), 0, 1);
+    const ownCapacity = design[i].type === "heatSink" ? ship.componentBaseHeatCapacity[i] * health : ship.componentBaseHeatCapacity[i];
+    const capacity = ownCapacity + adjacencyBonus;
     ship.componentThermals[i].capacity = capacity;
     if (ship.componentHeatCapacity) ship.componentHeatCapacity[i] = capacity;
-    if (ship.componentHeat && Number.isFinite(ship.componentHeat[i])) {
-      ship.componentHeat[i] = Math.max(0, Math.min(capacity * 1.25, ship.componentHeat[i]));
-    }
+    // Capacity loss never deletes retained heat. Zero capacity with positive
+    // heat is deterministically saturated rather than dividing by zero.
+    if (ship.componentHeat && Number.isFinite(ship.componentHeat[i])) ship.componentHeatState[i] = stateFor(capacity > 0 ? ship.componentHeat[i] / capacity : (ship.componentHeat[i] > 0 ? Infinity : 0), ship.componentHeatState[i]);
     ship.dirtyHeat?.add?.(i);
   }
   let totalHeat = 0;
@@ -252,10 +284,11 @@ function updateShipHeat(ship, dt, room, now) {
     const part = PARTS[ship.design[i].type] || {};
     const thermal = ship.componentThermals[i];
     const damagedMultiplier = alive && ship.componentMaxHp?.[i] ? 1 + 0.15 * (1 - ship.componentHp[i] / ship.componentMaxHp[i]) : 1;
-    const powerNetwork = part.powerGeneration > 0 && ship.powerAnalysis?.networks?.find(network => network.sourceIndices?.includes(i));
-    const networkGeneration = Number(powerNetwork?.generationMw ?? powerNetwork?.generation) || 0;
-    const networkDemand = Number(powerNetwork?.demandMw ?? powerNetwork?.demand) || 0;
-    const load = networkGeneration > 0 ? Math.min(1, Math.max(0, networkDemand / networkGeneration)) : 0;
+    const powerNetwork = part.powerGeneration > 0 && ship.runtimeWiring?.powerNetworks?.find(network => network.sourceIndices?.includes(i));
+    const networkGeneration = Number(powerNetwork?.availableGenerationMw) || 0;
+    const networkDemand = Number(powerNetwork?.liveDemandMw ?? powerNetwork?.demandMw ?? powerNetwork?.demand) || 0;
+    const load = alive && activeOutputForState(ship.componentHeatState?.[i] || STATE.NORMAL) > 0 && networkGeneration > 0
+      ? Math.min(1, Math.max(0, networkDemand / networkGeneration)) : 0;
     const steady = alive && part.powerGeneration > 0 ? (2 + part.powerGeneration * 0.42) * load * elapsed * damagedMultiplier : 0;
     const generated = alive ? ship.componentHeatInput[i] * damagedMultiplier + steady : 0;
     ship.componentHeatInput[i] = 0;
@@ -351,9 +384,12 @@ function updateShipHeat(ship, dt, room, now) {
   for (let i = 0; i < heat.length; i += 1) {
     const alive = (ship.componentHp?.[i] ?? 1) > 0;
     const capacity = ship.componentThermals[i].capacity;
-    const next = Math.max(0, Math.min(capacity * 1.25, heat[i] + delta[i]));
+    // Inputs are bounded, but retained heat may exceed a newly damage-reduced
+    // capacity and must drain naturally instead of being magically discarded.
+    const retainedCeiling = Math.max(capacity * 1.25, heat[i]);
+    const next = Math.max(0, Math.min(retainedCeiling, heat[i] + delta[i]));
     const oldState = ship.componentHeatState[i];
-    const nextState = stateFor(next / capacity, oldState);
+    const nextState = stateFor(capacity > 0 ? next / capacity : (next > 0 ? Infinity : 0), oldState);
     if (nextState !== oldState || Math.abs(next - heat[i]) >= 0.5) ship.dirtyHeat.add(i);
     heat[i] = next;
     ship.componentHeatState[i] = nextState;
@@ -374,6 +410,9 @@ function updateShipHeat(ship, dt, room, now) {
           ship.componentMeltdown[i] = Math.max(0, ship.componentMeltdown[i] - elapsed * 2);
         }
       }
+    } else if ((PARTS[ship.design[i].type]?.powerGeneration || 0) > 0) {
+      // Destruction resets the lifecycle; repair never revives old progress.
+      ship.componentMeltdown[i] = 0;
     }
     if (next > 0.05) remainsActive = true;
   }
@@ -383,6 +422,11 @@ function updateShipHeat(ship, dt, room, now) {
   ship.hotComponentCount = hotCount;
   ship.overheatedComponentCount = overheatedCount;
   ship.thermalPowerFactor = nominalPower > 0 ? availablePower / nominalPower : 1;
+  // Source state tiers alter only their own network allocation. Batch all
+  // changes from this thermal step into one cheap reanalysis of cached Wiring.
+  const sourceTierChanged = heat.some((_, i) => (PARTS[ship.design[i].type]?.powerGeneration || 0) > 0 && ship._heatSourceStates?.[i] !== ship.componentHeatState[i]);
+  ship._heatSourceStates = ship.componentHeatState.slice();
+  if (sourceTierChanged) require("./componentPower").reallocateShipPower(ship, "thermal-source-state");
   ship.hasActiveHeat = remainsActive || ship.hasPassiveHeatSource;
   for (const network of ship.thermalNetworks || []) {
     const members = [...network.frameIndices, ...network.attachedComponents];
@@ -453,4 +497,4 @@ function effectiveComponentBonus(ship, propertyName, predicate) {
   return total;
 }
 
-module.exports = { STATE, initShipHeat, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };
+module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };

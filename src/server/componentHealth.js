@@ -171,6 +171,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
       const dealt = Math.min(ship.componentHp[idx], remaining);
       if (dealt > 0) {
         ship.componentHp[idx] -= dealt;
+        if (ship.design[idx].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, idx);
         remaining -= dealt;
         applied += dealt;
         ship.dirtyComponents.add(idx);
@@ -187,11 +188,12 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
       remaining = Math.max(0, remaining - Math.max(0, part.armorFlatReduction * protection));
       if (remaining <= 0) break;
     }
-    const passiveStructure = /frame/i.test(ship.design[idx].type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(ship.design[idx].type);
+    const passiveStructure = HeatRules.isPassiveStructure(ship.design[idx].type, part);
     const incoming = passiveStructure ? remaining * HeatRules.structuralDamageMultiplierForState(ship.componentHeatState?.[idx] || HeatRules.STATE.NORMAL) : remaining;
     const dealt = Math.min(ship.componentHp[idx], incoming);
     if (dealt <= 0) continue;
     ship.componentHp[idx] -= dealt;
+    if (ship.design[idx].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, idx);
     ship.hp -= dealt;
     remaining -= dealt;
     applied += dealt;
@@ -209,6 +211,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
 
 function onComponentDestroyed(room, ship, index, now) {
   const module = ship.design[index];
+  if (ship.componentMeltdown && (PARTS[module.type]?.powerGeneration || 0) > 0) ship.componentMeltdown[index] = 0;
   if (room) {
     const cos = Math.cos(ship.angle);
     const sin = Math.sin(ship.angle);
@@ -224,12 +227,14 @@ function onComponentDestroyed(room, ship, index, now) {
   if (module.type === "core") {
     ship.coreDestroyed = true;
     requestWiringRebuild(ship, "component-destroyed");
+    require("./heat").rebuildRuntimeExposure(ship);
     return;
   }
   requestWiringRebuild(ship, "component-destroyed");
   {
     const heat = require("./heat");
-    heat.recalculateEffectiveThermalCapacities(ship);
+    heat.recalculateEffectiveThermalCapacities(ship, module.type === "heatSink" ? index : null);
+    heat.rebuildRuntimeExposure(ship);
     if (heat.isThermalRouteType(module.type)) heat.rebuildThermalNetworks(ship);
   }
 }
@@ -276,6 +281,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
     const isCore = ship.design[i].type === "core";
     const dealt = Math.min(ship.componentHp[i], dmg);
     ship.componentHp[i] -= dealt;
+    if (ship.design[i].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, i);
     if (!isCore) ship.hp -= dealt; // the core is kept out of the hull sum
     ship.dirtyComponents.add(i);
     if (ship.componentHp[i] <= 0.0001) {
@@ -372,6 +378,7 @@ function repairShipComponents(room, ship, amount, now) {
     const heal = Math.min(remaining, worstMissing);
     const isCore = ship.design[idx].type === "core";
     ship.componentHp[idx] += heal;
+    if (ship.design[idx].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, idx);
     // The core has a separate durability pool and is intentionally excluded
     // from ship.hp, so repairing core damage must not inflate hull integrity.
     if (!isCore) ship.hp = Math.min(ship.maxHp, ship.hp + heal);
@@ -383,7 +390,8 @@ function repairShipComponents(room, ship, amount, now) {
       requestWiringRebuild(ship, "component-repaired");
       {
         const heat = require("./heat");
-        heat.recalculateEffectiveThermalCapacities(ship);
+        heat.recalculateEffectiveThermalCapacities(ship, ship.design[idx].type === "heatSink" ? idx : null);
+        heat.rebuildRuntimeExposure(ship);
         if (heat.isThermalRouteType(ship.design[idx].type)) heat.rebuildThermalNetworks(ship);
       }
     }

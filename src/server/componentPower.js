@@ -5,6 +5,7 @@ const { PARTS } = require("./components");
 const { analyzeShipPower } = require("./shipDesign");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const { clampNumber } = require("./utils");
+const HeatRules = require("../../public/src/shared/heatRules");
 
 const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
 
@@ -70,7 +71,8 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   try { analysis = analyzeShipPower(design, runtimeWiring); } catch (_) { analysis = { networks: [] }; }
   let dataAnalysis;
   try { dataAnalysis = WiringRules.analyzeWiring(design, runtimeWiring, PARTS).data; } catch (_) { dataAnalysis = { networks: [] }; }
-  const runtime = { power, data, powerNetworks: analysis.networks || [], dataNetworks: dataAnalysis.networks || [], reason };
+  const runtimeNetworks = (analysis.networks || []).map(network => ({ ...network }));
+  const runtime = { power, data, powerNetworks: runtimeNetworks, dataNetworks: dataAnalysis.networks || [], reason };
   const wiringSignature = stateSignature(runtime);
   if (ship._wiringStateSignature !== wiringSignature) {
     ship._wiringStateSignature = wiringSignature;
@@ -78,10 +80,17 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   }
 
   const membership = new Map();
-  for (const network of analysis.networks || []) {
-    const generation = Math.max(0, Number(network.generationMw) || 0);
+  for (const network of runtimeNetworks) {
+    const generation = (network.sourceIndices || []).reduce((sum, index) => {
+      if ((ship.componentHp?.[index] ?? 1) <= 0) return sum;
+      const nominal = Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
+      return sum + nominal * HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL);
+    }, 0);
     const demand = Math.max(0, Number(network.demandMw) || 0);
     const efficiency = demand <= 0 ? 1 : clampNumber(generation / demand, 0, 1);
+    network.availableGenerationMw = generation;
+    network.liveDemandMw = demand;
+    network.runtimeLoadRatio = generation > 0 ? clampNumber(demand / generation, 0, 1) : 0;
     for (const index of [...(network.consumerIndices || []), ...(network.sourceIndices || [])])
       if (!membership.has(index)) membership.set(index, { network, generation, efficiency });
   }
@@ -116,6 +125,9 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
 }
 
 function initializeComponentPower(ship) { rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true }); return ship.componentPower; }
+function reallocateShipPower(ship, reason = "source-availability") {
+  return rebuildShipWiringState(ship, reason);
+}
 
 function getComponentPowerMultiplier(ship, componentIndex) {
   if ((ship?.componentHp?.[componentIndex] ?? 1) <= 0) return 0;
@@ -141,4 +153,4 @@ function effectiveShieldStats(ship) {
   return { capacity: Number.isFinite(capacity) ? capacity : 0, recharge: Number.isFinite(recharge) ? recharge : 0 };
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, getComponentPowerMultiplier, effectiveShieldStats };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, getComponentPowerMultiplier, effectiveShieldStats };

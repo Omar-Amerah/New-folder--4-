@@ -9,7 +9,9 @@
   const STATE = Object.freeze({ NORMAL: 0, WARM: 1, HOT: 2, CRITICAL: 3, OVERHEATED: 4 });
   const STATE_LABELS = Object.freeze(["Cool", "Warm", "Hot", "Critical", "Overheated"]);
   const THRESHOLDS = Object.freeze({ warm: 0.42, hot: 0.68, critical: 0.86, overheated: 1, recover: 0.62 });
-  const CONDUCTIVITY = Object.freeze({ frame: 2.1, system: 0.72, armor: 0.48, compositeArmor: 0.28, heatSink: 1.4, radiator: 1.12, heatPipe: 3.0, destroyed: 0 });
+  // Wrecks retain heat and can exchange it with immediately adjacent material,
+  // but this deliberately small coefficient cannot bridge a routed network.
+  const CONDUCTIVITY = Object.freeze({ frame: 2.1, system: 0.72, armor: 0.48, compositeArmor: 0.28, heatSink: 1.4, radiator: 1.12, heatPipe: 3.0, destroyed: 0.12 });
   const BASE_TRANSFER = 18;
   const NETWORK_FRAME_BOOST = 1.7;
   const NETWORK_ATTACHMENT_BOOST = 1.25;
@@ -79,6 +81,10 @@
     return 1 + (1 - passiveProtectionForState(state));
   }
 
+  // Balance metadata is the single classification authority for every armour,
+  // frame, bulkhead and mount variant; active systems use other categories.
+  function isPassiveStructure(type, part) { return part?.category === "Structure"; }
+
   // Compatibility alias while older call sites migrate to effect-specific rules.
   function performanceForState(state) { return activeOutputForState(state); }
 
@@ -95,5 +101,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, performanceForState, edgeTransfer, edgeConductivity });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity });
 }));
