@@ -512,7 +512,7 @@ function ensureBlueprintGridEventHandlers() {
 }
 
 function removePlacementPreviewElements() {
-  for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-force, .maneuver-preview-torque, .maneuver-preview-weak")) {
+  for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-weak")) {
     stale.remove();
   }
 }
@@ -559,20 +559,7 @@ function renderManeuverThrusterPreview(part, placementValid, design) {
   positionPreviewOverlay(plume, part.x + nozzleSide * 0.44, part.y + 0.28, 0.5, 0.44);
   dom.grid.appendChild(plume);
 
-  const force = document.createElement("div");
-  force.className = `maneuver-preview-force ${placementValid ? "valid" : "invalid"}`;
-  force.textContent = nozzleSide < 0 ? "→" : "←";
-  force.title = "Force direction";
-  positionPreviewOverlay(force, part.x + (nozzleSide < 0 ? 0.58 : -0.08), part.y + 0.04, 0.5, 0.5);
-  dom.grid.appendChild(force);
-
-  const torque = document.createElement("div");
-  torque.className = `maneuver-preview-torque ${placementValid ? "valid" : "invalid"}`;
   const centerOfMass = calculateCenterOfMass(Array.isArray(design) ? design : state.design, PART_STATS);
-  torque.textContent = part.y < centerOfMass.y ? (nozzleSide < 0 ? "↻" : "↺") : (nozzleSide < 0 ? "↺" : "↻");
-  torque.title = "Resulting turn direction";
-  positionPreviewOverlay(torque, part.x + 0.18, part.y + 0.55, 0.64, 0.42);
-  dom.grid.appendChild(torque);
 
   if (Math.abs((Number(part.y) || 0) - centerOfMass.y) < 0.75) {
     const weak = document.createElement("div");
@@ -1426,7 +1413,7 @@ export function heatInteractionDiagnostics() {
     activeScenarioButton,
     percentageBadgeCount: dom.grid.querySelectorAll(".component-heat-value").length,
     occupiedCellCount: dom.grid.querySelectorAll(".build-cell.occupied").length,
-    previewCount: dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-force, .maneuver-preview-torque, .maneuver-preview-weak").length,
+    previewCount: dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-weak").length,
     heatFlowOverlayCount: (dom.heatFlowOverlayHost || dom.grid).querySelectorAll(".heat-flow-overlay").length,
     heatCacheSignature: cachedHeatAnalysis?.signature || null,
     heatCachePartReferencesMatch: cachedPartReferencesMatch(state.design),
@@ -1953,8 +1940,16 @@ const DIAGNOSTIC_LEVELS = new Set(["neutral", "good", "warning", "bad"]);
 function directionalTurnText(stats) {
   const left = Number(stats.turnRateLeft ?? stats.turnRate ?? 0);
   const right = Number(stats.turnRateRight ?? stats.turnRate ?? 0);
-  if (Math.abs(left - right) < 0.01) return `Turn rate ${left.toFixed(2)} rad/s`;
-  return `Left ${left.toFixed(2)} / Right ${right.toFixed(2)} rad/s`;
+  if (Math.abs(left - right) < 0.01) {
+    const text = `${left.toFixed(2)} rad/s`;
+    return { text, html: escapeHtml(text) };
+  }
+  const leftValue = left.toFixed(2);
+  const rightValue = right.toFixed(2);
+  return {
+    text: `Left ${leftValue} rad/s / Right ${rightValue} rad/s`,
+    html: `<span class="turn-stat-lines"><span><em>Left</em><b>${escapeHtml(leftValue)}</b></span><span><em>Right</em><b>${escapeHtml(rightValue)}</b></span><small>rad/s</small></span>`
+  };
 }
 
 function buildStatDiagnostics(stats) {
@@ -2042,10 +2037,12 @@ function classifyMassDrag(stats) {
 function statMarkup(key, label, value, diagnosticStatus = "neutral") {
   const status = diagnostic(diagnosticStatus);
   const diagnosticText = status === "neutral" ? "" : ` ${status}`;
+  const textValue = typeof value === "object" && value ? value.text : String(value);
+  const htmlValue = typeof value === "object" && value?.html ? value.html : escapeHtml(textValue);
   return `
-    <div class="stat stat-${status}" tabindex="0" data-stat-key="${escapeHtml(key)}" data-stat-label="${escapeHtml(label)}" data-stat-value="${escapeHtml(value)}" data-stat-diagnostic="${escapeHtml(status)}" aria-label="${escapeHtml(`${label}: ${value}${diagnosticText}`)}">
+    <div class="stat stat-${status}" tabindex="0" data-stat-key="${escapeHtml(key)}" data-stat-label="${escapeHtml(label)}" data-stat-value="${escapeHtml(textValue)}" data-stat-diagnostic="${escapeHtml(status)}" aria-label="${escapeHtml(`${label}: ${textValue}${diagnosticText}`)}">
       <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
+      <strong>${htmlValue}</strong>
     </div>
   `;
 }
