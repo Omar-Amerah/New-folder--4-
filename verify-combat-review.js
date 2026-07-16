@@ -5,7 +5,7 @@
 const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState, repairShipComponents } = require("./src/server/componentHealth");
-const { updateShipWeapons } = require("./src/server/combat");
+const { updateShipWeapons, componentAimWorldPosition, selectComponentAimIndex } = require("./src/server/combat");
 
 function makeShip(design, overrides = {}) {
   const ship = {
@@ -37,6 +37,30 @@ function makeShip(design, overrides = {}) {
   assert(ship.componentHp[0] < ship.componentMaxHp[0], "core pool should be damaged for the repair test");
   repairShipComponents(null, ship, 20, 0);
   assert.strictEqual(ship.hp, hullBeforeRepair, "core repair must not inflate hull hp");
+}
+
+
+// Component-aware targeting should use rotated component centres, avoid the core
+// while protected by other living modules, and prefer a different module when
+// retargeting is requested.
+{
+  const target = makeShip(
+    [
+      { x: 7, y: 7, type: "core" },
+      { x: 7, y: 5, type: "frame" },
+      { x: 5, y: 7, type: "blaster" }
+    ],
+    { id: "component-target", ownerId: "p2", x: 100, y: 200, angle: Math.PI / 2 }
+  );
+  const point = componentAimWorldPosition(target, 1);
+  assert(Math.abs(point.x - 100) < 0.0001, "component aim point should rotate with the target ship");
+  assert(Math.abs(point.y - 226) < 0.0001, "component aim point should translate with the target ship");
+
+  const room = { combatRandom: () => 0.999 };
+  assert.notStrictEqual(selectComponentAimIndex(room, target, null), 0, "core should not be selected while non-core components live");
+  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0 }, target, 1), 2, "retarget should prefer a different living component when possible");
+  target.componentHp[1] = 0;
+  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0 }, target, 1), 2, "destroyed component should retarget to another living component");
 }
 
 // A beam crossing a target whose rear module is listed first should still damage

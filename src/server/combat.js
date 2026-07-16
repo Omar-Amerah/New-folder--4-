@@ -12,6 +12,127 @@ const TurretRules = require("../../public/src/shared/turretRules");
 
 const MODULE_SCALE = 13;
 
+
+const COMPONENT_RETARGET_MIN_MS = 2500;
+const COMPONENT_RETARGET_SPAN_MS = 1500;
+const STRUCTURAL_COMPONENT_TYPES = new Set(["armor", "compositeArmor", "bulkhead", "frame", "weaponMount"]);
+const PRIORITY_COMPONENT_TYPES = new Set(["blaster", "missileLauncher", "torpedoLauncher", "railgun", "beam", "pointDefense", "engine", "thruster", "reactor", "battery", "shield", "ecm", "decoy", "repairBeam"]);
+
+function componentAimLocalPosition(ship, index) {
+  const module = ship?.design?.[index];
+  if (!module) return null;
+  return moduleFootprintLocalPosition(module);
+}
+
+function componentAimWorldPosition(ship, index) {
+  const local = componentAimLocalPosition(ship, index);
+  if (!local) return null;
+  const cos = Math.cos(ship.angle || 0);
+  const sin = Math.sin(ship.angle || 0);
+  return {
+    x: ship.x + local.x * cos - local.y * sin,
+    y: ship.y + local.x * sin + local.y * cos
+  };
+}
+
+function isComponentExposed(ship, index) {
+  const module = ship?.design?.[index];
+  if (!module) return false;
+  const part = PARTS[module.type] || PARTS.frame;
+  const cells = getOccupiedCells(module.x, module.y, part.footprint || { width: 1, height: 1 }, normalizeRotation(module.rotation));
+  const cellIndex = ship.componentCellIndex;
+  if (!cellIndex) return true;
+  for (const cell of cells) {
+    const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dy] of neighbors) {
+      const x = cell.x + dx;
+      const y = cell.y + dy;
+      if (x < 0 || y < 0 || x >= 15 || y >= 15) return true;
+      const neighborIndex = cellIndex.get(x * 15 + y);
+      if (neighborIndex === undefined || !isComponentAlive(ship, neighborIndex)) return true;
+    }
+  }
+  return false;
+}
+
+function componentAimWeight(ship, index, previousIndex = null) {
+  const module = ship?.design?.[index];
+  if (!module || !isComponentAlive(ship, index)) return 0;
+  const type = module.type;
+  let weight = 1;
+  if (isComponentExposed(ship, index)) weight += 4;
+  if (PRIORITY_COMPONENT_TYPES.has(type) || PARTS[type]?.weapon) weight += 3;
+  if (STRUCTURAL_COMPONENT_TYPES.has(type)) weight += 1.2;
+  if (type === "core") weight *= 0.25;
+  if (previousIndex !== null && index === previousIndex) weight *= 0.2;
+  return weight;
+}
+
+function selectComponentAimIndex(room, target, previousIndex = null) {
+  if (!target?.alive || !target.design?.length || !target.componentHp) return -1;
+  const living = [];
+  const livingNonCore = [];
+  for (let i = 0; i < target.design.length; i += 1) {
+    if (!isComponentAlive(target, i)) continue;
+    if (!componentAimLocalPosition(target, i)) continue;
+    living.push(i);
+    if (target.design[i].type !== "core") livingNonCore.push(i);
+  }
+  let candidates = livingNonCore.length ? livingNonCore : living;
+  if (candidates.length > 1 && previousIndex !== null) {
+    const different = candidates.filter((idx) => idx !== previousIndex);
+    if (different.length) candidates = different;
+  }
+  if (!candidates.length) return -1;
+  let total = 0;
+  const weighted = candidates.map((idx) => {
+    const weight = Math.max(0.01, componentAimWeight(target, idx, previousIndex));
+    total += weight;
+    return { idx, weight };
+  });
+  let roll = roomCombatRandom(room)() * total;
+  for (const entry of weighted) {
+    roll -= entry.weight;
+    if (roll <= 0) return entry.idx;
+  }
+  return weighted[weighted.length - 1].idx;
+}
+
+function nextComponentRetargetAt(room, now) {
+  return now + COMPONENT_RETARGET_MIN_MS + Math.floor(roomCombatRandom(room)() * COMPONENT_RETARGET_SPAN_MS);
+}
+
+function clearWeaponComponentAim(ship, weaponIndex) {
+  if (ship?.weaponComponentTargetIds) ship.weaponComponentTargetIds[weaponIndex] = null;
+  if (ship?.weaponComponentTargetIndices) ship.weaponComponentTargetIndices[weaponIndex] = -1;
+  if (ship?.weaponComponentRetargetAt) ship.weaponComponentRetargetAt[weaponIndex] = 0;
+}
+
+function weaponComponentAimPoint(room, ship, weaponIndex, target, now) {
+  if (!target?.alive) {
+    clearWeaponComponentAim(ship, weaponIndex);
+    return target ? { x: target.x, y: target.y, componentIndex: -1 } : null;
+  }
+  if (!ship.weaponComponentTargetIds) ship.weaponComponentTargetIds = new Array(ship.design ? ship.design.length : 0).fill(null);
+  if (!ship.weaponComponentTargetIndices) ship.weaponComponentTargetIndices = new Array(ship.design ? ship.design.length : 0).fill(-1);
+  if (!ship.weaponComponentRetargetAt) ship.weaponComponentRetargetAt = new Array(ship.design ? ship.design.length : 0).fill(0);
+
+  const currentTargetId = ship.weaponComponentTargetIds[weaponIndex];
+  let currentIndex = ship.weaponComponentTargetIndices[weaponIndex];
+  const targetChanged = currentTargetId !== target.id;
+  const invalid = currentIndex === undefined || currentIndex < 0 || !isComponentAlive(target, currentIndex);
+  const expired = now >= (ship.weaponComponentRetargetAt[weaponIndex] || 0);
+  if (targetChanged || invalid || expired) {
+    const previous = targetChanged ? null : currentIndex;
+    currentIndex = selectComponentAimIndex(room, target, previous);
+    ship.weaponComponentTargetIds[weaponIndex] = target.id;
+    ship.weaponComponentTargetIndices[weaponIndex] = currentIndex;
+    ship.weaponComponentRetargetAt[weaponIndex] = nextComponentRetargetAt(room, now);
+  }
+  const point = currentIndex >= 0 ? componentAimWorldPosition(target, currentIndex) : null;
+  return point ? { ...point, componentIndex: currentIndex } : { x: target.x, y: target.y, componentIndex: -1 };
+}
+
 function shipRepairNeed(ship) {
   if (!ship || !ship.alive) return 0;
   let need = Math.max(0, (ship.maxHp || 0) - (ship.hp || 0));
@@ -252,6 +373,15 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   if (!ship.weaponFireTargetIds) {
     ship.weaponFireTargetIds = new Array(ship.design ? ship.design.length : 0).fill(null);
   }
+  if (!ship.weaponComponentTargetIds) {
+    ship.weaponComponentTargetIds = new Array(ship.design ? ship.design.length : 0).fill(null);
+  }
+  if (!ship.weaponComponentTargetIndices) {
+    ship.weaponComponentTargetIndices = new Array(ship.design ? ship.design.length : 0).fill(-1);
+  }
+  if (!ship.weaponComponentRetargetAt) {
+    ship.weaponComponentRetargetAt = new Array(ship.design ? ship.design.length : 0).fill(0);
+  }
 
   for (let i = 0; i < ship.weaponCooldowns.length; i += 1) {
     ship.weaponCooldowns[i] = Math.max(0, ship.weaponCooldowns[i] - dt);
@@ -274,6 +404,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       // Destroyed weapons neither aim nor fire; the client freezes their art.
       ship.weaponAimTargetIds[i] = null;
       ship.weaponFireTargetIds[i] = null;
+      clearWeaponComponentAim(ship, i);
       return;
     }
 
@@ -298,10 +429,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     let currentPdTarget = null;
     let weaponTarget = null;
     let aimEntity = null;
+    let aimPoint = null;
+    let fireAimPoint = null;
 
     if (family === "pointDefense") {
       currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, part.weapon, ships, ship.id);
       aimEntity = currentPdTarget ? currentPdTarget.entity : null;
+      clearWeaponComponentAim(ship, i);
     } else {
       // Keep the ship's assigned target when this weapon can reach it, otherwise
       // fall back to any valid enemy already in this weapon's range so it does
@@ -309,6 +443,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       // itself is retained at the ship level and resumed once it is attackable.
       weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range);
       aimEntity = weaponTarget || (target && target.alive ? target : null);
+      if (aimEntity) {
+        aimPoint = weaponComponentAimPoint(room, ship, i, aimEntity, now);
+        if (weaponTarget && aimEntity === weaponTarget) fireAimPoint = aimPoint;
+      } else {
+        clearWeaponComponentAim(ship, i);
+      }
     }
 
     // The desired angle is clamped by the weapon's fixed blueprint arc: targets
@@ -318,7 +458,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     let desiredRelative = defaultRelative;
     let isTracking = false;
     if (aimEntity) {
-      const worldAngleToTarget = Math.atan2(aimEntity.y - worldY, aimEntity.x - worldX);
+      const aimX = aimPoint ? aimPoint.x : aimEntity.x;
+      const aimY = aimPoint ? aimPoint.y : aimEntity.y;
+      const worldAngleToTarget = Math.atan2(aimY - worldY, aimX - worldX);
       const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
       const diff = angleDifference(defaultRelative, relativeAngleToTarget);
       if (Math.abs(diff) <= arcRadians / 2) {
@@ -361,7 +503,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
     const targetEntity = family === "pointDefense" ? currentPdTarget.entity : weaponTarget;
-    const worldAngleToTarget = Math.atan2(targetEntity.y - worldY, targetEntity.x - worldX);
+    const targetAimX = fireAimPoint ? fireAimPoint.x : targetEntity.x;
+    const targetAimY = fireAimPoint ? fireAimPoint.y : targetEntity.y;
+    const worldAngleToTarget = Math.atan2(targetAimY - worldY, targetAimX - worldX);
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
     if (family !== "beam" && angleErr > 0.26) return;
 
@@ -380,6 +524,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         type: "bolt",
         ownerId: ship.ownerId,
         targetId: weaponTarget.id,
+        targetComponentIndex: fireAimPoint?.componentIndex ?? -1,
         x: muzzle.x,
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
@@ -404,6 +549,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         hp: part.weapon.missileHp || 20,
         ownerId: ship.ownerId,
         targetId: weaponTarget.id,
+        targetComponentIndex: fireAimPoint?.componentIndex ?? -1,
         x: muzzle.x,
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.15,
@@ -494,6 +640,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         type: "rail",
         ownerId: ship.ownerId,
         targetId: weaponTarget.id,
+        targetComponentIndex: fireAimPoint?.componentIndex ?? -1,
         x: muzzle.x,
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.12,
@@ -708,6 +855,9 @@ function destroyShip(room, ship, attackerId, now) {
   ship.hp = 0;
   zeroAllComponents(ship);
   ship.shield = 0;
+  ship.weaponComponentTargetIds = null;
+  ship.weaponComponentTargetIndices = null;
+  ship.weaponComponentRetargetAt = null;
   ship.vx *= 0.25;
   ship.vy *= 0.25;
   room.effects.push({ type: "boom", x: ship.x, y: ship.y, at: now });
@@ -795,6 +945,9 @@ function detonateSelfDestruct(room, ship, now) {
   ship.hp = 0;
   zeroAllComponents(ship);
   ship.shield = 0;
+  ship.weaponComponentTargetIds = null;
+  ship.weaponComponentTargetIndices = null;
+  ship.weaponComponentRetargetAt = null;
   ship.vx *= 0.2;
   ship.vy *= 0.2;
   ship.removeAt = now + 700;
@@ -815,6 +968,9 @@ function updateDestroyedShips(room, now) {
     for (const ship of player.ships) {
       if (!ship.alive && !ship.removed && ship.removeAt && now >= ship.removeAt) {
         ship.removed = true;
+        ship.weaponComponentTargetIds = null;
+        ship.weaponComponentTargetIndices = null;
+        ship.weaponComponentRetargetAt = null;
         room.ships.delete(ship.id);
         removedAny = true;
       }
@@ -979,6 +1135,8 @@ module.exports = {
   findTarget,
   findPointDefenseTarget,
   pickWeaponFireTarget,
+  componentAimWorldPosition,
+  selectComponentAimIndex,
   buildShipTurretDiagnostics,
   isInSafeZone,
   isLineBlocked,

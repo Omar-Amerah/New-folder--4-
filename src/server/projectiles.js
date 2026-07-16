@@ -83,7 +83,15 @@ function updateBullets(room, dt, now) {
       const target = byId.get(bullet.targetId);
       const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
-        let desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
+        const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
+        if (bullet.targetComponentIndex === undefined) bullet.targetComponentIndex = -1;
+        if (bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0)) {
+          bullet.targetComponentIndex = selectComponentAimIndex(room, target, bullet.targetComponentIndex);
+        }
+        const targetPoint = bullet.targetComponentIndex >= 0 ? componentAimWorldPosition(target, bullet.targetComponentIndex) : null;
+        const targetX = targetPoint ? targetPoint.x : target.x;
+        const targetY = targetPoint ? targetPoint.y : target.y;
+        let desired = Math.atan2(targetY - bullet.y, targetX - bullet.x);
         let turnRate = MISSILE_GUIDANCE.armingTurnRate; // Weak tracking during arming delay
 
         if (bullet.age >= (bullet.trackingDelay || 0)) {
@@ -94,8 +102,8 @@ function updateBullets(room, dt, now) {
 
           // Add slight lead prediction only for high-tracking missiles
           const leadStrength = tracking * MISSILE_GUIDANCE.leadStrengthMultiplier;
-          const predictedX = target.x + (target.vx || 0) * leadStrength;
-          const predictedY = target.y + (target.vy || 0) * leadStrength;
+          const predictedX = targetX + (target.vx || 0) * leadStrength;
+          const predictedY = targetY + (target.vy || 0) * leadStrength;
           desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
         }
 
