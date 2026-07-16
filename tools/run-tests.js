@@ -70,7 +70,8 @@ const GROUPS = {
     "verify-canvas-removal.js",
     "verify-components.js",
     "verify-component-catalogue.js",
-    "verify-section13b-ui.js"
+    "verify-section13b-ui.js",
+    "verify-section14-security.js"
   ],
 
   // Browser-free module/room/input lifecycle integration. These may use fake

@@ -5,6 +5,28 @@ const { send, sendPlayer, broadcastRoom } = require("./outbound");
 const { sendFullSnapshot, broadcastSnapshot } = require("./snapshotDelivery");
 const { getRoute } = require("./routeRegistry");
 
+const RATE_LIMITS = {
+  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "setCombatStyle", "setRallyPoint", "resetRallyPoint", "ping"]) },
+  management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
+};
+function bucketForType(type) {
+  if (RATE_LIMITS.frequent.types.has(type)) return "frequent";
+  if (RATE_LIMITS.management.types.has(type)) return "management";
+  return "management";
+}
+function checkRateLimit(client, type, now = Date.now()) {
+  client.rateLimits ||= {};
+  const key = bucketForType(type);
+  const cfg = RATE_LIMITS[key];
+  const bucket = client.rateLimits[key] ||= { tokens: cfg.capacity, updatedAt: now };
+  const elapsed = Math.max(0, (now - bucket.updatedAt) / 1000);
+  bucket.tokens = Math.min(cfg.capacity, bucket.tokens + elapsed * cfg.refillPerSecond);
+  bucket.updatedAt = now;
+  if (bucket.tokens < 1) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
 function handleMessage(client, message) {
   const schema = validateClientMessage(message);
   if (!schema.ok) {
@@ -15,6 +37,11 @@ function handleMessage(client, message) {
   const route = getRoute(message.type);
   if (!route) {
     send(client, { type: "error", code: "unknown-type", message: "Unknown message type", requestId: message?.requestId });
+    return;
+  }
+
+  if (!checkRateLimit(client, message.type)) {
+    send(client, { type: "error", code: "rate-limited", message: "Too many requests", requestId: message.requestId });
     return;
   }
 
@@ -274,4 +301,4 @@ function handleMessage(client, message) {
 }
 
 
-module.exports = { handleMessage };
+module.exports = { handleMessage, checkRateLimit, RATE_LIMITS };

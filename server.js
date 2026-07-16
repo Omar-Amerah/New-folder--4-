@@ -29,8 +29,20 @@ function acceptsGzip(req) {
   return /\bgzip\b/.test(req.headers["accept-encoding"] || "");
 }
 
+function securityHeaders() {
+  const headers = {
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "x-frame-options": "DENY",
+    "permissions-policy": "camera=(), microphone=(), geolocation=()"
+  };
+  if (process.env.NODE_ENV === "production") headers["strict-transport-security"] = "max-age=31536000; includeSubDomains";
+  return headers;
+}
+
 function serveBuffer(req, res, { data, gzip, contentType, cacheControl }) {
   const headers = {
+    ...securityHeaders(),
     "content-type": contentType,
     "cache-control": cacheControl,
     "vary": "Accept-Encoding"
@@ -182,6 +194,7 @@ function healthPayload() {
 function handleHealthRequest(req, res) {
   const body = Buffer.from(JSON.stringify(healthPayload()));
   res.writeHead(200, {
+    ...securityHeaders(),
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
@@ -192,8 +205,7 @@ function handleHealthRequest(req, res) {
 
 // HTTP request handler for static files and balance JSON
 function handleHttpRequest(req, res) {
-  res.setHeader("x-content-type-options", "nosniff");
-  res.setHeader("referrer-policy", "no-referrer");
+  for (const [name, value] of Object.entries(securityHeaders())) res.setHeader(name, value);
   if (!["GET", "HEAD"].includes(req.method)) { res.writeHead(405, { allow: "GET, HEAD" }); res.end(); return; }
   let requestUrl;
   try { requestUrl = new URL(req.url, "http://localhost"); } catch { res.writeHead(400); res.end("Bad request"); return; }
@@ -340,4 +352,4 @@ if (require.main === module) {
   }).catch((err) => { console.error(err); process.exit(1); });
 }
 
-module.exports = { createGameServer, handleHttpRequest, handleHealthRequest, handleTurretDebugRequest, validateWebSocketUpgrade, isOriginAllowed, websocketOriginPolicy };
+module.exports = { createGameServer, handleHttpRequest, handleHealthRequest, handleTurretDebugRequest, validateWebSocketUpgrade, isOriginAllowed, websocketOriginPolicy, securityHeaders };
