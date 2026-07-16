@@ -45,9 +45,10 @@ function deriveRuntimeKind(ship, kind, occupied) {
     (complete ? operationalConnectionIds : brokenConnectionIds).add(id);
     if (complete) operationalConnections.push({ ...connection, sectionIds: [...connection.sectionIds] });
   }
-  const used = new Set(operationalConnections.flatMap((connection) => connection.sectionIds));
   const operationalWiring = {
-    sections: (blueprint.sections || []).filter((section) => used.has(section.id)).map((section) => ({ ...section })),
+    // Runtime topology is a projection of surviving physical hosts. Blueprint
+    // sections remain persisted and repair can therefore restore them.
+    sections: (blueprint.sections || []).filter((section) => operationalSectionIds.has(section.id)).map((section) => ({ ...section })),
     connections: operationalConnections
   };
   return { operationalSectionIds, disabledSectionIds, operationalConnectionIds, brokenConnectionIds, sectionHosts, operationalWiring };
