@@ -48,10 +48,11 @@ const corpus = {
   assert(defaultStats.power > 0, "default design has positive power reserve");
   assert(defaultStats.maxSpeed > 0, "default design can move");
   assert(defaultStats.turnRate > 1, "default design can turn effectively");
-  assert(Math.abs(defaultStats.unitCost - 499) <= 1, `default unit cost expected about 499, got ${defaultStats.unitCost}`);
+  assert(defaultStats.unitCost >= 500 && defaultStats.unitCost <= 560, `default unit cost expected near $500 and below starting money, got ${defaultStats.unitCost}`);
   assert(defaultStats.unitCost <= ECONOMY.startingMoney, "default design is affordable at normal starting money");
-  assert.strictEqual(defaultStats.beam, 1, "default design has one beam emitter");
-  assert.strictEqual(defaultStats.cost, 250, "default component cost total remains 250");
+  assert.strictEqual(defaultStats.missile, 1, "default design has one missile launcher");
+  assert.strictEqual(defaultStats.beam, 0, "default design has no beam emitter");
+  assert.strictEqual(defaultStats.cost, 259, "default component cost total matches the defensive stock design");
   const exhaust = EngineExhaust.analyze(DEFAULT_DESIGN, PARTS);
   assert.strictEqual(exhaust.blockedEngineIndices.size, 0, "default engine exhaust has no blockers");
   const occupied = new Map();
@@ -69,7 +70,7 @@ const corpus = {
   assert.strictEqual(heat.analysis.meltdownCount, 0, "default full-load thermal analysis predicts no reactor meltdown");
   assert(heat.analysis.peakPredictedHeat < 1, `default max predicted heat should stay below 100%, got ${heat.analysis.peakPredictedHeat}`);
   const radiatorIndices = DEFAULT_DESIGN.map((part, index) => part.type === "radiator" ? index : -1).filter((index) => index >= 0);
-  assert.strictEqual(radiatorIndices.length, 2, "default has two radiators");
+  assert.strictEqual(radiatorIndices.length, 1, "default has one exposed radiator");
   for (const index of radiatorIndices) assert(heat.predictions.get(DEFAULT_DESIGN[index]).exposedEdges > 0, `radiator ${index} should have exposed edges`);
 
   for (const [name, design] of Object.entries(corpus)) {
