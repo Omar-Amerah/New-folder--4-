@@ -7,6 +7,8 @@ const path = require("path");
 const msgpack = require("@msgpack/msgpack");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort, uniqueRoom, waitForBrowserReady, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
+const { createGeneratedPowerWiring, validateWiring, analyzeShipPower } = require("./src/server/shipDesign");
+const { PARTS } = require("./src/server/components");
 
 const PORT = Number(process.env.TEST_PORT || uniquePort());
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -24,6 +26,31 @@ const DESIGN = [
   { x: 8, y: 6, type: "heatSink", rotation: 0 },
   { x: 9, y: 6, type: "radiator", rotation: 0 }
 ];
+const DESIGN_WIRING = createGeneratedPowerWiring(DESIGN);
+
+function assertDesignWiringPreflight() {
+  assert.strictEqual(DESIGN_WIRING.version, 2, "Heat browser fixture must use Wiring v2");
+  const validated = validateWiring(DESIGN, DESIGN_WIRING);
+  assert.strictEqual(validated.ok, true, "generated wiring must survive authoritative validation");
+  assert.strictEqual(Array.isArray(validated.droppedSegments) ? validated.droppedSegments.length : validated.droppedSegments, 0, "generated Power routes must not be dropped");
+  assert.deepStrictEqual(validated.wiring, DESIGN_WIRING, "authoritative validation must preserve generated wiring");
+  assert.deepStrictEqual(createGeneratedPowerWiring(DESIGN), DESIGN_WIRING, "generated wiring must be deterministic");
+  const analysis = analyzeShipPower(DESIGN, validated.wiring);
+  const connected = new Set(analysis.connectedConsumerIndices);
+  for (const type of ["engine", "blaster", "radiator"]) {
+    DESIGN.forEach((module, index) => { if (module.type === type) assert(connected.has(index), `${type} ${index} must reach the Core/Reactor Power source network`); });
+  }
+  DESIGN.forEach((module, index) => {
+    if (module.type === "maneuverThruster" && (PARTS[module.type]?.powerUse || 0) > 0)
+      assert(connected.has(index), `Power-consuming Manoeuvre Thruster ${index} must be connected`);
+    if (module.type === "heatSink") {
+      assert.strictEqual(PARTS[module.type]?.powerUse, 0, "Heat Sink must not consume Power");
+      assert(!connected.has(index), "Heat Sink must not have a logical Power connection");
+      assert(!DESIGN_WIRING.power.connections.some((connection) => connection.targetIndex === index), "Heat Sink must not be a generated Power endpoint");
+    }
+  });
+}
+assertDesignWiringPreflight();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 class Client {
@@ -202,8 +229,8 @@ async function until(fn, what, timeoutMs = 15000) {
     await page.evaluate(() => window.__mfaNetSend({ type: "startDesign" }));
     await until(() => bot.latest.state?.phase === "design", "design phase");
     diagnostics.phases.push({ phase: "design", at: Date.now() });
-    await page.evaluate((design) => window.__mfaNetSend({ type: "deploy", design, combatStyle: "sentry" }), DESIGN);
-    bot.send({ type: "deploy", design: DESIGN, combatStyle: "sentry" });
+    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "deploy", design, wiring, combatStyle: "sentry" }), { design: DESIGN, wiring: DESIGN_WIRING });
+    bot.send({ type: "deploy", design: DESIGN, wiring: DESIGN_WIRING, combatStyle: "sentry" });
     await until(() => bot.latest.state?.phase === "active", "active phase");
     diagnostics.phases.push({ phase: "active", at: Date.now() });
 

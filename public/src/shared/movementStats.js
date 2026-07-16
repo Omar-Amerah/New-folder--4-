@@ -59,7 +59,10 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const directional = directionalTurnInputs || { mainEngineVectorTurn: effectiveStackedValue(engines.map(e=>e.thrust*ENGINE_TURN_PER_THRUST),0.85), gyroscopeTurn: effectiveStackedValue(turnModuleValues||[],0.92), clockwiseManeuverTurn:0, anticlockwiseManeuverTurn:0 };
   const symmetricTurn = (directional.mainEngineVectorTurn||0)+(directional.gyroscopeTurn||0);
   const negativeTurnDrag = Math.min(0, turnBonus||0); const massTurnPenalty=1/Math.pow(1+safeMass/MASS_TURN_DIV,MASS_TURN_EXP); const turnCap=turnCapForMass(safeMass);
-  const toRate = positive => hasEngineThrust && positive>0 ? softCap(Math.max(0,(0.18+(positive+negativeTurnDrag)*2.6)*massTurnPenalty*movementPowerMultiplier),turnCap,0.2) : 0;
+  // Forward thrust and turning authority are independent.  Main engines add
+  // both, while gyroscopes and directional manoeuvre thrusters may still turn
+  // a drifting hull after every main engine is offline.
+  const toRate = positive => positive>0 ? softCap(Math.max(0,(0.18+(positive+negativeTurnDrag)*2.6)*massTurnPenalty*movementPowerMultiplier),turnCap,0.2) : 0;
   const turnRateRight = toRate(symmetricTurn+(directional.clockwiseManeuverTurn||0));
   const turnRateLeft = toRate(symmetricTurn+(directional.anticlockwiseManeuverTurn||0));
   const turnRate = Math.min(turnRateLeft, turnRateRight);
