@@ -493,6 +493,109 @@ if (!(hoverPreviewSize[0] > hoverPreviewSize[1] * 2)) {
   throw new Error(`hover preview should keep selected rotation over occupied cells: ${hoverPreviewSize.join(",")}`);
 }
 
+
+const paletteDeselectionRegression = vm.runInContext(`
+(() => {
+  state.selectedPartCategory = "Structure";
+  state.selectedPart = null;
+  state.previewRotation = 180;
+  state.hoveredCell = { x: 0, y: 0 };
+  renderPalette();
+  renderPartInspector();
+  const buttons = dom.palette.querySelectorAll(".part-button");
+  const frameButton = buttons.find(button => button.innerHTML.includes("Frame"));
+  const armorButton = buttons.find(button => button.innerHTML.includes("Armor"));
+  if (!frameButton || !armorButton) return { missingButtons: true };
+  frameButton.click();
+  const selectedFrame = state.selectedPart === "frame" && frameButton.className.includes("active");
+  const previewAfterSelect = dom.grid.querySelectorAll(".build-preview").length > 0;
+  frameButton.click();
+  const deselected = state.selectedPart === null;
+  const noActiveAfterDeselect = dom.palette.querySelectorAll(".part-button.active").length === 0;
+  const noPreviewAfterDeselect = dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow").length === 0;
+  const rotationReset = state.previewRotation === 0;
+  const neutralInspector = dom.partInspector.innerHTML.includes("Select a component to view its details");
+  armorButton.click();
+  const switched = state.selectedPart === "armor" && dom.palette.querySelectorAll(".part-button.active").length === 1;
+  return { selectedFrame, previewAfterSelect, deselected, noActiveAfterDeselect, noPreviewAfterDeselect, rotationReset, neutralInspector, switched };
+})()
+`, context);
+for (const [key, value] of Object.entries(paletteDeselectionRegression)) {
+  if (!value) throw new Error(`palette deselection regression failed: ${key}`);
+}
+
+const blueprintHeatPlacementRegression = vm.runInContext(`
+(() => {
+  state.design = [
+    { x: 5, y: 5, type: "core", rotation: 0 },
+    { x: 5, y: 6, type: "frame", rotation: 0 }
+  ];
+  state.selectedPart = null;
+  state.hoveredCell = { x: 5, y: 7 };
+  state.previewRotation = 0;
+  state.blueprintView = "build";
+  renderBuildGrid();
+  const beforeDeselected = JSON.stringify(state.design);
+  editCell(5, 7);
+  renderHoverPreview();
+  const deselectedNoChange = JSON.stringify(state.design) === beforeDeselected;
+  const deselectedNoPreview = dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow").length === 0;
+
+  state.selectedPart = "railgun";
+  state.previewRotation = 90;
+  state.hoveredCell = { x: 5, y: 7 };
+  setBlueprintView("heat");
+  const heatBefore = getScenarioHeatAnalysis(state.thermalLoadMode || "idle");
+  renderHoverPreview();
+  const preview = dom.grid.querySelector(".build-preview.valid");
+  const expected = createPlacementCandidate({ grid: { x: 5, y: 7 }, componentType: "railgun", rotation: 90, design: state.design, catalogue: PART_STATS });
+  editCell(5, 7);
+  const placed = state.design.some(part => part.type === "railgun" && part.x === expected.part.x && part.y === expected.part.y && part.rotation === expected.normalizedRotation);
+  const heatAfter = getScenarioHeatAnalysis(state.thermalLoadMode || "idle");
+  const heatRefreshed = heatAfter !== heatBefore;
+  const invalidBefore = JSON.stringify(state.design);
+  state.selectedPart = "reactor";
+  state.previewRotation = 0;
+  state.hoveredCell = { x: 0, y: 0 };
+  renderHoverPreview();
+  const invalidPreview = dom.grid.querySelector(".build-preview.invalid");
+  editCell(0, 0);
+  const invalidRejected = JSON.stringify(state.design) === invalidBefore;
+  setBlueprintView("build");
+  const selectedPreservedBuild = state.selectedPart === "reactor";
+  state.selectedPart = null;
+  setBlueprintView("heat");
+  const deselectedPreservedHeat = state.selectedPart === null;
+  return { deselectedNoChange, deselectedNoPreview, heatPreviewShown: Boolean(preview), heatPreviewMatchesCandidate: Boolean(preview) && expected.ok, placed, heatRefreshed, invalidPreview: Boolean(invalidPreview), invalidRejected, selectedPreservedBuild, deselectedPreservedHeat };
+})()
+`, context);
+for (const [key, value] of Object.entries(blueprintHeatPlacementRegression)) {
+  if (!value) throw new Error(`blueprint Heat placement regression failed: ${key}`);
+}
+
+const delegatedHandlerRegression = vm.runInContext(`
+(() => {
+  dom.grid.dataset.hasDelegatedClick = "";
+  dom.grid.dataset.hasHeatTabs = "";
+  dom.grid.listeners = new Map();
+  ensureBlueprintGridEventHandlers();
+  ensureBlueprintGridEventHandlers();
+  setBlueprintView("build");
+  setBlueprintView("heat");
+  ensureBlueprintGridEventHandlers();
+  return {
+    click: (dom.grid.listeners.get("click") || []).length,
+    mousemove: (dom.grid.listeners.get("mousemove") || []).length,
+    contextmenu: (dom.grid.listeners.get("contextmenu") || []).length,
+    buildTab: (dom.blueprintBuildTab.listeners.get("click") || []).length,
+    heatTab: (dom.blueprintHeatTab.listeners.get("click") || []).length
+  };
+})()
+`, context);
+for (const [key, value] of Object.entries(delegatedHandlerRegression)) {
+  if (value !== 1) throw new Error(`delegated handler duplicated for ${key}: ${value}`);
+}
+
 const shieldedShip = { alive: true, radius: 50, shield: 40, maxShield: 100 };
 if (context.shieldRatioForShip(shieldedShip) !== 0.4) {
   throw new Error("shield ratio should use shield / maxShield");
@@ -661,9 +764,9 @@ if (!designerSource.includes('function addClassString(element, classString)') ||
 if (designerSource.includes('cell.classList.add(heatClass)')) {
   throw new Error('multi-class heat strings must not be passed as one DOMTokenList token');
 }
-if (!designerSource.includes('if (state.blueprintView === "heat") {')
-  || !/if \(state\.blueprintView === "heat"\) \{\s*removePlacementPreviewElements\(\);\s*return;/.test(designerSource)) {
-  throw new Error('heat inspect mode should suppress placement previews immediately');
+if (/if \(state\.blueprintView === "heat"\) \{\s*removePlacementPreviewElements\(\);\s*return;/.test(designerSource)
+  || designerSource.includes('if (state.blueprintView === \"heat\") return;\n  const existing')) {
+  throw new Error('Heat tab should allow the normal placement preview and edit path');
 }
 if (!designerSource.includes('function removePlacementPreviewElements()') || !designerSource.includes('.build-preview, .engine-exhaust-preview, .engine-thrust-arrow')) {
   throw new Error('all placement preview elements should be removed by one helper');

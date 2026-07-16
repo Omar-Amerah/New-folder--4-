@@ -82,10 +82,10 @@
 }
 
 .blocked-exhaust-warning { position:absolute; z-index:10; left:2px; top:2px; display:grid; place-items:center; width:12px; height:12px; border:1px solid #ffd1d8; border-radius:50%; background:#c51f3d; color:#fff; font-size:9px; font-weight:950; line-height:1; box-shadow:0 0 7px rgba(255,48,82,.7); pointer-events:auto; }
-.engine-exhaust-preview { position:absolute; z-index:11; border:1px dashed rgba(86,239,176,.72); border-radius:3px; background:linear-gradient(180deg,rgba(64,224,174,.12),rgba(64,224,174,.27),rgba(64,224,174,.08)); pointer-events:none; }
+.engine-exhaust-preview { position:absolute; z-index:30; border:1px dashed rgba(86,239,176,.72); border-radius:3px; background:linear-gradient(180deg,rgba(64,224,174,.12),rgba(64,224,174,.27),rgba(64,224,174,.08)); pointer-events:none; }
 .engine-exhaust-preview.invalid { border-color:rgba(255,77,103,.85); background:linear-gradient(180deg,rgba(255,50,82,.1),rgba(255,50,82,.3),rgba(255,50,82,.08)); }
 .engine-exhaust-preview.blocker { border-style:solid; border-width:2px; background:rgba(255,35,66,.36); box-shadow:inset 0 0 8px rgba(255,230,235,.35),0 0 7px rgba(255,35,66,.65); }
-.engine-thrust-arrow { position:absolute; z-index:13; display:grid; place-items:center; color:#69f3bd; font-size:20px; font-weight:950; text-shadow:0 0 5px #082; pointer-events:none; }
+.engine-thrust-arrow { position:absolute; z-index:30; display:grid; place-items:center; color:#69f3bd; font-size:20px; font-weight:950; text-shadow:0 0 5px #082; pointer-events:none; }
 .engine-thrust-arrow.invalid { color:#ff6079; text-shadow:0 0 5px #700; }
 
 .build-cell.heat-generator::after, .build-cell.heat-predicted-hot::after, .build-cell.heat-cooling::after { content:""; position:absolute; inset:1px; border-radius:4px; pointer-events:none; }

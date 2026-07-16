@@ -10,6 +10,10 @@ import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
 
 export function renderPartInspector() {
   const type = state.selectedPart;
+  if (!type) {
+    dom.partInspector.innerHTML = `<p class="part-description">Select a component to view its details</p>`;
+    return;
+  }
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
   
