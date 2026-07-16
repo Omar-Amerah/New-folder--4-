@@ -1,5 +1,4 @@
-// Manual Wiring editor. Logical connections name explicit terminals while
-// canonical physical sections own geometry and cable tier.
+// Wiring v2 editor: canonical physical sections own topology and membership.
 import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { PART_DEFS, PART_STATS } from "../design/parts.js";
@@ -49,7 +48,6 @@ export function handleWiringCellClick(x, y) {
   const view = ui(); const index = partIndexAt(x, y);
   if (view.sourceIndex == null) {
     if (index < 0) { resetInteraction(); refreshWiringPresentation(); return; }
-    if (connectionsAtTerminal(index).length) { inspectComponent(index); return; }
     const type = state.design[index].type;
     if (isValidSource(view.mode, type)) { resetInteraction(); view.sourceIndex = index; view.selectedIndex = index; view.path = [{ x, y }]; refreshWiringPresentation(); return; }
     inspectComponent(index); return;
@@ -57,18 +55,9 @@ export function handleWiringCellClick(x, y) {
   if (index < 0) { view.hoverCell = { x, y, valid: false }; refreshWiringPresentation(); return; }
   const last = view.path.at(-1);
   if (view.path.length > 1 && x === view.path.at(-2).x && y === view.path.at(-2).y) { removeDrawingStep(); return; }
-  if (x === last.x && y === last.y) return;
+  if (x === last.x && y === last.y) { if (view.path.length > 1) { pushUndo(); const next = rules().addPath(state.wiring, view.mode, view.path, state.design, PART_STATS); resetInteraction(); commitWiring(next); } return; }
   if (Math.abs(last.x - x) + Math.abs(last.y - y) !== 1 || view.path.some((cell) => cell.x === x && cell.y === y)) { view.hoverCell = { x, y, valid: false }; refreshWiringPresentation(); return; }
   view.path.push({ x, y }); view.hoverCell = null;
-  const sourceType = state.design[view.sourceIndex].type;
-  if (index !== view.sourceIndex && isValidDestination(view.mode, sourceType, state.design[index].type)) {
-    pushUndo(); const sourceIndex = view.sourceIndex;
-    const next = rules().addConnection(state.wiring, view.mode, sourceIndex, index, view.path, state.design, PART_STATS);
-    resetInteraction(); commitWiring(next);
-    const connection = bucket().connections.find((item) => item.sourceIndex === sourceIndex && item.targetIndex === index);
-    if (connection) selectConnection(connection, index);
-    return;
-  }
   refreshWiringPresentation();
 }
 export function handleWiringCellHover(x, y) { if (ui().sourceIndex == null) return; const last = ui().path.at(-1); ui().hoverCell = { x, y, valid: partIndexAt(x, y) >= 0 && Math.abs(last.x - x) + Math.abs(last.y - y) === 1 && !ui().path.some((cell) => cell.x === x && cell.y === y) }; renderWiringOverlay(); }
@@ -112,10 +101,10 @@ function extendDraggedPath(cells) {
 }
 function finishDraggedConnection(cell) {
   const view = ui(); const index = cell ? partIndexAt(cell.x, cell.y) : -1; const sourceIndex = view.sourceIndex;
-  const valid = sourceIndex != null && view.path.length > 1 && index >= 0 && index !== sourceIndex && isValidDestination(view.mode, state.design[sourceIndex].type, state.design[index].type) && view.path.at(-1).x === cell.x && view.path.at(-1).y === cell.y;
+  const valid = sourceIndex != null && view.path.length > 1 && index >= 0 && view.path.at(-1).x === cell.x && view.path.at(-1).y === cell.y;
   if (!valid) { cancelDrawing(); return; }
-  pushUndo(); const next = rules().addConnection(state.wiring, view.mode, sourceIndex, index, view.path, state.design, PART_STATS);
-  resetInteraction(); commitWiring(next); const connection = bucket().connections.find((item) => item.sourceIndex === sourceIndex && item.targetIndex === index); if (connection) selectConnection(connection, index);
+  pushUndo(); const next = rules().addPath(state.wiring, view.mode, view.path, state.design, PART_STATS);
+  resetInteraction(); commitWiring(next);
 }
 function bindPointerDrawing() {
   dom.grid?.addEventListener("pointerdown", (event) => {
@@ -161,8 +150,9 @@ export function bindWiringControls() {
   dom.wiringClearNetworkButton?.addEventListener("click", clearSelectedNetwork);
   dom.wiringOverlayHost?.addEventListener("click", (event) => {
     const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
-    event.stopPropagation(); const users = bucket().connections.filter((connection) => connection.sectionIds.includes(id));
-    ui().selectedSectionId = id; ui().selectedConnectionKey = users.length ? rules().connectionKey(users[0]) : null; ui().selectedIndex = null; refreshWiringPresentation();
+    event.stopPropagation(); const section = bucket().sections.find((item) => item.id === id); if (!section) return;
+    const rect = dom.wiringOverlayHost.getBoundingClientRect(); const point = pointerGridPoint(event.clientX, event.clientY); const ends = rules().sectionCells(section); const origin = !point ? ends[0] : ends.slice().sort((a, b) => ((a.x + .5 - point.x) ** 2 + (a.y + .5 - point.y) ** 2) - ((b.x + .5 - point.x) ** 2 + (b.y + .5 - point.y) ** 2) || a.y - b.y || a.x - b.x)[0];
+    resetInteraction(); ui().sourceIndex = partIndexAt(origin.x, origin.y); ui().selectedSectionId = id; ui().path = [origin]; refreshWiringPresentation();
   });
   dom.wiringOverlayHost?.addEventListener("contextmenu", (event) => {
     const id = event.target?.dataset?.sectionId; if (!id) return; event.preventDefault(); event.stopPropagation();
@@ -188,7 +178,7 @@ function refreshToolbar() {
   dom.wiringModeData?.classList.toggle("active", ui().mode === "data"); dom.wiringModeData?.setAttribute("aria-pressed", String(ui().mode === "data"));
   if (dom.wiringUndoButton) dom.wiringUndoButton.disabled = !ui().undoStack.length;
   if (dom.wiringClearNetworkButton) dom.wiringClearNetworkButton.disabled = ui().sourceIndex != null || !selectedNetwork();
-  if (dom.wiringHint) dom.wiringHint.textContent = ui().sourceIndex == null ? "Drag from a source port to draw, or click/tap for step placement and inspection." : "Draw through occupied cells. Backtrack or right-click to step back; Escape cancels.";
+  if (dom.wiringHint) dom.wiringHint.textContent = ui().sourceIndex == null ? "Draw through components. Compatible systems touched by the cable join automatically. Drag from an existing cable to create a branch." : "Continue through occupied cells; click the last cell or release to finish. Reused trunk sections add no cable length.";
 }
 function svgEl(tag, attributes = {}, className = "") { const element = document.createElementNS(SVG_NS, tag); Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value))); if (className) element.setAttribute("class", className); return element; }
 function line(section, className) { return svgEl("line", { x1: section.x1 + 0.5, y1: section.y1 + 0.5, x2: section.x2 + 0.5, y2: section.y2 + 0.5 }, className); }
@@ -215,7 +205,7 @@ function renderWiringOverlay() {
   state.design.forEach((module) => { const center = rules().componentCenter(module, PART_STATS); const power = rules().isPowerSourceType(module.type) || rules().isPowerConsumer(module.type, PART_STATS); const data = rules().isDataSourceType(module.type) || rules().isDataTarget(module.type, PART_STATS); const offset = power && data ? 0.08 : 0; if (power) svg.appendChild(svgEl("circle", { cx: center.x - offset, cy: center.y, r: 0.07 }, `wire-port wire-port-power${rules().isPowerSourceType(module.type) ? " source" : ""}`)); if (data) svg.appendChild(svgEl("circle", { cx: center.x + offset, cy: center.y, r: 0.07 }, `wire-port wire-port-data${rules().isDataSourceType(module.type) ? " source" : ""}`)); });
   if (view.selectedIndex != null) { const rect = moduleRect(view.selectedIndex, "wire-comp-selected"); if (rect) svg.appendChild(rect); }
   if (view.sourceIndex != null) {
-    const sourceType = state.design[view.sourceIndex].type; state.design.forEach((module, index) => { if (index !== view.sourceIndex && isValidDestination(view.mode, sourceType, module.type)) { const rect = moduleRect(index, "wire-comp-candidate"); if (rect) svg.appendChild(rect); } });
+    const sourceType = state.design[view.sourceIndex]?.type; state.design.forEach((module, index) => { if (sourceType && index !== view.sourceIndex && isValidDestination(view.mode, sourceType, module.type)) { const rect = moduleRect(index, "wire-comp-candidate"); if (rect) svg.appendChild(rect); } });
     for (let i = 1; i < view.path.length; i += 1) svg.appendChild(line({ x1: view.path[i - 1].x, y1: view.path[i - 1].y, x2: view.path[i].x, y2: view.path[i].y }, `wire-preview confirmed wire-preview-${view.mode}`));
     if (view.dragging && view.livePointer) { const last = view.path.at(-1); svg.appendChild(svgEl("line", { x1: last.x + .5, y1: last.y + .5, x2: view.livePointer.x, y2: view.livePointer.y }, `wire-preview ${view.hoverCell && !view.hoverCell.valid ? "invalid" : "valid"} wire-preview-${view.mode}`)); }
     const last = view.path.at(-1); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = last.x + dx; const y = last.y + dy; if (partIndexAt(x, y) >= 0 && !view.path.some((cell) => cell.x === x && cell.y === y)) svg.appendChild(svgEl("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.12 }, "wire-next-cell")); }
@@ -226,11 +216,10 @@ function renderWiringOverlay() {
 
 function renderStatusPanel() {
   const panel = dom.wiringStatusPanel; if (!panel || state.blueprintView !== "wiring") return; const analysis = currentAnalysis(); const network = selectedNetwork(); const connection = selectedConnection(); const section = bucket().sections.find((item) => item.id === ui().selectedSectionId); const users = section ? bucket().connections.filter((item) => item.sectionIds.includes(section.id)) : [];
-  const transit = connection ? rules().connectionCells(connection, bucket(), state.design, PART_STATS).slice(1, -1).map((cell) => partIndexAt(cell.x, cell.y)).filter((index, position, list) => index >= 0 && index !== connection.sourceIndex && index !== connection.targetIndex && list.indexOf(index) === position) : [];
   const power = analysis.power; const mw = (value) => `${Number(value).toFixed(1)} MW`; const powerNetworks = power.networks.map((item) => `<div class="wiring-summary-section"><h4>${escapeHtml(item.label)} — ${escapeHtml(item.status[0].toUpperCase() + item.status.slice(1))}</h4><div class="wiring-summary-line">${mw(item.generationMw)} generation / ${mw(item.demandMw)} demand</div><div class="wiring-summary-line">${item.surplusMw >= 0 ? `${mw(item.surplusMw)} spare` : `${mw(-item.surplusMw)} deficit`} · ${Math.round(item.availableEfficiency * 100)}% available</div><div class="wiring-summary-line">Sources: ${item.sourceIndices.map(moduleLabel).map(escapeHtml).join(", ") || "None"}</div><div class="wiring-summary-line">Consumers: ${item.consumerIndices.map(moduleLabel).map(escapeHtml).join(", ") || "None"}</div></div>`).join("");
   panel.hidden = false; panel.innerHTML = `<h3>Wiring</h3>
     ${ui().mode === "power" ? `<div class="wiring-summary-section"><h4>Ship Power networks</h4><div class="wiring-selection-grid"><div><span>Networks</span><strong>${power.networkCount}</strong></div><div><span>Connected generation</span><strong>${mw(power.totalConnectedGenerationMw)}</strong></div><div><span>Connected demand</span><strong>${mw(power.totalConnectedDemandMw)}</strong></div><div><span>Balance</span><strong>${power.totalSurplusMw >= 0 ? `${mw(power.totalSurplusMw)} spare` : `${mw(-power.totalSurplusMw)} deficit`}</strong></div><div><span>Disconnected consumers</span><strong>${power.disconnectedConsumerIndices.length}</strong></div><div><span>Unused sources</span><strong>${power.unusedSourceIndices.length}</strong></div><div><span>Invalid connections</span><strong>${power.invalidConnectionCount}</strong></div></div><div class="wiring-summary-line">Calculated available power. Gameplay effects not active yet.</div></div>${powerNetworks}` : ""}
-    ${connection ? `<div class="wiring-selection-grid"><div><span>Source terminal</span><strong>${escapeHtml(moduleLabel(connection.sourceIndex))}</strong></div><div><span>Destination terminal</span><strong>${escapeHtml(moduleLabel(connection.targetIndex))}</strong></div><div><span>Transit only</span><strong>${transit.length ? transit.map(moduleLabel).map(escapeHtml).join(", ") : "None"}</strong></div></div>` : `<div class="wiring-selection-empty">Select a terminal or physical wire section to inspect its logical connection.</div>`}
+    <div class="wiring-summary-line">${rules().countUniqueSections(state.wiring, ui().mode)} unique ${escapeHtml(ui().mode)} cable sections${ui().path.length > 1 ? ` · +${rules().additionalLengthForPath(state.wiring, ui().mode, ui().path)} preview` : ""}</div>
     ${section ? `<div class="wiring-summary-section"><h4>Physical section</h4><div class="wiring-selection-grid"><div><span>Tier</span><strong>${escapeHtml(section.tier)}</strong></div><div><span>Shared connections</span><strong>${users.length}</strong></div><div><span>Used by</span><strong>${users.length ? users.map((item) => `${escapeHtml(moduleLabel(item.sourceIndex))} → ${escapeHtml(moduleLabel(item.targetIndex))}`).join("; ") : "None"}</strong></div></div></div>` : ""}
     ${network ? `<div class="wiring-summary-section"><h4>${escapeHtml(network.label)}</h4><div class="wiring-summary-line">${network.connections.length} logical connection${network.connections.length === 1 ? "" : "s"} · ${network.sections.length} physical section${network.sections.length === 1 ? "" : "s"}</div></div>` : ""}`;
 }

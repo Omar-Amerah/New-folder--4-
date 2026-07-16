@@ -34,8 +34,8 @@ const directional = calculateDirectionalTurnInputs([
 assert.equal(directional.gyroscopeTurn, 0, "disconnected gyroscope contributed turn");
 assert.notEqual(directional.clockwiseManeuverTurn, directional.anticlockwiseManeuverTurn, "directional thrusters did not scale independently");
 
-// Data grouping follows physical conductor cells and explicit terminals, with
-// canonical ordering producing stable derived identities.
+// Data grouping follows physical conductor cells; legacy route ordering does
+// not participate in canonical derived identities.
 const design = [{ type: "fireControl", x: 0, y: 0 }, { type: "frame", x: 1, y: 0 }, { type: "blaster", x: 2, y: 0 },
   { type: "frame", x: 0, y: 1 }, { type: "blaster", x: 0, y: 2 },
   { type: "sensorArray", x: 5, y: 5 }, { type: "frame", x: 6, y: 5 }, { type: "beamEmitter", x: 7, y: 5 }];
@@ -47,7 +47,7 @@ const a = WiringRules.analyzeWiring(design, wiring, PARTS).data.networks;
 const reversed = { ...wiring, data: { ...wiring.data, connections: wiring.data.connections.slice().reverse() } };
 const b = WiringRules.analyzeWiring(design, reversed, PARTS).data.networks;
 assert.equal(a.length, 2, "separate Data conductors were merged");
-assert.equal(a[0].connections.length, 2, "routes from one explicit source terminal were split");
+assert.deepStrictEqual(a[0].weaponIndices, [2, 4], "all compatible targets touched by the conductor join once");
 assert.deepStrictEqual(a.map(n => [n.id, n.label, n.componentIndices]), b.map(n => [n.id, n.label, n.componentIndices]), "Data identities were not deterministic");
 
 console.log("Power runtime hardening verification passed");

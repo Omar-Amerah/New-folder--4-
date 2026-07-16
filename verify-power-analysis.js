@@ -34,12 +34,12 @@ assert.deepEqual(empty.unusedSourceIndices, [0, 3]);
 
 const transitDesign = [moduleAt("core", 0, 0), moduleAt("engine", 3, 0), moduleAt("engine", 1, 0), moduleAt("frame", 2, 0)];
 const transit = WiringRules.analyzePowerNetworks(transitDesign, wiringFor(transitDesign, [[0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]]]), PARTS);
-assert.deepEqual(transit.networks[0].consumerIndices, [1], "crossed consumer remains transit-only");
-assert(transit.disconnectedConsumerIndices.includes(2));
+assert.deepEqual(transit.networks[0].consumerIndices, [1, 2], "every crossed consumer automatically joins");
+assert(!transit.disconnectedConsumerIndices.includes(2));
 const crossedSourceDesign = [moduleAt("core", 0, 0), moduleAt("auxGenerator", 1, 0), moduleAt("engine", 2, 0)];
 const crossedSource = WiringRules.analyzePowerNetworks(crossedSourceDesign, wiringFor(crossedSourceDesign, [[0, 2, [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]]]), PARTS);
-assert.deepEqual(crossedSource.networks[0].sourceIndices, [0], "crossed sources remain transit-only");
-assert(crossedSource.unusedSourceIndices.includes(1));
+assert.deepEqual(crossedSource.networks[0].sourceIndices, [0, 1], "every crossed source automatically joins");
+assert(!crossedSource.unusedSourceIndices.includes(1));
 
 const weakDesign = [moduleAt("auxGenerator", 0, 0), moduleAt("engine", 1, 0)];
 const weak = WiringRules.analyzePowerNetworks(weakDesign, wiringFor(weakDesign, [[0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]]]), PARTS);
@@ -48,7 +48,7 @@ assert(["online", "underpowered"].includes(weak.networks[0].status));
 const malformed = WiringRules.cloneWiring(shared);
 malformed.power.connections.push({ sourceIndex: 0, targetIndex: 1, sectionIds: ["missing"] });
 const invalid = WiringRules.analyzePowerNetworks(design, malformed, PARTS);
-assert.equal(invalid.invalidConnectionCount, 1);
+assert.equal(invalid.invalidConnectionCount, 0, "legacy route metadata cannot contradict valid physical sections");
 assert.equal(invalid.networks[0].demandMw, analysis.networks[0].demandMw);
 assert.deepEqual(WiringRules.analyzePowerNetworks(design, shared, PARTS), analysis, "analysis is deterministic and non-mutating");
 
