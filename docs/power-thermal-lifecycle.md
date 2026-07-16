@@ -49,3 +49,26 @@ network. Nominal source generation does not currently fall with temperature;
 existing overheat failure and meltdown behavior remains separate. Coupling
 thermal source derating back into network efficiency is deferred to balancing
 to avoid an intra-tick feedback loop.
+
+## Heat hardening lifecycle
+
+Heat Sinks are passive, zero-Power thermal mass. Their own capacity and the
+35-unit bonus they grant each adjacent component scale continuously with current
+HP; capacity loss never deletes retained heat, and a zero-capacity hot wreck is
+reported as saturated. Radiators remain Power consumers: their active cooling
+uses their component-local Power multiplier, while the passive radiative floor
+remains available when disconnected.
+
+Component HP mutation precedes boundary handling. An alive/destroyed transition
+then refreshes runtime hull exposure, thermal routes and hosted Wiring v2 before
+Power-dependent effective stats. Generator thermal tier changes reuse the live
+wiring projection and reallocate only that generator's network. Generator load
+heat is the capped demand/thermally-available-generation ratio of its own
+network. Meltdown progress is cleared on generator destruction; a repaired hot
+generator begins a new timer without losing retained heat.
+
+Destroyed components retain stored heat but are excluded from live aggregate
+capacity, pressure, generation, output and active cooling. Wrecks cannot act as
+frame or Heat Pipe routes. They exchange heat only across direct physical edges
+using the shared reduced wreck conductivity, which preserves bounded internal
+transfer without bridging separated routed networks.

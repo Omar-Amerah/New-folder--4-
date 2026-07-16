@@ -495,7 +495,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     if (firingBlockedBySafeZone) return;
 
     // Unpowered/overheated weapons may keep aiming but cannot fire.
-    const heatPerformance = componentPerformance(ship, i) * (ship.thermalPowerFactor ?? 1);
+    const heatPerformance = componentPerformance(ship, i) * require("./componentPower").getComponentPowerMultiplier(ship, i);
     if (heatPerformance <= 0) return;
 
     // Tracking is continuous while reloading. Only firing is cooldown-gated;
