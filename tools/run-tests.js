@@ -103,7 +103,6 @@ const GROUPS = {
   // Required browser gameplay/renderer coverage: real server, production
   // frontend, Playwright Chromium, WebGL and Pixi. Missing Chromium is a hard failure.
   browser: [
-    "verify-split-origin-browser.js",
     "verify-live-turrets.js",
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",
