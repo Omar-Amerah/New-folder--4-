@@ -114,3 +114,23 @@ npm run test:wiring            # shared engine (verify-wiring.js)
 npm run test:blueprint-storage # storage schema v2 with wiring
 npm run test:protocol-schema   # deploy/buyShip wiring payload bounds
 ```
+# Power-network analysis (Phase 5B)
+
+`WiringRules.analyzePowerNetworks(design, wiring, componentCatalog)` is the
+shared browser/Node authority for intact-design Power analysis. It normalizes
+Wiring v2, rejects incomplete routes, and groups valid connections whenever
+their Power sections share an edge or cell endpoint (including branches), or
+their explicit source/consumer terminal is shared. Data geometry is never
+considered. Network order is canonical top-to-bottom, left-to-right with
+component and section tie-breakers; derived IDs and labels are not persisted.
+
+Only logical connection endpoints are functional members. A component whose
+footprint is crossed is transit-only. Unique source generation and consumer
+demand come from the supplied component catalogue. Status is `online`,
+`underpowered`, `unpowered`, `idle`, or `empty`, and calculated available
+efficiency is informational: Phase 5B does not apply it to gameplay.
+
+The server's `analyzeShipPower` wrapper creates `ship.powerAnalysis` once at
+spawn from the normalized, intact blueprint. Client-provided derived values are
+ignored. Re-analysis after damage and all runtime allocation/effects remain
+deferred to Phase 5D (with further wiring behavior deferred to Phase 5C).

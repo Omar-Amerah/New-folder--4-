@@ -166,9 +166,100 @@
     return networks;
   }
 
+  // Power is derived, never persisted.  Logical endpoints determine functional
+  // membership; route cells only determine electrical continuity.
+  function analyzePowerNetworks(design, wiring, componentCatalog) {
+    const modules = Array.isArray(design) ? design : [];
+    const rawConnections = Array.isArray(wiring?.power?.connections) ? wiring.power.connections.slice(0, MAX_CONNECTIONS_PER_KIND) : [];
+    const normalized = normalizeWiring(wiring, modules, componentCatalog);
+    const power = normalized.wiring.power;
+    const sectionMap = new Map(power.sections.map((section) => [section.id, section]));
+    const validKeys = new Set(power.connections.map(connectionKey));
+    const invalidConnections = rawConnections.filter((connection) => {
+      const ids = Array.isArray(connection?.sectionIds) ? connection.sectionIds.filter((id) => typeof id === "string").slice(0, MAX_PATH_CELLS - 1) : [];
+      return !validKeys.has(connectionKey({ sourceIndex: Number(connection?.sourceIndex), targetIndex: Number(connection?.targetIndex), sectionIds: ids }));
+    }).map((connection, index) => ({
+      id: `invalid-power-${index + 1}`,
+      sourceIndex: Number.isInteger(Number(connection?.sourceIndex)) ? Number(connection.sourceIndex) : null,
+      targetIndex: Number.isInteger(Number(connection?.targetIndex)) ? Number(connection.targetIndex) : null,
+      reason: "invalid-or-incomplete"
+    }));
+
+    const connections = power.connections.map((connection) => ({ ...connection, id: connectionKey(connection), sectionIds: [...connection.sectionIds] }));
+    const parent = connections.map((_, index) => index);
+    const find = (index) => parent[index] === index ? index : (parent[index] = find(parent[index]));
+    const union = (a, b) => { const ra = find(a); const rb = find(b); if (ra !== rb) parent[rb] = ra; };
+    const cellOwner = new Map(); const terminalOwner = new Map();
+    connections.forEach((connection, index) => {
+      for (const sectionId of connection.sectionIds) for (const cell of sectionCells(sectionMap.get(sectionId))) {
+        const key = cellKey(cell.x, cell.y); if (cellOwner.has(key)) union(index, cellOwner.get(key)); else cellOwner.set(key, index);
+      }
+      for (const terminal of [`s:${connection.sourceIndex}`, `c:${connection.targetIndex}`]) {
+        if (terminalOwner.has(terminal)) union(index, terminalOwner.get(terminal)); else terminalOwner.set(terminal, index);
+      }
+    });
+    const groups = new Map();
+    connections.forEach((connection, index) => { const root = find(index); if (!groups.has(root)) groups.set(root, []); groups.get(root).push(connection); });
+    const canonicalPosition = (group) => {
+      const ids = [...new Set(group.flatMap((connection) => connection.sectionIds))].sort();
+      const cells = ids.flatMap((id) => sectionCells(sectionMap.get(id)));
+      cells.sort((a, b) => a.y - b.y || a.x - b.x);
+      return { y: cells[0]?.y ?? POINT_MAX + 1, x: cells[0]?.x ?? POINT_MAX + 1, ids };
+    };
+    const grouped = [...groups.values()].map((group) => ({ group, position: canonicalPosition(group) }));
+    grouped.sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x
+      || Math.min(...a.group.flatMap((c) => [c.sourceIndex, c.targetIndex])) - Math.min(...b.group.flatMap((c) => [c.sourceIndex, c.targetIndex]))
+      || a.position.ids.join(";").localeCompare(b.position.ids.join(";")));
+    const networks = grouped.map(({ group, position }, index) => {
+      const sourceIndices = [...new Set(group.map((connection) => connection.sourceIndex))].sort((a, b) => a - b);
+      const consumerIndices = [...new Set(group.map((connection) => connection.targetIndex))].sort((a, b) => a - b);
+      const sectionIds = position.ids;
+      const generationMw = sourceIndices.reduce((sum, i) => sum + (Number(partStat(componentCatalog, modules[i].type).powerGeneration) || 0), 0);
+      const demandMw = consumerIndices.reduce((sum, i) => sum + (Number(partStat(componentCatalog, modules[i].type).powerUse) || 0), 0);
+      const surplusMw = generationMw - demandMw;
+      const availableEfficiency = demandMw <= 0 ? 1 : Math.max(0, Math.min(1, generationMw / demandMw));
+      const status = consumerIndices.length ? (generationMw <= 0 ? "unpowered" : generationMw < demandMw ? "underpowered" : "online") : sourceIndices.length ? "idle" : "empty";
+      return {
+        id: `power-${position.y}-${position.x}-${sectionIds[0] || "terminal"}`,
+        label: `Power Network ${String.fromCharCode(65 + index)}`,
+        status, sourceIndices, consumerIndices,
+        componentIndices: [...new Set([...sourceIndices, ...consumerIndices])].sort((a, b) => a - b),
+        connectionIds: group.map((connection) => connection.id).sort(), connections: group,
+        sectionIds, sections: sectionIds.map((id) => ({ ...sectionMap.get(id) })),
+        generationMw, demandMw, surplusMw, deficitMw: Math.max(0, -surplusMw),
+        generation: generationMw, demand: demandMw,
+        loadRatio: generationMw > 0 ? demandMw / generationMw : demandMw > 0 ? null : 0,
+        availableEfficiency, powered: generationMw > 0
+      };
+    });
+    const consumerIndices = []; const sourceIndices = [];
+    modules.forEach((module, index) => { if (isPowerSourceType(module.type)) sourceIndices.push(index); if (isPowerConsumer(module.type, componentCatalog)) consumerIndices.push(index); });
+    const networkByComponent = new Map(); networks.forEach((network) => network.componentIndices.forEach((index) => networkByComponent.set(index, network)));
+    const rawTargets = new Set(rawConnections.map((connection) => Number(connection?.targetIndex)).filter(Number.isInteger));
+    const invalidTargets = new Set(invalidConnections.map((connection) => connection.targetIndex).filter(Number.isInteger));
+    const disconnectedConsumers = consumerIndices.filter((index) => !networkByComponent.get(index)?.sourceIndices.length);
+    const disconnectedConsumerDetails = disconnectedConsumers.map((index) => ({ index, reason: invalidTargets.has(index) ? "invalid-or-incomplete-connection" : rawTargets.has(index) ? "network-has-no-source" : "no-completed-connection" }));
+    const underpoweredConsumerIndices = [...new Set(networks.filter((network) => network.status === "underpowered").flatMap((network) => network.consumerIndices))].sort((a, b) => a - b);
+    const usedSources = new Set(networks.filter((network) => network.consumerIndices.length).flatMap((network) => network.sourceIndices));
+    const unusedSourceIndices = sourceIndices.filter((index) => !usedSources.has(index));
+    const totalGenerationMw = networks.reduce((sum, network) => sum + network.generationMw, 0);
+    const totalDemandMw = networks.reduce((sum, network) => sum + network.demandMw, 0);
+    return {
+      version: WIRING_VERSION, networkCount: networks.length,
+      onlineNetworkCount: networks.filter((n) => n.status === "online").length,
+      underpoweredNetworkCount: networks.filter((n) => n.status === "underpowered").length,
+      unpoweredNetworkCount: networks.filter((n) => n.status === "unpowered").length,
+      totalConnectedGenerationMw: totalGenerationMw, totalConnectedDemandMw: totalDemandMw,
+      totalSurplusMw: totalGenerationMw - totalDemandMw,
+      sourceIndices, consumerIndices, connectedConsumerIndices: consumerIndices.filter((i) => !disconnectedConsumers.includes(i)),
+      disconnectedConsumerIndices: disconnectedConsumers, disconnectedConsumerDetails, underpoweredConsumerIndices,
+      unusedSourceIndices, invalidConnectionCount: invalidConnections.length, invalidConnections, networks, networkByComponent
+    };
+  }
+
   function analyzeWiring(modules, wiring, catalogue) {
     const list = Array.isArray(modules) ? modules : []; const normalized = normalizeWiring(wiring, list, catalogue); const clean = normalized.wiring;
-    const powerNetworks = buildNetworks(list, clean.power, catalogue, "power"); const dataNetworks = buildNetworks(list, clean.data, catalogue, "data");
+    const powerAnalysis = analyzePowerNetworks(list, wiring, catalogue); const powerNetworks = powerAnalysis.networks; const dataNetworks = buildNetworks(list, clean.data, catalogue, "data");
     const powerMap = new Map(); const dataMap = new Map();
     powerNetworks.forEach((network) => network.componentIndices.forEach((index) => powerMap.set(index, network)));
     dataNetworks.forEach((network) => network.componentIndices.forEach((index) => dataMap.set(index, network)));
@@ -181,7 +272,7 @@
       return { index, type: module.type, networkId: network?.id || null, networkLabel: network?.label || null, bonusField: info.bonusField, effect: info.effect, unit: info.unit, bonusTotal, connectedWeaponIndices: targets, incompatibleWeaponIndices: [], bonusPerWeapon: targets.length ? bonusTotal / targets.length : 0 };
     });
     const weaponInfo = weapons.map((index) => { const network = dataMap.get(index) || null; return { index, type: list[index].type, networkId: network?.id || null, networkLabel: network?.label || null, supportIndices: supports.filter((support) => support.connectedWeaponIndices.includes(index)).map((support) => support.index) }; });
-    return { version: WIRING_VERSION, wiring: clean, droppedRoutes: normalized.droppedRoutes, droppedSegments: normalized.droppedSegments, power: { networks: powerNetworks, networkByComponent: powerMap, sourceIndices: powerSources, consumerIndices: consumers, connectedConsumerIndices: connected, disconnectedConsumerIndices: disconnected }, data: { networks: dataNetworks, networkByComponent: dataMap, sourceIndices: dataSources, weaponIndices: weapons, supports, weapons: weaponInfo }, warnings };
+    return { version: WIRING_VERSION, wiring: clean, droppedRoutes: normalized.droppedRoutes, droppedSegments: normalized.droppedSegments, power: powerAnalysis, data: { networks: dataNetworks, networkByComponent: dataMap, sourceIndices: dataSources, weaponIndices: weapons, supports, weapons: weaponInfo }, warnings };
   }
   function networkSummaries(analysis) { return { power: analysis.power.networks.map((network) => ({ ...network, sourceCount: network.sourceIndices.length, consumerCount: network.consumerIndices.length })), data: analysis.data.networks }; }
   function networkForComponent(analysis, kind, index) { return (kind === "data" ? analysis.data.networkByComponent : analysis.power.networkByComponent).get(index) || null; }
@@ -199,5 +290,5 @@
   function removeConnection(wiring, kind, key, modules, catalogue) { const next = cloneWiring(wiring); next[kind].connections = next[kind].connections.filter((connection) => connectionKey(connection) !== key); return normalizeWiring(next, modules, catalogue).wiring; }
   function removeNetwork(wiring, kind, network, modules, catalogue) { const keys = new Set(network.connections.map(connectionKey)); const next = cloneWiring(wiring); next[kind].connections = next[kind].connections.filter((connection) => !keys.has(connectionKey(connection))); return normalizeWiring(next, modules, catalogue).wiring; }
 
-  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzeWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, removeConnection, removeNetwork };
+  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks, analyzeWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, removeConnection, removeNetwork };
 }));

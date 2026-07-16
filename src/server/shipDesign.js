@@ -69,6 +69,12 @@ function validateWiring(modules, wiring) {
   return { ok: true, wiring: normalized, droppedSegments };
 }
 
+// Authoritative intact-design snapshot. Runtime damage/power allocation is
+// deliberately deferred; callers should compute this once at spawn boundaries.
+function analyzeShipPower(design, wiring) {
+  return WiringRules.analyzePowerNetworks(design, wiring, PARTS);
+}
+
 // The single boundary used by ship creation.  Returning fresh clones here makes
 // blueprint state a value: neither a later editor save nor another ship can
 // mutate an existing ship's design/wiring snapshot.
@@ -216,6 +222,7 @@ function normalizeRotation(value, allowedRotations, x) {
 module.exports = {
   validateDesign,
   validateWiring,
+  analyzeShipPower,
   createShipBlueprintSnapshot,
   createGeneratedPowerWiring,
   isConnected,

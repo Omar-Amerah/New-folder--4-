@@ -3,7 +3,7 @@
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
 const { performanceNow, seededRandom, rngRange, hashString } = require("./utils");
 const { computeStats } = require("./shipStats");
-const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
+const { createShipBlueprintSnapshot, createGeneratedPowerWiring, analyzeShipPower } = require("./shipDesign");
 
 function spawnShip(room, player, now, index = 0, options = {}) {
   const { nearestClearPoint } = require("./movement");
@@ -51,6 +51,9 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     stats,
     design,
     wiring,
+    // Server-derived, deep analysis of the intact blueprint. Phase 5D will
+    // rebuild this after component destruction; gameplay does not consume it.
+    powerAnalysis: analyzeShipPower(design, wiring),
     cost: stats.unitCost,
     radius: stats.radius,
     blasterCooldown: rngRange(spawnRng, 0.08, 0.42),
