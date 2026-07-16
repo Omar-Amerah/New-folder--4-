@@ -81,8 +81,17 @@ export function buildThermalModel(design) {
  * @param {"idle"|"combat"|"full"|string} mode - Load scenario.
  * @returns {{mode:string,generationRates:number[]}} Heat generation rates in heat/second by design index.
  */
-export function buildThermalLoad(model, mode = "full") {
+export function buildThermalLoad(model, mode = "full", wiring = null) {
   const { design, rules } = model;
+  let power = null;
+  try { power = wiring ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS).power : null; } catch (_) { power = null; }
+  const activity = design.map((module, index) => {
+    const stat = PART_STATS[module.type] || {};
+    if ((Number(stat.powerUse) || 0) <= 0) return 1;
+    const network = power?.networks?.find(entry => (entry.consumerIndices || []).includes(index));
+    if (!network) return 0;
+    return Math.max(0, Math.min(1, (Number(network.generationMw) || 0) / Math.max(Number(network.demandMw) || 0, 0.0001)));
+  });
   const loadMultiplier = (_module, stat) => {
     if (mode === "idle") return (stat.powerGeneration || 0) > 0 ? 0.2 : (stat.shieldRegen || 0) > 0 ? 0.08 : 0;
     if (mode === "combat") {
@@ -101,7 +110,12 @@ export function buildThermalLoad(model, mode = "full") {
     generationRates: design.map((module, index) => {
       const stat = PART_STATS[module.type] || {};
       if ((stat.thrust || 0) > 0 && !designExhaust.validEngineIndices.has(index)) return 0;
-      return rules.activityHeat(module.type, stat) * loadMultiplier(module, stat);
+      if ((stat.powerGeneration || 0) > 0) {
+        const network = power?.networks?.find(entry => (entry.sourceIndices || []).includes(index));
+        const localLoad = network ? Math.max(0, Math.min(1, (Number(network.demandMw) || 0) / Math.max(Number(network.generationMw) || 0, 0.0001))) : 0;
+        return rules.activityHeat(module.type, stat) * loadMultiplier(module, stat) * localLoad;
+      }
+      return rules.activityHeat(module.type, stat) * loadMultiplier(module, stat) * activity[index];
     })
   };
 }
@@ -357,17 +371,18 @@ export function generateThermalAdvice(problems, model) {
  * @param {string} [mode="full"] - Thermal scenario: idle, combat, or full.
  * @returns {object} Legacy thermal-analysis result consumed by existing UI callers.
  */
-export function analyzeDesignHeat(design, mode = "full") {
+export function analyzeDesignHeat(design, wiring = null, mode = "full") {
+  if (typeof wiring === "string") { mode = wiring; wiring = null; }
   const types = [...new Set(design.map(module => module.type))];
   const thermalSignature = types.map(type => {
     const stat = PART_STATS[type] || {};
     return [type, stat.powerGeneration, stat.thrust, stat.shieldRegen, stat.repairRate, stat.weapon?.damage, stat.weapon?.fireRate].join(":");
   }).join("|");
-  const cacheKey = `${mode}|${thermalSignature}|${JSON.stringify(design.map(module => [module.type,module.x,module.y,module.rotation || 0]))}`;
+  const cacheKey = `${mode}|${thermalSignature}|${JSON.stringify(wiring)}|${JSON.stringify(design.map(module => [module.type,module.x,module.y,module.rotation || 0]))}`;
   const cached = thermalAnalysisCache.get(cacheKey);
   if (cached?.design === design) return cached.result;
   const model = buildThermalModel(design);
-  const load = buildThermalLoad(model, mode);
+  const load = buildThermalLoad(model, mode, wiring);
   const simulation = simulateThermalLoad(model, load);
   const result = summariseThermalResult(model, load, simulation);
   if (thermalAnalysisCache.size > 24) thermalAnalysisCache.clear();

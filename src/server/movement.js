@@ -57,6 +57,7 @@ function rotateShipToward(ship, desired, stats, dt) {
   const turnActivity = rate > 0 ? clampNumber((applied / Math.max(rate * dt, 1e-9)) * Math.sign(angleDifference(before, next)), -1, 1) : 0;
   preserveTurnActivity(ship, turnActivity);
   heatActiveManeuverThrusters(ship, turnActivity, dt);
+  heatActiveGyroscopes(ship, turnActivity, dt);
 }
 
 function preserveTurnActivity(ship, turnActivity) {
@@ -82,6 +83,31 @@ function heatActiveManeuverThrusters(ship, turnActivity, dt) {
     const perf = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
     if (perf > 0) addComponentHeat(ship, i, (2 + (part.lateralThrust || 0) * 0.018) * Math.abs(turnActivity) * perf * dt);
   }
+}
+
+function heatActiveGyroscopes(ship, turnActivity, dt) {
+  if (!turnActivity || !Number.isFinite(turnActivity)) return;
+  const contributors = [];
+  for (let i = 0; i < (ship.design || []).length; i += 1) {
+    const module = ship.design[i];
+    const part = PARTS[module.type] || {};
+    if (module.type !== "gyroscope" || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+    const activityMultiplier = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
+    const output = Math.max(0, Number(part.turn) || 0) * activityMultiplier;
+    if (output > 0) contributors.push({ i, part, output });
+  }
+  const total = contributors.reduce((sum, entry) => sum + entry.output, 0);
+  if (total <= 0) return;
+  for (const entry of contributors) {
+    const deliveredShare = Math.abs(turnActivity) * entry.output / total;
+    const rate = activityHeatRate("gyroscope", entry.part);
+    if (rate > 0) addComponentHeat(ship, entry.i, rate * deliveredShare * dt);
+  }
+}
+
+function activityHeatRate(type, part) {
+  const rules = require("../../public/src/shared/heatRules.js");
+  return Math.max(0, Number(rules.activityHeat(type, part)) || 0);
 }
 
 const HOLD_RANGE_RATIO = 0.9;

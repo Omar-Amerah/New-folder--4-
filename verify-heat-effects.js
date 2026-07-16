@@ -22,6 +22,16 @@ function roomFor(ships){ return { world:{width:2000,height:2000}, effects:[], bu
 // Active output: overheated weapons cannot fire and generate no firing heat.
 let shooter=shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"blaster"}],"w","a"); let target=shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"frame"}],"t","b"); target.x=700; shooter.componentHeatState[1]=S.OVERHEATED; combat.updateShipWeapons(roomFor([shooter,target]), shooter, [shooter,target], 1, 1000); assert.strictEqual(shooter.componentHeatInput[1],0,"overheated weapon adds no firing heat"); assert.strictEqual(shooter.weaponCooldowns[1],0,"overheated weapon consumes no cooldown");
 
+// Projectile activity combines Power and local thermal performance once each.
+const fullPower = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"blaster"}],"full","a");
+const halfPower = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"blaster"}],"half","a");
+for (const ship of [fullPower, halfPower]) ship.componentPower = { byComponentIndex: [{ operationalMultiplier: 1 }, { operationalMultiplier: ship === halfPower ? 0.5 : 1 }] };
+const weaponTarget = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"frame"}],"weapon-target","b"); weaponTarget.x = 700;
+combat.updateShipWeapons(roomFor([fullPower,weaponTarget]), fullPower, [fullPower,weaponTarget], 1, 1000);
+combat.updateShipWeapons(roomFor([halfPower,weaponTarget]), halfPower, [halfPower,weaponTarget], 1, 1000);
+assert(fullPower.weaponCooldowns[1] > 0, "powered cool projectile weapon fires");
+assert(Math.abs(halfPower.weaponCooldowns[1] / fullPower.weaponCooldowns[1] - 2) < 0.01, "50% Power halves projectile activity rather than squaring Power");
+
 // Active output: shield regeneration heat matches actual shield restored, not nominal overfill.
 let shieldShip=shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"shieldGenerator"}],"sg","a"); shieldShip.shield=shieldShip.maxShield-0.05; movement.updateShipMovement(roomFor([shieldShip]), shieldShip, [], 1); assert(shieldShip.componentHeatInput[1] <= 0.05*0.7 + 1e-9, "shield heat corresponds to actual regeneration");
 

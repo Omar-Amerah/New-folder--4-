@@ -145,6 +145,19 @@ function shipRepairNeed(ship) {
   return need;
 }
 
+// Charge emitters only for repair work the target actually accepted.  Using
+// delivered output as the allocation weight makes local and projected repair
+// deterministic and prevents spare nominal capacity from producing heat.
+function allocateRepairHeat(ship, entries, actualRestored) {
+  const delivered = Math.max(0, Number(actualRestored) || 0);
+  const total = entries.reduce((sum, entry) => sum + Math.max(0, entry.output || 0), 0);
+  if (delivered <= 0 || total <= 0) return;
+  for (const entry of entries) {
+    const work = delivered * Math.max(0, entry.output || 0) / total;
+    addComponentHeat(ship, entry.index, work * (1.5 + entry.repairRate * 0.35) / Math.max(entry.repairRate, 0.0001));
+  }
+}
+
 function updateShipSupport(room, ships, dt, now) {
   for (const ship of ships) {
     if (!ship.stats.repair) continue;
@@ -155,9 +168,11 @@ function updateShipSupport(room, ships, dt, now) {
       const module = ship.design[i];
       const repairRate = PARTS[module.type]?.repairRate || 0;
       if (repairRate <= 0 || !isComponentAlive(ship, i)) continue;
-      const performance = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
-      if (performance <= 0) continue;
-      const entry = { index: i, module, repairRate, performance, output: repairRate * performance };
+      const heatMultiplier = componentPerformance(ship, i);
+      const powerMultiplier = getComponentPowerMultiplier(ship, i);
+      const activityMultiplier = heatMultiplier * powerMultiplier;
+      if (activityMultiplier <= 0) continue;
+      const entry = { index: i, module, repairRate, activityMultiplier, output: repairRate * activityMultiplier };
       activeRepairModules.push(entry);
       if (module.type === "repairBeam") activeRepairBeams.push(entry);
     }
@@ -170,11 +185,8 @@ function updateShipSupport(room, ships, dt, now) {
       .filter((entry) => entry.module.type !== "repairBeam")
       .reduce((sum, entry) => sum + entry.output, 0);
     if (selfRepairRate > 0 && shipRepairNeed(ship) > 0) {
-      const heal = selfRepairRate * dt;
-      repairShipComponents(room, ship, heal, now);
-      for (const entry of activeRepairModules) {
-        if (entry.module.type !== "repairBeam") addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * entry.performance * dt);
-      }
+      const delivered = repairShipComponents(room, ship, selfRepairRate * dt, now);
+      allocateRepairHeat(ship, activeRepairModules.filter((entry) => entry.module.type !== "repairBeam"), delivered);
     }
 
     // Dedicated repair beams are the only repair parts that can project healing
@@ -215,12 +227,8 @@ function updateShipSupport(room, ships, dt, now) {
     }
 
     if (!target) continue;
-    const heal = beamRepairRate * dt;
-    repairShipComponents(room, target, heal, now);
-
-    for (const entry of activeRepairBeams) {
-      addComponentHeat(ship, entry.index, (1.5 + entry.repairRate * 0.35) * entry.performance * dt);
-    }
+    const delivered = repairShipComponents(room, target, beamRepairRate * dt, now);
+    allocateRepairHeat(ship, activeRepairBeams, delivered);
 
     const emitterEntry = activeRepairBeams[0];
     const emitterIndex = emitterEntry.index;
@@ -495,8 +503,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     if (firingBlockedBySafeZone) return;
 
     // Unpowered/overheated weapons may keep aiming but cannot fire.
-    const heatPerformance = componentPerformance(ship, i) * require("./componentPower").getComponentPowerMultiplier(ship, i);
-    if (heatPerformance <= 0) return;
+    const heatMultiplier = componentPerformance(ship, i);
+    const activityMultiplier = powerMultiplier * heatMultiplier;
+    if (activityMultiplier <= 0) return;
 
     // Tracking is continuous while reloading. Only firing is cooldown-gated;
     // otherwise the visible turret freezes between shots and snaps at fire time.
@@ -543,7 +552,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         life: life,
         bornAt: now
       });
-      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * heatPerformance * powerMultiplier);
+      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
       addComponentHeat(ship, i, Math.max(5, Math.sqrt(part.weapon.damage || 1) * 1.5));
     } else if (family === "missile") {
@@ -573,14 +582,14 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         bornAt: now,
         age: 0
       });
-      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * heatPerformance * powerMultiplier);
+      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
       addComponentHeat(ship, i, Math.max(5, Math.sqrt(part.weapon.damage || 1) * 1.5));
     } else if (family === "beam") {
       const rangeVal = ship.stats?.beamRange || part.weapon.range;
       const beamRadius = part.weapon.radius || 28;
       const beamEnd = beamImpactPoint(room, muzzle.x, muzzle.y, worldWeaponAngle, rangeVal, beamRadius);
-      const beamPerformance = componentPerformance(ship, i) * powerMultiplier;
+      const beamPerformance = activityMultiplier;
       damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * beamPerformance * dt, now, {
         shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1
@@ -623,7 +632,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             life: life,
             bornAt: now
          });
-         const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * heatPerformance * powerMultiplier);
+         const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
          ship.weaponCooldowns[i] = Math.max(0.05, reload);
          addComponentHeat(ship, i, 4);
 
@@ -660,7 +669,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         life: life,
         bornAt: now
       });
-      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * heatPerformance * powerMultiplier);
+      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
       addComponentHeat(ship, i, Math.max(8, Math.sqrt(part.weapon.damage || 1) * 1.8));
     }
