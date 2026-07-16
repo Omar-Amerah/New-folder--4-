@@ -413,17 +413,9 @@
                   <button type="button" id="wiringModePower" class="wiring-mode-power active" aria-pressed="true" title="Edit Power wiring (amber)">Power</button>
                   <button type="button" id="wiringModeData" class="wiring-mode-data" aria-pressed="false" title="Edit Data wiring (cyan)">Data</button>
                 </div>
-                <div class="wiring-control-row" role="group" aria-label="Wiring tool">
-                  <span class="wiring-control-label">Tool</span>
-                  <button type="button" id="wiringToolRoute" class="active" aria-pressed="true" title="Click a source component, hover a destination to preview the shortest route, click to confirm">Auto Route</button>
-                  <button type="button" id="wiringToolErase" aria-pressed="false" title="Click a wire segment to remove it">Erase</button>
-                </div>
                 <div class="wiring-control-row" role="group" aria-label="Wiring actions">
-                  <button type="button" id="wiringUndoButton" title="Undo last wiring action">Undo</button>
-                  <button type="button" id="wiringClearNetworkButton" title="Remove every segment of the selected component's network">Clear selected network</button>
-                  <button type="button" id="wiringClearPowerButton" title="Remove all Power wiring">Clear all Power</button>
-                  <button type="button" id="wiringClearDataButton" title="Remove all Data wiring">Clear all Data</button>
-                  <button type="button" id="wiringShowAllButton" aria-pressed="false" title="Show Power and Data networks at the same time">Show all networks</button>
+                  <button type="button" id="wiringUndoButton" title="Undo last completed wiring change">Undo</button>
+                  <button type="button" id="wiringClearNetworkButton" title="Remove the active inspected network">Clear Network</button>
                 </div>
                 <small id="wiringHint" class="wiring-hint" aria-live="polite"></small>
               </div>
@@ -520,7 +512,7 @@
     <script src="/src/shared/heatRules.js?v=local-heat-4"></script>
     <script src="/src/shared/engineExhaust.js?v=engine-exhaust-1"></script>
     <script src="/src/shared/turretRules.js?v=turret-rules-1"></script>
-    <script src="/src/shared/wiringRules.js?v=wiring-rules-1"></script>
+    <script src="/src/shared/wiringRules.js?v=wiring-rules-3"></script>
     <script type="module" src="/src/main.js?v=local-heat-4"></script>
   </body>
 </html>

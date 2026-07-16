@@ -160,8 +160,8 @@ function joinRoom(client, message) {
     design: DEFAULT_DESIGN.map((part) => ({ ...part })),
     wiring: {
       version: DEFAULT_WIRING.version,
-      power: DEFAULT_WIRING.power.map((segment) => ({ ...segment })),
-      data: DEFAULT_WIRING.data.map((segment) => ({ ...segment }))
+      power: { sections: DEFAULT_WIRING.power.sections.map((section) => ({ ...section })), connections: DEFAULT_WIRING.power.connections.map((connection) => ({ ...connection, sectionIds: [...connection.sectionIds] })) },
+      data: { sections: DEFAULT_WIRING.data.sections.map((section) => ({ ...section })), connections: DEFAULT_WIRING.data.connections.map((connection) => ({ ...connection, sectionIds: [...connection.sectionIds] })) }
     },
     stats: computeStats(DEFAULT_DESIGN),
     ships: [],

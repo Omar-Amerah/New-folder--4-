@@ -106,13 +106,6 @@
   stroke-width: 0.34;
   pointer-events: none;
 }
-/* The host itself stays pointer-events:none so grid hover/click keeps working
-   in Erase mode; only the wire hit-strokes re-enable pointer events. */
-.wiring-overlay-host.wiring-erase-active .wire-hit {
-  pointer-events: stroke;
-  cursor: pointer;
-}
-.wiring-overlay-host.wiring-erase-active .wire-hit:hover { stroke: rgba(255, 95, 107, 0.35); }
 
 .wiring-overlay .wire-preview {
   stroke-width: 0.12;
@@ -197,3 +190,20 @@
 .wiring-warnings li { margin: 2px 0; }
 
 .wiring-empty-note { color: #8ea6c8; font-size: 11px; }
+
+/* Cell-centre routing and explicit v2 terminals. */
+.wiring-overlay .wire-port-power { fill: #ffb84d; }
+.wiring-overlay .wire-port-data { fill: #38d9ff; }
+.wiring-overlay .wire-port.source { stroke: #fff2c7; stroke-width: .035; }
+.wiring-overlay .wire-terminal { stroke: #07111f; stroke-width: .04; }
+.wiring-overlay .wire-terminal-power { fill: #ffb84d; }
+.wiring-overlay .wire-terminal-data { fill: #38d9ff; }
+.wiring-overlay .wire-terminal.selected { stroke: #6fa8ff; stroke-width: .08; }
+.wiring-overlay .wire-terminal-lead { stroke-width: .07; }
+.wiring-overlay .wire-next-cell { fill: rgba(255,255,255,.12); stroke: #fff; stroke-width: .035; stroke-dasharray: .05 .04; }
+.wiring-overlay .wire-preview.confirmed { stroke-dasharray: none; stroke: #ffd94d; }
+.wiring-overlay .wire-comp-candidate { animation: wiring-destination-pulse 1.1s ease-in-out infinite; }
+@keyframes wiring-destination-pulse { 50% { stroke-width: .13; stroke: #fff; } }
+.wiring-overlay .wire-hit { pointer-events: stroke; cursor: pointer; }
+.wiring-overlay .wire-branch { fill: #d9e8ff; stroke: #07111f; stroke-width: .025; }
+.wiring-overlay .wire-invalid-cell { fill: rgba(255,95,107,.28); stroke: #ff5f6b; stroke-width: .05; }

@@ -20,19 +20,17 @@ assert.equal(validateClientMessage({type:'requestFullState',epoch:1.2}).code,'in
 assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'bogus'}).code,'invalid-combat-style');
 let deep={type:'ping'}; let cur=deep; for(let i=0;i<12;i++){cur.next={}; cur=cur.next;} assert.equal(validateClientMessage(deep).ok,false);
 
-// Wiring payloads on blueprint messages ({ modules via design, wiring }).
-const wiring={version:1,power:[{x1:7,y1:6,x2:8,y2:6}],data:[{x1:7,y1:6,x2:7,y2:7}]};
-assert.equal(validateClientMessage({type:'deploy',design,wiring}).ok,true,'deploy accepts wiring');
+// Wiring v2 physical sections and logical connections.
+const section={id:'0,0:1,0',x1:0,y1:0,x2:1,y2:0,tier:'standard'};
+const connection={sourceIndex:0,targetIndex:1,sectionIds:[section.id]};
+const wiring={version:2,power:{sections:[section],connections:[connection]},data:{sections:[],connections:[]}};
+assert.equal(validateClientMessage({type:'deploy',design,wiring}).ok,true,'deploy accepts separated physical/logical wiring');
 assert.equal(validateClientMessage({type:'buyShip',requestId:'r1',design,wiring,count:1}).ok,true,'buyShip accepts wiring');
-assert.equal(validateClientMessage({type:'deploy',design,wiring:{power:'nope'}}).code,'invalid-wiring','wiring lists must be arrays');
-assert.equal(validateClientMessage({type:'deploy',design,wiring:{power:[{x1:-1,y1:0,x2:0,y2:0}]}}).code,'invalid-wiring','segment endpoints must stay on the grid');
-assert.equal(validateClientMessage({type:'deploy',design,wiring:{power:[{x1:0.5,y1:0,x2:1,y2:0}]}}).code,'invalid-wiring','segment endpoints must be integers');
-assert.equal(validateClientMessage({type:'deploy',design,wiring:{power:[],data:[],networks:[]}}).code,'invalid-wiring','wiring rejects unknown fields like precomputed networks');
-const oversized={version:1,power:Array.from({length:500},(_,i)=>({x1:i%15,y1:0,x2:i%15+1,y2:0})),data:[]};
-assert.equal(validateClientMessage({type:'deploy',design,wiring:oversized}).code,'invalid-wiring','wiring enforces per-network segment limits');
-const bigOk={version:1,power:Array.from({length:120},(_,i)=>({x1:i%15,y1:Math.floor(i/15),x2:i%15+1,y2:Math.floor(i/15)})),data:[]};
-assert.equal(validateClientMessage({type:'deploy',design,wiring:bigOk}).ok,true,'wiring may exceed the generic array bound up to its own limit');
-assert.equal(validateClientMessage({type:'ping',at:1,wiring}).ok,false,'wiring is only accepted on blueprint messages');
-assert.equal(validateClientMessage({type:'command',x:1,y:2,wiring}).ok,false,'command rejects stray wiring payloads');
+assert.equal(validateClientMessage({type:'deploy',design,wiring:{version:1,power:[],data:[]}}).code,'invalid-wiring','old wiring rejected');
+assert.equal(validateClientMessage({type:'deploy',design,wiring:{...wiring,power:{...wiring.power,sections:[{...section,x1:-1}]}}}).code,'invalid-wiring','section cells stay on grid');
+assert.equal(validateClientMessage({type:'deploy',design,wiring:{...wiring,networks:[]}}).code,'invalid-wiring','precomputed networks rejected');
+const oversized={...wiring,power:{sections:[],connections:Array.from({length:500},()=>connection)}};
+assert.equal(validateClientMessage({type:'deploy',design,wiring:oversized}).code,'invalid-wiring','connection count bounded');
+assert.equal(validateClientMessage({type:'ping',at:1,wiring}).ok,false,'wiring only accepted on blueprint messages');
 
 console.log('Protocol schema verification passed');

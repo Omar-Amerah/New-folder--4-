@@ -47,16 +47,16 @@ export const state = {
   hoveredCell: null,
   selectedCell: null,
   blueprintView: "build",
-  // Wiring editor view state: mode is the network kind being edited, tool is
-  // "route" (auto route) or "erase", selection/source are component indices.
+  // Manual Wiring editor state. Physical section tier is stored in wiring,
+  // while this object only tracks an unfinished path and inspection.
   wiringUi: {
     mode: "power",
-    tool: "route",
     selectedIndex: null,
+    selectedConnectionKey: null,
+    selectedSectionId: null,
     sourceIndex: null,
-    hoverIndex: null,
-    previewRoute: null,
-    showAllNetworks: false,
+    path: [],
+    hoverCell: null,
     undoStack: []
   },
   thermalLoadMode: DEFAULT_THERMAL_LOAD_MODE,

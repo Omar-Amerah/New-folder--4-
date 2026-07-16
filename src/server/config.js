@@ -111,18 +111,8 @@ const MAP_CLOUD_COLORS = [
 // powered component. The default ship has no Data-support module, so Data
 // wiring is empty. Kept in sync with defaultWiring() in
 // public/src/design/blueprintStorage.js.
-const DEFAULT_WIRING = Object.freeze({
-  version: 1,
-  power: Object.freeze([
-    Object.freeze({ x1: 5, y1: 7, x2: 6, y2: 7 }),
-    Object.freeze({ x1: 6, y1: 7, x2: 7, y2: 7 }),
-    Object.freeze({ x1: 7, y1: 7, x2: 8, y2: 7 }),
-    Object.freeze({ x1: 8, y1: 7, x2: 9, y2: 7 }),
-    Object.freeze({ x1: 7, y1: 7, x2: 7, y2: 8 }),
-    Object.freeze({ x1: 7, y1: 8, x2: 7, y2: 9 })
-  ]),
-  data: Object.freeze([])
-});
+const EMPTY_WIRING_KIND = Object.freeze({ sections: Object.freeze([]), connections: Object.freeze([]) });
+const DEFAULT_WIRING = Object.freeze({ version: 2, power: EMPTY_WIRING_KIND, data: EMPTY_WIRING_KIND });
 
 const DEFAULT_DESIGN = Object.freeze([
   { x: 7, y: 7, type: "core" },
