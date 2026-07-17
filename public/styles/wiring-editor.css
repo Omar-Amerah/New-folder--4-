@@ -64,7 +64,6 @@
   pointer-events: none;
   z-index: 20;
 }
-.wiring-overlay-host svg { pointer-events: none; }
 
 .wiring-overlay {
   position: absolute;
@@ -73,6 +72,7 @@
   width: calc(100% - 16px);
   height: calc(100% - 16px);
   overflow: visible;
+  pointer-events: none;
 }
 
 .wiring-overlay line {
@@ -105,8 +105,10 @@
 
 .wiring-overlay .wire-hit {
   stroke: transparent;
-  stroke-width: 0.34;
-  pointer-events: none;
+  stroke-width: 0.42;
+  pointer-events: stroke;
+  cursor: pointer;
+  touch-action: none;
 }
 
 .wiring-overlay .wire-preview {
@@ -139,11 +141,11 @@
   stroke: #0b1526;
   stroke-width: 0.03;
 }
-.wiring-overlay .wire-port { pointer-events: all; cursor: crosshair; }
+.wiring-overlay .wire-port { pointer-events: all; cursor: crosshair; touch-action: none; }
 .wiring-overlay .wire-junction { fill: #f4f8ff; stroke: #07111f; stroke-width: .035; pointer-events: none; }
 .wiring-overlay .wire-branch-origin { fill: rgba(111,168,255,.25); stroke: #8fbcff; stroke-width: .055; pointer-events: none; }
-.wiring-section-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.wiring-section-actions button, .wiring-status-panel > button { min-height: 32px; }
+.wiring-section-actions, .wiring-drawing-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.wiring-section-actions button, .wiring-drawing-actions button { min-height: 32px; }
 
 /* Status panel */
 .wiring-status-panel {
@@ -212,6 +214,5 @@
 .wiring-overlay .wire-preview.confirmed { stroke-dasharray: none; stroke: #ffd94d; }
 .wiring-overlay .wire-comp-candidate { animation: wiring-destination-pulse 1.1s ease-in-out infinite; }
 @keyframes wiring-destination-pulse { 50% { stroke-width: .13; stroke: #fff; } }
-.wiring-overlay .wire-hit { pointer-events: stroke; cursor: pointer; }
 .wiring-overlay .wire-branch { fill: #d9e8ff; stroke: #07111f; stroke-width: .025; }
 .wiring-overlay .wire-invalid-cell { fill: rgba(255,95,107,.28); stroke: #ff5f6b; stroke-width: .05; }
