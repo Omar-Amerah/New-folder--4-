@@ -43,6 +43,7 @@ function inspectComponent(index) {
   else { ui().selectedIndex = index; ui().selectedConnectionKey = null; ui().selectedSectionId = null; refreshWiringPresentation(); }
 }
 function cancelDrawing() { resetInteraction(false); refreshWiringPresentation(); }
+function focusStatusPanel() { requestAnimationFrame(() => dom.wiringStatusPanel?.focus()); }
 function removeDrawingStep() { const view = ui(); if (view.sourceIndex == null) return false; if (view.path.length > 1) view.path.pop(); else cancelDrawing(); refreshWiringPresentation(); return true; }
 
 export function handleWiringCellClick(x, y) {
@@ -114,7 +115,8 @@ function bindPointerDrawing() {
     const target = event.target.closest?.("[data-wiring-port-kind], [data-section-id]"); if (!target) return;
     const point = pointerGridPoint(event.clientX, event.clientY); let cell; let index;
     if (target.dataset.wiringPortKind) { if (target.dataset.wiringPortKind !== ui().mode) return; cell = { x: Number(target.dataset.wiringCellX), y: Number(target.dataset.wiringCellY) }; index = Number(target.dataset.wiringComponentIndex); }
-    else { const section = bucket().sections.find((item) => item.id === target.dataset.sectionId); if (!section) return; cell = rules().sectionCells(section).slice().sort((a, b) => ((a.x + .5 - point.x) ** 2 + (a.y + .5 - point.y) ** 2) - ((b.x + .5 - point.x) ** 2 + (b.y + .5 - point.y) ** 2))[0]; index = partIndexAt(cell.x, cell.y); }
+    else { const section = bucket().sections.find((item) => item.id === target.dataset.sectionId); if (!section) return; cell = rules().nearestSectionEndpoint(section, point); index = partIndexAt(cell.x, cell.y); }
+    event.preventDefault();
     pointerDrag = { pointerId: event.pointerId, target: pointerSurface, startX: event.clientX, startY: event.clientY, sourceIndex: index, startCell: cell, lastPoint: point, active: false };
   });
   pointerSurface.addEventListener("pointermove", (event) => {
@@ -158,18 +160,25 @@ export function bindWiringControls() {
     const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
     event.stopPropagation(); resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation();
   });
+  dom.wiringOverlayHost?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const port = event.target?.closest?.("[data-wiring-port-kind]");
+    if (!port || ui().sourceIndex != null || port.dataset.wiringPortKind !== ui().mode) return;
+    event.preventDefault(); event.stopPropagation();
+    beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) });
+  });
   dom.wiringOverlayHost?.addEventListener("contextmenu", (event) => {
     const id = event.target?.dataset?.sectionId; if (!id) return; event.preventDefault(); event.stopPropagation();
     if (ui().sourceIndex != null) { removeDrawingStep(); return; }
     ui().selectedSectionId = id; removeSelectedSection();
   });
-  document.addEventListener("keydown", (event) => { if (state.blueprintView === "wiring" && event.key === "Escape" && ui().sourceIndex != null) { event.preventDefault(); cancelDrawing(); } });
+  document.addEventListener("keydown", (event) => { if (state.blueprintView === "wiring" && event.key === "Escape" && ui().sourceIndex != null) { event.preventDefault(); cancelDrawing(); focusStatusPanel(); } });
   dom.grid?.addEventListener("contextmenu", (event) => {
     if (state.blueprintView !== "wiring") return; event.preventDefault();
     if (ui().sourceIndex != null) { removeDrawingStep(); return; }
     // Component context menus never delete physical cable implicitly.
   });
-  dom.wiringStatusPanel?.addEventListener("click", (event) => { const action = event.target?.dataset?.wiringAction; if (action === "branch-a" || action === "branch-b") branchFrom(action.at(-1)); else if (action === "remove-section") removeSelectedSection(); else if (action === "remove-branch") removeSelectedBranch(); else if (action === "cancel-selection") { resetInteraction(); refreshWiringPresentation(); } else if (action === "finish") commitActivePath(); });
+  dom.wiringStatusPanel?.addEventListener("click", (event) => { const action = event.target?.dataset?.wiringAction; if (action === "branch-a" || action === "branch-b") branchFrom(action.at(-1)); else if (action === "remove-section") { removeSelectedSection(); focusStatusPanel(); } else if (action === "remove-branch") { removeSelectedBranch(); focusStatusPanel(); } else if (action === "cancel-selection") { resetInteraction(); refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-drawing") { cancelDrawing(); focusStatusPanel(); } else if (action === "finish") { commitActivePath(); focusStatusPanel(); } });
 }
 
 export function refreshWiringPresentation() { if (state.blueprintView !== "wiring") return; bindWiringControls(); refreshToolbar(); renderWiringOverlay(); renderStatusPanel(); }
@@ -193,7 +202,7 @@ function renderWiringOverlay() {
     const isSelected = selectedNet?.sectionIds.includes(section.id);
     const powerState = view.mode === "power" ? analysis.power.networks.find((network) => network.sectionIds.includes(section.id))?.status : null;
     svg.appendChild(line(section, `wire-${view.mode}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`));
-    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; svg.appendChild(hit);
+    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("aria-label", `Select ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}`); svg.appendChild(hit);
   }
   rules().junctionCells(bucket()).forEach((cell) => svg.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
   (selectedNet?.componentIndices || []).forEach((index) => svg.appendChild(terminal(index, view.mode, true)));
@@ -225,9 +234,9 @@ function renderStatusPanel() {
   const degrees = section ? rules().sectionEndpointDegrees(bucket()).get(section.id) : null; const junctionCount = network ? rules().junctionCells({ sections: network.sections }).length : 0; const mw = (value) => `${Number(value).toFixed(1)} MW`; const labels = (indices) => indices.map(moduleLabel).map(escapeHtml).join(", ") || "None";
   const branch = section ? rules().findLeafBranchSections(bucket(), section.id) : null; const role = !section ? "" : degrees.some((degree) => degree > 2) ? "junction-adjacent" : branch.reason === "leaf-branch" ? "leaf branch" : degrees.every((degree) => degree === 2) ? "trunk or loop" : "branch";
   const status = network ? (ui().mode === "power" ? network.status : network.sourceIndices.length ? "online" : "source-less") : null;
-  panel.hidden = false; panel.innerHTML = `<h3>Physical ${escapeHtml(ui().mode)} wiring</h3>
+  panel.hidden = false; panel.tabIndex = -1; panel.innerHTML = `<h3>Physical ${escapeHtml(ui().mode)} wiring</h3>
     <div class="wiring-summary-line">${current} unique cable sections${ui().path.length > 1 ? ` · +${additional} new in preview` : ""}${Number.isFinite(limit) ? ` · ${Math.max(0, limit - current - additional)} remaining` : ""}</div>
-    ${ui().sourceIndex != null ? `<button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button>` : ""}
+    ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}
     ${network ? `<div class="wiring-summary-section"><h4>${escapeHtml(network.label)} — ${escapeHtml(status)}</h4><div class="wiring-summary-line">${network.sections.length} sections · ${junctionCount} junctions · ${network.sourceIndices.length ? "contains a source" : "source-less"}</div><div class="wiring-summary-line">Sources: ${labels(network.sourceIndices)}</div><div class="wiring-summary-line">${ui().mode === "power" ? `Consumers: ${labels(network.consumerIndices)}<br>${mw(network.generationMw)} generation / ${mw(network.demandMw)} demand · ${network.surplusMw >= 0 ? `${mw(network.surplusMw)} surplus` : `${mw(network.deficitMw)} deficit`} · ${Math.round(network.availableEfficiency * 100)}% available` : `Data supports: ${labels(network.sourceIndices)}<br>Compatible weapons: ${labels(network.weaponIndices)}`}</div><div class="wiring-summary-line">Passive hosts: ${labels(network.hostIndices.filter((index) => !network.componentIndices.includes(index)))}</div></div>` : ""}
     ${section ? `<div class="wiring-summary-section"><h4>Selected physical section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(section.tier)} tier · ${role}</div><div class="wiring-summary-line">Endpoint degrees: ${degrees[0]} / ${degrees[1]} · Hosts: ${labels([...new Set(rules().sectionCells(section).map((cell) => partIndexAt(cell.x, cell.y)).filter((index) => index >= 0))])}</div><div class="wiring-section-actions"><button type="button" data-wiring-action="branch-a">Branch from A</button><button type="button" data-wiring-action="branch-b">Branch from B</button><button type="button" data-wiring-action="remove-section">Remove section</button><button type="button" data-wiring-action="remove-branch">Remove branch</button><button type="button" data-wiring-action="cancel-selection">Cancel selection</button></div></div>` : ""}`;
 }
