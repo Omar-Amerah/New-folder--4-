@@ -98,6 +98,22 @@ async function assertPortHit(page, svgLocator, grid, kind, componentIndex, scree
   return { point, hit };
 }
 
+async function assertFixturePort(page, grid, kind, componentIndex) {
+  const selector = `[data-wiring-port-kind="${kind}"][data-wiring-cell-x="${grid.x}"][data-wiring-cell-y="${grid.y}"]`;
+  const port = page.locator(selector);
+  await port.waitFor({ state: "attached", timeout: 3_000 });
+  assert.equal(await port.count(), 1, `fixture has exactly one ${kind} port at ${grid.x},${grid.y}`);
+  const details = await port.evaluate((element) => ({
+    parentClass: element.parentElement?.getAttribute("class"),
+    pointerEvents: getComputedStyle(element).pointerEvents,
+    componentIndex: element.dataset.wiringComponentIndex
+  }));
+  assert.equal(details.parentClass, "wire-port-layer", `fixture ${kind} port belongs to .wire-port-layer`);
+  assert.notEqual(details.pointerEvents, "none", `fixture ${kind} port permits pointer interaction`);
+  assert.equal(Number(details.componentIndex), componentIndex, `fixture ${kind} port belongs to component ${componentIndex}`);
+  return port;
+}
+
 async function assertGridTargetActionable(page, svgLocator, grid, point) {
   await assertPointInsideSvg(svgLocator, point);
   const hit = await hitAt(page, point);
@@ -158,7 +174,7 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
       ]);
       document.querySelector("#blueprintDesignerScreen").hidden = false;
       state.design = [
-        { x: 5, y: 5, type: "smallReactor", rotation: 0 },
+        { x: 5, y: 5, type: "auxGenerator", rotation: 0 },
         { x: 6, y: 5, type: "frame", rotation: 0 },
         { x: 7, y: 5, type: "shield", rotation: 0 },
         { x: 6, y: 6, type: "frame", rotation: 0 },
@@ -185,6 +201,26 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.deepEqual(await svg.locator(":scope > g").evaluateAll((groups) => groups.map((group) => group.getAttribute("class"))),
       ["wire-visible-layer", "wire-hit-layer", "wire-marker-layer", "wire-indicator-layer", "wire-port-layer"],
       "overlay recreates the explicit paint and hit-test layer order");
+    await page.evaluate(async () => {
+      const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+      const fail = (condition, message) => { if (!condition) throw new Error(`Wiring fixture error: ${message}`); };
+      const powerSource = state.design[0];
+      const dataSource = state.design[5];
+      state.design.forEach((component, index) => fail(Object.prototype.hasOwnProperty.call(PART_STATS, component.type),
+        `component ${index} type ${component.type} does not exist in the active component catalogue`));
+      fail(WiringRules.isPowerSourceType(powerSource.type), `${powerSource.type} is not a recognised Power source`);
+      fail(WiringRules.isDataSourceType(dataSource.type), `${dataSource.type} is not a recognised Data source`);
+      const occupied = new Map();
+      state.design.forEach((component, index) => WiringRules.moduleCells(component, PART_STATS).forEach((cell) => {
+        const key = WiringRules.cellKey(cell.x, cell.y);
+        fail(!occupied.has(key), `components ${occupied.get(key)} and ${index} overlap at ${key}`);
+        occupied.set(key, index);
+      }));
+      const physicalSections = new Set(state.wiring.power.sections.map((section) => section.id));
+      ["5,5:6,5", "6,5:7,5"].forEach((id) => fail(physicalSections.has(id), `expected physical Power cable section ${id} is missing`));
+    });
+    await assertFixturePort(page, { x: 5, y: 5 }, "power", 0);
+    await assertFixturePort(page, { x: 9, y: 5 }, "data", 5);
     const fixture = await page.evaluate(async () => structuredClone((await import("/src/state.js")).state.design));
     const targetModule = fixture[1];
     assert.deepEqual({ x: targetModule.x, y: targetModule.y }, { x: 6, y: 5 }, "fixture target remains the intended occupied cell");
