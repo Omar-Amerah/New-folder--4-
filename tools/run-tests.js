@@ -47,6 +47,7 @@ const GROUPS = {
     "verify-heat-effects.js",
     "verify-power.js",
     "verify-power-analysis.js",
+    "verify-data-support.js",
     "verify-power-runtime.js",
     "verify-power-damage.js",
     "verify-power-hardening.js",

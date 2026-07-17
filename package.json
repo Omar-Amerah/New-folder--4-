@@ -53,6 +53,7 @@
     "test:combat-protocol": "node tools/run-tests.js protocol",
     "test:blueprint-storage": "node verify-blueprint-storage.js",
     "test:wiring": "node verify-wiring.js",
+    "test:data-support": "node verify-data-support.js",
     "test:wiring-pipeline": "node verify-wiring-pipeline.js",
     "test:blueprint-parity": "node verify-blueprint-parity.js",
     "test:component-indexes": "node verify-component-indexes.js",

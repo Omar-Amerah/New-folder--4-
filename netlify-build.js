@@ -73,6 +73,7 @@ const requiredFiles = [
   path.join(__dirname, "public", "vendor", "pixi.min.js"),
   path.join(__dirname, "public", "vendor", "msgpack.min.js"),
   path.join(__dirname, "public", "src", "shared", "turretRules.js"),
+  path.join(__dirname, "public", "src", "shared", "dataSupportRules.js"),
   path.join(__dirname, "public", "src", "shared", "protocolVersion.js"),
   path.join(__dirname, "public", "build-sha.js"),
   path.join(__dirname, "public", "component-balance.json")
