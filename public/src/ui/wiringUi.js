@@ -76,6 +76,21 @@ function pointerGridPoint(clientX, clientY) {
   return { x: (clientX - rect.left - left) / (cellWidth + gapX), y: (clientY - rect.top - top) / (cellHeight + gapY) };
 }
 function cellFromPointer(clientX, clientY) { const point = pointerGridPoint(clientX, clientY); return point ? { x: Math.floor(point.x), y: Math.floor(point.y) } : null; }
+function pointerToSvgPoint(svg, event) {
+  const matrix = svg?.getScreenCTM?.(); if (!matrix) return null;
+  const point = svg.createSVGPoint(); point.x = event.clientX; point.y = event.clientY;
+  return point.matrixTransform(matrix.inverse());
+}
+function wireEndpointFromEvent(event, kind = ui().mode) {
+  const target = event.target?.closest?.("[data-section-id]"); const svg = target?.ownerSVGElement;
+  const section = bucket(kind).sections.find((item) => item.id === target?.dataset.sectionId); const pointer = pointerToSvgPoint(svg, event);
+  if (!section || !pointer) return null;
+  // A widened hit line can overlap another section at a junction. Snap to the
+  // canonical cell centre first so either line deterministically chooses the
+  // shared endpoint rather than depending on SVG paint order or tiny rounding.
+  const snapped = { x: Math.round(pointer.x - .5) + .5, y: Math.round(pointer.y - .5) + .5 };
+  return rules().nearestSectionEndpoint(section, snapped);
+}
 // Supercover-style traversal in pointer order. At an exact corner, the
 // dominant physical pointer axis chooses one corner step; no alternate route
 // is searched when that cell is empty.
@@ -157,7 +172,12 @@ export function bindWiringControls() {
   dom.wiringOverlayHost?.addEventListener("click", (event) => {
     const port = event.target?.closest?.("[data-wiring-port-kind]");
     if (port && ui().sourceIndex == null) { event.stopPropagation(); if (port.dataset.wiringPortKind === ui().mode) beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) }); return; }
-    const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
+    const id = event.target?.dataset?.sectionId; if (!id) return;
+    if (ui().sourceIndex != null) {
+      if (event.button !== 0) return;
+      const endpoint = wireEndpointFromEvent(event); if (!endpoint) return;
+      event.preventDefault(); event.stopPropagation(); handleWiringCellClick(endpoint.x, endpoint.y); return;
+    }
     event.stopPropagation(); resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation();
   });
   dom.wiringOverlayHost?.addEventListener("keydown", (event) => {
