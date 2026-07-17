@@ -46,9 +46,13 @@ async function wiringGridPointToScreen(svgLocator, gridX, gridY) {
 async function hitAt(page, point) {
   return page.evaluate(({ x, y }) => {
     const element = document.elementFromPoint(x, y); const section = element?.closest?.("[data-section-id]");
+    const port = element?.closest?.("[data-wiring-port-kind]"); const group = element?.closest?.("svg > g");
     return { tagName: element?.tagName || null, className: element?.getAttribute?.("class") || null,
       sectionId: section?.dataset?.sectionId || null,
-      wiringPortKind: element?.closest?.("[data-wiring-port-kind]")?.dataset?.wiringPortKind || null,
+      wiringPortKind: port?.dataset?.wiringPortKind || null,
+      wiringComponentIndex: port?.dataset?.wiringComponentIndex || null,
+      parentGroupClass: group?.getAttribute?.("class") || null,
+      pointerEvents: element ? getComputedStyle(element).pointerEvents : null,
       componentIndex: element?.closest?.("[data-part-index]")?.dataset?.partIndex || null,
       insideGrid: Boolean(element?.closest?.("#buildGrid, .build-grid")),
       insideWiringOverlay: Boolean(element?.closest?.("#wiringOverlayHost")),
@@ -71,7 +75,9 @@ async function wiringDiagnostics(page, svgLocator, grid, point, screenshotName) 
   await page.screenshot({ path: screenshotPath, fullPage: true });
   const [bounds, svgGeometry, hit, state, fixture] = await Promise.all([
     svgLocator.boundingBox(),
-    svgLocator.evaluate((svg) => ({ viewBox: svg.getAttribute("viewBox"), matrix: (() => { const m = svg.getScreenCTM(); return m && { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e, f: m.f }; })() })),
+    svgLocator.evaluate((svg) => ({ viewBox: svg.getAttribute("viewBox"),
+      svgChildOrder: [...svg.children].map((child) => child.getAttribute("class")),
+      matrix: (() => { const m = svg.getScreenCTM(); return m && { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e, f: m.f }; })() })),
     hitAt(page, point), editorState(page),
     page.evaluate(async () => structuredClone((await import("/src/state.js")).state.design))
   ]);
@@ -79,6 +85,17 @@ async function wiringDiagnostics(page, svgLocator, grid, point, screenshotName) 
     activeMode: state.ui.mode, activePath: state.ui.path,
     physicalSectionIds: state.wiring[state.ui.mode].sections.map((section) => section.id),
     fixtureComponentPositions: fixture.map(({ x, y, type, rotation }) => ({ x, y, type, rotation })), screenshotPath };
+}
+
+async function assertPortHit(page, svgLocator, grid, kind, componentIndex, screenshotName) {
+  const point = await wiringGridPointToScreen(svgLocator, grid.x, grid.y);
+  const hit = await hitAt(page, point);
+  if (hit.wiringPortKind !== kind || Number(hit.wiringComponentIndex) !== componentIndex) {
+    const diagnostic = await wiringDiagnostics(page, svgLocator, grid, point, screenshotName);
+    assert.fail(`Source port did not win cable overlap hit testing: ${JSON.stringify(diagnostic)}`);
+  }
+  assert.equal(hit.parentGroupClass, "wire-port-layer", "source port belongs to the final SVG layer");
+  return { point, hit };
 }
 
 async function assertGridTargetActionable(page, svgLocator, grid, point) {
@@ -147,8 +164,15 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
         { x: 6, y: 6, type: "frame", rotation: 0 },
         { x: 6, y: 7, type: "engine", rotation: 0 }
       ];
+      state.design.push(
+        { x: 9, y: 5, type: "sensorArray", rotation: 0 },
+        { x: 10, y: 5, type: "frame", rotation: 0 }
+      );
       state.wiring = WiringRules.addPath(WiringRules.emptyWiring(), "power", [
         { x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }
+      ], state.design, (await import("/src/design/parts.js")).PART_STATS);
+      state.wiring = WiringRules.addPath(state.wiring, "data", [
+        { x: 9, y: 5 }, { x: 10, y: 5 }
       ], state.design, (await import("/src/design/parts.js")).PART_STATS);
       wiring.resetWiringEditorState();
       designer.renderBuildGrid();
@@ -158,6 +182,9 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     const svg = page.locator(".wiring-overlay-host svg.wiring-overlay");
     await svg.waitFor({ state: "visible", timeout: 5_000 });
     assert.equal(await svg.count(), 1, "fixture renders exactly one Wiring overlay SVG");
+    assert.deepEqual(await svg.locator(":scope > g").evaluateAll((groups) => groups.map((group) => group.getAttribute("class"))),
+      ["wire-visible-layer", "wire-hit-layer", "wire-marker-layer", "wire-indicator-layer", "wire-port-layer"],
+      "overlay recreates the explicit paint and hit-test layer order");
     const fixture = await page.evaluate(async () => structuredClone((await import("/src/state.js")).state.design));
     const targetModule = fixture[1];
     assert.deepEqual({ x: targetModule.x, y: targetModule.y }, { x: 6, y: 5 }, "fixture target remains the intended occupied cell");
@@ -188,7 +215,7 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     snapshot = await editorState(page);
     assert.equal(snapshot.ui.selectedSectionId, null, "empty overlay space reaches the underlying grid");
 
-    const portPoint = await wiringGridPointToScreen(svg, fixture[0].x, fixture[0].y); const portTarget = await assertGridTargetActionable(page, svg, { x: 5, y: 5 }, portPoint);
+    const { point: portPoint, hit: portTarget } = await assertPortHit(page, svg, { x: 5, y: 5 }, "power", 0, "power-port-overlap-failure");
     assert.match(portTarget.className, /\bwire-port-power\b/, "source ports win hit testing where they overlap a cable");
     await page.mouse.move(portPoint.x, portPoint.y); await page.mouse.click(portPoint.x, portPoint.y);
     snapshot = await editorState(page);
@@ -205,6 +232,21 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     snapshot = await editorState(page);
     assert.equal(snapshot.wiring.power.sections.length, savedBeforeCancel, "cancel leaves saved sections unchanged");
     assert.equal(snapshot.ui.sourceIndex, null); assert.deepEqual(snapshot.ui.path, []); assert.equal(snapshot.ui.activeOrigin, null);
+
+    const nearPort = await assertSectionHit(page, page.locator('.wire-hit[data-section-id="5,5:6,5"]'), "5,5:6,5", .14);
+    await page.mouse.click(nearPort.point.x, nearPort.point.y);
+    snapshot = await editorState(page);
+    assert.equal(snapshot.ui.selectedSectionId, "5,5:6,5", "cable remains selectable immediately outside the port radius");
+
+    await page.locator("#wiringModeData").click();
+    const dataOverlap = await assertPortHit(page, svg, { x: 9, y: 5 }, "data", 5, "data-port-overlap-failure");
+    assert.match(dataOverlap.hit.className, /\bwire-port-data\b/, "Data source ports also win cable overlaps");
+    await page.touchscreen.tap(dataOverlap.point.x, dataOverlap.point.y);
+    snapshot = await editorState(page);
+    assert.equal(snapshot.ui.sourceIndex, 5, "touch tapping an overlapping Data port starts drawing");
+    assert.equal(snapshot.ui.selectedSectionId, null, "the Data cable under the port is not selected");
+    await page.locator('[data-wiring-action="cancel-drawing"]').click();
+    await page.locator("#wiringModePower").click();
 
     // Mouse drag starts only after the threshold and uses the nearest canonical endpoint.
     const dragHit = page.locator('.wire-hit[data-section-id="6,5:7,5"]');
@@ -249,6 +291,8 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.notEqual((await editorState(page)).ui.sourceIndex, null, "Branch from A supports tap/click-step input");
     await page.locator('[data-wiring-action="cancel-drawing"]').click();
     assert.equal((await editorState(page)).ui.sourceIndex, null);
+    const rerenderedOverlap = await assertPortHit(page, svg, { x: 5, y: 5 }, "power", 0, "rerendered-port-overlap-failure");
+    assert.match(rerenderedOverlap.hit.className, /\bwire-port-power\b/, "port remains topmost after selection, drawing, branch, and undo rerenders");
     mkdirSync("test-artifacts/wiring-browser", { recursive: true });
     await page.screenshot({ path: "test-artifacts/wiring-browser/final.png", fullPage: true });
     console.log("Wiring editor browser interaction verification passed");
