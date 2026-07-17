@@ -48,4 +48,27 @@ assert.deepEqual(physicalAnalysis.power.networks[0].consumerIndices, [2, 4], "br
 const split = W.removeSection(physical, "power", "1,1:2,1", physicalDesign, PARTS);
 assert.equal(W.analyzeWiring(physicalDesign, split, PARTS).power.networks.length, 1, "removing a leaf preserves the shared downstream network");
 assert.equal(physical.power.connections.length, 0, "new physical branches require no logical route records");
+
+const graph = W.buildSectionGraph(physical.power);
+assert.equal(graph.nodes.get("2,1").sectionIds.length, 3, "section graph derives a T-junction from physical endpoints");
+assert.deepEqual(W.junctionCells(physical.power).map(({x,y,degree}) => ({x,y,degree})), [{ x: 2, y: 1, degree: 3 }], "T-junction has one physical marker");
+assert.deepEqual(W.sectionEndpointDegrees(physical.power).get("2,1:2,2"), [3, 2], "endpoint degrees are physical and ordered canonically");
+const leafBranch = W.findLeafBranchSections(physical.power, "2,1:2,2");
+assert.deepEqual(leafBranch.sectionIds, ["2,1:2,2", "2,2:2,3"], "leaf branch stops at its nearest junction");
+const branchRemoved = W.removeBranch(physical, "power", "2,1:2,2", null, physicalDesign, PARTS);
+assert.deepEqual(branchRemoved.removedSectionIds, ["2,1:2,2", "2,2:2,3"]);
+assert.deepEqual(branchRemoved.wiring.power.sections.map((section) => section.id), ["1,1:2,1", "2,1:3,1"], "branch removal preserves the trunk");
+
+const orderedAgain = W.cloneWiring(physical); orderedAgain.power.sections.reverse();
+assert.deepEqual([...W.sectionEndpointDegrees(orderedAgain.power)], [...W.sectionEndpointDegrees(physical.power)], "topology helpers ignore insertion order");
+const withoutLegacy = W.cloneWiring(normalized); withoutLegacy.power.connections = []; withoutLegacy.data.connections = [];
+const withLegacyAnalysis = W.analyzeWiring(ship, normalized, PARTS); const withoutLegacyAnalysis = W.analyzeWiring(ship, withoutLegacy, PARTS);
+const physicalSummary = (value) => JSON.parse(JSON.stringify(value, (key, item) => key === "connections" || key === "routes" ? undefined : item));
+assert.deepEqual(physicalSummary(withoutLegacyAnalysis.power.networks), physicalSummary(withLegacyAnalysis.power.networks), "Power analysis does not require legacy metadata");
+assert.deepEqual(physicalSummary(withoutLegacyAnalysis.data.networks), physicalSummary(withLegacyAnalysis.data.networks), "Data analysis does not require legacy metadata");
+
+const loopDesign = [{x:1,y:1,type:"frame"},{x:2,y:1,type:"frame"},{x:2,y:2,type:"frame"},{x:1,y:2,type:"frame"}];
+let loop = W.emptyWiring(); loop = W.addPath(loop, "power", [{x:1,y:1},{x:2,y:1},{x:2,y:2},{x:1,y:2},{x:1,y:1}], loopDesign, PARTS);
+assert.equal(W.findLeafBranchSections(loop.power, "1,1:2,1").reason, "not-leaf-branch", "closed loops are never guessed destructively");
+assert.deepEqual(W.findLeafBranchSections(loop.power, "1,1:2,1").sectionIds, ["1,1:2,1"], "ambiguous removal falls back to the selected section");
 console.log("Wiring v2 physical-section verification passed");
