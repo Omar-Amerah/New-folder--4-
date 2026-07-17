@@ -17,6 +17,56 @@ async function editorState(page) {
   });
 }
 
+async function svgLineScreenPoint(locator, fraction = 0.5) {
+  return locator.evaluate((element, t) => {
+    const svg = element.ownerSVGElement;
+    const matrix = element.getScreenCTM();
+    if (!svg || !matrix) throw new Error("SVG line has no screen transformation matrix");
+    const x1 = Number(element.getAttribute("x1")); const y1 = Number(element.getAttribute("y1"));
+    const x2 = Number(element.getAttribute("x2")); const y2 = Number(element.getAttribute("y2"));
+    const point = svg.createSVGPoint(); point.x = x1 + (x2 - x1) * t; point.y = y1 + (y2 - y1) * t;
+    const screen = point.matrixTransform(matrix);
+    return { x: screen.x, y: screen.y, svgX: point.x, svgY: point.y };
+  }, fraction);
+}
+
+async function svgGridPointToScreen(svgLocator, gridX, gridY) {
+  return svgLocator.evaluate((svg, point) => {
+    const matrix = svg.getScreenCTM();
+    if (!matrix) throw new Error("Wiring SVG has no screen transformation matrix");
+    const svgPoint = svg.createSVGPoint(); svgPoint.x = point.x; svgPoint.y = point.y;
+    const screen = svgPoint.matrixTransform(matrix);
+    return { x: screen.x, y: screen.y, svgX: point.x, svgY: point.y };
+  }, { x: gridX, y: gridY });
+}
+
+async function hitAt(page, point) {
+  return page.evaluate(({ x, y }) => {
+    const element = document.elementFromPoint(x, y); const section = element?.closest?.("[data-section-id]");
+    return { tagName: element?.tagName || null, className: element?.getAttribute?.("class") || null,
+      sectionId: section?.dataset?.sectionId || null, cellX: element?.closest?.(".build-cell")?.dataset?.x || null,
+      cellY: element?.closest?.(".build-cell")?.dataset?.y || null };
+  }, point);
+}
+
+async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5) {
+  const point = await svgLineScreenPoint(locator, fraction);
+  const [hit, geometry] = await Promise.all([hitAt(page, point), locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect(); const style = getComputedStyle(element);
+    return { rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      pointerEvents: style.pointerEvents, stroke: style.stroke, strokeWidth: style.strokeWidth, fill: style.fill };
+  })]);
+  if (hit.sectionId !== expectedSectionId) {
+    mkdirSync("test-artifacts/wiring-browser", { recursive: true });
+    const screenshotPath = `test-artifacts/wiring-browser/hit-failure-${expectedSectionId.replaceAll(",", "_").replace(":", "-")}.png`;
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    const state = await editorState(page);
+    assert.equal(hit.sectionId, expectedSectionId, `SVG cable hit-test failed: ${JSON.stringify({ expectedSectionId,
+      svgCoordinates: { x: point.svgX, y: point.svgY }, viewportCoordinates: { x: point.x, y: point.y }, geometry, hit, state, screenshotPath })}`);
+  }
+  return { point, hit, geometry };
+}
+
 (async () => {
   try {
     await waitForServer(base);
@@ -43,18 +93,24 @@ async function editorState(page) {
       designer.setBlueprintView("wiring");
     });
 
+    const svg = page.locator(".wiring-overlay");
     const hit = page.locator('.wire-hit[data-section-id="5,5:6,5"]');
-    await hit.click({ position: { x: 8, y: 2 } });
+    const horizontal = await assertSectionHit(page, hit, "5,5:6,5");
+    assert.equal(horizontal.geometry.rect.height, 0, "horizontal SVG line exposes the zero-height box that locator actionability rejects");
+    assert.equal(horizontal.geometry.pointerEvents, "stroke", "the widened line receives pointer events");
+    assert.ok(Number.parseFloat(horizontal.geometry.strokeWidth) >= .4, "the hit stroke is wide enough for real pointer input");
+    await page.mouse.click(horizontal.point.x, horizontal.point.y);
     let snapshot = await editorState(page);
     assert.equal(snapshot.ui.selectedSectionId, "5,5:6,5", "click selects the physical section");
     assert.equal(snapshot.ui.sourceIndex, null, "click does not enter branch drawing");
     assert.equal(await page.locator('[data-wiring-action="remove-section"]').count(), 1, "section controls are visible");
-    assert.equal(await hit.evaluate((node) => getComputedStyle(node).pointerEvents), "stroke", "the widened line receives pointer events");
-    assert.ok(Number(await hit.getAttribute("stroke-width")) || await hit.evaluate((node) => Number.parseFloat(getComputedStyle(node).strokeWidth)) >= .4);
 
     const junction = page.locator(".wire-junction");
     assert.equal(await junction.count(), 0, "straight fixture initially has no junction");
     const empty = page.locator('.build-cell[data-x="1"][data-y="1"]');
+    const emptyPoint = await svgGridPointToScreen(svg, 1.5, 1.5); const emptyTarget = await hitAt(page, emptyPoint);
+    assert.equal(emptyTarget.sectionId, null, "empty grid space does not resolve to a cable hit target");
+    assert.deepEqual([emptyTarget.cellX, emptyTarget.cellY], ["1", "1"], "empty overlay space reaches the underlying grid cell");
     await empty.click();
     snapshot = await editorState(page);
     assert.equal(snapshot.ui.selectedSectionId, null, "empty overlay space reaches the underlying grid");
@@ -65,6 +121,8 @@ async function editorState(page) {
     assert.equal(snapshot.ui.selectedIndex, 0, "component body remains inspectable");
     assert.equal(snapshot.ui.sourceIndex, null, "component inspection does not start wiring");
     const portButton = page.locator('.wire-port-power[data-wiring-component-index="0"]').first();
+    const portPoint = await svgGridPointToScreen(svg, 5.5, 5.5); const portTarget = await hitAt(page, portPoint);
+    assert.match(portTarget.className, /\bwire-port-power\b/, "source ports win hit testing where they overlap a cable");
     await portButton.focus(); await page.keyboard.press("Enter");
     snapshot = await editorState(page);
     assert.equal(snapshot.ui.sourceIndex, 0, "keyboard activation of a source port starts drawing");
@@ -78,17 +136,22 @@ async function editorState(page) {
 
     // Mouse drag starts only after the threshold and uses the nearest canonical endpoint.
     const dragHit = page.locator('.wire-hit[data-section-id="6,5:7,5"]');
-    const from = await dragHit.evaluate((node) => { const svg = node.ownerSVGElement; const p = svg.createSVGPoint(); p.x = 6.5; p.y = 5.5; const q = p.matrixTransform(svg.getScreenCTM()); return { x: q.x, y: q.y }; });
-    const to = await dragHit.evaluate((node) => { const svg = node.ownerSVGElement; const p = svg.createSVGPoint(); p.x = 6.5; p.y = 6.5; const q = p.matrixTransform(svg.getScreenCTM()); return { x: q.x, y: q.y }; });
-    await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 3 }); await page.mouse.up();
+    const from = (await assertSectionHit(page, dragHit, "6,5:7,5", 0.08)).point;
+    const to = await svgGridPointToScreen(svg, 6.5, 6.5);
+    await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 6 }); await page.mouse.up();
     snapshot = await editorState(page);
     assert.ok(snapshot.wiring.power.sections.some((section) => section.id === "6,5:6,6"), "drag commits a branch section");
     assert.equal(new Set(snapshot.wiring.power.sections.map((section) => section.id)).size, snapshot.wiring.power.sections.length, "drag does not duplicate shared sections");
     assert.ok(snapshot.wiring.power.sections.some((section) => section.id === "6,5:7,5"), "original trunk remains");
     assert.equal(await page.locator(".wire-junction").evaluate((node) => getComputedStyle(node).pointerEvents), "none", "junction cannot steal selection");
+    const junctionPoint = await svgGridPointToScreen(page.locator(".wiring-overlay"), 6.5, 5.5); const junctionTarget = await hitAt(page, junctionPoint);
+    assert.doesNotMatch(junctionTarget.className, /\bwire-junction\b/, "junction marker does not steal the intended actionable element");
+    assert.ok(junctionTarget.sectionId || /\bwire-port\b/.test(junctionTarget.className), "junction centre reaches an actionable cable or port");
 
     const branchHit = page.locator('.wire-hit[data-section-id="6,5:6,6"]');
-    await branchHit.click();
+    const vertical = await assertSectionHit(page, branchHit, "6,5:6,6");
+    assert.equal(vertical.geometry.rect.width, 0, "vertical SVG line exposes the zero-width box that locator actionability rejects");
+    await page.mouse.click(vertical.point.x, vertical.point.y);
     const countBeforeRemove = snapshot.wiring.power.sections.length;
     await page.locator('[data-wiring-action="remove-branch"]').click();
     snapshot = await editorState(page);
@@ -97,14 +160,18 @@ async function editorState(page) {
     await page.locator("#wiringUndoButton").click();
     assert.equal((await editorState(page)).wiring.power.sections.length, countBeforeRemove, "Undo restores the branch");
 
-    await page.locator('.wire-hit[data-section-id="6,5:6,6"]').click({ button: "right" });
+    const restoredBranch = page.locator('.wire-hit[data-section-id="6,5:6,6"]');
+    const restoredPoint = (await assertSectionHit(page, restoredBranch, "6,5:6,6")).point;
+    await page.mouse.click(restoredPoint.x, restoredPoint.y, { button: "right" });
     snapshot = await editorState(page);
     assert.equal(snapshot.wiring.power.sections.length, countBeforeRemove - 1, "right click removes exactly one section");
     await page.locator("#wiringUndoButton").click();
     assert.equal((await editorState(page)).wiring.power.sections.length, countBeforeRemove, "Undo restores a right-click removal");
 
     // Touch/click-step equivalent: select, branch visibly, then cancel without hover or drag.
-    await page.locator('.wire-hit[data-section-id="5,5:6,5"]').tap();
+    const rerenderedTrunk = page.locator('.wire-hit[data-section-id="5,5:6,5"]');
+    const rerenderedPoint = (await assertSectionHit(page, rerenderedTrunk, "5,5:6,5")).point;
+    await page.mouse.click(rerenderedPoint.x, rerenderedPoint.y);
     await page.locator('[data-wiring-action="branch-a"]').click();
     assert.notEqual((await editorState(page)).ui.sourceIndex, null, "Branch from A supports tap/click-step input");
     await page.locator('[data-wiring-action="cancel-drawing"]').click();
