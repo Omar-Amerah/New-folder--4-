@@ -1,8 +1,9 @@
 (function initWiringRules(root, factory) {
-  const rules = factory();
+  const dependency = typeof module !== "undefined" && module.exports ? require("./dataSupportRules") : root.DataSupportRules;
+  const rules = factory(dependency);
   if (typeof module !== "undefined" && module.exports) module.exports = rules;
   root.WiringRules = rules;
-}(typeof globalThis !== "undefined" ? globalThis : this, function makeWiringRules() {
+}(typeof globalThis !== "undefined" ? globalThis : this, function makeWiringRules(DataSupportRules) {
   "use strict";
 
   const GRID_SIZE = 15;
@@ -19,22 +20,16 @@
   // second, hidden limit.
   const DEFAULT_CABLE_LIMITS = Object.freeze({ power: null, data: null });
   const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "auxGenerator"]);
-  const DATA_SOURCE_INFO = Object.freeze({
-    fireControl: Object.freeze({ bonusField: "fireRateBonus", effect: "fire rate", unit: "percent" }),
-    sensorArray: Object.freeze({ bonusField: "rangeBonus", effect: "range", unit: "m" }),
-    signalAmplifier: Object.freeze({ bonusField: "rangeBonus", effect: "range", unit: "m" }),
-    targetingComputer: Object.freeze({ bonusField: "accuracyBonus", effect: "accuracy", unit: "percent" }),
-    stabilizerNode: Object.freeze({ bonusField: "accuracyBonus", effect: "accuracy", unit: "percent" })
-  });
-  const DATA_SOURCE_TYPES = Object.freeze(Object.keys(DATA_SOURCE_INFO));
+  if (!DataSupportRules) throw new Error("DataSupportRules must load before WiringRules");
+  const { DATA_SOURCE_INFO, DATA_SOURCE_TYPES } = DataSupportRules;
 
   function partStat(catalogue, type) { return (catalogue && (catalogue[type] || catalogue.frame)) || {}; }
   function isPowerSourceType(type) { return POWER_SOURCE_TYPES.includes(type); }
   function isPowerConsumer(type, catalogue) { return !isPowerSourceType(type) && (Number(partStat(catalogue, type).powerUse) || 0) > 0; }
-  function isDataSourceType(type) { return Object.prototype.hasOwnProperty.call(DATA_SOURCE_INFO, type); }
+  function isDataSourceType(type) { return DataSupportRules.isDataSupportSource(type); }
   function isDataTarget(type, catalogue) { return Boolean(partStat(catalogue, type).weapon); }
   function isCompatibleWeapon(sourceType, weaponType, catalogue) { return isDataSourceType(sourceType) && isDataTarget(weaponType, catalogue); }
-  function sourceBonusAmount(type, catalogue) { const info = DATA_SOURCE_INFO[type]; return info ? Number(partStat(catalogue, type)[info.bonusField]) || 0 : 0; }
+  function sourceBonusAmount(type, catalogue) { return DataSupportRules.nominalSupportBudget(type, catalogue); }
 
   function getOccupiedCells(x, y, footprint, rotation = 0) {
     const cells = [];
@@ -405,9 +400,10 @@
     const list = Array.isArray(modules) ? modules : []; const normalized = normalizeWiring(wiring, list, catalogue); const power = analyzePhysicalPower(list, normalized.wiring, catalogue);
     const networks = physicalGroups(list, normalized.wiring.data, catalogue, "data").map((network, index) => ({ ...network, label: `Data Network ${String.fromCharCode(65 + index)}` })); const networkByComponent = new Map(); networks.forEach((n) => n.componentIndices.forEach((i) => networkByComponent.set(i, n)));
     const sourceIndices = [], weaponIndices = []; list.forEach((m, i) => { if (isDataSourceType(m.type)) sourceIndices.push(i); if (isDataTarget(m.type, catalogue)) weaponIndices.push(i); });
-    const supports = sourceIndices.map((index) => { const m = list[index], info = DATA_SOURCE_INFO[m.type], network = networkByComponent.get(index), targets = network?.weaponIndices || [], bonusTotal = sourceBonusAmount(m.type, catalogue); return { index, type: m.type, networkId: network?.id || null, networkLabel: network?.label || null, bonusField: info.bonusField, effect: info.effect, unit: info.unit, bonusTotal, connectedWeaponIndices: targets, incompatibleWeaponIndices: [], bonusPerWeapon: targets.length ? bonusTotal / targets.length : 0 }; });
-    const weapons = weaponIndices.map((index) => { const network = networkByComponent.get(index); return { index, type: list[index].type, networkId: network?.id || null, networkLabel: network?.label || null, supportIndices: supports.filter((s) => s.connectedWeaponIndices.includes(index)).map((s) => s.index) }; });
-    return { version: WIRING_VERSION, wiring: normalized.wiring, droppedRoutes: normalized.droppedRoutes, droppedSegments: normalized.droppedSegments, power, data: { networks, networkByComponent, sourceIndices, weaponIndices, supports, weapons }, warnings: [] };
+    const supportAnalysis = DataSupportRules.analyzeDataSupport(list, networks, catalogue);
+    const supports = supportAnalysis.sourceAllocations.map((source) => ({ index: source.sourceIndex, type: source.sourceType, networkId: source.networkId, networkLabel: source.networkLabel, bonusField: source.bonusField, effect: source.effect, unit: source.unit, bonusTotal: source.nominalBudget, connectedWeaponIndices: [...source.connectedWeaponIndices], incompatibleWeaponIndices: [], bonusPerWeapon: source.bonusPerWeapon }));
+    const weapons = supportAnalysis.weaponBonuses.map((weapon) => ({ index: weapon.weaponIndex, type: weapon.weaponType, networkId: weapon.networkId, networkLabel: weapon.networkLabel, supportIndices: [...weapon.sourceIndices] }));
+    return { version: WIRING_VERSION, wiring: normalized.wiring, droppedRoutes: normalized.droppedRoutes, droppedSegments: normalized.droppedSegments, power, data: { networks, networkByComponent, sourceIndices, weaponIndices, supports, weapons, sourceAllocations: supportAnalysis.sourceAllocations, weaponBonuses: supportAnalysis.weaponBonuses, supportAnalysis }, warnings: [...supportAnalysis.warnings] };
   }
   function addPath(wiring, kind, cells, modules, catalogue) {
     const next = cloneWiring(wiring); const bucket = next[kind];
