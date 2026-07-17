@@ -9,7 +9,7 @@ import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { updateHud } from "../ui/hudUi.js";
 import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
 import { showToast } from "../ui/toastUi.js";
-import { issueCommand } from "./commands.js";
+import { issueCommand, destructSelectedShips } from "./commands.js";
 import { getMobileTestingModeEnabled } from "./renderSettings.js";
 
 let binding = null; let bindingGeneration = 0;
@@ -52,14 +52,21 @@ export function handleWheel(event) {
   Object.assign(state.camera, zoomCameraAtScreenPoint(state.camera, { x: event.clientX, y: event.clientY }, intent)); state.camera.follow = false;
 }
 function clampNumber(v, lo, hi) { return Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : 0)); }
+export function eventComesFromEditableControl(event) {
+  const target = event.target || document.activeElement;
+  return Boolean(target?.isContentEditable
+    || target?.closest?.("input, textarea, select, [contenteditable='true'], [contenteditable='']"));
+}
 export function handleKeyDown(event) {
   if (event.key === "Escape" && dom.confirmModal && !dom.confirmModal.hidden) { event.preventDefault(); closeConfirmModal(); return; }
-  const key = event.key.toLowerCase(); const tag = document.activeElement?.tagName;
+  if (event.repeat) return;
+  const key = event.key.toLowerCase();
   if (key === "escape" && state.settingRallyPoint) { event.preventDefault(); state.settingRallyPoint = false; renderSideControls(); return; }
-  if (key === "r" && tag !== "INPUT" && tag !== "SELECT") { event.preventDefault(); rotateFocusedPart(); return; }
-  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return; state.keys.add(key);
+  if (eventComesFromEditableControl(event)) return;
+  if (key === "r") { event.preventDefault(); rotateFocusedPart(); return; }
+  state.keys.add(key);
   if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) event.preventDefault();
-  if (key === "q") { event.preventDefault(); selectAllOwnShips(); renderSideControls(); } else if (key === "f") { event.preventDefault(); state.camera.follow = true; } else if (key === "escape") { state.selectedShipIds.clear(); state.activeShipGroup = null; cancelArenaPointerState("escape"); updateHud(); renderSideControls(); } else if (key === "0") { event.preventDefault(); resetCameraZoomToFit(); } else if (key === "c") { event.preventDefault(); const ships = [...state.selectedShipIds].length ? (state.snapshot?.ships || []).filter(s => state.selectedShipIds.has(s.id)) : ownLiveShips(); centerCameraOnShips(ships); } else if (key === "v") { event.preventDefault(); state.componentDamageView = !state.componentDamageView; showToast(`Component damage view ${state.componentDamageView ? "on" : "off"}`, "good"); renderSideControls(); }
+  if (key === "q") { event.preventDefault(); selectAllOwnShips(); renderSideControls(); } else if (key === "f") { event.preventDefault(); state.camera.follow = true; } else if (key === "escape") { state.selectedShipIds.clear(); state.activeShipGroup = null; cancelArenaPointerState("escape"); updateHud(); renderSideControls(); } else if (key === "0") { event.preventDefault(); resetCameraZoomToFit(); } else if (key === "c") { event.preventDefault(); const ships = [...state.selectedShipIds].length ? (state.snapshot?.ships || []).filter(s => state.selectedShipIds.has(s.id)) : ownLiveShips(); centerCameraOnShips(ships); } else if (key === "v") { event.preventDefault(); state.componentDamageView = !state.componentDamageView; showToast(`Component damage view ${state.componentDamageView ? "on" : "off"}`, "good"); renderSideControls(); } else if (key === "delete" || key === "backspace") { event.preventDefault(); destructSelectedShips(); }
 }
 export function bindArenaPointerListeners(canvasEl) {
   if (!canvasEl) return () => {}; if (binding?.canvas === canvasEl) return binding.unbind; if (binding) binding.unbind(); const canvas = canvasEl; bindingGeneration += 1;

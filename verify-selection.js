@@ -37,6 +37,7 @@ function setup() {
 {
   const { room, p1, a, e } = setup();
   assert.strictEqual(requestSelfDestruct(room, p1, [], 10), 0, "empty destruct arms no ships");
+  assert.strictEqual(requestSelfDestruct(room, p1, undefined, 15), 0, "omitted destruct selection never arms the fleet");
   assert.strictEqual(requestSelfDestruct(room, p1, { bad: true }, 20), 0, "malformed destruct never arms whole fleet");
   assert.strictEqual(requestSelfDestruct(room, p1, [a.id, e.id, a.id], 30), 1, "mixed valid/enemy destruct affects only owned ship");
   assert.strictEqual(requestSelfDestruct(room, p1, [a.id], 40), 0, "repeated self-destruct is idempotent");

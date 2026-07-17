@@ -7,6 +7,7 @@ import { minimapWorldAt, screenToWorld } from "./camera.js";
 import { findShipAt, pruneSelection, ownLiveShips } from "./selection.js";
 import { playerMap } from "../ui/scoreboardUi.js";
 import { formationForCommand } from "../ui/sidePanelUi.js";
+import { showToast } from "../ui/toastUi.js";
 
 export function issueCommand(event) {
   if (event?.currentTarget && event.target !== event.currentTarget) return;
@@ -48,12 +49,14 @@ export function issueCommand(event) {
 // Scuttle the currently selected ships. Requires an explicit selection so a
 // stray keypress can never destroy the whole fleet.
 export function destructSelectedShips() {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
-  if (state.phase !== "active") return;
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return false;
+  if (state.phase !== "active") return false;
   pruneSelection();
   const shipIds = [...state.selectedShipIds];
-  if (shipIds.length === 0) return;
-  send({ type: "destruct", shipIds });
+  if (shipIds.length === 0) return false;
+  if (!send({ type: "destruct", shipIds })) return false;
+  showToast(`Self-destruct initiated for ${shipIds.length} ship${shipIds.length === 1 ? "" : "s"}.`, "warning");
+  return true;
 }
 
 export function selectedShipIdsForCommand() {

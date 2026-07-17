@@ -36,7 +36,7 @@ function validateSpecific(m){
     case 'setRallyPoint': { const miss=checkRequired(m,['x','y']); if(miss)return miss; return num(m.x)&&num(m.y)?null:fail('invalid-rally','Invalid rally point'); }
     case 'command': { const miss=checkRequired(m,['x','y']); if(miss)return miss; if(!num(m.x)||!num(m.y))return fail('invalid-command','Invalid command coordinates'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(m.targetId!==undefined&&m.targetId!==null&&!id(m.targetId))return fail('invalid-target','Invalid target'); if(m.formation!==undefined&&!FORMATIONS.has(m.formation))return fail('invalid-command','Invalid formation'); return null; }
     case 'resetRallyPoint': return null;
-    case 'destruct': if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null;
+    case 'destruct': { const miss=checkRequired(m,['shipIds']); if(miss)return miss; if(!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null; }
     case 'setTeam': return (m.team===undefined||str(String(m.team),32))?null:fail('invalid-team','Invalid team');
     case 'setRules': return (m.rules===undefined||validRules(m.rules))?null:fail('invalid-rules','Invalid rules');
     case 'setName': { const miss=checkRequired(m,['name']); if(miss)return miss; return str(m.name,32)?null:fail('invalid-payload','Invalid name'); }
