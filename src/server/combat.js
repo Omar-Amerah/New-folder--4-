@@ -931,7 +931,7 @@ const SELF_DESTRUCT_MS = 1400;
 
 function requestSelfDestruct(room, player, shipIds, now) {
   const { selectOwnedLivingShips } = require("./selection");
-  const selected = selectOwnedLivingShips(player, shipIds);
+  const selected = selectOwnedLivingShips(player, shipIds, { allowOmittedAll: false });
   if (!selected.ok) return 0;
   let count = 0;
   for (const ship of selected.ships) {
