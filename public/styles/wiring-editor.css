@@ -75,6 +75,14 @@
   pointer-events: none;
 }
 
+/* SVG DOM order controls painting and hit testing; only cable hits and the
+   final source-port layer may receive input. */
+.wiring-overlay .wire-visible-layer,
+.wiring-overlay .wire-marker-layer,
+.wiring-overlay .wire-indicator-layer {
+  pointer-events: none;
+}
+
 .wiring-overlay line {
   stroke-linecap: round;
   fill: none;
