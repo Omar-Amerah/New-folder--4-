@@ -15,6 +15,9 @@
   const MAX_SEGMENTS_PER_KIND = MAX_CONNECTIONS_PER_KIND;
   const MAX_PATH_CELLS = GRID_SIZE * GRID_SIZE;
   const NETWORK_KINDS = Object.freeze(["power", "data"]);
+  // Null means unlimited.  Balance can opt in without teaching the editor a
+  // second, hidden limit.
+  const DEFAULT_CABLE_LIMITS = Object.freeze({ power: null, data: null });
   const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "auxGenerator"]);
   const DATA_SOURCE_INFO = Object.freeze({
     fireControl: Object.freeze({ bonusField: "fireRateBonus", effect: "fire rate", unit: "percent" }),
@@ -149,6 +152,50 @@
     const existing = new Set((wiring?.[kind]?.sections || []).map(segmentKey)); let added = 0;
     for (let i = 1; i < (cells || []).length; i += 1) { const id = sectionIdFromCells(cells[i - 1], cells[i]); if (!existing.has(id)) { existing.add(id); added += 1; } }
     return added;
+  }
+
+  function buildSectionGraph(kindValue) {
+    const sections = (kindValue?.sections || []).map((section) => ({ ...section, id: segmentKey(section) }))
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+    const nodes = new Map();
+    for (const section of sections) for (const cell of sectionCells(section)) {
+      const key = cellKey(cell.x, cell.y);
+      if (!nodes.has(key)) nodes.set(key, { key, x: cell.x, y: cell.y, sectionIds: [] });
+      nodes.get(key).sectionIds.push(section.id);
+    }
+    nodes.forEach((node) => node.sectionIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
+    return { sections, sectionById: new Map(sections.map((section) => [section.id, section])), nodes };
+  }
+  function sectionEndpointDegrees(kindValue) {
+    const graph = buildSectionGraph(kindValue); const result = new Map();
+    graph.sections.forEach((section) => result.set(section.id, sectionCells(section).map((cell) => graph.nodes.get(cellKey(cell.x, cell.y))?.sectionIds.length || 0)));
+    return result;
+  }
+  function junctionCells(kindValue) {
+    return [...buildSectionGraph(kindValue).nodes.values()].filter((node) => node.sectionIds.length > 2)
+      .map(({ x, y, sectionIds }) => ({ x, y, degree: sectionIds.length, sectionIds: [...sectionIds] }));
+  }
+  // Returns the selected edge plus the leaf-side chain.  An endpoint is valid
+  // only when walking away from the selected edge reaches a leaf before a
+  // junction or loop.  Ambiguity is deliberately reported rather than guessed.
+  function findLeafBranchSections(kindValue, selectedSectionId, preferredEndpoint) {
+    const graph = buildSectionGraph(kindValue); const selected = graph.sectionById.get(selectedSectionId);
+    if (!selected) return { sectionIds: [], reason: "missing-section", choices: [] };
+    const candidates = [];
+    for (const endpoint of sectionCells(selected)) {
+      const ids = [selected.id]; let node = graph.nodes.get(cellKey(endpoint.x, endpoint.y)); let previous = selected.id; const visited = new Set([selected.id]);
+      while (node && node.sectionIds.length === 2) {
+        const nextId = node.sectionIds.find((id) => id !== previous); if (!nextId || visited.has(nextId)) { node = null; break; }
+        ids.push(nextId); visited.add(nextId); const next = graph.sectionById.get(nextId);
+        const other = sectionCells(next).find((cell) => cellKey(cell.x, cell.y) !== node.key);
+        previous = nextId; node = graph.nodes.get(cellKey(other.x, other.y));
+      }
+      if (node?.sectionIds.length === 1) candidates.push({ endpoint: { ...endpoint }, sectionIds: ids });
+    }
+    const wanted = preferredEndpoint && candidates.find((item) => item.endpoint.x === preferredEndpoint.x && item.endpoint.y === preferredEndpoint.y);
+    if (wanted) return { ...wanted, reason: "leaf-branch", choices: candidates };
+    if (candidates.length === 1) return { ...candidates[0], reason: "leaf-branch", choices: candidates };
+    return { sectionIds: [selected.id], reason: candidates.length ? "ambiguous" : "not-leaf-branch", choices: candidates };
   }
 
   // Connected components are derived solely from canonical sections meeting
@@ -368,7 +415,13 @@
     return normalizeWiring(next, modules, catalogue).wiring;
   }
   function removeSection(wiring, kind, id, modules, catalogue) { const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((s) => segmentKey(s) !== id); next[kind].connections = next[kind].connections.filter((c) => !c.sectionIds.includes(id)); return normalizeWiring(next, modules, catalogue).wiring; }
+  function removeBranch(wiring, kind, selectedSectionId, preferredEndpoint, modules, catalogue) {
+    const found = findLeafBranchSections(wiring?.[kind], selectedSectionId, preferredEndpoint); const ids = new Set(found.sectionIds);
+    const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((section) => !ids.has(segmentKey(section)));
+    next[kind].connections = next[kind].connections.filter((connection) => !connection.sectionIds.some((id) => ids.has(id)));
+    return { wiring: normalizeWiring(next, modules, catalogue).wiring, removedSectionIds: [...ids].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), reason: found.reason, choices: found.choices };
+  }
   function removePhysicalNetwork(wiring, kind, network, modules, catalogue) { const ids = new Set(network.sectionIds); const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((s) => !ids.has(segmentKey(s))); next[kind].connections = next[kind].connections.filter((c) => !c.sectionIds.some((id) => ids.has(id))); return normalizeWiring(next, modules, catalogue).wiring; }
 
-  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, countUniqueSections, remainingCableLength, additionalLengthForPath };
+  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, countUniqueSections, remainingCableLength, additionalLengthForPath };
 }));

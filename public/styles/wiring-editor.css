@@ -64,6 +64,7 @@
   pointer-events: none;
   z-index: 20;
 }
+.wiring-overlay-host svg { pointer-events: none; }
 
 .wiring-overlay {
   position: absolute;
@@ -138,6 +139,11 @@
   stroke: #0b1526;
   stroke-width: 0.03;
 }
+.wiring-overlay .wire-port { pointer-events: all; cursor: crosshair; }
+.wiring-overlay .wire-junction { fill: #f4f8ff; stroke: #07111f; stroke-width: .035; pointer-events: none; }
+.wiring-overlay .wire-branch-origin { fill: rgba(111,168,255,.25); stroke: #8fbcff; stroke-width: .055; pointer-events: none; }
+.wiring-section-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.wiring-section-actions button, .wiring-status-panel > button { min-height: 32px; }
 
 /* Status panel */
 .wiring-status-panel {
