@@ -50,6 +50,8 @@ assert.equal(W.analyzeWiring(physicalDesign, split, PARTS).power.networks.length
 assert.equal(physical.power.connections.length, 0, "new physical branches require no logical route records");
 
 const graph = W.buildSectionGraph(physical.power);
+assert.deepEqual(W.nearestSectionEndpoint(physical.power.sections[0], { x: 1.55, y: 1.5 }), { x: 1, y: 1 }, "nearest endpoint chooses the canonical start near A");
+assert.deepEqual(W.nearestSectionEndpoint(physical.power.sections[0], { x: 2.45, y: 1.5 }), { x: 2, y: 1 }, "nearest endpoint chooses the canonical end near B");
 assert.equal(graph.nodes.get("2,1").sectionIds.length, 3, "section graph derives a T-junction from physical endpoints");
 assert.deepEqual(W.junctionCells(physical.power).map(({x,y,degree}) => ({x,y,degree})), [{ x: 2, y: 1, degree: 3 }], "T-junction has one physical marker");
 assert.deepEqual(W.sectionEndpointDegrees(physical.power).get("2,1:2,2"), [3, 2], "endpoint degrees are physical and ordered canonically");
