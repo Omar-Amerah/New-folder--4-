@@ -256,9 +256,21 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     await page.mouse.move(portPoint.x, portPoint.y); await page.mouse.click(portPoint.x, portPoint.y);
     snapshot = await editorState(page);
     assert.equal(snapshot.ui.sourceIndex, 0, "real pointer activation of a source port starts drawing");
+    assert.deepEqual(snapshot.ui.path, [{ x: 5, y: 5 }], "Power source click starts the canonical click-step path");
+    const sharedEndpointPoint = await wiringGridPointToScreen(svg, targetModule.x, targetModule.y);
+    const sharedEndpointHit = await hitAt(page, sharedEndpointPoint);
+    assert.ok(["5,5:6,5", "6,5:7,5"].includes(sharedEndpointHit.sectionId),
+      "the regression click intentionally lands on either cable hit target sharing the canonical endpoint");
     const horizontalDestination = await clickWiringGridPoint(page, svg, targetModule.x, targetModule.y);
     await assertActivePath(page, svg, { x: targetModule.x, y: targetModule.y }, horizontalDestination,
       [{ x: 5, y: 5 }, { x: 6, y: 5 }], "horizontal click-step extends through the fixture target");
+    await clickWiringGridPoint(page, svg, fixture[2].x, fixture[2].y);
+    await clickWiringGridPoint(page, svg, fixture[2].x, fixture[2].y);
+    snapshot = await editorState(page);
+    assert.equal(snapshot.ui.sourceIndex, null, "clicking the existing destination endpoint again completes the Power path");
+
+    await page.mouse.click(portPoint.x, portPoint.y);
+    await clickWiringGridPoint(page, svg, targetModule.x, targetModule.y);
     const verticalDestination = await clickWiringGridPoint(page, svg, fixture[3].x, fixture[3].y);
     await assertActivePath(page, svg, { x: fixture[3].x, y: fixture[3].y }, verticalDestination,
       [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 6, y: 6 }], "vertical click-step extends the active cable preview");
