@@ -191,6 +191,7 @@ function refreshToolbar() {
   if (dom.wiringHint) dom.wiringHint.textContent = ui().sourceIndex == null ? "Draw through components. Compatible systems touched by the cable join automatically. Drag from an existing cable to create a branch." : "Continue through occupied cells; click the last cell or release to finish. Reused trunk sections add no cable length.";
 }
 function svgEl(tag, attributes = {}, className = "") { const element = document.createElementNS(SVG_NS, tag); Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value))); if (className) element.setAttribute("class", className); return element; }
+function svgGroup(className) { return svgEl("g", {}, className); }
 function line(section, className) { return svgEl("line", { x1: section.x1 + 0.5, y1: section.y1 + 0.5, x2: section.x2 + 0.5, y2: section.y2 + 0.5 }, className); }
 function moduleRect(index, className) { const module = state.design[index]; if (!module) return null; const stat = PART_STATS[module.type] || PART_STATS.frame; const bounds = getFootprintBounds(module.x, module.y, stat.footprint || { width: 1, height: 1 }, module.rotation || 0); return svgEl("rect", { x: bounds.minX + 0.07, y: bounds.minY + 0.07, width: bounds.width - 0.14, height: bounds.height - 0.14, rx: 0.12, ry: 0.12 }, className); }
 function terminal(index, kind, selected) { const center = rules().componentCenter(state.design[index], PART_STATS); return svgEl("circle", { cx: center.x, cy: center.y, r: 0.14 }, `wire-terminal wire-terminal-${kind}${selected ? " selected" : ""}`); }
@@ -198,32 +199,37 @@ function terminal(index, kind, selected) { const center = rules().componentCente
 function renderWiringOverlay() {
   const host = dom.wiringOverlayHost; if (!host || state.blueprintView !== "wiring") return; const view = ui(); host.replaceChildren(); dom.grid?.classList.add("wiring-overlay-active");
   const svg = svgEl("svg", { viewBox: `0 0 ${GRID_SIZE} ${GRID_SIZE}` }, "wiring-overlay"); const selectedNet = selectedNetwork(); const analysis = currentAnalysis();
+  const visibleLayer = svgGroup("wire-visible-layer"); const hitLayer = svgGroup("wire-hit-layer");
+  const markerLayer = svgGroup("wire-marker-layer"); const indicatorLayer = svgGroup("wire-indicator-layer"); const portLayer = svgGroup("wire-port-layer");
+  // SVG paint order is also hit-test order. Ports intentionally remain last so
+  // their normal-sized circles are authoritative where a cable crosses them.
+  svg.append(visibleLayer, hitLayer, markerLayer, indicatorLayer, portLayer);
   for (const section of bucket().sections) {
     const isSelected = selectedNet?.sectionIds.includes(section.id);
     const powerState = view.mode === "power" ? analysis.power.networks.find((network) => network.sectionIds.includes(section.id))?.status : null;
-    svg.appendChild(line(section, `wire-${view.mode}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`));
-    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("aria-label", `Select ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}`); svg.appendChild(hit);
+    visibleLayer.appendChild(line(section, `wire-${view.mode}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`));
+    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("aria-label", `Select ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}`); hitLayer.appendChild(hit);
   }
-  rules().junctionCells(bucket()).forEach((cell) => svg.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
-  (selectedNet?.componentIndices || []).forEach((index) => svg.appendChild(terminal(index, view.mode, true)));
+  rules().junctionCells(bucket()).forEach((cell) => markerLayer.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
+  (selectedNet?.componentIndices || []).forEach((index) => indicatorLayer.appendChild(terminal(index, view.mode, true)));
   if (view.mode === "power") state.design.forEach((module, index) => {
     if (!rules().isPowerConsumer(module.type, PART_STATS)) return;
     const className = analysis.power.disconnectedConsumerIndices.includes(index) ? "wire-comp-disconnected" : analysis.power.underpoweredConsumerIndices.includes(index) ? "wire-comp-underpowered" : "wire-comp-connected-dest";
-    const rect = moduleRect(index, className); if (rect) svg.appendChild(rect);
+    const rect = moduleRect(index, className); if (rect) indicatorLayer.appendChild(rect);
   });
   state.design.forEach((module, index) => rules().moduleCells(module, PART_STATS).forEach((cell) => {
     const power = rules().isPowerSourceType(module.type); const data = rules().isDataSourceType(module.type); const offset = power && data ? .08 : 0;
-    const addPort = (kind, x) => { const port = svgEl("circle", { cx: cell.x + .5 + x, cy: cell.y + .5, r: .11, tabindex: 0, role: "button", "aria-label": `Start ${kind} cable from ${moduleLabel(index)}` }, `wire-port wire-port-${kind} source`); port.dataset.wiringPortKind = kind; port.dataset.wiringComponentIndex = index; port.dataset.wiringCellX = cell.x; port.dataset.wiringCellY = cell.y; svg.appendChild(port); };
+    const addPort = (kind, x) => { const port = svgEl("circle", { cx: cell.x + .5 + x, cy: cell.y + .5, r: .11, tabindex: 0, role: "button", "aria-label": `Start ${kind} cable from ${moduleLabel(index)}` }, `wire-port wire-port-${kind} source`); port.dataset.wiringPortKind = kind; port.dataset.wiringComponentIndex = index; port.dataset.wiringCellX = cell.x; port.dataset.wiringCellY = cell.y; portLayer.appendChild(port); };
     if (power) addPort("power", -offset); if (data) addPort("data", offset);
   }));
-  if (view.selectedIndex != null) { const rect = moduleRect(view.selectedIndex, "wire-comp-selected"); if (rect) svg.appendChild(rect); }
+  if (view.selectedIndex != null) { const rect = moduleRect(view.selectedIndex, "wire-comp-selected"); if (rect) indicatorLayer.appendChild(rect); }
   if (view.sourceIndex != null) {
-    const sourceType = state.design[view.sourceIndex]?.type; state.design.forEach((module, index) => { if (sourceType && index !== view.sourceIndex && isValidDestination(view.mode, sourceType, module.type)) { const rect = moduleRect(index, "wire-comp-candidate"); if (rect) svg.appendChild(rect); } });
-    for (let i = 1; i < view.path.length; i += 1) svg.appendChild(line({ x1: view.path[i - 1].x, y1: view.path[i - 1].y, x2: view.path[i].x, y2: view.path[i].y }, `wire-preview confirmed wire-preview-${view.mode}`));
-    if (view.activeOrigin) svg.appendChild(svgEl("circle", { cx: view.activeOrigin.x + .5, cy: view.activeOrigin.y + .5, r: .18 }, "wire-branch-origin"));
-    if (view.dragging && view.livePointer) { const last = view.path.at(-1); svg.appendChild(svgEl("line", { x1: last.x + .5, y1: last.y + .5, x2: view.livePointer.x, y2: view.livePointer.y }, `wire-preview ${view.hoverCell && !view.hoverCell.valid ? "invalid" : "valid"} wire-preview-${view.mode}`)); }
-    const last = view.path.at(-1); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = last.x + dx; const y = last.y + dy; if (partIndexAt(x, y) >= 0 && !view.path.some((cell) => cell.x === x && cell.y === y)) svg.appendChild(svgEl("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.12 }, "wire-next-cell")); }
-    if (view.hoverCell && !view.hoverCell.valid) svg.appendChild(svgEl("circle", { cx: view.hoverCell.x + 0.5, cy: view.hoverCell.y + 0.5, r: 0.15 }, "wire-invalid-cell"));
+    const sourceType = state.design[view.sourceIndex]?.type; state.design.forEach((module, index) => { if (sourceType && index !== view.sourceIndex && isValidDestination(view.mode, sourceType, module.type)) { const rect = moduleRect(index, "wire-comp-candidate"); if (rect) indicatorLayer.appendChild(rect); } });
+    for (let i = 1; i < view.path.length; i += 1) visibleLayer.appendChild(line({ x1: view.path[i - 1].x, y1: view.path[i - 1].y, x2: view.path[i].x, y2: view.path[i].y }, `wire-preview confirmed wire-preview-${view.mode}`));
+    if (view.activeOrigin) markerLayer.appendChild(svgEl("circle", { cx: view.activeOrigin.x + .5, cy: view.activeOrigin.y + .5, r: .18 }, "wire-branch-origin"));
+    if (view.dragging && view.livePointer) { const last = view.path.at(-1); visibleLayer.appendChild(svgEl("line", { x1: last.x + .5, y1: last.y + .5, x2: view.livePointer.x, y2: view.livePointer.y }, `wire-preview ${view.hoverCell && !view.hoverCell.valid ? "invalid" : "valid"} wire-preview-${view.mode}`)); }
+    const last = view.path.at(-1); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = last.x + dx; const y = last.y + dy; if (partIndexAt(x, y) >= 0 && !view.path.some((cell) => cell.x === x && cell.y === y)) markerLayer.appendChild(svgEl("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.12 }, "wire-next-cell")); }
+    if (view.hoverCell && !view.hoverCell.valid) markerLayer.appendChild(svgEl("circle", { cx: view.hoverCell.x + 0.5, cy: view.hoverCell.y + 0.5, r: 0.15 }, "wire-invalid-cell"));
   }
   host.appendChild(svg);
 }
