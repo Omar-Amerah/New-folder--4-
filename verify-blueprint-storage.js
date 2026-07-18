@@ -147,6 +147,14 @@ importedCopy.wiring.power.sections.pop();
 assert.equal(exported.payload.designs[0].wiring.power.sections.length, wiring.power.sections.length, "imported wiring is an independent copy");
 const badImp = importBlueprints({ designs: [{ id: "bad", blueprint: [{ x: 999, y: 999, type: "nope" }] }] }, [], []);
 assert.equal(badImp.accepted, 0, "invalid imports are rejected");
+const missingDataImport = importBlueprints({ designs: [{ id: "broken", name: "Broken" }], loadouts: [{ id: "broken-group", designIds: ["broken"] }] }, [], []);
+assert.equal(missingDataImport.acceptedDesigns, 0, "missing design data imports no designs");
+assert.equal(missingDataImport.rejectedDesigns, 1, "missing design data rejects the design");
+assert.equal(missingDataImport.acceptedLoadouts, 0, "missing design data imports no loadouts");
+assert.equal(missingDataImport.rejectedLoadouts, 1, "loadout with only malformed refs is rejected");
+assert.equal(missingDataImport.designs.some((d) => d.blueprint?.length === current.length), false, "malformed import does not add default ship");
+assert.equal(Object.hasOwn(missingDataImport.designIdMap, "broken"), false, "malformed import has no ID mapping");
+assert.ok(missingDataImport.warnings.some((w) => w.includes("Invalid design: blueprint modules must be an array.")), "malformed import warning explains invalid shape");
 assert.equal(importBlueprints({ schemaVersion: 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).incompatibleVersion, true, "pre-wiring export schema is rejected");
 assert.equal(importBlueprints({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).incompatibleVersion, true, "future import schema is rejected");
 assert.equal(importBlueprints({ designs: Array.from({ length: 20 }, (_, i) => ({ id: `i${i}`, blueprint: current })) }, [], []).designs.length, MAX_SAVED_DESIGNS, "import enforces saved-design limit");
@@ -170,6 +178,15 @@ const stockEmptyEnvelope = { schemaVersion: BLUEPRINT_STORAGE_VERSION, kind: "cu
 assert.ok(migrateDesignStorage(stockEmptyEnvelope).wiring.power.sections.length > 0, "untouched stock default with empty wiring is narrowly migrated");
 const customEnvelope = { schemaVersion: BLUEPRINT_STORAGE_VERSION, kind: "current-design", payload: { modules: modifiedStock, wiring: emptyV2, combatStyle: "sentry" } };
 assert.equal(migrateDesignStorage(customEnvelope).wiring.power.sections.length, 0, "modified/custom empty wiring is not auto-wired");
+const corruptEnvelopeFallback = migrateDesignStorage({ schemaVersion: BLUEPRINT_STORAGE_VERSION, kind: "current-design", payload: { modules: null } });
+assert.deepEqual(corruptEnvelopeFallback.modules, current, "explicit corrupt current storage falls back to default");
+assert.equal(corruptEnvelopeFallback.fallback, true, "explicit corrupt current storage marks fallback");
+const repairedEnvelope = migrateDesignStorage({ schemaVersion: BLUEPRINT_STORAGE_VERSION, kind: "current-design", payload: { modules: [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }, { x: 99, y: 99, type: "armor" }], wiring: emptyV2 } });
+assert.equal(repairedEnvelope.modules.length, 2, "current repair keeps safe survivors");
+assert.equal(repairedEnvelope.needsAttention, true, "current repair marks attention needed");
+assert.equal(repairedEnvelope.normalizationIssues[0]?.code, "out-of-bounds", "current repair reports out-of-bounds");
+assert.equal(migrateDesignStorage(designEnvelope(current, wiring)).needsAttention, false, "valid envelope needs no attention");
+assert.deepEqual(migrateDesignStorage(designEnvelope(current, wiring)).normalizationIssues, [], "valid envelope has no repair diagnostics");
 
 console.log("Blueprint storage default wiring regression checks passed");
 

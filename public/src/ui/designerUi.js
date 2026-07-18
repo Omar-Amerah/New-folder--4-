@@ -867,6 +867,17 @@ export function clearDesign() {
   renderSavedDesigns();
 }
 
+function designRepairBlocker() {
+  if (!state.designNeedsAttention) return "";
+  return "Invalid design: review and save the repaired blueprint before deployment.";
+}
+
+function designRepairWarningMessage() {
+  const first = Array.isArray(state.designNormalizationIssues) ? state.designNormalizationIssues[0] : null;
+  const reason = first?.message || "Invalid design: modules were removed during local-storage recovery.";
+  return `This locally saved design contained invalid modules and was repaired. ${reason} Review and explicitly save the repaired design before using it.`;
+}
+
 export function renderLocalStats() {
   const stats = computeStats(state.design, { wiring: state.wiring });
   const heat = currentHeatAnalysis();
@@ -893,6 +904,7 @@ export function renderLocalStats() {
       dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     }
   }
+  if (state.designNeedsAttention) setBuildStatus(designRepairWarningMessage(), "warning");
   const statDiagnostics = buildStatDiagnostics(stats);
   const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
   dom.stats.innerHTML = [
@@ -1487,6 +1499,8 @@ export function getShipStatus(stats) {
   const isActiveBuild = state.phase === "active";
   const blueprintValidation = validateBlueprint(state.design, { requireThrust: true, stats });
 
+  const repairBlocker = designRepairBlocker();
+  if (repairBlocker) blockers.push(repairBlocker);
   blockers.push(...blueprintValidation.errors);
   if (money < stats.unitCost) blockers.push(`${isActiveBuild ? "Cannot afford ship" : "Cannot ready design"}. Need $${Math.ceil(stats.unitCost - money)} more.`);
 

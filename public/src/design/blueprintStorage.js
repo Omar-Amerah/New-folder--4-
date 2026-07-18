@@ -124,6 +124,7 @@ export function makeDesignPart(x, y, type, previousRotation = 0) {
 
 function normalizationIssue(code, inputIndex) {
   const messages = {
+    "invalid-blueprint-shape": "Invalid design: blueprint modules must be an array.",
     "invalid-coordinate": "Invalid design: module has invalid coordinates.",
     "unknown-module": "Invalid design: unknown module type.",
     "out-of-bounds": "Invalid design: modules outside build grid.",
@@ -133,9 +134,14 @@ function normalizationIssue(code, inputIndex) {
 }
 
 export function normalizeDesignDetailed(input, options = {}) {
-  const { allowEmpty = false } = options;
-  const fallback = defaultDesign();
-  const source = Array.isArray(input) ? input : fallback;
+  const { allowEmpty = false, fallbackToDefault = false } = options;
+  if (!Array.isArray(input)) {
+    if (!fallbackToDefault) {
+      return { modules: [], issues: [normalizationIssue("invalid-blueprint-shape", null)], changed: true, droppedCount: 0 };
+    }
+    input = defaultDesign();
+  }
+  const source = input;
   const occupied = new Set();
   const modules = [];
   const issues = [];
@@ -208,8 +214,26 @@ function savedDesignSummary(blueprint) {
 }
 function normalizeSavedDesign(design, index) {
   if (!design || typeof design !== "object" || Array.isArray(design)) return null;
-  const detailed = normalizeDesignDetailed(design.blueprint || design.modules, { allowEmpty: true });
+  const source = Object.hasOwn(design, "blueprint") ? design.blueprint : design.modules;
+  const detailed = normalizeDesignDetailed(source, { allowEmpty: true });
   const blueprint = detailed.modules;
+  if (!blueprint.length && detailed.issues.some((issue) => issue.code === "invalid-blueprint-shape")) {
+    return {
+      id: String(design.id || `saved-${index}`).slice(0, 64),
+      name: String(design.name || `Design ${index + 1}`).slice(0, 28),
+      blueprint: [],
+      wiring: normalizeWiring(design.wiring, []),
+      invalid: true,
+      invalidReason: detailed.issues[0].message,
+      invalidCode: detailed.issues[0].code,
+      combatStyle: safeStyle(design.combatStyle, "sentry"),
+      cost: 0,
+      weapons: "0 DPS",
+      speed: 0,
+      createdAt: Number(design.createdAt) || Date.now(),
+      updatedAt: Number(design.updatedAt) || Date.now()
+    };
+  }
   if (!blueprint.length) return null;
   const validation = validateBlueprint(blueprint, { requireThrust: true, normalizationIssues: detailed.issues });
   const summary = savedDesignSummary(blueprint);
@@ -234,9 +258,9 @@ function normalizeSavedDesign(design, index) {
 // else — legacy arrays, v1 envelopes, future versions — resolves to the
 // current default ship with its default wiring. There is no migration path.
 export function migrateDesignStorage(value) {
-  if (!isCurrentEnvelope(value, "current-design")) return { ...defaultCurrentDesign(), discarded: value != null };
+  if (!isCurrentEnvelope(value, "current-design")) return { ...defaultCurrentDesign(), discarded: value != null, fallback: value != null };
   const payload = value.payload;
-  if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return { ...defaultCurrentDesign(), discarded: true };
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return { ...defaultCurrentDesign(), discarded: true, fallback: true };
   const detailed = normalizeDesignDetailed(payload.modules, { allowEmpty: true });
   const modules = detailed.modules;
   return {

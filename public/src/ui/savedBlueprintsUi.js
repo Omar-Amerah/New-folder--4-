@@ -396,7 +396,7 @@ function saveBlueprintButtonText() {
   return existing ? `Update "${existing.name}"` : "Save Blueprint";
 }
 
-export function saveCurrentDesign() {
+export async function saveCurrentDesign() {
   const blueprint = state.design.map((part) => ({ ...part }));
   // Saved designs keep an independent copy of the wiring arrays.
   const wiring = normalizeWiring(state.wiring, blueprint);
@@ -443,7 +443,19 @@ export function saveCurrentDesign() {
     showToast(`Saved blueprint as "${name}"`, "good");
   }
 
-  persistSavedDesigns(state.savedDesigns);
+  const savedOk = persistSavedDesigns(state.savedDesigns);
+  if (!savedOk) {
+    showToast("Could not save blueprint. Please try again.", "warning");
+    return;
+  }
+  const repaired = state.designNeedsAttention;
+  if (repaired) {
+    state.designNeedsAttention = false;
+    state.designNormalizationIssues = [];
+    const mod = await import("../design/blueprintStorage.js");
+    mod.persistDesign(state.design, state.wiring, state.combatStyle);
+    showToast("Repaired blueprint saved. It can now be deployed.", "good");
+  }
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
     send({ type: "deploy", design: blueprint, wiring, combatStyle: state.combatStyle || "sentry" });

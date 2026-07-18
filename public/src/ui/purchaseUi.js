@@ -365,7 +365,7 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
   const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
   const remainingSlots = Math.max(0, shipCap - activeShips);
   const totalCost = option.stats.unitCost * quantity;
-  const validity = validateBlueprintForPurchase(option.blueprint);
+  const validity = validateBlueprintForPurchase(option.blueprint, option);
   const pending = getPendingPurchaseForOption(option.id);
   const error = state.purchaseErrors.get(option.id);
   let reason = "";
@@ -398,7 +398,8 @@ export function getPendingPurchaseForOption(optionId) {
   return null;
 }
 
-export function validateBlueprintForPurchase(blueprint) {
+export function validateBlueprintForPurchase(blueprint, option = null) {
+  if (option?.source === "editor" && state.designNeedsAttention) return { ok: false, reason: "Invalid design: review and save the repaired blueprint before deployment." };
   const validation = validateBlueprint(blueprint, { requireThrust: true, stats: Array.isArray(blueprint) ? computeStats(blueprint) : null });
   return { ok: validation.ok, reason: validation.errors[0] || "" };
 }
@@ -715,6 +716,7 @@ function getShipStatus(stats) {
   const isActiveBuild = state.phase === "active";
   const hasCore = state.design.filter((part) => part.type === "core").length === 1;
 
+  if (state.designNeedsAttention) blockers.push("Invalid design: review and save the repaired blueprint before deployment.");
   if (!state.design.length) blockers.push("Invalid design: blueprint is empty.");
   if (!hasCore) blockers.push("Invalid design: missing core.");
   if (!isConnected(state.design)) blockers.push("Invalid design: disconnected parts.");
