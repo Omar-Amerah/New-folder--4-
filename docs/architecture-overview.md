@@ -282,3 +282,9 @@ WebSocket transport hardening is documented in `docs/websocket-transport.md`. Th
 ### Runtime Data-support flow
 
 Physical Wiring v2 Data networks feed server combat through `src/server/componentData.js`. Runtime ships derive `ship.runtimeDataSupport` from their design and Wiring v2 topology; combat then resolves effective weapon profiles by design index so Data support affects only weapons on the same physical Data network. `shipStats.computeStats()` keeps weapon-family summaries base-only, preventing global support leakage or double application.
+
+### Section 6C Data-support lifecycle ordering
+
+The server updates Data support after the authoritative runtime Wiring and component Power state are current: surviving Wiring v2 projection, component Power allocation, then Data-support allocation. This ordering lets support sources use `componentPower.byComponentIndex[sourceIndex].operationalMultiplier` rather than ship-wide or recipient Power state.
+
+`src/server/componentData.js` owns derived `runtimeDataSupport` state with separate topology and allocation signatures/revisions. Full topology rebuilds are event-driven by component alive/destroyed boundaries and physical wiring changes. Lightweight allocation refreshes handle source Power multiplier changes and Heat performance tier changes without rebuilding Wiring. Derived Data-support state is runtime-only and is not persisted into blueprints.
