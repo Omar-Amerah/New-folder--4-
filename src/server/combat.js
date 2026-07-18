@@ -10,6 +10,7 @@ const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponen
 const { addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus } = require("./heat");
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getComponentPowerMultiplier } = require("./componentPower");
+const { getEffectiveWeaponStats } = require("./componentData");
 
 const MODULE_SCALE = 13;
 
@@ -404,8 +405,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   const target = findTarget(room, ship, ships);
   ship.combatTargetId = target ? target.id : null;
 
-  const fireRateMultiplier = 1 + effectiveComponentBonus(ship, "fireRateBonus");
-
   (ship.design || []).forEach((module, i) => {
     const part = PARTS[module.type];
     if (!part?.weapon) return;
@@ -424,14 +423,15 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       return;
     }
 
-    const family = part.weapon.type;
+    const effectiveWeapon = getEffectiveWeaponStats(ship, i) || { ...part.weapon };
+    const family = effectiveWeapon.type || part.weapon.type;
     const cooldown = ship.weaponCooldowns[i] || 0;
 
-    const arcRadians = (part.weapon.arc || 360) * Math.PI / 180;
+    const arcRadians = (effectiveWeapon.arc || 360) * Math.PI / 180;
     const weaponOrigin = weaponModuleWorldPosition(ship, module);
     const worldX = weaponOrigin.x;
     const worldY = weaponOrigin.y;
-    const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
+    const range = effectiveWeapon.range || 0;
 
     const defaultRelative = moduleRotationToRadians(normalizeRotation(module.rotation));
 
@@ -449,7 +449,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     let fireAimPoint = null;
 
     if (family === "pointDefense") {
-      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, part.weapon, ships, ship.id);
+      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id);
       aimEntity = currentPdTarget ? currentPdTarget.entity : null;
       clearWeaponComponentAim(ship, i);
     } else {
@@ -485,7 +485,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       }
     }
 
-    const turnRate = getWeaponTurnRate(part.weapon);
+    const turnRate = getWeaponTurnRate(effectiveWeapon);
     const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
     ship.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
 
@@ -526,7 +526,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
     if (family !== "beam" && angleErr > 0.26) return;
 
-    const accuracy = clampNumber((part.weapon.accuracy || 0.8) + effectiveComponentBonus(ship, "accuracyBonus"), 0.1, 1);
+    const accuracy = clampNumber(effectiveWeapon.accuracy || 0.8, 0.1, 0.99);
     const spreadScale = (1 - accuracy) * (family === "missile" ? 0.35 : 0.22);
     const spread = rngRange(roomCombatRandom(room), -spreadScale, spreadScale);
     const shotAngle = worldWeaponAngle + spread;
@@ -534,8 +534,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const muzzle = weaponMuzzleWorldPosition(ship, module, worldWeaponAngle, family);
 
     if (family === "blaster") {
-      const speed = part.weapon.projectileSpeed || 620;
-      const rangeVal = ship.stats?.blasterRange || part.weapon.range;
+      const speed = effectiveWeapon.projectileSpeed || 620;
+      const rangeVal = effectiveWeapon.range;
       const life = rangeVal / speed;
       addBullet(room, {
         type: "bolt",
@@ -546,24 +546,24 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
         vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
-        damage: part.weapon.damage,
-        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
-        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
+        damage: effectiveWeapon.damage,
+        shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
         life: life,
         bornAt: now
       });
-      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
+      const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
-      addComponentHeat(ship, i, Math.max(5, Math.sqrt(part.weapon.damage || 1) * 1.5));
+      addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
     } else if (family === "missile") {
-      const speed = part.weapon.projectileSpeed || 330;
-      const rangeVal = ship.stats?.missileRange || part.weapon.range;
+      const speed = effectiveWeapon.projectileSpeed || 330;
+      const rangeVal = effectiveWeapon.range;
       const life = rangeVal / speed;
       addBullet(room, {
         type: "missile",
         subtype: module.type,
         interceptable: true,
-        hp: part.weapon.missileHp || 20,
+        hp: effectiveWeapon.missileHp || 20,
         ownerId: ship.ownerId,
         targetId: weaponTarget.id,
         targetComponentIndex: fireAimPoint?.componentIndex ?? -1,
@@ -571,30 +571,30 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.15,
         vy: Math.sin(shotAngle) * speed + ship.vy * 0.15,
-        damage: part.weapon.damage,
-        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
-        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
-        tracking: part.weapon.tracking || 0.75,
-        trackRemaining: part.weapon.trackTime || 1.4,
-        trackingDelay: part.weapon.trackingDelay || 0.25,
+        damage: effectiveWeapon.damage,
+        shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
+        tracking: effectiveWeapon.tracking || 0.75,
+        trackRemaining: effectiveWeapon.trackTime || 1.4,
+        trackingDelay: effectiveWeapon.trackingDelay || 0.25,
         maxSpeed: speed * 1.45,
         life: life,
         bornAt: now,
         age: 0
       });
-      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
+      const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
-      addComponentHeat(ship, i, Math.max(5, Math.sqrt(part.weapon.damage || 1) * 1.5));
+      addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
     } else if (family === "beam") {
-      const rangeVal = ship.stats?.beamRange || part.weapon.range;
-      const beamRadius = part.weapon.radius || 28;
+      const rangeVal = effectiveWeapon.range;
+      const beamRadius = effectiveWeapon.radius || 28;
       const beamEnd = beamImpactPoint(room, muzzle.x, muzzle.y, worldWeaponAngle, rangeVal, beamRadius);
       const beamPerformance = activityMultiplier;
-      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, part.weapon.damage * beamPerformance * dt, now, {
-        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
-        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1
+      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * beamPerformance * dt, now, {
+        shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1
       });
-      addComponentHeat(ship, i, Math.max(3, Math.sqrt(part.weapon.damage || 1)) * beamPerformance * dt);
+      addComponentHeat(ship, i, Math.max(3, Math.sqrt(effectiveWeapon.damage || 1)) * beamPerformance * dt);
       if (now - (ship.beamEffectsAt[i] || 0) > 55) {
         ship.beamEffectsAt[i] = now;
         room.effects.push({
@@ -610,8 +610,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       }
     } else if (family === "pointDefense") {
       if (currentPdTarget) {
-         const speed = part.weapon.projectileSpeed || 1000;
-         const life = part.weapon.range / speed;
+         const speed = effectiveWeapon.projectileSpeed || 1000;
+         const life = (effectiveWeapon.range || 0) / speed;
          const targetEnt = currentPdTarget.entity;
          const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -0.05, 0.05);
 
@@ -624,15 +624,15 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             y: muzzle.y,
             vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
             vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
-            damage: part.weapon.damage * (currentPdTarget.type === "ship" ? (part.weapon.shipDamageMultiplier || 0.1) : 1),
-            shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
-            hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
+            damage: effectiveWeapon.damage * (currentPdTarget.type === "ship" ? (effectiveWeapon.shipDamageMultiplier || 0.1) : 1),
+            shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+            hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
             pdTargetType: currentPdTarget.type,
             pdTargetId: targetEnt.id,
             life: life,
             bornAt: now
          });
-         const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
+         const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
          ship.weaponCooldowns[i] = Math.max(0.05, reload);
          addComponentHeat(ship, i, 4);
 
@@ -651,8 +651,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
          }
       }
     } else if (family === "railgun") {
-      const speed = part.weapon.projectileSpeed || 1080;
-      const rangeVal = ship.stats?.railgunRange || part.weapon.range;
+      const speed = effectiveWeapon.projectileSpeed || 1080;
+      const rangeVal = effectiveWeapon.range;
       const life = rangeVal / speed;
       addBullet(room, {
         type: "rail",
@@ -663,15 +663,15 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         y: muzzle.y,
         vx: Math.cos(shotAngle) * speed + ship.vx * 0.12,
         vy: Math.sin(shotAngle) * speed + ship.vy * 0.12,
-        damage: part.weapon.damage,
-        shieldDamageMultiplier: part.weapon.shieldDamageMultiplier ?? 1,
-        hullDamageMultiplier: part.weapon.hullDamageMultiplier ?? 1,
+        damage: effectiveWeapon.damage,
+        shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+        hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
         life: life,
         bornAt: now
       });
-      const reload = (1 / part.weapon.fireRate) / Math.max(0.0001, fireRateMultiplier * activityMultiplier);
+      const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
       ship.weaponCooldowns[i] = Math.max(0.05, reload);
-      addComponentHeat(ship, i, Math.max(8, Math.sqrt(part.weapon.damage || 1) * 1.8));
+      addComponentHeat(ship, i, Math.max(8, Math.sqrt(effectiveWeapon.damage || 1) * 1.8));
     }
   });
 }
@@ -999,23 +999,33 @@ function updateDestroyedShips(room, now) {
   }
 }
 
+function maxShipWeaponAcquisitionRange(ship) {
+  let range = 420;
+  (ship.design || []).forEach((module, index) => {
+    if (!PARTS[module.type]?.weapon || !isComponentAlive(ship, index)) return;
+    const effectiveWeapon = getEffectiveWeaponStats(ship, index);
+    range = Math.max(range, Number(effectiveWeapon?.range) || 0);
+  });
+  return range;
+}
+
 function findTarget(room, ship, ships) {
   let best = null;
   let bestDistance = Infinity;
-  const range = Math.max(ship.stats.blasterRange, ship.stats.missileRange, ship.stats.beamRange || 0, 420);
+  const range = maxShipWeaponAcquisitionRange(ship);
 
   if (ship.focusTargetId) {
     const focused = ships.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
     if (focused && focused.alive) {
       const focusedDistance = Math.hypot(focused.x - ship.x, focused.y - ship.y);
-      if (focusedDistance <= Math.max(range, ship.stats.railgunRange, ship.stats.beamRange || 0) * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
+      if (focusedDistance <= range * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
     }
   }
 
   for (const other of ships) {
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
     const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
-    if (distance <= Math.max(range, ship.stats.railgunRange, ship.stats.beamRange || 0) && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)
+    if (distance <= range && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)
       && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best))))) {
       best = other;
       bestDistance = distance;
@@ -1095,8 +1105,9 @@ function buildShipTurretDiagnostics(room, ship) {
     const desiredRelativeAngle = Number.isFinite(rawDesired) ? rawDesired : null;
     const aimTargetId = ship.weaponAimTargetIds?.[i] ?? null;
     const fireTargetId = ship.weaponFireTargetIds?.[i] ?? null;
-    const range = (part.weapon.range || 0) + effectiveComponentBonus(ship, "rangeBonus");
-    const arcRadians = (part.weapon.arc || 360) * Math.PI / 180;
+    const effectiveWeapon = getEffectiveWeaponStats(ship, i) || { ...part.weapon };
+    const range = effectiveWeapon.range || 0;
+    const arcRadians = (effectiveWeapon.arc || 360) * Math.PI / 180;
     const origin = weaponModuleWorldPosition(ship, module);
 
     // Distance/range/arc are evaluated against the aim target when it is a

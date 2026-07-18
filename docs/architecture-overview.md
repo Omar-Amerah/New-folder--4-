@@ -278,3 +278,7 @@ Server startup is now exposed through `createGameServer(options)` in `server.js`
 ## Section 11B WebSocket transport notes
 
 WebSocket transport hardening is documented in `docs/websocket-transport.md`. The server now validates the RFC 6455 version-13 upgrade before sending `101`, supports exact allowlisted origins for split frontend/backend deployments, rejects production text frames, reconstructs fragmented binary messages before MessagePack decode, accepts interleaved control frames, validates close payloads and UTF-8 close reasons, and bounds unread and aggregate message buffers. New transport checks cover handshake, fragmentation, lifecycle, fuzz, and soak behaviour through the `test:websocket-*` scripts.
+
+### Runtime Data-support flow
+
+Physical Wiring v2 Data networks feed server combat through `src/server/componentData.js`. Runtime ships derive `ship.runtimeDataSupport` from their design and Wiring v2 topology; combat then resolves effective weapon profiles by design index so Data support affects only weapons on the same physical Data network. `shipStats.computeStats()` keeps weapon-family summaries base-only, preventing global support leakage or double application.

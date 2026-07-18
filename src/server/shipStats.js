@@ -41,9 +41,6 @@ function computeStats(modules) {
   let repair = 0;
   let repairRate = 0;
   const repairRateValues = [];
-  let rangeBonus = 0;
-  let accuracyBonus = 0;
-  let fireRateBonus = 0;
   let coolingBonus = 0;
   let captureBonus = 0;
   let ecmStrength = 0;
@@ -96,9 +93,6 @@ function computeStats(modules) {
     repair += part.repair || 0;
     repairRate += part.repairRate || 0;
     if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
-    rangeBonus += part.rangeBonus || 0;
-    accuracyBonus += part.accuracyBonus || 0;
-    fireRateBonus += part.fireRateBonus || 0;
     // Cooling is simulated locally per component; it is not a global reload buff.
     captureBonus += part.captureBonus || 0;
     if (part.ecmStrength) ecmStrength += part.ecmStrength;
@@ -129,7 +123,8 @@ function computeStats(modules) {
   });
   const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
-  applyWeaponUtilityBonuses(weaponTotals, { rangeBonus, accuracyBonus, fireRateBonus, coolingBonus });
+  // Data support is applied per weapon at runtime by componentData/combat.
+  // Keep catalogue weapon-family totals base-only so support is not applied twice.
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
   const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam });
