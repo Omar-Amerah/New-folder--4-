@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 const assert = require("assert");
+const { mkdirSync } = require("fs");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
 const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { server } = startServer(port); let browser;
@@ -12,12 +13,43 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     const page = await browser.newPage({ viewport: { width: 1180, height: 760 } });
     page.on("pageerror", (e) => errors.push(String(e.message || e)));
     page.on("console", (msg) => { if (msg.type() === "error") consoleErrors.push(msg.text()); });
-    await page.goto(base, { waitUntil: "domcontentloaded" });
-    await page.locator("#openBlueprintDesignerButton").click();
-    await page.locator("#buildGrid").waitFor({ state: "visible", timeout: 15000 });
-    await page.locator("#blueprintWiringTab").waitFor({ state: "visible", timeout: 15000 });
-    await page.locator("#blueprintWiringTab").click();
-    await page.locator("#wiringModeData").click();
+    await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
+    await page.evaluate(async () => {
+      const [{ state }, designerUi, wiringUi] = await Promise.all([
+        import("/src/state.js"), import("/src/ui/designerUi.js"), import("/src/ui/wiringUi.js")
+      ]);
+      const mainMenu = document.querySelector("#mainMenuScreen");
+      const designerScreen = document.querySelector("#blueprintDesignerScreen");
+      if (!mainMenu || !designerScreen) throw new Error("Required Blueprint Designer screens were not found");
+      mainMenu.hidden = true;
+      designerScreen.hidden = false;
+      state.blueprintView = "wiring";
+      wiringUi.resetWiringEditorState?.();
+      designerUi.renderBuildGrid?.();
+      designerUi.setBlueprintView?.("wiring");
+    });
+    try {
+      await page.locator("#buildGrid").waitFor({ state: "visible", timeout: 15000 });
+      await page.locator("#blueprintWiringTab").waitFor({ state: "visible", timeout: 15000 });
+      await page.locator("#wiringModeData").click({ timeout: 15000 });
+    } catch (setupError) {
+      mkdirSync("test-artifacts/data-support-browser", { recursive: true });
+      const screenshotPath = "test-artifacts/data-support-browser/setup-failure.png";
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const diagnostics = await page.evaluate(async () => {
+        const { state } = await import("/src/state.js");
+        return {
+          mainMenuHidden: document.querySelector("#mainMenuScreen")?.hidden ?? null,
+          designerScreenHidden: document.querySelector("#blueprintDesignerScreen")?.hidden ?? null,
+          buildGridHidden: document.querySelector("#buildGrid")?.hidden ?? null,
+          blueprintView: state.blueprintView,
+          wiringMode: state.wiringUi?.mode ?? null,
+          currentUrl: location.href
+        };
+      });
+      setupError.message = `${setupError.message}; setup diagnostics: ${JSON.stringify({ ...diagnostics, screenshotPath })}`;
+      throw setupError;
+    }
     await page.evaluate(async () => {
       const [{ state }, { PART_STATS }, storage, wiringUi] = await Promise.all([
         import("/src/state.js"), import("/src/design/parts.js"), import("/src/design/blueprintStorage.js"), import("/src/ui/wiringUi.js")
