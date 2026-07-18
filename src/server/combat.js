@@ -267,6 +267,12 @@ function roomCombatRandom(room) {
   return typeof room?.combatRandom === "function" ? room.combatRandom : Math.random;
 }
 
+function weaponSpreadRadians(weapon, family) {
+  const accuracy = clampNumber(Number(weapon?.accuracy) || 0.8, 0.1, 0.99);
+  const scale = family === "missile" ? 0.35 : (family === "pointDefense" ? 0.05 : 0.22);
+  return (1 - accuracy) * scale;
+}
+
 function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null) {
   let best = null;
   let bestScore = -Infinity;
@@ -526,8 +532,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
     if (family !== "beam" && angleErr > 0.26) return;
 
-    const accuracy = clampNumber(effectiveWeapon.accuracy || 0.8, 0.1, 0.99);
-    const spreadScale = (1 - accuracy) * (family === "missile" ? 0.35 : 0.22);
+    const spreadScale = weaponSpreadRadians(effectiveWeapon, family);
     const spread = rngRange(roomCombatRandom(room), -spreadScale, spreadScale);
     const shotAngle = worldWeaponAngle + spread;
 
@@ -590,11 +595,16 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const beamRadius = effectiveWeapon.radius || 28;
       const beamEnd = beamImpactPoint(room, muzzle.x, muzzle.y, worldWeaponAngle, rangeVal, beamRadius);
       const beamPerformance = activityMultiplier;
-      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * beamPerformance * dt, now, {
+      const baseFireRate = Number(part.weapon.fireRate) || 0;
+      const effectiveFireRate = Number(effectiveWeapon.fireRate) || baseFireRate;
+      // Continuous beams do not spend cooldowns; Fire Control's per-weapon
+      // fire-rate allocation is interpreted exactly once as sustained output.
+      const dataFireRateFactor = baseFireRate > 0 ? effectiveFireRate / baseFireRate : 1;
+      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * dt, now, {
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1
       });
-      addComponentHeat(ship, i, Math.max(3, Math.sqrt(effectiveWeapon.damage || 1)) * beamPerformance * dt);
+      addComponentHeat(ship, i, Math.max(3, Math.sqrt(effectiveWeapon.damage || 1)) * dataFireRateFactor * beamPerformance * dt);
       if (now - (ship.beamEffectsAt[i] || 0) > 55) {
         ship.beamEffectsAt[i] = now;
         room.effects.push({
@@ -613,7 +623,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
          const speed = effectiveWeapon.projectileSpeed || 1000;
          const life = (effectiveWeapon.range || 0) / speed;
          const targetEnt = currentPdTarget.entity;
-         const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -0.05, 0.05);
+         const pdSpreadScale = weaponSpreadRadians(effectiveWeapon, family);
+         const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -pdSpreadScale, pdSpreadScale);
 
          addBullet(room, {
             type: "pdShot",
@@ -643,9 +654,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
              if (i === j) return;
              const otherPart = PARTS[otherModule.type];
              if (otherPart?.weapon?.type === "pointDefense") {
-               if (ship.weaponCooldowns[j] < stagger) {
-                 ship.weaponCooldowns[j] = stagger;
-               }
+               ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
              }
            });
          }
