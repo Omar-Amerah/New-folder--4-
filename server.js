@@ -308,8 +308,23 @@ function createGameServer(options = {}) {
       httpServer.listen(port, host, () => {
         diagnosticsState.started = true; diagnosticsState.stopped = false;
         timers.set("cleanup", setInterval(() => { const now = Date.now(); pruneClosedRoomCodes(now); for (const room of rooms.values()) if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) rooms.delete(room.code); }, 60_000));
-        timers.set("simulation", setInterval(() => { const now = performanceNow(); const dt = Math.min(0.06, Math.max(0.001, (now - lastTick) / 1000)); lastTick = now; for (const room of rooms.values()) tickRoom(room, dt, now); }, 1000 / TICK_HZ));
-        timers.set("snapshot", setInterval(() => { const now = performanceNow(); for (const room of rooms.values()) if (room.phase === "active") broadcastSnapshot(room, now); }, 1000 / SNAPSHOT_HZ));
+        // Snapshots broadcast from the simulation timer (every Nth tick,
+        // immediately after that tick) instead of a second independent
+        // interval. Two free-running timers drift against each other under
+        // load, making the real snapshot spacing wobble; tick-aligned
+        // broadcasts keep the cadence steady and always ship a fresh state.
+        const ticksPerSnapshot = Math.max(1, Math.round(TICK_HZ / SNAPSHOT_HZ));
+        let tickCount = 0;
+        timers.set("simulation", setInterval(() => {
+          const now = performanceNow();
+          const dt = Math.min(0.06, Math.max(0.001, (now - lastTick) / 1000));
+          lastTick = now;
+          for (const room of rooms.values()) tickRoom(room, dt, now);
+          tickCount += 1;
+          if (tickCount % ticksPerSnapshot === 0) {
+            for (const room of rooms.values()) if (room.phase === "active") broadcastSnapshot(room, now);
+          }
+        }, 1000 / TICK_HZ));
         for (const t of timers.values()) t.unref?.();
         httpServer.removeListener("error", reject);
         resolve(api);

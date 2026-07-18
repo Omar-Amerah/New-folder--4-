@@ -12,7 +12,6 @@ export const SNAPSHOT_REJECTION = Object.freeze({
   INCOMPATIBLE_SNAPSHOT: "incompatible-snapshot"
 });
 
-function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 function isNullish(value) { return value === undefined || value === null; }
 
 export function mergeStaticPlayerFields(previousPlayers, nextPlayers) {
@@ -94,8 +93,10 @@ export function mergeCachedShipFields(previousShips, nextShips) {
     if (!oldShip) return { ...ship, componentHeat: normalizeComponentHeatSnapshot(ship.componentHeat) };
     const merged = { ...ship };
     if (isNullish(merged.design)) merged.design = oldShip.design;
+    // Carried fields are shared by reference: snapshots are treated as
+    // immutable once merged, so cloning here would only produce GC churn.
     for (const key of ["componentPower", "powerStatus", "powerRevision", "wiringRevision", "wiringStatus"]) {
-      if (isNullish(merged[key])) merged[key] = clone(oldShip[key]);
+      if (isNullish(merged[key])) merged[key] = oldShip[key];
     }
     if (isNullish(merged.chp)) {
       const hp = applyComponentHpDelta(oldShip.chp, merged.chpD);
@@ -148,8 +149,13 @@ function validateShipDeltas(previous, message) {
   return { ok: true };
 }
 
+// Merged snapshots are built from shallow copies of the freshly decoded wire
+// message plus reference-shared static data from the previous snapshot. Deep
+// cloning here (formerly structuredClone) ran 15x/second over the full map and
+// caused GC hitches; merged snapshots are immutable by contract, so sharing is
+// safe — merges always produce new ship/player objects for changed entries.
 export function mergeFullSnapshot(message) {
-  const full = clone(message);
+  const full = { ...message };
   full.players = Array.isArray(full.players) ? full.players : [];
   full.ships = Array.isArray(full.ships) ? full.ships.map((s) => ({ ...s, componentHeat: normalizeComponentHeatSnapshot(s.componentHeat) })) : [];
   return { ok: true, snapshot: full, networkState: { stateEpoch: full.stateEpoch, snapshotSeq: full.snapshotSeq, staticRevision: full.staticRevision, hasFullBaseline: true } };
@@ -158,10 +164,10 @@ export function mergeFullSnapshot(message) {
 export function mergeCompactSnapshot(previous, message) {
   const validation = validateShipDeltas(previous, message);
   if (!validation.ok) return validation;
-  const next = clone(message);
+  const next = { ...message };
   next.players = mergeStaticPlayerFields(previous.players, next.players || []);
   next.ships = mergeCachedShipFields(previous.ships, next.ships || []);
-  for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = clone(previous[key]);
+  for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = previous[key];
   return { ok: true, snapshot: next, networkState: { stateEpoch: next.stateEpoch, snapshotSeq: next.snapshotSeq, staticRevision: next.staticRevision, hasFullBaseline: true } };
 }
 

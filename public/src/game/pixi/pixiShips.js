@@ -662,23 +662,35 @@ function setPixiBarText(text, val, maxVal, height, centerX, centerY) {
 function updatePixiHealthBars(env, view, ship, player, zoom) {
   const gfx = view.hudGfx;
   if (!ship.alive) {
-    gfx.visible = false;
-    view.shieldText.visible = false;
-    view.hullText.visible = false;
-    view.hudName.visible = false;
+    if (view.hudBarsSig !== null) {
+      view.hudBarsSig = null;
+      gfx.visible = false;
+      view.shieldText.visible = false;
+      view.hullText.visible = false;
+      view.hudName.visible = false;
+    }
     return;
   }
+
+  const radius = ship.radius || 0;
+  const now = performance.now();
+  // updateShipHud runs every frame so the smoothed hp/lag animation advances;
+  // the Graphics re-tessellation below is the expensive part and is skipped
+  // whenever every input that affects the drawn output is unchanged.
+  const hud = updateShipHud(ship, now);
+  const selected = state.selectedShipIds.has(ship.id);
+  const sig = `${selected ? 1 : 0}|${player.color}|${player.name}|${radius}|${ship.maxHp}|${ship.maxShield}|${Math.round(ship.hp * 10)}|${Math.round(hud.hp * 10)}|${Math.round(hud.hpLag * 10)}|${Math.round(ship.shield * 10)}|${zoom.toFixed(2)}`;
+  if (view.hudBarsSig === sig) return;
+  view.hudBarsSig = sig;
+
   gfx.visible = true;
   gfx.clear();
 
-  const selected = state.selectedShipIds.has(ship.id);
   const damaged = ship.hp < ship.maxHp || ship.shield < ship.maxShield;
-  const width = Math.max(selected ? 72 : 56, ship.radius * (selected ? 2.15 : 1.85));
+  const width = Math.max(selected ? 72 : 56, radius * (selected ? 2.15 : 1.85));
   const x = -width / 2;
   const frameHeight = selected ? 42 : 32;
-  const y = -ship.radius - (selected ? 62 : 48);
-  const now = performance.now();
-  const hud = updateShipHud(ship, now);
+  const y = -radius - (selected ? 62 : 48);
   const hullRatio = clamp(hud.hp / ship.maxHp, 0, 1);
   const hullLagRatio = clamp(hud.hpLag / ship.maxHp, 0, 1);
   const shieldRatio = ship.maxShield > 0 ? clamp(ship.shield / ship.maxShield, 0, 1) : 0;
@@ -761,9 +773,9 @@ function updatePixiShipLabels(view, ship, player, zoom) {
   }
 }
 
-function drawPixiSelectionRing(env, gfx, ship, zoom) {
-  const player = state.snapshot?.players?.find((p) => p.id === ship.ownerId);
-  const mine = state.mine || state.snapshot?.players?.find((p) => p.id === state.myId);
+function drawPixiSelectionRing(env, gfx, ship, zoom, players) {
+  const player = players?.get?.(ship.ownerId) || null;
+  const mine = state.mine || players?.get?.(state.myId) || null;
   const friendly = ship.ownerId === state.myId || Boolean(mine?.team && player?.team && mine.team === player.team);
   const color = friendly ? "#4ade80" : (player ? player.color : "#ffca57");
   const size = ship.radius + 12;
@@ -846,8 +858,22 @@ function drawPixiDestructWarning(gfx, ship, progress, zoom, now) {
   gfx.stroke({ width: 2.5 / zoom, color: "#ffd7a8", alpha: 0.9 });
 }
 
+// Ship-by-id lookup memoized per snapshot (ships array identity changes on
+// every accepted snapshot). Avoids O(ships) .find() per focus line per frame.
+let shipByIdCacheFor = null;
+let shipByIdCache = null;
+function snapshotShipById(id) {
+  const ships = state.snapshot?.ships;
+  if (!ships) return null;
+  if (shipByIdCacheFor !== ships) {
+    shipByIdCacheFor = ships;
+    shipByIdCache = new Map(ships.map((candidate) => [candidate.id, candidate]));
+  }
+  return shipByIdCache.get(id) || null;
+}
+
 function drawPixiFocusLine(gfx, ship, zoom) {
-  const target = state.snapshot?.ships?.find((candidate) => candidate.id === ship.focusTargetId);
+  const target = snapshotShipById(ship.focusTargetId);
   if (!target) return;
   gfx.moveTo(ship.x, ship.y);
   gfx.lineTo(target.x, target.y);
@@ -870,7 +896,15 @@ export function updatePixiShips(env, now, players, bounds) {
       visibleShipIds.add(ship.id);
       let renderShip = ship;
       const vis = state.visualShips ? state.visualShips.get(ship.id) : null;
-      if (vis) renderShip = { ...ship, x: vis.x, y: vis.y, angle: vis.angle };
+      if (vis) {
+        // Prototype-chain override: the visual x/y/angle shadow the
+        // authoritative ship without copying its ~40 fields into a fresh
+        // object per ship per frame (formerly a spread — pure GC churn).
+        renderShip = Object.create(ship);
+        renderShip.x = vis.x;
+        renderShip.y = vis.y;
+        renderShip.angle = vis.angle;
+      }
       if (bounds && !isCircleVisible(renderShip.x, renderShip.y, renderShip.radius || 60, bounds)) continue;
       const player = players.get(ship.ownerId);
       if (!player) continue;
@@ -895,7 +929,7 @@ export function updatePixiShips(env, now, players, bounds) {
       updatePixiComponentDamage(view, ship, design);
       updatePixiDamageFlashes(view, ship, design, performance.now());
       updatePixiCoreWarning(view, ship, zoom);
-      updatePixiHealthBars(env, view, { ...renderShip, radius: ship.radius || 0 }, player, zoom);
+      updatePixiHealthBars(env, view, ship, player, zoom);
       updatePixiShipLabels(view, renderShip, player, zoom);
 
       if (debug) {
@@ -904,10 +938,10 @@ export function updatePixiShips(env, now, players, bounds) {
         view.debugText.visible = false;
       }
 
-      if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom);
+      if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
       if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom);
       if (ship.destructProgress != null && ship.alive) {
-        drawPixiDestructWarning(overlay, { x: renderShip.x, y: renderShip.y, radius: ship.radius || 0 }, ship.destructProgress, zoom, now);
+        drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
       }
     }
   }
@@ -930,6 +964,8 @@ export function destroyPixiShipPool() {
     pixiShipPool = null;
   }
   pixiGradientCache = new Map();
+  shipByIdCacheFor = null;
+  shipByIdCache = null;
 }
 
 // Live counts of ship views for texture diagnostics.

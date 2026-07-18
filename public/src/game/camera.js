@@ -10,9 +10,31 @@ export const CAMERA_MAX_ZOOM = 1.45;
 export const CAMERA_FOLLOW_HALF_LIFE_MS = 260;
 
 function finite(value, fallback = 0) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
-export function canvasCssRect(canvas = dom.canvas) {
+
+// getBoundingClientRect forces layout, and the render loop needs the canvas
+// rect every frame — right after snapshot handlers may have dirtied the DOM.
+// Cache the measurement per canvas element with a short TTL and explicit
+// invalidation on resize, so steady-state frames never trigger a reflow.
+const RECT_CACHE_TTL_MS = 250;
+let rectCacheCanvas = null;
+let rectCacheValue = null;
+let rectCacheAt = 0;
+export function invalidateCanvasRectCache() { rectCacheCanvas = null; rectCacheValue = null; }
+function measureCanvasRect(canvas) {
   const rect = canvas?.getBoundingClientRect?.() || { left: 0, top: 0, width: 0, height: 0 };
   return { left: finite(rect.left), top: finite(rect.top), width: Math.max(0, finite(rect.width)), height: Math.max(0, finite(rect.height)) };
+}
+export function canvasCssRect(canvas = dom.canvas) {
+  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+  if (rectCacheValue && rectCacheCanvas === canvas && now - rectCacheAt < RECT_CACHE_TTL_MS) return rectCacheValue;
+  rectCacheCanvas = canvas;
+  rectCacheValue = measureCanvasRect(canvas);
+  rectCacheAt = now;
+  return rectCacheValue;
+}
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("resize", invalidateCanvasRectCache);
+  window.addEventListener("orientationchange", invalidateCanvasRectCache);
 }
 function cameraLike(camera = state.camera) { return { x: finite(camera?.x), y: finite(camera?.y), zoom: clamp(finite(camera?.zoom, 1), CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM) }; }
 function worldLike(world = state.world) { return { width: Math.max(1, finite(world?.width, 1)), height: Math.max(1, finite(world?.height, 1)) }; }

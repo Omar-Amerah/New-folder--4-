@@ -6,15 +6,21 @@ import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
 import { isAdmin } from "./lobbyUi.js";
 
+// Snapshots arrive ~15x/second; every DOM write below is diffed against the
+// last rendered value so steady-state snapshots touch no DOM at all (reading
+// innerHTML back would force serialization, so the diff uses JS-side caches).
+let lastScoreListHtml = null;
+
 export function renderScoreboard() {
   if (!state.snapshot) return;
   const players = [...state.snapshot.players].sort((a, b) => b.score - a.score);
-  
+
   const html = generateScoreboardHTML(players);
-  if (dom.scoreList && dom.scoreList.innerHTML !== html) {
+  if (dom.scoreList && html !== lastScoreListHtml) {
+    lastScoreListHtml = html;
     dom.scoreList.innerHTML = html;
   }
-  
+
   updateMatchMeter(players);
 }
 
@@ -85,14 +91,44 @@ export function generateScoreboardHTML(players) {
 export function renderObjectiveSummary() {}
 export function renderTeamPanel(players) {}
 
+// Retained match-meter DOM: the three bar spans are created once and only
+// their widths/colors are written when the values actually change. The old
+// code assigned innerHTML on every snapshot, which destroyed and recreated
+// the spans 15x/second (and reset their CSS width transitions every time).
+let matchMeterView = null;
+let lastMatchSummaryHtml = null;
+
+function ensureMatchMeterView() {
+  const host = dom.matchProgressFill;
+  if (!host) return null;
+  if (matchMeterView?.host === host) return matchMeterView;
+  host.style.display = "flex";
+  host.style.width = "100%";
+  host.style.height = "100%";
+  host.style.background = "none";
+  host.style.borderRadius = "inherit";
+  host.innerHTML = `
+    <span style="display:block; height:100%; transition:width 180ms ease;"></span>
+    <span style="display:block; height:100%; background:rgba(255, 255, 255, 0.07); transition:width 180ms ease;"></span>
+    <span style="display:block; height:100%; transition:width 180ms ease;"></span>
+  `;
+  const spans = host.querySelectorAll("span");
+  matchMeterView = { host, left: spans[0], center: spans[1], right: spans[2], key: null };
+  return matchMeterView;
+}
+
 export function updateMatchMeter(players) {
   if (!state.snapshot) return;
 
   const snapshot = state.snapshot;
   const points = snapshot.points || [];
   if (!points.length) {
-    dom.matchProgressFill.style.width = "0%";
-    dom.matchSummary.textContent = "No active match";
+    if (lastMatchSummaryHtml !== "No active match") {
+      lastMatchSummaryHtml = "No active match";
+      matchMeterView = null;
+      dom.matchProgressFill.style.width = "0%";
+      dom.matchSummary.textContent = "No active match";
+    }
     return;
   }
 
@@ -144,17 +180,18 @@ export function updateMatchMeter(players) {
   const rightPercent = (rightCount / total) * 100;
   const centerPercent = 100 - leftPercent - rightPercent;
 
-  dom.matchProgressFill.style.display = "flex";
-  dom.matchProgressFill.style.width = "100%";
-  dom.matchProgressFill.style.height = "100%";
-  dom.matchProgressFill.style.background = "none";
-  dom.matchProgressFill.style.borderRadius = "inherit";
-
-  dom.matchProgressFill.innerHTML = `
-    <span style="display:block; height:100%; background:${leftColor}; width:${leftPercent}%; transition:width 180ms ease;"></span>
-    <span style="display:block; height:100%; background:rgba(255, 255, 255, 0.07); width:${centerPercent}%; transition:width 180ms ease;"></span>
-    <span style="display:block; height:100%; background:${rightColor}; width:${rightPercent}%; transition:width 180ms ease;"></span>
-  `;
+  const meter = ensureMatchMeterView();
+  if (meter) {
+    const key = `${leftColor}|${rightColor}|${leftPercent}|${rightPercent}`;
+    if (meter.key !== key) {
+      meter.key = key;
+      meter.left.style.background = leftColor;
+      meter.left.style.width = `${leftPercent}%`;
+      meter.center.style.width = `${centerPercent}%`;
+      meter.right.style.background = rightColor;
+      meter.right.style.width = `${rightPercent}%`;
+    }
+  }
 
   let summaryText = "";
   if (soloMode) {
@@ -187,9 +224,22 @@ export function updateMatchMeter(players) {
     }
   }
 
-  dom.matchSummary.innerHTML = summaryText;
+  if (summaryText !== lastMatchSummaryHtml) {
+    lastMatchSummaryHtml = summaryText;
+    dom.matchSummary.innerHTML = summaryText;
+  }
 }
 
+// Memoized per snapshot (the players array is rebuilt on every accepted
+// snapshot, so array identity is a safe cache key). The render loop calls this
+// every frame; without the cache it allocated a fresh Map at 60fps.
+let playerMapCache = null;
+let playerMapCacheFor = null;
 export function playerMap() {
-  return new Map((state.snapshot?.players || []).map((player) => [player.id, player]));
+  const players = state.snapshot?.players || [];
+  if (playerMapCacheFor !== players) {
+    playerMapCacheFor = players;
+    playerMapCache = new Map(players.map((player) => [player.id, player]));
+  }
+  return playerMapCache;
 }

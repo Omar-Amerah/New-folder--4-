@@ -18,9 +18,13 @@ function onSnapshotLifecycle(client, outcome, meta) {
   if (outcome === 'replaced' || outcome === 'dropped' || outcome === 'reset') { if (b.lastQueuedSeq === meta.snapshotSeq) { b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; } }
   if (outcome === 'written') { b.lastWrittenSeq = meta.snapshotSeq; b.lastSentSeq = b.lastWrittenSeq; b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; markSnapshotDesignsWritten(client, meta.shipDesignRevisions); markSnapshotPowerWritten(client, meta.shipPowerRevisions); if (meta.snapshotKind === 'full') { b.lastWrittenFullSeq = meta.snapshotSeq; b.fullRequired = false; b.staticRevisionKnown = meta.staticRevision || 1; d.completedRecoveries += 1; } }
 }
-function buildPayload(room, client, now, full, seq, baseSeq) {
+// The shared snapshot carries only viewer-independent dynamic fields
+// (suppressed deltas, no baselines); buildClientShips layers per-client
+// baselines or deltas onto copies, so one shared build serves both full and
+// compact recipients.
+function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
   room._buildingSnapshotSeq = seq; room._buildingBaseSnapshotSeq = baseSeq;
-  const shared = buildSharedSnapshot(room, now, full, true);
+  if (!shared) shared = buildSharedSnapshot(room, now, false, true);
   const snap = snapshotRoom(room, now, client.player, full, shared, client);
   delete room._buildingSnapshotSeq; delete room._buildingBaseSnapshotSeq;
   return { payload: encodeMessage(snap), designRevisions: collectSnapshotDesignRevisions(snap), powerRevisions: collectSnapshotPowerRevisions(snap) };
@@ -54,6 +58,10 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   const seq = nextSeq(room);
   const revision = room.staticRevision || 1;
   const epoch = room.stateEpoch || 1;
+  // Built once per broadcast and reused for every client — previously this
+  // was rebuilt inside buildPayload per client, making broadcast cost scale
+  // as O(clients x ships) on the viewer-independent work too.
+  const shared = buildSharedSnapshot(room, now, false, true);
   for (const client of room.clients) {
     const b = ensureSnapshotBaseline(client, room);
     const existing = getOutbound(client).snapshot;
@@ -61,7 +69,7 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     if (existing?.meta?.snapshotKind && full) diag(client).promotions += 1;
     const base = full ? null : b.lastWrittenSeq;
     const meta = { stateEpoch: epoch, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', staticRevision: revision, completeStatic: full };
-    const built = buildPayload(room, client, now, full, seq, base);
+    const built = buildPayload(room, client, now, full, seq, base, shared);
     meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions;
     diag(client)[full ? 'fullBuilt' : 'compactBuilt'] += 1;
     enqueueSnapshot(client, built.payload, meta);
