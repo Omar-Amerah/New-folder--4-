@@ -63,7 +63,7 @@ function setup() {
   player.wiring.power.sections.length = 0; assert.notStrictEqual(starter.wiring.power.sections.length, 0);
   addBot(room, player); const bot = [...room.players.values()].find((candidate) => candidate.isBot);
   assert.strictEqual(bot.wiring.version, 2); bot.ready = true; bot.client = {}; const botShip = buyShip(room, bot, 0, { silent: true });
-  assert.strictEqual(botShip.wiring.version, 2); assert(botShip.wiring.power.connections.length > 0, "bot ship receives deterministic Power wiring");
+  assert.strictEqual(botShip.wiring.version, 2); assert(botShip.wiring.power.sections.length > 0, "bot ship receives deterministic physical Power wiring");
 }
 
 console.log("Wiring purchase/spawn pipeline checks passed");

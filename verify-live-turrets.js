@@ -180,7 +180,7 @@ const ENEMY_WIRING = createGeneratedPowerWiring(ENEMY_DESIGN);
 
 function assertGeneratedPowerWiring(name, design, wiring, requiredTypes) {
   assert.strictEqual(wiring.version, 2, `${name} wiring must use Wiring v2`);
-  assert(wiring.power.connections.length > 0, `${name} wiring has no Power connections`);
+  assert(wiring.power.sections.length > 0, `${name} wiring has no physical Power sections`);
   const normalized = validateWiring(design, wiring);
   assert.strictEqual(normalized.droppedSegments?.length || 0, 0, `${name} wiring loses segments during server normalization`);
   assert.deepStrictEqual(normalized.wiring, wiring, `${name} wiring changes during server normalization`);

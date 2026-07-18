@@ -43,7 +43,8 @@ installStorage(new MemoryStorage());
 const fresh = loadDesign();
 assert.deepEqual(fresh.modules, current, "empty storage yields the default ship");
 assert.deepEqual(fresh.wiring, normalizeWiring(wiring, current), "empty storage yields the default wiring");
-assert.equal(fresh.wiring.power.connections.length, 0, "version-1 defaults are cleared for manual v2 wiring");
+assert.ok(fresh.wiring.power.sections.length > 0, "empty storage yields wired default Power topology");
+assert.equal(fresh.wiring.power.connections.length, 0, "default physical wiring does not require legacy route metadata");
 assert.deepEqual(fresh.wiring.data, { sections: [], connections: [] }, "default ship has no data wiring");
 
 const legacyArray = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }];
@@ -71,7 +72,7 @@ assert.ok(JSON.parse(localStorage.getItem(LOCAL_DESIGN_KEY)).payload.wiring, "st
 // Floating wiring is dropped against the persisted modules.
 const dirtyWiring = { version: 1, power: [], data: [] };
 persistDesign(current, dirtyWiring, "sentry");
-assert.equal(loadDesign().wiring.power.connections.length, wiring.power.connections.length, "floating segments never persist");
+assert.equal(loadDesign().wiring.power.sections.length, wiring.power.sections.length, "stock empty wiring migrates back to default sections");
 
 // ---- Saved designs store independent module + wiring copies ----
 const savedList = [{ id: "ok", name: "Kept", blueprint: current, wiring, combatStyle: "charge" }, null, "bad", { id: "empty", blueprint: [] }];
@@ -151,3 +152,23 @@ assert.equal(importBlueprints({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 1, ki
 assert.equal(importBlueprints({ designs: Array.from({ length: 20 }, (_, i) => ({ id: `i${i}`, blueprint: current })) }, [], []).designs.length, MAX_SAVED_DESIGNS, "import enforces saved-design limit");
 
 console.log("Blueprint storage verification passed");
+
+
+// ---- Focused default wiring regressions ----
+const firstDefault = defaultWiring();
+const secondDefault = defaultWiring();
+assert.notStrictEqual(firstDefault, secondDefault, "defaultWiring creates independent objects");
+assert.notStrictEqual(firstDefault.power, secondDefault.power, "defaultWiring creates independent power buckets");
+assert.notStrictEqual(firstDefault.power.sections, secondDefault.power.sections, "defaultWiring creates independent section arrays");
+firstDefault.power.sections.length = 0;
+assert.ok(secondDefault.power.sections.length > 0, "mutating one default wiring cannot mutate another");
+assert.ok(defaultWiring().power.sections.length > 0, "mutating a returned default wiring cannot mutate future defaults");
+
+const modifiedStock = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }, { x: 6, y: 7, type: "reactor" }];
+const emptyV2 = { version: 2, power: { sections: [], connections: [] }, data: { sections: [], connections: [] } };
+const stockEmptyEnvelope = { schemaVersion: BLUEPRINT_STORAGE_VERSION, kind: "current-design", payload: { modules: current, wiring: emptyV2, combatStyle: "sentry" } };
+assert.ok(migrateDesignStorage(stockEmptyEnvelope).wiring.power.sections.length > 0, "untouched stock default with empty wiring is narrowly migrated");
+const customEnvelope = { schemaVersion: BLUEPRINT_STORAGE_VERSION, kind: "current-design", payload: { modules: modifiedStock, wiring: emptyV2, combatStyle: "sentry" } };
+assert.equal(migrateDesignStorage(customEnvelope).wiring.power.sections.length, 0, "modified/custom empty wiring is not auto-wired");
+
+console.log("Blueprint storage default wiring regression checks passed");

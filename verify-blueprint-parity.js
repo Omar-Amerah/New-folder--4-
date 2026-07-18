@@ -3,9 +3,10 @@ const assert = require("assert");
 const serverStats = require("./src/server/shipStats");
 const serverFootprint = require("./src/server/footprint");
 const { validateDesign, isConnected } = require("./src/server/shipDesign");
-const { DEFAULT_DESIGN, ECONOMY } = require("./src/server/config");
+const { DEFAULT_DESIGN, DEFAULT_WIRING, ECONOMY } = require("./src/server/config");
 const EngineExhaust = require("./public/src/shared/engineExhaust.js");
 const HeatRules = require("./public/src/shared/heatRules.js");
+const WiringRules = require("./public/src/shared/wiringRules.js");
 const { PARTS } = require("./src/server/components");
 
 const TOLERANCE = 1e-9;
@@ -38,6 +39,20 @@ const corpus = {
 
   const normalize = (design) => design.map((part) => ({ x: part.x, y: part.y, type: part.type, rotation: part.rotation || 0 }));
   assert.deepStrictEqual(normalize(storage.defaultDesign()), normalize(DEFAULT_DESIGN), "server and client stock defaults match after normalization");
+  const clientWiringA = storage.defaultWiring();
+  const clientWiringB = storage.defaultWiring();
+  const serverCanonical = WiringRules.normalizeWiring(DEFAULT_WIRING, DEFAULT_DESIGN, PARTS).wiring;
+  const clientCanonical = WiringRules.normalizeWiring(clientWiringA, storage.defaultDesign(), PARTS).wiring;
+  assert.deepStrictEqual(clientCanonical, serverCanonical, "client and server default wiring match canonically");
+  assert.ok(clientCanonical.power.sections.length > 0, "default Power wiring is non-empty");
+  assert.equal(clientCanonical.data.sections.length, 0, "default Data wiring is empty");
+  assert.notStrictEqual(clientWiringA, clientWiringB, "defaultWiring returns independent top-level objects");
+  assert.notStrictEqual(clientWiringA.power.sections, clientWiringB.power.sections, "defaultWiring returns independent section arrays");
+  const before = JSON.stringify(clientWiringB); clientWiringA.power.sections.pop();
+  assert.equal(JSON.stringify(clientWiringB), before, "mutating one default wiring does not affect another");
+  const powerAnalysis = WiringRules.analyzeWiring(DEFAULT_DESIGN, DEFAULT_WIRING, PARTS).power;
+  assert.deepStrictEqual(powerAnalysis.disconnectedConsumerIndices, [], "default Power consumers are connected");
+  assert.deepStrictEqual(powerAnalysis.underpoweredConsumerIndices, [], "default Power consumers are not underpowered");
   const validation = validateDesign(DEFAULT_DESIGN);
   assert.strictEqual(validation.ok, true, validation.reason || "default design should validate");
   assert.strictEqual(validation.modules.length, DEFAULT_DESIGN.length, "default design should not drop components");

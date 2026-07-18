@@ -2,6 +2,8 @@
 // Schema v2 stores { modules, wiring } together; older storage versions/keys are
 // intentionally discarded (no migration) — stale data falls back to the default ship.
 
+import "../shared/dataSupportRules.js";
+import "../shared/wiringRules.js";
 import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
@@ -43,11 +45,11 @@ export function defaultDesign() {
   ];
 }
 
-// Wiring v2 intentionally starts empty. The retired v1 edge data is cleared,
-// and players create explicit terminal-to-terminal routes manually.
 export function defaultWiring() {
-  // Version 1 edge data is intentionally discarded; players place v2 routes manually.
-  return { version: 2, power: { sections: [], connections: [] }, data: { sections: [], connections: [] } };
+  const modules = defaultDesign();
+  const rules = wiringRules();
+  if (!rules?.createGeneratedPowerWiring) throw new Error("WiringRules.createGeneratedPowerWiring must load before defaultWiring()");
+  return rules.createGeneratedPowerWiring(modules, PART_STATS);
 }
 
 export function normalizeWiring(wiring, modules) {
@@ -148,6 +150,31 @@ export function normalizeDesign(input, options = {}) {
   return clean;
 }
 
+
+function normalizedDesignKey(modules) { return JSON.stringify(normalizeDesign(modules, { fallbackOnInvalid: false, allowEmpty: true })); }
+function isEmptyWiringValue(wiring) {
+  return wiring?.version === 2
+    && (!Array.isArray(wiring?.power?.sections) || wiring.power.sections.length === 0)
+    && (!Array.isArray(wiring?.power?.connections) || wiring.power.connections.length === 0)
+    && (!Array.isArray(wiring?.data?.sections) || wiring.data.sections.length === 0)
+    && (!Array.isArray(wiring?.data?.connections) || wiring.data.connections.length === 0);
+}
+function isRecognizedUntouchedStockDefault(modules) {
+  const current = normalizedDesignKey(defaultDesign());
+  const normalized = normalizedDesignKey(modules);
+  if (normalized === current) return true;
+  const previous = defaultDesign().map((part) => ({ ...part, x: part.x - 4, y: part.y - 4 }));
+  return normalized === normalizedDesignKey(previous);
+}
+function normalizeStoredWiringForDesign(wiring, modules) {
+  // Narrow bug migration: exact untouched stock/default blueprints saved while
+  // default Wiring v2 was empty receive the trusted generated default wiring.
+  // Custom, imported, or modified designs remain user-authored and are never
+  // silently auto-wired.
+  if (isEmptyWiringValue(wiring) && isRecognizedUntouchedStockDefault(modules)) return normalizeWiring(defaultWiring(), modules);
+  return normalizeWiring(wiring, modules);
+}
+
 function defaultCurrentDesign() {
   const modules = defaultDesign();
   return { modules, wiring: normalizeWiring(defaultWiring(), modules), combatStyle: "sentry" };
@@ -168,7 +195,7 @@ function normalizeSavedDesign(design, index) {
     name: String(design.name || `Design ${index + 1}`).slice(0, 28),
     blueprint,
     // Each saved design keeps an independent, normalized copy of its wiring.
-    wiring: normalizeWiring(design.wiring, blueprint),
+    wiring: normalizeStoredWiringForDesign(design.wiring, blueprint),
     invalid: !validation.ok,
     invalidReason: validation.errors[0] || "Invalid blueprint.",
     combatStyle: safeStyle(design.combatStyle, "sentry"),
@@ -190,7 +217,7 @@ export function migrateDesignStorage(value) {
   const modules = normalizeDesign(payload.modules, { allowEmpty: true });
   return {
     modules,
-    wiring: normalizeWiring(payload.wiring, modules),
+    wiring: normalizeStoredWiringForDesign(payload.wiring, modules),
     combatStyle: safeStyle(payload.combatStyle, "sentry")
   };
 }
