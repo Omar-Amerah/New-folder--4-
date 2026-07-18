@@ -245,7 +245,7 @@ function renderWiringOverlay() {
     const dim = view.mode === "data" && selectedDataNetworkId && netForSection?.id !== selectedDataNetworkId ? " data-dimmed" : "";
     const sectionVulnerability = sectionVulnerabilityById.get(section.id);
     const severityClass = view.mode === "data" ? DATA_SECTION_SEVERITY_CLASS[sectionVulnerability?.severity] || "" : "";
-    visibleLayer.appendChild(line(section, `wire-${view.mode}${dim}${severityClass ? ` ${severityClass}` : ""}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`));
+    const visible = line(section, `wire-${view.mode}${dim}${severityClass ? ` ${severityClass}` : ""}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`); visible.dataset.sectionId = section.id; visibleLayer.appendChild(visible);
     const severityText = view.mode === "data" ? `. Vulnerability: ${sectionVulnerability?.severity || "unknown"}.` : "";
     const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("aria-label", `Select ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${severityText}`); hitLayer.appendChild(hit);
   }
