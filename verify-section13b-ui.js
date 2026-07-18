@@ -6,6 +6,7 @@ globalThis.document = { getElementById() { return { style: {}, classList: { add(
 globalThis.window = globalThis;
 globalThis.localStorage = { getItem(){ return null; }, setItem(){}, removeItem(){} };
 globalThis.performance = { now(){ return 0; } };
+globalThis.WiringRules = require("./public/src/shared/wiringRules.js");
 globalThis.EngineExhaustRules = {
   analyze(modules) { return { validEngineIndices: new Set(modules.map((_, i) => i)), blockedEngineIndices: new Set() }; }
 };

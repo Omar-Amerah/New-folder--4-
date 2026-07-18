@@ -6,10 +6,14 @@ import { SHIP_ECONOMY } from "../constants.js";
 import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import ShieldRules from "../shared/shieldRules.js";
-import WiringRules from "../shared/wiringRules.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
+
+const WiringRules = globalThis.WiringRules;
+if (!WiringRules) {
+  throw new Error("WiringRules must load before componentStats.js");
+}
 
 export function computeStats(modules, options = {}) {
   const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(modules, PART_STATS);
