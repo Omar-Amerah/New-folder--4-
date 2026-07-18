@@ -2,7 +2,7 @@
 
 This document describes the current authoritative lifecycle. Earlier ship-global Power notes are superseded by this behavior.
 
-Power is routed through normalized Wiring v2. Each live Power network has its own sources, consumers, available generation, demand, load ratio, and component Power multiplier. Generator thermal state degrades only that source's available output; an allocation refresh reuses cached topology and does not rebuild Data networks or increment `wiringRevision`. A topology rebuild is reserved for endpoint, hosted-route, or blueprint changes.
+Power is routed through normalized Wiring v2. Each live Power network has its own sources, consumers, available generation, demand, load ratio, and component Power multiplier. Generator thermal state only gates that source at OVERHEATED; NORMAL through CRITICAL provide nominal output, and OVERHEATED provides zero; an allocation refresh reuses cached topology and does not rebuild Data networks or increment `wiringRevision`. A topology rebuild is reserved for endpoint, hosted-route, or blueprint changes.
 
 HP mutations use one deferred lifecycle batch. At flush, the server (1) completes mutations, (2) observes alive boundaries, (3) refreshes damage-scaled Heat Sink capacity and adjacent bonuses, (4) rebuilds dynamic hull exposure when required, (5) rebuilds live Frame/Heat Pipe routes when required, (6) rebuilds runtime Wiring topology when required, (7) allocates network-local Power, (8) refreshes Power-dependent effective stats, and (9) dirties compact component/Heat/Power snapshot state. Ordinary non-boundary damage does not rebuild topology.
 

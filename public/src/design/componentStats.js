@@ -6,11 +6,12 @@ import { SHIP_ECONOMY } from "../constants.js";
 import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import ShieldRules from "../shared/shieldRules.js";
+import WiringRules from "../shared/wiringRules.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
 
-export function computeStats(modules) {
+export function computeStats(modules, options = {}) {
   const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(modules, PART_STATS);
   let cost = 0;
   let mass = 0;
@@ -108,7 +109,9 @@ export function computeStats(modules) {
   }
 
   repairRate = effectiveStackedValue(repairRateValues, 0.62);
-  const shieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
+  const baseShieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
+  const effectiveShieldStats = calculateBlueprintEffectiveShieldStats(modules, options.wiring);
+  const shieldStats = options.wiring ? effectiveShieldStats : baseShieldStats;
 
   applyWeaponUtilityBonuses(weaponTotals, {
     rangeBonus,
@@ -184,8 +187,10 @@ export function computeStats(modules) {
     unitCost,
     mass: Math.round(mass),
     maxHp: Math.max(140, Math.round(maxHp * 1.15)),
-    maxShield: Math.round(shieldStats.capacity * efficiency),
-    shieldRegen: Number((shieldStats.recharge * clamp(efficiency, 0.4, 1.12)).toFixed(2)),
+    maxShield: Math.round(shieldStats.capacity),
+    shieldRegen: Number(shieldStats.recharge.toFixed(2)),
+    baseMaxShield: Math.round(baseShieldStats.capacity),
+    baseShieldRegen: Number(baseShieldStats.recharge.toFixed(2)),
     powerGeneration,
     powerUse,
     power,
@@ -233,6 +238,23 @@ export function computeStats(modules) {
     costBreakdown,
     fleetCount
   };
+}
+
+export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
+  if (!wiring) return ShieldRules.calculateShieldStats(modules, PART_STATS);
+  let analysis;
+  try { analysis = WiringRules.analyzePowerNetworks(modules, wiring, PART_STATS); }
+  catch (_) { analysis = { networks: [], networkByComponent: new Map() }; }
+  const networkByComponent = analysis.networkByComponent || new Map();
+  return ShieldRules.calculateShieldStats(modules, PART_STATS, {
+    powerMultiplier: (index, module, part) => {
+      if (!((Number(part.shield) || 0) > 0 || (Number(part.shieldRegen) || 0) > 0)) return 1;
+      const network = networkByComponent.get(index);
+      if (!network || !(network.sourceIndices || []).length) return 0;
+      return clamp(Number(network.availableEfficiency), 0, 1);
+    },
+    heatMultiplier: () => 1
+  });
 }
 
 export function calculateCostBreakdown(stats) {

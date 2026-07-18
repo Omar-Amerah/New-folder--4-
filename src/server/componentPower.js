@@ -97,15 +97,20 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
 
 // Reuses topology, membership and nominal demand. Thermal source changes only
 // alter generation/allocation, so Data analysis and wiringRevision stay intact.
+function effectiveLiveSourceGeneration(ship, index) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  if ((ship?.componentHp?.[index] ?? 1) <= 0) return 0;
+  const HeatRules = require("../../public/src/shared/heatRules");
+  if ((ship?.componentHeatState?.[index] ?? HeatRules.STATE.NORMAL) === HeatRules.STATE.OVERHEATED) return 0;
+  return Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
+}
+
 function applyShipPowerAllocation(ship, options = {}) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const runtimeNetworks = ship.runtimeWiring?.powerNetworks || [];
   const membership = new Map();
   for (const network of runtimeNetworks) {
-    const generation = (network.sourceIndices || []).reduce((sum, index) => {
-      if ((ship.componentHp?.[index] ?? 1) <= 0) return sum;
-      return sum + Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
-    }, 0);
+    const generation = (network.sourceIndices || []).reduce((sum, index) => sum + effectiveLiveSourceGeneration(ship, index), 0);
     const demand = Math.max(0, Number(network.demandMw) || 0);
     const efficiency = demand <= 0 ? 1 : clampNumber(generation / demand, 0, 1);
     network.availableGenerationMw = generation;
@@ -170,4 +175,4 @@ function effectiveShieldStats(ship) {
   });
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, getComponentPowerMultiplier, effectiveShieldStats };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats };

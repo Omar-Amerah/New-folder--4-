@@ -367,8 +367,6 @@ function updateShipHeat(ship, dt, room, now) {
   let totalCapacity = 0;
   let hotCount = 0;
   let overheatedCount = 0;
-  let availablePower = 0;
-  let nominalPower = 0;
   let meltdowns = null;
   if (!ship.componentMeltdown) ship.componentMeltdown = heat.map(() => 0);
   for (let i = 0; i < heat.length; i += 1) {
@@ -389,8 +387,6 @@ function updateShipHeat(ship, dt, room, now) {
       if (nextState >= STATE.HOT) hotCount += 1;
       if (nextState === STATE.OVERHEATED) overheatedCount += 1;
       const output = PARTS[ship.design[i].type]?.powerGeneration || 0;
-      nominalPower += output;
-      availablePower += output * activeOutputForState(nextState);
       // Reactors (power sources) that stay at overheat failure melt down.
       if (output > 0) {
         if (nextState === STATE.OVERHEATED) {

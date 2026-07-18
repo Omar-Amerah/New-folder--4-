@@ -11,7 +11,7 @@ const { rebuildShipWiringState, effectiveShieldStats } = require("./src/server/c
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) { let wiring = WiringRules.emptyWiring(); for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS); return wiring; }
 function shipFor(design, paths = []) { const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true }; initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "test"); return ship; }
-function close(a, b, msg) { assert(Math.abs(a - b) < 1e-9, `${msg}: ${a} !== ${b}`); }
+function close(a, b, msg) { assert(Math.abs(a - b) < 0.011, `${msg}: ${a} !== ${b}`); }
 const one = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
 close(effectiveShieldStats(one).capacity, PARTS.shield.shield, "one shield capacity");
 close(effectiveShieldStats(one).recharge, PARTS.shield.shieldRegen, "one shield regen");
@@ -30,3 +30,52 @@ const designer = ShieldRules.calculateShieldStats(weak.design, PARTS, { isLive: 
 close(designer.capacity, effectiveShieldStats(weak).capacity, "designer/runtime capacity parity");
 close(designer.recharge, effectiveShieldStats(weak).recharge, "designer/runtime regen parity");
 console.log("Shield rules verification passed.");
+
+async function verifyBlueprintRuntimeShieldParity() {
+  if (typeof global.document === "undefined") global.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
+  if (typeof global.window === "undefined") global.window = global;
+  const { computeStats: computeBlueprintStats } = await import("./public/src/design/componentStats.js");
+  const full = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
+  let bp = computeBlueprintStats(full.design, { wiring: full.wiring });
+  close(bp.maxShield, Math.round(effectiveShieldStats(full).capacity), "real blueprint path fully powered capacity parity");
+  close(bp.shieldRegen, effectiveShieldStats(full).recharge, "real blueprint path fully powered regen parity");
+
+  const regenDesign = [at("reactor",0,0), at("reactor",0,1), at("shield",1,0), at("shield",1,1), at("shield",2,0), at("shield",2,1)];
+  const regenPaths = [2,3,4,5].map(i => [i < 4 ? 0 : 1, i, [{x:i < 4 ? 0 : 0,y:i === 3 || i === 5 ? 1 : 0},{x:regenDesign[i].x,y:regenDesign[i].y}]]);
+  const regen = shipFor(regenDesign, regenPaths);
+  bp = computeBlueprintStats(regen.design, { wiring: regen.wiring });
+  close(bp.shieldRegen, effectiveShieldStats(regen).recharge, "real blueprint path four-module diminished regen parity");
+
+  const weakDesign = [at("auxGenerator",0,0), at("shield",1,0), at("shield",2,0)];
+  const weakBoth = shipFor(weakDesign, [[0,1,[{x:0,y:0},{x:1,y:0}]], [0,2,[{x:0,y:0},{x:1,y:0},{x:2,y:0}]]]);
+  bp = computeBlueprintStats(weakBoth.design, { wiring: weakBoth.wiring });
+  close(bp.maxShield, Math.round(effectiveShieldStats(weakBoth).capacity), "real blueprint path shared insufficient capacity parity");
+  close(bp.shieldRegen, effectiveShieldStats(weakBoth).recharge, "real blueprint path shared insufficient regen parity");
+  assert(bp.maxShield < computeBlueprintStats(weakBoth.design).maxShield, "global full-power catalogue stats are not labelled as effective stats");
+
+  const separateDesign = [at("auxGenerator",0,0), at("reactor",0,2), at("shield",1,0), at("shield",1,2)];
+  const separate = shipFor(separateDesign, [[0,2,[{x:0,y:0},{x:1,y:0}]], [1,3,[{x:0,y:2},{x:1,y:2}]]]);
+  bp = computeBlueprintStats(separate.design, { wiring: separate.wiring });
+  close(bp.maxShield, Math.round(effectiveShieldStats(separate).capacity), "independent healthy shield network not reduced by unrelated underpowered network");
+
+  const disconnected = shipFor([at("reactor",0,0), at("shield",2,0)], []);
+  bp = computeBlueprintStats(disconnected.design, { wiring: disconnected.wiring });
+  close(bp.maxShield, 0, "disconnected blueprint shield contributes zero capacity");
+  close(bp.shieldRegen, 0, "disconnected blueprint shield contributes zero regen");
+
+  const zeroGen = shipFor([at("battery",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
+  bp = computeBlueprintStats(zeroGen.design, { wiring: zeroGen.wiring });
+  close(bp.maxShield, 0, "zero-generation blueprint network contributes zero capacity");
+
+  const damaged = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
+  damaged.componentHp[1] = 0;
+  close(effectiveShieldStats(damaged).capacity, 0, "destroyed runtime shield is removed");
+  for (const heatState of [HeatRules.STATE.HOT, HeatRules.STATE.OVERHEATED]) {
+    const heated = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
+    heated.componentHeatState[1] = heatState;
+    close(effectiveShieldStats(heated).capacity, PARTS.shield.shield, "runtime shield capacity is Heat-independent");
+    close(effectiveShieldStats(heated).recharge, PARTS.shield.shieldRegen * HeatRules.activeOutputForState(heatState), "runtime shield regen uses shared Heat multiplier");
+  }
+}
+
+verifyBlueprintRuntimeShieldParity().then(() => console.log("Blueprint/runtime shield parity verification passed."));

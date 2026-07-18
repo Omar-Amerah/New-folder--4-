@@ -28,7 +28,7 @@ Thermal states are runtime states, distinct from designer presentation bands. Ru
 
 ## Aggregate power
 
-Power allocation uses nominal live generator output. Warm, Hot and Critical reactors do not derate network efficiency; existing Overheated shutdown/destruction removes failed sources through the component lifecycle.
+Power allocation uses nominal live generator output through CRITICAL. NORMAL, WARM, HOT and CRITICAL generators supply their full nominal MW; OVERHEATED or destroyed generators supply zero MW until they cool below the recovery boundary or are repaired. Network-level available generation, load ratio, efficiency and component Power multipliers are refreshed from that effective source output without rebuilding Wiring topology.
 
 ## Battery and capacitor current behaviour
 
