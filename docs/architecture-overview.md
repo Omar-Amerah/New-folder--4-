@@ -301,3 +301,7 @@ The Wiring Data inspector in `public/src/ui/wiringUi.js` reuses `state.thermalLo
 Designer source-destruction vulnerability is represented by an operational multiplier override for the selected source, not by removing physical Data sections or legacy connection metadata. Section/host failures still derive a failed physical wiring projection. Vulnerability topology comparisons use deterministic memberships and source-to-weapon allocation signatures, and severity is category based so metre and percentage losses are not summed together.
 
 The Data overlay adds non-colour-only classes, outlines, dashed states, and ARIA descriptions for selected networks, selected sources, selected weapons, vulnerability states, source status, and weapon support states while preserving widened SVG hit targets used by normal cable editing. Browser verification now exercises the production frontend rather than only module import smoke checks. Section 6E and Section 7 remain deferred.
+
+### Section 6E Data-support balance validation
+
+Section 6E ships canonical Data-support reference fixtures, browser-free balance invariants, deterministic reporting, and final competitive conclusions while preserving the existing Section 6A–6D authorities. Section 7 remains deferred.

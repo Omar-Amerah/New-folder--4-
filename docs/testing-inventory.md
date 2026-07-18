@@ -282,3 +282,9 @@ Server startup is now exposed through `createGameServer(options)` in `server.js`
 ## Section 11B WebSocket transport notes
 
 WebSocket transport hardening is documented in `docs/websocket-transport.md`. The server now validates the RFC 6455 version-13 upgrade before sending `101`, supports exact allowlisted origins for split frontend/backend deployments, rejects production text frames, reconstructs fragmented binary messages before MessagePack decode, accepts interleaved control frames, validates close payloads and UTF-8 close reasons, and bounds unread and aggregate message buffers. New transport checks cover handshake, fragmentation, lifecycle, fuzz, and soak behaviour through the `test:websocket-*` scripts.
+
+## Section 6E Data-support balance validation
+
+- `verify-data-support-balance.js` validates canonical reference ships, Data allocation invariants, redundancy, isolated networks, and deterministic fixture construction.
+- `tools/data-support-balance-report.js` provides deterministic informational balance output through `npm run balance:data-support` and optional `--json`.
+- `tools/run-tests.js unit` includes the Section 6E verifier in the browser-free unit group.
