@@ -391,6 +391,12 @@ async function collectVulnerabilityDiagnostics(page) {
     });
     assert(authoritative.criticalSectionId, `fixture contains a genuinely critical Data cable section; diagnostics: ${JSON.stringify(authoritative)}`);
     assert(authoritative.redundantSectionId, `fixture contains a genuinely redundant Data cable section; diagnostics: ${JSON.stringify(authoritative)}`);
+    const redundantRecord = authoritative.sectionVulnerabilities.find((item) => item.id === authoritative.redundantSectionId);
+    assert(redundantRecord, "authoritative redundant vulnerability record exists");
+    assert.equal(redundantRecord.severity, "redundant", "selected redundant section has redundant severity");
+    assert.equal(Number(redundantRecord.lostRangeBonus), 0, "redundant section loses no range support");
+    assert.equal(Number(redundantRecord.lostAccuracyBonus), 0, "redundant section loses no accuracy support");
+    assert.equal(Number(redundantRecord.lostFireRateBonus), 0, "redundant section loses no fire-rate support");
     assert(authoritative.hasTwoWeaponCritical, `critical fixture section removes all support from at least two weapons; diagnostics: ${JSON.stringify(authoritative)}`);
     const criticalVisible = page.locator(`.wire-data.data-critical-section[data-section-id="${authoritative.criticalSectionId}"]`);
     const redundantVisible = page.locator(`.wire-data.data-redundant-section[data-section-id="${authoritative.redundantSectionId}"]`);
@@ -416,7 +422,9 @@ async function collectVulnerabilityDiagnostics(page) {
       return state.wiringUi.selectedSectionId;
     });
     assert.equal(selectedRedundantId, authoritative.redundantSectionId, "redundant Data cable becomes the selected section");
-    sectionPanelText = await panel.textContent();
+    const redundantInspector = panel.locator('[data-data-inspector="section-vulnerability"]');
+    assert.equal(await redundantInspector.count(), 1, "redundant section inspector appears exactly once");
+    const redundantPanelText = await redundantInspector.textContent();
     const pointDefenseAfterRedundant = await page.evaluate(async (sectionId) => {
       const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
       const R = globalThis.WiringRules;
@@ -425,8 +433,32 @@ async function collectVulnerabilityDiagnostics(page) {
       const normalized = R.normalizeWiring(next, state.design, PART_STATS).wiring;
       return globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, normalized, PART_STATS, { thermalLoadMode: state.thermalLoadMode }).weaponBonusByIndex[15];
     }, authoritative.redundantSectionId);
-    assert(/Selected Data section/.test(sectionPanelText) && /redundant route|redundant/i.test(sectionPanelText) && /Lost support/i.test(sectionPanelText) && /0 m/.test(sectionPanelText), "redundant section inspector reports no predicted support loss");
-    assert.deepEqual({ rangeBonus: pointDefenseAfterRedundant.rangeBonus, accuracyBonus: pointDefenseAfterRedundant.accuracyBonus, fireRateBonus: pointDefenseAfterRedundant.fireRateBonus }, { rangeBonus: authoritative.pointDefenseBefore.rangeBonus, accuracyBonus: authoritative.pointDefenseBefore.accuracyBonus, fireRateBonus: authoritative.pointDefenseBefore.fireRateBonus }, "redundant route preserves effective support for Point Defence");
+    const redundantDiagnostics = JSON.stringify({
+      redundantSectionId: authoritative.redundantSectionId,
+      redundantRecord,
+      redundantPanelText,
+      pointDefenseBefore: authoritative.pointDefenseBefore,
+      pointDefenseAfterRedundant,
+      selectedSectionId: selectedRedundantId
+    });
+    assert.match(redundantPanelText, /Selected Data section/i, `redundant section inspector is visible; diagnostics: ${redundantDiagnostics}`);
+    assert.match(redundantPanelText, /redundant/i, `redundant section inspector reports authoritative severity; diagnostics: ${redundantDiagnostics}`);
+    assert.match(redundantPanelText, /Lost support:\s*No predicted support loss\./i, `redundant section inspector reports no predicted support loss; diagnostics: ${redundantDiagnostics}`);
+    const before = authoritative.pointDefenseBefore;
+    const after = pointDefenseAfterRedundant;
+    assert.deepEqual(
+      {
+        rangeBonus: Number(after.rangeBonus || 0),
+        accuracyBonus: Number(after.accuracyBonus || 0),
+        fireRateBonus: Number(after.fireRateBonus || 0)
+      },
+      {
+        rangeBonus: Number(before.rangeBonus || 0),
+        accuracyBonus: Number(before.accuracyBonus || 0),
+        fireRateBonus: Number(before.fireRateBonus || 0)
+      },
+      "redundant route preserves effective support for Point Defence"
+    );
     } catch (vulnerabilityError) {
       mkdirSync("test-artifacts/data-support-browser", { recursive: true });
       const screenshotPath = "test-artifacts/data-support-browser/vulnerability-failure.png";
