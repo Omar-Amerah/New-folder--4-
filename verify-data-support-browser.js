@@ -484,18 +484,40 @@ async function collectVulnerabilityDiagnostics(page) {
         if (JSON.stringify(normalized) !== JSON.stringify(fixture.wiring)) throw new Error(`${fixture.name} browser-normalized wiring differs from reference fixture`);
         const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(fixture.design, fixture.wiring, PART_STATS, { thermalLoadMode: "idle" });
         const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(fixture.design, fixture.wiring, PART_STATS, analysis);
-        const sourceIndices = fixture.expected.sources.join(",");
-        const weaponIndices = fixture.expected.weapons.join(",");
-        const browserSources = analysis.sourceAllocations.map((entry) => entry.sourceIndex).join(",");
-        const browserWeapons = analysis.weaponBonuses.map((entry) => entry.weaponIndex).join(",");
-        if (sourceIndices !== browserSources) throw new Error(`${fixture.name} browser source indices ${browserSources} !== ${sourceIndices}`);
-        if (weaponIndices !== browserWeapons) throw new Error(`${fixture.name} browser weapon indices ${browserWeapons} !== ${weaponIndices}`);
+        if (!Array.isArray(analysis.sources)) {
+          throw new Error(`${fixture.name} designer analysis is missing sources`);
+        }
+        if (!Array.isArray(analysis.weapons)) {
+          throw new Error(`${fixture.name} designer analysis is missing weapons`);
+        }
+        if (!Array.isArray(analysis.networks)) {
+          throw new Error(`${fixture.name} designer analysis is missing networks`);
+        }
+        if (!Array.isArray(vulnerabilities)) {
+          throw new Error(`${fixture.name} vulnerability analysis is not an array`);
+        }
+
+        const expectedSources = [...fixture.expected.sources].sort((a, b) => a - b);
+        const actualSources = analysis.sources.map((entry) => entry.sourceIndex).sort((a, b) => a - b);
+        const expectedWeapons = [...fixture.expected.weapons].sort((a, b) => a - b);
+        const actualWeapons = analysis.weapons.map((entry) => entry.weaponIndex).sort((a, b) => a - b);
+        const duplicateSources = actualSources.filter((sourceIndex, index) => index > 0 && sourceIndex === actualSources[index - 1]);
+        const duplicateWeapons = actualWeapons.filter((weaponIndex, index) => index > 0 && weaponIndex === actualWeapons[index - 1]);
+        const invalidSources = analysis.sources.filter((entry) => !Number.isInteger(entry.sourceIndex) || entry.sourceIndex < 0);
+        const invalidWeapons = analysis.weapons.filter((entry) => !Number.isInteger(entry.weaponIndex) || entry.weaponIndex < 0);
+
+        if (JSON.stringify(actualSources) !== JSON.stringify(expectedSources)) throw new Error(`${fixture.name} browser source indices ${JSON.stringify(actualSources)} !== ${JSON.stringify(expectedSources)}`);
+        if (JSON.stringify(actualWeapons) !== JSON.stringify(expectedWeapons)) throw new Error(`${fixture.name} browser weapon indices ${JSON.stringify(actualWeapons)} !== ${JSON.stringify(expectedWeapons)}`);
         if (analysis.networks.length !== fixture.expectedNetworkCount) throw new Error(`${fixture.name} browser network count ${analysis.networks.length} !== ${fixture.expectedNetworkCount}`);
+        if (duplicateSources.length) throw new Error(`${fixture.name} browser source indices contain duplicates: ${JSON.stringify(duplicateSources)}`);
+        if (duplicateWeapons.length) throw new Error(`${fixture.name} browser weapon indices contain duplicates: ${JSON.stringify(duplicateWeapons)}`);
+        if (invalidSources.length) throw new Error(`${fixture.name} browser sources have invalid sourceIndex values: ${JSON.stringify(invalidSources)}`);
+        if (invalidWeapons.length) throw new Error(`${fixture.name} browser weapons have invalid weaponIndex values: ${JSON.stringify(invalidWeapons)}`);
         for (const section of fixture.wiring.data.sections) {
           const id = R.segmentKey(section);
           if (!vulnerabilities.some((item) => item.kind === "section" && item.id === id)) throw new Error(`${fixture.name} browser missing section vulnerability ${id}`);
         }
-        return { key: fixture.key, networks: analysis.networks.length, sources: browserSources, weapons: browserWeapons, sectionsWithCoverage: fixture.wiring.data.sections.length };
+        return { key: fixture.key, networks: analysis.networks.length, sources: actualSources, weapons: actualWeapons, sectionsWithCoverage: fixture.wiring.data.sections.length };
       });
     }, referenceFixtures.allReferenceShips());
     assert.equal(browserReferenceParity.length, 5, `browser validates all five Section 6E reference fixtures: ${JSON.stringify(browserReferenceParity)}`);
