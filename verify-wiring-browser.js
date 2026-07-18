@@ -293,7 +293,16 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     snapshot = await editorState(page);
     assert.equal(snapshot.ui.sourceIndex, 5, "touch tapping an overlapping Data port starts drawing");
     assert.equal(snapshot.ui.selectedSectionId, null, "the Data cable under the port is not selected");
+    assert.equal(await page.locator('[data-wiring-action="cancel-drawing"]').count(), 1, "active Data drawing exposes Cancel drawing");
+    assert.equal(await page.locator('[data-wiring-action="finish"]').count(), 1, "active Data drawing exposes Finish cable");
+    assert.equal(await page.locator('[data-wiring-action="finish"]').isDisabled(), true, "Data Finish cable remains disabled until the path is valid");
+    const savedDataBeforeCancel = snapshot.wiring.data.sections.length;
     await page.locator('[data-wiring-action="cancel-drawing"]').click();
+    snapshot = await editorState(page);
+    assert.equal(snapshot.wiring.data.sections.length, savedDataBeforeCancel, "cancel leaves saved Data sections unchanged");
+    assert.equal(snapshot.ui.sourceIndex, null, "Data cancel clears sourceIndex");
+    assert.deepEqual(snapshot.ui.path, [], "Data cancel clears the preview path");
+    assert(/Data-support inspection/.test(await page.locator("#wiringStatusPanel").textContent()), "Data inspection returns after cancelling Data drawing");
     await page.locator("#wiringModePower").click();
 
     // Mouse drag starts only after the threshold and uses the nearest canonical endpoint.

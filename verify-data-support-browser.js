@@ -13,17 +13,18 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     page.on("pageerror", (e) => errors.push(String(e.message || e)));
     page.on("console", (msg) => { if (msg.type() === "error") consoleErrors.push(msg.text()); });
     await page.goto(base, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("#buildGrid", { timeout: 15000 });
-    await page.click("#openBlueprintDesignerButton");
-    await page.click("#blueprintWiringTab");
-    await page.click("#wiringModeData");
+    await page.locator("#openBlueprintDesignerButton").click();
+    await page.locator("#buildGrid").waitFor({ state: "visible", timeout: 15000 });
+    await page.locator("#blueprintWiringTab").waitFor({ state: "visible", timeout: 15000 });
+    await page.locator("#blueprintWiringTab").click();
+    await page.locator("#wiringModeData").click();
     await page.evaluate(async () => {
       const [{ state }, { PART_STATS }, storage, wiringUi] = await Promise.all([
         import("/src/state.js"), import("/src/design/parts.js"), import("/src/design/blueprintStorage.js"), import("/src/ui/wiringUi.js")
       ]);
       const m = (type,x,y) => ({ type,x,y,rotation:0 });
       const R = globalThis.WiringRules;
-      state.design = [m("reactor",0,1),m("fireControl",0,0),m("sensorArray",1,0),m("railgun",2,0),m("pointDefense",6,0),m("reactor",5,1),m("targetingComputer",5,0),m("frame",1,1),m("frame",2,1)];
+      state.design = [m("auxGenerator",0,1),m("fireControl",0,0),m("sensorArray",1,0),m("railgun",2,0),m("pointDefense",6,0),m("auxGenerator",5,1),m("targetingComputer",5,0),m("frame",1,1),m("frame",2,1)];
       let w = R.emptyWiring();
       w = R.addPath(w,"power",[{x:0,y:1},{x:0,y:0}],state.design,PART_STATS);
       w = R.addPath(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],state.design,PART_STATS);
@@ -87,9 +88,9 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     await scenario.selectOption("full");
     const freshPanel = page.locator("#wiringStatusPanel");
     assert(/Maximum Sustained Load|Data-support inspection/.test(await freshPanel.textContent()), "scenario select works after panel rerender without stale handles");
-    await page.click("#wiringModePower"); assert(/Physical power wiring/i.test(await panel.textContent()), "Power inspection still works");
-    await page.click("#blueprintHeatTab"); assert(await page.locator(".wire-comp-data-source-active,.wire-comp-data-weapon-supported").count() === 0, "Data overlay classes removed in Heat view");
-    await page.click("#blueprintBuildTab"); assert(await page.locator("#wiringStatusPanel").evaluate((el) => el.hidden || !/Data-support inspection/.test(el.textContent)), "no stale Data panel after returning to Blueprint");
+    await page.locator("#wiringModePower").click(); assert(/Physical power wiring/i.test(await panel.textContent()), "Power inspection still works");
+    await page.locator("#blueprintHeatTab").click(); assert(await page.locator(".wire-comp-data-source-active,.wire-comp-data-weapon-supported").count() === 0, "Data overlay classes removed in Heat view");
+    await page.locator("#blueprintBuildTab").click(); assert(await page.locator("#wiringStatusPanel").evaluate((el) => el.hidden || !/Data-support inspection/.test(el.textContent)), "no stale Data panel after returning to Blueprint");
     assert.deepEqual({ errors, consoleErrors }, { errors: [], consoleErrors: [] }, `Unexpected browser diagnostics: ${JSON.stringify({ errors, consoleErrors }, null, 2)}`);
     console.log("Data-support designer browser verification passed.");
   } finally { await browser?.close?.(); server.kill("SIGTERM"); }
