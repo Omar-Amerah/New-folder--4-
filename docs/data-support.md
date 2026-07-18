@@ -53,3 +53,21 @@ Data topology is always derived from the damage-aware Wiring v2 runtime projecti
 The lifecycle verifier (`verify-data-support-lifecycle.js`) is registered in the normal browser-free CI unit group, so `npm run test:unit`, `npm run test:all-non-browser`, `npm run check`, and `npm run release:check` execute the Power, Heat, damage, repair, and immutability coverage automatically. The tests exercise real Power allocation, Heat updates, component damage, and `repairShipComponents()` repair paths; direct state edits are limited to focused helper/defensive checks.
 
 Section 6D UI panels, cable highlighting, vulnerability displays, and designer contribution inspection remain deferred.
+
+## Section 6D designer inspection hardening
+
+Section 6D designer inspection is implemented for the Blueprint Designer Wiring view when Wiring mode is set to Data. The panel remains a designer prediction and does not persist derived support stats into blueprints or add ship-wide Data-support stats.
+
+Designer support uses the same units as the shared Data rules: `rangeBonus` is displayed in metres, while `accuracyBonus` and `fireRateBonus` are displayed as percentages. Sensor Array and Signal Amplifier budgets therefore render as `+40 m` and `+75 m`, not percentages; Targeting Computer, Stabilizer Node, and Fire Control render as percent bonuses.
+
+The Data inspector shares the Heat prediction scenario state (`state.thermalLoadMode`) with the Heat view. The selector offers Idle, Typical Combat, and Maximum Sustained Load. Changing it invalidates Data and vulnerability analysis caches and refreshes source thermal multipliers, effective budgets, weapon contributions, effective profiles, and vulnerability summaries without changing component placement or physical wiring.
+
+Source-failure inspection no longer edits physical Data sections or legacy connection metadata. It reruns intact topology analysis with an operational override for only the failed source, so the source remains visible with zero effective budget, peer sources on the same network remain active, and weapon losses reflect only surviving-source allocation.
+
+Section, host, and source vulnerability records compare deterministic topology signatures made from section membership, source membership, weapon membership, and source-to-weapon allocation relationships. Severity is category-based rather than a raw sum of incompatible metres and percentage fractions: redundant means no effective allocation/connectivity change; medium means partial support loss; high means one weapon loses all support or several weapons lose support; critical means multiple weapons lose all support or a network is separated from every source.
+
+The Wiring overlay and inspector expose Data network, source, weapon, section, and passive-host context. Passive hosts are described as cable hosts rather than Data sources, and vulnerability details report affected networks, sources, weapons, lost support with correct units, topology changes, and redundancy explanations. Section 6E remains deferred: no reference-ship redesigns, balance changes, component price changes, or final competitive conclusions are included here.
+
+Designer analysis is cached with deterministic design/wiring/catalogue/scenario signatures. Base Data analysis and vulnerability analysis use separate caches, and selection or hover changes reuse immutable cached results. Wiring edits, component changes, blueprint loading/reset/clear, and scenario changes produce a new signature; failed analysis clears stale Data presentation and retries on the next relevant change.
+
+Accessibility coverage includes keyboard-selectable network/source/weapon controls, descriptive labels, selected-state ARIA, text severity/status, one stable live region for refresh announcements, focus-visible styling, and browser coverage for the production frontend.

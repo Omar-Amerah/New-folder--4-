@@ -291,3 +291,13 @@ Physical Wiring v2 Data networks feed server combat through `src/server/componen
 The server updates Data support after the authoritative runtime Wiring and component Power state are current: surviving Wiring v2 projection, component Power allocation, then Data-support allocation. This ordering lets support sources use `componentPower.byComponentIndex[sourceIndex].operationalMultiplier` rather than ship-wide or recipient Power state.
 
 `src/server/componentData.js` owns derived `runtimeDataSupport` state with separate topology and allocation signatures/revisions. Full topology rebuilds are event-driven by component alive/destroyed boundaries and physical wiring changes. Lightweight allocation refreshes handle source Power multiplier changes and Heat performance tier changes without rebuilding Wiring. Derived Data-support state is runtime-only and is not persisted into blueprints.
+
+### Section 6D Blueprint Designer Data-support inspection
+
+Section 6D is implemented in the client designer without changing Section 6A allocation formulas, Section 6B runtime combat authority, or Section 6C lifecycle semantics. `public/src/design/dataSupportAnalysis.js` derives designer Data predictions from authoritative Wiring v2 physical sections, shared Power analysis, and one shared Heat prediction per design/wiring/scenario. `public/src/design/dataSupportPresentation.js` provides client-side unit-aware formatting for range metres and percentage accuracy/fire-rate support.
+
+The Wiring Data inspector in `public/src/ui/wiringUi.js` reuses `state.thermalLoadMode`, so Heat and Data scenario controls stay synchronized. It uses separate cached base and vulnerability analyses keyed by deterministic design, wiring, catalogue, and scenario signatures; changing selection or hover state does not recompute physical Wiring, Power, Heat, allocation, or failure analysis.
+
+Designer source-destruction vulnerability is represented by an operational multiplier override for the selected source, not by removing physical Data sections or legacy connection metadata. Section/host failures still derive a failed physical wiring projection. Vulnerability topology comparisons use deterministic memberships and source-to-weapon allocation signatures, and severity is category based so metre and percentage losses are not summed together.
+
+The Data overlay adds non-colour-only classes, outlines, dashed states, and ARIA descriptions for selected networks, selected sources, selected weapons, vulnerability states, source status, and weapon support states while preserving widened SVG hit targets used by normal cable editing. Browser verification now exercises the production frontend rather than only module import smoke checks. Section 6E and Section 7 remain deferred.
