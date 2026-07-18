@@ -119,10 +119,20 @@ function ensureShipDataSupport(ship) { return ship?.runtimeDataSupport?.weaponBo
 function markShipDataTopologyDirty(ship, reason = "topology-dirty") { if (ship) { ship.dataTopologyDirty = reason; } }
 function markShipDataAllocationDirty(ship, reason = "allocation-dirty") { if (ship) { ship.dataAllocationDirty = reason; } }
 
+function dataRelevantHeatSignature(ship) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const states = ship?.componentHeatState || [];
+  return design.map((module, index) => {
+    if (DataSupportRules.isDataSupportSource(module?.type)) return `s${index}:${states[index] ?? HeatRules.STATE.NORMAL}:${sourceThermalMultiplier(ship, index)}`;
+    // Weapon Data eligibility is currently HP-only; add weapon-local Heat here
+    // only if a future rule makes Heat affect support eligibility/profile.
+    return null;
+  }).filter(Boolean).join(",");
+}
 function cacheSignature(ship) {
   const state = ship?.runtimeDataSupport;
   const power = ship?.powerRevision || 0;
-  const heat = (ship?.componentHeatState || []).join(",");
+  const heat = dataRelevantHeatSignature(ship);
   const hp = (ship?.componentHp || []).map((v) => v > 0 ? 1 : 0).join("");
   return `${state?.topologyRevision || 0}:${state?.allocationRevision || 0}:${power}:${heat}:${hp}:${ship?.designRevision || 1}`;
 }

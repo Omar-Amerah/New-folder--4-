@@ -99,6 +99,8 @@ function initShipHeat(ship) {
   ship.componentHeatCooled = design.map(() => 0);
   ship.componentHeatSentThroughFrame = design.map(() => 0);
   ship.componentHeatRadiated = design.map(() => 0);
+  ship.componentVentedOverflowHeat = design.map(() => 0);
+  ship.ventedOverflowHeat = 0;
   ship.heatGeneratedThisTick = ship.componentHeatGenerated;
   ship.heatReceivedThisTick = ship.componentHeatReceived;
   ship.heatRemovedThisTick = ship.componentHeatRemoved;
@@ -261,10 +263,13 @@ function updateShipHeat(ship, dt, room, now) {
   ship.componentHeatRemoved.fill(0);
   if (!ship.componentHeatTransferredOut) ship.componentHeatTransferredOut = heat.map(() => 0);
   if (!ship.componentHeatCooled) ship.componentHeatCooled = heat.map(() => 0);
+  if (!ship.componentVentedOverflowHeat) ship.componentVentedOverflowHeat = heat.map(() => 0);
   ship.componentHeatTransferredOut.fill(0);
   ship.componentHeatCooled.fill(0);
   ship.componentHeatSentThroughFrame.fill(0);
   ship.componentHeatRadiated.fill(0);
+  ship.componentVentedOverflowHeat.fill(0);
+  ship.ventedOverflowHeat = 0;
   let remainsActive = false;
 
   // Local generation only. Cooling is applied after transfers so a radiator can
@@ -375,7 +380,14 @@ function updateShipHeat(ship, dt, room, now) {
     // Inputs are bounded, but retained heat may exceed a newly damage-reduced
     // capacity and must drain naturally instead of being magically discarded.
     const retainedCeiling = Math.max(capacity * 1.25, heat[i]);
-    const next = Math.max(0, Math.min(retainedCeiling, heat[i] + delta[i]));
+    const unclampedNext = Math.max(0, heat[i] + delta[i]);
+    const next = Math.min(retainedCeiling, unclampedNext);
+    const overflow = Math.max(0, unclampedNext - next);
+    if (overflow > 0) {
+      ship.componentVentedOverflowHeat[i] = overflow;
+      ship.ventedOverflowHeat += overflow;
+      ship.componentHeatRemoved[i] += overflow;
+    }
     const oldState = ship.componentHeatState[i];
     const nextState = stateFor(capacity > 0 ? next / capacity : (next > 0 ? Infinity : 0), oldState);
     if (nextState !== oldState || Math.abs(next - heat[i]) >= 0.5) ship.dirtyHeat.add(i);
@@ -450,6 +462,7 @@ function buildHeatDebug(ship) {
     shipId: ship.id,
     currentHeat: ship.currentHeat,
     maxHeat: ship.maxHeat,
+    ventedOverflowHeat: ship.ventedOverflowHeat || 0,
     components: (ship.design || []).map((module, index) => ({
       index,
       type: module.type,
@@ -459,7 +472,8 @@ function buildHeatDebug(ship) {
       transferredOutPerSecond: (ship.componentHeatTransferredOut?.[index] || 0) / dt,
       cooledPerSecond: (ship.componentHeatCooled?.[index] || 0) / dt,
       sentThroughFramePerSecond: (ship.componentHeatSentThroughFrame?.[index] || 0) / dt,
-      removedByRadiatorPerSecond: (ship.componentHeatRadiated?.[index] || 0) / dt
+      removedByRadiatorPerSecond: (ship.componentHeatRadiated?.[index] || 0) / dt,
+      ventedOverflowHeatPerSecond: (ship.componentVentedOverflowHeat?.[index] || 0) / dt
     })),
     networks: (ship.thermalNetworks || []).map(network => ({
       id: network.id,

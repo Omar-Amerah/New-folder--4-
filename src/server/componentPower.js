@@ -128,7 +128,8 @@ function applyShipPowerAllocation(ship, options = {}) {
     let state = "passive", multiplier = 1;
     if (!alive) { state = "destroyed"; multiplier = 0; }
     else if (source) state = "source";
-    else if (consumer && (!member || member.generation <= 0)) { state = "disconnected"; multiplier = 0; }
+    else if (consumer && !member) { state = "disconnected"; multiplier = 0; }
+    else if (consumer && member.generation <= 0) { state = "unpowered"; multiplier = 0; }
     else if (consumer && member.efficiency < 1) { state = "underpowered"; multiplier = member.efficiency; }
     else if (consumer) state = "powered";
     return { state, networkId: member?.network?.id ?? null, availableEfficiency: clampNumber(member?.efficiency ?? (consumer ? 0 : 1), 0, 1), operationalMultiplier: clampNumber(multiplier, 0, 1) };
@@ -161,8 +162,11 @@ function getComponentPowerMultiplier(ship, componentIndex) {
 }
 
 function summarizePower(entries) {
-  if (entries.some((entry) => entry.state === "disconnected")) return "disconnected";
-  if (entries.some((entry) => entry.state === "underpowered")) return "underpowered";
+  const consumers = entries.filter((entry) => ["disconnected", "unpowered", "underpowered", "powered"].includes(entry.state));
+  if (!consumers.length) return "powered";
+  if (consumers.some((entry) => entry.state === "unpowered")) return "unpowered";
+  if (consumers.some((entry) => entry.state === "underpowered")) return "underpowered";
+  if (consumers.some((entry) => entry.state === "disconnected")) return "disconnected";
   return "powered";
 }
 

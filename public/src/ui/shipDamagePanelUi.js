@@ -137,6 +137,12 @@ function renderComponentHeatReadout(ship, index) {
   if (!dom.shipDamageHover) return;
   const part = ship.design[index];
   const thermal = componentThermal(ship, index);
+  const hp = Number(ship.chp?.[index]) || 0;
+  if (hp <= 0) {
+    const retained = thermal.heat > 0 ? ` · retained ${formatHeatAmount(thermal.heat)} H` : "";
+    dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — Inactive / destroyed${retained}`;
+    return;
+  }
   const percentText = formatHeatPercent(Math.min(125, thermal.ratio * 100));
   const capacityText = thermal.capacity > 0 ? ` / ${formatHeatAmount(thermal.capacity)} H · ${percentText}` : " H";
   const rules = globalThis.HeatRules;
@@ -485,7 +491,7 @@ function drawDiagram(ship) {
         drawModuleDamage(drawCtx, ratio, halfLong, halfCross, now);
         drawModuleFlash(drawCtx, componentFlash(ship.id, i, now), halfLong, halfCross);
       }
-      if (state.shipStatusView === "heat") {
+      if (state.shipStatusView === "heat" && !destroyed) {
         const thermal = componentThermal(ship, i);
         if (thermal.heat > 0) {
           drawCtx.fillStyle = heatColor(thermal.ratio);
@@ -509,7 +515,7 @@ function drawDiagram(ship) {
     }
     const ratio = componentHealthRatio(ship, i);
     const thermal = componentThermal(ship, i);
-    if (state.shipStatusView === "heat" && thermal.heat > 0) {
+    if (state.shipStatusView === "heat" && ratio > 0 && thermal.heat > 0) {
       const barH = Math.max(2, cellSize * 0.14);
       const y = rect.y + rect.h - barH - 1;
       drawCtx.fillStyle = "rgba(3, 8, 15, 0.82)";

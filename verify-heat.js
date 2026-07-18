@@ -59,6 +59,27 @@ assert(neighbour.componentHeatState[1] >= HeatRules.STATE.HOT, "neighbour never 
 // Overheat hysteresis and accurate aggregate state.
 assert.strictEqual(HeatRules.stateFor(0.8, HeatRules.STATE.OVERHEATED), HeatRules.STATE.OVERHEATED);
 assert.notStrictEqual(HeatRules.stateFor(0.6, HeatRules.STATE.OVERHEATED), HeatRules.STATE.OVERHEATED);
+for (const [below, threshold, prev, lower] of [
+  [0.405, HeatRules.THRESHOLDS.warm, HeatRules.STATE.WARM, HeatRules.STATE.NORMAL],
+  [0.665, HeatRules.THRESHOLDS.hot, HeatRules.STATE.HOT, HeatRules.STATE.WARM],
+  [0.845, HeatRules.THRESHOLDS.critical, HeatRules.STATE.CRITICAL, HeatRules.STATE.HOT],
+  [0.64, HeatRules.THRESHOLDS.overheated, HeatRules.STATE.OVERHEATED, HeatRules.STATE.CRITICAL]
+]) {
+  assert.strictEqual(HeatRules.stateFor(threshold + 0.001, lower), prev, `upward threshold ${threshold} still crosses promptly`);
+  assert.strictEqual(HeatRules.stateFor(below, prev), prev, `downward hysteresis holds state ${prev}`);
+}
+const boundary = shipFor([{x:7,y:7,type:"frame"}]);
+boundary.componentHeat[0] = boundary.componentThermals[0].capacity * (HeatRules.THRESHOLDS.hot - 0.01);
+boundary.componentHeatState[0] = HeatRules.STATE.HOT; boundary.hasActiveHeat = false;
+const dirtyBefore = boundary.dirtyHeat.size; const revBefore = boundary.powerRevision || 0; ticks(boundary, 3);
+assert.strictEqual(boundary.componentHeatState[0], HeatRules.STATE.HOT, "fixed HOT hysteresis boundary does not flap");
+assert.strictEqual(boundary.dirtyHeat.size, dirtyBefore, "inactive fixed boundary does not churn dirtyHeat");
+assert.strictEqual(boundary.powerRevision || 0, revBefore, "non-source boundary does not churn Power revisions");
+const overflow = shipFor([{x:7,y:7,type:"frame"}]);
+overflow.componentHeat[0] = overflow.componentThermals[0].capacity * 1.25; addComponentHeat(overflow, 0, 50); ticks(overflow, 1);
+assert(overflow.ventedOverflowHeat > 0, "overflow heat is recorded as vented");
+const dbg = buildHeatDebug(overflow);
+assert(dbg.ventedOverflowHeat > 0 && dbg.components[0].ventedOverflowHeatPerSecond > 0, "overflow exposed in diagnostics");
 const total = neighbour.componentHeat.reduce((sum, value) => sum + value, 0);
 assert(Math.abs(neighbour.currentHeat - total) < 0.001, "ship heat is not component heat sum");
 assert(Math.abs(neighbour.heatPressure - neighbour.currentHeat / neighbour.maxHeat) < 0.000001, "ship pressure is not summed heat/capacity");

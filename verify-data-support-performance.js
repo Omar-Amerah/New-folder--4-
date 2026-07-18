@@ -54,6 +54,11 @@ assert.strictEqual(global.__mfaDataSupportPerf.allocationRefreshCount, 1, "power
 assert.strictEqual(global.__mfaDataSupportPerf.profileBuildCount, 1, "power change rebuilds profiles once");
 resetCounters(); Data.refreshShipDataAllocation(one, "same"); Data.ensureEffectiveWeaponProfileCache(one);
 assert.strictEqual(global.__mfaDataSupportPerf.dataTopologyRebuildCount + global.__mfaDataSupportPerf.profileBuildCount, 0, "repeating same state causes no topology/profile work");
+resetCounters(); const armorIndex = one.design.findIndex(p => p.type === "frame"); one.componentHeatState[armorIndex] = 3; Data.ensureEffectiveWeaponProfileCache(one);
+assert.strictEqual(global.__mfaDataSupportPerf.profileBuildCount, 0, "unrelated frame/armour heat does not rebuild weapon profiles");
+resetCounters(); one.componentHeatState[1] = 2; Data.refreshShipDataAllocation(one, "source-heat-tier"); Data.ensureEffectiveWeaponProfileCache(one);
+assert.strictEqual(global.__mfaDataSupportPerf.allocationRefreshCount, 1, "Data source heat tier refreshes allocation once");
+assert.strictEqual(global.__mfaDataSupportPerf.profileBuildCount, 1, "Data source heat tier rebuilds profile once");
 
 resetCounters(); one.componentHp[1] = 0; one.componentHp[2] = 0; rebuildShipWiringState(one, "batched-destruction", { skipRuntimeStats: true });
 assert.strictEqual(global.__mfaDataSupportPerf.wiringNormalizationCount, 1, "destruction batches one normalization");
