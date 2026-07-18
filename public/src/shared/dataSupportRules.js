@@ -21,8 +21,14 @@
   const modulesOf = (design) => Array.isArray(design) ? design : Array.isArray(design?.components) ? design.components : Array.isArray(design?.modules) ? design.modules : [];
   const partFor = (catalogue, type) => catalogue && typeof catalogue === "object" ? (catalogue[type] || {}) : {};
   const isWeapon = (module, catalogue) => Boolean(module && partFor(catalogue, module.type).weapon);
+  const isValidComponentIndex = (value, modules, predicate) => typeof value === "number" && Number.isInteger(value)
+    && value >= 0 && value < modules.length && predicate(modules[value], value);
   const uniqueValidIndices = (values, modules, predicate) => [...new Set((Array.isArray(values) ? values : [])
-    .map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < modules.length && predicate(modules[index], index)))].sort(numericSort);
+    .filter((index) => isValidComponentIndex(index, modules, predicate)))].sort(numericSort);
+  function fallbackNetworkId(sectionIds, sourceIndices, weaponIndices) {
+    const encode = (prefix, values) => `${prefix}${values.length ? values.join(".") : "none"}`;
+    return `data-${encode("sec-", sectionIds)}-${encode("src-", sourceIndices)}-${encode("wpn-", weaponIndices)}`;
+  }
 
   function isDataSupportSource(type) { return Object.prototype.hasOwnProperty.call(DATA_SOURCE_INFO, type); }
   function supportDescriptorForType(type) { const value = DATA_SOURCE_INFO[type]; return value ? { ...value } : null; }
@@ -46,11 +52,11 @@
   function analyzeDataSupport(design, dataNetworks, catalogue, options = {}) {
     const modules = modulesOf(design);
     const rawNetworks = Array.isArray(dataNetworks) ? dataNetworks : [];
-    const normalized = rawNetworks.map((network, inputIndex) => {
+    const normalized = rawNetworks.map((network) => {
       const sourceIndices = uniqueValidIndices(network?.sourceIndices, modules, (module) => isDataSupportSource(module?.type));
       const weaponIndices = uniqueValidIndices(network?.weaponIndices, modules, (module) => isWeapon(module, catalogue));
       const sectionIds = [...new Set((Array.isArray(network?.sectionIds) ? network.sectionIds : []).filter((id) => typeof id === "string"))].sort(stringSort);
-      const identity = typeof network?.id === "string" && network.id ? network.id : `data-${sectionIds[0] || "network"}-${inputIndex}`;
+      const identity = typeof network?.id === "string" && network.id ? network.id : fallbackNetworkId(sectionIds, sourceIndices, weaponIndices);
       return { id: identity, label: typeof network?.label === "string" ? network.label : identity, sourceIndices, weaponIndices, sectionIds };
     }).filter((network) => network.sourceIndices.length || network.weaponIndices.length)
       .sort((a, b) => stringSort(a.sectionIds.join(";"), b.sectionIds.join(";")) || stringSort(a.id, b.id));
@@ -71,7 +77,7 @@
       const sectionIds = [...new Set(members.flatMap((item) => item.sectionIds))].sort(stringSort);
       const ids = members.map((item) => item.id).sort(stringSort);
       if (members.length > 1) warnings.push({ code: "merged-overlapping-data-domains", networkIds: ids });
-      return { id: members.length === 1 ? members[0].id : `data-${sectionIds.join("|") || ids.join("|")}`, label: members[0].label, sourceIndices, weaponIndices,
+      return { id: members.length === 1 ? members[0].id : fallbackNetworkId(sectionIds, sourceIndices, weaponIndices), label: members[0].label, sourceIndices, weaponIndices,
         componentIndices: [...new Set([...sourceIndices, ...weaponIndices])].sort(numericSort), sectionIds };
     }).sort((a, b) => stringSort(a.id, b.id));
     networks.forEach((network, index) => { network.label = network.label || `Data Network ${String.fromCharCode(65 + index)}`; });
@@ -124,7 +130,9 @@
     const range = finite(base.range) + finite(support?.rangeBonus);
     const accuracy = Math.max(0, Math.min(0.99, finite(base.accuracy) + finite(support?.accuracyBonus)));
     const fireRate = finite(base.fireRate) * (1 + finite(support?.fireRateBonus));
-    return { ...base, range, accuracy, fireRate, reload: fireRate > 0 ? 1000 / fireRate : 0 };
+    const result = { ...base, range, accuracy, fireRate, reload: fireRate > 0 ? 1000 / fireRate : 0 };
+    if (Number.isFinite(Number(result.damage)) && Number.isFinite(fireRate)) result.dps = Number(result.damage) * fireRate;
+    return result;
   }
   return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, supportDescriptorForType, nominalSupportBudget,
     normalizeSourceMultiplier, allocateSourceBudget, analyzeDataSupport, weaponSupportForIndex, effectiveWeaponProfile };
