@@ -60,9 +60,33 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
       // Network B: Targeting Computer reaches Point Defence through a deterministic two-route loop.
       state.design = [
         m("auxGenerator",0,2),m("fireControl",0,0),m("sensorArray",0,1),m("frame",1,0),m("frame",1,1),
-        m("frame",2,1),m("railgun",2,0),m("missile",3,1),m("auxGenerator",6,2),m("targetingComputer",6,0),
+        m("frame",4,1),m("railgun",2,0),m("missile",3,1),m("auxGenerator",6,2),m("targetingComputer",6,0),
         m("frame",6,1),m("frame",7,0),m("frame",7,1),m("frame",8,0),m("frame",8,1),m("pointDefense",9,0)
       ];
+      const occupiedCells = new Map();
+      const componentDiagnostics = state.design.map((component, index) => ({
+        index,
+        type: component.type,
+        x: component.x,
+        y: component.y,
+        rotation: component.rotation,
+        occupiedCells: R.moduleCells(component, PART_STATS)
+      }));
+      state.design.forEach((component, index) => {
+        if (!PART_STATS[component.type]) throw new Error(`fixture component ${index} has unknown type ${component.type}`);
+        const cells = R.moduleCells(component, PART_STATS);
+        for (const cell of cells) {
+          const key = `${cell.x},${cell.y}`;
+          if (occupiedCells.has(key)) {
+            const previousIndex = occupiedCells.get(key);
+            throw new Error(
+              `fixture component footprints overlap at ${key}: ${previousIndex} and ${index}; ` +
+              `component diagnostics: ${JSON.stringify(componentDiagnostics)}`
+            );
+          }
+          occupiedCells.set(key, index);
+        }
+      });
       let w = R.emptyWiring();
       w = R.addPath(w,"power",[{x:0,y:2},{x:0,y:1},{x:0,y:0}],state.design,PART_STATS);
       w = R.addPath(w,"power",[{x:6,y:2},{x:6,y:1},{x:6,y:0}],state.design,PART_STATS);
@@ -71,23 +95,36 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
       w = R.addPath(w,"data",[{x:6,y:0},{x:7,y:0},{x:8,y:0},{x:9,y:0}],state.design,PART_STATS);
       w = R.addPath(w,"data",[{x:6,y:0},{x:6,y:1},{x:7,y:1},{x:8,y:1},{x:8,y:0},{x:9,y:0}],state.design,PART_STATS);
       state.wiring = storage.normalizeWiring(w, state.design); state.blueprintView = "wiring"; state.wiringUi.mode = "data"; state.thermalLoadMode = "idle";
+      const componentIndexAt = (x, y) => state.design.findIndex((component) =>
+        R.moduleCells(component, PART_STATS).some((cell) => cell.x === x && cell.y === y)
+      );
+      for (const wiringType of ["power", "data"]) {
+        for (const section of state.wiring[wiringType].sections) {
+          const endpointDiagnostics = {
+            wiringType,
+            section,
+            startComponentIndex: componentIndexAt(section.x1, section.y1),
+            endComponentIndex: componentIndexAt(section.x2, section.y2),
+            componentDiagnostics
+          };
+          if (endpointDiagnostics.startComponentIndex < 0) throw new Error(`fixture ${wiringType} section start endpoint is not hosted: ${JSON.stringify(endpointDiagnostics)}`);
+          if (endpointDiagnostics.endComponentIndex < 0) throw new Error(`fixture ${wiringType} section end endpoint is not hosted: ${JSON.stringify(endpointDiagnostics)}`);
+          const distance = Math.abs(section.x1 - section.x2) + Math.abs(section.y1 - section.y2);
+          if (distance !== 1) throw new Error(`fixture ${wiringType} section is not one orthogonal cell long: ${JSON.stringify(endpointDiagnostics)}`);
+        }
+      }
       const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode });
       const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
-      const owners = new Map();
-      state.design.forEach((component, index) => {
-        if (!PART_STATS[component.type]) throw new Error(`fixture component ${index} has unknown type ${component.type}`);
-        for (const cell of R.moduleCells(component, PART_STATS)) {
-          const key = `${cell.x},${cell.y}`;
-          if (owners.has(key)) throw new Error(`fixture component footprints overlap at ${key}: ${owners.get(key)} and ${index}`);
-          owners.set(key, index);
-        }
-      });
       for (const index of [1,2,9]) {
         if (!globalThis.DataSupportRules.isDataSupportSource(state.design[index].type)) throw new Error(`fixture component ${index} is not a recognised Data source`);
         if (!(analysis.sourceAllocationByIndex[index]?.predictedPowerMultiplier > 0)) throw new Error(`fixture Data source ${index} has no predicted Power`);
       }
       if (analysis.networks.length !== 2) throw new Error(`fixture expected 2 physical Data networks, got ${analysis.networks.length}`);
-      for (const index of [6,7,15]) if (analysis.weaponBonusByIndex[index]?.status !== "supported") throw new Error(`fixture weapon ${index} is not supported before failure`);
+      for (const index of [6,7,15]) {
+        if (analysis.weaponBonusByIndex[index]?.status !== "supported") {
+          throw new Error(`fixture weapon ${index} is not supported before failure: ${JSON.stringify({ weaponRecords: analysis.weaponBonusByIndex })}`);
+        }
+      }
       const criticalSections = vulnerabilities.filter((item) => item.kind === "section" && item.severity === "critical");
       const redundantSections = vulnerabilities.filter((item) => item.kind === "section" && item.severity === "redundant" && /^(6|7|8),/.test(item.id));
       if (!criticalSections.length || !redundantSections.length || !criticalSections.some((item) => item.disconnectedWeaponIndices.length >= 2 || item.losses.filter((loss) => loss.allSupportLost).length >= 2)) {
