@@ -5,7 +5,7 @@ const { PARTS } = require("./components");
 const { analyzeShipPower } = require("./shipDesign");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const { clampNumber } = require("./utils");
-const HeatRules = require("../../public/src/shared/heatRules");
+const ShieldRules = require("../../public/src/shared/shieldRules");
 
 const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
 const perf = () => global.__mfaDataSupportPerf || null;
@@ -104,8 +104,7 @@ function applyShipPowerAllocation(ship, options = {}) {
   for (const network of runtimeNetworks) {
     const generation = (network.sourceIndices || []).reduce((sum, index) => {
       if ((ship.componentHp?.[index] ?? 1) <= 0) return sum;
-      const nominal = Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
-      return sum + nominal * HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL);
+      return sum + Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
     }, 0);
     const demand = Math.max(0, Number(network.demandMw) || 0);
     const efficiency = demand <= 0 ? 1 : clampNumber(generation / demand, 0, 1);
@@ -163,15 +162,12 @@ function summarizePower(entries) {
 }
 
 function effectiveShieldStats(ship) {
-  let capacity = 0, recharge = 0;
-  for (let i = 0; i < (ship.design || []).length; i += 1) {
-    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
-    const part = PARTS[ship.design[i].type] || {};
-    const power = getComponentPowerMultiplier(ship, i);
-    capacity += Math.max(0, Number(part.shield) || 0) * power;
-    recharge += Math.max(0, Number(part.shieldRegen) || 0) * power;
-  }
-  return { capacity: Number.isFinite(capacity) ? capacity : 0, recharge: Number.isFinite(recharge) ? recharge : 0 };
+  const HeatRules = require("../../public/src/shared/heatRules");
+  return ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
+    isLive: (index) => (ship.componentHp?.[index] ?? 1) > 0,
+    powerMultiplier: (index) => getComponentPowerMultiplier(ship, index),
+    heatMultiplier: (index, module, part) => (Number(part.shieldRegen) || 0) > 0 ? HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL) : 1
+  });
 }
 
 module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, getComponentPowerMultiplier, effectiveShieldStats };

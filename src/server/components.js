@@ -98,7 +98,6 @@ function normalizeBalanceComponent(component) {
     accuracyBonus: toNumber(component.accuracyBonus, 0),
     fireRateBonus: toNumber(component.fireRateBonus, 0),
     captureBonus: toNumber(component.captureBonus, 0),
-    heat: toNumber(component.heat, 0),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: toNumber(component.ecmStrength, 0),

@@ -20,7 +20,7 @@ Thermal state effects are role-specific:
 
 ## Aggregate power policy
 
-Power remains a ship-level aggregate. `ship.stats.powerGeneration` and `ship.stats.powerUse` describe nominal live-component totals after destruction or repair recalculation. Static underpower is represented by stats efficiency. Runtime generator thermal degradation is represented separately by `thermalPowerFactor`, which is a nominal-generation-weighted ratio of available generator output to live nominal generator output.
+Power remains a ship-level aggregate. `ship.stats.powerGeneration` and `ship.stats.powerUse` describe nominal live-component totals after destruction or repair recalculation. Power-network allocation uses nominal generation from live sources. Reactor Heat states WARM, HOT and CRITICAL do not reduce network efficiency; only the existing OVERHEATED shutdown, gating, meltdown and destruction lifecycle removes a source from live generation.
 
 Destroyed generators contribute neither nominal nor available generation. Repaired generators are restored by the normal effective-stat recalculation path. Underpower efficiency and thermal generator degradation are separate factors and must not be double-applied.
 
@@ -61,10 +61,11 @@ remains available when disconnected.
 
 Component HP mutation precedes boundary handling. An alive/destroyed transition
 then refreshes runtime hull exposure, thermal routes and hosted Wiring v2 before
-Power-dependent effective stats. Generator thermal tier changes reuse the live
-wiring projection and reallocate only that generator's network. Generator load
-heat is the capped demand/thermally-available-generation ratio of its own
-network. Meltdown progress is cleared on generator destruction; a repaired hot
+Power-dependent effective stats. Generator OVERHEATED boundary changes reuse the live
+wiring projection and reallocate only that generator's network. WARM, HOT and
+CRITICAL generators continue to provide nominal live generation to Power
+allocation. Generator load heat is the capped demand/nominal-live-generation
+ratio of its own network. Meltdown progress is cleared on generator destruction; a repaired hot
 generator begins a new timer without losing retained heat.
 
 Destroyed components retain stored heat but are excluded from live aggregate

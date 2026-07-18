@@ -7,7 +7,7 @@ const { areAllies, areEnemies, findTarget, pickWeaponFireTarget, findPointDefens
 const { updateBullets } = require("./src/server/projectiles");
 
 function makeShip(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 6, type: "frame" }]) {
-  const ship = { id, ownerId, design, x, y, vx: 0, vy: 0, angle: 0, alive: true, shield: 0, radius: 28, thermalPowerFactor: 1 };
+  const ship = { id, ownerId, design, x, y, vx: 0, vy: 0, angle: 0, alive: true, shield: 0, radius: 28 };
   ship.stats = computeStats(design);
   initComponentState(ship);
   ship.maxShield = ship.stats.maxShield || 0;

@@ -5,6 +5,7 @@ import { PART_STATS } from "./parts.js";
 import { SHIP_ECONOMY } from "../constants.js";
 import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
+import ShieldRules from "../shared/shieldRules.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
@@ -15,8 +16,6 @@ export function computeStats(modules) {
   let mass = 0;
   let maxHp = 0;
   let maxShield = 0;
-  let shieldRegen = 0;
-  const shieldRegenValues = [];
   let powerGeneration = 0;
   let powerUse = 0;
   let thrust = 0;
@@ -65,10 +64,6 @@ export function computeStats(modules) {
     mass += part.mass;
     maxHp += part.hp;
     maxShield += part.shield;
-    shieldRegen += part.shieldRegen || 0;
-
-    if ((part.shieldRegen || 0) > 0) shieldRegenValues.push(part.shieldRegen);
-
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
@@ -112,9 +107,8 @@ export function computeStats(modules) {
     }
   }
 
-  // Sustain modules use sharp diminishing returns so stacking regen cannot erase focused damage.
-  shieldRegen = effectiveStackedValue(shieldRegenValues, 0.72);
   repairRate = effectiveStackedValue(repairRateValues, 0.62);
+  const shieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
 
   applyWeaponUtilityBonuses(weaponTotals, {
     rangeBonus,
@@ -190,8 +184,8 @@ export function computeStats(modules) {
     unitCost,
     mass: Math.round(mass),
     maxHp: Math.max(140, Math.round(maxHp * 1.15)),
-    maxShield: Math.round(maxShield * efficiency),
-    shieldRegen: Number((shieldRegen * clamp(efficiency, 0.4, 1.12)).toFixed(2)),
+    maxShield: Math.round(shieldStats.capacity * efficiency),
+    shieldRegen: Number((shieldStats.recharge * clamp(efficiency, 0.4, 1.12)).toFixed(2)),
     powerGeneration,
     powerUse,
     power,

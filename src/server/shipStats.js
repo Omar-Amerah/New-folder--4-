@@ -16,6 +16,7 @@ const {
   turnCapForMass,
   softCap
 } = require("../../public/src/shared/movementStats.js");
+const ShieldRules = require("../../public/src/shared/shieldRules");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 
 function computeStats(modules) {
@@ -24,8 +25,6 @@ function computeStats(modules) {
   let mass = 0;
   let maxHp = 0;
   let maxShield = 0;
-  let shieldRegen = 0;
-  const shieldRegenValues = [];
   let powerGeneration = 0;
   let powerUse = 0;
   let thrust = 0;
@@ -74,8 +73,6 @@ function computeStats(modules) {
     mass += part.mass;
     maxHp += part.hp;
     maxShield += part.shield;
-    shieldRegen += part.shieldRegen || 0;
-    if ((part.shieldRegen || 0) > 0) shieldRegenValues.push(part.shieldRegen);
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
@@ -111,9 +108,8 @@ function computeStats(modules) {
     maxY = Math.max(maxY, module.y);
   }
 
-  // Sustain modules use sharp diminishing returns so stacking regen cannot erase focused damage.
-  shieldRegen = effectiveStackedValue(shieldRegenValues, 0.72);
   repairRate = effectiveStackedValue(repairRateValues, BALANCE.repair.stackingMultiplier);
+  const shieldStats = ShieldRules.calculateShieldStats(modules, PARTS);
   const power = powerGeneration - powerUse;
   const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PARTS, {
@@ -142,8 +138,8 @@ function computeStats(modules) {
     unitCost,
     mass: round(mass),
     maxHp: Math.max(140, Math.round(maxHp * 1.15)),
-    maxShield: Math.round(maxShield * efficiency),
-    shieldRegen: round(shieldRegen * clampNumber(efficiency, 0.4, 1.12)),
+    maxShield: Math.round(shieldStats.capacity * efficiency),
+    shieldRegen: round(shieldStats.recharge * clampNumber(efficiency, 0.4, 1.12)),
     powerGeneration,
     powerUse,
     power,

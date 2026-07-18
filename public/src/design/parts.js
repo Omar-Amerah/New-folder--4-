@@ -291,7 +291,6 @@ export function normalizeRuntimePart(part = {}) {
     accuracyBonus: numberOr(part.accuracyBonus, 0),
     fireRateBonus: numberOr(part.fireRateBonus, 0),
     captureBonus: numberOr(part.captureBonus, 0),
-    heat: numberOr(part.heat, 0),
     // Server-normalized parts expose rotationRequired even when they omit the
     // source balance file's rotatable field. Preserve that capability when a
     // hello/state message replaces the locally loaded component definition.
@@ -341,7 +340,6 @@ export function normalizeBalanceComponent(component) {
     accuracyBonus: numberOr(component.accuracyBonus, 0),
     fireRateBonus: numberOr(component.fireRateBonus, 0),
     captureBonus: numberOr(component.captureBonus, 0),
-    heat: numberOr(component.heat, 0),
     rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,

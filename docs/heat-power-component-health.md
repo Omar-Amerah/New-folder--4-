@@ -28,7 +28,7 @@ Thermal states are runtime states, distinct from designer presentation bands. Ru
 
 ## Aggregate power
 
-`thermalPowerFactor` is finite and bounded. It is a nominal-generation-weighted ratio of available generator output after thermal state penalties. This prevents a small cool generator from hiding a major overheated reactor.
+Power allocation uses nominal live generator output. Warm, Hot and Critical reactors do not derate network efficiency; existing Overheated shutdown/destruction removes failed sources through the component lifecycle.
 
 ## Battery and capacitor current behaviour
 

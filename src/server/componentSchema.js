@@ -5,7 +5,7 @@ const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", 
 const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "projectile"]);
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
-  "thrust", "turn", "energy", "energyStorage", "repair", "repairRate", "heat",
+  "thrust", "turn", "energy", "energyStorage", "repair", "repairRate",
   "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength",
   "decoyRange", "decoyCooldown", "decoyConfuseDuration", "decoyChance",
   "frontDamageReduction", "frontArc"
@@ -80,6 +80,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
       errors.push(`${path}.category must be a non-empty string when present.`);
     }
     if (component.description !== undefined && typeof component.description !== "string") errors.push(`${path}.description must be a string when present.`);
+    if (Object.prototype.hasOwnProperty.call(component, "heat")) errors.push(`${path}.heat is unsupported; use explicit Heat profile rules instead.`);
     validateNumberObject(component, NUMERIC_FIELDS, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
     validateBoolean(component.rotationRequired, `${path}.rotationRequired`, errors);

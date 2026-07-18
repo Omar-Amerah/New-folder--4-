@@ -72,7 +72,6 @@ function makeShip(design, overrides = {}) {
   );
   attacker.weaponCooldowns = [0, 0];
   attacker.weaponAngles = [0, 0];
-  attacker.thermalPowerFactor = 1;
 
   const target = makeShip(
     [

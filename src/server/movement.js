@@ -601,20 +601,20 @@ function regenerateShield(ship, stats, dt) {
   ship.shield = Math.max(0, Math.min(Number(ship.shield) || 0, ship.maxShield));
   if (ship.maxShield > 0) {
     const missingShield = Math.max(0, ship.maxShield - ship.shield);
-    let recharge = 0;
+    const recharge = effective.recharge;
     const heatEntries = [];
     for (let i = 0; i < (ship.design || []).length; i += 1) {
       const part = PARTS[ship.design[i].type];
-      if (!part?.shieldRegen || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+      if (!part?.shieldRegen || ["battery", "capacitor"].includes(ship.design[i].type) || (ship.componentHp?.[i] ?? 1) <= 0) continue;
       const local = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
       const contribution = part.shieldRegen * local;
-      recharge += contribution;
       if (contribution > 0) heatEntries.push({ index: i, contribution, baseRegen: part.shieldRegen });
     }
+    const totalHeatWeight = heatEntries.reduce((sum, entry) => sum + entry.contribution, 0);
     const actualRecharge = Math.min(missingShield, recharge * dt);
-    if (actualRecharge > 0 && recharge > 0) {
+    if (actualRecharge > 0 && totalHeatWeight > 0) {
       for (const entry of heatEntries) {
-        const componentActual = actualRecharge * (entry.contribution / recharge);
+        const componentActual = actualRecharge * (entry.contribution / totalHeatWeight);
         addComponentHeat(ship, entry.index, componentActual * 0.7);
       }
     }

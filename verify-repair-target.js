@@ -70,7 +70,7 @@ function makeRoom() {
   const { updateShipSupport } = require("./src/server/combat");
   const repairShip = {
     id: "local-repair", ownerId: "me", alive: true, x: 0, y: 0,
-    design: [{ type: "repair" }], stats: { repair: 1, repairRange: 410, efficiency: 1 }, thermalPowerFactor: 1,
+    design: [{ type: "repair" }], stats: { repair: 1, repairRange: 410, efficiency: 1 },
     hp: 80, maxHp: 100, componentHp: [30], componentMaxHp: [48], dirtyComponents: new Set()
   };
   const ally = {
@@ -94,7 +94,7 @@ function makeRoom() {
   const beamShip = {
     id: "beam-repair", ownerId: "me", alive: true, x: 0, y: 0, angle: 0,
     design: [{ x: 7, y: 7, type: "core", rotation: 0 }, { x: 8, y: 7, type: "repairBeam", rotation: 0 }],
-    stats: { repair: 1, repairRange: 410, efficiency: 1 }, thermalPowerFactor: 1,
+    stats: { repair: 1, repairRange: 410, efficiency: 1 },
     hp: 100, maxHp: 100, componentHp: [100, 48], componentMaxHp: [100, 48], dirtyComponents: new Set()
   };
   const ally = {
