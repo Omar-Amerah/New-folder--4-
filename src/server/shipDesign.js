@@ -5,6 +5,7 @@ const { computeStats } = require("./shipStats");
 const { DEFAULT_DESIGN } = require("./config");
 const { getOccupiedCells } = require("./footprint");
 const WiringRules = require("../../public/src/shared/wiringRules");
+const RotationRules = require("../../public/src/shared/rotationRules");
 
 function designIssue(code, inputIndex) {
   const messages = {
@@ -152,26 +153,47 @@ function isConnected(modules) {
   return true;
 }
 
-function normalizeShipDesignSnapshot(design) {
+function normalizeShipDesignSnapshot(design, { sourceGridSize = 15 } = {}) {
+  if (sourceGridSize === 11) return migrateLegacy11DesignSnapshot(design);
+  if (sourceGridSize !== 15) throw new Error(`Unsupported design source grid size: ${sourceGridSize}`);
   const source = Array.isArray(design) ? design : DEFAULT_DESIGN;
-  const oldCore = source.find(p => p && p.type === "core" && Math.trunc(Number(p.x)) === 3 && Math.trunc(Number(p.y)) === 3);
-  const offsetX = oldCore ? 4 : 0;
-  const offsetY = oldCore ? 4 : 0;
   return source.map((part) => {
-    const x = part.x + offsetX;
-    const type = part.type;
-    return {
-      x,
-      y: part.y + offsetY,
-      type,
-      rotation: normalizePartRotation(type, x, part.rotation)
-    };
+    const x = Math.trunc(Number(part?.x));
+    const y = Math.trunc(Number(part?.y));
+    const type = String(part?.type || "");
+    return { x, y, type, rotation: normalizePartRotation(type, x, part?.rotation) };
   });
+}
+
+function assertFootprintsFitGrid(modules, min, max, message) {
+  for (const part of modules) {
+    const footprint = (PARTS[part.type] || PARTS.frame).footprint || { width: 1, height: 1 };
+    for (const cell of getOccupiedCells(part.x, part.y, footprint, part.rotation || 0)) {
+      if (cell.x < min || cell.x > max || cell.y < min || cell.y > max) throw new Error(message);
+    }
+  }
+}
+
+function migrateLegacy11DesignSnapshot(design) {
+  if (!Array.isArray(design)) throw new Error("Legacy 11x11 migration requires a design array.");
+  const normalized = design.map((part) => {
+    const x = Math.trunc(Number(part?.x));
+    const y = Math.trunc(Number(part?.y));
+    const type = String(part?.type || "");
+    if (!Number.isInteger(x) || !Number.isInteger(y) || !PARTS[type]) throw new Error("Legacy 11x11 migration requires valid module coordinates and types.");
+    return { x, y, type, rotation: normalizePartRotation(type, x + 4, part?.rotation) };
+  });
+  const cores = normalized.filter((part) => part.type === "core");
+  if (cores.length !== 1 || cores[0].x !== 3 || cores[0].y !== 3) throw new Error("Legacy 11x11 migration requires exactly one core anchored at 3,3.");
+  assertFootprintsFitGrid(normalized, 0, 10, "Legacy 11x11 migration rejected: footprint leaves the 0-10 source grid.");
+  const shifted = normalized.map((part) => ({ ...part, x: part.x + 4, y: part.y + 4 }));
+  assertFootprintsFitGrid(shifted, 0, 14, "Legacy 11x11 migration rejected: shifted footprint leaves the 0-14 modern grid.");
+  return shifted;
 }
 
 function normalizePartRotation(type, x, rotation) {
   const allowed = (PARTS[type] || {}).allowedRotations;
-  return type === "maneuverThruster" ? legacySideRotation(x) : isRotatablePart(type) ? normalizeRotation(rotation, allowed, x) : 0;
+  return type === "maneuverThruster" ? RotationRules.maneuverThrusterAutoRotation(x) : isRotatablePart(type) ? normalizeRotation(rotation, allowed, x) : 0;
 }
 
 function isRotatablePart(type) {
@@ -184,15 +206,7 @@ function isRotatablePart(type) {
     || part.rotationRequired === true;
 }
 
-function legacySideRotation(x) { return Number(x) < 7 ? 90 : 270; }
-
-function normalizeRotation(value, allowedRotations, x) {
-  const allowed = Array.isArray(allowedRotations) && allowedRotations.length ? allowedRotations.map(Number) : [0, 90, 180, 270];
-  const rotation = Number(value);
-  if (allowed.includes(rotation)) return rotation;
-  if (allowed.length === 2 && allowed.includes(90) && allowed.includes(270)) return legacySideRotation(x);
-  return allowed.includes(0) ? 0 : allowed[0];
-}
+function normalizeRotation(value, allowedRotations, x) { return RotationRules.normalizeRotation(value, allowedRotations, x); }
 
 module.exports = {
   validateDesign,
@@ -202,6 +216,7 @@ module.exports = {
   createGeneratedPowerWiring,
   isConnected,
   normalizeShipDesignSnapshot,
+  migrateLegacy11DesignSnapshot,
   normalizeRotation,
   normalizePartRotation
 };

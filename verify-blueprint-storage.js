@@ -52,6 +52,7 @@ globalThis.EngineExhaustRules = (await import("./public/src/shared/engineExhaust
 globalThis.HeatRules = (await import("./public/src/shared/heatRules.js")).default || (await import("./public/src/shared/heatRules.js"));
 await import("./public/src/shared/wiringRules.js"); // attaches globalThis.WiringRules
 const storageMod = await import("./public/src/design/blueprintStorage.js");
+const { PART_STATS } = await import("./public/src/design/parts.js");
 const constants = await import("./public/src/constants.js");
 const {
   BLUEPRINT_STORAGE_VERSION, MAX_LOADOUTS, MAX_SAVED_DESIGNS, defaultDesign, defaultWiring, normalizeWiring, designEnvelope,
@@ -103,6 +104,32 @@ const roundTrip = migrateDesignStorage(envelope2);
 assert.equal(roundTrip.combatStyle, "hold", "combat style round trips");
 assert.deepEqual(roundTrip.modules, normalizeDesign(current), "modules round trip");
 assert.deepEqual(roundTrip.wiring.power, normalizeWiring(wiring, current).power, "wiring round trips");
+// ---- Wiring fallback preserves reserved Power tiers only ----
+{
+  const originalRules = globalThis.WiringRules;
+  const fallbackInput = {
+    version: 2,
+    power: { sections: [
+      { id: "p-light", x1: 1, y1: 1, x2: 2, y2: 1, tier: "light" },
+      { id: "p-standard", x1: 2, y1: 1, x2: 3, y2: 1, tier: "standard" },
+      { id: "p-heavy", x1: 3, y1: 1, x2: 4, y2: 1, tier: "heavy" },
+      { id: "p-unknown", x1: 4, y1: 1, x2: 5, y2: 1, tier: "experimental" }
+    ], connections: [] },
+    data: { sections: [
+      { id: "d-light", x1: 1, y1: 2, x2: 2, y2: 2, tier: "light" },
+      { id: "d-heavy", x1: 2, y1: 2, x2: 3, y2: 2, tier: "heavy" }
+    ], connections: [] }
+  };
+  const beforeFallback = JSON.stringify(fallbackInput);
+  globalThis.WiringRules = undefined;
+  const fallback = normalizeWiring(fallbackInput, current);
+  assert.deepEqual(fallback.power.sections.map((section) => section.tier), ["light", "standard", "heavy", "standard"], "fallback preserves recognized Power tiers and defaults unknown Power tiers");
+  assert.deepEqual(fallback.data.sections.map((section) => section.tier), ["standard", "standard"], "fallback keeps Data wiring standard-only");
+  assert.equal(JSON.stringify(fallbackInput), beforeFallback, "fallback normalization does not mutate input wiring");
+  globalThis.WiringRules = originalRules;
+  assert.deepEqual(normalizeWiring(wiring, current), originalRules.normalizeWiring(wiring, current, PART_STATS).wiring, "shared WiringRules normalization still works when available");
+}
+
 
 installStorage(new MemoryStorage());
 assert.equal(persistDesign(current, wiring, "sentry"), true, "current design persists with wiring");

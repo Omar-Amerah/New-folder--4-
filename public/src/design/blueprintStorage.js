@@ -63,20 +63,30 @@ export function normalizeWiring(wiring, modules) {
 // than returning empty wiring — otherwise the next
 // persistDesign() would permanently wipe the user's saved wiring. Real
 // normalization happens once the engine is present again.
+const FALLBACK_POWER_TIERS = new Set(["light", "standard", "heavy"]);
+
+function fallbackTier(kind, value) {
+  if (kind === "power" && FALLBACK_POWER_TIERS.has(value)) return value;
+  return "standard";
+}
+
 function preservedWiringFallback(wiring) {
   const empty = () => ({ sections: [], connections: [] });
   if (wiring?.version !== 2) return { version: 2, power: empty(), data: empty() };
-  const kind = (value) => ({
+  const kind = (value, wiringKind) => ({
     sections: Array.isArray(value?.sections) ? value.sections.slice(0, 480).map((section) => ({
       id: String(section?.id || ""), x1: Math.trunc(Number(section?.x1)), y1: Math.trunc(Number(section?.y1)),
-      x2: Math.trunc(Number(section?.x2)), y2: Math.trunc(Number(section?.y2)), tier: section?.tier === "standard" ? "standard" : "standard"
+      x2: Math.trunc(Number(section?.x2)), y2: Math.trunc(Number(section?.y2)),
+      // Fallback only preserves reserved Power tier schema values; it does not
+      // implement tier capacity or gameplay. Data wiring remains standard-only.
+      tier: fallbackTier(wiringKind, section?.tier)
     })) : [],
     connections: Array.isArray(value?.connections) ? value.connections.slice(0, 240).map((connection) => ({
       sourceIndex: Math.trunc(Number(connection?.sourceIndex)), targetIndex: Math.trunc(Number(connection?.targetIndex)),
       sectionIds: Array.isArray(connection?.sectionIds) ? connection.sectionIds.slice(0, 224).map(String) : []
     })) : []
   });
-  return { version: 2, power: kind(wiring.power), data: kind(wiring.data) };
+  return { version: 2, power: kind(wiring.power, "power"), data: kind(wiring.data, "data") };
 }
 
 function nowIso() { return new Date().toISOString(); }
