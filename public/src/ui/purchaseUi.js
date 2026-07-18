@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { showToast } from "./toastUi.js";
 import { send } from "../network.js";
 import { computeStats } from "../design/componentStats.js";
-import { validateBlueprint } from "../design/blueprintValidation.js";
+import { validateBlueprint, isConnected } from "../design/blueprintValidation.js";
 import { normalizeDesign, normalizeWiring, persistLoadouts } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
