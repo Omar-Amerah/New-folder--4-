@@ -298,10 +298,6 @@ export function normalizeRuntimePart(part = {}) {
     rotationRequired: Boolean(part.rotationRequired || part.rotatable),
     allowedRotations: Array.isArray(part.allowedRotations) ? part.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: numberOr(part.ecmStrength, 0),
-    decoyRange: numberOr(part.decoyRange, 0),
-    decoyCooldown: numberOr(part.decoyCooldown, 0),
-    decoyConfuseDuration: numberOr(part.decoyConfuseDuration, 0),
-    decoyChance: numberOr(part.decoyChance, 0),
     frontDamageReduction: numberOr(part.frontDamageReduction, 0),
     frontArc: numberOr(part.frontArc, 0),
     footprint: part.footprint ? { width: numberOr(part.footprint.width, 1), height: numberOr(part.footprint.height, 1) } : { width: 1, height: 1 }
@@ -344,10 +340,6 @@ export function normalizeBalanceComponent(component) {
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: numberOr(component.ecmStrength, 0),
-    decoyRange: numberOr(component.decoyRange, 0),
-    decoyCooldown: numberOr(component.decoyCooldown, 0),
-    decoyConfuseDuration: numberOr(component.decoyConfuseDuration, 0),
-    decoyChance: numberOr(component.decoyChance, 0),
     frontDamageReduction: numberOr(component.frontDamageReduction, 0),
     frontArc: numberOr(component.frontArc, 0),
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }

@@ -80,7 +80,7 @@ losses, kills, bounty, component zeroing and explosion effects are recorded once
 
 Production combat remains varied by defaulting to `Math.random`, but tests can
 set `room.combatRandom` to an injected deterministic generator. Authoritative
-weapon spread and decoy rolls use that room-scoped stream. The combat unit tests
+weapon spread and support rolls use that room-scoped stream. The combat unit tests
 cover allegiance matrices, stable targeting tie-breaks, point-defence priority,
 asteroid-first projectile collision and destruction idempotency with seed `1234`.
 

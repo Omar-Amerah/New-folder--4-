@@ -42,10 +42,6 @@ export function computeStats(modules, options = {}) {
   let coolingBonus = 0;
   let captureBonus = 0;
   let ecmStrength = 0;
-  let decoyRange = 0;
-  let decoyCooldown = 0;
-  let decoyConfuseDuration = 0;
-  let decoyChance = 0;
   let frontDamageReduction = 0;
   let frontArc = 0;
   let pointDefense = 0;
@@ -97,10 +93,6 @@ export function computeStats(modules, options = {}) {
     captureBonus += part.captureBonus || 0;
 
     if (part.ecmStrength) ecmStrength += part.ecmStrength;
-    if (part.decoyRange > decoyRange) decoyRange = part.decoyRange;
-    if (part.decoyCooldown > decoyCooldown) decoyCooldown = part.decoyCooldown;
-    if (part.decoyConfuseDuration > decoyConfuseDuration) decoyConfuseDuration = part.decoyConfuseDuration;
-    if (part.decoyChance > decoyChance) decoyChance = part.decoyChance;
 
     if (part.frontDamageReduction) {
       frontDamageReduction += part.frontDamageReduction;

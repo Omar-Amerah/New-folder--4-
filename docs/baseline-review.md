@@ -196,7 +196,7 @@ Map generation now records a reproducible seed, validates generated geometry, an
 
 The Section 7 pass focused on deterministic and idempotent combat correctness
 rather than balance. It added room-injectable combat RNG for authoritative spread
-and decoy rolls, stable tie-breaks for target selection, point-defence priority
+and support rolls, stable tie-breaks for target selection, point-defence priority
 correction from owner-id comparison to ship-id comparison, swept projectile
 collision precedence and duplicate-destruction protection.
 

@@ -95,7 +95,7 @@
     "test:renderer-structure": "node verify-renderer-structural-updates.js && node verify-shield-ring-renderer.js && node verify-pixi-world-layers.js && node verify-ship-identification-renderer.js",
     "test:renderer-performance": "npm run build && node verify-renderer-performance-browser.js",
     "test:webgl-context": "npm run build && node verify-webgl-context-browser.js",
-    "test:all-non-browser": "npm run check && npm run test:armor-delivery && node tools/run-tests.js all-non-browser",
+    "test:all-non-browser": "npm run check && npm run test:support-semantics && npm run test:armor-delivery && node tools/run-tests.js all-non-browser",
     "test:client-selection": "node verify-client-selection.js && node verify-client-self-destruct.js",
     "test:message-routes": "node verify-message-route-inventory.js",
     "test:message-dispatch": "node verify-message-dispatch.js && node verify-self-destruct-router.js",
@@ -130,7 +130,8 @@
     "test:thermal-parity": "node verify-thermal-parity.js",
     "test:blueprint-validation-parity": "node verify-blueprint-validation-parity.js",
     "test:rotation-parity": "node verify-rotation-parity.js",
-    "test:armor-delivery": "node verify-armor-delivery.js"
+    "test:armor-delivery": "node verify-armor-delivery.js",
+    "test:support-semantics": "node verify-support-and-weapon-semantics.js"
   },
   "keywords": [
     "browser-game",
