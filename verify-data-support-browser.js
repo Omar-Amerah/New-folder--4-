@@ -67,15 +67,46 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
       wiringUi.refreshWiringPresentation();
     });
     const panel = page.locator("#wiringStatusPanel");
+
+    const resetToDataOverview = async () => {
+      await page.evaluate(async () => {
+        const [{ state }, wiringUi] = await Promise.all([import("/src/state.js"), import("/src/ui/wiringUi.js")]);
+        state.wiringUi.selectedIndex = null;
+        state.wiringUi.selectedDataNetworkId = null;
+        state.wiringUi.selectedSectionId = null;
+        wiringUi.refreshWiringPresentation();
+      });
+      await assertUnique(panel.locator('[data-data-inspector="overview"]'), "Data overview inspector is visible");
+    };
+    const inspectDiagnostics = async (locator) => ({
+      globalCount: await page.locator('[data-wiring-action="inspect-component"][data-index="3"]').count(),
+      scopedCount: await locator.count(),
+      panelText: await panel.textContent(),
+      matchingButtons: await locator.evaluateAll((buttons) => buttons.map((button) => ({
+        text: button.textContent?.trim(),
+        index: button.dataset.index,
+        role: button.dataset.inspectionRole,
+        section: button.closest("[data-data-inspector]")?.dataset.dataInspector
+      })))
+    });
+    const assertUnique = async (locator, message) => {
+      const count = await locator.count();
+      assert.equal(count, 1, `${message}; diagnostics: ${JSON.stringify(await inspectDiagnostics(locator))}`);
+    };
+    const scopedComponent = (section, role, index) => panel.locator(
+      `[data-data-inspector="${section}"] [data-wiring-action="inspect-component"][data-inspection-role="${role}"][data-index="${index}"]`
+    );
     await assert.doesNotReject(() => panel.waitFor({ state: "visible" }));
     const overviewText = await panel.textContent();
     assert(/2 physical Data networks|physical Data networks/.test(overviewText) && /active sources|supported weapons/.test(overviewText), "Data overview is visible");
     const scenario = page.locator('[data-wiring-action="data-scenario"]');
     assert.equal((await scenario.locator("option").evaluateAll((opts) => opts.map((o) => o.textContent.trim()).join("|"))), "Idle|Typical Combat|Maximum Sustained Load");
 
-    const networkButtons = page.locator('[data-wiring-action="select-network"]');
-    await page.evaluate(async () => { const [{ state }, wiringUi] = await Promise.all([import("/src/state.js"), import("/src/ui/wiringUi.js")]); state.wiringUi.selectedIndex = null; state.wiringUi.selectedDataNetworkId = null; state.wiringUi.selectedSectionId = null; wiringUi.refreshWiringPresentation(); });
-    await networkButtons.nth(0).click();
+    await resetToDataOverview();
+    let networkButtons = panel.locator('[data-data-inspector="overview"] [data-wiring-action="select-network"]');
+    assert.equal(await networkButtons.count(), 2, "overview exposes two Data network selectors");
+    const networkIds = await networkButtons.evaluateAll((buttons) => buttons.map((button) => button.dataset.networkId));
+    await panel.locator(`[data-wiring-action="select-network"][data-network-id="${networkIds[0]}"]`).click();
     let report = await page.evaluate(() => ({
       selected: document.querySelectorAll(".wire-data.wire-net-selected").length,
       dimmed: document.querySelectorAll(".wire-data.data-dimmed").length,
@@ -84,25 +115,38 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     assert(report.selected > 0, "Network A sections are selected/emphasized");
     assert(report.dimmed > 0, "Network B sections are dimmed when Network A is selected");
     assert.equal(report.selectedDimmed, 0, "Network A sections are not dimmed");
-    await networkButtons.nth(1).click();
+    await resetToDataOverview();
+    networkButtons = panel.locator('[data-data-inspector="overview"] [data-wiring-action="select-network"]');
+    assert.equal(await networkButtons.count(), 2, "overview still exposes two Data network selectors");
+    await panel.locator(`[data-wiring-action="select-network"][data-network-id="${networkIds[1]}"]`).click();
     const reversed = await page.evaluate(() => ({ selected: document.querySelectorAll(".wire-data.wire-net-selected").length, dimmed: document.querySelectorAll(".wire-data.data-dimmed").length, selectedDimmed: document.querySelectorAll(".wire-data.wire-net-selected.data-dimmed").length }));
     assert(reversed.selected > 0 && reversed.dimmed > 0 && reversed.selectedDimmed === 0, "switching to Network B reverses selected/dimmed state");
 
-    await page.locator('[data-wiring-action="inspect-component"][data-index="6"]').click();
+    const targetSource = scopedComponent("network", "network-source", 6);
+    await assertUnique(targetSource, "network inspector contains one Targeting Computer source button");
+    await targetSource.click();
     assert(await page.locator(".wire-comp-data-source-selected").count() === 1, "selected source class is applied");
     assert(await page.locator(".wire-comp-data-recipient-active").count() > 0, "source recipients have active-recipient class");
     assert.equal(await page.locator(".wire-comp-data-recipient-active[aria-label*='Railgun']").count(), 0, "unrelated weapon is not an active recipient");
     assert(/Point Defence|Point Defense/.test(await panel.textContent()), "panel lists selected source recipients");
 
-    await page.evaluate(async () => { const [{ state }, wiringUi] = await Promise.all([import("/src/state.js"), import("/src/ui/wiringUi.js")]); state.wiringUi.selectedIndex = null; state.wiringUi.selectedDataNetworkId = null; state.wiringUi.selectedSectionId = null; wiringUi.refreshWiringPresentation(); });
-    await networkButtons.nth(0).click();
-    await page.locator('[data-wiring-action="inspect-component"][data-index="1"]').click();
+    await resetToDataOverview();
+    networkButtons = panel.locator('[data-data-inspector="overview"] [data-wiring-action="select-network"]');
+    assert.equal(await networkButtons.count(), 2, "overview exposes two Data network selectors before source inspection");
+    await panel.locator(`[data-wiring-action="select-network"][data-network-id="${networkIds[0]}"]`).click();
+    const fireControlSource = scopedComponent("network", "network-source", 1);
+    await assertUnique(fireControlSource, "network inspector contains one Fire Control source button");
+    await fireControlSource.click();
     assert(await page.locator(".wire-comp-data-source-selected").count() === 1, "Fire Control selected-source styling is applied");
     assert(await page.locator(".wire-comp-data-recipient-active[aria-label*='Railgun']").count() === 1, "Fire Control marks Railgun as active recipient");
     let fireText = await panel.textContent();
     assert(/Fire Control/.test(fireText) && !/\+\+/.test(fireText), "source panel has no duplicate signs");
 
-    await page.locator('[data-wiring-action="inspect-component"][data-index="3"]').click();
+    const allRailgunControls = page.locator('[data-wiring-action="inspect-component"][data-index="3"]');
+    assert(await allRailgunControls.count() >= 2, "Railgun appears in multiple valid inspector relationships");
+    const railgunRecipient = scopedComponent("source", "recipient", 3);
+    await assertUnique(railgunRecipient, "source inspector contains one Railgun recipient button");
+    await railgunRecipient.click();
     assert(await page.locator(".wire-comp-data-weapon-selected[aria-label*='Railgun']").count() === 1, "Railgun selected-weapon styling is applied");
     assert(await page.locator(".wire-comp-data-contributor-active[aria-label*='Fire Control']").count() === 1, "Fire Control is an active contributor");
     assert(await page.locator(".wire-comp-data-contributor-active[aria-label*='Sensor Array']").count() === 1, "Sensor Array is an active contributor");
