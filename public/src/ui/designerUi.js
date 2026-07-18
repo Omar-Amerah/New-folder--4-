@@ -825,7 +825,7 @@ export function removeCell(x, y) {
   const existing = findPartAt(x, y);
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part !== existing);
-  const validation = validateBlueprint(next);
+  const validation = validateBlueprint(next, { requireThrust: false });
   if (validation.ok) {
     state.design = next;
     clearInvalidHeatIndexes();

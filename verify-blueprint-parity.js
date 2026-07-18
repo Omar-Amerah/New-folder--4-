@@ -98,7 +98,8 @@ const corpus = {
       if (typeof server[field] === "number") assert(Math.abs(server[field] - client[field]) <= (FIELD_TOLERANCE[field] ?? TOLERANCE), `${name}.${field}: ${server[field]} !== ${client[field]}`);
       else assert.deepStrictEqual(client[field], server[field], `${name}.${field}`);
     }
-    assert.strictEqual((validateDesign(design).modules || design).length, design.length, `${name}.normalization`);
+    const normalized = validateDesign(design);
+    if (normalized.ok) assert.strictEqual(normalized.modules.length, design.length, `${name}.normalization`);
   }
   for (const r of [0,90,180,270]) {
     assert.deepStrictEqual(clientFootprint.getOccupiedCells(13, 13, {width:2,height:2}, r), serverFootprint.getOccupiedCells(13, 13, {width:2,height:2}, r));

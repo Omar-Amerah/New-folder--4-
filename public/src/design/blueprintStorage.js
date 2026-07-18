@@ -122,36 +122,58 @@ export function makeDesignPart(x, y, type, previousRotation = 0) {
   return { x, y, type, rotation };
 }
 
-export function normalizeDesign(input, options = {}) {
-  const { fallbackOnInvalid = true, allowEmpty = false } = options;
+function normalizationIssue(code, inputIndex) {
+  const messages = {
+    "invalid-coordinate": "Invalid design: module has invalid coordinates.",
+    "unknown-module": "Invalid design: unknown module type.",
+    "out-of-bounds": "Invalid design: modules outside build grid.",
+    overlap: "Invalid design: overlapping modules."
+  };
+  return { code, message: messages[code] || "Invalid design: invalid module.", inputIndex };
+}
+
+export function normalizeDesignDetailed(input, options = {}) {
+  const { allowEmpty = false } = options;
   const fallback = defaultDesign();
   const source = Array.isArray(input) ? input : fallback;
   const occupied = new Set();
-  const clean = [];
-  for (const raw of source) {
+  const modules = [];
+  const issues = [];
+  for (let inputIndex = 0; inputIndex < source.length; inputIndex += 1) {
+    const raw = source[inputIndex];
     const x = Math.trunc(Number(raw?.x));
     const y = Math.trunc(Number(raw?.y));
     const type = String(raw?.type || "");
-    if (x < 0 || x > 14 || y < 0 || y > 14 || !PART_DEFS[type]) continue;
+    if (!Number.isInteger(x) || !Number.isInteger(y)) { issues.push(normalizationIssue("invalid-coordinate", inputIndex)); continue; }
+    if (!PART_DEFS[type]) { issues.push(normalizationIssue("unknown-module", inputIndex)); continue; }
     const newPart = makeDesignPart(x, y, type, raw?.rotation);
     const footprint = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
     const cells = getOccupiedCells(x, y, footprint, newPart.rotation);
-    let bad = false;
+    let outOfBounds = false;
+    let overlap = false;
     for (const cell of cells) {
-      if (cell.x < 0 || cell.x > 14 || cell.y < 0 || cell.y > 14 || occupied.has(`${cell.x},${cell.y}`)) bad = true;
+      if (cell.x < 0 || cell.x > 14 || cell.y < 0 || cell.y > 14) outOfBounds = true;
+      if (occupied.has(`${cell.x},${cell.y}`)) overlap = true;
     }
-    if (bad) continue;
+    if (outOfBounds) { issues.push(normalizationIssue("out-of-bounds", inputIndex)); continue; }
+    if (overlap) { issues.push(normalizationIssue("overlap", inputIndex)); continue; }
     for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
-    clean.push(newPart);
+    modules.push(newPart);
   }
-  if (allowEmpty && clean.length === 0) return clean;
-  const validation = validateBlueprint(clean);
-  if (!validation.ok) return fallbackOnInvalid ? fallback : clean;
-  return clean;
+  return { modules: allowEmpty || modules.length ? modules : [], issues, changed: issues.length > 0 || modules.length !== source.length, droppedCount: issues.length };
+}
+
+export function normalizeDesign(input, options = {}) {
+  const { fallbackOnInvalid = true, allowEmpty = false } = options;
+  const detailed = normalizeDesignDetailed(input, { allowEmpty });
+  if (allowEmpty && detailed.modules.length === 0) return detailed.modules;
+  const validation = validateBlueprint(detailed.modules, { requireThrust: false, normalizationIssues: detailed.issues });
+  if (!validation.ok) return fallbackOnInvalid ? defaultDesign() : detailed.modules;
+  return detailed.modules;
 }
 
 
-function normalizedDesignKey(modules) { return JSON.stringify(normalizeDesign(modules, { fallbackOnInvalid: false, allowEmpty: true })); }
+function normalizedDesignKey(modules) { return JSON.stringify(normalizeDesignDetailed(modules, { allowEmpty: true }).modules); }
 function isEmptyWiringValue(wiring) {
   return wiring?.version === 2
     && (!Array.isArray(wiring?.power?.sections) || wiring.power.sections.length === 0)
@@ -162,9 +184,9 @@ function isEmptyWiringValue(wiring) {
 function isRecognizedUntouchedStockDefault(modules) {
   const current = normalizedDesignKey(defaultDesign());
   const normalized = normalizedDesignKey(modules);
-  if (normalized === current) return true;
+  if (Array.isArray(modules) && modules.length === defaultDesign().length && normalized === current) return true;
   const previous = defaultDesign().map((part) => ({ ...part, x: part.x - 4, y: part.y - 4 }));
-  return normalized === normalizedDesignKey(previous);
+  return Array.isArray(modules) && modules.length === previous.length && normalized === normalizedDesignKey(previous);
 }
 function normalizeStoredWiringForDesign(wiring, modules) {
   // Narrow bug migration: exact untouched stock/default blueprints saved while
@@ -186,9 +208,10 @@ function savedDesignSummary(blueprint) {
 }
 function normalizeSavedDesign(design, index) {
   if (!design || typeof design !== "object" || Array.isArray(design)) return null;
-  const blueprint = normalizeDesign(design.blueprint || design.modules, { fallbackOnInvalid: false, allowEmpty: true });
+  const detailed = normalizeDesignDetailed(design.blueprint || design.modules, { allowEmpty: true });
+  const blueprint = detailed.modules;
   if (!blueprint.length) return null;
-  const validation = validateBlueprint(blueprint);
+  const validation = validateBlueprint(blueprint, { requireThrust: true, normalizationIssues: detailed.issues });
   const summary = savedDesignSummary(blueprint);
   return {
     id: String(design.id || `saved-${index}`).slice(0, 64),
@@ -214,9 +237,12 @@ export function migrateDesignStorage(value) {
   if (!isCurrentEnvelope(value, "current-design")) return { ...defaultCurrentDesign(), discarded: value != null };
   const payload = value.payload;
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return { ...defaultCurrentDesign(), discarded: true };
-  const modules = normalizeDesign(payload.modules, { allowEmpty: true });
+  const detailed = normalizeDesignDetailed(payload.modules, { allowEmpty: true });
+  const modules = detailed.modules;
   return {
     modules,
+    normalizationIssues: detailed.issues,
+    needsAttention: detailed.issues.length > 0,
     wiring: normalizeStoredWiringForDesign(payload.wiring, modules),
     combatStyle: safeStyle(payload.combatStyle, "sentry")
   };
@@ -280,26 +306,113 @@ export function exportBlueprints(savedDesigns, loadouts = []) {
   return envelope("blueprint-export", { designs: normalizeSavedDesignList(savedDesigns), loadouts: normalizeLoadoutList(loadouts) });
 }
 
+function uniqueImportedId(base, used) {
+  const cleanBase = String(base || "imported").slice(0, 64) || "imported";
+  if (!used.has(cleanBase)) return cleanBase;
+  for (let n = 1; n < 1000; n += 1) {
+    const suffix = `-import-${n}`;
+    const candidate = `${cleanBase.slice(0, 64 - suffix.length)}${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return null;
+}
+
 export function importBlueprints(value, existingDesigns = [], existingLoadouts = []) {
+  const baseResult = () => ({
+    designs: existingDesigns.slice(0, MAX_SAVED_DESIGNS),
+    loadouts: normalizeLoadoutList(existingLoadouts),
+    accepted: 0,
+    rejected: 0,
+    acceptedDesigns: 0,
+    rejectedDesigns: 0,
+    acceptedLoadouts: 0,
+    rejectedLoadouts: 0,
+    designIdMap: {},
+    warnings: []
+  });
   if (isEnvelope(value, "blueprint-export") && value.schemaVersion !== BLUEPRINT_STORAGE_VERSION) {
-    return { designs: existingDesigns.slice(0, MAX_SAVED_DESIGNS), loadouts: existingLoadouts.slice(0, MAX_LOADOUTS), accepted: 0, rejected: 0, incompatibleVersion: true };
+    return { ...baseResult(), incompatibleVersion: true };
   }
   const source = isEnvelope(value, "blueprint-export") ? value.payload : value;
+  const envelopeImport = isEnvelope(value, "blueprint-export") || (source && typeof source === "object" && !Array.isArray(source));
   const incoming = Array.isArray(source?.designs) ? source.designs : Array.isArray(source) ? source : [];
-  const byId = new Set(existingDesigns.map((d) => String(d.id)));
-  const out = existingDesigns.slice(0, MAX_SAVED_DESIGNS);
-  let accepted = 0;
-  let rejected = 0;
+  const incomingLoadouts = envelopeImport && Array.isArray(source?.loadouts) ? source.loadouts : [];
+  const result = baseResult();
+  const designIds = new Set(result.designs.map((d) => String(d.id)));
+  const sourceCounts = new Map();
   for (let i = 0; i < incoming.length; i += 1) {
-    if (out.length >= MAX_SAVED_DESIGNS) { rejected += 1; continue; }
-    const normalized = normalizeSavedDesign(incoming[i], i);
-    if (!normalized || normalized.invalid) { rejected += 1; continue; }
-    let id = normalized.id;
-    if (byId.has(id)) id = `${id}-import-${Date.now().toString(36)}-${i}`.slice(0, 64);
-    normalized.id = id;
-    byId.add(id);
-    out.push(normalized);
-    accepted += 1;
+    const id = String(incoming[i]?.id || `saved-${i}`).slice(0, 64);
+    sourceCounts.set(id, (sourceCounts.get(id) || 0) + 1);
   }
-  return { designs: out, loadouts: normalizeLoadoutList(existingLoadouts), accepted, rejected };
+  const duplicateSourceIds = new Set([...sourceCounts].filter(([, count]) => count > 1).map(([id]) => id));
+
+  for (let i = 0; i < incoming.length; i += 1) {
+    const sourceId = String(incoming[i]?.id || `saved-${i}`).slice(0, 64);
+    if (duplicateSourceIds.has(sourceId)) {
+      result.rejectedDesigns += 1;
+      result.warnings.push(`Skipped blueprint ${sourceId}: duplicate incoming design ID.`);
+      continue;
+    }
+    if (result.designs.length >= MAX_SAVED_DESIGNS) {
+      result.rejectedDesigns += 1;
+      result.warnings.push(`Skipped blueprint ${sourceId}: saved design capacity limit reached.`);
+      continue;
+    }
+    const normalized = normalizeSavedDesign(incoming[i], i);
+    if (!normalized || normalized.invalid) {
+      result.rejectedDesigns += 1;
+      result.warnings.push(`Skipped blueprint ${sourceId}: ${normalized?.invalidReason || "invalid design"}`);
+      continue;
+    }
+    const finalId = uniqueImportedId(normalized.id, designIds);
+    if (!finalId) {
+      result.rejectedDesigns += 1;
+      result.warnings.push(`Skipped blueprint ${sourceId}: unable to assign a unique ID.`);
+      continue;
+    }
+    normalized.id = finalId;
+    designIds.add(finalId);
+    result.designIdMap[sourceId] = finalId;
+    result.designs.push(normalized);
+    result.acceptedDesigns += 1;
+  }
+
+  const loadoutIds = new Set(result.loadouts.map((lo) => String(lo.id)));
+  for (let i = 0; i < incomingLoadouts.length; i += 1) {
+    if (result.loadouts.length >= MAX_LOADOUTS) {
+      result.rejectedLoadouts += 1;
+      result.warnings.push(`Skipped loadout ${String(incomingLoadouts[i]?.id || `loadout-${i}`)}: loadout capacity limit reached.`);
+      continue;
+    }
+    const raw = incomingLoadouts[i] || {};
+    const originalId = String(raw.id || `loadout-${i}`).slice(0, 64);
+    const name = String(raw.name || `Loadout ${i + 1}`).slice(0, 20);
+    const seenRefs = new Set();
+    const designIdsForLoadout = [];
+    for (const ref of Array.isArray(raw.designIds) ? raw.designIds : []) {
+      const mapped = result.designIdMap[String(ref)];
+      if (!mapped) {
+        result.warnings.push(`Removed loadout ${originalId} reference ${String(ref)}: design was missing, rejected or not imported.`);
+        continue;
+      }
+      if (!seenRefs.has(mapped)) { seenRefs.add(mapped); designIdsForLoadout.push(mapped); }
+    }
+    if (!designIdsForLoadout.length) {
+      result.rejectedLoadouts += 1;
+      result.warnings.push(`Skipped loadout ${originalId}: no imported design references remain.`);
+      continue;
+    }
+    const finalId = uniqueImportedId(originalId, loadoutIds);
+    if (!finalId) {
+      result.rejectedLoadouts += 1;
+      result.warnings.push(`Skipped loadout ${originalId}: unable to assign a unique ID.`);
+      continue;
+    }
+    loadoutIds.add(finalId);
+    result.loadouts.push({ id: finalId, name, designIds: designIdsForLoadout.slice(0, MAX_SAVED_DESIGNS) });
+    result.acceptedLoadouts += 1;
+  }
+  result.accepted = result.acceptedDesigns;
+  result.rejected = result.rejectedDesigns;
+  return result;
 }

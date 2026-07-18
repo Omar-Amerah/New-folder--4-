@@ -660,7 +660,7 @@ export function bindSettingsRecoveryControls() {
         return;
       }
       state.savedDesigns = result.designs; state.loadouts = result.loadouts;
-      persistSavedDesigns(state.savedDesigns); persistLoadouts(state.loadouts); renderSavedDesigns(); renderPurchaseBar(); showToast(`Imported ${result.accepted}; rejected ${result.rejected}`, result.rejected ? "warning" : "good");
+      persistSavedDesigns(state.savedDesigns); persistLoadouts(state.loadouts); renderSavedDesigns(); renderPurchaseBar(); showToast(`Imported ${result.acceptedDesigns ?? result.accepted} blueprints and ${result.acceptedLoadouts ?? 0} loadouts. Skipped ${result.rejectedDesigns ?? result.rejected} blueprint${(result.rejectedDesigns ?? result.rejected) === 1 ? "" : "s"} and ${result.rejectedLoadouts ?? 0} loadout${(result.rejectedLoadouts ?? 0) === 1 ? "" : "s"}.`, (result.rejectedDesigns || result.rejectedLoadouts || result.rejected) ? "warning" : "good");
     } catch { showToast("Blueprint import file was not valid JSON", "error"); }
     event.target.value = "";
   });
