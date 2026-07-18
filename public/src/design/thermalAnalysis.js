@@ -85,7 +85,10 @@ export function buildThermalLoad(model, mode = "full", wiring = null, options = 
   const { design, rules } = model;
   let wiringAnalysis = null, power = null;
   try { wiringAnalysis = wiring ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS) : null; power = wiringAnalysis?.power || null; } catch (_) { power = null; }
-  const powerState = buildPredictedPowerState(design, power);
+  const initialStoredHeat = buildInitialStoredHeat(design, model.profiles || [], rules, options);
+  const initialHeatStates = buildInitialHeatStates(design, model.profiles || [], rules, initialStoredHeat, options);
+  const initialGeneratorAvailability = design.map((module, i) => isPowerGenerator(module.type) && initialHeatStates[i] !== rules.STATE.OVERHEATED);
+  const powerState = buildPredictedPowerState(design, power, initialGeneratorAvailability);
   const powerMultiplier = powerState.multipliers;
   const loadMultiplier = (_module, stat) => {
     if (mode === "idle") return (stat.powerGeneration || 0) > 0 ? 0.2 : (stat.shieldRegen || 0) > 0 ? 0.08 : 0;
@@ -100,11 +103,11 @@ export function buildThermalLoad(model, mode = "full", wiring = null, options = 
     return 1;
   };
   const designExhaust = globalThis.EngineExhaustRules.analyze(design, PART_STATS);
-  const dataSupport = buildPredictedDataSupport(design, wiringAnalysis, powerMultiplier, options);
+  const dataSupport = buildPredictedDataSupport(design, wiringAnalysis, powerMultiplier, { ...options, sourceHeatStates: options.sourceHeatStates || Object.fromEntries(initialHeatStates.map((state, i) => [i, state])) });
   const generationRates = buildPredictedGenerationRates(design, rules, mode, loadMultiplier, designExhaust, dataSupport, powerMultiplier, powerState);
   return {
     mode, powerMultiplier, initialPowerMultiplier: [...powerMultiplier], powerState, power, wiringAnalysis, dataSupport, loadMultiplier, designExhaust,
-    generationRates
+    generationRates, initialStoredHeat, initialHeatStates
   };
 }
 
@@ -122,12 +125,21 @@ export function simulateThermalLoad(model, load, options = {}) {
   let powerMultiplier = mutablePower?.multipliers || [...(load.powerMultiplier || design.map(() => 1))];
   let dataSupport = load.dataSupport;
   let generatorShutdownCount = 0, powerReallocationCount = 0, dataReallocationCount = 0;
-  const initialPowerMultiplier = [...powerMultiplier];
-  const minimumPowerMultiplier = [...powerMultiplier];
+  let initialPowerMultiplier = [...powerMultiplier];
+  let minimumPowerMultiplier = [...powerMultiplier];
   const powerMultiplierTotals = design.map(() => 0);
-  const heat = design.map(() => 0);
-  const states = design.map((_, i) => options.initialHeatStates?.[i] ?? rules.STATE.NORMAL);
+  const inheritedInitialValues = options.initialHeatStates == null && options.initialHeatValues == null && options.initialHeatRatios == null ? load.initialStoredHeat : undefined;
+  const inheritedInitialStates = options.initialHeatStates == null && options.initialHeatValues == null && options.initialHeatRatios == null ? load.initialHeatStates : undefined;
+  const heat = buildInitialStoredHeat(design, profiles, rules, { ...options, initialHeatValues: options.initialHeatValues ?? inheritedInitialValues });
+  const states = buildInitialHeatStates(design, profiles, rules, heat, { ...options, initialHeatStates: options.initialHeatStates ?? inheritedInitialStates });
   let generatorAvailability = design.map((module, i) => isPowerGenerator(module.type) && states[i] !== rules.STATE.OVERHEATED);
+  if (mutablePower) {
+    powerMultiplier = recalculatePredictedPowerState(mutablePower, design, generatorAvailability);
+    dataSupport = buildPredictedDataSupport(design, load.wiringAnalysis, powerMultiplier, { sourceHeatStates: Object.fromEntries(states.map((state, i) => [i, state])) });
+    generationRates = buildPredictedGenerationRates(design, rules, load.mode, load.loadMultiplier, load.designExhaust, dataSupport, powerMultiplier, mutablePower);
+    initialPowerMultiplier = [...powerMultiplier];
+    minimumPowerMultiplier = [...powerMultiplier];
+  }
   const received = design.map(() => 0);
   const transferredOut = design.map(() => 0);
   const cooling = design.map(() => 0);
@@ -140,12 +152,14 @@ export function simulateThermalLoad(model, load, options = {}) {
   const uptimeTicks = { weapon: 0, engine: 0, shield: 0 };
   const uptimeTotals = { weapon: 0, engine: 0, shield: 0 };
   let firstOverheatTime = null, firstOverheatIndex = -1, equilibriumTime = null, equilibriumTicks = 0, previousTotalHeat = 0;
-  let heatSinkSaturationTime = null, radiatorRemovedTotal = 0, totalCoolingRemoved = 0, totalGeneratedHeat = 0, peakAvailableCoolingRate = 0, finalEffectiveCoolingRate = 0, simulatedSeconds = 0, finalFlows = [];
+  let heatSinkSaturationTime = null, radiatorRemovedTotal = 0, totalCoolingRemoved = 0, totalAvailableCooling = 0, totalGeneratedHeat = 0, peakAvailableCoolingRate = 0, finalAvailableCoolingRate = 0, finalEffectiveCoolingRate = 0, simulatedSeconds = 0, finalFlows = [];
+  let previousDataSourceSignature = buildDataSourceSignature(design, states, powerMultiplier);
   const dt = rules.TICK_SECONDS;
   for (let step = 0; step < (options.maxSteps || 1500); step += 1) {
     simulatedSeconds = (step + 1) * dt;
     const delta = design.map(() => 0);
     let tickEffectiveCoolingRate = 0;
+    let tickAvailableCoolingRate = 0;
     received.fill(0); transferredOut.fill(0); cooling.fill(0);
     if (mutablePower) {
       const nextAvailability = design.map((module, i) => isPowerGenerator(module.type) && states[i] !== rules.STATE.OVERHEATED);
@@ -156,8 +170,16 @@ export function simulateThermalLoad(model, load, options = {}) {
         powerReallocationCount += 1;
         dataSupport = buildPredictedDataSupport(design, load.wiringAnalysis, powerMultiplier, { sourceHeatStates: Object.fromEntries(states.map((state, i) => [i, state])) });
         dataReallocationCount += 1;
+        previousDataSourceSignature = buildDataSourceSignature(design, states, powerMultiplier);
         generationRates = buildPredictedGenerationRates(design, rules, load.mode, load.loadMultiplier, load.designExhaust, dataSupport, powerMultiplier, mutablePower);
       }
+    }
+    const dataSourceSignature = buildDataSourceSignature(design, states, powerMultiplier);
+    if (dataSourceSignature !== previousDataSourceSignature) {
+      dataSupport = buildPredictedDataSupport(design, load.wiringAnalysis, powerMultiplier, { sourceHeatStates: Object.fromEntries(states.map((state, i) => [i, state])) });
+      dataReallocationCount += 1;
+      previousDataSourceSignature = dataSourceSignature;
+      generationRates = buildPredictedGenerationRates(design, rules, load.mode, load.loadMultiplier, load.designExhaust, dataSupport, powerMultiplier, mutablePower);
     }
     for (let i = 0; i < design.length; i += 1) { powerMultiplierTotals[i] += powerMultiplier[i] ?? 0; minimumPowerMultiplier[i] = Math.min(minimumPowerMultiplier[i] ?? 1, powerMultiplier[i] ?? 0); }
     for (let i = 0; i < design.length; i += 1) {
@@ -204,9 +226,9 @@ export function simulateThermalLoad(model, load, options = {}) {
       else if (exposed[i] > 0) coolingRate *= 1.12;
       const coolRatio = Math.max(0, (heat[i] + delta[i]) / Math.max(1, profiles[i].capacity));
       coolingRate *= 0.7 + 0.9 * coolRatio * coolRatio;
-      peakAvailableCoolingRate = Math.max(peakAvailableCoolingRate, coolingRate);
+      tickAvailableCoolingRate += coolingRate;
       cooling[i] = Math.min(Math.max(0, heat[i] + delta[i]), coolingRate * dt);
-      totalCoolingRemoved += cooling[i]; tickEffectiveCoolingRate += coolingRate;
+      totalCoolingRemoved += cooling[i]; tickEffectiveCoolingRate += cooling[i] / dt;
       if (design[i].type === "radiator") radiatorRemovedTotal += cooling[i];
       delta[i] -= cooling[i];
     }
@@ -228,6 +250,9 @@ export function simulateThermalLoad(model, load, options = {}) {
       }
       if (design[i].type === "heatSink" && ratio >= .9 && heatSinkSaturationTime === null) heatSinkSaturationTime = (step + 1) * dt;
     }
+    peakAvailableCoolingRate = Math.max(peakAvailableCoolingRate, tickAvailableCoolingRate);
+    totalAvailableCooling += tickAvailableCoolingRate * dt;
+    finalAvailableCoolingRate = tickAvailableCoolingRate;
     finalEffectiveCoolingRate = tickEffectiveCoolingRate;
     const totalHeatNow = heat.reduce((sum, value) => sum + value, 0);
     const changePerSecond = Math.abs(totalHeatNow - previousTotalHeat) / dt;
@@ -237,7 +262,7 @@ export function simulateThermalLoad(model, load, options = {}) {
     if (equilibriumTime !== null && step * dt > equilibriumTime + 5) break;
   }
   const averagePowerMultiplier = powerMultiplierTotals.map(value => simulatedSeconds > 0 ? value / Math.max(1, Math.round(simulatedSeconds / dt)) : 0);
-  return { heat, states, received, transferredOut, cooling, generatedHeat, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalGeneratedHeat, peakAvailableCoolingRate, finalEffectiveCoolingRate, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport };
+  return { heat, states, received, transferredOut, cooling, generatedHeat, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport };
 }
 
 /**
@@ -290,7 +315,8 @@ export function summariseThermalResult(model, load, simulation) {
   const generation = generationRates.reduce((sum, value) => sum + value, 0);
   const nominalCoolingRate = profiles.reduce((sum, item, i) => sum + (design[i].type === "radiator" ? item.cooling * (exposed[i] ? 1 : 0.25) : item.cooling * (exposed[i] ? 1.12 : 1)), 0);
   const totalCoolingRemoved = simulation.totalCoolingRemoved ?? 0;
-  const coolingRate = simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0;
+  const coolingRate = simulation.averageAvailableCoolingRate ?? (simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0);
+  const averageActualCoolingRate = simulation.averageActualCoolingRate ?? (simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0);
   const averageGenerationRate = simulatedSeconds > 0 ? (simulation.totalGeneratedHeat ?? generation * simulatedSeconds) / simulatedSeconds : generation;
   let radiators = 0, exposedRadiators = 0;
   design.forEach((module, i) => { if (module.type === "radiator") { radiators += 1; if (exposed[i]) exposedRadiators += 1; } });
@@ -316,7 +342,7 @@ export function summariseThermalResult(model, load, simulation) {
     severWarning: problems.criticalFrames.size ? `${problems.criticalFrames.size} frame block${problems.criticalFrames.size === 1 ? "" : "s"} could sever heat transfer to cooling components` : "No single-frame heat-transfer bottleneck",
     meltdownWarning: problems.meltdownIndices.length ? `${problems.meltdownIndices.length} reactor${problems.meltdownIndices.length === 1 ? "" : "s"} predicted to melt down and explode` : "No reactor meltdowns predicted",
     analysis: {
-      mode: load.mode, generation: averageGenerationRate, cooling: coolingRate, nominalCoolingRate, averageEffectiveCoolingRate: coolingRate, finalEffectiveCoolingRate: simulation.finalEffectiveCoolingRate ?? coolingRate, peakAvailableCoolingRate: simulation.peakAvailableCoolingRate ?? coolingRate, totalCoolingRemoved, averageGenerationRate, netAverageHeatRate: averageGenerationRate - coolingRate, net: averageGenerationRate - coolingRate, balance,
+      mode: load.mode, generation: averageGenerationRate, cooling: coolingRate, nominalCoolingRate, averageEffectiveCoolingRate: coolingRate, averageAvailableCoolingRate: coolingRate, averageActualCoolingRate, finalAvailableCoolingRate: simulation.finalAvailableCoolingRate ?? coolingRate, finalEffectiveCoolingRate: simulation.finalEffectiveCoolingRate ?? averageActualCoolingRate, peakAvailableCoolingRate: simulation.peakAvailableCoolingRate ?? coolingRate, totalCoolingRemoved, averageGenerationRate, netAverageHeatRate: averageGenerationRate - coolingRate, net: averageGenerationRate - coolingRate, balance,
       firstOverheatTime, firstOverheatIndex, overheatedCount: overheatedIndices.size,
       meltdownCount: problems.meltdownIndices.length, firstMeltdownTime: problems.firstMeltdownTime, firstMeltdownIndex: problems.firstMeltdownIndex,
       equilibriumTime, peakPredictedHeat, reserve, predictedBalance: balance, actualCooling, actionItems, initialPowerMultiplier: simulation.initialPowerMultiplier, finalPowerMultiplier: simulation.finalPowerMultiplier, minimumPowerMultiplier: simulation.minimumPowerMultiplier, generatorShutdownCount: simulation.generatorShutdownCount || 0, powerReallocationCount: simulation.powerReallocationCount || 0,
@@ -419,11 +445,45 @@ export function analyzeDesignHeat(design, wiring = null, mode = "full") {
   return result;
 }
 
+function representativeRatioForState(state, rules) {
+  if (state === rules.STATE.NORMAL) return 0.05;
+  if (state === rules.STATE.WARM) return 0.30;
+  if (state === rules.STATE.HOT) return 0.56;
+  if (state === rules.STATE.CRITICAL) return 0.82;
+  if (state === rules.STATE.OVERHEATED) return 1.04;
+  return 0;
+}
+function buildInitialStoredHeat(design, profiles, rules, options = {}) {
+  return design.map((_, i) => {
+    if (options.initialHeatValues?.[i] != null) return Math.max(0, Number(options.initialHeatValues[i]) || 0);
+    if (options.initialHeatRatios?.[i] != null) return Math.max(0, Number(options.initialHeatRatios[i]) || 0) * Math.max(1, profiles[i]?.capacity || 1);
+    if (options.initialHeatStates?.[i] != null) return representativeRatioForState(options.initialHeatStates[i], rules) * Math.max(1, profiles[i]?.capacity || 1);
+    return 0;
+  });
+}
+function buildInitialHeatStates(design, profiles, rules, heat, options = {}) {
+  return design.map((_, i) => {
+    const capacity = Math.max(1, profiles[i]?.capacity || 1);
+    const derived = rules.stateFor((heat[i] || 0) / capacity, rules.STATE.NORMAL);
+    const supplied = options.initialHeatStates?.[i];
+    if (supplied == null || options.initialHeatValues?.[i] == null) return derived;
+    if (supplied === rules.STATE.HOT && (heat[i] || 0) <= 0) throw new Error(`Initial HOT component ${i} must hold Heat`);
+    const suppliedRatio = representativeRatioForState(supplied, rules);
+    if (rules.stateFor(suppliedRatio, rules.STATE.NORMAL) !== derived) throw new Error(`Initial Heat state for component ${i} does not match stored Heat`);
+    return supplied;
+  });
+}
+function buildDataSourceSignature(design, states, powerMultiplier) {
+  const rules = globalThis.DataSupportRules;
+  if (!rules?.isDataSupportSource) return "";
+  return design.map((module, i) => rules.isDataSupportSource(module.type) ? `${i}:${states[i]}:${globalThis.HeatRules.activeOutputForState(states[i])}:${powerMultiplier[i] ?? 0}:1` : null).filter(Boolean).join('|');
+}
+
 function isPowerGenerator(type) { return (Number(PART_STATS[type]?.powerGeneration) || 0) > 0; }
-function buildPredictedPowerState(design, power) {
+function buildPredictedPowerState(design, power, available = null) {
   const networks = (power?.networks || []).map(network => ({ ...network, sourceIndices: [...(network.sourceIndices || [])], consumerIndices: [...(network.consumerIndices || [])] }));
   const state = { networks, multipliers: design.map(() => 1) };
-  return Object.assign(state, { multipliers: recalculatePredictedPowerState(state, design, design.map((m,i)=>isPowerGenerator(m.type))) });
+  return Object.assign(state, { multipliers: recalculatePredictedPowerState(state, design, available || design.map((m)=>isPowerGenerator(m.type))) });
 }
 function clonePredictedPowerState(state) { return { networks: state.networks.map(n => ({ ...n, sourceIndices: [...(n.sourceIndices || [])], consumerIndices: [...(n.consumerIndices || [])] })), multipliers: [...state.multipliers] }; }
 function recalculatePredictedPowerState(state, design, available) {
