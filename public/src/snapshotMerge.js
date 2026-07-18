@@ -94,6 +94,9 @@ export function mergeCachedShipFields(previousShips, nextShips) {
     if (!oldShip) return { ...ship, componentHeat: normalizeComponentHeatSnapshot(ship.componentHeat) };
     const merged = { ...ship };
     if (isNullish(merged.design)) merged.design = oldShip.design;
+    for (const key of ["componentPower", "powerStatus", "powerRevision", "wiringRevision", "wiringStatus"]) {
+      if (isNullish(merged[key])) merged[key] = clone(oldShip[key]);
+    }
     if (isNullish(merged.chp)) {
       const hp = applyComponentHpDelta(oldShip.chp, merged.chpD);
       if (hp !== undefined) merged.chp = hp;

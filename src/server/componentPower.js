@@ -8,6 +8,8 @@ const { clampNumber } = require("./utils");
 const HeatRules = require("../../public/src/shared/heatRules");
 
 const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
+const perf = () => global.__mfaDataSupportPerf || null;
+function bump(name) { const p = perf(); if (p) p[name] = (p[name] || 0) + 1; }
 
 function componentOccupancy(design) {
   const occupied = new Map();
@@ -64,13 +66,16 @@ function stateSignature(runtime) {
 
 function rebuildShipWiringState(ship, reason = "component-boundary", options = {}) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
+  bump("wiringNormalizationCount");
   const occupied = componentOccupancy(design);
   const power = deriveRuntimeKind(ship, "power", occupied);
   const data = deriveRuntimeKind(ship, "data", occupied);
   const runtimeWiring = { version: WiringRules.WIRING_VERSION, power: power.operationalWiring, data: data.operationalWiring };
   let analysis;
+  bump("powerAnalysisCount");
   try { analysis = analyzeShipPower(design, runtimeWiring); } catch (_) { analysis = { networks: [] }; }
   let dataAnalysis;
+  bump("wiringAnalysisCount");
   try { dataAnalysis = WiringRules.analyzeWiring(design, runtimeWiring, PARTS).data; } catch (_) { dataAnalysis = { networks: [] }; }
   const runtimeNetworks = (analysis.networks || []).map(network => ({ ...network }));
   const runtime = { power, data, powerNetworks: runtimeNetworks, dataNetworks: dataAnalysis.networks || [], reason };
@@ -86,7 +91,7 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   // Section 6C ordering: surviving Wiring topology is projected first, then
   // component Power is allocated, then Data-support source multipliers read
   // the fresh per-component Power state during a topology rebuild/allocation.
-  require("./componentData").rebuildShipDataTopology(ship, reason);
+  require("./componentData").rebuildShipDataTopology(ship, reason, dataAnalysis.networks || []);
   return runtime;
 }
 

@@ -27,7 +27,7 @@ function buildComponentHeatTuple(ship, index) {
 
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
-function buildSharedSnapshot(room, now, sendStatic) {
+function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false) {
   const ships = [];
   for (const ship of room.ships.values()) {
     if (ship.removed) continue;
@@ -76,7 +76,7 @@ function buildSharedSnapshot(room, now, sendStatic) {
     }
     if (sendStatic) {
       appendFullShipBaseline(entry, ship);
-    } else {
+    } else if (!suppressCompactDeltas) {
       appendShipDeltas(entry, ship);
     }
     ships.push(entry);
@@ -158,8 +158,11 @@ function appendFullShipBaseline(entry, ship) {
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
 }
 
-function appendShipDeltas(entry, ship) {
-  if (ship.dirtyPower && ship.componentPower?.byComponentIndex) {
+function appendShipDeltas(entry, ship, client = null) {
+  const knownPower = client?.knownShipPowerRevisions instanceof Map ? client.knownShipPowerRevisions : null;
+  const known = knownPower ? knownPower.get(ship.id) : undefined;
+  const currentPowerRevision = ship.powerRevision || 0;
+  if (ship.componentPower?.byComponentIndex && (knownPower ? known !== currentPowerRevision : ship.dirtyPower)) {
     entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
     entry.powerStatus = ship.powerStatus;
     entry.powerRevision = ship.powerRevision || 0;
@@ -208,7 +211,7 @@ function buildClientShips(room, sharedShips, client, sendStatic) {
     if (!ship || ship.removed) return entry;
     const revision = ship.designRevision || 1;
     if (sendStatic || known.get(ship.id) !== revision) appendFullShipBaseline(entry, ship);
-    else appendShipDeltas(entry, ship);
+    else appendShipDeltas(entry, ship, client);
     return entry;
   });
 }
@@ -220,6 +223,18 @@ function collectSnapshotDesignRevisions(snapshot) {
   }
   return revisions;
 }
+function collectSnapshotPowerRevisions(snapshot) {
+  const revisions = [];
+  for (const ship of snapshot?.ships || []) {
+    if (ship.componentPower) revisions.push([ship.id, ship.powerRevision || 0]);
+  }
+  return revisions;
+}
+function markSnapshotPowerWritten(client, powerRevisions = []) {
+  if (!client) return;
+  if (!client.knownShipPowerRevisions) client.knownShipPowerRevisions = new Map();
+  for (const [shipId, revision] of powerRevisions) client.knownShipPowerRevisions.set(shipId, revision);
+}
 
 function markSnapshotDesignsWritten(client, designRevisions = []) {
   const known = getKnownShipDesigns(client);
@@ -229,7 +244,7 @@ function markSnapshotDesignsWritten(client, designRevisions = []) {
 function markShipDesignsSent() {}
 
 function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null) {
-  if (!shared) shared = buildSharedSnapshot(room, now, sendStatic);
+  if (!shared) shared = buildSharedSnapshot(room, now, sendStatic, Boolean(client));
 
   const phaseEnded = room.phase === "ended";
   const players = [];
@@ -333,7 +348,9 @@ module.exports = {
   snapshotRoom,
   buildSharedSnapshot,
   collectSnapshotDesignRevisions,
+  collectSnapshotPowerRevisions,
   markSnapshotDesignsWritten,
+  markSnapshotPowerWritten,
   markShipDesignsSent,
   canViewPlayerEconomy
 };
