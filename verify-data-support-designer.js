@@ -24,5 +24,38 @@ globalThis.HeatRules = require("./public/src/shared/heatRules.js");
   d=[m("smallReactor",0,1),m("fireControl",0,0),m("heavyEngine",1,0),m("railgun",2,0)]; w=globalThis.WiringRules.emptyWiring(); w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],d); r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); const p=globalThis.WiringRules.analyzeWiring(d,w,PART_STATS).power.networkByComponent.get(1).availableEfficiency; close(r.sources[0].predictedPowerMultiplier,p,"partial power matches shared analysis");
   const idle=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); const full=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"full"}); assert(Number.isFinite(idle.sources[0].predictedThermalMultiplier)); assert(Number.isFinite(full.weapons[0].effectiveProfile.fireRate));
   const vul=A.analyzeDataVulnerabilities(...Object.values(poweredPair()),PART_STATS); assert(vul.some(v=>v.kind==="section"));
+
+  // Source operational override: failed source stays in topology but contributes zero.
+  d=[m("reactor",0,1),m("fireControl",0,0),m("sensorArray",1,0),m("railgun",2,0)]; w=globalThis.WiringRules.emptyWiring();
+  w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],d);
+  const intact=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"});
+  const failed=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle", sourceOperationalMultiplier:(i)=>i===1?0:1});
+  assert.equal(failed.networks.length, intact.networks.length, "source failure preserves physical topology");
+  assert.equal(failed.sourceAllocationByIndex[1].effectiveBudget, 0, "failed Fire Control budget zero");
+  assert(failed.sourceAllocationByIndex[2].effectiveBudget > 0, "Sensor Array remains active on same network");
+  assert.equal(failed.weaponBonusByIndex[3].fireRateBonus, 0, "railgun loses only fire-rate support");
+  assert(failed.weaponBonusByIndex[3].rangeBonus > 0, "railgun keeps range support");
+  const sourceV=A.analyzeDataVulnerabilities(d,w,PART_STATS,intact).find(v=>v.kind==="source" && v.componentIndex===1);
+  assert(sourceV.lostFireRateBonus > 0 && sourceV.lostRangeBonus === 0, "source vulnerability uses operational override");
+  // Legacy connection metadata must not be authority for source destruction.
+  const metaOnly=globalThis.WiringRules.cloneWiring(w); metaOnly.data.connections=[];
+  assert.equal(A.analyzeDesignDataSupport(d,metaOnly,PART_STATS,{thermalLoadMode:"idle"}).weaponBonusByIndex[3].sourceIndices.length, 2);
+  // Duplicate source redundancy is partial, not full redundancy.
+  d=[m("reactor",0,1),m("fireControl",0,0),m("fireControl",1,0),m("railgun",2,0)]; w=globalThis.WiringRules.emptyWiring();
+  w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],d);
+  r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); const oneDown=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle", sourceOperationalMultiplier:(i)=>i===1?0:1});
+  assert(oneDown.weaponBonusByIndex[3].fireRateBonus > 0 && oneDown.weaponBonusByIndex[3].fireRateBonus < r.weaponBonusByIndex[3].fireRateBonus);
+  assert.notEqual(A.analyzeDataVulnerabilities(d,w,PART_STATS,r).find(v=>v.kind==="source"&&v.componentIndex===1).severity, "redundant");
+  // Unit-aware presentation.
+  const P=await import("./public/src/design/dataSupportPresentation.js");
+  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:40}), "+40 m");
+  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:75}), "+75 m");
+  assert.equal(P.formatDataSupportValue({bonusField:"accuracyBonus",amount:.04}), "+4.0%");
+  assert.equal(P.formatDataSupportValue({bonusField:"fireRateBonus",amount:.075}), "+7.5%");
+  // Cache reuse and scenario invalidation.
+  A.resetDataSupportAnalysisCaches(); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"});
+  assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,1); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"full"}); assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,2);
+  const cached=A.getCachedDataVulnerabilities(d,w,PART_STATS,r); A.getCachedDataVulnerabilities(d,w,PART_STATS,r); assert.equal(A.getDataSupportAnalysisCacheCounters().vulnerabilityRuns,1);
+
   console.log("Data-support designer analysis verification passed.");
 })();

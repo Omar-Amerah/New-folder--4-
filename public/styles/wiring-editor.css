@@ -224,3 +224,30 @@
 @keyframes wiring-destination-pulse { 50% { stroke-width: .13; stroke: #fff; } }
 .wiring-overlay .wire-branch { fill: #d9e8ff; stroke: #07111f; stroke-width: .025; }
 .wiring-overlay .wire-invalid-cell { fill: rgba(255,95,107,.28); stroke: #ff5f6b; stroke-width: .05; }
+
+/* Section 6D Data-support inspector hardening */
+#wiringStatusPanel { max-height: min(70vh, 760px); overflow: auto; }
+.data-scenario-label select { margin-left: .4rem; max-width: 100%; }
+.wiring-summary-section button[aria-selected="true"],
+.wiring-summary-section button[aria-pressed="true"] { outline: 2px solid #38d9ff; background: rgba(56,217,255,.16); }
+.wiring-summary-section button:focus-visible,
+.data-scenario-label select:focus-visible { outline: 3px solid #ffd166; outline-offset: 2px; }
+.data-support-badge,
+.data-severity-badge { display: inline-block; border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: .1rem .45rem; margin: .1rem; font-size: .85em; }
+.data-severity-critical { border-color: #ff4d6d; }
+.data-severity-high { border-color: #ff9f1c; }
+.data-severity-medium { border-color: #ffd166; }
+.data-severity-low { border-color: #8ecae6; }
+.data-severity-redundant { border-color: #7bd88f; }
+.wiring-overlay .wire-data.data-dimmed { opacity: .28; stroke-dasharray: .08 .08; }
+.wiring-overlay .wire-data.data-critical-section { stroke-width: .12; stroke-dasharray: .18 .08; }
+.wiring-overlay .wire-data.data-high-impact-section { stroke-width: .1; }
+.wiring-overlay .wire-data.data-redundant-section { stroke-dasharray: .04 .08; }
+.wiring-overlay .wire-comp-data-source-active { stroke: #7bd88f; stroke-width: .08; fill: rgba(123,216,143,.12); }
+.wiring-overlay .wire-comp-data-source-underpowered { stroke: #ffd166; stroke-width: .08; stroke-dasharray: .12 .06; }
+.wiring-overlay .wire-comp-data-source-overheated,
+.wiring-overlay .wire-comp-data-source-unpowered { stroke: #ff4d6d; stroke-width: .08; stroke-dasharray: .04 .06; }
+.wiring-overlay .wire-comp-data-weapon-supported { stroke: #38d9ff; stroke-width: .08; }
+.wiring-overlay .wire-comp-data-weapon-unsupported { stroke: #9db4d6; stroke-width: .06; stroke-dasharray: .12 .08; }
+@media (max-width: 720px) { #wiringStatusPanel { max-height: 55vh; font-size: .92rem; } .wiring-summary-section button { white-space: normal; margin: .15rem; } }
+@media (prefers-reduced-motion: reduce) { .wiring-overlay * { transition: none !important; animation: none !important; } }
