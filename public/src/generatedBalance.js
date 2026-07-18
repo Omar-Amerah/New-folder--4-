@@ -689,7 +689,7 @@ export const GENERATED_BALANCE = {
       "mass": 2.5,
       "hull": 16,
       "powerGeneration": 0,
-      "powerUse": 0.25,
+      "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,

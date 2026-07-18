@@ -90,6 +90,8 @@ function initShipHeat(ship) {
   ship.componentCurrentHeat = ship.componentHeat;
   ship.componentHeatCapacity = ship.componentThermals.map(item => item.capacity);
   ship.componentHeatState = design.map(() => STATE.NORMAL);
+  ship._heatPowerSourceStates = ship.componentHeatState.slice();
+  ship._heatDataSourceStates = ship.componentHeatState.slice();
   ship.componentHeatGenerated = design.map(() => 0);
   ship.componentHeatReceived = design.map(() => 0);
   ship.componentHeatRemoved = design.map(() => 0);
@@ -221,17 +223,6 @@ function componentPerformance(ship, index) {
   return activeOutputForState(ship.componentHeatState?.[index] || STATE.NORMAL);
 }
 
-function systemPerformance(ship, predicate) {
-  let weighted = 0;
-  let total = 0;
-  for (let i = 0; i < (ship.design || []).length; i += 1) {
-    const part = PARTS[ship.design[i].type] || {};
-    if (!predicate(part, ship.design[i]) || (ship.componentHp?.[i] ?? 1) <= 0) continue;
-    weighted += componentPerformance(ship, i);
-    total += 1;
-  }
-  return total ? weighted / total : 1;
-}
 
 function addHeatToType(ship, predicate, amount) {
   // Destroyed components discard incoming heat, so only split across live
@@ -500,4 +491,4 @@ function effectiveComponentBonus(ship, propertyName, predicate) {
   return total;
 }
 
-module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, systemPerformance, effectiveComponentBonus };
+module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus };

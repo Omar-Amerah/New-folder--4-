@@ -14,6 +14,7 @@ const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const HeatRules = require("../../public/src/shared/heatRules");
+const { calculateCenterOfMass } = require("../../public/src/shared/movementStats.js");
 
 const MODULE_SCALE = 13;
 const GRID_CENTER = 7;
@@ -61,6 +62,7 @@ function updateEngineExhaustState(ship) {
   const analysis = EngineExhaustRules.analyze(ship.design || [], PARTS, { alive });
   ship.validEngineIndices = analysis.validEngineIndices;
   ship.blockedEngineIndices = analysis.blockedEngineIndices;
+  analysis.centerOfMass = calculateCenterOfMass(ship.design || [], PARTS);
   ship.engineExhaustAnalysis = analysis;
   ship.engineExhaustRevision = (ship.engineExhaustRevision || 0) + 1;
   return analysis;
@@ -171,7 +173,6 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
       const dealt = Math.min(ship.componentHp[idx], remaining);
       if (dealt > 0) {
         ship.componentHp[idx] -= dealt;
-        if (ship.design[idx].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, idx);
         remaining -= dealt;
         applied += dealt;
         ship.dirtyComponents.add(idx);
@@ -232,7 +233,7 @@ function onComponentDestroyed(room, ship, index, now) {
   const heat = require("./heat");
   requestComponentLifecycleRefresh(ship, {
     thermalCapacity: true,
-    exposure: module.type === "frame",
+    exposure: true,
     thermalRoutes: heat.isThermalRouteType(module.type),
     wiringTopology: true
   });
@@ -401,7 +402,7 @@ function repairShipComponents(room, ship, amount, now) {
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       const heat = require("./heat");
       requestComponentLifecycleRefresh(ship, { thermalCapacity: true,
-        exposure: ship.design[idx].type === "frame", thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), wiringTopology: true });
+        exposure: true, thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), wiringTopology: true });
     }
   }
   endComponentLifecycleBatch(ship);
