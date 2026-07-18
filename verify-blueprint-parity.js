@@ -2,7 +2,7 @@
 const assert = require("assert");
 const serverStats = require("./src/server/shipStats");
 const serverFootprint = require("./src/server/footprint");
-const { validateDesign, isConnected } = require("./src/server/shipDesign");
+const { validateDesign, isConnected, normalizeShipDesignSnapshot, migrateLegacy11DesignSnapshot, createGeneratedPowerWiring } = require("./src/server/shipDesign");
 const { DEFAULT_DESIGN, DEFAULT_WIRING, ECONOMY } = require("./src/server/config");
 const EngineExhaust = require("./public/src/shared/engineExhaust.js");
 const HeatRules = require("./public/src/shared/heatRules.js");
@@ -31,6 +31,7 @@ const corpus = {
   parts.applyServerParts(require("./src/server/components").PARTS);
   const clientStats = await import("./public/src/design/componentStats.js");
   const storage = await import("./public/src/design/blueprintStorage.js");
+  const client = await import("./public/src/design/rotation.js");
   globalThis.EngineExhaustRules = EngineExhaust;
   globalThis.HeatRules = HeatRules;
   const thermal = await import("./public/src/design/thermalAnalysis.js");
@@ -48,6 +49,29 @@ const corpus = {
   assert.equal(clientCanonical.data.sections.length, 0, "default Data wiring is empty");
   assert.notStrictEqual(clientWiringA, clientWiringB, "defaultWiring returns independent top-level objects");
   assert.notStrictEqual(clientWiringA.power.sections, clientWiringB.power.sections, "defaultWiring returns independent section arrays");
+
+  // Regression coverage: modern designs are never shifted merely because the core is at 3,3.
+  const modernCoreAtThree = [{ x: 3, y: 3, type: "core" }, { x: 3, y: 4, type: "engine" }];
+  assert.deepStrictEqual(normalizeShipDesignSnapshot(modernCoreAtThree).map((part) => [part.x, part.y]), [[3, 3], [3, 4]], "modern core at 3,3 remains unshifted");
+  assert.deepStrictEqual(modernCoreAtThree, [{ x: 3, y: 3, type: "core" }, { x: 3, y: 4, type: "engine" }], "modern snapshot normalization does not mutate modules");
+  const modernNearBoundary = [{ x: 3, y: 3, type: "core" }, { x: 3, y: 4, type: "engine" }, { x: 14, y: 14, type: "frame" }];
+  assert.deepStrictEqual(normalizeShipDesignSnapshot(modernNearBoundary).map((part) => [part.x, part.y]), [[3, 3], [3, 4], [14, 14]], "modern boundary design is not inferred as legacy or shifted out of bounds");
+  assert.deepStrictEqual(normalizeShipDesignSnapshot(DEFAULT_DESIGN), normalize(DEFAULT_DESIGN), "normal default design remains unchanged");
+  const legacy11 = [{ x: 3, y: 3, type: "core" }, { x: 3, y: 4, type: "engine" }, { x: 2, y: 3, type: "maneuverThruster", rotation: "invalid" }];
+  const legacyBefore = JSON.stringify(legacy11);
+  const migratedLegacy = normalizeShipDesignSnapshot(legacy11, { sourceGridSize: 11 });
+  assert.deepStrictEqual(migratedLegacy.map((part) => [part.x, part.y]), [[7, 7], [7, 8], [6, 7]], "explicit legacy 11x11 migration shifts exactly +4,+4");
+  assert.equal(migratedLegacy[2].rotation, 90, "explicit legacy migration normalizes maneuver rotation using the final shifted x coordinate");
+  assert.equal(JSON.stringify(legacy11), legacyBefore, "legacy migration does not mutate input modules");
+  assert.throws(() => migrateLegacy11DesignSnapshot([{ x: 3, y: 3, type: "core" }, { x: 10, y: 10, type: "reactor", rotation: 0 }]), /source grid/, "explicit legacy migration rejects footprints outside 0-10");
+  const centerlineTwoSided = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }, { x: 6, y: 7, type: "blaster", rotation: 90 }, { x: 7, y: 5, type: "maneuverThruster", rotation: 90 }];
+  const normalizedCenterline = normalizeShipDesignSnapshot(centerlineTwoSided);
+  assert.equal(client.normalizeRotation("invalid", [90, 270], 7), 270, "centreline two-sided fallback uses shared right-facing rule");
+  assert.equal(normalizedCenterline[3].rotation, 270, "centreline maneuver thruster uses shared right-facing rule");
+  assert.equal(client.normalizeRotation(centerlineTwoSided[2].rotation, PARTS.blaster.allowedRotations, 6), normalizedCenterline[2].rotation, "client/server rotation results match after snapshot creation");
+  const generatedBoundaryWiring = createGeneratedPowerWiring(modernNearBoundary);
+  assert.ok(generatedBoundaryWiring.power.sections.every((section) => section.x1 >= 0 && section.x1 <= 14 && section.x2 >= 0 && section.x2 <= 14 && section.y1 >= 0 && section.y1 <= 14 && section.y2 >= 0 && section.y2 <= 14), "generated Wiring for modern designs uses original modern coordinates");
+
   const before = JSON.stringify(clientWiringB); clientWiringA.power.sections.pop();
   assert.equal(JSON.stringify(clientWiringB), before, "mutating one default wiring does not affect another");
   const powerAnalysis = WiringRules.analyzeWiring(DEFAULT_DESIGN, DEFAULT_WIRING, PARTS).power;

@@ -7,6 +7,7 @@ const steps = [
   ["node", ["verify-data-support-balance.js"]],
   ["node", ["verify-data-support-reference-parity.js"]],
   ["node", ["verify-thermal-parity.js"]],
+  ["node", ["verify-rotation-parity.js"]],
   ["node", ["verify-protocol-schema.js"]],
   ["node", ["verify-deployment-health.js"]],
   ["node", ["verify-production-path.js"]],
