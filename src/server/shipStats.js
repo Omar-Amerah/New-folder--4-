@@ -43,10 +43,6 @@ function computeStats(modules) {
   let coolingBonus = 0;
   let captureBonus = 0;
   let ecmStrength = 0;
-  let decoyRange = 0;
-  let decoyCooldown = 0;
-  let decoyConfuseDuration = 0;
-  let decoyChance = 0;
   let frontDamageReduction = 0;
   let frontArc = 0;
   let pointDefense = 0;
@@ -93,10 +89,6 @@ function computeStats(modules) {
     // Cooling is simulated locally per component; it is not a global reload buff.
     captureBonus += part.captureBonus || 0;
     if (part.ecmStrength) ecmStrength += part.ecmStrength;
-    if (part.decoyRange > decoyRange) decoyRange = part.decoyRange;
-    if (part.decoyCooldown > decoyCooldown) decoyCooldown = part.decoyCooldown;
-    if (part.decoyConfuseDuration > decoyConfuseDuration) decoyConfuseDuration = part.decoyConfuseDuration;
-    if (part.decoyChance > decoyChance) decoyChance = part.decoyChance;
     if (part.frontDamageReduction) {
       frontDamageReduction += part.frontDamageReduction;
       if (part.frontArc > frontArc) frontArc = part.frontArc;
@@ -171,10 +163,6 @@ function computeStats(modules) {
     captureBonus: round(captureBonus),
     pointDefense,
     ecmStrength: round(ecmStrength),
-    decoyRange,
-    decoyCooldown,
-    decoyConfuseDuration,
-    decoyChance,
     frontDamageReduction: round(frontDamageReduction),
     frontArc,
     blasterRange: weaponRange(weaponTotals.blaster),
@@ -352,10 +340,6 @@ function summarizeStats(stats) {
     captureBonus: stats.captureBonus,
     pointDefense: stats.pointDefense,
     ecmStrength: stats.ecmStrength,
-    decoyRange: stats.decoyRange,
-    decoyCooldown: stats.decoyCooldown,
-    decoyConfuseDuration: stats.decoyConfuseDuration,
-    decoyChance: stats.decoyChance,
     frontDamageReduction: stats.frontDamageReduction,
     frontArc: stats.frontArc,
     weaponDps: stats.weaponDps,

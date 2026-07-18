@@ -12,6 +12,7 @@ const steps = [
   ["node", ["verify-deployment-health.js"]],
   ["node", ["verify-production-path.js"]],
   ["node", ["verify-armor-delivery.js"]],
+  ["node", ["verify-support-and-weapon-semantics.js"]],
   ["node", ["verify-section14-security.js"]],
   ["node", ["verify-lifecycle.js"]]
 ];

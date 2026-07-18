@@ -101,10 +101,6 @@ function normalizeBalanceComponent(component) {
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: toNumber(component.ecmStrength, 0),
-    decoyRange: toNumber(component.decoyRange, 0),
-    decoyCooldown: toNumber(component.decoyCooldown, 0),
-    decoyConfuseDuration: toNumber(component.decoyConfuseDuration, 0),
-    decoyChance: toNumber(component.decoyChance, 0),
     frontDamageReduction: toNumber(component.frontDamageReduction, 0),
     frontArc: toNumber(component.frontArc, 0),
     // Directional armour: maximum damage removed from a single attack event.

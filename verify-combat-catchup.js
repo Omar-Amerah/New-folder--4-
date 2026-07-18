@@ -66,7 +66,7 @@ function tickWeapons(r, s, ships, steps = 80) { for (let i = 0; i < steps; i++) 
   const r2 = room([]); r2.bullets.push({ id: "bad", type: "shot", ownerId: "a", x: NaN, y: 0, vx: Infinity, vy: 0, damage: 1, life: 1 }, { id: "expired", type: "shot", ownerId: "a", x: 0, y: 0, vx: 1, vy: 0, damage: 1, life: -1 }); updateBullets(r2, 0.1, 10); assert.strictEqual(r2.bullets.length, 0, "malformed/non-finite/expired projectiles rejected");
 }
 
-// PD/decoy/repair/damage/reward/safe-zone/effect cleanup coverage.
+// PD/repair/damage/reward/safe-zone/effect cleanup coverage.
 {
   const protector = ship("p", "a", 0, 0); const ally = ship("ally", "c", 0, 80); const enemy = ship("enemy", "b", 150, 0); const r = room([protector, ally, enemy]);
   r.bullets.push({ id: "threat", type: "missile", interceptable: true, ownerId: "b", targetId: protector.id, x: 50, y: 0, life: 1, hp: 10 }, { id: "friendly", type: "missile", interceptable: true, ownerId: "a", targetId: enemy.id, x: 20, y: 0, life: 1, hp: 10 });

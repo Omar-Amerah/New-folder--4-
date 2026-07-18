@@ -156,7 +156,7 @@ function partThermalDetails(type, stat) {
     : (stat.shieldRegen || 0) > 0 ? "recharge rate"
     : (stat.repairRate || 0) > 0 ? "repair output"
     : (stat.powerGeneration || 0) > 0 ? "power output"
-    : (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength || stat.decoyRange) ? "bonus effectiveness" : null;
+    : (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength) ? "bonus effectiveness" : null;
   const passiveStructure = /frame/i.test(type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(type);
   if (activeLabel) {
     rows.push(["Hot", `${pct(active(rules.STATE.HOT))} ${activeLabel}`]);
@@ -342,14 +342,6 @@ function partInspectorDetails(type, stat, effectiveCost) {
     ];
   }
 
-  if (type === "decoyLauncher") {
-    return [
-      ["Decoy range", formatDistance(stat.decoyRange)],
-      ["Cooldown", `${stat.decoyCooldown || 0}s`],
-      ["Confusion duration", `${stat.decoyConfuseDuration || 0}s`],
-      ["Success chance", formatPercent(stat.decoyChance || 0)]
-    ];
-  }
 
   if (type === "forwardDeflector") {
     return [

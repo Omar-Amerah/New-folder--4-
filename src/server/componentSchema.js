@@ -7,7 +7,7 @@ const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
   "thrust", "turn", "energy", "energyStorage", "repair", "repairRate",
   "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength",
-  "decoyRange", "decoyCooldown", "decoyConfuseDuration", "decoyChance",
+
   "frontDamageReduction", "frontArc"
 ];
 const WEAPON_NUMERIC_FIELDS = [

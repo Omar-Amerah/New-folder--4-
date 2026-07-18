@@ -1029,7 +1029,7 @@ function heatEffectRows(part, prediction) {
   if ((stat.powerGeneration || 0) > 0) return [row("Power output", pct(rules.activeOutputForState(state)))];
   if ((stat.shieldRegen || 0) > 0) return [row("Recharge rate", pct(rules.activeOutputForState(state)))];
   if ((stat.repairRate || 0) > 0) return [row("Repair output", pct(rules.activeOutputForState(state)))];
-  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength || stat.decoyRange) return [row("Bonus effectiveness", pct(rules.activeOutputForState(state)))];
+  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength) return [row("Bonus effectiveness", pct(rules.activeOutputForState(state)))];
   return [];
 }
 

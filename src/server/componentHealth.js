@@ -348,7 +348,7 @@ const EFFECTIVE_STAT_KEYS = [
   "blaster", "missile", "railgun", "beam", "pointDefense",
   "repair", "repairRate", "repairRange",
   "coolingBonus", "captureBonus", "ecmStrength",
-  "decoyRange", "decoyCooldown", "decoyConfuseDuration", "decoyChance",
+
   "frontDamageReduction", "frontArc",
   "blasterRange", "missileRange", "railgunRange", "beamRange", "beamRadius"
 ];

@@ -7,7 +7,7 @@ const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
 const { addBullet, segmentCircleHit } = require("./projectiles");
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents } = require("./componentHealth");
-const { addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus } = require("./heat");
+const { addComponentHeat, addHeatToType, componentPerformance } = require("./heat");
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getComponentPowerMultiplier } = require("./componentPower");
 const { getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange } = require("./componentData");
@@ -18,7 +18,7 @@ const MODULE_SCALE = 13;
 const COMPONENT_RETARGET_MIN_MS = 2500;
 const COMPONENT_RETARGET_SPAN_MS = 1500;
 const STRUCTURAL_COMPONENT_TYPES = new Set(["armor", "compositeArmor", "bulkhead", "frame", "weaponMount"]);
-const PRIORITY_COMPONENT_TYPES = new Set(["blaster", "missileLauncher", "torpedoLauncher", "railgun", "beam", "pointDefense", "engine", "thruster", "reactor", "battery", "shield", "ecm", "decoy", "repairBeam"]);
+const PRIORITY_COMPONENT_TYPES = new Set(["engine", "maneuverThruster", "reactor", "auxGenerator", "battery", "capacitor", "shield", "aegisProjector", "repair", "repairBeam", "fireControl"]);
 
 function componentAimLocalPosition(ship, index) {
   const module = ship?.design?.[index];
@@ -205,6 +205,8 @@ function updateShipSupport(room, ships, dt, now) {
       const assigned = room.ships.get(ship.repairTargetId);
       if (!assigned || !assigned.alive) {
         ship.repairTargetId = null;
+      } else if (assigned.id === ship.id) {
+        ship.repairTargetId = null;
       } else if (areAllies(room, ship.ownerId, assigned.ownerId)
         && shipRepairNeed(assigned) > 0
         && Math.hypot(assigned.x - ship.x, assigned.y - ship.y) <= ship.stats.repairRange) {
@@ -214,6 +216,7 @@ function updateShipSupport(room, ships, dt, now) {
 
     if (!target) {
       for (const other of ships) {
+        if (other.id === ship.id) continue;
         if (!areAllies(room, ship.ownerId, other.ownerId)) continue;
         const missing = shipRepairNeed(other);
         if (missing <= 0) continue;
@@ -325,39 +328,6 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 }
 
 
-function updateDecoys(room, ship, dt, now) {
-  const decoyCooldown = effectiveComponentBonus(ship, "decoyCooldown");
-  const decoyRange = effectiveComponentBonus(ship, "decoyRange");
-  if (!decoyCooldown || !decoyRange) return;
-
-  if (ship.decoyReadyIn === undefined) ship.decoyReadyIn = 0;
-  if (ship.decoyReadyIn > 0) {
-    ship.decoyReadyIn -= dt;
-    return;
-  }
-
-  const rangeSq = decoyRange * decoyRange;
-  let used = false;
-
-  for (const bullet of room.bullets) {
-    if (!bullet.interceptable || bullet.life <= 0 || bullet.targetId !== ship.id || !areEnemies(room, ship.ownerId, bullet.ownerId)) continue;
-
-    const dx = bullet.x - ship.x;
-    const dy = bullet.y - ship.y;
-    if (dx * dx + dy * dy <= rangeSq) {
-      if (roomCombatRandom(room)() <= (effectiveComponentBonus(ship, "decoyChance") || 0.85)) {
-        bullet.trackingDisabledFor = effectiveComponentBonus(ship, "decoyConfuseDuration") || 1.2;
-      }
-      used = true;
-    }
-  }
-
-  if (used) {
-    ship.decoyReadyIn = decoyCooldown;
-    room.effects.push({ type: "spark", x: ship.x, y: ship.y, at: now });
-  }
-}
-
 function isInSafeZone(room, x, y, shipOrPlayer = null) {
   if (!room.map || !room.map.safeZones) return false;
   const player = shipOrPlayer?.ownerId ? room.players?.get(shipOrPlayer.ownerId) : shipOrPlayer;
@@ -422,6 +392,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       return;
     }
     const powerMultiplier = getComponentPowerMultiplier(ship, i);
+    // Weapon traverse motors require Power; unpowered weapons cannot acquire
+    // targets or rotate toward them.
     if (powerMultiplier <= 0) {
       ship.weaponAimTargetIds[i] = null;
       ship.weaponFireTargetIds[i] = null;
@@ -508,7 +480,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     // heat, and the cooldown is not consumed as though a shot fired.
     if (firingBlockedBySafeZone) return;
 
-    // Unpowered/overheated weapons may keep aiming but cannot fire.
+    // Unpowered weapons cannot traverse or fire and clear their targeting state.
+    // Powered but thermally disabled weapons may keep tracking, but cannot fire.
     const heatMultiplier = componentPerformance(ship, i);
     const activityMultiplier = powerMultiplier * heatMultiplier;
     if (activityMultiplier <= 0) return;
@@ -634,7 +607,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             type: "pdShot",
             subtype: module.type,
             ownerId: ship.ownerId,
-            targetId: currentPdTarget.type === "ship" ? targetEnt.id : targetEnt.id,
+            targetId: targetEnt.id,
             x: muzzle.x,
             y: muzzle.y,
             vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
@@ -1195,5 +1168,6 @@ module.exports = {
   isInSafeZone,
   isLineBlocked,
   areAllies,
-  areEnemies
+  areEnemies,
+  PRIORITY_COMPONENT_TYPES
 };
