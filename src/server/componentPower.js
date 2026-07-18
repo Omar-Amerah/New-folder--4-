@@ -82,8 +82,11 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
 
   ship.runtimeWiring = runtime;
   ship.powerAnalysis = analysis;
-  require("./componentData").refreshShipDataSupportAllocation(ship);
-  applyShipPowerAllocation(ship, options);
+  applyShipPowerAllocation(ship, { ...options, skipDataRefresh: true });
+  // Section 6C ordering: surviving Wiring topology is projected first, then
+  // component Power is allocated, then Data-support source multipliers read
+  // the fresh per-component Power state during a topology rebuild/allocation.
+  require("./componentData").rebuildShipDataTopology(ship, reason);
   return runtime;
 }
 
@@ -132,6 +135,7 @@ function applyShipPowerAllocation(ship, options = {}) {
 
   if (!options.skipRuntimeStats && ship.alive !== false) require("./componentHealth").recalcEffectiveStats(ship);
   else if (ship.alive === false) { ship.maxShield = 0; ship.shield = 0; }
+  if (!options.skipDataRefresh) require("./componentData").refreshShipDataAllocation(ship, "power-allocation");
   return ship.componentPower;
 }
 

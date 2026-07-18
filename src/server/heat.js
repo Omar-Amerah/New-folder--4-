@@ -424,9 +424,12 @@ function updateShipHeat(ship, dt, room, now) {
   ship.thermalPowerFactor = nominalPower > 0 ? availablePower / nominalPower : 1;
   // Source state tiers alter only their own network allocation. Batch all
   // changes from this thermal step into one cheap reanalysis of cached Wiring.
-  const sourceTierChanged = heat.some((_, i) => (PARTS[ship.design[i].type]?.powerGeneration || 0) > 0 && ship._heatSourceStates?.[i] !== ship.componentHeatState[i]);
-  ship._heatSourceStates = ship.componentHeatState.slice();
-  if (sourceTierChanged) require("./componentPower").reallocateShipPower(ship, "thermal-source-state");
+  const powerSourceTierChanged = heat.some((_, i) => (PARTS[ship.design[i].type]?.powerGeneration || 0) > 0 && ship._heatPowerSourceStates?.[i] !== ship.componentHeatState[i]);
+  const dataSourceTierChanged = heat.some((_, i) => require("../../public/src/shared/dataSupportRules").isDataSupportSource(ship.design[i]?.type) && ship._heatDataSourceStates?.[i] !== ship.componentHeatState[i]);
+  ship._heatPowerSourceStates = ship.componentHeatState.slice();
+  ship._heatDataSourceStates = ship.componentHeatState.slice();
+  if (powerSourceTierChanged) require("./componentPower").reallocateShipPower(ship, "thermal-source-state");
+  else if (dataSourceTierChanged) require("./componentData").refreshShipDataAllocation(ship, "thermal-data-source-state");
   ship.hasActiveHeat = remainsActive || ship.hasPassiveHeatSource;
   for (const network of ship.thermalNetworks || []) {
     const members = [...network.frameIndices, ...network.attachedComponents];

@@ -117,7 +117,8 @@
     "balance:check": "node tools/balance-check.js",
     "balance:summary": "node tools/balance-summary.js",
     "release:check": "node tools/release-check.js",
-    "test:data-support-runtime": "node verify-data-support-runtime.js"
+    "test:data-support-runtime": "node verify-data-support-runtime.js",
+    "test:data-support-lifecycle": "node verify-data-support-lifecycle.js"
   },
   "keywords": [
     "browser-game",
