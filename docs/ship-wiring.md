@@ -150,3 +150,7 @@ efficiency feeds the Phase 5C server-owned component runtime state.
 The server's `analyzeShipPower` wrapper creates `ship.powerAnalysis` once at
 spawn from the normalized, intact blueprint. Client-provided derived values are
 ignored. Re-analysis after damage remains deferred to Phase 5D.
+
+## Blueprint shield figures
+
+Blueprint statistics keep base/catalogue shield values separate from effective battle predictions. Base shield capacity and regeneration are nominal catalogue totals with all components at full Power and NORMAL Heat. The designer's effective Max Shield and Shield Regen values use the physical Wiring v2 Power-network analysis: each shield component contributes base capacity multiplied by its own predicted local Power multiplier, and each regeneration module contributes base regeneration multiplied by its own predicted local Power multiplier. Regeneration then uses the shared shield stacking curve with the `0.72` falloff. Blueprint prediction assumes NORMAL Heat until thermal prediction is extended in a later phase, so capacity is Power-dependent but Heat-independent, while runtime regeneration is both Power- and Heat-dependent. Disconnected shields and shields on zero-generation networks contribute zero effective capacity and regeneration; underpowered networks scale proportionally, and unrelated healthy networks are not reduced by another network's deficit.

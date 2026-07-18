@@ -20,9 +20,9 @@ Thermal state effects are role-specific:
 
 ## Aggregate power policy
 
-Power remains a ship-level aggregate. `ship.stats.powerGeneration` and `ship.stats.powerUse` describe nominal live-component totals after destruction or repair recalculation. Power-network allocation uses nominal generation from live sources. Reactor Heat states WARM, HOT and CRITICAL do not reduce network efficiency; only the existing OVERHEATED shutdown, gating, meltdown and destruction lifecycle removes a source from live generation.
+Power-network allocation is authoritative per physical network. `ship.stats.powerGeneration` and `ship.stats.powerUse` describe nominal live-component totals after destruction or repair recalculation, while each runtime network computes effective source output: NORMAL, WARM, HOT and CRITICAL generators supply full nominal MW; OVERHEATED or destroyed generators supply zero MW. Cooling below the OVERHEATED recovery boundary restores nominal generation without rebuilding Wiring topology.
 
-Destroyed generators contribute neither nominal nor available generation. Repaired generators are restored by the normal effective-stat recalculation path. Underpower efficiency and thermal generator degradation are separate factors and must not be double-applied.
+Destroyed generators contribute neither nominal nor available generation. Repaired generators are restored by the normal effective-stat recalculation path. Underpower efficiency and OVERHEATED source shutdown are separate factors and must not be double-applied.
 
 ## Batteries and capacitors
 
@@ -45,10 +45,10 @@ component Power and scales by its network multiplier. Heat capacity,
 conductivity, Heat Pipe routing, and natural dissipation remain passive.
 
 Generator steady heat uses demand/generation from the source's own cached live
-network. Nominal source generation does not currently fall with temperature;
-existing overheat failure and meltdown behavior remains separate. Coupling
-thermal source derating back into network efficiency is deferred to balancing
-to avoid an intra-tick feedback loop.
+network. Nominal source generation does not fall with temperature below OVERHEATED;
+existing OVERHEATED failure and meltdown behavior remains separate. Gradual
+thermal source derating below OVERHEATED is intentionally not part of this
+lifecycle to avoid an intra-tick feedback loop.
 
 ## Heat hardening lifecycle
 

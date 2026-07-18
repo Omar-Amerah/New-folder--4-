@@ -868,7 +868,7 @@ export function clearDesign() {
 }
 
 export function renderLocalStats() {
-  const stats = computeStats(state.design);
+  const stats = computeStats(state.design, { wiring: state.wiring });
   const heat = currentHeatAnalysis();
   const status = getShipStatus(stats);
   const mine = state.mine;
@@ -1585,7 +1585,7 @@ function toggleShipStatusDetails(forceOpen) {
   if (!dom.shipStatusDetails || !dom.shipStatusChip) return;
   const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : dom.shipStatusDetails.hidden;
   if (shouldOpen) {
-    const status = getShipStatus(computeStats(state.design));
+    const status = getShipStatus(computeStats(state.design, { wiring: state.wiring }));
     renderShipStatusDetails(classifyStatus(status));
     dom.shipStatusDetails.hidden = false;
     dom.shipStatusChip.setAttribute("aria-expanded", "true");
@@ -1683,7 +1683,7 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
 function showStatTooltip(card, event) {
   if (!dom.statTooltip) return;
   const key = card.dataset.statKey;
-  const stats = computeStats(state.design);
+  const stats = computeStats(state.design, { wiring: state.wiring });
   const markup = buildStatTooltipMarkup(key, stats);
   if (!markup) {
     dom.statTooltip.hidden = true;
@@ -1794,11 +1794,10 @@ Final Hull HP: ${stats.maxHp} HP`
       return {
         label: "Shield Buffers",
         desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase this. Blocked damage also heats the shield generators, and recharging generates heat — hot shield modules recharge slower.",
-        formula: "MaxShield = Round(RawShield * PowerEfficiency)",
-        breakdown: `Raw Shield: ${Math.round(stats.maxShield / Math.max(0.01, stats.efficiency))} SP
-Power Efficiency: ${Math.round(stats.efficiency * 100)}%
-Final Shield SP: ${stats.maxShield} SP
-Shield Recharge: +${stats.shieldRegen}/s`
+        formula: "EffectiveMaxShield = Round(BaseShield × component-local predicted Power)",
+        breakdown: `Base Shield: ${stats.baseMaxShield ?? stats.maxShield} SP
+Effective Shield SP: ${stats.maxShield} SP
+Effective Shield Recharge: +${stats.shieldRegen}/s`
       };
 
     case "speed":
