@@ -51,6 +51,7 @@ const GROUPS = {
     "verify-data-support-runtime.js",
     "verify-data-support-lifecycle.js",
     "verify-data-support-designer.js",
+    "verify-data-support-reference-parity.js",
     "verify-data-support-balance.js",
     "verify-power-runtime.js",
     "verify-power-damage.js",
