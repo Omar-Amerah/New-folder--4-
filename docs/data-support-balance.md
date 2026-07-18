@@ -1,21 +1,28 @@
 # Section 6E Data-support balance validation
 
-Section 6E is complete for the deterministic Data-support validation stage. The reference ships in `test-fixtures/dataSupportReferenceShips.js` exercise real Wiring v2 physical Data sections, generated physical Power wiring, shared allocation, server-compatible component indexes, and designer/report consumers. The balance report is generated with `npm run balance:data-support`.
+Section 6E is complete for deterministic runtime, lifecycle, designer-parity and reporting validation. The reference ships in `test-fixtures/dataSupportReferenceShips.js` exercise real Wiring v2 Data sections, generated physical Power wiring, shared allocation, server runtime Data allocation, Power/Heat multipliers, component damage/repair lifecycle, stable component indexes, designer predictions and measured report consumers. The balance report is generated with `npm run balance:data-support`.
 
-## Reference ships and findings
+## Proven correctness
 
-- **Reference A — Precision build:** Targeting Computer and Sensor Array support one Railgun. The Railgun receives the full +40 m range budget and +0.04 accuracy budget; effective accuracy remains capped at 0.99. This is meaningful for a precision build but does not increase DPS and costs module mass, cost and Power.
-- **Reference B — Broadside build:** one Fire Control supports four Blasters. The +0.075 fire-rate budget is split equally into +0.01875 per Blaster, conserving total source budget. Broadside DPS rises modestly, so unsupported Blasters remain valid reference points.
-- **Reference C — Mixed support network:** Fire Control, Sensor Array and Targeting Computer share one physical Data network with Railgun, Blaster and Point Defence. Sources split independently by field; contributions remain per weapon and do not become a ship-wide bonus.
-- **Reference D — Redundant network:** two physical routes join one Data domain. Redundancy preserves support after one route section is removed, but does not duplicate budgets. Removing both route paths changes expected connectivity.
-- **Reference E — Isolated networks:** Sensor Array/Railgun and Fire Control/Blaster are physically separate. Allocation does not leak across networks, and each unsupported/disconnected weapon remains operational at catalogue base stats.
+- Reference fixtures validate component types, non-overlapping footprints, hosted one-cell Power/Data sections, canonical section IDs, generated Power wiring, connected baseline Power consumers, exact Data network counts, deterministic construction and independently mutable clones.
+- Runtime allocation matches shared allocation by immutable component index for source budgets, recipient sets, per-recipient amounts, weapon support fields and effective weapon profiles.
+- Designer predictions match shared/runtime records without persisting derived Data-support state into the saved blueprint.
+- Source effective budget is validated from authoritative runtime records as nominal budget × Power multiplier × Heat multiplier × operational multiplier.
+- Component damage and repair flows rebuild runtime wiring/topology without mutating the fixture blueprint; repaired components rejoin allocation once and duplicate routes do not duplicate budgets.
+- Isolated physical Data networks prove zero leakage between unrelated sources and weapons.
 
-## Competitive conclusions
+## Deterministic mechanical findings
 
-Correctness conclusions: source budgets are conserved, equal splitting is deterministic, duplicate routes do not duplicate support, component-index lookup remains authoritative, Power/Data wiring are valid physical Wiring v2 payloads, and unsupported weapons retain base catalogue behaviour.
+- **Reference A — Precision build:** Sensor Array and Targeting Computer allocate their full budgets to one Railgun. Runtime stats show increased range and capped accuracy, and disabling Data support returns the Railgun to base catalogue stats.
+- **Reference B — Broadside build:** one Fire Control budget is split across four Blasters. Runtime reload/cooldown derives from each Blaster's own effective fire rate, partial Power proportionally reduces source output, and disconnected support returns all four weapons to base fire rate.
+- **Reference C — Mixed support network:** Railgun, Blaster and Point Defence each receive independent range, accuracy and fire-rate fields from the three sources. Runtime records remain per weapon index and contain no NaN or Infinity values.
+- **Reference D — Redundant network:** one tested route loss preserves support through the alternate route; loss of the paired route disconnects support; repair restores deterministic allocation without duplicated contributions.
+- **Reference E — Isolated networks:** Railgun receives Sensor Array range support only, while Blaster receives Fire Control fire-rate support only. Damage and repair in one network leave the other network's allocation values unchanged.
 
-Deterministic model findings: Data support is meaningful in single-recipient precision and isolated fire-rate builds, but support-module opportunity cost plus equal splitting prevent obvious mandatory broadside dominance. Railguns benefit most from accuracy/range quality, but the authoritative accuracy cap prevents guaranteed-hit escalation. Point Defence receives the same capped accuracy and fire-rate mechanics as other weapons; Section 6E found no synthetic evidence requiring a Point Defence exception.
+## Design judgement
 
-Design judgement: no numerical balance values were changed. The existing catalogue values appear suitable for final Section 6 validation because support creates visible trade-offs without disabling unsupported weapons or adding hidden ship-wide bonuses.
+The measured deterministic records support keeping the current catalogue values for this validation pass: Data support creates visible mechanical changes, budgets are conserved, unsupported/base fallback remains intact, and no evidence in these reference scenarios requires a numerical catalogue change. This is a design judgement from fixed reference builds, not proof of long-term competitive balance.
 
-Remaining uncertainty: these are deterministic model and invariant tests, not live multiplayer telemetry. Real-player match data is still required before claiming proven competitive balance across maps, player skill, fleet composition and long-term metagame adaptation.
+## Unknown without telemetry
+
+Real-player fleet composition, player skill, maps, objective pressure, team coordination, counter-build prevalence and long-term metagame adaptation remain unknown without production telemetry or dedicated playtest data. Claims such as broadside dominance being fully prevented, support being universally non-mandatory, Point Defence never needing exceptions, or no future balance changes being needed should not be treated as proven by Section 6E alone.
