@@ -328,6 +328,12 @@ export function deployDesign() {
   const ready = mine?.ready;
 
   if (isDesignStage && !ready) {
+    if (state.designNeedsAttention) {
+      showToast("Invalid design: review and save the repaired blueprint before deployment.", "warning");
+      renderBuildGrid();
+      renderLocalStats();
+      return;
+    }
     send({
       type: "deploy",
       design: state.design,

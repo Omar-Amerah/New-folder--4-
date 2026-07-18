@@ -34,6 +34,8 @@ export const state = {
   design: initialDesign.modules,
   wiring: initialDesign.wiring,
   combatStyle: initialDesign.combatStyle,
+  designNormalizationIssues: Array.isArray(initialDesign.normalizationIssues) ? initialDesign.normalizationIssues : [],
+  designNeedsAttention: Boolean(initialDesign.needsAttention),
   savedDesigns: loadSavedDesigns(),
   loadedEditorBlueprintId: null,
   draggingSavedDesignId: null,
