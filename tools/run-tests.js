@@ -92,7 +92,8 @@ const GROUPS = {
     "verify-connection-errors.js",
     "verify-lifecycle.js",
     "verify-input-lifecycle.js",
-    "verify-renderer-structural-updates.js"
+    "verify-renderer-structural-updates.js",
+    "verify-pixi-world-layers.js"
   ],
 
   // Real server.js process + real WebSockets + MessagePack snapshots.

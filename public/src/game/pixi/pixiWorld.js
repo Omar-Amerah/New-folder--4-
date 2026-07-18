@@ -124,12 +124,19 @@ function updatePixiMapFeatures(env, now, bounds) {
     const zonesGfx = new env.PIXI.Graphics();
     layer.addChild(zonesGfx);
     const featureLayer = new env.PIXI.Container();
+    const nebulaLayer = new env.PIXI.Container();
+    const asteroidLayer = new env.PIXI.Container();
+    featureLayer.addChild(nebulaLayer);
+    featureLayer.addChild(asteroidLayer);
     layer.addChild(featureLayer);
     pixiMapStatics = {
       map: null,
       zonesGfx,
-      nebulaPool: createPixiKeyedPool(featureLayer, () => makeLeasedSpriteView(env)),
-      asteroidPool: createPixiKeyedPool(featureLayer, () => makeLeasedSpriteView(env))
+      featureLayer,
+      nebulaLayer,
+      asteroidLayer,
+      nebulaPool: createPixiKeyedPool(nebulaLayer, () => makeLeasedSpriteView(env)),
+      asteroidPool: createPixiKeyedPool(asteroidLayer, () => makeLeasedSpriteView(env))
     };
   }
   if (pixiMapStatics.map !== map) {
@@ -632,6 +639,12 @@ export function destroyPixiWorld() {
   if (pixiMapStatics) {
     pixiMapStatics.nebulaPool.destroy();
     pixiMapStatics.asteroidPool.destroy();
+    if (pixiMapStatics.nebulaLayer?.parent) pixiMapStatics.nebulaLayer.parent.removeChild(pixiMapStatics.nebulaLayer);
+    pixiMapStatics.nebulaLayer?.destroy({ children: false, texture: false, textureSource: false });
+    if (pixiMapStatics.asteroidLayer?.parent) pixiMapStatics.asteroidLayer.parent.removeChild(pixiMapStatics.asteroidLayer);
+    pixiMapStatics.asteroidLayer?.destroy({ children: false, texture: false, textureSource: false });
+    if (pixiMapStatics.featureLayer?.parent) pixiMapStatics.featureLayer.parent.removeChild(pixiMapStatics.featureLayer);
+    pixiMapStatics.featureLayer?.destroy({ children: false, texture: false, textureSource: false });
     if (pixiMapStatics.zonesGfx?.parent) pixiMapStatics.zonesGfx.parent.removeChild(pixiMapStatics.zonesGfx);
     pixiMapStatics.zonesGfx?.destroy();
     pixiMapStatics = null;
