@@ -43,7 +43,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 | Module | Responsibility |
 |---|---|
 | `server.js` (root) | HTTP static serving with in-memory gzip cache, `/component-balance.json`, `/debug/turrets` (dev-only diagnostics), WebSocket upgrade handshake, tick + snapshot + room-cleanup loops, per-room `tickRoom` orchestration |
-| `config.js` | Ports, world sizes, tick rates, economy constants, default rules, default design, MIME map |
+| `config.js` | Ports, world sizes, tick rates, economy constants, default rules, default design, shared generated default Wiring v2 Power topology, MIME map |
 | `websocketServer.js` | RFC 6455 frame parse/serialize (masked client frames, 16/64-bit lengths), client registry, heartbeat pong, close frames, 64 KiB message cap |
 | `wsCodec.js` | MessagePack encode/decode for the wire (binary opcode 0x2; JSON text frames tolerated inbound) |
 | `messages.js` | Outbound send/broadcast (encode-once fan-out, per-team snapshot payload caching) and the **inbound message router** (`handleMessage`): join/deploy/buyShip/command/setTeam/setRules/kick/restart/… |
@@ -83,7 +83,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
   panels, saved blueprints, loadouts.
 - **Designer** — `design/*.js` + `ui/designerUi.js` + `ui/designerScreenUi.js`:
   blueprint grid editing, rotation, footprints, validation, cost, thermal analysis
-  preview, localStorage blueprint persistence.
+  preview, localStorage blueprint persistence. `defaultDesign()` and `defaultWiring()` restore the standard ship with deterministic physical Power wiring; Data is empty by default, exact untouched stock-empty saves receive a narrow migration, and custom designs are not auto-wired.
 - **Game input** — `game/input.js` (pointer/keys: right-click orders, marquee
   select, Space/middle-drag pan, wheel zoom), `game/commands.js`,
   `game/selection.js` (selecting ships re-enables camera follow).

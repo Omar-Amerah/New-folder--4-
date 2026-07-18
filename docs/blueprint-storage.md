@@ -16,7 +16,7 @@ The current schema version is `2` and every stored value has this shape:
 ## Keys and payloads
 
 - `modular-fleet-design-v3` stores the current editor design payload:
-  `{ "modules": [...], "wiring": { "version": 1, "power": [...], "data": [...] }, "combatStyle": "sentry|charge|circle|hold" }`.
+  `{ "modules": [...], "wiring": { "version": 2, "power": { "sections": [...] }, "data": { "sections": [] } }, "combatStyle": "sentry|charge|circle|hold" }`.
 - `modular-fleet-saved-designs-v2` stores up to 12 saved blueprint records; each
   record keeps an independent copy of its `blueprint` modules and `wiring`.
 - `modular-fleet-loadouts-v2` stores up to 8 custom loadout records. The implicit
@@ -37,14 +37,19 @@ Schema v2 is a deliberate hard break: pre-wiring keys
 `modular-fleet-loadouts-v1`, `modular-fleet-design-last-good-v1`) are never
 read, and v1 or future envelopes found under the new keys are discarded. A user
 with old data simply receives the current default ship with its default Power
-wiring; there is no migration path. Blueprint export files from schema v1 are
+wiring. A narrow bug migration also recognizes exact untouched stock/default
+modules saved with completely empty Power and Data wiring and replaces only
+those with generated default Power wiring. Modified, imported, custom, or
+intentionally empty designs are never silently auto-wired. Blueprint export files from schema v1 are
 rejected on import (`incompatibleVersion`).
 
 Component rotations are normalized through the same editor placement rules used
 for new parts, multi-cell footprints are rechecked, and invalid
 overlapping/out-of-bounds entries are quarantined. Wiring is re-normalized
 against the stored modules on every load and save, so floating, duplicate, or
-malformed segments never persist.
+malformed segments never persist. The New Design control restores the standard
+modules and generated default Power wiring together, clears Wiring editor
+selection/drawing/undo state, persists that pair, and leaves Data wiring empty.
 
 Malformed saved-design entries are skipped independently so one bad entry does
 not erase the valid list. Corrupt JSON, wrong top-level types, unavailable

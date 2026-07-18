@@ -169,6 +169,60 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, hasTouch: true });
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
     await page.evaluate(async () => {
+      const [{ state }, designer] = await Promise.all([import("/src/state.js"), import("/src/ui/designerUi.js")]);
+      document.querySelector("#blueprintDesignerScreen").hidden = false;
+      designer.renderBuildGrid();
+    });
+    await page.locator("#blueprintWiringTab").click();
+    let standard = await page.evaluate(async () => {
+      const [{ state }, { PART_STATS }, storage] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js"), import("/src/design/blueprintStorage.js")]);
+      const canonical = WiringRules.normalizeWiring(storage.defaultWiring(), storage.defaultDesign(), PART_STATS).wiring;
+      const analysis = WiringRules.analyzeWiring(state.design, state.wiring, PART_STATS);
+      return {
+        sectionCount: state.wiring.power.sections.length,
+        canonicalCount: canonical.power.sections.length,
+        dataCount: state.wiring.data.sections.length,
+        disconnected: analysis.power.disconnectedConsumerIndices,
+        underpowered: analysis.power.underpoweredConsumerIndices
+      };
+    });
+    assert.ok(standard.sectionCount > 0, "standard ship opens with visible Power cable sections");
+    assert.equal(standard.sectionCount, standard.canonicalCount, "standard visible Power sections match canonical default count");
+    assert.deepEqual(standard.disconnected, [], "standard ship has no disconnected Power consumers");
+    assert.deepEqual(standard.underpowered, [], "standard ship has no underpowered Power consumers");
+    assert.equal(standard.dataCount, 0, "standard ship opens with empty Data wiring");
+    await page.locator('[data-wiring-action="select-network"]').first().click();
+    await page.locator("#wiringClearNetworkButton").click();
+    assert.equal(await page.evaluate(async () => (await import("/src/state.js")).state.wiring.power.sections.length), 0, "Clear Network removes default Power sections through the UI");
+    await page.locator("#resetButton").click();
+    await page.locator("#blueprintWiringTab").click();
+    standard = await page.evaluate(async () => {
+      const [{ state }, { PART_STATS }, storage] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js"), import("/src/design/blueprintStorage.js")]);
+      const canonical = WiringRules.normalizeWiring(storage.defaultWiring(), storage.defaultDesign(), PART_STATS).wiring;
+      const analysis = WiringRules.analyzeWiring(state.design, state.wiring, PART_STATS);
+      return {
+        modules: structuredClone(state.design),
+        defaultModules: storage.defaultDesign(),
+        wiring: structuredClone(state.wiring),
+        canonical,
+        disconnected: analysis.power.disconnectedConsumerIndices,
+        underpowered: analysis.power.underpoweredConsumerIndices,
+        ui: structuredClone(state.wiringUi)
+      };
+    });
+    assert.deepEqual(standard.modules, standard.defaultModules, "New Design restores standard modules through the real button");
+    assert.deepEqual(standard.wiring, standard.canonical, "New Design restores canonical default wiring through the real button");
+    assert.deepEqual(standard.disconnected, [], "New Design leaves no disconnected default Power consumers");
+    assert.deepEqual(standard.underpowered, [], "New Design leaves no underpowered default Power consumers");
+    assert.equal(standard.wiring.data.sections.length, 0, "New Design keeps Data wiring empty");
+    assert.equal(standard.ui.sourceIndex, null); assert.deepEqual(standard.ui.path, []); assert.equal(standard.ui.selectedIndex, null);
+    assert.equal(standard.ui.selectedSectionId, null); assert.equal(standard.ui.selectedDataNetworkId, null); assert.equal(standard.ui.undoStack.length, 0);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.evaluate(async () => { document.querySelector("#blueprintDesignerScreen").hidden = false; (await import("/src/ui/designerUi.js")).renderBuildGrid(); });
+    await page.locator("#blueprintWiringTab").click();
+    assert.equal(await page.evaluate(async () => (await import("/src/state.js")).state.wiring.power.sections.length), standard.canonical.power.sections.length, "restored default wiring persists after reload");
+
+    await page.evaluate(async () => {
       const [{ state }, designer, wiring] = await Promise.all([
         import("/src/state.js"), import("/src/ui/designerUi.js"), import("/src/ui/wiringUi.js")
       ]);

@@ -106,14 +106,6 @@ const MAP_CLOUD_COLORS = [
   "255,95,126"
 ];
 
-// Default Power wiring for DEFAULT_DESIGN: a bus along the y=7 grid line plus
-// a drop to the engine, joining Core + Reactor + Aux Generator to every
-// powered component. The default ship has no Data-support module, so Data
-// wiring is empty. Kept in sync with defaultWiring() in
-// public/src/design/blueprintStorage.js.
-const EMPTY_WIRING_KIND = Object.freeze({ sections: Object.freeze([]), connections: Object.freeze([]) });
-const DEFAULT_WIRING = Object.freeze({ version: 2, power: EMPTY_WIRING_KIND, data: EMPTY_WIRING_KIND });
-
 const DEFAULT_DESIGN = Object.freeze([
   { x: 7, y: 7, type: "core" },
 
@@ -135,6 +127,22 @@ const DEFAULT_DESIGN = Object.freeze([
 
   { x: 7, y: 9, type: "engine" }
 ]);
+
+const WiringRules = require("../../public/src/shared/wiringRules");
+const { PARTS } = require("./components");
+
+function deepFreeze(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  Object.values(value).forEach(deepFreeze);
+  return value;
+}
+
+// Authoritative default Wiring v2 is generated once from DEFAULT_DESIGN using
+// shared browser/Node wiring rules.  It physically connects all default Power
+// sources and consumers. The standard ship has no Data-support source modules,
+// so Data wiring remains empty.
+const DEFAULT_WIRING = deepFreeze(WiringRules.createGeneratedPowerWiring(DEFAULT_DESIGN, PARTS));
 
 module.exports = {
   PORT,

@@ -405,6 +405,55 @@
     const weapons = supportAnalysis.weaponBonuses.map((weapon) => ({ index: weapon.weaponIndex, type: weapon.weaponType, networkId: weapon.networkId, networkLabel: weapon.networkLabel, supportIndices: [...weapon.sourceIndices] }));
     return { version: WIRING_VERSION, wiring: normalized.wiring, droppedRoutes: normalized.droppedRoutes, droppedSegments: normalized.droppedSegments, power, data: { networks, networkByComponent, sourceIndices, weaponIndices, supports, weapons, sourceAllocations: supportAnalysis.sourceAllocations, weaponBonuses: supportAnalysis.weaponBonuses, supportAnalysis }, warnings: [...supportAnalysis.warnings] };
   }
+
+  function deterministicCellSort(a, b) { return a.y - b.y || a.x - b.x; }
+  function routeBetweenCellSets(startCells, targetCells, occupiedKeys) {
+    const starts = (startCells || []).map((cell) => ({ x: cell.x, y: cell.y })).sort(deterministicCellSort);
+    const targets = new Set((targetCells || []).map((cell) => cellKey(cell.x, cell.y)));
+    const queue = starts.map((cell) => [cell]);
+    const seen = new Set(starts.map((cell) => cellKey(cell.x, cell.y)));
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const path = queue[cursor]; const cell = path.at(-1);
+      if (targets.has(cellKey(cell.x, cell.y))) return path;
+      for (const next of [{ x: cell.x, y: cell.y - 1 }, { x: cell.x - 1, y: cell.y }, { x: cell.x + 1, y: cell.y }, { x: cell.x, y: cell.y + 1 }]) {
+        const key = cellKey(next.x, next.y);
+        if (occupiedKeys.has(key) && !seen.has(key)) { seen.add(key); queue.push([...path, next]); }
+      }
+    }
+    return null;
+  }
+
+  function createGeneratedPowerWiring(design, componentCatalog) {
+    const modules = Array.isArray(design) ? design.map((module) => ({ ...module })) : [];
+    const occupiedKeys = new Set();
+    modules.forEach((module) => moduleCells(module, componentCatalog).forEach((cell) => occupiedKeys.add(cellKey(cell.x, cell.y))));
+    const sourceIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerSourceType(module.type)).map(({ index }) => index);
+    const consumerIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerConsumer(module.type, componentCatalog)).map(({ index }) => index);
+    if (!sourceIndices.length) return emptyWiring();
+    let wiring = emptyWiring();
+    const networkCells = new Set(moduleCells(modules[sourceIndices[0]], componentCatalog).map((cell) => cellKey(cell.x, cell.y)));
+    const terminals = [...sourceIndices.slice(1), ...consumerIndices].sort((a, b) => a - b);
+    const unreachable = [];
+    for (const targetIndex of terminals) {
+      const targetCells = moduleCells(modules[targetIndex], componentCatalog).sort(deterministicCellSort);
+      if (targetCells.some((cell) => networkCells.has(cellKey(cell.x, cell.y)))) continue;
+      const starts = [...networkCells].map((key) => { const [x, y] = key.split(",").map(Number); return { x, y }; }).sort(deterministicCellSort);
+      const route = routeBetweenCellSets(starts, targetCells, occupiedKeys);
+      if (!route || route.length < 2) { unreachable.push({ index: targetIndex, type: modules[targetIndex]?.type, cells: targetCells }); continue; }
+      wiring = addPath(wiring, "power", route, modules, componentCatalog);
+      route.forEach((cell) => networkCells.add(cellKey(cell.x, cell.y)));
+    }
+    const normalized = normalizeWiring(wiring, modules, componentCatalog).wiring;
+    const analysis = analyzePhysicalPower(modules, normalized, componentCatalog);
+    const missing = consumerIndices.filter((index) => analysis.disconnectedConsumerIndices.includes(index));
+    const unusedSources = sourceIndices.filter((index) => !analysis.networkByComponent.get(index));
+    if (unreachable.length || missing.length || unusedSources.length || analysis.underpoweredConsumerIndices.length) {
+      const details = [...unreachable, ...missing.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog) })), ...unusedSources.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog), reason: "source-not-connected" }))];
+      throw new Error(`Generated default Power wiring is incomplete: ${JSON.stringify(details)}`);
+    }
+    return { version: WIRING_VERSION, power: cloneKind(normalized.power), data: emptyKind() };
+  }
+
   function addPath(wiring, kind, cells, modules, catalogue) {
     const next = cloneWiring(wiring); const bucket = next[kind];
     for (let i = 1; i < (cells || []).length; i += 1) { const id = sectionIdFromCells(cells[i - 1], cells[i]); if (!bucket.sections.some((s) => segmentKey(s) === id)) bucket.sections.push({ id, ...canonicalSectionCoordinates(cells[i - 1], cells[i]), tier: STANDARD_TIER }); }
@@ -425,5 +474,5 @@
   }
   function removePhysicalNetwork(wiring, kind, network, modules, catalogue) { const ids = new Set(network.sectionIds); const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((s) => !ids.has(segmentKey(s))); next[kind].connections = next[kind].connections.filter((c) => !c.sectionIds.some((id) => ids.has(id))); return normalizeWiring(next, modules, catalogue).wiring; }
 
-  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
+  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
 }));

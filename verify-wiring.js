@@ -32,7 +32,8 @@ const removed = W.removeConnection(normalized, "data", firstKey, ship, PARTS);
 assert.equal(removed.data.connections.length, 1, "one logical connection removed");
 assert.ok(removed.data.sections.some(section => section.id === shared.id), "shared section remains while referenced");
 assert.deepEqual(W.normalizeWiring({version:1,power:[],data:[]}, ship, PARTS).wiring, W.emptyWiring(), "v1 wiring is cleared");
-assert.deepEqual(DEFAULT_WIRING, W.emptyWiring(), "default wiring starts empty");
+assert.ok(DEFAULT_WIRING.power.sections.length > 0, "default wiring has physical Power sections");
+assert.deepEqual(DEFAULT_WIRING.data, W.emptyWiring().data, "default wiring keeps Data empty");
 
 const physicalDesign = [
   { x: 1, y: 1, type: "reactor" }, { x: 2, y: 1, type: "frame" }, { x: 3, y: 1, type: "shield" },
