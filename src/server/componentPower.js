@@ -82,6 +82,7 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
 
   ship.runtimeWiring = runtime;
   ship.powerAnalysis = analysis;
+  require("./componentData").refreshShipDataSupportAllocation(ship);
   applyShipPowerAllocation(ship, options);
   return runtime;
 }

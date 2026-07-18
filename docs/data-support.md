@@ -19,3 +19,21 @@ Allocation domains contain recognised source indices, weapon indices, and physic
 ## Deferred work
 
 Section 6B will make the allocation engine authoritative for live combat. Power, Heat, damage, and component lifecycle behavior are deferred to Section 6C. Designer presentation is deferred to Section 6D. None of those deferred mechanics are active in Section 6A.
+
+## Section 6B runtime authority
+
+Section 6B makes server combat authoritative for physical Wiring v2 Data support on a per-weapon-component basis. The server derives runtime state in `src/server/componentData.js` from the immutable `ship.design` and the ship's Wiring v2 blueprint/runtime wiring projection. This derived state is stored on the runtime ship only as `ship.runtimeDataSupport`; it is not written back into saved blueprints or catalogue data.
+
+The runtime flow is:
+
+1. Analyze the physical Wiring v2 topology with `WiringRules.analyzeWiring(ship.design, ship.wiring, PARTS)` or the current operational runtime wiring projection.
+2. Consume the resulting physical Data networks through the shared Section 6A allocation engine in `public/src/shared/dataSupportRules.js`.
+3. Store deterministic lookup arrays by design/component index: `sourceAllocationByIndex` and `weaponBonusByIndex`.
+4. Resolve each firing weapon's base catalogue profile from `PARTS` and combine it with only that weapon index's support record through `DataSupportRules.effectiveWeaponProfile(...)`.
+5. Use the resulting effective profile for target acquisition, range checks, accuracy/spread, projectile lifetime, beam endpoint range and cooldown/reload.
+
+Support is applied exactly once: catalogue base weapon stats remain base values, `shipStats.computeStats()` reports base weapon-family summaries, and runtime combat obtains effective per-weapon profiles from `componentData.js`. Range, accuracy and fire-rate support are no longer ship-wide weapon authorities. A disconnected source, a source on a different Data network, or a weapon with no support contribution cannot affect unrelated weapons.
+
+Unsupported weapons remain fully operational. A weapon with no Data cable, no connected support source, or no contribution record receives a zero-support record and fires with its base catalogue range, accuracy and fire rate.
+
+Section 6B intentionally defers Section 6C behaviour: dynamic source Power multipliers, dynamic thermal multipliers, destruction/repair-driven topology redistribution, dirty flags for cable-host damage, and support-source activity Heat are not implemented here.
