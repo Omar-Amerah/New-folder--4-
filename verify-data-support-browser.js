@@ -5,6 +5,160 @@ const { mkdirSync } = require("fs");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
 const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { server } = startServer(port); let browser;
+
+async function svgLineScreenPoint(locator, fraction = 0.5) {
+  return locator.evaluate((element, t) => {
+    const svg = element.ownerSVGElement;
+    const matrix = element.getScreenCTM();
+
+    if (!svg || !matrix) {
+      throw new Error("SVG cable line has no screen transformation matrix");
+    }
+
+    const x1 = Number(element.getAttribute("x1"));
+    const y1 = Number(element.getAttribute("y1"));
+    const x2 = Number(element.getAttribute("x2"));
+    const y2 = Number(element.getAttribute("y2"));
+
+    if (
+      !Number.isFinite(x1) ||
+      !Number.isFinite(y1) ||
+      !Number.isFinite(x2) ||
+      !Number.isFinite(y2)
+    ) {
+      throw new Error("SVG cable line has invalid coordinates");
+    }
+
+    const point = svg.createSVGPoint();
+
+    point.x = x1 + ((x2 - x1) * t);
+    point.y = y1 + ((y2 - y1) * t);
+
+    const screen = point.matrixTransform(matrix);
+
+    if (!Number.isFinite(screen.x) || !Number.isFinite(screen.y)) {
+      throw new Error("SVG cable line produced non-finite screen coordinates");
+    }
+
+    return {
+      x: screen.x,
+      y: screen.y,
+      svgX: point.x,
+      svgY: point.y
+    };
+  }, fraction);
+}
+
+async function svgSectionDiagnostics(page, locator, expectedSectionId, point, elementFromPointResult) {
+  const [lineDetails, selectedSectionId, renderedSectionIds] = await Promise.all([
+    locator.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const svg = element.ownerSVGElement;
+      const matrix = element.getScreenCTM();
+      return {
+        lineAttributes: {
+          x1: element.getAttribute("x1"),
+          y1: element.getAttribute("y1"),
+          x2: element.getAttribute("x2"),
+          y2: element.getAttribute("y2")
+        },
+        boundingRect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          left: rect.left
+        },
+        computedStyle: {
+          pointerEvents: style.pointerEvents,
+          strokeWidth: style.strokeWidth,
+          stroke: style.stroke
+        },
+        svgViewBox: svg?.getAttribute("viewBox") || null,
+        screenMatrix: matrix ? {
+          a: matrix.a,
+          b: matrix.b,
+          c: matrix.c,
+          d: matrix.d,
+          e: matrix.e,
+          f: matrix.f
+        } : null
+      };
+    }),
+    page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return state.wiringUi.selectedSectionId;
+    }),
+    page.locator(".wire-hit[data-section-id]").evaluateAll((elements) =>
+      elements.map((element) => element.dataset.sectionId)
+    )
+  ]);
+
+  return {
+    expectedSectionId,
+    point,
+    elementFromPointResult,
+    ...lineDetails,
+    selectedSectionId,
+    renderedSectionIds
+  };
+}
+
+async function clickSvgSection(page, locator, expectedSectionId, label) {
+  assert.equal(await locator.count(), 1, `${label} has exactly one SVG hit line`);
+
+  const point = await svgLineScreenPoint(locator);
+
+  const hit = await page.evaluate(({ x, y }) => {
+    const element = document.elementFromPoint(x, y);
+    const section = element?.closest?.("[data-section-id]");
+
+    return {
+      tagName: element?.tagName || null,
+      className: element?.getAttribute?.("class") || null,
+      sectionId: section?.dataset?.sectionId || null,
+      parentLayer: section?.parentElement?.getAttribute?.("class") || null,
+      pointerEvents: element ? getComputedStyle(element).pointerEvents : null
+    };
+  }, point);
+
+  if (hit.sectionId !== expectedSectionId) {
+    const diagnostics = await svgSectionDiagnostics(page, locator, expectedSectionId, point, hit);
+    assert.equal(
+      hit.sectionId,
+      expectedSectionId,
+      `${label} midpoint reaches its intended hit target; diagnostics: ${JSON.stringify(diagnostics)}`
+    );
+  }
+
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.click(point.x, point.y);
+
+  return { point, hit };
+}
+
+async function collectVulnerabilityDiagnostics(page) {
+  return page.evaluate(async () => {
+    const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+    const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode });
+    const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
+    return {
+      sectionVulnerabilities: vulnerabilities.filter((item) => item.kind === "section").map((item) => ({ id: item.id, severity: item.severity, disconnectedWeaponIndices: item.disconnectedWeaponIndices, lostRangeBonus: item.lostRangeBonus, lostAccuracyBonus: item.lostAccuracyBonus, lostFireRateBonus: item.lostFireRateBonus, summary: item.summary })),
+      visibleCriticalCount: document.querySelectorAll(".wire-data.data-critical-section").length,
+      visibleRedundantCount: document.querySelectorAll(".wire-data.data-redundant-section").length,
+      renderedSections: [...document.querySelectorAll(".wire-data[data-section-id]")].map((el) => ({ id: el.dataset.sectionId, className: el.getAttribute("class") })),
+      ariaLabels: [...document.querySelectorAll(".wire-hit")].map((el) => ({ id: el.dataset.sectionId, label: el.getAttribute("aria-label") || "" })),
+      panelText: document.querySelector("#wiringStatusPanel")?.textContent || "",
+      selectedSectionId: state.wiringUi?.selectedSectionId ?? null,
+      wiringMode: state.wiringUi?.mode ?? null,
+      blueprintView: state.blueprintView
+    };
+  });
+}
 (async () => {
   const errors = []; const consoleErrors = [];
   try {
@@ -243,14 +397,25 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     assert.equal(await criticalVisible.count(), 1, "authoritative critical section has exactly one visible critical line");
     assert.equal(await redundantVisible.count(), 1, "authoritative redundant section has exactly one visible redundant line");
     const criticalHit = page.locator(`.wire-hit[data-section-id="${authoritative.criticalSectionId}"]`);
-    const redundantHit = page.locator(`.wire-hit[data-section-id="${authoritative.redundantSectionId}"]`);
     assert.match(await criticalHit.getAttribute("aria-label"), /Vulnerability: critical/i, "critical cable hit target exposes severity in ARIA");
-    assert.match(await redundantHit.getAttribute("aria-label"), /Vulnerability: redundant/i, "redundant cable hit target exposes severity in ARIA");
     assert((await page.locator(".wire-hit").evaluateAll((els) => els.every((el) => /Vulnerability:/.test(el.getAttribute("aria-label") || "")))), "Data cable hit targets include vulnerability text");
-    await criticalHit.click();
+    await clickSvgSection(page, criticalHit, authoritative.criticalSectionId, "critical Data cable section");
+    const selectedCriticalId = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return state.wiringUi.selectedSectionId;
+    });
+    assert.equal(selectedCriticalId, authoritative.criticalSectionId, "critical Data cable becomes the selected section");
     let sectionPanelText = await panel.textContent();
     assert(/Selected Data section/.test(sectionPanelText) && /critical/i.test(sectionPanelText) && /Lost support/i.test(sectionPanelText) && (/Railgun/.test(sectionPanelText) && /Missile/.test(sectionPanelText) || /2[^0-9]+weapon/i.test(sectionPanelText)), "critical section inspector details agree with vulnerability analysis");
-    await redundantHit.click();
+
+    const redundantHit = page.locator(`.wire-hit[data-section-id="${authoritative.redundantSectionId}"]`);
+    assert.match(await redundantHit.getAttribute("aria-label"), /Vulnerability: redundant/i, "redundant cable hit target exposes severity in ARIA");
+    await clickSvgSection(page, redundantHit, authoritative.redundantSectionId, "redundant Data cable section");
+    const selectedRedundantId = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return state.wiringUi.selectedSectionId;
+    });
+    assert.equal(selectedRedundantId, authoritative.redundantSectionId, "redundant Data cable becomes the selected section");
     sectionPanelText = await panel.textContent();
     const pointDefenseAfterRedundant = await page.evaluate(async (sectionId) => {
       const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
@@ -266,20 +431,13 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
       mkdirSync("test-artifacts/data-support-browser", { recursive: true });
       const screenshotPath = "test-artifacts/data-support-browser/vulnerability-failure.png";
       await page.screenshot({ path: screenshotPath, fullPage: true });
-      const diagnostics = await page.evaluate(async () => {
-        const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
-        const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode });
-        const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
-        return {
-          sectionVulnerabilities: vulnerabilities.filter((item) => item.kind === "section").map((item) => ({ id: item.id, severity: item.severity, disconnectedWeaponIndices: item.disconnectedWeaponIndices, lostRangeBonus: item.lostRangeBonus, lostAccuracyBonus: item.lostAccuracyBonus, lostFireRateBonus: item.lostFireRateBonus, summary: item.summary })),
-          visibleCriticalCount: document.querySelectorAll(".wire-data.data-critical-section").length,
-          visibleRedundantCount: document.querySelectorAll(".wire-data.data-redundant-section").length,
-          renderedSections: [...document.querySelectorAll(".wire-data[data-section-id]")].map((el) => ({ id: el.dataset.sectionId, className: el.getAttribute("class") })),
-          ariaLabels: [...document.querySelectorAll(".wire-hit")].map((el) => ({ id: el.dataset.sectionId, label: el.getAttribute("aria-label") || "" })),
-          panelText: document.querySelector("#wiringStatusPanel")?.textContent || "",
-          screenshotPath
-        };
-      });
+      let diagnostics = { screenshotPath };
+      try {
+        const browserDiagnostics = await collectVulnerabilityDiagnostics(page);
+        diagnostics = { ...diagnostics, ...browserDiagnostics };
+      } catch (diagnosticError) {
+        diagnostics.diagnosticCollectionError = String(diagnosticError?.stack || diagnosticError);
+      }
       vulnerabilityError.message = `${vulnerabilityError.message}; vulnerability diagnostics: ${JSON.stringify(diagnostics)}`;
       throw vulnerabilityError;
     }
