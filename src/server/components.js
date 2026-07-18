@@ -107,7 +107,10 @@ function normalizeBalanceComponent(component) {
     decoyChance: toNumber(component.decoyChance, 0),
     frontDamageReduction: toNumber(component.frontDamageReduction, 0),
     frontArc: toNumber(component.frontArc, 0),
-    // Directional armour: flat damage shaved off every hit this plate intercepts.
+    // Directional armour: maximum damage removed from a single attack event.
+    // Rapid or continuous sources with sub-second delivery intervals scale this
+    // value by the interval, making it approximately sustained DPS absorbed per
+    // weapon stream.
     armorFlatReduction: toNumber(component.armorFlatReduction, 0),
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
   };

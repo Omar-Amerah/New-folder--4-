@@ -542,6 +542,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const speed = effectiveWeapon.projectileSpeed || 620;
       const rangeVal = effectiveWeapon.range;
       const life = rangeVal / speed;
+      const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
       addBullet(room, {
         type: "bolt",
         ownerId: ship.ownerId,
@@ -555,15 +556,16 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
         life: life,
-        bornAt: now
+        bornAt: now,
+        armorInteractionSeconds: Math.min(1, reload)
       });
-      const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
-      ship.weaponCooldowns[i] = Math.max(0.05, reload);
+      ship.weaponCooldowns[i] = reload;
       addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
     } else if (family === "missile") {
       const speed = effectiveWeapon.projectileSpeed || 330;
       const rangeVal = effectiveWeapon.range;
       const life = rangeVal / speed;
+      const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
       addBullet(room, {
         type: "missile",
         subtype: module.type,
@@ -585,10 +587,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         maxSpeed: speed * 1.45,
         life: life,
         bornAt: now,
-        age: 0
+        age: 0,
+        armorInteractionSeconds: Math.min(1, reload)
       });
-      const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
-      ship.weaponCooldowns[i] = Math.max(0.05, reload);
+      ship.weaponCooldowns[i] = reload;
       addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
     } else if (family === "beam") {
       const rangeVal = effectiveWeapon.range;
@@ -602,7 +604,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const dataFireRateFactor = baseFireRate > 0 ? effectiveFireRate / baseFireRate : 1;
       damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * dt, now, {
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
-        hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1
+        hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
+        armorInteractionSeconds: dt
       });
       addComponentHeat(ship, i, Math.max(3, Math.sqrt(effectiveWeapon.damage || 1)) * dataFireRateFactor * beamPerformance * dt);
       if (now - (ship.beamEffectsAt[i] || 0) > 55) {
@@ -623,6 +626,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
          const speed = effectiveWeapon.projectileSpeed || 1000;
          const life = (effectiveWeapon.range || 0) / speed;
          const targetEnt = currentPdTarget.entity;
+         const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
          const pdSpreadScale = weaponSpreadRadians(effectiveWeapon, family);
          const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -pdSpreadScale, pdSpreadScale);
 
@@ -641,10 +645,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             pdTargetType: currentPdTarget.type,
             pdTargetId: targetEnt.id,
             life: life,
-            bornAt: now
+            bornAt: now,
+            armorInteractionSeconds: currentPdTarget.type === "ship" ? Math.min(1, reload) : undefined
          });
-         const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
-         ship.weaponCooldowns[i] = Math.max(0.05, reload);
+         ship.weaponCooldowns[i] = reload;
          addComponentHeat(ship, i, 4);
 
          const pdCount = (ship.design || []).filter(m => PARTS[m.type]?.weapon?.type === "pointDefense").length || 1;
@@ -663,6 +667,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const speed = effectiveWeapon.projectileSpeed || 1080;
       const rangeVal = effectiveWeapon.range;
       const life = rangeVal / speed;
+      const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
       addBullet(room, {
         type: "rail",
         ownerId: ship.ownerId,
@@ -676,13 +681,26 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
         life: life,
-        bornAt: now
+        bornAt: now,
+        armorInteractionSeconds: Math.min(1, reload)
       });
-      const reload = (1 / effectiveWeapon.fireRate) / Math.max(0.0001, activityMultiplier);
-      ship.weaponCooldowns[i] = Math.max(0.05, reload);
+      ship.weaponCooldowns[i] = reload;
       addComponentHeat(ship, i, Math.max(8, Math.sqrt(effectiveWeapon.damage || 1) * 1.8));
     }
   });
+}
+
+function weaponReloadSeconds(effectiveWeapon, activityMultiplier) {
+  const fireRate = Math.max(
+    0.0001,
+    Number(effectiveWeapon.fireRate) || 0
+  );
+
+  return Math.max(
+    0.05,
+    (1 / fireRate)
+      / Math.max(0.0001, activityMultiplier)
+  );
 }
 
 function weaponModulesInArc(ship, target, family) {
@@ -866,7 +884,9 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
     // shown as a floating number — armour flat reduction eats the rest.
     const impactX = sourceX !== undefined ? sourceX : ship.x;
     const impactY = sourceY !== undefined ? sourceY : ship.y;
-    const applied = applyHullDamage(room, ship, hullDamage, now, impactX, impactY);
+    const applied = applyHullDamage(room, ship, hullDamage, now, impactX, impactY, {
+      armorInteractionSeconds: options.armorInteractionSeconds
+    });
     if (applied > 0) pushDamageEffect(room, ship, now, applied, false);
   }
 
@@ -1152,6 +1172,8 @@ module.exports = {
   shipRepairNeed,
   updateShipWeapons,
   weaponModulesInArc,
+  weaponReloadSeconds,
+  damageBeamTargets,
   moduleRotationToRadians,
   moduleLocalPosition,
   moduleFootprintLocalPosition,
