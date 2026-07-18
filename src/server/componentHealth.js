@@ -258,6 +258,7 @@ function flushComponentLifecycleRefresh(ship) {
   if (flags.exposure) heat.rebuildRuntimeExposure(ship);
   if (flags.thermalRoutes) heat.rebuildThermalNetworks(ship);
   if (flags.wiringTopology) require("./componentPower").rebuildShipWiringState(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
+  heat.refreshHeatSourceSignatures?.(ship);
 }
 
 function endComponentLifecycleBatch(ship) {

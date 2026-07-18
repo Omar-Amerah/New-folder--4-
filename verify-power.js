@@ -110,3 +110,21 @@ assert.strictEqual(noOtherSource.powerStatus, "unpowered", "ship summary priorit
 let disconnected = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"shield"}], WiringRules.emptyWiring());
 require("./src/server/componentPower").rebuildShipWiringState(disconnected, "test");
 assert.strictEqual(disconnected.componentPower.byComponentIndex[1].state, "disconnected", "consumer with no live Power network is disconnected");
+
+// Phase 4: destroyed reactors cooling through physical thresholds do not churn Power allocation.
+let destroyedCooling = shipFor([{x:7,y:7,type:"core"},{x:6,y:7,type:"reactor"},{x:7,y:6,type:"engine"}]);
+require("./src/server/componentPower").rebuildShipWiringState(destroyedCooling, "test");
+destroyedCooling.componentHeat[1] = destroyedCooling.componentThermals[1].capacity * 1.2;
+destroyedCooling.componentHeatState[1] = STATE.OVERHEATED;
+destroyedCooling.componentHp[1] = 0;
+require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedCooling);
+require("./src/server/heat").refreshHeatSourceSignatures(destroyedCooling);
+let destroyedReallocations = 0;
+powerModule.reallocateShipPower = function countedDestroyed(ship, reason) { destroyedReallocations += 1; return originalReallocate(ship, reason); };
+for (let i = 0; i < 12; i += 1) { destroyedCooling.componentHeat[1] *= 0.86; destroyedCooling.hasActiveHeat = true; tick(destroyedCooling); }
+assert.strictEqual(destroyedReallocations, 0, "destroyed reactor cooling across thresholds causes no Power reallocations");
+destroyedCooling.componentHp[1] = destroyedCooling.componentMaxHp[1];
+require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedCooling);
+const repairedGeneration = require("./src/server/componentPower").effectiveLiveSourceGeneration(destroyedCooling, 1);
+assert.strictEqual(repairedGeneration, destroyedCooling.componentHeatState[1] === STATE.OVERHEATED ? 0 : PARTS.reactor.powerGeneration, "repairing reactor restores availability according to retained Heat state");
+powerModule.reallocateShipPower = originalReallocate;

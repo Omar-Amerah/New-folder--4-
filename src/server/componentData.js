@@ -37,7 +37,10 @@ function sourcePowerMultiplier(ship, sourceIndex) {
   // implicit full output from blueprint shape or legacy/no-cable designs.
   return DataSupportRules.normalizeSourceMultiplier(Number.isFinite(value) ? value : 0);
 }
-function sourceThermalMultiplier(ship, sourceIndex) { return DataSupportRules.normalizeSourceMultiplier(HeatRules.activeOutputForState(ship?.componentHeatState?.[sourceIndex] ?? HeatRules.STATE.NORMAL)); }
+function sourceThermalMultiplier(ship, sourceIndex) {
+  if (!isAlive(ship, sourceIndex)) return 1;
+  return DataSupportRules.normalizeSourceMultiplier(HeatRules.activeOutputForState(ship?.componentHeatState?.[sourceIndex] ?? HeatRules.STATE.NORMAL));
+}
 function sourceOperationalMultiplier(ship, sourceIndex) { return isAlive(ship, sourceIndex) ? 1 : 0; }
 function sourceMultiplier(ship, sourceIndex) { return DataSupportRules.normalizeSourceMultiplier(sourcePowerMultiplier(ship, sourceIndex) * sourceThermalMultiplier(ship, sourceIndex) * sourceOperationalMultiplier(ship, sourceIndex)); }
 function isDataWeaponEligible(ship, weaponIndex) { return isAlive(ship, weaponIndex); }
@@ -123,7 +126,10 @@ function dataRelevantHeatSignature(ship) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const states = ship?.componentHeatState || [];
   return design.map((module, index) => {
-    if (DataSupportRules.isDataSupportSource(module?.type)) return `s${index}:${states[index] ?? HeatRules.STATE.NORMAL}:${sourceThermalMultiplier(ship, index)}`;
+    if (DataSupportRules.isDataSupportSource(module?.type)) {
+      const alive = isAlive(ship, index);
+      return `s${index}:${alive ? 1 : 0}:${alive ? (states[index] ?? HeatRules.STATE.NORMAL) : HeatRules.STATE.NORMAL}:${alive ? sourceThermalMultiplier(ship, index) : 0}:${sourcePowerMultiplier(ship, index)}`;
+    }
     // Weapon Data eligibility is currently HP-only; add weapon-local Heat here
     // only if a future rule makes Heat affect support eligibility/profile.
     return null;

@@ -99,8 +99,12 @@ function initShipHeat(ship) {
   ship.componentHeatCooled = design.map(() => 0);
   ship.componentHeatSentThroughFrame = design.map(() => 0);
   ship.componentHeatRadiated = design.map(() => 0);
-  ship.componentVentedOverflowHeat = design.map(() => 0);
-  ship.ventedOverflowHeat = 0;
+  ship.componentVentedOverflowHeatThisTick = design.map(() => 0);
+  ship.componentVentedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
+  ship.componentTotalVentedOverflowHeat = design.map(() => 0);
+  ship.ventedOverflowHeatThisTick = 0;
+  ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
+  ship.totalVentedOverflowHeat = 0;
   ship.heatGeneratedThisTick = ship.componentHeatGenerated;
   ship.heatReceivedThisTick = ship.componentHeatReceived;
   ship.heatRemovedThisTick = ship.componentHeatRemoved;
@@ -108,6 +112,7 @@ function initShipHeat(ship) {
   ship.heatAccumulator = 0;
   ship.currentHeat = 0;
   recalculateEffectiveThermalCapacities(ship);
+  refreshHeatSourceSignatures(ship);
   ship.heatPressure = 0;
   ship.hotComponentCount = 0;
   ship.overheatedComponentCount = 0;
@@ -143,7 +148,13 @@ function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
     if (ship.componentHeatCapacity) ship.componentHeatCapacity[i] = capacity;
     // Capacity loss never deletes retained heat. Zero capacity with positive
     // heat is deterministically saturated rather than dividing by zero.
-    if (ship.componentHeat && Number.isFinite(ship.componentHeat[i])) ship.componentHeatState[i] = stateFor(capacity > 0 ? ship.componentHeat[i] / capacity : (ship.componentHeat[i] > 0 ? Infinity : 0), ship.componentHeatState[i]);
+    // Destroyed components retain heat physically but do not broadcast an
+    // operational warm/hot/critical/overheated state until repaired.
+    if (ship.componentHeat && Number.isFinite(ship.componentHeat[i])) {
+      const alive = (ship.componentHp?.[i] ?? 1) > 0;
+      const physicalState = stateFor(capacity > 0 ? ship.componentHeat[i] / capacity : (ship.componentHeat[i] > 0 ? Infinity : 0), ship.componentHeatState[i]);
+      ship.componentHeatState[i] = alive ? physicalState : STATE.NORMAL;
+    }
     ship.dirtyHeat?.add?.(i);
   }
   let totalHeat = 0;
@@ -220,6 +231,30 @@ function addComponentHeat(ship, index, amount) {
   ship.hasActiveHeat = true;
 }
 
+function powerSourceHeatSignature(ship) {
+  return (ship.componentHeat || []).map((_, i) => {
+    if ((PARTS[ship.design[i].type]?.powerGeneration || 0) <= 0) return null;
+    const alive = (ship.componentHp?.[i] ?? 1) > 0;
+    return `${i}:${alive ? 1 : 0}:${alive && ship.componentHeatState[i] === STATE.OVERHEATED ? 1 : 0}`;
+  }).filter(Boolean).join(",");
+}
+
+function dataSourceHeatSignature(ship) {
+  const dataRules = require("../../public/src/shared/dataSupportRules");
+  return (ship.componentHeat || []).map((_, i) => {
+    if (!dataRules.isDataSupportSource(ship.design[i]?.type)) return null;
+    const alive = (ship.componentHp?.[i] ?? 1) > 0;
+    return `${i}:${alive ? 1 : 0}:${alive ? ship.componentHeatState[i] : STATE.NORMAL}:${alive ? activeOutputForState(ship.componentHeatState[i]) : 0}`;
+  }).filter(Boolean).join(",");
+}
+
+function refreshHeatSourceSignatures(ship) {
+  ship._heatPowerSourceSignature = powerSourceHeatSignature(ship);
+  ship._heatDataSourceSignature = dataSourceHeatSignature(ship);
+  ship._heatPowerSourceStates = ship.componentHeatState?.slice?.() || [];
+  ship._heatDataSourceStates = ship.componentHeatState?.slice?.() || [];
+}
+
 function componentPerformance(ship, index) {
   return activeOutputForState(ship.componentHeatState?.[index] || STATE.NORMAL);
 }
@@ -263,13 +298,17 @@ function updateShipHeat(ship, dt, room, now) {
   ship.componentHeatRemoved.fill(0);
   if (!ship.componentHeatTransferredOut) ship.componentHeatTransferredOut = heat.map(() => 0);
   if (!ship.componentHeatCooled) ship.componentHeatCooled = heat.map(() => 0);
-  if (!ship.componentVentedOverflowHeat) ship.componentVentedOverflowHeat = heat.map(() => 0);
+  if (!ship.componentVentedOverflowHeatThisTick) ship.componentVentedOverflowHeatThisTick = heat.map(() => 0);
+  if (!ship.componentVentedOverflowHeat) ship.componentVentedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
+  if (!ship.componentTotalVentedOverflowHeat) ship.componentTotalVentedOverflowHeat = heat.map(() => 0);
   ship.componentHeatTransferredOut.fill(0);
   ship.componentHeatCooled.fill(0);
   ship.componentHeatSentThroughFrame.fill(0);
   ship.componentHeatRadiated.fill(0);
-  ship.componentVentedOverflowHeat.fill(0);
-  ship.ventedOverflowHeat = 0;
+  ship.componentVentedOverflowHeatThisTick.fill(0);
+  ship.componentVentedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
+  ship.ventedOverflowHeatThisTick = 0;
+  ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
   let remainsActive = false;
 
   // Local generation only. Cooling is applied after transfers so a radiator can
@@ -377,19 +416,26 @@ function updateShipHeat(ship, dt, room, now) {
   for (let i = 0; i < heat.length; i += 1) {
     const alive = (ship.componentHp?.[i] ?? 1) > 0;
     const capacity = ship.componentThermals[i].capacity;
-    // Inputs are bounded, but retained heat may exceed a newly damage-reduced
-    // capacity and must drain naturally instead of being magically discarded.
+    // Retained heat ceiling is 125% of current capacity. Heat already retained
+    // above a newly reduced capacity is not deleted; only newly added heat beyond
+    // that retained ceiling is vented as emergency heat removal (not radiator
+    // cooling).
     const retainedCeiling = Math.max(capacity * 1.25, heat[i]);
     const unclampedNext = Math.max(0, heat[i] + delta[i]);
     const next = Math.min(retainedCeiling, unclampedNext);
     const overflow = Math.max(0, unclampedNext - next);
     if (overflow > 0) {
-      ship.componentVentedOverflowHeat[i] = overflow;
-      ship.ventedOverflowHeat += overflow;
+      ship.componentVentedOverflowHeatThisTick[i] += overflow;
+      ship.componentVentedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
+      ship.componentTotalVentedOverflowHeat[i] = (ship.componentTotalVentedOverflowHeat[i] || 0) + overflow;
+      ship.ventedOverflowHeatThisTick += overflow;
+      ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
+      ship.totalVentedOverflowHeat = (ship.totalVentedOverflowHeat || 0) + overflow;
       ship.componentHeatRemoved[i] += overflow;
     }
     const oldState = ship.componentHeatState[i];
-    const nextState = stateFor(capacity > 0 ? next / capacity : (next > 0 ? Infinity : 0), oldState);
+    const physicalState = stateFor(capacity > 0 ? next / capacity : (next > 0 ? Infinity : 0), oldState);
+    const nextState = alive ? physicalState : STATE.NORMAL;
     if (nextState !== oldState || Math.abs(next - heat[i]) >= 0.5) ship.dirtyHeat.add(i);
     heat[i] = next;
     ship.componentHeatState[i] = nextState;
@@ -421,8 +467,12 @@ function updateShipHeat(ship, dt, room, now) {
   ship.overheatedComponentCount = overheatedCount;
   // Source state tiers alter only their own network allocation. Batch all
   // changes from this thermal step into one cheap reanalysis of cached Wiring.
-  const powerSourceTierChanged = heat.some((_, i) => (PARTS[ship.design[i].type]?.powerGeneration || 0) > 0 && ((ship._heatPowerSourceStates?.[i] === STATE.OVERHEATED) !== (ship.componentHeatState[i] === STATE.OVERHEATED)));
-  const dataSourceTierChanged = heat.some((_, i) => require("../../public/src/shared/dataSupportRules").isDataSupportSource(ship.design[i]?.type) && ship._heatDataSourceStates?.[i] !== ship.componentHeatState[i]);
+  const powerSourceSignature = powerSourceHeatSignature(ship);
+  const dataSourceSignature = dataSourceHeatSignature(ship);
+  const powerSourceTierChanged = ship._heatPowerSourceSignature !== undefined && ship._heatPowerSourceSignature !== powerSourceSignature;
+  const dataSourceTierChanged = ship._heatDataSourceSignature !== undefined && ship._heatDataSourceSignature !== dataSourceSignature;
+  ship._heatPowerSourceSignature = powerSourceSignature;
+  ship._heatDataSourceSignature = dataSourceSignature;
   ship._heatPowerSourceStates = ship.componentHeatState.slice();
   ship._heatDataSourceStates = ship.componentHeatState.slice();
   if (powerSourceTierChanged) require("./componentPower").reallocateShipPower(ship, "thermal-source-state");
@@ -463,6 +513,8 @@ function buildHeatDebug(ship) {
     currentHeat: ship.currentHeat,
     maxHeat: ship.maxHeat,
     ventedOverflowHeat: ship.ventedOverflowHeat || 0,
+    ventedOverflowHeatThisTick: ship.ventedOverflowHeatThisTick || 0,
+    totalVentedOverflowHeat: ship.totalVentedOverflowHeat || 0,
     components: (ship.design || []).map((module, index) => ({
       index,
       type: module.type,
@@ -473,7 +525,8 @@ function buildHeatDebug(ship) {
       cooledPerSecond: (ship.componentHeatCooled?.[index] || 0) / dt,
       sentThroughFramePerSecond: (ship.componentHeatSentThroughFrame?.[index] || 0) / dt,
       removedByRadiatorPerSecond: (ship.componentHeatRadiated?.[index] || 0) / dt,
-      ventedOverflowHeatPerSecond: (ship.componentVentedOverflowHeat?.[index] || 0) / dt
+      ventedOverflowHeatPerSecond: (ship.componentVentedOverflowHeatThisTick?.[index] || 0) / dt,
+      totalVentedOverflowHeat: ship.componentTotalVentedOverflowHeat?.[index] || 0
     })),
     networks: (ship.thermalNetworks || []).map(network => ({
       id: network.id,
@@ -499,4 +552,4 @@ function effectiveComponentBonus(ship, propertyName, predicate) {
   return total;
 }
 
-module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus };
+module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, refreshHeatSourceSignatures, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus };

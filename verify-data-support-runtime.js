@@ -205,3 +205,28 @@ assert.equal(first, second, "runtime state deterministic across rebuilds");
 assertSnapshot(snap, design, wire(design, paths), "runtime rebuild");
 
 console.log("Data support runtime verification passed.");
+
+// Phase 4: destroyed Data sources cooling through physical Heat thresholds do not refresh Data allocation.
+const DataModule = require("./src/server/componentData");
+const HeatRulesRuntime = require("./public/src/shared/heatRules");
+let churnDesign = [mod("fireControl", 7, 6), mod("railgun", 7, 7)];
+let churnShip = ship(churnDesign, [[{ x: 7, y: 6 }, { x: 7, y: 7 }]]);
+churnShip.componentHeat[0] = churnShip.componentThermals[0].capacity * 1.2;
+churnShip.componentHeatState[0] = HeatRulesRuntime.STATE.OVERHEATED;
+churnShip.componentHp[0] = 0;
+require("./src/server/heat").recalculateEffectiveThermalCapacities(churnShip);
+require("./src/server/heat").refreshHeatSourceSignatures(churnShip);
+const allocationBeforeDestroyedCooling = churnShip.runtimeDataSupport.allocationRevision;
+const originalRefresh = DataModule.refreshShipDataAllocation;
+let refreshCount = 0;
+DataModule.refreshShipDataAllocation = function countedRefresh(shipArg, reason) { refreshCount += 1; return originalRefresh(shipArg, reason); };
+for (let i = 0; i < 12; i += 1) { churnShip.componentHeat[0] *= 0.86; churnShip.hasActiveHeat = true; require("./src/server/heat").updateShipHeat(churnShip, 0.2); }
+assert.strictEqual(refreshCount, 0, "destroyed Fire Control cooling across thresholds causes no Data refreshes");
+assert.strictEqual(churnShip.runtimeDataSupport.allocationRevision, allocationBeforeDestroyedCooling, "destroyed Fire Control cooling causes no Data allocation revision churn");
+churnShip.componentHp[0] = churnShip.componentMaxHp[0];
+churnShip.componentHeat[0] = churnShip.componentThermals[0].capacity * HeatRulesRuntime.THRESHOLDS.hot;
+require("./src/server/heat").recalculateEffectiveThermalCapacities(churnShip);
+originalRefresh(churnShip, "repair-hot-data-source");
+assert.strictEqual(churnShip.componentHeatState[0], HeatRulesRuntime.STATE.HOT, "repairing hot Data source derives HOT immediately");
+close(DataModule.getSourceDataAllocation(churnShip, 0).thermalMultiplier, HeatRulesRuntime.activeOutputForState(HeatRulesRuntime.STATE.HOT), "repairing hot Data source restores thermally reduced support");
+DataModule.refreshShipDataAllocation = originalRefresh;

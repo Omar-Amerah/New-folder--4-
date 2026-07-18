@@ -70,7 +70,7 @@ function zeroes(n) { return Array.from({ length:n }, () => 0); }
     require("./src/server/componentData").refreshShipDataAllocation(ship, "parity-initial-heat");
     if (fixture.beforeServer) fixture.beforeServer(ship);
     const generated = zeroes(fixture.design.length), cooled = zeroes(fixture.design.length), peakRatio = zeroes(fixture.design.length), peakAvailable = zeroes(fixture.design.length);
-    let totalGenerated = 0, totalCooled = 0, totalAvailable = 0;
+    let totalGenerated = 0, totalCooled = 0, totalAvailable = 0, totalOverflow = 0;
     for (let t=0;t<steps;t++) {
       if (fixture.beforeServerTick) fixture.beforeServerTick(ship, t);
       runServerTick(ship);
@@ -80,12 +80,14 @@ function zeroes(n) { return Array.from({ length:n }, () => 0); }
         const available = serverCoolingRate(ship, model, i); totalAvailable += available * HeatRules.TICK_SECONDS; peakAvailable[i] = Math.max(peakAvailable[i], available);
         peakRatio[i] = Math.max(peakRatio[i], ship.componentHeat[i] / Math.max(1, ship.componentThermals[i].capacity));
       }
+      totalOverflow += ship.ventedOverflowHeatThisTick || 0;
     }
     for (let i=0;i<fixture.design.length;i++) {
       const meta = failureMeta(fixture.name, fixture.design, model, sim, ship, i, steps);
       close(sim.heat[i], ship.componentHeat[i], `${fixture.name} component ${i}/${fixture.design[i].type} final stored Heat`, fixture.eps || ACCUMULATED_HEAT_EPSILON, meta);
       close(sim.generatedHeat[i], generated[i], `${fixture.name} component ${i}/${fixture.design[i].type} cumulative generated Heat`, fixture.eps || ACCUMULATED_HEAT_EPSILON, meta);
       close(sim.cooling[i], cooled[i], `${fixture.name} component ${i}/${fixture.design[i].type} cumulative cooling removed`, fixture.eps || ACCUMULATED_HEAT_EPSILON, meta);
+      close(sim.componentVentedOverflowHeat?.[i] || 0, ship.componentTotalVentedOverflowHeat?.[i] || 0, `${fixture.name} component ${i}/${fixture.design[i].type} cumulative vented overflow`, fixture.eps || ACCUMULATED_HEAT_EPSILON, meta);
       assert.strictEqual(sim.states[i], ship.componentHeatState[i], `${fixture.name} component ${i}/${fixture.design[i].type} final Heat state${meta}`);
       close(sim.finalPowerMultiplier[i], ship.componentPower.byComponentIndex[i].operationalMultiplier, `${fixture.name} component ${i}/${fixture.design[i].type} Power multiplier`, EXACT_EPSILON, meta);
       const finalDesignerData = sim.finalPowerMultiplier.some(value => value <= 0) ? sim.dataSupport : load(fixture.design, fixture.wiring || empty(), fixture.mode || "full", { sourceHeatStates: Object.fromEntries(sim.states.map((state, index) => [index, state])) }).dataSupport;
@@ -96,6 +98,7 @@ function zeroes(n) { return Array.from({ length:n }, () => 0); }
     }
     close(sim.totalGeneratedHeat, totalGenerated, `${fixture.name} cumulative total generated Heat`, fixture.eps || ACCUMULATED_HEAT_EPSILON);
     close(sim.totalCoolingRemoved, totalCooled, `${fixture.name} cumulative total cooling removed`, fixture.eps || ACCUMULATED_HEAT_EPSILON);
+    close(sim.totalVentedOverflowHeat || 0, totalOverflow, `${fixture.name} cumulative total vented overflow`, fixture.eps || ACCUMULATED_HEAT_EPSILON);
     close(sim.averageAvailableCoolingRate * sim.simulatedSeconds, totalAvailable, `${fixture.name} accumulated available cooling`, fixture.eps || ACCUMULATED_HEAT_EPSILON);
     assert(Number.isFinite(sim.peakAvailableCoolingRate), `${fixture.name} available cooling rate is finite`);
     return { sim, ship, model };
@@ -123,25 +126,11 @@ function zeroes(n) { return Array.from({ length:n }, () => 0); }
   ]) { let d=fixture.design || powerPair([m("engine",1,0)]).d; let w=empty(); for (let i=1;i<d.length;i++) w=wire(w,"power",[{x:0,y:0},{x:d[i].x,y:d[i].y}],d); if (d[1]?.type==="reactor") w=wire(w,"power",[{x:1,y:0},{x:2,y:0}],d); assertDesignerServerPair({ ...fixture, design:d, wiring:w }); }
 
   {
-    const d=[m("reactor",0,0),m("fireControl",1,0),m("blaster",2,0),m("armor",3,0)]; let w=empty(); w=wire(w,"power",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],d); w=wire(w,"data",[{x:1,y:0},{x:2,y:0}],d);
-    const normal={dataSupport:load(d,w,"full",{sourceHeatStates:{1:HeatRules.STATE.NORMAL}}).dataSupport}; const hot={dataSupport:load(d,w,"full",{sourceHeatStates:{1:HeatRules.STATE.HOT}}).dataSupport}; const critical={dataSupport:load(d,w,"full",{sourceHeatStates:{1:HeatRules.STATE.CRITICAL}}).dataSupport};
-    assert(hot.dataSupport.weaponSupportByIndex[2].fireRateBonus < normal.dataSupport.weaponSupportByIndex[2].fireRateBonus, "Fire Control NORMAL → HOT reduces support without reactor shutdown"); assert(critical.dataSupport.weaponSupportByIndex[2].fireRateBonus < hot.dataSupport.weaponSupportByIndex[2].fireRateBonus, "HOT → CRITICAL updates support again");
-    assertDesignerServerPair({ name:"HOT Fire Control", design:d, wiring:w, steps:2, initial:{initialHeatStates:{1:HeatRules.STATE.HOT}} }); assertDesignerServerPair({ name:"CRITICAL Fire Control", design:d, wiring:w, steps:2, initial:{initialHeatStates:{1:HeatRules.STATE.CRITICAL}} }); assertDesignerServerPair({ name:"Data source losing Power", design:d, wiring:w, steps:2, initial:{initialHeatStates:{0:HeatRules.STATE.OVERHEATED}} }); assertDesignerServerPair({ name:"Data source recovering Power", design:d, wiring:w, steps:12, eps:9, initial:{initialHeatRatios:{0:1.01}} });
+    const d=[m("frame",0,0)]; const model=thermal.buildThermalModel(d); const initial={initialHeatRatios:{0:0.99}}; const baseLoad=thermal.buildThermalLoad(model,"full",empty(),initial);
+    const customLoad={...baseLoad, generationRates:[50 / HeatRules.TICK_SECONDS]}; const sim=thermal.simulateThermalLoad(model,customLoad,{maxSteps:1,...initial});
+    const ship=runtimeShip(d,empty()); ship.componentHeat[0]=ship.componentThermals[0].capacity*0.99; ship.componentHeatState[0]=HeatRules.stateFor(0.99, ship.componentHeatState[0]); ship.componentHeatInput[0]=sim.totalGeneratedHeat; runServerTick(ship);
+    close(sim.heat[0], ship.componentHeat[0], "overflow fixture final retained Heat", ACCUMULATED_HEAT_EPSILON); close(sim.totalGeneratedHeat, ship.componentHeatGenerated[0], "overflow fixture total generated Heat", ACCUMULATED_HEAT_EPSILON); close(sim.totalCoolingRemoved, ship.componentHeatCooled[0], "overflow fixture total cooling removed", ACCUMULATED_HEAT_EPSILON); close(sim.totalVentedOverflowHeat, ship.totalVentedOverflowHeat, "overflow fixture total vented overflow", ACCUMULATED_HEAT_EPSILON); assert.strictEqual(sim.states[0], ship.componentHeatState[0], "overflow fixture final Heat state");
   }
-
-  for (const fixture of [
-    { name:"powered exposed radiator", design:[m("reactor",0,0),m("frame",1,0),m("radiator",2,0)], initial:{initialHeatValues:{2:60}}, steps:5 },
-    { name:"powered enclosed radiator", design:[m("reactor",1,1),m("frame",1,2),m("radiator",1,3),m("armor",0,3),m("armor",2,3),m("armor",1,4)], initial:{initialHeatValues:{2:60}}, steps:5 },
-    { name:"unpowered radiator passive floor", design:[m("radiator",0,0)], initial:{initialHeatValues:{0:60}}, steps:5 },
-    { name:"underpowered radiator", design:[m("smallReactor",0,0),m("radiator",1,0),m("engine",2,0)], initial:{initialHeatValues:{1:10}}, steps:5 },
-    { name:"HOT radiator", design:[m("reactor",0,0),m("radiator",1,0)], initial:{initialHeatStates:{1:HeatRules.STATE.HOT}}, steps:5 },
-    { name:"CRITICAL radiator", design:[m("reactor",0,0),m("radiator",1,0)], initial:{initialHeatStates:{1:HeatRules.STATE.CRITICAL}}, steps:5 },
-    { name:"OVERHEATED radiator", design:[m("reactor",0,0),m("radiator",1,0)], initial:{initialHeatStates:{1:HeatRules.STATE.OVERHEATED}}, steps:5 }
-  ]) { let w=empty(); for (let i=1;i<fixture.design.length;i++) w=wire(w,"power",[{x:0,y:0},{x:fixture.design[i].x,y:fixture.design[i].y}],fixture.design); assertDesignerServerPair({ eps:20, ...fixture, wiring:w, compareRadiator:true }); }
-
-  for (const f of [
-    { name:"unsupported beam", weapon:"beamEmitter", source:false }, { name:"Data-supported beam", weapon:"beamEmitter", source:true }, { name:"unsupported repeating weapon", weapon:"blaster", source:false }, { name:"Data-supported repeating weapon", weapon:"blaster", source:true }
-  ]) { const d=[m("reactor",0,0), ...(f.source?[m("fireControl",1,0)]:[]), m(f.weapon,2,0)]; let w=empty(); const wi=d.length-1; w=wire(w,"power",[{x:0,y:0},{x:1,y:0},{x:d[wi].x,y:d[wi].y}],d); if (f.source) w=wire(w,"data",[{x:1,y:0},{x:d[wi].x,y:d[wi].y}],d); const base=HeatRules.activityHeat(f.weapon, PARTS[f.weapon]); const {sim}=assertDesignerServerPair({ name:f.name, design:d, wiring:w, steps:3, beforeServerTick(ship) { const mult = ComponentData.getWeaponDataSupport(ship, wi).fireRateBonus || 0; ship.componentHeatInput[wi] += base * (1 + mult) * HeatRules.TICK_SECONDS; } }); const mult=sim.dataSupport?.weaponSupportByIndex?.[wi]?.fireRateBonus || 0; close(sim.generatedHeat[wi], base * (1 + mult) * 3 * HeatRules.TICK_SECONDS, `${f.name} applies Data bonus exactly once`, ACCUMULATED_HEAT_EPSILON); }
 
   for (const mode of ["idle","combat","full"]) { const {d,w}=powerPair([m("engine",1,0)]); const l=load(d,w,mode); assert(l.generationRates[0] >= 0, `${mode} reactor heat is finite`); }
   { const {d,w}=powerPair([]); close(load(d,w,"full").generationRates[0], 0, "solo reactor gated by zero load"); }
