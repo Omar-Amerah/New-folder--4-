@@ -240,14 +240,27 @@
 .data-severity-low { border-color: #8ecae6; }
 .data-severity-redundant { border-color: #7bd88f; }
 .wiring-overlay .wire-data.data-dimmed { opacity: .28; stroke-dasharray: .08 .08; }
-.wiring-overlay .wire-data.data-critical-section { stroke-width: .12; stroke-dasharray: .18 .08; }
-.wiring-overlay .wire-data.data-high-impact-section { stroke-width: .1; }
-.wiring-overlay .wire-data.data-redundant-section { stroke-dasharray: .04 .08; }
+.wiring-overlay .wire-data.data-critical-section { stroke: #ff4d6d; stroke-width: .14; stroke-dasharray: .18 .08; }
+.wiring-overlay .wire-data.data-high-impact-section { stroke: #ff9f1c; stroke-width: .12; stroke-dasharray: .28 .08; }
+.wiring-overlay .wire-data.data-medium-impact-section { stroke: #ffd166; stroke-width: .105; stroke-dasharray: .16 .08; }
+.wiring-overlay .wire-data.data-low-impact-section { stroke: #8ecae6; stroke-width: .095; stroke-dasharray: .22 .12; }
+.wiring-overlay .wire-data.data-redundant-section { stroke: #7bd88f; stroke-dasharray: .04 .08; }
 .wiring-overlay .wire-comp-data-source-active { stroke: #7bd88f; stroke-width: .08; fill: rgba(123,216,143,.12); }
 .wiring-overlay .wire-comp-data-source-underpowered { stroke: #ffd166; stroke-width: .08; stroke-dasharray: .12 .06; }
 .wiring-overlay .wire-comp-data-source-overheated,
 .wiring-overlay .wire-comp-data-source-unpowered { stroke: #ff4d6d; stroke-width: .08; stroke-dasharray: .04 .06; }
 .wiring-overlay .wire-comp-data-weapon-supported { stroke: #38d9ff; stroke-width: .08; }
 .wiring-overlay .wire-comp-data-weapon-unsupported { stroke: #9db4d6; stroke-width: .06; stroke-dasharray: .12 .08; }
+.wiring-overlay .wire-comp-data-source-selected,
+.wiring-overlay .wire-comp-data-weapon-selected,
+.wiring-overlay .wire-comp-data-host-selected { stroke: #ffffff; stroke-width: .12; filter: drop-shadow(0 0 .18px #38d9ff); }
+.wiring-overlay .wire-comp-data-recipient-active,
+.wiring-overlay .wire-comp-data-contributor-active { stroke: #7bd88f; stroke-width: .115; fill: rgba(123,216,143,.18); }
+.wiring-overlay .wire-comp-data-recipient-zero,
+.wiring-overlay .wire-comp-data-contributor-zero { stroke: #ffd166; stroke-width: .095; stroke-dasharray: .06 .06; fill: rgba(255,209,102,.10); }
+.wiring-overlay .wire-comp-data-unrelated { opacity: .24; stroke-dasharray: .04 .08; }
+.wiring-overlay .wire-comp-data-host-critical { stroke: #ff4d6d; stroke-width: .13; stroke-dasharray: .18 .06; }
+.wiring-overlay .wire-comp-data-host-high { stroke: #ff9f1c; stroke-width: .12; stroke-dasharray: .12 .05; }
+.wiring-overlay .wire-comp-data-host-redundant { stroke: #7bd88f; stroke-width: .11; stroke-dasharray: .04 .08; }
 @media (max-width: 720px) { #wiringStatusPanel { max-height: 55vh; font-size: .92rem; } .wiring-summary-section button { white-space: normal; margin: .15rem; } }
 @media (prefers-reduced-motion: reduce) { .wiring-overlay * { transition: none !important; animation: none !important; } }

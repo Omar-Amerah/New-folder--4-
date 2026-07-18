@@ -49,9 +49,17 @@ globalThis.HeatRules = require("./public/src/shared/heatRules.js");
   // Unit-aware presentation.
   const P=await import("./public/src/design/dataSupportPresentation.js");
   assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:40}), "+40 m");
+  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:20}), "+20 m");
   assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:75}), "+75 m");
   assert.equal(P.formatDataSupportValue({bonusField:"accuracyBonus",amount:.04}), "+4.0%");
+  assert.equal(P.formatDataSupportValue({bonusField:"fireRateBonus",amount:.038}), "+3.8%");
   assert.equal(P.formatDataSupportValue({bonusField:"fireRateBonus",amount:.075}), "+7.5%");
+  for (const rendered of ["+40 m", "+20 m", "+4.0%", "+3.8%", P.formatDataSupportValue({bonusField:"rangeBonus",amount:40}), P.formatDataSupportValue({bonusField:"fireRateBonus",amount:.038})]) {
+    assert(!rendered.includes("++"), `duplicate sign not allowed in ${rendered}`);
+    assert(!/4000%|2000%/.test(rendered), `range values must not be rendered as percentages in ${rendered}`);
+  }
+  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:sourceV.lostRangeBonus || 20}), sourceV.lostRangeBonus ? P.formatDataSupportValue({bonusField:"rangeBonus",amount:sourceV.lostRangeBonus}) : "+20 m");
+  assert.equal(P.formatDataSupportValue({bonusField:"fireRateBonus",amount:sourceV.lostFireRateBonus}), "+7.5%");
   // Cache reuse and scenario invalidation.
   A.resetDataSupportAnalysisCaches(); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"});
   assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,1); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"full"}); assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,2);
