@@ -35,8 +35,11 @@ function ship(design, paths = [], overrides = {}) {
   initComponentState(s);
   initShipHeat(s);
   rebuildShipWiringState(s, "test", { skipRuntimeStats: true });
-  rebuildShipDataSupport(s);
+  // Section 6B runtime tests focus on Data-combat authority without modelling
+  // Power wiring. Install explicit initialized Power runtime instead of relying
+  // on componentData to infer implicit full power.
   s.componentPower = { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) };
+  require("./src/server/componentData").refreshShipDataAllocation(s, "test-explicit-power");
   s.weaponCooldowns = design.map(() => 0);
   s.weaponAngles = design.map(() => 0);
   return s;

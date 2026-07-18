@@ -28,11 +28,12 @@ function cloneAllocation(record, sourceIndex) {
 }
 function isAlive(ship, index) { return (ship?.componentHp?.[index] ?? 1) > 0; }
 function sourcePowerMultiplier(ship, sourceIndex) {
-  const powerBlueprint = ship?.wiring?.power;
-  const hasPowerBlueprint = (powerBlueprint?.sections?.length || 0) > 0 || (powerBlueprint?.connections?.length || 0) > 0;
-  const value = ship?.componentPower?.byComponentIndex?.[sourceIndex]?.operationalMultiplier;
-  if (!hasPowerBlueprint && value === 0 && ship?.componentPower?.byComponentIndex?.[sourceIndex]?.state === "disconnected") return 1;
-  return DataSupportRules.normalizeSourceMultiplier(Number.isFinite(value) ? value : 1);
+  const record = ship?.componentPower?.byComponentIndex?.[sourceIndex];
+  const value = record?.operationalMultiplier;
+  // Section 6C must respect the authoritative per-component Power runtime.
+  // Missing or invalid runtime Power state fails safely instead of inferring
+  // implicit full output from blueprint shape or legacy/no-cable designs.
+  return DataSupportRules.normalizeSourceMultiplier(Number.isFinite(value) ? value : 0);
 }
 function sourceThermalMultiplier(ship, sourceIndex) { return DataSupportRules.normalizeSourceMultiplier(HeatRules.activeOutputForState(ship?.componentHeatState?.[sourceIndex] ?? HeatRules.STATE.NORMAL)); }
 function sourceOperationalMultiplier(ship, sourceIndex) { return isAlive(ship, sourceIndex) ? 1 : 0; }

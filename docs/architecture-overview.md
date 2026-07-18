@@ -57,6 +57,8 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 | `projectiles.js` | Bullet simulation and hits |
 | `heat.js` | Component heat generation, conduction network, dissipation, overheat states |
 | `componentHealth.js` | Per-component HP, penetration, meltdown, engine exhaust state |
+| `componentData.js` | Derived Section 6A/6B/6C Data-support topology and allocation; reads authoritative per-component Power and Heat runtime state, treats disconnected or missing Power as zero output, and never persists runtime support into blueprints |
+| `componentPower.js` | Damage-aware Power/Wiring runtime projection and per-component operational Power allocation used by movement, shields, Heat and Data-support lifecycle refreshes |
 | `economy.js` | Income ticks, purchase validation, `buyShip`, fleet cost |
 | `objectives.js` | Capture points, scoring, control-victory countdown |
 | `snapshots.js` | Snapshot assembly: shared-per-room arrays + per-team economy visibility; static vs dynamic fields; component HP/heat delta encoding |
@@ -107,6 +109,7 @@ server (`require`) consume the same logic:
   protocols; build-SHA skew is reported but non-blocking.
 - `turretRules.js` — turret traverse rates/limits shared by server fire control and
   client rendering.
+- `dataSupportRules.js` — Section 6A allocation engine shared by server runtime Data support and verifiers; Section 6C lifecycle tests now run in browser-free CI and cover real Power, Heat, damage, and repair paths while Section 6D presentation remains deferred.
 - `heatRules.js` — heat state thresholds/curves shared by server heat sim and client
   heat display; `componentHeatSnapshot.js` — the `[heat,state,ratio,capacity]`
   tuple + delta stride format used on the wire by both ends.
