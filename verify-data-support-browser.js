@@ -4,6 +4,7 @@ const assert = require("assert");
 const { mkdirSync } = require("fs");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
+const referenceFixtures = require("./test-fixtures/dataSupportReferenceShips");
 const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { server } = startServer(port); let browser;
 
 async function svgLineScreenPoint(locator, fraction = 0.5) {
@@ -473,6 +474,31 @@ async function collectVulnerabilityDiagnostics(page) {
       vulnerabilityError.message = `${vulnerabilityError.message}; vulnerability diagnostics: ${JSON.stringify(diagnostics)}`;
       throw vulnerabilityError;
     }
+
+
+    const browserReferenceParity = await page.evaluate(async (fixtures) => {
+      const [{ PART_STATS }, storage] = await Promise.all([import("/src/design/parts.js"), import("/src/design/blueprintStorage.js")]);
+      const R = globalThis.WiringRules;
+      return fixtures.map((fixture) => {
+        const normalized = storage.normalizeWiring(fixture.wiring, fixture.design);
+        if (JSON.stringify(normalized) !== JSON.stringify(fixture.wiring)) throw new Error(`${fixture.name} browser-normalized wiring differs from reference fixture`);
+        const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(fixture.design, fixture.wiring, PART_STATS, { thermalLoadMode: "idle" });
+        const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(fixture.design, fixture.wiring, PART_STATS, analysis);
+        const sourceIndices = fixture.expected.sources.join(",");
+        const weaponIndices = fixture.expected.weapons.join(",");
+        const browserSources = analysis.sourceAllocations.map((entry) => entry.sourceIndex).join(",");
+        const browserWeapons = analysis.weaponBonuses.map((entry) => entry.weaponIndex).join(",");
+        if (sourceIndices !== browserSources) throw new Error(`${fixture.name} browser source indices ${browserSources} !== ${sourceIndices}`);
+        if (weaponIndices !== browserWeapons) throw new Error(`${fixture.name} browser weapon indices ${browserWeapons} !== ${weaponIndices}`);
+        if (analysis.networks.length !== fixture.expectedNetworkCount) throw new Error(`${fixture.name} browser network count ${analysis.networks.length} !== ${fixture.expectedNetworkCount}`);
+        for (const section of fixture.wiring.data.sections) {
+          const id = R.segmentKey(section);
+          if (!vulnerabilities.some((item) => item.kind === "section" && item.id === id)) throw new Error(`${fixture.name} browser missing section vulnerability ${id}`);
+        }
+        return { key: fixture.key, networks: analysis.networks.length, sources: browserSources, weapons: browserWeapons, sectionsWithCoverage: fixture.wiring.data.sections.length };
+      });
+    }, referenceFixtures.allReferenceShips());
+    assert.equal(browserReferenceParity.length, 5, `browser validates all five Section 6E reference fixtures: ${JSON.stringify(browserReferenceParity)}`);
 
     await scenario.selectOption("full");
     const freshPanel = page.locator("#wiringStatusPanel");
