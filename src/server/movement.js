@@ -605,7 +605,9 @@ function regenerateShield(ship, stats, dt) {
     const heatEntries = [];
     for (let i = 0; i < (ship.design || []).length; i += 1) {
       const part = PARTS[ship.design[i].type];
-      if (!part?.shieldRegen || ["battery", "capacitor"].includes(ship.design[i].type) || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+      // Only parts the shared heat rules classify as heat-producing (excludes
+      // battery/capacitor and any future zero-heat regen part) emit regen heat.
+      if (!part?.shieldRegen || activityHeatRate(ship.design[i].type, part) <= 0 || (ship.componentHp?.[i] ?? 1) <= 0) continue;
       const local = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
       const contribution = part.shieldRegen * local;
       if (contribution > 0) heatEntries.push({ index: i, contribution, baseRegen: part.shieldRegen });

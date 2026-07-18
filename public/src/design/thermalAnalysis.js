@@ -299,8 +299,7 @@ export function summariseThermalResult(model, load, simulation) {
       minimumPowerMultiplier: simulation.minimumPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       radiatorEffectiveCooling: isRadiator ? cooling[i] / dt : 0,
       dataSupportMultiplier: (simulation.dataSupport || load.dataSupport)?.weaponSupportByIndex?.[i]?.fireRateBonus ? 1 + (simulation.dataSupport || load.dataSupport).weaponSupportByIndex[i].fireRateBonus : 1,
-      componentVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0,
-      totalVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0
+      componentVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0
     });
   }
   const networks = buildThermalNetworks(model, generationRates);
