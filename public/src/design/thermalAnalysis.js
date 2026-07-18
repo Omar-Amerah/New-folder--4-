@@ -436,3 +436,5 @@ function describeThermalNetwork(network, design) {
   const engineCount = generators.filter(module => (PART_STATS[module.type]?.thrust || 0) > 0).length;
   return `${region} ${weaponCount >= engineCount ? "weapon" : "engine"} cluster`;
 }
+
+globalThis.DesignThermalAnalysis = { analyzeDesignHeat, buildThermalModel, buildThermalLoad, simulateThermalLoad, summariseThermalResult };
