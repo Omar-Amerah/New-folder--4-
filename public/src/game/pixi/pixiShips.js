@@ -80,6 +80,33 @@ function getPixiBarGradient(env, id, stops, vertical) {
   return gradient;
 }
 
+function blendPixiShieldColor(a, b, t) {
+  const mix = clamp(t, 0, 1);
+  const ar = (a >> 16) & 0xff;
+  const ag = (a >> 8) & 0xff;
+  const ab = a & 0xff;
+  const br = (b >> 16) & 0xff;
+  const bg = (b >> 8) & 0xff;
+  const bb = b & 0xff;
+  return (
+    (Math.round(ar + (br - ar) * mix) << 16) |
+    (Math.round(ag + (bg - ag) * mix) << 8) |
+    Math.round(ab + (bb - ab) * mix)
+  );
+}
+
+function pixiShieldColorForRatio(ratio) {
+  const cyan = 0x38d5ff;
+  const amber = 0xfbbf24;
+  const red = 0xef4444;
+  if (ratio > 0.5) return blendPixiShieldColor(amber, cyan, (ratio - 0.5) / 0.5);
+  return blendPixiShieldColor(red, amber, ratio / 0.5);
+}
+
+function brightenPixiShieldColor(color, amount = 0.52) {
+  return blendPixiShieldColor(color, 0xffffff, amount);
+}
+
 function updatePixiShieldRing(view, ship, zoom) {
   const gfx = view.shieldGfx;
   gfx.clear();
@@ -95,42 +122,31 @@ function updatePixiShieldRing(view, ship, zoom) {
   }
 
   const ringRadius = shieldRingRadius(ship);
-  const alpha = 0.12 + ratio * 0.3;
-  const lineWidth = Math.max(1.7, ringRadius * 0.04) / zoom;
+  const color = pixiShieldColorForRatio(ratio);
+  const highlightColor = brightenPixiShieldColor(color);
+  const baseLineWidth = Math.max(1.7, ringRadius * 0.04) / zoom;
+  const lineWidth = baseLineWidth * (0.72 + ratio * 0.28);
+  const ringAlpha = 0.24 + ratio * 0.46;
+  const fieldAlpha = 0.018 + ratio * 0.055;
   const now = performance.now() * 0.001;
   const phase = now * 1.15 + pixiShieldIdPhase(ship.id);
-  const segmentCount = 12;
-  const step = (Math.PI * 2) / segmentCount;
-  const gap = step * 0.26;
-  const activeSegments = ratio * segmentCount;
 
   gfx.visible = true;
+
+  // Faint transparent shield field: one persistent Graphics object is redrawn in
+  // place, with no filters/textures or per-frame display object allocation.
   gfx.circle(0, 0, ringRadius + lineWidth * 2.2);
-  gfx.fill(`rgba(56,213,255,${alpha * 0.02})`);
+  gfx.fill({ color, alpha: fieldAlpha });
 
-  for (let i = 0; i < segmentCount; i += 1) {
-    const fill = clamp(activeSegments - i, 0, 1);
-    const start = -Math.PI / 2 + i * step + gap / 2;
-    const end = start + (step - gap) * Math.max(0.14, fill);
-    gfx.moveTo(Math.cos(start) * ringRadius, Math.sin(start) * ringRadius);
-    gfx.arc(0, 0, ringRadius, start, end);
-    gfx.stroke({
-      width: lineWidth,
-      color: "#38d5ff",
-      alpha: fill > 0 ? alpha * (0.34 + fill * 0.66) : alpha * 0.12
-    });
-  }
+  // Continuous main ring; shield strength is represented by opacity/thickness
+  // rather than gaps, so depleted shields remain readable until they hit zero.
+  gfx.circle(0, 0, ringRadius);
+  gfx.stroke({ width: lineWidth, color, alpha: ringAlpha });
 
-  gfx.moveTo(Math.cos(phase) * (ringRadius + lineWidth * 0.7), Math.sin(phase) * (ringRadius + lineWidth * 0.7));
-  gfx.arc(0, 0, ringRadius + lineWidth * 0.7, phase, phase + Math.PI * 0.42);
-  gfx.stroke({
-    width: Math.max(1, lineWidth * 0.44),
-    color: "#e0faff",
-    alpha: alpha * (0.5 + Math.sin(now * 4 + ratio * 5) * 0.12)
-  });
-
-  gfx.circle(0, 0, ringRadius - lineWidth * 1.1);
-  gfx.stroke({ width: Math.max(1, lineWidth * 0.35), color: "#9ff4ff", alpha: alpha * 0.2 });
+  // Short bright travelling arc, kept deliberately subtle and non-pulsing.
+  gfx.moveTo(Math.cos(phase) * ringRadius, Math.sin(phase) * ringRadius);
+  gfx.arc(0, 0, ringRadius, phase, phase + Math.PI * 0.42);
+  gfx.stroke({ width: Math.max(1, lineWidth * 0.48), color: highlightColor, alpha: Math.min(0.9, ringAlpha + 0.18) });
 }
 
 function pixiShieldIdPhase(id) {
