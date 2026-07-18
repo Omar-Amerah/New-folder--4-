@@ -5,9 +5,51 @@
 // independent across save/duplicate/export/import.
 import assert from "node:assert/strict";
 
-globalThis.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null };
+function makeTestElement() {
+  return {
+    children: [],
+    classList: { contains: () => false, add() {}, remove() {}, toggle() {} },
+    dataset: {},
+    style: {},
+    hidden: false,
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    getContext: () => ({}),
+    appendChild(child) { this.children.push(child); this.lastElementChild = this.children[this.children.length - 1] || null; return child; },
+    replaceChildren(...children) { this.children = children; this.lastElementChild = this.children[this.children.length - 1] || null; },
+    prepend(child) { this.children.unshift(child); this.lastElementChild = this.children[this.children.length - 1] || null; return child; },
+    remove() {},
+    addEventListener() {},
+    removeEventListener() {},
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    closest: () => null,
+    setAttribute() {},
+    removeAttribute() {},
+    getBoundingClientRect: () => ({ left: 0, right: 0, top: 0, bottom: 0 }),
+    focus() {},
+    blur() {}
+  };
+}
+const testDomElements = new Map();
+globalThis.document = {
+  activeElement: null,
+  createElement: () => makeTestElement(),
+  getElementById: (id) => {
+    if (!testDomElements.has(id)) testDomElements.set(id, makeTestElement());
+    return testDomElements.get(id);
+  },
+  addEventListener() {},
+  removeEventListener() {}
+};
 globalThis.window = globalThis;
+globalThis.window.addEventListener = () => {};
+globalThis.window.removeEventListener = () => {};
+globalThis.WebSocket = { OPEN: 1 };
+globalThis.MessagePack = { encode: (message) => message, decode: (message) => message };
 globalThis.EngineExhaustRules = (await import("./public/src/shared/engineExhaust.js")).default || (await import("./public/src/shared/engineExhaust.js"));
+globalThis.HeatRules = (await import("./public/src/shared/heatRules.js")).default || (await import("./public/src/shared/heatRules.js"));
 await import("./public/src/shared/wiringRules.js"); // attaches globalThis.WiringRules
 const storageMod = await import("./public/src/design/blueprintStorage.js");
 const constants = await import("./public/src/constants.js");
@@ -158,6 +200,83 @@ assert.ok(missingDataImport.warnings.some((w) => w.includes("Invalid design: blu
 assert.equal(importBlueprints({ schemaVersion: 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).incompatibleVersion, true, "pre-wiring export schema is rejected");
 assert.equal(importBlueprints({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).incompatibleVersion, true, "future import schema is rejected");
 assert.equal(importBlueprints({ designs: Array.from({ length: 20 }, (_, i) => ({ id: `i${i}`, blueprint: current })) }, [], []).designs.length, MAX_SAVED_DESIGNS, "import enforces saved-design limit");
+
+
+// ---- Repaired current-design save ordering regressions ----
+const savedBlueprintUi = await import("./public/src/ui/savedBlueprintsUi.js");
+const stateMod = await import("./public/src/state.js");
+const { saveCurrentDesign, setSavedBlueprintPersistenceForTests } = savedBlueprintUi;
+const { state } = stateMod;
+
+function resetSaveOrderingHarness() {
+  testDomElements.get("toastStack").children = [];
+  state.design = defaultDesign();
+  state.wiring = defaultWiring();
+  state.combatStyle = "sentry";
+  state.savedDesigns = [];
+  state.loadedEditorBlueprintId = null;
+  state.designNeedsAttention = true;
+  state.designNormalizationIssues = ["legacy module normalized"];
+  state.phase = "active";
+  const sent = [];
+  state.socket = { readyState: WebSocket.OPEN, send: (message) => sent.push(message) };
+  return { sent, toasts: testDomElements.get("toastStack").children };
+}
+
+{
+  const { sent, toasts } = resetSaveOrderingHarness();
+  let persistDesignCalls = 0;
+  setSavedBlueprintPersistenceForTests({
+    persistSavedDesigns: () => false,
+    persistDesign: () => { persistDesignCalls += 1; return true; }
+  });
+  await saveCurrentDesign();
+  assert.equal(state.designNeedsAttention, true, "saved-list persistence failure keeps repair warning");
+  assert.deepEqual(state.designNormalizationIssues, ["legacy module normalized"], "saved-list persistence failure keeps diagnostics");
+  assert.equal(persistDesignCalls, 0, "saved-list persistence failure does not persist repaired current design");
+  assert.equal(sent.length, 0, "saved-list persistence failure does not deploy");
+  assert.ok(toasts.some((toast) => toast.textContent === "Could not save blueprint. Please try again."), "saved-list persistence failure shows warning toast");
+}
+
+{
+  const { sent, toasts } = resetSaveOrderingHarness();
+  let persistDesignCalls = 0;
+  setSavedBlueprintPersistenceForTests({
+    persistSavedDesigns: () => true,
+    persistDesign: () => { persistDesignCalls += 1; return false; }
+  });
+  await saveCurrentDesign();
+  assert.equal(state.designNeedsAttention, true, "repaired current-design persistence failure keeps repair warning");
+  assert.deepEqual(state.designNormalizationIssues, ["legacy module normalized"], "repaired current-design persistence failure keeps diagnostics");
+  assert.equal(persistDesignCalls, 1, "repaired current-design persistence is attempted after saved list succeeds");
+  assert.equal(sent.length, 0, "repaired current-design persistence failure does not deploy");
+  assert.equal(toasts.some((toast) => toast.textContent === "Repaired blueprint saved. It can now be deployed."), false, "repaired current-design persistence failure does not show success toast");
+}
+
+{
+  const { sent, toasts } = resetSaveOrderingHarness();
+  setSavedBlueprintPersistenceForTests({ persistSavedDesigns: () => true, persistDesign: () => true });
+  await saveCurrentDesign();
+  assert.equal(state.designNeedsAttention, false, "successful repaired save clears repair warning");
+  assert.deepEqual(state.designNormalizationIssues, [], "successful repaired save clears diagnostics");
+  assert.ok(toasts.some((toast) => toast.textContent === "Repaired blueprint saved. It can now be deployed."), "successful repaired save shows success toast");
+  assert.equal(sent.length, 1, "successful repaired save may deploy in an active game");
+}
+
+{
+  const { sent } = resetSaveOrderingHarness();
+  state.designNeedsAttention = false;
+  state.designNormalizationIssues = [];
+  let persistDesignCalls = 0;
+  setSavedBlueprintPersistenceForTests({
+    persistSavedDesigns: () => true,
+    persistDesign: () => { persistDesignCalls += 1; return false; }
+  });
+  await saveCurrentDesign();
+  assert.equal(persistDesignCalls, 0, "normal save does not require repaired current-design persistence branch");
+  assert.equal(sent.length, 1, "normal active-game save keeps existing deploy behaviour");
+}
+setSavedBlueprintPersistenceForTests();
 
 console.log("Blueprint storage verification passed");
 

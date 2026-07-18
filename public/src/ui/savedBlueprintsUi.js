@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { computeStats } from "../design/componentStats.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
-import { normalizeDesign, normalizeWiring, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
+import { normalizeDesign, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
 import { validateBlueprint } from "../design/blueprintValidation.js";
 import { showToast } from "./toastUi.js";
 import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
@@ -14,9 +14,16 @@ import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
 import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
-import { invalidateHeatAnalysisCache } from "./designerUi.js";
+import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats } from "./designerUi.js";
 import { resetWiringEditorState } from "./wiringUi.js";
 let modalReturnFocus = null;
+let persistSavedDesignsImpl = persistSavedDesigns;
+let persistDesignImpl = persistDesign;
+
+export function setSavedBlueprintPersistenceForTests(overrides = {}) {
+  persistSavedDesignsImpl = overrides.persistSavedDesigns || persistSavedDesigns;
+  persistDesignImpl = overrides.persistDesign || persistDesign;
+}
 
 
 export function weaponAbbrevText(stats) {
@@ -443,17 +450,22 @@ export async function saveCurrentDesign() {
     showToast(`Saved blueprint as "${name}"`, "good");
   }
 
-  const savedOk = persistSavedDesigns(state.savedDesigns);
+  const savedOk = persistSavedDesignsImpl(state.savedDesigns);
   if (!savedOk) {
     showToast("Could not save blueprint. Please try again.", "warning");
     return;
   }
   const repaired = state.designNeedsAttention;
   if (repaired) {
+    const repairedOk = persistDesignImpl(state.design, state.wiring, state.combatStyle);
+    if (!repairedOk) {
+      showToast("Could not save repaired blueprint. Please try again.", "warning");
+      return;
+    }
     state.designNeedsAttention = false;
     state.designNormalizationIssues = [];
-    const mod = await import("../design/blueprintStorage.js");
-    mod.persistDesign(state.design, state.wiring, state.combatStyle);
+    renderLocalStats();
+    renderBuildGrid();
     showToast("Repaired blueprint saved. It can now be deployed.", "good");
   }
   
