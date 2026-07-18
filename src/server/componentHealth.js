@@ -154,7 +154,13 @@ function nearestAliveComponent(ship, gx, gy) {
 // impact ray. Armour components soak damage first when they cover the incoming
 // direction and shave off a flat amount per hit; overflow continues to the
 // component behind. Returns the damage actually dealt to component hp.
-function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
+function normalizedArmorInteractionSeconds(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(0, Math.min(1, parsed));
+}
+
+function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}) {
   if (!ship.componentHp || damage <= 0) {
     ship.hp -= Math.max(0, damage);
     return Math.max(0, damage);
@@ -186,7 +192,9 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY) {
     const part = PARTS[ship.design[idx].type] || PARTS.frame;
     if (part.armorFlatReduction > 0) {
       const protection = HeatRules.passiveProtectionForState(ship.componentHeatState?.[idx] || HeatRules.STATE.NORMAL);
-      remaining = Math.max(0, remaining - Math.max(0, part.armorFlatReduction * protection));
+      const interactionSeconds = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
+      const reduction = part.armorFlatReduction * protection * interactionSeconds;
+      remaining = Math.max(0, remaining - Math.max(0, reduction));
       if (remaining <= 0) break;
     }
     const passiveStructure = HeatRules.isPassiveStructure(ship.design[idx].type, part);
@@ -445,6 +453,7 @@ module.exports = {
   worldToGrid,
   componentsAlongImpactRay,
   applyHullDamage,
+  normalizedArmorInteractionSeconds,
   detonateComponent,
   zeroAllComponents,
   recalcEffectiveStats,

@@ -213,7 +213,8 @@ function updateBullets(room, dt, now) {
       const ship = earliest.ship;
       damageShip(room, ship, bullet.damage, bullet.ownerId, now, earliest.x, earliest.y, {
         shieldDamageMultiplier: bullet.shieldDamageMultiplier,
-        hullDamageMultiplier: bullet.hullDamageMultiplier
+        hullDamageMultiplier: bullet.hullDamageMultiplier,
+        armorInteractionSeconds: bullet.armorInteractionSeconds
       });
       if (earliest.shield) {
         const ang = Math.atan2(earliest.y - ship.y, earliest.x - ship.x);
