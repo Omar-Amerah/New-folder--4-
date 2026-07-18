@@ -8,9 +8,15 @@ export const INTERPOLATION_DELAY_MS = 100;
 export const EXTRAPOLATION_CAP_MS = 80;
 const MAX_SAMPLES_PER_SHIP = 8;
 const TELEPORT_DISTANCE = 900;
+// Smoothing for the wall-clock -> simulation-clock offset. Snapshot arrival
+// jitter moves the raw offset around; the EMA keeps the render timeline steady.
+// A jump beyond the resync threshold (reconnect, long stall, tab restore) snaps
+// instead of slowly converging.
+const CLOCK_OFFSET_SMOOTHING = 0.1;
+const CLOCK_RESYNC_THRESHOLD_MS = 250;
 
 export function resetRenderHistory() {
-  state.renderHistory = { epoch: state.snapshotNetwork?.stateEpoch || 0, latestSeq: 0, latestSimulationTimeMs: null, samples: new Map(), delayMs: INTERPOLATION_DELAY_MS, renderSimulationTimeMs: null };
+  state.renderHistory = { epoch: state.snapshotNetwork?.stateEpoch || 0, latestSeq: 0, latestSimulationTimeMs: null, samples: new Map(), delayMs: INTERPOLATION_DELAY_MS, renderSimulationTimeMs: null, clockOffsetMs: null };
   state.visualShips = new Map();
 }
 function history() { if (!state.renderHistory) resetRenderHistory(); return state.renderHistory; }
@@ -23,6 +29,9 @@ export function acceptSnapshotForRender(snapshot, receiveTime = performance.now(
   const h = history();
   if (h.epoch !== epoch || seq < h.latestSeq) resetRenderHistory();
   const hh = history(); hh.epoch = epoch; hh.latestSeq = Math.max(hh.latestSeq || 0, seq); hh.latestSimulationTimeMs = sim; hh.receiveTime = receiveTime;
+  const offset = sim - receiveTime;
+  if (hh.clockOffsetMs == null || Math.abs(offset - hh.clockOffsetMs) > CLOCK_RESYNC_THRESHOLD_MS) hh.clockOffsetMs = offset;
+  else hh.clockOffsetMs += (offset - hh.clockOffsetMs) * CLOCK_OFFSET_SMOOTHING;
   const liveIds = new Set();
   for (const ship of snapshot.ships || []) {
     liveIds.add(ship.id); if (ship.alive === false) { hh.samples.delete(ship.id); continue; }
@@ -52,7 +61,13 @@ export function interpolateShips(dt, now) {
   const snap = state.snapshot; if (!snap) return;
   if (!state.renderHistory) acceptSnapshotForRender(snap, state.snapshotReceivedAt || now);
   const h = history(); const latest = h.latestSimulationTimeMs ?? Number(snap.simulationTimeMs ?? 0);
-  const renderTime = latest - (h.delayMs ?? INTERPOLATION_DELAY_MS); h.renderSimulationTimeMs = renderTime;
+  // Advance the render clock with wall time (mapped onto the server simulation
+  // clock) so motion stays smooth between snapshots instead of freezing until
+  // the next one arrives. Capped so a snapshot stall cannot push the timeline
+  // further than extrapolation is allowed to cover.
+  const wallSimTime = h.clockOffsetMs != null ? now + h.clockOffsetMs : latest;
+  const renderTime = Math.min(wallSimTime - (h.delayMs ?? INTERPOLATION_DELAY_MS), latest + EXTRAPOLATION_CAP_MS);
+  h.renderSimulationTimeMs = renderTime;
   const visual = new Map();
   for (const ship of snap.ships || []) { const v = visualForShip(ship, renderTime); if (v) visual.set(ship.id, v); }
   state.visualShips = visual;

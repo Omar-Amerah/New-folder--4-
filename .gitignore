@@ -9,3 +9,4 @@ node_modules/
 *.log
 server.pid
 public/build-sha.js
+test-artifacts/
