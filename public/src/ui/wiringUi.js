@@ -220,10 +220,19 @@ function svgGroup(className) { return svgEl("g", {}, className); }
 function line(section, className) { return svgEl("line", { x1: section.x1 + 0.5, y1: section.y1 + 0.5, x2: section.x2 + 0.5, y2: section.y2 + 0.5 }, className); }
 function moduleRect(index, className) { const module = state.design[index]; if (!module) return null; const stat = PART_STATS[module.type] || PART_STATS.frame; const bounds = getFootprintBounds(module.x, module.y, stat.footprint || { width: 1, height: 1 }, module.rotation || 0); return svgEl("rect", { x: bounds.minX + 0.07, y: bounds.minY + 0.07, width: bounds.width - 0.14, height: bounds.height - 0.14, rx: 0.12, ry: 0.12 }, className); }
 function terminal(index, kind, selected) { const center = rules().componentCenter(state.design[index], PART_STATS); return svgEl("circle", { cx: center.x, cy: center.y, r: 0.14 }, `wire-terminal wire-terminal-${kind}${selected ? " selected" : ""}`); }
+const DATA_SECTION_SEVERITY_CLASS = Object.freeze({ critical: "data-critical-section", high: "data-high-impact-section", medium: "data-medium-impact-section", low: "data-low-impact-section", redundant: "data-redundant-section" });
+function positiveContributionIndices(weapon) { return new Set((weapon?.contributions || []).filter((item) => Number(item.amount) > 0).map((item) => item.sourceIndex)); }
 
 function renderWiringOverlay() {
   const host = dom.wiringOverlayHost; if (!host || state.blueprintView !== "wiring") return; const view = ui(); host.replaceChildren(); dom.grid?.classList.add("wiring-overlay-active");
   const svg = svgEl("svg", { viewBox: `0 0 ${GRID_SIZE} ${GRID_SIZE}` }, "wiring-overlay"); const selectedNet = selectedNetwork(); const analysis = currentAnalysis(); const dataAnalysis = view.mode === "data" ? currentDataInspection() : null; const dataSource = dataAnalysis?.sourceAllocationByIndex?.[view.selectedIndex]; const dataWeapon = dataAnalysis?.weaponBonusByIndex?.[view.selectedIndex]; const selectedDataNetworkId = selectedNet?.id || dataSource?.networkId || dataWeapon?.networkId || view.selectedDataNetworkId;
+  const vulnerabilities = view.mode === "data" && dataAnalysis ? getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, dataAnalysis) : [];
+  const sectionVulnerabilityById = new Map(vulnerabilities.filter((item) => item.kind === "section").map((item) => [item.id, item]));
+  const hostVulnerabilityByIndex = new Map(vulnerabilities.filter((item) => item.kind === "host").map((item) => [item.componentIndex, item]));
+  const selectedSourceActiveRecipients = new Set(dataSource && Number(dataSource.effectiveBudget) > 0 ? dataSource.eligibleWeaponIndices || [] : []);
+  const selectedSourceZeroRecipients = new Set(dataSource && Number(dataSource.effectiveBudget) <= 0 ? dataSource.connectedWeaponIndices || [] : []);
+  const selectedWeaponActiveContributors = positiveContributionIndices(dataWeapon);
+  const selectedWeaponZeroContributors = new Set(dataWeapon ? (dataAnalysis.sources || []).filter((src) => src.networkId === dataWeapon.networkId && !selectedWeaponActiveContributors.has(src.sourceIndex)).map((src) => src.sourceIndex) : []);
   const visibleLayer = svgGroup("wire-visible-layer"); const hitLayer = svgGroup("wire-hit-layer");
   const markerLayer = svgGroup("wire-marker-layer"); const indicatorLayer = svgGroup("wire-indicator-layer"); const portLayer = svgGroup("wire-port-layer");
   // SVG paint order is also hit-test order. Ports intentionally remain last so
@@ -234,8 +243,11 @@ function renderWiringOverlay() {
     const isSelected = selectedNet?.sectionIds.includes(section.id) || (view.mode === "data" && selectedDataNetworkId && netForSection?.id === selectedDataNetworkId);
     const powerState = view.mode === "power" ? analysis.power.networks.find((network) => network.sectionIds.includes(section.id))?.status : null;
     const dim = view.mode === "data" && selectedDataNetworkId && netForSection?.id !== selectedDataNetworkId ? " data-dimmed" : "";
-    visibleLayer.appendChild(line(section, `wire-${view.mode}${dim}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`));
-    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("aria-label", `Select ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}`); hitLayer.appendChild(hit);
+    const sectionVulnerability = sectionVulnerabilityById.get(section.id);
+    const severityClass = view.mode === "data" ? DATA_SECTION_SEVERITY_CLASS[sectionVulnerability?.severity] || "" : "";
+    visibleLayer.appendChild(line(section, `wire-${view.mode}${dim}${severityClass ? ` ${severityClass}` : ""}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`));
+    const severityText = view.mode === "data" ? `. Vulnerability: ${sectionVulnerability?.severity || "unknown"}.` : "";
+    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("aria-label", `Select ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${severityText}`); hitLayer.appendChild(hit);
   }
   rules().junctionCells(bucket()).forEach((cell) => markerLayer.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
   (selectedNet?.componentIndices || []).forEach((index) => indicatorLayer.appendChild(terminal(index, view.mode, true)));
@@ -250,8 +262,16 @@ function renderWiringOverlay() {
     if (power) addPort("power", -offset); if (data) addPort("data", offset);
   }));
   if (view.mode === "data" && dataAnalysis) {
-    dataAnalysis.sources.forEach((src) => { const cls = src.status === "active" ? "wire-comp-data-source-active" : src.status === "underpowered" ? "wire-comp-data-source-underpowered" : src.status === "thermally-reduced" ? "wire-comp-data-source-underpowered" : src.status === "overheated" ? "wire-comp-data-source-overheated" : src.status === "unpowered" ? "wire-comp-data-source-unpowered" : "wire-comp-data-source-underpowered"; const rect = moduleRect(src.sourceIndex, cls); if (rect) { rect.setAttribute("aria-label", `${moduleLabel(src.sourceIndex)} Data source status ${src.status}`); indicatorLayer.appendChild(rect); } });
-    dataAnalysis.weapons.forEach((wpn) => { const rect = moduleRect(wpn.weaponIndex, wpn.status === "supported" ? "wire-comp-data-weapon-supported" : "wire-comp-data-weapon-unsupported"); if (rect) { rect.setAttribute("aria-label", `${moduleLabel(wpn.weaponIndex)} Data weapon status ${wpn.status}`); indicatorLayer.appendChild(rect); } });
+    dataAnalysis.sources.forEach((src) => { const rel = dataSource ? (src.sourceIndex === dataSource.sourceIndex ? " wire-comp-data-source-selected" : " wire-comp-data-unrelated") : dataWeapon ? (selectedWeaponActiveContributors.has(src.sourceIndex) ? " wire-comp-data-contributor-active" : selectedWeaponZeroContributors.has(src.sourceIndex) ? " wire-comp-data-contributor-zero" : " wire-comp-data-unrelated") : ""; const cls = src.status === "active" ? "wire-comp-data-source-active" : src.status === "underpowered" ? "wire-comp-data-source-underpowered" : src.status === "thermally-reduced" ? "wire-comp-data-source-underpowered" : src.status === "overheated" ? "wire-comp-data-source-overheated" : src.status === "unpowered" ? "wire-comp-data-source-unpowered" : "wire-comp-data-source-underpowered"; const rect = moduleRect(src.sourceIndex, `${cls}${rel}`); if (rect) { rect.setAttribute("aria-label", `${moduleLabel(src.sourceIndex)} Data source status ${src.status}${rel ? `. Relationship: ${rel.trim().replace("wire-comp-data-", "").replaceAll("-", " ")}.` : ""}`); indicatorLayer.appendChild(rect); } });
+    dataAnalysis.weapons.forEach((wpn) => { const rel = dataWeapon ? (wpn.weaponIndex === dataWeapon.weaponIndex ? " wire-comp-data-weapon-selected" : " wire-comp-data-unrelated") : dataSource ? (selectedSourceActiveRecipients.has(wpn.weaponIndex) ? " wire-comp-data-recipient-active" : selectedSourceZeroRecipients.has(wpn.weaponIndex) ? " wire-comp-data-recipient-zero" : " wire-comp-data-unrelated") : ""; const rect = moduleRect(wpn.weaponIndex, `${wpn.status === "supported" ? "wire-comp-data-weapon-supported" : "wire-comp-data-weapon-unsupported"}${rel}`); if (rect) { rect.setAttribute("aria-label", `${moduleLabel(wpn.weaponIndex)} Data weapon status ${wpn.status}${rel ? `. Relationship: ${rel.trim().replace("wire-comp-data-", "").replaceAll("-", " ")}.` : ""}`); indicatorLayer.appendChild(rect); } });
+    if (view.selectedIndex != null && !dataSource && !dataWeapon) {
+      const hostVulnerability = hostVulnerabilityByIndex.get(view.selectedIndex);
+      const hostClasses = ["wire-comp-data-host-selected"];
+      if (hostVulnerability?.severity === "critical") hostClasses.push("wire-comp-data-host-critical");
+      else if (hostVulnerability?.severity === "high") hostClasses.push("wire-comp-data-host-high");
+      else if (hostVulnerability?.severity === "redundant") hostClasses.push("wire-comp-data-host-redundant");
+      const rect = moduleRect(view.selectedIndex, hostClasses.join(" ")); if (rect) { rect.setAttribute("aria-label", `${moduleLabel(view.selectedIndex)} Data cable host selected. Vulnerability: ${hostVulnerability?.severity || "none"}.`); indicatorLayer.appendChild(rect); }
+    }
   }
   if (view.selectedIndex != null) { const rect = moduleRect(view.selectedIndex, "wire-comp-selected"); if (rect) indicatorLayer.appendChild(rect); }
   if (view.sourceIndex != null) {
@@ -288,7 +308,7 @@ function renderDataInspectionPanel(panel, section) {
     const b = weapon.baseProfile, e = weapon.effectiveProfile;
     body += `<section class="wiring-summary-section"><h4>${escapeHtml(partName(weapon.weaponType))} — ${escapeHtml(weapon.status)}</h4><div class="wiring-summary-line">Network: ${escapeHtml(weapon.networkLabel || "Disconnected")}</div><div class="wiring-summary-line">${escapeHtml(weapon.statusReason)}</div><div class="wiring-summary-line">Contributing sources: ${buttons(weapon.sourceIndices, "source")}</div>${statLine("Range", b.range, e.range, "")}${statLine("Accuracy", (b.accuracy || 0) * 100, (e.accuracy || 0) * 100, "%")}${statLine("Fire rate", b.fireRate, e.fireRate, "/s")}${statLine("Reload", b.reload, e.reload, "ms")}${statLine("DPS", b.dps, e.dps, "")}`;
     if (!weapon.contributions.length) body += `<div class="wiring-summary-line">Operating at base stats.</div>`;
-    else body += weapon.contributions.map(c => `<div class="wiring-summary-line">${escapeHtml(partName(c.sourceType))}: +${fmtBonus(c.amount, c.bonusField)} ${escapeHtml(c.effect || c.bonusField)} (${fmtBonus(c.effectiveBudget, c.bonusField)} ÷ ${c.recipientCount})</div>`).join("");
+    else body += weapon.contributions.map(c => `<div class="wiring-summary-line">${escapeHtml(partName(c.sourceType))}: ${fmtBonus(c.amount, c.bonusField)} ${escapeHtml(c.effect || c.bonusField)} (${fmtBonus(c.effectiveBudget, c.bonusField)} ÷ ${c.recipientCount})</div>`).join("");
     body += `</section>`;
   }
   if (network) body += `<section class="wiring-summary-section"><h4>${escapeHtml(network.label)}</h4><div class="wiring-summary-line">Sources: ${buttons(network.sourceIndices, "source")}</div><div class="wiring-summary-line">Weapons: ${buttons(network.weaponIndices, "weapon")}</div></section>`;
