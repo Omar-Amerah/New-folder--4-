@@ -6,6 +6,7 @@ import { findPartAtCell } from "../design/placementCandidate.js";
 import { getFootprintBounds } from "../design/footprint.js";
 import { persistDesign, defaultWiring, normalizeWiring } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
+import { analyzeDesignDataSupport, analyzeDataVulnerabilities } from "../design/dataSupportAnalysis.js";
 
 const GRID_SIZE = 15;
 const MAX_UNDO = 60;
@@ -17,6 +18,7 @@ let suppressNextClick = false;
 function rules() { return globalThis.WiringRules; }
 function ui() { return state.wiringUi; }
 function currentAnalysis() { return rules().analyzeWiring(state.design, state.wiring, PART_STATS); }
+function currentDataInspection() { return analyzeDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode || "full" }); }
 function partName(type) { return PART_DEFS[type]?.name || PART_STATS[type]?.name || type; }
 function moduleLabel(index) { const module = state.design[index]; return module ? `${partName(module.type)} (${module.x},${module.y})` : "Unknown"; }
 function bucket(kind = ui().mode) { return state.wiring?.[kind] || { sections: [], connections: [] }; }
@@ -27,7 +29,7 @@ function isValidDestination(mode, sourceType, destinationType) { return mode ===
 function pushUndo() { const stack = ui().undoStack; stack.push(rules().cloneWiring(state.wiring)); if (stack.length > MAX_UNDO) stack.shift(); }
 function commitWiring(next) { state.wiring = next; persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); }
 function releasePointerCapture() { if (!pointerDrag) return; const { target, pointerId } = pointerDrag; if (target?.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId); pointerDrag = null; }
-function resetInteraction(clearSelection = true) { releasePointerCapture(); const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; } }
+function resetInteraction(clearSelection = true) { releasePointerCapture(); const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; view.selectedDataNetworkId = null; } }
 export function syncWiringWithDesign() { state.wiring = normalizeWiring(state.wiring, state.design); resetInteraction(); }
 export function resetWiringToDefault() { state.wiring = normalizeWiring(defaultWiring(), state.design); ui().undoStack = []; resetInteraction(); }
 export function clearAllWiring() { state.wiring = rules().emptyWiring(); ui().undoStack = []; resetInteraction(); }
@@ -155,6 +157,7 @@ function branchFrom(endpoint) { const section = bucket().sections.find((item) =>
 function selectedNetwork() {
   const analysis = currentAnalysis(); const view = ui();
   if (view.selectedSectionId) return rules().networkForSection(analysis, view.mode, view.selectedSectionId);
+  if (view.mode === "data" && view.selectedDataNetworkId) return analysis.data.networks.find((network) => network.id === view.selectedDataNetworkId) || null;
   return view.selectedIndex == null ? null : rules().networkForComponent(analysis, view.mode, view.selectedIndex);
 }
 function clearSelectedNetwork() { const network = selectedNetwork(); if (!network || ui().sourceIndex != null) return; pushUndo(); resetInteraction(); commitWiring(rules().removeNetwork(state.wiring, ui().mode, network, state.design, PART_STATS)); }
@@ -198,7 +201,7 @@ export function bindWiringControls() {
     if (ui().sourceIndex != null) { removeDrawingStep(); return; }
     // Component context menus never delete physical cable implicitly.
   });
-  dom.wiringStatusPanel?.addEventListener("click", (event) => { const action = event.target?.dataset?.wiringAction; if (action === "branch-a" || action === "branch-b") branchFrom(action.at(-1)); else if (action === "remove-section") { removeSelectedSection(); focusStatusPanel(); } else if (action === "remove-branch") { removeSelectedBranch(); focusStatusPanel(); } else if (action === "cancel-selection") { resetInteraction(); refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-drawing") { cancelDrawing(); focusStatusPanel(); } else if (action === "finish") { commitActivePath(); focusStatusPanel(); } });
+  dom.wiringStatusPanel?.addEventListener("click", (event) => { const action = event.target?.dataset?.wiringAction; if (action === "branch-a" || action === "branch-b") branchFrom(action.at(-1)); else if (action === "remove-section") { removeSelectedSection(); focusStatusPanel(); } else if (action === "remove-branch") { removeSelectedBranch(); focusStatusPanel(); } else if (action === "inspect-component") { inspectComponent(Number(event.target.dataset.index)); focusStatusPanel(); } else if (action === "select-network") { ui().selectedDataNetworkId = event.target.dataset.networkId; ui().selectedIndex = null; ui().selectedSectionId = null; refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-selection") { resetInteraction(); refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-drawing") { cancelDrawing(); focusStatusPanel(); } else if (action === "finish") { commitActivePath(); focusStatusPanel(); } });
 }
 
 export function refreshWiringPresentation() { if (state.blueprintView !== "wiring") return; bindWiringControls(); refreshToolbar(); renderWiringOverlay(); renderStatusPanel(); }
@@ -254,8 +257,41 @@ function renderWiringOverlay() {
   host.appendChild(svg);
 }
 
+function pct(value) { return `${Math.round((Number(value) || 0) * 100)}%`; }
+function statLine(label, base, effective, suffix = "") { if (!Number.isFinite(Number(base))) return ""; return `<div class="wiring-summary-line"><strong>${label}:</strong> ${Number(base).toFixed(label === "Accuracy" ? 0 : 2)}${suffix} → ${Number(effective).toFixed(label === "Accuracy" ? 0 : 2)}${suffix}</div>`; }
+function renderDataInspectionPanel(panel, section) {
+  let analysis;
+  try { analysis = currentDataInspection(); } catch (error) { console.error("Data-support inspection failed", error); panel.hidden = false; panel.innerHTML = `<h3>Data-support inspection</h3><div role="status" class="wiring-summary-line">Data-inspection error. Switch views or edit wiring to retry.</div>`; return true; }
+  const selectedIndex = ui().selectedIndex;
+  const source = analysis.sourceAllocationByIndex[selectedIndex];
+  const weapon = analysis.weaponBonusByIndex[selectedIndex];
+  const vuln = analyzeDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
+  const network = selectedNetwork() || (source?.networkId ? analysis.networks.find(n => n.id === source.networkId) : null) || (weapon?.networkId ? analysis.networks.find(n => n.id === weapon.networkId) : null);
+  const fmtBonus = (v) => `${((Number(v) || 0) * 100).toFixed(1)}%`;
+  const buttons = (indices, kind) => indices.map(i => `<button type="button" data-wiring-action="inspect-component" data-index="${i}">${escapeHtml(moduleLabel(i))}</button>`).join(" ") || "None";
+  let body = `<h3>Data-support inspection</h3><div aria-live="polite" class="sr-only">Data support prediction refreshed for ${escapeHtml(analysis.scenarioLabel)}.</div><div class="wiring-summary-line">Prediction scenario: <strong>${escapeHtml(analysis.scenarioLabel)}</strong></div>`;
+  body += `<div class="wiring-summary-line">${analysis.networks.length} physical Data networks · ${analysis.sources.filter(s => s.effectiveBudget > 0).length} active sources · ${analysis.weapons.filter(w => w.status === "supported").length} supported weapons · ${analysis.cableSectionCount} cable sections</div>`;
+  if (source) {
+    body += `<section class="wiring-summary-section"><h4>${escapeHtml(partName(source.sourceType))} — ${escapeHtml(source.status)}</h4><div class="wiring-summary-line">Network: ${escapeHtml(source.networkLabel || "Disconnected")}</div><div class="wiring-summary-line">Effect: ${escapeHtml(source.effect)} · nominal ${fmtBonus(source.nominalBudget)}</div><div class="wiring-summary-line">Power ${pct(source.predictedPowerMultiplier)} · Heat ${pct(source.predictedThermalMultiplier)} · Operational ${pct(source.predictedOperationalMultiplier)} · Final ${pct(source.predictedSourceMultiplier)}</div><div class="wiring-summary-line">Effective budget ${fmtBonus(source.effectiveBudget)} · recipients ${source.recipientCount} · each receives ${fmtBonus(source.bonusPerWeapon)}</div><div class="wiring-summary-line">${escapeHtml(source.statusReason)}</div><div class="wiring-summary-line">${escapeHtml(partName(source.sourceType))} effective budget: ${fmtBonus(source.effectiveBudget)} ÷ ${source.recipientCount || 0} connected living weapons = ${fmtBonus(source.bonusPerWeapon)} ${escapeHtml(source.effect)} per weapon.</div><div class="wiring-summary-line">Connected weapons: ${buttons(source.connectedWeaponIndices, "weapon")}</div></section>`;
+  } else if (weapon) {
+    const b = weapon.baseProfile, e = weapon.effectiveProfile;
+    body += `<section class="wiring-summary-section"><h4>${escapeHtml(partName(weapon.weaponType))} — ${escapeHtml(weapon.status)}</h4><div class="wiring-summary-line">Network: ${escapeHtml(weapon.networkLabel || "Disconnected")}</div><div class="wiring-summary-line">${escapeHtml(weapon.statusReason)}</div><div class="wiring-summary-line">Contributing sources: ${buttons(weapon.sourceIndices, "source")}</div>${statLine("Range", b.range, e.range, "")}${statLine("Accuracy", (b.accuracy || 0) * 100, (e.accuracy || 0) * 100, "%")}${statLine("Fire rate", b.fireRate, e.fireRate, "/s")}${statLine("Reload", b.reload, e.reload, "ms")}${statLine("DPS", b.dps, e.dps, "")}`;
+    if (!weapon.contributions.length) body += `<div class="wiring-summary-line">Operating at base stats.</div>`;
+    else body += weapon.contributions.map(c => `<div class="wiring-summary-line">${escapeHtml(partName(c.sourceType))}: +${fmtBonus(c.amount)} ${escapeHtml(c.effect || c.bonusField)} (${fmtBonus(c.effectiveBudget)} ÷ ${c.recipientCount})</div>`).join("");
+    body += `</section>`;
+  }
+  if (network) body += `<section class="wiring-summary-section"><h4>${escapeHtml(network.label)}</h4><div class="wiring-summary-line">Sources: ${buttons(network.sourceIndices, "source")}</div><div class="wiring-summary-line">Weapons: ${buttons(network.weaponIndices, "weapon")}</div></section>`;
+  if (section) { const hit = vuln.find(v => v.kind === "section" && v.id === section.id); body += `<section class="wiring-summary-section"><h4>Selected Data section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(hit?.severity || "ordinary")}</div><div class="wiring-summary-line">${escapeHtml(hit?.summary || "No predicted support loss.")}</div><div class="wiring-summary-line">Lost support: range ${fmtBonus(hit?.lostRangeBonus)} · accuracy ${fmtBonus(hit?.lostAccuracyBonus)} · fire rate ${fmtBonus(hit?.lostFireRateBonus)}</div></section>`; }
+  if (!source && !weapon && !section) body += `<section class="wiring-summary-section"><h4>Networks</h4>${analysis.networks.map(n => `<button type="button" aria-selected="${network?.id === n.id}" data-wiring-action="select-network" data-network-id="${escapeHtml(n.id)}">${escapeHtml(n.label)} · ${n.sourceIndices.length} sources · ${n.weaponIndices.length} weapons${n.sourceIndices.length ? "" : " · no source"}</button>`).join(" ") || "<div class=\"wiring-summary-line\">No Data networks yet.</div>"}</section>`;
+  const warnings = [...analysis.networks.filter(n => !n.sourceIndices.length && n.weaponIndices.length).map(n => `${n.label} has weapons but no support source.`), ...analysis.sources.filter(s => s.predictedPowerMultiplier <= 0 && s.networkId).map(s => `${partName(s.sourceType)} is connected to Data but has no Power.`), ...analysis.sources.filter(s => s.predictedThermalMultiplier < 1).map(s => `${partName(s.sourceType)} is predicted thermally reduced in ${analysis.scenarioLabel}.`)];
+  body += warnings.length ? `<section class="wiring-summary-section"><h4>Warnings</h4>${warnings.slice(0, 5).map(w => `<div class="wiring-summary-line">⚠ ${escapeHtml(w)}</div>`).join("")}</section>` : "";
+  panel.hidden = false; panel.tabIndex = -1; panel.innerHTML = body;
+  return true;
+}
+
 function renderStatusPanel() {
   const panel = dom.wiringStatusPanel; if (!panel || state.blueprintView !== "wiring") return; const analysis = currentAnalysis(); const network = selectedNetwork(); const section = bucket().sections.find((item) => item.id === ui().selectedSectionId);
+  if (ui().mode === "data" && renderDataInspectionPanel(panel, section)) return;
   const current = rules().countUniqueSections(state.wiring, ui().mode); const additional = rules().additionalLengthForPath(state.wiring, ui().mode, ui().path); const limit = CABLE_LIMITS[ui().mode];
   const degrees = section ? rules().sectionEndpointDegrees(bucket()).get(section.id) : null; const junctionCount = network ? rules().junctionCells({ sections: network.sections }).length : 0; const mw = (value) => `${Number(value).toFixed(1)} MW`; const labels = (indices) => indices.map(moduleLabel).map(escapeHtml).join(", ") || "None";
   const branch = section ? rules().findLeafBranchSections(bucket(), section.id) : null; const role = !section ? "" : degrees.some((degree) => degree > 2) ? "junction-adjacent" : branch.reason === "leaf-branch" ? "leaf branch" : degrees.every((degree) => degree === 2) ? "trunk or loop" : "branch";
