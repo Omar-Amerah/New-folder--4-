@@ -60,3 +60,8 @@ assert.deepEqual(ship.powerAnalysis, analyzeShipPower(ship.design, ship.wiring))
 assert.deepEqual(ship.stats, stats, "spawn analysis does not change gameplay stats");
 
 console.log("Power analysis verification passed.");
+
+const heatPipeOnly = [moduleAt("core", 0, 0), moduleAt("heatPipe", 1, 0)];
+const heatPipePower = WiringRules.analyzePowerNetworks(heatPipeOnly, null, PARTS);
+assert.deepEqual(heatPipePower.consumerIndices, [], "Heat Pipe is a passive Power component");
+assert.deepEqual(heatPipePower.disconnectedConsumerIndices, [], "unwired Heat Pipe does not create disconnected Power status");

@@ -6,8 +6,7 @@ const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
-const { calculateCenterOfMass, calculateDirectionalTurnInputs, calculateMovementPowerMultiplier, calculateMovementStats, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
-const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
+const { calculateDirectionalTurnInputs, calculateMovementPowerMultiplier, calculateMovementStats, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
 const { selectOwnedLivingShips } = require("./selection");
 const { getComponentPowerMultiplier, effectiveShieldStats } = require("./componentPower");
 
@@ -71,9 +70,9 @@ function preserveTurnActivity(ship, turnActivity) {
 function heatActiveManeuverThrusters(ship, turnActivity, dt) {
   if (!turnActivity || !Number.isFinite(turnActivity)) return;
   const desiredSign = Math.sign(turnActivity);
-  const centerOfMass = calculateCenterOfMass(ship.design || [], PARTS);
-  const alive = (ship.design || []).map((_, i) => (ship.componentHp?.[i] ?? 1) > 0);
-  const exhaustAnalysis = EngineExhaustRules.analyze(ship.design || [], PARTS, { alive });
+  const exhaustAnalysis = ship.engineExhaustAnalysis;
+  if (!exhaustAnalysis) return;
+  const centerOfMass = exhaustAnalysis.centerOfMass;
   for (let i = 0; i < (ship.design || []).length; i += 1) {
     const module = ship.design[i];
     const part = PARTS[module.type];

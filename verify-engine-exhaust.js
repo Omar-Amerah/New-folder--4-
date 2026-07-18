@@ -40,3 +40,15 @@ updateEngineExhaustState(runtime);
 assert(runtime.blockedEngineIndices.has(0),"restored blocker did not invalidate exhaust route");
 
 console.log("Engine exhaust verification passed");
+
+
+// Thermal maneuver ticks consume the cached structural exhaust analysis only.
+const movement = require("./src/server/movement");
+const turnDesign = [{x:7,y:7,type:"core"},{x:7,y:6,type:"maneuverThruster"}];
+const turnShip = { id:"turn", design:turnDesign, stats:{...computeStats(turnDesign)}, x:0,y:0,vx:0,vy:0,angle:0,targetX:0,targetY:0,alive:true,shield:0,combatStyle:"hold" };
+initComponentState(turnShip);
+require("./src/server/heat").initShipHeat(turnShip);
+const exhaustRevision = turnShip.engineExhaustRevision;
+turnShip.targetAngle = Math.PI / 2;
+for (let i = 0; i < 5; i += 1) movement.updateShipMovement({ ships:new Map(), players:new Map(), world:{width:1000,height:1000}, effects:[] }, turnShip, 0.05);
+assert.strictEqual(turnShip.engineExhaustRevision, exhaustRevision, "thermal maneuver ticks do not rerun structural engine-exhaust analysis");
