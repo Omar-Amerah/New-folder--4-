@@ -120,7 +120,9 @@
     "test:data-support-runtime": "node verify-data-support-runtime.js",
     "test:data-support-lifecycle": "node verify-data-support-lifecycle.js",
     "test:data-support-designer": "node verify-data-support-designer.js",
-    "test:data-support-browser": "node verify-data-support-browser.js"
+    "test:data-support-browser": "node verify-data-support-browser.js",
+    "test:data-support-balance": "node verify-data-support-balance.js",
+    "balance:data-support": "node tools/data-support-balance-report.js"
   },
   "keywords": [
     "browser-game",

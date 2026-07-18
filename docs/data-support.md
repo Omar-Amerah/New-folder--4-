@@ -71,3 +71,7 @@ The Wiring overlay and inspector expose Data network, source, weapon, section, a
 Designer analysis is cached with deterministic design/wiring/catalogue/scenario signatures. Base Data analysis and vulnerability analysis use separate caches, and selection or hover changes reuse immutable cached results. Wiring edits, component changes, blueprint loading/reset/clear, and scenario changes produce a new signature; failed analysis clears stale Data presentation and retries on the next relevant change.
 
 Accessibility coverage includes keyboard-selectable network/source/weapon controls, descriptive labels, selected-state ARIA, text severity/status, one stable live region for refresh announcements, focus-visible styling, and browser coverage for the production frontend.
+
+## Section 6E Data-support balance validation
+
+Section 6E adds canonical reference ships, a deterministic balance verifier, and an informational balance report. Sections 6A–6E are complete; Section 7 remains untouched. No numerical catalogue changes were required by the objective report.
