@@ -56,14 +56,43 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
       ]);
       const m = (type,x,y) => ({ type,x,y,rotation:0 });
       const R = globalThis.WiringRules;
-      state.design = [m("auxGenerator",0,1),m("fireControl",0,0),m("sensorArray",1,0),m("railgun",2,0),m("pointDefense",6,0),m("auxGenerator",5,1),m("targetingComputer",5,0),m("frame",1,1),m("frame",2,1)];
+      // Network A: Fire Control + Sensor Array share one upstream trunk before branching to two weapons.
+      // Network B: Targeting Computer reaches Point Defence through a deterministic two-route loop.
+      state.design = [
+        m("auxGenerator",0,2),m("fireControl",0,0),m("sensorArray",0,1),m("frame",1,0),m("frame",1,1),
+        m("frame",2,1),m("railgun",2,0),m("missile",3,1),m("auxGenerator",6,2),m("targetingComputer",6,0),
+        m("frame",6,1),m("frame",7,0),m("frame",7,1),m("frame",8,0),m("frame",8,1),m("pointDefense",9,0)
+      ];
       let w = R.emptyWiring();
-      w = R.addPath(w,"power",[{x:0,y:1},{x:0,y:0}],state.design,PART_STATS);
-      w = R.addPath(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],state.design,PART_STATS);
-      w = R.addPath(w,"power",[{x:5,y:1},{x:5,y:0}],state.design,PART_STATS);
-      w = R.addPath(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],state.design,PART_STATS);
-      w = R.addPath(w,"data",[{x:5,y:0},{x:6,y:0}],state.design,PART_STATS);
+      w = R.addPath(w,"power",[{x:0,y:2},{x:0,y:1},{x:0,y:0}],state.design,PART_STATS);
+      w = R.addPath(w,"power",[{x:6,y:2},{x:6,y:1},{x:6,y:0}],state.design,PART_STATS);
+      w = R.addPath(w,"data",[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:2,y:1},{x:2,y:0}],state.design,PART_STATS);
+      w = R.addPath(w,"data",[{x:0,y:1},{x:1,y:1},{x:2,y:1},{x:3,y:1}],state.design,PART_STATS);
+      w = R.addPath(w,"data",[{x:6,y:0},{x:7,y:0},{x:8,y:0},{x:9,y:0}],state.design,PART_STATS);
+      w = R.addPath(w,"data",[{x:6,y:0},{x:6,y:1},{x:7,y:1},{x:8,y:1},{x:8,y:0},{x:9,y:0}],state.design,PART_STATS);
       state.wiring = storage.normalizeWiring(w, state.design); state.blueprintView = "wiring"; state.wiringUi.mode = "data"; state.thermalLoadMode = "idle";
+      const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode });
+      const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
+      const owners = new Map();
+      state.design.forEach((component, index) => {
+        if (!PART_STATS[component.type]) throw new Error(`fixture component ${index} has unknown type ${component.type}`);
+        for (const cell of R.moduleCells(component, PART_STATS)) {
+          const key = `${cell.x},${cell.y}`;
+          if (owners.has(key)) throw new Error(`fixture component footprints overlap at ${key}: ${owners.get(key)} and ${index}`);
+          owners.set(key, index);
+        }
+      });
+      for (const index of [1,2,9]) {
+        if (!globalThis.DataSupportRules.isDataSupportSource(state.design[index].type)) throw new Error(`fixture component ${index} is not a recognised Data source`);
+        if (!(analysis.sourceAllocationByIndex[index]?.predictedPowerMultiplier > 0)) throw new Error(`fixture Data source ${index} has no predicted Power`);
+      }
+      if (analysis.networks.length !== 2) throw new Error(`fixture expected 2 physical Data networks, got ${analysis.networks.length}`);
+      for (const index of [6,7,15]) if (analysis.weaponBonusByIndex[index]?.status !== "supported") throw new Error(`fixture weapon ${index} is not supported before failure`);
+      const criticalSections = vulnerabilities.filter((item) => item.kind === "section" && item.severity === "critical");
+      const redundantSections = vulnerabilities.filter((item) => item.kind === "section" && item.severity === "redundant" && /^(6|7|8),/.test(item.id));
+      if (!criticalSections.length || !redundantSections.length || !criticalSections.some((item) => item.disconnectedWeaponIndices.length >= 2 || item.losses.filter((loss) => loss.allSupportLost).length >= 2)) {
+        throw new Error(`invalid Data vulnerability fixture: ${JSON.stringify({ sectionVulnerabilities: vulnerabilities.filter((item) => item.kind === "section").map((item) => ({ id: item.id, severity: item.severity, disconnectedWeaponIndices: item.disconnectedWeaponIndices, lostRangeBonus: item.lostRangeBonus, lostAccuracyBonus: item.lostAccuracyBonus, lostFireRateBonus: item.lostFireRateBonus, summary: item.summary })) })}`);
+      }
       wiringUi.refreshWiringPresentation();
     });
     const panel = page.locator("#wiringStatusPanel");
@@ -79,7 +108,7 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
       await assertUnique(panel.locator('[data-data-inspector="overview"]'), "Data overview inspector is visible");
     };
     const inspectDiagnostics = async (locator) => ({
-      globalCount: await page.locator('[data-wiring-action="inspect-component"][data-index="3"]').count(),
+      globalCount: await page.locator('[data-wiring-action="inspect-component"][data-index="6"]').count(),
       scopedCount: await locator.count(),
       panelText: await panel.textContent(),
       matchingButtons: await locator.evaluateAll((buttons) => buttons.map((button) => ({
@@ -122,7 +151,7 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     const reversed = await page.evaluate(() => ({ selected: document.querySelectorAll(".wire-data.wire-net-selected").length, dimmed: document.querySelectorAll(".wire-data.data-dimmed").length, selectedDimmed: document.querySelectorAll(".wire-data.wire-net-selected.data-dimmed").length }));
     assert(reversed.selected > 0 && reversed.dimmed > 0 && reversed.selectedDimmed === 0, "switching to Network B reverses selected/dimmed state");
 
-    const targetSource = scopedComponent("network", "network-source", 6);
+    const targetSource = scopedComponent("network", "network-source", 9);
     await assertUnique(targetSource, "network inspector contains one Targeting Computer source button");
     await targetSource.click();
     assert(await page.locator(".wire-comp-data-source-selected").count() === 1, "selected source class is applied");
@@ -142,9 +171,9 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     let fireText = await panel.textContent();
     assert(/Fire Control/.test(fireText) && !/\+\+/.test(fireText), "source panel has no duplicate signs");
 
-    const allRailgunControls = page.locator('[data-wiring-action="inspect-component"][data-index="3"]');
+    const allRailgunControls = page.locator('[data-wiring-action="inspect-component"][data-index="6"]');
     assert(await allRailgunControls.count() >= 2, "Railgun appears in multiple valid inspector relationships");
-    const railgunRecipient = scopedComponent("source", "recipient", 3);
+    const railgunRecipient = scopedComponent("source", "recipient", 6);
     await assertUnique(railgunRecipient, "source inspector contains one Railgun recipient button");
     await railgunRecipient.click();
     assert(await page.locator(".wire-comp-data-weapon-selected[aria-label*='Railgun']").count() === 1, "Railgun selected-weapon styling is applied");
@@ -154,12 +183,69 @@ const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { serv
     const weaponText = await panel.textContent();
     assert(/Railgun/.test(weaponText) && /Fire Control/.test(weaponText) && /Sensor Array/.test(weaponText) && !/\+\+|4000%/.test(weaponText), "weapon panel lists contributing sources with sane units");
 
-    const vulnReport = await page.evaluate(() => ({ critical: document.querySelectorAll(".wire-data.data-critical-section").length, redundant: document.querySelectorAll(".wire-data.data-redundant-section").length, aria: [...document.querySelectorAll(".wire-hit")].map((el) => el.getAttribute("aria-label") || "") }));
-    assert(vulnReport.critical > 0, "critical cable sections receive a visible class");
-    assert(vulnReport.aria.some((text) => /Vulnerability: critical/.test(text)), "critical cable hit target exposes severity in ARIA");
-    assert(vulnReport.aria.every((text) => /Vulnerability:/.test(text)), "Data cable hit targets include vulnerability text");
-    await page.locator(".wire-hit").first().click({ force: true });
-    assert(/Selected Data section/.test(await panel.textContent()) && /Lost support/.test(await panel.textContent()), "selecting a physical cable shows lost support details");
+    try {
+    const authoritative = await page.evaluate(async () => {
+      const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+      const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode });
+      const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
+      const criticalSections = vulnerabilities.filter((item) => item.kind === "section" && item.severity === "critical");
+      const redundantSections = vulnerabilities.filter((item) => item.kind === "section" && item.severity === "redundant" && /^(6|7|8),/.test(item.id));
+      return {
+        criticalSectionId: criticalSections[0]?.id || null,
+        redundantSectionId: redundantSections[0]?.id || null,
+        sectionVulnerabilities: vulnerabilities.filter((item) => item.kind === "section").map((item) => ({ id: item.id, severity: item.severity, disconnectedWeaponIndices: item.disconnectedWeaponIndices, lostRangeBonus: item.lostRangeBonus, lostAccuracyBonus: item.lostAccuracyBonus, lostFireRateBonus: item.lostFireRateBonus, summary: item.summary, losses: item.losses })),
+        hasTwoWeaponCritical: criticalSections.some((item) => item.disconnectedWeaponIndices.length >= 2 || item.losses.filter((loss) => loss.allSupportLost).length >= 2),
+        pointDefenseBefore: analysis.weaponBonusByIndex[15]
+      };
+    });
+    assert(authoritative.criticalSectionId, `fixture contains a genuinely critical Data cable section; diagnostics: ${JSON.stringify(authoritative)}`);
+    assert(authoritative.redundantSectionId, `fixture contains a genuinely redundant Data cable section; diagnostics: ${JSON.stringify(authoritative)}`);
+    assert(authoritative.hasTwoWeaponCritical, `critical fixture section removes all support from at least two weapons; diagnostics: ${JSON.stringify(authoritative)}`);
+    const criticalVisible = page.locator(`.wire-data.data-critical-section[data-section-id="${authoritative.criticalSectionId}"]`);
+    const redundantVisible = page.locator(`.wire-data.data-redundant-section[data-section-id="${authoritative.redundantSectionId}"]`);
+    assert.equal(await criticalVisible.count(), 1, "authoritative critical section has exactly one visible critical line");
+    assert.equal(await redundantVisible.count(), 1, "authoritative redundant section has exactly one visible redundant line");
+    const criticalHit = page.locator(`.wire-hit[data-section-id="${authoritative.criticalSectionId}"]`);
+    const redundantHit = page.locator(`.wire-hit[data-section-id="${authoritative.redundantSectionId}"]`);
+    assert.match(await criticalHit.getAttribute("aria-label"), /Vulnerability: critical/i, "critical cable hit target exposes severity in ARIA");
+    assert.match(await redundantHit.getAttribute("aria-label"), /Vulnerability: redundant/i, "redundant cable hit target exposes severity in ARIA");
+    assert((await page.locator(".wire-hit").evaluateAll((els) => els.every((el) => /Vulnerability:/.test(el.getAttribute("aria-label") || "")))), "Data cable hit targets include vulnerability text");
+    await criticalHit.click();
+    let sectionPanelText = await panel.textContent();
+    assert(/Selected Data section/.test(sectionPanelText) && /critical/i.test(sectionPanelText) && /Lost support/i.test(sectionPanelText) && (/Railgun/.test(sectionPanelText) && /Missile/.test(sectionPanelText) || /2[^0-9]+weapon/i.test(sectionPanelText)), "critical section inspector details agree with vulnerability analysis");
+    await redundantHit.click();
+    sectionPanelText = await panel.textContent();
+    const pointDefenseAfterRedundant = await page.evaluate(async (sectionId) => {
+      const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+      const R = globalThis.WiringRules;
+      const next = R.cloneWiring(state.wiring);
+      next.data.sections = next.data.sections.filter((section) => R.segmentKey(section) !== sectionId);
+      const normalized = R.normalizeWiring(next, state.design, PART_STATS).wiring;
+      return globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, normalized, PART_STATS, { thermalLoadMode: state.thermalLoadMode }).weaponBonusByIndex[15];
+    }, authoritative.redundantSectionId);
+    assert(/Selected Data section/.test(sectionPanelText) && /redundant route|redundant/i.test(sectionPanelText) && /Lost support/i.test(sectionPanelText) && /0 m/.test(sectionPanelText), "redundant section inspector reports no predicted support loss");
+    assert.deepEqual({ rangeBonus: pointDefenseAfterRedundant.rangeBonus, accuracyBonus: pointDefenseAfterRedundant.accuracyBonus, fireRateBonus: pointDefenseAfterRedundant.fireRateBonus }, { rangeBonus: authoritative.pointDefenseBefore.rangeBonus, accuracyBonus: authoritative.pointDefenseBefore.accuracyBonus, fireRateBonus: authoritative.pointDefenseBefore.fireRateBonus }, "redundant route preserves effective support for Point Defence");
+    } catch (vulnerabilityError) {
+      mkdirSync("test-artifacts/data-support-browser", { recursive: true });
+      const screenshotPath = "test-artifacts/data-support-browser/vulnerability-failure.png";
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const diagnostics = await page.evaluate(async () => {
+        const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+        const analysis = globalThis.DesignDataSupportAnalysis.getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode });
+        const vulnerabilities = globalThis.DesignDataSupportAnalysis.getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
+        return {
+          sectionVulnerabilities: vulnerabilities.filter((item) => item.kind === "section").map((item) => ({ id: item.id, severity: item.severity, disconnectedWeaponIndices: item.disconnectedWeaponIndices, lostRangeBonus: item.lostRangeBonus, lostAccuracyBonus: item.lostAccuracyBonus, lostFireRateBonus: item.lostFireRateBonus, summary: item.summary })),
+          visibleCriticalCount: document.querySelectorAll(".wire-data.data-critical-section").length,
+          visibleRedundantCount: document.querySelectorAll(".wire-data.data-redundant-section").length,
+          renderedSections: [...document.querySelectorAll(".wire-data[data-section-id]")].map((el) => ({ id: el.dataset.sectionId, className: el.getAttribute("class") })),
+          ariaLabels: [...document.querySelectorAll(".wire-hit")].map((el) => ({ id: el.dataset.sectionId, label: el.getAttribute("aria-label") || "" })),
+          panelText: document.querySelector("#wiringStatusPanel")?.textContent || "",
+          screenshotPath
+        };
+      });
+      vulnerabilityError.message = `${vulnerabilityError.message}; vulnerability diagnostics: ${JSON.stringify(diagnostics)}`;
+      throw vulnerabilityError;
+    }
 
     await scenario.selectOption("full");
     const freshPanel = page.locator("#wiringStatusPanel");
