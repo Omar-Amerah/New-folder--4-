@@ -233,7 +233,7 @@ export function simulateThermalLoad(model, load, options = {}) {
       delta[i] -= cooling[i];
     }
     for (let i = 0; i < design.length; i += 1) {
-      heat[i] = Math.max(0, Math.min(profiles[i].capacity * 1.25, heat[i] + delta[i]));
+      heat[i] = Math.max(0, Math.min(Math.max(profiles[i].capacity * 1.25, heat[i]), heat[i] + delta[i]));
       states[i] = rules.stateFor(heat[i] / profiles[i].capacity, states[i]);
       const ratio = heat[i] / profiles[i].capacity;
       peakRatios[i] = Math.max(peakRatios[i], ratio);

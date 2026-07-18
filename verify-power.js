@@ -104,3 +104,9 @@ noOtherSource.componentHeatState[1] = STATE.OVERHEATED;
 require("./src/server/componentPower").reallocateShipPower(noOtherSource, "test");
 assert.strictEqual(noOtherSource.runtimeWiring.powerNetworks[0].availableGenerationMw, 0, "all-overheated source network has zero generation");
 assert.strictEqual(noOtherSource.componentPower.byComponentIndex[2].operationalMultiplier, 0, "connected consumer receives multiplier 0 with no live generation");
+
+assert.strictEqual(noOtherSource.componentPower.byComponentIndex[2].state, "unpowered", "connected zero-generation consumer is unpowered, not disconnected");
+assert.strictEqual(noOtherSource.powerStatus, "unpowered", "ship summary prioritizes zero-generation as unpowered");
+let disconnected = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"shield"}], WiringRules.emptyWiring());
+require("./src/server/componentPower").rebuildShipWiringState(disconnected, "test");
+assert.strictEqual(disconnected.componentPower.byComponentIndex[1].state, "disconnected", "consumer with no live Power network is disconnected");

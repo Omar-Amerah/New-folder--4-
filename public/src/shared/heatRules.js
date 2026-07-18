@@ -8,7 +8,11 @@
   const TICK_SECONDS = 0.2;
   const STATE = Object.freeze({ NORMAL: 0, WARM: 1, HOT: 2, CRITICAL: 3, OVERHEATED: 4 });
   const STATE_LABELS = Object.freeze(["Cool", "Warm", "Hot", "Critical", "Overheated"]);
-  const THRESHOLDS = Object.freeze({ warm: 0.42, hot: 0.68, critical: 0.86, overheated: 1, recover: 0.62 });
+  const THRESHOLDS = Object.freeze({ warm: 0.42, hot: 0.68, critical: 0.86, overheated: 1 });
+  // Downward hysteresis keeps tiny cooling/heating oscillations at boundaries
+  // from flipping operational state every thermal tick. Upward thresholds above
+  // remain the authoritative balance contract.
+  const HYSTERESIS = Object.freeze({ warm: 0.03, hot: 0.03, critical: 0.03, overheated: 0.38 });
   // Wrecks retain heat and can exchange it with immediately adjacent material,
   // but this deliberately small coefficient cannot bridge a routed network.
   const CONDUCTIVITY = Object.freeze({ frame: 2.1, system: 0.72, armor: 0.48, compositeArmor: 0.28, heatSink: 1.4, radiator: 1.12, heatPipe: 3.0, destroyed: 0.12 });
@@ -57,11 +61,16 @@
   }
 
   function stateFor(ratio, previous) {
-    if (previous === STATE.OVERHEATED && ratio >= THRESHOLDS.recover) return STATE.OVERHEATED;
-    if (ratio >= THRESHOLDS.overheated) return STATE.OVERHEATED;
-    if (ratio >= THRESHOLDS.critical) return STATE.CRITICAL;
-    if (ratio >= THRESHOLDS.hot) return STATE.HOT;
-    if (ratio >= THRESHOLDS.warm) return STATE.WARM;
+    const value = Number.isFinite(ratio) ? ratio : (ratio === Infinity ? Infinity : 0);
+    const prior = Number.isInteger(previous) ? previous : STATE.NORMAL;
+    if (prior >= STATE.OVERHEATED && value >= THRESHOLDS.overheated - HYSTERESIS.overheated) return STATE.OVERHEATED;
+    if (value >= THRESHOLDS.overheated) return STATE.OVERHEATED;
+    if (prior >= STATE.CRITICAL && value >= THRESHOLDS.critical - HYSTERESIS.critical) return STATE.CRITICAL;
+    if (value >= THRESHOLDS.critical) return STATE.CRITICAL;
+    if (prior >= STATE.HOT && value >= THRESHOLDS.hot - HYSTERESIS.hot) return STATE.HOT;
+    if (value >= THRESHOLDS.hot) return STATE.HOT;
+    if (prior >= STATE.WARM && value >= THRESHOLDS.warm - HYSTERESIS.warm) return STATE.WARM;
+    if (value >= THRESHOLDS.warm) return STATE.WARM;
     return STATE.NORMAL;
   }
 
@@ -101,5 +110,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity });
 }));
