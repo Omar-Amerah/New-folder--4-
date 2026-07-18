@@ -10,7 +10,7 @@ const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponen
 const { addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus } = require("./heat");
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getComponentPowerMultiplier } = require("./componentPower");
-const { getEffectiveWeaponStats } = require("./componentData");
+const { getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange } = require("./componentData");
 
 const MODULE_SCALE = 13;
 
@@ -429,7 +429,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       return;
     }
 
-    const effectiveWeapon = getEffectiveWeaponStats(ship, i) || { ...part.weapon };
+    const effectiveWeapon = getEffectiveWeaponStatsInternal(ship, i) || part.weapon;
     const family = effectiveWeapon.type || part.weapon.type;
     const cooldown = ship.weaponCooldowns[i] || 0;
 
@@ -1009,13 +1009,7 @@ function updateDestroyedShips(room, now) {
 }
 
 function maxShipWeaponAcquisitionRange(ship) {
-  let range = 420;
-  (ship.design || []).forEach((module, index) => {
-    if (!PARTS[module.type]?.weapon || !isComponentAlive(ship, index)) return;
-    const effectiveWeapon = getEffectiveWeaponStats(ship, index);
-    range = Math.max(range, Number(effectiveWeapon?.range) || 0);
-  });
-  return range;
+  return getMaxEffectiveWeaponRange(ship);
 }
 
 function findTarget(room, ship, ships) {
@@ -1114,7 +1108,7 @@ function buildShipTurretDiagnostics(room, ship) {
     const desiredRelativeAngle = Number.isFinite(rawDesired) ? rawDesired : null;
     const aimTargetId = ship.weaponAimTargetIds?.[i] ?? null;
     const fireTargetId = ship.weaponFireTargetIds?.[i] ?? null;
-    const effectiveWeapon = getEffectiveWeaponStats(ship, i) || { ...part.weapon };
+    const effectiveWeapon = getEffectiveWeaponStatsInternal(ship, i) || part.weapon;
     const range = effectiveWeapon.range || 0;
     const arcRadians = (effectiveWeapon.arc || 360) * Math.PI / 180;
     const origin = weaponModuleWorldPosition(ship, module);
