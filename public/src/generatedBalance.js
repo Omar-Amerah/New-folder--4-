@@ -697,7 +697,6 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "heatTransfer",
-      "heat": 0,
       "description": "Specialised high-conductivity thermal conduit that transfers heat to a connected sink or radiator route. It removes no heat by itself, stores very little heat, and is structurally weak: use frames for hull support and heat pipes for dedicated long thermal runs."
     },
     {
@@ -716,8 +715,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "High-capacity thermal buffer. Soaks a large amount of heat from connected frames and nearby components, buying time before they overheat. Pair with radiators to shed the stored heat.",
-      "heat": -6
+      "description": "High-capacity thermal buffer. Soaks a large amount of heat from connected frames and nearby components, buying time before they overheat. Pair with radiators to shed the stored heat."
     },
     {
       "id": "radiator",
@@ -735,7 +733,6 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "heat": -14,
       "description": "Exterior radiator for continuous local heat removal. Requires an exposed edge for full output."
     },
     {

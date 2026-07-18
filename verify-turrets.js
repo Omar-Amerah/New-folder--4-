@@ -241,7 +241,6 @@ function runTicks(room, me, ships, count, dt) {
     { x: 8, y: 7, type: "beamEmitter", rotation: 0 }
   ]);
   beamMe.componentHeatInput = [0, 0];
-  beamMe.thermalPowerFactor = 1;
   const beamFoe = makeShip("foe", 200, 60, [{ x: 7, y: 7, type: "core", rotation: 0 }]);
   const beamFoeHp = beamFoe.hp;
   const beamFoeComponentHp = beamFoe.componentHp.slice();

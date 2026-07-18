@@ -109,7 +109,6 @@ function initShipHeat(ship) {
   ship.heatPressure = 0;
   ship.hotComponentCount = 0;
   ship.overheatedComponentCount = 0;
-  ship.thermalPowerFactor = 1;
   ship.hasPassiveHeatSource = design.some(module => (PARTS[module.type]?.powerGeneration || 0) > 0);
   ship.hasActiveHeat = ship.hasPassiveHeatSource;
   ship.heatAdjacencyBuilds = (ship.heatAdjacencyBuilds || 0) + 1;
@@ -412,10 +411,9 @@ function updateShipHeat(ship, dt, room, now) {
   ship.heatPressure = totalCapacity > 0 ? totalHeat / totalCapacity : 0;
   ship.hotComponentCount = hotCount;
   ship.overheatedComponentCount = overheatedCount;
-  ship.thermalPowerFactor = nominalPower > 0 ? availablePower / nominalPower : 1;
   // Source state tiers alter only their own network allocation. Batch all
   // changes from this thermal step into one cheap reanalysis of cached Wiring.
-  const powerSourceTierChanged = heat.some((_, i) => (PARTS[ship.design[i].type]?.powerGeneration || 0) > 0 && ship._heatPowerSourceStates?.[i] !== ship.componentHeatState[i]);
+  const powerSourceTierChanged = heat.some((_, i) => (PARTS[ship.design[i].type]?.powerGeneration || 0) > 0 && ((ship._heatPowerSourceStates?.[i] === STATE.OVERHEATED) !== (ship.componentHeatState[i] === STATE.OVERHEATED)));
   const dataSourceTierChanged = heat.some((_, i) => require("../../public/src/shared/dataSupportRules").isDataSupportSource(ship.design[i]?.type) && ship._heatDataSourceStates?.[i] !== ship.componentHeatState[i]);
   ship._heatPowerSourceStates = ship.componentHeatState.slice();
   ship._heatDataSourceStates = ship.componentHeatState.slice();

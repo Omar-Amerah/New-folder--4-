@@ -140,4 +140,15 @@ for (let i = 0; i < 80; i += 1) { addComponentHeat(pipeRouted, 0, 8); ticks(pipe
 assert.strictEqual(pipeRouted.componentHeat[4], 0, "heat crossed a destroyed heat pipe break");
 assert.strictEqual(pipeRouted.componentHeatRadiated[4], 0, "radiator cooled heat through a destroyed heat pipe");
 
+
+const batteryDesign = [{x:7,y:7,type:"core"},{x:8,y:7,type:"battery"}];
+const noBatteryDesign = [{x:7,y:7,type:"core"}];
+assert.strictEqual(HeatRules.activityHeat("battery", PARTS.battery), 0, "idle battery has no predicted Heat generation");
+assert.strictEqual(HeatRules.activityHeat("capacitor", PARTS.capacitor), 0, "idle capacitor has no predicted Heat generation");
+const batteryShip = shipFor(batteryDesign);
+const noBatteryShip = shipFor(noBatteryDesign);
+ticks(batteryShip, 5); ticks(noBatteryShip, 5);
+assert.strictEqual(batteryShip.componentHeat[1], 0, "idle battery has no runtime Heat generation");
+assert.strictEqual(batteryShip.componentHeatState[1], noBatteryShip.componentHeatState[0], "idle battery does not change predicted thermal state");
+
 console.log("Heat verification passed");

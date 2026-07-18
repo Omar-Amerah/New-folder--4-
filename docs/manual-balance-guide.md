@@ -4,14 +4,14 @@
 
 ## Sections
 
-- `components`: direct component cost, mass, hull, power, shield, thrust, turning, repair, utility, heat and weapon values.
+- `components`: direct component cost, mass, hull, power, shield, thrust, turning, repair, utility and weapon values; generic component heat is intentionally unsupported.
 - `shipPricing`: inputs for the ship-price and per-design fleet-count formulas. The formulas remain in code so future edits change inputs, not implementation.
 - `economy`: starting money, income, maximum money, kill/capture rewards and ship cap.
 - `rewards`: post-match reward inputs.
 - `match`: match score and control-point score values.
 - `movement`, `power`, `heat`, `projectiles`, `missileGuidance`, `combatStyles`, `fleetLimits`, `capture`, and `repair`: gameplay inputs used by their named systems when present.
 
-Units are documented in the JSON notes: currency `$`, mass tonnes, hull HP, shield points, seconds, metres, metres/second, radians/second, damage, shots/second, energy, heat, percentages as `0..1` fractions, and multipliers as direct factors.
+Units are documented in the JSON notes: currency `$`, mass tonnes, hull HP, shield points, seconds, metres, metres/second, radians/second, damage, shots/second, energy, percentages as `0..1` fractions, and multipliers as direct factors.
 
 ## Direct values vs formulas
 

@@ -9,7 +9,7 @@ const { updateShipWeapons, updateShipSupport, findTarget, pickWeaponFireTarget, 
 const { updateBullets } = require("./src/server/projectiles");
 
 function ship(id, ownerId, x, y, design) {
-  const s = { id, ownerId, x, y, vx: 0, vy: 0, angle: 0, alive: true, removed: false, shield: 0, radius: 30, thermalPowerFactor: 1, focusTargetId: null, combatTargetId: null, repairTargetId: null, cost: 100, effects: [] };
+  const s = { id, ownerId, x, y, vx: 0, vy: 0, angle: 0, alive: true, removed: false, shield: 0, radius: 30, focusTargetId: null, combatTargetId: null, repairTargetId: null, cost: 100, effects: [] };
   s.design = design || [{ x: 7, y: 7, type: "core" }, { x: 7, y: 6, type: "engine" }, { x: 7, y: 5, type: "blaster", rotation: 0 }];
   s.stats = computeStats(s.design);
   s.maxHp = s.stats.maxHp; s.hp = s.maxHp; s.maxShield = s.stats.maxShield || 0; s.shield = s.maxShield;
