@@ -178,10 +178,12 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
       const [{ state }, { PART_STATS }, storage] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js"), import("/src/design/blueprintStorage.js")]);
       const canonical = WiringRules.normalizeWiring(storage.defaultWiring(), storage.defaultDesign(), PART_STATS).wiring;
       const analysis = WiringRules.analyzeWiring(state.design, state.wiring, PART_STATS);
+      const firstPowerSectionId = state.wiring.power.sections[0]?.id || null;
       return {
         sectionCount: state.wiring.power.sections.length,
         canonicalCount: canonical.power.sections.length,
         dataCount: state.wiring.data.sections.length,
+        firstPowerSectionId,
         disconnected: analysis.power.disconnectedConsumerIndices,
         underpowered: analysis.power.underpoweredConsumerIndices
       };
@@ -191,9 +193,103 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.deepEqual(standard.disconnected, [], "standard ship has no disconnected Power consumers");
     assert.deepEqual(standard.underpowered, [], "standard ship has no underpowered Power consumers");
     assert.equal(standard.dataCount, 0, "standard ship opens with empty Data wiring");
-    await page.locator('[data-wiring-action="select-network"]').first().click();
-    await page.locator("#wiringClearNetworkButton").click();
+    assert.ok(standard.firstPowerSectionId, "standard ship has a physical Power section available for selection");
+
+    const defaultPowerSection = page.locator(`.wire-hit[data-section-id="${standard.firstPowerSectionId}"]`);
+    let locatorCount = await defaultPowerSection.count();
+    let defaultPowerHit;
+    let selectedPowerState;
+    let clearButtonDisabled;
+    let panelText;
+    const clearNetworkButton = page.locator("#wiringClearNetworkButton");
+    const collectDefaultPowerSelectionDiagnostics = async () => {
+      mkdirSync("test-artifacts/wiring-browser", { recursive: true });
+      const screenshotPath = "test-artifacts/wiring-browser/default-power-selection-failure.png";
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const stateSummary = await page.evaluate(async () => {
+        const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+        const analysis = WiringRules.analyzeWiring(state.design, state.wiring, PART_STATS);
+        return {
+          selectedPowerState: {
+            mode: state.wiringUi.mode,
+            selectedSectionId: state.wiringUi.selectedSectionId,
+            selectedDataNetworkId: state.wiringUi.selectedDataNetworkId,
+            sourceIndex: state.wiringUi.sourceIndex
+          },
+          powerSectionIds: state.wiring.power.sections.map((section) => section.id),
+          powerNetworkSummaries: analysis.power.networks.map((network) => ({
+            sectionIds: network.sections.map((section) => section.id),
+            sourceIndices: network.sourceIndices,
+            consumerIndices: network.consumerIndices,
+            generation: network.generation,
+            demand: network.demand
+          }))
+        };
+      });
+      return {
+        firstPowerSectionId: standard.firstPowerSectionId,
+        locatorCount,
+        hitResult: defaultPowerHit?.hit || null,
+        hitGeometry: defaultPowerHit?.geometry || null,
+        selectedPowerState: selectedPowerState || stateSummary.selectedPowerState,
+        clearButtonDisabled: clearButtonDisabled ?? (await clearNetworkButton.isDisabled().catch(() => null)),
+        panelText: panelText ?? (await page.locator("#wiringStatusPanel").textContent().catch(() => null)),
+        powerSectionIds: stateSummary.powerSectionIds,
+        powerNetworkSummaries: stateSummary.powerNetworkSummaries,
+        screenshotPath
+      };
+    };
+
+    try {
+      assert.equal(locatorCount, 1, "default Power section has exactly one SVG hit target");
+      defaultPowerHit = await assertSectionHit(page, defaultPowerSection, standard.firstPowerSectionId);
+      await page.mouse.move(defaultPowerHit.point.x, defaultPowerHit.point.y);
+      await page.mouse.click(defaultPowerHit.point.x, defaultPowerHit.point.y);
+      selectedPowerState = await page.evaluate(async () => {
+        const { state } = await import("/src/state.js");
+        return {
+          mode: state.wiringUi.mode,
+          selectedSectionId: state.wiringUi.selectedSectionId,
+          selectedDataNetworkId: state.wiringUi.selectedDataNetworkId,
+          sourceIndex: state.wiringUi.sourceIndex
+        };
+      });
+      assert.equal(selectedPowerState.mode, "power", "default wiring verification remains in Power mode");
+      assert.equal(selectedPowerState.selectedSectionId, standard.firstPowerSectionId, "clicking the default Power section selects that physical section");
+      assert.equal(selectedPowerState.selectedDataNetworkId, null, "Power selection does not create a Data-network selection");
+      assert.equal(selectedPowerState.sourceIndex, null, "selecting a Power section does not begin cable drawing");
+
+      await clearNetworkButton.waitFor({ state: "visible" });
+      clearButtonDisabled = await clearNetworkButton.isDisabled();
+      assert.equal(clearButtonDisabled, false, "Clear Network is enabled for the selected default Power network");
+      panelText = await page.locator("#wiringStatusPanel").textContent();
+      assert.match(panelText, /Physical power wiring/i, "Power wiring panel remains active");
+      assert.match(panelText, /generation/i, "selected Power network panel reports generation");
+      assert.match(panelText, /demand/i, "selected Power network panel reports demand");
+    } catch (error) {
+      const diagnostic = await collectDefaultPowerSelectionDiagnostics();
+      error.message = `${error.message}: ${JSON.stringify(diagnostic)}`;
+      throw error;
+    }
+
+    await clearNetworkButton.click();
+    await page.waitForFunction(async () => {
+      const { state } = await import("/src/state.js");
+      return state.wiring.power.sections.length === 0;
+    });
     assert.equal(await page.evaluate(async () => (await import("/src/state.js")).state.wiring.power.sections.length), 0, "Clear Network removes default Power sections through the UI");
+    const clearedPowerState = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return {
+        selectedSectionId: state.wiringUi.selectedSectionId,
+        selectedIndex: state.wiringUi.selectedIndex,
+        sourceIndex: state.wiringUi.sourceIndex,
+        path: structuredClone(state.wiringUi.path)
+      };
+    });
+    assert.equal(clearedPowerState.selectedSectionId, null, "clearing the Power network clears section selection");
+    assert.equal(clearedPowerState.sourceIndex, null, "clearing the Power network leaves no drawing source");
+    assert.deepEqual(clearedPowerState.path, [], "clearing the Power network leaves no drawing path");
     await page.locator("#resetButton").click();
     await page.locator("#blueprintWiringTab").click();
     standard = await page.evaluate(async () => {
