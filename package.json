@@ -92,7 +92,7 @@
     "test:renderer-culling": "node verify-renderer-culling.js",
     "test:renderer-textures": "node verify-renderer-textures.js",
     "test:renderer-quality": "node verify-renderer-quality.js",
-    "test:renderer-structure": "node verify-renderer-structural-updates.js && node verify-shield-ring-renderer.js && node verify-pixi-world-layers.js",
+    "test:renderer-structure": "node verify-renderer-structural-updates.js && node verify-shield-ring-renderer.js && node verify-pixi-world-layers.js && node verify-ship-identification-renderer.js",
     "test:renderer-performance": "npm run build && node verify-renderer-performance-browser.js",
     "test:webgl-context": "npm run build && node verify-webgl-context-browser.js",
     "test:all-non-browser": "npm run check && node tools/run-tests.js all-non-browser",

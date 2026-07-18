@@ -48,6 +48,34 @@ const pixiDesignSignatures = new WeakMap();
 let pixiShipPool = null;
 let pixiGradientCache = new Map();
 
+const TEAM_STATUS_BORDER_COLORS = {
+  friendly: "#38d5ff",
+  enemy: "#ef4444"
+};
+
+function isSoloMode() {
+  return state.rules?.gameMode === "solo";
+}
+
+function playerTeamRelation(player) {
+  if (!player || isSoloMode()) return "solo";
+  const mine = state.mine || null;
+  if (player.id === state.myId || (mine?.team && player.team && mine.team === player.team)) return "friendly";
+  return "enemy";
+}
+
+function statusBorderColorForPlayer(player) {
+  const relation = playerTeamRelation(player);
+  if (relation === "solo") return player?.color || "#38d5ff";
+  return relation === "friendly" ? TEAM_STATUS_BORDER_COLORS.friendly : TEAM_STATUS_BORDER_COLORS.enemy;
+}
+
+function normalizePixiStrokeColor(color) {
+  if (typeof color === "number") return color;
+  if (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) return Number.parseInt(color.slice(1), 16);
+  return color || 0xffffff;
+}
+
 function pixiDesignSignature(design) {
   let signature = pixiDesignSignatures.get(design);
   if (!signature) {
@@ -430,6 +458,31 @@ function traceReceivedTurretAngle(shipId, designIndex, rawAngle) {
   }
 }
 
+function updatePixiPlayerHullOutline(view, ship, player, design, zoom) {
+  const gfx = view.playerHullOutline;
+  const shouldShow = ship.alive && ship.ownerId !== state.myId && Boolean(player?.color);
+  const color = shouldShow ? player.color : null;
+  const sig = shouldShow ? `${ship.ownerId}|${color}|${zoom.toFixed(2)}|${(ship.chp || []).join(',')}` : "hidden";
+  if (view.playerHullOutlineSig === sig) return;
+  view.playerHullOutlineSig = sig;
+  gfx.clear();
+  gfx.visible = shouldShow;
+  if (!shouldShow) return;
+
+  const strokeColor = normalizePixiStrokeColor(color);
+  const width = Math.min(1.4, Math.max(0.65, 0.95 / zoom));
+  for (let i = 0; i < design.length; i += 1) {
+    const ratio = componentHealthRatio(ship, i);
+    if (ratio !== null && ratio <= 0) continue;
+    const part = design[i];
+    const place = footprintLocalPlacement(part, SHIP_SCALE);
+    const halfW = (place.tilesLong * SHIP_SCALE) / 2;
+    const halfH = (place.tilesCross * SHIP_SCALE) / 2;
+    tracePoly(gfx, footprintCorners(place, halfW, halfH));
+  }
+  gfx.stroke({ width, color: strokeColor, alpha: 0.48, alignment: 0.5 });
+}
+
 function updatePixiTurrets(env, view, ship, design) {
   ensureForcedArrowState(env, view);
 
@@ -573,7 +626,9 @@ function drawPixiHudFrame(gfx, x, y, width, height, color, warning, zoom) {
   gfx.lineTo(x, y + height - 8);
   gfx.closePath();
   gfx.fill("rgba(4,10,22,0.85)");
-  gfx.stroke({ width: 1.5 / zoom, color: warning ? "rgba(255,95,126,0.85)" : color });
+  const borderWidth = Math.min(2.25, Math.max(0.9, 1.5 / zoom));
+  const cornerWidth = Math.min(1.75, Math.max(0.75, 1.0 / zoom));
+  gfx.stroke({ width: borderWidth, color });
 
   gfx.moveTo(x + 12, y);
   gfx.lineTo(x + 8, y);
@@ -583,7 +638,7 @@ function drawPixiHudFrame(gfx, x, y, width, height, color, warning, zoom) {
   gfx.lineTo(x + width - 8, y);
   gfx.lineTo(x + width, y + 8);
   gfx.lineTo(x + width, y + 14);
-  gfx.stroke({ width: 1.0 / zoom, color: warning ? "rgba(255,95,126,0.95)" : color });
+  gfx.stroke({ width: cornerWidth, color: warning ? "rgba(255,95,126,0.95)" : color });
 }
 
 function drawPixiStatusBar(env, gfx, options) {
@@ -695,7 +750,10 @@ function updatePixiHealthBars(env, view, ship, player, zoom) {
   // whenever every input that affects the drawn output is unchanged.
   const hud = updateShipHud(ship, now);
   const selected = state.selectedShipIds.has(ship.id);
-  const sig = `${selected ? 1 : 0}|${player.color}|${player.name}|${radius}|${ship.maxHp}|${ship.maxShield}|${Math.round(ship.hp * 10)}|${Math.round(hud.hp * 10)}|${Math.round(hud.hpLag * 10)}|${Math.round(ship.shield * 10)}|${zoom.toFixed(2)}`;
+  const borderColor = statusBorderColorForPlayer(player);
+  view.cachedStatusBorderOwnerId = player.id;
+  view.cachedStatusBorderColor = borderColor;
+  const sig = `${selected ? 1 : 0}|${borderColor}|${player.name}|${radius}|${ship.maxHp}|${ship.maxShield}|${Math.round(ship.hp * 10)}|${Math.round(hud.hp * 10)}|${Math.round(hud.hpLag * 10)}|${Math.round(ship.shield * 10)}|${zoom.toFixed(2)}`;
   if (view.hudBarsSig === sig) return;
   view.hudBarsSig = sig;
 
@@ -714,7 +772,7 @@ function updatePixiHealthBars(env, view, ship, player, zoom) {
   const alpha = selected || damaged ? 1 : 0.68;
   gfx.alpha = alpha;
 
-  drawPixiHudFrame(gfx, x - 4, y - 4, width + 8, frameHeight, player.color, lowHull, zoom);
+  drawPixiHudFrame(gfx, x - 4, y - 4, width + 8, frameHeight, borderColor, lowHull, zoom);
 
   const shieldY = y + 3;
   const hullY = y + (selected ? 15 : 12);
@@ -940,6 +998,7 @@ export function updatePixiShips(env, now, players, bounds) {
       setHullFrameRotation(view, renderShip.angle);
       view.hullContainer.alpha = ship.alive ? 1 : 0.32;
       updatePixiShieldRing(view, ship, zoom);
+      updatePixiPlayerHullOutline(view, ship, player, design, zoom);
       updatePixiEngineExhaust(view, renderShip, now);
       updatePixiTurrets(env, view, ship, design);
       updatePixiComponentDamage(view, ship, design);
