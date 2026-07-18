@@ -1,5 +1,6 @@
 // Validates structural connection rules to make sure all parts connect back to the core.
 import { PART_STATS } from "./parts.js";
+import { computeStats } from "./componentStats.js";
 import { getOccupiedCells } from "./footprint.js";
 
 export function coreCount(parts) {
@@ -63,8 +64,10 @@ export function isConnected(parts) {
   return true;
 }
 
-export function validateBlueprint(parts, { requireThrust = false, stats = null } = {}) {
+export function validateBlueprint(parts, { requireThrust = true, stats = null, normalizationIssues = [] } = {}) {
   const errors = [];
+  const firstIssue = normalizationIssues[0];
+  if (firstIssue) errors.push(firstIssue.message);
   if (!Array.isArray(parts) || parts.length === 0) errors.push("Invalid design: blueprint is empty.");
   const cores = Array.isArray(parts) ? coreCount(parts) : 0;
   if (cores === 0) errors.push("Invalid design: missing core.");
@@ -72,7 +75,10 @@ export function validateBlueprint(parts, { requireThrust = false, stats = null }
   if (Array.isArray(parts) && isOutOfBounds(parts)) errors.push("Invalid design: modules outside build grid.");
   if (Array.isArray(parts) && isOverlapping(parts)) errors.push("Invalid design: overlapping modules.");
   if (Array.isArray(parts) && cores === 1 && !isOverlapping(parts) && !isConnected(parts)) errors.push("Invalid design: disconnected parts.");
-  if (requireThrust && stats && stats.thrust <= 0) errors.push("Invalid design: add at least one engine.");
+  if (requireThrust) {
+    const computedStats = stats || (Array.isArray(parts) ? computeStats(parts) : null);
+    if (computedStats && computedStats.thrust <= 0) errors.push("Invalid design: add at least one engine.");
+  }
   return { ok: errors.length === 0, errors };
 }
 

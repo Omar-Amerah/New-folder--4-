@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { showToast } from "./toastUi.js";
 import { send } from "../network.js";
 import { computeStats } from "../design/componentStats.js";
-import { isConnected } from "../design/blueprintValidation.js";
+import { validateBlueprint } from "../design/blueprintValidation.js";
 import { normalizeDesign, normalizeWiring, persistLoadouts } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
@@ -399,11 +399,8 @@ export function getPendingPurchaseForOption(optionId) {
 }
 
 export function validateBlueprintForPurchase(blueprint) {
-  if (!Array.isArray(blueprint) || blueprint.length === 0) return { ok: false, reason: "Invalid design" };
-  if (blueprint.filter((part) => part.type === "core").length !== 1) return { ok: false, reason: "Invalid core" };
-  if (!isConnected(blueprint)) return { ok: false, reason: "Disconnected" };
-  if (computeStats(blueprint).thrust <= 0) return { ok: false, reason: "No engine" };
-  return { ok: true, reason: "" };
+  const validation = validateBlueprint(blueprint, { requireThrust: true, stats: Array.isArray(blueprint) ? computeStats(blueprint) : null });
+  return { ok: validation.ok, reason: validation.errors[0] || "" };
 }
 
 export function renderPurchaseBar() {

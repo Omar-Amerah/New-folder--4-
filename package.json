@@ -127,7 +127,8 @@
     "test:shields": "node verify-shields.js",
     "test:stats": "node verify-shields.js && node verify-movement.js",
     "test:component-balance": "npm run balance:check",
-    "test:thermal-parity": "node verify-thermal-parity.js"
+    "test:thermal-parity": "node verify-thermal-parity.js",
+    "test:blueprint-validation-parity": "node verify-blueprint-validation-parity.js"
   },
   "keywords": [
     "browser-game",

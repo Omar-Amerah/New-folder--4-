@@ -172,3 +172,41 @@ const customEnvelope = { schemaVersion: BLUEPRINT_STORAGE_VERSION, kind: "curren
 assert.equal(migrateDesignStorage(customEnvelope).wiring.power.sections.length, 0, "modified/custom empty wiring is not auto-wired");
 
 console.log("Blueprint storage default wiring regression checks passed");
+
+// ---- Blueprint export/import loadout integrity ----
+const rtExport = exportBlueprints([
+  { id: "frigate", name: "Frigate", blueprint: current, wiring },
+  { id: "escort", name: "Escort", blueprint: current, wiring }
+], [{ id: "alpha", name: "Alpha", designIds: ["frigate", "escort"] }]);
+const rtImport = importBlueprints(rtExport, [], []);
+assert.equal(rtImport.acceptedDesigns, 2, "round trip imports designs");
+assert.equal(rtImport.acceptedLoadouts, 1, "round trip imports loadouts");
+assert.deepEqual(rtImport.loadouts[0].designIds, ["frigate", "escort"], "round trip loadout references imported IDs");
+
+const collisionImport = importBlueprints(rtExport, [{ id: "frigate", name: "Local", blueprint: current, wiring }], []);
+assert.equal(collisionImport.designIdMap.frigate, "frigate-import-1", "design collision uses deterministic suffix");
+assert.deepEqual(collisionImport.loadouts[0].designIds, ["frigate-import-1", "escort"], "loadout references renamed imported design, not local collision");
+
+const loadoutCollision = importBlueprints(rtExport, [], [{ id: "alpha", name: "Local Alpha", designIds: [] }]);
+assert.equal(loadoutCollision.loadouts.length, 2, "loadout collision preserves existing and imported loadouts");
+assert.equal(loadoutCollision.loadouts[1].id, "alpha-import-1", "loadout collision uses deterministic suffix");
+
+const rejectedRef = importBlueprints({ designs: [{ id: "good", blueprint: current, wiring }, { id: "bad", blueprint: [{ x: 999, y: 1, type: "armor" }] }], loadouts: [{ id: "mix", designIds: ["good", "bad"] }] }, [], []);
+assert.deepEqual(rejectedRef.loadouts[0].designIds, ["good"], "invalid imported design references are removed from loadouts");
+assert.equal(rejectedRef.acceptedLoadouts, 1, "loadout survives when one remapped reference remains");
+
+const emptyRemap = importBlueprints({ designs: [{ id: "bad", blueprint: [{ x: 999, y: 1, type: "armor" }] }], loadouts: [{ id: "empty", designIds: ["bad", "missing"] }] }, [], []);
+assert.equal(emptyRemap.rejectedLoadouts, 1, "empty remapped loadout is rejected");
+assert.ok(emptyRemap.warnings.some(w => w.includes("no imported design references remain")), "empty loadout warning is reported");
+
+const duplicateIds = importBlueprints({ designs: [{ id: "dup", blueprint: current, wiring }, { id: "dup", blueprint: current, wiring }], loadouts: [{ id: "dup-lo", designIds: ["dup"] }] }, [], []);
+assert.equal(duplicateIds.acceptedDesigns, 0, "duplicate incoming design IDs are rejected");
+assert.equal(duplicateIds.rejectedLoadouts, 1, "ambiguous duplicate references do not create loadouts");
+
+const fullDesigns = Array.from({ length: MAX_SAVED_DESIGNS }, (_, i) => ({ id: `local-${i}`, name: `Local ${i}`, blueprint: current, wiring }));
+assert.equal(importBlueprints(rtExport, fullDesigns, []).acceptedDesigns, 0, "saved design capacity limit rejects incoming designs");
+const fullLoadouts = Array.from({ length: MAX_LOADOUTS }, (_, i) => ({ id: `lo-${i}`, name: `LO ${i}`, designIds: [] }));
+assert.equal(importBlueprints(rtExport, [], fullLoadouts).acceptedLoadouts, 0, "loadout capacity limit rejects incoming loadouts");
+const legacyLoadouts = [{ id: "legacy-local", name: "Legacy Local", designIds: [] }];
+assert.deepEqual(importBlueprints([{ id: "legacy", blueprint: current, wiring }], [], legacyLoadouts).loadouts, legacyLoadouts, "legacy array-only imports leave loadouts unchanged");
+console.log("Blueprint import/loadout integrity checks passed");
