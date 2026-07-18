@@ -447,9 +447,9 @@ export function analyzeDesignHeat(design, wiring = null, mode = "full") {
 
 function representativeRatioForState(state, rules) {
   if (state === rules.STATE.NORMAL) return 0.05;
-  if (state === rules.STATE.WARM) return 0.30;
-  if (state === rules.STATE.HOT) return 0.56;
-  if (state === rules.STATE.CRITICAL) return 0.82;
+  if (state === rules.STATE.WARM) return 0.50;
+  if (state === rules.STATE.HOT) return 0.75;
+  if (state === rules.STATE.CRITICAL) return 0.92;
   if (state === rules.STATE.OVERHEATED) return 1.04;
   return 0;
 }
@@ -466,10 +466,11 @@ function buildInitialHeatStates(design, profiles, rules, heat, options = {}) {
     const capacity = Math.max(1, profiles[i]?.capacity || 1);
     const derived = rules.stateFor((heat[i] || 0) / capacity, rules.STATE.NORMAL);
     const supplied = options.initialHeatStates?.[i];
-    if (supplied == null || options.initialHeatValues?.[i] == null) return derived;
-    if (supplied === rules.STATE.HOT && (heat[i] || 0) <= 0) throw new Error(`Initial HOT component ${i} must hold Heat`);
+    const hasStoredOverride = options.initialHeatValues?.[i] != null || options.initialHeatRatios?.[i] != null;
+    if (supplied == null || !hasStoredOverride) return derived;
     const suppliedRatio = representativeRatioForState(supplied, rules);
-    if (rules.stateFor(suppliedRatio, rules.STATE.NORMAL) !== derived) throw new Error(`Initial Heat state for component ${i} does not match stored Heat`);
+    if (rules.stateFor(suppliedRatio, rules.STATE.NORMAL) !== supplied) throw new Error(`Initial Heat state for component ${i} is not representable`);
+    if (derived !== supplied) throw new Error(`Initial Heat state for component ${i} (${supplied}) does not match stored Heat state (${derived})`);
     return supplied;
   });
 }
