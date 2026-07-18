@@ -143,6 +143,7 @@ export function simulateThermalLoad(model, load, options = {}) {
   const received = design.map(() => 0);
   const transferredOut = design.map(() => 0);
   const cooling = design.map(() => 0);
+  const componentVentedOverflowHeat = design.map(() => 0);
   const generatedHeat = design.map(() => 0);
   const timeToOverheat = design.map(() => null);
   const peakRatios = design.map(() => 0);
@@ -152,7 +153,7 @@ export function simulateThermalLoad(model, load, options = {}) {
   const uptimeTicks = { weapon: 0, engine: 0, shield: 0 };
   const uptimeTotals = { weapon: 0, engine: 0, shield: 0 };
   let firstOverheatTime = null, firstOverheatIndex = -1, equilibriumTime = null, equilibriumTicks = 0, previousTotalHeat = 0;
-  let heatSinkSaturationTime = null, radiatorRemovedTotal = 0, totalCoolingRemoved = 0, totalAvailableCooling = 0, totalGeneratedHeat = 0, peakAvailableCoolingRate = 0, finalAvailableCoolingRate = 0, finalEffectiveCoolingRate = 0, simulatedSeconds = 0, finalFlows = [];
+  let heatSinkSaturationTime = null, radiatorRemovedTotal = 0, totalCoolingRemoved = 0, totalVentedOverflowHeat = 0, totalAvailableCooling = 0, totalGeneratedHeat = 0, peakAvailableCoolingRate = 0, finalAvailableCoolingRate = 0, finalEffectiveCoolingRate = 0, simulatedSeconds = 0, finalFlows = [];
   let previousDataSourceSignature = buildDataSourceSignature(design, states, powerMultiplier);
   const dt = rules.TICK_SECONDS;
   for (let step = 0; step < (options.maxSteps || 1500); step += 1) {
@@ -233,7 +234,12 @@ export function simulateThermalLoad(model, load, options = {}) {
       delta[i] -= cooling[i];
     }
     for (let i = 0; i < design.length; i += 1) {
-      heat[i] = Math.max(0, Math.min(Math.max(profiles[i].capacity * 1.25, heat[i]), heat[i] + delta[i]));
+      const retainedCeiling = Math.max(profiles[i].capacity * 1.25, heat[i]);
+      const unclampedNext = Math.max(0, heat[i] + delta[i]);
+      const next = Math.min(retainedCeiling, unclampedNext);
+      const overflow = Math.max(0, unclampedNext - next);
+      if (overflow > 0) { componentVentedOverflowHeat[i] += overflow; totalVentedOverflowHeat += overflow; }
+      heat[i] = next;
       states[i] = rules.stateFor(heat[i] / profiles[i].capacity, states[i]);
       const ratio = heat[i] / profiles[i].capacity;
       peakRatios[i] = Math.max(peakRatios[i], ratio);
@@ -262,7 +268,7 @@ export function simulateThermalLoad(model, load, options = {}) {
     if (equilibriumTime !== null && step * dt > equilibriumTime + 5) break;
   }
   const averagePowerMultiplier = powerMultiplierTotals.map(value => simulatedSeconds > 0 ? value / Math.max(1, Math.round(simulatedSeconds / dt)) : 0);
-  return { heat, states, received, transferredOut, cooling, generatedHeat, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport };
+  return { heat, states, received, transferredOut, cooling, componentVentedOverflowHeat, totalVentedOverflowHeat, generatedHeat, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport };
 }
 
 /**
@@ -292,7 +298,9 @@ export function summariseThermalResult(model, load, simulation) {
       initialPowerMultiplier: simulation.initialPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       minimumPowerMultiplier: simulation.minimumPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       radiatorEffectiveCooling: isRadiator ? cooling[i] / dt : 0,
-      dataSupportMultiplier: (simulation.dataSupport || load.dataSupport)?.weaponSupportByIndex?.[i]?.fireRateBonus ? 1 + (simulation.dataSupport || load.dataSupport).weaponSupportByIndex[i].fireRateBonus : 1
+      dataSupportMultiplier: (simulation.dataSupport || load.dataSupport)?.weaponSupportByIndex?.[i]?.fireRateBonus ? 1 + (simulation.dataSupport || load.dataSupport).weaponSupportByIndex[i].fireRateBonus : 1,
+      componentVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0,
+      totalVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0
     });
   }
   const networks = buildThermalNetworks(model, generationRates);
@@ -342,7 +350,7 @@ export function summariseThermalResult(model, load, simulation) {
     severWarning: problems.criticalFrames.size ? `${problems.criticalFrames.size} frame block${problems.criticalFrames.size === 1 ? "" : "s"} could sever heat transfer to cooling components` : "No single-frame heat-transfer bottleneck",
     meltdownWarning: problems.meltdownIndices.length ? `${problems.meltdownIndices.length} reactor${problems.meltdownIndices.length === 1 ? "" : "s"} predicted to melt down and explode` : "No reactor meltdowns predicted",
     analysis: {
-      mode: load.mode, generation: averageGenerationRate, cooling: coolingRate, nominalCoolingRate, averageEffectiveCoolingRate: coolingRate, averageAvailableCoolingRate: coolingRate, averageActualCoolingRate, finalAvailableCoolingRate: simulation.finalAvailableCoolingRate ?? coolingRate, finalEffectiveCoolingRate: simulation.finalEffectiveCoolingRate ?? averageActualCoolingRate, peakAvailableCoolingRate: simulation.peakAvailableCoolingRate ?? coolingRate, totalCoolingRemoved, averageGenerationRate, netAverageHeatRate: averageGenerationRate - coolingRate, net: averageGenerationRate - coolingRate, balance,
+      mode: load.mode, generation: averageGenerationRate, cooling: coolingRate, nominalCoolingRate, averageEffectiveCoolingRate: coolingRate, averageAvailableCoolingRate: coolingRate, averageActualCoolingRate, finalAvailableCoolingRate: simulation.finalAvailableCoolingRate ?? coolingRate, finalEffectiveCoolingRate: simulation.finalEffectiveCoolingRate ?? averageActualCoolingRate, peakAvailableCoolingRate: simulation.peakAvailableCoolingRate ?? coolingRate, totalCoolingRemoved, totalVentedOverflowHeat: simulation.totalVentedOverflowHeat || 0, componentVentedOverflowHeat: simulation.componentVentedOverflowHeat || [], averageGenerationRate, netAverageHeatRate: averageGenerationRate - coolingRate, net: averageGenerationRate - coolingRate, balance,
       firstOverheatTime, firstOverheatIndex, overheatedCount: overheatedIndices.size,
       meltdownCount: problems.meltdownIndices.length, firstMeltdownTime: problems.firstMeltdownTime, firstMeltdownIndex: problems.firstMeltdownIndex,
       equilibriumTime, peakPredictedHeat, reserve, predictedBalance: balance, actualCooling, actionItems, initialPowerMultiplier: simulation.initialPowerMultiplier, finalPowerMultiplier: simulation.finalPowerMultiplier, minimumPowerMultiplier: simulation.minimumPowerMultiplier, generatorShutdownCount: simulation.generatorShutdownCount || 0, powerReallocationCount: simulation.powerReallocationCount || 0,

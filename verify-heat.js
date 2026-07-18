@@ -173,3 +173,52 @@ assert.strictEqual(batteryShip.componentHeat[1], 0, "idle battery has no runtime
 assert.strictEqual(batteryShip.componentHeatState[1], noBatteryShip.componentHeatState[0], "idle battery does not change predicted thermal state");
 
 console.log("Heat verification passed");
+
+// Phase 4: destroyed components retain physical heat but never broadcast active Heat states.
+const destroyedHot = shipFor([{x:7,y:7,type:"reactor"}]);
+destroyedHot.componentHeat[0] = destroyedHot.componentThermals[0].capacity * HeatRules.THRESHOLDS.hot;
+destroyedHot.componentHeatState[0] = HeatRules.STATE.HOT;
+destroyedHot.componentHp[0] = 0;
+require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedHot);
+assert(destroyedHot.componentHeat[0] > 0, "destroyed HOT reactor retains stored Heat");
+assert.strictEqual(destroyedHot.componentHeatState[0], HeatRules.STATE.NORMAL, "destroyed HOT reactor Heat state is inactive/NORMAL");
+const destroyedOverheated = shipFor([{x:7,y:7,type:"reactor"}]);
+destroyedOverheated.componentHeat[0] = destroyedOverheated.componentThermals[0].capacity * 1.05;
+destroyedOverheated.componentHeatState[0] = HeatRules.STATE.OVERHEATED;
+destroyedOverheated.componentHp[0] = 0; destroyedOverheated.hasActiveHeat = true;
+require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedOverheated);
+ticks(destroyedOverheated, 3);
+assert(destroyedOverheated.componentHeat[0] > 0, "destroyed OVERHEATED reactor retains stored Heat");
+assert.strictEqual(destroyedOverheated.componentHeatState[0], HeatRules.STATE.NORMAL, "destroyed OVERHEATED reactor Heat state is inactive/NORMAL");
+assert.strictEqual(destroyedOverheated.overheatedComponentCount, 0, "destroyed OVERHEATED reactor is not counted as overheated");
+assert.strictEqual(destroyedOverheated.componentMeltdown[0], 0, "destroyed reactor meltdown timer remains zero");
+destroyedHot.componentHp[0] = destroyedHot.componentMaxHp[0];
+require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedHot);
+assert.strictEqual(destroyedHot.componentHeatState[0], HeatRules.STATE.HOT, "repairing a still-HOT reactor derives HOT immediately");
+destroyedOverheated.componentHp[0] = destroyedOverheated.componentMaxHp[0];
+require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedOverheated);
+assert.strictEqual(destroyedOverheated.componentHeatState[0], HeatRules.STATE.OVERHEATED, "repairing a still-OVERHEATED reactor derives OVERHEATED immediately");
+
+function assertConservation(label, ship, setup, tickCount = 1) {
+  setup(ship);
+  const initial = ship.componentHeat.reduce((sum, value) => sum + value, 0);
+  let generated = 0, removed = 0, overflowSum = 0;
+  for (let i = 0; i < tickCount; i += 1) {
+    updateShipHeat(ship, 0.2);
+    generated += ship.componentHeatGenerated.reduce((sum, value) => sum + value, 0);
+    removed += ship.componentHeatRemoved.reduce((sum, value) => sum + value, 0);
+    overflowSum += ship.ventedOverflowHeatThisTick || 0;
+  }
+  const final = ship.componentHeat.reduce((sum, value) => sum + value, 0);
+  assert(Math.abs((initial + generated) - (final + removed)) < 1e-6, `${label} conserves ship Heat`);
+  assert(Math.abs((ship.totalVentedOverflowHeat || 0) - overflowSum) < 1e-6, `${label} cumulative overflow equals per-tick overflow sum`);
+  assert(ship.componentHeatRemoved.every((value, i) => value + 1e-9 >= (ship.componentVentedOverflowHeatThisTick?.[i] || 0)), `${label} overflow appears in removed exactly once`);
+  assert.strictEqual(ship.componentHeatRadiated.reduce((sum, value) => sum + value, 0), 0, `${label} overflow is separate from radiator cooling`);
+}
+assertConservation("normal component below ceiling", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = 5; addComponentHeat(s, 0, 1); s.hasActiveHeat = true; });
+assertConservation("component exactly at 125%", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.25; s.hasActiveHeat = true; });
+assertConservation("component exceeding 125%", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.25; addComponentHeat(s, 0, 20); s.hasActiveHeat = true; });
+assertConservation("repeated overflow", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.25; for (let i = 0; i < 3; i += 1) addComponentHeat(s, 0, 20); s.hasActiveHeat = true; }, 3);
+assertConservation("destroyed component retaining Heat", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity; s.componentHp[0] = 0; require("./src/server/heat").recalculateEffectiveThermalCapacities(s); s.hasActiveHeat = true; });
+const reduced = shipFor([{x:7,y:7,type:"heatSink"}]);
+assertConservation("capacity reduction above new ceiling", reduced, s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.1; s.componentHp[0] = s.componentMaxHp[0] * 0.2; require("./src/server/heat").recalculateEffectiveThermalCapacities(s); addComponentHeat(s, 0, 10); s.hasActiveHeat = true; });
