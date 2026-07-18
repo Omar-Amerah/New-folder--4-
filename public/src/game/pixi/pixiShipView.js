@@ -7,6 +7,7 @@
 //     HullContainer          - hull world rotation
 //       EffectsBelow         - engine exhaust / maneuver jets (behind hull)
 //       StaticHullSprite     - baked hull: structure + static component art
+//       PlayerHullOutline    - thin owner-colour component edge strokes
 //       StaticWeaponMounts   - baked non-directional weapon sockets/housings
 //       DynamicComponents    - animated parts
 //         TurretContainer    - one persistent turret sprite per rotating weapon
@@ -177,6 +178,8 @@ export function createPixiShipView(env) {
 
   const hullContainer = new PIXI.Container();
   hullContainer.label = "HullContainer";
+  const playerHullOutline = new PIXI.Graphics();
+  playerHullOutline.label = "PlayerHullOutline";
   const staticHullSprite = new PIXI.Sprite();
   staticHullSprite.label = "StaticHullSprite";
   staticHullSprite.anchor.set(0.5);
@@ -209,6 +212,7 @@ export function createPixiShipView(env) {
   dynamicComponents.addChild(otherAnimated);
   hullContainer.addChild(effectsBelow);      // engine exhaust / maneuver jets (behind hull)
   hullContainer.addChild(staticHullSprite);
+  hullContainer.addChild(playerHullOutline); // thin owner-colour hull edge, below damage/turrets
   hullContainer.addChild(staticWeaponMounts);
   hullContainer.addChild(dynamicComponents);
   hullContainer.addChild(damageOverlay);
@@ -256,6 +260,7 @@ export function createPixiShipView(env) {
     engines: [],
     // Hull frame
     hullContainer,
+    playerHullOutline,
     staticHullSprite,
     staticWeaponMounts,
     dynamicComponents,
@@ -285,6 +290,9 @@ export function createPixiShipView(env) {
     staticKey: null,
     boundShipId: null,
     damageSig: null,
+    playerHullOutlineSig: null,
+    cachedStatusBorderOwnerId: null,
+    cachedStatusBorderColor: null,
     turretDebugLastAt: 0,
     // Pool reset: wipe every scrap of per-ship visual state.
     release() {
@@ -337,12 +345,17 @@ export function resetPixiShipView(view) {
   view.staticKey = null;
   view.boundShipId = null;
   view.damageSig = null;
+  view.playerHullOutlineSig = null;
+  view.cachedStatusBorderOwnerId = null;
+  view.cachedStatusBorderColor = null;
   view.turretDebugLastAt = 0;
   view.forcedArrowActive = false;
   releaseShipViewLeases(view);
   view.visualTurretAngles.clear();
   view.otherAnimated.removeChildren();
   view.engines = [];
+  view.playerHullOutline.clear();
+  view.playerHullOutline.visible = false;
   view.damageOverlay.clear();
   view.flashOverlay.clear();
   view.effectsBelow.clear();
