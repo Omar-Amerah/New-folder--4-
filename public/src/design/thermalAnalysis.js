@@ -81,17 +81,12 @@ export function buildThermalModel(design) {
  * @param {"idle"|"combat"|"full"|string} mode - Load scenario.
  * @returns {{mode:string,generationRates:number[]}} Heat generation rates in heat/second by design index.
  */
-export function buildThermalLoad(model, mode = "full", wiring = null) {
+export function buildThermalLoad(model, mode = "full", wiring = null, options = {}) {
   const { design, rules } = model;
-  let power = null;
-  try { power = wiring ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS).power : null; } catch (_) { power = null; }
-  const activity = design.map((module, index) => {
-    const stat = PART_STATS[module.type] || {};
-    if ((Number(stat.powerUse) || 0) <= 0) return 1;
-    const network = power?.networks?.find(entry => (entry.consumerIndices || []).includes(index));
-    if (!network) return 0;
-    return Math.max(0, Math.min(1, (Number(network.generationMw) || 0) / Math.max(Number(network.demandMw) || 0, 0.0001)));
-  });
+  let wiringAnalysis = null, power = null;
+  try { wiringAnalysis = wiring ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS) : null; power = wiringAnalysis?.power || null; } catch (_) { power = null; }
+  const powerMultiplier = design.map((module, index) => predictedPowerMultiplier(index, module, power));
+  const activity = design.map((module, index) => (Number(PART_STATS[module.type]?.powerUse) || 0) <= 0 ? 1 : powerMultiplier[index]);
   const loadMultiplier = (_module, stat) => {
     if (mode === "idle") return (stat.powerGeneration || 0) > 0 ? 0.2 : (stat.shieldRegen || 0) > 0 ? 0.08 : 0;
     if (mode === "combat") {
@@ -105,15 +100,22 @@ export function buildThermalLoad(model, mode = "full", wiring = null) {
     return 1;
   };
   const designExhaust = globalThis.EngineExhaustRules.analyze(design, PART_STATS);
+  const dataSupport = buildPredictedDataSupport(design, wiringAnalysis, powerMultiplier, options);
   return {
-    mode,
+    mode, powerMultiplier, dataSupport,
     generationRates: design.map((module, index) => {
       const stat = PART_STATS[module.type] || {};
+      const effectiveWeapon = dataSupport.weaponProfileByIndex[index] || stat.weapon;
       if ((stat.thrust || 0) > 0 && !designExhaust.validEngineIndices.has(index)) return 0;
       if ((stat.powerGeneration || 0) > 0) {
         const network = power?.networks?.find(entry => (entry.sourceIndices || []).includes(index));
         const localLoad = network ? Math.max(0, Math.min(1, (Number(network.demandMw) || 0) / Math.max(Number(network.generationMw) || 0, 0.0001))) : 0;
         return rules.activityHeat(module.type, stat) * loadMultiplier(module, stat) * localLoad;
+      }
+      if (stat.weapon && effectiveWeapon) {
+        const baseHeat = rules.activityHeat(module.type, { ...stat, weapon: effectiveWeapon });
+        const beamFireRateScale = effectiveWeapon.type === "beam" ? (Number(effectiveWeapon.fireRate) || 0) / Math.max(Number(stat.weapon.fireRate) || 0, 0.0001) : 1;
+        return baseHeat * beamFireRateScale * loadMultiplier(module, { ...stat, weapon: effectiveWeapon }) * activity[index];
       }
       return rules.activityHeat(module.type, stat) * loadMultiplier(module, stat) * activity[index];
     })
@@ -130,6 +132,7 @@ export function buildThermalLoad(model, mode = "full", wiring = null) {
 export function simulateThermalLoad(model, load, options = {}) {
   const { design, rules, profiles, edges, exposed, frameCoolingDistance } = model;
   const generationRates = load.generationRates;
+  const powerMultiplier = load.powerMultiplier || design.map(() => 1);
   const heat = design.map(() => 0);
   const states = design.map(() => rules.STATE.NORMAL);
   const received = design.map(() => 0);
@@ -152,7 +155,8 @@ export function simulateThermalLoad(model, load, options = {}) {
     for (let i = 0; i < design.length; i += 1) {
       const performance = rules.performanceForState(states[i]);
       const stat = PART_STATS[design[i].type] || {};
-      const heatScale = (stat.powerGeneration || 0) > 0 ? 1 : stat.weapon ? performance : performance > 0 ? 1 : 0;
+      const active = rules.activeOutputForState(states[i]);
+      const heatScale = (stat.powerGeneration || 0) > 0 ? active : stat.weapon ? performance : performance > 0 ? 1 : 0;
       delta[i] += generationRates[i] * heatScale * dt;
       const category = stat.weapon ? "weapon" : (stat.thrust || 0) > 0 ? "engine" : (stat.shieldRegen || 0) > 0 ? "shield" : null;
       if (category) { uptimeTicks[category] += performance; uptimeTotals[category] += 1; }
@@ -183,7 +187,12 @@ export function simulateThermalLoad(model, load, options = {}) {
     }
     for (let i = 0; i < design.length; i += 1) {
       let coolingRate = profiles[i].cooling * profiles[i].retention;
-      if (design[i].type === "radiator") coolingRate *= exposed[i] > 0 ? 1 : 0.25;
+      if (design[i].type === "radiator") {
+        const exposure = exposed[i] > 0 ? 1 : 0.25;
+        const activeCooling = profiles[i].cooling * rules.activeCoolingForState(states[i]) * (powerMultiplier[i] ?? 1);
+        const passiveFloor = profiles[i].cooling * 0.12;
+        coolingRate = Math.max(passiveFloor, activeCooling) * exposure * profiles[i].retention;
+      }
       else if (exposed[i] > 0) coolingRate *= 1.12;
       const coolRatio = Math.max(0, (heat[i] + delta[i]) / Math.max(1, profiles[i].capacity));
       coolingRate *= 0.7 + 0.9 * coolRatio * coolRatio;
@@ -241,7 +250,10 @@ export function summariseThermalResult(model, load, simulation) {
       meltdownTime: meltdownTime[i],
       exposedEdges: exposed[i],
       exteriorDirections: [...exteriorDirections[i]],
-      exposureCoolingMultiplier: isRadiator ? (isExposed ? 1 : 0.25) : (isExposed ? 1.12 : 1)
+      exposureCoolingMultiplier: isRadiator ? (isExposed ? 1 : 0.25) : (isExposed ? 1.12 : 1),
+      powerMultiplier: load.powerMultiplier?.[i] ?? 1,
+      radiatorEffectiveCooling: isRadiator ? cooling[i] / dt : 0,
+      dataSupportMultiplier: load.dataSupport?.weaponSupportByIndex?.[i]?.fireRateBonus ? 1 + load.dataSupport.weaponSupportByIndex[i].fireRateBonus : 1
     });
   }
   const networks = buildThermalNetworks(model, generationRates);
@@ -262,7 +274,11 @@ export function summariseThermalResult(model, load, simulation) {
   }));
   const componentHeat = new Map(design.map((module, i) => [module, Math.round(peakRatios[i] * 100)]));
   const generation = generationRates.reduce((sum, value) => sum + value, 0);
-  const coolingRate = profiles.reduce((sum, item, i) => sum + item.cooling * (design[i].type === "radiator" && !exposed[i] ? 0.25 : 1), 0);
+  const coolingRate = profiles.reduce((sum, item, i) => {
+    if (design[i].type !== "radiator") return sum + item.cooling * (exposed[i] ? 1.12 : 1);
+    const activeCooling = item.cooling * (load.powerMultiplier?.[i] ?? 1);
+    return sum + Math.max(item.cooling * 0.12, activeCooling) * (exposed[i] ? 1 : 0.25);
+  }, 0);
   let radiators = 0, exposedRadiators = 0;
   design.forEach((module, i) => { if (module.type === "radiator") { radiators += 1; if (exposed[i]) exposedRadiators += 1; } });
   const peakPredictedHeat = peakRatios.length ? Math.max(...peakRatios) : 0;
@@ -388,6 +404,33 @@ export function analyzeDesignHeat(design, wiring = null, mode = "full") {
   if (thermalAnalysisCache.size > 24) thermalAnalysisCache.clear();
   thermalAnalysisCache.set(cacheKey, { design, result });
   return result;
+}
+
+function predictedPowerMultiplier(index, module, power) {
+  const stat = PART_STATS[module?.type] || {};
+  if ((Number(stat.powerUse) || 0) <= 0) return 1;
+  const network = power?.networkByComponent?.get?.(index) || power?.networks?.find?.((entry) => (entry.consumerIndices || []).includes(index));
+  if (!network || !(network.sourceIndices || []).length || !(network.consumerIndices || []).includes(index)) return 0;
+  const value = Number(network.availableEfficiency ?? ((Number(network.generationMw) || 0) / Math.max(Number(network.demandMw) || 0, 0.0001)));
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+}
+
+function buildPredictedDataSupport(design, wiringAnalysis, powerMultiplier, options = {}) {
+  const rules = globalThis.DataSupportRules;
+  if (!rules || !wiringAnalysis?.data?.networks) return { weaponProfileByIndex: [], weaponSupportByIndex: [] };
+  const sourceMultiplier = (index) => {
+    const forcedState = options.sourceHeatStates?.[index];
+    const thermal = forcedState == null ? 1 : globalThis.HeatRules.activeOutputForState(forcedState);
+    return (powerMultiplier[index] ?? 0) * thermal;
+  };
+  const support = rules.analyzeDataSupport(design, wiringAnalysis.data.networks, PART_STATS, { sourceMultiplier });
+  const weaponProfileByIndex = Array(design.length).fill(null);
+  const weaponSupportByIndex = Array(design.length).fill(null);
+  for (const weapon of support.weaponBonuses || []) {
+    weaponSupportByIndex[weapon.weaponIndex] = weapon;
+    weaponProfileByIndex[weapon.weaponIndex] = rules.effectiveWeaponProfile(PART_STATS[weapon.weaponType]?.weapon || {}, weapon);
+  }
+  return { support, weaponProfileByIndex, weaponSupportByIndex };
 }
 
 function buildThermalNetworks(model, generationRates) {

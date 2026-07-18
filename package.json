@@ -126,7 +126,8 @@
     "test:data-support-performance": "node verify-data-support-performance.js",
     "test:shields": "node verify-shields.js",
     "test:stats": "node verify-shields.js && node verify-movement.js",
-    "test:component-balance": "npm run balance:check"
+    "test:component-balance": "npm run balance:check",
+    "test:thermal-parity": "node verify-thermal-parity.js"
   },
   "keywords": [
     "browser-game",
