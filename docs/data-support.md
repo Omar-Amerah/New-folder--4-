@@ -44,8 +44,12 @@ Data-support allocation remains delegated to the shared Section 6A rules. At run
 
 Recipient eligibility is lifecycle-aware. Destroyed weapons stay addressable by immutable component index for diagnostics, but they do not consume source budget and receive no active contribution. When a weapon is repaired above the alive boundary it rejoins the eligible recipient set and the shared allocation engine redistributes the same source budget across the current living weapons.
 
+Runtime Power is authoritative for source output: fully powered sources use multiplier `1`, partially powered sources use the proportional `componentPower.byComponentIndex[sourceIndex].operationalMultiplier`, and disconnected, unpowered, missing, or invalid Power runtime records produce `0`. Data support no longer infers full Power merely because a blueprint lacks a Power cable; legacy/no-cable compatibility must be normalized when ships are created or migrated, before combat allocation runs.
+
 Runtime state separates physical topology from allocation. `runtimeDataSupport.topologyRevision` changes only when surviving Data connectivity or source/weapon eligibility topology changes, such as cable-host destruction or repair. `allocationRevision` changes when effective source budgets or weapon bonuses change. Power-only and Heat-tier-only changes use a lightweight allocation refresh against cached network membership so the Wiring graph is not rebuilt every tick.
 
 Data topology is always derived from the damage-aware Wiring v2 runtime projection. Destroying a component that hosts a cable section removes that section from the surviving projection, which can split networks and disconnect sources from weapons. Repairing the host can restore sections and merge networks. Redundant physical routes are treated as one connected Data network while any route survives; duplicate paths do not duplicate source budget.
+
+The lifecycle verifier (`verify-data-support-lifecycle.js`) is registered in the normal browser-free CI unit group, so `npm run test:unit`, `npm run test:all-non-browser`, `npm run check`, and `npm run release:check` execute the Power, Heat, damage, repair, and immutability coverage automatically. The tests exercise real Power allocation, Heat updates, component damage, and `repairShipComponents()` repair paths; direct state edits are limited to focused helper/defensive checks.
 
 Section 6D UI panels, cable highlighting, vulnerability displays, and designer contribution inspection remain deferred.
