@@ -103,8 +103,13 @@ async function main() {
       return wiringUi.canUndoWiring();
     });
     assert.equal(noOpResetPreserved, true, "browser setup has Wiring Undo before no-op Reset");
+    const noOpSnapshot = await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring, loadedEditorBlueprintId: window.__mfaState.loadedEditorBlueprintId }));
+    const noOpHistorySize = await page.evaluate(async () => (await import("/src/design/blueprintEditHistory.js")).blueprintEditHistorySize());
     await page.click("#resetButton");
+    assert.equal(await page.locator("#confirmModal").isVisible(), false, "no-op Reset does not open confirmation in browser");
     assert.equal(await page.evaluate(async () => (await import("/src/ui/wiringUi.js")).canUndoWiring()), true, "no-op Reset preserves Wiring Undo availability in browser");
+    assert.equal(await page.evaluate(async () => (await import("/src/design/blueprintEditHistory.js")).blueprintEditHistorySize()), noOpHistorySize, "no-op Reset creates no physical history in browser");
+    assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring, loadedEditorBlueprintId: window.__mfaState.loadedEditorBlueprintId })), noOpSnapshot, "no-op Reset changes no design or Wiring state in browser");
 
     await page.evaluate(() => { window.__mfaState.selectedPart = "frame"; window.__mfaState.blueprintView = "build"; });
     await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
@@ -119,12 +124,20 @@ async function main() {
 
     await page.evaluate(() => { window.__mfaState.wiringUi.undoStack = [window.WiringRules.emptyWiring()]; });
     await page.click("#resetButton");
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /Reset/i, "genuine Reset opens confirmation in browser");
+    await page.click("#confirmAcceptButton");
+    await page.locator("#confirmModal").waitFor({ state: "hidden" });
     assert.equal(await page.evaluate(async () => (await import("/src/ui/wiringUi.js")).canUndoWiring()), false, "genuine Reset clears stale Wiring Undo in browser");
     assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "genuine Reset leaves physical Undo available in browser");
     await page.click("#undoBlueprintEditButton");
     assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "Undo restores ship after genuine Reset in browser");
 
     await page.click("#clearGridButton");
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /Clear/i, "genuine Clear opens confirmation in browser");
+    await page.click("#confirmAcceptButton");
+    await page.locator("#confirmModal").waitFor({ state: "hidden" });
     assert.equal(await page.evaluate(() => window.__mfaState.design.length), 0, "Clear empties the current design");
     await page.click("#undoBlueprintEditButton");
     assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "Undo restores entire ship after Clear");

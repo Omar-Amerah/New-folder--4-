@@ -51,18 +51,33 @@
   min-width: 0;
 }
 
-/* Center the cost banner/breakdown over the (centered) grid, with the
-   reset/clear actions floated to the right so they don't offset the centering. */
+/* Keep the wider labelled designer actions in their own reserved row so they
+   cannot overlap the centered cost banner or each other. */
 .designer-top .section-heading {
-  position: relative;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 8px;
 }
 
 .designer-top .designer-actions {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  inset: auto;
+  transform: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.designer-actions > button {
+  position: static;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
 }
 
 .blueprint-cost-breakdown {

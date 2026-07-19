@@ -291,6 +291,11 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.equal(clearedPowerState.sourceIndex, null, "clearing the Power network leaves no drawing source");
     assert.deepEqual(clearedPowerState.path, [], "clearing the Power network leaves no drawing path");
     await page.locator("#resetButton").click();
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /Reset/i, "Reset opens the shared confirmation modal");
+    assert.match(await page.locator("#confirmModalMessage").textContent(), /layout and Wiring/i, "Reset confirmation describes layout and Wiring replacement");
+    await page.locator("#confirmAcceptButton").click();
+    await page.locator("#confirmModal").waitFor({ state: "hidden" });
     await page.locator("#blueprintWiringTab").click();
     standard = await page.evaluate(async () => {
       const [{ state }, { PART_STATS }, storage] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js"), import("/src/design/blueprintStorage.js")]);

@@ -37,6 +37,62 @@ async function diagnostics(page) {
   });
 }
 
+
+function rectanglesOverlap(a, b) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+async function toolbarDiagnostics(page, screenshotName = "toolbar-overlap.png") {
+  mkdirSync(ARTIFACT_DIR, { recursive: true });
+  const screenshotPath = `${ARTIFACT_DIR}/${screenshotName}`;
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+  return page.evaluate((screenshotPath) => {
+    const ids = ["undoBlueprintEditButton", "resetButton", "clearGridButton", "blueprintCostBanner"];
+    const describe = (id) => {
+      const el = document.getElementById(id);
+      if (!el) return { id, missing: true };
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      return {
+        id,
+        rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom },
+        center: { x, y },
+        hit: hit ? { id: hit.id || null, tagName: hit.tagName, className: String(hit.className || ""), text: hit.textContent?.trim?.().slice(0, 80) || "" } : null,
+        hitOwned: Boolean(hit && (hit === el || el.contains(hit))),
+        style: { position: style.position, display: style.display, width: style.width, zIndex: style.zIndex, overflow: style.overflow, pointerEvents: style.pointerEvents }
+      };
+    };
+    return { viewport: { width: innerWidth, height: innerHeight }, screenshotPath, controls: Object.fromEntries(ids.map((id) => [id, describe(id)])) };
+  }, screenshotPath);
+}
+
+async function assertToolbarGeometry(page, label) {
+  const data = await toolbarDiagnostics(page, `toolbar-overlap-${label}.png`);
+  const controls = data.controls;
+  for (const id of ["undoBlueprintEditButton", "resetButton", "clearGridButton", "blueprintCostBanner"]) {
+    assert.ok(!controls[id].missing, `${id} exists; diagnostics: ${JSON.stringify(data)}`);
+    assert.ok(controls[id].rect.width > 0 && controls[id].rect.height > 0, `${id} is visible; diagnostics: ${JSON.stringify(data)}`);
+  }
+  const pairs = [["undoBlueprintEditButton", "resetButton"], ["resetButton", "clearGridButton"], ["undoBlueprintEditButton", "blueprintCostBanner"], ["resetButton", "blueprintCostBanner"], ["clearGridButton", "blueprintCostBanner"]];
+  for (const [a, b] of pairs) {
+    assert.equal(rectanglesOverlap(controls[a].rect, controls[b].rect), false, `${a} must not overlap ${b}; diagnostics: ${JSON.stringify(data)}`);
+  }
+  for (const id of ["undoBlueprintEditButton", "resetButton", "clearGridButton"]) {
+    assert.equal(controls[id].hitOwned, true, `${id} center must hit itself or a descendant; diagnostics: ${JSON.stringify(data)}`);
+  }
+}
+
+async function assertToolbarGeometryForViewports(page) {
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 1180, height: 760 }, { width: 1600, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await assertToolbarGeometry(page, `${viewport.width}x${viewport.height}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+}
+
 async function setupDesigner(page) {
   try {
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
@@ -119,6 +175,7 @@ async function main() {
     page.on("console", (message) => { if (message.type() === "error") clientErrors.push(`console.error: ${message.text()}`); });
 
     await setupDesigner(page);
+    await assertToolbarGeometryForViewports(page);
 
     const guide = page.locator("#buildInteractionGuide");
     await assert.equal(await guide.isVisible(), true, "Build interaction guide is visible");
@@ -126,8 +183,8 @@ async function main() {
     assert.match(buildGuide, /left-click/i);
     assert.match(buildGuide, /Rotate/i);
     assert.match(buildGuide, /right-click/i);
-    await assert.equal(await page.locator("#resetButton").innerText(), "Reset to Starter Ship", "Reset has visible label");
-    await assert.equal(await page.locator("#clearGridButton").innerText(), "Clear All Components", "Clear has visible label");
+    await assert.equal(await page.locator("#resetButton").innerText(), "Reset Ship", "Reset has visible label");
+    await assert.equal(await page.locator("#clearGridButton").innerText(), "Clear Ship", "Clear has visible label");
 
     const indicator = page.locator("#rotationIndicator");
     const beforeRotation = await indicator.textContent();
@@ -139,6 +196,24 @@ async function main() {
     await page.locator('.build-cell[data-x="9"][data-y="8"]').click();
     assert.notEqual(await snapshot(page), beforeBuildPlace, "Build placement changes design");
     assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "Undo enables after Build edit");
+    await assertToolbarGeometry(page, "after-undo-enabled");
+    const gridStableBefore = await page.locator("#buildGrid").boundingBox();
+    const cellStableBefore = await page.locator('.build-cell[data-x="7"][data-y="7"]').boundingBox();
+    await page.click("#resetButton");
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /Reset/i, "Reset click opens Reset confirmation, not Clear");
+    await page.click("#confirmCancelButton");
+    await page.click("#clearGridButton");
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /Clear/i, "Clear click opens Clear confirmation, not Reset");
+    await page.click("#confirmCancelButton");
+    for (const id of ["#undoBlueprintEditButton", "#resetButton", "#clearGridButton"]) await page.focus(id);
+    const gridStableAfter = await page.locator("#buildGrid").boundingBox();
+    const cellStableAfter = await page.locator('.build-cell[data-x="7"][data-y="7"]').boundingBox();
+    assert.ok(Math.abs(gridStableBefore.x - gridStableAfter.x) < 1 && Math.abs(gridStableBefore.y - gridStableAfter.y) < 1, "toolbar focus/confirmation does not move grid");
+    assert.ok(Math.abs(cellStableBefore.x - cellStableAfter.x) < 1 && Math.abs(cellStableBefore.y - cellStableAfter.y) < 1, "toolbar focus/confirmation does not move cells");
+    await page.click("#undoBlueprintEditButton");
+    assert.equal(await page.locator("#confirmModal").isVisible(), false, "Undo click does not open Reset/Clear confirmation");
+    assert.equal(await snapshot(page), beforeBuildPlace, "Undo click routes to Undo after toolbar hit-test checks");
+    await page.locator('.build-cell[data-x="9"][data-y="8"]').click();
 
     await setMode(page, "heat");
     assert.equal(await page.locator("#partPalette .part-button").first().isVisible(), true, "palette remains visible in Heat");
