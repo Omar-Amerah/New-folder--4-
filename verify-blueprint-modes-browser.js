@@ -100,6 +100,6 @@ function assertStable(before, after, label) {
     throw error;
   } finally {
     await browser?.close().catch(() => {});
-    server.close();
+    server.kill("SIGTERM");
   }
 })();
