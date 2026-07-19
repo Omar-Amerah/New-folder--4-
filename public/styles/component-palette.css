@@ -75,3 +75,18 @@
   background: #162033;
   box-shadow: 0 0 0 2px rgba(255, 202, 87, 0.11);
 }
+
+.part-palette.palette-locked { opacity: .78; }
+.palette-locked-notice {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px dashed rgba(125, 211, 252, .36);
+  border-radius: 8px;
+  background: rgba(8, 20, 32, .78);
+  color: #cfe8ff;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.palette-locked-notice span { color: #9fb2cc; }
+.part-palette.palette-locked button:disabled { cursor: not-allowed; opacity: .55; }
