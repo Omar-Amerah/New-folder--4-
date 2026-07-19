@@ -12,6 +12,7 @@ import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, va
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
 import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
+import { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, blueprintSnapshotsEqual, canUndoBlueprintEdit, undoBlueprintEdit as popBlueprintEditUndo, clearBlueprintEditHistory } from "../design/blueprintEditHistory.js";
 import { showToast } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText } from "./savedBlueprintsUi.js";
 import { updateEconomyUi } from "./purchaseUi.js";
@@ -30,7 +31,8 @@ import {
   suppressWiringClick,
   syncWiringWithDesign,
   resetWiringToDefault,
-  clearAllWiring
+  clearAllWiring,
+  resetWiringEditorState
 } from "./wiringUi.js";
 
 export { analyzeDesignHeat };
@@ -112,6 +114,7 @@ export function renderBuildGrid() {
     applyBlueprintPresentation();
   }
   refreshBlueprintControls();
+  refreshBlueprintUndoControl();
   renderHoverPreview();
   // The inspector's "Predicted in this design" rows track the live design and
   // the selected thermal scenario, so refresh it alongside the grid.
@@ -732,6 +735,54 @@ function clearInvalidHeatIndexes() {
   if (!validHeatIndex(state.hoveredHeatPartIndex)) state.hoveredHeatPartIndex = null;
 }
 
+export function refreshBlueprintUndoControl() {
+  if (dom.undoBlueprintEditButton) dom.undoBlueprintEditButton.disabled = !canUndoBlueprintEdit();
+}
+
+function refreshAfterPhysicalEdit() {
+  clearInvalidHeatIndexes();
+  invalidateHeatAnalysisCache();
+  persistDesign(state.design, state.wiring, state.combatStyle);
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
+  refreshBlueprintUndoControl();
+}
+
+function commitPhysicalEdit(before, applyChange) {
+  applyChange();
+  const after = captureBlueprintEditSnapshot(state);
+  if (blueprintSnapshotsEqual(before, after)) {
+    refreshBlueprintUndoControl();
+    return false;
+  }
+  pushBlueprintEditSnapshot(undefined, before);
+  refreshAfterPhysicalEdit();
+  return true;
+}
+
+export function clearPhysicalBlueprintHistory() {
+  clearBlueprintEditHistory();
+  refreshBlueprintUndoControl();
+}
+
+export function undoBlueprintEdit() {
+  if (!canUndoBlueprintEdit()) return false;
+  const restored = popBlueprintEditUndo();
+  if (!restored) return false;
+  invalidateHeatAnalysisCache();
+  clearHeatInspectionState();
+  resetWiringEditorState();
+  persistDesign(state.design, state.wiring, state.combatStyle);
+  renderBuildGrid();
+  refreshWiringPresentation();
+  renderLocalStats();
+  renderPartInspector();
+  renderSavedDesigns();
+  refreshBlueprintUndoControl();
+  return true;
+}
+
 export function editCell(x, y) {
   if (state.blueprintView === "wiring") return;
   if (!state.selectedPart) return;
@@ -760,14 +811,11 @@ export function editCell(x, y) {
     return;
   }
 
-  state.design = candidate.nextDesign;
-  clearInvalidHeatIndexes();
-  invalidateHeatAnalysisCache();
-  syncWiringWithDesign();
-  persistDesign(state.design, state.wiring, state.combatStyle);
-  renderBuildGrid();
-  renderLocalStats();
-  renderSavedDesigns();
+  const before = captureBlueprintEditSnapshot(state);
+  commitPhysicalEdit(before, () => {
+    state.design = candidate.nextDesign;
+    syncWiringWithDesign();
+  });
 }
 
 export function rotateCell(x, y) {
@@ -795,17 +843,15 @@ export function rotateCell(x, y) {
     return false;
   }
 
-  state.design = next;
-  invalidateHeatAnalysisCache();
-  syncWiringWithDesign();
-  if (state.selectedPart === part.type) {
-    state.previewRotation = newRotation;
-  }
-  persistDesign(state.design, state.wiring, state.combatStyle);
-  renderBuildGrid();
-  renderLocalStats();
-  renderSavedDesigns();
-  return true;
+  const before = captureBlueprintEditSnapshot(state);
+  const changed = commitPhysicalEdit(before, () => {
+    state.design = next;
+    syncWiringWithDesign();
+    if (state.selectedPart === part.type) {
+      state.previewRotation = newRotation;
+    }
+  });
+  return changed;
 }
 
 export function rotateFocusedPart() {
@@ -827,14 +873,11 @@ export function removeCell(x, y) {
   const next = state.design.filter((part) => part !== existing);
   const validation = validateBlueprint(next, { requireThrust: false });
   if (validation.ok) {
-    state.design = next;
-    clearInvalidHeatIndexes();
-    invalidateHeatAnalysisCache();
-    syncWiringWithDesign();
-    persistDesign(state.design, state.wiring, state.combatStyle);
-    renderBuildGrid();
-    renderLocalStats();
-    renderSavedDesigns();
+    const before = captureBlueprintEditSnapshot(state);
+    commitPhysicalEdit(before, () => {
+      state.design = next;
+      syncWiringWithDesign();
+    });
   } else {
     const message = validation.errors[0] || "Removing that part would make the blueprint invalid";
     setBuildStatus(message, "warning");
@@ -843,28 +886,24 @@ export function removeCell(x, y) {
 }
 
 export function resetDesign() {
-  state.design = defaultDesign();
-  invalidateHeatAnalysisCache();
-  clearHeatInspectionState();
-  state.loadedEditorBlueprintId = null;
-  // Reset Design restores the default modules together with default wiring.
-  resetWiringToDefault();
-  persistDesign(state.design, state.wiring, state.combatStyle);
-  renderBuildGrid();
-  renderLocalStats();
-  renderSavedDesigns();
+  const before = captureBlueprintEditSnapshot(state);
+  commitPhysicalEdit(before, () => {
+    state.design = defaultDesign();
+    clearHeatInspectionState();
+    state.loadedEditorBlueprintId = null;
+    // Reset Design restores the default modules together with default wiring.
+    resetWiringToDefault();
+  });
 }
 
 export function clearDesign() {
-  state.design = [];
-  invalidateHeatAnalysisCache();
-  clearHeatInspectionState();
-  state.loadedEditorBlueprintId = null;
-  clearAllWiring();
-  persistDesign(state.design, state.wiring, state.combatStyle);
-  renderBuildGrid();
-  renderLocalStats();
-  renderSavedDesigns();
+  const before = captureBlueprintEditSnapshot(state);
+  commitPhysicalEdit(before, () => {
+    state.design = [];
+    clearHeatInspectionState();
+    state.loadedEditorBlueprintId = null;
+    clearAllWiring();
+  });
 }
 
 function designRepairBlocker() {

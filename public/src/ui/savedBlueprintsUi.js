@@ -14,7 +14,7 @@ import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
 import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
-import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats } from "./designerUi.js";
+import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory } from "./designerUi.js";
 import { resetWiringEditorState } from "./wiringUi.js";
 let modalReturnFocus = null;
 let persistSavedDesignsImpl = persistSavedDesigns;
@@ -373,6 +373,7 @@ function loadSavedDesign(id) {
   // drop wiring-editor selection/undo state that referenced the old design.
   state.wiring = normalizeWiring(saved.wiring, valid);
   resetWiringEditorState();
+  clearPhysicalBlueprintHistory();
   invalidateHeatAnalysisCache();
   state.hoveredHeatPartIndex = null;
   state.combatStyle = saved.combatStyle || "sentry";

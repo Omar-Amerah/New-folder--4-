@@ -86,6 +86,7 @@ dom.saveDesignButton?.addEventListener("click", () => {
 });
 dom.resetButton.addEventListener("click", resetDesign);
 dom.clearGridButton.addEventListener("click", clearDesign);
+dom.undoBlueprintEditButton?.addEventListener("click", undoBlueprintEdit);
 dom.copyCodeButton?.addEventListener("click", () => {
   if (!navigator.clipboard?.writeText) return;
   navigator.clipboard.writeText(state.room);

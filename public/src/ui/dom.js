@@ -54,6 +54,7 @@ export const dom = {
   resetRallyButton: document.getElementById("resetRallyButton"),
   resetButton: document.getElementById("resetButton"),
   clearGridButton: document.getElementById("clearGridButton"),
+  undoBlueprintEditButton: document.getElementById("undoBlueprintEditButton"),
   formationSelect: document.getElementById("formationSelect"),
   palette: document.getElementById("partPalette"),
   partInspector: document.getElementById("partInspector"),

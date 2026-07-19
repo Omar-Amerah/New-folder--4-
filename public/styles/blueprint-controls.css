@@ -116,3 +116,17 @@
 .blueprint-cost-banner em.expensive {
   color: #ffd991;
 }
+
+.blueprint-undo-button {
+  min-width: 74px;
+  gap: 4px;
+  padding-inline: 10px;
+  font-weight: 900;
+}
+
+.blueprint-undo-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  filter: grayscale(0.65);
+  box-shadow: none;
+}
