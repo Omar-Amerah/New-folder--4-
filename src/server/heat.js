@@ -231,6 +231,39 @@ function addComponentHeat(ship, index, amount) {
   ship.hasActiveHeat = true;
 }
 
+function distributeComponentHeatByWeight(ship, contributions, amount) {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  const heatInputLength = ship?.componentHeatInput?.length || 0;
+  if (!heatInputLength || !Array.isArray(contributions)) return 0;
+
+  const weightsByIndex = new Map();
+  for (const contribution of contributions) {
+    const index = contribution?.index;
+    if (!Number.isInteger(index) || index < 0 || index >= heatInputLength) continue;
+    if ((ship.componentHp?.[index] ?? 1) <= 0) continue;
+    const rawWeight = contribution.weight ?? contribution.capacity;
+    const weight = Number(rawWeight);
+    if (!Number.isFinite(weight) || weight <= 0) continue;
+    weightsByIndex.set(index, (weightsByIndex.get(index) || 0) + weight);
+  }
+
+  const valid = [...weightsByIndex.entries()]
+    .filter(([, weight]) => Number.isFinite(weight) && weight > 0)
+    .map(([index, weight]) => ({ index, weight }));
+  const totalWeight = valid.reduce((sum, contribution) => sum + contribution.weight, 0);
+  if (!valid.length || !Number.isFinite(totalWeight) || totalWeight <= 0) return 0;
+
+  let distributed = 0;
+  for (let i = 0; i < valid.length; i += 1) {
+    const share = i === valid.length - 1
+      ? amount - distributed
+      : amount * valid[i].weight / totalWeight;
+    distributed += share;
+    addComponentHeat(ship, valid[i].index, share);
+  }
+  return distributed;
+}
+
 function powerSourceHeatSignature(ship) {
   return (ship.componentHeat || []).map((_, i) => {
     if ((PARTS[ship.design[i].type]?.powerGeneration || 0) <= 0) return null;
@@ -552,4 +585,4 @@ function effectiveComponentBonus(ship, propertyName, predicate) {
   return total;
 }
 
-module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, refreshHeatSourceSignatures, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, componentPerformance, effectiveComponentBonus };
+module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, refreshHeatSourceSignatures, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, distributeComponentHeatByWeight, componentPerformance, effectiveComponentBonus };

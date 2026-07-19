@@ -7,9 +7,9 @@ const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
 const { addBullet, segmentCircleHit } = require("./projectiles");
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents } = require("./componentHealth");
-const { addComponentHeat, addHeatToType, componentPerformance } = require("./heat");
+const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance } = require("./heat");
 const TurretRules = require("../../public/src/shared/turretRules");
-const { getComponentPowerMultiplier } = require("./componentPower");
+const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
 const { getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange } = require("./componentData");
 
 const MODULE_SCALE = 13;
@@ -18,6 +18,7 @@ const MODULE_SCALE = 13;
 const COMPONENT_RETARGET_MIN_MS = 2500;
 const COMPONENT_RETARGET_SPAN_MS = 1500;
 const STRUCTURAL_COMPONENT_TYPES = new Set(["armor", "compositeArmor", "bulkhead", "frame", "weaponMount"]);
+const SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE = 0.12;
 const PRIORITY_COMPONENT_TYPES = new Set(["engine", "maneuverThruster", "reactor", "auxGenerator", "battery", "capacitor", "shield", "aegisProjector", "repair", "repairBeam", "fireControl"]);
 
 function componentAimLocalPosition(ship, index) {
@@ -846,7 +847,11 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
     hullDamage = bleedThroughDamage + overflowHullDamage;
 
     if (blockedShieldDamage > 0) {
-      addHeatToType(ship, (part) => part.shield > 0, blockedShieldDamage * 0.12);
+      distributeComponentHeatByWeight(
+        ship,
+        effectiveShieldCapacityContributions(ship),
+        blockedShieldDamage * SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE
+      );
       pushDamageEffect(room, ship, now, blockedShieldDamage, true);
     }
   }

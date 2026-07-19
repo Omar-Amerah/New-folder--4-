@@ -5,9 +5,9 @@ const ShieldRules = require("./public/src/shared/shieldRules");
 const HeatRules = require("./public/src/shared/heatRules");
 const { PARTS } = require("./src/server/components");
 const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat } = require("./src/server/heat");
+const { initShipHeat, distributeComponentHeatByWeight } = require("./src/server/heat");
 const { computeStats } = require("./src/server/shipStats");
-const { rebuildShipWiringState, effectiveShieldStats } = require("./src/server/componentPower");
+const { rebuildShipWiringState, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) { let wiring = WiringRules.emptyWiring(); for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS); return wiring; }
 function shipFor(design, paths = []) { const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true }; initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "test"); return ship; }
@@ -29,6 +29,27 @@ close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * mult, "destroye
 const designer = ShieldRules.calculateShieldStats(weak.design, PARTS, { isLive: i => (weak.componentHp[i] ?? 1) > 0, powerMultiplier: i => weak.componentPower.byComponentIndex[i].operationalMultiplier, heatMultiplier: i => HeatRules.activeOutputForState(weak.componentHeatState[i] || 0) });
 close(designer.capacity, effectiveShieldStats(weak).capacity, "designer/runtime capacity parity");
 close(designer.recharge, effectiveShieldStats(weak).recharge, "designer/runtime regen parity");
+const contributions = effectiveShieldCapacityContributions(weak);
+close(contributions.reduce((sum, contribution) => sum + contribution.capacity, 0), effectiveShieldStats(weak).capacity, "runtime contributions sum to effective capacity");
+assert.deepStrictEqual(contributions.map((contribution) => contribution.index), [1], "destroyed shield contribution is excluded");
+const mixedContributions = ShieldRules.calculateShieldCapacityContributions(
+  [at("shield",0,0), at("aegisProjector",1,0), at("battery",2,0), at("capacitor",3,0), at("frame",4,0)],
+  PARTS,
+  { powerMultiplier: (index) => [1, 0.5, 1, 0, 1][index], isLive: (index) => index !== 4 }
+);
+assert.deepStrictEqual(mixedContributions.map((contribution) => contribution.index), [0, 1, 2], "only live powered shield-capacity contributors are listed");
+close(mixedContributions.reduce((sum, contribution) => sum + contribution.capacity, 0), ShieldRules.calculateShieldStats(
+  [at("shield",0,0), at("aegisProjector",1,0), at("battery",2,0), at("capacitor",3,0), at("frame",4,0)],
+  PARTS,
+  { powerMultiplier: (index) => [1, 0.5, 1, 0, 1][index], isLive: (index) => index !== 4 }
+).capacity, "shared contributions sum to shared capacity");
+const heatShip = { design: [at("shield",0,0), at("aegisProjector",1,0), at("battery",2,0)], componentHp: [1, 1, 0], componentHeatInput: [0, 0, 0] };
+const queued = distributeComponentHeatByWeight(heatShip, [{ index: 0, capacity: 100 }, { index: 1, capacity: 50 }, { index: 1, capacity: 50 }, { index: 2, capacity: 100 }, { index: 99, capacity: 100 }, { index: 0, capacity: -1 }], 24);
+close(queued, 24, "weighted heat allocator queues full amount");
+close(heatShip.componentHeatInput[0], 12, "weighted heat allocator assigns proportional share");
+close(heatShip.componentHeatInput[1], 12, "weighted heat allocator combines duplicate indexes");
+close(heatShip.componentHeatInput[2], 0, "weighted heat allocator ignores destroyed indexes");
+assert.strictEqual(heatShip.hasActiveHeat, true, "weighted heat allocator uses addComponentHeat side effects");
 console.log("Shield rules verification passed.");
 
 async function verifyBlueprintRuntimeShieldParity() {

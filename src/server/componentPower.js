@@ -170,6 +170,13 @@ function summarizePower(entries) {
   return "powered";
 }
 
+function effectiveShieldCapacityContributions(ship) {
+  return ShieldRules.calculateShieldCapacityContributions(ship.design || [], PARTS, {
+    isLive: (index) => (ship.componentHp?.[index] ?? 1) > 0,
+    powerMultiplier: (index) => getComponentPowerMultiplier(ship, index)
+  });
+}
+
 function effectiveShieldStats(ship) {
   const HeatRules = require("../../public/src/shared/heatRules");
   return ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
@@ -179,4 +186,4 @@ function effectiveShieldStats(ship) {
   });
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions };
