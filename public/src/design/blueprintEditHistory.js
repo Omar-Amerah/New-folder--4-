@@ -38,7 +38,9 @@ export function blueprintSnapshotsEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export function pushBlueprintEditSnapshot(stack = blueprintEditHistory, snapshot) {
+export function pushBlueprintEditSnapshot(stackOrSnapshot, maybeSnapshot) {
+  const stack = maybeSnapshot === undefined ? blueprintEditHistory : stackOrSnapshot;
+  const snapshot = maybeSnapshot === undefined ? stackOrSnapshot : maybeSnapshot;
   if (!snapshot) return stack.length;
   stack.push(captureBlueprintEditSnapshot(snapshot));
   while (stack.length > MAX_BLUEPRINT_EDIT_HISTORY) stack.shift();

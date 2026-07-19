@@ -42,6 +42,7 @@ const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "
 const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
+let blueprintEditUiHooks = null;
 
 function heatDesignSignature(design, wiring, mode) {
   return `${mode}|${JSON.stringify(
@@ -739,14 +740,28 @@ export function refreshBlueprintUndoControl() {
   if (dom.undoBlueprintEditButton) dom.undoBlueprintEditButton.disabled = !canUndoBlueprintEdit();
 }
 
-function refreshAfterPhysicalEdit() {
-  clearInvalidHeatIndexes();
-  invalidateHeatAnalysisCache();
-  persistDesign(state.design, state.wiring, state.combatStyle);
+function persistCurrentEditorDesign() {
+  if (blueprintEditUiHooks?.persistDesign) return blueprintEditUiHooks.persistDesign(state.design, state.wiring, state.combatStyle);
+  return persistDesign(state.design, state.wiring, state.combatStyle);
+}
+
+function refreshEditorAfterBlueprintHistoryChange() {
+  if (blueprintEditUiHooks?.refresh) return blueprintEditUiHooks.refresh();
   renderBuildGrid();
   renderLocalStats();
   renderSavedDesigns();
   refreshBlueprintUndoControl();
+}
+
+export function setBlueprintEditHistoryUiHooksForTests(hooks = null) {
+  blueprintEditUiHooks = hooks;
+}
+
+function refreshAfterPhysicalEdit() {
+  clearInvalidHeatIndexes();
+  invalidateHeatAnalysisCache();
+  persistCurrentEditorDesign();
+  refreshEditorAfterBlueprintHistoryChange();
 }
 
 function commitPhysicalEdit(before, applyChange) {
@@ -756,7 +771,7 @@ function commitPhysicalEdit(before, applyChange) {
     refreshBlueprintUndoControl();
     return false;
   }
-  pushBlueprintEditSnapshot(undefined, before);
+  pushBlueprintEditSnapshot(before);
   refreshAfterPhysicalEdit();
   return true;
 }
@@ -773,13 +788,17 @@ export function undoBlueprintEdit() {
   invalidateHeatAnalysisCache();
   clearHeatInspectionState();
   resetWiringEditorState();
-  persistDesign(state.design, state.wiring, state.combatStyle);
-  renderBuildGrid();
-  refreshWiringPresentation();
-  renderLocalStats();
-  renderPartInspector();
-  renderSavedDesigns();
-  refreshBlueprintUndoControl();
+  persistCurrentEditorDesign();
+  if (blueprintEditUiHooks?.refresh) {
+    blueprintEditUiHooks.refresh();
+  } else {
+    renderBuildGrid();
+    refreshWiringPresentation();
+    renderLocalStats();
+    renderPartInspector();
+    renderSavedDesigns();
+    refreshBlueprintUndoControl();
+  }
   return true;
 }
 
