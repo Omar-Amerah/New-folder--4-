@@ -34,7 +34,8 @@ function resetInteraction(clearSelection = true) { releasePointerCapture(); cons
 export function syncWiringWithDesign() { state.wiring = normalizeWiring(state.wiring, state.design); resetInteraction(); }
 export function resetWiringToDefault() { state.wiring = normalizeWiring(defaultWiring(), state.design); ui().undoStack = []; resetInteraction(); }
 export function clearAllWiring() { state.wiring = rules().emptyWiring(); ui().undoStack = []; resetInteraction(); }
-export function resetWiringEditorState() { resetInteraction(); ui().undoStack = []; }
+export function clearWiringUndoHistory() { ui().undoStack = []; }
+export function resetWiringEditorState() { resetInteraction(); clearWiringUndoHistory(); }
 export function undoWiring() { if (!ui().undoStack.length) return false; const previous = ui().undoStack.pop(); resetInteraction(); commitWiring(normalizeWiring(previous, state.design)); return true; }
 
 function connectionsAtTerminal(index, kind = ui().mode) { return bucket(kind).connections.filter((connection) => connection.sourceIndex === index || connection.targetIndex === index); }

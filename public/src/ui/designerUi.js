@@ -772,6 +772,7 @@ function commitPhysicalEdit(before, applyChange) {
     return false;
   }
   pushBlueprintEditSnapshot(before);
+  resetWiringEditorState();
   refreshAfterPhysicalEdit();
   return true;
 }

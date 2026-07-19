@@ -4,6 +4,7 @@ const { chromium } = require("playwright");
 const { spawn } = require("node:child_process");
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function assertNoClientErrors(errors) { assert.deepEqual(errors, [], `unexpected browser errors:\n${errors.join("\n")}`); }
 
 async function main() {
   const server = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: "0" }, stdio: ["ignore", "pipe", "pipe"] });
@@ -18,33 +19,55 @@ async function main() {
     const browser = await chromium.launch({ headless: true, args: ["--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      const clientErrors = [];
+      page.on("pageerror", (error) => clientErrors.push(`pageerror: ${error.message}`));
+      page.on("console", (message) => { if (message.type() === "error") clientErrors.push(`console.error: ${message.text()}`); });
       await page.goto(url, { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => window.__mfaMainLoaded === true);
       await page.click("#openBlueprintDesignerButton");
       await page.waitForSelector("#blueprintDesignerScreen:not([hidden]) #undoBlueprintEditButton");
       assert.equal(await page.locator("#undoBlueprintEditButton").getAttribute("title"), "Undo last blueprint edit (Ctrl+Z)");
       assert.equal(await page.locator("#undoBlueprintEditButton").getAttribute("aria-label"), "Undo last blueprint edit");
       assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), true, "undo starts disabled");
 
-      await page.evaluate(async () => {
-        const [{ state }, designer] = await Promise.all([import("/src/state.js"), import("/src/ui/designerUi.js")]);
-        state.selectedPart = "frame";
-        designer.editCell(7, 10);
-      });
-      assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "undo enables after edit");
-      await page.click("#undoBlueprintEditButton");
-      assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), true, "undo disables after final undo");
+      await page.evaluate(() => { window.__mfaState.selectedPart = "frame"; window.__mfaState.blueprintView = "build"; });
+      await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
+      const afterPlace = await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring }));
+      assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "undo enables after first visible edit");
 
-      await page.evaluate(async () => {
-        const [{ state }, designer] = await Promise.all([import("/src/state.js"), import("/src/ui/designerUi.js")]);
-        state.selectedPart = "frame";
-        designer.editCell(7, 10);
-      });
+      await page.locator('.build-cell[data-x="9"][data-y="7"]').click({ button: "right" });
+      assert.notEqual(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "second visible edit changes design");
+      await page.click("#undoBlueprintEditButton");
+      assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "Undo restores previous design and Wiring after remove");
+
+      await page.click("#clearGridButton");
+      assert.equal(await page.evaluate(() => window.__mfaState.design.length), 0, "Clear empties the current design");
+      await page.click("#undoBlueprintEditButton");
+      assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "Undo restores entire ship after Clear");
+
+      await page.evaluate(() => { window.__mfaState.selectedPart = "armor"; });
+      await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
+      const beforeKeyboardUndo = afterPlace;
       await page.keyboard.press(process.platform === "darwin" ? "Meta+Z" : "Control+Z");
-      assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), true, "keyboard undo consumes available physical history");
+      assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), beforeKeyboardUndo, "keyboard Undo restores actual design state");
+
+      const wiredBefore = await page.evaluate(async () => {
+        const storage = await import("/src/design/blueprintStorage.js");
+        window.__mfaState.design = storage.defaultDesign();
+        window.__mfaState.wiring = storage.normalizeWiring(storage.defaultWiring(), window.__mfaState.design);
+        window.__mfaState.selectedPart = "frame";
+        const designer = await import("/src/ui/designerUi.js");
+        designer.renderBuildGrid();
+        return JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring });
+      });
+      await page.locator('.build-cell[data-x="6"][data-y="6"]').click();
+      await page.click("#undoBlueprintEditButton");
+      assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), wiredBefore, "Undo restores known wired design snapshot");
 
       await page.setViewportSize({ width: 390, height: 740 });
       const box = await page.locator("#undoBlueprintEditButton").boundingBox();
       assert.ok(box && box.width >= 44 && box.height >= 24, "touch viewport keeps undo button accessible");
+      assertNoClientErrors(clientErrors);
     } finally {
       await browser.close();
     }
