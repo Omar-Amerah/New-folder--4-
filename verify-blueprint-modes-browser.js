@@ -30,13 +30,19 @@ async function setupDesigner(page) {
     state.previewRotation = 0;
     state.blueprintView = "build";
     wiringUi.resetWiringEditorState?.();
+    const mainMenu = document.querySelector("#mainMenuScreen");
+    const designerScreen = document.querySelector("#blueprintDesignerScreen");
+    if (!mainMenu || !designerScreen) {
+      throw new Error("Required screen elements are missing");
+    }
+    mainMenu.hidden = true;
     openBlueprintDesigner();
     designer.setBlueprintView("build");
     renderPalette();
     designer.renderBuildGrid();
     designer.renderLocalStats();
   });
-  await page.locator("#blueprintDesignerScreen:not([hidden]) #blueprintBuildTab").waitFor({ state: "visible" });
+  await page.locator("#blueprintDesignerScreen:not([hidden]) #buildGrid").waitFor({ state: "visible" });
 }
 
 async function gridRect(page) {
