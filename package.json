@@ -92,10 +92,11 @@
     "test:renderer-culling": "node verify-renderer-culling.js",
     "test:renderer-textures": "node verify-renderer-textures.js",
     "test:renderer-quality": "node verify-renderer-quality.js",
-    "test:renderer-structure": "node verify-renderer-structural-updates.js && node verify-shield-ring-renderer.js && node verify-pixi-world-layers.js && node verify-ship-identification-renderer.js",
+    "test:renderer-structure": "node verify-renderer-structural-updates.js && node verify-shield-ring-renderer.js && node verify-pixi-world-layers.js && node verify-ship-identification-renderer.js && npm run test:ship-hull-outline",
     "test:renderer-performance": "npm run build && node verify-renderer-performance-browser.js",
     "test:webgl-context": "npm run build && node verify-webgl-context-browser.js",
     "test:all-non-browser": "npm run check && npm run test:shield-impact-heat && npm run test:support-semantics && npm run test:armor-delivery && node tools/run-tests.js all-non-browser",
+    "test:all-non-browser": "npm run check && npm run test:support-semantics && npm run test:armor-delivery && node tools/run-tests.js all-non-browser && npm run test:ship-hull-outline",
     "test:client-selection": "node verify-client-selection.js && node verify-client-self-destruct.js",
     "test:message-routes": "node verify-message-route-inventory.js",
     "test:message-dispatch": "node verify-message-dispatch.js && node verify-self-destruct-router.js",
@@ -116,7 +117,7 @@
     "test:snapshot-multiclient-strict": "node verify-snapshot-multiclient-strict.js",
     "balance:check": "node tools/balance-check.js",
     "balance:summary": "node tools/balance-summary.js",
-    "release:check": "node tools/release-check.js",
+    "release:check": "node tools/release-check.js && npm run test:ship-hull-outline",
     "test:data-support-runtime": "node verify-data-support-runtime.js",
     "test:data-support-lifecycle": "node verify-data-support-lifecycle.js",
     "test:data-support-designer": "node verify-data-support-designer.js && node verify-data-support-reference-parity.js",
@@ -133,6 +134,8 @@
     "test:armor-delivery": "node verify-armor-delivery.js",
     "test:support-semantics": "node verify-support-and-weapon-semantics.js",
     "test:shield-impact-heat": "node verify-shield-impact-heat.js"
+    "test:ship-hull-outline": "node verify-ship-hull-outline.js",
+    "test:ship-hull-outline-browser": "npm run build && node verify-ship-hull-outline-browser.js"
   },
   "keywords": [
     "browser-game",
