@@ -150,6 +150,108 @@ async function assertHeatRotationUpdates(page) {
   }
 }
 
+async function rightClickRemovalDiagnostics(page, screenshotName = "right-click-removal-failure.png") {
+  mkdirSync(ARTIFACT_DIR, { recursive: true });
+  const screenshotPath = `${ARTIFACT_DIR}/${screenshotName}`;
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+  return page.evaluate(async (screenshotPath) => {
+    const { state } = await import("/src/state.js");
+    const { validateBlueprint } = await import("/src/design/blueprintValidation.js");
+    const history = await import("/src/design/blueprintEditHistory.js");
+    const targetIndex = state.design.findIndex((part) => part.type === "blaster" && part.x === 9 && part.y === 8);
+    const target = targetIndex >= 0 ? state.design[targetIndex] : null;
+    const next = targetIndex >= 0 ? state.design.filter((_, index) => index !== targetIndex) : state.design;
+    const validation = targetIndex >= 0 ? validateBlueprint(next, { requireThrust: false }) : null;
+    const componentAt = (x, y) => state.design.find((part) => part.x === x && part.y === y) || null;
+    return {
+      screenshotPath,
+      blueprintView: state.blueprintView,
+      design: structuredClone(state.design),
+      componentAt9x8: structuredClone(componentAt(9, 8)),
+      componentAt9x7: structuredClone(componentAt(9, 7)),
+      selectedPart: state.selectedPart,
+      previewRotation: state.previewRotation,
+      designLength: state.design.length,
+      physicalHistorySize: history.blueprintEditHistorySize(),
+      removalValidation: validation ? { ok: validation.ok, errors: structuredClone(validation.errors || []) } : { ok: false, reason: "target-missing" },
+      shipStatusText: document.querySelector("#shipStatusText")?.textContent || null
+    };
+  }, screenshotPath);
+}
+
+async function assertRightClickRemovesPlacedBlaster(page) {
+  try {
+    const removalPrecondition = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      const { validateBlueprint } = await import("/src/design/blueprintValidation.js");
+      const targetIndex = state.design.findIndex((part) => part.type === "blaster" && part.x === 9 && part.y === 8);
+      if (targetIndex < 0) return { ok: false, reason: "target-missing", design: structuredClone(state.design) };
+      const target = state.design[targetIndex];
+      const next = state.design.filter((_, index) => index !== targetIndex);
+      const validation = validateBlueprint(next, { requireThrust: false });
+      return { ok: validation.ok, target: structuredClone(target), errors: structuredClone(validation.errors || []), design: structuredClone(state.design) };
+    });
+    assert.equal(removalPrecondition.ok, true, `right-click target must be removable: ${JSON.stringify(removalPrecondition)}`);
+
+    const before = await page.evaluate(async () => {
+      const history = await import("/src/design/blueprintEditHistory.js");
+      const target = window.__mfaState.design.find((part) => part.type === "blaster" && part.x === 9 && part.y === 8);
+      if (!target) throw new Error(`Expected test Blaster at (9,8), design=${JSON.stringify(window.__mfaState.design)}`);
+      return {
+        design: structuredClone(window.__mfaState.design),
+        wiring: structuredClone(window.__mfaState.wiring),
+        loadedEditorBlueprintId: window.__mfaState.loadedEditorBlueprintId,
+        selectedPart: window.__mfaState.selectedPart,
+        previewRotation: window.__mfaState.previewRotation,
+        physicalHistorySize: history.blueprintEditHistorySize(),
+        target: structuredClone(target),
+        supportFrame: structuredClone(window.__mfaState.design.find((part) => part.type === "frame" && part.x === 9 && part.y === 7) || null)
+      };
+    });
+    const beforeRightClick = await snapshot(page);
+    const beforeRightLength = before.design.length;
+
+    await page.locator('.build-cell[data-x="9"][data-y="8"]').click({ button: "right" });
+    await page.waitForFunction((previousLength) => window.__mfaState.design.length === previousLength - 1, beforeRightLength, { timeout: 8000 });
+
+    const after = await page.evaluate(async () => {
+      const history = await import("/src/design/blueprintEditHistory.js");
+      return {
+        design: structuredClone(window.__mfaState.design),
+        wiring: structuredClone(window.__mfaState.wiring),
+        loadedEditorBlueprintId: window.__mfaState.loadedEditorBlueprintId,
+        selectedPart: window.__mfaState.selectedPart,
+        previewRotation: window.__mfaState.previewRotation,
+        physicalHistorySize: history.blueprintEditHistorySize(),
+        remainingTarget: window.__mfaState.design.find((part) => part.type === "blaster" && part.x === 9 && part.y === 8) || null,
+        replacementAtTarget: window.__mfaState.design.find((part) => part.x === 9 && part.y === 8) || null,
+        supportFrame: structuredClone(window.__mfaState.design.find((part) => part.type === "frame" && part.x === 9 && part.y === 7) || null)
+      };
+    });
+
+    assert.equal(after.remainingTarget, null, "right-click removes the targeted Blaster");
+    assert.equal(after.design.length, beforeRightLength - 1, "right-click removes exactly one component");
+    assert.equal(after.replacementAtTarget, null, "right-click does not also place or replace at the target cell");
+    assert.deepEqual(after.supportFrame, before.supportFrame, "right-clicking the Blaster does not remove or rotate the supporting Frame");
+    assert.equal(after.selectedPart, before.selectedPart, "right-click does not change selected palette part");
+    assert.equal(after.previewRotation, before.previewRotation, "right-click does not run the primary rotation path");
+    assert.equal(after.physicalHistorySize, before.physicalHistorySize + 1, "right-click removal creates exactly one physical Undo history entry");
+    assert.notEqual(await snapshot(page), beforeRightClick, "right-click changes design through removal only");
+    assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "Undo enables after right-click removal");
+    assert.equal(await page.locator("#confirmModal").isVisible(), false, "right-click removal does not open confirmation");
+
+    await page.click("#undoBlueprintEditButton");
+    await page.waitForFunction((expected) => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring, loadedEditorBlueprintId: window.__mfaState.loadedEditorBlueprintId }) === expected, beforeRightClick, { timeout: 8000 });
+    assert.equal(await snapshot(page), beforeRightClick, "Undo restores exact design/Wiring after right-click removal");
+    const restoredTarget = await page.evaluate(() => window.__mfaState.design.find((part) => part.type === "blaster" && part.x === 9 && part.y === 8) || null);
+    assert.deepEqual(restoredTarget, before.target, "Undo restores the targeted Blaster at its original anchor");
+    assert.equal(await page.locator("#confirmModal").isVisible(), false, "Undo after right-click removal does not open confirmation");
+  } catch (error) {
+    error.message = `${error.message}; right-click removal diagnostics: ${JSON.stringify(await rightClickRemovalDiagnostics(page))}`;
+    throw error;
+  }
+}
+
 async function setupDesigner(page) {
   try {
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
@@ -315,13 +417,7 @@ async function main() {
 
     await setMode(page, "build");
     await selectPalettePart(page, { category: "Structure", type: "frame", name: "Frame", rotatable: false });
-    const beforeRightClick = await snapshot(page);
-    const beforeRightLength = await designLength(page);
-    await page.locator('.build-cell[data-x="9"][data-y="7"]').click({ button: "right" });
-    assert.equal(await designLength(page), beforeRightLength - 1, "right-click removes exactly one component");
-    assert.notEqual(await snapshot(page), beforeRightClick, "right-click changes design through removal only");
-    await page.click("#undoBlueprintEditButton");
-    assert.equal(await snapshot(page), beforeRightClick, "Undo restores exact design/Wiring after right-click removal");
+    await assertRightClickRemovesPlacedBlaster(page);
 
     const genuine = await snapshot(page);
     await page.click("#resetButton");
