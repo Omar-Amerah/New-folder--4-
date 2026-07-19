@@ -11,7 +11,7 @@ import { normalizeRotation, nextRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
-import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
+import { defaultDesign, defaultWiring, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, blueprintSnapshotsEqual, canUndoBlueprintEdit, undoBlueprintEdit as popBlueprintEditUndo, clearBlueprintEditHistory } from "../design/blueprintEditHistory.js";
 import { showToast } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText } from "./savedBlueprintsUi.js";
@@ -115,6 +115,7 @@ export function renderBuildGrid() {
     applyBlueprintPresentation();
   }
   refreshBlueprintControls();
+  refreshBlueprintDiscoverabilityUi();
   refreshBlueprintUndoControl();
   renderHoverPreview();
   // The inspector's "Predicted in this design" rows track the live design and
@@ -207,6 +208,24 @@ function refreshBlueprintControls() {
     dom.thermalScenarioLabel.hidden = !heatView;
     dom.thermalScenarioLabel.textContent = `Predicted component heat — ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE]}`;
   }
+  if (dom.buildInteractionGuide) {
+    dom.buildInteractionGuide.hidden = wiringView;
+    dom.buildInteractionGuide.textContent = heatView
+      ? "Place: left-click · Rotate: R or click again · Hover to inspect Heat"
+      : "Place: left-click · Rotate: R or click again · Remove: right-click";
+  }
+  if (dom.emptyGridInstruction) {
+    dom.emptyGridInstruction.hidden = !((buildView || heatView) && state.design.length === 0);
+    const main = dom.emptyGridInstruction.querySelector?.("strong");
+    const secondary = dom.emptyGridInstruction.querySelector?.("span");
+    if (main) main.textContent = heatView
+      ? "Choose a component, then left-click a grid cell to place it while viewing predicted Heat."
+      : "Choose a component, then left-click a grid cell to place it.";
+    if (secondary) secondary.textContent = heatView
+      ? "Click the same component again or press R to rotate · Hover components to inspect Heat"
+      : "Click the same component again or press R to rotate · Right-click to remove";
+  }
+  if (dom.rotationIndicator) refreshRotationIndicator();
   if (dom.heatFlowViewControls) {
     dom.heatFlowViewControls.hidden = !heatView;
     updateHeatFlowToggleControl();
@@ -475,6 +494,7 @@ function ensureBlueprintGridEventHandlers() {
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
       const x = pointed?.x ?? Number(cell.dataset.x);
       const y = pointed?.y ?? Number(cell.dataset.y);
+      if (event.button !== undefined && event.button !== 0) return;
       if (state.blueprintView === "wiring") {
         handleWiringCellClick(x, y);
         return;
@@ -514,12 +534,12 @@ function ensureBlueprintGridEventHandlers() {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
       if (state.blueprintView === "heat" || state.blueprintView === "wiring") return;
-      event.preventDefault();
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
-      removeCell(
-        pointed?.x ?? Number(cell.dataset.x),
-        pointed?.y ?? Number(cell.dataset.y)
-      );
+      const x = pointed?.x ?? Number(cell.dataset.x);
+      const y = pointed?.y ?? Number(cell.dataset.y);
+      if (!findPartAt(x, y)) return;
+      event.preventDefault();
+      removeCell(x, y);
     });
     dom.grid.dataset.hasDelegatedClick = "true";
   }
@@ -559,7 +579,7 @@ function ensureBlueprintGridEventHandlers() {
 }
 
 function removePlacementPreviewElements() {
-  for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-weak")) {
+  for (const stale of dom.grid.querySelectorAll(".build-preview, .rotation-preview-badge, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-weak")) {
     stale.remove();
   }
 }
@@ -589,6 +609,7 @@ export function renderHoverPreview() {
     preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", candidate.normalizedRotation);
     positionPreviewOverlay(preview, bounds.minX, bounds.minY, bounds.width, bounds.height);
     dom.grid.appendChild(preview);
+    renderRotationPreviewBadge(candidate, bounds);
     const candidateIndex = candidate.nextDesign.indexOf(candidate.part);
     const candidateStat = PART_STATS[selectedType] || {};
     if (selectedType === "maneuverThruster") {
@@ -596,6 +617,16 @@ export function renderHoverPreview() {
       renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
     } else if (candidateStat.thrust > 0) renderEngineExhaustPreview(candidate.nextDesign, candidateIndex, candidate.ok);
   }
+}
+
+function renderRotationPreviewBadge(candidate, bounds) {
+  if (!candidate?.part || !isRotatablePart(candidate.part.type)) return;
+  const badge = document.createElement("div");
+  badge.className = `rotation-preview-badge ${candidate.ok ? "valid" : "invalid"}`;
+  badge.textContent = `${normalizeRotation(candidate.normalizedRotation, PART_STATS[candidate.part.type]?.allowedRotations, candidate.part.x)}° ↻`;
+  badge.setAttribute("aria-hidden", "true");
+  positionPreviewOverlay(badge, bounds.minX + Math.max(0.05, bounds.width - 0.72), bounds.minY + 0.05, 0.66, 0.32);
+  dom.grid.appendChild(badge);
 }
 
 function renderManeuverThrusterPreview(part, placementValid, design) {
@@ -757,6 +788,29 @@ export function setBlueprintEditHistoryUiHooksForTests(hooks = null) {
   blueprintEditUiHooks = hooks;
 }
 
+export function refreshBlueprintSelectionPresentation() {
+  refreshRotationIndicator();
+  renderHoverPreview();
+}
+
+function refreshBlueprintDiscoverabilityUi() {
+  refreshBlueprintSelectionPresentation();
+  if (dom.emptyGridInstruction) dom.emptyGridInstruction.hidden = !((state.blueprintView === "build" || state.blueprintView === "heat") && state.design.length === 0);
+}
+
+function selectedPlacementRotation() {
+  if (!state.selectedPart || !isRotatablePart(state.selectedPart)) return null;
+  return normalizeRotation(state.previewRotation || 0, PART_STATS[state.selectedPart]?.allowedRotations);
+}
+
+function refreshRotationIndicator() {
+  if (!dom.rotationIndicator) return;
+  const rotation = selectedPlacementRotation();
+  const show = state.blueprintView !== "wiring" && rotation != null;
+  dom.rotationIndicator.hidden = !show;
+  if (show) dom.rotationIndicator.textContent = `Rotation: ${rotation}° ↻`;
+}
+
 function refreshAfterPhysicalEdit() {
   clearInvalidHeatIndexes();
   invalidateHeatAnalysisCache();
@@ -901,6 +955,7 @@ export function rotateFocusedPart() {
   } else if (state.selectedPart && isRotatablePart(state.selectedPart)) {
     state.previewRotation = nextRotation(state.previewRotation || 0, PART_STATS[state.selectedPart]?.allowedRotations);
     renderHoverPreview();
+    refreshRotationIndicator();
   }
 }
 
@@ -942,6 +997,57 @@ export function clearDesign() {
     state.loadedEditorBlueprintId = null;
     clearAllWiring({ resetEditorHistory: false });
   });
+}
+
+function wiringHasSections(wiring = state.wiring) {
+  return Boolean(wiring?.power?.sections?.length || wiring?.data?.sections?.length);
+}
+
+export function requestResetDesign() {
+  const modules = defaultDesign();
+  const target = captureBlueprintEditSnapshot({ ...state, design: modules, wiring: defaultWiring(), loadedEditorBlueprintId: null });
+  if (blueprintSnapshotsEqual(captureBlueprintEditSnapshot(state), target)) return false;
+  openBlueprintDestructiveConfirm("reset");
+  return true;
+}
+
+export function requestClearDesign() {
+  if (state.design.length === 0 && !wiringHasSections() && state.loadedEditorBlueprintId == null) return false;
+  openBlueprintDestructiveConfirm("clear");
+  return true;
+}
+
+function openBlueprintDestructiveConfirm(action) {
+  state.pendingBlueprintDestructiveAction = action;
+  state.pendingDeleteDesignId = null;
+  state.pendingKickTargetId = null;
+  state.blueprintModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = action === "reset" ? "Reset to the starter ship?" : "Clear all components?";
+  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = action === "reset" ? "Your current component layout and Wiring will be replaced. You can Undo this afterward." : "Your current component layout and Wiring will be removed. You can Undo this afterward.";
+  if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = action === "reset" ? "Reset Ship" : "Clear All";
+  if (dom.confirmModal) dom.confirmModal.hidden = false;
+  dom.confirmCancelButton?.focus?.();
+}
+
+export function handleBlueprintConfirmModalAction() {
+  const action = state.pendingBlueprintDestructiveAction;
+  if (!action) return false;
+  state.pendingBlueprintDestructiveAction = null;
+  if (dom.confirmModal) dom.confirmModal.hidden = true;
+  if (action === "reset") resetDesign();
+  else clearDesign();
+  state.blueprintModalReturnFocus?.focus?.();
+  state.blueprintModalReturnFocus = null;
+  return true;
+}
+
+export function closeBlueprintConfirmModalIfPending() {
+  if (!state.pendingBlueprintDestructiveAction) return false;
+  state.pendingBlueprintDestructiveAction = null;
+  if (dom.confirmModal) dom.confirmModal.hidden = true;
+  state.blueprintModalReturnFocus?.focus?.();
+  state.blueprintModalReturnFocus = null;
+  return true;
 }
 
 function designRepairBlocker() {
@@ -1628,7 +1734,8 @@ export function renderShipStatus(status) {
   if (dom.shipStatusText) dom.shipStatusText.textContent = chipSummaryText(severity, groups);
 
   const total = groups.errors.length + groups.warnings.length + groups.suggestions.length;
-  dom.shipStatusChip.setAttribute("aria-label", `Ship status: ${chipSummaryText(severity, groups)}. ${total ? "Click for details." : ""}`.trim());
+  dom.shipStatusChip.setAttribute("aria-label", `Ship status: ${chipSummaryText(severity, groups)}. ${total ? "Expand status details." : "Status details available."}`.trim());
+  updateStatusAutoDisclosure(groups);
 
   // Keep the popover in sync if it is currently open.
   if (dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
@@ -1672,16 +1779,32 @@ function statusGroupMarkup(severity, title, issues) {
   `;
 }
 
+function errorFingerprint(groups) { return groups.errors[0] ? `error:${String(groups.errors[0]).trim().toLowerCase().replace(/\s+/g, " ")}` : null; }
+
+function updateStatusAutoDisclosure(groups) {
+  const disclosure = state.blueprintStatusDisclosure;
+  const fp = errorFingerprint(groups);
+  if (!fp) { disclosure.currentErrorFingerprint = null; disclosure.dismissedErrorFingerprint = null; return; }
+  if (fp !== disclosure.currentErrorFingerprint) {
+    disclosure.currentErrorFingerprint = fp;
+    if (disclosure.dismissedErrorFingerprint !== fp) toggleShipStatusDetails(true);
+  }
+}
+
 function toggleShipStatusDetails(forceOpen) {
   if (!dom.shipStatusDetails || !dom.shipStatusChip) return;
   const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : dom.shipStatusDetails.hidden;
   if (shouldOpen) {
     const status = getShipStatus(computeStats(state.design, { wiring: state.wiring }));
     renderShipStatusDetails(classifyStatus(status));
+    state.blueprintStatusDisclosure.expanded = true;
     dom.shipStatusDetails.hidden = false;
     dom.shipStatusChip.setAttribute("aria-expanded", "true");
     positionShipStatusDetails();
   } else {
+    state.blueprintStatusDisclosure.expanded = false;
+    const fp = state.blueprintStatusDisclosure.currentErrorFingerprint;
+    if (fp) state.blueprintStatusDisclosure.dismissedErrorFingerprint = fp;
     dom.shipStatusDetails.hidden = true;
     dom.shipStatusChip.setAttribute("aria-expanded", "false");
   }

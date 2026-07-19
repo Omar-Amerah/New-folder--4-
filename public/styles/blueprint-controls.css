@@ -51,18 +51,33 @@
   min-width: 0;
 }
 
-/* Center the cost banner/breakdown over the (centered) grid, with the
-   reset/clear actions floated to the right so they don't offset the centering. */
+/* Keep the wider labelled designer actions in their own reserved row so they
+   cannot overlap the centered cost banner or each other. */
 .designer-top .section-heading {
-  position: relative;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 8px;
 }
 
 .designer-top .designer-actions {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  inset: auto;
+  transform: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.designer-actions > button {
+  position: static;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
 }
 
 .blueprint-cost-breakdown {
@@ -130,3 +145,38 @@
   filter: grayscale(0.65);
   box-shadow: none;
 }
+
+.designer-actions .labeled-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+  padding: 7px 10px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.build-interaction-guide,
+.rotation-indicator {
+  align-self: center;
+  max-width: min(100%, 620px);
+  padding: 5px 10px;
+  border: 1px solid rgba(174, 199, 231, 0.18);
+  border-radius: 999px;
+  background: rgba(7, 12, 22, 0.72);
+  color: #b8c7dc;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.rotation-indicator {
+  color: #c4b5fd;
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+.build-interaction-guide[hidden],
+.rotation-indicator[hidden] { display: none; }

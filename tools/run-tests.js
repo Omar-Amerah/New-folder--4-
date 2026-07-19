@@ -120,6 +120,7 @@ const GROUPS = {
     "verify-browser-startup.js",
     "verify-wiring-browser.js",
     "verify-blueprint-undo-browser.js",
+    "verify-blueprint-discoverability-browser.js",
     "verify-data-support-browser.js",
     "verify-live-turrets.js",
     "verify-heat-browser.js",

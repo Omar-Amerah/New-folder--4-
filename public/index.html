@@ -392,11 +392,11 @@
                 </div>
                 <div class="designer-actions">
                   <button id="undoBlueprintEditButton" type="button" class="icon-button blueprint-undo-button" title="Undo last blueprint edit (Ctrl+Z)" aria-label="Undo last blueprint edit" disabled>↶ Undo</button>
-                  <button id="resetButton" type="button" class="icon-button" title="Restore the standard ship and its default wiring" aria-label="New Design">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                  <button id="resetButton" type="button" class="icon-button labeled-action" title="Reset to starter ship and default Wiring" aria-label="Reset to starter ship and default Wiring">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg><span>Reset Ship</span>
                   </button>
-                  <button id="clearGridButton" type="button" class="icon-button" title="Clear Grid (Empty)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                  <button id="clearGridButton" type="button" class="icon-button labeled-action" title="Clear all components and Wiring" aria-label="Clear all components and Wiring">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Clear Ship</span>
                   </button>
                 </div>
               </div>
@@ -461,8 +461,11 @@
                 </div>
               </div>
               <div id="thermalScenarioLabel" class="sr-only" aria-live="polite" hidden></div>
+              <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Remove: right-click</div>
+              <div id="rotationIndicator" class="rotation-indicator" aria-label="Pending placement rotation" hidden></div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGridStage" class="build-grid-stage">
+                <div id="emptyGridInstruction" class="empty-grid-instruction" aria-hidden="true" hidden><strong>Choose a component, then left-click a grid cell to place it.</strong><span>Click the same component again or press R to rotate · Right-click to remove</span></div>
                 <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
                 <div id="heatFlowOverlayHost" class="heat-flow-overlay-host" aria-hidden="true"></div>
                 <div id="wiringOverlayHost" class="wiring-overlay-host"></div>
@@ -475,7 +478,7 @@
               <div class="ship-status-row">
                 <button id="shipStatusChip" type="button" class="ship-status-chip" aria-haspopup="dialog" aria-expanded="false" aria-controls="shipStatusDetails">
                   <span class="ship-status-dot" aria-hidden="true"></span>
-                  <span id="shipStatusText" class="ship-status-text">Ready</span>
+                  <span id="shipStatusText" class="ship-status-text">Ready</span><span class="ship-status-chevron" aria-hidden="true">▾</span>
                 </button>
                 <div id="shipStatusDetails" class="ship-status-details" role="dialog" aria-label="Ship status details" hidden></div>
               </div>
