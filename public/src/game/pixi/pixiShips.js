@@ -16,6 +16,7 @@ import { PART_STATS } from "../../design/parts.js";
 import { normalizeRotation } from "../../design/rotation.js";
 import { isCircleVisible } from "../viewportCulling.js";
 import { footprintLocalPlacement, footprintCorners } from "../shipGeometry.js";
+import { buildExteriorHullEdges } from "../shipHullOutline.js";
 import { componentHealthRatio, shieldRatioForShip, shieldRingRadius, hullColorForRatio } from "../shipVitals.js";
 import {
   getWeaponTurnRate,
@@ -462,7 +463,14 @@ function updatePixiPlayerHullOutline(view, ship, player, design, zoom) {
   const gfx = view.playerHullOutline;
   const shouldShow = ship.alive && ship.ownerId !== state.myId && Boolean(player?.color);
   const color = shouldShow ? player.color : null;
-  const sig = shouldShow ? `${ship.ownerId}|${color}|${zoom.toFixed(2)}|${(ship.chp || []).join(',')}` : "hidden";
+  const isLive = (index) => {
+    const ratio = componentHealthRatio(ship, index);
+    return ratio === null || ratio > 0;
+  };
+  const liveMask = shouldShow ? design.map((_, index) => isLive(index) ? "1" : "0").join("") : "";
+  const sig = shouldShow
+    ? [ship.ownerId, color, zoom.toFixed(2), pixiDesignSignature(design), liveMask].join("|")
+    : "hidden";
   if (view.playerHullOutlineSig === sig) return;
   view.playerHullOutlineSig = sig;
   gfx.clear();
@@ -471,14 +479,10 @@ function updatePixiPlayerHullOutline(view, ship, player, design, zoom) {
 
   const strokeColor = normalizePixiStrokeColor(color);
   const width = Math.min(1.4, Math.max(0.65, 0.95 / zoom));
-  for (let i = 0; i < design.length; i += 1) {
-    const ratio = componentHealthRatio(ship, i);
-    if (ratio !== null && ratio <= 0) continue;
-    const part = design[i];
-    const place = footprintLocalPlacement(part, SHIP_SCALE);
-    const halfW = (place.tilesLong * SHIP_SCALE) / 2;
-    const halfH = (place.tilesCross * SHIP_SCALE) / 2;
-    tracePoly(gfx, footprintCorners(place, halfW, halfH));
+  const edges = buildExteriorHullEdges(design, { scale: SHIP_SCALE, isLive });
+  for (const edge of edges) {
+    gfx.moveTo(edge.x1, edge.y1);
+    gfx.lineTo(edge.x2, edge.y2);
   }
   gfx.stroke({ width, color: strokeColor, alpha: 0.48, alignment: 0.5 });
 }
