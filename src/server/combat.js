@@ -1160,6 +1160,7 @@ module.exports = {
   weaponMuzzleWorldPosition,
   isTargetInWeaponArc,
   damageShip,
+  SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE,
   destroyShip,
   updateDestroyedShips,
   requestSelfDestruct,
