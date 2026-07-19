@@ -404,10 +404,16 @@
 
             <div class="designer-workspace">
               <div class="blueprint-view-tabs" role="tablist" aria-label="Blueprint view">
-                <button id="blueprintBuildTab" type="button" role="tab" aria-selected="true">Blueprint</button>
-                <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false">Heat</button>
-                <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false">Wiring</button>
+                <button id="blueprintBuildTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="blueprintModeContext">Build</button>
+                <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Heat</button>
+                <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Wiring</button>
               </div>
+              <div id="blueprintModeContext" class="blueprint-mode-context" role="region" aria-labelledby="blueprintModeTitle">
+                <div class="blueprint-mode-summary">
+                  <strong id="blueprintModeTitle">Build</strong>
+                  <span id="blueprintModeDescription">Add, rotate and remove ship components.</span>
+                </div>
+                <div id="blueprintModeControls" class="blueprint-mode-controls">
               <div id="wiringToolbar" class="wiring-toolbar" hidden>
                 <div class="wiring-control-row" role="group" aria-label="Wiring network type">
                   <span class="wiring-control-label">Network</span>
@@ -463,6 +469,8 @@
               <div id="thermalScenarioLabel" class="sr-only" aria-live="polite" hidden></div>
               <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Remove: right-click</div>
               <div id="rotationIndicator" class="rotation-indicator" aria-label="Pending placement rotation" hidden></div>
+                </div>
+              </div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGridStage" class="build-grid-stage">
                 <div id="emptyGridInstruction" class="empty-grid-instruction" aria-hidden="true" hidden><strong>Choose a component, then left-click a grid cell to place it.</strong><span>Click the same component again or press R to rotate · Right-click to remove</span></div>

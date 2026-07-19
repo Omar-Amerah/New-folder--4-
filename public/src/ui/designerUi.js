@@ -44,6 +44,18 @@ const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
 let blueprintEditUiHooks = null;
 
+export function isPhysicalBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
+export function isPaletteBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
+export function isWiringBlueprintEditMode(mode = state.blueprintView) { return mode === "wiring"; }
+export function isBlueprintRotationMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
+export function isBlueprintRemovalMode(mode = state.blueprintView) { return mode === "build"; }
+
+const BLUEPRINT_MODE_CONTENT = {
+  build: { title: "Build", description: "Add, rotate and remove ship components." },
+  heat: { title: "Heat", description: "Build while viewing predicted component Heat and thermal flow." },
+  wiring: { title: "Wiring", description: "Draw and edit Power or Data networks. Component placement is paused." }
+};
+
 function heatDesignSignature(design, wiring, mode) {
   return `${mode}|${JSON.stringify(
     design.map(part => [part.type, part.x, part.y, part.rotation || 0])
@@ -146,8 +158,13 @@ function suppressHeatGridNativeTooltips() {
 }
 
 export function setBlueprintView(view) {
+  const previousView = state.blueprintView;
   state.blueprintView = view === "heat" ? "heat" : view === "wiring" ? "wiring" : "build";
+  if (previousView === state.blueprintView) { refreshBlueprintControls(); return; }
+  if (previousView === "wiring") resetWiringEditorState();
+  if (state.blueprintView === "wiring") { state.hoveredCell = null; state.selectedCell = null; }
   refreshBlueprintControls();
+  document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView } }));
   renderHoverPreview();
 
   if (state.blueprintView === "heat") {
@@ -181,16 +198,24 @@ function updateHeatFlowToggleControl() {
 
 function refreshBlueprintControls() {
   const heatView = state.blueprintView === "heat";
-  const wiringView = state.blueprintView === "wiring";
+  const wiringView = isWiringBlueprintEditMode();
   const buildView = !heatView && !wiringView;
   dom.grid.classList.toggle("heat-overlay-active", heatView);
   dom.grid.classList.toggle("wiring-overlay-active", wiringView);
   dom.blueprintBuildTab?.classList.toggle("active", buildView);
   dom.blueprintHeatTab?.classList.toggle("active", heatView);
   dom.blueprintWiringTab?.classList.toggle("active", wiringView);
-  dom.blueprintBuildTab?.setAttribute("aria-selected", String(buildView));
-  dom.blueprintHeatTab?.setAttribute("aria-selected", String(heatView));
-  dom.blueprintWiringTab?.setAttribute("aria-selected", String(wiringView));
+  const tabs = [[dom.blueprintBuildTab, buildView], [dom.blueprintHeatTab, heatView], [dom.blueprintWiringTab, wiringView]];
+  for (const [tab, active] of tabs) {
+    tab?.setAttribute("aria-selected", String(active));
+    tab?.setAttribute("tabindex", active ? "0" : "-1");
+    tab?.setAttribute("aria-controls", "blueprintModeContext");
+  }
+  if (dom.blueprintModeContext) {
+    dom.blueprintModeContext.dataset.mode = state.blueprintView;
+  }
+  if (dom.blueprintModeTitle) dom.blueprintModeTitle.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].title;
+  if (dom.blueprintModeDescription) dom.blueprintModeDescription.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].description;
   if (dom.wiringToolbar) dom.wiringToolbar.hidden = !wiringView;
   if (dom.wiringStatusPanel && !wiringView) dom.wiringStatusPanel.hidden = true;
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
@@ -488,18 +513,18 @@ function assertHeatViewKeepsBaseGridDom() {
 function ensureBlueprintGridEventHandlers() {
   if (!dom.grid.dataset.hasDelegatedClick) {
     dom.grid.addEventListener("click", (event) => {
-      if (state.blueprintView === "wiring" && suppressWiringClick()) return;
+      if (isWiringBlueprintEditMode() && suppressWiringClick()) return;
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
       const x = pointed?.x ?? Number(cell.dataset.x);
       const y = pointed?.y ?? Number(cell.dataset.y);
       if (event.button !== undefined && event.button !== 0) return;
-      if (state.blueprintView === "wiring") {
+      if (isWiringBlueprintEditMode()) {
         handleWiringCellClick(x, y);
         return;
       }
-      editCell(x, y);
+      if (isPhysicalBlueprintEditMode()) editCell(x, y);
     });
     // Hover preview is delegated so cells are never rebuilt mid-click:
     // rebuilding on hover destroyed the mousedown target, so no click event fired.
@@ -533,7 +558,7 @@ function ensureBlueprintGridEventHandlers() {
     dom.grid.addEventListener("contextmenu", (event) => {
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
-      if (state.blueprintView === "heat" || state.blueprintView === "wiring") return;
+      if (!isBlueprintRemovalMode()) return;
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
       const x = pointed?.x ?? Number(cell.dataset.x);
       const y = pointed?.y ?? Number(cell.dataset.y);
@@ -557,6 +582,16 @@ function ensureBlueprintGridEventHandlers() {
     dom.blueprintWiringTab?.addEventListener("click", () => {
       setBlueprintView("wiring");
       renderLocalStats();
+    });
+    const modeTabs = [dom.blueprintBuildTab, dom.blueprintHeatTab, dom.blueprintWiringTab].filter(Boolean);
+    const activateTab = (index) => { const mode = ["build", "heat", "wiring"][index]; setBlueprintView(mode); renderLocalStats(); if (mode === "heat") renderPartInspector(); modeTabs[index]?.focus(); };
+    for (const tab of modeTabs) tab.addEventListener("keydown", (event) => {
+      const index = modeTabs.indexOf(tab);
+      if (event.key === "ArrowRight") { event.preventDefault(); activateTab((index + 1) % modeTabs.length); }
+      else if (event.key === "ArrowLeft") { event.preventDefault(); activateTab((index + modeTabs.length - 1) % modeTabs.length); }
+      else if (event.key === "Home") { event.preventDefault(); activateTab(0); }
+      else if (event.key === "End") { event.preventDefault(); activateTab(modeTabs.length - 1); }
+      else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activateTab(index); }
     });
     dom.thermalLoadModes?.addEventListener("click", event => {
       const button = event.target.closest("[data-thermal-load]");
@@ -587,7 +622,7 @@ function removePlacementPreviewElements() {
 export function renderHoverPreview() {
   removePlacementPreviewElements();
 
-  if (state.blueprintView === "wiring") return;
+  if (!isPhysicalBlueprintEditMode()) return;
   if (!state.hoveredCell || !state.selectedPart) return;
 
   {
@@ -947,7 +982,7 @@ export function rotateCell(x, y) {
 }
 
 export function rotateFocusedPart() {
-  if (state.blueprintView === "wiring") return;
+  if (!isBlueprintRotationMode()) return;
   const cell = state.hoveredCell || state.selectedCell;
   const part = cell ? findPartAt(cell.x, cell.y) : null;
   if (part && isRotatablePart(part.type)) {
@@ -960,7 +995,7 @@ export function rotateFocusedPart() {
 }
 
 export function removeCell(x, y) {
-  if (state.blueprintView === "heat" || state.blueprintView === "wiring") return;
+  if (!isBlueprintRemovalMode()) return;
   const existing = findPartAt(x, y);
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part !== existing);
