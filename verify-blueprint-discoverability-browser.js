@@ -93,6 +93,63 @@ async function assertToolbarGeometryForViewports(page) {
   await page.setViewportSize({ width: 1280, height: 900 });
 }
 
+
+async function heatRotationDiagnostics(page, screenshotName = "heat-rotation-failure.png") {
+  mkdirSync(ARTIFACT_DIR, { recursive: true });
+  const screenshotPath = `${ARTIFACT_DIR}/${screenshotName}`;
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+  return page.evaluate(async (screenshotPath) => {
+    const { state } = await import("/src/state.js");
+    const { PART_STATS } = await import("/src/design/parts.js");
+    const { normalizeRotation } = await import("/src/design/rotation.js");
+    const indicator = document.querySelector("#rotationIndicator");
+    const style = indicator ? getComputedStyle(indicator) : null;
+    const active = document.querySelector("#partPalette .part-button.active .part-name");
+    const allowed = PART_STATS[state.selectedPart]?.allowedRotations || null;
+    return {
+      screenshotPath,
+      view: state.blueprintView,
+      selectedPart: state.selectedPart,
+      selectedCategory: state.selectedPartCategory,
+      previewRotation: state.previewRotation,
+      allowedRotations: allowed,
+      expected: normalizeRotation(state.previewRotation, allowed),
+      indicatorText: indicator?.textContent || null,
+      indicatorHidden: indicator?.hidden ?? null,
+      indicatorDisplay: style?.display || null,
+      indicatorVisibility: style?.visibility || null,
+      activePaletteButtonText: active?.textContent?.trim?.() || null
+    };
+  }, screenshotPath);
+}
+
+async function assertHeatRotationUpdates(page) {
+  const before = await page.evaluate(() => ({
+    rotation: window.__mfaState.previewRotation,
+    text: document.querySelector("#rotationIndicator")?.textContent || null
+  }));
+  await page.keyboard.press("R");
+  try {
+    await page.waitForFunction((prior) => window.__mfaState.previewRotation !== prior, before.rotation, { timeout: 8000 });
+    const result = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      const { PART_STATS } = await import("/src/design/parts.js");
+      const { normalizeRotation } = await import("/src/design/rotation.js");
+      const expected = normalizeRotation(state.previewRotation, PART_STATS[state.selectedPart]?.allowedRotations);
+      const indicator = document.querySelector("#rotationIndicator");
+      return { view: state.blueprintView, selectedPart: state.selectedPart, previewRotation: state.previewRotation, expected, text: indicator?.textContent || "", hidden: indicator?.hidden ?? null };
+    });
+    assert.equal(result.view, "heat", `Heat rotation should stay in Heat: ${JSON.stringify(await heatRotationDiagnostics(page))}`);
+    assert.equal(result.selectedPart, "blaster", `Heat rotation should keep Blaster selected: ${JSON.stringify(await heatRotationDiagnostics(page))}`);
+    assert.equal(result.hidden, false, `Heat rotation indicator should remain visible: ${JSON.stringify(await heatRotationDiagnostics(page))}`);
+    assert.match(result.text, new RegExp(`Rotation:\\s*${result.expected}°`), `Heat rotation indicator should show normalized expected rotation: ${JSON.stringify(await heatRotationDiagnostics(page))}`);
+    assert.notEqual(result.previewRotation, before.rotation, `Heat previewRotation should change from ${before.rotation}: ${JSON.stringify(await heatRotationDiagnostics(page))}`);
+  } catch (error) {
+    error.message = `${error.message}; heat rotation diagnostics: ${JSON.stringify(await heatRotationDiagnostics(page))}`;
+    throw error;
+  }
+}
+
 async function setupDesigner(page) {
   try {
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
@@ -148,12 +205,24 @@ async function setMode(page, mode) {
   await page.waitForFunction((expected) => window.__mfaState.blueprintView === expected, mode);
 }
 
-async function setSelectedPart(page, type, category = "Weapons") {
-  await page.evaluate(({ type, category }) => {
-    window.__mfaState.selectedPartCategory = category;
-    window.__mfaState.selectedPart = type;
-    window.__mfaState.previewRotation = 0;
-  }, { type, category });
+async function selectPalettePart(page, { category, type, name, rotatable }) {
+  const currentCategory = await page.evaluate(() => window.__mfaState.selectedPartCategory);
+  if (currentCategory !== category) {
+    const categoryButton = page.locator("#partPalette .part-category-tabs button").filter({ hasText: category });
+    await categoryButton.click();
+    await page.waitForFunction((expected) => window.__mfaState.selectedPartCategory === expected, category);
+  }
+
+  const partButton = page.locator("#partPalette .part-button").filter({ has: page.locator(".part-name", { hasText: name }) });
+  await partButton.waitFor({ state: "visible" });
+  const isActive = await partButton.evaluate((button) => button.classList.contains("active"));
+  if (!isActive) await partButton.click();
+
+  await page.waitForFunction((expected) => window.__mfaState.selectedPart === expected, type);
+  await page.waitForFunction(({ rotatable }) => {
+    const indicator = document.querySelector("#rotationIndicator");
+    return Boolean(indicator) && (rotatable ? !indicator.hidden : indicator.hidden);
+  }, { rotatable });
 }
 
 async function clearHistory(page) {
@@ -222,7 +291,7 @@ async function main() {
     assert.match(heatGuide, /Hover to inspect Heat/i);
     assert.doesNotMatch(heatGuide, /right-click removal|right-click to remove/i);
     assert.equal(await indicator.isVisible(), true, "rotation indicator is visible in Heat");
-    await setSelectedPart(page, "armor", "Defence");
+    await selectPalettePart(page, { category: "Structure", type: "armor", name: "Armor", rotatable: false });
     const beforeHeatPlace = await snapshot(page);
     await clearHistory(page);
     await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
@@ -233,22 +302,19 @@ async function main() {
     await page.click("#undoBlueprintEditButton");
     assert.equal(await snapshot(page), beforeHeatPlace, "Undo restores exact design/Wiring after Heat edit");
 
-    await setSelectedPart(page, "blaster", "Weapons");
-    const beforeHeatRotate = await indicator.textContent();
-    await page.keyboard.press("R");
-    await page.waitForFunction((prior) => document.querySelector("#rotationIndicator")?.textContent !== prior, beforeHeatRotate);
-    assert.equal(await page.evaluate(() => window.__mfaState.blueprintView), "heat", "R rotation stays in Heat");
+    await selectPalettePart(page, { category: "Weapons", type: "blaster", name: "Blaster", rotatable: true });
+    await assertHeatRotationUpdates(page);
 
     await setMode(page, "wiring");
     const beforeWiringClick = await snapshot(page);
-    await setSelectedPart(page, "armor", "Defence");
+    await selectPalettePart(page, { category: "Structure", type: "armor", name: "Armor", rotatable: false });
     await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
     assert.equal(await snapshot(page), beforeWiringClick, "Wiring click does not place physical component");
     assert.equal(await guide.isVisible(), false, "physical guide hidden in Wiring");
     assert.equal(await indicator.isVisible(), false, "rotation indicator hidden in Wiring");
 
     await setMode(page, "build");
-    await setSelectedPart(page, "frame", "Structure");
+    await selectPalettePart(page, { category: "Structure", type: "frame", name: "Frame", rotatable: false });
     const beforeRightClick = await snapshot(page);
     const beforeRightLength = await designLength(page);
     await page.locator('.build-cell[data-x="9"][data-y="7"]').click({ button: "right" });

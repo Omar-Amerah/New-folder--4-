@@ -788,8 +788,13 @@ export function setBlueprintEditHistoryUiHooksForTests(hooks = null) {
   blueprintEditUiHooks = hooks;
 }
 
-function refreshBlueprintDiscoverabilityUi() {
+export function refreshBlueprintSelectionPresentation() {
   refreshRotationIndicator();
+  renderHoverPreview();
+}
+
+function refreshBlueprintDiscoverabilityUi() {
+  refreshBlueprintSelectionPresentation();
   if (dom.emptyGridInstruction) dom.emptyGridInstruction.hidden = !((state.blueprintView === "build" || state.blueprintView === "heat") && state.design.length === 0);
 }
 

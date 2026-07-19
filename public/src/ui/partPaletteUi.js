@@ -6,6 +6,12 @@ import { PART_DEFS, PART_STATS, isPalettePart, partCategory, partIconMarkup } fr
 import { renderPartInspector } from "./partInspectorUi.js";
 import { PART_CATEGORIES } from "../constants.js";
 
+let selectionPresentationRefresh = () => {};
+
+export function setPartPaletteSelectionPresentationRefresh(handler) {
+  selectionPresentationRefresh = typeof handler === "function" ? handler : () => {};
+}
+
 export function renderPalette() {
   dom.palette.textContent = "";
   const tabs = document.createElement("div");
@@ -24,6 +30,7 @@ export function renderPalette() {
       }
       renderPalette();
       renderPartInspector();
+      selectionPresentationRefresh();
     });
     tabs.appendChild(tab);
   }
@@ -47,7 +54,7 @@ export function renderPalette() {
       state.previewRotation = wasSelected ? 0 : (PART_STATS[type]?.allowedRotations?.[0] ?? 0);
       renderPalette();
       renderPartInspector();
-      for (const stale of dom.grid.querySelectorAll(".build-preview, .engine-exhaust-preview, .engine-thrust-arrow, .maneuver-preview-plume, .maneuver-preview-weak")) stale.remove();
+      selectionPresentationRefresh();
     });
     list.appendChild(button);
   }
