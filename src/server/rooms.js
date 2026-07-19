@@ -45,7 +45,6 @@ function createRoom(code, options = {}) {
     map,
     mapSeed,
     points: map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 })),
-    kickedIds: new Set(),
     kickedNames: new Set(),
     nextEntityId: 1,
     nextBotId: 1,

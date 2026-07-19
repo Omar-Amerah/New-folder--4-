@@ -11,7 +11,7 @@ const { URL } = require("url");
 const { PORT, PUBLIC_DIR, MIME, TICK_HZ, SNAPSHOT_HZ, ROOM_IDLE_MS } = require("./src/server/config");
 const { COMPONENT_BALANCE } = require("./src/server/components");
 const { performanceNow, getLocalUrls } = require("./src/server/utils");
-const { rooms, pruneClosedRoomCodes } = require("./src/server/rooms");
+const { rooms, pruneClosedRoomCodes, rememberClosedRoom } = require("./src/server/rooms");
 const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./src/server/buildInfo");
 const transport = require("./src/server/websocketServer");
 const messages = require("./src/server/messages");
@@ -307,7 +307,10 @@ function createGameServer(options = {}) {
       httpServer.once("error", reject);
       httpServer.listen(port, host, () => {
         diagnosticsState.started = true; diagnosticsState.stopped = false;
-        timers.set("cleanup", setInterval(() => { const now = Date.now(); pruneClosedRoomCodes(now); for (const room of rooms.values()) if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) rooms.delete(room.code); }, 60_000));
+        // Idle-cleaned codes are remembered as closed so a bookmarked
+        // ?room=CODE link gets an honest "lobby was closed" error instead of
+        // silently creating a fresh empty room under the old code.
+        timers.set("cleanup", setInterval(() => { const now = Date.now(); pruneClosedRoomCodes(now); for (const room of rooms.values()) if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) { rememberClosedRoom(room.code); rooms.delete(room.code); } }, 60_000));
         // Snapshots broadcast from the simulation timer (every Nth tick,
         // immediately after that tick) instead of a second independent
         // interval. Two free-running timers drift against each other under

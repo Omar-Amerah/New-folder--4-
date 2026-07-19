@@ -69,16 +69,6 @@ function joinRoom(client, message) {
   const requestedName = sanitizeName(message.name, `Pilot ${client.id.slice(1)}`);
   const resumeToken = typeof message.resumeToken === "string" ? message.resumeToken.slice(0, MAX_RESUME_TOKEN_LENGTH) : "";
 
-  if (!requestedCode) {
-    for (const existingRoom of Array.from(rooms.values())) {
-      if (existingRoom.adminId) {
-        const adminPlayer = existingRoom.players.get(existingRoom.adminId);
-        if (adminPlayer && adminPlayer.name.toLowerCase() === requestedName.toLowerCase()) {
-          closeLobby(existingRoom, adminPlayer);
-        }
-      }
-    }
-  }
   if (requestedCode && isClosedRoomCode(code)) {
     send(client, { type: "error", message: "That lobby was closed. Create a new game instead." });
     return;
@@ -94,7 +84,11 @@ function joinRoom(client, message) {
   let existingPlayer = findPlayerByResumeToken(room, resumeToken);
 
   if (resumeToken && !existingPlayer) {
-    send(client, { type: "error", message: "Reconnect credential expired or invalid. Please join as a new player." });
+    // The code matters: the client clears its stored credential only on
+    // credential-expired/credential-invalid, so omitting it locks the player
+    // into resending the same dead token on every subsequent join attempt.
+    const { ERROR_CODES } = require("./protocol");
+    send(client, { type: "error", code: ERROR_CODES.CREDENTIAL_EXPIRED, message: "Reconnect credential expired or invalid. Please join as a new player." });
     return;
   }
 
@@ -134,7 +128,10 @@ function joinRoom(client, message) {
     return;
   }
 
-  if (room.kickedIds?.has(client.id) || room.kickedNames?.has(normalizePlayerName(requestedName))) {
+  // Kicks are enforced by reserved name: player ids and connection ids are
+  // both minted fresh on every join, so a name is the only stable handle a
+  // room has for a kicked player.
+  if (room.kickedNames?.has(normalizePlayerName(requestedName))) {
     send(client, { type: "error", message: "You were kicked from this room by the host." });
     return;
   }
@@ -264,6 +261,10 @@ function leaveRoom(client, explicitLeave = false) {
             const { broadcastSnapshot } = require("./messages");
             broadcastSnapshot(room, performanceNow(), true);
           }
+          // The pruned player may have been the last not-ready blocker; without
+          // this re-check the design phase stalls even though everyone left is
+          // ready. maybeStartMatch is phase-guarded internally.
+          maybeStartMatch(room, performanceNow());
           checkEmptyLobby(room);
         }
       }, RECONNECT_GRACE_MS);
@@ -328,7 +329,6 @@ function kickPlayer(room, requester, targetId) {
   }
 
   removePlayerFromRoom(room, target, "kicked");
-  room.kickedIds.add(target.id);
   room.kickedNames.add(normalizePlayerName(target.name));
   broadcastRoom(room, { type: "notice", message: `${target.name} was kicked` });
   if (room.phase === "design") maybeStartMatch(room, performanceNow());
@@ -485,7 +485,10 @@ function startDesignPhase(room, requester) {
     sendPlayer(room, requester, { type: "error", message: "Ship design has already started" });
     return;
   }
-  if (room.players.size < 1) return;
+  if (room.players.size < 1) {
+    sendPlayer(room, requester, { type: "error", message: "The room needs at least one player before ship design can start" });
+    return;
+  }
 
   const { prepareArenaForCurrentPlayers } = require("./rooms");
   prepareArenaForCurrentPlayers(room);
