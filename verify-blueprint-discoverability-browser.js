@@ -409,9 +409,16 @@ async function main() {
 
     await setMode(page, "wiring");
     const beforeWiringClick = await snapshot(page);
-    await selectPalettePart(page, { category: "Structure", type: "armor", name: "Armor", rotatable: false });
+    const wiringSelectedPart = await page.evaluate(() => window.__mfaState.selectedPart);
+    const wiringCategory = await page.evaluate(() => window.__mfaState.selectedPartCategory);
+    await page.locator("#blueprintPaletteLockedNotice").waitFor({ state: "visible" });
+    assert.match(await page.locator("#blueprintPaletteLockedNotice").textContent(), /Component placement paused in Wiring mode/);
+    assert.equal(await page.locator("#partPalette .part-category-tabs button").first().isDisabled(), true, "Wiring locks palette categories");
+    assert.equal(await page.locator("#partPalette .part-button").first().isDisabled(), true, "Wiring locks palette parts");
     await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
     assert.equal(await snapshot(page), beforeWiringClick, "Wiring click does not place physical component");
+    assert.equal(await page.evaluate(() => window.__mfaState.selectedPart), wiringSelectedPart, "Wiring preserves selected physical component");
+    assert.equal(await page.evaluate(() => window.__mfaState.selectedPartCategory), wiringCategory, "Wiring preserves selected category");
     assert.equal(await guide.isVisible(), false, "physical guide hidden in Wiring");
     assert.equal(await indicator.isVisible(), false, "rotation indicator hidden in Wiring");
 
