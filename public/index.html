@@ -384,7 +384,7 @@
               <div class="section-heading">
                 <div class="blueprint-cost-wrap">
                   <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite" aria-haspopup="true" aria-expanded="false">
-                    <span>Current ship cost</span>
+                    <span>Build cost</span>
                     <strong id="blueprintCostLabel">$0</strong>
                     <em id="blueprintCostStatus">Ready</em>
                   </div>
@@ -494,6 +494,13 @@
           </div>
 
           <div class="designer-right-col">
+            <div class="designer-right-actions">
+              <div class="designer-save-context">
+                <span>Current design</span>
+                <strong id="loadedBlueprintName">Unsaved design</strong>
+              </div>
+              <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
+            </div>
             <section id="fullLoadThermalPanel" class="full-load-thermal-panel" hidden></section>
             <section id="wiringStatusPanel" class="wiring-status-panel" hidden aria-label="Wiring status"></section>
             <div id="partInspector" class="part-inspector"></div>
@@ -501,7 +508,6 @@
             <div class="saved-designs">
               <div class="section-heading compact">
                 <h2>Saved Blueprints</h2>
-                <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
               </div>
               <div id="savedDesignList" class="saved-design-list"></div>
             </div>

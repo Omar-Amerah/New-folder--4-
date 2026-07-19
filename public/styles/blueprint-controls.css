@@ -180,3 +180,20 @@
 
 .build-interaction-guide[hidden],
 .rotation-indicator[hidden] { display: none; }
+
+.blueprint-cost-banner {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  min-width: 0;
+}
+
+.blueprint-cost-banner span,
+.blueprint-cost-banner em {
+  min-width: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.blueprint-cost-banner strong {
+  white-space: nowrap;
+}

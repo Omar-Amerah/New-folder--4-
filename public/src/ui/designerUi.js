@@ -1108,18 +1108,22 @@ export function renderLocalStats() {
   if (dom.combatStyleSelect) {
     dom.combatStyleSelect.value = state.combatStyle || "sentry";
   }
-  if (dom.saveDesignButton) {
+  if (dom.saveDesignButton || dom.loadedBlueprintName) {
     const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
-    dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
+    if (dom.saveDesignButton) dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
+    if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing ? existing.name : "Unsaved design";
   }
-  if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost}`;
+  if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost.toLocaleString()}`;
   if (dom.blueprintCostStatus) {
     if (state.phase === "active") {
-      dom.blueprintCostStatus.textContent = "";
+      dom.blueprintCostStatus.textContent = canAfford
+        ? `Funds after one purchase: $${Math.floor(money - stats.unitCost).toLocaleString()}`
+        : `Need $${Math.ceil(stats.unitCost - money).toLocaleString()} more`;
+      dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     } else {
       dom.blueprintCostStatus.textContent = canAfford
-        ? `Remaining after first ship $${Math.floor(money - stats.unitCost)}`
-        : `Need $${Math.ceil(stats.unitCost - money)} before first ship`;
+        ? `Starting funds remaining: $${Math.floor(money - stats.unitCost).toLocaleString()}`
+        : `Need $${Math.ceil(stats.unitCost - money).toLocaleString()} more for starting ship`;
       dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     }
   }

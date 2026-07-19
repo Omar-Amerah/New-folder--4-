@@ -373,10 +373,10 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
   if (pending) reason = "Building...";
   else if (error) reason = error.message || "Purchase failed";
   else if (state.phase !== "active") reason = "Match not active";
-  else if (!mine?.ready) reason = "Not ready";
+  else if (!mine?.ready) reason = "Complete your starting ship first";
   else if (!validity.ok) reason = validity.reason;
-  else if (activeShips + quantity > shipCap) reason = quantity === 1 ? "Fleet full" : `Need ${quantity} slots`;
-  else if (money < totalCost) reason = `Need $${Math.ceil(totalCost - money)}`;
+  else if (activeShips + quantity > shipCap) reason = quantity === 1 ? "Fleet full" : `Need ${quantity} fleet slots`;
+  else if (money < totalCost) reason = `Need $${Math.ceil(totalCost - money).toLocaleString()} more`;
 
   return {
     money,
@@ -451,6 +451,7 @@ export function renderPurchaseBar() {
           <span class="purchase-cost"></span>
           <small class="purchase-weapons"></small>
           <em class="purchase-status"></em>
+          <span class="sr-only purchase-status-description"></span>
         </span>`;
 
       card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
@@ -464,6 +465,8 @@ export function renderPurchaseBar() {
     if (card.className !== className) card.className = className;
     const ariaDisabled = String(!optionState.canBuy);
     if (card.getAttribute?.("aria-disabled") !== ariaDisabled) card.setAttribute?.("aria-disabled", ariaDisabled);
+    const descriptionId = `purchase-status-${option.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    if (card.getAttribute?.("aria-describedby") !== descriptionId) card.setAttribute?.("aria-describedby", descriptionId);
 
     // Regenerate the (canvas-rendered) thumbnail only when the blueprint or team
     // colour changes, not every snapshot.
@@ -478,10 +481,28 @@ export function renderPurchaseBar() {
     setCardText(card, "strong", option.name);
     setCardText(card, ".purchase-cost", purchaseCostText(option, optionState));
     setCardText(card, ".purchase-weapons", weaponSummaryText(option.stats));
-    setCardText(card, ".purchase-status", optionState.pending ? "Building..." : optionState.canBuy ? "Ready" : optionState.reason);
+    const statusText = purchaseStatusText(optionState);
+    setCardText(card, ".purchase-status", statusText);
+    const statusDescription = card.querySelector(".purchase-status-description");
+    if (statusDescription) statusDescription.id = descriptionId;
+    setCardText(card, ".purchase-status-description", statusText);
+    if (card.title !== statusText) card.title = statusText;
 
     if (isNew) dom.purchaseOptions.appendChild(card);
   });
+}
+
+function purchaseStatusText(optionState) {
+  if (optionState.pending) return "Building…";
+  if (optionState.error) return `Purchase failed — ${optionState.reason || "Server rejected request"}`;
+  if (optionState.canBuy) return "Available to build";
+  const reason = optionState.reason || "Not available";
+  if (/^Need \$/.test(reason)) return reason;
+  if (/^Need \d+/.test(reason) && !/fleet slots$/.test(reason)) return reason.replace(/slots$/, "fleet slots");
+  if (/^Invalid design:/i.test(reason)) return `Design invalid — ${reason.replace(/^Invalid design:\s*/i, "")}`;
+  if (/^Missing /i.test(reason)) return `Design invalid — ${reason}`;
+  if (/^Purchase failed/i.test(reason)) return reason.replace(/^Purchase failed:?\s*/i, "Purchase failed — ");
+  return reason;
 }
 
 // Updates a child element's text only when it changed, avoiding needless DOM work

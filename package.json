@@ -95,7 +95,7 @@
     "test:renderer-structure": "node verify-renderer-structural-updates.js && node verify-shield-ring-renderer.js && node verify-pixi-world-layers.js && node verify-ship-identification-renderer.js && npm run test:ship-hull-outline",
     "test:renderer-performance": "npm run build && node verify-renderer-performance-browser.js",
     "test:webgl-context": "npm run build && node verify-webgl-context-browser.js",
-    "test:all-non-browser": "npm run check && npm run test:blueprint-modes && npm run test:blueprint-discoverability && npm run test:blueprint-undo && npm run test:shield-impact-heat && npm run test:support-semantics && npm run test:armor-delivery && node tools/run-tests.js all-non-browser && npm run test:ship-hull-outline",
+    "test:all-non-browser": "npm run check && npm run test:blueprint-information-polish && npm run test:blueprint-modes && npm run test:blueprint-discoverability && npm run test:blueprint-undo && npm run test:shield-impact-heat && npm run test:support-semantics && npm run test:armor-delivery && node tools/run-tests.js all-non-browser && npm run test:ship-hull-outline",
     "test:client-selection": "node verify-client-selection.js && node verify-client-self-destruct.js",
     "test:message-routes": "node verify-message-route-inventory.js",
     "test:message-dispatch": "node verify-message-dispatch.js && node verify-self-destruct-router.js",
@@ -116,7 +116,7 @@
     "test:snapshot-multiclient-strict": "node verify-snapshot-multiclient-strict.js",
     "balance:check": "node tools/balance-check.js",
     "balance:summary": "node tools/balance-summary.js",
-    "release:check": "node tools/release-check.js && npm run test:blueprint-modes && npm run test:blueprint-discoverability && npm run test:blueprint-undo && npm run test:ship-hull-outline",
+    "release:check": "node tools/release-check.js && npm run test:blueprint-information-polish && npm run test:blueprint-modes && npm run test:blueprint-discoverability && npm run test:blueprint-undo && npm run test:ship-hull-outline",
     "test:data-support-runtime": "node verify-data-support-runtime.js",
     "test:data-support-lifecycle": "node verify-data-support-lifecycle.js",
     "test:data-support-designer": "node verify-data-support-designer.js && node verify-data-support-reference-parity.js",
@@ -140,7 +140,9 @@
     "test:blueprint-discoverability": "node verify-blueprint-discoverability.js",
     "test:blueprint-discoverability-browser": "npm run build && node verify-blueprint-discoverability-browser.js",
     "test:blueprint-modes": "node verify-blueprint-modes.js",
-    "test:blueprint-modes-browser": "npm run build && node verify-blueprint-modes-browser.js"
+    "test:blueprint-modes-browser": "npm run build && node verify-blueprint-modes-browser.js",
+    "test:blueprint-information-polish": "node verify-blueprint-information-polish.js",
+    "test:blueprint-information-polish-browser": "npm run build && node verify-blueprint-information-polish-browser.js"
   },
   "keywords": [
     "browser-game",
