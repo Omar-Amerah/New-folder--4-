@@ -213,7 +213,7 @@ async function selectPalettePart(page, { category, type, name, rotatable }) {
     await page.waitForFunction((expected) => window.__mfaState.selectedPartCategory === expected, category);
   }
 
-  const partButton = page.locator("#partPalette .part-button").filter({ has: page.locator(".part-name", { hasText: name }) });
+  const partButton = page.locator("#partPalette").getByRole("button", { name, exact: true });
   await partButton.waitFor({ state: "visible" });
   const isActive = await partButton.evaluate((button) => button.classList.contains("active"));
   if (!isActive) await partButton.click();
