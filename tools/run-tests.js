@@ -123,6 +123,7 @@ const GROUPS = {
     "verify-live-turrets.js",
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",
+    "verify-ship-hull-outline-browser.js",
     "verify-browser-websocket-payloads.js",
     "verify-browser-sequential-rooms.js",
     "verify-pixi-lifecycle.js",
