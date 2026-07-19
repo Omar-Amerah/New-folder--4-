@@ -100,10 +100,6 @@ export function handleSelectedCombatStyleClick(event) {
   setSelectedCombatStyle(button.dataset.combatStyle);
 }
 
-export function clearActiveShipGroup() {
-  state.activeShipGroup = null;
-}
-
 export function getRallyPoint() {
   if (state.phase !== "active") return null;
   const rally = state.mine?.rallyPoint;

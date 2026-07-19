@@ -26,10 +26,6 @@ function damageStateFor(shipId) {
   return entry;
 }
 
-export function getShipDamageState(shipId) {
-  return state.componentDamage ? state.componentDamage.get(shipId) : null;
-}
-
 export function isArmorType(type) {
   return /armor/i.test(String(type || ""));
 }

@@ -16,8 +16,6 @@ function dirFor(rate, previous = "unknown") {
   return "stable";
 }
 
-export function resetComponentHeatTrends() { entries = new Map(); lastSignature = ""; contextKey = ""; }
-
 export function updateComponentHeatTrends(ship, snapshotTime, room = "") {
   const designLen = ship?.design?.length || 0;
   const key = `${room}|${ship?.id || ""}|${designLen}`;
@@ -45,4 +43,3 @@ export function updateComponentHeatTrends(ship, snapshotTime, room = "") {
 }
 
 export function componentHeatTrend(index) { return entries.get(index) || { rawRate: 0, smoothedRate: 0, direction: "unknown" }; }
-export function heatTrendThreshold() { return ENTER; }

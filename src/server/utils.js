@@ -8,10 +8,6 @@ function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, number));
 }
 
-function randomRange(min, max) {
-  return min + Math.random() * (max - min);
-}
-
 function rngRange(rng, min, max) {
   return min + rng() * (max - min);
 }
@@ -70,7 +66,6 @@ function getLocalUrls(port) {
 
 module.exports = {
   clampNumber,
-  randomRange,
   rngRange,
   hashString,
   seededRandom,

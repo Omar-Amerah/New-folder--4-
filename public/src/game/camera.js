@@ -83,7 +83,6 @@ export function minimapWorldAt(clientX, clientY) {
   if (local.x < mini.x || local.x > mini.x + mini.w || local.y < mini.y || local.y > mini.y + mini.h) return null;
   return minimapToWorld(local);
 }
-export function markCameraManual() { state.camera.follow = false; }
 export function centerCameraOnShips(ships) {
   const live = (ships || []).filter((s) => s?.alive !== false); if (!live.length) return false;
   state.camera.x = live.reduce((sum, s) => sum + finite(s.x), 0) / live.length; state.camera.y = live.reduce((sum, s) => sum + finite(s.y), 0) / live.length;

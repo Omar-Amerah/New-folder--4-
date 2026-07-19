@@ -92,14 +92,6 @@ function bumpStateEpoch(room, reason = "state-reset") {
   }
 }
 
-function touchStaticRevision(room, reason = "static-change") {
-  room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;
-  room.lastStaticReason = reason;
-  for (const client of room.clients || []) {
-    if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
-  }
-}
-
 function setRoomRules(room, requester, updates) {
   const { isAdmin } = require("./players");
   if (!isAdmin(room, requester)) {
@@ -610,7 +602,6 @@ module.exports = {
   closedRoomCodes,
   createRoom,
   bumpStateEpoch,
-  touchStaticRevision,
   setRoomRules,
   sanitizeRoomRules,
   sanitizeMapSize,
