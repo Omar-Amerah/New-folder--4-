@@ -1,6 +1,7 @@
 "use strict";
 const { spawnSync } = require("child_process");
 const steps = [
+  ["node", ["verify-package-json.js"]],
   ["npm", ["run", "build"]],
   ["npm", ["run", "balance:check"]],
   ["node", ["verify-shared-parity.js"]],
