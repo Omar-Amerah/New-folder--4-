@@ -492,7 +492,7 @@ export function renderPurchaseBar() {
   });
 }
 
-function purchaseStatusText(optionState) {
+export function purchaseStatusText(optionState) {
   if (optionState.pending) return "Building…";
   if (optionState.error) return `Purchase failed — ${optionState.reason || "Server rejected request"}`;
   if (optionState.canBuy) return "Available to build";
