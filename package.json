@@ -137,7 +137,8 @@
     "test:ship-hull-outline": "node verify-ship-hull-outline.js",
     "test:ship-hull-outline-browser": "npm run build && node verify-ship-hull-outline-browser.js",
     "test:blueprint-undo": "node verify-blueprint-undo.js",
-    "test:blueprint-discoverability": "node verify-blueprint-discoverability.js && node verify-blueprint-discoverability-browser.js"
+    "test:blueprint-discoverability": "node verify-blueprint-discoverability.js",
+    "test:blueprint-discoverability-browser": "npm run build && node verify-blueprint-discoverability-browser.js"
   },
   "keywords": [
     "browser-game",

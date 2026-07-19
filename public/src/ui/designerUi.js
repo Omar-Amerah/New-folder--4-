@@ -208,8 +208,23 @@ function refreshBlueprintControls() {
     dom.thermalScenarioLabel.hidden = !heatView;
     dom.thermalScenarioLabel.textContent = `Predicted component heat — ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE]}`;
   }
-  if (dom.buildInteractionGuide) dom.buildInteractionGuide.hidden = !buildView;
-  if (dom.emptyGridInstruction) dom.emptyGridInstruction.hidden = !(buildView && state.design.length === 0);
+  if (dom.buildInteractionGuide) {
+    dom.buildInteractionGuide.hidden = wiringView;
+    dom.buildInteractionGuide.textContent = heatView
+      ? "Place: left-click · Rotate: R or click again · Hover to inspect Heat"
+      : "Place: left-click · Rotate: R or click again · Remove: right-click";
+  }
+  if (dom.emptyGridInstruction) {
+    dom.emptyGridInstruction.hidden = !((buildView || heatView) && state.design.length === 0);
+    const main = dom.emptyGridInstruction.querySelector?.("strong");
+    const secondary = dom.emptyGridInstruction.querySelector?.("span");
+    if (main) main.textContent = heatView
+      ? "Choose a component, then left-click a grid cell to place it while viewing predicted Heat."
+      : "Choose a component, then left-click a grid cell to place it.";
+    if (secondary) secondary.textContent = heatView
+      ? "Click the same component again or press R to rotate · Hover components to inspect Heat"
+      : "Click the same component again or press R to rotate · Right-click to remove";
+  }
   if (dom.rotationIndicator) refreshRotationIndicator();
   if (dom.heatFlowViewControls) {
     dom.heatFlowViewControls.hidden = !heatView;
@@ -484,7 +499,6 @@ function ensureBlueprintGridEventHandlers() {
         handleWiringCellClick(x, y);
         return;
       }
-      if (state.blueprintView === "heat") return;
       editCell(x, y);
     });
     // Hover preview is delegated so cells are never rebuilt mid-click:
@@ -776,7 +790,7 @@ export function setBlueprintEditHistoryUiHooksForTests(hooks = null) {
 
 function refreshBlueprintDiscoverabilityUi() {
   refreshRotationIndicator();
-  if (dom.emptyGridInstruction) dom.emptyGridInstruction.hidden = !(state.blueprintView === "build" && state.design.length === 0);
+  if (dom.emptyGridInstruction) dom.emptyGridInstruction.hidden = !((state.blueprintView === "build" || state.blueprintView === "heat") && state.design.length === 0);
 }
 
 function selectedPlacementRotation() {
@@ -787,7 +801,7 @@ function selectedPlacementRotation() {
 function refreshRotationIndicator() {
   if (!dom.rotationIndicator) return;
   const rotation = selectedPlacementRotation();
-  const show = state.blueprintView === "build" && rotation != null;
+  const show = state.blueprintView !== "wiring" && rotation != null;
   dom.rotationIndicator.hidden = !show;
   if (show) dom.rotationIndicator.textContent = `Rotation: ${rotation}° ↻`;
 }
