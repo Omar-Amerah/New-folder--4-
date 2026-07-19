@@ -14,7 +14,7 @@ import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
 import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
-import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory } from "./designerUi.js";
+import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory, handleBlueprintConfirmModalAction, closeBlueprintConfirmModalIfPending } from "./designerUi.js";
 import { resetWiringEditorState } from "./wiringUi.js";
 let modalReturnFocus = null;
 let persistSavedDesignsImpl = persistSavedDesigns;
@@ -326,6 +326,7 @@ export function openDeleteDesignModal(saved) {
 }
 
 export function closeConfirmModal() {
+  if (closeBlueprintConfirmModalIfPending()) return;
   state.pendingDeleteDesignId = null;
   state.pendingKickTargetId = null;
   if (dom.confirmModal) dom.confirmModal.hidden = true;
@@ -334,6 +335,7 @@ export function closeConfirmModal() {
 }
 
 export function confirmModalAction() {
+  if (handleBlueprintConfirmModalAction()) return;
   if (state.pendingKickTargetId) {
     const targetId = state.pendingKickTargetId;
     closeConfirmModal();

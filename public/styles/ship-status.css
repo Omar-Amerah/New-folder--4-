@@ -176,3 +176,15 @@
     max-height: 60vh;
   }
 }
+
+.ship-status-chevron {
+  margin-left: 2px;
+  color: currentColor;
+  transition: transform 0.15s ease;
+}
+.ship-status-chip[aria-expanded="true"] {
+  border-color: rgba(125, 211, 252, 0.62);
+  background: rgba(22, 36, 58, 0.86);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.18), 0 10px 28px rgba(0, 0, 0, 0.25);
+}
+.ship-status-chip[aria-expanded="true"] .ship-status-chevron { transform: rotate(180deg); }

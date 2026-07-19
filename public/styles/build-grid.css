@@ -206,3 +206,24 @@
 .maneuver-preview-plume.invalid { background:linear-gradient(90deg, rgba(255,77,103,.05), rgba(255,77,103,.42), rgba(255,210,218,.68)); box-shadow:0 0 8px rgba(255,77,103,.4); }
 .maneuver-preview-weak { position:absolute; z-index:33; display:grid; place-items:center; pointer-events:none; border-radius:999px; background:rgba(250,204,21,.18); color:#fde68a; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; text-shadow:0 0 4px #713f12; }
 .maneuver-preview-weak.invalid { background:rgba(255,77,103,.18); color:#fecdd3; }
+
+.empty-grid-instruction {
+  position: absolute;
+  z-index: 35;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  gap: 5px;
+  width: min(86%, 420px);
+  padding: 14px 16px;
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  border-radius: 14px;
+  background: rgba(3, 8, 15, 0.82);
+  color: #dbeafe;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
+}
+.empty-grid-instruction span { color: #a9bdd6; font-size: 12px; font-weight: 750; }
+.empty-grid-instruction[hidden] { display: none; }
