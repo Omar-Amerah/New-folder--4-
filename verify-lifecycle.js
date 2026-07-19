@@ -38,4 +38,20 @@ assert.strictEqual(a.player, null, "old client no longer controls slot");
 assert.strictEqual(race.room.clients.size, 1, "one active attachment remains");
 
 rooms.delete(roomCode);
+
+// A rejected join must not create the room as a side effect. A ghost empty
+// room would be idle-cleaned and remembered as a closed code, poisoning a
+// pre-agreed room code for the whole closed-code TTL.
+const ghostCode = "GHOST1";
+rooms.delete(ghostCode);
+const staleJoiner = makeClient("c5");
+joinRoom(staleJoiner, { type: "join", room: ghostCode, name: "Ghost", resumeToken: "stale-token" });
+assert.strictEqual(staleJoiner.player, null, "stale credential join is rejected");
+assert.strictEqual(rooms.has(ghostCode), false, "rejected join leaves no ghost room behind");
+const freshJoiner = makeClient("c6");
+joinRoom(freshJoiner, { type: "join", room: ghostCode, name: "Ghost" });
+assert(freshJoiner.player, "the same code stays joinable for a fresh join");
+assert.strictEqual(freshJoiner.room.code, ghostCode, "fresh join creates the room on demand");
+rooms.delete(ghostCode);
+
 console.log("Lifecycle verification passed");

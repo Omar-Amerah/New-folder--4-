@@ -74,14 +74,13 @@ function joinRoom(client, message) {
     return;
   }
 
-  let room = rooms.get(code);
+  // The room is only created once the join actually succeeds (below). Creating
+  // it eagerly left a ghost empty room behind every rejected join, and the
+  // idle cleanup would then remember that code as closed — poisoning a
+  // pre-agreed room code for the whole closed-code TTL.
+  let room = rooms.get(code) || null;
 
-  if (!room) {
-    room = createRoom(code);
-    rooms.set(code, room);
-  }
-
-  let existingPlayer = findPlayerByResumeToken(room, resumeToken);
+  let existingPlayer = room ? findPlayerByResumeToken(room, resumeToken) : null;
 
   if (resumeToken && !existingPlayer) {
     // The code matters: the client clears its stored credential only on
@@ -92,7 +91,7 @@ function joinRoom(client, message) {
     return;
   }
 
-  const nameOwner = findReservedNameOwner(room, requestedName, existingPlayer?.id);
+  const nameOwner = room ? findReservedNameOwner(room, requestedName, existingPlayer?.id) : null;
   if (nameOwner) {
     send(client, { type: "error", message: nameOwner.connected === false ? "Name temporarily reserved by a disconnected player" : "Name already in use" });
     return;
@@ -118,12 +117,12 @@ function joinRoom(client, message) {
     return;
   }
 
-  if (room.phase !== "lobby") {
+  if (room && room.phase !== "lobby") {
     send(client, { type: "error", message: "That game has already started. Create a new room or wait for the next lobby." });
     return;
   }
 
-  if (room.players.size >= room.rules.maxPlayers && !room.clients.has(client)) {
+  if (room && room.players.size >= room.rules.maxPlayers && !room.clients.has(client)) {
     send(client, { type: "error", message: "Room is full" });
     return;
   }
@@ -131,12 +130,17 @@ function joinRoom(client, message) {
   // Kicks are enforced by reserved name: player ids and connection ids are
   // both minted fresh on every join, so a name is the only stable handle a
   // room has for a kicked player.
-  if (room.kickedNames?.has(normalizePlayerName(requestedName))) {
+  if (room?.kickedNames?.has(normalizePlayerName(requestedName))) {
     send(client, { type: "error", message: "You were kicked from this room by the host." });
     return;
   }
 
   leaveRoom(client);
+
+  if (!room) {
+    room = createRoom(code);
+    rooms.set(code, room);
+  }
 
   if (!room.playerColors) room.playerColors = new Map();
   let color = room.playerColors.get(requestedName.toLowerCase());
