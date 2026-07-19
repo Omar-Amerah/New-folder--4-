@@ -416,3 +416,26 @@
     transform: translateX(100%);
   }
 }
+
+.purchase-option {
+  align-items: start;
+  min-height: 92px;
+}
+
+.purchase-info {
+  align-self: stretch;
+  grid-template-rows: auto auto auto minmax(28px, auto);
+}
+
+.purchase-info em.purchase-status {
+  display: -webkit-box;
+  min-height: 28px;
+  max-height: 42px;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  line-height: 1.25;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}

@@ -36,6 +36,12 @@ export function previewColor() {
   return (me && me.color) || "#8fb4ff";
 }
 
+export function refreshLoadedBlueprintPresentation() {
+  const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
+  if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved design";
+  if (dom.saveDesignButton) dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
+}
+
 function styleLabel(style) {
   const raw = style || "sentry";
   return raw.charAt(0).toUpperCase() + raw.slice(1);
@@ -303,9 +309,7 @@ export function renameSavedDesign(id, name) {
     : design);
   persistSavedDesigns(state.savedDesigns);
   renderPurchaseBar();
-  if (state.loadedEditorBlueprintId === id && dom.saveDesignButton) {
-    dom.saveDesignButton.textContent = saveBlueprintButtonText();
-  }
+  if (state.loadedEditorBlueprintId === id) refreshLoadedBlueprintPresentation();
 }
 
 export function deleteSavedDesign(id) {
@@ -349,7 +353,10 @@ export function confirmModalAction() {
     return;
   }
   state.savedDesigns = state.savedDesigns.filter((design) => design.id !== id);
-  if (state.loadedEditorBlueprintId === id) state.loadedEditorBlueprintId = null;
+  if (state.loadedEditorBlueprintId === id) {
+    state.loadedEditorBlueprintId = null;
+    refreshLoadedBlueprintPresentation();
+  }
   // Drop the deleted design from any loadout tabs that referenced it.
   if (Array.isArray(state.loadouts) && state.loadouts.length) {
     state.loadouts = state.loadouts.map((lo) => ({ ...lo, designIds: lo.designIds.filter((did) => did !== id) }));
@@ -380,6 +387,7 @@ function loadSavedDesign(id) {
   state.hoveredHeatPartIndex = null;
   state.combatStyle = saved.combatStyle || "sentry";
   state.loadedEditorBlueprintId = saved.id;
+  refreshLoadedBlueprintPresentation();
 
   if (dom.combatStyleSelect) {
     dom.combatStyleSelect.value = state.combatStyle;
@@ -399,11 +407,6 @@ function loadSavedDesign(id) {
   renderSavedDesigns();
   updateEconomyUi();
   showToast(`Editing ${saved.name}`, "good");
-}
-
-function saveBlueprintButtonText() {
-  const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
-  return existing ? `Update "${existing.name}"` : "Save Blueprint";
 }
 
 export async function saveCurrentDesign() {
@@ -450,6 +453,7 @@ export async function saveCurrentDesign() {
       updatedAt: Date.now()
     });
     state.loadedEditorBlueprintId = id;
+    refreshLoadedBlueprintPresentation();
     showToast(`Saved blueprint as "${name}"`, "good");
   }
 
@@ -476,6 +480,7 @@ export async function saveCurrentDesign() {
     send({ type: "deploy", design: blueprint, wiring, combatStyle: state.combatStyle || "sentry" });
   }
 
+  refreshLoadedBlueprintPresentation();
   renderSavedDesigns();
   updateEconomyUi();
   import("./designerUi.js").then((mod) => {

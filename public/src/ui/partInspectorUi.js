@@ -16,49 +16,90 @@ export function renderPartInspector() {
   }
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
-  
-  // Calculate effective cost preview based on design context
-  const effectiveCost = `$${estimatePartEffectiveCost(type, state.design)}`;
+  const effectiveCost = `$${estimatePartEffectiveCost(type, state.design).toLocaleString()}`;
   const details = partInspectorDetails(type, stat, effectiveCost);
   const thermal = partThermalDetails(type, stat);
-
   const baseDesc = partDescription(type, stat);
   const enrichedDesc = enrichDescription(type, baseDesc);
+  const footprint = stat.footprint || { width: 1, height: 1 };
+  const footprintText = `${footprint.width}x${footprint.height}`;
+  const keyStats = keyInspectorStats(type, stat, effectiveCost);
+  const combatDetails = details.filter(([label]) => /damage|dps|shield dps|hull dps|range|projectile|accuracy|turret|arc|tracking|track|lock|missile|beam|behavior|anti-missile|target|ship damage|frontal|front arc/i.test(label));
+  const supportDetails = details.filter(([label]) => !combatDetails.some(([combatLabel]) => combatLabel === label));
 
   let tipHtml = "";
   if (isRotatablePart(type)) {
     tipHtml = `<div class="part-inspector-tip">Tip: hover a placed matching part and press R to rotate.</div>`;
   }
 
-  const footprint = stat.footprint || { width: 1, height: 1 };
-  const footprintText = `${footprint.width}x${footprint.height}`;
-
   dom.partInspector.innerHTML = `
-    <div class="part-inspector-title">
-      ${partIconMarkup(type, "inspector-glyph")}
-      <strong>${escapeHtml(def.name)}</strong>
-    </div>
-    <div class="part-category-label">${escapeHtml(partCategory(type))} | Size: ${footprintText}</div>
-    <p class="part-description">${escapeHtml(enrichedDesc)}</p>
-    <div class="part-inspector-grid">
-      ${inspectorStat("Cost", effectiveCost)}
-      ${inspectorStat("Mass", formatMass(stat.mass))}
-      ${inspectorStat("Hull", formatHull(stat.hp))}
-      ${inspectorStat("Power", partPowerText(stat))}
-      ${inspectorStat("Shield", formatShield(stat.shield))}
-      ${inspectorStat(type === "maneuverThruster" ? "Lateral thrust" : "Thrust", formatThrust(type === "maneuverThruster" ? stat.lateralThrust : stat.thrust))}
-      ${inspectorStat("Storage", formatEnergy(stat.energyStorage))}
-      ${inspectorStat("Repair", formatRepair(stat.repairRate))}
-    </div>
-    <div class="part-detail-list">
-      ${details.map(([label, value]) => inspectorDetail(label, value)).join("")}
-    </div>
+    <section class="part-inspector-section part-identity-section">
+      <div class="part-inspector-title">
+        ${partIconMarkup(type, "inspector-glyph")}
+        <strong>${escapeHtml(def.name)}</strong>
+      </div>
+      <div class="part-category-label">${escapeHtml(partCategory(type))} | Footprint: ${footprintText}</div>
+      <p class="part-description">${escapeHtml(enrichedDesc)}</p>
+    </section>
+    <section class="part-inspector-section">
+      <div class="part-detail-heading">Key stats</div>
+      <div class="part-inspector-grid">
+        ${keyStats.map(([label, value]) => inspectorStat(label, value)).join("")}
+      </div>
+    </section>
     ${thermalSectionMarkup(type, stat, thermal)}
+    ${collapsibleDetails("combat", "Combat details", combatDetails)}
+    ${collapsibleDetails("support", "Power and support details", supportDetails)}
     ${tipHtml}
   `;
-  dom.partInspector.querySelector(".thermal-properties-details")?.addEventListener("toggle", event => {
-    state.partThermalPropsOpen = event.target.open;
+  dom.partInspector.querySelectorAll("details[data-inspector-section]").forEach((detailsEl) => {
+    detailsEl.addEventListener("toggle", event => {
+      state.partInspectorOpen = state.partInspectorOpen || {};
+      state.partInspectorOpen[event.target.dataset.inspectorSection] = event.target.open;
+      if (event.target.classList.contains("thermal-properties-details")) state.partThermalPropsOpen = event.target.open;
+    });
   });
+}
+
+function keyInspectorStats(type, stat, effectiveCost) {
+  const rows = [
+    ["Build cost", effectiveCost],
+    ["Mass", formatMass(stat.mass)],
+    ["Hull", formatHull(stat.hp)],
+    ["Power", partPowerText(stat)]
+  ];
+  if (stat.weapon) {
+    rows.push(["Damage", stat.weapon.type === "beam" ? `${formatDamage(stat.weapon.damage)}/s` : formatDamage(stat.weapon.damage)]);
+    rows.push(["Fire rate", stat.weapon.type === "beam" ? "Continuous beam" : `${stat.weapon.fireRate} shots/s`]);
+  } else if ((stat.thrust || 0) > 0 || (stat.lateralThrust || 0) > 0) {
+    rows.push([type === "maneuverThruster" ? "Lateral thrust" : "Thrust", formatThrust(type === "maneuverThruster" ? stat.lateralThrust : stat.thrust)]);
+  } else if ((stat.shield || 0) > 0 || (stat.shieldRegen || 0) > 0) {
+    rows.push(["Shield", formatShield(stat.shield)]);
+    rows.push(["Recharge", `${stat.shieldRegen || 0}/s`]);
+  } else if ((stat.repairRate || 0) > 0) {
+    rows.push(["Repair", formatRepair(stat.repairRate)]);
+  } else if ((stat.energyStorage || 0) > 0) {
+    rows.push(["Storage", formatEnergy(stat.energyStorage)]);
+  } else if ((stat.heat || 0) > 0 || type === "radiator" || type === "heatSink" || type === "heatPipe") {
+    rows.push(["Thermal role", thermalRoleText(type, stat)]);
+  }
+  return rows;
+}
+
+function thermalRoleText(type, stat) {
+  if (type === "radiator") return "Active cooling";
+  if (type === "heatSink") return "Heat storage";
+  if (type === "heatPipe") return "Heat transfer";
+  return stat.heat ? "Heat support" : "Thermal support";
+}
+
+function collapsibleDetails(key, label, rows) {
+  if (!rows.length) return "";
+  const open = state.partInspectorOpen?.[key] ? " open" : "";
+  return `<details class="part-inspector-details" data-inspector-section="${escapeHtml(key)}"${open}>
+    <summary>${escapeHtml(label)}</summary>
+    <div class="part-detail-list">${rows.map(([detailLabel, value]) => inspectorDetail(detailLabel, value)).join("")}</div>
+  </details>`;
 }
 
 // Design-specific thermal prediction for the selected part type, plus its static
@@ -104,7 +145,7 @@ function thermalSectionMarkup(type, stat, thermal) {
   return `
     ${predictedRows}
     ${explainer}
-    <details class="thermal-properties-details"${state.partThermalPropsOpen ? " open" : ""}>
+    <details class="thermal-properties-details" data-inspector-section="thermal"${state.partThermalPropsOpen ? " open" : ""}>
       <summary>Thermal properties</summary>
       <div class="thermal-stat-rows">
         ${thermal.details.map(([label, value]) => thermalRow(label, value)).join("")}
@@ -199,7 +240,7 @@ function partPowerText(stat) {
   if (generation && use) return `+${generation} MW / -${use} MW`;
   if (generation) return `+${generation} MW`;
   if (use) return `-${use} MW`;
-  return "0 MW";
+  return "No Power requirement";
 }
 
 function formatMultiplierPercent(value) {

@@ -14,7 +14,7 @@ import { computeStats } from "../design/componentStats.js";
 import { defaultDesign, defaultWiring, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, blueprintSnapshotsEqual, canUndoBlueprintEdit, undoBlueprintEdit as popBlueprintEditUndo, clearBlueprintEditHistory } from "../design/blueprintEditHistory.js";
 import { showToast } from "./toastUi.js";
-import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText } from "./savedBlueprintsUi.js";
+import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedBlueprintPresentation } from "./savedBlueprintsUi.js";
 import { updateEconomyUi } from "./purchaseUi.js";
 import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
@@ -1020,6 +1020,7 @@ export function resetDesign() {
     state.design = defaultDesign();
     clearHeatInspectionState();
     state.loadedEditorBlueprintId = null;
+    refreshLoadedBlueprintPresentation();
     // Reset Design restores the default modules together with default wiring.
     resetWiringToDefault({ resetEditorHistory: false });
   });
@@ -1031,6 +1032,7 @@ export function clearDesign() {
     state.design = [];
     clearHeatInspectionState();
     state.loadedEditorBlueprintId = null;
+    refreshLoadedBlueprintPresentation();
     clearAllWiring({ resetEditorHistory: false });
   });
 }
@@ -1108,18 +1110,18 @@ export function renderLocalStats() {
   if (dom.combatStyleSelect) {
     dom.combatStyleSelect.value = state.combatStyle || "sentry";
   }
-  if (dom.saveDesignButton) {
-    const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
-    dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
-  }
-  if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost}`;
+  refreshLoadedBlueprintPresentation();
+  if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost.toLocaleString()}`;
   if (dom.blueprintCostStatus) {
     if (state.phase === "active") {
-      dom.blueprintCostStatus.textContent = "";
+      dom.blueprintCostStatus.textContent = canAfford
+        ? `Funds after one purchase: $${Math.floor(money - stats.unitCost).toLocaleString()}`
+        : `Need $${Math.ceil(stats.unitCost - money).toLocaleString()} more`;
+      dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     } else {
       dom.blueprintCostStatus.textContent = canAfford
-        ? `Remaining after first ship $${Math.floor(money - stats.unitCost)}`
-        : `Need $${Math.ceil(stats.unitCost - money)} before first ship`;
+        ? `Starting funds remaining: $${Math.floor(money - stats.unitCost).toLocaleString()}`
+        : `Need $${Math.ceil(stats.unitCost - money).toLocaleString()} more for starting ship`;
       dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     }
   }

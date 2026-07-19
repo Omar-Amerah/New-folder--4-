@@ -95,6 +95,7 @@ export const dom = {
   shipStatusDetails: document.getElementById("shipStatusDetails"),
   stats: document.getElementById("statsGrid"),
   saveDesignButton: document.getElementById("saveDesignButton"),
+  loadedBlueprintName: document.getElementById("loadedBlueprintName"),
   savedDesignList: document.getElementById("savedDesignList"),
   combatStyleSelect: document.getElementById("combatStyleSelect"),
   blueprintCostBanner: document.getElementById("blueprintCostBanner"),
