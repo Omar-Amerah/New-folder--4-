@@ -1069,13 +1069,13 @@ h2 {
   width:100% !important;
   inset:0 auto 0 0;
   display:block;
-  background:linear-gradient(90deg,#38d5ff 0%,#38bdf8 12%,#ff7043 25%,#ff3b3b 42%,#ff183f 68%,#ed0038 86%,#b80024 100%) !important;
+  background:linear-gradient(90deg,#38d5ff 0%,#38bdf8 24%,#facc15 42%,#f97316 68%,#e11d48 86%,#ffffff 100%) !important;
   clip-path:inset(0 calc(100% - var(--heat-percent, 0%)) 0 0);
 }
-.legend-warm { background:#ff3b3b; }
-.legend-hot { background:#ff183f; }
-.legend-critical-heat { background:#ed0038; }
-.legend-overheated { background:#b80024; border:1px solid #ff9aa9; box-shadow:0 0 6px rgba(237,0,56,.9); }
+.legend-warm { background:#facc15; }
+.legend-hot { background:#f97316; }
+.legend-critical-heat { background:#e11d48; }
+.legend-overheated { background:#fff1f2; border:1px solid #fb7185; box-shadow:0 0 7px rgba(255,255,255,.7), 0 0 6px rgba(225,29,72,.9); }
 .trend-up { color:#ffb020; font-style:normal; }
 .trend-down { color:#38d5ff; font-style:normal; }
 .heat-legend-note { color:#c8d7ee; }
