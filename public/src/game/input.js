@@ -4,7 +4,9 @@ import { dom } from "../ui/dom.js";
 import { state } from "../state.js";
 import { clampCameraToWorld, minimapWorldAt, screenToWorld, zoomCameraAtScreenPoint, resetCameraZoomToFit, centerCameraOnShips } from "./camera.js";
 import { selectAt, selectBox, selectAllOwnShips, ownLiveShips } from "./selection.js";
-import { rotateFocusedPart } from "../ui/designerUi.js";
+import { rotateFocusedPart, undoBlueprintEdit } from "../ui/designerUi.js";
+import { canUndoBlueprintEdit } from "../design/blueprintEditHistory.js";
+import { canUndoWiring, undoWiring } from "../ui/wiringUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { updateHud } from "../ui/hudUi.js";
 import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
@@ -61,6 +63,15 @@ export function handleKeyDown(event) {
   if (event.key === "Escape" && dom.confirmModal && !dom.confirmModal.hidden) { event.preventDefault(); closeConfirmModal(); return; }
   if (event.repeat) return;
   const key = event.key.toLowerCase();
+  const designerOpen = dom.blueprintDesignerScreen && !dom.blueprintDesignerScreen.hidden;
+  if (designerOpen && key === "z" && (event.ctrlKey || event.metaKey) && !event.shiftKey && !eventComesFromEditableControl(event)) {
+    if (state.blueprintView === "wiring") {
+      if (canUndoWiring()) { event.preventDefault(); undoWiring(); }
+      return;
+    }
+    if (canUndoBlueprintEdit()) { event.preventDefault(); undoBlueprintEdit(); }
+    return;
+  }
   if (key === "escape" && state.settingRallyPoint) { event.preventDefault(); state.settingRallyPoint = false; renderSideControls(); return; }
   if (eventComesFromEditableControl(event)) return;
   if (key === "r") { event.preventDefault(); rotateFocusedPart(); return; }

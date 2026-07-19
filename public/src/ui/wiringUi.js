@@ -32,10 +32,11 @@ function commitWiring(next) { state.wiring = next; persistDesign(state.design, s
 function releasePointerCapture() { if (!pointerDrag) return; const { target, pointerId } = pointerDrag; if (target?.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId); pointerDrag = null; }
 function resetInteraction(clearSelection = true) { releasePointerCapture(); const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; view.selectedDataNetworkId = null; } }
 export function syncWiringWithDesign() { state.wiring = normalizeWiring(state.wiring, state.design); resetInteraction(); }
-export function resetWiringToDefault() { state.wiring = normalizeWiring(defaultWiring(), state.design); ui().undoStack = []; resetInteraction(); }
-export function clearAllWiring() { state.wiring = rules().emptyWiring(); ui().undoStack = []; resetInteraction(); }
-export function resetWiringEditorState() { resetInteraction(); ui().undoStack = []; }
-function undoWiring() { if (!ui().undoStack.length) return; const previous = ui().undoStack.pop(); resetInteraction(); commitWiring(normalizeWiring(previous, state.design)); }
+export function resetWiringToDefault(options = {}) { state.wiring = normalizeWiring(defaultWiring(), state.design); if (options.resetEditorHistory !== false) resetWiringEditorState(); }
+export function clearAllWiring(options = {}) { state.wiring = rules().emptyWiring(); if (options.resetEditorHistory !== false) resetWiringEditorState(); }
+export function clearWiringUndoHistory() { ui().undoStack = []; }
+export function resetWiringEditorState() { resetInteraction(); clearWiringUndoHistory(); }
+export function undoWiring() { if (!ui().undoStack.length) return false; const previous = ui().undoStack.pop(); resetInteraction(); commitWiring(normalizeWiring(previous, state.design)); return true; }
 
 function connectionsAtTerminal(index, kind = ui().mode) { return bucket(kind).connections.filter((connection) => connection.sourceIndex === index || connection.targetIndex === index); }
 function selectedConnection() { return bucket().connections.find((connection) => rules().connectionKey(connection) === ui().selectedConnectionKey) || null; }
@@ -206,6 +207,7 @@ export function bindWiringControls() {
   dom.wiringStatusPanel?.addEventListener("click", (event) => { const action = event.target?.dataset?.wiringAction; if (action === "branch-a" || action === "branch-b") branchFrom(action.at(-1)); else if (action === "remove-section") { removeSelectedSection(); focusStatusPanel(); } else if (action === "remove-branch") { removeSelectedBranch(); focusStatusPanel(); } else if (action === "inspect-component") { inspectComponent(Number(event.target.dataset.index)); focusStatusPanel(); } else if (action === "select-network") { ui().selectedDataNetworkId = event.target.dataset.networkId; ui().selectedIndex = null; ui().selectedSectionId = null; refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-selection") { resetInteraction(); refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-drawing") { cancelDrawing(); focusStatusPanel(); } else if (action === "finish") { commitActivePath(); focusStatusPanel(); } });
 }
 
+export function canUndoWiring() { return ui().undoStack.length > 0; }
 export function refreshWiringPresentation() { if (state.blueprintView !== "wiring") return; bindWiringControls(); refreshToolbar(); renderWiringOverlay(); renderStatusPanel(); }
 export function clearWiringPresentation() { resetInteraction(false); dom.wiringOverlayHost?.replaceChildren(); dom.grid?.classList.remove("wiring-overlay-active"); if (dom.wiringStatusPanel) { dom.wiringStatusPanel.hidden = true; dom.wiringStatusPanel.innerHTML = ""; } }
 function refreshToolbar() {

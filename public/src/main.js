@@ -5,7 +5,7 @@ import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
-import { renderBuildGrid, renderLocalStats, resetDesign, clearDesign } from "./ui/designerUi.js";
+import { renderBuildGrid, renderLocalStats, resetDesign, clearDesign, undoBlueprintEdit } from "./ui/designerUi.js";
 import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
 import { openBlueprintDesigner, closeBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
@@ -86,6 +86,7 @@ dom.saveDesignButton?.addEventListener("click", () => {
 });
 dom.resetButton.addEventListener("click", resetDesign);
 dom.clearGridButton.addEventListener("click", clearDesign);
+dom.undoBlueprintEditButton?.addEventListener("click", undoBlueprintEdit);
 dom.copyCodeButton?.addEventListener("click", () => {
   if (!navigator.clipboard?.writeText) return;
   navigator.clipboard.writeText(state.room);
