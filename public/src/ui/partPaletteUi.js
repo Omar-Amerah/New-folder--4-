@@ -48,7 +48,12 @@ export function renderPalette() {
     notice.id = "blueprintPaletteLockedNotice";
     notice.className = "palette-locked-notice";
     notice.setAttribute("role", "status");
-    notice.innerHTML = `<strong>Component placement paused in Wiring mode</strong><span>Switch to Build or Heat to add or change components.</span>`;
+    const title = document.createElement("strong");
+    title.textContent = "Component placement paused in Wiring mode";
+    const description = document.createElement("span");
+    description.textContent = "Switch to Build or Heat to add or change components.";
+    notice.appendChild(title);
+    notice.appendChild(description);
     dom.palette.appendChild(notice);
   }
 

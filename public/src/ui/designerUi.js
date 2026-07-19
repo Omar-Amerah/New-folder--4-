@@ -32,7 +32,8 @@ import {
   syncWiringWithDesign,
   resetWiringToDefault,
   clearAllWiring,
-  resetWiringEditorState
+  resetWiringEditorState,
+  resetWiringTransientState
 } from "./wiringUi.js";
 
 export { analyzeDesignHeat };
@@ -161,7 +162,7 @@ export function setBlueprintView(view) {
   const previousView = state.blueprintView;
   state.blueprintView = view === "heat" ? "heat" : view === "wiring" ? "wiring" : "build";
   if (previousView === state.blueprintView) { refreshBlueprintControls(); return; }
-  if (previousView === "wiring") resetWiringEditorState();
+  if (previousView === "wiring" && state.blueprintView !== "wiring") resetWiringTransientState();
   if (state.blueprintView === "wiring") { state.hoveredCell = null; state.selectedCell = null; }
   refreshBlueprintControls();
   document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView } }));
