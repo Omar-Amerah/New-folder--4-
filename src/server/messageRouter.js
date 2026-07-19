@@ -130,6 +130,9 @@ function handleMessage(client, message) {
     if (client.room.phase === "design") {
       client.player.ready = true;
       client.player.lastReadyAt = performanceNow();
+      // Deploying marks the player ready and the match starts the moment the
+      // last player deploys — tell the deployer so the start isn't a surprise.
+      send(client, { type: "notice", message: "Design saved — you are ready. The match starts as soon as every pilot is ready." });
       broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
       broadcastSnapshot(client.room, performanceNow(), true);
       maybeStartMatch(client.room, performanceNow());
@@ -232,8 +235,10 @@ function handleMessage(client, message) {
       return;
     }
     if (client.room.rules?.gameMode === "solo") {
+      // The lobby UI hides the wing selector in solo mode, so this is only
+      // reachable from non-UI clients — answer informatively, not as an error.
       client.player.team = client.player.id;
-      send(client, { type: "error", message: "Solo mode does not use team selection" });
+      send(client, { type: "notice", message: "Solo mode: every pilot fights alone, so wings are not used" });
       broadcastSnapshot(client.room, performanceNow(), true);
       return;
     }

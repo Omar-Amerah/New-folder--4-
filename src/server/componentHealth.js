@@ -265,8 +265,14 @@ function flushComponentLifecycleRefresh(ship) {
   if (flags.thermalCapacity) heat.recalculateEffectiveThermalCapacities(ship);
   if (flags.exposure) heat.rebuildRuntimeExposure(ship);
   if (flags.thermalRoutes) heat.rebuildThermalNetworks(ship);
-  if (flags.wiringTopology) require("./componentPower").rebuildShipWiringState(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
-  heat.refreshHeatSourceSignatures?.(ship);
+  if (flags.wiringTopology) {
+    require("./componentPower").rebuildShipWiringState(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
+    // Re-baseline the thermal source signatures only when the allocation above
+    // actually ran. A flush that changes heat states without reallocating (e.g.
+    // a future thermalCapacity-only event) must leave the old baselines in
+    // place so the next thermal tick still detects the change and reallocates.
+    heat.refreshHeatSourceSignatures?.(ship);
+  }
 }
 
 function endComponentLifecycleBatch(ship) {
