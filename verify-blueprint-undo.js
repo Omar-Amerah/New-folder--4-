@@ -45,7 +45,7 @@ const wiringUi = await import("./public/src/ui/wiringUi.js");
 const { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, undoBlueprintEdit: popHistoryUndo, canUndoBlueprintEdit, clearBlueprintEditHistory, blueprintEditHistorySize, MAX_BLUEPRINT_EDIT_HISTORY, blueprintSnapshotsEqual } = history;
 const { editCell, rotateCell, removeCell, resetDesign, clearDesign, undoBlueprintEdit, clearPhysicalBlueprintHistory, setBlueprintEditHistoryUiHooksForTests } = designer;
 const { handleKeyDown } = input;
-const { canUndoWiring } = wiringUi;
+const { canUndoWiring, undoWiring } = wiringUi;
 
 let persistCalls = 0;
 let refreshCalls = 0;
@@ -84,8 +84,10 @@ function assertUndoRestores(label, before) {
 
 reset();
 let before = snap();
+state.wiringUi.undoStack = [globalThis.WiringRules.cloneWiring(state.wiring)];
 editCell(8, 8);
 assert.equal(blueprintEditHistorySize(), 1, "place creates one history entry");
+assert.equal(canUndoWiring(), false, "physical place clears stale wiring undo history");
 assert.equal(persistCalls, 1, "place persists once");
 assertUndoRestores("place", before);
 assert.equal(persistCalls, 2, "undo persists once");
@@ -120,8 +122,10 @@ assertUndoRestores("wired replace", before);
 reset();
 const missile = state.design.find((p) => p.type === "missile");
 before = snap();
+state.wiringUi.undoStack = [globalThis.WiringRules.cloneWiring(state.wiring)];
 assert.equal(rotateCell(missile.x, missile.y), true, "valid rotation succeeds");
 assert.equal(blueprintEditHistorySize(), 1, "rotate creates one history entry");
+assert.equal(canUndoWiring(), false, "physical rotate clears stale wiring undo history");
 assertUndoRestores("rotate", before);
 
 reset();
@@ -136,17 +140,21 @@ reset();
 state.design = [...state.design, { x: 8, y: 8, type: "frame", rotation: 0 }];
 state.wiring = normalizeWiring(state.wiring, state.design);
 state.loadedEditorBlueprintId = "custom-id";
+state.wiringUi.undoStack = [globalThis.WiringRules.cloneWiring(state.wiring)];
 before = snap();
 resetDesign();
 assert.equal(blueprintEditHistorySize(), 1, "reset creates one history entry");
+assert.equal(canUndoWiring(), false, "genuine reset clears stale wiring undo history");
 assert.equal(state.loadedEditorBlueprintId, null, "reset clears loaded id");
 assertUndoRestores("reset", before);
 assert.equal(state.loadedEditorBlueprintId, "custom-id", "reset undo restores loaded id");
 
 reset();
+state.wiringUi.undoStack = [globalThis.WiringRules.cloneWiring(state.wiring)];
 before = snap();
 clearDesign();
 assert.equal(blueprintEditHistorySize(), 1, "clear creates one history entry");
+assert.equal(canUndoWiring(), false, "genuine clear clears stale wiring undo history");
 assert.equal(state.design.length, 0, "clear empties design");
 assertUndoRestores("clear", before);
 
@@ -157,9 +165,47 @@ assert.equal(blueprintEditHistorySize(), 0, "invalid placement creates no histor
 assert.equal(persistCalls, 0, "invalid placement does not persist");
 removeCell(7, 7);
 assert.equal(blueprintEditHistorySize(), 0, "core removal creates no history");
+
+reset();
 state.loadedEditorBlueprintId = null;
+const noOpResetDesign = JSON.stringify(state.design);
+const noOpResetWiring = JSON.stringify(state.wiring);
+const resetUndoStack = [globalThis.WiringRules.emptyWiring()];
+state.wiringUi.undoStack = resetUndoStack.slice();
+state.wiringUi.sourceIndex = 5;
+state.wiringUi.path = [{ x: 6, y: 6 }];
+state.hoveredHeatPartIndex = 5;
+assert.equal(canUndoWiring(), true, "no-op reset setup has wiring undo");
 resetDesign();
 assert.equal(blueprintEditHistorySize(), 0, "no-op reset creates no history");
+assert.equal(persistCalls, 0, "no-op reset does not persist");
+assert.equal(canUndoWiring(), true, "no-op reset preserves wiring undo availability");
+assert.deepEqual(state.wiringUi.undoStack, resetUndoStack, "no-op reset preserves exact wiring undo stack");
+assert.equal(state.wiringUi.sourceIndex, 5, "no-op reset preserves active wiring source");
+assert.deepEqual(state.wiringUi.path, [{ x: 6, y: 6 }], "no-op reset preserves active wiring path");
+assert.equal(state.hoveredHeatPartIndex, 5, "no-op reset preserves heat inspection state");
+assert.equal(JSON.stringify(state.design), noOpResetDesign, "no-op reset leaves design unchanged");
+assert.equal(JSON.stringify(state.wiring), noOpResetWiring, "no-op reset leaves wiring unchanged");
+state.blueprintView = "wiring";
+assert.equal(undoWiring(), true, "preserved wiring undo still works after no-op reset");
+assert.equal(JSON.stringify(state.wiring), JSON.stringify(normalizeWiring(resetUndoStack[0], state.design)), "wiring undo restores preserved previous snapshot after no-op reset");
+
+reset();
+state.design = [];
+state.wiring = globalThis.WiringRules.emptyWiring();
+state.loadedEditorBlueprintId = null;
+const clearUndoStack = [globalThis.WiringRules.cloneWiring(state.wiring)];
+state.wiringUi.undoStack = clearUndoStack.slice();
+state.wiringUi.selectedSectionId = "keep-section";
+state.wiringUi.selectedIndex = 4;
+before = snap();
+clearDesign();
+assert.equal(blueprintEditHistorySize(), 0, "no-op clear creates no history");
+assert.equal(persistCalls, 0, "no-op clear does not persist");
+assert.deepEqual(state.wiringUi.undoStack, clearUndoStack, "no-op clear preserves exact wiring undo stack");
+assert.equal(state.wiringUi.selectedSectionId, "keep-section", "no-op clear preserves wiring selection");
+assert.equal(state.wiringUi.selectedIndex, 4, "no-op clear preserves selected wiring component");
+assert.deepEqual(snap(), before, "no-op clear leaves empty design and wiring unchanged");
 
 reset();
 const deep = snap();

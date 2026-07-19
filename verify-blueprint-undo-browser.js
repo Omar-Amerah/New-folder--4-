@@ -30,6 +30,17 @@ async function main() {
       assert.equal(await page.locator("#undoBlueprintEditButton").getAttribute("aria-label"), "Undo last blueprint edit");
       assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), true, "undo starts disabled");
 
+
+      const noOpResetPreserved = await page.evaluate(async () => {
+        const wiringUi = await import("/src/ui/wiringUi.js");
+        window.__mfaState.loadedEditorBlueprintId = null;
+        window.__mfaState.wiringUi.undoStack = [window.WiringRules.emptyWiring()];
+        return wiringUi.canUndoWiring();
+      });
+      assert.equal(noOpResetPreserved, true, "browser setup has Wiring Undo before no-op Reset");
+      await page.click("#resetButton");
+      assert.equal(await page.evaluate(async () => (await import("/src/ui/wiringUi.js")).canUndoWiring()), true, "no-op Reset preserves Wiring Undo availability in browser");
+
       await page.evaluate(() => { window.__mfaState.selectedPart = "frame"; window.__mfaState.blueprintView = "build"; });
       await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
       const afterPlace = await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring }));
@@ -39,6 +50,14 @@ async function main() {
       assert.notEqual(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "second visible edit changes design");
       await page.click("#undoBlueprintEditButton");
       assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "Undo restores previous design and Wiring after remove");
+
+
+      await page.evaluate(() => { window.__mfaState.wiringUi.undoStack = [window.WiringRules.emptyWiring()]; });
+      await page.click("#resetButton");
+      assert.equal(await page.evaluate(async () => (await import("/src/ui/wiringUi.js")).canUndoWiring()), false, "genuine Reset clears stale Wiring Undo in browser");
+      assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "genuine Reset leaves physical Undo available in browser");
+      await page.click("#undoBlueprintEditButton");
+      assert.equal(await page.evaluate(() => JSON.stringify({ design: window.__mfaState.design, wiring: window.__mfaState.wiring })), afterPlace, "Undo restores ship after genuine Reset in browser");
 
       await page.click("#clearGridButton");
       assert.equal(await page.evaluate(() => window.__mfaState.design.length), 0, "Clear empties the current design");

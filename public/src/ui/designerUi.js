@@ -764,10 +764,28 @@ function refreshAfterPhysicalEdit() {
   refreshEditorAfterBlueprintHistoryChange();
 }
 
+function cloneWiringUiState() {
+  return {
+    ...state.wiringUi,
+    path: Array.isArray(state.wiringUi?.path) ? state.wiringUi.path.map((cell) => ({ ...cell })) : [],
+    hoverCell: state.wiringUi?.hoverCell ? { ...state.wiringUi.hoverCell } : null,
+    livePointer: state.wiringUi?.livePointer ? { ...state.wiringUi.livePointer } : null,
+    activeOrigin: state.wiringUi?.activeOrigin ? { ...state.wiringUi.activeOrigin } : null,
+    undoStack: Array.isArray(state.wiringUi?.undoStack) ? state.wiringUi.undoStack : []
+  };
+}
+
+function restoreNoOpPhysicalEditUiState(uiBefore) {
+  state.hoveredHeatPartIndex = uiBefore.hoveredHeatPartIndex;
+  state.wiringUi = uiBefore.wiringUi;
+}
+
 function commitPhysicalEdit(before, applyChange) {
+  const uiBefore = { hoveredHeatPartIndex: state.hoveredHeatPartIndex, wiringUi: cloneWiringUiState() };
   applyChange();
   const after = captureBlueprintEditSnapshot(state);
   if (blueprintSnapshotsEqual(before, after)) {
+    restoreNoOpPhysicalEditUiState(uiBefore);
     refreshBlueprintUndoControl();
     return false;
   }
@@ -912,7 +930,7 @@ export function resetDesign() {
     clearHeatInspectionState();
     state.loadedEditorBlueprintId = null;
     // Reset Design restores the default modules together with default wiring.
-    resetWiringToDefault();
+    resetWiringToDefault({ resetEditorHistory: false });
   });
 }
 
@@ -922,7 +940,7 @@ export function clearDesign() {
     state.design = [];
     clearHeatInspectionState();
     state.loadedEditorBlueprintId = null;
-    clearAllWiring();
+    clearAllWiring({ resetEditorHistory: false });
   });
 }
 
