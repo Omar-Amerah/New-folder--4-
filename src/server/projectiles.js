@@ -59,6 +59,19 @@ function updateBullets(room, dt, now) {
   let bulletsById = null;
   const kept = [];
 
+  // ECM strength scans the target's whole design; cache it per target for the
+  // duration of this tick so a missile swarm doesn't recompute it per missile.
+  const ecmModCache = new Map();
+  const ecmModifierFor = (target) => {
+    let mod = ecmModCache.get(target.id);
+    if (mod === undefined) {
+      const { effectiveComponentBonus } = require("./heat");
+      mod = Math.max(0, 1 - Math.min(MISSILE_GUIDANCE.ecmCap, effectiveComponentBonus(target, "ecmStrength")));
+      ecmModCache.set(target.id, mod);
+    }
+    return mod;
+  };
+
   for (const bullet of room.bullets) {
     if (!Number.isFinite(bullet.x) || !Number.isFinite(bullet.y)
       || !Number.isFinite(bullet.vx) || !Number.isFinite(bullet.vy)
@@ -107,9 +120,7 @@ function updateBullets(room, dt, now) {
           desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
         }
 
-        const { effectiveComponentBonus } = require("./heat");
-        const ecmMod = Math.max(0, 1 - Math.min(MISSILE_GUIDANCE.ecmCap, effectiveComponentBonus(target, "ecmStrength")));
-        turnRate *= ecmMod;
+        turnRate *= ecmModifierFor(target);
 
         const current = Math.atan2(bullet.vy, bullet.vx);
         const next = rotateToward(current, desired, turnRate * dt);
