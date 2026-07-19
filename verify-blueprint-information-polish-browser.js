@@ -47,9 +47,35 @@ const artifactDir = path.join("test-artifacts", "blueprint-information-polish");
     await assertVisible(page, "#saveDesignButton", "Save button remains visible while right column scrolls");
     const costHeading = await page.locator("#blueprintCostBanner > span").textContent();
     assert.equal(costHeading?.trim(), "Build cost", "cost banner semantic label says Build cost");
-    await expectText(page, "#partInspector", /Key stats|Predicted in this design|Select a component/);
+    const inspectorHeadings = await page
+      .locator("#partInspector .part-detail-heading")
+      .evaluateAll(nodes => nodes.map(node => node.textContent?.trim()));
+    assert.ok(
+      inspectorHeadings.includes("Key stats"),
+      `inspector shows semantic Key stats heading: ${JSON.stringify(inspectorHeadings)}`
+    );
+    assert.ok(
+      inspectorHeadings.includes("Predicted in this design"),
+      `inspector shows semantic thermal prediction heading: ${JSON.stringify(inspectorHeadings)}`
+    );
     await page.locator("#blueprintHeatTab").click();
-    await expectText(page, "#partInspector", /Predicted in this design|Not placed in this design yet/);
+    await page.waitForFunction(() => window.__mfaState?.blueprintView === "heat");
+    const heatInspector = await page.evaluate(() => ({
+      mode: window.__mfaState?.blueprintView,
+      headings: Array.from(document.querySelectorAll("#partInspector .part-detail-heading"))
+        .map(node => node.textContent?.trim()),
+      hasPredictionRows: Boolean(document.querySelector("#partInspector .thermal-stat-rows")),
+      text: document.querySelector("#partInspector")?.textContent
+    }));
+    assert.equal(heatInspector.mode, "heat", "Heat tab activates Heat mode");
+    assert.ok(
+      heatInspector.headings.includes("Predicted in this design"),
+      `Heat inspector shows semantic prediction heading: ${JSON.stringify(heatInspector)}`
+    );
+    assert.ok(
+      heatInspector.hasPredictionRows || heatInspector.text?.includes("Not placed in this design yet"),
+      `Heat inspector shows a prediction or an unplaced explanation: ${JSON.stringify(heatInspector)}`
+    );
     const statusCss = await page.locator(".purchase-status").first().evaluate(el => getComputedStyle(el).whiteSpace).catch(() => "normal");
     assert.equal(statusCss, "normal", "purchase status allows wrapping");
 
@@ -111,8 +137,4 @@ async function setupDiagnostics(page) {
 async function assertVisible(page, selector, message) {
   const box = await page.locator(selector).boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0, message);
-}
-async function expectText(page, selector, pattern) {
-  const text = await page.locator(selector).innerText();
-  assert.match(text, pattern);
 }
