@@ -108,6 +108,3 @@ export function undoBlueprintEdit() {
   return captureBlueprintEditSnapshot(state);
 }
 
-export function __getBlueprintEditHistoryForTests() {
-  return blueprintEditHistory;
-}

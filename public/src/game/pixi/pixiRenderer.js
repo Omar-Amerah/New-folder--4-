@@ -38,10 +38,6 @@ function pixiBakeScaleForQuality(quality) {
 }
 export { pixiBakeScaleForQuality };
 
-export function getPixiEnv() {
-  return pixiEnv;
-}
-
 // Tracks canvas elements that have already hosted a Pixi WebGL context. A GL
 // context cannot be recreated on such a canvas, so a re-init swaps in a fresh
 // one.

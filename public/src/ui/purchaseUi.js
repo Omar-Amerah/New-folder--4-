@@ -73,11 +73,6 @@ export function setPurchaseCardFeedback(card, className, text) {
   if (label) label.textContent = text;
 }
 
-export function setPurchaseOptionFeedback(optionId, className, text) {
-  const card = dom.purchaseOptions?.querySelector?.(`[data-option-id="${escapeHtml(optionId)}"]`);
-  setPurchaseCardFeedback(card, className, text);
-}
-
 export function handlePurchaseKeyboardClick(event) {
   if (event.detail !== 0) return;
   const card = event.target?.closest?.("[data-option-id]");
@@ -137,12 +132,6 @@ export function buyPurchaseOption(optionId) {
   setPurchaseCardFeedback(card, "pending", "Building...");
 }
 
-export function isUnaffordablePurchaseOption(optionId) {
-  const option = getPurchaseOptions().find((candidate) => candidate.id === optionId);
-  if (!option) return false;
-  const purchase = getPurchaseOptionState(option, state.purchaseQuantity);
-  return !purchase.canBuy && isMoneyPurchaseBlocker(purchase.reason);
-}
 
 export function isMoneyPurchaseBlocker(reason = "") {
   return /need \$|not enough money|cannot afford/i.test(String(reason));

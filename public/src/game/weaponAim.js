@@ -71,10 +71,6 @@ export function weaponRelativeToWorld(hullAngle, relativeAngle) {
 }
 
 // World -> ship-relative weapon angle, normalized to (-PI, PI].
-export function weaponWorldToRelative(hullAngle, worldAngle) {
-  return angleDifference(Number(hullAngle) || 0, Number(worldAngle) || 0);
-}
-
 // Traverse rate (rad/s) for a weapon stat object or family string.
 // Single source of truth shared with the server (src/server/combat.js): the
 // turret sprites must sweep at exactly the rate the server aims, otherwise

@@ -157,14 +157,6 @@ export function isRotatablePart(type) {
     || MARKERLESS_ROTATABLE_PARTS.has(type);
 }
 
-export function shouldShowRotationMarker(type) {
-  return isRotatablePart(type) && !MARKERLESS_ROTATABLE_PARTS.has(type);
-}
-
-export function shouldRotateDesignerGlyph(type) {
-  return MARKERLESS_ROTATABLE_PARTS.has(type);
-}
-
 
 import { HIDDEN_PARTS } from "../constants.js";
 

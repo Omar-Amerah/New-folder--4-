@@ -108,6 +108,25 @@ function connect() {
     admin.close();
   }
 
+  // ---- 3b. Two-player solo rooms generate a map and start design ----
+  // (Two solo spawn zones used to sit on the short axis, making the central
+  // relay's safe-zone clearance unsatisfiable on the Duel world: setRules
+  // crashed with an internal error and startDesign could never run.)
+  {
+    const host = await connect();
+    host.send({ type: "join", name: "SoloHost", room: "" });
+    const hostJoined = await host.wait((m) => m.type === "joined");
+    const guest = await connect();
+    guest.send({ type: "join", name: "SoloGuest", room: hostJoined.room });
+    await guest.wait((m) => m.type === "joined");
+    host.send({ type: "setRules", rules: { gameMode: "solo" } });
+    const soloSnap = await guest.wait((m) => m.type === "state" && m.rules?.gameMode === "solo");
+    assert.ok((soloSnap.map?.relays || []).length >= 1, "solo rules regenerate a valid map with relays");
+    host.send({ type: "startDesign" });
+    await guest.wait((m) => m.type === "state" && m.phase === "design");
+    host.close(); guest.close();
+  }
+
   // ---- 4. Kicked names stay banned ----
   {
     const host = await connect();

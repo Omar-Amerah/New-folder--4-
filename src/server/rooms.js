@@ -92,14 +92,6 @@ function bumpStateEpoch(room, reason = "state-reset") {
   }
 }
 
-function touchStaticRevision(room, reason = "static-change") {
-  room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;
-  room.lastStaticReason = reason;
-  for (const client of room.clients || []) {
-    if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
-  }
-}
-
 function setRoomRules(room, requester, updates) {
   const { isAdmin } = require("./players");
   if (!isAdmin(room, requester)) {
@@ -113,16 +105,37 @@ function setRoomRules(room, requester, updates) {
     return;
   }
 
+  // Map regeneration can reject a pathological layout. Apply the rule change
+  // transactionally: on failure restore the previous rules/world/map so the
+  // room is never left half-mutated, and tell the admin instead of surfacing
+  // a generic internal error from the route dispatcher.
+  const previous = { rules: room.rules, world: room.world, mapSizeLabel: room.mapSizeLabel, mapSeed: room.mapSeed, map: room.map, points: room.points, teams: new Map([...room.players.values()].map((player) => [player.id, player.team])) };
   room.rules = sanitizeRoomRules({ ...room.rules, ...updates }, room.players.size);
   bumpStateEpoch(room, "rule-regeneration");
   applyGameModeTeams(room);
   invalidateSpawnPlan(room);
-  const world = chooseRoomWorld(room);
-  room.world = world;
-  room.mapSizeLabel = world.label;
-  room.mapSeed = createMapSeed(room.code);
-  room.map = generateMapWithAuthoritativeSafeZones(room);
-  room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
+  try {
+    const world = chooseRoomWorld(room);
+    room.world = world;
+    room.mapSizeLabel = world.label;
+    room.mapSeed = createMapSeed(room.code);
+    room.map = generateMapWithAuthoritativeSafeZones(room);
+    room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
+  } catch (error) {
+    room.rules = previous.rules;
+    room.world = previous.world;
+    room.mapSizeLabel = previous.mapSizeLabel;
+    room.mapSeed = previous.mapSeed;
+    room.map = previous.map;
+    room.points = previous.points;
+    for (const player of room.players.values()) if (previous.teams.has(player.id)) player.team = previous.teams.get(player.id);
+    invalidateSpawnPlan(room);
+    console.error(`[rooms] rule change rejected for ${room.code}: ${String(error?.message || error)}`);
+    const { sendPlayer, broadcastSnapshot: rebroadcast } = require("./messages");
+    sendPlayer(room, requester, { type: "error", message: "Could not generate a map for those rules. The previous rules were kept." });
+    rebroadcast(room, performanceNow(), true);
+    return;
+  }
 
   for (const player of room.players.values()) {
     player.money = room.rules.startingMoney;
@@ -589,7 +602,6 @@ module.exports = {
   closedRoomCodes,
   createRoom,
   bumpStateEpoch,
-  touchStaticRevision,
   setRoomRules,
   sanitizeRoomRules,
   sanitizeMapSize,

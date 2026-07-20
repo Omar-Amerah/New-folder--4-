@@ -17,10 +17,6 @@ const THUMB_DPR = 2;
 
 const shipThumbCache = new Map();
 
-export function clearShipThumbnailCache() {
-  shipThumbCache.clear();
-}
-
 function shipThumbSignature(design, color) {
   return `${color}|${design.map((p) => `${p.x},${p.y},${p.type},${normalizeRotation(p.rotation) || 0}`).join(";")}`;
 }

@@ -87,7 +87,6 @@ function initShipHeat(ship) {
   })));
   // Compact arrays indexed by immutable design index.
   ship.componentHeat = design.map(() => 0);
-  ship.componentCurrentHeat = ship.componentHeat;
   ship.componentHeatCapacity = ship.componentThermals.map(item => item.capacity);
   ship.componentHeatState = design.map(() => STATE.NORMAL);
   ship._heatPowerSourceStates = ship.componentHeatState.slice();
@@ -105,9 +104,6 @@ function initShipHeat(ship) {
   ship.ventedOverflowHeatThisTick = 0;
   ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
   ship.totalVentedOverflowHeat = 0;
-  ship.heatGeneratedThisTick = ship.componentHeatGenerated;
-  ship.heatReceivedThisTick = ship.componentHeatReceived;
-  ship.heatRemovedThisTick = ship.componentHeatRemoved;
   ship.componentHeatInput = design.map(() => 0);
   ship.heatAccumulator = 0;
   ship.currentHeat = 0;
@@ -292,18 +288,6 @@ function componentPerformance(ship, index) {
   return activeOutputForState(ship.componentHeatState?.[index] || STATE.NORMAL);
 }
 
-
-function addHeatToType(ship, predicate, amount) {
-  // Destroyed components discard incoming heat, so only split across live
-  // matches — otherwise part of the heat silently vanishes into wreckage.
-  const matches = [];
-  for (let i = 0; i < (ship.design || []).length; i += 1) {
-    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
-    if (predicate(PARTS[ship.design[i].type] || {}, ship.design[i])) matches.push(i);
-  }
-  if (!matches.length) return;
-  for (const i of matches) addComponentHeat(ship, i, amount / matches.length);
-}
 
 // A reactor pinned at the overheat failure state (heat >= capacity) for this long
 // melts down and explodes. The delay telegraphs the failure and prevents a single
@@ -585,4 +569,4 @@ function effectiveComponentBonus(ship, propertyName, predicate) {
   return total;
 }
 
-module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, refreshHeatSourceSignatures, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, addHeatToType, distributeComponentHeatByWeight, componentPerformance, effectiveComponentBonus };
+module.exports = { STATE, initShipHeat, rebuildRuntimeExposure, rebuildThermalNetworks, recalculateEffectiveThermalCapacities, refreshHeatSourceSignatures, isThermalRouteType, updateShipHeat, buildHeatDebug, addComponentHeat, distributeComponentHeatByWeight, componentPerformance, effectiveComponentBonus };

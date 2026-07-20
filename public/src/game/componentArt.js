@@ -217,10 +217,6 @@ const WEAPON_ART_TYPES = new Set([
   "aegisProjector", "interceptorPod"
 ]);
 
-export function hasSplitWeaponArt(type) {
-  return WEAPON_ART_TYPES.has(componentArtType(type));
-}
-
 // Shared mounted-turret base: a dark socket, a bevelled raised ring in the
 // module body colour, and a recessed hub the barrel emerges from. Gives every
 // weapon a believable top-down turret mount rather than a flat disc. Fully

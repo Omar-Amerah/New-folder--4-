@@ -370,15 +370,6 @@ export function resetPixiShipView(view) {
 
 // Full teardown for pool destruction: release leases, then destroy every
 // display object (never its cache-owned textures) and detach the root.
-export function destroyPixiShipView(view) {
-  releaseShipViewLeases(view);
-  view.visualTurretAngles.clear();
-  if (view.root) {
-    if (view.root.parent) view.root.parent.removeChild(view.root);
-    view.root.destroy({ children: true, texture: false, textureSource: false });
-  }
-}
-
 // (Re)build the static hull sprite and the persistent turret sprites for a
 // design. Called only when the static signature changes — never on ordinary
 // snapshot/position/angle/weaponAngle updates.

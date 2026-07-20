@@ -334,13 +334,14 @@ export function deployDesign() {
       renderLocalStats();
       return;
     }
+    // Deploying during the design phase marks the player ready server-side;
+    // there is no separate "ready" message in the protocol.
     send({
       type: "deploy",
       design: state.design,
       wiring: state.wiring,
-      combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "charge"
+      combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "sentry"
     });
-    send({ type: "ready" });
     // Readying the first design confirms it; drop back to the arena view.
     closeBlueprintDesigner();
   }

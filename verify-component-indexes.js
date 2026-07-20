@@ -1,6 +1,6 @@
 "use strict";
 const assert = require("assert");
-const { buildSharedSnapshot, markShipDesignsSent } = require("./src/server/snapshots");
+const { buildSharedSnapshot } = require("./src/server/snapshots");
 const { spawnShip } = require("./src/server/ships");
 const { computeStats } = require("./src/server/shipStats");
 
@@ -24,7 +24,6 @@ function makeRoom() {
   assert.strictEqual(full.chp.length, design.length);
   assert.strictEqual(full.componentHeat.length, design.length);
   assert.deepStrictEqual(full.design.map(p=>p.type), design.map(p=>p.type));
-  markShipDesignsSent(room);
   ship.componentHp[1] -= 7; ship.dirtyComponents.add(1);
   ship.componentHp[2] = 0; ship.dirtyComponents.add(2);
   ship.componentHp[2] = ship.componentMaxHp[2]; ship.dirtyComponents.add(2);

@@ -241,8 +241,6 @@ function markSnapshotDesignsWritten(client, designRevisions = []) {
   for (const [shipId, revision] of designRevisions) known.set(shipId, revision);
 }
 
-function markShipDesignsSent() {}
-
 function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null) {
   if (!shared) shared = buildSharedSnapshot(room, now, sendStatic, Boolean(client));
 
@@ -351,6 +349,5 @@ module.exports = {
   collectSnapshotPowerRevisions,
   markSnapshotDesignsWritten,
   markSnapshotPowerWritten,
-  markShipDesignsSent,
   canViewPlayerEconomy
 };

@@ -677,25 +677,7 @@ function weaponReloadSeconds(effectiveWeapon, activityMultiplier) {
   );
 }
 
-function weaponModulesInArc(ship, target, family) {
-  let count = 0;
-  const design = ship.design || [];
-  for (let i = 0; i < design.length; i += 1) {
-    const module = design[i];
-    const part = PARTS[module.type];
-    if (!part?.weapon || part.weapon.type !== family) continue;
-    if (!isComponentAlive(ship, i)) continue;
-    if (isTargetInWeaponArc(ship, module, target, (part.weapon.arc || 360) * Math.PI / 180)) count += 1;
-  }
-  return count;
-}
-
-function moduleRotationToRadians(rotation) {
-  if (rotation === 90) return Math.PI / 2;
-  if (rotation === 180) return Math.PI;
-  if (rotation === 270) return -Math.PI / 2;
-  return 0;
-}
+const moduleRotationToRadians = require("../../public/src/shared/rotationRules").moduleRotationToRadians;
 
 function moduleLocalPosition(module, scale = MODULE_SCALE) {
   // 7 = center of the 15x15 build grid (core position), keeping module world
@@ -1149,7 +1131,6 @@ module.exports = {
   updateShipSupport,
   shipRepairNeed,
   updateShipWeapons,
-  weaponModulesInArc,
   weaponReloadSeconds,
   damageBeamTargets,
   moduleRotationToRadians,

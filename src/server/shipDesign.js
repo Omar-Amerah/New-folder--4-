@@ -6,6 +6,7 @@ const { DEFAULT_DESIGN } = require("./config");
 const { getOccupiedCells } = require("./footprint");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
+const StructuralConnectivity = require("../../public/src/shared/structuralConnectivity");
 
 function designIssue(code, inputIndex) {
   const messages = {
@@ -97,60 +98,11 @@ function createGeneratedPowerWiring(design) {
   return WiringRules.createGeneratedPowerWiring(normalizeShipDesignSnapshot(design), PARTS);
 }
 
+// Shared with the browser designer (public/src/shared/structuralConnectivity.js)
+// so client-valid designs can never be rejected by the server. validateDesign
+// filters overlaps before calling this, matching the shared BFS's assumption.
 function isConnected(modules) {
-  const core = modules.find((part) => part.type === "core");
-  if (!core) return false;
-
-  // Cell -> owning module index so each neighbour lookup is O(1). Kept in sync
-  // with public/src/design/blueprintValidation.js. Assumes modules don't
-  // overlap — validateDesign filters overlaps before calling this.
-  const partCellsMap = new Map();
-  const cellOwner = new Map();
-
-  for (let i = 0; i < modules.length; i++) {
-    const part = modules[i];
-    const stat = PARTS[part.type] || PARTS.frame;
-    const footprint = stat.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
-    partCellsMap.set(i, cells);
-    for (const cell of cells) {
-      cellOwner.set(`${cell.x},${cell.y}`, i);
-    }
-  }
-
-  const coreIndex = modules.indexOf(core);
-  const traverse = (canEnter) => {
-    const seenParts = new Set([coreIndex]);
-    const queue = [coreIndex];
-    for (let i = 0; i < queue.length; i += 1) {
-      const partIndex = queue[i];
-      const cells = partCellsMap.get(partIndex);
-
-      for (const cell of cells) {
-        for (const [nx, ny] of [[cell.x + 1, cell.y], [cell.x - 1, cell.y], [cell.x, cell.y + 1], [cell.x, cell.y - 1]]) {
-          const neighbor = cellOwner.get(`${nx},${ny}`);
-          if (neighbor !== undefined && !seenParts.has(neighbor) && canEnter(neighbor)) {
-            seenParts.add(neighbor);
-            queue.push(neighbor);
-          }
-        }
-      }
-    }
-    return seenParts;
-  };
-
-  const physicallyConnected = traverse(() => true);
-  if (physicallyConnected.size !== modules.length) return false;
-
-  // Heat pipes are mounted services, not hull structure. They may be attached to
-  // the ship as thermal conduits, but no normal component may rely on a heat-pipe
-  // chain as its only path back to the core.
-  const structurallyConnected = traverse(index => modules[index].type !== "heatPipe");
-  for (let i = 0; i < modules.length; i += 1) {
-    if (modules[i].type !== "heatPipe" && !structurallyConnected.has(i)) return false;
-  }
-
-  return true;
+  return StructuralConnectivity.isConnected(modules, PARTS, getOccupiedCells);
 }
 
 function normalizeShipDesignSnapshot(design, { sourceGridSize = 15 } = {}) {

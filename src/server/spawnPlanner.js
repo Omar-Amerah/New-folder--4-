@@ -128,7 +128,11 @@ function preferredSlots(world, solo, player, players, seed, radius) {
     return jitteredLine(x, y, left ? 0 : Math.PI, seed, player.id, radius, world, left ? "blue-side" : "red-side");
   }
   const soloIndex = ids.indexOf(player.id);
-  const angle = -Math.PI + (2 * Math.PI * (soloIndex + 0.5)) / Math.max(1, ids.length);
+  // With the default phase two solo players land on the short (vertical) axis,
+  // which on small worlds leaves no legal spot for the central relay's
+  // safe-zone clearance. Rotate the pair onto the long axis instead.
+  const phase = ids.length === 2 ? Math.PI / 2 : 0;
+  const angle = -Math.PI + phase + (2 * Math.PI * (soloIndex + 0.5)) / Math.max(1, ids.length);
   const sectorRadiusX = world.width * 0.5 - radius - 120;
   const sectorRadiusY = world.height * 0.5 - radius - 120;
   const x = world.width / 2 + Math.cos(angle) * sectorRadiusX * 0.72;

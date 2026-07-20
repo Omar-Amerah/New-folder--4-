@@ -88,8 +88,6 @@ export function generateScoreboardHTML(players) {
   return html;
 }
 
-export function renderObjectiveSummary() {}
-export function renderTeamPanel(players) {}
 
 // Retained match-meter DOM: the three bar spans are created once and only
 // their widths/colors are written when the values actually change. The old

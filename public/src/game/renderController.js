@@ -7,11 +7,6 @@ import { initPixiRenderer, resizePixiRenderer, getPixiRuntimeDiagnostics } from 
 
 let activeBackend = null;
 
-// Retained for callers/tests. Its only successful value is "pixi".
-export function getActiveRendererBackend() {
-  return activeBackend;
-}
-
 export async function initArenaRenderer() {
   if (activeBackend) return activeBackend;
   try {
