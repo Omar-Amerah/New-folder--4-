@@ -55,6 +55,7 @@
     "test:wiring": "node verify-wiring.js",
     "test:wiring-infrastructure": "node verify-wiring-infrastructure.js",
     "test:wiring-editor": "node verify-wiring-editor.js",
+    "test:power-allocation-foundation": "node verify-power-allocation-foundation.js",
     "test:data-support": "node verify-data-support.js",
     "test:wiring-pipeline": "node verify-wiring-pipeline.js",
     "test:blueprint-parity": "node verify-blueprint-parity.js",
