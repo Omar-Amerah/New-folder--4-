@@ -14,6 +14,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const WiringRules = require("./public/src/shared/wiringRules");
+const PowerFlowRules = require("./public/src/shared/powerFlowRules");
 const { PARTS } = require("./src/server/components");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState } = require("./src/server/componentHealth");
@@ -162,5 +163,75 @@ reallocateShipPower(dmg, "overheat");
 check("an overheated source contributes zero generation at runtime",
   dmg.runtimeWiring.powerNetworks[0].availableGenerationMw < genRepaired);
 
-assert.strictEqual(checks, 24, `expected 24 integration checks, ran ${checks}`);
+// ---------------------------------------------------------------------------
+// Ship E — fail-closed solver contract. The solver is the sole authority: a
+// thrown error must propagate, and a malformed or incomplete result must be
+// rejected rather than silently granting live consumers full Power. Each case
+// monkey-patches PowerFlowRules.solvePowerFlow and restores it in a finally
+// block so no other test is affected.
+// ---------------------------------------------------------------------------
+// A scarce two-consumer network leaves the engine underpowered (multiplier < 1)
+// after a successful solve, so a failed solve that fails open to full Power would
+// be detectable.
+const failDesign = [at("auxGenerator", 0, 0), at("engine", 1, 0), at("gyroscope", 2, 0)];
+const failWiring = wire(failDesign, [
+  [0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]],
+  [0, 2, [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]]
+]);
+function failShip() {
+  const ship = { id: "fail-test", alive: true, design: failDesign, wiring: failWiring, stats: { ...computeStats(failDesign) }, shield: 0 };
+  initComponentState(ship);
+  initializeComponentPower(ship);
+  return ship;
+}
+const realSolve = PowerFlowRules.solvePowerFlow;
+
+// 1. A thrown solvePowerFlow error propagates out of applyShipPowerAllocation.
+const throwShip = failShip();
+global.__mfaDataSupportPerf = {};
+let threw = false;
+try {
+  PowerFlowRules.solvePowerFlow = function boom() { throw new Error("boom"); };
+  try { reallocateShipPower(throwShip, "solver-throws"); } catch (err) { threw = /boom/.test(err.message); }
+} finally { PowerFlowRules.solvePowerFlow = realSolve; }
+check("a thrown solvePowerFlow error propagates out of applyShipPowerAllocation", threw);
+
+// 6. The performance counter still records the attempted solve on a throw.
+check("the performance counter records the attempted solve even when it throws",
+  global.__mfaDataSupportPerf.powerFlowSolveCount === 1);
+
+// 4. No error path leaves a live consumer at multiplier 1 — the failed solve
+//    never overwrote the ship's prior valid allocation.
+check("a failed solve never grants a live consumer full Power (prior state retained, not fail-open)",
+  getComponentPowerMultiplier(throwShip, 1) < 1);
+
+// 2. An invalid (malformed) solver result is rejected.
+const invalidShip = failShip();
+let rejectedInvalid = false;
+try {
+  PowerFlowRules.solvePowerFlow = function bad() { return { byComponentIndex: [], networks: [], summary: {} }; };
+  try { reallocateShipPower(invalidShip, "invalid-result"); } catch (err) { rejectedInvalid = /invalid result/.test(err.message); }
+} finally { PowerFlowRules.solvePowerFlow = realSolve; }
+check("a malformed solver result (missing sectionFlows) is rejected", rejectedInvalid);
+
+// 3. A result that omits one design component is rejected.
+const omitShip = failShip();
+let rejectedOmission = false;
+try {
+  PowerFlowRules.solvePowerFlow = function partial(input) {
+    const full = realSolve(input);
+    return { ...full, byComponentIndex: full.byComponentIndex.filter((entry) => entry.componentIndex !== 1) };
+  };
+  try { reallocateShipPower(omitShip, "omitted-component"); } catch (err) { rejectedOmission = /omitted component 1/.test(err.message); }
+} finally { PowerFlowRules.solvePowerFlow = realSolve; }
+check("a solver result omitting a design component is rejected", rejectedOmission);
+
+// 5. Normal successful allocation is unchanged after the patches are restored.
+const normalShip = failShip();
+check("normal successful allocation still powers a live consumer through the real solver",
+  PowerFlowRules.solvePowerFlow === realSolve
+    && normalShip.componentPower.byComponentIndex[1].state === "underpowered"
+    && getComponentPowerMultiplier(normalShip, 1) > 0);
+
+assert.strictEqual(checks, 30, `expected 30 integration checks, ran ${checks}`);
 console.log(`Power runtime integration verification passed (${checks} checks).`);

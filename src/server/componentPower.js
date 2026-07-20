@@ -145,28 +145,31 @@ function applyShipPowerAllocation(ship, options = {}) {
     if (isPowerSource(module)) sourceGenerationByIndex[index] = effectiveLiveSourceGeneration(ship, index);
     return (ship.componentHp?.[index] ?? 1) > 0;
   });
+  // The shared solver is the sole allocation authority. An unexpected exception
+  // must propagate so tests and server diagnostics expose the underlying defect,
+  // and a malformed result is rejected outright — never silently fail-open to a
+  // full-Power fallback that would grant live consumers full effectiveness. The
+  // performance counter records the attempted solve before the call so a throw
+  // is still counted.
   bump("powerFlowSolveCount");
-  let result;
-  try {
-    result = PowerFlowRules.solvePowerFlow({
-      design,
-      wiring: runtimePowerWiring,
-      catalogue: PARTS,
-      infrastructure: BALANCE.wiringInfrastructure,
-      sourceGenerationByIndex,
-      componentOperationalByIndex
-    });
-  } catch (_) {
-    result = { byComponentIndex: [], sectionFlows: [], networks: [], summary: {} };
+  const result = PowerFlowRules.solvePowerFlow({
+    design,
+    wiring: runtimePowerWiring,
+    catalogue: PARTS,
+    infrastructure: BALANCE.wiringInfrastructure,
+    sourceGenerationByIndex,
+    componentOperationalByIndex
+  });
+  if (!result || !Array.isArray(result.byComponentIndex) || !Array.isArray(result.networks) || !Array.isArray(result.sectionFlows)) {
+    throw new Error("Power-flow solver returned an invalid result");
   }
 
-  const solved = new Map((result.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
+  const solved = new Map(result.byComponentIndex.map((entry) => [entry.componentIndex, entry]));
   const byComponentIndex = design.map((module, index) => {
     const entry = solved.get(index);
-    const alive = (ship.componentHp?.[index] ?? 1) > 0;
-    if (!entry) {
-      return { state: alive ? "passive" : "destroyed", networkId: null, availableEfficiency: alive ? 1 : 0, operationalMultiplier: alive ? 1 : 0, role: "passive", powerCategory: null, priorityBand: null, networkIds: [], requestedMw: 0, allocatedMw: 0, unmetMw: 0, generationAvailableMw: 0, generationUsedMw: 0 };
-    }
+    // Every design component must appear in a valid solver result. A missing
+    // entry is a solver defect, not a reason to grant full Power.
+    if (!entry) throw new Error(`Power-flow solver omitted component ${index}`);
     // availableEfficiency == operationalMultiplier; the solver already produced
     // the per-component allocation ratio, so no second multiplier is derived.
     const multiplier = clampNumber(Number(entry.operationalMultiplier), 0, 1);
