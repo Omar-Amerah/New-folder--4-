@@ -276,7 +276,7 @@ export function applyInfrastructureCost(costBreakdown, modules, wiring) {
   const presentation = rules
     ? rules.infrastructureCostPresentation(componentsTotal, infra.powerWiring, infra.dataWiring)
     : { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0, totalShipCost: componentsTotal, infrastructurePercentage: 0 };
-  costBreakdown.components = componentsTotal;
+  costBreakdown.preInfrastructureShipCost = componentsTotal;
   costBreakdown.powerWiring = presentation.powerWiring;
   costBreakdown.dataWiring = presentation.dataWiring;
   costBreakdown.totalInfrastructure = presentation.totalInfrastructure;

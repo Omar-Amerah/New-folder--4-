@@ -77,7 +77,7 @@ const DEFAULT_POWER_POLICY = Object.freeze({
 
 function fallbackPowerPolicy(policy) {
   const source = policy && typeof policy === "object" && !Array.isArray(policy) ? policy : {};
-  const preset = ["balanced", "survival", "offensive"].includes(source.preset) ? source.preset : "balanced";
+  const preset = ["balanced", "defensive", "offensive", "mobility", "custom"].includes(source.preset) ? source.preset : "balanced";
   const order = Array.isArray(source.customOrder)
     ? source.customOrder.filter((value) => DEFAULT_POWER_POLICY.customOrder.includes(value))
     : [];

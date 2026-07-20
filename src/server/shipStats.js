@@ -32,7 +32,7 @@ function applyInfrastructureCost(costBreakdown, modules, wiring) {
     powerWiring = infra.powerWiring; dataWiring = infra.dataWiring;
   }
   const presentation = WiringInfrastructureRules.infrastructureCostPresentation(componentsTotal, powerWiring, dataWiring);
-  costBreakdown.components = componentsTotal;
+  costBreakdown.preInfrastructureShipCost = componentsTotal;
   costBreakdown.powerWiring = presentation.powerWiring;
   costBreakdown.dataWiring = presentation.dataWiring;
   costBreakdown.totalInfrastructure = presentation.totalInfrastructure;

@@ -161,14 +161,17 @@
   // Cost-ordering rule (Section 7A): the existing component-derived ship price is
   // calculated normally, then raw Power and Data infrastructure cost is added on
   // top. Infrastructure is NEVER multiplied by hull/mass/weapon premiums.
-  function infrastructureCostPresentation(componentsCost, powerWiring, dataWiring) {
-    const components = numberOr(componentsCost, 0);
+  // preInfrastructureShipCost is the ENTIRE existing ship price (base, parts,
+  // mass, hull, shield, repair, weapon premium and size tax) before wiring — not
+  // merely component cost. It is named explicitly so UI labels do not mislead.
+  function infrastructureCostPresentation(preInfrastructureShipCost, powerWiring, dataWiring) {
+    const preInfrastructure = numberOr(preInfrastructureShipCost, 0);
     const power = numberOr(powerWiring, 0);
     const data = numberOr(dataWiring, 0);
     const totalInfrastructure = power + data;
-    const totalShipCost = components + totalInfrastructure;
+    const totalShipCost = preInfrastructure + totalInfrastructure;
     return {
-      components,
+      preInfrastructureShipCost: preInfrastructure,
       powerWiring: power,
       dataWiring: data,
       totalInfrastructure,

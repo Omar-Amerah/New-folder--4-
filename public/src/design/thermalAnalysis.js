@@ -4,17 +4,25 @@ import { PART_DEFS, PART_STATS } from "./parts.js";
 import { getOccupiedCells } from "./footprint.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
 
-// Per-component static Heat-capacity displacement from installed wiring. Uses
-// the shared infrastructure authority so Blueprint thermal capacity matches the
+// Per-component unique hosted-cell accounting for installed wiring. Uses the
+// shared infrastructure authority so Blueprint thermal capacity matches the
 // server runtime capacity for the same design + wiring.
-function wiringHeatDiagnostics(design, wiring, baseCapacities) {
+function wiringInfrastructureAccounting(design, wiring) {
   const rules = globalThis.WiringInfrastructureRules;
   if (!wiring || !rules) return null;
   try {
-    return rules.componentThermalDiagnostics(design, wiring, PART_STATS, WIRING_INFRASTRUCTURE, baseCapacities);
+    return rules.accountInfrastructure(design, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
   } catch (_) {
     return null;
   }
+}
+
+// Apply Power/Data displacement to a capacity that already includes legitimate
+// static bonuses (heat-sink adjacency), then clamp to the configured minimum.
+function clampWiringCapacity(capacityWithBonuses, powerDisplacement, dataDisplacement) {
+  const rules = globalThis.WiringInfrastructureRules;
+  if (!rules) return capacityWithBonuses;
+  return rules.clampDisplacedCapacity(capacityWithBonuses, powerDisplacement, dataDisplacement, WIRING_INFRASTRUCTURE);
 }
 
 const thermalAnalysisCache = new Map();
@@ -64,15 +72,29 @@ export function buildThermalModel(design, wiring = null) {
   }
   // Base per-component capacity from the Heat profile, before adjacency bonus.
   const baseProfiles = design.map((module) => rules.profile(module.type, PART_STATS[module.type] || {}));
-  const heatDiagnostics = wiringHeatDiagnostics(design, wiring, baseProfiles.map((p) => p.capacity));
+  const wiringAccounting = wiringInfrastructureAccounting(design, wiring);
+  const heatSinkBonus = design.map((module, i) => [...edgeMaps[i].keys()].filter(j => design[j].type === "heatSink").length * 35);
   const profiles = design.map((module, i) => {
-    // Displacement reduces the component's own capacity (clamped to the minimum);
-    // the heat-sink adjacency bonus is then added on top, matching the server.
-    const ownCapacity = heatDiagnostics ? heatDiagnostics[i].finalHeatCapacity : baseProfiles[i].capacity;
-    const value = { ...baseProfiles[i], baseHeatCapacity: baseProfiles[i].capacity, capacity: ownCapacity, exposedEdges: exposed[i] };
-    value.capacity += [...edgeMaps[i].keys()].filter(j => design[j].type === "heatSink").length * 35;
-    return value;
+    // Capacity order matches the server: base + legitimate static bonuses
+    // (heat-sink adjacency) - Power/Data displacement -> clamp to minimum.
+    const entry = wiringAccounting ? wiringAccounting.byComponentIndex[i] : null;
+    const capacity = clampWiringCapacity(baseProfiles[i].capacity + heatSinkBonus[i], entry ? entry.powerDisplacement : 0, entry ? entry.dataDisplacement : 0);
+    return { ...baseProfiles[i], baseHeatCapacity: baseProfiles[i].capacity, capacity, exposedEdges: exposed[i] };
   });
+  const heatDiagnostics = wiringAccounting ? design.map((module, i) => {
+    const entry = wiringAccounting.byComponentIndex[i];
+    return {
+      componentIndex: i,
+      baseHeatCapacity: baseProfiles[i].capacity,
+      hostedLightCells: entry.hostedLightCells,
+      hostedStandardCells: entry.hostedStandardCells,
+      hostedHeavyCells: entry.hostedHeavyCells,
+      hostedDataCells: entry.hostedDataCells,
+      powerDisplacement: entry.powerDisplacement,
+      dataDisplacement: entry.dataDisplacement,
+      finalHeatCapacity: profiles[i].capacity
+    };
+  }) : null;
   const edges = [];
   for (let i = 0; i < design.length; i += 1) for (const [j, sharedEdges] of edgeMaps[i]) if (j > i) {
     edges.push({ i, j, sharedEdges, conductivity: rules.edgeConductivity(profiles[i], profiles[j]) });

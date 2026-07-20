@@ -20,23 +20,33 @@
 
   // The canonical Balanced ordering. Presets are stored as an explicit category
   // order so a future allocator can read a single deterministic list regardless
-  // of the chosen preset.
+  // of the chosen preset. These names are persisted in saved Blueprints and are
+  // locked — renaming one later would require another migration.
   const BALANCED_ORDER = Object.freeze([...POWER_CATEGORIES]);
   const POWER_PRESETS = Object.freeze({
     balanced: BALANCED_ORDER,
-    // Survival leans on defensive and control systems first.
-    survival: Object.freeze(["command", "shields", "pointDefence", "propulsion", "coolingSupport", "weapons"]),
+    // Defensive leans on shields, point defence and support survival first.
+    defensive: Object.freeze(["command", "shields", "pointDefence", "propulsion", "coolingSupport", "weapons"]),
     // Offensive leans on weapons and their support first.
-    offensive: Object.freeze(["command", "weapons", "pointDefence", "shields", "propulsion", "coolingSupport"])
+    offensive: Object.freeze(["command", "weapons", "pointDefence", "shields", "propulsion", "coolingSupport"]),
+    // Mobility keeps propulsion powered before offensive/defensive systems.
+    mobility: Object.freeze(["command", "propulsion", "weapons", "pointDefence", "shields", "coolingSupport"])
   });
-  const PRESET_NAMES = Object.freeze(Object.keys(POWER_PRESETS));
+  // "custom" has no fixed order — it honours the Blueprint's own customOrder.
+  const CUSTOM_PRESET = "custom";
+  const ACCEPTED_PRESETS = Object.freeze([...Object.keys(POWER_PRESETS), CUSTOM_PRESET]);
+  const PRESET_NAMES = ACCEPTED_PRESETS;
   const DEFAULT_PRESET = "balanced";
 
   function isPowerCategory(value) {
     return typeof value === "string" && POWER_CATEGORY_SET.has(value);
   }
 
+  // Accepts every locked preset name, including the explicit "custom" preset.
   function isPresetName(value) {
+    return typeof value === "string" && ACCEPTED_PRESETS.includes(value);
+  }
+  function isNamedPresetOrder(value) {
     return typeof value === "string" && Object.prototype.hasOwnProperty.call(POWER_PRESETS, value);
   }
 
@@ -83,11 +93,12 @@
   function normalizePolicy(rawPolicy) {
     const source = rawPolicy && typeof rawPolicy === "object" && !Array.isArray(rawPolicy) ? rawPolicy : {};
     const preset = isPresetName(source.preset) ? source.preset : DEFAULT_PRESET;
-    // A supplied custom order is always honoured (after repair); otherwise the
-    // preset order seeds the custom order so the two never silently disagree.
+    // A supplied custom order is always honoured (after repair); otherwise a
+    // named preset seeds its order and "custom" without an order falls back to
+    // Balanced so the two never silently disagree.
     const customOrder = source.customOrder !== undefined
       ? normalizeCustomOrder(source.customOrder)
-      : [...POWER_PRESETS[preset]];
+      : isNamedPresetOrder(preset) ? [...POWER_PRESETS[preset]] : [...BALANCED_ORDER];
     return { preset, customOrder };
   }
 
@@ -97,17 +108,20 @@
   }
 
   function presetOrder(preset) {
-    return isPresetName(preset) ? [...POWER_PRESETS[preset]] : [...BALANCED_ORDER];
+    return isNamedPresetOrder(preset) ? [...POWER_PRESETS[preset]] : [...BALANCED_ORDER];
   }
 
   return {
     POWER_CATEGORIES,
     POWER_PRESETS,
     PRESET_NAMES,
+    ACCEPTED_PRESETS,
+    CUSTOM_PRESET,
     DEFAULT_PRESET,
     BALANCED_ORDER,
     isPowerCategory,
     isPresetName,
+    isNamedPresetOrder,
     normalizeCustomOrder,
     isValidCustomOrder,
     normalizePolicy,

@@ -261,13 +261,35 @@ check("36. Final capacity respects the configured minimum", () => {
   assert.strictEqual(clamped, INFRA.minimumComponentHeatCapacity);
   assert.ok(clamped > 0 && Number.isFinite(clamped));
 });
-check("37. Blueprint thermal output matches server runtime capacity", () => {
+check("37. Blueprint thermal output matches server runtime capacity (no bonuses)", () => {
   const wiring = W.normalizeWiring(powerWiring([section(6, 7, 7, 7, "heavy"), section(7, 7, 8, 7, "light")]), straight, PARTS).wiring;
   const ship = { design: straight, wiring, componentHp: straight.map(() => 100), componentMaxHp: straight.map(() => 100) };
   heat.initShipHeat(ship);
-  const profileCaps = straight.map((m) => HeatRules.profile(m.type, PARTS[m.type] || {}).capacity);
-  const blueprintDiag = WI.componentThermalDiagnostics(straight, wiring, PARTS, INFRA, profileCaps);
-  blueprintDiag.forEach((d, i) => assert.strictEqual(d.finalHeatCapacity, ship.componentBaseHeatCapacity[i], `component ${i} capacity parity`));
+  // With no heat sinks the client final capacity equals base - displacement.
+  straight.forEach((m, i) => {
+    const base = HeatRules.profile(m.type, PARTS[m.type] || {}).capacity;
+    const disp = ship.componentWiringDisplacement[i];
+    const clientCapacity = WI.clampDisplacedCapacity(base, disp, 0, INFRA);
+    assert.strictEqual(clientCapacity, ship.componentThermals[i].capacity, `component ${i} capacity parity`);
+  });
+});
+check("37b. Displacement is applied AFTER legitimate static bonuses (heat-sink adjacency)", () => {
+  // frame(7,7) is adjacent to a heatSink(8,7) [+static bonus] and hosts a heavy
+  // Power cell via reactor(6,7)-frame(7,7). Order must be base + bonus - disp.
+  const design = [{ x: 6, y: 7, type: "reactor" }, { x: 7, y: 7, type: "frame" }, { x: 8, y: 7, type: "heatSink" }];
+  const wiring = W.normalizeWiring(powerWiring([section(6, 7, 7, 7, "heavy")]), design, PARTS).wiring;
+  const ship = { design, wiring, componentHp: design.map(() => 100), componentMaxHp: design.map(() => 100) };
+  heat.initShipHeat(ship);
+  const frameBase = HeatRules.profile("frame", PARTS.frame).capacity;
+  const heavyDisp = INFRA.powerTiers.heavy.heatCapacityDisplacement;
+  const expected = Math.max(INFRA.minimumComponentHeatCapacity, frameBase + 35 - heavyDisp);
+  assert.strictEqual(ship.componentThermals[1].capacity, expected, "frame = base + heat-sink bonus - heavy displacement");
+  // Wrong order (clamp base - disp first, then add bonus) would differ only when
+  // clamped; assert the additive identity holds so bonus is not lost to clamp.
+  assert.ok(ship.componentThermals[1].capacity > frameBase, "static bonus survives displacement");
+  // Client parity: base + bonus then displacement, via the shared clamp.
+  const clientCapacity = WI.clampDisplacedCapacity(frameBase + 35, heavyDisp, 0, INFRA);
+  assert.strictEqual(clientCapacity, ship.componentThermals[1].capacity, "client and server agree on order");
 });
 
 // ---------------------------------------------------------------------------
@@ -362,6 +384,60 @@ check("45. Power policy normalisation is deterministic and clones independently"
   b.customOrder.push("weapons");
   assert.notStrictEqual(a.customOrder.length, b.customOrder.length, "clone does not share the order array");
   assert.ok(PP.isValidCustomOrder(PP.defaultPolicy().customOrder));
+});
+check("46. Locked preset names are Balanced/Defensive/Offensive/Mobility/Custom", () => {
+  assert.deepStrictEqual(PP.ACCEPTED_PRESETS, ["balanced", "defensive", "offensive", "mobility", "custom"]);
+  for (const name of ["balanced", "defensive", "offensive", "mobility", "custom"]) assert.ok(PP.isPresetName(name), `${name} accepted`);
+  assert.strictEqual(PP.isPresetName("survival"), false, "survival is no longer a valid preset");
+  // Named presets seed their order; custom without an order falls back to Balanced.
+  assert.deepStrictEqual(PP.normalizePolicy({ preset: "mobility" }).customOrder, PP.POWER_PRESETS.mobility);
+  assert.deepStrictEqual(PP.normalizePolicy({ preset: "defensive" }).customOrder, PP.POWER_PRESETS.defensive);
+  const custom = PP.normalizePolicy({ preset: "custom", customOrder: ["weapons", "command"] });
+  assert.strictEqual(custom.preset, "custom");
+  assert.strictEqual(custom.customOrder[0], "weapons", "custom honours its own order");
+  assert.ok(PP.isValidCustomOrder(custom.customOrder), "custom order is a full permutation");
+});
+check("47. wiringInfrastructure catalogue section is required, not optional", () => {
+  const missing = JSON.parse(JSON.stringify(BALANCE));
+  delete missing.wiringInfrastructure;
+  assert.strictEqual(validateComponentBalance(missing).ok, false, "missing wiringInfrastructure rejected");
+  for (const tier of ["light", "standard", "heavy"]) {
+    const noTier = JSON.parse(JSON.stringify(BALANCE));
+    delete noTier.wiringInfrastructure.powerTiers[tier];
+    assert.strictEqual(validateComponentBalance(noTier).ok, false, `missing ${tier} tier rejected`);
+  }
+  const noData = JSON.parse(JSON.stringify(BALANCE));
+  delete noData.wiringInfrastructure.data;
+  assert.strictEqual(validateComponentBalance(noData).ok, false, "missing data section rejected");
+  const noMin = JSON.parse(JSON.stringify(BALANCE));
+  delete noMin.wiringInfrastructure.minimumComponentHeatCapacity;
+  assert.strictEqual(validateComponentBalance(noMin).ok, false, "missing minimum capacity rejected");
+});
+check("48. All wiring reconstruction operations preserve a custom Power policy", () => {
+  const design = [{ x: 6, y: 7, type: "reactor" }, { x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "blaster" }];
+  let wiring = W.normalizeWiring(powerWiring([section(6, 7, 7, 7, "standard"), section(7, 7, 8, 7, "standard")]), design, PARTS).wiring;
+  // Set a distinctive custom policy on the saved Blueprint.
+  wiring.powerPolicy = PP.normalizePolicy({ preset: "custom", customOrder: ["weapons", "command", "propulsion", "shields", "pointDefence", "coolingSupport"] });
+  const expect = (result, label) => {
+    assert.strictEqual(result.powerPolicy.preset, "custom", `${label} keeps preset`);
+    assert.strictEqual(result.powerPolicy.customOrder[0], "weapons", `${label} keeps custom order`);
+  };
+  expect(W.normalizeWiring(wiring, design, PARTS).wiring, "normalizeWiring");
+  expect(W.cloneWiring(wiring), "cloneWiring");
+  expect(W.addPath(wiring, "data", [{ x: 7, y: 7 }, { x: 8, y: 7 }], design, PARTS), "addPath");
+  expect(W.removeSection(wiring, "power", "7,7:8,7", design, PARTS), "removeSection");
+  expect(W.removeBranch(wiring, "power", "7,7:8,7", null, design, PARTS).wiring, "removeBranch");
+  const net = W.analyzeWiring(design, wiring, PARTS).power.networks[0];
+  if (net) expect(W.removeNetwork(wiring, "power", net, design, PARTS), "removeNetwork");
+  // Server Blueprint snapshot creation preserves the policy too.
+  const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
+  expect(createShipBlueprintSnapshot(design, wiring).wiring, "createShipBlueprintSnapshot");
+});
+check("49. Cost presentation field is named preInfrastructureShipCost (not misleading 'components')", () => {
+  const presentation = WI.infrastructureCostPresentation(850, 4, 1);
+  assert.strictEqual(presentation.preInfrastructureShipCost, 850);
+  assert.strictEqual(presentation.components, undefined, "ambiguous 'components' field removed");
+  assert.strictEqual(presentation.totalShipCost, 855);
 });
 
 console.log(`\nSection 7A wiring-infrastructure verification passed (${passed} checks)`);

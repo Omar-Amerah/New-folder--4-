@@ -81,15 +81,17 @@ function initShipHeat(ship) {
   }
 
   ship.componentThermals = design.map((module, i) => ({ ...profile(module.type, PARTS[module.type] || {}), exposedEdges: exposedEdges[i] }));
-  // Static Heat-capacity displacement from installed wiring. The displaced value
-  // becomes the component's base capacity; heat-sink adjacency bonuses are added
-  // on top by recalculateEffectiveThermalCapacities, matching the Blueprint
-  // thermal model. Uses the shared infrastructure authority so client preview
-  // and server runtime capacity agree.
-  const profileCapacities = ship.componentThermals.map(item => item.capacity);
-  ship.componentWiringHeatDiagnostics = WiringInfrastructureRules.componentThermalDiagnostics(design, ship.wiring, PARTS, BALANCE.wiringInfrastructure, profileCapacities);
-  ship.componentBaseHeatCapacity = ship.componentWiringHeatDiagnostics.map(diag => diag.finalHeatCapacity);
-  for (let i = 0; i < design.length; i += 1) ship.componentThermals[i].capacity = ship.componentBaseHeatCapacity[i];
+  ship.componentBaseHeatCapacity = ship.componentThermals.map(item => item.capacity);
+  // Static Heat-capacity displacement from installed wiring. Displacement is a
+  // static per-component amount computed once from the immutable Blueprint
+  // wiring; recalculateEffectiveThermalCapacities subtracts it AFTER legitimate
+  // static bonuses (heat-sink adjacency) and clamps to the configured minimum,
+  // so order is: base + static bonuses - Power/Data displacement -> clamp.
+  const infrastructure = BALANCE.wiringInfrastructure;
+  ship.wiringMinimumHeatCapacity = WiringInfrastructureRules.minimumCapacity(infrastructure);
+  const wiringAccounting = WiringInfrastructureRules.accountInfrastructure(design, ship.wiring, PARTS, infrastructure);
+  ship.componentWiringDisplacement = wiringAccounting.byComponentIndex.map(entry => entry.powerDisplacement + entry.dataDisplacement);
+  ship.componentWiringHeatDiagnostics = WiringInfrastructureRules.componentThermalDiagnostics(design, ship.wiring, PARTS, infrastructure, ship.componentBaseHeatCapacity);
   ship.componentAdjacency = edgeCounts.map((edges, i) => [...edges].map(([index, sharedEdges]) => ({
     index,
     sharedEdges,
@@ -149,7 +151,12 @@ function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
     const max = Math.max(0, ship.componentMaxHp?.[i] || 0);
     const health = HeatRules.clamp(max > 0 ? ship.componentHp[i] / max : ((ship.componentHp?.[i] ?? 1) > 0 ? 1 : 0), 0, 1);
     const ownCapacity = design[i].type === "heatSink" ? ship.componentBaseHeatCapacity[i] * health : ship.componentBaseHeatCapacity[i];
-    const capacity = ownCapacity + adjacencyBonus;
+    // Wiring displacement is applied AFTER legitimate static bonuses (heat-sink
+    // adjacency), then clamped to the configured minimum so cabling can never
+    // drive a component to zero, negative, NaN or infinite capacity.
+    const displacement = ship.componentWiringDisplacement?.[i] || 0;
+    const minimum = ship.wiringMinimumHeatCapacity || 1;
+    const capacity = Math.max(minimum, ownCapacity + adjacencyBonus - displacement);
     ship.componentThermals[i].capacity = capacity;
     if (ship.componentHeatCapacity) ship.componentHeatCapacity[i] = capacity;
     // Capacity loss never deletes retained heat. Zero capacity with positive
