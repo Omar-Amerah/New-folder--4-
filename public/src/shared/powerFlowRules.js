@@ -111,6 +111,15 @@
 
   // ------------------------------------------------------------------
   // Main solver.
+  //
+  // solvePowerFlow({ design, wiring, catalogue, infrastructure,
+  //   sourceGenerationByIndex?, consumerDemandByIndex?,
+  //   componentOperationalByIndex?, sectionOperationalById?, policy? })
+  //
+  // The priority policy defaults to the normalised policy saved on the
+  // Blueprint (wiring.powerPolicy). options.policy is only an explicit
+  // test/diagnostic override. All runtime-state inputs default to an intact
+  // Blueprint; inputs are never mutated.
   // ------------------------------------------------------------------
   function solvePowerFlow(input) {
     const options = input && typeof input === "object" ? input : {};
@@ -174,10 +183,11 @@
     // terminal cell (cap = generation). Generation counted once via the S edge.
     const sourceGenUnits = sources.map((source) => mwToPowerUnits(source.generationMw));
     const sourceSupplyEdge = [];
+    const sourceTerminalEdges = []; // per source: [{ key, edge }] for sourceNode -> cell
     sources.forEach((source, s) => {
       const node = sourceBase + s;
       sourceSupplyEdge[s] = net.addEdge(S, node, sourceGenUnits[s], false);
-      for (const key of source.terminals) net.addEdge(node, cellNode.get(key), sourceGenUnits[s], false);
+      sourceTerminalEdges[s] = source.terminals.map((key) => ({ key, edge: net.addEdge(node, cellNode.get(key), sourceGenUnits[s], false) }));
     });
 
     // Consumer terminals: each terminal cell -> consumerNode (cap = demand),
@@ -185,9 +195,10 @@
     // drawn once via the single consumerNode.
     const consumerDemandUnits = consumers.map((consumer) => mwToPowerUnits(consumer.demandMw));
     const consumerSinkEdge = [];
+    const consumerTerminalEdges = []; // per consumer: [{ key, edge }] for cell -> consumerNode
     consumers.forEach((consumer, c) => {
       const node = consumerBase + c;
-      for (const key of consumer.terminals) net.addEdge(cellNode.get(key), node, consumerDemandUnits[c], false);
+      consumerTerminalEdges[c] = consumer.terminals.map((key) => ({ key, edge: net.addEdge(cellNode.get(key), node, consumerDemandUnits[c], false) }));
       consumerSinkEdge[c] = net.addEdge(node, T, 0, false);
     });
 
@@ -197,7 +208,11 @@
     // ---- Priority-band allocation over one shared pool. Higher bands are
     // fully processed before lower bands; the residual carries committed flow
     // so lower bands only use remaining generation and cable capacity. ----
-    const bands = PowerPolicyRules.resolvePriorityBands(options.policy);
+    // The authoritative policy is the one saved on the Blueprint wiring
+    // (already normalised by buildTopology). options.policy is only an explicit
+    // test/diagnostic override.
+    const resolvedPolicy = options.policy !== undefined ? options.policy : topo.normalized.powerPolicy;
+    const bands = PowerPolicyRules.resolvePriorityBands(resolvedPolicy);
     const categoryBand = new Map();
     bands.forEach((band, bandIndex) => band.forEach((category) => categoryBand.set(category, bandIndex)));
     const bandOfConsumer = (c) => {
@@ -274,9 +289,12 @@
     const networkKeys = [...new Set([...networkRootOfCell.values()])].sort(compareCanonicalIds);
     const networkIndexByRoot = new Map(networkKeys.map((root, i) => [root, i]));
 
+    const networkIndexOfCell = (key) => networkRootOfCell.has(key) ? networkIndexByRoot.get(networkRootOfCell.get(key)) : -1;
     const networkOfComponentIndex = (terminals) => {
       const set = new Set();
       for (const key of terminals) if (networkRootOfCell.has(key)) set.add(networkIndexByRoot.get(networkRootOfCell.get(key)));
+      // Network indices follow canonical root order, so sorting ascending yields
+      // the canonically lowest attached network first.
       return [...set].sort((a, b) => a - b);
     };
 
@@ -288,19 +306,40 @@
       const [a] = sectionCells(section);
       networks[networkIndexByRoot.get(networkRootOfCell.get(cellKey(a.x, a.y)))].sectionIds.push(section.id);
     }
+    // Per-network totals attribute ACTUAL flow to the network the flow physically
+    // crossed (via terminal-edge flow), never the full aggregate to every attached
+    // network. Nominal spare capacity / unmet demand for a multi-network component
+    // is deterministically assigned to its canonically lowest attached network, so
+    // sums stay counted once and usedGen <= availableGen, allocated <= demand.
     sources.forEach((source, s) => {
-      for (const netId of networkOfComponentIndex(source.terminals)) {
-        networks[netId].sourceIndices.push(source.index);
-        networks[netId].availableGenUnits += sourceGenUnits[s];
-        networks[netId].usedGenUnits += usedGenUnits[s];
+      const attachedNets = networkOfComponentIndex(source.terminals);
+      for (const netId of attachedNets) networks[netId].sourceIndices.push(source.index);
+      let used = 0;
+      for (const { key, edge } of sourceTerminalEdges[s]) {
+        const flow = Math.max(0, net.edgeFlow(edge));
+        if (flow <= 0) continue;
+        const netId = networkIndexOfCell(key);
+        if (netId < 0) continue;
+        networks[netId].usedGenUnits += flow;
+        networks[netId].availableGenUnits += flow;
+        used += flow;
       }
+      if (attachedNets.length) networks[attachedNets[0]].availableGenUnits += Math.max(0, sourceGenUnits[s] - used);
     });
     consumers.forEach((consumer, c) => {
-      for (const netId of networkOfComponentIndex(consumer.terminals)) {
-        networks[netId].consumerIndices.push(consumer.index);
-        networks[netId].demandUnits += consumerDemandUnits[c];
-        networks[netId].allocatedUnits += grantedUnits[c];
+      const attachedNets = networkOfComponentIndex(consumer.terminals);
+      for (const netId of attachedNets) networks[netId].consumerIndices.push(consumer.index);
+      let allocated = 0;
+      for (const { key, edge } of consumerTerminalEdges[c]) {
+        const flow = Math.max(0, net.edgeFlow(edge));
+        if (flow <= 0) continue;
+        const netId = networkIndexOfCell(key);
+        if (netId < 0) continue;
+        networks[netId].allocatedUnits += flow;
+        networks[netId].demandUnits += flow;
+        allocated += flow;
       }
+      if (attachedNets.length) networks[attachedNets[0]].demandUnits += Math.max(0, consumerDemandUnits[c] - allocated);
     });
 
     const sectionFlows = sectionInfo.map(({ section, tier, config, peakUnits, sustainedUnits }) => {

@@ -295,6 +295,72 @@ check("35. Unreachable high-priority consumer does not block reachable lower-pri
 });
 
 // ---------------------------------------------------------------------------
+// Saved Wiring policy is the default authority
+// ---------------------------------------------------------------------------
+console.log("Saved Wiring policy default");
+function solveSaved(design, sections, preset, opts = {}) {
+  const wiring = { version: 3, power: { sections, connections: [] }, data: { sections: [], connections: [] }, powerPolicy: W.PowerPolicyRules.normalizePolicy({ preset, customOrder: opts.customOrder }) };
+  return PF.solvePowerFlow({ design, wiring, catalogue: PARTS, infrastructure: INFRA, sourceGenerationByIndex: opts.sourceGenerationByIndex, consumerDemandByIndex: opts.consumerDemandByIndex });
+}
+const POLICY_DESIGN = [{ x: 6, y: 7, type: "core" }, { x: 7, y: 7, type: "shield" }, { x: 8, y: 7, type: "blaster" }, { x: 9, y: 7, type: "frame" }];
+const POLICY_SECTIONS = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy"), sec(8, 7, 9, 7, "heavy")];
+check("D1. Defensive stored in wiring.powerPolicy affects allocation without options.policy", () => {
+  const r = solveSaved(POLICY_DESIGN, POLICY_SECTIONS, "defensive", { sourceGenerationByIndex: { 0: 4 } });
+  assert.strictEqual(consumer(r, 1).allocatedMw, 3.5, "shields served first from saved policy");
+  assert.strictEqual(consumer(r, 2).allocatedMw, 0.5, "weapons gets the remainder");
+});
+check("D2. Offensive works from the saved Wiring policy", () => {
+  const r = solveSaved(POLICY_DESIGN, POLICY_SECTIONS, "offensive", { sourceGenerationByIndex: { 0: 2.4 } });
+  assert.strictEqual(consumer(r, 2).allocatedMw, 2.4, "weapons served first");
+  assert.strictEqual(consumer(r, 1).allocatedMw, 0, "shields starved");
+});
+check("D3. Custom ordering works from the saved Wiring policy", () => {
+  const r = solveSaved(POLICY_DESIGN, POLICY_SECTIONS, "custom", { customOrder: ["weapons", "command", "propulsion", "shields", "pointDefence", "coolingSupport"], sourceGenerationByIndex: { 0: 2.4 } });
+  assert.strictEqual(consumer(r, 2).allocatedMw, 2.4, "weapons before shields under saved custom order");
+  assert.strictEqual(consumer(r, 1).allocatedMw, 0);
+});
+check("D4. An explicit options.policy override still works", () => {
+  // Saved policy is defensive (shields first), overridden to offensive (weapons first).
+  const wiring = { version: 3, power: { sections: POLICY_SECTIONS, connections: [] }, data: { sections: [], connections: [] }, powerPolicy: W.PowerPolicyRules.normalizePolicy({ preset: "defensive" }) };
+  const r = PF.solvePowerFlow({ design: POLICY_DESIGN, wiring, catalogue: PARTS, infrastructure: INFRA, sourceGenerationByIndex: { 0: 2.4 }, policy: { preset: "offensive" } });
+  assert.strictEqual(consumer(r, 2).allocatedMw, 2.4, "override wins over saved policy");
+  assert.strictEqual(consumer(r, 1).allocatedMw, 0);
+});
+check("D5. The saved Wiring policy is not mutated by the solver", () => {
+  const wiring = { version: 3, power: { sections: POLICY_SECTIONS, connections: [] }, data: { sections: [], connections: [] }, powerPolicy: W.PowerPolicyRules.normalizePolicy({ preset: "defensive" }) };
+  const snapshot = JSON.stringify(wiring.powerPolicy);
+  PF.solvePowerFlow({ design: POLICY_DESIGN, wiring, catalogue: PARTS, infrastructure: INFRA, sourceGenerationByIndex: { 0: 4 } });
+  assert.strictEqual(JSON.stringify(wiring.powerPolicy), snapshot);
+});
+
+// ---------------------------------------------------------------------------
+// Per-network totals do not double-count multi-terminal components
+// ---------------------------------------------------------------------------
+console.log("Per-network attribution");
+check("M1. A source/consumer spanning two islands is not double-counted per network", () => {
+  // reactor (2x1) occupies 5,5 (island A) and 6,5 (island B); each island has
+  // its own consumer. There is no section 5,5:6,5.
+  const design = [{ x: 5, y: 5, type: "reactor" }, { x: 4, y: 5, type: "blaster" }, { x: 7, y: 5, type: "shield" }];
+  const sections = [sec(4, 5, 5, 5, "heavy"), sec(6, 5, 7, 5, "heavy")];
+  const r = solve(design, sections);
+  // Counted once globally.
+  assert.strictEqual(r.summary.availableGenerationMw, 10, "reactor generation counted once globally");
+  assert.strictEqual(r.byComponentIndex.find((cpt) => cpt.componentIndex === 1).requestedMw, 2.4, "blaster demand once");
+  assert.strictEqual(r.byComponentIndex.find((cpt) => cpt.componentIndex === 2).requestedMw, 3.5, "shield demand once");
+  const sumUsed = r.networks.reduce((s, n) => s + n.usedGenerationMw, 0);
+  const sumAlloc = r.networks.reduce((s, n) => s + n.allocatedMw, 0);
+  assert.ok(sumUsed <= r.summary.usedGenerationMw + 1e-9, "sum of network used generation does not exceed global");
+  assert.ok(sumAlloc <= r.summary.allocatedMw + 1e-9, "sum of network allocation does not exceed global");
+  for (const n of r.networks) {
+    assert.ok(n.usedGenerationMw <= n.availableGenerationMw + 1e-9, `${n.id}: used <= available`);
+    assert.ok(n.allocatedMw <= n.demandMw + 1e-9, `${n.id}: allocated <= demand`);
+  }
+  // Deterministic after section reordering.
+  const reordered = solve(design, [...sections].reverse());
+  assert.deepStrictEqual(r, reordered);
+});
+
+// ---------------------------------------------------------------------------
 // Output safety
 // ---------------------------------------------------------------------------
 console.log("Output safety");
