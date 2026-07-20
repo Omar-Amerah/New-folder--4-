@@ -56,7 +56,11 @@ const room = { nextEntityId: 1, mapSeed: 1, world: { width: 1000, height: 1000 }
 const stats = { maxHp: 10, maxShield: 0, unitCost: 1, radius: 10 };
 const player = { id: "p", shipCap: 1, ships: [], design, wiring: shared, stats };
 const ship = spawnShip(room, player, 0, 0, { design, wiring: shared, stats });
-assert.deepEqual(ship.powerAnalysis, analyzeShipPower(ship.design, ship.wiring));
+// Runtime ship.powerAnalysis is now the shared 7C-2 power-flow solver result,
+// not the static connection analyzer. The pure analyzeShipPower authority is
+// unchanged (asserted above); only the runtime allocator moved to the solver.
+assert.strictEqual(ship.powerAnalysis, ship.powerFlow, "runtime power analysis is the shared power-flow solver result");
+assert(Array.isArray(ship.powerAnalysis.networks) && Array.isArray(ship.powerAnalysis.byComponentIndex), "solver result exposes networks and per-component allocations");
 assert.deepEqual(ship.stats, stats, "spawn analysis does not change gameplay stats");
 
 console.log("Power analysis verification passed.");
