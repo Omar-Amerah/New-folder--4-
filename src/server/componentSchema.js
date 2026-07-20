@@ -3,6 +3,10 @@
 
 const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", "pointDefense"]);
 const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "projectile"]);
+const VALID_POWER_CATEGORIES = new Set(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]);
+const POWER_SOURCE_IDS = new Set(["core", "reactor", "auxGenerator"]);
+const POWER_TIER_NAMES = ["light", "standard", "heavy"];
+const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "costPerHostedCell", "heatCapacityDisplacement", "renderedThickness"];
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
   "thrust", "turn", "energy", "energyStorage", "repair", "repairRate",
@@ -42,6 +46,66 @@ function validateFiniteMap(object, path, errors) {
   }
 }
 
+function isFiniteNonNegative(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+// The wiring infrastructure block is authoritative for cable cost and static
+// Heat displacement. Invalid values must fail loudly rather than being silently
+// repaired into a different balance.
+function validateWiringInfrastructure(infrastructure, filePath, errors) {
+  const path = `${filePath}.wiringInfrastructure`;
+  if (!infrastructure || typeof infrastructure !== "object" || Array.isArray(infrastructure)) {
+    errors.push(`${path} must be an object.`);
+    return;
+  }
+  const tiers = infrastructure.powerTiers;
+  if (!tiers || typeof tiers !== "object" || Array.isArray(tiers)) {
+    errors.push(`${path}.powerTiers must be an object.`);
+  } else {
+    for (const name of POWER_TIER_NAMES) {
+      const tier = tiers[name];
+      const tierPath = `${path}.powerTiers.${name}`;
+      if (!tier || typeof tier !== "object" || Array.isArray(tier)) {
+        errors.push(`${tierPath} must be an object.`);
+        continue;
+      }
+      for (const field of POWER_TIER_NUMERIC_FIELDS) {
+        if (!isFiniteNonNegative(tier[field])) errors.push(`${tierPath}.${field} must be a finite non-negative number.`);
+      }
+      if (isFiniteNonNegative(tier.sustainedCapacityMw) && isFiniteNonNegative(tier.peakCapacityMw)
+        && tier.peakCapacityMw < tier.sustainedCapacityMw) {
+        errors.push(`${tierPath}.peakCapacityMw must be >= sustainedCapacityMw.`);
+      }
+      if (typeof tier.inspectionLabel !== "string" || !tier.inspectionLabel.trim()) {
+        errors.push(`${tierPath}.inspectionLabel must be a non-empty string.`);
+      }
+    }
+    const light = tiers.light; const standard = tiers.standard; const heavy = tiers.heavy;
+    if (light && standard && heavy) {
+      if (!(light.costPerHostedCell < standard.costPerHostedCell)) errors.push(`${path}.powerTiers light cost must be less than standard.`);
+      if (!(standard.costPerHostedCell < heavy.costPerHostedCell)) errors.push(`${path}.powerTiers standard cost must be less than heavy.`);
+      if (!(light.heatCapacityDisplacement < standard.heatCapacityDisplacement)) errors.push(`${path}.powerTiers light displacement must be less than standard.`);
+      if (!(standard.heatCapacityDisplacement < heavy.heatCapacityDisplacement)) errors.push(`${path}.powerTiers standard displacement must be less than heavy.`);
+    }
+  }
+  const data = infrastructure.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    errors.push(`${path}.data must be an object.`);
+  } else {
+    if (!isFiniteNonNegative(data.costPerHostedCell)) errors.push(`${path}.data.costPerHostedCell must be a finite non-negative number.`);
+    if (!isFiniteNonNegative(data.heatCapacityDisplacement)) errors.push(`${path}.data.heatCapacityDisplacement must be a finite non-negative number.`);
+    if (typeof data.inspectionLabel !== "string" || !data.inspectionLabel.trim()) errors.push(`${path}.data.inspectionLabel must be a non-empty string.`);
+    if (tiers && tiers.light && isFiniteNonNegative(data.costPerHostedCell) && isFiniteNonNegative(tiers.light.costPerHostedCell)
+      && !(data.costPerHostedCell < tiers.light.costPerHostedCell)) {
+      errors.push(`${path}.data.costPerHostedCell must be significantly less than light Power cable cost.`);
+    }
+  }
+  if (!(typeof infrastructure.minimumComponentHeatCapacity === "number" && Number.isFinite(infrastructure.minimumComponentHeatCapacity) && infrastructure.minimumComponentHeatCapacity > 0)) {
+    errors.push(`${path}.minimumComponentHeatCapacity must be a positive finite number.`);
+  }
+}
+
 function validateComponentBalance(balance, { filePath = "component-balance.json" } = {}) {
   const errors = [];
   if (!balance || typeof balance !== "object" || Array.isArray(balance)) {
@@ -57,6 +121,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     for (const family of Object.keys(balance.shipPricing.weaponPremiums || {})) if (!VALID_WEAPON_FAMILIES.has(family)) errors.push(`${filePath}.shipPricing.weaponPremiums has unknown family ${family}.`);
   }
   if (balance.economy && balance.economy.shipCap < 0) errors.push(`${filePath}.economy.shipCap must be non-negative.`);
+  validateWiringInfrastructure(balance.wiringInfrastructure, filePath, errors);
   if (balance.match && balance.match.matchScore < 0) errors.push(`${filePath}.match.matchScore must be non-negative.`);
 
   const seen = new Set();
@@ -78,6 +143,15 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     }
     if (component.category !== undefined && (typeof component.category !== "string" || !component.category.trim())) {
       errors.push(`${path}.category must be a non-empty string when present.`);
+    }
+    // Authoritative Power category. Every Power-consuming component must declare
+    // one; array position is never used to infer it.
+    const consumesPower = isFiniteNumber(component.powerUse) && component.powerUse > 0 && !POWER_SOURCE_IDS.has(id);
+    if (component.powerCategory !== undefined) {
+      if (typeof component.powerCategory !== "string") errors.push(`${path}.powerCategory must be a string when present.`);
+      else if (!VALID_POWER_CATEGORIES.has(component.powerCategory)) errors.push(`${path}.powerCategory '${component.powerCategory}' is not a known Power category.`);
+    } else if (consumesPower) {
+      errors.push(`${path}.powerCategory is required for Power-consuming components.`);
     }
     if (component.description !== undefined && typeof component.description !== "string") errors.push(`${path}.description must be a string when present.`);
     if (Object.prototype.hasOwnProperty.call(component, "heat")) errors.push(`${path}.heat is unsupported; use explicit Heat profile rules instead.`);
@@ -116,4 +190,4 @@ function assertValidComponentBalance(balance, options = {}) {
   return balance;
 }
 
-module.exports = { validateComponentBalance, assertValidComponentBalance, VALID_WEAPON_FAMILIES };
+module.exports = { validateComponentBalance, assertValidComponentBalance, validateWiringInfrastructure, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };

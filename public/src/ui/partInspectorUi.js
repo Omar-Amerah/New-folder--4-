@@ -111,7 +111,7 @@ function thermalSectionMarkup(type, stat, thermal) {
   let predictedRows = "";
   let explainer = "";
   if (placed.length) {
-    const analysis = analyzeDesignHeat(state.design, state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
+    const analysis = analyzeDesignHeat(state.design, state.wiring || null, state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
     const prediction = placed
       .map(part => analysis.predictions.get(part))
       .filter(Boolean)

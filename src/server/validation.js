@@ -36,7 +36,7 @@ function validateBuildShip(room, player, stats = null) {
     return { ok: false, reason: "Invalid design: save a blueprint first." };
   }
   const { computeStats } = require("./shipStats");
-  const shipStats = stats || player.stats || computeStats(player.design);
+  const shipStats = stats || player.stats || computeStats(player.design, player.wiring);
   if (shipStats.thrust <= 0) {
     return { ok: false, reason: "Invalid design: add at least one engine." };
   }

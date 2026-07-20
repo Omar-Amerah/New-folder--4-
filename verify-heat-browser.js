@@ -29,7 +29,7 @@ const DESIGN = [
 const DESIGN_WIRING = createGeneratedPowerWiring(DESIGN);
 
 function assertDesignWiringPreflight() {
-  assert.strictEqual(DESIGN_WIRING.version, 2, "Heat browser fixture must use Wiring v2");
+  assert.strictEqual(DESIGN_WIRING.version, 3, "Heat browser fixture must use Wiring v3");
   const validated = validateWiring(DESIGN, DESIGN_WIRING);
   assert.strictEqual(validated.ok, true, "generated wiring must survive authoritative validation");
   assert.strictEqual(Array.isArray(validated.droppedSegments) ? validated.droppedSegments.length : validated.droppedSegments, 0, "generated Power routes must not be dropped");

@@ -182,7 +182,7 @@ export function setPurchaseError(optionId, message) {
 
 export function updateEconomyUi() {
   const mine = state.mine;
-  const localStats = computeStats(state.design);
+  const localStats = computeStats(state.design, { wiring: state.wiring });
   const localStatus = getShipStatus(localStats);
   const money = currentMatchMoney(mine);
   const income = mine?.income ?? 0;
@@ -250,7 +250,7 @@ export function getPurchaseOptions() {
     blueprint: state.design.map((part) => ({ ...part })),
     wiring: normalizeWiring(state.wiring, state.design),
     combatStyle: state.combatStyle || "charge",
-    stats: computeStats(state.design)
+    stats: computeStats(state.design, { wiring: normalizeWiring(state.wiring, state.design) })
   };
 
   // The active loadout tab decides which saved designs are buyable. The implicit
@@ -275,7 +275,7 @@ export function getPurchaseOptions() {
         blueprint: modules.map((part) => ({ ...part })),
         wiring: normalizeWiring(saved.wiring, modules),
         combatStyle: saved.combatStyle || "charge",
-        stats: computeStats(saved.blueprint)
+        stats: computeStats(modules, { wiring: normalizeWiring(saved.wiring, modules) })
       };
     })
   ];

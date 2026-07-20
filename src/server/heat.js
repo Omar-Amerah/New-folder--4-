@@ -2,6 +2,8 @@
 const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
 const HeatRules = require("../../public/src/shared/heatRules");
+const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
+const { BALANCE } = require("./balanceConfig");
 
 const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, edgeConductivity } = HeatRules;
 function isThermalRouteType(type) {
@@ -79,7 +81,15 @@ function initShipHeat(ship) {
   }
 
   ship.componentThermals = design.map((module, i) => ({ ...profile(module.type, PARTS[module.type] || {}), exposedEdges: exposedEdges[i] }));
-  ship.componentBaseHeatCapacity = ship.componentThermals.map(item => item.capacity);
+  // Static Heat-capacity displacement from installed wiring. The displaced value
+  // becomes the component's base capacity; heat-sink adjacency bonuses are added
+  // on top by recalculateEffectiveThermalCapacities, matching the Blueprint
+  // thermal model. Uses the shared infrastructure authority so client preview
+  // and server runtime capacity agree.
+  const profileCapacities = ship.componentThermals.map(item => item.capacity);
+  ship.componentWiringHeatDiagnostics = WiringInfrastructureRules.componentThermalDiagnostics(design, ship.wiring, PARTS, BALANCE.wiringInfrastructure, profileCapacities);
+  ship.componentBaseHeatCapacity = ship.componentWiringHeatDiagnostics.map(diag => diag.finalHeatCapacity);
+  for (let i = 0; i < design.length; i += 1) ship.componentThermals[i].capacity = ship.componentBaseHeatCapacity[i];
   ship.componentAdjacency = edgeCounts.map((edges, i) => [...edges].map(([index, sharedEdges]) => ({
     index,
     sharedEdges,

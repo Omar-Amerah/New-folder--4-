@@ -2226,15 +2226,40 @@ function costBreakdownInnerMarkup(breakdown) {
     ["Weapons", breakdown.weaponPremium],
     ["Size tax", breakdown.sizeTax]
   ];
+  const formatMoney = (value) => {
+    const number = Number(value) || 0;
+    return Number.isInteger(number) ? `$${number}` : `$${number.toFixed(2)}`;
+  };
+  // Section 7A: infrastructure (Power/Data wiring) is added on top of the
+  // component-derived price. Only render the infrastructure block when wiring
+  // cost data is present so component-only previews are unchanged.
+  const hasInfrastructure = breakdown.totalInfrastructure !== undefined;
+  const infrastructureRows = hasInfrastructure ? [
+    ["Power wiring", breakdown.powerWiring || 0],
+    ["Data wiring", breakdown.dataWiring || 0],
+    ["Total infrastructure", breakdown.totalInfrastructure || 0]
+  ] : [];
+  const percentText = hasInfrastructure ? `${Math.round((breakdown.infrastructurePercentage || 0) * 100)}%` : "";
   return `
     <div class="cost-breakdown-grid">
       ${rows.map(([label, value]) => `
         <div>
           <span>${label}</span>
-          <strong>$${value}</strong>
+          <strong>${formatMoney(value)}</strong>
+        </div>
+      `).join("")}
+      ${infrastructureRows.map(([label, value]) => `
+        <div class="cost-breakdown-infrastructure">
+          <span>${label}</span>
+          <strong>${formatMoney(value)}</strong>
         </div>
       `).join("")}
     </div>
+    ${hasInfrastructure ? `
+    <div class="cost-breakdown-total">
+      <div><span>Infrastructure share</span><strong>${percentText}</strong></div>
+      <div><span>Total ship cost</span><strong>${formatMoney(breakdown.total)}</strong></div>
+    </div>` : ""}
   `;
 }
 

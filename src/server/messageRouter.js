@@ -52,6 +52,7 @@ function handleMessage(client, message) {
 
   const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase, isCurrentAttachment, findReservedNameOwner } = require("./players");
   const { validateDesign, validateWiring } = require("./shipDesign");
+  const { computeStats } = require("./shipStats");
   const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
   const { commandShips } = require("./movement");
@@ -101,18 +102,22 @@ function handleMessage(client, message) {
       send(client, { type: "error", message: design.reason });
       return;
     }
-    const validation = validateBuildShip(client.room, client.player, design.stats);
+    // Server-side wiring normalization: only raw segments are accepted, and
+    // networks/connectivity are re-derived — client results are never trusted.
+    // A deploy without a wiring field keeps the player's previous wiring
+    // (re-normalized against the new modules) instead of wiping it. Stats are
+    // recomputed WITH the normalized wiring so infrastructure cost is part of
+    // the authoritative price and affordability check.
+    const deployWiring = validateWiring(design.modules, message.wiring !== undefined ? message.wiring : client.player.wiring).wiring;
+    const deployStats = computeStats(design.modules, deployWiring);
+    const validation = validateBuildShip(client.room, client.player, deployStats);
     if (client.room.phase === "design" && !validation.ok) {
       send(client, { type: "error", message: validation.reason });
       return;
     }
     client.player.design = design.modules;
-    // Server-side wiring normalization: only raw segments are accepted, and
-    // networks/connectivity are re-derived — client results are never trusted.
-    // A deploy without a wiring field keeps the player's previous wiring
-    // (re-normalized against the new modules) instead of wiping it.
-    client.player.wiring = validateWiring(design.modules, message.wiring !== undefined ? message.wiring : client.player.wiring).wiring;
-    client.player.stats = design.stats;
+    client.player.wiring = deployWiring;
+    client.player.stats = deployStats;
     const combatStyle = sanitizeCombatStyle(message.combatStyle, sanitizeCombatStyle(client.player.combatStyle));
     client.player.combatStyle = combatStyle;
 
@@ -137,7 +142,7 @@ function handleMessage(client, message) {
       broadcastSnapshot(client.room, performanceNow(), true);
       maybeStartMatch(client.room, performanceNow());
     } else {
-      send(client, { type: "notice", message: `Editor blueprint saved. Buy the current design from the bottom bar for $${design.stats.unitCost}.` });
+      send(client, { type: "notice", message: `Editor blueprint saved. Buy the current design from the bottom bar for $${deployStats.unitCost}.` });
     }
     return;
   }
@@ -158,10 +163,13 @@ function handleMessage(client, message) {
     const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
     const purchaseWiring = validateWiring(purchaseDesign.modules, message.wiring).wiring;
     if (message.wiring !== undefined) client.player.wiring = purchaseWiring;
+    // Affordability and the deducted cost must include infrastructure, so stats
+    // are recomputed against the normalized purchase wiring.
+    const purchaseStats = computeStats(purchaseDesign.modules, purchaseWiring);
     const result = executePurchase(client.room, client.player, {
       requestId,
       count,
-      stats: purchaseDesign.stats,
+      stats: purchaseStats,
       design: purchaseDesign.modules,
       wiring: purchaseWiring,
       combatStyle

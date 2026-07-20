@@ -18,8 +18,30 @@ const {
 } = require("../../public/src/shared/movementStats.js");
 const ShieldRules = require("../../public/src/shared/shieldRules");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
+const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
 
-function computeStats(modules) {
+// Section 7A cost ordering: the component-derived ship price is computed
+// normally, then raw Power/Data infrastructure cost is added on top (never
+// multiplied by hull/mass/weapon premiums). Passing wiring is what turns the
+// infrastructure surcharge on; callers without wiring get the component price.
+function applyInfrastructureCost(costBreakdown, modules, wiring) {
+  const componentsTotal = costBreakdown.total;
+  let powerWiring = 0; let dataWiring = 0;
+  if (wiring) {
+    const infra = WiringInfrastructureRules.computeInfrastructureCost(modules, wiring, PARTS, BALANCE.wiringInfrastructure);
+    powerWiring = infra.powerWiring; dataWiring = infra.dataWiring;
+  }
+  const presentation = WiringInfrastructureRules.infrastructureCostPresentation(componentsTotal, powerWiring, dataWiring);
+  costBreakdown.components = componentsTotal;
+  costBreakdown.powerWiring = presentation.powerWiring;
+  costBreakdown.dataWiring = presentation.dataWiring;
+  costBreakdown.totalInfrastructure = presentation.totalInfrastructure;
+  costBreakdown.infrastructurePercentage = presentation.infrastructurePercentage;
+  costBreakdown.total = Math.round(presentation.totalShipCost);
+  return costBreakdown;
+}
+
+function computeStats(modules, wiring = null) {
   const exhaustAnalysis = EngineExhaustRules.analyze(modules, PARTS);
   let cost = 0;
   let mass = 0;
@@ -115,7 +137,7 @@ function computeStats(modules) {
   // Keep catalogue weapon-family totals base-only so support is not applied twice.
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
-  const costBreakdown = calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam });
+  const costBreakdown = applyInfrastructureCost(calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam }), modules, wiring);
   const unitCost = costBreakdown.total;
   const f = BALANCE.shipPricing.fleetCountFormulaInputs;
   const fleetCount = clampNumber(Math.floor(f.base / Math.max(f.minimumDivisor, unitCost * f.unitCostMultiplier + mass * f.massMultiplier)), f.minimum, f.maximum);

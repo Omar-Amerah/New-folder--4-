@@ -1,16 +1,25 @@
 (function initWiringRules(root, factory) {
-  const dependency = typeof module !== "undefined" && module.exports ? require("./dataSupportRules") : root.DataSupportRules;
-  const rules = factory(dependency);
-  if (typeof module !== "undefined" && module.exports) module.exports = rules;
+  const onNode = typeof module !== "undefined" && module.exports;
+  const dependency = onNode ? require("./dataSupportRules") : root.DataSupportRules;
+  const powerPolicy = onNode ? require("./powerPolicyRules") : root.PowerPolicyRules;
+  const rules = factory(dependency, powerPolicy);
+  if (onNode) module.exports = rules;
   root.WiringRules = rules;
-}(typeof globalThis !== "undefined" ? globalThis : this, function makeWiringRules(DataSupportRules) {
+}(typeof globalThis !== "undefined" ? globalThis : this, function makeWiringRules(DataSupportRules, PowerPolicyRules) {
   "use strict";
 
   const GRID_SIZE = 15;
   const POINT_MAX = GRID_SIZE - 1;
-  const WIRING_VERSION = 2;
+  // Wiring v3: canonical physical Power/Data sections, explicit Power cable
+  // tiers, single-tier Data, and a Blueprint Power policy. Existing Wiring v2
+  // saves are migrated up (never emptied) before validation.
+  const WIRING_VERSION = 3;
   const STANDARD_TIER = "standard";
-  const ACCEPTED_TIERS = Object.freeze([STANDARD_TIER]);
+  // Power supports three tiers; Data remains functionally single-tier and always
+  // normalises to the standard tier internally.
+  const POWER_TIERS = Object.freeze(["light", "standard", "heavy"]);
+  const POWER_TIER_PRECEDENCE = Object.freeze({ light: 1, standard: 2, heavy: 3 });
+  const ACCEPTED_TIERS = POWER_TIERS;
   const MAX_SECTIONS_PER_KIND = 480;
   const MAX_CONNECTIONS_PER_KIND = 240;
   const MAX_SEGMENTS_PER_KIND = MAX_CONNECTIONS_PER_KIND;
@@ -21,7 +30,13 @@
   const DEFAULT_CABLE_LIMITS = Object.freeze({ power: null, data: null });
   const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "auxGenerator"]);
   if (!DataSupportRules) throw new Error("DataSupportRules must load before WiringRules");
+  if (!PowerPolicyRules) throw new Error("PowerPolicyRules must load before WiringRules");
   const { DATA_SOURCE_INFO, DATA_SOURCE_TYPES } = DataSupportRules;
+
+  // Highest installed Power tier wins when several sections meet at one cell.
+  function higherPowerTier(a, b) {
+    return (POWER_TIER_PRECEDENCE[b] || 0) > (POWER_TIER_PRECEDENCE[a] || 0) ? b : a;
+  }
 
   function partStat(catalogue, type) { return (catalogue && (catalogue[type] || catalogue.frame)) || {}; }
   function isPowerSourceType(type) { return POWER_SOURCE_TYPES.includes(type); }
@@ -57,7 +72,9 @@
     (Array.isArray(modules) ? modules : []).forEach((module, index) => moduleCells(module, catalogue).forEach((cell) => map.set(cellKey(cell.x, cell.y), index)));
     return map;
   }
-  function normalizeTier(tier) { return ACCEPTED_TIERS.includes(tier) ? tier : STANDARD_TIER; }
+  // Power accepts light/standard/heavy; anything else (and all Data) normalises
+  // deterministically to standard so a malformed tier can never break a route.
+  function normalizeTier(tier, kind = "power") { return kind === "power" && POWER_TIERS.includes(tier) ? tier : STANDARD_TIER; }
   function normalizedCell(raw, prefix = "") {
     const x = Number(raw?.[`x${prefix}`]); const y = Number(raw?.[`y${prefix}`]);
     return Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < GRID_SIZE && y < GRID_SIZE ? { x, y } : null;
@@ -67,12 +84,12 @@
     return { x1: b.x, y1: b.y, x2: a.x, y2: a.y };
   }
   function sectionIdFromCells(a, b) { const s = canonicalSectionCoordinates(a, b); return `${s.x1},${s.y1}:${s.x2},${s.y2}`; }
-  function normalizeSection(raw, occupied) {
+  function normalizeSection(raw, occupied, kind = "power") {
     const a = normalizedCell(raw, "1"); const b = normalizedCell(raw, "2");
     if (!a || !b || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) return null;
     if (!occupied.has(cellKey(a.x, a.y)) || !occupied.has(cellKey(b.x, b.y))) return null;
     const coords = canonicalSectionCoordinates(a, b);
-    return { id: sectionIdFromCells(a, b), ...coords, tier: normalizeTier(raw?.tier) };
+    return { id: sectionIdFromCells(a, b), ...coords, tier: normalizeTier(raw?.tier, kind) };
   }
   function sectionCells(section) { return [{ x: section.x1, y: section.y1 }, { x: section.x2, y: section.y2 }]; }
   function connectionKey(connection) { return `${connection.sourceIndex}>${connection.targetIndex}:${connection.sectionIds.join(";")}`; }
@@ -101,7 +118,7 @@
   function normalizeKind(rawKind, modules, catalogue, kind, occupied) {
     const raw = kindShape(rawKind); const sectionMap = new Map(); let dropped = 0;
     for (const value of Array.isArray(raw.sections) ? raw.sections.slice(0, MAX_SECTIONS_PER_KIND) : []) {
-      const section = normalizeSection(value, occupied);
+      const section = normalizeSection(value, occupied, kind);
       if (!section) { dropped += 1; continue; }
       if (!sectionMap.has(section.id)) sectionMap.set(section.id, section);
     }
@@ -126,18 +143,49 @@
     return { value: { sections: [...sectionMap.values()].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true })), connections }, dropped };
   }
 
+  // Upgrades any older/malformed wiring shape to the current Wiring v3 schema
+  // WITHOUT losing routes. Every Wiring v2 Power section becomes an explicit
+  // tier (v2 only stored standard, so it stays standard); Data stays single
+  // tier; a missing Power policy becomes the default Balanced policy. Sections
+  // and connections are carried forward verbatim (re-validated later against the
+  // live modules by normalizeKind). The function is idempotent.
+  function migrateWiringToCurrentVersion(wiring) {
+    const source = wiring && typeof wiring === "object" && !Array.isArray(wiring) ? wiring : {};
+    const migrateKind = (rawKind, kind) => {
+      const raw = kindShape(rawKind);
+      return {
+        sections: (Array.isArray(raw.sections) ? raw.sections : []).map((section) => (
+          section && typeof section === "object" ? { ...section, tier: normalizeTier(section.tier, kind) } : section
+        )),
+        connections: (Array.isArray(raw.connections) ? raw.connections : []).map((connection) => (
+          connection && typeof connection === "object"
+            ? { ...connection, sectionIds: Array.isArray(connection.sectionIds) ? [...connection.sectionIds] : [] }
+            : connection
+        ))
+      };
+    };
+    return {
+      version: WIRING_VERSION,
+      power: migrateKind(source.power, "power"),
+      data: migrateKind(source.data, "data"),
+      powerPolicy: PowerPolicyRules.normalizePolicy(source.powerPolicy)
+    };
+  }
+
   function normalizeWiring(wiring, modules, catalogue) {
     const list = Array.isArray(modules) ? modules : [];
-    const source = wiring && wiring.version === WIRING_VERSION ? wiring : {};
+    // Migrate first, then validate against the current version — never empty a
+    // save just because it predates Wiring v3.
+    const source = migrateWiringToCurrentVersion(wiring);
     const occupiedMap = occupancy(list, catalogue); const occupied = new Set(occupiedMap.keys());
     const power = normalizeKind(source.power, list, catalogue, "power", occupied);
     const data = normalizeKind(source.data, list, catalogue, "data", occupied);
-    return { wiring: { version: WIRING_VERSION, power: power.value, data: data.value }, droppedRoutes: power.dropped + data.dropped, droppedSegments: power.dropped + data.dropped };
+    return { wiring: { version: WIRING_VERSION, power: power.value, data: data.value, powerPolicy: source.powerPolicy }, droppedRoutes: power.dropped + data.dropped, droppedSegments: power.dropped + data.dropped };
   }
   function emptyKind() { return { sections: [], connections: [] }; }
-  function emptyWiring() { return { version: WIRING_VERSION, power: emptyKind(), data: emptyKind() }; }
+  function emptyWiring() { return { version: WIRING_VERSION, power: emptyKind(), data: emptyKind(), powerPolicy: PowerPolicyRules.defaultPolicy() }; }
   function cloneKind(kind) { return { sections: (kind?.sections || []).map((section) => ({ ...section })), connections: (kind?.connections || []).map((connection) => ({ ...connection, sectionIds: [...connection.sectionIds] })) }; }
-  function cloneWiring(wiring) { return { version: WIRING_VERSION, power: cloneKind(wiring?.power), data: cloneKind(wiring?.data) }; }
+  function cloneWiring(wiring) { return { version: WIRING_VERSION, power: cloneKind(wiring?.power), data: cloneKind(wiring?.data), powerPolicy: PowerPolicyRules.clonePolicy(wiring?.powerPolicy) }; }
   function sectionLine(section) { return { x1: section.x1 + 0.5, y1: section.y1 + 0.5, x2: section.x2 + 0.5, y2: section.y2 + 0.5 }; }
   function segmentKey(section) { return section.id || sectionIdFromCells({ x: section.x1, y: section.y1 }, { x: section.x2, y: section.y2 }); }
 
@@ -451,7 +499,7 @@
       const details = [...unreachable, ...missing.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog) })), ...unusedSources.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog), reason: "source-not-connected" }))];
       throw new Error(`Generated default Power wiring is incomplete: ${JSON.stringify(details)}`);
     }
-    return { version: WIRING_VERSION, power: cloneKind(normalized.power), data: emptyKind() };
+    return { version: WIRING_VERSION, power: cloneKind(normalized.power), data: emptyKind(), powerPolicy: PowerPolicyRules.defaultPolicy() };
   }
 
   function addPath(wiring, kind, cells, modules, catalogue) {
@@ -474,5 +522,5 @@
   }
   function removePhysicalNetwork(wiring, kind, network, modules, catalogue) { const ids = new Set(network.sectionIds); const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((s) => !ids.has(segmentKey(s))); next[kind].connections = next[kind].connections.filter((c) => !c.sectionIds.some((id) => ids.has(id))); return normalizeWiring(next, modules, catalogue).wiring; }
 
-  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
+  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, POWER_TIERS, POWER_TIER_PRECEDENCE, higherPowerTier, migrateWiringToCurrentVersion, PowerPolicyRules, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
 }));

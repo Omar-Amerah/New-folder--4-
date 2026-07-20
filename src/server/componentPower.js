@@ -4,6 +4,7 @@
 const { PARTS } = require("./components");
 const { analyzeShipPower } = require("./shipDesign");
 const WiringRules = require("../../public/src/shared/wiringRules");
+const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
 const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
 
@@ -11,21 +12,30 @@ const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
 const perf = () => global.__mfaDataSupportPerf || null;
 function bump(name) { const p = perf(); if (p) p[name] = (p[name] || 0) + 1; }
 
-function componentOccupancy(design) {
-  const occupied = new Map();
-  design.forEach((module, index) => WiringRules.moduleCells(module, PARTS)
-    .forEach((cell) => occupied.set(WiringRules.cellKey(cell.x, cell.y), index)));
-  return occupied;
+// The static hosted-cell mapping (which physical cells/components host each
+// section) depends only on the immutable Blueprint design + wiring, never on
+// runtime health. It is computed once via the shared authority and cached on
+// the ship so repeated component-damage events reuse it instead of rebuilding.
+function shipHostMaps(ship) {
+  if (!ship._infrastructureHostMaps) {
+    ship._infrastructureHostMaps = WiringInfrastructureRules.mapHostedCells(
+      Array.isArray(ship.design) ? ship.design : [], ship.wiring || {}, PARTS
+    );
+  }
+  return ship._infrastructureHostMaps;
 }
 
-function deriveRuntimeKind(ship, kind, occupied) {
+function deriveRuntimeKind(ship, kind, hostMap) {
   const blueprint = ship.wiring?.[kind] || { sections: [], connections: [] };
   const operationalSectionIds = new Set();
   const disabledSectionIds = new Set();
   const sectionHosts = new Map();
   for (const section of blueprint.sections || []) {
-    const cells = WiringRules.sectionCells(section);
-    const hosts = [...new Set(cells.map((cell) => occupied.get(WiringRules.cellKey(cell.x, cell.y))))];
+    // Canonical host cells for this section come from the shared mapper; a null
+    // host means the endpoint cell has no physical component (undefined here).
+    const entry = hostMap.bySectionId.get(section.id);
+    const hosts = [...new Set((entry ? entry.hostCells : WiringRules.sectionCells(section).map(() => ({ componentIndex: null })))
+      .map((host) => (host.componentIndex == null ? undefined : host.componentIndex)))];
     sectionHosts.set(section.id, hosts);
     const operational = hosts.length > 0 && !hosts.includes(undefined)
       && hosts.every((index) => (ship.componentHp?.[index] ?? 1) > 0);
@@ -67,9 +77,9 @@ function stateSignature(runtime) {
 function rebuildShipWiringState(ship, reason = "component-boundary", options = {}) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   bump("wiringNormalizationCount");
-  const occupied = componentOccupancy(design);
-  const power = deriveRuntimeKind(ship, "power", occupied);
-  const data = deriveRuntimeKind(ship, "data", occupied);
+  const hostMaps = shipHostMaps(ship);
+  const power = deriveRuntimeKind(ship, "power", hostMaps.power);
+  const data = deriveRuntimeKind(ship, "data", hostMaps.data);
   const runtimeWiring = { version: WiringRules.WIRING_VERSION, power: power.operationalWiring, data: data.operationalWiring };
   let analysis;
   bump("powerAnalysisCount");

@@ -285,7 +285,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     };
     if (sendStatic) {
       packet.design = player.design;
-      packet.stats = summarizeStats(player.stats || computeStats(player.design));
+      packet.stats = summarizeStats(player.stats || computeStats(player.design, player.wiring));
     }
     players.push(packet);
   }

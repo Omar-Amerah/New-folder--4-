@@ -21,7 +21,12 @@ function validDesign(v){ return Array.isArray(v)&&v.length>0&&v.length<=MAX_DESI
 function validWireSection(s){return isPlainObject(s)&&Object.keys(s).every(k=>['id','x1','y1','x2','y2','tier'].includes(k))&&str(s.id,64)&&['x1','y1','x2','y2'].every(k=>int(s[k],0,POINT_MAX))&&(s.tier===undefined||str(s.tier,32));}
 function validWireConnection(c){return isPlainObject(c)&&Object.keys(c).every(k=>['sourceIndex','targetIndex','sectionIds'].includes(k))&&int(c.sourceIndex,0,MAX_DESIGN-1)&&int(c.targetIndex,0,MAX_DESIGN-1)&&Array.isArray(c.sectionIds)&&c.sectionIds.length>0&&c.sectionIds.length<=224&&c.sectionIds.every(id=>str(id,64));}
 function validWireKind(k){return isPlainObject(k)&&Object.keys(k).every(key=>['sections','connections'].includes(key))&&Array.isArray(k.sections)&&k.sections.length<=480&&k.sections.every(validWireSection)&&Array.isArray(k.connections)&&k.connections.length<=MAX_WIRE_SEGMENTS&&k.connections.every(validWireConnection);}
-function validWiring(v){return isPlainObject(v)&&v.version===2&&Object.keys(v).every(k=>['version','power','data'].includes(k))&&validWireKind(v.power)&&validWireKind(v.data);}
+// Optional Wiring v3 Power policy. Shape is validated loosely; the server always
+// re-normalizes it deterministically, so untrusted contents cannot leak through.
+function validPowerPolicy(p){return p===undefined||(isPlainObject(p)&&Object.keys(p).every(k=>['preset','customOrder'].includes(k))&&(p.preset===undefined||str(p.preset,32))&&(p.customOrder===undefined||(Array.isArray(p.customOrder)&&p.customOrder.length<=16&&p.customOrder.every(c=>str(c,32)))));}
+// Accept Wiring v2 and v3 payloads. Older v2 clients keep working (the server
+// migrates them up); v3 clients may include the Power policy.
+function validWiring(v){return isPlainObject(v)&&(v.version===2||v.version===3)&&Object.keys(v).every(k=>['version','power','data','powerPolicy'].includes(k))&&validWireKind(v.power)&&validWireKind(v.data)&&validPowerPolicy(v.powerPolicy);}
 function validRules(v){ return isPlainObject(v)&&Object.keys(v).length<=32; }
 function fail(code,message){ return {ok:false,code,message}; }
 function checkRequired(m, fields){ for(const f of fields) if(!Object.prototype.hasOwnProperty.call(m,f)) return fail('invalid-payload',`Missing required field: ${f}`); return null; }

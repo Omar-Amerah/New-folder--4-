@@ -2,6 +2,20 @@
 
 import { PART_DEFS, PART_STATS } from "./parts.js";
 import { getOccupiedCells } from "./footprint.js";
+import { WIRING_INFRASTRUCTURE } from "../constants.js";
+
+// Per-component static Heat-capacity displacement from installed wiring. Uses
+// the shared infrastructure authority so Blueprint thermal capacity matches the
+// server runtime capacity for the same design + wiring.
+function wiringHeatDiagnostics(design, wiring, baseCapacities) {
+  const rules = globalThis.WiringInfrastructureRules;
+  if (!wiring || !rules) return null;
+  try {
+    return rules.componentThermalDiagnostics(design, wiring, PART_STATS, WIRING_INFRASTRUCTURE, baseCapacities);
+  } catch (_) {
+    return null;
+  }
+}
 
 const thermalAnalysisCache = new Map();
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -11,7 +25,7 @@ const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
  * @param {Array<{type:string,x:number,y:number,rotation?:number}>} design - Blueprint modules indexed by component id.
  * @returns {object} Thermal model containing profiles, footprints, adjacency, exposure, frame networks, and heat-transfer paths to cooling components.
  */
-export function buildThermalModel(design) {
+export function buildThermalModel(design, wiring = null) {
   const rules = globalThis.HeatRules;
   const owners = new Map();
   const cells = [];
@@ -48,8 +62,14 @@ export function buildThermalModel(design) {
     }
     else if (neighbour !== undefined && neighbour !== i) edgeMaps[i].set(neighbour, (edgeMaps[i].get(neighbour) || 0) + 1);
   }
+  // Base per-component capacity from the Heat profile, before adjacency bonus.
+  const baseProfiles = design.map((module) => rules.profile(module.type, PART_STATS[module.type] || {}));
+  const heatDiagnostics = wiringHeatDiagnostics(design, wiring, baseProfiles.map((p) => p.capacity));
   const profiles = design.map((module, i) => {
-    const value = { ...rules.profile(module.type, PART_STATS[module.type] || {}), exposedEdges: exposed[i] };
+    // Displacement reduces the component's own capacity (clamped to the minimum);
+    // the heat-sink adjacency bonus is then added on top, matching the server.
+    const ownCapacity = heatDiagnostics ? heatDiagnostics[i].finalHeatCapacity : baseProfiles[i].capacity;
+    const value = { ...baseProfiles[i], baseHeatCapacity: baseProfiles[i].capacity, capacity: ownCapacity, exposedEdges: exposed[i] };
     value.capacity += [...edgeMaps[i].keys()].filter(j => design[j].type === "heatSink").length * 35;
     return value;
   });
@@ -72,7 +92,7 @@ export function buildThermalModel(design) {
       frameCoolingDistance[neighbour] = frameCoolingDistance[frame] + 1; coolingFrames.push(neighbour);
     }
   }
-  return { design, rules, owners, cells, exposed, exteriorDirections, edgeMaps, profiles, edges, frameCoolingDistance };
+  return { design, rules, owners, cells, exposed, exteriorDirections, edgeMaps, profiles, edges, frameCoolingDistance, heatDiagnostics };
 }
 
 /**
@@ -443,7 +463,7 @@ export function analyzeDesignHeat(design, wiring = null, mode = "full") {
   const cacheKey = `${mode}|${thermalSignature}|${JSON.stringify(wiring)}|${JSON.stringify(design.map(module => [module.type,module.x,module.y,module.rotation || 0]))}`;
   const cached = thermalAnalysisCache.get(cacheKey);
   if (cached?.design === design) return cached.result;
-  const model = buildThermalModel(design);
+  const model = buildThermalModel(design, wiring);
   const load = buildThermalLoad(model, mode, wiring);
   const simulation = simulateThermalLoad(model, load);
   const result = summariseThermalResult(model, load, simulation);
