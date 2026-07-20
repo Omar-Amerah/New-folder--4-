@@ -111,6 +111,39 @@
     return isNamedPresetOrder(preset) ? [...POWER_PRESETS[preset]] : [...BALANCED_ORDER];
   }
 
+  // Authoritative human-readable category labels. Single source of truth so UI
+  // and diagnostics never keep a second copy.
+  const POWER_CATEGORY_LABELS = Object.freeze({
+    command: "Command",
+    propulsion: "Propulsion",
+    shields: "Shields",
+    pointDefence: "Point Defence",
+    weapons: "Weapons",
+    coolingSupport: "Cooling & Support"
+  });
+
+  // Authoritative priority bands per named preset. Each band is a set of tied
+  // categories; earlier bands outrank later ones. Every category appears exactly
+  // once. "custom" is resolved from the normalised customOrder (one band per
+  // category). These are the foundation a later capacity-aware allocator reads;
+  // no gameplay consumes them yet.
+  const PRESET_BANDS = Object.freeze({
+    balanced: Object.freeze([Object.freeze(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"])]),
+    defensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["propulsion", "coolingSupport"]), Object.freeze(["weapons"])]),
+    offensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["weapons", "pointDefence"]), Object.freeze(["shields"]), Object.freeze(["propulsion", "coolingSupport"])]),
+    mobility: Object.freeze([Object.freeze(["command"]), Object.freeze(["propulsion"]), Object.freeze(["pointDefence", "weapons"]), Object.freeze(["shields", "coolingSupport"])])
+  });
+
+  // Resolve a saved policy into priority bands. Normalises first (repairing
+  // malformed input), never mutates the input, and returns fresh arrays of fresh
+  // category arrays so callers cannot corrupt the authoritative templates.
+  function resolvePriorityBands(policy) {
+    const normalized = normalizePolicy(policy);
+    if (normalized.preset === CUSTOM_PRESET) return normalized.customOrder.map((category) => [category]);
+    const template = PRESET_BANDS[normalized.preset] || PRESET_BANDS[DEFAULT_PRESET];
+    return template.map((band) => [...band]);
+  }
+
   return {
     POWER_CATEGORIES,
     POWER_PRESETS,
@@ -127,6 +160,8 @@
     normalizePolicy,
     clonePolicy,
     defaultPolicy,
-    presetOrder
+    presetOrder,
+    resolvePriorityBands,
+    POWER_CATEGORY_LABELS
   };
 }));
