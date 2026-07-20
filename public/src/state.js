@@ -53,6 +53,11 @@ export const state = {
   // while this object only tracks an unfinished path and inspection.
   wiringUi: {
     mode: "power",
+    // Section 7B Power tools. Data keeps the simpler single-tier workflow and
+    // ignores tool/tier selection. selectedPowerTier persists for the session.
+    wiringTool: "draw",
+    selectedPowerTier: "standard",
+    hoveredSectionId: null,
     selectedIndex: null,
     selectedConnectionKey: null,
     selectedSectionId: null,

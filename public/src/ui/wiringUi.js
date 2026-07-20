@@ -6,6 +6,8 @@ import { findPartAtCell } from "../design/placementCandidate.js";
 import { getFootprintBounds } from "../design/footprint.js";
 import { persistDesign, defaultWiring, normalizeWiring } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
+import { computeStats } from "../design/componentStats.js";
+import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { getCachedDesignDataSupport, getCachedDataVulnerabilities } from "../design/dataSupportAnalysis.js";
 import { formatDataSupportValue, formatDataSupportEquation } from "../design/dataSupportPresentation.js";
 
@@ -17,7 +19,71 @@ const CABLE_LIMITS = Object.freeze({ ...globalThis.WiringRules?.DEFAULT_CABLE_LI
 let pointerDrag = null;
 let suppressNextClick = false;
 function rules() { return globalThis.WiringRules; }
+function editRules() { return globalThis.WiringEditRules; }
+function infraRules() { return globalThis.WiringInfrastructureRules; }
+function heatRules() { return globalThis.HeatRules; }
 function ui() { return state.wiringUi; }
+const POWER_TIERS = Object.freeze(["light", "standard", "heavy"]);
+function currentTool() { return ui().wiringTool || "draw"; }
+function selectedTier() { return POWER_TIERS.includes(ui().selectedPowerTier) ? ui().selectedPowerTier : "standard"; }
+function tierLabel(tier) { return WIRING_INFRASTRUCTURE?.powerTiers?.[tier]?.inspectionLabel || (tier ? tier[0].toUpperCase() + tier.slice(1) : ""); }
+function isPowerTierTool() { return ui().mode === "power" && currentTool() === "tier"; }
+// Visible stroke width in SVG grid units, driven by authoritative renderedThickness.
+// Standard (thickness 2) ~= the historical wiring width so migrated designs look
+// unchanged; Light is clearly thinner, Heavy clearly thicker.
+function renderedStrokeWidth(tier) {
+  const thickness = Number(WIRING_INFRASTRUCTURE?.powerTiers?.[tier]?.renderedThickness);
+  const scaled = Number.isFinite(thickness) && thickness > 0 ? thickness : 2;
+  return (0.07 * scaled).toFixed(3);
+}
+function sectionActionVerb() {
+  if (isPowerTierTool()) return "Change tier of";
+  if (currentTool() === "erase") return "Erase";
+  if (currentTool() === "inspect") return "Inspect";
+  return "Select";
+}
+// Cheap hover highlight: toggles a class on already-rendered visible lines
+// without rebuilding the overlay or re-running analysis.
+function applyHoverHighlight() {
+  const host = dom.wiringOverlayHost; if (!host) return;
+  const hoveredId = ui().sourceIndex == null ? ui().hoveredSectionId : null;
+  const previewTool = isPowerTierTool() || currentTool() === "erase";
+  const inspectTool = currentTool() === "inspect";
+  host.querySelectorAll(".wire-visible-layer [data-section-id]").forEach((element) => {
+    const on = element.dataset.sectionId === hoveredId;
+    element.classList.toggle("wire-section-preview", on && previewTool);
+    element.classList.toggle("wire-section-hover", on && inspectTool);
+  });
+}
+
+// Base component Heat capacities (pre-displacement) for thermal previews.
+function powerBaseCapacities() { return state.design.map((module) => heatRules().profile(module.type, PART_STATS[module.type] || {}).capacity); }
+// The component-derived ship price is independent of wiring, so it is a safe
+// shared baseline for total-ship-cost and infrastructure-percentage previews.
+function preInfrastructureShipCost() { try { return computeStats(state.design).costBreakdown.total; } catch (_) { return 0; } }
+function previewOptions() { return { baseCapacities: powerBaseCapacities(), preInfrastructureShipCost: preInfrastructureShipCost() }; }
+
+// One cached preview per hover/edit frame; invalidated on any committed edit.
+let previewCache = { signature: null, preview: null };
+let transientReason = null;
+function invalidatePreviewCache() { previewCache = { signature: null, preview: null }; }
+function cachedPreview(signature, compute) {
+  if (previewCache.signature === signature) return previewCache.preview;
+  const preview = compute();
+  previewCache = { signature, preview };
+  return preview;
+}
+function setTransientReason(reason) { transientReason = reason || null; }
+
+const REASON_TEXT = Object.freeze({
+  "data-has-no-tiers": "Data wiring has no cable tiers.",
+  "missing-section": "Select an existing Power section.",
+  "already-selected-tier": "This section is already that tier.",
+  "empty-path": "No valid path between these components.",
+  "invalid-path": "Power routes must stay inside occupied ship cells.",
+  "no-change": "No change to apply."
+});
+function reasonText(reason) { return REASON_TEXT[reason] || "That action is not valid here."; }
 function currentAnalysis() { return rules().analyzeWiring(state.design, state.wiring, PART_STATS); }
 function currentDataInspection() { return getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode || "full" }); }
 function partName(type) { return PART_DEFS[type]?.name || PART_STATS[type]?.name || type; }
@@ -28,7 +94,39 @@ function isValidSource(mode, type) { return mode === "data" ? rules().isDataSour
 function isValidDestination(mode, sourceType, destinationType) { return mode === "data" ? rules().isCompatibleWeapon(sourceType, destinationType, PART_STATS) : rules().isPowerConsumer(destinationType, PART_STATS); }
 
 function pushUndo() { const stack = ui().undoStack; stack.push(rules().cloneWiring(state.wiring)); if (stack.length > MAX_UNDO) stack.shift(); }
-function commitWiring(next) { state.wiring = next; persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); }
+function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); }
+
+// Section 7B tool/tier selection. Data ignores tier selection and cannot use
+// the Change Tier tool.
+function setTool(tool) {
+  if (!["draw", "tier", "erase", "inspect"].includes(tool)) return;
+  if (currentTool() === tool) return;
+  ui().wiringTool = tool;
+  resetInteraction(false);
+  ui().hoveredSectionId = null;
+  invalidatePreviewCache();
+  setTransientReason(ui().mode === "data" && tool === "tier" ? "data-has-no-tiers" : null);
+  refreshWiringPresentation();
+}
+function setTier(tier) {
+  if (!POWER_TIERS.includes(tier) || ui().selectedPowerTier === tier) return;
+  ui().selectedPowerTier = tier;
+  invalidatePreviewCache();
+  refreshWiringPresentation();
+}
+
+// Apply the selected tier to one existing Power section (upgrade or downgrade).
+function applyTierChangeToSection(id) {
+  const result = rules().setSectionTier(state.wiring, "power", id, selectedTier(), state.design, PART_STATS);
+  if (!result.changed) { setTransientReason(result.reason); ui().selectedSectionId = id; refreshWiringPresentation(); return; }
+  pushUndo(); resetInteraction(false); ui().selectedSectionId = id; commitWiring(result.wiring);
+}
+// Erase one physical section (Power or Data). Unrelated sections, all Data
+// wiring and powerPolicy are preserved by shared normalisation.
+function eraseSectionById(id) {
+  if (!id) { setTransientReason("missing-section"); refreshWiringPresentation(); return; }
+  pushUndo(); const mode = ui().mode; resetInteraction(); commitWiring(rules().removeSection(state.wiring, mode, id, state.design, PART_STATS));
+}
 function releasePointerCapture() { if (!pointerDrag) return; const { target, pointerId } = pointerDrag; if (target?.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId); pointerDrag = null; }
 function resetInteraction(clearSelection = true) { releasePointerCapture(); suppressNextClick = false; const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; view.selectedDataNetworkId = null; } }
 export function resetWiringTransientState({ clearSelection = true } = {}) { resetInteraction(clearSelection); }
@@ -67,7 +165,7 @@ export function handleWiringCellClick(x, y) {
 }
 function beginPath(index, cell) { resetInteraction(false); ui().sourceIndex = index; ui().selectedIndex = index; ui().path = [{ x: cell.x, y: cell.y }]; ui().activeOrigin = { x: cell.x, y: cell.y }; refreshWiringPresentation(); }
 function pathOverLimit() { const limit = CABLE_LIMITS[ui().mode]; return Number.isFinite(limit) && rules().countUniqueSections(state.wiring, ui().mode) + rules().additionalLengthForPath(state.wiring, ui().mode, ui().path) > limit; }
-function commitActivePath() { if (ui().path.length < 2 || pathOverLimit()) return; pushUndo(); const next = rules().addPath(state.wiring, ui().mode, ui().path, state.design, PART_STATS); resetInteraction(); ui().activeOrigin = null; commitWiring(next); }
+function commitActivePath() { if (ui().path.length < 2 || pathOverLimit()) return; pushUndo(); const next = rules().addPathWithTier(state.wiring, ui().mode, ui().path, state.design, PART_STATS, selectedTier()); resetInteraction(); ui().activeOrigin = null; commitWiring(next); }
 export function handleWiringCellHover(x, y) { if (ui().sourceIndex == null) return; const last = ui().path.at(-1); ui().hoverCell = { x, y, valid: partIndexAt(x, y) >= 0 && Math.abs(last.x - x) + Math.abs(last.y - y) === 1 && !ui().path.some((cell) => cell.x === x && cell.y === y) }; renderWiringOverlay(); }
 export function handleWiringGridLeave() { ui().hoverCell = null; if (state.blueprintView === "wiring") renderWiringOverlay(); }
 
@@ -132,6 +230,7 @@ function bindPointerDrawing() {
   const pointerSurface = dom.grid?.parentElement; if (!pointerSurface) return;
   pointerSurface.addEventListener("pointerdown", (event) => {
     if (state.blueprintView !== "wiring" || event.button !== 0 || event.pointerType === "touch" || ui().sourceIndex != null) return;
+    if (currentTool() !== "draw") return; // Draw is the only path-creating tool.
     const target = event.target.closest?.("[data-wiring-port-kind], [data-section-id]"); if (!target) return;
     const point = pointerGridPoint(event.clientX, event.clientY); let cell; let index;
     if (target.dataset.wiringPortKind) { if (target.dataset.wiringPortKind !== ui().mode) return; cell = { x: Number(target.dataset.wiringCellX), y: Number(target.dataset.wiringCellY) }; index = Number(target.dataset.wiringComponentIndex); }
@@ -164,7 +263,13 @@ function selectedNetwork() {
   return view.selectedIndex == null ? null : rules().networkForComponent(analysis, view.mode, view.selectedIndex);
 }
 function clearSelectedNetwork() { const network = selectedNetwork(); if (!network || ui().sourceIndex != null) return; pushUndo(); resetInteraction(); commitWiring(rules().removeNetwork(state.wiring, ui().mode, network, state.design, PART_STATS)); }
-function setMode(mode) { if (ui().mode === mode) return; resetInteraction(); ui().mode = mode; refreshWiringPresentation(); }
+function setMode(mode) {
+  if (ui().mode === mode) return;
+  resetInteraction(); ui().mode = mode; ui().hoveredSectionId = null; invalidatePreviewCache(); setTransientReason(null);
+  // Data has no Change Tier tool; fall back to Draw so the toolbar stays valid.
+  if (mode === "data" && currentTool() === "tier") ui().wiringTool = "draw";
+  refreshWiringPresentation();
+}
 
 let controlsBound = false;
 export function suppressWiringClick() { if (!suppressNextClick) return false; suppressNextClick = false; return true; }
@@ -175,23 +280,53 @@ export function bindWiringControls() {
   dom.wiringModeData?.addEventListener("click", () => setMode("data"));
   dom.wiringUndoButton?.addEventListener("click", undoWiring);
   dom.wiringClearNetworkButton?.addEventListener("click", clearSelectedNetwork);
+  dom.wiringToolbar?.addEventListener("click", (event) => {
+    const toolButton = event.target?.closest?.("[data-wiring-tool]");
+    if (toolButton && !toolButton.disabled) { setTool(toolButton.dataset.wiringTool); return; }
+    const tierButton = event.target?.closest?.("[data-wiring-tier]");
+    if (tierButton) setTier(tierButton.dataset.wiringTier);
+  });
+  // Hover updates only the preview panel and a cheap highlight class — never a
+  // full overlay rebuild — so pointer movement does not re-run infrastructure
+  // analysis for every frame.
+  dom.wiringOverlayHost?.addEventListener("mouseover", (event) => {
+    const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
+    ui().hoveredSectionId = id; applyHoverHighlight(); renderPreviewPanel();
+  });
+  dom.wiringOverlayHost?.addEventListener("mouseout", (event) => {
+    if (!event.target?.dataset?.sectionId) return;
+    ui().hoveredSectionId = null; applyHoverHighlight(); renderPreviewPanel();
+  });
   dom.wiringOverlayHost?.addEventListener("click", (event) => {
     const port = event.target?.closest?.("[data-wiring-port-kind]");
-    if (port && ui().sourceIndex == null) { event.stopPropagation(); if (port.dataset.wiringPortKind === ui().mode) beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) }); return; }
+    // Ports only start a Draw path; other tools ignore them.
+    if (port && ui().sourceIndex == null) { event.stopPropagation(); if (currentTool() === "draw" && port.dataset.wiringPortKind === ui().mode) beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) }); return; }
     const id = event.target?.dataset?.sectionId; if (!id) return;
     if (ui().sourceIndex != null) {
       if (event.button !== 0) return;
       const endpoint = wireEndpointFromEvent(event); if (!endpoint) return;
       event.preventDefault(); event.stopPropagation(); handleWiringCellClick(endpoint.x, endpoint.y); return;
     }
-    event.stopPropagation(); resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation();
+    event.stopPropagation();
+    // Tool-aware section click: Change Tier / Erase mutate; Inspect / Draw select.
+    if (isPowerTierTool()) { applyTierChangeToSection(id); return; }
+    if (currentTool() === "erase") { eraseSectionById(id); return; }
+    resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation();
   });
   dom.wiringOverlayHost?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     const port = event.target?.closest?.("[data-wiring-port-kind]");
-    if (!port || ui().sourceIndex != null || port.dataset.wiringPortKind !== ui().mode) return;
+    if (port && ui().sourceIndex == null && currentTool() === "draw" && port.dataset.wiringPortKind === ui().mode) {
+      event.preventDefault(); event.stopPropagation();
+      beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) });
+      return;
+    }
+    // Keyboard activation of a focused section honours the active tool.
+    const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
     event.preventDefault(); event.stopPropagation();
-    beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) });
+    if (isPowerTierTool()) { applyTierChangeToSection(id); return; }
+    if (currentTool() === "erase") { eraseSectionById(id); return; }
+    resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation();
   });
   dom.wiringOverlayHost?.addEventListener("contextmenu", (event) => {
     const id = event.target?.dataset?.sectionId; if (!id) return; event.preventDefault(); event.stopPropagation();
@@ -209,14 +344,108 @@ export function bindWiringControls() {
 }
 
 export function canUndoWiring() { return ui().undoStack.length > 0; }
-export function refreshWiringPresentation() { if (state.blueprintView !== "wiring") return; bindWiringControls(); refreshToolbar(); renderWiringOverlay(); renderStatusPanel(); }
-export function clearWiringPresentation() { resetInteraction(false); dom.wiringOverlayHost?.replaceChildren(); dom.grid?.classList.remove("wiring-overlay-active"); if (dom.wiringStatusPanel) { dom.wiringStatusPanel.hidden = true; dom.wiringStatusPanel.innerHTML = ""; } }
+export function refreshWiringPresentation() { if (state.blueprintView !== "wiring") return; bindWiringControls(); refreshToolbar(); renderWiringOverlay(); renderPreviewPanel(); renderStatusPanel(); }
+export function clearWiringPresentation() { resetInteraction(false); ui().hoveredSectionId = null; invalidatePreviewCache(); dom.wiringOverlayHost?.replaceChildren(); dom.grid?.classList.remove("wiring-overlay-active"); if (dom.wiringPreviewPanel) { dom.wiringPreviewPanel.hidden = true; dom.wiringPreviewPanel.innerHTML = ""; } if (dom.wiringStatusPanel) { dom.wiringStatusPanel.hidden = true; dom.wiringStatusPanel.innerHTML = ""; } }
+const TOOL_HINTS = Object.freeze({
+  draw: "Draw through occupied cells with the selected tier. New sections use the tier; existing cable keeps its own.",
+  tier: "Click a Power section to apply the selected tier. Existing tier is preserved until you change it.",
+  erase: "Click a Power or Data section to remove it. Unrelated cable and Data wiring are preserved.",
+  inspect: "Click a section to read its cable rating, hosts and net design impact. No changes are made."
+});
 function refreshToolbar() {
-  dom.wiringModePower?.classList.toggle("active", ui().mode === "power"); dom.wiringModePower?.setAttribute("aria-pressed", String(ui().mode === "power"));
-  dom.wiringModeData?.classList.toggle("active", ui().mode === "data"); dom.wiringModeData?.setAttribute("aria-pressed", String(ui().mode === "data"));
+  const power = ui().mode === "power";
+  dom.wiringModePower?.classList.toggle("active", power); dom.wiringModePower?.setAttribute("aria-pressed", String(power));
+  dom.wiringModeData?.classList.toggle("active", !power); dom.wiringModeData?.setAttribute("aria-pressed", String(!power));
+  dom.wiringToolbar?.querySelectorAll("[data-wiring-tool]").forEach((button) => {
+    const active = button.dataset.wiringTool === currentTool();
+    button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active));
+    // Change Tier is Power-only; disable it for Data so the control cannot lie.
+    if (button.dataset.wiringTool === "tier") button.disabled = !power;
+  });
+  // Data has no cable tiers, so the tier row is hidden while editing Data.
+  if (dom.wiringTierRow) dom.wiringTierRow.hidden = !power;
+  dom.wiringToolbar?.querySelectorAll("[data-wiring-tier]").forEach((button) => {
+    const active = button.dataset.wiringTier === selectedTier();
+    button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active));
+  });
   if (dom.wiringUndoButton) dom.wiringUndoButton.disabled = !ui().undoStack.length;
   if (dom.wiringClearNetworkButton) dom.wiringClearNetworkButton.disabled = ui().sourceIndex != null || !selectedNetwork();
-  if (dom.wiringHint) dom.wiringHint.textContent = ui().sourceIndex == null ? "Draw through components. Compatible systems touched by the cable join automatically. Drag from an existing cable to create a branch." : "Continue through occupied cells; click the last cell or release to finish. Reused trunk sections add no cable length.";
+  if (dom.wiringHint) dom.wiringHint.textContent = ui().sourceIndex != null
+    ? "Continue through occupied cells; click the last cell or release to finish. Reused trunk sections add no cable length."
+    : (power ? TOOL_HINTS[currentTool()] : "Data wiring is single-tier. Draw, erase or inspect Data cable.");
+}
+
+function signed(value) { const n = Math.round((Number(value) || 0) * 100) / 100; return n > 0 ? `+${n}` : `${n}`; }
+function signedMoney(value) { const n = Math.round((Number(value) || 0) * 100) / 100; return n >= 0 ? `+$${n}` : `-$${Math.abs(n)}`; }
+// The Wiring status panel shows hover previews and invalid reasons; toasts are
+// reserved for committed actions elsewhere. This keeps hover feedback quiet.
+function renderPreviewPanel() {
+  const panel = dom.wiringPreviewPanel; if (!panel) return;
+  if (state.blueprintView !== "wiring") { panel.hidden = true; panel.innerHTML = ""; return; }
+  const preview = hoverPreview();
+  if (transientReason) {
+    panel.hidden = false;
+    panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(transientReason))}</div>`;
+    return;
+  }
+  if (!preview) { panel.hidden = true; panel.innerHTML = ""; return; }
+  if (!preview.valid) {
+    panel.hidden = false;
+    panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(preview.reason))}</div>`;
+    return;
+  }
+  const capacityLine = `Heat capacity: ${signed(preview.delta.displacement === 0 ? 0 : -preview.delta.displacement)}`;
+  const costLine = `Cost: ${signedMoney(preview.delta.totalInfrastructure)}`;
+  const rows = [];
+  const tool = currentTool();
+  if (tool === "tier" && preview.affectedSectionIds) {
+    const section = bucket("power").sections.find((s) => s.id === preview.affectedSectionIds[0]);
+    rows.push(`<div class="wiring-preview-head">${escapeHtml(tierLabel(section?.tier))} → ${escapeHtml(tierLabel(selectedTier()))}</div>`);
+  } else if (tool === "erase") {
+    rows.push(`<div class="wiring-preview-head">Remove ${escapeHtml(ui().mode)} section</div>`);
+  } else if (ui().sourceIndex != null) {
+    rows.push(`<div class="wiring-preview-head">New sections: ${preview.newSections ?? 0} · New host cells: ${preview.newPowerCells}</div>`);
+  }
+  rows.push(`<div class="wiring-preview-line">${escapeHtml(costLine)}</div>`);
+  rows.push(`<div class="wiring-preview-line">${escapeHtml(capacityLine)}</div>`);
+  const warnings = previewWarnings(preview);
+  for (const warning of warnings) rows.push(`<div class="wiring-preview-warning">⚠ ${escapeHtml(warning)}</div>`);
+  panel.hidden = false;
+  panel.innerHTML = rows.join("");
+}
+
+// Warn when an erase would leave a Power consumer without a connected source.
+function previewWarnings(preview) {
+  if (currentTool() !== "erase" || ui().mode !== "power" || !preview?.proposedWiring) return [];
+  let before; let after;
+  try {
+    before = rules().analyzePowerNetworks(state.design, state.wiring, PART_STATS);
+    after = rules().analyzePowerNetworks(state.design, preview.proposedWiring, PART_STATS);
+  } catch (_) { return []; }
+  const beforeDisconnected = new Set(before.disconnectedConsumerIndices || []);
+  const newlyDisconnected = (after.disconnectedConsumerIndices || []).filter((index) => !beforeDisconnected.has(index));
+  return newlyDisconnected.map((index) => `disconnects ${moduleLabel(index)}`);
+}
+
+function hoverPreview() {
+  const id = ui().hoveredSectionId;
+  const tool = currentTool();
+  // Active Draw path preview (multi-section).
+  if (ui().sourceIndex != null && ui().path.length > 1) {
+    const cells = ui().path.map((cell) => ({ x: cell.x, y: cell.y }));
+    const signature = editRules().previewSignature(["draw", ui().mode, selectedTier(), cells]);
+    return cachedPreview(signature, () => editRules().previewPowerPathEdit(state.design, state.wiring, ui().mode, cells, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()));
+  }
+  if (!id) return null;
+  if (isPowerTierTool()) {
+    const signature = editRules().previewSignature(["tier", id, selectedTier(), state.wiring.power.sections.length]);
+    return cachedPreview(signature, () => editRules().previewPowerTierEdit(state.design, state.wiring, id, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()));
+  }
+  if (tool === "erase") {
+    const signature = editRules().previewSignature(["erase", ui().mode, id, state.wiring.power.sections.length, state.wiring.data.sections.length]);
+    return cachedPreview(signature, () => editRules().previewWiringSectionRemoval(state.design, state.wiring, ui().mode, id, PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()));
+  }
+  return null;
 }
 function svgEl(tag, attributes = {}, className = "") { const element = document.createElementNS(SVG_NS, tag); Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value))); if (className) element.setAttribute("class", className); return element; }
 function svgGroup(className) { return svgEl("g", {}, className); }
@@ -248,9 +477,18 @@ function renderWiringOverlay() {
     const dim = view.mode === "data" && selectedDataNetworkId && netForSection?.id !== selectedDataNetworkId ? " data-dimmed" : "";
     const sectionVulnerability = sectionVulnerabilityById.get(section.id);
     const severityClass = view.mode === "data" ? DATA_SECTION_SEVERITY_CLASS[sectionVulnerability?.severity] || "" : "";
-    const visible = line(section, `wire-${view.mode}${dim}${severityClass ? ` ${severityClass}` : ""}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}`); visible.dataset.sectionId = section.id; visibleLayer.appendChild(visible);
+    // Tier-specific stroke width. The rendered thickness is authoritative balance
+    // data; only the VISIBLE stroke scales, never the hit target (a separate wide
+    // line below), so Light cable stays easy to tap.
+    const tierClass = view.mode === "power" ? ` wire-tier-${section.tier || "standard"}` : "";
+    const hovered = ui().hoveredSectionId === section.id && ui().sourceIndex == null;
+    const previewClass = hovered && (isPowerTierTool() || currentTool() === "erase") ? " wire-section-preview" : hovered && currentTool() === "inspect" ? " wire-section-hover" : "";
+    const visible = line(section, `wire-${view.mode}${tierClass}${dim}${severityClass ? ` ${severityClass}` : ""}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}${previewClass}`);
+    if (view.mode === "power") visible.style.strokeWidth = renderedStrokeWidth(section.tier);
+    visible.dataset.sectionId = section.id; visibleLayer.appendChild(visible);
+    const tierText = view.mode === "power" ? `. ${tierLabel(section.tier)}` : "";
     const severityText = view.mode === "data" ? `. Vulnerability: ${sectionVulnerability?.severity || "unknown"}.` : "";
-    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("aria-label", `Select ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${severityText}`); hitLayer.appendChild(hit);
+    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("tabindex", "0"); hit.setAttribute("role", "button"); hit.setAttribute("aria-label", `${sectionActionVerb()} ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${tierText}${severityText}`); hitLayer.appendChild(hit);
   }
   rules().junctionCells(bucket()).forEach((cell) => markerLayer.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
   (selectedNet?.componentIndices || []).forEach((index) => indicatorLayer.appendChild(terminal(index, view.mode, true)));
@@ -325,6 +563,33 @@ function renderDataInspectionPanel(panel, section) {
   return true;
 }
 
+// Non-destructive Power cable inspection. Capacity is labelled a static "Cable
+// rating" — no flow/utilisation/overload is implied — and the net design impact
+// is the real shared accounting difference of removing the section, never a
+// "2 x costPerHostedCell" estimate.
+function powerSectionInspectionHtml(section) {
+  if (!section || ui().mode !== "power") return "";
+  const tier = WIRING_INFRASTRUCTURE?.powerTiers?.[section.tier] || {};
+  const acc = infraRules().accountInfrastructure(state.design, state.wiring, PART_STATS, WIRING_INFRASTRUCTURE);
+  const endpointHtml = rules().sectionCells(section).map((cell) => {
+    const index = partIndexAt(cell.x, cell.y);
+    const installed = acc.maps.power.byCellKey.get(rules().cellKey(cell.x, cell.y))?.tier || section.tier;
+    return `${index >= 0 ? escapeHtml(moduleLabel(index)) : `cell (${cell.x},${cell.y})`} — installed ${escapeHtml(tierLabel(installed))}`;
+  }).join("<br>");
+  const network = rules().networkForSection(currentAnalysis(), "power", section.id);
+  let impact = "";
+  try {
+    const preview = editRules().previewWiringSectionRemoval(state.design, state.wiring, "power", section.id, PART_STATS, WIRING_INFRASTRUCTURE, previewOptions());
+    if (preview.valid) impact = `<div class="wiring-summary-line">Net impact of removing this section:</div><div class="wiring-summary-line">Cost: ${signedMoney(preview.delta.totalInfrastructure)} · Heat capacity: ${signed(preview.delta.displacement === 0 ? 0 : -preview.delta.displacement)}</div>`;
+  } catch (_) { impact = ""; }
+  return `<div class="wiring-summary-section" data-wiring-inspection="power-section"><h4>${escapeHtml(tierLabel(section.tier))}</h4>
+    <div class="wiring-summary-line">Cable rating: ${Number(tier.sustainedCapacityMw) || 0} MW sustained / ${Number(tier.peakCapacityMw) || 0} MW peak</div>
+    <div class="wiring-summary-line">Section (${section.x1},${section.y1}) ↔ (${section.x2},${section.y2})</div>
+    <div class="wiring-summary-line">Hosts: ${endpointHtml}</div>
+    <div class="wiring-summary-line">${network ? `Physical network: ${escapeHtml(network.label)}` : "Not part of a sourced network"}</div>
+    ${impact}</div>`;
+}
+
 function renderStatusPanel() {
   const panel = dom.wiringStatusPanel; if (!panel || state.blueprintView !== "wiring") return; const analysis = currentAnalysis(); const network = selectedNetwork(); const section = bucket().sections.find((item) => item.id === ui().selectedSectionId);
   const current = rules().countUniqueSections(state.wiring, ui().mode); const additional = rules().additionalLengthForPath(state.wiring, ui().mode, ui().path); const limit = CABLE_LIMITS[ui().mode];
@@ -336,5 +601,6 @@ function renderStatusPanel() {
     <div class="wiring-summary-line">${current} unique cable sections${ui().path.length > 1 ? ` · +${additional} new in preview` : ""}${Number.isFinite(limit) ? ` · ${Math.max(0, limit - current - additional)} remaining` : ""}</div>
     ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}
     ${network ? `<div class="wiring-summary-section"><h4>${escapeHtml(network.label)} — ${escapeHtml(status)}</h4><div class="wiring-summary-line">${network.sections.length} sections · ${junctionCount} junctions · ${network.sourceIndices.length ? "contains a source" : "source-less"}</div><div class="wiring-summary-line">Sources: ${labels(network.sourceIndices)}</div><div class="wiring-summary-line">${ui().mode === "power" ? `Consumers: ${labels(network.consumerIndices)}<br>${mw(network.generationMw)} generation / ${mw(network.demandMw)} demand · ${network.surplusMw >= 0 ? `${mw(network.surplusMw)} surplus` : `${mw(network.deficitMw)} deficit`} · ${Math.round(network.availableEfficiency * 100)}% available` : `Data supports: ${labels(network.sourceIndices)}<br>Compatible weapons: ${labels(network.weaponIndices)}`}</div><div class="wiring-summary-line">Passive hosts: ${labels(network.hostIndices.filter((index) => !network.componentIndices.includes(index)))}</div></div>` : ""}
-    ${section ? `<div class="wiring-summary-section"><h4>Selected physical section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(section.tier)} tier · ${role}</div><div class="wiring-summary-line">Endpoint degrees: ${degrees[0]} / ${degrees[1]} · Hosts: ${labels([...new Set(rules().sectionCells(section).map((cell) => partIndexAt(cell.x, cell.y)).filter((index) => index >= 0))])}</div><div class="wiring-section-actions"><button type="button" data-wiring-action="branch-a">Branch from A</button><button type="button" data-wiring-action="branch-b">Branch from B</button><button type="button" data-wiring-action="remove-section">Remove section</button><button type="button" data-wiring-action="remove-branch">Remove branch</button><button type="button" data-wiring-action="cancel-selection">Cancel selection</button></div></div>` : ""}`;
+    ${section ? `<div class="wiring-summary-section"><h4>Selected physical section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(section.tier)} tier · ${role}</div><div class="wiring-summary-line">Endpoint degrees: ${degrees[0]} / ${degrees[1]} · Hosts: ${labels([...new Set(rules().sectionCells(section).map((cell) => partIndexAt(cell.x, cell.y)).filter((index) => index >= 0))])}</div><div class="wiring-section-actions"><button type="button" data-wiring-action="branch-a">Branch from A</button><button type="button" data-wiring-action="branch-b">Branch from B</button><button type="button" data-wiring-action="remove-section">Remove section</button><button type="button" data-wiring-action="remove-branch">Remove branch</button><button type="button" data-wiring-action="cancel-selection">Cancel selection</button></div></div>` : ""}
+    ${section ? powerSectionInspectionHtml(section) : ""}`;
 }
