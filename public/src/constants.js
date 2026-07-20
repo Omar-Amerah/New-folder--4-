@@ -49,6 +49,14 @@ export const HIDDEN_PARTS = new Set([
 export let SHIP_ECONOMY = Object.freeze({ ...GENERATED_BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...GENERATED_BALANCE.shipPricing.weaponPremiums }) });
 export function applyShipEconomy(economy) { SHIP_ECONOMY = Object.freeze({ ...economy, weaponPremiums: Object.freeze({ ...(economy?.weaponPremiums || {}) }) }); }
 
+// Authoritative wiring infrastructure balance (Power cable tiers, Data cable,
+// minimum Heat capacity). Loaded from the same balance file as the server so
+// cable cost and Heat displacement match client preview and server totals.
+export let WIRING_INFRASTRUCTURE = GENERATED_BALANCE.wiringInfrastructure;
+export function applyWiringInfrastructure(infrastructure) {
+  if (infrastructure && typeof infrastructure === "object" && !Array.isArray(infrastructure)) WIRING_INFRASTRUCTURE = infrastructure;
+}
+
 export function syncUrlParams() {
   if (typeof window === "undefined" || typeof window.location === "undefined" || typeof localStorage === "undefined") return;
   const params = new URLSearchParams(window.location.search);

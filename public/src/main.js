@@ -1,6 +1,6 @@
 // Bootstraps the browser client by wiring state, networking, UI, input, and rendering.
 
-import { applyShipEconomy } from "./constants.js";
+import { applyShipEconomy, applyWiringInfrastructure } from "./constants.js";
 import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
 import { renderPalette, setPartPaletteSelectionPresentationRefresh } from "./ui/partPaletteUi.js";
@@ -263,6 +263,7 @@ async function loadComponentBalance() {
     if (!response.ok) return;
     const balance = await response.json();
     applyShipEconomy(balance.shipPricing);
+    applyWiringInfrastructure(balance.wiringInfrastructure);
     const applied = applyComponentBalance(balance);
     if (!applied) return;
     renderPalette();

@@ -206,7 +206,7 @@ assert.equal(recovered.wiring.power.connections.length, wiring.power.connections
 // ---- Export / import carries wiring ----
 const exported = exportBlueprints([{ id: "ok", name: "Ok", blueprint: current, wiring }], []);
 assert.equal(exported.schemaVersion, 2, "export uses the current schema version");
-assert.equal(exported.payload.designs[0].wiring.version, 2, "export includes v2 wiring");
+assert.equal(exported.payload.designs[0].wiring.version, 3, "export includes migrated v3 wiring");
 const imp = importBlueprints(exported, [{ id: "ok", name: "Existing", blueprint: current, wiring }], []);
 assert.equal(imp.accepted, 1, "valid import accepted");
 assert.equal(new Set(imp.designs.map((d) => d.id)).size, imp.designs.length, "duplicate imported IDs are renamed safely");

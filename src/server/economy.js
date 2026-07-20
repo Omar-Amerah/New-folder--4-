@@ -21,7 +21,7 @@ function finiteMoney(value, fallback = 0) {
 
 function buyShip(room, player, now, options = {}) {
   if (!player.ready) return null;
-  const stats = options.stats || player.stats || computeStats(player.design);
+  const stats = options.stats || player.stats || computeStats(player.design, player.wiring);
   const blueprint = createShipBlueprintSnapshot(options.design || player.design, options.wiring !== undefined ? options.wiring : player.wiring);
   const { design, wiring } = blueprint;
   if (!options.prevalidated) {
@@ -189,7 +189,7 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   if (!player.ready) {
     return { ok: false, code: "invalid-design", reason: "Invalid design: save a blueprint first." };
   }
-  const shipStats = stats || player.stats || computeStats(player.design);
+  const shipStats = stats || player.stats || computeStats(player.design, player.wiring);
   if (shipStats.thrust <= 0) {
     return { ok: false, code: "invalid-design", reason: "Invalid design: add at least one engine." };
   }

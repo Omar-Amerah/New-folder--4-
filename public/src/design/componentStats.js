@@ -2,7 +2,7 @@
 
 import { clamp } from "../shared/math.js";
 import { PART_STATS } from "./parts.js";
-import { SHIP_ECONOMY } from "../constants.js";
+import { SHIP_ECONOMY, WIRING_INFRASTRUCTURE } from "../constants.js";
 import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import ShieldRules from "../shared/shieldRules.js";
@@ -138,7 +138,7 @@ export function computeStats(modules, options = {}) {
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
 
-  const costBreakdown = calculateCostBreakdown({
+  const costBreakdown = applyInfrastructureCost(calculateCostBreakdown({
     cost,
     mass,
     maxHp,
@@ -148,7 +148,7 @@ export function computeStats(modules, options = {}) {
     missile,
     railgun,
     beam
-  });
+  }), modules, options.wiring);
 
   const unitCost = costBreakdown.total;
   const fleetCount = clamp(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
@@ -251,6 +251,38 @@ export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
     },
     heatMultiplier: () => 1
   });
+}
+
+// Section 7A cost ordering (shared with the server): calculate the component
+// price normally, then add raw Power/Data infrastructure cost. Infrastructure
+// is never multiplied by hull/mass/weapon premiums. Passing wiring enables the
+// surcharge; without wiring the component price is returned unchanged so the
+// client preview total matches the server total for the same inputs.
+export function calculateInfrastructureCost(modules, wiring) {
+  const rules = globalThis.WiringInfrastructureRules;
+  if (!wiring || !rules) return { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0 };
+  try {
+    const infra = rules.computeInfrastructureCost(modules, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
+    return { powerWiring: infra.powerWiring, dataWiring: infra.dataWiring, totalInfrastructure: infra.totalInfrastructure };
+  } catch (_) {
+    return { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0 };
+  }
+}
+
+export function applyInfrastructureCost(costBreakdown, modules, wiring) {
+  const componentsTotal = costBreakdown.total;
+  const infra = calculateInfrastructureCost(modules, wiring);
+  const rules = globalThis.WiringInfrastructureRules;
+  const presentation = rules
+    ? rules.infrastructureCostPresentation(componentsTotal, infra.powerWiring, infra.dataWiring)
+    : { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0, totalShipCost: componentsTotal, infrastructurePercentage: 0 };
+  costBreakdown.preInfrastructureShipCost = componentsTotal;
+  costBreakdown.powerWiring = presentation.powerWiring;
+  costBreakdown.dataWiring = presentation.dataWiring;
+  costBreakdown.totalInfrastructure = presentation.totalInfrastructure;
+  costBreakdown.infrastructurePercentage = presentation.infrastructurePercentage;
+  costBreakdown.total = Math.round(presentation.totalShipCost);
+  return costBreakdown;
 }
 
 export function calculateCostBreakdown(stats) {

@@ -13,7 +13,7 @@ let wiring = W.emptyWiring();
 wiring = W.addConnection(wiring, "power", 0, 3, [{x:5,y:5},{x:6,y:5},{x:7,y:5},{x:8,y:5}], ship, PARTS);
 wiring = W.addConnection(wiring, "data", 4, 7, [{x:5,y:6},{x:6,y:6},{x:7,y:6},{x:8,y:6}], ship, PARTS);
 wiring = W.addConnection(wiring, "data", 8, 7, [{x:5,y:7},{x:5,y:6},{x:6,y:6},{x:7,y:6},{x:8,y:6}], ship, PARTS);
-assert.equal(W.WIRING_VERSION, 2);
+assert.equal(W.WIRING_VERSION, 3);
 assert.ok(wiring.power.sections.every(section => section.tier === "standard"), "new sections use standard tier");
 assert.equal(wiring.data.sections.length, 4, "shared physical sections are canonical and deduplicated");
 assert.equal(wiring.data.connections.length, 2, "logical routes independently reference shared sections");

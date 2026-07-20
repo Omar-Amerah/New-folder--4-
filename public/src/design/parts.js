@@ -263,6 +263,7 @@ export function normalizeRuntimePart(part = {}) {
   const normalized = {
     ...part,
     category: part.category || "Utility",
+    powerCategory: typeof part.powerCategory === "string" ? part.powerCategory : null,
     cost: numberOr(part.cost, 0),
     mass: numberOr(part.mass, 0),
     hp: numberOr(part.hp ?? part.hull, 0),
@@ -308,6 +309,7 @@ export function normalizeBalanceComponent(component) {
   const repairRate = numberOr(component.repairRate ?? component.repair, 0);
   const part = {
     category: component.category || "Utility",
+    powerCategory: typeof component.powerCategory === "string" ? component.powerCategory : null,
     cost: numberOr(component.cost, 0),
     mass: numberOr(component.mass, 0),
     hp: numberOr(component.hp ?? component.hull, 0),

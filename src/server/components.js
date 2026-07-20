@@ -78,6 +78,7 @@ function normalizeBalanceComponent(component) {
   const repairRate = toNumber(component.repairRate ?? component.repair, 0);
   const part = {
     category: component.category || "Utility",
+    powerCategory: typeof component.powerCategory === "string" ? component.powerCategory : null,
     cost: toNumber(component.cost, 0),
     mass: toNumber(component.mass, 0),
     hp: toNumber(component.hp ?? component.hull, 0),

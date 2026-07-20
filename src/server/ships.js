@@ -11,7 +11,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const { initShipHeat } = require("./heat");
   // Shallow-clone: destroyed components mutate top-level stat fields per ship,
   // and the source stats object is shared by every ship of the player.
-  const stats = { ...(options.stats || player.stats || computeStats(player.design)) };
+  const stats = { ...(options.stats || player.stats || computeStats(player.design, player.wiring)) };
   const blueprint = createShipBlueprintSnapshot(
     options.design || player.design,
     options.wiring !== undefined ? options.wiring : player.wiring
@@ -133,7 +133,7 @@ function addBot(room, requester) {
     ready: false,
     design,
     wiring,
-    stats: computeStats(design),
+    stats: computeStats(design, wiring),
     ships: [],
     money: room.rules?.startingMoney ?? ECONOMY.startingMoney,
     bank: room.rules?.startingMoney ?? ECONOMY.startingMoney,
@@ -178,7 +178,7 @@ function updateBots(room, now) {
     const rng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:bot:${seq}`)) >>> 0);
     ai.decisionSeq = seq + 1;
     ai.nextThinkAt = now + rngRange(rng, 900, 1700);
-    const currentCost = player.stats?.unitCost || computeStats(player.design).unitCost;
+    const currentCost = player.stats?.unitCost || computeStats(player.design, player.wiring).unitCost;
     if (player.money >= currentCost) {
       buyShip(room, player, now, { silent: true });
     }

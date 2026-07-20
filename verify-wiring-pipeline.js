@@ -41,7 +41,7 @@ function setup() {
   const { room, player, design } = setup();
   player.wiring = undefined;
   const direct = spawnShip(room, player, 0, 0, { design });
-  assert.deepStrictEqual(direct.wiring, { version: 2, power: { sections: [], connections: [] }, data: { sections: [], connections: [] } }, "missing wiring gets safe Wiring v2 fallback");
+  assert.deepStrictEqual(direct.wiring, { version: 3, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: { preset: "balanced", customOrder: ["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"] } }, "missing wiring gets safe Wiring v3 fallback");
   const invalid = spawnShip(room, player, 0, 1, { design, wiring: { version: 2, power: { sections: [{ x1: 0, y1: 0, x2: 1, y2: 0, tier: "hacked" }], connections: [{ sourceIndex: 999, targetIndex: -1, sectionIds: ["bad"] }] }, data: { networkIds: ["client"] } } });
   assert.deepStrictEqual(invalid.wiring, validateWiring(design, invalid.wiring).wiring, "raw invalid client-derived fields are not stored");
 }
@@ -62,8 +62,8 @@ function setup() {
   assert.deepStrictEqual(starter.wiring, wiring, "starter snapshots the player's wiring");
   player.wiring.power.sections.length = 0; assert.notStrictEqual(starter.wiring.power.sections.length, 0);
   addBot(room, player); const bot = [...room.players.values()].find((candidate) => candidate.isBot);
-  assert.strictEqual(bot.wiring.version, 2); bot.ready = true; bot.client = {}; const botShip = buyShip(room, bot, 0, { silent: true });
-  assert.strictEqual(botShip.wiring.version, 2); assert(botShip.wiring.power.sections.length > 0, "bot ship receives deterministic physical Power wiring");
+  assert.strictEqual(bot.wiring.version, 3); bot.ready = true; bot.client = {}; const botShip = buyShip(room, bot, 0, { silent: true });
+  assert.strictEqual(botShip.wiring.version, 3); assert(botShip.wiring.power.sections.length > 0, "bot ship receives deterministic physical Power wiring");
 }
 
 console.log("Wiring purchase/spawn pipeline checks passed");

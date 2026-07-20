@@ -70,14 +70,35 @@ function fallbackTier(kind, value) {
   return "standard";
 }
 
+const DEFAULT_POWER_POLICY = Object.freeze({
+  preset: "balanced",
+  customOrder: Object.freeze(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"])
+});
+
+function fallbackPowerPolicy(policy) {
+  const source = policy && typeof policy === "object" && !Array.isArray(policy) ? policy : {};
+  const preset = ["balanced", "defensive", "offensive", "mobility", "custom"].includes(source.preset) ? source.preset : "balanced";
+  const order = Array.isArray(source.customOrder)
+    ? source.customOrder.filter((value) => DEFAULT_POWER_POLICY.customOrder.includes(value))
+    : [];
+  const seen = new Set(order);
+  for (const category of DEFAULT_POWER_POLICY.customOrder) if (!seen.has(category)) { seen.add(category); order.push(category); }
+  return { preset, customOrder: order };
+}
+
+// Fallback preserves bounded Wiring v2/v3 routes when the shared engine script
+// is unavailable, always emitting the current v3 shape so a later persist does
+// not wipe user routes. Real migration/normalization happens once the engine
+// is present again.
 function preservedWiringFallback(wiring) {
   const empty = () => ({ sections: [], connections: [] });
-  if (wiring?.version !== 2) return { version: 2, power: empty(), data: empty() };
+  const version = wiring?.version;
+  if (version !== 2 && version !== 3) return { version: 3, power: empty(), data: empty(), powerPolicy: fallbackPowerPolicy(null) };
   const kind = (value, wiringKind) => ({
     sections: Array.isArray(value?.sections) ? value.sections.slice(0, 480).map((section) => ({
       id: String(section?.id || ""), x1: Math.trunc(Number(section?.x1)), y1: Math.trunc(Number(section?.y1)),
       x2: Math.trunc(Number(section?.x2)), y2: Math.trunc(Number(section?.y2)),
-      // Fallback only preserves reserved Power tier schema values; it does not
+      // Fallback preserves reserved Power tier schema values; it does not
       // implement tier capacity or gameplay. Data wiring remains standard-only.
       tier: fallbackTier(wiringKind, section?.tier)
     })) : [],
@@ -86,7 +107,7 @@ function preservedWiringFallback(wiring) {
       sectionIds: Array.isArray(connection?.sectionIds) ? connection.sectionIds.slice(0, 224).map(String) : []
     })) : []
   });
-  return { version: 2, power: kind(wiring.power, "power"), data: kind(wiring.data, "data") };
+  return { version: 3, power: kind(wiring.power, "power"), data: kind(wiring.data, "data"), powerPolicy: fallbackPowerPolicy(wiring?.powerPolicy) };
 }
 
 function nowIso() { return new Date().toISOString(); }
@@ -191,7 +212,7 @@ export function normalizeDesign(input, options = {}) {
 
 function normalizedDesignKey(modules) { return JSON.stringify(normalizeDesignDetailed(modules, { allowEmpty: true }).modules); }
 function isEmptyWiringValue(wiring) {
-  return wiring?.version === 2
+  return (wiring?.version === 2 || wiring?.version === 3)
     && (!Array.isArray(wiring?.power?.sections) || wiring.power.sections.length === 0)
     && (!Array.isArray(wiring?.power?.connections) || wiring.power.connections.length === 0)
     && (!Array.isArray(wiring?.data?.sections) || wiring.data.sections.length === 0)

@@ -60,10 +60,15 @@ function canonicalWiring(wiring, design) {
       sectionIds: Array.isArray(connection.sectionIds) ? connection.sectionIds.map(String) : []
     }))
   });
+  const policy = normalized.powerPolicy && typeof normalized.powerPolicy === "object" ? normalized.powerPolicy : {};
   return {
-    version: normalized.version || 2,
+    version: normalized.version || 3,
     power: bucket(normalized.power),
-    data: bucket(normalized.data)
+    data: bucket(normalized.data),
+    powerPolicy: {
+      preset: String(policy.preset || "balanced"),
+      customOrder: Array.isArray(policy.customOrder) ? policy.customOrder.map(String) : []
+    }
   };
 }
 
