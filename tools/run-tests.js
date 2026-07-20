@@ -62,6 +62,7 @@ const GROUPS = {
     "verify-wiring-infrastructure.js",
     "verify-wiring-editor.js",
     "verify-power-allocation-foundation.js",
+    "verify-power-flow.js",
     "verify-component-health.js",
     "verify-meltdown.js",
     "verify-core-reactor.js",

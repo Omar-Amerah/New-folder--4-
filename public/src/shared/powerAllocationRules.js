@@ -30,8 +30,17 @@
     return value === undefined || value === null ? "" : String(value);
   }
 
+  // Runtime- and locale-independent canonical ID comparator. Plain UTF-16 code
+  // unit ordering gives identical results in Node and every browser, regardless
+  // of machine locale or insertion order. Used everywhere IDs are sorted in the
+  // Power allocation and topology solver.
+  function compareCanonicalIds(a, b) {
+    const left = String(a);
+    const right = String(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  }
   function idSort(a, b) {
-    return a.localeCompare(b, undefined, { numeric: true });
+    return compareCanonicalIds(a, b);
   }
 
   // Consolidate the request list into deterministic per-id demand in integer
@@ -158,6 +167,7 @@
     POWER_FLOW_SCALE,
     mwToPowerUnits,
     powerUnitsToMw,
+    compareCanonicalIds,
     consolidateRequests,
     allocateProportionally,
     allocatePriorityBands

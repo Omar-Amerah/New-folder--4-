@@ -80,6 +80,18 @@ check("Labels: authoritative category labels are exposed", () => {
 // ---------------------------------------------------------------------------
 // Fixed-point Power helpers
 // ---------------------------------------------------------------------------
+console.log("Canonical comparator");
+check("Canonical ID comparator is lexical (UTF-16) and locale-independent", () => {
+  // Lexical, not numeric: "10" sorts before "2" because "1" < "2".
+  assert.strictEqual(PA.compareCanonicalIds("10", "2"), -1);
+  assert.strictEqual(PA.compareCanonicalIds("2", "10"), 1);
+  assert.strictEqual(PA.compareCanonicalIds("a", "a"), 0);
+  assert.strictEqual(PA.compareCanonicalIds("a", "b"), -1);
+  // Allocation output uses the same lexical order for numeric-looking ids.
+  const r = PA.allocateProportionally([{ id: "2", requestedMw: 10 }, { id: "10", requestedMw: 10 }], 100);
+  assert.deepStrictEqual(r.allocations.map((a) => a.id), ["10", "2"]);
+});
+
 console.log("Fixed-point Power helpers");
 check("10. MW converts deterministically to fixed-point units", () => {
   assert.strictEqual(PA.POWER_FLOW_SCALE, 1000);
