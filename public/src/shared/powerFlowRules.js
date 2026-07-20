@@ -22,6 +22,22 @@
   function partFor(catalogue, type) { return (catalogue && (catalogue[type] || catalogue.frame)) || {}; }
   function numberOr(value, fallback = 0) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
   function compareNumberThen(aNum, bNum, aId, bId) { return aNum !== bNum ? aNum - bNum : compareCanonicalIds(aId, bId); }
+  function pad2(value) { const n = Math.trunc(numberOr(value, 0)); return (n < 0 ? "-" : "") + String(Math.abs(n)).padStart(2, "0"); }
+
+  // Stable key derived from physical identity only (never the design-array
+  // index), so fairness and routing tie-breaks are independent of component
+  // order: min occupied y, min occupied x, the full sorted occupied-cell
+  // signature, type, then normalised rotation. Zero-padded so canonical string
+  // ordering matches coordinate ordering. Example: "07,06|06,07;07,07|reactor|0".
+  function stableComponentKey(moduleValue, catalogue) {
+    const cells = moduleCells(moduleValue, catalogue).map((cell) => ({ x: cell.x, y: cell.y }))
+      .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    const first = cells[0] || { x: 0, y: 0 };
+    const signature = cells.map((cell) => `${pad2(cell.y)},${pad2(cell.x)}`).join(";");
+    const type = String((moduleValue && moduleValue.type) || "");
+    const rotation = ((Math.trunc(numberOr(moduleValue && moduleValue.rotation, 0)) % 360) + 360) % 360;
+    return `${pad2(first.y)},${pad2(first.x)}|${signature}|${type}|${rotation}`;
+  }
 
   // ------------------------------------------------------------------
   // Deterministic integer max-flow (Edmonds-Karp; BFS shortest augmenting
@@ -150,11 +166,17 @@
       const terminals = moduleCells(moduleValue, catalogue).map((cell) => cellKey(cell.x, cell.y)).filter((key) => cellKeysSet.has(key));
       const uniqueTerminals = [...new Set(terminals)].sort(compareCanonicalIds);
       if (isPowerSourceType(type)) {
-        sources.push({ index, type, terminals: uniqueTerminals, alive, generationMw: alive ? sourceGenMw(index, type) : 0 });
+        sources.push({ index, type, terminals: uniqueTerminals, alive, generationMw: alive ? sourceGenMw(index, type) : 0, stableKey: stableComponentKey(moduleValue, catalogue) });
       } else if (isPowerConsumer(type, catalogue)) {
-        consumers.push({ index, type, terminals: uniqueTerminals, alive, demandMw: alive ? consumerDemandMw(index, type) : 0, powerCategory: partFor(catalogue, type).powerCategory || null });
+        consumers.push({ index, type, terminals: uniqueTerminals, alive, demandMw: alive ? consumerDemandMw(index, type) : 0, powerCategory: partFor(catalogue, type).powerCategory || null, stableKey: stableComponentKey(moduleValue, catalogue) });
       }
     });
+    // Order sources and consumers by stable physical identity (design-array
+    // index is only an impossible final tie-break) so graph construction,
+    // routing and fairness never depend on component ordering.
+    const byStableKey = (a, b) => compareCanonicalIds(a.stableKey, b.stableKey) || (a.index - b.index);
+    sources.sort(byStableKey);
+    consumers.sort(byStableKey);
 
     // ---- Build the flow network (nodes: S, T, one per cable cell, one per
     // source, one per consumer). ----
@@ -271,6 +293,36 @@
         // Lock caps at granted so committed flow survives later bands.
         for (let c = 0; c < consumers.length; c += 1) net.setCap(consumerSinkEdge[c], grantedUnits[c]);
         if (!progressed) break;
+      }
+
+      // Residual fixed-point distribution: the uniform-ratio fill can leave a
+      // few reachable units unallocated when the active consumers cannot all
+      // advance to the next common ratio. Hand those units out one at a time,
+      // the consumer furthest UNDER its proportional fair share first (stable
+      // physical key as the deterministic tie-break), preserving every already
+      // committed allocation, peak limits and conservation. The leftover is
+      // bounded by the number of band consumers (Hamilton rounding remainder).
+      const bandConsumers = consumers.map((_, c) => c).filter((c) => bandOfConsumer(c) === bandIndex && consumerDemandUnits[c] > 0);
+      for (let guard = 0; guard < bandConsumers.length + 4; guard += 1) {
+        const committed = net.snapshot();
+        const totalGrant = bandConsumers.reduce((sum, c) => sum + grantedUnits[c], 0);
+        const totalDemand = bandConsumers.reduce((sum, c) => sum + consumerDemandUnits[c], 0);
+        const candidates = bandConsumers.filter((c) => grantedUnits[c] < consumerDemandUnits[c] && canReceiveMore(c, committed));
+        if (!candidates.length) break;
+        candidates.sort((a, b) => {
+          // deficit = granted*totalDemand - totalGrant*demand; a smaller value is
+          // further under the proportional fair share, so it is served first.
+          const da = grantedUnits[a] * totalDemand - totalGrant * consumerDemandUnits[a];
+          const db = grantedUnits[b] * totalDemand - totalGrant * consumerDemandUnits[b];
+          return (da - db) || compareCanonicalIds(consumers[a].stableKey, consumers[b].stableKey);
+        });
+        const c = candidates[0];
+        for (let k = 0; k < consumers.length; k += 1) net.setCap(consumerSinkEdge[k], k === c ? grantedUnits[c] + 1 : grantedUnits[k]);
+        net.restore(committed);
+        net.maxflow(S, T);
+        if (flowInto(c) <= grantedUnits[c]) break;
+        grantedUnits[c] = flowInto(c);
+        for (let k = 0; k < consumers.length; k += 1) net.setCap(consumerSinkEdge[k], grantedUnits[k]);
       }
     }
 

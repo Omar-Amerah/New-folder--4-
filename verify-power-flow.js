@@ -361,6 +361,87 @@ check("M1. A source/consumer spanning two islands is not double-counted per netw
 });
 
 // ---------------------------------------------------------------------------
+// Residual fixed-point distribution
+// ---------------------------------------------------------------------------
+console.log("Residual distribution");
+check("R1. Three tied 10 MW consumers share 10 MW: exact total, <=0.001 spread, canonical-first unit", () => {
+  const design = [{ x: 6, y: 7, type: "core" }, { x: 7, y: 7, type: "blaster" }, { x: 8, y: 7, type: "blaster" }, { x: 9, y: 7, type: "blaster" }];
+  const sections = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy"), sec(8, 7, 9, 7, "heavy")];
+  const r = solve(design, sections, { sourceGenerationByIndex: { 0: 10 }, consumerDemandByIndex: { 1: 10, 2: 10, 3: 10 } });
+  const allocs = [1, 2, 3].map((i) => consumer(r, i).allocatedMw);
+  assert.strictEqual(allocs.reduce((a, b) => a + b, 0), 10, "exactly 10 MW allocated");
+  assert.ok(Math.max(...allocs) - Math.min(...allocs) <= 0.001 + 1e-9, "allocations differ by at most 0.001 MW");
+  assert.strictEqual(allocs[0], 3.334, "canonically first consumer receives the rounding unit");
+  assert.strictEqual(r.summary.strandedGenerationMw, 0, "no reachable generation left stranded");
+});
+check("R2. Two tied 3 MW consumers share 0.001 MW: allocated, not stranded, deterministic recipient", () => {
+  const design = [{ x: 6, y: 7, type: "core" }, { x: 7, y: 7, type: "blaster" }, { x: 8, y: 7, type: "blaster" }];
+  const sections = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy")];
+  const r = solve(design, sections, { sourceGenerationByIndex: { 0: 0.001 }, consumerDemandByIndex: { 1: 3, 2: 3 } });
+  assert.strictEqual(r.summary.allocatedMw, 0.001, "exactly 0.001 MW allocated");
+  assert.strictEqual(r.summary.strandedGenerationMw, 0, "single unit is not left stranded");
+  assert.strictEqual(consumer(r, 1).allocatedMw, 0.001, "deterministic recipient is the canonically first consumer");
+  assert.strictEqual(consumer(r, 2).allocatedMw, 0);
+});
+check("R3. Invariant: reachable unsatisfied demand + feasible augmentation means no unused generation", () => {
+  // Ample (heavy) cable so peak never binds: any unmet demand can only mean
+  // generation is exhausted. A shortage must therefore report zero stranded gen.
+  const design = [{ x: 6, y: 7, type: "core" }, { x: 7, y: 7, type: "blaster" }, { x: 8, y: 7, type: "blaster" }, { x: 9, y: 7, type: "blaster" }];
+  const sections = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy"), sec(8, 7, 9, 7, "heavy")];
+  const r = solve(design, sections, { sourceGenerationByIndex: { 0: 10 }, consumerDemandByIndex: { 1: 10, 2: 10, 3: 10 } });
+  assert.ok(r.summary.unmetMw > 0, "reachable demand is unsatisfied");
+  assert.strictEqual(r.summary.strandedGenerationMw, 0, "no unused generation while reachable demand is unmet");
+  assert.strictEqual(r.summary.usedGenerationMw, r.summary.availableGenerationMw, "all reachable generation is used");
+});
+
+// ---------------------------------------------------------------------------
+// Stable physical ordering (design-array order independence)
+// ---------------------------------------------------------------------------
+console.log("Stable physical ordering");
+check("S1. Reordering the design array (with remapped overrides) yields identical physical results", () => {
+  // Symmetric two-source/two-consumer line: core-blaster-frame-blaster-core.
+  const forwardDesign = [
+    { x: 3, y: 7, type: "core" },    // 0 source
+    { x: 4, y: 7, type: "blaster" }, // 1 consumer
+    { x: 5, y: 7, type: "frame" },   // 2 passive
+    { x: 6, y: 7, type: "blaster" }, // 3 consumer
+    { x: 7, y: 7, type: "core" }     // 4 source
+  ];
+  const sections = [sec(3, 7, 4, 7, "heavy"), sec(4, 7, 5, 7, "heavy"), sec(5, 7, 6, 7, "heavy"), sec(6, 7, 7, 7, "heavy")];
+  const forwardOverrides = { sourceGenerationByIndex: { 0: 5, 4: 5 }, consumerDemandByIndex: { 1: 8, 3: 8 } };
+  const forward = solve(forwardDesign, sections, forwardOverrides);
+
+  // Reorder the design array and remap the index-based overrides accordingly.
+  const order = [4, 3, 2, 1, 0];
+  const reorderedDesign = order.map((i) => forwardDesign[i]);
+  const newIndexOf = (oldIndex) => order.indexOf(oldIndex);
+  const remap = (byIndex) => Object.fromEntries(Object.entries(byIndex).map(([i, v]) => [newIndexOf(Number(i)), v]));
+  const reordered = solve(reorderedDesign, [...sections].reverse(), {
+    sourceGenerationByIndex: remap(forwardOverrides.sourceGenerationByIndex),
+    consumerDemandByIndex: remap(forwardOverrides.consumerDemandByIndex)
+  });
+
+  const keyed = (design, result) => {
+    const consumers = {}; const sources = {};
+    for (const cpt of result.byComponentIndex) {
+      const m = design[cpt.componentIndex]; const key = `${m.type}@${m.x},${m.y}`;
+      if (cpt.role === "consumer") consumers[key] = cpt.allocatedMw;
+      else if (cpt.role === "source") sources[key] = cpt.generationUsedMw;
+    }
+    const flows = {}; for (const f of result.sectionFlows) flows[f.sectionId] = f.signedFlowMw;
+    const nets = {};
+    for (const n of result.networks) nets[n.sectionIds.join(";")] = { avail: n.availableGenerationMw, used: n.usedGenerationMw, demand: n.demandMw, alloc: n.allocatedMw };
+    return { consumers, sources, flows, nets };
+  };
+  const a = keyed(forwardDesign, forward);
+  const b = keyed(reorderedDesign, reordered);
+  assert.deepStrictEqual(a.consumers, b.consumers, "identical physical consumer allocations");
+  assert.deepStrictEqual(a.sources, b.sources, "identical source usage");
+  assert.deepStrictEqual(a.flows, b.flows, "identical signed section flows");
+  assert.deepStrictEqual(a.nets, b.nets, "identical network totals by section signature");
+});
+
+// ---------------------------------------------------------------------------
 // Output safety
 // ---------------------------------------------------------------------------
 console.log("Output safety");
