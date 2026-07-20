@@ -677,12 +677,7 @@ function weaponReloadSeconds(effectiveWeapon, activityMultiplier) {
   );
 }
 
-function moduleRotationToRadians(rotation) {
-  if (rotation === 90) return Math.PI / 2;
-  if (rotation === 180) return Math.PI;
-  if (rotation === 270) return -Math.PI / 2;
-  return 0;
-}
+const moduleRotationToRadians = require("../../public/src/shared/rotationRules").moduleRotationToRadians;
 
 function moduleLocalPosition(module, scale = MODULE_SCALE) {
   // 7 = center of the 15x15 build grid (core position), keeping module world

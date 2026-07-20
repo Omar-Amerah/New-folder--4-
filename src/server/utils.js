@@ -33,15 +33,9 @@ function seededRandom(seed) {
   };
 }
 
-function angleDifference(a, b) {
-  return Math.atan2(Math.sin(b - a), Math.cos(b - a));
-}
-
-function rotateToward(current, target, maxStep) {
-  const diff = angleDifference(current, target);
-  if (Math.abs(diff) <= maxStep) return target;
-  return current + Math.sign(diff) * maxStep;
-}
+// Shared with the client renderer (public/src/shared/rotationRules.js) so
+// server aim math and the client's turret prediction can never drift.
+const { angleDifference, approachAngle: rotateToward } = require("../../public/src/shared/rotationRules");
 
 function round(value) {
   return Math.round(value * 100) / 100;
