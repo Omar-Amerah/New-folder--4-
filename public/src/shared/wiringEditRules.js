@@ -122,6 +122,11 @@
       });
     }
 
+    // Actual total Heat-capacity change after heat-sink bonuses and the minimum
+    // clamp — this, not the nominal infrastructure displacement, is what the UI
+    // should show. delta.displacement remains the raw infrastructure value.
+    delta.actualHeatCapacity = affectedComponents.reduce((sum, component) => sum + component.heatCapacityDelta, 0);
+
     return {
       valid: true,
       reason: null,

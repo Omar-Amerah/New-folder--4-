@@ -7,6 +7,7 @@ import { getFootprintBounds } from "../design/footprint.js";
 import { persistDesign, defaultWiring, normalizeWiring } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { computeStats } from "../design/componentStats.js";
+import { preDisplacementHeatCapacities } from "../design/thermalAnalysis.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { getCachedDesignDataSupport, getCachedDataVulnerabilities } from "../design/dataSupportAnalysis.js";
 import { formatDataSupportValue, formatDataSupportEquation } from "../design/dataSupportPresentation.js";
@@ -21,7 +22,6 @@ let suppressNextClick = false;
 function rules() { return globalThis.WiringRules; }
 function editRules() { return globalThis.WiringEditRules; }
 function infraRules() { return globalThis.WiringInfrastructureRules; }
-function heatRules() { return globalThis.HeatRules; }
 function ui() { return state.wiringUi; }
 const POWER_TIERS = Object.freeze(["light", "standard", "heavy"]);
 function currentTool() { return ui().wiringTool || "draw"; }
@@ -56,8 +56,10 @@ function applyHoverHighlight() {
   });
 }
 
-// Base component Heat capacities (pre-displacement) for thermal previews.
-function powerBaseCapacities() { return state.design.map((module) => heatRules().profile(module.type, PART_STATS[module.type] || {}).capacity); }
+// Pre-displacement Heat capacities (base profile + legitimate heat-sink adjacency
+// bonuses, no wiring displacement) from the shared thermal model, so previews
+// see the same authoritative capacity the committed design and server use.
+function powerBaseCapacities() { try { return preDisplacementHeatCapacities(state.design); } catch (_) { return state.design.map(() => 0); } }
 // The component-derived ship price is independent of wiring, so it is a safe
 // shared baseline for total-ship-cost and infrastructure-percentage previews.
 function preInfrastructureShipCost() { try { return computeStats(state.design).costBreakdown.total; } catch (_) { return 0; } }
@@ -394,7 +396,7 @@ function renderPreviewPanel() {
     panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(preview.reason))}</div>`;
     return;
   }
-  const capacityLine = `Heat capacity: ${signed(preview.delta.displacement === 0 ? 0 : -preview.delta.displacement)}`;
+  const capacityLine = `Heat capacity: ${signed(preview.delta.actualHeatCapacity)}`;
   const costLine = `Cost: ${signedMoney(preview.delta.totalInfrastructure)}`;
   const rows = [];
   const tool = currentTool();
@@ -580,7 +582,7 @@ function powerSectionInspectionHtml(section) {
   let impact = "";
   try {
     const preview = editRules().previewWiringSectionRemoval(state.design, state.wiring, "power", section.id, PART_STATS, WIRING_INFRASTRUCTURE, previewOptions());
-    if (preview.valid) impact = `<div class="wiring-summary-line">Net impact of removing this section:</div><div class="wiring-summary-line">Cost: ${signedMoney(preview.delta.totalInfrastructure)} · Heat capacity: ${signed(preview.delta.displacement === 0 ? 0 : -preview.delta.displacement)}</div>`;
+    if (preview.valid) impact = `<div class="wiring-summary-line">Net impact of removing this section:</div><div class="wiring-summary-line">Cost: ${signedMoney(preview.delta.totalInfrastructure)} · Heat capacity: ${signed(preview.delta.actualHeatCapacity)}</div>`;
   } catch (_) { impact = ""; }
   return `<div class="wiring-summary-section" data-wiring-inspection="power-section"><h4>${escapeHtml(tierLabel(section.tier))}</h4>
     <div class="wiring-summary-line">Cable rating: ${Number(tier.sustainedCapacityMw) || 0} MW sustained / ${Number(tier.peakCapacityMw) || 0} MW peak</div>

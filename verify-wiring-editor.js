@@ -26,6 +26,13 @@ const straight = [{ x: 6, y: 7, type: "reactor" }, { x: 7, y: 7, type: "core" },
 const base = straight.map((m) => HeatRules.profile(m.type, PARTS[m.type] || {}).capacity);
 const opts = { baseCapacities: base, preInfrastructureShipCost: 100 };
 function empty() { return W.emptyWiring(); }
+// Authoritative server per-component effective Heat capacities (base + heat-sink
+// adjacency bonus - wiring displacement, clamped) for a design + wiring.
+function serverCaps(design, wiring) {
+  const ship = { design, wiring: W.normalizeWiring(wiring, design, PARTS).wiring, componentHp: design.map(() => 100), componentMaxHp: design.map(() => 100) };
+  heat.initShipHeat(ship);
+  return ship.componentThermals.map((t) => t.capacity);
+}
 function path(...cells) { return cells; }
 function tierOf(wiring, id) { return wiring.power.sections.find((s) => s.id === id)?.tier; }
 function normalized(wiring) { return W.normalizeWiring(wiring, straight, PARTS).wiring; }
@@ -297,6 +304,38 @@ check("51-52. Power allocation and Data support behaviour unchanged by tiers", (
   const pb = W.analyzePowerNetworks(straight, heavy, PARTS);
   assert.deepStrictEqual(pa.networks.map((n) => n.status), pb.networks.map((n) => n.status));
   assert.strictEqual(pa.totalConnectedDemandMw, pb.totalConnectedDemandMw);
+});
+
+// ---------------------------------------------------------------------------
+// Actual Heat-capacity delta (heat-sink adjacency + minimum clamp)
+// ---------------------------------------------------------------------------
+console.log("Actual Heat-capacity delta");
+check("A. Heat Sink adjacency: delta.actualHeatCapacity matches server thermal result", () => {
+  // frame(7,7) is adjacent to a heatSink(8,7) [+35 static bonus] and hosts a
+  // heavy Power cell via reactor(6,7)-frame(7,7).
+  const design = [{ x: 6, y: 7, type: "reactor" }, { x: 7, y: 7, type: "frame" }, { x: 8, y: 7, type: "heatSink" }];
+  // Pre-displacement caps = base + heat-sink bonus (server with no wiring).
+  const preCaps = serverCaps(design, W.emptyWiring());
+  const wHeavy = W.addPathWithTier(W.emptyWiring(), "power", [{ x: 6, y: 7 }, { x: 7, y: 7 }], design, PARTS, "heavy");
+  const capsHeavy = serverCaps(design, wHeavy);
+  const capsRemoved = serverCaps(design, W.emptyWiring());
+  const serverDelta = capsRemoved.reduce((sum, cap, i) => sum + (cap - capsHeavy[i]), 0);
+  const preview = WE.previewWiringSectionRemoval(design, wHeavy, "power", "6,7:7,7", PARTS, INFRA, { baseCapacities: preCaps, preInfrastructureShipCost: 100 });
+  assert.ok(preview.valid);
+  assert.strictEqual(preview.delta.actualHeatCapacity, serverDelta, "actual capacity delta matches server");
+  // The heat-sink bonus keeps the frame well above the minimum, so full capacity is restored.
+  assert.ok(preview.delta.actualHeatCapacity > 0, "removing cable restores real capacity");
+});
+check("B. Minimum clamp: preview reports actual clamped change, not raw displacement", () => {
+  const design = [{ x: 6, y: 7, type: "reactor" }, { x: 7, y: 7, type: "core" }];
+  // Both components already at the configured minimum capacity.
+  const atMin = design.map(() => INFRA.minimumComponentHeatCapacity);
+  const preview = WE.previewPowerPathEdit(design, W.emptyWiring(), "power", [{ x: 6, y: 7 }, { x: 7, y: 7 }], "heavy", PARTS, INFRA, { baseCapacities: atMin, preInfrastructureShipCost: 100 });
+  assert.ok(preview.valid);
+  // Two heavy host cells → raw displacement is 2 x heavy, but capacity is clamped.
+  assert.strictEqual(preview.delta.displacement, INFRA.powerTiers.heavy.heatCapacityDisplacement * 2, "raw displacement preserved");
+  assert.strictEqual(preview.delta.actualHeatCapacity, 0, "clamped capacity does not actually change");
+  assert.notStrictEqual(preview.delta.actualHeatCapacity, -preview.delta.displacement, "actual differs from raw displacement under clamp");
 });
 
 console.log(`\nSection 7B wiring-editor verification passed (${passed} checks)`);
