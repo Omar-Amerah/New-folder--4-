@@ -430,6 +430,9 @@ function previewWarnings(preview) {
 }
 
 function hoverPreview() {
+  // The edit/preview module is an optional classic script; if it has not loaded
+  // the editor still works, only without live previews.
+  if (!editRules()) return null;
   const id = ui().hoveredSectionId;
   const tool = currentTool();
   // Active Draw path preview (multi-section).
@@ -570,7 +573,7 @@ function renderDataInspectionPanel(panel, section) {
 // is the real shared accounting difference of removing the section, never a
 // "2 x costPerHostedCell" estimate.
 function powerSectionInspectionHtml(section) {
-  if (!section || ui().mode !== "power") return "";
+  if (!section || ui().mode !== "power" || !infraRules() || !editRules()) return "";
   const tier = WIRING_INFRASTRUCTURE?.powerTiers?.[section.tier] || {};
   const acc = infraRules().accountInfrastructure(state.design, state.wiring, PART_STATS, WIRING_INFRASTRUCTURE);
   const endpointHtml = rules().sectionCells(section).map((cell) => {
