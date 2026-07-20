@@ -420,10 +420,25 @@
                   <button type="button" id="wiringModePower" class="wiring-mode-power active" aria-pressed="true" title="Edit Power wiring (amber)">Power</button>
                   <button type="button" id="wiringModeData" class="wiring-mode-data" aria-pressed="false" title="Edit Data wiring (cyan)">Data</button>
                 </div>
+                <div class="wiring-control-row wiring-tool-row" role="group" aria-label="Wiring tool">
+                  <span class="wiring-control-label">Tool</span>
+                  <button type="button" class="wiring-tool" data-wiring-tool="draw" aria-pressed="true" title="Draw new cable">Draw</button>
+                  <button type="button" class="wiring-tool" data-wiring-tool="tier" aria-pressed="false" title="Upgrade or downgrade an existing Power section">Change Tier</button>
+                  <button type="button" class="wiring-tool" data-wiring-tool="erase" aria-pressed="false" title="Erase a cable section">Erase</button>
+                  <button type="button" class="wiring-tool" data-wiring-tool="inspect" aria-pressed="false" title="Inspect a cable section">Inspect</button>
+                  <button type="button" class="wiring-tool wiring-tool-reserved" data-wiring-tool="switchgear" aria-pressed="false" disabled title="Place Switchgear (coming in a later phase)">Switchgear</button>
+                </div>
+                <div id="wiringTierRow" class="wiring-control-row wiring-tier-row" role="group" aria-label="Power cable tier">
+                  <span class="wiring-control-label">Tier</span>
+                  <button type="button" class="wiring-tier" data-wiring-tier="light" aria-pressed="false" title="Light Cable (thin, cheapest, lowest Heat displacement)">Light</button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="standard" aria-pressed="true" title="Standard Cable">Standard</button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false" title="Heavy Bus (thick, highest rating and Heat displacement)">Heavy</button>
+                </div>
                 <div class="wiring-control-row" role="group" aria-label="Wiring actions">
                   <button type="button" id="wiringUndoButton" title="Undo last completed wiring change">Undo</button>
                   <button type="button" id="wiringClearNetworkButton" title="Remove the active inspected network">Clear Network</button>
                 </div>
+                <div id="wiringPreviewPanel" class="wiring-preview-panel" hidden aria-live="polite"></div>
                 <small id="wiringHint" class="wiring-hint" aria-live="polite"></small>
               </div>
               <div id="heatToolbar" class="heat-toolbar" hidden>
@@ -534,6 +549,7 @@
     <script src="/src/shared/powerPolicyRules.js?v=power-policy-1"></script>
     <script src="/src/shared/wiringRules.js?v=wiring-rules-5"></script>
     <script src="/src/shared/wiringInfrastructureRules.js?v=wiring-infra-1"></script>
+    <script src="/src/shared/wiringEditRules.js?v=wiring-edit-1"></script>
     <script type="module" src="/src/main.js?v=local-heat-4"></script>
   </body>
 </html>

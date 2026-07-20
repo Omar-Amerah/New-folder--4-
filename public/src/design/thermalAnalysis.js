@@ -118,6 +118,19 @@ export function buildThermalModel(design, wiring = null) {
 }
 
 /**
+ * Per-component capacity that includes legitimate static bonuses (heat-sink
+ * adjacency) but NOT wiring displacement. This is the authoritative
+ * pre-displacement base used by wiring edit previews so their Heat-capacity
+ * deltas match the final post-displacement capacity. Built without wiring, so
+ * no displacement is applied.
+ * @param {Array<{type:string,x:number,y:number,rotation?:number}>} design
+ * @returns {number[]} capacity by design index (base profile + heat-sink bonus).
+ */
+export function preDisplacementHeatCapacities(design) {
+  return buildThermalModel(design).profiles.map((profile) => profile.capacity);
+}
+
+/**
  * Build per-component activity and heat-generation rates for a named thermal scenario.
  * @param {object} model - Output from buildThermalModel().
  * @param {"idle"|"combat"|"full"|string} mode - Load scenario.

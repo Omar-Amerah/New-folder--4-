@@ -76,6 +76,8 @@ export const dom = {
   wiringToolbar: document.getElementById("wiringToolbar"),
   wiringModePower: document.getElementById("wiringModePower"),
   wiringModeData: document.getElementById("wiringModeData"),
+  wiringTierRow: document.getElementById("wiringTierRow"),
+  wiringPreviewPanel: document.getElementById("wiringPreviewPanel"),
   wiringUndoButton: document.getElementById("wiringUndoButton"),
   wiringClearNetworkButton: document.getElementById("wiringClearNetworkButton"),
   wiringHint: document.getElementById("wiringHint"),
