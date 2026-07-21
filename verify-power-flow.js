@@ -502,4 +502,57 @@ check("38. Inputs are not mutated", () => {
   assert.strictEqual(JSON.stringify({ design, wiring, genByIndex }), snapshot, "no input mutated");
 });
 
+// ---------------------------------------------------------------------------
+// Section 7D-2 — corrected component terminal attachment (one terminal per
+// island). A multi-cell component can no longer bypass its own cable sections.
+// ---------------------------------------------------------------------------
+function flowMap(result) { const m = {}; for (const f of result.sectionFlows) m[f.sectionId] = f.absoluteFlowMw; return m; }
+check("39. The first section leaving a multi-cell source carries the real flow", () => {
+  // reactor is 2x1: at (6,7) it occupies (6,7) and (7,7). Its internal section
+  // (6,7):(7,7) must carry the downstream draw instead of being bypassed.
+  const design = [{ x: 6, y: 7, type: "reactor" }, { x: 8, y: 7, type: "gyroscope" }];
+  const sections = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy")];
+  const r = solve(design, sections, { sourceGenerationByIndex: { 0: 10 } });
+  assert.strictEqual(sectionFlow(r, "6,7:7,7").absoluteFlowMw, 3, "the source's first section carries the draw");
+  assert.strictEqual(sectionFlow(r, "7,7:8,7").absoluteFlowMw, 3, "the section into the consumer carries the draw");
+});
+check("40. The final section entering a consumer carries the real flow", () => {
+  const design = [{ x: 7, y: 6, type: "core" }, { x: 7, y: 7, type: "frame" }, { x: 7, y: 8, type: "gyroscope" }];
+  const sections = [sec(7, 6, 7, 7, "heavy"), sec(7, 7, 7, 8, "heavy")];
+  const r = solve(design, sections, { sourceGenerationByIndex: { 0: 4 } });
+  assert.strictEqual(sectionFlow(r, "7,7:7,8").absoluteFlowMw, 3, "the final section into the consumer carries the draw");
+  assert.strictEqual(sectionFlow(r, "7,6:7,7").absoluteFlowMw, 3, "the first section after the source carries the draw");
+});
+check("41. A multi-cell component still reaches two disconnected islands; generation counted once", () => {
+  // reactor occupies (0,0),(1,0). Island A: (0,0)-(0,1); island B: (1,0)-(1,1);
+  // no section bridges (0,0)-(1,0), so the reactor legitimately spans both.
+  const design = [{ x: 0, y: 0, type: "reactor" }, { x: 0, y: 1, type: "gyroscope" }, { x: 1, y: 1, type: "gyroscope" }];
+  const sections = [sec(0, 0, 0, 1, "heavy"), sec(1, 0, 1, 1, "heavy")];
+  const r = solve(design, sections, { sourceGenerationByIndex: { 0: 10 } });
+  assert.strictEqual(consumer(r, 1).state, "powered", "island A consumer powered");
+  assert.strictEqual(consumer(r, 2).state, "powered", "island B consumer powered");
+  assert.strictEqual(r.networks.length, 2, "two separate networks");
+  assert.strictEqual(r.summary.usedGenerationMw, 6, "generation counted once across both islands (3 + 3)");
+  assert.strictEqual(sectionFlow(r, "0,0:0,1").absoluteFlowMw, 3);
+  assert.strictEqual(sectionFlow(r, "1,0:1,1").absoluteFlowMw, 3);
+});
+check("42. Terminal selection is component/section array-order independent", () => {
+  const designA = [{ x: 6, y: 7, type: "reactor" }, { x: 8, y: 7, type: "gyroscope" }];
+  const sectionsA = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy")];
+  const designB = [{ x: 8, y: 7, type: "gyroscope" }, { x: 6, y: 7, type: "reactor" }];
+  const sectionsB = [sec(7, 7, 8, 7, "heavy"), sec(6, 7, 7, 7, "heavy")];
+  const rA = solve(designA, sectionsA, { sourceGenerationByIndex: { 0: 10 } });
+  const rB = solve(designB, sectionsB, { sourceGenerationByIndex: { 1: 10 } });
+  assert.deepStrictEqual(flowMap(rA), flowMap(rB), "physical section flows are identical regardless of array order");
+});
+check("43. componentDemandByIndex overrides nominal demand and drives section flow", () => {
+  const design = [{ x: 6, y: 7, type: "core" }, { x: 7, y: 7, type: "frame" }, { x: 8, y: 7, type: "gyroscope" }];
+  const sections = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy")];
+  const nominal = solve(design, sections, { sourceGenerationByIndex: { 0: 10 } });
+  const reduced = solve(design, sections, { sourceGenerationByIndex: { 0: 10 }, componentDemandByIndex: { 2: 1 } });
+  assert.strictEqual(sectionFlow(nominal, "7,7:8,7").absoluteFlowMw, 3, "nominal gyroscope draw");
+  assert.strictEqual(sectionFlow(reduced, "7,7:8,7").absoluteFlowMw, 1, "reduced demand lowers the section flow");
+  assert.strictEqual(consumer(reduced, 2).requestedMw, 1, "requested demand reflects the override");
+});
+
 console.log(`\nSection 7C-2 Power flow solver verification passed (${passed} checks)`);

@@ -8,6 +8,7 @@ const PowerFlowRules = require("../../public/src/shared/powerFlowRules");
 const PowerAllocationRules = require("../../public/src/shared/powerAllocationRules");
 const PowerPolicyRules = require("../../public/src/shared/powerPolicyRules");
 const PowerCableThermalRules = require("../../public/src/shared/powerCableThermalRules");
+const PowerDemandRules = require("../../public/src/shared/powerDemandRules");
 const { BALANCE } = require("./balanceConfig");
 const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
@@ -139,13 +140,15 @@ function applyShipPowerAllocation(ship, options = {}) {
     powerPolicy: PowerPolicyRules.clonePolicy(ship.wiring?.powerPolicy)
   };
   // Live source generation (already zero for destroyed/overheated sources) and
-  // current component operational state. Consumer demand stays static nominal
-  // powerUse (no firing/movement/shield/repair activity demand).
+  // current component operational state. Consumer demand is the Section 7D-2
+  // activity-derived demand map when present (built by updateShipPowerDemand),
+  // otherwise the solver falls back to static nominal powerUse.
   const sourceGenerationByIndex = {};
   const componentOperationalByIndex = design.map((module, index) => {
     if (isPowerSource(module)) sourceGenerationByIndex[index] = effectiveLiveSourceGeneration(ship, index);
     return (ship.componentHp?.[index] ?? 1) > 0;
   });
+  const componentDemandByIndex = ship._activityDemandByIndex || undefined;
   // The shared solver is the sole allocation authority. An unexpected exception
   // must propagate so tests and server diagnostics expose the underlying defect,
   // and a malformed result is rejected outright — never silently fail-open to a
@@ -159,7 +162,8 @@ function applyShipPowerAllocation(ship, options = {}) {
     catalogue: PARTS,
     infrastructure: BALANCE.wiringInfrastructure,
     sourceGenerationByIndex,
-    componentOperationalByIndex
+    componentOperationalByIndex,
+    componentDemandByIndex
   });
   if (!result || !Array.isArray(result.byComponentIndex) || !Array.isArray(result.networks) || !Array.isArray(result.sectionFlows)) {
     throw new Error("Power-flow solver returned an invalid result");
@@ -273,6 +277,94 @@ function ensureShipCableThermalAnalysis(ship) {
   return analysis;
 }
 
+// Section 7D-2 — activity-driven Power demand.
+//
+// A per-component activity level (0..1) represents REQUESTED activity (intent),
+// never merely successful output, so demand can rise before power is delivered
+// (no feedback deadlock). All signals read existing authoritative server state
+// and are deterministic — simulation-time holds only, never wall-clock or
+// randomness.
+const WEAPON_INTENT_HOLD_MS = 500;
+function clamp01(value) { const n = Number(value); return Number.isFinite(n) ? (n <= 0 ? 0 : (n >= 1 ? 1 : n)) : 0; }
+
+function weaponActivity(ship, index, now) {
+  if (!Array.isArray(ship._weaponIntentAt) || ship._weaponIntentAt.length !== ship.design.length) {
+    ship._weaponIntentAt = ship.design.map(() => -Infinity);
+  }
+  // "Attempting/ready to fire at a valid target": the combat system records a
+  // fire target on this weapon. A short simulation-time hold prevents demand
+  // flicker between target-acquisition frames.
+  if (Array.isArray(ship.weaponFireTargetIds) && ship.weaponFireTargetIds[index] != null) ship._weaponIntentAt[index] = now;
+  const last = ship._weaponIntentAt[index];
+  return Number.isFinite(last) && (now - last) < WEAPON_INTENT_HOLD_MS ? 1 : 0;
+}
+function propulsionActivity(ship) {
+  // Requested effort from current controls: linear drive toward a move target
+  // and/or the recorded turn effort.
+  const turn = clamp01(Math.abs(Number(ship.turnActivity) || 0));
+  const moving = ship.arrived === false ? 1 : 0;
+  return Math.max(turn, moving);
+}
+function shieldActivity(ship) {
+  const maxShield = Number(ship.maxShield) || 0;
+  const current = Number(ship.shield) || 0;
+  return maxShield > 0 && current < maxShield - 1e-6 ? 1 : 0;
+}
+function repairActivity(ship, now) {
+  const last = ship._repairIntentAt;
+  return Number.isFinite(last) && (now - last) < WEAPON_INTENT_HOLD_MS ? 1 : 0;
+}
+function coolingActivity(ship) { return clamp01(Number(ship.heatPressure) || 0); }
+
+function componentActivityLevel(ship, index, module, part, now) {
+  if (part.weapon) return weaponActivity(ship, index, now);
+  switch (part.powerCategory) {
+    case "propulsion": return propulsionActivity(ship);
+    case "shields": return shieldActivity(ship);
+    case "coolingSupport":
+      if (Number(part.repair) > 0) return repairActivity(ship, now);
+      if (module.type === "radiator") return coolingActivity(ship);
+      return 1; // always-on Data-support / sensing / command support
+    case "command": return 1;
+    default: return 1;
+  }
+}
+
+// The single authoritative demand-update path. Collects per-consumer activity,
+// converts it to requested MW via the shared PowerDemandRules, builds a
+// deterministic fixed-point demand signature, and reallocates Power at most once
+// — only when the signature actually changed. Called once per ship per cycle,
+// before gameplay systems consume the new operational multipliers.
+function updateShipPowerDemand(ship, room, now) {
+  if (!ship || ship.alive === false || !Array.isArray(ship.design) || !ship.design.length) return;
+  bump("powerDemandRefreshCount");
+  const design = ship.design;
+  const standby = BALANCE.powerDemand;
+  const activity = design.map(() => 0);
+  const demandByIndex = {};
+  const signatureParts = [];
+  for (let i = 0; i < design.length; i += 1) {
+    const module = design[i];
+    const part = PARTS[module && module.type];
+    if (!part || !(Number(part.powerUse) > 0)) continue; // demand is per Power consumer
+    const alive = (ship.componentHp?.[i] ?? 1) > 0;
+    const level = alive ? clamp01(componentActivityLevel(ship, i, module, part, now)) : 0;
+    activity[i] = level;
+    const requested = PowerDemandRules.requestedMwForComponent(part, level, standby);
+    demandByIndex[i] = requested;
+    signatureParts.push(`${i}:${PowerAllocationRules.mwToPowerUnits(requested)}`);
+  }
+  ship.componentPowerActivity = activity;
+  const signature = signatureParts.join("|");
+  if (ship._powerDemandSignature === signature) { ship.powerDemandDirty = false; return; }
+  ship._powerDemandSignature = signature;
+  ship.powerDemandRevision = (ship.powerDemandRevision || 0) + 1;
+  ship.powerDemandDirty = true;
+  ship._activityDemandByIndex = demandByIndex;
+  bump("powerDemandSolveCount");
+  reallocateShipPower(ship, "activity-demand");
+}
+
 function initializeComponentPower(ship) { rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true }); return ship.componentPower; }
 function reallocateShipPower(ship, reason = "source-availability") {
   // Source generation changed (destruction/overheat/recovery) but topology did
@@ -312,4 +404,4 @@ function effectiveShieldStats(ship) {
   });
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions };

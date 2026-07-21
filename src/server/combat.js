@@ -189,6 +189,7 @@ function updateShipSupport(room, ships, dt, now) {
     if (selfRepairRate > 0 && shipRepairNeed(ship) > 0) {
       const delivered = repairShipComponents(room, ship, selfRepairRate * dt, now);
       allocateRepairHeat(ship, activeRepairModules.filter((entry) => entry.module.type !== "repairBeam"), delivered);
+      ship._repairIntentAt = now; // Section 7D-2: repair systems have a valid action this cycle.
     }
 
     // Dedicated repair beams are the only repair parts that can project healing
@@ -234,6 +235,7 @@ function updateShipSupport(room, ships, dt, now) {
     if (!target) continue;
     const delivered = repairShipComponents(room, target, beamRepairRate * dt, now);
     allocateRepairHeat(ship, activeRepairBeams, delivered);
+    ship._repairIntentAt = now; // Section 7D-2: a repair beam has a valid target this cycle.
 
     const emitterEntry = activeRepairBeams[0];
     const emitterIndex = emitterEntry.index;

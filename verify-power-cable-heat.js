@@ -239,12 +239,14 @@ function tick(s, seconds = 0.2, now = 1000) { updateShipHeat(s, seconds, room(),
 
 console.log("Runtime cable-Heat integration");
 global.__mfaDataSupportPerf = {};
-// reactor -> frame -> gyroscope: the transit section 1,0:2,0 carries the 3 MW draw.
-let s = makeShip([mod("reactor", 0, 0), mod("frame", 1, 0), mod("gyroscope", 2, 0)], [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]]);
+// core -> frame -> gyroscope: with corrected terminal attachment the source
+// injects at a single cell, so both sections (including the one adjacent to the
+// source) carry the 3 MW draw. The frame hosts two carrying sections.
+let s = makeShip([mod("core", 0, 0), mod("frame", 1, 0), mod("gyroscope", 2, 0)], [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]]);
 
 check("real solved section flow generates cable Heat on the hosting components", () => {
-  assert.ok(s.componentPowerCableHeatRate[1] > 0 && s.componentPowerCableHeatRate[2] > 0, "frame and gyro carry cable Heat");
-  assert.strictEqual(s.componentPowerCableHeatRate[0], 0, "reactor's source-adjacent section carries no solved flow");
+  assert.ok(s.componentPowerCableHeatRate[0] > 0 && s.componentPowerCableHeatRate[1] > 0 && s.componentPowerCableHeatRate[2] > 0, "every hosting component carries cable Heat");
+  assert.ok(s.componentPowerCableHeatRate[1] > s.componentPowerCableHeatRate[0], "the frame hosts two carrying sections, so it is hottest");
   assert.ok(s.powerCableHeatRate > 0, "ship-level cable Heat rate is positive");
 });
 check("direct shared analysis matches the runtime cached analysis", () => {

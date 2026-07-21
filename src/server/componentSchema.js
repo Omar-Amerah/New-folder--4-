@@ -53,6 +53,27 @@ function isFiniteNonNegative(value) {
 // The wiring infrastructure block is authoritative for cable cost and static
 // Heat displacement. Invalid values must fail loudly rather than being silently
 // repaired into a different balance.
+// Section 7D-2 activity-driven Power demand: standby fractions per demand role.
+const POWER_DEMAND_ROLES = ["command", "propulsion", "shields", "weapons", "pointDefence", "repair", "coolingSupport"];
+function validatePowerDemand(powerDemand, filePath, errors) {
+  const path = `${filePath}.powerDemand`;
+  if (!powerDemand || typeof powerDemand !== "object" || Array.isArray(powerDemand)) {
+    errors.push(`${path} must be an object.`);
+    return;
+  }
+  const fractions = powerDemand.standbyFractions;
+  if (!fractions || typeof fractions !== "object" || Array.isArray(fractions)) {
+    errors.push(`${path}.standbyFractions must be an object.`);
+    return;
+  }
+  for (const role of POWER_DEMAND_ROLES) {
+    const value = fractions[role];
+    if (!(Number.isFinite(value) && value >= 0 && value <= 1)) {
+      errors.push(`${path}.standbyFractions.${role} must be a finite number from 0 to 1.`);
+    }
+  }
+}
+
 function validateWiringInfrastructure(infrastructure, filePath, errors) {
   const path = `${filePath}.wiringInfrastructure`;
   if (!infrastructure || typeof infrastructure !== "object" || Array.isArray(infrastructure)) {
@@ -131,6 +152,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   }
   if (balance.economy && balance.economy.shipCap < 0) errors.push(`${filePath}.economy.shipCap must be non-negative.`);
   validateWiringInfrastructure(balance.wiringInfrastructure, filePath, errors);
+  validatePowerDemand(balance.powerDemand, filePath, errors);
   if (balance.match && balance.match.matchScore < 0) errors.push(`${filePath}.match.matchScore must be non-negative.`);
 
   const seen = new Set();
