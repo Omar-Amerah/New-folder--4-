@@ -64,6 +64,7 @@ const GROUPS = {
     "verify-power-allocation-foundation.js",
     "verify-power-flow.js",
     "verify-power-runtime-integration.js",
+    "verify-power-priority-controls.js",
     "verify-component-health.js",
     "verify-meltdown.js",
     "verify-core-reactor.js",
@@ -129,6 +130,7 @@ const GROUPS = {
   browser: [
     "verify-browser-startup.js",
     "verify-wiring-browser.js",
+    "verify-power-priority-browser.js",
     "verify-blueprint-undo-browser.js",
     "verify-blueprint-discoverability-browser.js",
     "verify-blueprint-modes-browser.js",

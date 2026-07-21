@@ -474,19 +474,67 @@
       strandedGenerationMw: powerUnitsToMw(Math.max(0, networkValue.availableGenUnits - networkValue.usedGenUnits))
     })).sort((a, b) => compareCanonicalIds(a.id, b.id));
 
+    // Per-category demand/allocation diagnostics. Shields and Point Defence are
+    // aggregated separately even when a named preset ties them in one band. The
+    // band index is the first band a category appears in (its priority). Sums are
+    // accumulated in fixed-point units to avoid floating-point drift.
+    const bandIndexByCategory = new Map();
+    bands.forEach((band, bandIndex) => band.forEach((cat) => { if (!bandIndexByCategory.has(cat)) bandIndexByCategory.set(cat, bandIndex); }));
+    const categoryUnits = new Map();
+    consumers.forEach((consumer, c) => {
+      const cat = consumer.powerCategory || "uncategorised";
+      const agg = categoryUnits.get(cat) || { requestedUnits: 0, allocatedUnits: 0 };
+      agg.requestedUnits += consumerDemandUnits[c];
+      agg.allocatedUnits += grantedUnits[c];
+      categoryUnits.set(cat, agg);
+    });
+    // Every authoritative category is reported (0 MW when the ship has no such
+    // consumer) so diagnostics render a stable six-row table; any non-canonical
+    // category that somehow appears is appended after the canonical six.
+    const categoryList = [...PowerPolicyRules.POWER_CATEGORIES];
+    for (const cat of categoryUnits.keys()) if (!categoryList.includes(cat)) categoryList.push(cat);
+    const byCategory = {};
+    const loadShedCategories = [];
+    for (const cat of categoryList) {
+      const agg = categoryUnits.get(cat) || { requestedUnits: 0, allocatedUnits: 0 };
+      const unmetUnits = Math.max(0, agg.requestedUnits - agg.allocatedUnits);
+      byCategory[cat] = {
+        demandMw: powerUnitsToMw(agg.requestedUnits),
+        allocatedMw: powerUnitsToMw(agg.allocatedUnits),
+        unmetMw: powerUnitsToMw(unmetUnits),
+        priorityBand: bandIndexByCategory.has(cat) ? bandIndexByCategory.get(cat) : null
+      };
+      if (unmetUnits > 0) loadShedCategories.push(cat);
+    }
+
+    // Spare usable generation: surplus left on networks that fully powered their
+    // own real demand — headroom that could serve more load. Isolated generation
+    // with no reachable demand is not "spare"; it stays in strandedGenerationMw.
+    let spareGenUnits = 0;
+    networks.forEach((networkValue) => {
+      const unmetUnits = Math.max(0, networkValue.demandUnits - networkValue.allocatedUnits);
+      if (networkValue.demandUnits > 0 && unmetUnits === 0) {
+        spareGenUnits += Math.max(0, networkValue.availableGenUnits - networkValue.usedGenUnits);
+      }
+    });
+
     return {
       byComponentIndex,
       sectionFlows,
       networks: networkOut,
       summary: {
+        preset: PowerPolicyRules.normalizePolicy(resolvedPolicy).preset,
         availableGenerationMw: powerUnitsToMw(totalAvailableGenUnits),
         usedGenerationMw: powerUnitsToMw(totalUsedGenUnits),
         strandedGenerationMw: powerUnitsToMw(Math.max(0, totalAvailableGenUnits - totalUsedGenUnits)),
+        spareGenerationMw: powerUnitsToMw(spareGenUnits),
         demandMw: powerUnitsToMw(totalDemandUnits),
         allocatedMw: powerUnitsToMw(totalAllocatedUnits),
         unmetMw: powerUnitsToMw(Math.max(0, totalDemandUnits - totalAllocatedUnits)),
         aboveSustainedSections: sectionFlows.filter((flow) => flow.aboveSustained).length,
-        atPeakSections: sectionFlows.filter((flow) => flow.atPeak).length
+        atPeakSections: sectionFlows.filter((flow) => flow.atPeak).length,
+        byCategory,
+        loadShedCategories
       }
     };
   }

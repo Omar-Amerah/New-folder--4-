@@ -20,24 +20,24 @@ function flat(bands) { return bands.reduce((acc, band) => acc.concat(band), []);
 // Policy priority bands
 // ---------------------------------------------------------------------------
 console.log("Policy priority bands");
-check("1. Balanced returns one tied band containing all six categories", () => {
+check("1. Balanced returns five bands (no longer one all-tied band)", () => {
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "balanced" }), [
-    ["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]
+    ["command"], ["propulsion"], ["shields", "pointDefence"], ["weapons"], ["coolingSupport"]
   ]);
 });
 check("2. Defensive returns the exact required bands", () => {
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "defensive" }), [
-    ["command"], ["shields", "pointDefence"], ["propulsion", "coolingSupport"], ["weapons"]
+    ["command"], ["shields", "pointDefence"], ["propulsion"], ["coolingSupport"], ["weapons"]
   ]);
 });
-check("3. Offensive returns the exact required bands", () => {
+check("3. Offensive returns the exact required bands (Point Defence not tied to Weapons)", () => {
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "offensive" }), [
-    ["command"], ["weapons", "pointDefence"], ["shields"], ["propulsion", "coolingSupport"]
+    ["command"], ["weapons"], ["propulsion"], ["shields", "pointDefence"], ["coolingSupport"]
   ]);
 });
-check("4. Mobility returns the exact required bands", () => {
+check("4. Mobility returns the exact required bands (Point Defence not tied to Weapons)", () => {
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "mobility" }), [
-    ["command"], ["propulsion"], ["pointDefence", "weapons"], ["shields", "coolingSupport"]
+    ["command"], ["propulsion"], ["coolingSupport"], ["shields", "pointDefence"], ["weapons"]
   ]);
 });
 check("5. Custom follows normalised customOrder (one band per category)", () => {
@@ -62,7 +62,7 @@ check("8. Returned bands do not share mutable references", () => {
   const a = PP.resolvePriorityBands({ preset: "defensive" });
   a[0].push("tampered"); a[1][0] = "tampered";
   const b = PP.resolvePriorityBands({ preset: "defensive" });
-  assert.deepStrictEqual(b, [["command"], ["shields", "pointDefence"], ["propulsion", "coolingSupport"], ["weapons"]]);
+  assert.deepStrictEqual(b, [["command"], ["shields", "pointDefence"], ["propulsion"], ["coolingSupport"], ["weapons"]]);
 });
 check("9. Named presets preserve stored customOrder (input not mutated)", () => {
   const policy = { preset: "mobility", customOrder: ["shields", "weapons", "command", "propulsion", "pointDefence", "coolingSupport"] };
@@ -71,10 +71,92 @@ check("9. Named presets preserve stored customOrder (input not mutated)", () => 
   assert.strictEqual(JSON.stringify(policy), snapshot, "policy is not mutated");
   assert.deepStrictEqual(PP.normalizePolicy(policy).customOrder, policy.customOrder, "stored customOrder preserved");
 });
-check("Labels: authoritative category labels are exposed", () => {
+check("Labels: authoritative category labels are exposed and unique", () => {
+  assert.strictEqual(PP.POWER_CATEGORY_LABELS.command, "Command & Control");
   assert.strictEqual(PP.POWER_CATEGORY_LABELS.pointDefence, "Point Defence");
   assert.strictEqual(PP.POWER_CATEGORY_LABELS.coolingSupport, "Cooling & Support");
   assert.deepStrictEqual(Object.keys(PP.POWER_CATEGORY_LABELS).sort(), [...ALL].sort());
+  const labels = Object.values(PP.POWER_CATEGORY_LABELS);
+  assert.strictEqual(new Set(labels).size, labels.length, "labels are unique");
+});
+
+// ---------------------------------------------------------------------------
+// Section 7C-4 — authoritative six-category set and corrected preset bands
+// ---------------------------------------------------------------------------
+console.log("Section 7C-4 categories and presets");
+check("A. Exactly six authoritative categories; Shields and Point Defence separate; no combined 'defence'", () => {
+  assert.deepStrictEqual([...PP.POWER_CATEGORIES], ["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]);
+  assert.ok(PP.POWER_CATEGORIES.includes("shields") && PP.POWER_CATEGORIES.includes("pointDefence"));
+  for (const forbidden of ["defence", "defense", "defensiveSystems", "shieldsAndPointDefence"]) {
+    assert.ok(!PP.POWER_CATEGORIES.includes(forbidden), `no ${forbidden} category`);
+    assert.ok(!(forbidden in PP.POWER_CATEGORY_LABELS), `no ${forbidden} label`);
+  }
+});
+check("B. Every named preset order contains all six categories exactly once", () => {
+  for (const preset of ["balanced", "defensive", "offensive", "mobility"]) {
+    const order = PP.POWER_PRESETS[preset];
+    assert.deepStrictEqual([...order].sort(), [...ALL].sort(), `${preset} order covers all six`);
+    assert.strictEqual(order.length, ALL.length, `${preset} order has no duplicates`);
+  }
+});
+check("C. Every PRESET_BANDS definition contains all six categories exactly once", () => {
+  for (const preset of ["balanced", "defensive", "offensive", "mobility"]) {
+    const flatCats = flat(PP.PRESET_BANDS[preset]);
+    assert.deepStrictEqual([...flatCats].sort(), [...ALL].sort(), `${preset} bands cover all six`);
+    assert.strictEqual(flatCats.length, ALL.length, `${preset} bands have no duplicates`);
+  }
+});
+check("D. Preset display order equals its bands flattened (order and bands agree)", () => {
+  for (const preset of ["balanced", "defensive", "offensive", "mobility"]) {
+    assert.deepStrictEqual([...PP.POWER_PRESETS[preset]], flat(PP.PRESET_BANDS[preset]), `${preset} order == flattened bands`);
+    assert.deepStrictEqual(PP.presetOrder(preset), [...PP.POWER_PRESETS[preset]], `${preset} presetOrder matches`);
+  }
+});
+check("E. Approved preset bands are returned exactly", () => {
+  assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "balanced" }), [["command"], ["propulsion"], ["shields", "pointDefence"], ["weapons"], ["coolingSupport"]]);
+  assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "defensive" }), [["command"], ["shields", "pointDefence"], ["propulsion"], ["coolingSupport"], ["weapons"]]);
+  assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "offensive" }), [["command"], ["weapons"], ["propulsion"], ["shields", "pointDefence"], ["coolingSupport"]]);
+  assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "mobility" }), [["command"], ["propulsion"], ["coolingSupport"], ["shields", "pointDefence"], ["weapons"]]);
+});
+check("F. Balanced is no longer one all-category tied band", () => {
+  const bands = PP.resolvePriorityBands({ preset: "balanced" });
+  assert.ok(bands.length > 1, "more than one band");
+  assert.ok(!bands.some((band) => band.length === ALL.length), "no single all-category band");
+});
+check("G. Offensive and Mobility never tie Point Defence with Weapons", () => {
+  for (const preset of ["offensive", "mobility"]) {
+    for (const band of PP.resolvePriorityBands({ preset })) {
+      assert.ok(!(band.includes("pointDefence") && band.includes("weapons")), `${preset} does not tie point defence with weapons`);
+    }
+  }
+});
+check("H. Custom resolves to six independent one-category bands, ordered independently", () => {
+  const order = ["pointDefence", "weapons", "shields", "command", "coolingSupport", "propulsion"];
+  const bands = PP.resolvePriorityBands({ preset: "custom", customOrder: order });
+  assert.deepStrictEqual(bands, order.map((c) => [c]));
+  assert.ok(bands.every((band) => band.length === 1), "every custom band holds one category");
+  // Shields and Point Defence sit in different, independent positions.
+  const positions = new Map(bands.map((band, i) => [band[0], i]));
+  assert.notStrictEqual(positions.get("shields"), positions.get("pointDefence"));
+});
+check("I. Policy transition helpers preserve customOrder and never mutate inputs", () => {
+  const start = { preset: "custom", customOrder: ["weapons", "command", "shields", "propulsion", "pointDefence", "coolingSupport"] };
+  const snapshot = JSON.stringify(start);
+  const toDefensive = PP.selectPreset(start, "defensive");
+  assert.strictEqual(toDefensive.preset, "defensive");
+  assert.deepStrictEqual(toDefensive.customOrder, start.customOrder, "named preset keeps the custom order");
+  const back = PP.selectPreset(toDefensive, "custom");
+  assert.deepStrictEqual(back.customOrder, start.customOrder, "returning to custom restores the order");
+  const moved = PP.moveCustomCategory(start, "shields", -1);
+  assert.strictEqual(moved.preset, "custom", "reordering activates custom");
+  assert.deepStrictEqual(moved.customOrder, ["weapons", "shields", "command", "propulsion", "pointDefence", "coolingSupport"]);
+  assert.ok(PP.policiesEqual(PP.moveCustomCategory({ preset: "balanced" }, "command", -1), { preset: "custom", customOrder: PP.POWER_PRESETS.balanced }), "edge move is a no-op order");
+  assert.strictEqual(JSON.stringify(start), snapshot, "inputs are never mutated");
+});
+check("J. A fresh default policy is Balanced with a complete Balanced-seeded custom order", () => {
+  const def = PP.defaultPolicy();
+  assert.strictEqual(def.preset, "balanced");
+  assert.deepStrictEqual(def.customOrder, [...PP.POWER_PRESETS.balanced]);
 });
 
 // ---------------------------------------------------------------------------
