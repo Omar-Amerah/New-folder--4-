@@ -57,6 +57,14 @@ export function applyWiringInfrastructure(infrastructure) {
   if (infrastructure && typeof infrastructure === "object" && !Array.isArray(infrastructure)) WIRING_INFRASTRUCTURE = infrastructure;
 }
 
+// Authoritative activity-driven Power demand balance (per-role standby
+// fractions). Loaded from the same balance file as the server so Blueprint
+// prediction demand matches runtime demand for the same activity.
+export let POWER_DEMAND = GENERATED_BALANCE.powerDemand;
+export function applyPowerDemand(powerDemand) {
+  if (powerDemand && typeof powerDemand === "object" && !Array.isArray(powerDemand)) POWER_DEMAND = powerDemand;
+}
+
 export function syncUrlParams() {
   if (typeof window === "undefined" || typeof window.location === "undefined" || typeof localStorage === "undefined") return;
   const params = new URLSearchParams(window.location.search);

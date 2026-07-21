@@ -34,6 +34,15 @@ const corpus = {
   const client = await import("./public/src/design/rotation.js");
   globalThis.EngineExhaustRules = EngineExhaust;
   globalThis.HeatRules = HeatRules;
+  // Section 7D-3: Blueprint thermal prediction uses the shared Power/Cable
+  // authorities, which register themselves as browser globals when required.
+  globalThis.DataSupportRules = require("./public/src/shared/dataSupportRules.js");
+  globalThis.PowerPolicyRules = require("./public/src/shared/powerPolicyRules.js");
+  globalThis.PowerAllocationRules = require("./public/src/shared/powerAllocationRules.js");
+  globalThis.PowerDemandRules = require("./public/src/shared/powerDemandRules.js");
+  globalThis.PowerFlowRules = require("./public/src/shared/powerFlowRules.js");
+  globalThis.WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
+  globalThis.PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules.js");
   const thermal = await import("./public/src/design/thermalAnalysis.js");
   const clientValidation = await import("./public/src/design/blueprintValidation.js");
   const clientFootprint = await import("./public/src/design/footprint.js");
