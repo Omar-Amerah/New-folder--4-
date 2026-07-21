@@ -51,6 +51,13 @@ globalThis.MessagePack = { encode: (message) => message, decode: (message) => me
 globalThis.EngineExhaustRules = (await import("./public/src/shared/engineExhaust.js")).default || (await import("./public/src/shared/engineExhaust.js"));
 globalThis.HeatRules = (await import("./public/src/shared/heatRules.js")).default || (await import("./public/src/shared/heatRules.js"));
 await import("./public/src/shared/wiringRules.js"); // attaches globalThis.WiringRules
+// Section 7D-3: Blueprint thermal prediction uses the shared Power/Cable rules.
+await import("./public/src/shared/powerPolicyRules.js");
+await import("./public/src/shared/powerAllocationRules.js");
+await import("./public/src/shared/powerDemandRules.js");
+await import("./public/src/shared/powerFlowRules.js");
+await import("./public/src/shared/wiringInfrastructureRules.js");
+await import("./public/src/shared/powerCableThermalRules.js");
 const storageMod = await import("./public/src/design/blueprintStorage.js");
 const { PART_STATS } = await import("./public/src/design/parts.js");
 const constants = await import("./public/src/constants.js");

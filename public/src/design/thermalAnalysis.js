@@ -2,7 +2,7 @@
 
 import { PART_DEFS, PART_STATS } from "./parts.js";
 import { getOccupiedCells } from "./footprint.js";
-import { WIRING_INFRASTRUCTURE } from "../constants.js";
+import { WIRING_INFRASTRUCTURE, POWER_DEMAND } from "../constants.js";
 
 // Per-component unique hosted-cell accounting for installed wiring. Uses the
 // shared infrastructure authority so Blueprint thermal capacity matches the
@@ -138,12 +138,14 @@ export function preDisplacementHeatCapacities(design) {
  */
 export function buildThermalLoad(model, mode = "full", wiring = null, options = {}) {
   const { design, rules } = model;
-  let wiringAnalysis = null, power = null;
-  try { wiringAnalysis = wiring ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS) : null; power = wiringAnalysis?.power || null; } catch (_) { power = null; }
+  // Data-support prediction still uses the wiring analysis; Power prediction uses
+  // the shared solver (Section 7D-3), not the WiringRules aggregate ratio.
+  let wiringAnalysis = null;
+  try { wiringAnalysis = wiring ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS) : null; } catch (_) { wiringAnalysis = null; }
   const initialStoredHeat = buildInitialStoredHeat(design, model.profiles || [], rules, options);
   const initialHeatStates = buildInitialHeatStates(design, model.profiles || [], rules, initialStoredHeat, options);
   const initialGeneratorAvailability = design.map((module, i) => isPowerGenerator(module.type) && initialHeatStates[i] !== rules.STATE.OVERHEATED);
-  const powerState = buildPredictedPowerState(design, power, initialGeneratorAvailability);
+  const powerState = buildPredictedPowerState(design, wiring, mode, initialGeneratorAvailability);
   const powerMultiplier = powerState.multipliers;
   const loadMultiplier = (_module, stat) => {
     if (mode === "idle") return (stat.powerGeneration || 0) > 0 ? 0.2 : (stat.shieldRegen || 0) > 0 ? 0.08 : 0;
@@ -161,8 +163,8 @@ export function buildThermalLoad(model, mode = "full", wiring = null, options = 
   const dataSupport = buildPredictedDataSupport(design, wiringAnalysis, powerMultiplier, { ...options, sourceHeatStates: options.sourceHeatStates || Object.fromEntries(initialHeatStates.map((state, i) => [i, state])) });
   const generationRates = buildPredictedGenerationRates(design, rules, mode, loadMultiplier, designExhaust, dataSupport, powerMultiplier, powerState);
   return {
-    mode, powerMultiplier, initialPowerMultiplier: [...powerMultiplier], powerState, power, wiringAnalysis, dataSupport, loadMultiplier, designExhaust,
-    generationRates, initialStoredHeat, initialHeatStates
+    mode, powerMultiplier, initialPowerMultiplier: [...powerMultiplier], powerState, wiringAnalysis, dataSupport, loadMultiplier, designExhaust,
+    generationRates, cableHeatRate: [...(powerState.cableHeatRate || design.map(() => 0))], initialStoredHeat, initialHeatStates
   };
 }
 
@@ -176,6 +178,11 @@ export function buildThermalLoad(model, mode = "full", wiring = null, options = 
 export function simulateThermalLoad(model, load, options = {}) {
   const { design, rules, profiles, edges, exposed, frameCoolingDistance } = model;
   let generationRates = [...load.generationRates];
+  // Section 7D-3: predicted Power-cable Heat per component, refreshed whenever
+  // Power is reallocated. Tracked separately from component activity Heat.
+  let cableHeatRate = [...((load.powerState?.cableHeatRate) || load.cableHeatRate || design.map(() => 0))];
+  const cableGeneratedHeat = design.map(() => 0);
+  let totalCableGeneratedHeat = 0;
   const mutablePower = load.powerState ? clonePredictedPowerState(load.powerState) : null;
   let powerMultiplier = mutablePower?.multipliers || [...(load.powerMultiplier || design.map(() => 1))];
   let dataSupport = load.dataSupport;
@@ -190,6 +197,7 @@ export function simulateThermalLoad(model, load, options = {}) {
   let generatorAvailability = design.map((module, i) => isPowerGenerator(module.type) && states[i] !== rules.STATE.OVERHEATED);
   if (mutablePower) {
     powerMultiplier = recalculatePredictedPowerState(mutablePower, design, generatorAvailability);
+    cableHeatRate = mutablePower.cableHeatRate;
     dataSupport = buildPredictedDataSupport(design, load.wiringAnalysis, powerMultiplier, { sourceHeatStates: Object.fromEntries(states.map((state, i) => [i, state])) });
     generationRates = buildPredictedGenerationRates(design, rules, load.mode, load.loadMultiplier, load.designExhaust, dataSupport, powerMultiplier, mutablePower);
     initialPowerMultiplier = [...powerMultiplier];
@@ -223,6 +231,7 @@ export function simulateThermalLoad(model, load, options = {}) {
         for (let i = 0; i < nextAvailability.length; i += 1) if (generatorAvailability[i] && !nextAvailability[i]) generatorShutdownCount += 1;
         generatorAvailability = nextAvailability;
         powerMultiplier = recalculatePredictedPowerState(mutablePower, design, generatorAvailability);
+        cableHeatRate = mutablePower.cableHeatRate; // refresh cable Heat from the new sectionFlows
         powerReallocationCount += 1;
         dataSupport = buildPredictedDataSupport(design, load.wiringAnalysis, powerMultiplier, { sourceHeatStates: Object.fromEntries(states.map((state, i) => [i, state])) });
         dataReallocationCount += 1;
@@ -244,6 +253,11 @@ export function simulateThermalLoad(model, load, options = {}) {
       const heatScale = (stat.powerGeneration || 0) > 0 ? (states[i] === rules.STATE.OVERHEATED ? 0 : 1) : stat.weapon ? performance : performance > 0 ? 1 : 0;
       const generated = generationRates[i] * heatScale * dt;
       delta[i] += generated; generatedHeat[i] += generated; totalGeneratedHeat += generated;
+      // Section 7D-3: predicted Power-cable Heat is a separate physical source
+      // (delivered section flow), added locally to the thermal delta but tracked
+      // apart from component activity Heat and not scaled by component performance.
+      const cableGen = (Number(cableHeatRate[i]) || 0) * dt;
+      if (cableGen > 0) { delta[i] += cableGen; cableGeneratedHeat[i] += cableGen; totalCableGeneratedHeat += cableGen; }
       const category = stat.weapon ? "weapon" : (stat.thrust || 0) > 0 ? "engine" : (stat.shieldRegen || 0) > 0 ? "shield" : null;
       if (category) { uptimeTicks[category] += performance; uptimeTotals[category] += 1; }
     }
@@ -323,7 +337,7 @@ export function simulateThermalLoad(model, load, options = {}) {
     if (equilibriumTime !== null && step * dt > equilibriumTime + 5) break;
   }
   const averagePowerMultiplier = powerMultiplierTotals.map(value => simulatedSeconds > 0 ? value / Math.max(1, Math.round(simulatedSeconds / dt)) : 0);
-  return { heat, states, received, transferredOut, cooling, componentVentedOverflowHeat, totalVentedOverflowHeat, generatedHeat, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport };
+  return { heat, states, received, transferredOut, cooling, componentVentedOverflowHeat, totalVentedOverflowHeat, generatedHeat, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport, cableGeneratedHeat, totalCableGeneratedHeat, finalCableHeatRate: [...cableHeatRate], finalPowerState: mutablePower };
 }
 
 /**
@@ -337,10 +351,19 @@ export function summariseThermalResult(model, load, simulation) {
   const { design, rules, profiles, exposed, exteriorDirections, edgeMaps } = model;
   const { generationRates } = load;
   const { peakRatios, received, transferredOut, cooling, dt, timeToOverheat, meltdownTime, overheatedIndices, uptimeTotals, uptimeTicks, equilibriumTime, firstOverheatTime, firstOverheatIndex, finalFlows, heatSinkSaturationTime, radiatorRemovedTotal, simulatedSeconds } = simulation;
+  // Section 7D-3: predicted Power/cable diagnostics from the final shared solve.
+  const finalPower = simulation.finalPowerState || load.powerState;
+  const solverResult = finalPower?.result;
+  const cableAnalysis = finalPower?.cableHeat;
+  const powerByIndex = finalPower?.byIndex || new Map();
+  const cableByIndex = new Map((cableAnalysis?.components || []).map((c) => [c.componentIndex, c]));
   const predictions = new Map();
   for (let i = 0; i < design.length; i += 1) {
     const isRadiator = design[i].type === "radiator";
     const isExposed = exposed[i] > 0;
+    const powerEntry = powerByIndex.get(i);
+    const activityHeat = simulation.generatedHeat?.[i] ?? 0;
+    const cableHeat = simulation.cableGeneratedHeat?.[i] ?? 0;
     predictions.set(design[i], {
       heat: peakRatios[i] * profiles[i].capacity, capacity: profiles[i].capacity, ratio: peakRatios[i],
       generation: generationRates[i], received: received[i] / dt, transferredOut: transferredOut[i] / dt,
@@ -354,9 +377,15 @@ export function summariseThermalResult(model, load, simulation) {
       minimumPowerMultiplier: simulation.minimumPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       radiatorEffectiveCooling: isRadiator ? cooling[i] / dt : 0,
       dataSupportMultiplier: (simulation.dataSupport || load.dataSupport)?.weaponSupportByIndex?.[i]?.fireRateBonus ? 1 + (simulation.dataSupport || load.dataSupport).weaponSupportByIndex[i].fireRateBonus : 1,
-      componentVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0
+      componentVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0,
+      scenarioActivity: load.powerState?.activity?.[i] ?? 0,
+      requestedMw: powerEntry?.requestedMw ?? 0, allocatedMw: powerEntry?.allocatedMw ?? 0, unmetMw: powerEntry?.unmetMw ?? 0,
+      powerCategory: powerEntry?.powerCategory ?? (PART_STATS[design[i].type]?.powerCategory || null), priorityBand: powerEntry?.priorityBand ?? null,
+      activityHeat, powerCableHeat: cableHeat, totalGeneratedHeat: activityHeat + cableHeat,
+      hostedActiveSectionIds: cableByIndex.get(i)?.hostedActiveSectionIds ? [...cableByIndex.get(i).hostedActiveSectionIds] : []
     });
   }
+  const powerThermal = buildPowerThermalDiagnostics(design, model, load, simulation, { finalPower, solverResult, cableAnalysis, powerByIndex, cableByIndex });
   const networks = buildThermalNetworks(model, generationRates);
   const problems = findThermalProblems(model, { ...simulation, networks }, load);
   const actionItems = generateThermalAdvice(problems, model);
@@ -393,7 +422,7 @@ export function summariseThermalResult(model, load, simulation) {
   const radiatorCapacitySeconds = design.reduce((sum, module, i) => module.type === "radiator" ? sum + profiles[i].cooling * (exposed[i] ? 1 : .25) * simulatedSeconds : sum, 0);
   const actualCooling = design.reduce((sum, _module, i) => sum + cooling[i] / dt, 0);
   return {
-    componentClasses, componentHeat, predictions, flows: finalFlows, networks, criticalFrames: problems.criticalFrames, problemIndices: problems.problemIndices, overloadedNetworkIds: problems.overloadedNetworkIds, exteriorDirections, actionItems,
+    componentClasses, componentHeat, predictions, powerThermal, flows: finalFlows, networks, criticalFrames: problems.criticalFrames, problemIndices: problems.problemIndices, overloadedNetworkIds: problems.overloadedNetworkIds, exteriorDirections, actionItems,
     cooling: coolingRate >= averageGenerationRate * .7 ? "Good" : coolingRate >= averageGenerationRate * .4 ? "Fair" : "Poor",
     sustained: averageGenerationRate > coolingRate * 1.8 ? "High" : averageGenerationRate > coolingRate ? "Moderate" : "Low",
     hotspot: design[hottestIndex] ? `${PART_DEFS[design[hottestIndex].type]?.name || design[hottestIndex].type} cluster` : "None",
@@ -495,7 +524,11 @@ export function analyzeDesignHeat(design, wiring = null, mode = "full") {
     const stat = PART_STATS[type] || {};
     return [type, stat.powerGeneration, stat.thrust, stat.shieldRegen, stat.repairRate, stat.weapon?.damage, stat.weapon?.fireRate].join(":");
   }).join("|");
-  const cacheKey = `${mode}|${thermalSignature}|${JSON.stringify(wiring)}|${JSON.stringify(design.map(module => [module.type,module.x,module.y,module.rotation || 0]))}`;
+  // Section 7D-3: the cache key includes wiring (with saved Power policy), the
+  // scenario mode (activity assumptions), and the infrastructure + demand balance
+  // so results are never reused across different Power/thermal inputs.
+  const balanceSignature = JSON.stringify([WIRING_INFRASTRUCTURE?.powerTiers, POWER_DEMAND?.standbyFractions]);
+  const cacheKey = `${mode}|${thermalSignature}|${JSON.stringify(wiring)}|${balanceSignature}|${JSON.stringify(design.map(module => [module.type,module.x,module.y,module.rotation || 0]))}`;
   const cached = thermalAnalysisCache.get(cacheKey);
   if (cached?.design === design) return cached.result;
   const model = buildThermalModel(design, wiring);
@@ -543,22 +576,149 @@ function buildDataSourceSignature(design, states, powerMultiplier) {
 }
 
 function isPowerGenerator(type) { return (Number(PART_STATS[type]?.powerGeneration) || 0) > 0; }
-function buildPredictedPowerState(design, power, available = null) {
-  const networks = (power?.networks || []).map(network => ({ ...network, sourceIndices: [...(network.sourceIndices || [])], consumerIndices: [...(network.consumerIndices || [])] }));
-  const state = { networks, multipliers: design.map(() => 1) };
-  return Object.assign(state, { multipliers: recalculatePredictedPowerState(state, design, available || design.map((m)=>isPowerGenerator(m.type))) });
+function isPowerConsumerPart(part) { return (Number(part?.powerUse) || 0) > 0; }
+
+// Section 7D-3: serialisable Power/cable-Heat diagnostics for 7D-4. All numbers
+// come from the final shared solve + the deterministic simulation totals.
+function buildPowerThermalDiagnostics(design, model, load, simulation, ctx) {
+  const { profiles, rules } = model;
+  const { solverResult, cableAnalysis, powerByIndex, cableByIndex } = ctx;
+  const components = design.map((module, i) => {
+    const entry = powerByIndex.get(i);
+    const activityHeat = simulation.generatedHeat?.[i] ?? 0;
+    const cableHeat = simulation.cableGeneratedHeat?.[i] ?? 0;
+    return {
+      componentIndex: i,
+      scenarioActivity: load.powerState?.activity?.[i] ?? 0,
+      requestedMw: entry?.requestedMw ?? 0,
+      allocatedMw: entry?.allocatedMw ?? 0,
+      unmetMw: entry?.unmetMw ?? 0,
+      operationalMultiplier: simulation.finalPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
+      powerCategory: entry?.powerCategory ?? (PART_STATS[module.type]?.powerCategory || null),
+      priorityBand: entry?.priorityBand ?? null,
+      componentActivityHeat: activityHeat,
+      powerCableHeat: cableHeat,
+      totalGeneratedHeat: activityHeat + cableHeat,
+      cooling: (simulation.cooling?.[i] ?? 0) / simulation.dt,
+      finalStoredHeat: simulation.heat?.[i] ?? 0,
+      finalHeatCapacity: profiles[i].capacity,
+      finalHeatState: simulation.states?.[i] ?? rules.STATE.NORMAL,
+      hostedActiveSectionIds: cableByIndex.get(i)?.hostedActiveSectionIds ? [...cableByIndex.get(i).hostedActiveSectionIds] : []
+    };
+  });
+  const summary = solverResult?.summary || {};
+  const powerSummary = {
+    preset: summary.preset ?? null,
+    totalGenerationMw: summary.availableGenerationMw ?? 0,
+    requestedDemandMw: summary.demandMw ?? 0,
+    deliveredDemandMw: summary.allocatedMw ?? 0,
+    spareGenerationMw: summary.spareGenerationMw ?? 0,
+    unmetDemandMw: summary.unmetMw ?? 0,
+    loadShedCategories: [...(summary.loadShedCategories || [])],
+    aboveSustainedSectionCount: summary.aboveSustainedSections ?? 0,
+    atPeakSectionCount: summary.atPeakSections ?? 0
+  };
+  const cableSummary = {
+    totalPowerCableHeatPerSecond: cableAnalysis?.summary?.totalPowerCableHeatPerSecond ?? 0,
+    totalCableHeatGenerated: simulation.totalCableGeneratedHeat ?? 0,
+    hottestSectionId: cableAnalysis?.summary?.hottestSectionId ?? null,
+    hottestHostComponentIndex: cableAnalysis?.summary?.hottestHostComponentIndex ?? null,
+    sectionFlows: (solverResult?.sectionFlows || []).map((f) => ({ sectionId: f.sectionId, tier: f.tier, absoluteFlowMw: f.absoluteFlowMw, sustainedUtilisation: f.sustainedUtilisation, aboveSustained: f.aboveSustained, atPeak: f.atPeak }))
+  };
+  return { components, powerSummary, cableSummary };
 }
-function clonePredictedPowerState(state) { return { networks: state.networks.map(n => ({ ...n, sourceIndices: [...(n.sourceIndices || [])], consumerIndices: [...(n.consumerIndices || [])] })), multipliers: [...state.multipliers] }; }
-function recalculatePredictedPowerState(state, design, available) {
-  const multipliers = design.map((module) => (Number(PART_STATS[module.type]?.powerUse) || 0) > 0 ? 0 : 1);
-  for (const network of state.networks || []) {
-    const generation = (network.sourceIndices || []).reduce((sum, i) => sum + (available[i] ? Number(PART_STATS[design[i]?.type]?.powerGeneration) || 0 : 0), 0);
-    const demand = Math.max(0, Number(network.demandMw) || 0);
-    const efficiency = demand <= 0 ? 1 : Math.max(0, Math.min(1, generation / demand));
-    network.availableGenerationMw = generation; network.liveDemandMw = demand; network.runtimeLoadRatio = generation > 0 ? Math.max(0, Math.min(1, demand / generation)) : 0; network.availableEfficiency = efficiency;
-    for (const i of network.consumerIndices || []) multipliers[i] = efficiency;
+
+// Section 7D-3: the scenario "load assumption" for a component, as a requested
+// activity level (0..1). Mirrors the runtime activity roles but with scenario
+// fractions instead of binary intent. Always-on Command/Data-support/sensing
+// stay at 1; the Idle scenario keeps activity-driven systems at standby.
+function predictionActivityLevel(module, part, mode) {
+  const category = part.powerCategory;
+  const isRepair = Number(part.repair) > 0;
+  const isRadiator = module.type === "radiator";
+  const alwaysOn = category === "command" || (category === "coolingSupport" && !isRepair && !isRadiator);
+  if (alwaysOn) return 1;
+  if (mode === "full") return 1;
+  if (mode === "idle") return category === "shields" ? 0.08 : 0;
+  // combat scenario partial-activity assumptions
+  if (part.weapon) return 0.72;             // weapons and point defence
+  if (category === "propulsion") return 0.55;
+  if (category === "shields") return 0.65;
+  if (isRepair) return 0.45;
+  return 0.25;                              // active cooling / misc support
+}
+
+// Predicted Power for one scenario using the SAME authorities as runtime:
+// PowerDemandRules -> PowerFlowRules -> sectionFlows -> PowerCableThermalRules.
+// generatorAvailable[i] is false when a generator is currently overheated.
+// Fails closed: an invalid or incomplete solver result throws (never silent
+// full-Power fallback).
+function solvePredictedPower(design, wiring, mode, generatorAvailable) {
+  const PF = globalThis.PowerFlowRules; const PD = globalThis.PowerDemandRules;
+  const PCT = globalThis.PowerCableThermalRules; const WIR = globalThis.WiringInfrastructureRules;
+  if (!PF || !PD || !PCT || !WIR) throw new Error("Blueprint Power prediction requires the shared Power/Cable rules");
+  const infrastructure = WIRING_INFRASTRUCTURE; const standby = POWER_DEMAND;
+  const activity = design.map(() => 0);
+  const demandByIndex = {};
+  const sourceGenerationByIndex = {};
+  const available = generatorAvailable || design.map((m) => isPowerGenerator(m.type));
+  const componentOperationalByIndex = design.map((module, i) => {
+    const part = PART_STATS[module.type] || {};
+    if ((Number(part.powerGeneration) || 0) > 0) sourceGenerationByIndex[i] = available[i] ? (Number(part.powerGeneration) || 0) : 0;
+    if (isPowerConsumerPart(part)) {
+      const level = predictionActivityLevel(module, part, mode);
+      activity[i] = level;
+      demandByIndex[i] = PD.requestedMwForComponent(part, level, standby);
+    }
+    return true; // Blueprint components are all present; only generation varies.
+  });
+  const result = PF.solvePowerFlow({
+    design, wiring: wiring || {}, catalogue: PART_STATS, infrastructure,
+    componentDemandByIndex: demandByIndex, sourceGenerationByIndex, componentOperationalByIndex
+  });
+  if (!result || !Array.isArray(result.byComponentIndex) || !Array.isArray(result.networks) || !Array.isArray(result.sectionFlows)) {
+    throw new Error("Blueprint Power prediction: solver returned an invalid result");
   }
-  state.multipliers = multipliers; return multipliers;
+  const byIndex = new Map(result.byComponentIndex.map((entry) => [entry.componentIndex, entry]));
+  const multipliers = design.map((module, i) => {
+    const part = PART_STATS[module.type] || {};
+    if (!isPowerConsumerPart(part)) return 1;
+    const entry = byIndex.get(i);
+    if (!entry) throw new Error(`Blueprint Power prediction: solver omitted component ${i}`);
+    const value = Number(entry.operationalMultiplier);
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  });
+  // Cable Heat from delivered section flow, via the shared hosted-cell authority.
+  const hostMap = WIR.mapHostedCells(design, wiring || {}, PART_STATS).power;
+  const cableHeat = PCT.analyzePowerCableHeat({ sectionFlows: result.sectionFlows, powerTiers: infrastructure.powerTiers, hostMap });
+  const cableHeatRate = design.map(() => 0);
+  for (const component of cableHeat.components) if (component.componentIndex >= 0 && component.componentIndex < cableHeatRate.length) cableHeatRate[component.componentIndex] = component.powerCableHeatPerSecond;
+  // Networks carry liveDemandMw so predicted generator steady Heat reads load.
+  const networks = result.networks.map((n) => ({ ...n, sourceIndices: [...(n.sourceIndices || [])], consumerIndices: [...(n.consumerIndices || [])], liveDemandMw: n.demandMw }));
+  return { result, byIndex, multipliers, demandByIndex, activity, cableHeat, cableHeatRate, networks };
+}
+
+function buildPredictedPowerState(design, wiring, mode, available = null) {
+  const solve = solvePredictedPower(design, wiring, mode, available);
+  return {
+    _design: design, _wiring: wiring, _mode: mode,
+    networks: solve.networks, multipliers: solve.multipliers, cableHeatRate: solve.cableHeatRate,
+    cableHeat: solve.cableHeat, demandByIndex: solve.demandByIndex, activity: solve.activity, byIndex: solve.byIndex, result: solve.result
+  };
+}
+function clonePredictedPowerState(state) {
+  return {
+    _design: state._design, _wiring: state._wiring, _mode: state._mode,
+    networks: state.networks.map((n) => ({ ...n, sourceIndices: [...(n.sourceIndices || [])], consumerIndices: [...(n.consumerIndices || [])] })),
+    multipliers: [...state.multipliers], cableHeatRate: [...(state.cableHeatRate || [])], cableHeat: state.cableHeat,
+    demandByIndex: { ...state.demandByIndex }, activity: [...(state.activity || [])], byIndex: state.byIndex, result: state.result
+  };
+}
+function recalculatePredictedPowerState(state, design, available) {
+  const solve = solvePredictedPower(state._design || design, state._wiring, state._mode, available);
+  state.networks = solve.networks; state.multipliers = solve.multipliers; state.cableHeatRate = solve.cableHeatRate;
+  state.cableHeat = solve.cableHeat; state.demandByIndex = solve.demandByIndex; state.activity = solve.activity; state.byIndex = solve.byIndex; state.result = solve.result;
+  return state.multipliers;
 }
 function buildPredictedGenerationRates(design, rules, mode, loadMultiplier, designExhaust, dataSupport, powerMultiplier, powerState) {
   const activity = design.map((module, index) => (Number(PART_STATS[module.type]?.powerUse) || 0) <= 0 ? 1 : powerMultiplier[index]);

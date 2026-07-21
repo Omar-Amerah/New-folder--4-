@@ -3,11 +3,24 @@ import wiringRules from "./public/src/shared/wiringRules.js";
 import dataSupportRules from "./public/src/shared/dataSupportRules.js";
 import engineExhaustRules from "./public/src/shared/engineExhaust.js";
 import heatRules from "./public/src/shared/heatRules.js";
+import powerPolicyRules from "./public/src/shared/powerPolicyRules.js";
+import powerAllocationRules from "./public/src/shared/powerAllocationRules.js";
+import powerDemandRules from "./public/src/shared/powerDemandRules.js";
+import powerFlowRules from "./public/src/shared/powerFlowRules.js";
+import wiringInfrastructureRules from "./public/src/shared/wiringInfrastructureRules.js";
+import powerCableThermalRules from "./public/src/shared/powerCableThermalRules.js";
 
 globalThis.WiringRules = wiringRules;
 globalThis.DataSupportRules = dataSupportRules;
 globalThis.EngineExhaustRules = engineExhaustRules;
 globalThis.HeatRules = heatRules;
+// Section 7D-3: Blueprint thermal prediction uses the shared Power/Cable rules.
+globalThis.PowerPolicyRules = powerPolicyRules;
+globalThis.PowerAllocationRules = powerAllocationRules;
+globalThis.PowerDemandRules = powerDemandRules;
+globalThis.PowerFlowRules = powerFlowRules;
+globalThis.WiringInfrastructureRules = wiringInfrastructureRules;
+globalThis.PowerCableThermalRules = powerCableThermalRules;
 const fakeElements = new Map();
 function fakeClassList() { return { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false }; }
 function fakeElement(id = "") {

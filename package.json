@@ -64,6 +64,7 @@
     "test:power-priority-controls": "node verify-power-priority-controls.js",
     "test:power-cable-heat": "node verify-power-cable-heat.js",
     "test:power-activity-demand": "node verify-power-activity-demand.js",
+    "test:blueprint-power-thermal-parity": "node verify-blueprint-power-thermal-parity.js",
     "test:power-priority-browser": "npm run build && node verify-power-priority-browser.js",
     "test:data-support": "node verify-data-support.js",
     "test:wiring-pipeline": "node verify-wiring-pipeline.js",

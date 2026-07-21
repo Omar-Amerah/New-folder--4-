@@ -12,6 +12,13 @@ globalThis.DataSupportRules = dataSupportRules;
 globalThis.EngineExhaustRules = engineExhaustRules;
 globalThis.HeatRules = heatRules;
 globalThis.TurretRules = turretRules;
+// Section 7D-3: Blueprint thermal prediction uses the shared Power/Cable rules.
+globalThis.PowerPolicyRules = require("./public/src/shared/powerPolicyRules.js");
+globalThis.PowerAllocationRules = require("./public/src/shared/powerAllocationRules.js");
+globalThis.PowerDemandRules = require("./public/src/shared/powerDemandRules.js");
+globalThis.PowerFlowRules = require("./public/src/shared/powerFlowRules.js");
+globalThis.WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
+globalThis.PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules.js");
 
 class FakeElement {
   constructor(tag = "div", id = "") { this.tagName = tag.toUpperCase(); this.id = id; this.children = []; this.parentNode = null; this.listeners = new Map(); this.style = {}; this.dataset = {}; this.hidden = false; this.disabled = false; this.value = ""; this.attributes = {}; this.className = ""; this.type = ""; this.title = ""; this._textContent = ""; this._innerHTML = ""; }

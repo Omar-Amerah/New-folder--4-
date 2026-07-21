@@ -67,6 +67,7 @@ const GROUPS = {
     "verify-power-priority-controls.js",
     "verify-power-cable-heat.js",
     "verify-power-activity-demand.js",
+    "verify-blueprint-power-thermal-parity.js",
     "verify-component-health.js",
     "verify-meltdown.js",
     "verify-core-reactor.js",
