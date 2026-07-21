@@ -236,6 +236,7 @@
 .data-severity-low { border-color: #8ecae6; }
 .data-severity-redundant { border-color: #7bd88f; }
 .wiring-overlay .wire-data.data-dimmed { opacity: .28; stroke-dasharray: .08 .08; }
+.wiring-overlay .wire-data.wire-net-selected { stroke-width: .13; filter: drop-shadow(0 0 0.14px #5b8cff) drop-shadow(0 0 0.2px #5b8cff); } /* blue selection glow for the chosen Data network */
 .wiring-overlay .wire-data.data-critical-section { stroke: #ff4d6d; stroke-width: .14; stroke-dasharray: .18 .08; }
 .wiring-overlay .wire-data.data-high-impact-section { stroke: #ff9f1c; stroke-width: .12; stroke-dasharray: .28 .08; }
 .wiring-overlay .wire-data.data-medium-impact-section { stroke: #ffd166; stroke-width: .105; stroke-dasharray: .16 .08; }

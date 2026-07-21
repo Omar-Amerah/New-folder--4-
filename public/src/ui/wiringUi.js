@@ -601,7 +601,11 @@ function renderWiringOverlay() {
       if (powerSeverity) { const st = line(section, `wire-status-halo wire-status-${powerSeverity}`); st.style.strokeWidth = haloWidth(0.07); st.dataset.sectionId = section.id; glowLayer.appendChild(st); }
       if (powerSeverity === "peak") { const mx = (section.x1 + section.x2) / 2 + 0.5; const my = (section.y1 + section.y2) / 2 + 0.5; glowLayer.appendChild(svgEl("circle", { cx: mx, cy: my, r: 0.09 }, "wire-status-peak-marker")); }
     }
-    const visible = line(section, `wire-${view.mode}${tierClass}${dim}${severityClass ? ` ${severityClass}` : ""}${previewClass}`);
+    // Power selection is shown by the .wire-status-selected halo above; Data mode
+    // has no halo, so selected Data-network sections keep their positive emphasis
+    // class (the counterpart to data-dimmed on the other networks).
+    const selectedClass = view.mode === "data" && isSelected ? " wire-net-selected" : "";
+    const visible = line(section, `wire-${view.mode}${tierClass}${dim}${selectedClass}${severityClass ? ` ${severityClass}` : ""}${previewClass}`);
     if (view.mode === "power") { visible.style.strokeWidth = renderedStrokeWidth(section.tier); if (powerSeverity) visible.dataset.powerStatus = powerSeverity; if (isSelected) visible.dataset.powerSelected = "true"; }
     visible.dataset.sectionId = section.id; visibleLayer.appendChild(visible);
     const tierText = view.mode === "power" ? `. ${tierLabel(section.tier)}` : "";
