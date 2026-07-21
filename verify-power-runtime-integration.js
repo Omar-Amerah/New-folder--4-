@@ -92,24 +92,25 @@ check("scarce Balanced network shares a single proportional ratio, using all gen
     && Math.abs(scarceNet.usedGenerationMw - scarceNet.availableGenerationMw) < 1e-6 && scarceNet.strandedGenerationMw < 1e-6);
 
 // ---------------------------------------------------------------------------
-// Ship C — saved Power policy drives priority routing over identical physical
-// wiring. Defensive starves weapons; Balanced shares proportionally.
+// Ship C1 — the saved Power policy drives priority routing over identical
+// physical wiring. Defensive ranks Shields above Propulsion; corrected Balanced
+// ranks Propulsion above Shields (Balanced is banded, not one tied pool). Same
+// wiring, different allocation proves the saved policy is the flow authority.
 // ---------------------------------------------------------------------------
-const policyDesign = [at("auxGenerator", 0, 0), at("shield", 1, 0), at("blaster", 0, 1)];
-const policyRoutes = [
+const c1Design = [at("auxGenerator", 0, 0), at("shield", 1, 0), at("engine", 0, 1)];
+const c1Routes = [
   [0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]],
   [0, 2, [{ x: 0, y: 0 }, { x: 0, y: 1 }]]
 ];
-const defensive = shipFor(policyDesign, wire(policyDesign, policyRoutes, { preset: "defensive" }));
-const balanced = shipFor(policyDesign, wire(policyDesign, policyRoutes, { preset: "balanced" }));
+const defensive = shipFor(c1Design, wire(c1Design, c1Routes, { preset: "defensive" }));
+const balanced = shipFor(c1Design, wire(c1Design, c1Routes, { preset: "balanced" }));
 
-check("Defensive policy powers shields ahead of weapons under scarcity",
+check("Defensive prioritises Shields over Propulsion under scarcity",
   getComponentPowerMultiplier(defensive, 1) > 0.9 && getComponentPowerMultiplier(defensive, 2) === 0);
-check("Balanced policy shares the same scarce generation proportionally across shields and weapons",
-  getComponentPowerMultiplier(balanced, 1) > 0 && getComponentPowerMultiplier(balanced, 2) > 0
-    && Math.abs(getComponentPowerMultiplier(balanced, 1) - getComponentPowerMultiplier(balanced, 2)) < 2e-3);
+check("corrected Balanced prioritises Propulsion over Shields (banded, not one tied pool)",
+  getComponentPowerMultiplier(balanced, 2) === 1 && getComponentPowerMultiplier(balanced, 1) < 1);
 check("saved Power policy — not persisted connections — is the flow authority (same wiring, different allocation)",
-  getComponentPowerMultiplier(defensive, 2) !== getComponentPowerMultiplier(balanced, 2));
+  getComponentPowerMultiplier(defensive, 1) !== getComponentPowerMultiplier(balanced, 1));
 check("runtime power policy is a clone of the immutable Blueprint policy",
   defensive._runtimePowerWiring.powerPolicy !== defensive.wiring.powerPolicy
     && defensive._runtimePowerWiring.powerPolicy.preset === "defensive");
@@ -117,6 +118,20 @@ check("runtime power policy is a clone of the immutable Blueprint policy",
 const defShieldMult = getComponentPowerMultiplier(defensive, 1);
 check("effective ship stats reflect the fresh solver multiplier (recalc ordering preserved)",
   Math.abs(effectiveShieldStats(defensive).capacity - PARTS.shield.shield * defShieldMult) < 1e-6);
+
+// Ship C2 — a named preset's tied band (Shields + Point Defence) shares a
+// shortage proportionally while the two stay separate categories with separate
+// diagnostics.
+const c2Design = [at("auxGenerator", 0, 0), at("shield", 1, 0), at("pointDefense", 0, 1)];
+const c2 = shipFor(c2Design, wire(c2Design, [
+  [0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]],
+  [0, 2, [{ x: 0, y: 0 }, { x: 0, y: 1 }]]
+], { preset: "balanced" }));
+check("Balanced ties Shields and Point Defence, sharing a shortage proportionally as separate categories",
+  getComponentPowerMultiplier(c2, 1) > 0 && getComponentPowerMultiplier(c2, 2) > 0
+    && Math.abs(getComponentPowerMultiplier(c2, 1) - getComponentPowerMultiplier(c2, 2)) < 2e-3
+    && c2.componentPower.byComponentIndex[1].powerCategory === "shields"
+    && c2.componentPower.byComponentIndex[2].powerCategory === "pointDefence");
 
 // ---------------------------------------------------------------------------
 // Ship D — damage / overheat driven reallocation, blueprint immutability,
@@ -233,5 +248,5 @@ check("normal successful allocation still powers a live consumer through the rea
     && normalShip.componentPower.byComponentIndex[1].state === "underpowered"
     && getComponentPowerMultiplier(normalShip, 1) > 0);
 
-assert.strictEqual(checks, 30, `expected 30 integration checks, ran ${checks}`);
+assert.strictEqual(checks, 31, `expected 31 integration checks, ran ${checks}`);
 console.log(`Power runtime integration verification passed (${checks} checks).`);

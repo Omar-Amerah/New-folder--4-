@@ -890,6 +890,27 @@ export function clearPhysicalBlueprintHistory() {
   refreshBlueprintUndoControl();
 }
 
+// The single authoritative Power-policy update path. `transform` receives the
+// current normalised policy and returns the desired policy (a preset switch or a
+// Custom reorder). The change is committed as a Blueprint design-setting edit:
+// it clones and normalises the policy, replaces state.wiring immutably while
+// preserving all Power/Data sections and routes, and runs through
+// commitPhysicalEdit so an exact no-op creates no Undo entry while a real change
+// pushes one history snapshot, persists and refreshes analysis/cost. Returns
+// true when a change was committed.
+export function applyPowerPolicyChange(transform) {
+  const policyRules = globalThis.PowerPolicyRules;
+  if (!policyRules || typeof transform !== "function") return false;
+  const before = captureBlueprintEditSnapshot(state);
+  return commitPhysicalEdit(before, () => {
+    const current = policyRules.normalizePolicy(state.wiring?.powerPolicy);
+    const next = policyRules.normalizePolicy(transform(current));
+    // Immutable replacement (the design-edit architecture expects a new object);
+    // sections, connections, tiers and Data wiring are carried over untouched.
+    state.wiring = { ...state.wiring, powerPolicy: next };
+  });
+}
+
 export function undoBlueprintEdit() {
   if (!canUndoBlueprintEdit()) return false;
   const restored = popBlueprintEditUndo();

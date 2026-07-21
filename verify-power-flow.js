@@ -244,11 +244,22 @@ function triConsumer(types, gen, policy, demands) {
   const sections = [sec(6, 7, 7, 7, "heavy"), sec(7, 7, 8, 7, "heavy"), sec(8, 7, 9, 7, "heavy")];
   return solve(design, sections, { sourceGenerationByIndex: { 0: gen }, policy, consumerDemandByIndex: demands });
 }
-check("29. Balanced shortage allocates proportionally", () => {
-  // gyroscope(propulsion,3) + blaster(weapons,3) both in one balanced band; gen 3.
+check("29. Balanced now ranks Propulsion above Weapons (not one tied band)", () => {
+  // gyroscope(propulsion, band 2) + blaster(weapons, band 4); gen 3. Propulsion
+  // outranks weapons, so it is served first — Balanced is no longer one tied band.
   const r = triConsumer(["gyroscope", "blaster", "frame"], 3, { preset: "balanced" }, { 1: 3, 2: 3 });
-  assert.strictEqual(consumer(r, 1).allocatedMw, 1.5);
-  assert.strictEqual(consumer(r, 2).allocatedMw, 1.5);
+  assert.strictEqual(consumer(r, 1).allocatedMw, 3, "propulsion served fully first");
+  assert.strictEqual(consumer(r, 2).allocatedMw, 0, "weapons shed");
+});
+check("29b. Balanced ties Shields and Point Defence and shares the band proportionally", () => {
+  // Section 15 example: 5 MW tied band, shield demand 8, point defence demand 2 ->
+  // proportional 4 MW and 1 MW, both at 50%. They stay separate categories.
+  const r = triConsumer(["shield", "pointDefense", "frame"], 5, { preset: "balanced" }, { 1: 8, 2: 2 });
+  assert.strictEqual(consumer(r, 1).allocatedMw, 4, "shields receive 4 MW");
+  assert.strictEqual(consumer(r, 2).allocatedMw, 1, "point defence receives 1 MW");
+  assert.strictEqual(consumer(r, 1).powerCategory, "shields");
+  assert.strictEqual(consumer(r, 2).powerCategory, "pointDefence");
+  assert.strictEqual(consumer(r, 1).priorityBand, consumer(r, 2).priorityBand, "tied in the same band");
 });
 check("30. Defensive favours Shields before Weapons", () => {
   const r = triConsumer(["shield", "blaster", "frame"], 4, { preset: "defensive" }, { 1: 3.5, 2: 2.4 });
@@ -264,6 +275,21 @@ check("32. Mobility favours Propulsion", () => {
   const r = triConsumer(["gyroscope", "blaster", "frame"], 3, { preset: "mobility" }, { 1: 3, 2: 2.4 });
   assert.strictEqual(consumer(r, 1).allocatedMw, 3, "propulsion served first");
   assert.strictEqual(consumer(r, 2).allocatedMw, 0);
+});
+check("32b. Offensive does not treat Point Defence as a Weapon", () => {
+  // blaster(weapons, band 1) + pointDefense(pointDefence, band 3); gen 2.4.
+  // Weapons outrank point defence, so the weapon is served and PD is shed —
+  // point defence is NOT lumped into the weapons band.
+  const r = triConsumer(["blaster", "pointDefense", "frame"], 2.4, { preset: "offensive" }, { 1: 2.4, 2: 3 });
+  assert.strictEqual(consumer(r, 1).allocatedMw, 2.4, "weapon served first");
+  assert.strictEqual(consumer(r, 2).allocatedMw, 0, "point defence shed below propulsion, not tied to weapons");
+});
+check("32c. Mobility keeps Weapons last, above nothing", () => {
+  // pointDefense(pointDefence, band 3) + blaster(weapons, band 4); gen 3.
+  // Point defence outranks weapons under Mobility.
+  const r = triConsumer(["pointDefense", "blaster", "frame"], 3, { preset: "mobility" }, { 1: 3, 2: 2.4 });
+  assert.strictEqual(consumer(r, 1).allocatedMw, 3, "point defence served before weapons");
+  assert.strictEqual(consumer(r, 2).allocatedMw, 0, "weapons last");
 });
 check("33. Custom order is honoured", () => {
   // Custom puts weapons ahead of shields.

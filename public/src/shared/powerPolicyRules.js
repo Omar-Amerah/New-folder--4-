@@ -23,14 +23,20 @@
   // of the chosen preset. These names are persisted in saved Blueprints and are
   // locked — renaming one later would require another migration.
   const BALANCED_ORDER = Object.freeze([...POWER_CATEGORIES]);
+  // Visible, deterministic preset display orders. These are for presentation and
+  // deterministic listing only — PRESET_BANDS below is the authority for which
+  // categories are tied during allocation. The two are kept consistent: a
+  // preset's order is its bands flattened in band order.
   const POWER_PRESETS = Object.freeze({
     balanced: BALANCED_ORDER,
-    // Defensive leans on shields, point defence and support survival first.
+    // Defensive keeps shields and point defence alive before propulsion/support,
+    // shedding weapons first.
     defensive: Object.freeze(["command", "shields", "pointDefence", "propulsion", "coolingSupport", "weapons"]),
-    // Offensive leans on weapons and their support first.
-    offensive: Object.freeze(["command", "weapons", "pointDefence", "shields", "propulsion", "coolingSupport"]),
-    // Mobility keeps propulsion powered before offensive/defensive systems.
-    mobility: Object.freeze(["command", "propulsion", "weapons", "pointDefence", "shields", "coolingSupport"])
+    // Offensive powers weapons before propulsion, then defensive systems.
+    offensive: Object.freeze(["command", "weapons", "propulsion", "shields", "pointDefence", "coolingSupport"]),
+    // Mobility keeps propulsion and its cooling/support powered before defensive
+    // systems, shedding weapons last.
+    mobility: Object.freeze(["command", "propulsion", "coolingSupport", "shields", "pointDefence", "weapons"])
   });
   // "custom" has no fixed order — it honours the Blueprint's own customOrder.
   const CUSTOM_PRESET = "custom";
@@ -111,10 +117,54 @@
     return isNamedPresetOrder(preset) ? [...POWER_PRESETS[preset]] : [...BALANCED_ORDER];
   }
 
+  // Canonical string for no-op comparison. Two policies are equal when their
+  // normalised {preset, customOrder} match exactly.
+  function canonicalPolicyKey(policy) {
+    const normalized = normalizePolicy(policy);
+    return JSON.stringify([normalized.preset, normalized.customOrder]);
+  }
+  function policiesEqual(a, b) {
+    return canonicalPolicyKey(a) === canonicalPolicyKey(b);
+  }
+
+  // Pure policy transitions. None mutate their input; each returns a freshly
+  // normalised policy. Selecting a named preset changes only the active preset
+  // and always preserves the previously configured customOrder so returning to
+  // "custom" restores it. Selecting "custom" activates the preserved order.
+  function selectPreset(policy, preset) {
+    const current = normalizePolicy(policy);
+    const nextPreset = isPresetName(preset) ? preset : DEFAULT_PRESET;
+    return { preset: nextPreset, customOrder: [...current.customOrder] };
+  }
+
+  // Replacing the Custom order always activates "custom" (a manual reorder is a
+  // Custom edit) and repairs the supplied order deterministically.
+  function setCustomOrder(policy, rawOrder) {
+    normalizePolicy(policy); // validates/ignores the incoming preset; order wins
+    return { preset: CUSTOM_PRESET, customOrder: normalizeCustomOrder(rawOrder) };
+  }
+
+  // Move one category up (direction < 0) or down (direction > 0) by a single
+  // position within the current Custom order, activating "custom". An out-of-range
+  // move is a no-op that still returns a normalised policy (callers treat an
+  // unchanged canonical key as "no edit").
+  function moveCustomCategory(policy, category, direction) {
+    const current = normalizePolicy(policy);
+    const order = [...current.customOrder];
+    const index = order.indexOf(category);
+    const step = direction < 0 ? -1 : 1;
+    const target = index + step;
+    if (index === -1 || target < 0 || target >= order.length) {
+      return { preset: CUSTOM_PRESET, customOrder: order };
+    }
+    [order[index], order[target]] = [order[target], order[index]];
+    return { preset: CUSTOM_PRESET, customOrder: order };
+  }
+
   // Authoritative human-readable category labels. Single source of truth so UI
   // and diagnostics never keep a second copy.
   const POWER_CATEGORY_LABELS = Object.freeze({
-    command: "Command",
+    command: "Command & Control",
     propulsion: "Propulsion",
     shields: "Shields",
     pointDefence: "Point Defence",
@@ -128,10 +178,10 @@
   // category). These are the foundation a later capacity-aware allocator reads;
   // no gameplay consumes them yet.
   const PRESET_BANDS = Object.freeze({
-    balanced: Object.freeze([Object.freeze(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"])]),
-    defensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["propulsion", "coolingSupport"]), Object.freeze(["weapons"])]),
-    offensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["weapons", "pointDefence"]), Object.freeze(["shields"]), Object.freeze(["propulsion", "coolingSupport"])]),
-    mobility: Object.freeze([Object.freeze(["command"]), Object.freeze(["propulsion"]), Object.freeze(["pointDefence", "weapons"]), Object.freeze(["shields", "coolingSupport"])])
+    balanced: Object.freeze([Object.freeze(["command"]), Object.freeze(["propulsion"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["weapons"]), Object.freeze(["coolingSupport"])]),
+    defensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["propulsion"]), Object.freeze(["coolingSupport"]), Object.freeze(["weapons"])]),
+    offensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["weapons"]), Object.freeze(["propulsion"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["coolingSupport"])]),
+    mobility: Object.freeze([Object.freeze(["command"]), Object.freeze(["propulsion"]), Object.freeze(["coolingSupport"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["weapons"])])
   });
 
   // Resolve a saved policy into priority bands. Normalises first (repairing
@@ -147,6 +197,7 @@
   return {
     POWER_CATEGORIES,
     POWER_PRESETS,
+    PRESET_BANDS,
     PRESET_NAMES,
     ACCEPTED_PRESETS,
     CUSTOM_PRESET,
@@ -162,6 +213,11 @@
     defaultPolicy,
     presetOrder,
     resolvePriorityBands,
+    canonicalPolicyKey,
+    policiesEqual,
+    selectPreset,
+    setCustomOrder,
+    moveCustomCategory,
     POWER_CATEGORY_LABELS
   };
 }));
