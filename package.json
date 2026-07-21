@@ -55,6 +55,7 @@
     "test:wiring": "node verify-wiring.js",
     "test:wiring-infrastructure": "node verify-wiring-infrastructure.js",
     "test:wiring-editor": "node verify-wiring-editor.js",
+    "test:wiring-tier-status-browser": "npm run build && node verify-wiring-tier-status-browser.js",
     "test:power-allocation-foundation": "node verify-power-allocation-foundation.js",
     "test:power-flow": "node verify-power-flow.js",
     "test:power-policy": "node verify-power-allocation-foundation.js",

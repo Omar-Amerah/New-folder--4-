@@ -430,9 +430,15 @@
                 </div>
                 <div id="wiringTierRow" class="wiring-control-row wiring-tier-row" role="group" aria-label="Power cable tier">
                   <span class="wiring-control-label">Tier</span>
-                  <button type="button" class="wiring-tier" data-wiring-tier="light" aria-pressed="false" title="Light Cable (thin, cheapest, lowest Heat displacement)">Light</button>
-                  <button type="button" class="wiring-tier" data-wiring-tier="standard" aria-pressed="true" title="Standard Cable">Standard</button>
-                  <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false" title="Heavy Bus (thick, highest rating and Heat displacement)">Heavy</button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="light" aria-pressed="false" title="Light Cable — local branch. 4 MW sustained / 7 MW peak."><span class="wiring-tier-name">Light</span><span class="wiring-tier-detail">Local branch · 4 / 7 MW</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="standard" aria-pressed="true" title="Standard Cable — general cable. 10 MW sustained / 16 MW peak."><span class="wiring-tier-name">Standard</span><span class="wiring-tier-detail">General cable · 10 / 16 MW</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false" title="Heavy Bus — main trunk. 24 MW sustained / 36 MW peak."><span class="wiring-tier-name">Heavy Bus</span><span class="wiring-tier-detail">Main trunk · 24 / 36 MW</span></button>
+                </div>
+                <div id="wiringTierLegend" class="wiring-tier-legend" hidden>
+                  <div class="wiring-legend-line"><span class="wiring-legend-swatch wiring-legend-light"></span>Light</div>
+                  <div class="wiring-legend-line"><span class="wiring-legend-swatch wiring-legend-standard"></span>Standard</div>
+                  <div class="wiring-legend-line"><span class="wiring-legend-swatch wiring-legend-heavy"></span>Heavy Bus</div>
+                  <div class="wiring-legend-note">Values are sustained / peak MW. Thicker, darker cable = higher-capacity tier. A glow or outline shows current status (green working · yellow loaded · orange above sustained · red at peak · red dashed disconnected · blue selected).</div>
                 </div>
                 <div class="wiring-control-row" role="group" aria-label="Wiring actions">
                   <button type="button" id="wiringUndoButton" title="Undo last completed wiring change">Undo</button>

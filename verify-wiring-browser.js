@@ -354,8 +354,8 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     await svg.waitFor({ state: "visible", timeout: 5_000 });
     assert.equal(await svg.count(), 1, "fixture renders exactly one Wiring overlay SVG");
     assert.deepEqual(await svg.locator(":scope > g").evaluateAll((groups) => groups.map((group) => group.getAttribute("class"))),
-      ["wire-visible-layer", "wire-hit-layer", "wire-marker-layer", "wire-indicator-layer", "wire-port-layer"],
-      "overlay recreates the explicit paint and hit-test layer order");
+      ["wire-glow-layer", "wire-visible-layer", "wire-hit-layer", "wire-marker-layer", "wire-indicator-layer", "wire-port-layer"],
+      "overlay recreates the explicit paint and hit-test layer order (glow layer below the visible cable)");
     await page.evaluate(async () => {
       const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
       const fail = (condition, message) => { if (!condition) throw new Error(`Wiring fixture error: ${message}`); };

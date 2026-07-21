@@ -132,6 +132,7 @@ const GROUPS = {
   browser: [
     "verify-browser-startup.js",
     "verify-wiring-browser.js",
+    "verify-wiring-tier-status-browser.js",
     "verify-power-priority-browser.js",
     "verify-blueprint-undo-browser.js",
     "verify-blueprint-discoverability-browser.js",
