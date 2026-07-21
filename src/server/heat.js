@@ -117,6 +117,14 @@ function initShipHeat(ship) {
   ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
   ship.totalVentedOverflowHeat = 0;
   ship.componentHeatInput = design.map(() => 0);
+  // Section 7D-1: dynamic Power-cable Heat, tracked separately from component
+  // Heat. Rates are populated by the shared analysis when Power flow is solved.
+  ship.componentPowerCableHeatRate = design.map(() => 0);
+  ship.componentPowerCableHeatGenerated = design.map(() => 0);
+  ship.powerCableHeatRate = 0;
+  ship.powerCableHeatGenerated = 0;
+  ship.powerCableThermalAnalysis = null;
+  ship._powerCableThermalFlowRevision = -1;
   ship.heatAccumulator = 0;
   ship.currentHeat = 0;
   recalculateEffectiveThermalCapacities(ship);
@@ -315,7 +323,7 @@ const { REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DA
 function updateShipHeat(ship, dt, room, now) {
   if (!ship.alive || !ship.componentHeat) return;
   const pending = ship.componentHeatInput.some(value => value > 0);
-  if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending) return;
+  if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending && !(ship.powerCableHeatRate > 0)) return;
   const MAX_THERMAL_STEPS = 8;
   const MAX_THERMAL_BACKLOG_SECONDS = TICK_SECONDS * MAX_THERMAL_STEPS;
   ship.heatAccumulator = Math.min((ship.heatAccumulator || 0) + Math.max(0, dt || 0), MAX_THERMAL_BACKLOG_SECONDS);
@@ -364,6 +372,34 @@ function updateShipHeat(ship, dt, room, now) {
     delta[i] += generated;
 
   }
+
+  // Section 7D-1: dynamic Power-cable Heat from solved section flow. The cached
+  // analysis is refreshed only when Power flow changed (revision-guarded, so
+  // repeated ticks with unchanged flow do not rebuild it). Cable Heat is added
+  // to the shared thermal delta — so it conducts, cools, drives state changes,
+  // throttling, source overheating and meltdown like any other Heat — but is
+  // recorded separately and never enters componentHeatGenerated/Input/Received/
+  // TransferredOut.
+  require("./componentPower").ensureShipCableThermalAnalysis(ship);
+  if (!ship.componentPowerCableHeatGenerated || ship.componentPowerCableHeatGenerated.length !== heat.length) {
+    ship.componentPowerCableHeatGenerated = heat.map(() => 0);
+  }
+  ship.componentPowerCableHeatGenerated.fill(0);
+  const cableRates = ship.componentPowerCableHeatRate;
+  let shipCableHeat = 0;
+  if (Array.isArray(cableRates)) {
+    for (let i = 0; i < heat.length; i += 1) {
+      const alive = (ship.componentHp?.[i] ?? 1) > 0;
+      const rate = alive ? (Number(cableRates[i]) || 0) : 0;
+      if (rate <= 0) continue;
+      const cableHeatAmount = rate * elapsed;
+      delta[i] += cableHeatAmount;
+      ship.componentPowerCableHeatGenerated[i] = cableHeatAmount;
+      shipCableHeat += cableHeatAmount;
+    }
+  }
+  ship.powerCableHeatGenerated = shipCableHeat;
+  ship.powerCableHeatTotal = (ship.powerCableHeatTotal || 0) + shipCableHeat;
 
   // Cached edges only; normalized-ratio transfers are calculated against the
   // same pre-transfer snapshot, then each component's total outflow is scaled

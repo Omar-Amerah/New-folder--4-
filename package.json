@@ -61,6 +61,7 @@
     "test:power-runtime": "node verify-power-runtime.js",
     "test:power-runtime-integration": "node verify-power-runtime-integration.js",
     "test:power-priority-controls": "node verify-power-priority-controls.js",
+    "test:power-cable-heat": "node verify-power-cable-heat.js",
     "test:power-priority-browser": "npm run build && node verify-power-priority-browser.js",
     "test:data-support": "node verify-data-support.js",
     "test:wiring-pipeline": "node verify-wiring-pipeline.js",

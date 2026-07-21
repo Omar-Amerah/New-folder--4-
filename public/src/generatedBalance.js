@@ -20,6 +20,8 @@ export const GENERATED_BALANCE = {
         "peakCapacityMw": 7,
         "costPerHostedCell": 1,
         "heatCapacityDisplacement": 2,
+        "cableHeatAtSustainedPerHostedCell": 0.35,
+        "cableHeatUtilisationExponent": 2.2,
         "renderedThickness": 1,
         "inspectionLabel": "Light Cable"
       },
@@ -28,6 +30,8 @@ export const GENERATED_BALANCE = {
         "peakCapacityMw": 16,
         "costPerHostedCell": 2,
         "heatCapacityDisplacement": 4,
+        "cableHeatAtSustainedPerHostedCell": 0.55,
+        "cableHeatUtilisationExponent": 2.2,
         "renderedThickness": 2,
         "inspectionLabel": "Standard Cable"
       },
@@ -36,6 +40,8 @@ export const GENERATED_BALANCE = {
         "peakCapacityMw": 36,
         "costPerHostedCell": 5,
         "heatCapacityDisplacement": 8,
+        "cableHeatAtSustainedPerHostedCell": 0.9,
+        "cableHeatUtilisationExponent": 2.2,
         "renderedThickness": 4,
         "inspectionLabel": "Heavy Bus"
       }
