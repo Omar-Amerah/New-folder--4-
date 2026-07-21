@@ -144,6 +144,40 @@
     const topo = buildTopology(options.design, options.wiring, catalogue, infrastructure, options.sectionOperationalById);
     const { modules, sections, cellNode, orderedCellKeys, occupant } = topo;
 
+    // Section-connectivity islands (union-find over section endpoints), computed
+    // up front and by canonical root order so grouping never depends on section
+    // order. Used both for network attribution and — Section 7D-2 — to attach a
+    // component to exactly one terminal cell per island, so a multi-cell source
+    // or consumer can no longer bypass its own first/last cable section while
+    // still reaching genuinely separate islands.
+    const cellParent = new Map();
+    const find = (key) => { while (cellParent.get(key) !== key) { cellParent.set(key, cellParent.get(cellParent.get(key))); key = cellParent.get(key); } return key; };
+    orderedCellKeys.forEach((key) => cellParent.set(key, key));
+    const union = (x, y) => { const rx = find(x); const ry = find(y); if (rx === ry) return; if (compareCanonicalIds(rx, ry) < 0) cellParent.set(ry, rx); else cellParent.set(rx, ry); };
+    for (const section of sections) { const [a, b] = sectionCells(section); union(cellKey(a.x, a.y), cellKey(b.x, b.y)); }
+    const networkRootOfCell = new Map(orderedCellKeys.map((key) => [key, find(key)]));
+    const networkKeys = [...new Set([...networkRootOfCell.values()])].sort(compareCanonicalIds);
+    const networkIndexByRoot = new Map(networkKeys.map((root, i) => [root, i]));
+    const networkIndexOfCell = (key) => networkRootOfCell.has(key) ? networkIndexByRoot.get(networkRootOfCell.get(key)) : -1;
+    const networkOfComponentIndex = (terminals) => {
+      const set = new Set();
+      for (const key of terminals) if (networkRootOfCell.has(key)) set.add(networkIndexByRoot.get(networkRootOfCell.get(key)));
+      // Network indices follow canonical root order, so sorting ascending yields
+      // the canonically lowest attached network first.
+      return [...set].sort((a, b) => a - b);
+    };
+    // Exactly one deterministic terminal per island: the canonically lowest cell.
+    const selectIslandTerminals = (terminals) => {
+      const byRoot = new Map();
+      for (const key of terminals) {
+        if (!networkRootOfCell.has(key)) continue;
+        const root = networkRootOfCell.get(key);
+        const current = byRoot.get(root);
+        if (current === undefined || compareCanonicalIds(key, current) < 0) byRoot.set(root, key);
+      }
+      return [...byRoot.values()].sort(compareCanonicalIds);
+    };
+
     const operationalOf = (index) => {
       const flag = options.componentOperationalByIndex ? options.componentOperationalByIndex[index] : undefined;
       return flag === undefined ? true : Boolean(flag);
@@ -152,8 +186,12 @@
       const supplied = options.sourceGenerationByIndex ? options.sourceGenerationByIndex[index] : undefined;
       return supplied === undefined ? numberOr(partFor(catalogue, type).powerGeneration, 0) : numberOr(supplied, 0);
     };
+    // Demand override: componentDemandByIndex (Section 7D-2 activity-driven
+    // demand) takes precedence; consumerDemandByIndex is kept for existing tests.
+    // Absent -> nominal catalogue powerUse (compatibility default).
+    const demandOverride = options.componentDemandByIndex || options.consumerDemandByIndex;
     const consumerDemandMw = (index, type) => {
-      const supplied = options.consumerDemandByIndex ? options.consumerDemandByIndex[index] : undefined;
+      const supplied = demandOverride ? demandOverride[index] : undefined;
       return supplied === undefined ? numberOr(partFor(catalogue, type).powerUse, 0) : numberOr(supplied, 0);
     };
 
@@ -165,10 +203,13 @@
       const alive = operationalOf(index);
       const terminals = moduleCells(moduleValue, catalogue).map((cell) => cellKey(cell.x, cell.y)).filter((key) => cellKeysSet.has(key));
       const uniqueTerminals = [...new Set(terminals)].sort(compareCanonicalIds);
+      // One terminal per island so a multi-cell component injects/draws at a
+      // single cell per network and cannot bypass its own cable sections.
+      const islandTerminals = selectIslandTerminals(uniqueTerminals);
       if (isPowerSourceType(type)) {
-        sources.push({ index, type, terminals: uniqueTerminals, alive, generationMw: alive ? sourceGenMw(index, type) : 0, stableKey: stableComponentKey(moduleValue, catalogue) });
+        sources.push({ index, type, terminals: islandTerminals, alive, generationMw: alive ? sourceGenMw(index, type) : 0, stableKey: stableComponentKey(moduleValue, catalogue) });
       } else if (isPowerConsumer(type, catalogue)) {
-        consumers.push({ index, type, terminals: uniqueTerminals, alive, demandMw: alive ? consumerDemandMw(index, type) : 0, powerCategory: partFor(catalogue, type).powerCategory || null, stableKey: stableComponentKey(moduleValue, catalogue) });
+        consumers.push({ index, type, terminals: islandTerminals, alive, demandMw: alive ? consumerDemandMw(index, type) : 0, powerCategory: partFor(catalogue, type).powerCategory || null, stableKey: stableComponentKey(moduleValue, catalogue) });
       }
     });
     // Order sources and consumers by stable physical identity (design-array
@@ -330,26 +371,8 @@
     const usedGenUnits = sources.map((_, s) => net.edgeFlow(sourceSupplyEdge[s]));
     const totalUsedGenUnits = usedGenUnits.reduce((sum, value) => sum + value, 0);
 
-    // Networks: connected components of the section graph. Deterministic union
-    // by canonical root order so island grouping never depends on section order.
-    const cellParent = new Map();
-    const find = (key) => { while (cellParent.get(key) !== key) { cellParent.set(key, cellParent.get(cellParent.get(key))); key = cellParent.get(key); } return key; };
-    orderedCellKeys.forEach((key) => cellParent.set(key, key));
-    const union = (x, y) => { const rx = find(x); const ry = find(y); if (rx === ry) return; if (compareCanonicalIds(rx, ry) < 0) cellParent.set(ry, rx); else cellParent.set(rx, ry); };
-    for (const section of sections) { const [a, b] = sectionCells(section); union(cellKey(a.x, a.y), cellKey(b.x, b.y)); }
-    const networkRootOfCell = new Map(orderedCellKeys.map((key) => [key, find(key)]));
-    const networkKeys = [...new Set([...networkRootOfCell.values()])].sort(compareCanonicalIds);
-    const networkIndexByRoot = new Map(networkKeys.map((root, i) => [root, i]));
-
-    const networkIndexOfCell = (key) => networkRootOfCell.has(key) ? networkIndexByRoot.get(networkRootOfCell.get(key)) : -1;
-    const networkOfComponentIndex = (terminals) => {
-      const set = new Set();
-      for (const key of terminals) if (networkRootOfCell.has(key)) set.add(networkIndexByRoot.get(networkRootOfCell.get(key)));
-      // Network indices follow canonical root order, so sorting ascending yields
-      // the canonically lowest attached network first.
-      return [...set].sort((a, b) => a - b);
-    };
-
+    // Networks: connected components of the section graph, from the union-find
+    // computed up front (see above).
     const networks = networkKeys.map((root, i) => ({
       id: `power-net-${i}`, root, sectionIds: [], sourceIndices: [], consumerIndices: [],
       availableGenUnits: 0, usedGenUnits: 0, demandUnits: 0, allocatedUnits: 0

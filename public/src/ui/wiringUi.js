@@ -365,8 +365,9 @@ function refreshToolbar() {
     // Change Tier is Power-only; disable it for Data so the control cannot lie.
     if (button.dataset.wiringTool === "tier") button.disabled = !power;
   });
-  // Data has no cable tiers, so the tier row is hidden while editing Data.
+  // Data has no cable tiers, so the tier row and legend are hidden for Data.
   if (dom.wiringTierRow) dom.wiringTierRow.hidden = !power;
+  if (dom.wiringTierLegend) dom.wiringTierLegend.hidden = !power;
   dom.wiringToolbar?.querySelectorAll("[data-wiring-tier]").forEach((button) => {
     const active = button.dataset.wiringTier === selectedTier();
     button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active));
@@ -557,11 +558,18 @@ function renderWiringOverlay() {
   const selectedSourceZeroRecipients = new Set(dataSource && Number(dataSource.effectiveBudget) <= 0 ? dataSource.connectedWeaponIndices || [] : []);
   const selectedWeaponActiveContributors = positiveContributionIndices(dataWeapon);
   const selectedWeaponZeroContributors = new Set(dataWeapon ? (dataAnalysis.sources || []).filter((src) => src.networkId === dataWeapon.networkId && !selectedWeaponActiveContributors.has(src.sourceIndex)).map((src) => src.sourceIndex) : []);
+  const glowLayer = svgGroup("wire-glow-layer");
   const visibleLayer = svgGroup("wire-visible-layer"); const hitLayer = svgGroup("wire-hit-layer");
   const markerLayer = svgGroup("wire-marker-layer"); const indicatorLayer = svgGroup("wire-indicator-layer"); const portLayer = svgGroup("wire-port-layer");
-  // SVG paint order is also hit-test order. Ports intentionally remain last so
-  // their normal-sized circles are authoritative where a cable crosses them.
-  svg.append(visibleLayer, hitLayer, markerLayer, indicatorLayer, portLayer);
+  // SVG paint order is also hit-test order. The glow layer is drawn first (below
+  // everything) so status halos read as an outer ring while the tier-coloured
+  // cable stays on top. Ports remain last so they win hit testing over cable.
+  svg.append(glowLayer, visibleLayer, hitLayer, markerLayer, indicatorLayer, portLayer);
+  // Section 7D-2: per-section delivered flow status from the shared solver, used
+  // for the load/above-sustained/at-peak overlays (never replaces tier colour).
+  const powerFlowBySection = new Map();
+  if (view.mode === "power") { try { const flow = designerPowerFlow(); if (flow && Array.isArray(flow.sectionFlows)) for (const f of flow.sectionFlows) powerFlowBySection.set(f.sectionId, f); } catch (_) { /* preview optional */ } }
+  const POWER_STATUS_TEXT = { working: "working", loaded: "highly loaded", above: "above sustained capacity", peak: "at peak capacity", broken: "disconnected" };
   for (const section of bucket().sections) {
     const netForSection = view.mode === "data" ? dataAnalysis?.networks?.find((network) => network.sectionIds.includes(section.id)) : null;
     const isSelected = selectedNet?.sectionIds.includes(section.id) || (view.mode === "data" && selectedDataNetworkId && netForSection?.id === selectedDataNetworkId);
@@ -575,12 +583,31 @@ function renderWiringOverlay() {
     const tierClass = view.mode === "power" ? ` wire-tier-${section.tier || "standard"}` : "";
     const hovered = ui().hoveredSectionId === section.id && ui().sourceIndex == null;
     const previewClass = hovered && (isPowerTierTool() || currentTool() === "erase") ? " wire-section-preview" : hovered && currentTool() === "inspect" ? " wire-section-hover" : "";
-    const visible = line(section, `wire-${view.mode}${tierClass}${dim}${severityClass ? ` ${severityClass}` : ""}${powerState === "online" ? " wire-net-working" : powerState === "underpowered" ? " wire-net-underpowered" : powerState === "unpowered" ? " wire-net-broken" : ""}${isSelected ? " wire-net-selected" : ""}${previewClass}`);
-    if (view.mode === "power") visible.style.strokeWidth = renderedStrokeWidth(section.tier);
+    // Power status is an OVERLAY (halo), so the tier colour on the visible line is
+    // never replaced. Determine the status severity from connectivity + flow.
+    let powerSeverity = null;
+    if (view.mode === "power") {
+      const flow = powerFlowBySection.get(section.id);
+      if (powerState === "unpowered") powerSeverity = "broken";
+      else if (flow && flow.atPeak) powerSeverity = "peak";
+      else if (flow && flow.aboveSustained) powerSeverity = "above";
+      else if ((flow && Number(flow.sustainedUtilisation) >= 0.75) || powerState === "underpowered") powerSeverity = "loaded";
+      else powerSeverity = "working";
+    }
+    if (view.mode === "power") {
+      const haloWidth = (extra) => (Number(renderedStrokeWidth(section.tier)) + extra).toFixed(3);
+      // Selection halo (bottom, widest) then status halo, both under the tier line.
+      if (isSelected) { const sel = line(section, "wire-status-halo wire-status-selected"); sel.style.strokeWidth = haloWidth(0.14); sel.dataset.sectionId = section.id; glowLayer.appendChild(sel); }
+      if (powerSeverity) { const st = line(section, `wire-status-halo wire-status-${powerSeverity}`); st.style.strokeWidth = haloWidth(0.07); st.dataset.sectionId = section.id; glowLayer.appendChild(st); }
+      if (powerSeverity === "peak") { const mx = (section.x1 + section.x2) / 2 + 0.5; const my = (section.y1 + section.y2) / 2 + 0.5; glowLayer.appendChild(svgEl("circle", { cx: mx, cy: my, r: 0.09 }, "wire-status-peak-marker")); }
+    }
+    const visible = line(section, `wire-${view.mode}${tierClass}${dim}${severityClass ? ` ${severityClass}` : ""}${previewClass}`);
+    if (view.mode === "power") { visible.style.strokeWidth = renderedStrokeWidth(section.tier); if (powerSeverity) visible.dataset.powerStatus = powerSeverity; if (isSelected) visible.dataset.powerSelected = "true"; }
     visible.dataset.sectionId = section.id; visibleLayer.appendChild(visible);
     const tierText = view.mode === "power" ? `. ${tierLabel(section.tier)}` : "";
+    const statusText = view.mode === "power" && powerSeverity ? `. Status: ${POWER_STATUS_TEXT[powerSeverity]}${isSelected ? ", selected" : ""}.` : "";
     const severityText = view.mode === "data" ? `. Vulnerability: ${sectionVulnerability?.severity || "unknown"}.` : "";
-    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("tabindex", "0"); hit.setAttribute("role", "button"); hit.setAttribute("aria-label", `${sectionActionVerb()} ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${tierText}${severityText}`); hitLayer.appendChild(hit);
+    const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("tabindex", "0"); hit.setAttribute("role", "button"); hit.setAttribute("aria-label", `${sectionActionVerb()} ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${tierText}${statusText}${severityText}`); hitLayer.appendChild(hit);
   }
   rules().junctionCells(bucket()).forEach((cell) => markerLayer.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
   (selectedNet?.componentIndices || []).forEach((index) => indicatorLayer.appendChild(terminal(index, view.mode, true)));

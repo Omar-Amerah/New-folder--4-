@@ -53,6 +53,17 @@ export const GENERATED_BALANCE = {
     },
     "minimumComponentHeatCapacity": 10
   },
+  "powerDemand": {
+    "standbyFractions": {
+      "command": 1.0,
+      "propulsion": 0.15,
+      "shields": 0.15,
+      "weapons": 0.1,
+      "pointDefence": 0.1,
+      "repair": 0.1,
+      "coolingSupport": 0.15
+    }
+  },
   "movement": {
     "requiresThrust": true,
     "noEngineMaxSpeed": "0 m/s",
