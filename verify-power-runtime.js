@@ -30,7 +30,10 @@ const ship = shipFor(design, wiring);
 const efficiency = PARTS.auxGenerator.powerGeneration / (PARTS.engine.powerUse + PARTS.gyroscope.powerUse);
 assert.equal(ship.componentPower.byComponentIndex[0].state, "source");
 assert.equal(ship.componentPower.byComponentIndex[1].state, "underpowered");
-assert(Math.abs(getComponentPowerMultiplier(ship, 1) - efficiency) < 1e-9, "underpowered consumers share network efficiency");
+// The shared power-flow solver allocates in fixed-point Power units, so the
+// shared underpower ratio matches the ideal proportional efficiency to within
+// one unit rather than exactly.
+assert(Math.abs(getComponentPowerMultiplier(ship, 1) - efficiency) < 2e-3, "underpowered consumers share network efficiency");
 assert.equal(getComponentPowerMultiplier(ship, 3), 1, "passive transit frame remains passive");
 assert.equal(ship.componentPower.byComponentIndex[3].state, "passive", "wire transit never promotes a component");
 assert.equal(getComponentPowerMultiplier(ship, 4), 0, "disconnected powered consumer is disabled");
@@ -51,8 +54,8 @@ assert.equal(getComponentPowerMultiplier(isolated, 2), 0);
 const shieldDesign = [at("auxGenerator", 0, 0), at("shield", 1, 0), at("shield", 3, 0)];
 const shields = shipFor(shieldDesign, wiringFor(shieldDesign, [[0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]]]));
 const shieldMultiplier = Math.min(1, PARTS.auxGenerator.powerGeneration / PARTS.shield.powerUse);
-assert.equal(effectiveShieldStats(shields).capacity, PARTS.shield.shield * shieldMultiplier);
-assert.equal(effectiveShieldStats(shields).recharge, PARTS.shield.shieldRegen * shieldMultiplier);
+assert(Math.abs(effectiveShieldStats(shields).capacity - PARTS.shield.shield * shieldMultiplier) < 1e-6, "shield capacity scales with the solver's Power multiplier");
+assert(Math.abs(effectiveShieldStats(shields).recharge - PARTS.shield.shieldRegen * shieldMultiplier) < 1e-6, "shield recharge scales with the solver's Power multiplier");
 
 ship.componentHp[1] = 0;
 assert.equal(getComponentPowerMultiplier(ship, 1), 0, "destruction overrides the intact topology snapshot");

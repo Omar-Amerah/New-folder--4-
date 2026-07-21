@@ -64,16 +64,21 @@ powerModule.reallocateShipPower = originalReallocate;
 // OVERHEATED source shutdown changes allocation only; wiring topology is stable.
 let reactorShutdown = shipFor(poweredDesign, wiringFor(poweredDesign, [[1, 3, [{x:6,y:7},{x:7,y:7},{x:7,y:6}]], [2, 3, [{x:8,y:7},{x:7,y:7},{x:7,y:6}]]]));
 require("./src/server/componentPower").rebuildShipWiringState(reactorShutdown, "test");
-const shutdownNet = reactorShutdown.runtimeWiring.powerNetworks[0];
+// The shared solver treats every source physically crossed by the network's
+// cables as a contributor, so the core cell wired between the reactor/aux trunks
+// and the blaster joins the network generation. Each solve returns a fresh
+// result object, so read the live network on every assertion.
+const shutdownGen = () => reactorShutdown.runtimeWiring.powerNetworks[0].availableGenerationMw;
 const reactorMw = PARTS.reactor.powerGeneration;
 const auxMw = PARTS.auxGenerator.powerGeneration;
-assert.strictEqual(shutdownNet.availableGenerationMw, reactorMw + auxMw, "multi-source network starts with all nominal generation");
+const coreMw = PARTS.core.powerGeneration;
+assert.strictEqual(shutdownGen(), reactorMw + auxMw + coreMw, "multi-source network starts with all nominal generation");
 const wiringRevisionBeforeHeat = reactorShutdown.wiringRevision;
 const topologySignatureBeforeHeat = JSON.stringify(reactorShutdown.runtimeWiring.power);
 for (const state of [STATE.WARM, STATE.HOT, STATE.CRITICAL]) {
   reactorShutdown.componentHeatState[1] = state;
   require("./src/server/componentPower").reallocateShipPower(reactorShutdown, "test");
-  assert.strictEqual(shutdownNet.availableGenerationMw, reactorMw + auxMw, "WARM/HOT/CRITICAL source generation is nominal");
+  assert.strictEqual(shutdownGen(), reactorMw + auxMw + coreMw, "WARM/HOT/CRITICAL source generation is nominal");
 }
 reactorShutdown.componentHeat[1] = reactorShutdown.componentThermals[1].capacity * 1.24;
 reactorShutdown.componentHeatState[1] = STATE.CRITICAL;
@@ -83,7 +88,7 @@ powerModule.reallocateShipPower = function countedBoundary(ship, reason) { bound
 reactorShutdown.hasActiveHeat = true;
 tick(reactorShutdown);
 assert.strictEqual(boundaryReallocations, 1, "entering OVERHEATED reallocates Power exactly once");
-assert.strictEqual(shutdownNet.availableGenerationMw, auxMw, "only the overheated source contribution is removed");
+assert.strictEqual(shutdownGen(), auxMw + coreMw, "only the overheated source contribution is removed");
 assert.strictEqual(reactorShutdown.wiringRevision, wiringRevisionBeforeHeat, "Heat-only shutdown does not bump wiringRevision");
 assert.strictEqual(JSON.stringify(reactorShutdown.runtimeWiring.power), topologySignatureBeforeHeat, "Heat-only shutdown does not rebuild wiring topology");
 const revisionAfterOverheat = reactorShutdown.powerRevision;
@@ -94,12 +99,15 @@ reactorShutdown.componentHeat[1] = reactorShutdown.componentThermals[1].capacity
 reactorShutdown.hasActiveHeat = true;
 tick(reactorShutdown);
 assert.strictEqual(boundaryReallocations, 2, "cooling below recovery reallocates Power exactly once");
-assert.strictEqual(shutdownNet.availableGenerationMw, reactorMw + auxMw, "cooling below recovery restores nominal generation");
+assert.strictEqual(shutdownGen(), reactorMw + auxMw + coreMw, "cooling below recovery restores nominal generation");
 assert.strictEqual(reactorShutdown.wiringRevision, wiringRevisionBeforeHeat, "Heat-only recovery does not bump wiringRevision");
 powerModule.reallocateShipPower = originalReallocate;
 
 let noOtherSource = shipFor([{x:7,y:7,type:"core"},{x:6,y:7,type:"reactor"},{x:7,y:6,type:"shield"}], wiringFor([{x:7,y:7,type:"core"},{x:6,y:7,type:"reactor"},{x:7,y:6,type:"shield"}], [[1, 2, [{x:6,y:7},{x:7,y:7},{x:7,y:6}]]]));
 require("./src/server/componentPower").rebuildShipWiringState(noOtherSource, "test");
+// The trunk crosses the core cell, so the core is a live source alongside the
+// reactor; an all-overheated network overheats every crossed source.
+noOtherSource.componentHeatState[0] = STATE.OVERHEATED;
 noOtherSource.componentHeatState[1] = STATE.OVERHEATED;
 require("./src/server/componentPower").reallocateShipPower(noOtherSource, "test");
 assert.strictEqual(noOtherSource.runtimeWiring.powerNetworks[0].availableGenerationMw, 0, "all-overheated source network has zero generation");

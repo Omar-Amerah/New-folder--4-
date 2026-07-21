@@ -2,13 +2,19 @@
 // always the immutable normalized blueprint; all battle damage lives here.
 
 const { PARTS } = require("./components");
-const { analyzeShipPower } = require("./shipDesign");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
+const PowerFlowRules = require("../../public/src/shared/powerFlowRules");
+const PowerAllocationRules = require("../../public/src/shared/powerAllocationRules");
+const PowerPolicyRules = require("../../public/src/shared/powerPolicyRules");
+const { BALANCE } = require("./balanceConfig");
 const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
 
 const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
+function isPowerSource(module) {
+  return SOURCE_TYPES.has(module?.type) || (Number(PARTS[module?.type]?.powerGeneration) || 0) > 0;
+}
 const perf = () => global.__mfaDataSupportPerf || null;
 function bump(name) { const p = perf(); if (p) p[name] = (p[name] || 0) + 1; }
 
@@ -80,15 +86,22 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   const hostMaps = shipHostMaps(ship);
   const power = deriveRuntimeKind(ship, "power", hostMaps.power);
   const data = deriveRuntimeKind(ship, "data", hostMaps.data);
-  const runtimeWiring = { version: WiringRules.WIRING_VERSION, power: power.operationalWiring, data: data.operationalWiring };
-  let analysis;
+  // Runtime Power wiring for the shared solver: only surviving physical sections
+  // plus the saved Blueprint Power policy (cloned so runtime never mutates the
+  // immutable Blueprint). Persisted Power connections are never the flow
+  // authority — the solver reads sections.
+  const runtimePowerWiring = {
+    version: WiringRules.WIRING_VERSION,
+    power: power.operationalWiring,
+    data: data.operationalWiring,
+    powerPolicy: PowerPolicyRules.clonePolicy(ship.wiring?.powerPolicy)
+  };
+  ship._runtimePowerWiring = runtimePowerWiring;
   bump("powerAnalysisCount");
-  try { analysis = analyzeShipPower(design, runtimeWiring); } catch (_) { analysis = { networks: [] }; }
   let dataAnalysis;
   bump("wiringAnalysisCount");
-  try { dataAnalysis = WiringRules.analyzeWiring(design, runtimeWiring, PARTS).data; } catch (_) { dataAnalysis = { networks: [] }; }
-  const runtimeNetworks = (analysis.networks || []).map(network => ({ ...network }));
-  const runtime = { power, data, powerNetworks: runtimeNetworks, dataNetworks: dataAnalysis.networks || [], reason };
+  try { dataAnalysis = WiringRules.analyzeWiring(design, runtimePowerWiring, PARTS).data; } catch (_) { dataAnalysis = { networks: [] }; }
+  const runtime = { power, data, powerNetworks: [], dataNetworks: dataAnalysis.networks || [], reason };
   const wiringSignature = stateSignature(runtime);
   if (ship._wiringStateSignature !== wiringSignature) {
     ship._wiringStateSignature = wiringSignature;
@@ -96,11 +109,10 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   }
 
   ship.runtimeWiring = runtime;
-  ship.powerAnalysis = analysis;
   applyShipPowerAllocation(ship, { ...options, skipDataRefresh: true });
   // Section 6C ordering: surviving Wiring topology is projected first, then
-  // component Power is allocated, then Data-support source multipliers read
-  // the fresh per-component Power state during a topology rebuild/allocation.
+  // component Power is allocated by the shared solver, then Data-support source
+  // multipliers read the fresh per-component Power state.
   require("./componentData").rebuildShipDataTopology(ship, reason, dataAnalysis.networks || []);
   return runtime;
 }
@@ -115,42 +127,90 @@ function effectiveLiveSourceGeneration(ship, index) {
   return Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
 }
 
+// The shared 7C-2 capacity-and-priority solver is the SOLE runtime allocator.
+// It enforces cable peak capacity and the saved Power priorities, giving each
+// component its own multiplier. No uniform generation/demand ratio and no second
+// pass are applied.
 function applyShipPowerAllocation(ship, options = {}) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
-  const runtimeNetworks = ship.runtimeWiring?.powerNetworks || [];
-  const membership = new Map();
-  for (const network of runtimeNetworks) {
-    const generation = (network.sourceIndices || []).reduce((sum, index) => sum + effectiveLiveSourceGeneration(ship, index), 0);
-    const demand = Math.max(0, Number(network.demandMw) || 0);
-    const efficiency = demand <= 0 ? 1 : clampNumber(generation / demand, 0, 1);
-    network.availableGenerationMw = generation;
-    network.liveDemandMw = demand;
-    network.runtimeLoadRatio = generation > 0 ? clampNumber(demand / generation, 0, 1) : 0;
-    for (const index of [...(network.consumerIndices || []), ...(network.sourceIndices || [])])
-      if (!membership.has(index)) membership.set(index, { network, generation, efficiency });
-  }
-  const byComponentIndex = design.map((module, index) => {
-    const part = PARTS[module.type] || {};
-    const alive = (ship.componentHp?.[index] ?? 1) > 0;
-    const source = SOURCE_TYPES.has(module.type) || (Number(part.powerGeneration) || 0) > 0;
-    const consumer = !source && (Number(part.powerUse) || 0) > 0;
-    const member = membership.get(index);
-    let state = "passive", multiplier = 1;
-    if (!alive) { state = "destroyed"; multiplier = 0; }
-    else if (source) state = "source";
-    else if (consumer && !member) { state = "disconnected"; multiplier = 0; }
-    else if (consumer && member.generation <= 0) { state = "unpowered"; multiplier = 0; }
-    else if (consumer && member.efficiency < 1) { state = "underpowered"; multiplier = member.efficiency; }
-    else if (consumer) state = "powered";
-    return { state, networkId: member?.network?.id ?? null, availableEfficiency: clampNumber(member?.efficiency ?? (consumer ? 0 : 1), 0, 1), operationalMultiplier: clampNumber(multiplier, 0, 1) };
+  const runtimePowerWiring = ship._runtimePowerWiring || {
+    version: WiringRules.WIRING_VERSION, power: { sections: [], connections: [] }, data: { sections: [], connections: [] },
+    powerPolicy: PowerPolicyRules.clonePolicy(ship.wiring?.powerPolicy)
+  };
+  // Live source generation (already zero for destroyed/overheated sources) and
+  // current component operational state. Consumer demand stays static nominal
+  // powerUse (no firing/movement/shield/repair activity demand).
+  const sourceGenerationByIndex = {};
+  const componentOperationalByIndex = design.map((module, index) => {
+    if (isPowerSource(module)) sourceGenerationByIndex[index] = effectiveLiveSourceGeneration(ship, index);
+    return (ship.componentHp?.[index] ?? 1) > 0;
   });
-  const powerSignature = byComponentIndex.map((entry) => `${entry.state}:${entry.networkId}:${entry.operationalMultiplier}`).join("|");
+  // The shared solver is the sole allocation authority. An unexpected exception
+  // must propagate so tests and server diagnostics expose the underlying defect,
+  // and a malformed result is rejected outright — never silently fail-open to a
+  // full-Power fallback that would grant live consumers full effectiveness. The
+  // performance counter records the attempted solve before the call so a throw
+  // is still counted.
+  bump("powerFlowSolveCount");
+  const result = PowerFlowRules.solvePowerFlow({
+    design,
+    wiring: runtimePowerWiring,
+    catalogue: PARTS,
+    infrastructure: BALANCE.wiringInfrastructure,
+    sourceGenerationByIndex,
+    componentOperationalByIndex
+  });
+  if (!result || !Array.isArray(result.byComponentIndex) || !Array.isArray(result.networks) || !Array.isArray(result.sectionFlows)) {
+    throw new Error("Power-flow solver returned an invalid result");
+  }
+
+  const solved = new Map(result.byComponentIndex.map((entry) => [entry.componentIndex, entry]));
+  const byComponentIndex = design.map((module, index) => {
+    const entry = solved.get(index);
+    // Every design component must appear in a valid solver result. A missing
+    // entry is a solver defect, not a reason to grant full Power.
+    if (!entry) throw new Error(`Power-flow solver omitted component ${index}`);
+    // availableEfficiency == operationalMultiplier; the solver already produced
+    // the per-component allocation ratio, so no second multiplier is derived.
+    const multiplier = clampNumber(Number(entry.operationalMultiplier), 0, 1);
+    const networkId = Array.isArray(entry.networkIds) && entry.networkIds.length ? entry.networkIds[0] : null;
+    return {
+      state: entry.state,
+      networkId,
+      availableEfficiency: multiplier,
+      operationalMultiplier: multiplier,
+      role: entry.role,
+      powerCategory: entry.powerCategory,
+      priorityBand: entry.priorityBand,
+      networkIds: entry.networkIds,
+      requestedMw: entry.requestedMw,
+      allocatedMw: entry.allocatedMw,
+      unmetMw: entry.unmetMw,
+      generationAvailableMw: entry.generationAvailableMw,
+      generationUsedMw: entry.generationUsedMw
+    };
+  });
+
+  // Fixed-point Power-state signature: meaningful component state, canonical
+  // network id and integer allocation units — never raw floating-point strings.
+  const powerSignature = byComponentIndex.map((entry) => [
+    entry.state,
+    entry.networkId ?? "",
+    PowerAllocationRules.mwToPowerUnits(entry.allocatedMw),
+    PowerAllocationRules.mwToPowerUnits(entry.requestedMw),
+    Math.round(clampNumber(entry.operationalMultiplier, 0, 1) * PowerAllocationRules.POWER_FLOW_SCALE)
+  ].join(":")).join("|");
   if (ship._powerStateSignature !== powerSignature) {
     ship._powerStateSignature = powerSignature;
     ship.powerRevision = (ship.powerRevision || 0) + 1;
     ship.dirtyPower = true;
   }
+
   ship.componentPower = { byComponentIndex };
+  // Complete authoritative solver result kept server-local for diagnostics.
+  ship.powerFlow = result;
+  ship.powerAnalysis = result;
+  if (ship.runtimeWiring) ship.runtimeWiring.powerNetworks = result.networks || [];
   ship.powerStatus = summarizePower(byComponentIndex);
 
   if (!options.skipRuntimeStats && ship.alive !== false) require("./componentHealth").recalcEffectiveStats(ship);
@@ -161,7 +221,9 @@ function applyShipPowerAllocation(ship, options = {}) {
 
 function initializeComponentPower(ship) { rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true }); return ship.componentPower; }
 function reallocateShipPower(ship, reason = "source-availability") {
-  if (!ship.runtimeWiring?.powerNetworks) return rebuildShipWiringState(ship, reason);
+  // Source generation changed (destruction/overheat/recovery) but topology did
+  // not — re-solve on the cached runtime wiring without re-deriving sections.
+  if (!ship._runtimePowerWiring) return rebuildShipWiringState(ship, reason);
   return applyShipPowerAllocation(ship);
 }
 
