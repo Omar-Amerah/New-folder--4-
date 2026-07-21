@@ -80,6 +80,15 @@ function validateWiringInfrastructure(infrastructure, filePath, errors) {
       if (typeof tier.inspectionLabel !== "string" || !tier.inspectionLabel.trim()) {
         errors.push(`${tierPath}.inspectionLabel must be a non-empty string.`);
       }
+      // Section 7D-1 dynamic cable Heat: coefficient is a finite Heat/second per
+      // hosted cell at sustained flow (>= 0); the utilisation exponent must be a
+      // finite number strictly greater than 1 so above-sustained flow is nonlinear.
+      if (!isFiniteNonNegative(tier.cableHeatAtSustainedPerHostedCell)) {
+        errors.push(`${tierPath}.cableHeatAtSustainedPerHostedCell must be a finite non-negative number.`);
+      }
+      if (!(Number.isFinite(tier.cableHeatUtilisationExponent) && tier.cableHeatUtilisationExponent > 1)) {
+        errors.push(`${tierPath}.cableHeatUtilisationExponent must be a finite number greater than 1.`);
+      }
     }
     const light = tiers.light; const standard = tiers.standard; const heavy = tiers.heavy;
     if (light && standard && heavy) {

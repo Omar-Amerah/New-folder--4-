@@ -7,6 +7,7 @@ const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrast
 const PowerFlowRules = require("../../public/src/shared/powerFlowRules");
 const PowerAllocationRules = require("../../public/src/shared/powerAllocationRules");
 const PowerPolicyRules = require("../../public/src/shared/powerPolicyRules");
+const PowerCableThermalRules = require("../../public/src/shared/powerCableThermalRules");
 const { BALANCE } = require("./balanceConfig");
 const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
@@ -206,17 +207,70 @@ function applyShipPowerAllocation(ship, options = {}) {
     ship.dirtyPower = true;
   }
 
+  // Section 7D-1: a separate physical section-flow signature so runtime cable
+  // Heat refreshes when the solved section flow changes even if component
+  // multipliers stay the same. Fixed-point Power units (sign preserved), never
+  // raw float strings. Built after the 7C fail-closed validation above.
+  const toFlowUnits = (mw) => { const n = Number(mw); return Number.isFinite(n) ? Math.round(n * PowerAllocationRules.POWER_FLOW_SCALE) : 0; };
+  const sectionFlowSignature = (result.sectionFlows || []).map((flow) => [
+    flow.sectionId,
+    flow.tier ?? "",
+    toFlowUnits(flow.signedFlowMw),
+    toFlowUnits(flow.sustainedCapacityMw),
+    toFlowUnits(flow.peakCapacityMw),
+    flow.operational === false ? 0 : 1
+  ].join(":")).join("|");
+  if (ship._powerFlowSectionSignature !== sectionFlowSignature) {
+    ship._powerFlowSectionSignature = sectionFlowSignature;
+    ship.powerFlowRevision = (ship.powerFlowRevision || 0) + 1;
+  }
+
   ship.componentPower = { byComponentIndex };
   // Complete authoritative solver result kept server-local for diagnostics.
   ship.powerFlow = result;
   ship.powerAnalysis = result;
   if (ship.runtimeWiring) ship.runtimeWiring.powerNetworks = result.networks || [];
   ship.powerStatus = summarizePower(byComponentIndex);
+  // Section 7D-1: refresh the cached Power-cable Heat analysis whenever the
+  // solved section flow changed (revision-guarded, so an unchanged solve is a
+  // no-op). This keeps the ship-level cable-Heat rate current for the thermal
+  // tick without recomputing topology.
+  ensureShipCableThermalAnalysis(ship);
 
   if (!options.skipRuntimeStats && ship.alive !== false) require("./componentHealth").recalcEffectiveStats(ship);
   else if (ship.alive === false) { ship.maxShield = 0; ship.shield = 0; }
   if (!options.skipDataRefresh) require("./componentData").refreshShipDataAllocation(ship, "power-allocation");
   return ship.componentPower;
+}
+
+// Section 7D-1: cache the shared Power-cable Heat analysis on the ship and
+// recompute it only when the physical section flow changes (powerFlowRevision).
+// Reuses the cached infrastructure host map — no second host-mapping system and
+// no topology rebuild. Sets the per-component cable-Heat rate and ship totals
+// consumed by the thermal tick.
+function ensureShipCableThermalAnalysis(ship) {
+  if (!ship) return null;
+  const flowRevision = ship.powerFlowRevision || 0;
+  if (ship.powerCableThermalAnalysis && ship._powerCableThermalFlowRevision === flowRevision) return ship.powerCableThermalAnalysis;
+  const sectionFlows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows : [];
+  const hostMap = shipHostMaps(ship).power;
+  const analysis = PowerCableThermalRules.analyzePowerCableHeat({
+    sectionFlows,
+    powerTiers: BALANCE.wiringInfrastructure.powerTiers,
+    hostMap
+  });
+  bump("powerCableThermalAnalysisCount");
+  const design = Array.isArray(ship.design) ? ship.design : [];
+  const rates = design.map(() => 0);
+  for (const component of analysis.components) {
+    if (component.componentIndex >= 0 && component.componentIndex < rates.length) rates[component.componentIndex] = component.powerCableHeatPerSecond;
+  }
+  ship.powerCableThermalAnalysis = analysis;
+  ship._powerCableThermalFlowRevision = flowRevision;
+  ship.powerCableThermalRevision = (ship.powerCableThermalRevision || 0) + 1;
+  ship.componentPowerCableHeatRate = rates;
+  ship.powerCableHeatRate = PowerCableThermalRules.totalPowerCableHeatRate(analysis);
+  return analysis;
 }
 
 function initializeComponentPower(ship) { rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true }); return ship.componentPower; }
@@ -258,4 +312,4 @@ function effectiveShieldStats(ship) {
   });
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions };
