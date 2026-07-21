@@ -89,18 +89,34 @@
     const sections = [];
     for (const flow of sectionFlows) {
       if (!flow || flow.operational === false) continue;
-      const tierConfig = powerTiers[flow.tier] || {};
-      const heatPerHostedCellPerSecond = cableHeatRateForSection(flow, tierConfig);
-      const hostEntry = bySectionId.get(flow.sectionId);
+      const sectionId = flow.sectionId;
+      // Fail closed: every operational section — even one currently at zero flow —
+      // must have finite flow and exactly two valid hosted endpoints. A malformed
+      // physical section must never silently vanish from Heat accounting.
+      const signed = Number(flow.signedFlowMw);
+      const absolute = flow.absoluteFlowMw != null ? Number(flow.absoluteFlowMw) : Math.abs(signed);
+      if (!Number.isFinite(signed) || !Number.isFinite(absolute)) {
+        throw new Error(`Power-cable Heat: section ${sectionId} has non-finite flow`);
+      }
+      const hostEntry = bySectionId.get(sectionId);
+      if (!hostEntry) throw new Error(`Power-cable Heat: no host entry for section ${sectionId}`);
+      const rawCells = Array.isArray(hostEntry.hostCells) ? hostEntry.hostCells : [];
       const seenCells = new Set();
       const hostedCells = [];
-      for (const cell of (hostEntry && hostEntry.hostCells) || []) {
-        if (cell.componentIndex == null) continue;
+      for (const cell of rawCells) {
+        if (!cell || !Number.isInteger(cell.componentIndex) || cell.componentIndex < 0) {
+          throw new Error(`Power-cable Heat: section ${sectionId} has an invalid hosted endpoint`);
+        }
         const key = `${cell.x},${cell.y}`;
         if (seenCells.has(key)) continue;
         seenCells.add(key);
         hostedCells.push({ x: cell.x, y: cell.y, componentIndex: cell.componentIndex });
       }
+      if (hostedCells.length !== 2) {
+        throw new Error(`Power-cable Heat: section ${sectionId} must host exactly two endpoint cells`);
+      }
+      const tierConfig = powerTiers[flow.tier] || {};
+      const heatPerHostedCellPerSecond = cableHeatRateForSection(flow, tierConfig);
       const totalHeatPerSecond = heatPerHostedCellPerSecond * hostedCells.length;
       for (const cell of hostedCells) {
         touch(cell.componentIndex);
@@ -110,10 +126,10 @@
         if (flow.atPeak) addTo(componentPeak, cell.componentIndex, flow.sectionId);
       }
       sections.push({
-        sectionId: flow.sectionId,
+        sectionId,
         tier: flow.tier,
-        signedFlowMw: Number(flow.signedFlowMw) || 0,
-        absoluteFlowMw: Number(flow.absoluteFlowMw != null ? flow.absoluteFlowMw : Math.abs(Number(flow.signedFlowMw) || 0)),
+        signedFlowMw: signed,
+        absoluteFlowMw: absolute,
         sustainedCapacityMw: Number(flow.sustainedCapacityMw) || 0,
         peakCapacityMw: Number(flow.peakCapacityMw) || 0,
         sustainedUtilisation: Number(flow.sustainedUtilisation) || 0,

@@ -72,6 +72,63 @@ check("cableHeatRateForSection: invalid configuration and capacity are rejected 
   assert.throws(() => PCT.cableHeatRateForSection({ absoluteFlowMw: 5, sustainedCapacityMw: -3 }, TIERS.standard), /> 0/);
 });
 
+console.log("Fail-closed host validation");
+check("analyze: a missing host entry for an operational section throws (with section id)", () => {
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("0,0:1,0", "standard", 5)], powerTiers: TIERS, hostMap: hostMap({})
+  }), /no host entry for section 0,0:1,0/);
+});
+check("analyze: one invalid hosted endpoint throws", () => {
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("s", "standard", 5)], powerTiers: TIERS, hostMap: hostMap({ s: [[0, 0, 0], [1, 0, null]] })
+  }), /section s has an invalid hosted endpoint/);
+});
+check("analyze: both invalid hosted endpoints throw", () => {
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("s", "standard", 5)], powerTiers: TIERS, hostMap: hostMap({ s: [[0, 0, null], [1, 0, null]] })
+  }), /section s has an invalid hosted endpoint/);
+});
+check("analyze: validation applies even at zero flow (malformed hosts never vanish silently)", () => {
+  // Missing host entry at zero flow still throws.
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("z", "standard", 0)], powerTiers: TIERS, hostMap: hostMap({})
+  }), /no host entry for section z/);
+  // Invalid endpoint at zero flow still throws.
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("z", "standard", 0)], powerTiers: TIERS, hostMap: hostMap({ z: [[0, 0, 0], [1, 0, null]] })
+  }), /section z has an invalid hosted endpoint/);
+});
+check("analyze: a section not hosting exactly two endpoint cells throws", () => {
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("s", "standard", 5)], powerTiers: TIERS, hostMap: hostMap({ s: [[0, 0, 0]] })
+  }), /section s must host exactly two endpoint cells/);
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("s", "standard", 5)], powerTiers: TIERS, hostMap: hostMap({ s: [[0, 0, 0], [1, 0, 1], [2, 0, 2]] })
+  }), /section s must host exactly two endpoint cells/);
+});
+check("analyze: NaN flow throws rather than being treated as zero", () => {
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [{ sectionId: "s", tier: "standard", signedFlowMw: NaN, absoluteFlowMw: NaN, operational: true }],
+    powerTiers: TIERS, hostMap: hostMap({ s: [[0, 0, 0], [1, 0, 1]] })
+  }), /section s has non-finite flow/);
+});
+check("analyze: Infinity flow throws rather than being treated as zero", () => {
+  assert.throws(() => PCT.analyzePowerCableHeat({
+    sectionFlows: [{ sectionId: "s", tier: "standard", signedFlowMw: Infinity, absoluteFlowMw: Infinity, operational: true }],
+    powerTiers: TIERS, hostMap: hostMap({ s: [[0, 0, 0], [1, 0, 1]] })
+  }), /section s has non-finite flow/);
+});
+check("analyze: a valid zero-flow section with valid hosts still returns exactly zero Heat", () => {
+  const result = PCT.analyzePowerCableHeat({
+    sectionFlows: [flow("s", "standard", 0)], powerTiers: TIERS, hostMap: hostMap({ s: [[0, 0, 0], [1, 0, 1]] })
+  });
+  assert.strictEqual(result.sections.length, 1);
+  assert.strictEqual(result.sections[0].totalHeatPerSecond, 0);
+  assert.ok(!Object.is(result.sections[0].totalHeatPerSecond, -0));
+  assert.strictEqual(result.summary.totalPowerCableHeatPerSecond, 0);
+  assert.deepStrictEqual(result.components.map((c) => c.powerCableHeatPerSecond), [0, 0]);
+});
+
 check("analyze: two different hosts each receive one share; total conserves", () => {
   const result = PCT.analyzePowerCableHeat({
     sectionFlows: [flow("0,0:1,0", "standard", 5)],
