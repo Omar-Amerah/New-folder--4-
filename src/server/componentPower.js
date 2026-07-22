@@ -243,50 +243,117 @@ function sideNetworksForRecord(record, result, wiring) {
 function componentAllocationMap(result) {
   return new Map((result?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
 }
-function consumerSetForNetwork(result, networkId) {
-  const net = (result?.networks || []).find((candidate) => candidate.id === networkId);
-  return new Set((net?.consumerIndices || []).map(Number));
-}
 function solveSwitchgearCandidate(baseInput, records, closedSet) {
   const candidateRecords = records.map((record) => ({ ...record, conducts: record.mode === "closed" || closedSet.has(record.componentIndex) }));
   return PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: switchgearInternalEdges(candidateRecords) });
 }
-function tieImprovementIsPrioritySafe(rec, beforeResult, afterResult, currentSides) {
-  const before = componentAllocationMap(beforeResult);
-  const after = componentAllocationMap(afterResult);
-  const aConsumers = consumerSetForNetwork(beforeResult, currentSides.a?.id);
-  const bConsumers = consumerSetForNetwork(beforeResult, currentSides.b?.id);
-  const sides = [[aConsumers, bConsumers, "A->B"], [bConsumers, aConsumers, "B->A"]];
-  for (const [donor, receiver, label] of sides) {
-    if (!receiver.size) continue;
-    const receiverGains = [...receiver].filter((idx) => (Number(after.get(idx)?.allocatedMw)||0) > (Number(before.get(idx)?.allocatedMw)||0) + 1e-6);
-    if (!receiverGains.length) continue;
-    const donorLosses = [...donor].filter((idx) => (Number(after.get(idx)?.allocatedMw)||0) + 1e-6 < (Number(before.get(idx)?.allocatedMw)||0));
-    if (donorLosses.length) return { ok: false, reason: `open: ${label} would reduce donor-side demand` };
-    return { ok: true, reason: `closed: ${label} uses donor-side spare generation without reducing local demand` };
+function tieStableKey(record) {
+  const a = `${String(record.terminalA.x).padStart(2, "0")},${String(record.terminalA.y).padStart(2, "0")}`;
+  const b = `${String(record.terminalB.x).padStart(2, "0")},${String(record.terminalB.y).padStart(2, "0")}`;
+  return [a, b].sort().join("<->") + `|${record.orientation || "unknown"}`;
+}
+function finiteFlowResult(result) {
+  if (!result || !Array.isArray(result.byComponentIndex) || !Array.isArray(result.sectionFlows) || !Array.isArray(result.networks)) return false;
+  const numbers = [];
+  for (const entry of result.byComponentIndex) numbers.push(entry.requestedMw, entry.allocatedMw, entry.unmetMw, entry.operationalMultiplier);
+  for (const flow of result.sectionFlows) numbers.push(flow.signedFlowMw, flow.absoluteFlowMw, flow.sustainedCapacityMw, flow.peakCapacityMw, flow.peakUtilisation);
+  return numbers.every((value) => Number.isFinite(Number(value)) && !Object.is(Number(value), -0));
+}
+function candidateScore(baseline, candidate, subset, recordsByIndex) {
+  const before = componentAllocationMap(baseline);
+  const after = componentAllocationMap(candidate);
+  const priorityGain = Array.from({ length: 8 }, () => 0);
+  let totalAllocated = 0;
+  let remainingUnmet = 0;
+  let gainedPreviouslyUnmet = false;
+  for (const entry of candidate.byComponentIndex || []) {
+    const prev = before.get(entry.componentIndex) || {};
+    const allocated = Number(entry.allocatedMw) || 0;
+    const prevAllocated = Number(prev.allocatedMw) || 0;
+    const prevUnmet = Number(prev.unmetMw) || 0;
+    const requested = Number(entry.requestedMw) || 0;
+    if (allocated + 1e-6 < prevAllocated) return null;
+    if (prevUnmet > 1e-6 && allocated > prevAllocated + 1e-6) {
+      gainedPreviouslyUnmet = true;
+      const band = Number.isInteger(entry.priorityBand) ? Math.max(0, Math.min(7, entry.priorityBand)) : 7;
+      priorityGain[band] += Math.min(prevUnmet, allocated - prevAllocated);
+    }
+    totalAllocated += allocated;
+    remainingUnmet += Math.max(0, requested - allocated);
   }
-  return { ok: false, reason: "open: tie is not useful for either side" };
+  const baselineTotal = (baseline.byComponentIndex || []).reduce((sum, entry) => sum + (Number(entry.allocatedMw) || 0), 0);
+  if (!gainedPreviouslyUnmet || totalAllocated <= baselineTotal + 1e-6) return null;
+  const flowById = new Map((candidate.sectionFlows || []).map((flow) => [flow.sectionId, flow]));
+  for (const index of subset) {
+    const record = recordsByIndex.get(index);
+    const flow = flowById.get(record?.internalEdgeId);
+    if (!flow || Math.abs(Number(flow.signedFlowMw) || 0) <= 1e-6) return null;
+  }
+  return { priorityGain, totalAllocated, remainingUnmet, tieCount: subset.size, tieKeys: [...subset].map((index) => tieStableKey(recordsByIndex.get(index))).sort() };
+}
+function compareScores(a, b) {
+  if (!a && !b) return 0; if (!a) return -1; if (!b) return 1;
+  for (let i = 0; i < Math.max(a.priorityGain.length, b.priorityGain.length); i += 1) {
+    const delta = (a.priorityGain[i] || 0) - (b.priorityGain[i] || 0);
+    if (Math.abs(delta) > 1e-6) return delta > 0 ? 1 : -1;
+  }
+  if (Math.abs(a.totalAllocated - b.totalAllocated) > 1e-6) return a.totalAllocated > b.totalAllocated ? 1 : -1;
+  if (Math.abs(a.remainingUnmet - b.remainingUnmet) > 1e-6) return a.remainingUnmet < b.remainingUnmet ? 1 : -1;
+  if (a.tieCount !== b.tieCount) return a.tieCount < b.tieCount ? 1 : -1;
+  const ak = a.tieKeys.join("|"); const bk = b.tieKeys.join("|");
+  return ak === bk ? 0 : ak < bk ? 1 : -1;
+}
+function automaticTieGroups(autoRecords) {
+  const parent = new Map();
+  const find = (key) => { while (parent.get(key) !== key) { parent.set(key, parent.get(parent.get(key))); key = parent.get(key); } return key; };
+  const union = (a, b) => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a); const rb = find(b); if (ra !== rb) parent.set(rb, ra < rb ? ra : rb); };
+  for (const record of autoRecords) if (record.sideANetworkId && record.sideBNetworkId && record.sideANetworkId !== record.sideBNetworkId) union(record.sideANetworkId, record.sideBNetworkId);
+  const grouped = new Map();
+  for (const record of autoRecords) {
+    if (!record.sideANetworkId || !record.sideBNetworkId || record.sideANetworkId === record.sideBNetworkId) { record.decisionReason = "open: terminals are not on two separate candidate grids"; continue; }
+    const root = find(record.sideANetworkId);
+    const list = grouped.get(root) || [];
+    list.push(record); grouped.set(root, list);
+  }
+  return [...grouped.values()].map((list) => list.sort((a, b) => tieStableKey(a).localeCompare(tieStableKey(b)))).sort((a, b) => tieStableKey(a[0]).localeCompare(tieStableKey(b[0])));
+}
+function enumerateSubsets(records, maxSubsets) {
+  const n = records.length;
+  const count = 2 ** n;
+  if (count > maxSubsets) return null;
+  const subsets = [];
+  for (let mask = 1; mask < count; mask += 1) {
+    const set = new Set();
+    for (let i = 0; i < n; i += 1) if (mask & (1 << i)) set.add(records[i].componentIndex);
+    subsets.push(set);
+  }
+  return subsets;
 }
 function decideAutomaticSwitchgear(baseInput, baseRecords, openResult) {
-  const closed = new Set(baseRecords.filter((r) => r.mode === "closed" && r.state === "closed").map((r) => r.componentIndex));
-  const auto = baseRecords.filter(r => r.mode === "automatic" && r.state === "automatic").sort((a,b)=>a.componentIndex-b.componentIndex);
-  let current = solveSwitchgearCandidate(baseInput, baseRecords, closed);
-  for (let guard = 0; guard < auto.length + 1; guard += 1) {
-    let changed = false;
-    for (const rec of auto) {
-      if (closed.has(rec.componentIndex)) continue;
-      const currentSides = sideNetworksForRecord(rec, current, baseInput.wiring);
-      if (!currentSides.a?.id || !currentSides.b?.id || currentSides.a.id === currentSides.b.id) { rec.decisionReason = "open: terminals are not on two separate current sides"; continue; }
-      const candidate = new Set(closed); candidate.add(rec.componentIndex);
-      const next = solveSwitchgearCandidate(baseInput, baseRecords, candidate);
-      const verdict = tieImprovementIsPrioritySafe(rec, current, next, currentSides);
-      rec.decisionReason = verdict.reason;
-      if (verdict.ok) { closed.add(rec.componentIndex); current = next; changed = true; }
+  const manualClosed = new Set(baseRecords.filter((r) => r.mode === "closed" && r.state === "closed").map((r) => r.componentIndex));
+  const selected = new Set(manualClosed);
+  const auto = baseRecords.filter(r => r.mode === "automatic" && r.state === "automatic");
+  const recordsByIndex = new Map(baseRecords.map((record) => [record.componentIndex, record]));
+  const maxSubsets = 1024;
+  for (const group of automaticTieGroups(auto)) {
+    const subsets = enumerateSubsets(group, maxSubsets);
+    if (!subsets) { for (const record of group) record.decisionReason = `open: automatic tie group exceeds ${maxSubsets} candidate subsets`; continue; }
+    let best = null;
+    let bestSubset = null;
+    for (const subset of subsets) {
+      const candidateClosed = new Set([...manualClosed, ...subset]);
+      const result = solveSwitchgearCandidate(baseInput, baseRecords, candidateClosed);
+      if (!finiteFlowResult(result)) continue;
+      const score = candidateScore(openResult, result, subset, recordsByIndex);
+      if (compareScores(score, best) > 0) { best = score; bestSubset = subset; }
     }
-    if (!changed) break;
+    if (!bestSubset) { for (const record of group) record.decisionReason = "open: no jointly valid priority-safe subset"; continue; }
+    for (const record of group) {
+      if (bestSubset.has(record.componentIndex)) { selected.add(record.componentIndex); record.decisionReason = "closed: jointly selected priority-safe automatic subset"; }
+      else record.decisionReason = "open: not part of best jointly valid automatic subset";
+    }
   }
-  for (const rec of auto) if (!closed.has(rec.componentIndex) && (!rec.decisionReason || rec.decisionReason.startsWith("automatic"))) rec.decisionReason = "open: no priority-safe spare transfer available";
-  return closed;
+  return selected;
 }
 function solveWithSwitchgear(ship, baseInput) {
   const baseRecords = liveSwitchgearRecords(ship, new Set());

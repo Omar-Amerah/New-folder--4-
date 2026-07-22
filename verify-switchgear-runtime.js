@@ -94,6 +94,49 @@ assert(!s.powerFlow.sectionFlows.some(f => f.sectionId === 'bypass' || String(f.
 assert.strictEqual(s.componentPower.byComponentIndex[2].allocatedMw, 0, 'open Switchgear isolates even with a drawn A-B bypass section');
 
 
+
+function fairTwoReceiverShip(order = "normal") {
+  const parts = {
+    reactor: { x:0,y:0,type:'reactor' }, donor: { x:0,y:1,type:'engine' },
+    r1: { x:3,y:0,type:'shield' }, r2: { x:0,y:4,type:'shield' },
+    t1: { x:1,y:0,type:'switchgear',rotation:0,switchgearMode:'automatic',switchgearRatingTier:'standard' },
+    t2: { x:0,y:2,type:'switchgear',rotation:90,switchgearMode:'automatic',switchgearRatingTier:'standard' }
+  };
+  const design = order === "swapped"
+    ? [parts.reactor, parts.donor, parts.r1, parts.r2, parts.t2, parts.t1]
+    : [parts.reactor, parts.donor, parts.r1, parts.r2, parts.t1, parts.t2];
+  const wiring = { version:3, power:{ sections:[
+    {id:'source-donor',x1:0,y1:0,x2:0,y2:1,tier:'standard'},
+    {id:'source-t1',x1:0,y1:0,x2:1,y2:0,tier:'standard'},
+    {id:'t1-r1',x1:2,y1:0,x2:3,y2:0,tier:'standard'},
+    {id:'donor-t2',x1:0,y1:1,x2:0,y2:2,tier:'standard'},
+    {id:'t2-r2',x1:0,y1:3,x2:0,y2:4,tier:'standard'}
+  ], connections:[] }, data:{ sections:[], connections:[] }, powerPolicy: { preset:'custom', customOrder:['command','propulsion','shields','pointDefence','weapons','coolingSupport'] } };
+  const snap = createShipBlueprintSnapshot(design, wiring);
+  const demand = {};
+  snap.design.forEach((part, index) => { if (part.x === 0 && part.y === 1) demand[index] = 4; if ((part.x === 3 && part.y === 0) || (part.x === 0 && part.y === 4)) demand[index] = 4; });
+  return { design:snap.design, wiring:snap.wiring, componentHp: snap.design.map(()=>1), alive:true, stats:{}, _activityDemandByIndex: demand };
+}
+function physicalAllocations(ship) {
+  const out = {};
+  ship.design.forEach((part, index) => { if (part.type === 'shield' || part.type === 'engine') out[`${part.x},${part.y}`] = ship.componentPower.byComponentIndex[index].allocatedMw; });
+  return out;
+}
+function switchDecisionsByKey(ship) {
+  const out = {};
+  for (const record of ship.runtimeSwitchgear) out[SwitchgearRules.terminalPairKey(ship.design[record.componentIndex])] = record.automaticClosed;
+  return out;
+}
+s = fairTwoReceiverShip('normal'); initializeComponentPower(s);
+assert.deepStrictEqual(Object.values(switchDecisionsByKey(s)).sort(), [true, true], 'joint automatic evaluation conducts both useful equal-priority receiver ties');
+let alloc = physicalAllocations(s);
+assert(Math.abs(alloc['3,0'] - alloc['0,4']) < 0.01 && alloc['3,0'] > 0, 'equal-priority receivers share spare power fairly');
+assert.strictEqual(alloc['0,1'], 4, 'source-side local donor demand is not reduced');
+const firstDecision = switchDecisionsByKey(s); const firstAlloc = alloc;
+s = fairTwoReceiverShip('swapped'); initializeComponentPower(s);
+assert.deepStrictEqual(switchDecisionsByKey(s), firstDecision, 'swapping Switchgear component indices preserves physical tie decisions');
+assert.deepStrictEqual(physicalAllocations(s), firstAlloc, 'correctly remapped reordered design preserves physical allocations');
+
 function chainShip() {
   const design = [
     { x:0,y:0,type:'reactor' },
