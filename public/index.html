@@ -440,6 +440,17 @@
                   <div class="wiring-legend-line"><span class="wiring-legend-swatch wiring-legend-heavy"></span>Heavy Bus</div>
                   <div class="wiring-legend-note">Values are sustained / peak MW. Thicker, darker cable = higher-capacity tier. A glow or outline shows current status (green working · yellow loaded · orange above sustained · red at peak · red dashed disconnected · blue selected).</div>
                 </div>
+                <details id="powerInfrastructureReference" class="wiring-tier-legend power-infrastructure-reference">
+                  <summary>Power Infrastructure reference</summary>
+                  <div class="wiring-legend-note">
+                    <p><strong>Cable tiers.</strong> Light Cable (4 MW sustained / 7 MW peak) suits short low-demand final branches. Standard Cable (10 / 16 MW) is the normal general-purpose distribution tier. Heavy Bus (24 / 36 MW) is worth its cost only on major high-throughput trunks. Heavy cable placed after a Light bottleneck does not remove that bottleneck — capacity is limited by the weakest section on the route.</p>
+                    <p><strong>Sustained vs peak.</strong> Below sustained capacity a cable runs continuously. Between sustained and peak it works, but generates extra cable Heat and accumulates overload stress over time; delivery is always capped at peak. Physical cables never trip, burn or take damage from overload — when their load falls, stress recovers.</p>
+                    <p><strong>Switchgear.</strong> An optional two-terminal component (not required for ordinary branches). Saved modes: Open isolates, Closed always connects through its rating, Automatic closes only for a safe, useful spare-power transfer that never sacrifices donor-side or equal-priority demand. A conducting Switchgear that stays overloaded trips (runtime Tripped state), waits out a cooldown, then deterministically retries — a safe retry restores it, an unsafe one stays Tripped and retries later. A Destroyed Switchgear stops conducting until repaired, then returns to its saved mode.</p>
+                    <p><strong>Priorities.</strong> When Power is short, delivery follows your saved priority order across the six categories: command, propulsion, shields, point defence, weapons, cooling &amp; support. Shields and point defence are always separate categories.</p>
+                    <p><strong>Architectures.</strong> Central bus: cheapest wiring, one trunk to protect. Distributed grids: independent local islands, needs duplicated generation and strands spare capacity. Ring bus: an alternate route survives one break, at a clear cost/displacement premium. Hybrid: local grids joined by Switchgear ties for spare sharing with isolation. Redundancy improves resilience but always costs money and Heat capacity.</p>
+                    <p><strong>Data wiring is separate.</strong> Data cables are a single cheap tier with their own cost/displacement and no capacity, overload, Heat or breaker mechanics.</p>
+                  </div>
+                </details>
                 <div class="wiring-control-row" role="group" aria-label="Wiring actions">
                   <button type="button" id="wiringUndoButton" title="Undo last completed wiring change">Undo</button>
                   <button type="button" id="wiringClearNetworkButton" title="Remove the active inspected network">Clear Network</button>
