@@ -152,6 +152,15 @@
 .heat-flow-row button.active { border-color:#67d9ff; background:linear-gradient(180deg,rgba(56,189,248,.28),rgba(30,64,175,.22)); box-shadow:0 0 8px rgba(56,189,248,.24); color:#fff; }
 .build-grid.heat-inspecting .build-cell.heat-unrelated { opacity:.58; filter:saturate(.72); }
 .build-cell.heat-related { z-index:3; outline:2px solid rgba(103,217,255,.62); outline-offset:-2px; }
+.build-cell.heat-hosted-power-section { outline:2px solid #93c5fd; outline-offset:-3px; }
+.build-cell.heat-flag-displacement { border-style:dotted; }
+.build-cell.heat-flag-cable-heat { box-shadow:inset 0 0 0 2px rgba(251,191,36,.42); }
+.build-cell.heat-flag-cable-overload { box-shadow:inset 0 0 0 2px rgba(251,146,60,.7), 0 0 8px rgba(251,146,60,.45); }
+.build-cell.heat-flag-cable-peak { box-shadow:inset 0 0 0 2px rgba(248,113,113,.86), 0 0 10px rgba(248,113,113,.6); }
+.build-cell.heat-flag-cable-risk { background-image:repeating-linear-gradient(45deg, rgba(255,255,255,.08) 0 3px, transparent 3px 7px); }
+.build-cell.heat-flag-throttled { filter:saturate(.82) contrast(1.08); }
+.heat-status-markers { position:absolute; z-index:10; right:2px; bottom:13px; display:flex; gap:1px; pointer-events:none; }
+.heat-status-markers i { display:grid; place-items:center; width:9px; height:9px; border-radius:50%; background:#111827; border:1px solid #fbbf24; color:#fde68a; font-size:6px; font-style:normal; font-weight:950; line-height:1; }
 .heat-flow-overlay { z-index:2; background:transparent; mix-blend-mode:normal; }
 .heat-flow-overlay .heat-flow-muted { opacity:.14 !important; }
 .heat-flow-overlay .heat-flow-focus { filter:drop-shadow(0 0 .16px currentColor); }
@@ -197,6 +206,21 @@
 .heat-flow-overlay .incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .outgoing-flow-label { fill:#ffb260; }
 @keyframes overheated-cell-shell { to { filter:brightness(1.18); } }
+@media (prefers-reduced-motion: reduce) {
+  .build-cell.heat-predicted-hot::after,
+  .build-cell.heat-overheated::after,
+  .build-cell.heat-sink-absorption::before,
+  .component-overheat-warning,
+  .build-cell.heat-ui-overheated::after,
+  .build-cell.heat-ui-overheated {
+    animation:none !important;
+  }
+  .build-cell.heat-ui-overheated,
+  .build-cell.heat-flag-cable-peak,
+  .build-cell.heat-flag-cable-overload {
+    outline:2px solid currentColor;
+  }
+}
 
 .heat-flow-overlay .focused-flow-label { font-size:.19px; opacity:1; font-weight:850; paint-order:stroke; stroke:rgba(5,10,18,.95); stroke-width:.05px; stroke-linejoin:round; }
 .heat-flow-overlay .focused-flow-label.incoming-flow-label { fill:#7eeaff; }

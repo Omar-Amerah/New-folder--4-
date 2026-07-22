@@ -422,7 +422,7 @@ export function summariseThermalResult(model, load, simulation) {
   const radiatorCapacitySeconds = design.reduce((sum, module, i) => module.type === "radiator" ? sum + profiles[i].cooling * (exposed[i] ? 1 : .25) * simulatedSeconds : sum, 0);
   const actualCooling = design.reduce((sum, _module, i) => sum + cooling[i] / dt, 0);
   return {
-    componentClasses, componentHeat, predictions, powerThermal, flows: finalFlows, networks, criticalFrames: problems.criticalFrames, problemIndices: problems.problemIndices, overloadedNetworkIds: problems.overloadedNetworkIds, exteriorDirections, actionItems,
+    componentClasses, componentHeat, predictions, powerThermal, heatDiagnostics: model.heatDiagnostics || [], flows: finalFlows, networks, criticalFrames: problems.criticalFrames, problemIndices: problems.problemIndices, overloadedNetworkIds: problems.overloadedNetworkIds, exteriorDirections, actionItems,
     cooling: coolingRate >= averageGenerationRate * .7 ? "Good" : coolingRate >= averageGenerationRate * .4 ? "Fair" : "Poor",
     sustained: averageGenerationRate > coolingRate * 1.8 ? "High" : averageGenerationRate > coolingRate ? "Moderate" : "Low",
     hotspot: design[hottestIndex] ? `${PART_DEFS[design[hottestIndex].type]?.name || design[hottestIndex].type} cluster` : "None",

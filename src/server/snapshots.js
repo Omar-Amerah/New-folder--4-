@@ -150,6 +150,7 @@ function appendFullShipBaseline(entry, ship) {
   if (ship.componentPower?.byComponentIndex) {
     entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
     entry.powerStatus = ship.powerStatus;
+    entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
     entry.powerRevision = ship.powerRevision || 0;
     entry.wiringRevision = ship.wiringRevision || 0;
     entry.wiringStatus = wiringStatus(ship);
@@ -162,12 +163,22 @@ function appendShipDeltas(entry, ship, client = null) {
   const knownPower = client?.knownShipPowerRevisions instanceof Map ? client.knownShipPowerRevisions : null;
   const known = knownPower ? knownPower.get(ship.id) : undefined;
   const currentPowerRevision = ship.powerRevision || 0;
-  if (ship.componentPower?.byComponentIndex && (knownPower ? known !== currentPowerRevision : ship.dirtyPower)) {
+  const powerChanged = ship.componentPower?.byComponentIndex && (knownPower ? known !== currentPowerRevision : ship.dirtyPower);
+  if (powerChanged) {
     entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
     entry.powerStatus = ship.powerStatus;
+    entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
     entry.powerRevision = ship.powerRevision || 0;
     entry.wiringRevision = ship.wiringRevision || 0;
     entry.wiringStatus = wiringStatus(ship);
+  }
+  // `powerThermal` contains Heat-derived values (component Heat generated,
+  // cable Heat generated, cooling, net rate, hottest component) that change
+  // during ordinary thermal ticks even when the Power allocator does not run.
+  // Send a fresh compact diagnostics block with Heat deltas, without forcing a
+  // Power solve or resending static design data.
+  if (!powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
+    entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
   }
   if (ship.dirtyComponents && ship.dirtyComponents.size) {
     const delta = [];
@@ -189,6 +200,45 @@ function appendShipDeltas(entry, ship, client = null) {
       );
     }
   }
+}
+
+function buildRuntimePowerThermalSnapshot(ship) {
+  const powerSummary = ship.powerFlow?.summary || {};
+  const cable = ship.powerCableThermalAnalysis || {};
+  const cableSummary = cable.summary || {};
+  const elapsed = Math.max(Number(ship.lastHeatTickDelta) || 0, Number.EPSILON);
+  const componentHeatRate = (ship.componentHeatGenerated || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
+  const cooling = (ship.componentHeatCooled || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
+  const powerCableHeatRate = Number(ship.powerCableHeatRate) || 0;
+  const components = (ship.design || []).map((_, i) => ({
+    componentIndex: i,
+    requestedMw: Number(ship.componentPower?.byComponentIndex?.[i]?.requestedMw) || 0,
+    allocatedMw: Number(ship.componentPower?.byComponentIndex?.[i]?.allocatedMw) || 0,
+    operationalMultiplier: Number(ship.componentPower?.byComponentIndex?.[i]?.operationalMultiplier) || 0,
+    powerCableHeatRate: Number(ship.componentPowerCableHeatRate?.[i]) || 0,
+    powerCableHeatGenerated: Number(ship.componentPowerCableHeatGenerated?.[i]) || 0,
+    hostedActiveSectionIds: cable.components?.find?.((entry) => entry.componentIndex === i)?.hostedActiveSectionIds || []
+  }));
+  return {
+    componentHeatRate,
+    powerCableHeatRate,
+    totalHeatRate: componentHeatRate + powerCableHeatRate,
+    cooling,
+    netHeatRate: componentHeatRate + powerCableHeatRate - cooling,
+    hottestComponentIndex: (ship.componentHeat || []).reduce((best, value, i) => (Number(value) || 0) > (Number(ship.componentHeat?.[best]) || 0) ? i : best, 0),
+    aboveSustainedSectionCount: Number(powerSummary.aboveSustainedSections) || 0,
+    atPeakSectionCount: Number(powerSummary.atPeakSections) || 0,
+    throttledComponentCount: components.filter(c => c.operationalMultiplier > 0 && c.operationalMultiplier < 1).length,
+    disabledComponentCount: components.filter(c => c.operationalMultiplier <= 0).length,
+    powerGenerationMw: Number(powerSummary.availableGenerationMw) || 0,
+    requestedDemandMw: Number(powerSummary.demandMw) || 0,
+    deliveredDemandMw: Number(powerSummary.allocatedMw) || 0,
+    sparePowerMw: Number(powerSummary.spareGenerationMw) || 0,
+    unmetDemandMw: Number(powerSummary.unmetMw) || 0,
+    activePriorityPreset: powerSummary.preset || null,
+    hottestSectionId: cableSummary.hottestSectionId || null,
+    components
+  };
 }
 
 function wiringStatus(ship) {
