@@ -61,7 +61,8 @@ export const PART_DEFS = {
   captureModule: { name: "Capture Module", color: "#f9a8d4", glyph: "radial-gradient(circle, #fdf2f8 0 20%, #ec4899 30% 55%, #831843 62%)" },
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
-  repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" }
+  repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
+  switchgear: { name: "Switchgear", color: "#facc15", glyph: "linear-gradient(90deg, #422006 0 22%, #facc15 24% 42%, #111827 44% 56%, #facc15 58% 76%, #422006 78%)" }
 };
 
 // These structural silhouettes show their direction through their geometry, so
@@ -112,7 +113,8 @@ export const PART_DESCRIPTIONS = Object.freeze({
   captureModule: "Objective module that helps dedicated capture ships contest relays.",
   signalAmplifier: "Utility transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Utility stabilizer that improves weapon accuracy and slightly helps turning.",
-  repairBeam: "Heavy support repair system with stronger hull recovery and high power draw."
+  repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
+  switchgear: "Two-cell Power switchgear with opposite A/B terminals. Saved modes: Open isolates, Closed conducts up to rating, Automatic conducts only deterministic spare power. Never carries Data."
 });
 
 export const FALLBACK_PART_STATS = {};

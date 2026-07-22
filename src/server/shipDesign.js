@@ -7,6 +7,7 @@ const { getOccupiedCells } = require("./footprint");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
 const StructuralConnectivity = require("../../public/src/shared/structuralConnectivity");
+const SwitchgearRules = require("../../public/src/shared/switchgearRules");
 
 function designIssue(code, inputIndex) {
   const messages = {
@@ -47,7 +48,7 @@ function validateDesign(input) {
     if (overlap) { issues.push(designIssue("overlap", inputIndex)); continue; }
     if (type === "core") coreCount += 1;
     for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
-    clean.push({ x, y, type, rotation });
+    clean.push(type === "switchgear" ? SwitchgearRules.normalizeDesignPart({ x, y, type, rotation, switchgearMode: raw?.switchgearMode, switchgearRatingTier: raw?.switchgearRatingTier }) : { x, y, type, rotation });
   }
 
   if (issues.length) return { ok: false, reason: issues[0].message, issue: issues[0], issues, modules: clean };
@@ -113,7 +114,8 @@ function normalizeShipDesignSnapshot(design, { sourceGridSize = 15 } = {}) {
     const x = Math.trunc(Number(part?.x));
     const y = Math.trunc(Number(part?.y));
     const type = String(part?.type || "");
-    return { x, y, type, rotation: normalizePartRotation(type, x, part?.rotation) };
+    const rotation = normalizePartRotation(type, x, part?.rotation);
+    return type === "switchgear" ? SwitchgearRules.normalizeDesignPart({ x, y, type, rotation, switchgearMode: part?.switchgearMode, switchgearRatingTier: part?.switchgearRatingTier }) : { x, y, type, rotation };
   });
 }
 

@@ -9,6 +9,7 @@ const PowerAllocationRules = require("../../public/src/shared/powerAllocationRul
 const PowerPolicyRules = require("../../public/src/shared/powerPolicyRules");
 const PowerCableThermalRules = require("../../public/src/shared/powerCableThermalRules");
 const PowerDemandRules = require("../../public/src/shared/powerDemandRules");
+const SwitchgearRules = require("../../public/src/shared/switchgearRules");
 const { BALANCE } = require("./balanceConfig");
 const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
@@ -130,6 +131,20 @@ function stateSignature(runtime) {
   return values.join(",");
 }
 
+
+function switchgearTerminalBypassKeys(design) {
+  const keys = new Set();
+  (Array.isArray(design) ? design : []).forEach((module) => {
+    if (module?.type === "switchgear") keys.add(SwitchgearRules.terminalPairKey(module));
+  });
+  return keys;
+}
+function withoutSwitchgearBypassSections(sections, bypassKeys) {
+  if (!bypassKeys || !bypassKeys.size) return Array.isArray(sections) ? sections : [];
+  return (Array.isArray(sections) ? sections : []).filter((section) => !bypassKeys.has(SwitchgearRules.terminalPairKey({ type: "switchgear", x: section.x1, y: section.y1, rotation: section.x1 === section.x2 ? 90 : 0 }))
+    || !bypassKeys.has([`${section.x1},${section.y1}`, `${section.x2},${section.y2}`].sort().join(":")));
+}
+
 function rebuildShipWiringState(ship, reason = "component-boundary", options = {}) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   bump("wiringNormalizationCount");
@@ -143,7 +158,7 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   // authority — the solver reads sections.
   const runtimePowerWiring = {
     version: WiringRules.WIRING_VERSION,
-    power: power.operationalWiring,
+    power: { ...power.operationalWiring, sections: withoutSwitchgearBypassSections(power.operationalWiring.sections, switchgearTerminalBypassKeys(design)) },
     data: data.operationalWiring,
     powerPolicy: PowerPolicyRules.clonePolicy(ship.wiring?.powerPolicy)
   };
@@ -181,6 +196,185 @@ function effectiveLiveSourceGeneration(ship, index) {
   return Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
 }
 
+
+function liveSwitchgearRecords(ship, conductingOverride) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const records = [];
+  for (let index = 0; index < design.length; index += 1) {
+    const module = design[index];
+    if (module?.type !== "switchgear") continue;
+    const mode = SwitchgearRules.normalizeMode(module.switchgearMode);
+    const ratingTier = SwitchgearRules.normalizeRatingTier(module.switchgearRatingTier);
+    const terminals = SwitchgearRules.terminalCells(module);
+    const destroyed = (ship.componentHp?.[index] ?? 1) <= 0;
+    const tripped = Boolean(ship._switchgearTrips?.[index]);
+    let state = mode;
+    if (destroyed) state = "destroyed"; else if (tripped) state = "tripped";
+    const automaticClosed = mode === "automatic" && conductingOverride?.has(index) === true;
+    const conducts = !destroyed && !tripped && (mode === "closed" || automaticClosed);
+    const cap = SwitchgearRules.capacityForTier(BALANCE.wiringInfrastructure, ratingTier);
+    records.push({ componentIndex: index, mode, ratingTier, state, automaticClosed, conducts, terminalA: terminals.A, terminalB: terminals.B, orientation: terminals.orientation, internalEdgeId: SwitchgearRules.internalSectionId(index), sustainedCapacityMw: cap.sustainedCapacityMw, peakCapacityMw: cap.peakCapacityMw, signedTransferMw: 0, utilisation: 0, classification: "isolator", sideANetworkId: null, sideBNetworkId: null, decisionReason: mode === "automatic" ? "automatic evaluated open first" : `${mode} saved mode`, trippedReason: tripped ? String(ship._switchgearTrips[index] || "manual test trip") : null, topologyRevision: ship.wiringRevision || 0 });
+  }
+  return records;
+}
+function switchgearInternalEdges(records) { return records.filter(r => r.conducts).map(r => ({ ...SwitchgearRules.internalSection(r.componentIndex, { x:r.terminalA.x, y:r.terminalA.y, rotation:0, switchgearRatingTier:r.ratingTier }), id:r.internalEdgeId, x1:r.terminalA.x, y1:r.terminalA.y, x2:r.terminalB.x, y2:r.terminalB.y })); }
+function classifySwitchgearRecords(records, openResult, wiring) {
+  const nets = openResult?.networks || [];
+  const sectionById = new Map(((wiring?.power?.sections) || []).map((sec) => [String(sec.id), sec]));
+  const touches = (sec, cell) => sec && ((sec.x1 === cell.x && sec.y1 === cell.y) || (sec.x2 === cell.x && sec.y2 === cell.y));
+  const sideNet = (cell) => nets.find((net) => (net.sectionIds || []).some((id) => touches(sectionById.get(String(id)), cell))) || null;
+  for (const rec of records) {
+    const a = sideNet(rec.terminalA); const b = sideNet(rec.terminalB);
+    rec.sideANetworkId = a?.id || null; rec.sideBNetworkId = b?.id || null;
+    const aSourced = (a?.availableGenerationMw || 0) > 0;
+    const bSourced = (b?.availableGenerationMw || 0) > 0;
+    if (aSourced && bSourced && a.id !== b.id) rec.classification = "bus-tie";
+    else if (a || b) rec.classification = "branch-breaker";
+    else rec.classification = "isolator";
+  }
+}
+function sideNetworksForRecord(record, result, wiring) {
+  const sectionById = new Map(((wiring?.power?.sections) || []).map((sec) => [String(sec.id), sec]));
+  const touches = (sec, cell) => sec && ((sec.x1 === cell.x && sec.y1 === cell.y) || (sec.x2 === cell.x && sec.y2 === cell.y));
+  const sideNet = (cell) => (result?.networks || []).find((net) => (net.sectionIds || []).some((id) => touches(sectionById.get(String(id)), cell))) || null;
+  return { a: sideNet(record.terminalA), b: sideNet(record.terminalB) };
+}
+
+function componentAllocationMap(result) {
+  return new Map((result?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
+}
+function solveSwitchgearCandidate(baseInput, records, closedSet) {
+  const candidateRecords = records.map((record) => ({ ...record, conducts: record.mode === "closed" || closedSet.has(record.componentIndex) }));
+  return PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: switchgearInternalEdges(candidateRecords) });
+}
+function tieStableKey(record) {
+  const a = `${String(record.terminalA.x).padStart(2, "0")},${String(record.terminalA.y).padStart(2, "0")}`;
+  const b = `${String(record.terminalB.x).padStart(2, "0")},${String(record.terminalB.y).padStart(2, "0")}`;
+  return [a, b].sort().join("<->") + `|${record.orientation || "unknown"}`;
+}
+function finiteFlowResult(result) {
+  if (!result || !Array.isArray(result.byComponentIndex) || !Array.isArray(result.sectionFlows) || !Array.isArray(result.networks)) return false;
+  const numbers = [];
+  for (const entry of result.byComponentIndex) numbers.push(entry.requestedMw, entry.allocatedMw, entry.unmetMw, entry.operationalMultiplier);
+  for (const flow of result.sectionFlows) numbers.push(flow.signedFlowMw, flow.absoluteFlowMw, flow.sustainedCapacityMw, flow.peakCapacityMw, flow.peakUtilisation);
+  return numbers.every((value) => Number.isFinite(Number(value)) && !Object.is(Number(value), -0));
+}
+function candidateScore(baseline, candidate, subset, recordsByIndex) {
+  const before = componentAllocationMap(baseline);
+  const after = componentAllocationMap(candidate);
+  const priorityGain = Array.from({ length: 8 }, () => 0);
+  let totalAllocated = 0;
+  let remainingUnmet = 0;
+  let gainedPreviouslyUnmet = false;
+  for (const entry of candidate.byComponentIndex || []) {
+    const prev = before.get(entry.componentIndex) || {};
+    const allocated = Number(entry.allocatedMw) || 0;
+    const prevAllocated = Number(prev.allocatedMw) || 0;
+    const prevUnmet = Number(prev.unmetMw) || 0;
+    const requested = Number(entry.requestedMw) || 0;
+    if (allocated + 1e-6 < prevAllocated) return null;
+    if (prevUnmet > 1e-6 && allocated > prevAllocated + 1e-6) {
+      gainedPreviouslyUnmet = true;
+      const band = Number.isInteger(entry.priorityBand) ? Math.max(0, Math.min(7, entry.priorityBand)) : 7;
+      priorityGain[band] += Math.min(prevUnmet, allocated - prevAllocated);
+    }
+    totalAllocated += allocated;
+    remainingUnmet += Math.max(0, requested - allocated);
+  }
+  const baselineTotal = (baseline.byComponentIndex || []).reduce((sum, entry) => sum + (Number(entry.allocatedMw) || 0), 0);
+  if (!gainedPreviouslyUnmet || totalAllocated <= baselineTotal + 1e-6) return null;
+  const flowById = new Map((candidate.sectionFlows || []).map((flow) => [flow.sectionId, flow]));
+  for (const index of subset) {
+    const record = recordsByIndex.get(index);
+    const flow = flowById.get(record?.internalEdgeId);
+    if (!flow || Math.abs(Number(flow.signedFlowMw) || 0) <= 1e-6) return null;
+  }
+  return { priorityGain, totalAllocated, remainingUnmet, tieCount: subset.size, tieKeys: [...subset].map((index) => tieStableKey(recordsByIndex.get(index))).sort() };
+}
+function compareScores(a, b) {
+  if (!a && !b) return 0; if (!a) return -1; if (!b) return 1;
+  for (let i = 0; i < Math.max(a.priorityGain.length, b.priorityGain.length); i += 1) {
+    const delta = (a.priorityGain[i] || 0) - (b.priorityGain[i] || 0);
+    if (Math.abs(delta) > 1e-6) return delta > 0 ? 1 : -1;
+  }
+  if (Math.abs(a.totalAllocated - b.totalAllocated) > 1e-6) return a.totalAllocated > b.totalAllocated ? 1 : -1;
+  if (Math.abs(a.remainingUnmet - b.remainingUnmet) > 1e-6) return a.remainingUnmet < b.remainingUnmet ? 1 : -1;
+  if (a.tieCount !== b.tieCount) return a.tieCount < b.tieCount ? 1 : -1;
+  const ak = a.tieKeys.join("|"); const bk = b.tieKeys.join("|");
+  return ak === bk ? 0 : ak < bk ? 1 : -1;
+}
+function automaticTieGroups(autoRecords) {
+  const parent = new Map();
+  const find = (key) => { while (parent.get(key) !== key) { parent.set(key, parent.get(parent.get(key))); key = parent.get(key); } return key; };
+  const union = (a, b) => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a); const rb = find(b); if (ra !== rb) parent.set(rb, ra < rb ? ra : rb); };
+  for (const record of autoRecords) if (record.sideANetworkId && record.sideBNetworkId && record.sideANetworkId !== record.sideBNetworkId) union(record.sideANetworkId, record.sideBNetworkId);
+  const grouped = new Map();
+  for (const record of autoRecords) {
+    if (!record.sideANetworkId || !record.sideBNetworkId || record.sideANetworkId === record.sideBNetworkId) { record.decisionReason = "open: terminals are not on two separate candidate grids"; continue; }
+    const root = find(record.sideANetworkId);
+    const list = grouped.get(root) || [];
+    list.push(record); grouped.set(root, list);
+  }
+  return [...grouped.values()].map((list) => list.sort((a, b) => tieStableKey(a).localeCompare(tieStableKey(b)))).sort((a, b) => tieStableKey(a[0]).localeCompare(tieStableKey(b[0])));
+}
+function enumerateSubsets(records, maxSubsets) {
+  const n = records.length;
+  const count = 2 ** n;
+  if (count > maxSubsets) return null;
+  const subsets = [];
+  for (let mask = 1; mask < count; mask += 1) {
+    const set = new Set();
+    for (let i = 0; i < n; i += 1) if (mask & (1 << i)) set.add(records[i].componentIndex);
+    subsets.push(set);
+  }
+  return subsets;
+}
+function decideAutomaticSwitchgear(baseInput, baseRecords, baselineResult) {
+  const manualClosed = new Set(baseRecords.filter((r) => r.mode === "closed" && r.state === "closed").map((r) => r.componentIndex));
+  const selected = new Set(manualClosed);
+  const auto = baseRecords.filter(r => r.mode === "automatic" && r.state === "automatic");
+  const recordsByIndex = new Map(baseRecords.map((record) => [record.componentIndex, record]));
+  const maxSubsets = 1024;
+  for (const group of automaticTieGroups(auto)) {
+    const subsets = enumerateSubsets(group, maxSubsets);
+    if (!subsets) { for (const record of group) record.decisionReason = `open: automatic tie group exceeds ${maxSubsets} candidate subsets`; continue; }
+    let best = null;
+    let bestSubset = null;
+    for (const subset of subsets) {
+      const candidateClosed = new Set([...manualClosed, ...subset]);
+      const result = solveSwitchgearCandidate(baseInput, baseRecords, candidateClosed);
+      if (!finiteFlowResult(result)) continue;
+      const score = candidateScore(baselineResult, result, subset, recordsByIndex);
+      if (compareScores(score, best) > 0) { best = score; bestSubset = subset; }
+    }
+    if (!bestSubset) { for (const record of group) record.decisionReason = "open: no jointly valid priority-safe subset"; continue; }
+    for (const record of group) {
+      if (bestSubset.has(record.componentIndex)) { selected.add(record.componentIndex); record.decisionReason = "closed: jointly selected priority-safe automatic subset"; }
+      else record.decisionReason = "open: not part of best jointly valid automatic subset";
+    }
+  }
+  return selected;
+}
+function solveWithSwitchgear(ship, baseInput) {
+  const baseRecords = liveSwitchgearRecords(ship, new Set());
+  const manualClosed = new Set(baseRecords.filter((r) => r.mode === "closed" && r.state === "closed").map((r) => r.componentIndex));
+  const baselineResult = solveSwitchgearCandidate(baseInput, baseRecords, manualClosed);
+  classifySwitchgearRecords(baseRecords, baselineResult, baseInput.wiring);
+  const conducting = decideAutomaticSwitchgear(baseInput, baseRecords, baselineResult);
+  for (const r of baseRecords) if (r.mode === "closed" && r.state === "closed") conducting.add(r.componentIndex);
+  const records = liveSwitchgearRecords(ship, conducting);
+  for (const r of records) {
+    const base = baseRecords.find(x=>x.componentIndex===r.componentIndex); if (base) { r.classification=base.classification; r.sideANetworkId=base.sideANetworkId; r.sideBNetworkId=base.sideBNetworkId; r.decisionReason=base.decisionReason; }
+  }
+  const result = PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: switchgearInternalEdges(records) });
+  const flows = new Map((result.sectionFlows||[]).map(f=>[f.sectionId,f]));
+  for (const rec of records) { const f=flows.get(rec.internalEdgeId); rec.signedTransferMw = f ? Number(f.signedFlowMw)||0 : 0; rec.utilisation = f ? Number(f.peakUtilisation)||0 : 0; }
+  ship.runtimeSwitchgear = records;
+  return result;
+}
+function tripSwitchgear(ship, index, reason = "manual test trip") { if (!ship._switchgearTrips) ship._switchgearTrips = {}; ship._switchgearTrips[index] = reason; return rebuildShipWiringState(ship, "switchgear-trip"); }
+function resetSwitchgearTrip(ship, index) { if (ship._switchgearTrips) delete ship._switchgearTrips[index]; return rebuildShipWiringState(ship, "switchgear-reset"); }
+
 // The shared 7C-2 capacity-and-priority solver is the SOLE runtime allocator.
 // It enforces cable peak capacity and the saved Power priorities, giving each
 // component its own multiplier. No uniform generation/demand ratio and no second
@@ -208,7 +402,7 @@ function applyShipPowerAllocation(ship, options = {}) {
   // performance counter records the attempted solve before the call so a throw
   // is still counted.
   bump("powerFlowSolveCount");
-  const result = PowerFlowRules.solvePowerFlow({
+  const result = solveWithSwitchgear(ship, {
     design,
     wiring: runtimePowerWiring,
     catalogue: PARTS,
@@ -250,7 +444,8 @@ function applyShipPowerAllocation(ship, options = {}) {
 
   // Fixed-point Power-state signature: meaningful component state, canonical
   // network id and integer allocation units — never raw floating-point strings.
-  const powerSignature = byComponentIndex.map((entry) => [
+  const switchgearPowerSignature = (ship.runtimeSwitchgear || []).map((entry) => [entry.componentIndex, entry.state, entry.automaticClosed ? 1 : 0, entry.classification || "", entry.sideANetworkId || "", entry.sideBNetworkId || "", PowerAllocationRules.mwToPowerUnits(entry.signedTransferMw || 0), Math.round(clampNumber(entry.utilisation || 0, 0, 99) * PowerAllocationRules.POWER_FLOW_SCALE)].join(":")).join("|");
+  const powerSignature = switchgearPowerSignature + "#" + byComponentIndex.map((entry) => [
     entry.state,
     entry.networkId ?? "",
     PowerAllocationRules.mwToPowerUnits(entry.allocatedMw),
@@ -308,7 +503,7 @@ function ensureShipCableThermalAnalysis(ship) {
   if (!ship) return null;
   const flowRevision = ship.powerFlowRevision || 0;
   if (ship.powerCableThermalAnalysis && ship._powerCableThermalFlowRevision === flowRevision) return ship.powerCableThermalAnalysis;
-  const sectionFlows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows : [];
+  const sectionFlows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows.filter((flow) => !String(flow.sectionId || "").startsWith("switchgear:")) : [];
   const hostMap = shipHostMaps(ship).power;
   const analysis = PowerCableThermalRules.analyzePowerCableHeat({
     sectionFlows,
@@ -462,4 +657,4 @@ function componentHostsWiring(ship, index) {
   return (maps.power.byComponentIndex.get(index)?.length || 0) > 0 || (maps.data.byComponentIndex.get(index)?.length || 0) > 0;
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring, tripSwitchgear, resetSwitchgearTrip };

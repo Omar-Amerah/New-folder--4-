@@ -3,6 +3,7 @@
 // intentionally discarded (no migration) — stale data falls back to the default ship.
 
 import "../shared/dataSupportRules.js";
+import "../shared/switchgearRules.js";
 import "../shared/wiringRules.js";
 import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
@@ -183,7 +184,8 @@ export function normalizeDesignDetailed(input, options = {}) {
     const type = String(raw?.type || "");
     if (!Number.isInteger(x) || !Number.isInteger(y)) { issues.push(normalizationIssue("invalid-coordinate", inputIndex)); continue; }
     if (!PART_DEFS[type]) { issues.push(normalizationIssue("unknown-module", inputIndex)); continue; }
-    const newPart = makeDesignPart(x, y, type, raw?.rotation);
+    let newPart = makeDesignPart(x, y, type, raw?.rotation);
+    if (type === "switchgear" && globalThis.SwitchgearRules) newPart = globalThis.SwitchgearRules.normalizeDesignPart({ ...newPart, switchgearMode: raw?.switchgearMode, switchgearRatingTier: raw?.switchgearRatingTier });
     const footprint = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
     const cells = getOccupiedCells(x, y, footprint, newPart.rotation);
     let outOfBounds = false;

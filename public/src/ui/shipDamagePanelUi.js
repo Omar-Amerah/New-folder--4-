@@ -56,6 +56,12 @@ function formatHeatAmount(value) {
   return Number(value).toFixed(Math.abs(value) >= 100 ? 0 : 1).replace(/\.0$/, "");
 }
 
+function switchgearSummaryText(ship) {
+  const records = Array.isArray(ship.switchgear) ? ship.switchgear : [];
+  if (!records.length) return "None";
+  return records.map((record) => `#${record.componentIndex} ${record.state || record.mode || "Unknown"}${record.mode === "automatic" || record.state === "automatic" ? ` (${record.automaticClosed ? "conducting" : "open"})` : ""} ${record.ratingTier || "standard"} ${record.classification || "isolator"} ${formatHeatAmount(record.signedTransferMw || 0)} MW`).join("; ");
+}
+
 function renderHeatSummary(ship) {
   const summary = dom.shipHeatSummary;
   if (!summary) return;
@@ -93,6 +99,7 @@ function renderHeatSummary(ship) {
     <div><span>Power delivered</span><strong>${formatHeatAmount(pt.deliveredDemandMw || 0)} MW</strong></div>
     <div><span>Power spare / unmet</span><strong>${formatHeatAmount(pt.sparePowerMw || 0)} / ${formatHeatAmount(pt.unmetDemandMw || 0)} MW</strong></div>
     <div><span>Priority preset</span><strong>${pt.activePriorityPreset || "Default"}</strong></div>
+    <div><span>Switchgear</span><strong>${switchgearSummaryText(ship)}</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
     <div><span>Overheated</span><strong>${overheated}</strong></div>
     ${fastestHeat ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestHeat.index}"><span>Fastest heating</span><strong>${fastestHeat.name} ${formatHeatRate(fastestHeat.rate)}</strong></button>` : ""}`;

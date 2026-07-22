@@ -92,10 +92,10 @@
   // authority; persisted connection metadata is ignored. Data wiring is
   // ignored. Section-array order never affects results.
   // ------------------------------------------------------------------
-  function buildTopology(design, wiring, catalogue, infrastructure, sectionOperationalById) {
+  function buildTopology(design, wiring, catalogue, infrastructure, sectionOperationalById, options = {}) {
     const modules = Array.isArray(design) ? design : [];
     const normalized = normalizeWiring(wiring, modules, catalogue).wiring;
-    const rawSections = (normalized.power.sections || []).slice()
+    const rawSections = (normalized.power.sections || []).concat(Array.isArray(options.internalPowerEdges) ? options.internalPowerEdges : []).slice()
       .sort((a, b) => compareCanonicalIds(a.id, b.id));
 
     // Operational section list (canonical id order).
@@ -141,7 +141,7 @@
     const options = input && typeof input === "object" ? input : {};
     const catalogue = options.catalogue || {};
     const infrastructure = options.infrastructure || {};
-    const topo = buildTopology(options.design, options.wiring, catalogue, infrastructure, options.sectionOperationalById);
+    const topo = buildTopology(options.design, options.wiring, catalogue, infrastructure, options.sectionOperationalById, options);
     const { modules, sections, cellNode, orderedCellKeys, occupant } = topo;
 
     // Section-connectivity islands (union-find over section endpoints), computed
