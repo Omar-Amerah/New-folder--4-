@@ -62,4 +62,35 @@ assert.strictEqual(s.runtimeSwitchgear[0].state, 'destroyed');
 s.componentHp[4] = 1; initializeComponentPower(s);
 assert.strictEqual(s.runtimeSwitchgear[0].state, 'automatic');
 
+
+function autoShip({ donorDemand = 5, receiverDemand = 5, directBypass = false, mode = 'automatic' } = {}) {
+  const sections = [
+    {id:'left',x1:0,y1:0,x2:1,y2:0,tier:'standard'},
+    {id:'right',x1:2,y1:0,x2:3,y2:0,tier:'standard'},
+    {id:'loadL',x1:0,y1:0,x2:0,y2:1,tier:'standard'}
+  ];
+  if (directBypass) sections.push({id:'bypass',x1:1,y1:0,x2:2,y2:0,tier:'heavy'});
+  const design = [
+    { x:0,y:0,type:'reactor' }, { x:0,y:1,type:'engine' },
+    { x:3,y:0,type:'shield' },
+    { x:1,y:0,type:'switchgear',rotation:0,switchgearMode:mode,switchgearRatingTier:'standard' }
+  ];
+  const wiring = { version:3, power:{ sections, connections:[] }, data:{ sections:[], connections:[] }, powerPolicy: { preset:'custom', customOrder:['command','propulsion','shields','pointDefence','weapons','coolingSupport'] } };
+  const snap = createShipBlueprintSnapshot(design, wiring);
+  return { design:snap.design, wiring:snap.wiring, componentHp: snap.design.map(()=>1), alive:true, stats:{}, _activityDemandByIndex: { 1: donorDemand, 2: receiverDemand } };
+}
+
+s = autoShip({ donorDemand: 5, receiverDemand: 5 }); initializeComponentPower(s);
+assert.strictEqual(s.runtimeSwitchgear[0].automaticClosed, true, 'automatic closes only for useful spare transfer');
+assert(s.componentPower.byComponentIndex[2].allocatedMw > 0, 'receiver gets transferred spare power');
+
+s = autoShip({ donorDemand: 50, receiverDemand: 5 }); initializeComponentPower(s);
+assert.strictEqual(s.runtimeSwitchgear[0].automaticClosed, false, 'automatic does not sacrifice donor-side demand');
+assert(/donor|no priority-safe|not useful|open/.test(s.runtimeSwitchgear[0].decisionReason), 'automatic explains safe open decision');
+
+s = autoShip({ donorDemand: 5, receiverDemand: 5, directBypass: true, mode: 'open' }); initializeComponentPower(s);
+assert.strictEqual(s.runtimeSwitchgear[0].state, 'open');
+assert(!s.powerFlow.sectionFlows.some(f => f.sectionId === 'bypass' || String(f.sectionId).includes('1,0:2,0')), 'direct terminal cable bypass is excluded from runtime topology');
+assert.strictEqual(s.componentPower.byComponentIndex[2].allocatedMw, 0, 'open Switchgear isolates even with a drawn A-B bypass section');
+
 console.log('verify-switchgear-runtime passed');

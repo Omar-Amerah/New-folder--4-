@@ -24,6 +24,12 @@
   }
   function internalSectionId(index) { return `switchgear:${index}:A-B`; }
   function internalSection(index, part) { const t = terminalCells(part); return { id: internalSectionId(index), x1: t.A.x, y1: t.A.y, x2: t.B.x, y2: t.B.y, tier: normalizeRatingTier(part?.switchgearRatingTier), synthetic: true, switchgearIndex: index }; }
+  function sectionKey(a, b) { return [String(a.x) + "," + String(a.y), String(b.x) + "," + String(b.y)].sort().join(":" ); }
+  function terminalPairKey(part) { const t = terminalCells(part); return sectionKey(t.A, t.B); }
+  function isTerminalBypassSection(part, section) {
+    if (!part || part.type !== "switchgear" || !section) return false;
+    return terminalPairKey(part) === sectionKey({ x: Math.trunc(Number(section.x1)), y: Math.trunc(Number(section.y1)) }, { x: Math.trunc(Number(section.x2)), y: Math.trunc(Number(section.y2)) });
+  }
   function capacityForTier(infra, tier) { const c = infra?.powerTiers?.[normalizeRatingTier(tier)] || {}; return { sustainedCapacityMw: Number(c.sustainedCapacityMw)||0, peakCapacityMw: Number(c.peakCapacityMw)||0 }; }
-  return { MODES, RATINGS, normalizeMode, normalizeRatingTier, normalizeDesignPart, terminalCells, internalSectionId, internalSection, capacityForTier };
+  return { MODES, RATINGS, normalizeMode, normalizeRatingTier, normalizeDesignPart, terminalCells, internalSectionId, internalSection, terminalPairKey, isTerminalBypassSection, capacityForTier };
 }));

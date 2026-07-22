@@ -143,6 +143,26 @@ function getKnownShipDesigns(client) {
   return client.knownShipDesignRevisions;
 }
 
+
+function buildSwitchgearSnapshot(ship) {
+  return (Array.isArray(ship.runtimeSwitchgear) ? ship.runtimeSwitchgear : []).map((record) => ({
+    componentIndex: record.componentIndex,
+    classification: record.classification || "isolator",
+    mode: record.mode || "closed",
+    state: record.state || record.mode || "closed",
+    automaticClosed: Boolean(record.automaticClosed),
+    sideANetworkId: record.sideANetworkId || null,
+    sideBNetworkId: record.sideBNetworkId || null,
+    ratingTier: record.ratingTier || "standard",
+    sustainedCapacityMw: Number(record.sustainedCapacityMw) || 0,
+    peakCapacityMw: Number(record.peakCapacityMw) || 0,
+    signedTransferMw: Number(record.signedTransferMw) || 0,
+    utilisation: Number(record.utilisation) || 0,
+    decisionReason: record.decisionReason || "Unknown",
+    trippedReason: record.trippedReason || null
+  }));
+}
+
 function appendFullShipBaseline(entry, ship) {
   delete entry.chpD;
   delete entry.componentHeatD;
@@ -154,6 +174,7 @@ function appendFullShipBaseline(entry, ship) {
     entry.powerRevision = ship.powerRevision || 0;
     entry.wiringRevision = ship.wiringRevision || 0;
     entry.wiringStatus = wiringStatus(ship);
+    entry.switchgear = buildSwitchgearSnapshot(ship);
   }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
@@ -171,6 +192,7 @@ function appendShipDeltas(entry, ship, client = null) {
     entry.powerRevision = ship.powerRevision || 0;
     entry.wiringRevision = ship.wiringRevision || 0;
     entry.wiringStatus = wiringStatus(ship);
+    entry.switchgear = buildSwitchgearSnapshot(ship);
   }
   // `powerThermal` contains Heat-derived values (component Heat generated,
   // cable Heat generated, cooling, net rate, hottest component) that change

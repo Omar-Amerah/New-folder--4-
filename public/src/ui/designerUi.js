@@ -643,6 +643,7 @@ function ensureBlueprintGridEventHandlers() {
       event.preventDefault();
       removeCell(x, y);
     });
+    document.addEventListener("blueprint-switchgear-config", (event) => { configureSelectedSwitchgear(event.detail?.kind, event.detail?.value); });
     dom.grid.dataset.hasDelegatedClick = "true";
   }
 
@@ -1109,6 +1110,21 @@ export function removeCell(x, y) {
     setBuildStatus(message, "warning");
     showToast(message, "warning");
   }
+}
+
+
+function configureSelectedSwitchgear(kind, value) {
+  const cell = state.selectedCell || state.hoveredCell;
+  const part = cell ? findPartAt(cell.x, cell.y) : null;
+  if (!part || part.type !== "switchgear" || !globalThis.SwitchgearRules) return false;
+  const key = kind === "rating" ? "switchgearRatingTier" : kind === "mode" ? "switchgearMode" : null;
+  if (!key) return false;
+  const normalized = key === "switchgearMode" ? globalThis.SwitchgearRules.normalizeMode(value) : globalThis.SwitchgearRules.normalizeRatingTier(value);
+  if (part[key] === normalized) return false;
+  const before = captureBlueprintEditSnapshot(state);
+  return commitPhysicalEdit(before, () => {
+    state.design = state.design.map((candidate) => candidate === part ? { ...candidate, [key]: normalized } : candidate);
+  });
 }
 
 export function resetDesign() {

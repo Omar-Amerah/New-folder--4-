@@ -47,16 +47,48 @@ export function renderPartInspector() {
         ${keyStats.map(([label, value]) => inspectorStat(label, value)).join("")}
       </div>
     </section>
+    ${switchgearControlsMarkup(type)}
     ${thermalSectionMarkup(type, stat, thermal)}
     ${collapsibleDetails("combat", "Combat details", combatDetails)}
     ${collapsibleDetails("support", "Power and support details", supportDetails)}
     ${tipHtml}
   `;
+  attachSwitchgearControlHandlers();
   dom.partInspector.querySelectorAll("details[data-inspector-section]").forEach((detailsEl) => {
     detailsEl.addEventListener("toggle", event => {
       state.partInspectorOpen = state.partInspectorOpen || {};
       state.partInspectorOpen[event.target.dataset.inspectorSection] = event.target.open;
       if (event.target.classList.contains("thermal-properties-details")) state.partThermalPropsOpen = event.target.open;
+    });
+  });
+}
+
+function selectedPlacedPartOfType(type) {
+  const cell = state.selectedCell;
+  if (!cell) return null;
+  return state.design.find((part) => {
+    if (part.type !== type) return false;
+    const cells = globalThis.SwitchgearRules && part.type === "switchgear" ? [globalThis.SwitchgearRules.terminalCells(part).A, globalThis.SwitchgearRules.terminalCells(part).B] : [];
+    return cells.some((candidate) => candidate.x === cell.x && candidate.y === cell.y) || (part.x === cell.x && part.y === cell.y);
+  }) || null;
+}
+function switchgearControlsMarkup(type) {
+  if (type !== "switchgear") return "";
+  const placed = selectedPlacedPartOfType(type);
+  if (!placed) return `<div class="part-inspector-tip">Place or select a Switchgear component to configure its saved mode and rating.</div>`;
+  const mode = placed.switchgearMode || "closed";
+  const rating = placed.switchgearRatingTier || "standard";
+  const button = (kind, value, label) => `<button type="button" data-switchgear-config="${kind}" data-switchgear-value="${value}" aria-pressed="${String((kind === "mode" ? mode : rating) === value)}">${label}</button>`;
+  return `<section class="part-inspector-section switchgear-config" aria-label="Switchgear Blueprint configuration">
+    <div class="part-detail-heading">Switchgear settings</div>
+    <div class="switchgear-control-row"><span>Default mode</span>${button("mode", "open", "Open")}${button("mode", "closed", "Closed")}${button("mode", "automatic", "Automatic")}</div>
+    <div class="switchgear-control-row"><span>Rating</span>${button("rating", "light", "Light")}${button("rating", "standard", "Standard")}${button("rating", "heavy", "Heavy")}</div>
+  </section>`;
+}
+function attachSwitchgearControlHandlers() {
+  dom.partInspector.querySelectorAll("[data-switchgear-config]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.dispatchEvent(new CustomEvent("blueprint-switchgear-config", { detail: { kind: button.dataset.switchgearConfig, value: button.dataset.switchgearValue } }));
     });
   });
 }

@@ -131,6 +131,20 @@ function stateSignature(runtime) {
   return values.join(",");
 }
 
+
+function switchgearTerminalBypassKeys(design) {
+  const keys = new Set();
+  (Array.isArray(design) ? design : []).forEach((module) => {
+    if (module?.type === "switchgear") keys.add(SwitchgearRules.terminalPairKey(module));
+  });
+  return keys;
+}
+function withoutSwitchgearBypassSections(sections, bypassKeys) {
+  if (!bypassKeys || !bypassKeys.size) return Array.isArray(sections) ? sections : [];
+  return (Array.isArray(sections) ? sections : []).filter((section) => !bypassKeys.has(SwitchgearRules.terminalPairKey({ type: "switchgear", x: section.x1, y: section.y1, rotation: section.x1 === section.x2 ? 90 : 0 }))
+    || !bypassKeys.has([`${section.x1},${section.y1}`, `${section.x2},${section.y2}`].sort().join(":")));
+}
+
 function rebuildShipWiringState(ship, reason = "component-boundary", options = {}) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   bump("wiringNormalizationCount");
@@ -144,7 +158,7 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   // authority — the solver reads sections.
   const runtimePowerWiring = {
     version: WiringRules.WIRING_VERSION,
-    power: power.operationalWiring,
+    power: { ...power.operationalWiring, sections: withoutSwitchgearBypassSections(power.operationalWiring.sections, switchgearTerminalBypassKeys(design)) },
     data: data.operationalWiring,
     powerPolicy: PowerPolicyRules.clonePolicy(ship.wiring?.powerPolicy)
   };
@@ -219,21 +233,61 @@ function classifySwitchgearRecords(records, openResult, wiring) {
     else rec.classification = "isolator";
   }
 }
-function decideAutomaticSwitchgear(ship, baseRecords, openResult) {
-  const closed = new Set();
+function componentAllocationMap(result) {
+  return new Map((result?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
+}
+function consumerSetForNetwork(result, networkId) {
+  const net = (result?.networks || []).find((candidate) => candidate.id === networkId);
+  return new Set((net?.consumerIndices || []).map(Number));
+}
+function solveSwitchgearCandidate(baseInput, records, closedSet) {
+  const candidateRecords = records.map((record) => ({ ...record, conducts: record.mode === "closed" || closedSet.has(record.componentIndex) }));
+  return PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: switchgearInternalEdges(candidateRecords) });
+}
+function tieImprovementIsPrioritySafe(rec, beforeResult, afterResult) {
+  const before = componentAllocationMap(beforeResult);
+  const after = componentAllocationMap(afterResult);
+  const aConsumers = consumerSetForNetwork(beforeResult, rec.sideANetworkId);
+  const bConsumers = consumerSetForNetwork(beforeResult, rec.sideBNetworkId);
+  const sides = [[aConsumers, bConsumers, "A->B"], [bConsumers, aConsumers, "B->A"]];
+  for (const [donor, receiver, label] of sides) {
+    if (!donor.size || !receiver.size) continue;
+    const receiverGains = [...receiver].filter((idx) => (Number(after.get(idx)?.allocatedMw)||0) > (Number(before.get(idx)?.allocatedMw)||0) + 1e-6);
+    if (!receiverGains.length) continue;
+    const donorLosses = [...donor].filter((idx) => (Number(after.get(idx)?.allocatedMw)||0) + 1e-6 < (Number(before.get(idx)?.allocatedMw)||0));
+    if (donorLosses.length) return { ok: false, reason: `open: ${label} would reduce donor-side demand` };
+    return { ok: true, reason: `closed: ${label} uses donor-side spare generation without reducing local demand` };
+  }
+  return { ok: false, reason: "open: tie is not useful for either side" };
+}
+function decideAutomaticSwitchgear(baseInput, baseRecords, openResult) {
+  const closed = new Set(baseRecords.filter((r) => r.mode === "closed" && r.state === "closed").map((r) => r.componentIndex));
   const auto = baseRecords.filter(r => r.mode === "automatic" && r.state === "automatic").sort((a,b)=>a.componentIndex-b.componentIndex);
-  const spare = Number(openResult?.summary?.spareGenerationMw)||0;
-  const unmet = Number(openResult?.summary?.unmetMw)||0;
-  if (spare <= 0 || unmet <= 0) return closed;
-  for (const rec of auto) { closed.add(rec.componentIndex); rec.decisionReason = "closed: spare generation can serve unmet demand through existing priority solver"; }
+  let current = solveSwitchgearCandidate(baseInput, baseRecords, closed);
+  for (let guard = 0; guard < auto.length + 1; guard += 1) {
+    let changed = false;
+    for (const rec of auto) {
+      if (closed.has(rec.componentIndex)) continue;
+      if (!rec.sideANetworkId || !rec.sideBNetworkId || rec.sideANetworkId === rec.sideBNetworkId) { rec.decisionReason = "open: terminals are not on two separate sourced sides"; continue; }
+      const candidate = new Set(closed); candidate.add(rec.componentIndex);
+      const next = solveSwitchgearCandidate(baseInput, baseRecords, candidate);
+      const verdict = tieImprovementIsPrioritySafe(rec, current, next);
+      rec.decisionReason = verdict.reason;
+      if (verdict.ok) { closed.add(rec.componentIndex); current = next; changed = true; }
+    }
+    if (!changed) break;
+    if (guard === auto.length) { for (const rec of auto) closed.add(rec.componentIndex); }
+  }
+  for (const rec of auto) if (!closed.has(rec.componentIndex) && (!rec.decisionReason || rec.decisionReason.startsWith("automatic"))) rec.decisionReason = "open: no priority-safe spare transfer available";
   return closed;
 }
 function solveWithSwitchgear(ship, baseInput) {
   const baseRecords = liveSwitchgearRecords(ship, new Set());
   const openResult = PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: [] });
   classifySwitchgearRecords(baseRecords, openResult, baseInput.wiring);
-  const automaticClosed = decideAutomaticSwitchgear(ship, baseRecords, openResult);
-  const records = liveSwitchgearRecords(ship, automaticClosed);
+  const conducting = decideAutomaticSwitchgear(baseInput, baseRecords, openResult);
+  for (const r of baseRecords) if (r.mode === "closed" && r.state === "closed") conducting.add(r.componentIndex);
+  const records = liveSwitchgearRecords(ship, conducting);
   for (const r of records) {
     const base = baseRecords.find(x=>x.componentIndex===r.componentIndex); if (base) { r.classification=base.classification; r.sideANetworkId=base.sideANetworkId; r.sideBNetworkId=base.sideBNetworkId; r.decisionReason=base.decisionReason; }
   }
