@@ -20,10 +20,11 @@ const sanitize = PowerProtectionRules.sanitizeNumber;
 function round2(value) { return sanitize(Math.round(sanitize(value) * 100) / 100); }
 function round3(value) { return sanitize(Math.round(sanitize(value) * 1000) / 1000); }
 
+function powerSectionId(id) { return String(id).startsWith("power:") || String(id).startsWith("switchgear:") ? String(id) : `power:${id}`; }
 function sectionNetworkMap(ship) {
   const map = new Map();
   for (const network of (ship.powerFlow && ship.powerFlow.networks) || []) {
-    for (const id of network.sectionIds || []) map.set(String(id), network.id);
+    for (const id of network.sectionIds || []) { map.set(String(id), network.id); map.set(powerSectionId(id), network.id); }
   }
   return map;
 }
@@ -50,7 +51,9 @@ function buildPowerWiringLayout(ship) {
       ? [...new Set((hostEntry.hostCells || []).map((cell) => cell.componentIndex).filter((i) => Number.isInteger(i)))].sort((a, b) => a - b)
       : [];
     sections.push({
-      id,
+      id: powerSectionId(id),
+      rawSectionId: id,
+      networkType: "power",
       kind: "power-section",
       x1: Math.trunc(sanitize(section.x1)),
       y1: Math.trunc(sanitize(section.y1)),
@@ -70,6 +73,8 @@ function buildPowerWiringLayout(ship) {
     const terminals = SwitchgearRules.terminalCells(module);
     sections.push({
       id: String(record.internalEdgeId),
+      rawSectionId: String(record.internalEdgeId),
+      networkType: "power",
       kind: "switchgear",
       x1: Math.trunc(sanitize(terminals.A.x)),
       y1: Math.trunc(sanitize(terminals.A.y)),
@@ -100,9 +105,11 @@ function buildPowerWiringRuntime(ship) {
   let mostStressedStress = 0;
   const sections = records.map((record) => {
     const stress = PowerProtectionRules.clamp01(record.stress);
-    if (stress > mostStressedStress) { mostStressedStress = stress; mostStressedSectionId = String(record.sectionId); }
+    if (stress > mostStressedStress) { mostStressedStress = stress; mostStressedSectionId = powerSectionId(record.sectionId); }
     return {
-      id: String(record.sectionId),
+      id: powerSectionId(record.sectionId),
+      rawSectionId: String(record.sectionId),
+      networkType: "power",
       signedFlowMw: round2(record.signedFlowMw),
       absoluteFlowMw: round2(record.absoluteFlowMw),
       sustainedCapacityMw: round2(record.sustainedCapacityMw),
@@ -113,7 +120,7 @@ function buildPowerWiringRuntime(ship) {
       secondsAboveSustained: round2(record.secondsAboveSustained),
       state: record.state || "normal",
       operational: record.operational !== false,
-      networkId: netById.get(String(record.sectionId)) || null
+      networkId: netById.get(powerSectionId(record.sectionId)) || netById.get(String(record.sectionId)) || null
     };
   }).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return { sections, mostStressedSectionId, mostStressedStress: round3(mostStressedStress) };

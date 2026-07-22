@@ -218,7 +218,7 @@
     let verdict;
     if (upgrade) {
       const wasLimited = Boolean(currentSectionFlow && (currentSectionFlow.aboveSustained || currentSectionFlow.atPeak));
-      if (weakerTierRemainsOnRoute) verdict = `Limited elsewhere: another ${tierName(infrastructure, "light")} or weaker section remains on this route.`;
+      if (weakerTierRemainsOnRoute) verdict = `Limited elsewhere: a weaker section on this selected source-to-consumer route still constrains delivery.`;
       else if (wasLimited) verdict = `Useful upgrade: predicted sustained load is ${mw(proposedFlowMw === null ? flowMw : proposedFlowMw)}.`;
       else if (flowMw !== null && current.sustainedMw > 0 && flowMw <= current.sustainedMw * 0.9) verdict = `Likely unnecessary: predicted sustained load is only ${mw(flowMw)}.`;
       else verdict = "Adds headroom for future demand under this activity.";
@@ -253,7 +253,7 @@
       else if (sustained > 0 && abs >= sustained * 0.75) sentences.push("Near continuous capacity.");
       else sentences.push("Comfortably below sustained capacity.");
     }
-    if (isBottleneck) sentences.push("This is the weakest section on the route.");
+    if (isBottleneck && flow && (flow.aboveSustained || flow.atPeak || sanitize(flow.absoluteFlowMw) >= sanitize(flow.sustainedCapacityMw))) sentences.push(`This section is limiting delivery: current flow ${mw(flow.absoluteFlowMw)} vs ${mw(flow.sustainedCapacityMw)} sustained / ${mw(flow.peakCapacityMw)} peak.`);
     if (hasAlternateRoute) sentences.push("This section has an alternate route.");
     else if (hasAlternateRoute === false) sentences.push("No alternate route detected.");
     return sentences;
@@ -318,7 +318,7 @@
     // Tier usage quality (based on the present Blueprint and current estimate).
     const lightLimited = flows.filter((f) => (f.aboveSustained || f.atPeak) && tierOf(f.sectionId) === "light");
     for (const flow of lightLimited.slice(0, 2)) {
-      warnings.push(`Potential weakness: Light section ${flow.sectionId} is the limiting bottleneck under this activity (${mw(flow.absoluteFlowMw)}).`);
+      warnings.push(`Potential bottleneck: Light section ${flow.sectionId} is above rating under this activity: current flow ${mw(flow.absoluteFlowMw)} vs ${mw(flow.sustainedCapacityMw)} sustained / ${mw(flow.peakCapacityMw)} peak; consumers on this overloaded route may be limited, and upgrading this section can add headroom.`);
     }
     const heavyFlows = flows.filter((f) => tierOf(f.sectionId) === "heavy");
     const standardSustained = sanitize(tierConfig(infrastructure, "standard").sustainedCapacityMw);
@@ -336,12 +336,13 @@
     // Topology resilience (pure graph facts).
     const alternate = sanitize(input.alternatePaths);
     if (alternate > 0) positives.push(`Alternate Power path detected (${alternate} independent loop${alternate === 1 ? "" : "s"}). Parallel routes do not double usable capacity.`);
-    const multiConsumerTrees = networks.filter((n) => sanitize(n.consumerCount) >= 2 && sanitize(n.alternatePaths) === 0);
+    const multiConsumerTrees = networks.filter((n) => sanitize(n.consumerCount) >= 2 && sanitize(n.alternatePaths) === 0 && (sanitize(n.bridgeSharedDemandMw) > 0 || sanitize(n.highFlowBridgeCount) > 0));
     if (multiConsumerTrees.length) {
-      warnings.push("Potential weakness: a central trunk has single hosted-section vulnerabilities — no alternate path exists on that network.");
+      warnings.push("Potential weakness: a central-trunk vulnerability is evidenced by a bridge or articulation point carrying shared demand on that network.");
     }
-    if (networks.length >= 2) {
-      positives.push("Independent distributed grids detected: local damage cannot cross between them.");
+    const usefulIndependent = networks.filter((n) => (sanitize(n.operationalGeneratorCount) > 0 || sanitize(n.generationMw) > 0 || sanitize(n.availableGenerationMw) > 0) && (sanitize(n.consumerCount) > 0 || sanitize(n.demandMw) > 0) && n.disconnected !== true);
+    if (usefulIndependent.length >= 2) {
+      positives.push("Independent powered grids detected: each has generation, demand and potential delivery.");
       const stranded = sanitize(summary.strandedGenerationMw);
       const spare = sanitize(summary.spareGenerationMw);
       if (stranded > 0 || (spare > 0 && sanitize(summary.unmetMw) > 0)) {
@@ -367,7 +368,7 @@
         break;
       }
     }
-    if (input.dataSeparateFromPower === true) positives.push("Data and Power routes are physically separate where drawn.");
+    if (input.dataSeparateFromPower === true) positives.push("Power and Data wiring do not occupy the same cells.");
 
     // Infrastructure share guidance (advisory only, never validation).
     const pct = sanitize(input.infrastructurePercentage) * 100;
@@ -385,8 +386,8 @@
   // Architecture comparison (prose; no numeric values).
   // ------------------------------------------------------------------
   const ARCHITECTURE_NOTES = Object.freeze([
-    Object.freeze({ key: "central", label: "Central bus", benefits: "Cheapest, simplest, easy to understand.", downsides: "Trunk damage can affect many consumers." }),
-    Object.freeze({ key: "distributed", label: "Distributed grids", benefits: "Local damage isolation and shorter local routes.", downsides: "Duplicated generation and potentially stranded spare capacity." }),
+    Object.freeze({ key: "central", label: "Central bus", benefits: "Cheapest, simplest, easy to understand when graph analysis shows a tree or shared trunk.", downsides: "Only a proven high-flow bridge or articulation point should be treated as a trunk vulnerability." }),
+    Object.freeze({ key: "distributed", label: "Distributed grids", benefits: "Local damage isolation when each island has operational generation, demand and delivery.", downsides: "Duplicated generation and potentially stranded spare capacity." }),
     Object.freeze({ key: "ring", label: "Ring bus", benefits: "An alternate route can survive one relevant break.", downsides: "Increased cost and displacement; more cable installed." }),
     Object.freeze({ key: "hybrid", label: "Hybrid with Switchgear", benefits: "Independent grids with controlled spare sharing and isolation.", downsides: "Switchgear cost, space, rating limits and possible overload trips." })
   ]);

@@ -293,15 +293,15 @@ check("central-bus vulnerability and alternate-route benefit show only when supp
   // A single multi-consumer tree network (no cycles) -> vulnerability warning.
   const treeObs = clarity.blueprintObservations({
     infrastructure: infra, sectionFlows: [], flowSummary: {}, sectionTierById: {},
-    powerNetworks: [{ consumerCount: 3, alternatePaths: 0 }], dataNetworks: [], switchgear: [],
+    powerNetworks: [{ consumerCount: 3, alternatePaths: 0, highFlowBridgeCount: 1, bridgeSharedDemandMw: 6 }], dataNetworks: [], switchgear: [],
     alternatePaths: 0, infrastructurePercentage: 0.06, dataSeparateFromPower: false
   });
-  assert(treeObs.warnings.some((w) => /central trunk has single hosted-section/.test(w)), "vulnerability shown for tree");
+  assert(treeObs.warnings.some((w) => /central-trunk vulnerability/.test(w)), "vulnerability shown for tree");
   assert(!treeObs.positives.some((p) => /Alternate Power path/.test(p)), "no alternate-path claim without a loop");
   // A ring network -> alternate path positive, no single-vuln warning.
   const ringObs = clarity.blueprintObservations({
     infrastructure: infra, sectionFlows: [], flowSummary: {}, sectionTierById: {},
-    powerNetworks: [{ consumerCount: 3, alternatePaths: 1 }], dataNetworks: [], switchgear: [],
+    powerNetworks: [{ consumerCount: 3, alternatePaths: 1, availableGenerationMw: 12, demandMw: 6 }], dataNetworks: [], switchgear: [],
     alternatePaths: 1, infrastructurePercentage: 0.06, dataSeparateFromPower: false
   });
   assert(ringObs.positives.some((p) => /Alternate Power path/.test(p)), "alternate path shown for a real loop");
@@ -312,10 +312,10 @@ check("central-bus vulnerability and alternate-route benefit show only when supp
 check("distributed spare-generation warning uses authoritative generation/allocation data", () => {
   const obs = clarity.blueprintObservations({
     infrastructure: infra, sectionFlows: [], flowSummary: { strandedGenerationMw: 7.1, spareGenerationMw: 7.1, unmetMw: 0 },
-    sectionTierById: {}, powerNetworks: [{ consumerCount: 1, alternatePaths: 0 }, { consumerCount: 1, alternatePaths: 0 }],
+    sectionTierById: {}, powerNetworks: [{ consumerCount: 1, alternatePaths: 0, availableGenerationMw: 8, demandMw: 3 }, { consumerCount: 1, alternatePaths: 0, availableGenerationMw: 8, demandMw: 3 }],
     dataNetworks: [], switchgear: [], alternatePaths: 0, infrastructurePercentage: 0.04, dataSeparateFromPower: false
   });
-  assert(obs.positives.some((p) => /Independent distributed grids/.test(p)));
+  assert(obs.positives.some((p) => /Independent powered grids/.test(p)));
   assert(obs.warnings.some((w) => /stranded spare capacity.*7\.1 MW/.test(w)), "uses the supplied stranded MW value");
 });
 
@@ -323,7 +323,7 @@ check("distributed spare-generation warning uses authoritative generation/alloca
 check("selected Power section interpretation covers capacity, disabled and bottleneck states", () => {
   const above = clarity.sectionInterpretation({ flow: { absoluteFlowMw: 6, sustainedCapacityMw: 4, peakCapacityMw: 7, aboveSustained: true, atPeak: false }, disabled: false, isBottleneck: true, hasAlternateRoute: false });
   assert(above.some((s) => /Above sustained/.test(s)));
-  assert(above.some((s) => /weakest section/.test(s)));
+  assert(above.some((s) => /limiting delivery/.test(s)));
   const peak = clarity.sectionInterpretation({ flow: { absoluteFlowMw: 7, sustainedCapacityMw: 4, peakCapacityMw: 7, atPeak: true }, disabled: false, isBottleneck: false, hasAlternateRoute: true });
   assert(peak.some((s) => /At peak: additional demand will be shed/.test(s)));
   assert(peak.some((s) => /alternate route/.test(s)));

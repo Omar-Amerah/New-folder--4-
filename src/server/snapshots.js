@@ -144,6 +144,16 @@ function getKnownShipDesigns(client) {
 }
 
 
+function switchgearPresentationState(record, ship) {
+  const hp = Number(ship?.componentHp?.[record.componentIndex]);
+  if (Number.isFinite(hp) && hp <= 0) return "destroyed";
+  if (record.state === "tripped") return Number(record.cooldownRemaining) > 0 ? "tripped-cooling" : "tripped-retry-pending";
+  if (!record.sideANetworkId && !record.sideBNetworkId) return "disconnected";
+  if (record.mode === "open") return "open";
+  if (record.mode === "automatic") return record.conducts ? "automatic-conducting" : "automatic-idle";
+  if (record.mode === "closed") return record.conducts ? "closed-conducting" : "unpowered";
+  return "unknown";
+}
 function buildSwitchgearSnapshot(ship) {
   const { switchgearProtectionFields } = require("./powerProtection");
   return (Array.isArray(ship.runtimeSwitchgear) ? ship.runtimeSwitchgear : []).map((record) => ({
@@ -151,6 +161,10 @@ function buildSwitchgearSnapshot(ship) {
     classification: record.classification || "isolator",
     mode: record.mode || "closed",
     state: record.state || record.mode || "closed",
+    presentationState: switchgearPresentationState(record, ship),
+    runtimeState: record.state || null,
+    conducts: Boolean(record.conducts),
+    reasonNotConducting: record.conducts ? null : (record.trippedReason || record.decisionReason || (record.mode === "open" ? "saved-mode-open" : "not-conducting")),
     automaticClosed: Boolean(record.automaticClosed),
     sideANetworkId: record.sideANetworkId || null,
     sideBNetworkId: record.sideBNetworkId || null,
@@ -274,6 +288,7 @@ function appendShipDeltas(entry, ship, client = null) {
   }
 }
 
+function namespacedPowerSectionId(id) { return String(id).startsWith("power:") || String(id).startsWith("switchgear:") ? String(id) : `power:${id}`; }
 function buildRuntimePowerThermalSnapshot(ship) {
   const powerSummary = ship.powerFlow?.summary || {};
   const cable = ship.powerCableThermalAnalysis || {};
@@ -282,18 +297,52 @@ function buildRuntimePowerThermalSnapshot(ship) {
   const componentHeatRate = (ship.componentHeatGenerated || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
   const cooling = (ship.componentHeatCooled || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
   const powerCableHeatRate = Number(ship.powerCableHeatRate) || 0;
-  const components = (ship.design || []).map((_, i) => ({
+  const components = (ship.design || []).map((part, i) => {
+    const cp = ship.componentPower?.byComponentIndex?.[i] || {};
+    const rated = Number(require("./components").PARTS[part?.type]?.powerGeneration) || 0;
+    const available = Number(cp.generationAvailableMw) || 0;
+    const used = Number(cp.generationUsedMw) || 0;
+    const reasons = [];
+    if (rated > available) {
+      if ((ship.componentHp?.[i] ?? 1) <= 0) reasons.push("destroyed-component");
+      else if ((ship.componentHeatState?.[i] || 0) >= 4) reasons.push("heat-thermal-penalty");
+      else reasons.push("runtime-modifier");
+    }
+    if (rated > 0 && available > 0 && used <= 0) reasons.push(cp.networkId == null ? "isolation-from-network" : "no-connected-demand");
+    return ({
     componentIndex: i,
-    requestedMw: Number(ship.componentPower?.byComponentIndex?.[i]?.requestedMw) || 0,
-    allocatedMw: Number(ship.componentPower?.byComponentIndex?.[i]?.allocatedMw) || 0,
-    operationalMultiplier: Number(ship.componentPower?.byComponentIndex?.[i]?.operationalMultiplier) || 0,
+    requestedMw: Number(cp.requestedMw) || 0,
+    allocatedMw: Number(cp.allocatedMw) || 0,
+    operationalMultiplier: Number(cp.operationalMultiplier) || 0,
+    powerRole: cp.role || "passive",
+    ratedGenerationMw: rated,
+    availableGenerationMw: available,
+    currentGenerationMw: used,
+    deliveredGenerationMw: used,
+    unusedGenerationMw: Math.max(0, available - used),
+    reductionReasons: reasons,
     powerCableHeatRate: Number(ship.componentPowerCableHeatRate?.[i]) || 0,
     powerCableHeatGenerated: Number(ship.componentPowerCableHeatGenerated?.[i]) || 0,
     hostedActiveSectionIds: cable.components?.find?.((entry) => entry.componentIndex === i)?.hostedActiveSectionIds || []
-  }));
+  });
+  });
+  const powerCableHeatBySectionId = {};
+  for (const section of cable.sections || []) {
+    const id = namespacedPowerSectionId(section.sectionId);
+    powerCableHeatBySectionId[id] = {
+      baseHeatMw: Number(section.heatPerHostedCellPerSecond) || 0,
+      overloadHeatMw: section.aboveSustained ? Number(section.totalHeatPerSecond) || 0 : 0,
+      totalHeatMw: Number(section.totalHeatPerSecond) || 0
+    };
+  }
   return {
     componentHeatRate,
     powerCableHeatRate,
+    powerCableHeatBySectionId,
+    snapshotVersion: 2,
+    totalRatedGenerationMw: components.reduce((sum, c) => sum + c.ratedGenerationMw, 0),
+    totalAvailableGenerationMw: Number(powerSummary.availableGenerationMw) || 0,
+    totalDeliveredGenerationMw: Number(powerSummary.usedGenerationMw) || 0,
     totalHeatRate: componentHeatRate + powerCableHeatRate,
     cooling,
     netHeatRate: componentHeatRate + powerCableHeatRate - cooling,

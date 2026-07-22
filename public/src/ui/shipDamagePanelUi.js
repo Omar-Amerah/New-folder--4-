@@ -61,7 +61,8 @@ function switchgearSummaryText(ship) {
   const records = Array.isArray(ship.switchgear) ? ship.switchgear : [];
   if (!records.length) return "None";
   return records.map((record) => {
-    const parts = [`#${record.componentIndex} ${record.state || record.mode || "Unknown"}${record.mode === "automatic" || record.state === "automatic" ? ` (${record.automaticClosed ? "conducting" : "open"})` : ""} ${record.ratingTier || "standard"} ${record.classification || "isolator"} ${formatHeatAmount(record.signedTransferMw || 0)} MW`];
+    const label = SWITCHGEAR_STATE_LABEL[record.presentationState] || SWITCHGEAR_STATE_LABEL.unknown;
+    const parts = [`#${record.componentIndex} ${label} ${record.ratingTier || "standard"} ${record.classification || "isolator"} ${formatHeatAmount(record.signedTransferMw || 0)} MW`];
     // Section 7G runtime protection: saved mode, overload stress, trip reason,
     // cooldown, retry count and last retry reason as clear text labels.
     parts.push(`mode ${record.mode || "closed"}`);
@@ -102,6 +103,18 @@ function mostStressedSectionText(pp) {
 const POWER_SECTION_STATE_LABEL = {
   normal: "Working", "near-sustained": "Near sustained", overloaded: "Overloaded",
   critical: "Critical stress", "at-peak": "At peak", disabled: "Disabled"
+};
+const SWITCHGEAR_STATE_LABEL = {
+  open: "Open",
+  "closed-conducting": "Closed and conducting",
+  "automatic-idle": "Automatic — idle",
+  "automatic-conducting": "Automatic — conducting",
+  "tripped-cooling": "Tripped — cooling down",
+  "tripped-retry-pending": "Tripped — retry pending",
+  destroyed: "Destroyed",
+  disconnected: "Disconnected",
+  unpowered: "Unpowered",
+  unknown: "Unknown or unavailable"
 };
 const POWER_CATEGORY_LABEL = {
   command: "Command", propulsion: "Propulsion", shields: "Shields",
@@ -213,9 +226,11 @@ function renderComponentPowerReadout(ship, index) {
   if (switchgear) {
     const util = `${Math.round((switchgear.utilisation || 0) * 100)}%`;
     const stress = `${Math.round((switchgear.overloadStress || 0) * 100)}%`;
-    const trip = switchgear.state === "tripped" ? ` · trip: ${safeText(switchgear.trippedReason || switchgear.lastTripReason)} · cooldown ${formatHeatAmount(switchgear.cooldownRemaining || 0)}s` : "";
+    const trip = (switchgear.presentationState || switchgear.state || "").startsWith("tripped") ? ` · trip: ${safeText(switchgear.trippedReason || switchgear.lastTripReason)} · cooldown ${formatHeatAmount(switchgear.cooldownRemaining || 0)}s` : "";
     const retry = (switchgear.retryCount || 0) > 0 ? ` · retries ${switchgear.retryCount}${switchgear.lastRetryReason ? ` (${switchgear.lastRetryReason})` : ""}` : "";
-    dom.shipDamageHover.textContent = `${name} — ${safeText(switchgear.mode, "closed")} saved / ${safeText(switchgear.state, "closed")} · ${safeText(switchgear.ratingTier, "standard")} rating · ${safeText(switchgear.classification, "isolator")} · ${mw(switchgear.signedTransferMw)} · ${mw(switchgear.sustainedCapacityMw)}/${mw(switchgear.peakCapacityMw)} · ${util} util · stress ${stress}${trip}${retry}`;
+    const stateLabel = SWITCHGEAR_STATE_LABEL[switchgear.presentationState] || SWITCHGEAR_STATE_LABEL.unknown;
+    const reason = switchgear.conducts ? "conducting" : `not conducting: ${safeText(switchgear.reasonNotConducting, "unavailable")}`;
+    dom.shipDamageHover.textContent = `${name} — ${stateLabel} · saved mode ${safeText(switchgear.mode, "closed")} · runtime ${safeText(switchgear.runtimeState || switchgear.state, "closed")} · ${reason} · ${safeText(switchgear.ratingTier, "standard")} rating · ${safeText(switchgear.classification, "isolator")} · transferred ${mw(switchgear.signedTransferMw)} · rated ${mw(switchgear.sustainedCapacityMw)}/${mw(switchgear.peakCapacityMw)} · ${util} util · stress ${stress}${trip}${retry}`;
     return;
   }
   const power = ship.componentPower?.[index]; // [state, networkId, multiplier]
@@ -223,10 +238,14 @@ function renderComponentPowerReadout(ship, index) {
   const isGenerator = ["core", "reactor", "auxGenerator"].includes(part.type) || (power && power[0] === "source");
   if (isGenerator) {
     const genPart = PART_STATS[part.type] || {};
-    const availableGen = Number(genPart.powerGeneration) || 0;
-    const restriction = !alive ? " · destroyed: generating no Power" : "";
+    const ratedGen = Number(diag?.ratedGenerationMw ?? genPart.powerGeneration) || 0;
+    const availableGen = Number(diag?.availableGenerationMw) || 0;
+    const deliveredGen = Number(diag?.deliveredGenerationMw ?? diag?.currentGenerationMw) || 0;
+    const unusedGen = Number(diag?.unusedGenerationMw) || Math.max(0, availableGen - deliveredGen);
+    const reasons = (diag?.reductionReasons || []).join(", ");
+    const restriction = reasons ? ` · reduced by ${reasons}` : (!alive ? " · destroyed: generating no Power" : "");
     const netId = power && power[1] != null ? ` · network ${power[1]}` : "";
-    dom.shipDamageHover.textContent = `${name} — generator · ${mw(availableGen)} available${netId}${restriction}`;
+    dom.shipDamageHover.textContent = `${name} — generator · Rated: ${mw(ratedGen)} · Available: ${mw(availableGen)} · Delivered: ${mw(deliveredGen)} · Unused: ${mw(unusedGen)}${netId}${restriction}`;
     return;
   }
   if (diag && (Number(diag.requestedMw) > 0 || Number(diag.allocatedMw) > 0)) {
@@ -295,9 +314,11 @@ function renderPowerSectionReadout(ship, sectionId) {
 // PowerCableThermalRules); never recomputed here.
 function cableHeatForSection(ship, sectionId) {
   let total = 0;
-  for (const comp of ship.powerThermal?.components || []) {
-    if ((comp.hostedActiveSectionIds || []).includes(sectionId)) total += Number(comp.powerCableHeatRate) || 0;
-  }
+  const direct = ship.powerThermal?.powerCableHeatBySectionId?.[sectionId];
+  if (direct) return Number(direct.totalHeatMw) || 0;
+  const raw = String(sectionId).replace(/^power:/, "");
+  const rawDirect = ship.powerThermal?.powerCableHeatBySectionId?.[raw];
+  if (rawDirect) return Number(rawDirect.totalHeatMw) || 0;
   return total;
 }
 
