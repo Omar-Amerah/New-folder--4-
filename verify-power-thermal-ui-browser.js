@@ -29,8 +29,11 @@ has(designer, /isBlueprintRemovalMode\(mode = state\.blueprintView\) \{ return m
 has(designer, /previousView === "wiring" && state\.blueprintView !== "wiring"\) resetWiringTransientState\(\)/, "Leaving Wiring only clears transient route state");
 has(snapshots, /powerThermal = buildRuntimePowerThermalSnapshot\(ship\)/, "Runtime snapshot exposes authoritative compact Power/Heat diagnostics");
 has(merge, /"powerThermal"/, "Snapshot merge safely carries optional runtime diagnostics");
-has(damage, /Component Heat rate[\s\S]*Power cable Heat rate[\s\S]*Power gen \/ requested[\s\S]*Priority preset/, "Selected-ship panel renders runtime Heat/Power values");
-has(damage, /powerDiag[\s\S]*Cable Heat[\s\S]*Sections[\s\S]*\|\| "None"/, "Runtime component readout degrades missing cable diagnostics safely");
+// The Heat tab keeps thermal-only rows; the dedicated Power tab now renders the
+// runtime supply/distribution/protection Power values.
+has(damage, /Component Heat rate[\s\S]*Total \/ net Heat rate[\s\S]*Cooling/, "Heat tab renders runtime thermal values");
+has(damage, /Generation[\s\S]*Requested[\s\S]*Delivered[\s\S]*Priority preset[\s\S]*Cable Heat rate/, "Power tab renders runtime supply/distribution Power values");
+has(damage, /hostedActiveSectionIds[\s\S]*join\(", "\)[\s\S]*\|\| "None"/, "Power component readout degrades missing hosted-section diagnostics safely");
 has(runner, /verify-power-thermal-ui-browser\.js/, "New verifier is registered in the browser group");
 assert(!/NaN|undefined/.test(designer.match(/blueprintHeatSummaryMarkup[\s\S]*?}\n/)?.[0] || ""), "Blueprint summary avoids literal NaN/undefined fallbacks");
 console.log("Section 7D-4 Power thermal UI browser contract passed.");

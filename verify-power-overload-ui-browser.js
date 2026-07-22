@@ -14,15 +14,18 @@ const index = fs.readFileSync("public/index.html", "utf8");
 assert(index.includes("powerProtectionRules.js"), "browser loads shared Power-protection rules");
 
 const damagePanel = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
-// Selected-ship Power/Heat diagnostics (clear text labels, not colour-only).
+// Selected-ship Power protection diagnostics now live in the dedicated Power
+// tab (clear text labels, not colour-only).
 for (const label of [
-  "Power protection",
-  "Sections above sustained / at peak",
+  "Protection state",
+  "Above sustained",
+  "At peak",
   "Critical-stress sections",
-  "Most stressed section",
+  "Most-stressed section",
   "Tripped Switchgear",
-  "Next retry",
-  "Partial / shed consumers"
+  "Nearest retry",
+  "Partial consumers",
+  "Shed consumers"
 ]) assert(damagePanel.includes(label), `selected-ship diagnostics label missing: ${label}`);
 assert(damagePanel.includes("protectionStateLabel") && damagePanel.includes("Load shedding") && damagePanel.includes("Protection trip"), "overall protection states have readable labels");
 
@@ -33,9 +36,9 @@ for (const token of ["mode ", "stress ", "cooldown ", "retries ", "trippedReason
   assert(damagePanel.includes(token), `Switchgear runtime inspection missing: ${token}`);
 }
 
-// Wiring-section inspection: id, tier, flow, capacities, utilisation, stress,
-// seconds above sustained, protection state, disabled state.
-assert(damagePanel.includes("sectionProtectionText"), "wiring-section protection readout present");
+// Wiring-section inspection (Power tab): id, tier, flow, capacities,
+// utilisation, stress, seconds above sustained, protection state, disabled.
+assert(damagePanel.includes("renderPowerSectionReadout"), "Power-section inspection readout present");
 for (const token of ["sustainedCapacityMw", "peakCapacityMw", "sustainedUtilisation", "peakUtilisation", "secondsAboveSustained", "above sustained", "disabled"]) {
   assert(damagePanel.includes(token), `wiring-section inspection missing: ${token}`);
 }

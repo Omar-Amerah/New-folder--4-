@@ -6,7 +6,7 @@
     <title>Modular Fleet Arena</title>
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
-    <link rel="stylesheet" href="/styles.css?v=side-ui-1">
+    <link rel="stylesheet" href="/styles.css?v=power-tab-1">
     <link rel="stylesheet" href="/design.css?v=wiring-clarity-1">
     <link rel="stylesheet" href="/hud.css?v=preview-click-fix-1">
   </head>
@@ -143,11 +143,14 @@
             <div class="ship-damage-head">
               <span>Ship status</span>
               <div class="status-view-tabs" role="tablist" aria-label="Ship status view">
-                <button id="shipDamageTab" type="button" role="tab" aria-selected="true">Damage</button>
-                <button id="shipHeatTab" type="button" role="tab" aria-selected="false">Heat</button>
+                <button id="shipDamageTab" type="button" role="tab" aria-selected="true" aria-controls="shipStatusPanelBody">Damage</button>
+                <button id="shipHeatTab" type="button" role="tab" aria-selected="false" aria-controls="shipStatusPanelBody">Heat</button>
+                <button id="shipPowerTab" type="button" role="tab" aria-selected="false" aria-controls="shipStatusPanelBody">Power</button>
               </div>
             </div>
+            <div id="shipStatusPanelBody" role="tabpanel" aria-label="Ship status detail">
             <div id="shipHeatSummary" class="ship-heat-summary" hidden></div>
+            <div id="shipPowerSummary" class="ship-power-summary" hidden></div>
             <canvas id="shipDamageCanvas" width="360" height="360" aria-label="Selected ship component damage diagram"></canvas>
             <div id="shipDamageHover" class="ship-damage-hover">Hover a component</div>
             <div id="damageLegend" class="damage-legend" aria-hidden="true">
@@ -164,8 +167,20 @@
               <span><i class="trend-up">▲</i> Warming</span>
               <span><i class="trend-down">▼</i> Cooling</span>
             </div>
+            <div id="powerLegend" class="damage-legend power-legend" aria-hidden="true" hidden>
+              <span><i class="legend-line legend-tier-light"></i>Light</span>
+              <span><i class="legend-line legend-tier-standard"></i>Standard</span>
+              <span><i class="legend-line legend-tier-heavy"></i>Heavy bus</span>
+              <span><i class="legend-dot legend-working"></i>Working</span>
+              <span><i class="legend-dot legend-near-sustained"></i>Near sustained</span>
+              <span><i class="legend-dot legend-above-sustained"></i>Overloaded</span>
+              <span><i class="legend-dot legend-at-peak"></i>At peak</span>
+              <span><i class="legend-line legend-disabled"></i>Disabled/broken</span>
+              <span class="heat-legend-note">Line thickness = cable tier</span>
+            </div>
             <div id="coreStatusLabel" class="core-status" hidden></div>
             <ul id="damageFeed" class="damage-feed" aria-live="polite"></ul>
+            </div>
           </div>
         </div>
         <div id="scoreList" class="score-list"></div>

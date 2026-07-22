@@ -170,6 +170,13 @@ function buildProtectionSnapshot(ship) {
   return require("./powerProtection").buildPowerProtectionSnapshot(ship);
 }
 
+function buildPowerWiringLayoutSnapshot(ship) {
+  return require("./powerWiringSnapshot").buildPowerWiringLayout(ship);
+}
+function buildPowerWiringRuntimeSnapshot(ship) {
+  return require("./powerWiringSnapshot").buildPowerWiringRuntime(ship);
+}
+
 function appendFullShipBaseline(entry, ship) {
   delete entry.chpD;
   delete entry.componentHeatD;
@@ -184,6 +191,11 @@ function appendFullShipBaseline(entry, ship) {
     entry.switchgear = buildSwitchgearSnapshot(ship);
     entry.powerProtection = buildProtectionSnapshot(ship);
     entry.powerProtectionRevision = ship.powerProtectionRevision || 0;
+    // Combat Power tab: full installed Power-wiring layout (keyed by wiring
+    // revision) plus the live per-section runtime block.
+    entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
+    entry.powerWiringRevision = ship.wiringRevision || 0;
+    entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
   }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
@@ -215,6 +227,22 @@ function appendShipDeltas(entry, ship, client = null) {
     entry.powerProtection = buildProtectionSnapshot(ship);
     entry.powerProtectionRevision = currentProtectionRevision;
     if (!powerChanged) entry.switchgear = buildSwitchgearSnapshot(ship);
+  }
+  // Combat Power tab layout: resent only when the wiring revision changes
+  // (topology rebuild, damage/repair, design change). Unchanged layout arrays
+  // are never resent — the client merge preserves the previous layout.
+  const knownWiring = client?.knownShipWiringLayoutRevisions instanceof Map ? client.knownShipWiringLayoutRevisions : null;
+  const currentWiringRevision = ship.wiringRevision || 0;
+  const wiringLayoutChanged = ship.componentPower?.byComponentIndex
+    && (knownWiring ? knownWiring.get(ship.id) !== currentWiringRevision : (powerChanged || protectionChanged));
+  if (wiringLayoutChanged) {
+    entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
+    entry.powerWiringRevision = currentWiringRevision;
+  }
+  // Live per-section runtime block: whenever flow (power) or stress/protection
+  // changed. Layout stays cached; only the runtime values refresh.
+  if ((powerChanged || protectionChanged) && ship.componentPower?.byComponentIndex) {
+    entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
   }
   // `powerThermal` contains Heat-derived values (component Heat generated,
   // cable Heat generated, cooling, net rate, hottest component) that change
@@ -343,6 +371,18 @@ function markSnapshotPowerProtectionWritten(client, protectionRevisions = []) {
   if (!client.knownShipPowerProtectionRevisions) client.knownShipPowerProtectionRevisions = new Map();
   for (const [shipId, revision] of protectionRevisions) client.knownShipPowerProtectionRevisions.set(shipId, revision);
 }
+function collectSnapshotWiringLayoutRevisions(snapshot) {
+  const revisions = [];
+  for (const ship of snapshot?.ships || []) {
+    if (ship.powerWiring) revisions.push([ship.id, ship.powerWiringRevision || 0]);
+  }
+  return revisions;
+}
+function markSnapshotWiringLayoutWritten(client, layoutRevisions = []) {
+  if (!client) return;
+  if (!client.knownShipWiringLayoutRevisions) client.knownShipWiringLayoutRevisions = new Map();
+  for (const [shipId, revision] of layoutRevisions) client.knownShipWiringLayoutRevisions.set(shipId, revision);
+}
 
 function markSnapshotDesignsWritten(client, designRevisions = []) {
   const known = getKnownShipDesigns(client);
@@ -456,8 +496,10 @@ module.exports = {
   collectSnapshotDesignRevisions,
   collectSnapshotPowerRevisions,
   collectSnapshotPowerProtectionRevisions,
+  collectSnapshotWiringLayoutRevisions,
   markSnapshotDesignsWritten,
   markSnapshotPowerWritten,
   markSnapshotPowerProtectionWritten,
+  markSnapshotWiringLayoutWritten,
   canViewPlayerEconomy
 };

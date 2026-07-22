@@ -17,6 +17,7 @@ import { componentHealthRatio } from "../game/shipVitals.js";
 import { drawModuleDamage, drawModuleFlash } from "../game/componentDamageCanvas.js";
 import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, COMPONENT_HEAT_VALUE, normalizeComponentHeatTuple } from "../shared/componentHeatSnapshot.js";
 import { shipHeatPercent, formatHeatPercent, checkShipHeatConsistency } from "../shared/heatDisplay.js";
+import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -92,14 +93,212 @@ function mostStressedSectionText(pp) {
   return `${pp.mostStressedSectionId} ${Math.round((pp.mostStressedStress || 0) * 100)}%`;
 }
 
-// Per-section runtime protection readout for one hosted Power section.
-function sectionProtectionText(ship, sectionId) {
-  const records = ship.powerProtection?.sections;
-  const record = Array.isArray(records) ? records.find((entry) => entry.sectionId === sectionId) : null;
-  if (!record) return `${sectionId}: normal`;
-  const seconds = record.secondsAboveSustained > 0 ? ` · ${formatHeatAmount(record.secondsAboveSustained)}s above sustained` : "";
-  const disabled = record.operational === false ? " · disabled" : "";
-  return `${sectionId} (${record.tier}): ${record.state} · ${formatHeatAmount(record.absoluteFlowMw)} / ${formatHeatAmount(record.sustainedCapacityMw)} MW sustained (${formatHeatAmount(record.peakCapacityMw)} MW peak) · ${Math.round((record.sustainedUtilisation || 0) * 100)}% sustained, ${Math.round((record.peakUtilisation || 0) * 100)}% peak · stress ${Math.round((record.stress || 0) * 100)}%${seconds}${disabled}`;
+// ---------------------------------------------------------------------------
+// Power tab. All values are read from the authoritative snapshot blocks the
+// server already sends (powerThermal, powerProtection, powerWiring layout,
+// powerWiringRuntime, switchgear, wiringStatus). No Power/Heat/overload value
+// is recomputed here.
+// ---------------------------------------------------------------------------
+const POWER_SECTION_STATE_LABEL = {
+  normal: "Working", "near-sustained": "Near sustained", overloaded: "Overloaded",
+  critical: "Critical stress", "at-peak": "At peak", disabled: "Disabled"
+};
+const POWER_CATEGORY_LABEL = {
+  command: "Command", propulsion: "Propulsion", shields: "Shields",
+  pointDefence: "Point defence", weapons: "Weapons", coolingSupport: "Cooling & support"
+};
+function mw(value) { return `${formatHeatAmount(Number(value) || 0)} MW`; }
+function safeText(value, fallback = "Unknown") {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value);
+}
+
+// Merge the static layout with the live runtime block by stable section id.
+// Disabled/non-conducting sections appear in the layout with no runtime record.
+function powerSectionsView(ship) {
+  const layout = Array.isArray(ship.powerWiring?.sections) ? ship.powerWiring.sections : [];
+  const runtimeById = new Map((ship.powerWiringRuntime?.sections || []).map((s) => [s.id, s]));
+  return layout.map((section) => ({ ...section, runtime: runtimeById.get(section.id) || null }));
+}
+function mostStressedRuntimeId(ship) { return ship.powerWiringRuntime?.mostStressedSectionId || null; }
+
+// Visual stroke width per tier, consistent with the Blueprint wiring view
+// (authoritative renderedThickness), scaled to the mini diagram cell size.
+function tierStrokeWidth(tier, cellSize) {
+  const thickness = Number(WIRING_INFRASTRUCTURE?.powerTiers?.[tier]?.renderedThickness);
+  const scaled = Number.isFinite(thickness) && thickness > 0 ? thickness : 2;
+  return Math.max(1.5, cellSize * 0.09 * scaled);
+}
+// Status colour of a section from its runtime protection state / flow. Colour
+// is a secondary cue only — every state is also spelled out in the legend and
+// the section readout text.
+function sectionStatusStyle(section) {
+  if (section.operational === false || (section.kind === "switchgear" && !section.runtime)) {
+    return { color: "#7c8aac", dashed: true, key: "disabled" };
+  }
+  const runtime = section.runtime;
+  const stateValue = runtime?.state || "normal";
+  if (stateValue === "at-peak") return { color: "#ff3b3b", dashed: false, key: "at-peak" };
+  if (stateValue === "overloaded" || stateValue === "critical") return { color: "#ff9a3c", dashed: false, key: "above-sustained" };
+  if (stateValue === "near-sustained") return { color: "#ffd27a", dashed: false, key: "near-sustained" };
+  return { color: "#6fd3a0", dashed: false, key: "working" };
+}
+
+function renderPowerSummary(ship) {
+  const summary = dom.shipPowerSummary;
+  if (!summary) return;
+  const pt = ship.powerThermal || {};
+  const pp = ship.powerProtection || {};
+  const ws = ship.wiringStatus || {};
+  const sections = powerSectionsView(ship);
+  summary.hidden = false;
+
+  if (!ship.powerWiring || !sections.length) {
+    summary.innerHTML = `<div class="ship-power-empty" role="status">This ship has no installed Power wiring.</div>`;
+    return;
+  }
+  if (!ship.componentPower && !ship.powerThermal) {
+    summary.innerHTML = `<div class="ship-power-empty" role="status">No Power-flow data is available.</div>`;
+    return;
+  }
+
+  const status = safeText(ship.powerStatus, "powered");
+  const statusLabelText = status.charAt(0).toUpperCase() + status.slice(1);
+  const nextRetry = (pp.trippedSwitchgearCount || 0) > 0 ? `${formatHeatAmount(pp.nextRetrySeconds || 0)}s` : "No active retry";
+  const mostStressed = pp.mostStressedSectionId ? mostStressedSectionText(pp) : "None";
+
+  summary.innerHTML = `
+    <section class="power-summary-group" aria-label="Power balance">
+      <h4>Power balance</h4>
+      <div><span>Generation</span><strong>${mw(pt.powerGenerationMw)}</strong></div>
+      <div><span>Requested</span><strong>${mw(pt.requestedDemandMw)}</strong></div>
+      <div><span>Delivered</span><strong>${mw(pt.deliveredDemandMw)}</strong></div>
+      <div><span>Spare</span><strong>${mw(pt.sparePowerMw)}</strong></div>
+      <div><span>Unmet</span><strong>${mw(pt.unmetDemandMw)}</strong></div>
+      <div><span>Priority preset</span><strong>${safeText(pt.activePriorityPreset, "Default")}</strong></div>
+      <div><span>Overall status</span><strong>${statusLabelText}</strong></div>
+      <div><span>Partial consumers</span><strong>${pp.partialConsumerCount || 0}</strong></div>
+      <div><span>Shed consumers</span><strong>${pp.shedConsumerCount || 0}</strong></div>
+      <div><span>Throttled consumers</span><strong>${pt.throttledComponentCount || 0}</strong></div>
+      <div><span>Disabled consumers</span><strong>${pt.disabledComponentCount || 0}</strong></div>
+    </section>
+    <section class="power-summary-group" aria-label="Distribution">
+      <h4>Distribution</h4>
+      <div><span>Power networks</span><strong>${ws.powerNetworks || 0}</strong></div>
+      <div><span>Disabled sections</span><strong>${ws.disabledPowerSections || 0}</strong></div>
+      <div><span>Broken routes</span><strong>${ws.brokenPowerConnections || 0}</strong></div>
+      <div><span>Above sustained</span><strong>${pp.aboveSustainedSectionCount || 0}</strong></div>
+      <div><span>At peak</span><strong>${pp.atPeakSectionCount || 0}</strong></div>
+      <div><span>Critical-stress sections</span><strong>${pp.criticalSectionCount || 0}</strong></div>
+      <div><span>Most-stressed section</span><strong>${mostStressed}</strong></div>
+      <div><span>Hottest cable</span><strong>${safeText(pt.hottestSectionId, "None")}</strong></div>
+      <div><span>Cable Heat rate</span><strong>${formatHeatAmount(pt.powerCableHeatRate || 0)} H/s</strong></div>
+    </section>
+    <section class="power-summary-group" aria-label="Protection">
+      <h4>Protection</h4>
+      <div><span>Protection state</span><strong>${protectionStateLabel(pp.state || "normal")}</strong></div>
+      <div><span>Tripped Switchgear</span><strong>${pp.trippedSwitchgearCount || 0}</strong></div>
+      <div><span>Nearest retry</span><strong>${nextRetry}</strong></div>
+      <div class="power-summary-wide"><span>Switchgear</span><strong>${switchgearSummaryText(ship)}</strong></div>
+    </section>`;
+}
+
+// Power-focused component readout: consumer / generator / Switchgear / passive.
+function renderComponentPowerReadout(ship, index) {
+  if (!dom.shipDamageHover) return;
+  const part = ship.design[index];
+  const name = partDisplayName(part.type);
+  const alive = (Number(ship.chp?.[index]) || 0) > 0;
+  const switchgear = (ship.switchgear || []).find((record) => record.componentIndex === index);
+  if (switchgear) {
+    const util = `${Math.round((switchgear.utilisation || 0) * 100)}%`;
+    const stress = `${Math.round((switchgear.overloadStress || 0) * 100)}%`;
+    const trip = switchgear.state === "tripped" ? ` · trip: ${safeText(switchgear.trippedReason || switchgear.lastTripReason)} · cooldown ${formatHeatAmount(switchgear.cooldownRemaining || 0)}s` : "";
+    const retry = (switchgear.retryCount || 0) > 0 ? ` · retries ${switchgear.retryCount}${switchgear.lastRetryReason ? ` (${switchgear.lastRetryReason})` : ""}` : "";
+    dom.shipDamageHover.textContent = `${name} — ${safeText(switchgear.mode, "closed")} saved / ${safeText(switchgear.state, "closed")} · ${safeText(switchgear.ratingTier, "standard")} rating · ${safeText(switchgear.classification, "isolator")} · ${mw(switchgear.signedTransferMw)} · ${mw(switchgear.sustainedCapacityMw)}/${mw(switchgear.peakCapacityMw)} · ${util} util · stress ${stress}${trip}${retry}`;
+    return;
+  }
+  const power = ship.componentPower?.[index]; // [state, networkId, multiplier]
+  const diag = ship.powerThermal?.components?.[index];
+  const isGenerator = ["core", "reactor", "auxGenerator"].includes(part.type) || (power && power[0] === "source");
+  if (isGenerator) {
+    const genPart = PART_STATS[part.type] || {};
+    const availableGen = Number(genPart.powerGeneration) || 0;
+    const restriction = !alive ? " · destroyed: generating no Power" : "";
+    const netId = power && power[1] != null ? ` · network ${power[1]}` : "";
+    dom.shipDamageHover.textContent = `${name} — generator · ${mw(availableGen)} available${netId}${restriction}`;
+    return;
+  }
+  if (diag && (Number(diag.requestedMw) > 0 || Number(diag.allocatedMw) > 0)) {
+    const requested = Number(diag.requestedMw) || 0;
+    const allocated = Number(diag.allocatedMw) || 0;
+    const pct = Math.round((Number(diag.operationalMultiplier) || 0) * 100);
+    const stateValue = safeText(power?.[0], allocated <= 0 ? "unpowered" : allocated >= requested ? "powered" : "underpowered");
+    const supplyWord = !alive ? "destroyed" : stateValue === "powered" ? "fully powered" : stateValue === "underpowered" ? "partial" : stateValue === "disconnected" ? "disconnected" : "shed";
+    const category = POWER_CATEGORY_LABEL[part.powerCategory] || null;
+    const netId = power && power[1] != null ? ` · network ${power[1]}` : "";
+    const sections = (diag.hostedActiveSectionIds || []).join(", ") || "None";
+    const cableHeat = `${formatHeatAmount(diag.powerCableHeatRate || 0)} H/s`;
+    dom.shipDamageHover.textContent = `${name} — ${mw(requested)} requested / ${mw(allocated)} allocated · ${pct}% · ${supplyWord}${category ? ` · ${category}` : ""}${netId} · hosted sections ${sections} · cable Heat ${cableHeat}`;
+    return;
+  }
+  // No direct Power demand or generation.
+  const hosted = (diag?.hostedActiveSectionIds || []);
+  const hostedText = hosted.length ? ` · hosts Power sections ${hosted.join(", ")}` : "";
+  dom.shipDamageHover.textContent = `${name} — No direct Power demand or generation.${hostedText}`;
+}
+
+// Selected/hovered Power-section readout with a plain-language interpretation.
+function renderPowerSectionReadout(ship, sectionId) {
+  if (!dom.shipDamageHover) return;
+  const view = powerSectionsView(ship).find((s) => s.id === sectionId);
+  if (!view) { dom.shipDamageHover.textContent = "No Power section selected."; return; }
+  const runtime = view.runtime;
+  const hosts = (view.hosts || []).map((i) => (ship.design?.[i] ? partDisplayName(ship.design[i].type) : `#${i}`)).join(", ") || "None";
+  const tierName = WIRING_INFRASTRUCTURE?.powerTiers?.[view.tier]?.inspectionLabel || view.tier;
+  const kindLabel = view.kind === "switchgear" ? "Switchgear internal edge" : "cable";
+  if (view.operational === false) {
+    dom.shipDamageHover.textContent = `${view.id} (${tierName} ${kindLabel}) — Disabled because a host component is destroyed. Hosts: ${hosts}.`;
+    return;
+  }
+  if (!runtime) {
+    dom.shipDamageHover.textContent = `${view.id} (${tierName} ${kindLabel}) — No live flow on this section. Hosts: ${hosts}.`;
+    return;
+  }
+  const flow = Number(runtime.absoluteFlowMw) || 0;
+  const sustained = Number(runtime.sustainedCapacityMw) || 0;
+  const peak = Number(runtime.peakCapacityMw) || 0;
+  const sustainedUtil = Math.round((Number(runtime.sustainedUtilisation) || 0) * 100);
+  const peakUtil = Math.round((Number(runtime.peakUtilisation) || 0) * 100);
+  const stress = Math.round((Number(runtime.stress) || 0) * 100);
+  const secondsAbove = Number(runtime.secondsAboveSustained) || 0;
+  const isMostStressed = mostStressedRuntimeId(ship) === view.id && stress > 0;
+  // Plain-language interpretation, reusing the shared clarity rule when loaded.
+  const clarity = globalThis.WiringClarityRules;
+  let sentences;
+  if (clarity && typeof clarity.sectionInterpretation === "function") {
+    sentences = clarity.sectionInterpretation({
+      flow: { absoluteFlowMw: flow, sustainedCapacityMw: sustained, peakCapacityMw: peak, aboveSustained: runtime.state === "overloaded" || runtime.state === "critical" || runtime.state === "at-peak", atPeak: runtime.state === "at-peak" },
+      disabled: false, isBottleneck: isMostStressed, hasAlternateRoute: undefined
+    });
+  } else {
+    sentences = [flow <= 0 ? "No live flow on this section." : runtime.state === "at-peak" ? "At peak: further demand will be shed." : runtime.state === "overloaded" || runtime.state === "critical" ? "Above sustained: producing additional cable Heat and overload stress." : sustained > 0 && flow >= sustained * 0.75 ? "Near continuous capacity." : "Comfortably below sustained capacity."];
+  }
+  const heat = `${formatHeatAmount(cableHeatForSection(ship, view.id))} H/s`;
+  const secondsText = secondsAbove > 0 ? ` · ${formatHeatAmount(secondsAbove)}s above sustained` : "";
+  const stressedText = isMostStressed ? " · most-stressed section" : "";
+  dom.shipDamageHover.textContent = `${view.id} (${tierName}) — ${mw(flow)} · ${mw(sustained)}/${mw(peak)} · ${sustainedUtil}% sustained, ${peakUtil}% peak · stress ${stress}%${secondsText} · Heat ${heat} · ${POWER_SECTION_STATE_LABEL[runtime.state] || "Working"} · network ${safeText(runtime.networkId, "—")} · hosts ${hosts}${stressedText} — ${sentences.join(" ")}`;
+}
+
+// Cable Heat contribution for a section is read from the authoritative
+// powerThermal component records (which the server built via
+// PowerCableThermalRules); never recomputed here.
+function cableHeatForSection(ship, sectionId) {
+  let total = 0;
+  for (const comp of ship.powerThermal?.components || []) {
+    if ((comp.hostedActiveSectionIds || []).includes(sectionId)) total += Number(comp.powerCableHeatRate) || 0;
+  }
+  return total;
 }
 
 function renderHeatSummary(ship) {
@@ -113,7 +312,6 @@ function renderHeatSummary(ship) {
   const hot = Number(ship.hot) || 0;
   const overheated = Number(ship.overheated) || 0;
   const pt = ship.powerThermal || {};
-  const pp = ship.powerProtection || {};
   const heatState = overheated > 0 ? "Overheating" : hot > 0 ? "Heating" : "Stable";
   const hottest = Number.isInteger(pt.hottestComponentIndex) && ship.design?.[pt.hottestComponentIndex]
     ? `${partDisplayName(ship.design[pt.hottestComponentIndex].type)} #${pt.hottestComponentIndex}`
@@ -124,30 +322,17 @@ function renderHeatSummary(ship) {
     const trend = componentHeatTrend(i);
     if (trend.direction === "warming" && (!fastestHeat || trend.smoothedRate > fastestHeat.rate)) fastestHeat = { index: i, rate: trend.smoothedRate, name: partDisplayName(part.type) };
   });
+  // Thermal condition only. Power-specific breakdowns live in the Power tab.
+  // The total / net Heat rate remains here because it is the authoritative
+  // whole-ship thermal total (it legitimately includes cable Heat).
   summary.innerHTML = `
     <div><span title="Aggregate stored heat across the whole ship — individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
     <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
     <div><span>Component Heat rate</span><strong>${formatHeatAmount(pt.componentHeatRate || 0)} H/s</strong></div>
-    <div><span>Power cable Heat rate</span><strong>${formatHeatAmount(pt.powerCableHeatRate || 0)} H/s</strong></div>
-    <div><span>Total / net Heat rate</span><strong>${formatHeatAmount(pt.totalHeatRate || 0)} / ${formatHeatAmount(pt.netHeatRate || 0)} H/s</strong></div>
+    <div><span title="Whole-ship total; includes cable Heat because it is the authoritative thermal total">Total / net Heat rate</span><strong>${formatHeatAmount(pt.totalHeatRate || 0)} / ${formatHeatAmount(pt.netHeatRate || 0)} H/s</strong></div>
     <div><span>Cooling</span><strong>${formatHeatAmount(pt.cooling || 0)} H/s</strong></div>
     <div><span>Heat state</span><strong>${heatState}</strong></div>
     <div><span>Hottest component</span><strong>${hottest}</strong></div>
-    <div><span>Hottest cable</span><strong>${pt.hottestSectionId || "None"}</strong></div>
-    <div><span>Overloaded / peak cables</span><strong>${pt.aboveSustainedSectionCount || 0} / ${pt.atPeakSectionCount || 0}</strong></div>
-    <div><span>Throttled / disabled</span><strong>${pt.throttledComponentCount || 0} / ${pt.disabledComponentCount || 0}</strong></div>
-    <div><span>Power gen / requested</span><strong>${formatHeatAmount(pt.powerGenerationMw || 0)} / ${formatHeatAmount(pt.requestedDemandMw || 0)} MW</strong></div>
-    <div><span>Power delivered</span><strong>${formatHeatAmount(pt.deliveredDemandMw || 0)} MW</strong></div>
-    <div><span>Power spare / unmet</span><strong>${formatHeatAmount(pt.sparePowerMw || 0)} / ${formatHeatAmount(pt.unmetDemandMw || 0)} MW</strong></div>
-    <div><span>Priority preset</span><strong>${pt.activePriorityPreset || "Default"}</strong></div>
-    <div><span title="Runtime Power overload protection state derived from the authoritative allocation">Power protection</span><strong>${protectionStateLabel(pp.state || "normal")}</strong></div>
-    <div><span>Sections above sustained / at peak</span><strong>${pp.aboveSustainedSectionCount || 0} / ${pp.atPeakSectionCount || 0}</strong></div>
-    <div><span>Critical-stress sections</span><strong>${pp.criticalSectionCount || 0}</strong></div>
-    <div><span>Most stressed section</span><strong>${mostStressedSectionText(pp)}</strong></div>
-    <div><span>Tripped Switchgear</span><strong>${pp.trippedSwitchgearCount || 0}</strong></div>
-    <div><span>Next retry</span><strong>${(pp.trippedSwitchgearCount || 0) > 0 ? `${formatHeatAmount(pp.nextRetrySeconds || 0)}s` : "None"}</strong></div>
-    <div><span>Partial / shed consumers</span><strong>${pp.partialConsumerCount || 0} / ${pp.shedConsumerCount || 0}</strong></div>
-    <div><span>Switchgear</span><strong>${switchgearSummaryText(ship)}</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
     <div><span>Overheated</span><strong>${overheated}</strong></div>
     ${fastestHeat ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestHeat.index}"><span>Fastest heating</span><strong>${fastestHeat.name} ${formatHeatRate(fastestHeat.rate)}</strong></button>` : ""}`;
@@ -196,11 +381,23 @@ function activeComponentIndex(ship) {
 }
 
 function readoutPlaceholder() {
+  if (state.shipStatusView === "power") return "Hover or tap a component or cable";
   return state.shipStatusView === "heat" ? "Tap or hover a component" : "Hover a component";
 }
 
 function clearComponentReadout() {
   if (dom.shipDamageHover) dom.shipDamageHover.textContent = readoutPlaceholder();
+}
+
+// Active Power-tab section id: a transient section hover wins over a persistent
+// section selection. Only meaningful in the Power view.
+function activePowerSectionId(ship) {
+  if (!diagramInteraction || diagramInteraction.shipId !== ship.id) return null;
+  const valid = (id) => id && powerSectionsView(ship).some((s) => s.id === id);
+  if (valid(diagramInteraction.sectionHoverId)) return diagramInteraction.sectionHoverId;
+  if (diagramInteraction.hoverIndex !== undefined) return null; // a component is being hovered instead
+  if (valid(diagramInteraction.sectionSelectedId)) return diagramInteraction.sectionSelectedId;
+  return null;
 }
 
 // Renders the heat readout for one component from the latest ship snapshot:
@@ -229,18 +426,9 @@ function renderComponentHeatReadout(ship, index) {
   const trendText = trend.direction === "warming" ? ` — Warming ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "cooling" ? ` — Cooling ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "stable" ? " — Stable" : "";
-  const powerDiag = ship.powerThermal?.components?.[index];
-  const powerText = powerDiag
-    ? ` · Power ${formatHeatAmount(powerDiag.requestedMw)} / ${formatHeatAmount(powerDiag.allocatedMw)} MW · Cable Heat ${formatHeatAmount(powerDiag.powerCableHeatRate)} H/s · Sections ${(powerDiag.hostedActiveSectionIds || []).join(", ") || "None"}`
-    : "";
-  // Section 7G wiring-section inspection: per-hosted-section runtime overload
-  // protection (id, tier, flow vs sustained/peak, utilisation, stress,
-  // seconds above sustained, protection state).
-  const hostedIds = powerDiag?.hostedActiveSectionIds || [];
-  const protectionText = hostedIds.length
-    ? ` · Protection ${hostedIds.map((sectionId) => sectionProtectionText(ship, sectionId)).join("; ")}`
-    : "";
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}${powerText}${protectionText}`;
+  // Thermal-only: Power requested/allocated, cable Heat and hosted-section
+  // protection detail now live in the Power tab, not this Heat readout.
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}`;
 }
 
 function renderComponentDamageReadout(ship, index) {
@@ -261,6 +449,7 @@ function renderComponentDamageReadout(ship, index) {
 // value from an older snapshot can never remain on screen.
 function refreshComponentReadout(ship) {
   if (!dom.shipDamageHover) return;
+  if (state.shipStatusView === "power") { refreshPowerReadout(ship); return; }
   const index = ship ? activeComponentIndex(ship) : undefined;
   if (!ship || index === undefined) {
     clearComponentReadout();
@@ -270,10 +459,57 @@ function refreshComponentReadout(ship) {
   else renderComponentDamageReadout(ship, index);
 }
 
+// Power view: a section under the pointer wins; otherwise a component; a
+// persistent selection (section or component) shows when nothing is hovered.
+function refreshPowerReadout(ship) {
+  if (!ship) { clearComponentReadout(); return; }
+  const sectionId = activePowerSectionId(ship);
+  const index = activeComponentIndex(ship);
+  if (diagramInteraction?.shipId === ship.id && diagramInteraction.sectionHoverId && sectionId) { renderPowerSectionReadout(ship, sectionId); return; }
+  if (index !== undefined) { renderComponentPowerReadout(ship, index); return; }
+  if (sectionId) { renderPowerSectionReadout(ship, sectionId); return; }
+  clearComponentReadout();
+}
+
 function clearDiagramSelection() {
   if (!diagramInteraction) return;
   diagramInteraction.componentIndex = undefined;
   diagramInteraction.hoverIndex = undefined;
+  diagramInteraction.sectionSelectedId = undefined;
+  diagramInteraction.sectionHoverId = undefined;
+}
+
+// Distance from point (px,py) to the segment (ax,ay)-(bx,by), in screen px.
+function pointSegmentDistance(px, py, ax, ay, bx, by) {
+  const dx = bx - ax; const dy = by - ay;
+  const lengthSq = dx * dx + dy * dy;
+  let t = lengthSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lengthSq : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx; const cy = ay + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+// Closest Power section to a canvas point, within a hit threshold. Only used in
+// the Power view; returns null when no cable is close enough (so the pointer
+// falls through to component hit-testing).
+function sectionAtCanvasPoint(canvasX, canvasY) {
+  const sectionsScreen = diagramInteraction?.sectionsScreen;
+  if (!Array.isArray(sectionsScreen) || !sectionsScreen.length) return null;
+  const threshold = Math.max(6, (diagramInteraction.cellSize || 12) * 0.32);
+  let bestId = null; let bestDist = threshold;
+  for (const seg of sectionsScreen) {
+    const dist = pointSegmentDistance(canvasX, canvasY, seg.ax, seg.ay, seg.bx, seg.by);
+    if (dist < bestDist) { bestDist = dist; bestId = seg.id; }
+  }
+  return bestId;
+}
+function canvasPointFromEvent(event) {
+  const canvas = event.currentTarget;
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * (canvas.width / rect.width),
+    y: (event.clientY - rect.top) * (canvas.height / rect.height)
+  };
 }
 
 function bindOnce() {
@@ -290,6 +526,7 @@ function bindOnce() {
   }
   dom.shipDamageTab?.addEventListener("click", () => { switchStatusView("damage"); });
   dom.shipHeatTab?.addEventListener("click", () => { switchStatusView("heat"); });
+  dom.shipPowerTab?.addEventListener("click", () => { switchStatusView("power"); });
 }
 
 function switchStatusView(view) {
@@ -319,6 +556,19 @@ function handleDiagramPointerMove(event) {
   // Touch/pen select via deliberate taps in pointerdown; a moving finger
   // should not drag the hover readout around.
   if (event.pointerType && event.pointerType !== "mouse") return;
+  // Power view: a cable close to the pointer wins over the component under it,
+  // so both cables and components stay inspectable.
+  if (state.shipStatusView === "power") {
+    const point = canvasPointFromEvent(event);
+    const sectionId = sectionAtCanvasPoint(point.x, point.y);
+    const index = sectionId ? undefined : diagramIndexAt(event);
+    const changed = diagramInteraction.sectionHoverId !== sectionId || diagramInteraction.hoverIndex !== index;
+    diagramInteraction.sectionHoverId = sectionId || undefined;
+    diagramInteraction.hoverIndex = index;
+    refreshComponentReadout(ship);
+    if (changed) drawDiagram(ship);
+    return;
+  }
   const index = diagramIndexAt(event);
   const changed = diagramInteraction.hoverIndex !== index;
   diagramInteraction.hoverIndex = index;
@@ -333,6 +583,23 @@ function handleDiagramPointerDown(event) {
   // battlefield movement/selection handlers.
   event.preventDefault?.();
   event.stopPropagation?.();
+  // Power view: prefer a cable section tap; otherwise select a component. A
+  // section tap never issues a gameplay command (events are stopped above).
+  if (state.shipStatusView === "power") {
+    const point = canvasPointFromEvent(event);
+    const sectionId = sectionAtCanvasPoint(point.x, point.y);
+    if (sectionId) {
+      diagramInteraction.sectionSelectedId = sectionId;
+      diagramInteraction.componentIndex = undefined;
+    } else {
+      diagramInteraction.componentIndex = diagramIndexAt(event);
+      diagramInteraction.sectionSelectedId = undefined;
+    }
+    if (event.pointerType && event.pointerType !== "mouse") { diagramInteraction.hoverIndex = undefined; diagramInteraction.sectionHoverId = undefined; }
+    refreshComponentReadout(ship);
+    drawDiagram(ship);
+    return;
+  }
   const index = diagramIndexAt(event);
   // Tapping a component selects it persistently; tapping outside clears.
   diagramInteraction.componentIndex = index;
@@ -342,7 +609,7 @@ function handleDiagramPointerDown(event) {
 }
 
 function handleDiagramPointerLeave() {
-  if (diagramInteraction) diagramInteraction.hoverIndex = undefined;
+  if (diagramInteraction) { diagramInteraction.hoverIndex = undefined; diagramInteraction.sectionHoverId = undefined; }
   const ship = selectedSingleShip();
   if (ship && diagramInteraction && diagramInteraction.shipId === ship.id) {
     refreshComponentReadout(ship);
@@ -540,7 +807,12 @@ function drawDiagram(ship) {
   const hoverIndex = sameShip && validComponentIndex(ship, diagramInteraction.hoverIndex)
     ? diagramInteraction.hoverIndex
     : undefined;
-  diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, cellMap, cellsByIndex, cellSize, originX, originY, bounds: geometry.bounds };
+  // Preserve Power-view section hover/selection across snapshot redraws, but
+  // only while the same ship and the same section still exist.
+  const sectionExists = (id) => id && powerSectionsView(ship).some((s) => s.id === id);
+  const sectionSelectedId = sameShip && sectionExists(diagramInteraction.sectionSelectedId) ? diagramInteraction.sectionSelectedId : undefined;
+  const sectionHoverId = sameShip && sectionExists(diagramInteraction.sectionHoverId) ? diagramInteraction.sectionHoverId : undefined;
+  diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, sectionSelectedId, sectionHoverId, cellMap, cellsByIndex, cellSize, originX, originY, bounds: geometry.bounds, sectionsScreen: [] };
 
   const player = state.snapshot?.players?.find((candidate) => candidate.id === ship.ownerId);
   const trim = player?.color || "#8fd8ff";
@@ -571,7 +843,7 @@ function drawDiagram(ship) {
       }
       drawCtx.translate(place.cx, place.cy);
       drawCtx.rotate(place.longAxisAngle);
-      if (state.shipStatusView !== "heat") {
+      if (state.shipStatusView === "damage") {
         drawModuleDamage(drawCtx, ratio, halfLong, halfCross, now);
         drawModuleFlash(drawCtx, componentFlash(ship.id, i, now), halfLong, halfCross);
       }
@@ -588,10 +860,14 @@ function drawDiagram(ship) {
     drawCtx.restore();
   });
 
+  // Power view: draw the live Power-wiring overlay (all installed sections)
+  // beneath the component highlight and record section geometry for hit-testing.
+  if (state.shipStatusView === "power") drawPowerWiringOverlay(ship, drawCtx, cellSize, originX, originY);
+
   // Screen-space overlays: hp bars, core marker, hover highlight.
   ship.design.forEach((part, i) => {
     const rect = componentScreenRect(cellsByIndex[i], cellSize, originX, originY);
-    if (state.shipStatusView !== "heat" && part.type === "core") {
+    if (state.shipStatusView === "damage" && part.type === "core") {
       drawCtx.strokeStyle = "#8fd8ff";
       drawCtx.lineWidth = Math.max(1.5, cellSize * 0.1);
       drawCtx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
@@ -633,7 +909,7 @@ function drawDiagram(ship) {
           drawCtx.fillStyle = warming ? "#ffd17a" : "#9befff"; drawCtx.fillText(label, px + 4, ty + 3);
         }
       }
-    } else if (state.shipStatusView !== "heat" && ratio !== null && ratio > 0 && ratio < 0.999) {
+    } else if (state.shipStatusView === "damage" && ratio !== null && ratio > 0 && ratio < 0.999) {
       const barH = Math.max(2, cellSize * 0.14);
       const y = rect.y + rect.h - barH - 1;
       drawCtx.fillStyle = "rgba(3, 8, 15, 0.85)";
@@ -650,6 +926,56 @@ function drawDiagram(ship) {
     drawCtx.lineWidth = 1.5;
     drawCtx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
   }
+}
+
+// Maps a design-grid cell (cx,cy) to the diagram's screen-space centre — the
+// same mapping componentScreenRect uses, so wire lines align with component art.
+function cellCenterScreen(cx, cy, cellSize, originX, originY) {
+  return { x: originX + (cx - SHIP_DAMAGE_GRID_CENTER) * cellSize, y: originY + (cy - SHIP_DAMAGE_GRID_CENTER) * cellSize };
+}
+
+// Draws every installed Power section with its tier thickness and status
+// styling, then records screen geometry so pointer hit-testing can select a
+// section. Disabled/non-conducting sections render dashed; the selected and
+// hovered sections get a strong highlight. Colour is a secondary cue only.
+function drawPowerWiringOverlay(ship, drawCtx, cellSize, originX, originY) {
+  const sections = powerSectionsView(ship);
+  const geom = [];
+  const selectedId = diagramInteraction?.sectionSelectedId;
+  const hoverId = diagramInteraction?.sectionHoverId;
+  for (const section of sections) {
+    const a = cellCenterScreen(section.x1, section.y1, cellSize, originX, originY);
+    const b = cellCenterScreen(section.x2, section.y2, cellSize, originX, originY);
+    geom.push({ id: section.id, ax: a.x, ay: a.y, bx: b.x, by: b.y });
+    const style = sectionStatusStyle(section);
+    const width = tierStrokeWidth(section.tier, cellSize);
+    const selected = section.id === selectedId;
+    const hovered = section.id === hoverId;
+    // Dark backing line for contrast against component art.
+    drawCtx.lineCap = "round";
+    drawCtx.strokeStyle = "rgba(3, 8, 15, 0.85)";
+    drawCtx.lineWidth = width + 2.5;
+    drawCtx.setLineDash([]);
+    drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
+    // Selection / hover highlight ring underneath the tier line.
+    if (selected || hovered) {
+      drawCtx.strokeStyle = selected ? "#ffffff" : "rgba(255,255,255,0.6)";
+      drawCtx.lineWidth = width + (selected ? 5 : 3.5);
+      drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
+    }
+    drawCtx.strokeStyle = style.color;
+    drawCtx.lineWidth = width;
+    drawCtx.setLineDash(style.dashed ? [Math.max(3, cellSize * 0.22), Math.max(3, cellSize * 0.18)] : []);
+    drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
+    // At-peak marker (a filled dot) as a non-colour cue at the midpoint.
+    if (style.key === "at-peak") {
+      drawCtx.setLineDash([]);
+      drawCtx.fillStyle = style.color;
+      drawCtx.beginPath(); drawCtx.arc((a.x + b.x) / 2, (a.y + b.y) / 2, Math.max(2, cellSize * 0.1), 0, Math.PI * 2); drawCtx.fill();
+    }
+  }
+  drawCtx.setLineDash([]);
+  if (diagramInteraction) diagramInteraction.sectionsScreen = geom;
 }
 
 function renderCoreStatus(ship) {
@@ -699,15 +1025,22 @@ export function renderShipDamagePanel() {
   if (!panel) return;
   bindOnce();
 
-  const heatView = state.shipStatusView === "heat";
-  dom.shipDamageTab?.classList.toggle("active", !heatView);
+  const view = state.shipStatusView === "heat" || state.shipStatusView === "power" ? state.shipStatusView : "damage";
+  const damageView = view === "damage";
+  const heatView = view === "heat";
+  const powerView = view === "power";
+  dom.shipDamageTab?.classList.toggle("active", damageView);
   dom.shipHeatTab?.classList.toggle("active", heatView);
-  dom.shipDamageTab?.setAttribute("aria-selected", String(!heatView));
+  dom.shipPowerTab?.classList.toggle("active", powerView);
+  dom.shipDamageTab?.setAttribute("aria-selected", String(damageView));
   dom.shipHeatTab?.setAttribute("aria-selected", String(heatView));
-  if (dom.damageLegend) dom.damageLegend.hidden = heatView;
+  dom.shipPowerTab?.setAttribute("aria-selected", String(powerView));
+  if (dom.damageLegend) dom.damageLegend.hidden = !damageView;
   if (dom.heatLegend) dom.heatLegend.hidden = !heatView;
-  if (dom.damageFeed) dom.damageFeed.hidden = heatView;
+  if (dom.powerLegend) dom.powerLegend.hidden = !powerView;
+  if (dom.damageFeed) dom.damageFeed.hidden = !damageView;
   if (dom.shipHeatSummary) dom.shipHeatSummary.hidden = !heatView;
+  if (dom.shipPowerSummary) dom.shipPowerSummary.hidden = !powerView;
 
   const ship = selectedSingleShip();
   if (!ship) {
@@ -715,6 +1048,7 @@ export function renderShipDamagePanel() {
     diagramInteraction = null;
     clearComponentReadout();
     if (dom.shipHeatSummary) dom.shipHeatSummary.hidden = true;
+    if (dom.shipPowerSummary) dom.shipPowerSummary.hidden = true;
     return;
   }
   panel.hidden = false;
@@ -725,6 +1059,9 @@ export function renderShipDamagePanel() {
   refreshComponentReadout(ship);
   if (heatView) {
     renderHeatSummary(ship);
+    if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
+  } else if (powerView) {
+    renderPowerSummary(ship);
     if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
   } else {
     renderCoreStatus(ship);

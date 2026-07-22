@@ -1090,6 +1090,26 @@ h2 {
 }
 .ship-heat-summary .heat-trend-jump span { display:block; color:#8ea3c2; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
 .ship-heat-summary .heat-trend-jump strong { display:block; color:#e6f3ff; font-size:11px; font-weight:900; }
+
+/* Combat Power tab: grouped supply/distribution/protection summary. */
+.ship-power-summary { margin:6px 0; display:grid; gap:8px; }
+.ship-power-summary[hidden] { display:none; }
+.ship-power-summary .ship-power-empty { color:#c8d7ee; font-size:11px; padding:8px; border:1px solid rgba(103,217,255,.16); border-radius:6px; background:rgba(8,15,27,.72); }
+.power-summary-group { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px; }
+.power-summary-group h4 { grid-column:1 / -1; margin:0; color:#ffd27a; font-size:10px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+.power-summary-group div { border:1px solid rgba(103, 217, 255, .16); border-radius:6px; background:rgba(8, 15, 27, .72); padding:5px 6px; }
+.power-summary-group .power-summary-wide { grid-column:1 / -1; }
+.power-summary-group span { display:block; color:#8ea3c2; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.power-summary-group strong { display:block; margin-top:2px; color:#e6f3ff; font-size:11px; font-weight:900; word-break:break-word; }
+.power-legend .legend-line { display:inline-block; width:16px; height:0; border-top-style:solid; vertical-align:middle; margin-right:2px; }
+.power-legend .legend-tier-light { border-top-width:2px; border-top-color:#9fb4d6; }
+.power-legend .legend-tier-standard { border-top-width:3px; border-top-color:#9fb4d6; }
+.power-legend .legend-tier-heavy { border-top-width:5px; border-top-color:#9fb4d6; }
+.power-legend .legend-disabled { border-top-width:2px; border-top-style:dashed; border-top-color:#7c8aac; }
+.legend-working { background:#6fd3a0; }
+.legend-near-sustained { background:#ffd27a; }
+.legend-above-sustained { background:#ff9a3c; }
+.legend-at-peak { background:#ff3b3b; }
 @media (prefers-reduced-motion: reduce) { #shipDamageCanvas { scroll-behavior:auto; } }
 :root { --interface-scale: 1; }
 .side-panel, .score-panel, .menu-panel, .top-hud, .purchase-bar { font-size: calc(1rem * var(--interface-scale)); }
