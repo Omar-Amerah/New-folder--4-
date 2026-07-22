@@ -206,10 +206,10 @@ function buildRuntimePowerThermalSnapshot(ship) {
   const powerSummary = ship.powerFlow?.summary || {};
   const cable = ship.powerCableThermalAnalysis || {};
   const cableSummary = cable.summary || {};
-  const componentHeatRate = (ship.componentHeatGenerated || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
-  const powerCableHeatGenerated = (ship.componentPowerCableHeatGenerated || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
-  const cooling = (ship.componentHeatCooled || []).reduce((sum, value) => sum + (Number(value) || 0), 0)
-    + (ship.componentHeatRadiated || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const elapsed = Math.max(Number(ship.lastHeatTickDelta) || 0, Number.EPSILON);
+  const componentHeatRate = (ship.componentHeatGenerated || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
+  const cooling = (ship.componentHeatCooled || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
+  const powerCableHeatRate = Number(ship.powerCableHeatRate) || 0;
   const components = (ship.design || []).map((_, i) => ({
     componentIndex: i,
     requestedMw: Number(ship.componentPower?.byComponentIndex?.[i]?.requestedMw) || 0,
@@ -221,10 +221,10 @@ function buildRuntimePowerThermalSnapshot(ship) {
   }));
   return {
     componentHeatRate,
-    powerCableHeatRate: Number(ship.powerCableHeatRate) || 0,
-    totalHeatRate: componentHeatRate + (Number(ship.powerCableHeatRate) || 0),
+    powerCableHeatRate,
+    totalHeatRate: componentHeatRate + powerCableHeatRate,
     cooling,
-    netHeatRate: componentHeatRate + powerCableHeatGenerated - cooling,
+    netHeatRate: componentHeatRate + powerCableHeatRate - cooling,
     hottestComponentIndex: (ship.componentHeat || []).reduce((best, value, i) => (Number(value) || 0) > (Number(ship.componentHeat?.[best]) || 0) ? i : best, 0),
     aboveSustainedSectionCount: Number(powerSummary.aboveSustainedSections) || 0,
     atPeakSectionCount: Number(powerSummary.atPeakSections) || 0,
