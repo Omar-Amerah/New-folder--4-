@@ -137,6 +137,34 @@ s = fairTwoReceiverShip('swapped'); initializeComponentPower(s);
 assert.deepStrictEqual(switchDecisionsByKey(s), firstDecision, 'swapping Switchgear component indices preserves physical tie decisions');
 assert.deepStrictEqual(physicalAllocations(s), firstAlloc, 'correctly remapped reordered design preserves physical allocations');
 
+
+function manualClosedBaselineShip() {
+  const design = [
+    { x:0,y:0,type:'reactor' },
+    { x:3,y:0,type:'engine' },
+    { x:0,y:3,type:'shield' },
+    { x:3,y:3,type:'shield' },
+    { x:1,y:0,type:'switchgear',rotation:0,switchgearMode:'closed',switchgearRatingTier:'standard' },
+    { x:0,y:1,type:'switchgear',rotation:90,switchgearMode:'automatic',switchgearRatingTier:'standard' },
+    { x:3,y:1,type:'switchgear',rotation:90,switchgearMode:'automatic',switchgearRatingTier:'standard' }
+  ];
+  const wiring = { version:3, power:{ sections:[
+    {id:'source-manual-a',x1:0,y1:0,x2:1,y2:0,tier:'standard'},
+    {id:'manual-donor-b',x1:2,y1:0,x2:3,y2:0,tier:'standard'},
+    {id:'source-auto-a',x1:0,y1:0,x2:0,y2:1,tier:'standard'},
+    {id:'auto-a-shield',x1:0,y1:2,x2:0,y2:3,tier:'standard'},
+    {id:'donor-auto-b',x1:3,y1:0,x2:3,y2:1,tier:'standard'},
+    {id:'auto-b-shield',x1:3,y1:2,x2:3,y2:3,tier:'standard'}
+  ], connections:[] }, data:{ sections:[], connections:[] }, powerPolicy: { preset:'custom', customOrder:['shields','propulsion','command','pointDefence','weapons','coolingSupport'] } };
+  const snap = createShipBlueprintSnapshot(design, wiring);
+  return { design:snap.design, wiring:snap.wiring, componentHp: snap.design.map(()=>1), alive:true, stats:{}, _activityDemandByIndex: { 1: 10, 2: 4, 3: 4 } };
+}
+s = manualClosedBaselineShip(); initializeComponentPower(s);
+const manualAlloc = physicalAllocations(s);
+assert.strictEqual(manualAlloc['3,0'], 10, 'manual Closed tie baseline keeps donor-side allocation intact');
+assert.deepStrictEqual(s.runtimeSwitchgear.filter(r => r.mode === 'automatic').map(r => r.automaticClosed), [false, false], 'automatic ties do not claim manual-Closed baseline gains or sacrifice donor allocation');
+assert(s.runtimeSwitchgear.filter(r => r.mode === 'automatic').every(r => /no jointly valid|open/.test(r.decisionReason)), 'manual-Closed regression gives safe-open automatic reasons');
+
 function chainShip() {
   const design = [
     { x:0,y:0,type:'reactor' },

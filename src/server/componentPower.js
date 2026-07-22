@@ -329,7 +329,7 @@ function enumerateSubsets(records, maxSubsets) {
   }
   return subsets;
 }
-function decideAutomaticSwitchgear(baseInput, baseRecords, openResult) {
+function decideAutomaticSwitchgear(baseInput, baseRecords, baselineResult) {
   const manualClosed = new Set(baseRecords.filter((r) => r.mode === "closed" && r.state === "closed").map((r) => r.componentIndex));
   const selected = new Set(manualClosed);
   const auto = baseRecords.filter(r => r.mode === "automatic" && r.state === "automatic");
@@ -344,7 +344,7 @@ function decideAutomaticSwitchgear(baseInput, baseRecords, openResult) {
       const candidateClosed = new Set([...manualClosed, ...subset]);
       const result = solveSwitchgearCandidate(baseInput, baseRecords, candidateClosed);
       if (!finiteFlowResult(result)) continue;
-      const score = candidateScore(openResult, result, subset, recordsByIndex);
+      const score = candidateScore(baselineResult, result, subset, recordsByIndex);
       if (compareScores(score, best) > 0) { best = score; bestSubset = subset; }
     }
     if (!bestSubset) { for (const record of group) record.decisionReason = "open: no jointly valid priority-safe subset"; continue; }
@@ -357,9 +357,10 @@ function decideAutomaticSwitchgear(baseInput, baseRecords, openResult) {
 }
 function solveWithSwitchgear(ship, baseInput) {
   const baseRecords = liveSwitchgearRecords(ship, new Set());
-  const openResult = PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: [] });
-  classifySwitchgearRecords(baseRecords, openResult, baseInput.wiring);
-  const conducting = decideAutomaticSwitchgear(baseInput, baseRecords, openResult);
+  const manualClosed = new Set(baseRecords.filter((r) => r.mode === "closed" && r.state === "closed").map((r) => r.componentIndex));
+  const baselineResult = solveSwitchgearCandidate(baseInput, baseRecords, manualClosed);
+  classifySwitchgearRecords(baseRecords, baselineResult, baseInput.wiring);
+  const conducting = decideAutomaticSwitchgear(baseInput, baseRecords, baselineResult);
   for (const r of baseRecords) if (r.mode === "closed" && r.state === "closed") conducting.add(r.componentIndex);
   const records = liveSwitchgearRecords(ship, conducting);
   for (const r of records) {
