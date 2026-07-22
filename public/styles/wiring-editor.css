@@ -330,7 +330,36 @@
 .wiring-preview-line { color: #d7e4f5; }
 .wiring-preview-warning { color: #ffb0a0; margin-top: 0.15rem; }
 .wiring-preview-reason { color: #ffd7a0; }
+
+/* Wiring cost/benefit clarity — presentation only. Text stays readable
+   without relying on colour: every status/warning is spelled out in words. */
+.wiring-tool-summary { display: grid; gap: 0.15rem 0; margin-top: 0.35rem; padding: 0.4rem 0.55rem; border-radius: 0.4rem;
+  background: rgba(16, 26, 42, 0.62); border: 1px solid rgba(120, 160, 220, 0.28); font-size: 0.8rem; color: #d7e4f5; }
+.wiring-tool-summary[hidden] { display: none; }
+.wiring-tool-summary strong { color: #ffd27a; }
+.wiring-tool-summary-hint { color: #a9e3c0; }
+.wiring-tool-summary-warning { color: #ffc96f; }
+.wiring-tier-cards summary { cursor: pointer; font-weight: 600; color: #d7e4f5; }
+.wiring-tier-card-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.4rem; margin-top: 0.4rem; }
+.wiring-tier-card { padding: 0.4rem 0.5rem; border-radius: 0.4rem; background: rgba(10, 18, 32, 0.7);
+  border: 1px solid rgba(120, 160, 220, 0.24); font-size: 0.76rem; line-height: 1.35; }
+.wiring-tier-card h5 { margin: 0 0 0.2rem; color: #ffd27a; font-size: 0.82rem; }
+.wiring-preview-comparison { margin-top: 0.3rem; padding-top: 0.3rem; border-top: 1px solid rgba(120, 160, 220, 0.2); }
+.wiring-preview-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; margin: 0.2rem 0; }
+.wiring-preview-compare-grid > div { display: grid; gap: 0.1rem 0; }
+.wiring-preview-compare-grid strong { color: #ffd27a; }
+[data-comparison-verdict] strong { color: #a9e3c0; }
+.wiring-section-interpretation { color: #a9e3c0; font-style: italic; }
+.wiring-observation-positive { color: #a9e3c0; }
+.wiring-observation-warning { color: #ffc96f; }
+.wiring-guidance, .cost-breakdown-guidance { color: #9db4d6; font-size: 0.76rem; line-height: 1.35; margin-top: 0.25rem; }
+.architecture-comparison { display: grid; gap: 0.35rem; }
+.architecture-note { font-size: 0.78rem; line-height: 1.35; }
+.architecture-note strong { color: #ffd27a; }
+.architecture-facts { margin: 0.2rem 0 0; padding-left: 1.1rem; font-size: 0.76rem; color: #9db4d6; }
+
 @media (max-width: 720px) {
   .wiring-preview-panel { max-width: 100%; }
   .wiring-tool-row, .wiring-tier-row { overflow-x: auto; }
+  .wiring-preview-compare-grid { grid-template-columns: 1fr; }
 }

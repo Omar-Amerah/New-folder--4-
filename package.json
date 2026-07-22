@@ -164,7 +164,9 @@
     "test:power-overload-browser": "npm run build && node verify-power-overload-ui-browser.js",
     "test:power-infrastructure": "node verify-power-infrastructure-reference.js && node verify-power-infrastructure-balance.js && node verify-power-infrastructure-resilience.js",
     "test:power-infrastructure-browser": "npm run build && node verify-power-infrastructure-ui-browser.js",
-    "balance:power-infrastructure": "node tools/report-power-infrastructure-balance.js"
+    "balance:power-infrastructure": "node tools/report-power-infrastructure-balance.js",
+    "test:wiring-cost-benefit": "node verify-wiring-cost-benefit-clarity.js",
+    "test:wiring-cost-benefit-browser": "npm run build && node verify-wiring-cost-benefit-ui-browser.js"
   },
   "keywords": [
     "browser-game",

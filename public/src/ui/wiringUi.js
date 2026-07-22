@@ -23,6 +23,8 @@ let suppressNextClick = false;
 function rules() { return globalThis.WiringRules; }
 function editRules() { return globalThis.WiringEditRules; }
 function infraRules() { return globalThis.WiringInfrastructureRules; }
+function clarityRules() { return globalThis.WiringClarityRules; }
+function cableThermalRules() { return globalThis.PowerCableThermalRules; }
 function ui() { return state.wiringUi; }
 const POWER_TIERS = Object.freeze(["light", "standard", "heavy"]);
 function currentTool() { return ui().wiringTool || "draw"; }
@@ -355,8 +357,74 @@ const TOOL_HINTS = Object.freeze({
   erase: "Click a Power or Data section to remove it. Unrelated cable and Data wiring are preserved.",
   inspect: "Click a section to read its cable rating, hosts and net design impact. No changes are made."
 });
+
+// ---------------------------------------------------------------------------
+// Wiring cost/benefit clarity. All displayed capacity, cost, displacement and
+// Heat values come from the authoritative balance (WIRING_INFRASTRUCTURE) and
+// shared solver/accounting results; WiringClarityRules only holds guidance
+// prose and comparison logic. Rendered once — the values never change while
+// the designer is open.
+// ---------------------------------------------------------------------------
+let staticClarityRendered = false;
+function renderStaticClarity() {
+  const clarity = clarityRules();
+  if (staticClarityRendered || !clarity) return;
+  staticClarityRendered = true;
+  const cards = clarity.tierCards(WIRING_INFRASTRUCTURE);
+  if (dom.wiringTierCardList) {
+    dom.wiringTierCardList.innerHTML = cards.map((card) => `
+      <article class="wiring-tier-card" data-tier-card="${escapeHtml(card.key)}">
+        <h5>${escapeHtml(card.label)}</h5>
+        ${card.kind === "power"
+          ? `<div class="wiring-summary-line">Capacity: <strong>${card.sustainedMw} MW sustained / ${card.peakMw} MW peak</strong></div>`
+          : `<div class="wiring-summary-line">Carries Data only — no capacity, Heat or overload mechanics.</div>`}
+        <div class="wiring-summary-line">Cost: <strong>$${card.costPerCell}</strong> per unique cell · Displacement: <strong>${card.displacementPerCell}</strong> Heat capacity per cell</div>
+        <div class="wiring-summary-line">Heat: ${escapeHtml(card.heatNote)}</div>
+        <div class="wiring-summary-line">Best for: ${escapeHtml(card.bestFor)}</div>
+        <div class="wiring-summary-line">Benefit: ${escapeHtml(card.benefit)}</div>
+        <div class="wiring-summary-line">Downside: ${escapeHtml(card.downside)}</div>
+      </article>`).join("");
+  }
+  // Tier-button detail text and reference capacities read the same authority.
+  document.querySelectorAll("[data-tier-detail]").forEach((element) => {
+    const card = cards.find((item) => item.key === element.dataset.tierDetail);
+    if (card) element.textContent = `${element.textContent.split(" · ")[0]} · ${card.sustainedMw} / ${card.peakMw} MW`;
+  });
+  document.querySelectorAll("[data-tier-capacity]").forEach((element) => {
+    const card = cards.find((item) => item.key === element.dataset.tierCapacity);
+    if (card) element.textContent = `${card.sustainedMw} MW sustained / ${card.peakMw} MW peak`;
+  });
+  if (dom.architectureComparison) {
+    const notes = clarity.ARCHITECTURE_NOTES.map((note) => `
+      <div class="architecture-note" data-architecture="${escapeHtml(note.key)}">
+        <strong>${escapeHtml(note.label)}.</strong>
+        Benefits: ${escapeHtml(note.benefits)}
+        Downsides: ${escapeHtml(note.downsides)}
+      </div>`).join("");
+    const facts = `<ul class="architecture-facts">${clarity.ARCHITECTURE_FACTS.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}</ul>`;
+    dom.architectureComparison.insertAdjacentHTML("beforeend", notes + facts);
+  }
+}
+
+function renderToolSummary() {
+  const host = dom.wiringToolSummary;
+  const clarity = clarityRules();
+  if (!host) return;
+  if (!clarity) { host.hidden = true; return; }
+  const summary = clarity.toolSummary(WIRING_INFRASTRUCTURE, ui().mode, selectedTier());
+  host.hidden = false;
+  host.innerHTML = `
+    <strong data-tool-summary-title>${escapeHtml(summary.title)}</strong>
+    <span data-tool-summary-capacity>${escapeHtml(summary.capacityText)}</span>
+    <span data-tool-summary-cost>${escapeHtml(summary.costText)} · ${escapeHtml(summary.displacementText)}</span>
+    <span class="wiring-tool-summary-hint" data-tool-summary-recommendation>${escapeHtml(summary.recommendation)}</span>
+    <span class="wiring-tool-summary-warning" data-tool-summary-warning>${escapeHtml(summary.warning)}</span>`;
+}
 function refreshToolbar() {
   const power = ui().mode === "power";
+  renderStaticClarity();
+  renderToolSummary();
+  if (dom.wiringTierCards) dom.wiringTierCards.hidden = false;
   dom.wiringModePower?.classList.toggle("active", power); dom.wiringModePower?.setAttribute("aria-pressed", String(power));
   dom.wiringModeData?.classList.toggle("active", !power); dom.wiringModeData?.setAttribute("aria-pressed", String(!power));
   dom.wiringToolbar?.querySelectorAll("[data-wiring-tool]").forEach((button) => {
@@ -395,7 +463,7 @@ function movePowerPriority(category, direction) { const pr = policyRules(); if (
 // The designer prediction uses the authoritative shared solver (never a UI-only
 // calculation), with all components intact and nominal source generation so the
 // preview reflects the saved Blueprint policy over the current wiring.
-function designerPowerFlow() {
+function designerPowerFlowFor(wiring) {
   const PF = globalThis.PowerFlowRules; if (!PF) return null;
   const design = Array.isArray(state.design) ? state.design : [];
   const sourceGenerationByIndex = {};
@@ -404,8 +472,70 @@ function designerPowerFlow() {
     if (gen > 0 || rules().isPowerSourceType(module?.type)) sourceGenerationByIndex[index] = gen;
   });
   try {
-    return PF.solvePowerFlow({ design, wiring: state.wiring, catalogue: PART_STATS, infrastructure: WIRING_INFRASTRUCTURE, sourceGenerationByIndex, componentOperationalByIndex: design.map(() => true) });
+    return PF.solvePowerFlow({ design, wiring, catalogue: PART_STATS, infrastructure: WIRING_INFRASTRUCTURE, sourceGenerationByIndex, componentOperationalByIndex: design.map(() => true) });
   } catch (_) { return null; }
+}
+function designerPowerFlow() { return designerPowerFlowFor(state.wiring); }
+
+// Section flows keyed by id for one wiring value (authoritative solver only).
+function sectionFlowsById(wiring) {
+  const flow = designerPowerFlowFor(wiring);
+  const map = new Map();
+  if (flow && Array.isArray(flow.sectionFlows)) for (const f of flow.sectionFlows) map.set(f.sectionId, f);
+  return map;
+}
+// Sections belonging to the same physical Power network as sectionId within
+// an arbitrary wiring value (shared analysis; nothing is mutated).
+function routeSectionsFor(wiring, sectionId) {
+  try {
+    const analysis = rules().analyzeWiring(state.design, wiring, PART_STATS);
+    return rules().networkForSection(analysis, "power", sectionId)?.sections || [];
+  } catch (_) { return []; }
+}
+// Total cable-Heat rate of one solved section (both hosted endpoint cells)
+// through the authoritative PowerCableThermalRules formula.
+function sectionHeatRate(flowRecord, tier) {
+  const thermal = cableThermalRules();
+  const config = WIRING_INFRASTRUCTURE?.powerTiers?.[tier];
+  if (!thermal || !config || !flowRecord) return null;
+  try { return thermal.cableHeatRateForSection(flowRecord, config) * 2; } catch (_) { return null; }
+}
+
+// Enrich a cached edit preview with clarity data (computed once per hover
+// signature — includes one authoritative solve of the proposed wiring).
+function attachPreviewClarity(preview, kind, sectionId) {
+  const clarity = clarityRules();
+  if (!clarity || !preview || !preview.valid || ui().mode !== "power") return preview;
+  if (kind === "draw") {
+    const proposedFlows = preview.proposedWiring ? sectionFlowsById(preview.proposedWiring) : new Map();
+    const currentIds = new Set(bucket("power").sections.map((s) => s.id));
+    let predicted = null;
+    for (const [id, flow] of proposedFlows) {
+      if (currentIds.has(id)) continue;
+      const abs = Number(flow.absoluteFlowMw) || 0;
+      if (predicted === null || abs > predicted) predicted = abs;
+    }
+    preview.clarity = { kind, predictedRouteLoadMw: predicted };
+  } else if (kind === "tier" && sectionId) {
+    const fromTier = bucket("power").sections.find((s) => s.id === sectionId)?.tier || "standard";
+    const toTier = selectedTier();
+    const currentSectionFlow = sectionFlowsById(state.wiring).get(sectionId) || null;
+    const proposedSectionFlow = preview.proposedWiring ? sectionFlowsById(preview.proposedWiring).get(sectionId) || null : null;
+    const routeSections = preview.proposedWiring ? routeSectionsFor(preview.proposedWiring, sectionId) : [];
+    const toRank = clarity.POWER_TIER_ORDER.indexOf(toTier);
+    const weakerTierRemainsOnRoute = routeSections.some((s) => s.id !== sectionId && clarity.POWER_TIER_ORDER.indexOf(s.tier) < toRank);
+    preview.clarity = {
+      kind,
+      comparison: clarity.tierChangeComparison({
+        infrastructure: WIRING_INFRASTRUCTURE,
+        fromTier, toTier, preview,
+        currentSectionFlow, proposedSectionFlow, weakerTierRemainsOnRoute,
+        currentCableHeatRate: sectionHeatRate(currentSectionFlow, fromTier),
+        proposedCableHeatRate: sectionHeatRate(proposedSectionFlow, toTier)
+      })
+    };
+  }
+  return preview;
 }
 
 function mwText(value) { return `${Math.round((Number(value) || 0) * 100) / 100} MW`; }
@@ -478,7 +608,16 @@ function renderPreviewPanel() {
     panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(transientReason))}</div>`;
     return;
   }
-  if (!preview) { panel.hidden = true; panel.innerHTML = ""; return; }
+  if (!preview) {
+    // Clear guidance instead of an empty panel while a comparison tool is
+    // active but nothing is hovered or drawn yet.
+    if (isPowerTierTool() && clarityRules()) {
+      panel.hidden = false;
+      panel.innerHTML = `<div class="wiring-preview-line" data-preview-empty-state>${escapeHtml(clarityRules().EMPTY_STATES.noSelection)}</div>`;
+      return;
+    }
+    panel.hidden = true; panel.innerHTML = ""; return;
+  }
   if (!preview.valid) {
     panel.hidden = false;
     panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(preview.reason))}</div>`;
@@ -488,6 +627,7 @@ function renderPreviewPanel() {
   const costLine = `Cost: ${signedMoney(preview.delta.totalInfrastructure)}`;
   const rows = [];
   const tool = currentTool();
+  const clarity = clarityRules();
   if (tool === "tier" && preview.affectedSectionIds) {
     const section = bucket("power").sections.find((s) => s.id === preview.affectedSectionIds[0]);
     rows.push(`<div class="wiring-preview-head">${escapeHtml(tierLabel(section?.tier))} → ${escapeHtml(tierLabel(selectedTier()))}</div>`);
@@ -498,6 +638,43 @@ function renderPreviewPanel() {
   }
   rows.push(`<div class="wiring-preview-line">${escapeHtml(costLine)}</div>`);
   rows.push(`<div class="wiring-preview-line">${escapeHtml(capacityLine)}</div>`);
+  // Clarity: cell reuse, tier changes, capacity and predicted-load context
+  // from the authoritative edit preview and solver.
+  if (clarity && preview.clarity?.kind === "draw" && ui().sourceIndex != null) {
+    const uniquePathCells = new Set(ui().path.map((cell) => `${cell.x},${cell.y}`)).size;
+    const summary = clarity.describeDrawPreview({
+      preview, infrastructure: WIRING_INFRASTRUCTURE, mode: ui().mode, tier: selectedTier(),
+      pathCellCount: uniquePathCells, predictedRouteLoadMw: preview.clarity.predictedRouteLoadMw
+    });
+    for (const lineText of summary.lines) rows.push(`<div class="wiring-preview-line" data-preview-clarity>${escapeHtml(lineText)}</div>`);
+    for (const warning of summary.warnings) rows.push(`<div class="wiring-preview-warning" data-preview-clarity>⚠ ${escapeHtml(warning)}</div>`);
+  }
+  if (clarity && preview.clarity?.comparison) {
+    const comparison = preview.clarity.comparison;
+    const counts = clarity.cellChangeCounts(preview);
+    const utilText = (value) => value === null ? "no load estimate" : `${Math.round(value * 100)}% of sustained`;
+    const heatText = (value) => value === null ? "Heat estimate unavailable for an incomplete route." : `${value} H/s cable Heat`;
+    rows.push(`<div class="wiring-preview-comparison" data-tier-comparison>
+      <div class="wiring-preview-line">Cells upgraded: ${counts.upgraded} · downgraded: ${counts.downgraded}</div>
+      <div class="wiring-preview-compare-grid">
+        <div data-comparison-current><strong>Current — ${escapeHtml(comparison.current.label)}</strong>
+          <span>${comparison.current.sustainedMw} / ${comparison.current.peakMw} MW</span>
+          <span>$${comparison.current.costPerCell} · ${comparison.current.displacementPerCell} displacement per cell</span>
+          <span>${escapeHtml(utilText(comparison.current.utilisation))}</span>
+          <span>${escapeHtml(heatText(comparison.current.cableHeatRate))}</span>
+        </div>
+        <div data-comparison-proposed><strong>Proposed — ${escapeHtml(comparison.proposed.label)}</strong>
+          <span>${comparison.proposed.sustainedMw} / ${comparison.proposed.peakMw} MW (${escapeHtml(clarity.signedText(comparison.delta.sustainedMw))} / ${escapeHtml(clarity.signedText(comparison.delta.peakMw))})</span>
+          <span>$${comparison.proposed.costPerCell} · ${comparison.proposed.displacementPerCell} displacement per cell</span>
+          <span>${escapeHtml(utilText(comparison.proposed.utilisation))}</span>
+          <span>${escapeHtml(heatText(comparison.proposed.cableHeatRate))}</span>
+        </div>
+      </div>
+      <div class="wiring-preview-line" data-comparison-benefit>Benefit: ${escapeHtml(comparison.benefit)}</div>
+      <div class="wiring-preview-line" data-comparison-drawback>Drawback: ${escapeHtml(comparison.drawback)}</div>
+      <div class="wiring-preview-line" data-comparison-verdict><strong>${escapeHtml(comparison.verdict)}</strong></div>
+    </div>`);
+  }
   const warnings = previewWarnings(preview);
   for (const warning of warnings) rows.push(`<div class="wiring-preview-warning">⚠ ${escapeHtml(warning)}</div>`);
   panel.hidden = false;
@@ -527,12 +704,12 @@ function hoverPreview() {
   if (ui().sourceIndex != null && ui().path.length > 1) {
     const cells = ui().path.map((cell) => ({ x: cell.x, y: cell.y }));
     const signature = editRules().previewSignature(["draw", ui().mode, selectedTier(), cells]);
-    return cachedPreview(signature, () => editRules().previewPowerPathEdit(state.design, state.wiring, ui().mode, cells, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()));
+    return cachedPreview(signature, () => attachPreviewClarity(editRules().previewPowerPathEdit(state.design, state.wiring, ui().mode, cells, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()), "draw", null));
   }
   if (!id) return null;
   if (isPowerTierTool()) {
     const signature = editRules().previewSignature(["tier", id, selectedTier(), state.wiring.power.sections.length]);
-    return cachedPreview(signature, () => editRules().previewPowerTierEdit(state.design, state.wiring, id, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()));
+    return cachedPreview(signature, () => attachPreviewClarity(editRules().previewPowerTierEdit(state.design, state.wiring, id, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()), "tier", id));
   }
   if (tool === "erase") {
     const signature = editRules().previewSignature(["erase", ui().mode, id, state.wiring.power.sections.length, state.wiring.data.sections.length]);
@@ -678,7 +855,16 @@ function renderDataInspectionPanel(panel, section) {
   }
   if (network) body += `<section class="wiring-summary-section" data-data-inspector="network"><h4>${escapeHtml(network.label)}</h4><div class="wiring-summary-line">Sources: ${buttons(network.sourceIndices, "network-source")}</div><div class="wiring-summary-line">Weapons: ${buttons(network.weaponIndices, "network-weapon")}</div></section>`;
   if (selectedHost) body += `<section class="wiring-summary-section" data-data-inspector="host-vulnerability"><h4>${escapeHtml(moduleLabel(selectedHost.componentIndex))}</h4><div class="wiring-summary-line">Hosts Data cable sections. Failure impact: <strong>${escapeHtml(selectedHost.severity)}</strong></div><div class="wiring-summary-line">Topology changes: ${selectedHost.topologyChanged ? "yes" : "no"} · ${escapeHtml(selectedHost.summary)}</div><div class="wiring-summary-line">Lost support: ${escapeHtml(lossesHtml(selectedHost))}</div><div class="wiring-summary-line">Redundancy: ${selectedHost.severity === "redundant" ? "redundant route preserves connectivity" : "single point of failure for listed support"}</div></section>`;
-  if (section) { const hit = vuln.find(v => v.kind === "section" && v.id === section.id); body += `<section class="wiring-summary-section" data-data-inspector="section-vulnerability"><h4>Selected Data section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(hit?.severity || "ordinary")}</div><div class="wiring-summary-line">${escapeHtml(hit?.summary || "No predicted support loss.")}</div><div class="wiring-summary-line">Lost support: ${escapeHtml(lossesHtml(hit))}</div></section>`; }
+  if (section) {
+    const hit = vuln.find(v => v.kind === "section" && v.id === section.id);
+    // Data-section clarity: authoritative per-cell cost/displacement only —
+    // Data has no Power capacity, Heat or overload rows by design.
+    const dataConfig = WIRING_INFRASTRUCTURE?.data || {};
+    const cellCost = (Number(dataConfig.costPerHostedCell) || 0) * 2;
+    const cellDisplacement = (Number(dataConfig.heatCapacityDisplacement) || 0) * 2;
+    const dataClarity = clarityRules() ? `<div class="wiring-summary-line" data-data-section-cost>Selected cells: $${cellCost} cost · ${cellDisplacement} Heat-capacity displacement</div><div class="wiring-summary-line" data-data-section-note>${escapeHtml(clarityRules().EMPTY_STATES.dataNoPower)} No capacity, Heat or overload mechanics.</div>` : "";
+    body += `<section class="wiring-summary-section" data-data-inspector="section-vulnerability"><h4>Selected Data section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(hit?.severity || "ordinary")}</div>${dataClarity}<div class="wiring-summary-line">${escapeHtml(hit?.summary || "No predicted support loss.")}</div><div class="wiring-summary-line">Lost support: ${escapeHtml(lossesHtml(hit))}</div></section>`;
+  }
   if (!source && !weapon && !section) body += `<section class="wiring-summary-section" data-data-inspector="overview"><h4>Networks</h4>${analysis.networks.map(n => `<button type="button" aria-selected="${network?.id === n.id}" data-wiring-action="select-network" data-network-id="${escapeHtml(n.id)}">${escapeHtml(n.label)} · ${n.sourceIndices.length} sources · ${n.weaponIndices.length} weapons${n.sourceIndices.length ? "" : " · no source"}</button>`).join(" ") || "<div class=\"wiring-summary-line\">No Data networks yet.</div>"}</section>`;
   const warnings = [...analysis.networks.filter(n => !n.sourceIndices.length && n.weaponIndices.length).map(n => `${n.label} has weapons but no support source.`), ...analysis.sources.filter(s => s.predictedPowerMultiplier <= 0 && s.networkId).map(s => `${partName(s.sourceType)} is connected to Data but has no Power.`), ...analysis.sources.filter(s => s.predictedThermalMultiplier < 1).map(s => `${partName(s.sourceType)} is predicted thermally reduced in ${analysis.scenarioLabel}.`)];
   body += warnings.length ? `<section class="wiring-summary-section"><h4>Warnings</h4>${warnings.slice(0, 5).map(w => `<div class="wiring-summary-line">⚠ ${escapeHtml(w)}</div>`).join("")}</section>` : "";
@@ -705,12 +891,129 @@ function powerSectionInspectionHtml(section) {
     const preview = editRules().previewWiringSectionRemoval(state.design, state.wiring, "power", section.id, PART_STATS, WIRING_INFRASTRUCTURE, previewOptions());
     if (preview.valid) impact = `<div class="wiring-summary-line">Net impact of removing this section:</div><div class="wiring-summary-line">Cost: ${signedMoney(preview.delta.totalInfrastructure)} · Heat capacity: ${signed(preview.delta.actualHeatCapacity)}</div>`;
   } catch (_) { impact = ""; }
+  // Clarity: solved flow, utilisation, cell cost/displacement, cable Heat,
+  // design-time protection state, bottleneck/alternate-route context and a
+  // plain-language interpretation — all from authoritative shared rules.
+  let clarityHtml = "";
+  const clarity = clarityRules();
+  if (clarity) {
+    const flow = sectionFlowsById(state.wiring).get(section.id) || null;
+    const routeSections = network?.sections || [];
+    const hasAlternateRoute = routeSections.length ? clarity.sectionHasAlternateRoute(routeSections, section.id) : false;
+    const minSustained = routeSections.length ? Math.min(...routeSections.map((s) => Number(WIRING_INFRASTRUCTURE?.powerTiers?.[s.tier]?.sustainedCapacityMw) || 0)) : 0;
+    const isWeakest = routeSections.length > 1 && (Number(tier.sustainedCapacityMw) || 0) <= minSustained;
+    const isBottleneck = Boolean(flow && (flow.aboveSustained || flow.atPeak)) || (isWeakest && Boolean(flow && Number(flow.absoluteFlowMw) > 0));
+    // Cost/displacement actually represented by this section's two hosted
+    // cells at their installed (highest incident) tier.
+    let cellCost = 0; let cellDisplacement = 0;
+    for (const cell of rules().sectionCells(section)) {
+      const installed = acc.maps.power.byCellKey.get(rules().cellKey(cell.x, cell.y))?.tier || section.tier;
+      const config = WIRING_INFRASTRUCTURE?.powerTiers?.[installed] || {};
+      cellCost += Number(config.costPerHostedCell) || 0;
+      cellDisplacement += Number(config.heatCapacityDisplacement) || 0;
+    }
+    const heatRate = sectionHeatRate(flow, section.tier);
+    const protection = globalThis.PowerProtectionRules;
+    const protectionState = flow && protection
+      ? protection.protectionStateFor({ operational: true, absoluteFlowMw: flow.absoluteFlowMw, sustainedCapacityMw: flow.sustainedCapacityMw, peakCapacityMw: flow.peakCapacityMw, stress: 0 }, undefined)
+      : "normal";
+    const interpretation = clarity.sectionInterpretation({ flow, disabled: false, isBottleneck, hasAlternateRoute });
+    const flowRows = flow
+      ? `<div class="wiring-summary-line" data-section-flow>Predicted flow: ${Math.round((Number(flow.absoluteFlowMw) || 0) * 100) / 100} MW · ${Math.round((Number(flow.sustainedUtilisation) || 0) * 100)}% of sustained · ${Math.round((Number(flow.peakUtilisation) || 0) * 100)}% of peak (current estimate)</div>
+         <div class="wiring-summary-line" data-section-heat>${heatRate === null ? escapeHtml(clarity.EMPTY_STATES.incompleteRoute) : `Cable Heat contribution: ${Math.round(heatRate * 1000) / 1000} H/s under this activity`}</div>
+         <div class="wiring-summary-line" data-section-protection>Protection state: ${escapeHtml(protectionState)} · Overload stress: none before deployment (accumulates in battle above sustained)</div>`
+      : `<div class="wiring-summary-line" data-section-flow>${escapeHtml(clarity.EMPTY_STATES.noPowerPath)}</div>`;
+    clarityHtml = `
+    ${flowRows}
+    <div class="wiring-summary-line" data-section-cell-cost>Selected cells: $${cellCost} installed cost · ${cellDisplacement} Heat-capacity displacement</div>
+    <div class="wiring-summary-line" data-section-route>${isBottleneck ? "Bottleneck: yes" : "Bottleneck: no"} · ${hasAlternateRoute ? "Alternate route: yes" : escapeHtml(clarity.EMPTY_STATES.noAlternateRoute)}</div>
+    <div class="wiring-summary-line wiring-section-interpretation" data-section-interpretation>${interpretation.map(escapeHtml).join(" ")}</div>`;
+  }
   return `<div class="wiring-summary-section" data-wiring-inspection="power-section"><h4>${escapeHtml(tierLabel(section.tier))}</h4>
     <div class="wiring-summary-line">Cable rating: ${Number(tier.sustainedCapacityMw) || 0} MW sustained / ${Number(tier.peakCapacityMw) || 0} MW peak</div>
     <div class="wiring-summary-line">Section (${section.x1},${section.y1}) ↔ (${section.x2},${section.y2})</div>
     <div class="wiring-summary-line">Hosts: ${endpointHtml}</div>
     <div class="wiring-summary-line">${network ? `Physical network: ${escapeHtml(network.label)}` : "Not part of a sourced network"}</div>
+    ${clarityHtml}
     ${impact}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Blueprint infrastructure summary and benefits/downsides observations.
+// Values come from shared accounting/solver analysis; guidance is advisory
+// (a design outside the conventional range is never marked invalid).
+// ---------------------------------------------------------------------------
+function infrastructureSummaryHtml() {
+  if (!infraRules()) return "";
+  const acc = infraRules().accountInfrastructure(state.design, state.wiring, PART_STATS, WIRING_INFRASTRUCTURE);
+  const switchgearParts = (state.design || []).filter((module) => module.type === "switchgear");
+  const switchgearCost = switchgearParts.length * (Number(PART_STATS.switchgear?.cost) || 0);
+  const preCost = preInfrastructureShipCost();
+  const presentation = infraRules().infrastructureCostPresentation(preCost, acc.power.cost, acc.data.cost);
+  const analysis = currentAnalysis();
+  const pct = Math.round(presentation.infrastructurePercentage * 1000) / 10;
+  return `<section class="wiring-summary-section" data-wiring-panel="infrastructure-summary"><h4>Infrastructure</h4>
+    <div class="wiring-summary-line" data-infra-costs>Power wiring $${acc.power.cost} · Data wiring $${acc.data.cost} · Switchgear components $${switchgearCost}</div>
+    <div class="wiring-summary-line" data-infra-total>Total infrastructure $${presentation.totalInfrastructure} — ${pct}% of the $${presentation.totalShipCost} ship cost (Switchgear is priced with components)</div>
+    <div class="wiring-summary-line" data-infra-displacement>Displacement: Power ${acc.power.displacement} · Data ${acc.data.displacement} · total ${acc.power.displacement + acc.data.displacement} Heat capacity</div>
+    <div class="wiring-summary-line" data-infra-cells>Unique Power cells — Light ${acc.power.cellsByTier.light.length} · Standard ${acc.power.cellsByTier.standard.length} · Heavy ${acc.power.cellsByTier.heavy.length} · Data cells ${acc.data.uniqueHostedCellCount}</div>
+    <div class="wiring-summary-line" data-infra-networks>Switchgear ${switchgearParts.length} · Power networks ${analysis.power.networks.length} · Data networks ${analysis.data.networks.length}</div>
+    <div class="wiring-summary-line wiring-guidance" data-infra-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy. Higher can be justified by Heavy trunks, ring routes or Switchgear protection.</div>
+  </section>`;
+}
+
+function switchgearObservationInputs() {
+  return (state.design || []).map((module, index) => {
+    if (module.type !== "switchgear") return null;
+    const sg = globalThis.SwitchgearRules;
+    if (!sg) return null;
+    const terminals = sg.terminalCells(module);
+    const adjacentTiers = [];
+    for (const section of bucket("power").sections) {
+      for (const cell of [terminals.A, terminals.B]) {
+        if ((section.x1 === cell.x && section.y1 === cell.y) || (section.x2 === cell.x && section.y2 === cell.y)) adjacentTiers.push(section.tier);
+      }
+    }
+    return { index, mode: sg.normalizeMode(module.switchgearMode), ratingTier: sg.normalizeRatingTier(module.switchgearRatingTier), adjacentTiers };
+  }).filter(Boolean);
+}
+
+function blueprintObservationsHtml() {
+  const clarity = clarityRules();
+  if (!clarity || !infraRules()) return "";
+  const flow = designerPowerFlow();
+  const analysis = currentAnalysis();
+  const acc = infraRules().accountInfrastructure(state.design, state.wiring, PART_STATS, WIRING_INFRASTRUCTURE);
+  const presentation = infraRules().infrastructureCostPresentation(preInfrastructureShipCost(), acc.power.cost, acc.data.cost);
+  const sectionTierById = {};
+  for (const section of bucket("power").sections) sectionTierById[section.id] = section.tier;
+  const powerNetworks = (analysis.power.networks || []).map((network) => ({
+    consumerCount: (network.consumerIndices || []).length,
+    alternatePaths: clarity.alternatePathCount(network.sections || [])
+  }));
+  const dataNetworks = (analysis.data.networks || []).map((network) => ({
+    sectionCount: (network.sections || []).length,
+    alternatePaths: clarity.alternatePathCount(network.sections || [])
+  }));
+  const powerCells = new Set(acc.maps.power.uniqueHostedCells);
+  const dataSeparate = acc.data.uniqueHostedCellCount > 0 && acc.maps.data.uniqueHostedCells.every((key) => !powerCells.has(key));
+  const observations = clarity.blueprintObservations({
+    infrastructure: WIRING_INFRASTRUCTURE,
+    sectionFlows: flow?.sectionFlows || [],
+    flowSummary: flow?.summary || {},
+    sectionTierById,
+    powerNetworks,
+    dataNetworks,
+    switchgear: switchgearObservationInputs(),
+    alternatePaths: clarity.alternatePathCount(bucket("power").sections),
+    infrastructurePercentage: presentation.infrastructurePercentage,
+    dataSeparateFromPower: dataSeparate
+  });
+  if (!observations.positives.length && !observations.warnings.length) return "";
+  return `<section class="wiring-summary-section" data-wiring-panel="blueprint-observations"><h4>Benefits and downsides</h4>
+    ${observations.positives.map((text) => `<div class="wiring-summary-line wiring-observation-positive" data-observation="positive">✓ ${escapeHtml(text)}</div>`).join("")}
+    ${observations.warnings.map((text) => `<div class="wiring-summary-line wiring-observation-warning" data-observation="warning">⚠ ${escapeHtml(text)}</div>`).join("")}
+  </section>`;
 }
 
 function renderStatusPanel() {
@@ -721,7 +1024,11 @@ function renderStatusPanel() {
   const status = network ? (ui().mode === "power" ? network.status : network.sourceIndices.length ? "online" : "source-less") : null;
   if (ui().sourceIndex == null && ui().mode === "data" && renderDataInspectionPanel(panel, section)) return;
   const priorityPanel = ui().mode === "power" ? renderPowerPriorityPanel() : "";
+  const infrastructurePanel = ui().mode === "power" ? infrastructureSummaryHtml() : "";
+  const observationsPanel = ui().mode === "power" ? blueprintObservationsHtml() : "";
   panel.hidden = false; panel.tabIndex = -1; panel.innerHTML = `<h3>Physical ${escapeHtml(ui().mode)} wiring</h3>
+    ${infrastructurePanel}
+    ${observationsPanel}
     ${priorityPanel}
     <div class="wiring-summary-line">${current} unique cable sections${ui().path.length > 1 ? ` · +${additional} new in preview` : ""}${Number.isFinite(limit) ? ` · ${Math.max(0, limit - current - additional)} remaining` : ""}</div>
     ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}

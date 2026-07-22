@@ -2391,7 +2391,8 @@ function costBreakdownInnerMarkup(breakdown) {
     <div class="cost-breakdown-total">
       <div><span>Infrastructure share</span><strong>${percentText}</strong></div>
       <div><span>Total ship cost</span><strong>${formatMoney(breakdown.total)}</strong></div>
-    </div>` : ""}
+    </div>
+    <p class="cost-breakdown-guidance" data-infrastructure-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy; higher can be justified by Heavy trunks, ring routes or Switchgear protection.</p>` : ""}
   `;
 }
 
