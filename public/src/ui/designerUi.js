@@ -40,6 +40,11 @@ export { analyzeDesignHeat };
 
 const GRID_SIZE = 15;
 const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "Maximum Sustained Load" };
+const THERMAL_SCENARIO_EXPLANATIONS = {
+  idle: "systems mostly at standby",
+  combat: "expected mixed combat activity",
+  full: "all applicable systems requesting full output"
+};
 const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
@@ -403,6 +408,28 @@ function applyHeatPresentation(heatAnalysis) {
     const critical = !meltdown && !overheated && displayedHeat >= 76;
     const role = thermalRoleMarkup(part, prediction, heatAnalysis, index);
     const stateLabel = globalThis.HeatRules.STATE_LABELS[prediction.state] || "Cool";
+    const powerThermal = heatAnalysis.powerThermal;
+    const componentDiag = powerThermal?.components?.[index] || {};
+    const capacityDiag = heatAnalysis.heatDiagnostics?.[index] || {};
+    const sectionIds = new Set(componentDiag.hostedActiveSectionIds || []);
+    const sectionFlows = powerThermal?.cableSummary?.sectionFlows || [];
+    const hostedFlows = sectionFlows.filter(section => sectionIds.has(section.sectionId));
+    const flags = [];
+    if ((capacityDiag.powerDisplacement || capacityDiag.dataDisplacement || 0) > 0) flags.push("wiring displacement reducing Heat capacity");
+    if ((componentDiag.powerCableHeat || 0) > 0 || (prediction.powerCableHeat || 0) > 0) flags.push("hosted Power cable Heat");
+    if (hostedFlows.some(section => section.aboveSustained)) flags.push("above-sustained cable load");
+    if (hostedFlows.some(section => section.atPeak)) flags.push("cable at peak or capped");
+    if ((componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0)) flags.push("state worsened by cable Heat risk");
+    if ((componentDiag.operationalMultiplier ?? 1) < 1) flags.push((componentDiag.operationalMultiplier || 0) <= 0 ? "disabled component" : "throttled component");
+    const flagClass = [
+      (capacityDiag.powerDisplacement || capacityDiag.dataDisplacement || 0) > 0 ? "heat-flag-displacement" : "",
+      (componentDiag.powerCableHeat || 0) > 0 ? "heat-flag-cable-heat" : "",
+      hostedFlows.some(section => section.aboveSustained) ? "heat-flag-cable-overload" : "",
+      hostedFlows.some(section => section.atPeak) ? "heat-flag-cable-peak" : "",
+      (componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0) ? "heat-flag-cable-worsened" : "",
+      (componentDiag.operationalMultiplier ?? 1) < 1 ? "heat-flag-throttled" : ""
+    ].filter(Boolean).join(" ");
+    const flagMarkup = flags.length ? `<span class="heat-status-markers" aria-label="${escapeHtml(flags.join("; "))}">${flags.map((_, i) => `<i>${i + 1}</i>`).join("")}</span>` : "";
     const threeDigitHeat = displayedHeat >= 100;
     const heatBadge = `<span
       class="component-heat-value${threeDigitHeat
@@ -422,12 +449,13 @@ function applyHeatPresentation(heatAnalysis) {
       : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
     updates.push({
       cell,
-      heatClass,
-      markup: `${role}${heatBadge}${heatWarning}`,
+      heatClass: `${heatClass} ${flagClass}`,
+      markup: `${role}${heatBadge}${heatWarning}${flagMarkup}`,
       ariaLabel:
         `${PART_DEFS[part.type].name}. ` +
         `${stateLabel}. ` +
-        `${displayedHeat} percent heat capacity used.`
+        `${displayedHeat} percent heat capacity used.` +
+        (flags.length ? ` ${flags.join("; ")}.` : "")
     });
   }
   clearHeatPresentation();
@@ -439,6 +467,54 @@ function applyHeatPresentation(heatAnalysis) {
   }
   renderFullLoadThermalPanel(currentHeatAnalysis("full"), heatAnalysis);
   renderThermalHud(heatAnalysis);
+}
+
+function blueprintThermalStateLabel(result) {
+  const a = result?.analysis || {};
+  if ((a.overheatedCount || 0) > 0) return "Overheating";
+  if ((a.net || 0) > 0 && a.firstOverheatTime != null) return "Unstable";
+  if ((a.peakPredictedHeat || 0) >= 0.9) return "Near Capacity";
+  if ((a.net || 0) > 0.05) return "Heating";
+  return "Stable";
+}
+
+function fmtHeat(value) { return `${(Number(value) || 0).toFixed(1)} H/s`; }
+function fmtMw(value) { return `${(Number(value) || 0).toFixed(1)} MW`; }
+function fmtSeconds(value) { return value == null ? "Predicted equilibrium" : `${Number(value).toFixed(1)} s to overheat`; }
+
+function blueprintHeatSummaryMarkup(result) {
+  const a = result.analysis;
+  const power = result.powerThermal?.powerSummary || {};
+  const cable = result.powerThermal?.cableSummary || {};
+  const hottestComponent = a.firstOverheatIndex >= 0 ? a.firstOverheatIndex : state.design.reduce((best, part, i) => {
+    const p = result.predictions.get(part);
+    const b = result.predictions.get(state.design[best]);
+    return (p?.ratio || 0) > (b?.ratio || 0) ? i : best;
+  }, 0);
+  const throttled = (result.powerThermal?.components || []).filter(c => (c.operationalMultiplier ?? 1) < 1).length;
+  const disabled = (result.powerThermal?.components || []).filter(c => (c.operationalMultiplier ?? 1) <= 0).length;
+  const totalCapacity = (result.powerThermal?.components || []).reduce((sum, c) => sum + (Number(c.finalHeatCapacity) || 0), 0);
+  const row = (l, v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(String(v))}</strong>`;
+  return `<div class="heat-design-summary power-thermal-summary" aria-label="Blueprint Heat and Power summary">
+    <strong>${escapeHtml(THERMAL_SCENARIO_NAMES[a.mode] || a.mode)} — ${escapeHtml(THERMAL_SCENARIO_EXPLANATIONS[a.mode] || "")}</strong>
+    ${row("State", blueprintThermalStateLabel(result))}
+    ${row("Final total Heat capacity", `${Math.round(totalCapacity)} H`)}
+    ${row("Component Heat generation", fmtHeat(a.generation - (cable.totalPowerCableHeatPerSecond || 0)))}
+    ${row("Power cable Heat generation", fmtHeat(cable.totalPowerCableHeatPerSecond))}
+    ${row("Total Heat generation", fmtHeat(a.generation))}
+    ${row("Cooling", fmtHeat(a.cooling))}
+    ${row("Net Heat rate", `${a.net >= 0 ? "+" : ""}${fmtHeat(a.net)}`)}
+    ${row("Prediction", a.equilibriumTime != null ? `Equilibrium in ${a.equilibriumTime.toFixed(1)} s` : fmtSeconds(a.firstOverheatTime))}
+    ${row("Hottest component", describeThermalComponent(hottestComponent, state.design))}
+    ${row("Hottest cable section", cable.hottestSectionId || "None")}
+    ${row("Above-sustained cables", power.aboveSustainedSectionCount || 0)}
+    ${row("At-peak cables", power.atPeakSectionCount || 0)}
+    ${row("Throttled / disabled", `${throttled} / ${disabled}`)}
+    ${row("Power requested", fmtMw(power.requestedDemandMw))}
+    ${row("Power delivered", fmtMw(power.deliveredDemandMw))}
+    ${row("Power spare / unmet", `${fmtMw(power.spareGenerationMw)} / ${fmtMw(power.unmetDemandMw)}`)}
+    ${row("Priority preset", power.preset || "Default")}
+  </div>`;
 }
 
 function clearHeatFlowOverlay() {
@@ -1150,7 +1226,7 @@ export function renderLocalStats() {
   const statDiagnostics = buildStatDiagnostics(stats);
   const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
   dom.stats.innerHTML = [
-    state.blueprintView === "heat" ? `<div class="heat-design-summary"><strong>Thermal layout</strong><span>Likely hotspot: ${escapeHtml(heat.hotspot)}</span><span>Heat removal capacity: -${heat.coolingRate} H/s</span>${[heat.meltdownWarning, heat.routeWarning, heat.networkWarning, heat.severWarning].filter(warning => !/^(All|Thermal networks within|No single-frame|No reactor)/.test(warning)).map(warning => `<span class="heat-summary-warning">${escapeHtml(warning)}</span>`).join("")}</div>` : "",
+    state.blueprintView === "heat" ? blueprintHeatSummaryMarkup(heat) : "",
     statCard("fleet", "Fleet", stats.fleetCount),
     statCard("class", "Class", stats.massClass),
     statCard("hull", "Hull", formatHull(stats.maxHp)),
@@ -1211,6 +1287,8 @@ function renderHeatContextCard(result) {
   const part = state.design[index], prediction = result.predictions.get(part);
   if (!prediction) { clearHeatContextCard(); return; }
   const labels = globalThis.HeatRules.STATE_LABELS;
+  const powerDiag = result.powerThermal?.components?.[index] || {};
+  const capacityDiag = result.heatDiagnostics?.[index] || {};
   const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
   const row = (l, v, title = "", className = "") => `<span${title ? ` title="${escapeHtml(title)}"` : ""}${className ? ` class="${escapeHtml(className)}"` : ""}>${escapeHtml(l)}</span><strong${title ? ` title="${escapeHtml(title)}"` : ""}${className ? ` class="${escapeHtml(className)}"` : ""}>${escapeHtml(v)}</strong>`;
   const coolingLabel = part.type === "radiator" ? "Radiated to space" : "Passive cooling";
@@ -1246,8 +1324,24 @@ function renderHeatContextCard(result) {
   }
   dom.heatContextCard.hidden = false;
   dom.heatContextCard.className = "heat-context-card";
-  dom.heatContextCard.innerHTML = `<h4>${escapeHtml(PART_DEFS[part.type]?.name || part.type)}</h4><div class="heat-card-state">${escapeHtml(labels[prediction.state] || "Heat")} — ${Math.min(100, Math.round(prediction.ratio * 100))}% <small>${prediction.heat.toFixed(0)} / ${prediction.capacity} H</small></div><div class="heat-card-grid">
-    ${row("Generated", `+${prediction.generation.toFixed(1)} H/s`)}${row("Incoming transfer", `+${prediction.received.toFixed(1)} H/s`)}${row("Outgoing transfer", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(coolingLabel, `-${prediction.cooling.toFixed(1)} H/s`)}${exposureRows.join("")}${routeProblemRows.join("")}${row("Net heat change", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${heatEffectRows(part, prediction).join("")}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
+  dom.heatContextCard.innerHTML = `<h4>${escapeHtml(PART_DEFS[part.type]?.name || part.type)} #${index}</h4><div class="heat-card-state">${escapeHtml(labels[prediction.state] || "Heat")} — ${Math.min(100, Math.round(prediction.ratio * 100))}% <small>${prediction.heat.toFixed(0)} / ${prediction.capacity} H</small></div><div class="heat-card-grid">
+    ${row("Base Heat capacity", `${capacityDiag.baseHeatCapacity ?? prediction.capacity} H`)}
+    ${row("Capacity bonuses", `${Math.max(0, (capacityDiag.finalHeatCapacity ?? prediction.capacity) + (capacityDiag.powerDisplacement || 0) + (capacityDiag.dataDisplacement || 0) - (capacityDiag.baseHeatCapacity ?? prediction.capacity))} H`)}
+    ${row("Hosted Power cells", `L${capacityDiag.hostedLightCells || 0} / S${capacityDiag.hostedStandardCells || 0} / H${capacityDiag.hostedHeavyCells || 0}`)}
+    ${row("Hosted Data cells", capacityDiag.hostedDataCells || 0)}
+    ${row("Power/Data displacement", `${capacityDiag.powerDisplacement || 0} / ${capacityDiag.dataDisplacement || 0} H`)}
+    ${row("Final Heat capacity", `${powerDiag.finalHeatCapacity?.toFixed?.(0) || prediction.capacity} H`)}
+    ${row("Scenario activity", `${Math.round((powerDiag.scenarioActivity || 0) * 100)}%`)}
+    ${row("Requested / allocated Power", `${fmtMw(powerDiag.requestedMw)} / ${fmtMw(powerDiag.allocatedMw)}`)}
+    ${row("Operational multiplier", `${Math.round((powerDiag.operationalMultiplier ?? 1) * 100)}%`)}
+    ${row("Component activity Heat", `+${(powerDiag.componentActivityHeat || 0).toFixed(1)} H`)}
+    ${row("Hosted Power cable Heat", `+${(powerDiag.powerCableHeat || 0).toFixed(1)} H`)}
+    ${row("Total generated Heat", `+${(powerDiag.totalGeneratedHeat || 0).toFixed(1)} H`)}
+    ${row("Cooling", `-${(powerDiag.cooling ?? prediction.cooling).toFixed(1)} H/s`)}
+    ${row("Stored Heat", `${(powerDiag.finalStoredHeat ?? prediction.heat).toFixed(1)} H`)}
+    ${row("Final Heat state", labels[powerDiag.finalHeatState] || labels[prediction.state] || "Stable")}
+    ${row("Hosted active Power sections", (powerDiag.hostedActiveSectionIds || []).join(", ") || "None")}
+    ${row("Incoming transfer", `+${prediction.received.toFixed(1)} H/s`)}${row("Outgoing transfer", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(coolingLabel, `-${prediction.cooling.toFixed(1)} H/s`)}${exposureRows.join("")}${routeProblemRows.join("")}${row("Net heat change", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${heatEffectRows(part, prediction).join("")}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
   positionHeatContextCard(index);
 }
 
@@ -1384,7 +1478,7 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
     clearExteriorCoolingIndicators();
   }
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
-    cell.classList.remove("heat-related", "heat-unrelated");
+    cell.classList.remove("heat-related", "heat-unrelated", "heat-hosted-power-section");
   }
   dom.grid.classList.toggle("heat-inspecting", state.blueprintView === "heat" && validHeatIndex(state.hoveredHeatPartIndex));
   if (state.blueprintView !== "heat") { clearExteriorCoolingIndicators(); return; }
@@ -1399,6 +1493,7 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
     const index = part ? state.design.indexOf(part) : -1;
     cell.classList.toggle("heat-related", connected.has(index));
     cell.classList.toggle("heat-unrelated", connected.size > 0 && !connected.has(index));
+    cell.classList.toggle("heat-hosted-power-section", focus === index && (analysis.powerThermal?.components?.[index]?.hostedActiveSectionIds || []).length > 0);
   }
   renderHeatContextCard(analysis);
   if (!options.preserveOverlay) {

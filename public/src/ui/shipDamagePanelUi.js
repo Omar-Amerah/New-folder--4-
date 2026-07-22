@@ -66,6 +66,11 @@ function renderHeatSummary(ship) {
   const percentText = formatHeatPercent(shipHeatPercent(ship));
   const hot = Number(ship.hot) || 0;
   const overheated = Number(ship.overheated) || 0;
+  const pt = ship.powerThermal || {};
+  const heatState = overheated > 0 ? "Overheating" : hot > 0 ? "Heating" : "Stable";
+  const hottest = Number.isInteger(pt.hottestComponentIndex) && ship.design?.[pt.hottestComponentIndex]
+    ? `${partDisplayName(ship.design[pt.hottestComponentIndex].type)} #${pt.hottestComponentIndex}`
+    : "None";
   summary.hidden = false;
   let fastestHeat = null;
   ship.design?.forEach((part, i) => {
@@ -75,6 +80,19 @@ function renderHeatSummary(ship) {
   summary.innerHTML = `
     <div><span title="Aggregate stored heat across the whole ship — individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
     <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
+    <div><span>Component Heat rate</span><strong>${formatHeatAmount(pt.componentHeatRate || 0)} H/s</strong></div>
+    <div><span>Power cable Heat rate</span><strong>${formatHeatAmount(pt.powerCableHeatRate || 0)} H/s</strong></div>
+    <div><span>Total / net Heat rate</span><strong>${formatHeatAmount(pt.totalHeatRate || 0)} / ${formatHeatAmount(pt.netHeatRate || 0)} H/s</strong></div>
+    <div><span>Cooling</span><strong>${formatHeatAmount(pt.cooling || 0)} H/s</strong></div>
+    <div><span>Heat state</span><strong>${heatState}</strong></div>
+    <div><span>Hottest component</span><strong>${hottest}</strong></div>
+    <div><span>Hottest cable</span><strong>${pt.hottestSectionId || "None"}</strong></div>
+    <div><span>Overloaded / peak cables</span><strong>${pt.aboveSustainedSectionCount || 0} / ${pt.atPeakSectionCount || 0}</strong></div>
+    <div><span>Throttled / disabled</span><strong>${pt.throttledComponentCount || 0} / ${pt.disabledComponentCount || 0}</strong></div>
+    <div><span>Power gen / requested</span><strong>${formatHeatAmount(pt.powerGenerationMw || 0)} / ${formatHeatAmount(pt.requestedDemandMw || 0)} MW</strong></div>
+    <div><span>Power delivered</span><strong>${formatHeatAmount(pt.deliveredDemandMw || 0)} MW</strong></div>
+    <div><span>Power spare / unmet</span><strong>${formatHeatAmount(pt.sparePowerMw || 0)} / ${formatHeatAmount(pt.unmetDemandMw || 0)} MW</strong></div>
+    <div><span>Priority preset</span><strong>${pt.activePriorityPreset || "Default"}</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
     <div><span>Overheated</span><strong>${overheated}</strong></div>
     ${fastestHeat ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestHeat.index}"><span>Fastest heating</span><strong>${fastestHeat.name} ${formatHeatRate(fastestHeat.rate)}</strong></button>` : ""}`;
@@ -156,7 +174,11 @@ function renderComponentHeatReadout(ship, index) {
   const trendText = trend.direction === "warming" ? ` — Warming ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "cooling" ? ` — Cooling ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "stable" ? " — Stable" : "";
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}`;
+  const powerDiag = ship.powerThermal?.components?.[index];
+  const powerText = powerDiag
+    ? ` · Power ${formatHeatAmount(powerDiag.requestedMw)} / ${formatHeatAmount(powerDiag.allocatedMw)} MW · Cable Heat ${formatHeatAmount(powerDiag.powerCableHeatRate)} H/s · Sections ${(powerDiag.hostedActiveSectionIds || []).join(", ") || "None"}`
+    : "";
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}${powerText}`;
 }
 
 function renderComponentDamageReadout(ship, index) {

@@ -155,7 +155,8 @@
     "test:blueprint-modes": "node verify-blueprint-modes.js",
     "test:blueprint-modes-browser": "npm run build && node verify-blueprint-modes-browser.js",
     "test:blueprint-information-polish": "node verify-blueprint-information-polish.js",
-    "test:blueprint-information-polish-browser": "npm run build && node verify-blueprint-information-polish-browser.js"
+    "test:blueprint-information-polish-browser": "npm run build && node verify-blueprint-information-polish-browser.js",
+    "test:power-thermal-ui-browser": "npm run build && node verify-power-thermal-ui-browser.js"
   },
   "keywords": [
     "browser-game",
