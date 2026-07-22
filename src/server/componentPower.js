@@ -19,6 +19,7 @@ function isPowerSource(module) {
 }
 const perf = () => global.__mfaDataSupportPerf || null;
 function bump(name) { const p = perf(); if (p) p[name] = (p[name] || 0) + 1; }
+function bumpHostedRefreshes() { bump("hostedWiringRebuildCount"); bump("hostedPowerRefreshCount"); bump("hostedDataRefreshCount"); }
 
 // The static hosted-cell mapping (which physical cells/components host each
 // section) depends only on the immutable Blueprint design + wiring, never on
@@ -37,17 +38,32 @@ function deriveRuntimeKind(ship, kind, hostMap) {
   const blueprint = ship.wiring?.[kind] || { sections: [], connections: [] };
   const operationalSectionIds = new Set();
   const disabledSectionIds = new Set();
+  const disabledCells = [];
   const sectionHosts = new Map();
   for (const section of blueprint.sections || []) {
-    // Canonical host cells for this section come from the shared mapper; a null
-    // host means the endpoint cell has no physical component (undefined here).
+    // Canonical host cells for this section come from the shared mapper. Each
+    // endpoint cell is independently hosted by the component occupying that
+    // Blueprint cell. Invalid/unhosted cells fail closed; destroyed hosts only
+    // sever the incident physical section, so surviving upstream/downstream
+    // cells can still form their own runtime islands.
     const entry = hostMap.bySectionId.get(section.id);
-    const hosts = [...new Set((entry ? entry.hostCells : WiringRules.sectionCells(section).map(() => ({ componentIndex: null })))
-      .map((host) => (host.componentIndex == null ? undefined : host.componentIndex)))];
+    const hostCells = entry ? entry.hostCells : WiringRules.sectionCells(section).map((cell) => ({ ...cell, componentIndex: null }));
+    const hosts = [...new Set(hostCells.map((host) => (host.componentIndex == null ? undefined : host.componentIndex)))];
     sectionHosts.set(section.id, hosts);
-    const operational = hosts.length > 0 && !hosts.includes(undefined)
-      && hosts.every((index) => (ship.componentHp?.[index] ?? 1) > 0);
-    (operational ? operationalSectionIds : disabledSectionIds).add(section.id);
+    const disabledHosts = hostCells.filter((host) => host.componentIndex == null || (ship.componentHp?.[host.componentIndex] ?? 1) <= 0);
+    const operational = hostCells.length > 0 && disabledHosts.length === 0;
+    if (operational) operationalSectionIds.add(section.id);
+    else {
+      disabledSectionIds.add(section.id);
+      for (const host of disabledHosts) disabledCells.push({
+        routeType: kind === "power" ? "Power" : "Data",
+        sectionId: section.id,
+        ownerConnectionIds: [],
+        hostComponentIndex: host.componentIndex == null ? null : host.componentIndex,
+        x: host.x, y: host.y,
+        tier: kind === "power" ? (section.tier || "standard") : undefined
+      });
+    }
   }
 
   const operationalConnectionIds = new Set();
@@ -55,6 +71,9 @@ function deriveRuntimeKind(ship, kind, hostMap) {
   const operationalConnections = [];
   for (const connection of blueprint.connections || []) {
     const id = WiringRules.connectionKey(connection);
+    for (const sectionId of connection.sectionIds || []) {
+      for (const cell of disabledCells) if (cell.sectionId === sectionId) cell.ownerConnectionIds.push(id);
+    }
     const sourceAlive = (ship.componentHp?.[connection.sourceIndex] ?? 0) > 0;
     const targetAlive = (ship.componentHp?.[connection.targetIndex] ?? 0) > 0;
     // The blueprint has already passed Wiring v2 role, terminal and chain
@@ -71,7 +90,9 @@ function deriveRuntimeKind(ship, kind, hostMap) {
     sections: (blueprint.sections || []).filter((section) => operationalSectionIds.has(section.id)).map((section) => ({ ...section })),
     connections: operationalConnections
   };
-  return { operationalSectionIds, disabledSectionIds, operationalConnectionIds, brokenConnectionIds, sectionHosts, operationalWiring };
+  disabledCells.sort((a, b) => `${a.sectionId}:${a.x},${a.y}:${a.hostComponentIndex ?? ""}`.localeCompare(`${b.sectionId}:${b.x},${b.y}:${b.hostComponentIndex ?? ""}`, undefined, { numeric: true }));
+  for (const cell of disabledCells) cell.ownerConnectionIds = [...new Set(cell.ownerConnectionIds)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return { operationalSectionIds, disabledSectionIds, disabledCells, operationalConnectionIds, brokenConnectionIds, sectionHosts, operationalWiring };
 }
 
 function stateSignature(runtime) {
@@ -86,6 +107,7 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   bump("wiringNormalizationCount");
   const hostMaps = shipHostMaps(ship);
+  if (reason === "component-lifecycle") bumpHostedRefreshes();
   const power = deriveRuntimeKind(ship, "power", hostMaps.power);
   const data = deriveRuntimeKind(ship, "data", hostMaps.data);
   // Runtime Power wiring for the shared solver: only surviving physical sections
@@ -404,4 +426,10 @@ function effectiveShieldStats(ship) {
   });
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions };
+function componentHostsWiring(ship, index) {
+  if (!Number.isInteger(index) || !ship) return false;
+  const maps = shipHostMaps(ship);
+  return (maps.power.byComponentIndex.get(index)?.length || 0) > 0 || (maps.data.byComponentIndex.get(index)?.length || 0) > 0;
+}
+
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring };
