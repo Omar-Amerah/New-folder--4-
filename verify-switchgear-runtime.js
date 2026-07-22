@@ -93,4 +93,32 @@ assert.strictEqual(s.runtimeSwitchgear[0].state, 'open');
 assert(!s.powerFlow.sectionFlows.some(f => f.sectionId === 'bypass' || String(f.sectionId).includes('1,0:2,0')), 'direct terminal cable bypass is excluded from runtime topology');
 assert.strictEqual(s.componentPower.byComponentIndex[2].allocatedMw, 0, 'open Switchgear isolates even with a drawn A-B bypass section');
 
+
+function chainShip() {
+  const design = [
+    { x:0,y:0,type:'reactor' },
+    { x:2,y:1,type:'engine' },
+    { x:5,y:0,type:'shield' },
+    { x:1,y:0,type:'switchgear',rotation:0,switchgearMode:'automatic',switchgearRatingTier:'standard' },
+    { x:3,y:0,type:'switchgear',rotation:0,switchgearMode:'automatic',switchgearRatingTier:'standard' }
+  ];
+  const wiring = { version:3, power:{ sections:[
+    {id:'a',x1:0,y1:0,x2:1,y2:0,tier:'standard'},
+    {id:'mid',x1:2,y1:0,x2:3,y2:0,tier:'standard'},
+    {id:'mid-load',x1:2,y1:0,x2:2,y2:1,tier:'standard'},
+    {id:'c',x1:4,y1:0,x2:5,y2:0,tier:'standard'}
+  ], connections:[] }, data:{ sections:[], connections:[] }, powerPolicy: { preset:'custom', customOrder:['command','propulsion','shields','pointDefence','weapons','coolingSupport'] } };
+  const snap = createShipBlueprintSnapshot(design, wiring);
+  return { design:snap.design, wiring:snap.wiring, componentHp: snap.design.map(()=>1), alive:true, stats:{}, _activityDemandByIndex: { 1: 3, 2: 3 } };
+}
+s = chainShip(); initializeComponentPower(s);
+assert.deepStrictEqual(s.runtimeSwitchgear.map(r => r.automaticClosed), [true, true], 'multiple automatic ties close deterministically across a three-grid chain');
+assert(s.componentPower.byComponentIndex[1].allocatedMw > 0 && s.componentPower.byComponentIndex[2].allocatedMw > 0, 'three-grid chain transfers through both ties');
+
+const reordered = chainShip();
+reordered.design = [reordered.design[0], reordered.design[2], reordered.design[1], reordered.design[3], reordered.design[4]];
+reordered._activityDemandByIndex = { 1: 3, 2: 3 };
+initializeComponentPower(reordered);
+assert.deepStrictEqual(reordered.runtimeSwitchgear.map(r => r.automaticClosed), [true, true], 'automatic tie result is stable under remapped input ordering');
+
 console.log('verify-switchgear-runtime passed');

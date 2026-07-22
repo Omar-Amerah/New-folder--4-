@@ -233,6 +233,13 @@ function classifySwitchgearRecords(records, openResult, wiring) {
     else rec.classification = "isolator";
   }
 }
+function sideNetworksForRecord(record, result, wiring) {
+  const sectionById = new Map(((wiring?.power?.sections) || []).map((sec) => [String(sec.id), sec]));
+  const touches = (sec, cell) => sec && ((sec.x1 === cell.x && sec.y1 === cell.y) || (sec.x2 === cell.x && sec.y2 === cell.y));
+  const sideNet = (cell) => (result?.networks || []).find((net) => (net.sectionIds || []).some((id) => touches(sectionById.get(String(id)), cell))) || null;
+  return { a: sideNet(record.terminalA), b: sideNet(record.terminalB) };
+}
+
 function componentAllocationMap(result) {
   return new Map((result?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
 }
@@ -244,14 +251,14 @@ function solveSwitchgearCandidate(baseInput, records, closedSet) {
   const candidateRecords = records.map((record) => ({ ...record, conducts: record.mode === "closed" || closedSet.has(record.componentIndex) }));
   return PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: switchgearInternalEdges(candidateRecords) });
 }
-function tieImprovementIsPrioritySafe(rec, beforeResult, afterResult) {
+function tieImprovementIsPrioritySafe(rec, beforeResult, afterResult, currentSides) {
   const before = componentAllocationMap(beforeResult);
   const after = componentAllocationMap(afterResult);
-  const aConsumers = consumerSetForNetwork(beforeResult, rec.sideANetworkId);
-  const bConsumers = consumerSetForNetwork(beforeResult, rec.sideBNetworkId);
+  const aConsumers = consumerSetForNetwork(beforeResult, currentSides.a?.id);
+  const bConsumers = consumerSetForNetwork(beforeResult, currentSides.b?.id);
   const sides = [[aConsumers, bConsumers, "A->B"], [bConsumers, aConsumers, "B->A"]];
   for (const [donor, receiver, label] of sides) {
-    if (!donor.size || !receiver.size) continue;
+    if (!receiver.size) continue;
     const receiverGains = [...receiver].filter((idx) => (Number(after.get(idx)?.allocatedMw)||0) > (Number(before.get(idx)?.allocatedMw)||0) + 1e-6);
     if (!receiverGains.length) continue;
     const donorLosses = [...donor].filter((idx) => (Number(after.get(idx)?.allocatedMw)||0) + 1e-6 < (Number(before.get(idx)?.allocatedMw)||0));
@@ -268,15 +275,15 @@ function decideAutomaticSwitchgear(baseInput, baseRecords, openResult) {
     let changed = false;
     for (const rec of auto) {
       if (closed.has(rec.componentIndex)) continue;
-      if (!rec.sideANetworkId || !rec.sideBNetworkId || rec.sideANetworkId === rec.sideBNetworkId) { rec.decisionReason = "open: terminals are not on two separate sourced sides"; continue; }
+      const currentSides = sideNetworksForRecord(rec, current, baseInput.wiring);
+      if (!currentSides.a?.id || !currentSides.b?.id || currentSides.a.id === currentSides.b.id) { rec.decisionReason = "open: terminals are not on two separate current sides"; continue; }
       const candidate = new Set(closed); candidate.add(rec.componentIndex);
       const next = solveSwitchgearCandidate(baseInput, baseRecords, candidate);
-      const verdict = tieImprovementIsPrioritySafe(rec, current, next);
+      const verdict = tieImprovementIsPrioritySafe(rec, current, next, currentSides);
       rec.decisionReason = verdict.reason;
       if (verdict.ok) { closed.add(rec.componentIndex); current = next; changed = true; }
     }
     if (!changed) break;
-    if (guard === auto.length) { for (const rec of auto) closed.add(rec.componentIndex); }
   }
   for (const rec of auto) if (!closed.has(rec.componentIndex) && (!rec.decisionReason || rec.decisionReason.startsWith("automatic"))) rec.decisionReason = "open: no priority-safe spare transfer available";
   return closed;
@@ -369,7 +376,8 @@ function applyShipPowerAllocation(ship, options = {}) {
 
   // Fixed-point Power-state signature: meaningful component state, canonical
   // network id and integer allocation units — never raw floating-point strings.
-  const powerSignature = byComponentIndex.map((entry) => [
+  const switchgearPowerSignature = (ship.runtimeSwitchgear || []).map((entry) => [entry.componentIndex, entry.state, entry.automaticClosed ? 1 : 0, entry.classification || "", entry.sideANetworkId || "", entry.sideBNetworkId || "", PowerAllocationRules.mwToPowerUnits(entry.signedTransferMw || 0), Math.round(clampNumber(entry.utilisation || 0, 0, 99) * PowerAllocationRules.POWER_FLOW_SCALE)].join(":")).join("|");
+  const powerSignature = switchgearPowerSignature + "#" + byComponentIndex.map((entry) => [
     entry.state,
     entry.networkId ?? "",
     PowerAllocationRules.mwToPowerUnits(entry.allocatedMw),

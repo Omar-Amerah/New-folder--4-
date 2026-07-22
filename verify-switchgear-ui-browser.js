@@ -12,3 +12,8 @@ console.log('verify-switchgear-ui-browser passed');
 
 const designer = fs.readFileSync('public/src/ui/designerUi.js','utf8');
 assert(designer.includes('configureSelectedSwitchgear') && designer.includes('switchgearMode') && designer.includes('switchgearRatingTier'), 'designer commits Switchgear controls through Blueprint edit path');
+
+const merge = fs.readFileSync('public/src/snapshotMerge.js','utf8');
+assert(merge.includes('\"switchgear\"'), 'snapshot merge preserves Switchgear diagnostics when compact deltas omit them');
+const damagePanel = fs.readFileSync('public/src/ui/shipDamagePanelUi.js','utf8');
+assert(damagePanel.includes('switchgearSummaryText') && damagePanel.includes('ship.switchgear'), 'selected-ship diagnostics render Switchgear summaries');
