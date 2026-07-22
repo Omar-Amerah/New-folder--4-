@@ -103,6 +103,7 @@ const GROUPS = {
     "verify-canvas-removal.js",
     "verify-components.js",
     "verify-component-catalogue.js",
+    "verify-support-utility-category-merge.js",
     "verify-section13b-ui.js",
     "verify-section14-security.js"
   ],
@@ -153,6 +154,7 @@ const GROUPS = {
     "verify-blueprint-discoverability-browser.js",
     "verify-blueprint-modes-browser.js",
     "verify-blueprint-information-polish-browser.js",
+    "verify-support-utility-category-ui-browser.js",
     "verify-data-support-browser.js",
     "verify-live-turrets.js",
     "verify-heat-browser.js",

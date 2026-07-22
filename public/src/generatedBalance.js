@@ -742,7 +742,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "fireControl",
       "name": "Fire Control",
-      "category": "Support",
+      "category": "Utility",
       "cost": 34,
       "mass": 5,
       "hull": 38,
@@ -783,7 +783,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "heatPipe",
       "name": "Heat Pipe",
-      "category": "Support",
+      "category": "Utility",
       "cost": 16,
       "mass": 2.5,
       "hull": 16,
@@ -801,7 +801,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "heatSink",
       "name": "Heat Sink",
-      "category": "Support",
+      "category": "Utility",
       "cost": 24,
       "mass": 6,
       "hull": 48,
@@ -819,7 +819,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "radiator",
       "name": "Radiator",
-      "category": "Support",
+      "category": "Utility",
       "cost": 30,
       "mass": 5,
       "hull": 40,
@@ -838,7 +838,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "repair",
       "name": "Repair",
-      "category": "Support",
+      "category": "Utility",
       "cost": 27,
       "mass": 6,
       "hull": 50,
@@ -856,7 +856,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "repairBeam",
       "name": "Repair Beam",
-      "category": "Support",
+      "category": "Utility",
       "cost": 62,
       "mass": 8,
       "hull": 52,
@@ -879,7 +879,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "sensorArray",
       "name": "Sensor Array",
-      "category": "Support",
+      "category": "Utility",
       "cost": 21,
       "mass": 3,
       "hull": 26,
@@ -899,7 +899,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "targetingComputer",
       "name": "Targeting Computer",
-      "category": "Support",
+      "category": "Utility",
       "cost": 29,
       "mass": 4,
       "hull": 30,

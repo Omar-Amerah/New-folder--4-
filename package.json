@@ -168,7 +168,9 @@
     "test:wiring-cost-benefit": "node verify-wiring-cost-benefit-clarity.js",
     "test:wiring-cost-benefit-browser": "npm run build && node verify-wiring-cost-benefit-ui-browser.js",
     "test:combat-power-tab": "node verify-combat-power-tab.js && node verify-combat-power-overlay-snapshot.js",
-    "test:combat-power-tab-browser": "npm run build && node verify-combat-power-tab-browser.js"
+    "test:combat-power-tab-browser": "npm run build && node verify-combat-power-tab-browser.js",
+    "test:support-utility-category": "node verify-support-utility-category-merge.js",
+    "test:support-utility-category-browser": "npm run build && node verify-support-utility-category-ui-browser.js"
   },
   "keywords": [
     "browser-game",
