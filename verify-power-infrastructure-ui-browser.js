@@ -59,24 +59,28 @@ const inspector = fs.readFileSync("public/src/ui/partInspectorUi.js", "utf8");
 assert(inspector.includes("data-switchgear-config") && inspector.includes("Default mode"), "part inspector exposes Switchgear mode/rating configuration");
 assert(index.includes("data-wiring-tier") && index.includes("Change Tier"), "tier selection and tier-change tooling exist");
 
-// Live-ship surfaces: requested/delivered/unmet Power, protection state,
-// overload counts, most stressed section, cable Heat, consumer counts and
-// full Switchgear runtime inspection (from Sections 7D-7G).
+// Live-ship surfaces (dedicated Power tab): requested/delivered/unmet Power,
+// protection state, overload counts, most stressed section, cable Heat,
+// consumer counts and full Switchgear runtime inspection (Sections 7D-7G).
 const damagePanel = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
 for (const label of [
-  "Power gen / requested",
-  "Power delivered",
-  "Power spare / unmet",
-  "Power cable Heat rate",
-  "Power protection",
-  "Sections above sustained / at peak",
-  "Most stressed section",
+  "Generation",
+  "Requested",
+  "Delivered",
+  "Spare",
+  "Unmet",
+  "Cable Heat rate",
+  "Protection state",
+  "Above sustained",
+  "At peak",
+  "Most-stressed section",
   "Tripped Switchgear",
-  "Next retry",
-  "Partial / shed consumers"
+  "Nearest retry",
+  "Partial consumers",
+  "Shed consumers"
 ]) assert(damagePanel.includes(label), `live diagnostics label present: ${label}`);
 assert(damagePanel.includes("switchgearSummaryText") && damagePanel.includes("cooldown") && damagePanel.includes("retries"), "Switchgear runtime inspection shows state, stress, cooldown and retries");
-assert(damagePanel.includes("sectionProtectionText") && damagePanel.includes("disabled"), "section inspection distinguishes disabled from overloaded sections");
+assert(damagePanel.includes("renderPowerSectionReadout") && damagePanel.includes("disabled"), "section inspection distinguishes disabled from overloaded sections");
 
 // Damage/repair distinguishability: disabled sections render as disconnected
 // (dashed status) rather than overload colours in the wiring legend text.
