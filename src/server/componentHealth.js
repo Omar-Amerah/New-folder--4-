@@ -235,7 +235,7 @@ function onComponentDestroyed(room, ship, index, now) {
   }
   if (module.type === "core") {
     ship.coreDestroyed = true;
-    requestComponentLifecycleRefresh(ship, { exposure: true, wiringTopology: true });
+    requestComponentLifecycleRefresh(ship, { exposure: true, wiringTopology: true, wiringComponentIndex: index });
     return;
   }
   const heat = require("./heat");
@@ -243,7 +243,8 @@ function onComponentDestroyed(room, ship, index, now) {
     thermalCapacity: true,
     exposure: true,
     thermalRoutes: heat.isThermalRouteType(module.type),
-    wiringTopology: true
+    wiringTopology: true,
+    wiringComponentIndex: index
   });
 }
 
@@ -254,6 +255,10 @@ function beginComponentLifecycleBatch(ship) {
 function requestComponentLifecycleRefresh(ship, flags = {}) {
   ship._componentLifecycleDirty ||= {};
   for (const [flag, value] of Object.entries(flags)) if (value) ship._componentLifecycleDirty[flag] = true;
+  if (Number.isInteger(flags.wiringComponentIndex)) {
+    ship._componentLifecycleDirty.wiringComponentIndices ||= new Set();
+    ship._componentLifecycleDirty.wiringComponentIndices.add(flags.wiringComponentIndex);
+  }
   if (!ship._componentLifecycleDepth) flushComponentLifecycleRefresh(ship);
 }
 
@@ -266,7 +271,15 @@ function flushComponentLifecycleRefresh(ship) {
   if (flags.exposure) heat.rebuildRuntimeExposure(ship);
   if (flags.thermalRoutes) heat.rebuildThermalNetworks(ship);
   if (flags.wiringTopology) {
-    require("./componentPower").rebuildShipWiringState(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
+    const componentPower = require("./componentPower");
+    const candidates = flags.wiringComponentIndices instanceof Set ? [...flags.wiringComponentIndices] : [];
+    const hasHostedWiring = !candidates.length || candidates.some((index) => componentPower.componentHostsWiring(ship, index));
+    if (!hasHostedWiring) {
+      componentPower.reallocateShipPower(ship, "component-lifecycle");
+      heat.refreshHeatSourceSignatures?.(ship);
+      return;
+    }
+    componentPower.rebuildShipWiringState(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
     // Re-baseline the thermal source signatures only when the allocation above
     // actually ran. A flush that changes heat states without reallocating (e.g.
     // a future thermalCapacity-only event) must leave the old baselines in
@@ -417,7 +430,7 @@ function repairShipComponents(room, ship, amount, now) {
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       const heat = require("./heat");
       requestComponentLifecycleRefresh(ship, { thermalCapacity: true,
-        exposure: true, thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), wiringTopology: true });
+        exposure: true, thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), wiringTopology: true, wiringComponentIndex: idx });
     }
   }
   endComponentLifecycleBatch(ship);

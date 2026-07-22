@@ -247,9 +247,11 @@ function wiringStatus(ship) {
     powerNetworks: runtime.powerNetworks.length,
     brokenPowerConnections: runtime.power.brokenConnectionIds.size,
     disabledPowerSections: runtime.power.disabledSectionIds.size,
+    disabledPowerCells: runtime.power.disabledCells?.length || 0,
     dataNetworks: runtime.dataNetworks.length,
     brokenDataConnections: runtime.data.brokenConnectionIds.size,
-    disabledDataSections: runtime.data.disabledSectionIds.size
+    disabledDataSections: runtime.data.disabledSectionIds.size,
+    disabledDataCells: runtime.data.disabledCells?.length || 0
   } : undefined;
 }
 
