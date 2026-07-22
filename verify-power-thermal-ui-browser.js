@@ -21,8 +21,8 @@ has(designer, /Hottest component[\s\S]*Hottest cable section/, "Blueprint summar
 has(designer, /Base Heat capacity[\s\S]*Capacity bonuses[\s\S]*Power\/Data displacement[\s\S]*Final Heat capacity/, "Component inspection displays capacity bonuses, displacement and final capacity");
 has(designer, /Component activity Heat[\s\S]*Hosted Power cable Heat[\s\S]*Total generated Heat/, "Component inspection separates activity and cable Heat");
 has(designer, /hostedActiveSectionIds[\s\S]*heat-hosted-power-section/, "Selecting or hovering a component highlights hosted Power sections");
-has(designer, /heat-flag-displacement[\s\S]*heat-flag-cable-heat[\s\S]*heat-flag-cable-overload[\s\S]*heat-flag-cable-peak[\s\S]*heat-flag-cable-worsened/, "Overlay flags displacement, cable Heat, overload, peak and worsened state");
-has(css, /heat-flag-cable-heat[\s\S]*box-shadow[\s\S]*heat-flag-cable-worsened[\s\S]*repeating-linear-gradient/, "Thermal overlays use outlines/patterns rather than replacing tier colour");
+has(designer, /heat-flag-displacement[\s\S]*heat-flag-cable-heat[\s\S]*heat-flag-cable-overload[\s\S]*heat-flag-cable-peak[\s\S]*heat-flag-cable-risk/, "Overlay flags displacement, cable Heat, overload, peak and cable thermal risk");
+has(css, /heat-flag-cable-heat[\s\S]*box-shadow[\s\S]*heat-flag-cable-risk[\s\S]*repeating-linear-gradient/, "Thermal overlays use outlines/patterns rather than replacing tier colour");
 has(css, /prefers-reduced-motion[\s\S]*animation:none[\s\S]*heat-flag-cable-peak/, "Reduced-motion mode keeps static cues");
 has(designer, /isPhysicalBlueprintEditMode\(mode = state\.blueprintView\) \{ return mode === "build" \|\| mode === "heat"; \}/, "Heat mode still permits component placement and rotation");
 has(designer, /isBlueprintRemovalMode\(mode = state\.blueprintView\) \{ return mode === "build"; \}/, "Heat mode does not permit Build-only removal");

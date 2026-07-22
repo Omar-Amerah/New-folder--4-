@@ -419,14 +419,14 @@ function applyHeatPresentation(heatAnalysis) {
     if ((componentDiag.powerCableHeat || 0) > 0 || (prediction.powerCableHeat || 0) > 0) flags.push("hosted Power cable Heat");
     if (hostedFlows.some(section => section.aboveSustained)) flags.push("above-sustained cable load");
     if (hostedFlows.some(section => section.atPeak)) flags.push("cable at peak or capped");
-    if ((componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0)) flags.push("state worsened by cable Heat risk");
+    if ((componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0)) flags.push("Power cable Heat contributing to thermal risk");
     if ((componentDiag.operationalMultiplier ?? 1) < 1) flags.push((componentDiag.operationalMultiplier || 0) <= 0 ? "disabled component" : "throttled component");
     const flagClass = [
       (capacityDiag.powerDisplacement || capacityDiag.dataDisplacement || 0) > 0 ? "heat-flag-displacement" : "",
       (componentDiag.powerCableHeat || 0) > 0 ? "heat-flag-cable-heat" : "",
       hostedFlows.some(section => section.aboveSustained) ? "heat-flag-cable-overload" : "",
       hostedFlows.some(section => section.atPeak) ? "heat-flag-cable-peak" : "",
-      (componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0) ? "heat-flag-cable-worsened" : "",
+      (componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0) ? "heat-flag-cable-risk" : "",
       (componentDiag.operationalMultiplier ?? 1) < 1 ? "heat-flag-throttled" : ""
     ].filter(Boolean).join(" ");
     const flagMarkup = flags.length ? `<span class="heat-status-markers" aria-label="${escapeHtml(flags.join("; "))}">${flags.map((_, i) => `<i>${i + 1}</i>`).join("")}</span>` : "";

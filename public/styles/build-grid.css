@@ -157,7 +157,7 @@
 .build-cell.heat-flag-cable-heat { box-shadow:inset 0 0 0 2px rgba(251,191,36,.42); }
 .build-cell.heat-flag-cable-overload { box-shadow:inset 0 0 0 2px rgba(251,146,60,.7), 0 0 8px rgba(251,146,60,.45); }
 .build-cell.heat-flag-cable-peak { box-shadow:inset 0 0 0 2px rgba(248,113,113,.86), 0 0 10px rgba(248,113,113,.6); }
-.build-cell.heat-flag-cable-worsened { background-image:repeating-linear-gradient(45deg, rgba(255,255,255,.08) 0 3px, transparent 3px 7px); }
+.build-cell.heat-flag-cable-risk { background-image:repeating-linear-gradient(45deg, rgba(255,255,255,.08) 0 3px, transparent 3px 7px); }
 .build-cell.heat-flag-throttled { filter:saturate(.82) contrast(1.08); }
 .heat-status-markers { position:absolute; z-index:10; right:2px; bottom:13px; display:flex; gap:1px; pointer-events:none; }
 .heat-status-markers i { display:grid; place-items:center; width:9px; height:9px; border-radius:50%; background:#111827; border:1px solid #fbbf24; color:#fde68a; font-size:6px; font-style:normal; font-weight:950; line-height:1; }
