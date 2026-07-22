@@ -39,7 +39,9 @@ function canonicalDesign(design) {
     type: part.type,
     x: Math.trunc(Number(part.x)),
     y: Math.trunc(Number(part.y)),
-    rotation: Math.trunc(Number(part.rotation) || 0)
+    rotation: Math.trunc(Number(part.rotation) || 0),
+    switchgearMode: part.type === "switchgear" ? (part.switchgearMode || "closed") : undefined,
+    switchgearRatingTier: part.type === "switchgear" ? (part.switchgearRatingTier || "standard") : undefined
   }));
 }
 

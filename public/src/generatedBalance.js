@@ -55,7 +55,7 @@ export const GENERATED_BALANCE = {
   },
   "powerDemand": {
     "standbyFractions": {
-      "command": 1.0,
+      "command": 1,
       "propulsion": 0.15,
       "shields": 0.15,
       "weapons": 0.1,
@@ -393,7 +393,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "rotatable": false,
-      "description": "Main propulsion module that adds thrust for speed and acceleration. Always faces forward (fires backwards); vectors a little thrust for modest turning \u2014 add maneuver thrusters to turn faster.",
+      "description": "Main propulsion module that adds thrust for speed and acceleration. Always faces forward (fires backwards); vectors a little thrust for modest turning — add maneuver thrusters to turn faster.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -744,6 +744,27 @@ export const GENERATED_BALANCE = {
       "utility": "fireRate",
       "fireRateBonus": 0.075,
       "description": "Weapon coordinator that improves fire rate."
+    },
+    {
+      "id": "switchgear",
+      "category": "Power Infrastructure",
+      "cost": 18,
+      "mass": 4,
+      "hp": 35,
+      "rotatable": true,
+      "rotationRequired": true,
+      "allowedRotations": [
+        0,
+        90,
+        180,
+        270
+      ],
+      "footprint": {
+        "width": 2,
+        "height": 1
+      },
+      "description": "Two-terminal Switchgear for isolating a Power branch or automatically tying independently wired Power buses. Its internal link carries only Power, never Data.",
+      "utilityEffect": "Default mode Closed; optional Open or Automatic. Rating tiers match Light, Standard, or Heavy Power cable capacities."
     },
     {
       "id": "heatPipe",

@@ -332,6 +332,16 @@ function partInspectorDetails(type, stat, effectiveCost) {
     return details.filter(Boolean);
   }
 
+  if (type === "switchgear") {
+    return [
+      ["Default mode", "Closed (Open / Closed / Automatic saved per component)"],
+      ["Rating", "Standard by default; Light, Standard, and Heavy match Power cable sustained/peak limits"],
+      ["Terminal orientation", "Rotation sets opposite terminal A and B cells: horizontal at 0°/180°, vertical at 90°/270°"],
+      ["Power behaviour", "Open isolates sides; Closed conducts through the rated internal Power edge; Automatic only uses deterministic spare Power"],
+      ["Data wiring", "No Data connection passes through Switchgear"]
+    ];
+  }
+
   if (type === "maneuverThruster") {
     const rotation = state.previewRotation === 270 ? 270 : 90;
     return [

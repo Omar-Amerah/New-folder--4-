@@ -9,6 +9,7 @@ const PowerAllocationRules = require("../../public/src/shared/powerAllocationRul
 const PowerPolicyRules = require("../../public/src/shared/powerPolicyRules");
 const PowerCableThermalRules = require("../../public/src/shared/powerCableThermalRules");
 const PowerDemandRules = require("../../public/src/shared/powerDemandRules");
+const SwitchgearRules = require("../../public/src/shared/switchgearRules");
 const { BALANCE } = require("./balanceConfig");
 const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
@@ -181,6 +182,70 @@ function effectiveLiveSourceGeneration(ship, index) {
   return Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
 }
 
+
+function liveSwitchgearRecords(ship, conductingOverride) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const records = [];
+  for (let index = 0; index < design.length; index += 1) {
+    const module = design[index];
+    if (module?.type !== "switchgear") continue;
+    const mode = SwitchgearRules.normalizeMode(module.switchgearMode);
+    const ratingTier = SwitchgearRules.normalizeRatingTier(module.switchgearRatingTier);
+    const terminals = SwitchgearRules.terminalCells(module);
+    const destroyed = (ship.componentHp?.[index] ?? 1) <= 0;
+    const tripped = Boolean(ship._switchgearTrips?.[index]);
+    let state = mode;
+    if (destroyed) state = "destroyed"; else if (tripped) state = "tripped";
+    const automaticClosed = mode === "automatic" && conductingOverride?.has(index) === true;
+    const conducts = !destroyed && !tripped && (mode === "closed" || automaticClosed);
+    const cap = SwitchgearRules.capacityForTier(BALANCE.wiringInfrastructure, ratingTier);
+    records.push({ componentIndex: index, mode, ratingTier, state, automaticClosed, conducts, terminalA: terminals.A, terminalB: terminals.B, orientation: terminals.orientation, internalEdgeId: SwitchgearRules.internalSectionId(index), sustainedCapacityMw: cap.sustainedCapacityMw, peakCapacityMw: cap.peakCapacityMw, signedTransferMw: 0, utilisation: 0, classification: "isolator", sideANetworkId: null, sideBNetworkId: null, decisionReason: mode === "automatic" ? "automatic evaluated open first" : `${mode} saved mode`, trippedReason: tripped ? String(ship._switchgearTrips[index] || "manual test trip") : null, topologyRevision: ship.wiringRevision || 0 });
+  }
+  return records;
+}
+function switchgearInternalEdges(records) { return records.filter(r => r.conducts).map(r => ({ ...SwitchgearRules.internalSection(r.componentIndex, { x:r.terminalA.x, y:r.terminalA.y, rotation:0, switchgearRatingTier:r.ratingTier }), id:r.internalEdgeId, x1:r.terminalA.x, y1:r.terminalA.y, x2:r.terminalB.x, y2:r.terminalB.y })); }
+function classifySwitchgearRecords(records, openResult, wiring) {
+  const nets = openResult?.networks || [];
+  const sectionById = new Map(((wiring?.power?.sections) || []).map((sec) => [String(sec.id), sec]));
+  const touches = (sec, cell) => sec && ((sec.x1 === cell.x && sec.y1 === cell.y) || (sec.x2 === cell.x && sec.y2 === cell.y));
+  const sideNet = (cell) => nets.find((net) => (net.sectionIds || []).some((id) => touches(sectionById.get(String(id)), cell))) || null;
+  for (const rec of records) {
+    const a = sideNet(rec.terminalA); const b = sideNet(rec.terminalB);
+    rec.sideANetworkId = a?.id || null; rec.sideBNetworkId = b?.id || null;
+    const aSourced = (a?.availableGenerationMw || 0) > 0;
+    const bSourced = (b?.availableGenerationMw || 0) > 0;
+    if (aSourced && bSourced && a.id !== b.id) rec.classification = "bus-tie";
+    else if (a || b) rec.classification = "branch-breaker";
+    else rec.classification = "isolator";
+  }
+}
+function decideAutomaticSwitchgear(ship, baseRecords, openResult) {
+  const closed = new Set();
+  const auto = baseRecords.filter(r => r.mode === "automatic" && r.state === "automatic").sort((a,b)=>a.componentIndex-b.componentIndex);
+  const spare = Number(openResult?.summary?.spareGenerationMw)||0;
+  const unmet = Number(openResult?.summary?.unmetMw)||0;
+  if (spare <= 0 || unmet <= 0) return closed;
+  for (const rec of auto) { closed.add(rec.componentIndex); rec.decisionReason = "closed: spare generation can serve unmet demand through existing priority solver"; }
+  return closed;
+}
+function solveWithSwitchgear(ship, baseInput) {
+  const baseRecords = liveSwitchgearRecords(ship, new Set());
+  const openResult = PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: [] });
+  classifySwitchgearRecords(baseRecords, openResult, baseInput.wiring);
+  const automaticClosed = decideAutomaticSwitchgear(ship, baseRecords, openResult);
+  const records = liveSwitchgearRecords(ship, automaticClosed);
+  for (const r of records) {
+    const base = baseRecords.find(x=>x.componentIndex===r.componentIndex); if (base) { r.classification=base.classification; r.sideANetworkId=base.sideANetworkId; r.sideBNetworkId=base.sideBNetworkId; r.decisionReason=base.decisionReason; }
+  }
+  const result = PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: switchgearInternalEdges(records) });
+  const flows = new Map((result.sectionFlows||[]).map(f=>[f.sectionId,f]));
+  for (const rec of records) { const f=flows.get(rec.internalEdgeId); rec.signedTransferMw = f ? Number(f.signedFlowMw)||0 : 0; rec.utilisation = f ? Number(f.peakUtilisation)||0 : 0; }
+  ship.runtimeSwitchgear = records;
+  return result;
+}
+function tripSwitchgear(ship, index, reason = "manual test trip") { if (!ship._switchgearTrips) ship._switchgearTrips = {}; ship._switchgearTrips[index] = reason; return rebuildShipWiringState(ship, "switchgear-trip"); }
+function resetSwitchgearTrip(ship, index) { if (ship._switchgearTrips) delete ship._switchgearTrips[index]; return rebuildShipWiringState(ship, "switchgear-reset"); }
+
 // The shared 7C-2 capacity-and-priority solver is the SOLE runtime allocator.
 // It enforces cable peak capacity and the saved Power priorities, giving each
 // component its own multiplier. No uniform generation/demand ratio and no second
@@ -208,7 +273,7 @@ function applyShipPowerAllocation(ship, options = {}) {
   // performance counter records the attempted solve before the call so a throw
   // is still counted.
   bump("powerFlowSolveCount");
-  const result = PowerFlowRules.solvePowerFlow({
+  const result = solveWithSwitchgear(ship, {
     design,
     wiring: runtimePowerWiring,
     catalogue: PARTS,
@@ -308,7 +373,7 @@ function ensureShipCableThermalAnalysis(ship) {
   if (!ship) return null;
   const flowRevision = ship.powerFlowRevision || 0;
   if (ship.powerCableThermalAnalysis && ship._powerCableThermalFlowRevision === flowRevision) return ship.powerCableThermalAnalysis;
-  const sectionFlows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows : [];
+  const sectionFlows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows.filter((flow) => !String(flow.sectionId || "").startsWith("switchgear:")) : [];
   const hostMap = shipHostMaps(ship).power;
   const analysis = PowerCableThermalRules.analyzePowerCableHeat({
     sectionFlows,
@@ -462,4 +527,4 @@ function componentHostsWiring(ship, index) {
   return (maps.power.byComponentIndex.get(index)?.length || 0) > 0 || (maps.data.byComponentIndex.get(index)?.length || 0) > 0;
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring, tripSwitchgear, resetSwitchgearTrip };
