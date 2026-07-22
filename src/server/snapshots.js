@@ -145,6 +145,7 @@ function getKnownShipDesigns(client) {
 
 
 function buildSwitchgearSnapshot(ship) {
+  const { switchgearProtectionFields } = require("./powerProtection");
   return (Array.isArray(ship.runtimeSwitchgear) ? ship.runtimeSwitchgear : []).map((record) => ({
     componentIndex: record.componentIndex,
     classification: record.classification || "isolator",
@@ -159,8 +160,14 @@ function buildSwitchgearSnapshot(ship) {
     signedTransferMw: Number(record.signedTransferMw) || 0,
     utilisation: Number(record.utilisation) || 0,
     decisionReason: record.decisionReason || "Unknown",
-    trippedReason: record.trippedReason || null
+    trippedReason: record.trippedReason || null,
+    // Section 7G runtime overload trip/cooldown/retry inspection fields.
+    ...switchgearProtectionFields(ship, record.componentIndex)
   }));
+}
+
+function buildProtectionSnapshot(ship) {
+  return require("./powerProtection").buildPowerProtectionSnapshot(ship);
 }
 
 function appendFullShipBaseline(entry, ship) {
@@ -175,6 +182,8 @@ function appendFullShipBaseline(entry, ship) {
     entry.wiringRevision = ship.wiringRevision || 0;
     entry.wiringStatus = wiringStatus(ship);
     entry.switchgear = buildSwitchgearSnapshot(ship);
+    entry.powerProtection = buildProtectionSnapshot(ship);
+    entry.powerProtectionRevision = ship.powerProtectionRevision || 0;
   }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
@@ -193,6 +202,19 @@ function appendShipDeltas(entry, ship, client = null) {
     entry.wiringRevision = ship.wiringRevision || 0;
     entry.wiringStatus = wiringStatus(ship);
     entry.switchgear = buildSwitchgearSnapshot(ship);
+  }
+  // Section 7G: the compact runtime protection block has its own revision so
+  // stress/trip/retry changes reach the player even when component allocations
+  // are unchanged, while unchanged protection state resends nothing (the
+  // client merge preserves the previous block when omitted).
+  const knownProtection = client?.knownShipPowerProtectionRevisions instanceof Map ? client.knownShipPowerProtectionRevisions : null;
+  const currentProtectionRevision = ship.powerProtectionRevision || 0;
+  const protectionChanged = ship.componentPower?.byComponentIndex
+    && (knownProtection ? knownProtection.get(ship.id) !== currentProtectionRevision : ship.dirtyPowerProtection);
+  if (protectionChanged) {
+    entry.powerProtection = buildProtectionSnapshot(ship);
+    entry.powerProtectionRevision = currentProtectionRevision;
+    if (!powerChanged) entry.switchgear = buildSwitchgearSnapshot(ship);
   }
   // `powerThermal` contains Heat-derived values (component Heat generated,
   // cable Heat generated, cooling, net rate, hottest component) that change
@@ -309,6 +331,18 @@ function markSnapshotPowerWritten(client, powerRevisions = []) {
   if (!client.knownShipPowerRevisions) client.knownShipPowerRevisions = new Map();
   for (const [shipId, revision] of powerRevisions) client.knownShipPowerRevisions.set(shipId, revision);
 }
+function collectSnapshotPowerProtectionRevisions(snapshot) {
+  const revisions = [];
+  for (const ship of snapshot?.ships || []) {
+    if (ship.powerProtection) revisions.push([ship.id, ship.powerProtectionRevision || 0]);
+  }
+  return revisions;
+}
+function markSnapshotPowerProtectionWritten(client, protectionRevisions = []) {
+  if (!client) return;
+  if (!client.knownShipPowerProtectionRevisions) client.knownShipPowerProtectionRevisions = new Map();
+  for (const [shipId, revision] of protectionRevisions) client.knownShipPowerProtectionRevisions.set(shipId, revision);
+}
 
 function markSnapshotDesignsWritten(client, designRevisions = []) {
   const known = getKnownShipDesigns(client);
@@ -421,7 +455,9 @@ module.exports = {
   buildSharedSnapshot,
   collectSnapshotDesignRevisions,
   collectSnapshotPowerRevisions,
+  collectSnapshotPowerProtectionRevisions,
   markSnapshotDesignsWritten,
   markSnapshotPowerWritten,
+  markSnapshotPowerProtectionWritten,
   canViewPlayerEconomy
 };

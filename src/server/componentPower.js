@@ -10,6 +10,7 @@ const PowerPolicyRules = require("../../public/src/shared/powerPolicyRules");
 const PowerCableThermalRules = require("../../public/src/shared/powerCableThermalRules");
 const PowerDemandRules = require("../../public/src/shared/powerDemandRules");
 const SwitchgearRules = require("../../public/src/shared/switchgearRules");
+const PowerProtectionRules = require("../../public/src/shared/powerProtectionRules");
 const { BALANCE } = require("./balanceConfig");
 const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
@@ -20,6 +21,24 @@ function isPowerSource(module) {
 }
 const perf = () => global.__mfaDataSupportPerf || null;
 function bump(name) { const p = perf(); if (p) p[name] = (p[name] || 0) + 1; }
+
+// Section 7G: the central runtime Power-protection balance, normalised once
+// from the authoritative component-balance.json block. No tuning constants
+// live anywhere else on the server or in the UI.
+let _powerProtectionConfig = null;
+let _powerProtectionConfigOverride = null;
+function powerProtectionConfig() {
+  if (_powerProtectionConfigOverride) return _powerProtectionConfigOverride;
+  if (!_powerProtectionConfig) _powerProtectionConfig = PowerProtectionRules.normalizeConfig(BALANCE.powerProtection);
+  return _powerProtectionConfig;
+}
+// Verifier-only hook: overlays the authoritative balance block (pass null to
+// restore). Never used by runtime code paths.
+function __setPowerProtectionConfigForTests(partial) {
+  _powerProtectionConfigOverride = partial
+    ? PowerProtectionRules.normalizeConfig({ ...(BALANCE.powerProtection || {}), ...partial })
+    : null;
+}
 function bumpHostedRefreshes() { bump("hostedWiringRebuildCount"); bump("hostedPowerRefreshCount"); bump("hostedDataRefreshCount"); }
 
 // The static hosted-cell mapping (which physical cells/components host each
@@ -244,7 +263,11 @@ function componentAllocationMap(result) {
   return new Map((result?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
 }
 function solveSwitchgearCandidate(baseInput, records, closedSet) {
-  const candidateRecords = records.map((record) => ({ ...record, conducts: record.mode === "closed" || closedSet.has(record.componentIndex) }));
+  // Only a healthy Closed Switchgear conducts implicitly; a tripped or
+  // destroyed one must be explicitly re-included via closedSet (Section 7G
+  // retry evaluation) — otherwise candidate solves would silently bypass an
+  // overload trip.
+  const candidateRecords = records.map((record) => ({ ...record, conducts: (record.mode === "closed" && record.state === "closed") || closedSet.has(record.componentIndex) }));
   return PowerFlowRules.solvePowerFlow({ ...baseInput, internalPowerEdges: switchgearInternalEdges(candidateRecords) });
 }
 function tieStableKey(record) {
@@ -334,7 +357,7 @@ function decideAutomaticSwitchgear(baseInput, baseRecords, baselineResult) {
   const selected = new Set(manualClosed);
   const auto = baseRecords.filter(r => r.mode === "automatic" && r.state === "automatic");
   const recordsByIndex = new Map(baseRecords.map((record) => [record.componentIndex, record]));
-  const maxSubsets = 1024;
+  const maxSubsets = powerProtectionConfig().maxAutomaticRetrySubsets;
   for (const group of automaticTieGroups(auto)) {
     const subsets = enumerateSubsets(group, maxSubsets);
     if (!subsets) { for (const record of group) record.decisionReason = `open: automatic tie group exceeds ${maxSubsets} candidate subsets`; continue; }
@@ -379,7 +402,7 @@ function resetSwitchgearTrip(ship, index) { if (ship._switchgearTrips) delete sh
 // It enforces cable peak capacity and the saved Power priorities, giving each
 // component its own multiplier. No uniform generation/demand ratio and no second
 // pass are applied.
-function applyShipPowerAllocation(ship, options = {}) {
+function buildShipPowerSolveBaseInput(ship) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const runtimePowerWiring = ship._runtimePowerWiring || {
     version: WiringRules.WIRING_VERSION, power: { sections: [], connections: [] }, data: { sections: [], connections: [] },
@@ -394,7 +417,19 @@ function applyShipPowerAllocation(ship, options = {}) {
     if (isPowerSource(module)) sourceGenerationByIndex[index] = effectiveLiveSourceGeneration(ship, index);
     return (ship.componentHp?.[index] ?? 1) > 0;
   });
-  const componentDemandByIndex = ship._activityDemandByIndex || undefined;
+  return {
+    design,
+    wiring: runtimePowerWiring,
+    catalogue: PARTS,
+    infrastructure: BALANCE.wiringInfrastructure,
+    sourceGenerationByIndex,
+    componentOperationalByIndex,
+    componentDemandByIndex: ship._activityDemandByIndex || undefined
+  };
+}
+
+function applyShipPowerAllocation(ship, options = {}) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
   // The shared solver is the sole allocation authority. An unexpected exception
   // must propagate so tests and server diagnostics expose the underlying defect,
   // and a malformed result is rejected outright — never silently fail-open to a
@@ -402,15 +437,7 @@ function applyShipPowerAllocation(ship, options = {}) {
   // performance counter records the attempted solve before the call so a throw
   // is still counted.
   bump("powerFlowSolveCount");
-  const result = solveWithSwitchgear(ship, {
-    design,
-    wiring: runtimePowerWiring,
-    catalogue: PARTS,
-    infrastructure: BALANCE.wiringInfrastructure,
-    sourceGenerationByIndex,
-    componentOperationalByIndex,
-    componentDemandByIndex
-  });
+  const result = solveWithSwitchgear(ship, buildShipPowerSolveBaseInput(ship));
   if (!result || !Array.isArray(result.byComponentIndex) || !Array.isArray(result.networks) || !Array.isArray(result.sectionFlows)) {
     throw new Error("Power-flow solver returned an invalid result");
   }
@@ -612,7 +639,15 @@ function updateShipPowerDemand(ship, room, now) {
   reallocateShipPower(ship, "activity-demand");
 }
 
-function initializeComponentPower(ship) { rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true }); return ship.componentPower; }
+function initializeComponentPower(ship) {
+  // Section 7G: spawned/replaced designs always begin from deterministic
+  // zero overload stress. Runtime protection state is never persisted in
+  // Blueprints, saved designs or loadouts, so it is rebuilt from nothing here.
+  require("./powerProtection").resetShipPowerProtection(ship);
+  rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true });
+  require("./powerProtection").refreshShipPowerProtectionDiagnostics(ship);
+  return ship.componentPower;
+}
 function reallocateShipPower(ship, reason = "source-availability") {
   // Source generation changed (destruction/overheat/recovery) but topology did
   // not — re-solve on the cached runtime wiring without re-deriving sections.
@@ -657,4 +692,4 @@ function componentHostsWiring(ship, index) {
   return (maps.power.byComponentIndex.get(index)?.length || 0) > 0 || (maps.data.byComponentIndex.get(index)?.length || 0) > 0;
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring, tripSwitchgear, resetSwitchgearTrip };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring, tripSwitchgear, resetSwitchgearTrip, powerProtectionConfig, __setPowerProtectionConfigForTests, buildShipPowerSolveBaseInput, liveSwitchgearRecords, solveSwitchgearCandidate, tieStableKey, finiteFlowResult };

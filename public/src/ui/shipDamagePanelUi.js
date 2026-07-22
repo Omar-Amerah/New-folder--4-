@@ -59,7 +59,47 @@ function formatHeatAmount(value) {
 function switchgearSummaryText(ship) {
   const records = Array.isArray(ship.switchgear) ? ship.switchgear : [];
   if (!records.length) return "None";
-  return records.map((record) => `#${record.componentIndex} ${record.state || record.mode || "Unknown"}${record.mode === "automatic" || record.state === "automatic" ? ` (${record.automaticClosed ? "conducting" : "open"})` : ""} ${record.ratingTier || "standard"} ${record.classification || "isolator"} ${formatHeatAmount(record.signedTransferMw || 0)} MW`).join("; ");
+  return records.map((record) => {
+    const parts = [`#${record.componentIndex} ${record.state || record.mode || "Unknown"}${record.mode === "automatic" || record.state === "automatic" ? ` (${record.automaticClosed ? "conducting" : "open"})` : ""} ${record.ratingTier || "standard"} ${record.classification || "isolator"} ${formatHeatAmount(record.signedTransferMw || 0)} MW`];
+    // Section 7G runtime protection: saved mode, overload stress, trip reason,
+    // cooldown, retry count and last retry reason as clear text labels.
+    parts.push(`mode ${record.mode || "closed"}`);
+    if ((record.overloadStress || 0) > 0) parts.push(`stress ${Math.round((record.overloadStress || 0) * 100)}%`);
+    if (record.state === "tripped") {
+      parts.push(`trip: ${record.trippedReason || record.lastTripReason || "Unknown"}`);
+      parts.push(`cooldown ${formatHeatAmount(record.cooldownRemaining || 0)}s`);
+    }
+    if ((record.retryCount || 0) > 0) parts.push(`retries ${record.retryCount}${record.lastRetryReason ? ` (${record.lastRetryReason})` : ""}`);
+    return parts.join(" · ");
+  }).join("; ");
+}
+
+// Section 7G ship-level Power-protection summary (diagnostics only; states
+// come from the authoritative server snapshot).
+function protectionStateLabel(state) {
+  const labels = {
+    "normal": "Normal",
+    "strained": "Strained",
+    "brownout": "Brownout",
+    "load-shedding": "Load shedding",
+    "protection-trip": "Protection trip"
+  };
+  return labels[state] || "Unknown";
+}
+
+function mostStressedSectionText(pp) {
+  if (!pp || !pp.mostStressedSectionId) return "None";
+  return `${pp.mostStressedSectionId} ${Math.round((pp.mostStressedStress || 0) * 100)}%`;
+}
+
+// Per-section runtime protection readout for one hosted Power section.
+function sectionProtectionText(ship, sectionId) {
+  const records = ship.powerProtection?.sections;
+  const record = Array.isArray(records) ? records.find((entry) => entry.sectionId === sectionId) : null;
+  if (!record) return `${sectionId}: normal`;
+  const seconds = record.secondsAboveSustained > 0 ? ` · ${formatHeatAmount(record.secondsAboveSustained)}s above sustained` : "";
+  const disabled = record.operational === false ? " · disabled" : "";
+  return `${sectionId} (${record.tier}): ${record.state} · ${formatHeatAmount(record.absoluteFlowMw)} / ${formatHeatAmount(record.sustainedCapacityMw)} MW sustained (${formatHeatAmount(record.peakCapacityMw)} MW peak) · ${Math.round((record.sustainedUtilisation || 0) * 100)}% sustained, ${Math.round((record.peakUtilisation || 0) * 100)}% peak · stress ${Math.round((record.stress || 0) * 100)}%${seconds}${disabled}`;
 }
 
 function renderHeatSummary(ship) {
@@ -73,6 +113,7 @@ function renderHeatSummary(ship) {
   const hot = Number(ship.hot) || 0;
   const overheated = Number(ship.overheated) || 0;
   const pt = ship.powerThermal || {};
+  const pp = ship.powerProtection || {};
   const heatState = overheated > 0 ? "Overheating" : hot > 0 ? "Heating" : "Stable";
   const hottest = Number.isInteger(pt.hottestComponentIndex) && ship.design?.[pt.hottestComponentIndex]
     ? `${partDisplayName(ship.design[pt.hottestComponentIndex].type)} #${pt.hottestComponentIndex}`
@@ -99,6 +140,13 @@ function renderHeatSummary(ship) {
     <div><span>Power delivered</span><strong>${formatHeatAmount(pt.deliveredDemandMw || 0)} MW</strong></div>
     <div><span>Power spare / unmet</span><strong>${formatHeatAmount(pt.sparePowerMw || 0)} / ${formatHeatAmount(pt.unmetDemandMw || 0)} MW</strong></div>
     <div><span>Priority preset</span><strong>${pt.activePriorityPreset || "Default"}</strong></div>
+    <div><span title="Runtime Power overload protection state derived from the authoritative allocation">Power protection</span><strong>${protectionStateLabel(pp.state || "normal")}</strong></div>
+    <div><span>Sections above sustained / at peak</span><strong>${pp.aboveSustainedSectionCount || 0} / ${pp.atPeakSectionCount || 0}</strong></div>
+    <div><span>Critical-stress sections</span><strong>${pp.criticalSectionCount || 0}</strong></div>
+    <div><span>Most stressed section</span><strong>${mostStressedSectionText(pp)}</strong></div>
+    <div><span>Tripped Switchgear</span><strong>${pp.trippedSwitchgearCount || 0}</strong></div>
+    <div><span>Next retry</span><strong>${(pp.trippedSwitchgearCount || 0) > 0 ? `${formatHeatAmount(pp.nextRetrySeconds || 0)}s` : "None"}</strong></div>
+    <div><span>Partial / shed consumers</span><strong>${pp.partialConsumerCount || 0} / ${pp.shedConsumerCount || 0}</strong></div>
     <div><span>Switchgear</span><strong>${switchgearSummaryText(ship)}</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
     <div><span>Overheated</span><strong>${overheated}</strong></div>
@@ -185,7 +233,14 @@ function renderComponentHeatReadout(ship, index) {
   const powerText = powerDiag
     ? ` · Power ${formatHeatAmount(powerDiag.requestedMw)} / ${formatHeatAmount(powerDiag.allocatedMw)} MW · Cable Heat ${formatHeatAmount(powerDiag.powerCableHeatRate)} H/s · Sections ${(powerDiag.hostedActiveSectionIds || []).join(", ") || "None"}`
     : "";
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}${powerText}`;
+  // Section 7G wiring-section inspection: per-hosted-section runtime overload
+  // protection (id, tier, flow vs sustained/peak, utilisation, stress,
+  // seconds above sustained, protection state).
+  const hostedIds = powerDiag?.hostedActiveSectionIds || [];
+  const protectionText = hostedIds.length
+    ? ` · Protection ${hostedIds.map((sectionId) => sectionProtectionText(ship, sectionId)).join("; ")}`
+    : "";
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}${powerText}${protectionText}`;
 }
 
 function renderComponentDamageReadout(ship, index) {

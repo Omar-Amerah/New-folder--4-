@@ -64,6 +64,20 @@ export const GENERATED_BALANCE = {
       "coolingSupport": 0.15
     }
   },
+  "powerProtection": {
+    "overloadStartRatio": 1.0,
+    "recoveryStartRatio": 0.95,
+    "tripStressThreshold": 1.0,
+    "baseStressPerSecond": 0.12,
+    "additionalStressPerSecondAtPeak": 0.38,
+    "recoveryPerSecond": 0.25,
+    "criticalStressRatio": 0.75,
+    "tripCooldownSeconds": 4,
+    "retryIntervalSeconds": 2,
+    "safeRecloseSustainedRatio": 0.9,
+    "maxAutomaticRetrySubsets": 1024,
+    "maximumProtectionDeltaSeconds": 0.25
+  },
   "movement": {
     "requiresThrust": true,
     "noEngineMaxSpeed": "0 m/s",

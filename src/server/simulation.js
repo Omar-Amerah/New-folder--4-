@@ -7,6 +7,7 @@ const { updateBullets } = require("./projectiles");
 const { updateCapturePoints, updateScoring } = require("./objectives");
 const { updateShipHeat } = require("./heat");
 const { updateShipPowerDemand } = require("./componentPower");
+const { updateShipPowerProtection } = require("./powerProtection");
 const { assertComponentHpConsistency } = require("./componentHealth");
 function tickRoom(room, dt, now) {
   if (room.phase !== "active") { room.effects = room.effects.filter((effect) => now - effect.at < 900); return; }
@@ -15,6 +16,9 @@ function tickRoom(room, dt, now) {
   // Section 7D-2: refresh activity-driven Power demand once per ship, before any
   // gameplay system consumes this cycle's operational multipliers / section flow.
   for (const ship of ships) updateShipPowerDemand(ship, room, now);
+  // Section 7G: runtime Power overload protection reads the freshly solved
+  // section flows; only trip/retry connectivity transitions re-solve Power.
+  for (const ship of ships) updateShipPowerProtection(ship, dt);
   for (const ship of ships) updateShipMovement(room, ship, dt);
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships); updateShipSupport(room, ships, dt, now);
   for (const ship of ships) { updateShipWeapons(room, ship, ships, dt, now); updateShipHeat(ship, dt, room, now); }
