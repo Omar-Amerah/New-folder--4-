@@ -144,11 +144,16 @@ function getKnownShipDesigns(client) {
 }
 
 
+function presentNetworkId(value) { return value === null || value === undefined ? null : value; }
+function finiteOrNull(value) { const number = Number(value); return Number.isFinite(number) ? number : null; }
 function switchgearPresentationState(record, ship) {
   const hp = Number(ship?.componentHp?.[record.componentIndex]);
   if (Number.isFinite(hp) && hp <= 0) return "destroyed";
   if (record.state === "tripped") return Number(record.cooldownRemaining) > 0 ? "tripped-cooling" : "tripped-retry-pending";
-  if (!record.sideANetworkId && !record.sideBNetworkId) return "disconnected";
+  const aConnected = record.sideANetworkId !== null && record.sideANetworkId !== undefined;
+  const bConnected = record.sideBNetworkId !== null && record.sideBNetworkId !== undefined;
+  if (!aConnected && !bConnected) return "disconnected";
+  if (!aConnected || !bConnected) return "disconnected";
   if (record.mode === "open") return "open";
   if (record.mode === "automatic") return record.conducts ? "automatic-conducting" : "automatic-idle";
   if (record.mode === "closed") return record.conducts ? "closed-conducting" : "unpowered";
@@ -166,8 +171,8 @@ function buildSwitchgearSnapshot(ship) {
     conducts: Boolean(record.conducts),
     reasonNotConducting: record.conducts ? null : (record.trippedReason || record.decisionReason || (record.mode === "open" ? "saved-mode-open" : "not-conducting")),
     automaticClosed: Boolean(record.automaticClosed),
-    sideANetworkId: record.sideANetworkId || null,
-    sideBNetworkId: record.sideBNetworkId || null,
+    sideANetworkId: presentNetworkId(record.sideANetworkId),
+    sideBNetworkId: presentNetworkId(record.sideBNetworkId),
     ratingTier: record.ratingTier || "standard",
     sustainedCapacityMw: Number(record.sustainedCapacityMw) || 0,
     peakCapacityMw: Number(record.peakCapacityMw) || 0,
@@ -300,26 +305,21 @@ function buildRuntimePowerThermalSnapshot(ship) {
   const components = (ship.design || []).map((part, i) => {
     const cp = ship.componentPower?.byComponentIndex?.[i] || {};
     const rated = Number(require("./components").PARTS[part?.type]?.powerGeneration) || 0;
-    const available = Number(cp.generationAvailableMw) || 0;
-    const used = Number(cp.generationUsedMw) || 0;
-    const reasons = [];
-    if (rated > available) {
-      if ((ship.componentHp?.[i] ?? 1) <= 0) reasons.push("destroyed-component");
-      else if ((ship.componentHeatState?.[i] || 0) >= 4) reasons.push("heat-thermal-penalty");
-      else reasons.push("runtime-modifier");
-    }
-    if (rated > 0 && available > 0 && used <= 0) reasons.push(cp.networkId == null ? "isolation-from-network" : "no-connected-demand");
+    const available = finiteOrNull(cp.generationAvailableMw);
+    const used = finiteOrNull(cp.generationUsedMw);
+    const reasons = Array.isArray(cp.generationReductionReasons) ? cp.generationReductionReasons.slice() : [];
     return ({
     componentIndex: i,
-    requestedMw: Number(cp.requestedMw) || 0,
-    allocatedMw: Number(cp.allocatedMw) || 0,
-    operationalMultiplier: Number(cp.operationalMultiplier) || 0,
+    networkId: presentNetworkId(cp.networkId),
+    requestedMw: finiteOrNull(cp.requestedMw),
+    allocatedMw: finiteOrNull(cp.allocatedMw),
+    operationalMultiplier: finiteOrNull(cp.operationalMultiplier),
     powerRole: cp.role || "passive",
     ratedGenerationMw: rated,
     availableGenerationMw: available,
     currentGenerationMw: used,
     deliveredGenerationMw: used,
-    unusedGenerationMw: Math.max(0, available - used),
+    unusedGenerationMw: available === null || used === null ? null : Math.max(0, available - used),
     reductionReasons: reasons,
     powerCableHeatRate: Number(ship.componentPowerCableHeatRate?.[i]) || 0,
     powerCableHeatGenerated: Number(ship.componentPowerCableHeatGenerated?.[i]) || 0,
@@ -330,9 +330,9 @@ function buildRuntimePowerThermalSnapshot(ship) {
   for (const section of cable.sections || []) {
     const id = namespacedPowerSectionId(section.sectionId);
     powerCableHeatBySectionId[id] = {
-      baseHeatMw: Number(section.heatPerHostedCellPerSecond) || 0,
-      overloadHeatMw: section.aboveSustained ? Number(section.totalHeatPerSecond) || 0 : 0,
-      totalHeatMw: Number(section.totalHeatPerSecond) || 0
+      baseHeatMw: finiteOrNull(section.baseHeatPerSecond) ?? 0,
+      overloadHeatMw: finiteOrNull(section.overloadHeatPerSecond) ?? 0,
+      totalHeatMw: finiteOrNull(section.totalHeatPerSecond) ?? 0
     };
   }
   return {
@@ -550,5 +550,6 @@ module.exports = {
   markSnapshotPowerWritten,
   markSnapshotPowerProtectionWritten,
   markSnapshotWiringLayoutWritten,
-  canViewPlayerEconomy
+  canViewPlayerEconomy,
+  _test: { buildSwitchgearSnapshot, buildRuntimePowerThermalSnapshot, switchgearPresentationState, finiteOrNull }
 };

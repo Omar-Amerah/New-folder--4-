@@ -171,7 +171,7 @@ check("bottleneck warning remains when another weaker section exists on the rout
     preview: { delta: { totalInfrastructure: 4, displacement: 6 } },
     currentSectionFlow: { absoluteFlowMw: 6, sustainedCapacityMw: 4, peakCapacityMw: 7, aboveSustained: true },
     proposedSectionFlow: { absoluteFlowMw: 6, sustainedCapacityMw: 24, peakCapacityMw: 36 },
-    weakerTierRemainsOnRoute: true, currentCableHeatRate: 1.3, proposedCableHeatRate: 0.1
+    weakerTierRemainsOnRoute: true, routeEvidenceAvailable: true, currentCableHeatRate: 1.3, proposedCableHeatRate: 0.1
   });
   assert(/Limited elsewhere/.test(cmp.verdict), "warns another weaker section still limits the route");
 });

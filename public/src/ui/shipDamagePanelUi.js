@@ -121,6 +121,11 @@ const POWER_CATEGORY_LABEL = {
   pointDefence: "Point defence", weapons: "Weapons", coolingSupport: "Cooling & support"
 };
 function mw(value) { return `${formatHeatAmount(Number(value) || 0)} MW`; }
+function mwOrUnavailable(value) {
+  if (value === null || value === undefined || value === "") return "Unavailable";
+  const number = Number(value);
+  return Number.isFinite(number) ? `${formatHeatAmount(number)} MW` : "Unavailable";
+}
 function safeText(value, fallback = "Unknown") {
   if (value === null || value === undefined || value === "") return fallback;
   return String(value);
@@ -238,14 +243,14 @@ function renderComponentPowerReadout(ship, index) {
   const isGenerator = ["core", "reactor", "auxGenerator"].includes(part.type) || (power && power[0] === "source");
   if (isGenerator) {
     const genPart = PART_STATS[part.type] || {};
-    const ratedGen = Number(diag?.ratedGenerationMw ?? genPart.powerGeneration) || 0;
-    const availableGen = Number(diag?.availableGenerationMw) || 0;
-    const deliveredGen = Number(diag?.deliveredGenerationMw ?? diag?.currentGenerationMw) || 0;
-    const unusedGen = Number(diag?.unusedGenerationMw) || Math.max(0, availableGen - deliveredGen);
+    const ratedGen = diag?.ratedGenerationMw ?? genPart.powerGeneration ?? null;
+    const availableGen = diag?.availableGenerationMw ?? null;
+    const deliveredGen = diag?.deliveredGenerationMw ?? diag?.currentGenerationMw ?? null;
+    const unusedGen = diag?.unusedGenerationMw ?? (availableGen !== null && deliveredGen !== null ? Math.max(0, Number(availableGen) - Number(deliveredGen)) : null);
     const reasons = (diag?.reductionReasons || []).join(", ");
     const restriction = reasons ? ` · reduced by ${reasons}` : (!alive ? " · destroyed: generating no Power" : "");
     const netId = power && power[1] != null ? ` · network ${power[1]}` : "";
-    dom.shipDamageHover.textContent = `${name} — generator · Rated: ${mw(ratedGen)} · Available: ${mw(availableGen)} · Delivered: ${mw(deliveredGen)} · Unused: ${mw(unusedGen)}${netId}${restriction}`;
+    dom.shipDamageHover.textContent = `${name} — generator · Rated: ${mwOrUnavailable(ratedGen)} · Available: ${mwOrUnavailable(availableGen)} · Delivered: ${mwOrUnavailable(deliveredGen)} · Unused: ${mwOrUnavailable(unusedGen)}${netId}${restriction}`;
     return;
   }
   if (diag && (Number(diag.requestedMw) > 0 || Number(diag.allocatedMw) > 0)) {

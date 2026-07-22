@@ -185,7 +185,7 @@
   // All flow inputs are solved section flows from the authoritative solver
   // (current wiring and proposed wiring); this function only interprets them.
   // ------------------------------------------------------------------
-  function tierChangeComparison({ infrastructure, fromTier, toTier, preview, currentSectionFlow, proposedSectionFlow, weakerTierRemainsOnRoute, currentCableHeatRate, proposedCableHeatRate }) {
+  function tierChangeComparison({ infrastructure, fromTier, toTier, preview, currentSectionFlow, proposedSectionFlow, weakerTierRemainsOnRoute, routeEvidenceAvailable = false, currentCableHeatRate, proposedCableHeatRate }) {
     const fromConfig = tierConfig(infrastructure, fromTier);
     const toConfig = tierConfig(infrastructure, toTier);
     const upgrade = POWER_TIER_ORDER.indexOf(toTier) > POWER_TIER_ORDER.indexOf(fromTier);
@@ -218,7 +218,7 @@
     let verdict;
     if (upgrade) {
       const wasLimited = Boolean(currentSectionFlow && (currentSectionFlow.aboveSustained || currentSectionFlow.atPeak));
-      if (weakerTierRemainsOnRoute) verdict = `Limited elsewhere: a weaker section on this selected source-to-consumer route still constrains delivery.`;
+      if (weakerTierRemainsOnRoute) verdict = routeEvidenceAvailable ? `Limited elsewhere: a weaker section on this selected source-to-consumer route still constrains delivery.` : "Caution: a weaker section exists in this network, but route-specific evidence is unavailable.";
       else if (wasLimited) verdict = `Useful upgrade: predicted sustained load is ${mw(proposedFlowMw === null ? flowMw : proposedFlowMw)}.`;
       else if (flowMw !== null && current.sustainedMw > 0 && flowMw <= current.sustainedMw * 0.9) verdict = `Likely unnecessary: predicted sustained load is only ${mw(flowMw)}.`;
       else verdict = "Adds headroom for future demand under this activity.";

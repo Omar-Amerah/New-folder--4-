@@ -529,7 +529,7 @@ function attachPreviewClarity(preview, kind, sectionId) {
       comparison: clarity.tierChangeComparison({
         infrastructure: WIRING_INFRASTRUCTURE,
         fromTier, toTier, preview,
-        currentSectionFlow, proposedSectionFlow, weakerTierRemainsOnRoute,
+        currentSectionFlow, proposedSectionFlow, weakerTierRemainsOnRoute, routeEvidenceAvailable: false,
         currentCableHeatRate: sectionHeatRate(currentSectionFlow, fromTier),
         proposedCableHeatRate: sectionHeatRate(proposedSectionFlow, toTier)
       })
