@@ -16,11 +16,14 @@ const index = fs.readFileSync("public/index.html", "utf8");
 // Player-facing reference: one concise collapsible block in the designer
 // wiring surface, covering every required topic with clear text.
 assert(index.includes('id="powerInfrastructureReference"'), "Power Infrastructure reference block exists");
+// Tier capacities in the reference are filled at runtime from the
+// authoritative balance (data-tier-capacity spans) rather than hardcoded, so
+// the static check verifies the data-driven placeholders exist per tier.
+for (const tier of ["light", "standard", "heavy"]) {
+  assert(index.includes(`data-tier-capacity="${tier}"`), `reference has an authoritative ${tier} capacity placeholder`);
+}
 for (const topic of [
   "Power Infrastructure reference",
-  "4 MW sustained / 7 MW peak",
-  "10 / 16 MW",
-  "24 / 36 MW",
   "Sustained vs peak",
   "overload stress",
   "never trip, burn or take damage",
@@ -29,15 +32,20 @@ for (const topic of [
   "cooldown",
   "Destroyed Switchgear",
   "command, propulsion, shields, point defence, weapons, cooling",
-  "Central bus",
-  "Distributed grids",
-  "Ring bus",
-  "Hybrid",
   "does not remove that bottleneck",
   "not required for ordinary branches",
   "Data wiring is separate",
   "no capacity, overload, Heat or breaker mechanics"
 ]) assert(index.includes(topic), `reference covers: ${topic}`);
+
+// The architecture comparison is rendered at runtime into #architectureComparison
+// from the shared WiringClarityRules.ARCHITECTURE_NOTES (authoritative source),
+// so the static check verifies the container plus the shared families.
+assert(index.includes('id="architectureComparison"'), "reference has an architecture comparison container");
+const architectureLabels = require("./public/src/shared/wiringClarityRules.js").ARCHITECTURE_NOTES.map((note) => note.label).join(" | ");
+for (const family of ["Central bus", "Distributed grids", "Ring bus", "Hybrid"]) {
+  assert(architectureLabels.includes(family), `architecture comparison covers ${family}`);
+}
 
 // Blueprint surfaces: wiring cost breakdown, per-tier cells, displacement,
 // section inspection and Switchgear configuration.
