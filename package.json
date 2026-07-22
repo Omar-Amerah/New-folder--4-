@@ -159,7 +159,9 @@
     "test:power-thermal-ui-browser": "npm run build && node verify-power-thermal-ui-browser.js",
     "test:power-thermal-snapshot": "node verify-power-thermal-snapshot.js",
     "test:switchgear": "node verify-switchgear-runtime.js",
-    "test:switchgear-browser": "npm run build && node verify-switchgear-ui-browser.js"
+    "test:switchgear-browser": "npm run build && node verify-switchgear-ui-browser.js",
+    "test:power-overload": "node verify-power-overload-protection.js && node verify-power-overload-snapshot.js",
+    "test:power-overload-browser": "npm run build && node verify-power-overload-ui-browser.js"
   },
   "keywords": [
     "browser-game",

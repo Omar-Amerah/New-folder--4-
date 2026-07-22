@@ -74,6 +74,43 @@ function validatePowerDemand(powerDemand, filePath, errors) {
   }
 }
 
+// Section 7G runtime Power overload protection: the central provisional
+// protection balance. Every tuning constant lives here (never scattered
+// through server or UI files) and must be finite, non-negative and safely
+// ordered so runtime normalisation never has to repair a nonsensical value.
+const POWER_PROTECTION_NUMERIC_FIELDS = [
+  "overloadStartRatio", "recoveryStartRatio", "tripStressThreshold",
+  "baseStressPerSecond", "additionalStressPerSecondAtPeak", "recoveryPerSecond",
+  "criticalStressRatio", "tripCooldownSeconds", "retryIntervalSeconds",
+  "safeRecloseSustainedRatio", "maxAutomaticRetrySubsets", "maximumProtectionDeltaSeconds"
+];
+function validatePowerProtection(protection, filePath, errors) {
+  const path = `${filePath}.powerProtection`;
+  if (!protection || typeof protection !== "object" || Array.isArray(protection)) {
+    errors.push(`${path} must be an object.`);
+    return;
+  }
+  for (const field of POWER_PROTECTION_NUMERIC_FIELDS) {
+    if (!isFiniteNonNegative(protection[field])) errors.push(`${path}.${field} must be a finite non-negative number.`);
+  }
+  if (isFiniteNonNegative(protection.recoveryStartRatio) && isFiniteNonNegative(protection.overloadStartRatio)
+    && protection.recoveryStartRatio > protection.overloadStartRatio) {
+    errors.push(`${path}.recoveryStartRatio must be <= overloadStartRatio.`);
+  }
+  if (protection.criticalStressRatio !== undefined && isFiniteNonNegative(protection.criticalStressRatio) && protection.criticalStressRatio > 1) {
+    errors.push(`${path}.criticalStressRatio must be from 0 to 1.`);
+  }
+  if (protection.safeRecloseSustainedRatio !== undefined && isFiniteNonNegative(protection.safeRecloseSustainedRatio) && protection.safeRecloseSustainedRatio > 1) {
+    errors.push(`${path}.safeRecloseSustainedRatio must be from 0 to 1.`);
+  }
+  if (!(Number.isInteger(protection.maxAutomaticRetrySubsets) && protection.maxAutomaticRetrySubsets >= 1)) {
+    errors.push(`${path}.maxAutomaticRetrySubsets must be an integer >= 1.`);
+  }
+  if (!(typeof protection.maximumProtectionDeltaSeconds === "number" && Number.isFinite(protection.maximumProtectionDeltaSeconds) && protection.maximumProtectionDeltaSeconds > 0)) {
+    errors.push(`${path}.maximumProtectionDeltaSeconds must be a finite number greater than zero.`);
+  }
+}
+
 function validateWiringInfrastructure(infrastructure, filePath, errors) {
   const path = `${filePath}.wiringInfrastructure`;
   if (!infrastructure || typeof infrastructure !== "object" || Array.isArray(infrastructure)) {
@@ -153,6 +190,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   if (balance.economy && balance.economy.shipCap < 0) errors.push(`${filePath}.economy.shipCap must be non-negative.`);
   validateWiringInfrastructure(balance.wiringInfrastructure, filePath, errors);
   validatePowerDemand(balance.powerDemand, filePath, errors);
+  validatePowerProtection(balance.powerProtection, filePath, errors);
   if (balance.match && balance.match.matchScore < 0) errors.push(`${filePath}.match.matchScore must be non-negative.`);
 
   const seen = new Set();
@@ -221,4 +259,4 @@ function assertValidComponentBalance(balance, options = {}) {
   return balance;
 }
 
-module.exports = { validateComponentBalance, assertValidComponentBalance, validateWiringInfrastructure, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };
+module.exports = { validateComponentBalance, assertValidComponentBalance, validateWiringInfrastructure, validatePowerProtection, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };
