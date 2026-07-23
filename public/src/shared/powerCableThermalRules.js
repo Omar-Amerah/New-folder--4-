@@ -39,7 +39,7 @@
   // exactly zero; direction is irrelevant (absolute flow); sustained flow yields
   // exactly the tier coefficient. Invalid configuration or sustained capacity is
   // rejected loudly rather than producing NaN/Infinity.
-  function cableHeatRateForSection(sectionFlow, tierConfig) {
+  function cableHeatRateBreakdownForSection(sectionFlow, tierConfig, hostedCellCount = 1) {
     const coefficient = Number(tierConfig && tierConfig.cableHeatAtSustainedPerHostedCell);
     const exponent = Number(tierConfig && tierConfig.cableHeatUtilisationExponent);
     if (!Number.isFinite(coefficient) || coefficient < 0) {
@@ -58,10 +58,19 @@
     }
     const rawFlow = sectionFlow && sectionFlow.absoluteFlowMw != null ? sectionFlow.absoluteFlowMw : (sectionFlow && sectionFlow.signedFlowMw);
     const absoluteFlow = Math.abs(Number(rawFlow) || 0);
-    if (!(absoluteFlow > 0)) return 0;
+    const cells = Math.max(0, Number(hostedCellCount) || 0);
+    if (!(absoluteFlow > 0) || cells <= 0) return { heatPerHostedCellPerSecond: 0, baseHeatPerSecond: 0, overloadHeatPerSecond: 0, totalHeatPerSecond: 0 };
     const utilisation = absoluteFlow / sustained;
-    const rate = coefficient * Math.pow(utilisation, exponent);
-    return Number.isFinite(rate) && rate > 0 ? rate : 0;
+    const totalPerCell = coefficient * Math.pow(utilisation, exponent);
+    const basePerCell = coefficient * Math.pow(Math.min(utilisation, 1), exponent);
+    const safeTotal = Number.isFinite(totalPerCell) && totalPerCell > 0 ? totalPerCell * cells : 0;
+    const safeBase = Number.isFinite(basePerCell) && basePerCell > 0 ? Math.min(basePerCell * cells, safeTotal) : 0;
+    const overload = Math.max(0, safeTotal - safeBase);
+    return { heatPerHostedCellPerSecond: cells > 0 ? safeTotal / cells : 0, baseHeatPerSecond: safeBase, overloadHeatPerSecond: overload, totalHeatPerSecond: safeBase + overload };
+  }
+
+  function cableHeatRateForSection(sectionFlow, tierConfig) {
+    return cableHeatRateBreakdownForSection(sectionFlow, tierConfig, 1).heatPerHostedCellPerSecond;
   }
 
   // Full deterministic cable-Heat analysis. Inputs are never mutated.
@@ -116,8 +125,11 @@
         throw new Error(`Power-cable Heat: section ${sectionId} must host exactly two endpoint cells`);
       }
       const tierConfig = powerTiers[flow.tier] || {};
-      const heatPerHostedCellPerSecond = cableHeatRateForSection(flow, tierConfig);
-      const totalHeatPerSecond = heatPerHostedCellPerSecond * hostedCells.length;
+      const heatBreakdown = cableHeatRateBreakdownForSection(flow, tierConfig, hostedCells.length);
+      const heatPerHostedCellPerSecond = heatBreakdown.heatPerHostedCellPerSecond;
+      const baseHeatPerSecond = heatBreakdown.baseHeatPerSecond;
+      const overloadHeatPerSecond = heatBreakdown.overloadHeatPerSecond;
+      const totalHeatPerSecond = heatBreakdown.totalHeatPerSecond;
       for (const cell of hostedCells) {
         touch(cell.componentIndex);
         componentRate.set(cell.componentIndex, componentRate.get(cell.componentIndex) + heatPerHostedCellPerSecond);
@@ -139,6 +151,8 @@
         hostedCells,
         hostComponentIndexes: [...new Set(hostedCells.map((c) => c.componentIndex))].sort((a, b) => a - b),
         heatPerHostedCellPerSecond,
+        baseHeatPerSecond,
+        overloadHeatPerSecond,
         totalHeatPerSecond
       });
     }
@@ -190,5 +204,5 @@
     return Object.is(total, -0) ? 0 : total;
   }
 
-  return { cableHeatRateForSection, analyzePowerCableHeat, totalPowerCableHeatRate };
+  return { cableHeatRateForSection, cableHeatRateBreakdownForSection, analyzePowerCableHeat, totalPowerCableHeatRate };
 }));

@@ -143,12 +143,12 @@
             <div class="ship-damage-head">
               <span>Ship status</span>
               <div class="status-view-tabs" role="tablist" aria-label="Ship status view">
-                <button id="shipDamageTab" type="button" role="tab" aria-selected="true" aria-controls="shipStatusPanelBody">Damage</button>
-                <button id="shipHeatTab" type="button" role="tab" aria-selected="false" aria-controls="shipStatusPanelBody">Heat</button>
-                <button id="shipPowerTab" type="button" role="tab" aria-selected="false" aria-controls="shipStatusPanelBody">Power</button>
+                <button id="shipDamageTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="shipStatusPanelBody">Damage</button>
+                <button id="shipHeatTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="shipStatusPanelBody">Heat</button>
+                <button id="shipPowerTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="shipStatusPanelBody">Power</button>
               </div>
             </div>
-            <div id="shipStatusPanelBody" role="tabpanel" aria-label="Ship status detail">
+            <div id="shipStatusPanelBody" role="tabpanel" aria-labelledby="shipDamageTab">
             <div id="shipHeatSummary" class="ship-heat-summary" hidden></div>
             <div id="shipPowerSummary" class="ship-power-summary" hidden></div>
             <canvas id="shipDamageCanvas" width="360" height="360" aria-label="Selected ship component damage diagram"></canvas>

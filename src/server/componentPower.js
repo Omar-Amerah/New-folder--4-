@@ -207,6 +207,27 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
 
 // Reuses topology, membership and nominal demand. Thermal source changes only
 // alter generation/allocation, so Data analysis and wiringRevision stay intact.
+function sourceGenerationReductionReasons(ship, index, entry = null) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const rated = Math.max(0, Number(PARTS[design[index]?.type]?.powerGeneration) || 0);
+  if (!(rated > 0)) return [];
+  const reasons = [];
+  const hp = ship?.componentHp?.[index];
+  if (Number.isFinite(Number(hp)) && Number(hp) <= 0) reasons.push("destroyed-component");
+  const HeatRules = require("../../public/src/shared/heatRules");
+  if ((ship?.componentHeatState?.[index] ?? HeatRules.STATE.NORMAL) === HeatRules.STATE.OVERHEATED) reasons.push("thermal-penalty");
+  const available = Number(entry?.generationAvailableMw);
+  const used = Number(entry?.generationUsedMw);
+  if (Number.isFinite(available) && available > 0) {
+    const hasNetwork = Array.isArray(entry?.networkIds) ? entry.networkIds.length > 0 : entry?.networkId !== null && entry?.networkId !== undefined;
+    if (!hasNetwork) reasons.push("isolated-from-network");
+    else if (Number.isFinite(used) && used <= 0) reasons.push("no-connected-demand");
+    else if (Number.isFinite(used) && used < available) reasons.push("curtailed-by-demand");
+  }
+  if (Number.isFinite(available) && available < rated && !reasons.length) reasons.push("unknown-runtime-reduction");
+  return [...new Set(reasons)];
+}
+
 function effectiveLiveSourceGeneration(ship, index) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   if ((ship?.componentHp?.[index] ?? 1) <= 0) return 0;
@@ -465,7 +486,8 @@ function applyShipPowerAllocation(ship, options = {}) {
       allocatedMw: entry.allocatedMw,
       unmetMw: entry.unmetMw,
       generationAvailableMw: entry.generationAvailableMw,
-      generationUsedMw: entry.generationUsedMw
+      generationUsedMw: entry.generationUsedMw,
+      generationReductionReasons: entry.role === "source" ? sourceGenerationReductionReasons(ship, index, entry) : []
     };
   });
 

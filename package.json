@@ -4,6 +4,7 @@
   "description": "Browser multiplayer modular space fleet arena.",
   "main": "server.js",
   "scripts": {
+    "test": "npm run test:unit",
     "start": "node server.js",
     "build": "node netlify-build.js",
     "check": "npm run build && npm run test:architecture && npm run test:module-imports && npm run check:components && npm run test:component-catalogue && node --check server.js && node --check netlify-build.js && node --check tools/run-tests.js && node --check verify-runtime.js && node --check verify-canvas-removal.js && node --check verify-pixi-lifecycle.js && node --check verify-turret-render.js && node --check verify-pixi-browser-support.js && node --check verify-match-start-render.js && node --check verify-blueprint-mobile-scroll.js && node verify-canvas-removal.js && node verify-economy.js && node verify-wiring.js && node --check verify-client-selection.js && npm run test:playwright-evaluate-args && node --check verify-deployment-health.js",
@@ -168,7 +169,8 @@
     "test:wiring-cost-benefit": "node verify-wiring-cost-benefit-clarity.js",
     "test:wiring-cost-benefit-browser": "npm run build && node verify-wiring-cost-benefit-ui-browser.js",
     "test:combat-power-tab": "node verify-combat-power-tab.js && node verify-combat-power-overlay-snapshot.js",
-    "test:combat-power-tab-browser": "npm run build && node verify-combat-power-tab-browser.js"
+    "test:combat-power-tab-browser": "npm run build && node verify-combat-power-tab-browser.js",
+    "test:power-review-regressions": "node verify-power-review-regressions.js"
   },
   "keywords": [
     "browser-game",
