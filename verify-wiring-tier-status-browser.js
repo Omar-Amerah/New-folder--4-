@@ -57,6 +57,23 @@ async function visibleStyle(page, sectionId) {
 async function haloClasses(page, sectionId) {
   return page.evaluate((id) => Array.from(document.querySelectorAll(`.wire-glow-layer line[data-section-id="${id}"]`)).map((el) => el.getAttribute("class")), sectionId);
 }
+async function inspectCircleSafety(page) {
+  return page.evaluate(() => {
+    const overlay = document.querySelector("svg.wiring-overlay");
+    const overlayRect = overlay?.getBoundingClientRect();
+    const cellWidth = (overlayRect?.width || 0) / 15;
+    const cellHeight = (overlayRect?.height || 0) / 15;
+    return [...document.querySelectorAll("svg.wiring-overlay circle")].map((circle) => {
+      const rect = circle.getBoundingClientRect();
+      return {
+        className: circle.getAttribute("class") || "",
+        radius: Number(circle.getAttribute("r")),
+        widthCells: cellWidth ? rect.width / cellWidth : Infinity,
+        heightCells: cellHeight ? rect.height / cellHeight : Infinity
+      };
+    });
+  });
+}
 
 (async () => {
   try {
@@ -110,9 +127,48 @@ async function haloClasses(page, sectionId) {
     const brokenHalo = await page.evaluate(() => { const el = document.querySelector('.wire-glow-layer .wire-status-broken'); return el ? getComputedStyle(el).strokeDasharray : null; });
     assert.ok(brokenHalo && brokenHalo !== "none", "broken status uses a dashed outline");
 
-    // 4. Inspect is hover-led: the exact section is emphasized temporarily,
-    // while clicking updates the panel without adding a persistent grid effect.
+    // 4. Inspect may preserve prior selection; any selected terminal markers stay
+    // bounded. The focus fix must not rely on clearing selection or wiring.
+    await page.locator('[data-wiring-tool="draw"]').click();
+    await page.locator("#buildGrid .build-cell").evaluateAll((cells) => {
+      cells.find((cell) => cell.dataset.partIndex === "0")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+    });
+    const stalePowerSelection = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return {
+        selectedIndex: state.wiringUi.selectedIndex,
+        selectedConnectionKey: state.wiringUi.selectedConnectionKey,
+        wiring: JSON.stringify(state.wiring)
+      };
+    });
+    assert.strictEqual(stalePowerSelection.selectedIndex, 0, "Power Draw fixture creates stale component selection before Inspect");
     await page.locator('[data-wiring-tool="inspect"]').click();
+    const powerInspectState = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return {
+        selectedIndex: state.wiringUi.selectedIndex,
+        selectedConnectionKey: state.wiringUi.selectedConnectionKey,
+        selectedSectionId: state.wiringUi.selectedSectionId,
+        selectedDataNetworkId: state.wiringUi.selectedDataNetworkId,
+        wiring: JSON.stringify(state.wiring)
+      };
+    });
+    assert.strictEqual(powerInspectState.selectedIndex, stalePowerSelection.selectedIndex,
+      "Power Inspect focus fix does not clear component selection");
+    assert.strictEqual(powerInspectState.selectedConnectionKey, stalePowerSelection.selectedConnectionKey,
+      "Power Inspect focus fix does not clear connection/network selection");
+    assert.strictEqual(powerInspectState.wiring, stalePowerSelection.wiring, "entering Power Inspect does not mutate wiring");
+    assert.ok(await page.locator(".wire-terminal-selected").count() > 0,
+      "selected terminal markers remain rendered and bounded; they are not hidden as a workaround");
+    const powerCircles = await inspectCircleSafety(page);
+    assert.ok(powerCircles.length > 0, "Power Inspect renders bounded overlay circle markers");
+    assert.ok(powerCircles.every((circle) => Number.isFinite(circle.radius) && circle.radius <= 0.18),
+      `every Power overlay circle has radius <= 0.18 (${JSON.stringify(powerCircles)})`);
+    assert.ok(powerCircles.every((circle) => circle.widthCells <= 2 && circle.heightCells <= 2),
+      `no Power overlay circle spans more than two grid cells (${JSON.stringify(powerCircles)})`);
+
+    // Inspect is hover-led: the exact section is emphasized temporarily, while
+    // clicking updates the panel without adding a persistent grid effect.
     const inspectHit = page.locator('.wire-hit[data-section-id="0,0:1,0"]').first();
     await inspectHit.dispatchEvent("mouseover");
     const hoverPresentation = await page.evaluate(() => {
@@ -136,12 +192,27 @@ async function haloClasses(page, sectionId) {
     const hoverCardText = await hoverCard.innerText();
     assert.match(hoverCardText, /\d+(?:\.\d+)? MW/, "hover card reports solved section flow in MW");
     assert.match(hoverCardText, /Sustained load\s+\d+%/, "hover card reports sustained utilisation");
-    assert.match(hoverCardText, /Direction\s+\(0,0\)\s*→\s*\(1,0\)/, "hover card reports solved flow direction");
-    assert.match(hoverCardText, /From\s+Core \(0,0\)/, "hover card identifies the upstream generator");
+    assert.doesNotMatch(hoverCardText, /Direction|From/, "direction and source labels stay off the compact hover card");
+    const energyCue = await page.evaluate(() => {
+      const pulse = document.querySelector('.wire-energy-pulse[data-section-id="0,0:1,0"]');
+      const source = document.querySelector('.wire-energy-source[data-source-index="0"]');
+      return {
+        pulseActive: pulse?.classList.contains("active"),
+        pulseAnimation: pulse ? getComputedStyle(pulse).animationName : "none",
+        sourceActive: source?.classList.contains("active"),
+        sourceAnimation: source ? getComputedStyle(source).animationName : "none"
+      };
+    });
+    assert.strictEqual(energyCue.pulseActive, true, "hover activates energy packets on the powered cable");
+    assert.notStrictEqual(energyCue.pulseAnimation, "none", "energy packets visibly travel along the cable");
+    assert.strictEqual(energyCue.sourceActive, true, "the supplying component pulses");
+    assert.notStrictEqual(energyCue.sourceAnimation, "none", "the supplying component has a visible pulse");
     await inspectHit.dispatchEvent("mouseout");
     assert.strictEqual(await page.locator("#wiringOverlayHost").evaluate((host) => host.classList.contains("wiring-inspect-hover-active")), false,
       "Inspect focus clears on pointer exit");
     assert.strictEqual(await hoverCard.isHidden(), true, "Power-flow hover card clears on pointer exit");
+    assert.strictEqual(await page.locator(".wire-energy-pulse.active, .wire-energy-source.active").count(), 0,
+      "energy animation clears on pointer exit");
 
     await inspectHit.dispatchEvent("click");
     await page.waitForTimeout(30);
@@ -181,6 +252,57 @@ async function haloClasses(page, sectionId) {
     });
     assert.match(dataBaseStroke.stroke, /rgb\(\s*56,\s*217,\s*255\s*\)/i, "base Data cable is cyan");
     assert.ok(dataBaseStroke.dash && dataBaseStroke.dash !== "none", "base Data cable is dashed");
+
+    // Repeat the stale-selection transition in Data mode. Hover remains the only
+    // grid emphasis and opens the compact Data inspection card.
+    await page.locator('[data-wiring-tool="draw"]').click();
+    await page.locator("#buildGrid .build-cell").evaluateAll((cells) => {
+      cells.find((cell) => cell.dataset.partIndex === "10")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+    });
+    const staleDataSelection = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return {
+        selectedIndex: state.wiringUi.selectedIndex,
+        selectedConnectionKey: state.wiringUi.selectedConnectionKey,
+        wiring: JSON.stringify(state.wiring)
+      };
+    });
+    assert.strictEqual(staleDataSelection.selectedIndex, 10, "Data Draw fixture creates stale component selection before Inspect");
+    await page.locator('[data-wiring-tool="inspect"]').click();
+    const dataInspectState = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return {
+        selectedIndex: state.wiringUi.selectedIndex,
+        selectedConnectionKey: state.wiringUi.selectedConnectionKey,
+        selectedSectionId: state.wiringUi.selectedSectionId,
+        selectedDataNetworkId: state.wiringUi.selectedDataNetworkId,
+        wiring: JSON.stringify(state.wiring)
+      };
+    });
+    assert.strictEqual(dataInspectState.selectedIndex, staleDataSelection.selectedIndex,
+      "Data Inspect focus fix does not clear component selection");
+    assert.strictEqual(dataInspectState.selectedConnectionKey, staleDataSelection.selectedConnectionKey,
+      "Data Inspect focus fix does not clear connection/network selection");
+    assert.strictEqual(dataInspectState.wiring, staleDataSelection.wiring, "entering Data Inspect does not mutate wiring");
+    assert.ok(await page.locator(".wire-terminal-selected").count() > 0,
+      "Data selected terminal markers remain rendered and bounded");
+    const dataCircles = await inspectCircleSafety(page);
+    assert.ok(dataCircles.length > 0, "Data Inspect renders bounded overlay circle markers");
+    assert.ok(dataCircles.every((circle) => Number.isFinite(circle.radius) && circle.radius <= 0.18),
+      `every Data overlay circle has radius <= 0.18 (${JSON.stringify(dataCircles)})`);
+    assert.ok(dataCircles.every((circle) => circle.widthCells <= 2 && circle.heightCells <= 2),
+      `no Data overlay circle spans more than two grid cells (${JSON.stringify(dataCircles)})`);
+    const dataInspectHit = page.locator('.wire-hit[data-section-id="0,8:1,8"]').first();
+    await dataInspectHit.dispatchEvent("mouseover");
+    assert.strictEqual(await page.locator(".wire-visible-layer .wire-section-hover").count(), 1,
+      "Data Inspect hover highlights exactly one section");
+    assert.strictEqual(await page.locator('.wire-visible-layer .wire-section-hover').getAttribute("data-section-id"), "0,8:1,8",
+      "Data Inspect hover highlights only the pointed section");
+    await hoverCard.waitFor({ state: "visible" });
+    assert.match(await hoverCard.innerText(), /Data cable[\s\S]*Signal link/i, "Data Inspect hover displays its inspection card");
+    await dataInspectHit.dispatchEvent("mouseout");
+    assert.strictEqual(await hoverCard.isHidden(), true, "Data inspection card clears on pointer exit");
+    assert.strictEqual(await page.locator(".wire-section-hover").count(), 0, "Data hover highlight clears on pointer exit");
     await page.locator("#wiringModePower").click();
     await page.waitForTimeout(30);
 

@@ -82,6 +82,7 @@
    final source-port layer may receive input. */
 .wiring-overlay .wire-glow-layer,
 .wiring-overlay .wire-visible-layer,
+.wiring-overlay .wire-energy-layer,
 .wiring-overlay .wire-marker-layer,
 .wiring-overlay .wire-indicator-layer {
   pointer-events: none;
@@ -116,6 +117,14 @@
   pointer-events: stroke;
   cursor: pointer;
   touch-action: none;
+}
+.wiring-overlay .wire-hit:focus,
+.wiring-overlay .wire-hit:focus-visible {
+  outline: none !important;
+}
+.wiring-overlay .wire-visible-layer .wire-section-keyboard-focus {
+  opacity: 1;
+  filter: drop-shadow(0 0 .06px #ffffff) drop-shadow(0 0 .13px #6fa8ff);
 }
 
 .wiring-overlay .wire-preview {
@@ -218,7 +227,7 @@
 .wiring-overlay circle.wire-terminal { r: .14px !important; stroke: #07111f; stroke-width: .04px !important; }
 .wiring-overlay .wire-terminal-power { fill: #ffb84d; }
 .wiring-overlay .wire-terminal-data { fill: #38d9ff; }
-.wiring-overlay circle.wire-terminal.selected { stroke: #6fa8ff; stroke-width: .08px !important; }
+.wiring-overlay circle.wire-terminal.wire-terminal-selected { r: .14px !important; stroke: #6fa8ff; stroke-width: .08px !important; }
 .wiring-overlay .wire-terminal-lead { stroke-width: .07; }
 .wiring-overlay circle.wire-next-cell { r: .12px !important; fill: rgba(255,255,255,.12); stroke: #fff; stroke-width: .035px !important; stroke-dasharray: .05 .04; }
 .wiring-overlay .wire-preview.confirmed { stroke-dasharray: none; stroke: #ffd94d; }
@@ -338,6 +347,50 @@
 .wiring-overlay-host.wiring-inspect-hover-active .wire-visible-layer .wire-section-hover {
   opacity: 1;
   filter: drop-shadow(0 0 0.08px #ffffff) drop-shadow(0 0 0.2px #38d9ff);
+}
+
+/* Inspect flow cue: the source component breathes while small energy packets
+   travel over every actively carrying section in the hovered Power network. */
+.wiring-overlay .wire-energy-pulse,
+.wiring-overlay .wire-energy-source {
+  opacity: 0;
+  pointer-events: none;
+}
+.wiring-overlay .wire-energy-pulse {
+  stroke: #fff8c5;
+  stroke-width: .055px !important;
+  stroke-dasharray: .025 .16;
+  filter: drop-shadow(0 0 .08px #ffffff) drop-shadow(0 0 .13px #ffb84d);
+}
+.wiring-overlay .wire-energy-pulse.active.wire-energy-forward {
+  opacity: 1;
+  animation: wiring-energy-forward .58s linear infinite;
+}
+.wiring-overlay .wire-energy-pulse.active.wire-energy-reverse {
+  opacity: 1;
+  animation: wiring-energy-reverse .58s linear infinite;
+}
+.wiring-overlay .wire-energy-source {
+  stroke: #fff3a3;
+  stroke-width: .09px !important;
+  filter: drop-shadow(0 0 .08px #fff) drop-shadow(0 0 .2px #ff9800);
+}
+.wiring-overlay .wire-energy-source.active {
+  opacity: 1;
+  animation: wiring-energy-source-pulse .8s ease-in-out infinite;
+}
+@keyframes wiring-energy-forward { to { stroke-dashoffset: -.185; } }
+@keyframes wiring-energy-reverse { to { stroke-dashoffset: .185; } }
+@keyframes wiring-energy-source-pulse {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wiring-overlay .wire-energy-pulse.active,
+  .wiring-overlay .wire-energy-source.active {
+    animation: none !important;
+    opacity: .95;
+  }
 }
 
 .wiring-hover-card[hidden] { display: none; }

@@ -58,6 +58,7 @@
     "test:wiring-editor": "node verify-wiring-editor.js",
     "test:wiring-workspace-browser": "npm run build && node verify-wiring-workspace-browser.js",
     "test:wiring-tier-status-browser": "npm run build && node verify-wiring-tier-status-browser.js",
+    "test:wiring-inspect-focus-browser": "npm run build && node verify-wiring-inspect-focus-browser.js",
     "test:power-allocation-foundation": "node verify-power-allocation-foundation.js",
     "test:power-flow": "node verify-power-flow.js",
     "test:power-policy": "node verify-power-allocation-foundation.js",

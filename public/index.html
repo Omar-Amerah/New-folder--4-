@@ -7,7 +7,7 @@
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
     <link rel="stylesheet" href="/styles.css?v=power-tab-1">
-    <link rel="stylesheet" href="/design.css?v=wiring-flow-hover-6">
+    <link rel="stylesheet" href="/design.css?v=wiring-hit-focus-fix-9">
     <link rel="stylesheet" href="/hud.css?v=preview-click-fix-1">
   </head>
   <body>
@@ -466,7 +466,7 @@
                   <div id="wiringHelpPanel" class="wiring-help-panel" role="dialog" aria-label="Wiring help" hidden>
                     <div class="wiring-help-head"><strong>Wiring help</strong><button id="wiringHelpCloseButton" type="button" aria-label="Close Wiring help">×</button></div>
                     <p><strong>Draw:</strong> drag through occupied ship cells. Drawing Power over existing cable changes traversed sections to the selected tier; same-tier cable is reused.</p>
-                    <p><strong>Erase:</strong> removes the selected physical section. <strong>Inspect:</strong> hover for live Power flow and source details; click only to open the detailed analysis.</p>
+                    <p><strong>Erase:</strong> removes the selected physical section. <strong>Inspect:</strong> hover for live Power flow and watch energy pulse outward from its source; click only to open the detailed analysis.</p>
                     <p><strong>Capacity:</strong> sustained is safe continuous load; peak is the delivery ceiling. Power cable above sustained generates extra Heat and overload stress.</p>
                      <p><strong>Display:</strong> Light is pale yellow, Standard vivid orange, and Heavy deep copper-red; they also use increasing thickness. Green is working, yellow loaded, orange above sustained, red at peak, red dashed disconnected, and blue selected.</p>
                     <p><strong>Power vs Data:</strong> Power carries energy and uses tiers. Data is a separate single-tier network with no capacity or overload mechanics; overlap never silently deletes the other network.</p>
