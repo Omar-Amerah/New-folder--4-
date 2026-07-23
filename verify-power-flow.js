@@ -251,15 +251,15 @@ check("29. Balanced now ranks Propulsion above Weapons (not one tied band)", () 
   assert.strictEqual(consumer(r, 1).allocatedMw, 3, "propulsion served fully first");
   assert.strictEqual(consumer(r, 2).allocatedMw, 0, "weapons shed");
 });
-check("29b. Balanced ties Shields and Point Defence and shares the band proportionally", () => {
-  // Section 15 example: 5 MW tied band, shield demand 8, point defence demand 2 ->
-  // proportional 4 MW and 1 MW, both at 50%. They stay separate categories.
+check("29b. Balanced ranks Shields above Point Defence", () => {
+  // With only 5 MW available, the higher Shield band receives it before the
+  // Point Defence band.
   const r = triConsumer(["shield", "pointDefense", "frame"], 5, { preset: "balanced" }, { 1: 8, 2: 2 });
-  assert.strictEqual(consumer(r, 1).allocatedMw, 4, "shields receive 4 MW");
-  assert.strictEqual(consumer(r, 2).allocatedMw, 1, "point defence receives 1 MW");
+  assert.strictEqual(consumer(r, 1).allocatedMw, 5, "shields receive all available Power");
+  assert.strictEqual(consumer(r, 2).allocatedMw, 0, "point defence waits for the higher Shield band");
   assert.strictEqual(consumer(r, 1).powerCategory, "shields");
   assert.strictEqual(consumer(r, 2).powerCategory, "pointDefence");
-  assert.strictEqual(consumer(r, 1).priorityBand, consumer(r, 2).priorityBand, "tied in the same band");
+  assert(consumer(r, 1).priorityBand < consumer(r, 2).priorityBand, "shields have the higher priority rank");
 });
 check("30. Defensive favours Shields before Weapons", () => {
   const r = triConsumer(["shield", "blaster", "frame"], 4, { preset: "defensive" }, { 1: 3.5, 2: 2.4 });

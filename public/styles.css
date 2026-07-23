@@ -351,6 +351,12 @@ h2 {
   box-shadow: none;
 }
 
+/* When deployment is unavailable, Blueprint Designer becomes the first
+   control and should use the same title-to-content gap as the other sections. */
+.ready-button[hidden] + .designer-button {
+  margin-top: 0;
+}
+
 .side-panel label {
   margin-top: 10px;
   font-size: 10px;
@@ -515,6 +521,11 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  padding: 4px 0 6px;
+  background: linear-gradient(180deg, var(--panel) 78%, rgba(7, 12, 21, 0));
   font-size: 11px;
   color: #9fb4d2;
   text-transform: uppercase;
@@ -1060,8 +1071,9 @@ h2 {
 }
 
 #shipDamageCanvas {
-  width: min(240px, 100%);
-  max-width: 240px;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
   aspect-ratio: 1;
 }
 .heat-hud i { position:relative; overflow:hidden; }
@@ -1091,16 +1103,174 @@ h2 {
 .ship-heat-summary .heat-trend-jump span { display:block; color:#8ea3c2; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
 .ship-heat-summary .heat-trend-jump strong { display:block; color:#e6f3ff; font-size:11px; font-weight:900; }
 
-/* Combat Power tab: grouped supply/distribution/protection summary. */
-.ship-power-summary { margin:6px 0; display:grid; gap:8px; }
+/* Combat Power tab: compact status and diagnostics, all sourced from the
+   authoritative snapshot. The preview remains usable while the summary
+   scrolls independently on shorter screens. */
+.ship-power-summary {
+  margin: 5px 0 7px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-height: min(34vh, 330px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 0 3px 2px 0;
+  color: #c8d7ee;
+  font-size: 10px;
+}
 .ship-power-summary[hidden] { display:none; }
-.ship-power-summary .ship-power-empty { color:#c8d7ee; font-size:11px; padding:8px; border:1px solid rgba(103,217,255,.16); border-radius:6px; background:rgba(8,15,27,.72); }
-.power-summary-group { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px; }
-.power-summary-group h4 { grid-column:1 / -1; margin:0; color:#ffd27a; font-size:10px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
-.power-summary-group div { border:1px solid rgba(103, 217, 255, .16); border-radius:6px; background:rgba(8, 15, 27, .72); padding:5px 6px; }
-.power-summary-group .power-summary-wide { grid-column:1 / -1; }
-.power-summary-group span { display:block; color:#8ea3c2; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
-.power-summary-group strong { display:block; margin-top:2px; color:#e6f3ff; font-size:11px; font-weight:900; word-break:break-word; }
+.power-overall {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(103, 217, 255, .24);
+  border-left-width: 3px;
+  border-radius: 7px;
+  background: rgba(8, 15, 27, .76);
+}
+.power-overall-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 25px;
+  min-height: 25px;
+  border-radius: 50%;
+  background: rgba(111, 211, 160, .12);
+  color: #79e5ae;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: -.02em;
+}
+.power-overall strong { display:block; color:#edf6ff; font-size:12px; line-height:1.15; }
+.power-overall p { margin:2px 0 0; color:#9fb4d2; line-height:1.25; }
+.power-overall-powered { border-left-color:#59d894; }
+.power-overall-partial,
+.power-overall-underpowered { border-left-color:#ffb84d; }
+.power-overall-critical,
+.power-overall-offline,
+.power-overall-disconnected { border-left-color:#ff607d; }
+.power-overall-unavailable { border-left-color:#8294af; }
+.power-overall-partial .power-overall-icon,
+.power-overall-underpowered .power-overall-icon { background:rgba(255,184,77,.13); color:#ffd27a; }
+.power-overall-critical .power-overall-icon,
+.power-overall-offline .power-overall-icon,
+.power-overall-disconnected .power-overall-icon { background:rgba(255,96,125,.13); color:#ff91a5; }
+.power-overall-unavailable .power-overall-icon { background:rgba(130,148,175,.13); color:#aebcd0; }
+.power-compact-section {
+  min-width: 0;
+  padding: 5px 1px 6px;
+  border-bottom: 1px solid rgba(174, 199, 231, .13);
+}
+.power-compact-section h4 {
+  margin: 0 0 5px;
+  color: #9fdfff;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+.power-compact-section p { margin:2px 0; line-height:1.35; overflow-wrap:anywhere; }
+.power-compact-section p strong { color:#edf6ff; font-variant-numeric:tabular-nums; }
+.power-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 10px;
+}
+.power-diagnostic-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px 0;
+}
+.power-diagnostic-row span { min-width:0; color:#8ea3c2; overflow-wrap:anywhere; }
+.power-diagnostic-row strong {
+  min-width: 0;
+  color: #e6f3ff;
+  font-size: 10px;
+  font-weight: 750;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.power-issues-section { display:grid; gap:4px; }
+.power-issue {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 184, 77, .26);
+  border-radius: 6px;
+  background: rgba(65, 42, 15, .2);
+}
+.power-issue-critical { border-color:rgba(255,96,125,.34); background:rgba(77,20,35,.2); }
+.power-issue-icon {
+  display:grid;
+  place-items:center;
+  align-self:start;
+  width:18px;
+  min-height:18px;
+  border-radius:50%;
+  background:rgba(255,184,77,.14);
+  color:#ffd27a;
+  font-size:9px;
+  font-weight:900;
+}
+.power-issue-critical .power-issue-icon { background:rgba(255,96,125,.14); color:#ff91a5; }
+.power-issue strong { color:#edf6ff; font-size:10px; line-height:1.2; }
+.power-issue p { margin:2px 0 0; color:#9fb4d2; }
+.power-inline-action {
+  min-height: 30px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(103,217,255,.36);
+  border-radius: 5px;
+  background: rgba(18,45,64,.5);
+  color: #aeeaff;
+  font-size: 9px;
+  font-weight: 800;
+  box-shadow: none;
+}
+.power-inline-action:hover { border-color:#79dcff; background:rgba(26,63,87,.7); }
+.power-healthy-line { color:#8fdcaf; }
+.power-healthy-line span { margin-right:4px; font-size:8px; font-weight:900; }
+.power-secondary-detail { color:#8ea3c2; font-size:9px; }
+.power-more-issues { min-width:0; border:0; }
+.power-more-issues > summary {
+  display: flex;
+  align-items: center;
+  min-height: 43px;
+  border-radius: 6px;
+  color: #a9bdd8;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.power-more-issues > summary:hover { color:#dcecff; }
+.power-more-issues > summary:focus-visible {
+  outline: 2px solid #79dcff;
+  outline-offset: -2px;
+}
+.power-more-issues[open] > summary { color:#9fdfff; }
+.power-more-issues .power-issue { margin-bottom:4px; }
+.power-status-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 560px) {
+  .ship-power-summary { max-height:min(35vh, 300px); }
+  .power-kv-grid { grid-template-columns:minmax(0, 1fr); }
+}
 .power-legend .legend-line { display:inline-block; width:16px; height:0; border-top-style:solid; vertical-align:middle; margin-right:2px; }
 .power-legend .legend-tier-light { border-top-width:2px; border-top-color:#9fb4d6; }
 .power-legend .legend-tier-standard { border-top-width:3px; border-top-color:#9fb4d6; }
@@ -1111,7 +1281,10 @@ h2 {
 .legend-above-sustained { background:#ff9a3c; }
 .legend-at-peak { background:#ff3b3b; }
 @media (prefers-reduced-motion: reduce) { #shipDamageCanvas { scroll-behavior:auto; } }
-:root { --interface-scale: 1; }
+:root {
+  --interface-scale: 1;
+  --ux-density: .95;
+}
 .side-panel, .score-panel, .menu-panel, .top-hud, .purchase-bar { font-size: calc(1rem * var(--interface-scale)); }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #38d5ff; outline-offset: 2px; }
 .settings-group { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; }
@@ -1125,6 +1298,17 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .comparison-row { display:grid; grid-template-columns:1.3fr .8fr .8fr .8fr; gap:6px; align-items:center; }
 .comparison-head { color:#9fb7cf; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
 .combat-style-controls button[aria-description] { position:relative; }
+
+/* Compact HTML interface chrome without changing the combat arena subtree. */
+.side-panel,
+.score-panel,
+.menu-screen:not(.blueprint-designer-screen) > .menu-panel,
+.confirm-panel,
+.purchase-bar,
+.purchase-tooltip,
+.toast-stack {
+  zoom: var(--ux-density);
+}
 
 /* Section 7A: wiring infrastructure lines in the Blueprint cost breakdown. */
 .cost-breakdown-infrastructure { opacity: 0.92; }

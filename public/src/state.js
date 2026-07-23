@@ -20,7 +20,7 @@ function makeStars(count) {
   return stars;
 }
 
-export const DEFAULT_THERMAL_LOAD_MODE = "idle";
+export const DEFAULT_THERMAL_LOAD_MODE = "combat";
 
 export const state = {
   visualShips: new Map(),

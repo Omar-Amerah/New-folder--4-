@@ -54,11 +54,35 @@ const artifactDir = path.join("test-artifacts", "blueprint-information-polish");
       inspectorHeadings.includes("Key stats"),
       `inspector shows semantic Key stats heading: ${JSON.stringify(inspectorHeadings)}`
     );
-    assert.equal(
-      inspectorHeadings.includes("Predicted in this design"),
-      false,
-      "component inspector does not duplicate Heat analysis"
-    );
+    const inspectorDisclosures = await page
+      .locator("#partInspector details > summary")
+      .evaluateAll(nodes => nodes.map(node => node.textContent?.trim()));
+    assert.equal(inspectorDisclosures.includes("Power and support details"), false,
+      "power and support values are no longer hidden in a disclosure");
+    assert.ok(inspectorDisclosures.includes("Heat details"), "component inspector includes Heat details");
+    const combatIndex = inspectorDisclosures.indexOf("Combat details");
+    const heatIndex = inspectorDisclosures.indexOf("Heat details");
+    if (combatIndex >= 0) assert.ok(heatIndex > combatIndex, "Heat details follows Combat details");
+    const heatDetails = page.locator("#partInspector .thermal-properties-details");
+    await heatDetails.locator("summary").click();
+    assert.equal(await heatDetails.getAttribute("open"), "", "Heat details opens from its summary");
+    const heatGeometry = await heatDetails.evaluate((details) => {
+      const summary = details.querySelector("summary");
+      const body = details.querySelector(".heat-details-body");
+      const outer = details.getBoundingClientRect();
+      const bodyRect = body.getBoundingClientRect();
+      const style = getComputedStyle(body);
+      return {
+        summaryHeight: summary.getBoundingClientRect().height,
+        insetLeft: bodyRect.left - outer.left,
+        paddingTop: parseFloat(style.paddingTop),
+        paddingLeft: parseFloat(style.paddingLeft),
+        gap: parseFloat(style.rowGap)
+      };
+    });
+    assert.ok(heatGeometry.summaryHeight >= 40, `Heat summary remains comfortably tappable: ${heatGeometry.summaryHeight}px`);
+    assert.ok(heatGeometry.paddingTop >= 10 && heatGeometry.paddingLeft >= 12 && heatGeometry.gap >= 10,
+      `opened Heat details has balanced internal spacing: ${JSON.stringify(heatGeometry)}`);
     await page.locator("#blueprintHeatTab").click();
     await page.locator("#designerAnalysisTab").click();
     await page.waitForFunction(() => window.__mfaState?.blueprintView === "heat");

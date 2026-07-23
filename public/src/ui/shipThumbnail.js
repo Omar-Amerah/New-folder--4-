@@ -6,10 +6,11 @@
 // Keep imports explicit and side-effect-free so the native ES-module graph can
 // be verified without relying on a flattened global bundle.
 
-import { PART_DEFS, isRotatablePart } from "../design/parts.js";
-import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
+import { PART_DEFS } from "../design/parts.js";
+import { normalizeRotation } from "../design/rotation.js";
 import { withCanvasContext } from "./dom.js";
-import { drawShipStructure, drawModule, drawFootprintComponent } from "../game/componentArt.js";
+import { drawShipStructure } from "../game/componentArt.js";
+import { drawPlacedStaticComponent } from "../game/staticComponentComposition.js";
 import { moduleLocalPosition, footprintLocalPlacement } from "../game/shipGeometry.js";
 
 const THUMB_SCALE = 13; // must match the arena's SHIP_SCALE so proportions are right
@@ -70,25 +71,14 @@ function bakeShipThumb(design, color, size) {
     for (const part of design) {
       const def = PART_DEFS[part.type] || PART_DEFS.frame;
       const place = footprintLocalPlacement(part, THUMB_SCALE);
-      tctx.save();
-      tctx.translate(place.cx, place.cy);
-      if (isRotatablePart(part.type)) {
-        tctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-        if (place.multi) {
-          drawFootprintComponent({ type: part.type, unit: THUMB_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
-        } else {
-          drawModule({ x: 0, y: 0, size: THUMB_SCALE, color: def.color, type: part.type, trim: color });
-        }
-      } else if (place.multi) {
-        tctx.rotate(place.longAxisAngle);
-        drawFootprintComponent({ type: part.type, unit: THUMB_SCALE, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color, trim: color });
-      } else {
-        if (part.type === "maneuverThruster") {
-          tctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-        }
-        drawModule({ x: 0, y: 0, size: THUMB_SCALE, color: def.color, type: part.type, trim: color });
-      }
-      tctx.restore();
+      drawPlacedStaticComponent(tctx, {
+        part,
+        place,
+        unit: THUMB_SCALE,
+        color: def.color,
+        trim: color,
+        includeWeaponTop: true
+      });
     }
     tctx.restore();
   });

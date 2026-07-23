@@ -497,6 +497,22 @@
   line-height: 1.4;
 }
 
+.confirm-modal[data-intent="wiring-warning"] .confirm-panel {
+  border: 2px solid rgba(255, 95, 126, 0.78);
+  box-shadow:
+    0 0 0 1px rgba(255, 95, 126, 0.16),
+    0 24px 70px rgba(0, 0, 0, 0.58);
+}
+
+.confirm-modal[data-intent="wiring-warning"] .confirm-panel h2 {
+  color: #ffb4c2;
+}
+
+.confirm-modal[data-intent="wiring-warning"] #confirmAcceptButton {
+  border-color: rgba(255, 95, 126, 0.76);
+  background: rgba(126, 28, 50, 0.72);
+}
+
 .confirm-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

@@ -24,7 +24,7 @@ export const FRONTEND_BUILD = (typeof globalThis !== "undefined" && globalThis._
 if (typeof globalThis !== "undefined") globalThis.__mfaFrontendBuild = FRONTEND_BUILD;
 
 export const WORLD_FALLBACK = { width: 3200, height: 1900 };
-export const PART_CATEGORIES = ["Structure", "Power", "Engines", "Defence", "Weapons", "Support", "Utility"];
+export const PART_CATEGORIES = ["Structure", "Power", "Engines", "Defence", "Weapons", "Support"];
 
 export const HIDDEN_PARTS = new Set([
   "lightFrame",

@@ -8,8 +8,9 @@ const { computeStats } = require("./src/server/shipStats");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initShipHeat } = require("./src/server/heat");
 const { rebuildShipWiringState } = require("./src/server/componentPower");
-const { rebuildShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getSourceDataAllocation } = require("./src/server/componentData");
+const { rebuildShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponRanges, getSourceDataAllocation } = require("./src/server/componentData");
 const { updateShipWeapons, findPointDefenseTarget } = require("./src/server/combat");
+const { buildSharedSnapshot } = require("./src/server/snapshots");
 
 const close = (a, b, msg, eps = 1e-9) => assert(Math.abs(a - b) < eps, `${msg}: ${a} !== ${b}`);
 const mod = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
@@ -203,6 +204,37 @@ s = ship(design, paths);
 const first = JSON.stringify(s.runtimeDataSupport); rebuildShipDataSupport(s); const second = JSON.stringify(s.runtimeDataSupport);
 assert.equal(first, second, "runtime state deterministic across rebuilds");
 assertSnapshot(snap, design, wire(design, paths), "runtime rebuild");
+
+// Combat snapshots expose the same live per-component and family range used by
+// firing. Destroying a range source or a cable host immediately removes its
+// bonus without changing the saved wiring.
+design = [mod("sensorArray", 0, 0), mod("frame", 1, 0), mod("railgun", 2, 0)];
+paths = [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]];
+s = ship(design, paths);
+r = room();
+r.points = [];
+r.ships.set(s.id, s);
+const supportedRange = getEffectiveWeaponStats(s, 2).range;
+let combatSnapshot = buildSharedSnapshot(r, 1000, false).ships[0];
+close(combatSnapshot.railgunRange, supportedRange, "snapshot family range uses live support");
+close(combatSnapshot.weaponRanges[2], supportedRange, "snapshot component range uses live support");
+
+s.componentHp[0] = 0;
+rebuildShipWiringState(s, "destroyed-range-source", { skipRuntimeStats: true });
+s.componentPower = { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) };
+require("./src/server/componentData").refreshShipDataAllocation(s, "destroyed-range-source");
+combatSnapshot = buildSharedSnapshot(r, 1100, false).ships[0];
+close(combatSnapshot.railgunRange, PARTS.railgun.weapon.range, "destroyed source removes snapshot range bonus");
+close(combatSnapshot.weaponRanges[2], PARTS.railgun.weapon.range, "destroyed source removes component range bonus");
+
+s.componentHp[0] = s.componentMaxHp[0];
+s.componentHp[1] = 0;
+rebuildShipWiringState(s, "severed-data-host", { skipRuntimeStats: true });
+s.componentPower = { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) };
+require("./src/server/componentData").refreshShipDataAllocation(s, "severed-data-host");
+combatSnapshot = buildSharedSnapshot(r, 1200, false).ships[0];
+close(getEffectiveWeaponRanges(s).railgun, PARTS.railgun.weapon.range, "severed route removes live family range bonus");
+close(combatSnapshot.weaponRanges[2], PARTS.railgun.weapon.range, "severed route updates component snapshot range");
 
 console.log("Data support runtime verification passed.");
 

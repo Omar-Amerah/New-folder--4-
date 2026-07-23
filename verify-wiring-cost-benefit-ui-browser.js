@@ -72,9 +72,9 @@ async function buildFixture(page) {
     assert.strictEqual(tierData.length, 3, "three Power tier buttons");
     const light = tierData.find((tier) => tier.key === "light");
     const heavy = tierData.find((tier) => tier.key === "heavy");
-    assert.match(light.text, /4 \/ 7 MW/, "Light control shows authoritative capacity");
+    assert.match(light.text, /4\s*\/\s*7 MW/, "Light control shows authoritative capacity");
     assert.match(light.title, /\$1/, "Light tooltip shows authoritative cost");
-    assert.match(heavy.text, /24 \/ 36 MW/, "Heavy control shows authoritative capacity");
+    assert.match(heavy.text, /24\s*\/\s*36 MW/, "Heavy control shows authoritative capacity");
     assert.strictEqual(await page.locator("#wiringTierCards").count(), 0, "large tier comparison removed");
     assert.strictEqual(await page.getByRole("button", { name: /Change Tier/i }).count(), 0, "Change Tier removed");
     assert.ok(!/NaN|Infinity|undefined/.test(tierData.map((tier) => tier.text + tier.title).join(" ")), "no invalid tier values");
@@ -84,12 +84,14 @@ async function buildFixture(page) {
     await page.locator('[data-wiring-tier="light"]').click();
     const lightSummary = await toolSummaryText();
     assert.match(lightSummary, /Light Cable/, "tool summary shows Light");
-    assert.match(lightSummary, /4 \/ 7 MW/, "tool summary shows Light capacity");
-    assert.match(lightSummary, /final branches/i, "tool summary gives Light recommendation");
+    assert.match(lightSummary, /4\s*\/\s*7 MW/, "tool summary shows Light capacity");
+    assert.doesNotMatch(lightSummary, /final branches/i, "tier recommendation is collapsed by default");
+    await page.locator('[data-wiring-details="tier"] > summary').click();
+    assert.match(await toolSummaryText(), /final branches/i, "tier information expander preserves the Light recommendation");
     await page.locator('[data-wiring-tier="heavy"]').click();
     const heavySummary = await toolSummaryText();
     assert.match(heavySummary, /Heavy Bus/, "tool summary updates to Heavy");
-    assert.match(heavySummary, /24 \/ 36 MW/, "tool summary shows Heavy capacity");
+    assert.match(heavySummary, /24\s*\/\s*36 MW/, "tool summary shows Heavy capacity");
     assert.notStrictEqual(lightSummary, heavySummary, "tool summary content changed with the tier");
     // Data mode removes irrelevant Power controls; explanation stays in Help.
     await page.locator("#wiringModeData").click();
@@ -103,6 +105,8 @@ async function buildFixture(page) {
     await page.locator("#wiringModePower").click();
 
     // 3. Infrastructure summary separates Power/Data/Switchgear and networks.
+    const advancedDetails = page.locator('[data-wiring-details="advanced"]');
+    if ((await advancedDetails.getAttribute("open")) === null) await advancedDetails.locator(":scope > summary").click();
     const infraText = await page.locator('[data-wiring-panel="infrastructure-summary"]').innerText();
     assert.match(infraText, /Power wiring \$/, "infra summary shows Power wiring cost");
     assert.match(infraText, /Data wiring \$/, "infra summary shows Data wiring cost");

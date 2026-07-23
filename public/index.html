@@ -7,7 +7,7 @@
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
     <link rel="stylesheet" href="/styles.css?v=power-tab-1">
-    <link rel="stylesheet" href="/design.css?v=wiring-cost-sync-10">
+    <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-12">
     <link rel="stylesheet" href="/hud.css?v=preview-click-fix-1">
   </head>
   <body>
@@ -425,7 +425,7 @@
                 <div id="rotationIndicator" class="rotation-indicator" aria-label="Pending placement rotation" hidden></div>
                 <div class="designer-actions">
                   <button id="undoBlueprintEditButton" type="button" class="icon-button blueprint-undo-button" title="Undo last blueprint edit (Ctrl+Z)" aria-label="Undo last blueprint edit" disabled>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 14-5-5 5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
                   </button>
                   <button id="resetButton" type="button" class="icon-button" title="Reset to starter ship and default Wiring" aria-label="Reset to starter ship and default Wiring">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
@@ -445,24 +445,48 @@
                 </div>
                 <div id="blueprintModeControls" class="blueprint-mode-controls">
               <div id="wiringToolbar" class="wiring-toolbar" role="toolbar" aria-label="Wiring editor" hidden>
-                <div class="wiring-control-row" role="group" aria-label="Wiring network type">
-                  <button type="button" id="wiringModePower" class="wiring-mode-power active" aria-pressed="true" title="Edit Power wiring (amber)">Power</button>
-                  <button type="button" id="wiringModeData" class="wiring-mode-data" aria-pressed="false" title="Edit Data wiring (cyan)"><span>Data</span><span class="wiring-mode-cost" data-wiring-data-cost>—/cell</span></button>
+                <div class="wiring-control-band wiring-primary-band">
+                <div class="wiring-control-row wiring-network-row" role="group" aria-label="Wiring network type">
+                  <button type="button" id="wiringModePower" class="wiring-control wiring-network-control wiring-mode-power active" aria-pressed="true" title="Edit the ship’s physical Power network.">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M13 2 5.5 13h6L11 22l7.5-12h-6L13 2Z"/></svg></span>
+                    <span class="wiring-control-label-text">Power</span>
+                  </button>
+                  <button type="button" id="wiringModeData" class="wiring-control wiring-network-control wiring-mode-data" aria-pressed="false" title="Edit the ship’s Data network. Cost and displacement are shown in Wiring Analysis.">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 9 9-9 9-9-9 9-9Z"/></svg></span>
+                    <span class="wiring-control-label-text">Data</span>
+                  </button>
                 </div>
                 <div class="wiring-control-row wiring-tool-row" role="group" aria-label="Wiring tool">
-                  <button type="button" class="wiring-tool" data-wiring-tool="draw" aria-pressed="true" title="Draw cable or redraw existing Power cable at the selected tier">Draw</button>
-                  <button type="button" class="wiring-tool" data-wiring-tool="erase" aria-pressed="false" title="Erase a cable section">Erase</button>
-                  <button type="button" class="wiring-tool" data-wiring-tool="inspect" aria-pressed="false" title="Inspect a cable section">Inspect</button>
+                  <button type="button" class="wiring-control wiring-tool" data-wiring-tool="draw" aria-pressed="true" title="Draw cable or redraw existing Power cable at the selected tier">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m15 5 4 4L8 20H4v-4L15 5Zm-8 12 2 2M13 7l4 4"/></svg></span>
+                    <span class="wiring-control-label-text">Draw</span>
+                  </button>
+                  <button type="button" class="wiring-control wiring-tool" data-wiring-tool="erase" aria-pressed="false" title="Erase a cable section">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m8 4 12 12-4 4H8L3 15 8 4Zm1 15 5-5"/></svg></span>
+                    <span class="wiring-control-label-text">Erase</span>
+                  </button>
+                  <button type="button" class="wiring-control wiring-tool" data-wiring-tool="inspect" aria-pressed="false" title="Inspect a cable section">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></span>
+                    <span class="wiring-control-label-text">Inspect</span>
+                  </button>
                 </div>
+                </div>
+                <div class="wiring-control-band wiring-secondary-band">
                 <div id="wiringTierRow" class="wiring-control-row wiring-tier-row" role="group" aria-label="Power cable tier">
-                  <button type="button" class="wiring-tier" data-wiring-tier="light" aria-pressed="false"><span class="wiring-tier-name">Light</span><span class="wiring-tier-detail" data-tier-capacity-compact="light">— / — MW</span></button>
-                  <button type="button" class="wiring-tier" data-wiring-tier="standard" aria-pressed="true"><span class="wiring-tier-name">Standard</span><span class="wiring-tier-detail" data-tier-capacity-compact="standard">— / — MW</span></button>
-                  <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false"><span class="wiring-tier-name">Heavy Bus</span><span class="wiring-tier-detail" data-tier-capacity-compact="heavy">— / — MW</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="light" aria-pressed="false"><span class="wiring-tier-name">Light</span><span class="wiring-tier-capacity" data-tier-capacity-compact="light">— / — MW</span><span class="wiring-tier-meta" data-tier-meta="light">$— · −— Heat</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="standard" aria-pressed="true"><span class="wiring-tier-name">Standard</span><span class="wiring-tier-capacity" data-tier-capacity-compact="standard">— / — MW</span><span class="wiring-tier-meta" data-tier-meta="standard">$— · −— Heat</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false"><span class="wiring-tier-name">Heavy Bus</span><span class="wiring-tier-capacity" data-tier-capacity-compact="heavy">— / — MW</span><span class="wiring-tier-meta" data-tier-meta="heavy">$— · −— Heat</span></button>
                 </div>
                 <div class="wiring-control-row wiring-action-row" role="group" aria-label="Wiring actions">
-                  <button type="button" id="wiringUndoButton" title="Undo last completed wiring change">Undo</button>
-                  <button type="button" id="wiringClearNetworkButton" class="wiring-clear-action" aria-label="Clear Network" title="Remove the active inspected network">Clear</button>
-                  <button type="button" id="wiringHelpButton" aria-expanded="false" aria-controls="wiringHelpPanel">Help</button>
+                  <button type="button" id="wiringUndoButton" class="wiring-control wiring-utility wiring-utility-labeled" title="Undo last wiring change">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 14-5-5 5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></span>
+                    <span class="wiring-control-label-text">Undo</span>
+                  </button>
+                  <button type="button" id="wiringClearNetworkButton" class="wiring-control wiring-utility wiring-utility-labeled wiring-clear-action" aria-label="Clear active network" title="Clear active network">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 7h14M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg></span>
+                    <span class="wiring-control-label-text">Clear</span>
+                  </button>
+                  <button type="button" id="wiringHelpButton" class="wiring-control wiring-utility wiring-help-action" aria-label="Open Wiring help" aria-expanded="false" aria-controls="wiringHelpPanel" title="Help"><span aria-hidden="true">?</span></button>
                   <div id="wiringHelpPanel" class="wiring-help-panel" role="dialog" aria-label="Wiring help" hidden>
                     <div class="wiring-help-head"><strong>Wiring help</strong><button id="wiringHelpCloseButton" type="button" aria-label="Close Wiring help">×</button></div>
                     <p><strong>Draw:</strong> drag through occupied ship cells. Drawing Power over existing cable changes traversed sections to the selected tier; same-tier cable is reused.</p>
@@ -471,6 +495,7 @@
                      <p><strong>Display:</strong> Light is pale yellow, Standard vivid orange, and Heavy deep copper-red; they also use increasing thickness. Green is working, yellow loaded, orange above sustained, red at peak, red dashed disconnected, and blue selected.</p>
                     <p><strong>Power vs Data:</strong> Power carries energy and uses tiers. Data is a separate single-tier network with no capacity or overload mechanics; overlap never silently deletes the other network.</p>
                   </div>
+                </div>
                 </div>
                 <div id="wiringPreviewPanel" class="wiring-preview-panel" hidden aria-live="polite"></div>
                 <small id="wiringHint" class="wiring-hint" aria-live="polite"></small>
@@ -540,8 +565,8 @@
                     <div class="heat-control-row heat-scenario-row">
                       <span class="heat-control-label">Scenario</span>
                       <div id="thermalLoadModes" class="thermal-load-modes" role="group" aria-label="Thermal prediction scenario">
-                        <button type="button" data-thermal-load="idle" class="active" aria-pressed="true" title="Idle: systems mostly inactive">Idle</button>
-                        <button type="button" data-thermal-load="combat" aria-pressed="false" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
+                        <button type="button" data-thermal-load="idle" aria-pressed="false" title="Idle: systems mostly inactive">Idle</button>
+                        <button type="button" data-thermal-load="combat" class="active" aria-pressed="true" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
                         <button type="button" data-thermal-load="full" aria-pressed="false" title="Maximum Sustained Load: all major systems operating continuously">Max Load</button>
                       </div>
                     </div>

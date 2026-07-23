@@ -20,9 +20,9 @@ function flat(bands) { return bands.reduce((acc, band) => acc.concat(band), []);
 // Policy priority bands
 // ---------------------------------------------------------------------------
 console.log("Policy priority bands");
-check("1. Balanced returns five bands (no longer one all-tied band)", () => {
+check("1. Balanced returns six independently ranked bands", () => {
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "balanced" }), [
-    ["command"], ["propulsion"], ["shields", "pointDefence"], ["weapons"], ["coolingSupport"]
+    ["propulsion"], ["shields"], ["pointDefence"], ["command"], ["weapons"], ["coolingSupport"]
   ]);
 });
 check("2. Defensive returns the exact required bands", () => {
@@ -113,7 +113,7 @@ check("D. Preset display order equals its bands flattened (order and bands agree
   }
 });
 check("E. Approved preset bands are returned exactly", () => {
-  assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "balanced" }), [["command"], ["propulsion"], ["shields", "pointDefence"], ["weapons"], ["coolingSupport"]]);
+  assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "balanced" }), [["propulsion"], ["shields"], ["pointDefence"], ["command"], ["weapons"], ["coolingSupport"]]);
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "defensive" }), [["command"], ["shields", "pointDefence"], ["propulsion"], ["coolingSupport"], ["weapons"]]);
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "offensive" }), [["command"], ["weapons"], ["propulsion"], ["shields", "pointDefence"], ["coolingSupport"]]);
   assert.deepStrictEqual(PP.resolvePriorityBands({ preset: "mobility" }), [["command"], ["propulsion"], ["coolingSupport"], ["shields", "pointDefence"], ["weapons"]]);
@@ -150,7 +150,7 @@ check("I. Policy transition helpers preserve customOrder and never mutate inputs
   const moved = PP.moveCustomCategory(start, "shields", -1);
   assert.strictEqual(moved.preset, "custom", "reordering activates custom");
   assert.deepStrictEqual(moved.customOrder, ["weapons", "shields", "command", "propulsion", "pointDefence", "coolingSupport"]);
-  assert.ok(PP.policiesEqual(PP.moveCustomCategory({ preset: "balanced" }, "command", -1), { preset: "custom", customOrder: PP.POWER_PRESETS.balanced }), "edge move is a no-op order");
+  assert.ok(PP.policiesEqual(PP.moveCustomCategory({ preset: "balanced" }, "propulsion", -1), { preset: "custom", customOrder: PP.POWER_PRESETS.balanced }), "edge move is a no-op order");
   assert.strictEqual(JSON.stringify(start), snapshot, "inputs are never mutated");
 });
 check("J. A fresh default policy is Balanced with a complete Balanced-seeded custom order", () => {

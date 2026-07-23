@@ -22,9 +22,10 @@ export function renderPartInspector() {
   const enrichedDesc = enrichDescription(type, baseDesc);
   const footprint = stat.footprint || { width: 1, height: 1 };
   const footprintText = `${footprint.width}x${footprint.height}`;
-  const keyStats = keyInspectorStats(type, stat, effectiveCost);
   const combatDetails = details.filter(([label]) => /damage|dps|shield dps|hull dps|range|projectile|accuracy|turret|arc|tracking|track|lock|missile|beam|behavior|anti-missile|target|ship damage|frontal|front arc/i.test(label));
   const supportDetails = details.filter(([label]) => !combatDetails.some(([combatLabel]) => combatLabel === label));
+  const keyStats = mergeNonZeroKeyStats(keyInspectorStats(type, stat, effectiveCost), supportDetails);
+  const heatDetails = thermalSectionMarkup(type, stat, partThermalDetails(type, stat));
   const placed = selectedPlacedPartOfType(type);
   const componentActions = placed && placed.type !== "core" ? `
     <div class="part-inspector-actions" aria-label="Selected component actions">
@@ -55,7 +56,7 @@ export function renderPartInspector() {
     ${switchgearControlsMarkup(type)}
     ${componentActions}
     ${collapsibleDetails("combat", "Combat details", combatDetails)}
-    ${collapsibleDetails("support", "Power and support details", supportDetails)}
+    ${heatDetails}
     ${tipHtml}
   `;
   attachSwitchgearControlHandlers();
@@ -127,26 +128,44 @@ function keyInspectorStats(type, stat, effectiveCost) {
   const rows = [
     ["Build cost", effectiveCost],
     ["Mass", formatMass(stat.mass)],
-    ["Hull", formatHull(stat.hp)],
-    ["Power", partPowerText(stat)]
+    ["Hull", formatHull(stat.hp)]
   ];
+  if ((stat.powerGeneration || 0) !== 0 || (stat.powerUse || 0) !== 0) {
+    rows.push(["Power", partPowerText(stat)]);
+  }
   if (stat.weapon) {
     rows.push(["Damage", stat.weapon.type === "beam" ? `${formatDamage(stat.weapon.damage)}/s` : formatDamage(stat.weapon.damage)]);
     rows.push(["Fire rate", stat.weapon.type === "beam" ? "Continuous beam" : `${stat.weapon.fireRate} shots/s`]);
-  } else if ((stat.thrust || 0) > 0 || (stat.lateralThrust || 0) > 0) {
+  }
+  if ((stat.thrust || 0) > 0 || (stat.lateralThrust || 0) > 0) {
     rows.push([type === "maneuverThruster" ? "Lateral thrust" : "Thrust", formatThrust(type === "maneuverThruster" ? stat.lateralThrust : stat.thrust)]);
-  } else if ((stat.shield || 0) > 0 || (stat.shieldRegen || 0) > 0) {
-    rows.push(["Shield", formatShield(stat.shield)]);
-    rows.push(["Recharge", `${stat.shieldRegen || 0}/s`]);
-  } else if ((stat.repairRate || 0) > 0) {
-    rows.push(["Repair", formatRepair(stat.repairRate)]);
-  } else if ((stat.energyStorage || 0) > 0) {
+  }
+  if ((stat.repairRate || 0) > 0) {
+    rows.push(["Healing rate", formatRepair(stat.repairRate)]);
+  }
+  if ((stat.shield || 0) !== 0) rows.push(["Shield", formatShield(stat.shield)]);
+  if ((stat.shieldRegen || 0) !== 0) rows.push(["Recharge", `${stat.shieldRegen}/s`]);
+  if ((stat.energyStorage || 0) > 0) {
     rows.push(["Storage", formatEnergy(stat.energyStorage)]);
-  } else if ((stat.heat || 0) > 0 || type === "radiator" || type === "heatSink" || type === "heatPipe") {
+  }
+  if ((stat.heat || 0) > 0 || type === "radiator" || type === "heatSink" || type === "heatPipe") {
     rows.push(["Thermal role", thermalRoleText(type, stat)]);
   }
   const heatGeneration = globalThis.HeatRules?.activityHeat?.(type, stat) || 0;
   if (heatGeneration > 0.05) rows.push(["Heat generation", `+${heatGeneration.toFixed(1)} H/s`]);
+  return rows;
+}
+
+function mergeNonZeroKeyStats(keyStats, details) {
+  const rows = [...keyStats];
+  const labels = new Set(rows.map(([label]) => label.toLowerCase()));
+  for (const [label, value] of details) {
+    const numbers = String(value).match(/[-+]?\d+(?:\.\d+)?/g)?.map(Number) || [];
+    if (!numbers.some((number) => Number.isFinite(number) && number !== 0)) continue;
+    if (labels.has(label.toLowerCase())) continue;
+    labels.add(label.toLowerCase());
+    rows.push([label, value]);
+  }
   return rows;
 }
 
@@ -207,13 +226,15 @@ function thermalSectionMarkup(type, stat, thermal) {
       <p class="thermal-explainer">Not placed in this design yet${thermal.generation > 0 ? ` — generates +${thermal.generation.toFixed(1)} H/s ${escapeHtml(thermal.cadence.toLowerCase())}` : ""}.</p>`;
   }
   return `
-    <details class="thermal-properties-details" data-inspector-section="thermal"${state.partThermalPropsOpen === false ? "" : " open"}>
-      <summary>Thermal properties</summary>
-      <div class="thermal-stat-rows">
-        ${thermal.details.map(([label, value]) => thermalRow(label, value)).join("")}
+    <details class="part-inspector-details thermal-properties-details" data-inspector-section="thermal"${state.partInspectorOpen?.thermal ? " open" : ""}>
+      <summary>Heat details</summary>
+      <div class="heat-details-body">
+        <div class="thermal-stat-rows">
+          ${thermal.details.map(([label, value]) => thermalRow(label, value)).join("")}
+        </div>
+        ${predictedRows}
+        ${explainer}
       </div>
-      ${predictedRows}
-      ${explainer}
     </details>`;
 }
 

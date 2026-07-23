@@ -119,17 +119,15 @@ const defShieldMult = getComponentPowerMultiplier(defensive, 1);
 check("effective ship stats reflect the fresh solver multiplier (recalc ordering preserved)",
   Math.abs(effectiveShieldStats(defensive).capacity - PARTS.shield.shield * defShieldMult) < 1e-6);
 
-// Ship C2 — a named preset's tied band (Shields + Point Defence) shares a
-// shortage proportionally while the two stay separate categories with separate
-// diagnostics.
+// Ship C2 — Balanced keeps Shields above Point Defence while the two remain
+// separate categories with separate diagnostics.
 const c2Design = [at("auxGenerator", 0, 0), at("shield", 1, 0), at("pointDefense", 0, 1)];
 const c2 = shipFor(c2Design, wire(c2Design, [
   [0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]],
   [0, 2, [{ x: 0, y: 0 }, { x: 0, y: 1 }]]
 ], { preset: "balanced" }));
-check("Balanced ties Shields and Point Defence, sharing a shortage proportionally as separate categories",
-  getComponentPowerMultiplier(c2, 1) > 0 && getComponentPowerMultiplier(c2, 2) > 0
-    && Math.abs(getComponentPowerMultiplier(c2, 1) - getComponentPowerMultiplier(c2, 2)) < 2e-3
+check("Balanced prioritises Shields above Point Defence as separate categories",
+  getComponentPowerMultiplier(c2, 1) > getComponentPowerMultiplier(c2, 2)
     && c2.componentPower.byComponentIndex[1].powerCategory === "shields"
     && c2.componentPower.byComponentIndex[2].powerCategory === "pointDefence");
 

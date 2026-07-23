@@ -13,4 +13,19 @@
 @import url(./styles/blueprint-layout.css);
 @import url(./styles/build-preview.css);
 @import url(./styles/component-shapes.css);
-@import url(./styles/wiring-editor.css?v=wiring-cost-sync-10);
+@import url(./styles/wiring-editor.css?v=wiring-analysis-redesign-12);
+
+/* Scale Blueprint interface chrome independently; the grid stage and all
+   geometry used for placement, Heat and Wiring remain at 100%. */
+.blueprint-designer-panel > .menu-head,
+.blueprint-designer-panel .designer-left-col,
+.blueprint-designer-panel .designer-right-col,
+.blueprint-designer-panel .designer-top,
+.blueprint-designer-panel .blueprint-mode-context,
+.blueprint-designer-panel .designer-bottom {
+  zoom: var(--ux-density, .95);
+}
+
+.blueprint-designer-panel .build-grid-stage {
+  zoom: 1;
+}

@@ -180,11 +180,12 @@ async function runMode(page, browserName, mode) {
     browsers.push(["chromium", await launchChromium(chromium)]);
     browsers.push(["firefox", await firefox.launch({ headless: true })]);
     for (const [browserName, browser] of browsers) {
-      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const page = await context.newPage();
       await buildFixture(page);
       await runMode(page, browserName, "power");
       await runMode(page, browserName, "data");
-      await page.close();
+      await context.close();
     }
     console.log(`Wiring Inspect focus regression passed in Chromium and Firefox; screenshots: ${path.relative(__dirname, artifactDir)}`);
   } finally {

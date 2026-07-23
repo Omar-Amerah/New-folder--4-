@@ -37,6 +37,15 @@ globalThis.EngineExhaustRules = {
   assert(/Reduced efficiency|Severely/.test(ui.formatPowerState(3, 10, .4)));
   const one = ui.selectedShipSummary([{ hp: 50, maxHp: 100, shield: 20, maxShield: 40, heatNow: 10, heatMax: 100, overheated: 1, speed: 12, powerGeneration: 3, powerUse: 6, combatStyle: "hold", order: "Move" }]);
   assert(/Hull 50\/100/.test(one.text)); assert(/Power/.test(one.text)); assert(!/ship-/.test(one.text));
+  const live = ui.selectedShipSummary([{
+    hp: 50, maxHp: 100, shield: 0, maxShield: 0, combatStyle: "hold",
+    powerGeneration: 99, powerUse: 1,
+    powerThermal: { powerGenerationMw: 4, requestedDemandMw: 8, deliveredDemandMw: 3 },
+    railgunRange: 612
+  }]);
+  assert(/Power 4 \/ 8 MW/.test(live.text), "combat summary prefers authoritative live Power flow");
+  assert(/38%/.test(live.text), "combat summary derives efficiency from delivered live Power");
+  assert(/Range 612/.test(live.text), "combat summary displays live effective weapon range");
   const multi = ui.selectedShipSummary([
     { hp: 50, maxHp: 100, shield: 10, maxShield: 20, combatStyle: "hold", powerGeneration: 1, powerUse: 3 },
     { hp: 25, maxHp: 100, shield: 5, maxShield: 20, combatStyle: "charge", powerGeneration: 3, powerUse: 2 }

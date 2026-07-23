@@ -6,6 +6,7 @@ const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
 const { getPlayerRallyPoint } = require("./ships");
+const { ensureEffectiveWeaponProfileCache, getEffectiveWeaponRanges } = require("./componentData");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -31,6 +32,8 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
   const ships = [];
   for (const ship of room.ships.values()) {
     if (ship.removed) continue;
+    const effectiveWeapons = ensureEffectiveWeaponProfileCache(ship);
+    const effectiveRanges = getEffectiveWeaponRanges(ship);
     const entry = {
       id: ship.id,
       ownerId: ship.ownerId,
@@ -54,10 +57,13 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       combatTargetId: ship.combatTargetId || null,
       weaponAngles: (ship.weaponAngles || []).map(round),
       alive: ship.alive,
-      blasterRange: ship.stats?.blasterRange || 0,
-      missileRange: ship.stats?.missileRange || 0,
-      railgunRange: ship.stats?.railgunRange || 0,
-      beamRange: ship.stats?.beamRange || 0,
+      blasterRange: effectiveRanges.blaster,
+      missileRange: effectiveRanges.missile,
+      railgunRange: effectiveRanges.railgun,
+      beamRange: effectiveRanges.beam,
+      weaponRanges: (effectiveWeapons?.profiles || []).map((profile, index) => (
+        profile && (ship.componentHp?.[index] ?? 1) > 0 ? Number(profile.range) || 0 : null
+      )),
       beamRadius: ship.stats?.beamRadius || 0,
       respawnIn: 0,
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))

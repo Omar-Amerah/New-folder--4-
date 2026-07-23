@@ -381,10 +381,15 @@ function renderSelectedSummary(selectedShips) {
     state.pendingCombatStyle = null;
   }
   const summary = selectedShipSummary(selectedShips);
-  const pendingText = state.pendingCombatStyle ? ` · Pending ${state.pendingCombatStyle.style}` : "";
-  dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${summary.style}` : ""}${pendingText}`;
+  const pendingText = state.pendingCombatStyle ? ` · Pending ${combatStyleLabel(state.pendingCombatStyle.style)}` : "";
+  dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${combatStyleLabel(summary.style)}` : ""}${pendingText}`;
   dom.selectionPanelCount.title = summary.text;
   dom.selectionPanelCount.setAttribute("aria-label", summary.text + pendingText);
+}
+
+function combatStyleLabel(style) {
+  const value = String(style || "");
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 }
 
 function normalizeCombatStyle(style) {

@@ -143,17 +143,24 @@ function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
   ensureShipDataSupport(ship);
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const profiles = new Array(design.length).fill(null);
+  const familyRanges = { blaster: 0, missile: 0, railgun: 0, beam: 0 };
   let maxRange = 420;
   for (let i = 0; i < design.length; i += 1) {
     const baseWeapon = PARTS[design[i]?.type]?.weapon;
     if (!baseWeapon) continue;
     const support = ship.runtimeDataSupport?.weaponBonusByIndex?.[i] || ZERO_SUPPORT;
     profiles[i] = DataSupportRules.effectiveWeaponProfile(baseWeapon, support);
-    if (isAlive(ship, i)) maxRange = Math.max(maxRange, Number(profiles[i].range) || 0);
+    if (isAlive(ship, i)) {
+      const range = Number(profiles[i].range) || 0;
+      maxRange = Math.max(maxRange, range);
+      if (Object.hasOwn(familyRanges, baseWeapon.type)) {
+        familyRanges[baseWeapon.type] = Math.max(familyRanges[baseWeapon.type], range);
+      }
+    }
   }
   bump("profileBuildCount");
   const prev = ship.effectiveWeaponProfileCache || {};
-  ship.effectiveWeaponProfileCache = { version: 1, signature: cacheSignature(ship), revision: (prev.revision || 0) + 1, reason, profiles, maxRange };
+  ship.effectiveWeaponProfileCache = { version: 1, signature: cacheSignature(ship), revision: (prev.revision || 0) + 1, reason, profiles, familyRanges, maxRange };
   return ship.effectiveWeaponProfileCache;
 }
 function ensureEffectiveWeaponProfileCache(ship) {
@@ -170,8 +177,17 @@ function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
   return profile;
 }
 function getMaxEffectiveWeaponRange(ship) { return ensureEffectiveWeaponProfileCache(ship)?.maxRange || 420; }
+function getEffectiveWeaponRanges(ship) {
+  const ranges = ensureEffectiveWeaponProfileCache(ship)?.familyRanges;
+  return {
+    blaster: Number(ranges?.blaster) || 0,
+    missile: Number(ranges?.missile) || 0,
+    railgun: Number(ranges?.railgun) || 0,
+    beam: Number(ranges?.beam) || 0
+  };
+}
 
 function getWeaponDataSupport(ship, weaponIndex) { if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return cloneSupport(null, weaponIndex); const state = ensureShipDataSupport(ship); return cloneSupport(state?.weaponBonusByIndex?.[weaponIndex], weaponIndex); }
 function getEffectiveWeaponStats(ship, weaponIndex) { const profile = getEffectiveWeaponStatsInternal(ship, weaponIndex); return profile ? { ...profile } : null; }
 function getSourceDataAllocation(ship, sourceIndex) { if (!Number.isInteger(sourceIndex) || sourceIndex < 0) return null; const state = ensureShipDataSupport(ship); return cloneAllocation(state?.sourceAllocationByIndex?.[sourceIndex], sourceIndex); }
-module.exports = { rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };
+module.exports = { rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };

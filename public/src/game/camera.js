@@ -8,6 +8,7 @@ import { ownLiveShips } from "./selection.js";
 export const CAMERA_MIN_ZOOM = 0.32;
 export const CAMERA_MAX_ZOOM = 1.45;
 export const CAMERA_FOLLOW_HALF_LIFE_MS = 260;
+export const CAMERA_PAN_RANGE_SCALE = 2;
 
 function finite(value, fallback = 0) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
 
@@ -58,7 +59,12 @@ export function cameraViewportWorldBounds(camera = state.camera, rect = canvasCs
 export function clampCameraToWorld(camera = state.camera, rect = canvasCssRect(), world = state.world) {
   const cam = cameraLike(camera); const w = worldLike(world);
   const halfW = (rect.width / cam.zoom) / 2; const halfH = (rect.height / cam.zoom) / 2;
-  const minX = halfW, maxX = w.width - halfW; const minY = halfH, maxY = w.height - halfH;
+  // Give manual panning a virtual area twice the map dimensions, centred on
+  // the real map. This leaves half a map of breathing room beyond every edge.
+  const marginX = w.width * (CAMERA_PAN_RANGE_SCALE - 1) / 2;
+  const marginY = w.height * (CAMERA_PAN_RANGE_SCALE - 1) / 2;
+  const minX = -marginX + halfW, maxX = w.width + marginX - halfW;
+  const minY = -marginY + halfH, maxY = w.height + marginY - halfH;
   return { ...camera, x: minX > maxX ? w.width / 2 : clamp(cam.x, minX, maxX), y: minY > maxY ? w.height / 2 : clamp(cam.y, minY, maxY), zoom: cam.zoom };
 }
 export function zoomCameraAtScreenPoint(camera, screenPoint, zoomIntent, rect = canvasCssRect(), world = state.world) {

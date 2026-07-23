@@ -176,7 +176,7 @@
   color: #cfe0f5;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .wiring-status-panel h3 { margin: 0; font-size: 13px; }
@@ -237,7 +237,7 @@
 .wiring-overlay circle.wire-invalid-cell { r: .15px !important; fill: rgba(255,95,107,.28); stroke: #ff5f6b; stroke-width: .05px !important; }
 
 /* Section 6D Data-support inspector hardening */
-#wiringStatusPanel { max-height: min(70vh, 760px); overflow: auto; }
+#wiringStatusPanel { max-height: none; overflow: visible; }
 .data-scenario-label select { margin-left: .4rem; max-width: 100%; }
 .wiring-summary-section button[aria-selected="true"],
 .wiring-summary-section button[aria-pressed="true"] { outline: 2px solid #38d9ff; background: rgba(56,217,255,.16); }
@@ -274,7 +274,7 @@
 .wiring-overlay .wire-comp-data-host-critical { stroke: #ff4d6d; stroke-width: .13; stroke-dasharray: .18 .06; }
 .wiring-overlay .wire-comp-data-host-high { stroke: #ff9f1c; stroke-width: .12; stroke-dasharray: .12 .05; }
 .wiring-overlay .wire-comp-data-host-redundant { stroke: #7bd88f; stroke-width: .11; stroke-dasharray: .04 .08; }
-@media (max-width: 720px) { #wiringStatusPanel { max-height: 55vh; font-size: .92rem; } .wiring-summary-section button { white-space: normal; margin: .15rem; } }
+@media (max-width: 720px) { #wiringStatusPanel { max-height: none; font-size: .92rem; } .wiring-summary-section button { white-space: normal; margin: .15rem; } }
 @media (prefers-reduced-motion: reduce) { .wiring-overlay * { transition: none !important; animation: none !important; } }
 
 /* --- Section 7B Power wiring tools: tier/tool controls, tier widths, preview --- */
@@ -287,7 +287,6 @@
 /* Section 7D-2: tier buttons explain their purpose and sustained/peak capacity. */
 .wiring-toolbar .wiring-tier { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0.05rem; padding: 0.2rem 0.45rem; line-height: 1.15; }
 .wiring-tier-name { font-weight: 600; }
-.wiring-tier-detail { font-size: 0.72rem; opacity: 0.82; white-space: nowrap; }
 
 /* Compact tier legend: colour/thickness swatches + a capacity/status note. */
 .wiring-tier-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.7rem; margin-top: 0.35rem; padding: 0.35rem 0.5rem; border-radius: 0.4rem; background: rgba(16, 26, 42, 0.62); border: 1px solid rgba(120, 160, 220, 0.28); font-size: 0.78rem; color: #d7e4f5; }
@@ -474,6 +473,207 @@
 .architecture-note strong { color: #ffd27a; }
 .architecture-facts { margin: 0.2rem 0 0; padding-left: 1.1rem; font-size: 0.76rem; color: #9db4d6; }
 
+/* Prioritised Blueprint Wiring analysis. The inspector itself is the only
+   persistent surface; borders are reserved for actionable issue cards. */
+.wiring-status-panel {
+  gap: 0;
+  padding: 8px 10px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  line-height: 1.28;
+}
+
+.wiring-analysis-status {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0 8px;
+  border-bottom: 1px solid rgba(126, 160, 210, .22);
+}
+.wiring-analysis-status .wiring-status-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-weight: 950;
+}
+.wiring-analysis-status h3 {
+  color: #e7f1ff;
+  font-size: 12px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.wiring-analysis-status p { margin: 1px 0 0; color: #aebfd7; }
+.wiring-analysis-status.healthy { color: #7bd88f; }
+.wiring-analysis-status.warning { color: #ffd166; }
+.wiring-analysis-status.critical { color: #ff7b88; }
+.wiring-analysis-status.no-wiring,
+.wiring-analysis-status.unavailable { color: #9db4d6; }
+
+.wiring-analysis-section {
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(126, 160, 210, .15);
+}
+.wiring-analysis-section h4 { margin-bottom: 5px; }
+.wiring-compact-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 14px;
+}
+.wiring-compact-stats > div {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+}
+.wiring-compact-stats span {
+  overflow: hidden;
+  color: #8298b8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiring-compact-stats strong { color: #e5edf8; text-align: right; }
+
+.wiring-selected-tier-row {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  justify-content: space-between;
+  color: #dce8f8;
+}
+.wiring-selected-tier-row > strong { font-size: 11px; line-height: 1.35; }
+.wiring-selected-tier-row details { flex: 0 0 auto; }
+.wiring-selected-tier-row summary {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  place-items: center;
+  border: 1px solid rgba(126, 160, 210, .35);
+  border-radius: 50%;
+  color: #9edfff;
+  font-weight: 900;
+  list-style: none;
+}
+.wiring-selected-tier-row summary::-webkit-details-marker { display: none; }
+.wiring-selected-tier-row details[open] {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  flex: 1 1 100%;
+  gap: 6px;
+}
+.wiring-selected-tier-row details[open] p {
+  grid-column: 1 / -1;
+  margin: 2px 0;
+  color: #9db4d6;
+}
+
+.wiring-issues { display: grid; gap: 6px; }
+.wiring-issue-card {
+  padding: 8px;
+  border: 1px solid rgba(255, 209, 102, .45);
+  border-left-width: 3px;
+  border-radius: 7px;
+  background: rgba(42, 34, 16, .35);
+}
+.wiring-issue-card.critical {
+  border-color: rgba(255, 95, 107, .58);
+  background: rgba(61, 20, 28, .3);
+}
+.wiring-issue-card h5 {
+  margin: 0 0 2px;
+  color: #f7e4b1;
+  font-size: 11px;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.wiring-issue-card.critical h5 { color: #ffacb4; }
+.wiring-issue-affected { color: #d6e2f2; font-weight: 800; }
+.wiring-issue-card dl { display: grid; gap: 2px; margin: 5px 0; }
+.wiring-issue-card dl > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 6px; }
+.wiring-issue-card dt { color: #8298b8; }
+.wiring-issue-card dd { min-width: 0; margin: 0; color: #d7e4f5; overflow-wrap: anywhere; }
+.wiring-issue-card p { margin: 3px 0; color: #aebfd7; }
+.wiring-issue-card .wiring-issue-recommendation { color: #f1d995; font-weight: 750; }
+.wiring-issue-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.wiring-issue-actions button {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.wiring-more-issues { margin-top: 1px; }
+.wiring-more-issues > summary,
+.wiring-analysis-expander > summary {
+  cursor: pointer;
+  color: #bdd0ea;
+  font-weight: 850;
+}
+.wiring-more-issues > summary { padding: 6px 2px; }
+.wiring-more-issues[open] { display: grid; gap: 6px; }
+.wiring-analysis-expander {
+  border-bottom: 1px solid rgba(126, 160, 210, .15);
+}
+.wiring-analysis-expander > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 38px;
+  padding: 5px 0;
+  list-style-position: inside;
+  text-transform: uppercase;
+}
+.wiring-analysis-expander > summary strong {
+  color: #8ea6c8;
+  font-size: 10px;
+  text-align: right;
+  text-transform: none;
+}
+.wiring-analysis-expander > div { padding: 0 0 8px 14px; }
+.wiring-analysis-expander p { margin: 4px 0; }
+.wiring-analysis-expander summary:focus-visible,
+.wiring-selected-tier-row summary:focus-visible,
+.wiring-issue-actions button:focus-visible {
+  outline: 2px solid #ffd166;
+  outline-offset: 2px;
+}
+
+.wiring-overlay .wire-section-locate {
+  filter: drop-shadow(0 0 .06px #fff) drop-shadow(0 0 .15px #ffd166);
+  animation: wiring-locate-pulse .65s ease-in-out 3;
+}
+.wiring-overlay .wire-component-locate {
+  fill: rgba(255, 209, 102, .08);
+  stroke: #ffd166;
+  stroke-width: .075px;
+  stroke-dasharray: .12 .06;
+  filter: drop-shadow(0 0 .08px #ffd166);
+  animation: wiring-locate-pulse .65s ease-in-out 3;
+}
+@keyframes wiring-locate-pulse { 50% { opacity: .45; } }
+
+@media (max-width: 500px) {
+  .wiring-analysis-status { padding-bottom: 5px; }
+  .wiring-analysis-section { padding-block: 5px; }
+  .wiring-compact-stats > div { padding-block: 2px; }
+  .wiring-analysis-expander > summary {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+  .wiring-analysis-expander > summary strong { text-align: left; }
+  .wiring-issue-actions button { flex: 1 1 120px; }
+}
+
+@media (max-width: 360px) {
+  .wiring-compact-stats { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 720px) {
   .wiring-preview-panel { max-width: 100%; }
   .wiring-tool-row, .wiring-tier-row { overflow-x: auto; }
@@ -522,9 +722,6 @@
   min-height: 30px;
   padding: 3px 9px;
 }
-.wiring-toolbar button[aria-pressed="true"]::before {
-  content: "✓ ";
-}
 .wiring-toolbar button:focus-visible,
 .wiring-help-panel button:focus-visible {
   outline: 3px solid #ffd166;
@@ -533,9 +730,6 @@
 .wiring-toolbar .wiring-tier {
   min-width: 112px;
   min-height: 38px;
-}
-.wiring-toolbar .wiring-tier-detail {
-  font-size: 10px;
 }
 .wiring-toolbar .wiring-hint {
   position: absolute;
@@ -628,7 +822,7 @@
   align-content: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   padding: 2px 4px;
   border: 0;
@@ -662,52 +856,22 @@
   position: relative;
   width: 60px;
   min-width: 60px;
-  height: 30px;
-  min-height: 30px;
-  padding: 3px;
-  font-size: 10px;
+  height: 46px;
+  min-height: 46px;
+  padding: 5px;
+  font-size: 13px;
   line-height: 1.1;
-}
-.wiring-toolbar button[aria-pressed="true"]::before {
-  content: none;
 }
 .wiring-toolbar button[aria-pressed="true"] {
   font-weight: 900;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16);
 }
-.wiring-toolbar button[aria-pressed="true"]::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: .8;
-}
 .wiring-toolbar .wiring-tier {
   width: 86px;
   min-width: 86px;
-  height: 30px;
-  min-height: 30px;
-  padding: 3px;
-}
-.wiring-toolbar .wiring-tier-detail {
-  font-size: 8px;
-  line-height: 1;
-}
-.wiring-toolbar .wiring-mode-data {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-.wiring-toolbar .wiring-mode-cost {
-  font-size: 8px;
-  line-height: 1;
-  opacity: .82;
-  white-space: nowrap;
+  height: 60px;
+  min-height: 60px;
+  padding: 5px;
 }
 .wiring-toolbar .wiring-tier-name {
   white-space: nowrap;
@@ -725,9 +889,10 @@
   .wiring-toolbar .wiring-tier {
     width: 56px;
     min-width: 56px;
-    height: 28px;
-    min-height: 28px;
-    padding: 2px;
+    height: 38px;
+    min-height: 38px;
+    padding: 4px;
+    font-size: 12px;
   }
   .wiring-toolbar .wiring-tier-name {
     font-size: 9px;
@@ -735,6 +900,9 @@
   .wiring-toolbar .wiring-tier {
     width: 82px;
     min-width: 82px;
+    height: 42px;
+    min-height: 42px;
+    font-size: 6.5px;
   }
 }
 
@@ -745,11 +913,11 @@
   }
   .wiring-toolbar button,
   .wiring-toolbar .wiring-tier {
-    width: 72px;
-    min-width: 72px;
-    height: 36px;
-    min-height: 36px;
-    font-size: 11px;
+    width: 96px;
+    min-width: 96px;
+    height: 44px;
+    min-height: 44px;
+    font-size: 12px;
   }
   .wiring-toolbar .wiring-control-row {
     flex: 1 0 100%;
@@ -761,18 +929,345 @@
   }
   .wiring-toolbar .wiring-tier-row {
     display: grid;
-    grid-template-columns: repeat(3, 88px);
+    grid-template-columns: repeat(3, 96px);
     justify-content: center;
   }
   .wiring-toolbar .wiring-tier {
-    width: 88px;
-    min-width: 88px;
+    width: 96px;
+    min-width: 96px;
+    height: 58px;
+    min-height: 58px;
   }
   .wiring-toolbar .wiring-action-row button {
-    flex: 0 0 72px;
-    width: 72px;
-    min-width: 72px;
+    flex: 0 0 96px;
+    width: 96px;
+    min-width: 96px;
   }
+}
+
+/* Blueprint Designer Wiring toolbar hierarchy. These final rules intentionally
+   consolidate the legacy toolbar layers above without touching editor logic. */
+.blueprint-mode-context[data-mode="wiring"] {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: center;
+  align-self: center;
+  padding: 3px 5px;
+  background: rgba(6, 12, 21, .58);
+}
+.blueprint-mode-context[data-mode="wiring"] .blueprint-mode-summary { display: none; }
+.blueprint-mode-context[data-mode="wiring"] .blueprint-mode-controls { display: block; }
+
+.wiring-toolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.wiring-toolbar .wiring-control-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 5px;
+  min-width: 0;
+}
+.wiring-toolbar .wiring-control-band { display: contents; }
+.wiring-toolbar .wiring-tool-row,
+.wiring-toolbar .wiring-tier-row,
+.wiring-toolbar .wiring-action-row {
+  padding-inline-start: 9px;
+  border-inline-start: 1px solid rgba(166, 194, 229, .18);
+}
+.wiring-toolbar .wiring-action-row { position: relative; align-items: center; }
+.wiring-toolbar .wiring-preview-panel,
+.wiring-toolbar .wiring-hint { flex: 1 0 100%; }
+.wiring-toolbar .wiring-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.wiring-toolbar .wiring-preview-panel {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  z-index: 45;
+  width: max-content;
+  max-width: min(620px, calc(100vw - 24px));
+  translate: -50% 0;
+  margin: 0;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.wiring-toolbar button {
+  position: relative;
+  box-sizing: border-box;
+  color: #d9e6f6;
+  cursor: pointer;
+  font-family: inherit;
+}
+.wiring-toolbar .wiring-control,
+.wiring-toolbar .wiring-tier {
+  border: 1px solid rgba(92, 122, 160, .55);
+  border-radius: 9px;
+  background: rgba(16, 27, 44, .9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+}
+.wiring-toolbar .wiring-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  min-width: 76px;
+  height: 46px;
+  min-height: 46px;
+  padding: 7px 11px;
+  font-size: 14px;
+  font-weight: 740;
+  line-height: 1;
+}
+.wiring-toolbar .wiring-network-control { width: 80px; min-width: 80px; }
+.wiring-toolbar .wiring-tool { width: 86px; min-width: 86px; }
+.wiring-toolbar .wiring-control-icon {
+  display: inline-flex;
+  flex: 0 0 17px;
+  width: 17px;
+  height: 17px;
+}
+.wiring-toolbar .wiring-control-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wiring-toolbar .wiring-mode-power .wiring-control-icon svg {
+  fill: currentColor;
+  stroke: none;
+}
+.wiring-toolbar .wiring-control-label-text { white-space: nowrap; }
+.wiring-toolbar .wiring-control:hover:not(:disabled),
+.wiring-toolbar .wiring-tier:hover:not(:disabled) {
+  border-color: rgba(113, 157, 205, .78);
+  background: rgba(21, 36, 58, .96);
+}
+.wiring-toolbar .wiring-control:focus-visible,
+.wiring-toolbar .wiring-tier:focus-visible,
+.wiring-help-panel button:focus-visible {
+  outline: 2px solid #79dcff;
+  outline-offset: 2px;
+}
+.wiring-toolbar button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+/* A restrained tint plus a fixed inset indicator communicates selection
+   without changing button geometry or adding corner-dot pseudo-elements. */
+.wiring-toolbar .wiring-control[aria-pressed="true"],
+.wiring-toolbar .wiring-tier[aria-pressed="true"] {
+  color: #fff4dc;
+  border-color: #dfa94a;
+  background: linear-gradient(180deg, rgba(116, 79, 23, .28), rgba(67, 45, 17, .22));
+  box-shadow:
+    inset 0 -3px 0 #e4ad45,
+    inset 0 0 0 1px rgba(255, 205, 100, .08),
+    0 0 8px rgba(228, 173, 69, .06);
+}
+.wiring-toolbar .wiring-mode-data[aria-pressed="true"],
+.wiring-toolbar .wiring-tool[data-wiring-tool="inspect"][aria-pressed="true"] {
+  color: #dff8ff;
+  border-color: #5bc8eb;
+  background: linear-gradient(180deg, rgba(24, 100, 128, .25), rgba(15, 60, 82, .2));
+  box-shadow: inset 0 -3px 0 #68d4f4, inset 0 0 0 1px rgba(121, 220, 255, .08);
+}
+.wiring-toolbar .wiring-tool[data-wiring-tool="erase"][aria-pressed="true"] {
+  color: #ffe6df;
+  border-color: #dc806f;
+  background: linear-gradient(180deg, rgba(119, 49, 39, .25), rgba(65, 27, 25, .2));
+  box-shadow: inset 0 -3px 0 #e48b79, inset 0 0 0 1px rgba(255, 178, 159, .07);
+}
+
+.wiring-toolbar .wiring-tier {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  width: 98px;
+  min-width: 98px;
+  height: 58px;
+  min-height: 58px;
+  padding: 6px 9px;
+  border-width: 2px;
+  line-height: 1.05;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.wiring-toolbar .wiring-tier-name {
+  color: #e9f1fc;
+  font-size: 13px;
+  font-weight: 780;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+.wiring-toolbar .wiring-tier-capacity {
+  color: #abc0dc;
+  font-size: 11px;
+  font-weight: 690;
+  white-space: nowrap;
+}
+.wiring-toolbar .wiring-tier-meta {
+  color: #829bbd;
+  font-size: 10px;
+  font-weight: 640;
+  white-space: nowrap;
+}
+.wiring-toolbar .wiring-tier[aria-pressed="true"] .wiring-tier-name { color: #fff4dc; }
+.wiring-toolbar .wiring-tier[aria-pressed="true"] .wiring-tier-capacity { color: #e5d3af; }
+.wiring-toolbar .wiring-tier[aria-pressed="true"] .wiring-tier-meta { color: #c6ad7e; }
+
+.wiring-toolbar .wiring-utility {
+  min-width: 0;
+  height: 40px;
+  min-height: 40px;
+  padding: 6px 9px;
+  color: #afc0d6;
+  font-size: 12px;
+  font-weight: 680;
+  background: rgba(15, 25, 40, .72);
+  border-color: rgba(92, 122, 160, .36);
+}
+.wiring-toolbar .wiring-utility-labeled { width: 70px; }
+.wiring-toolbar .wiring-help-action {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  font-size: 17px;
+  font-weight: 760;
+}
+.wiring-toolbar .wiring-clear-action:not(:disabled) {
+  border-color: rgba(92, 122, 160, .36);
+  color: #afc0d6;
+}
+.wiring-toolbar .wiring-clear-action:not(:disabled):hover,
+.wiring-toolbar .wiring-clear-action:not(:disabled):focus-visible {
+  border-color: rgba(230, 119, 101, .72);
+  color: #ffd5cc;
+}
+
+.wiring-help-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 50;
+  width: min(460px, calc(100vw - 36px));
+  max-height: min(62vh, 520px);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 211, 252, .42);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, .98);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .58);
+  color: #cfe0f5;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.wiring-help-panel[hidden] { display: none; }
+#wiringStatusPanel { scroll-margin-top: 58px; }
+.wiring-help-panel p { margin: 7px 0 0; }
+.wiring-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wiring-help-head button {
+  min-width: 30px;
+  padding: 2px 7px;
+  font-size: 18px;
+}
+
+/* Two intentional rows: network + tools, then tiers + utilities. */
+@media (min-width: 721px) and (max-width: 1500px) {
+  .blueprint-mode-context[data-mode="wiring"] { padding: 1px 3px; }
+  .wiring-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 3px 10px;
+    padding: 1px 3px;
+  }
+  .wiring-toolbar .wiring-control-band {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+  .wiring-toolbar .wiring-network-row,
+  .wiring-toolbar .wiring-tier-row { padding-inline-start: 0; border-inline-start: 0; }
+  .wiring-toolbar .wiring-control { height: 44px; min-height: 44px; }
+  .wiring-toolbar .wiring-utility { height: 40px; min-height: 40px; }
+  .wiring-toolbar .wiring-tier { width: 90px; min-width: 90px; height: 50px; min-height: 50px; padding: 4px 7px; }
+  .wiring-toolbar .wiring-utility-labeled { width: 66px; }
+}
+
+/* Four stable rows on phones: network, tools, tiers, utilities. */
+@media (max-width: 720px) {
+  .blueprint-mode-context[data-mode="wiring"] { width: 100%; padding-inline: 2px; }
+  .wiring-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    width: 100%;
+    padding: 3px 2px;
+  }
+  .wiring-toolbar .wiring-control-band { display: contents; }
+  .wiring-toolbar .wiring-control-row {
+    justify-content: center;
+    width: 100%;
+    padding-inline-start: 0;
+    border-inline-start: 0;
+  }
+  .wiring-toolbar .wiring-network-control { width: 104px; }
+  .wiring-toolbar .wiring-tool { width: 98px; }
+  .wiring-toolbar .wiring-tier { width: 98px; min-width: 98px; height: 56px; min-height: 56px; padding-inline: 8px; }
+  .wiring-toolbar .wiring-action-row { align-items: center; }
+  .wiring-toolbar .wiring-action-row .wiring-utility-labeled { flex: 0 0 98px; width: 98px; }
+  .wiring-toolbar .wiring-action-row .wiring-help-action { flex: 0 0 40px; width: 40px; min-width: 40px; }
+  .wiring-help-panel {
+    position: fixed;
+    inset: 12px;
+    width: auto;
+    max-height: none;
+  }
+}
+
+@media (max-width: 400px) {
+  .wiring-toolbar .wiring-network-control { width: 96px; min-width: 96px; }
+  .wiring-toolbar .wiring-tool { width: 92px; min-width: 92px; padding-inline: 8px; }
+  .wiring-toolbar .wiring-tier { width: 92px; min-width: 92px; }
+  .wiring-toolbar .wiring-tier-name { font-size: 12px; }
+  .wiring-toolbar .wiring-tier-capacity { font-size: 10.5px; }
+  .wiring-toolbar .wiring-tier-meta { font-size: 9.5px; }
+  .wiring-toolbar .wiring-action-row .wiring-utility-labeled { flex-basis: 92px; width: 92px; }
 }
 
 /* ---------------------------------------------------------------------------

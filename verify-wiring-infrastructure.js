@@ -56,7 +56,7 @@ check("4. Connections remain valid through migration", () => {
 check("5. Missing policy becomes Balanced", () => {
   const m = W.migrateWiringToCurrentVersion({ version: 2, power: { sections: [], connections: [] } });
   assert.strictEqual(m.powerPolicy.preset, "balanced");
-  assert.deepStrictEqual(m.powerPolicy.customOrder, ["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]);
+  assert.deepStrictEqual(m.powerPolicy.customOrder, ["propulsion", "shields", "pointDefence", "command", "weapons", "coolingSupport"]);
 });
 check("6. Invalid policy values normalise safely", () => {
   const m = W.migrateWiringToCurrentVersion({ version: 2, powerPolicy: { preset: "bogus", customOrder: ["weapons", "weapons", "nope"] } });

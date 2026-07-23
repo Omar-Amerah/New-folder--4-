@@ -435,7 +435,7 @@ export const GENERATED_BALANCE = {
       "id": "maneuverThruster",
       "name": "Maneuver Thruster",
       "category": "Engines",
-      "cost": 10,
+      "cost": 15,
       "mass": 4,
       "hull": 40,
       "powerGeneration": 0,
@@ -444,12 +444,12 @@ export const GENERATED_BALANCE = {
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
-      "turn": 0.52,
+      "turn": 1.5,
       "energy": 0,
       "repair": 0,
       "rotatable": true,
-      "description": "Lateral side thruster that provides directional torque. Faces left or right only and does not increase forward speed.",
-      "lateralThrust": 85,
+      "description": "Powerful lateral thruster that provides directional torque. A correctly positioned pair turns substantially faster than a Gyroscope, but costs more space, Power and money.",
+      "lateralThrust": 120,
       "allowedRotations": [
         90,
         270
@@ -919,7 +919,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "captureModule",
       "name": "Capture Module",
-      "category": "Utility",
+      "category": "Support",
       "cost": 20,
       "mass": 5,
       "hull": 44,
@@ -939,7 +939,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "signalAmplifier",
       "name": "Signal Amplifier",
-      "category": "Utility",
+      "category": "Support",
       "cost": 30,
       "mass": 4,
       "hull": 30,
@@ -954,12 +954,12 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "rangeBonus": 75,
       "utility": "range",
-      "description": "Utility transmitter that extends weapon range."
+      "description": "Support transmitter that extends weapon range."
     },
     {
       "id": "stabilizerNode",
       "name": "Stabilizer Node",
-      "category": "Utility",
+      "category": "Support",
       "cost": 20,
       "mass": 4,
       "hull": 34,
@@ -974,7 +974,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "accuracyBonus": 0.055,
       "utility": "accuracy",
-      "description": "Utility stabilizer that improves accuracy and slightly helps turning."
+      "description": "Support stabilizer that improves accuracy and slightly helps turning."
     },
     {
       "id": "pointDefense",

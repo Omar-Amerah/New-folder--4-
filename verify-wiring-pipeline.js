@@ -41,7 +41,7 @@ function setup() {
   const { room, player, design } = setup();
   player.wiring = undefined;
   const direct = spawnShip(room, player, 0, 0, { design });
-  assert.deepStrictEqual(direct.wiring, { version: 3, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: { preset: "balanced", customOrder: ["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"] } }, "missing wiring gets safe Wiring v3 fallback");
+  assert.deepStrictEqual(direct.wiring, { version: 3, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: { preset: "balanced", customOrder: ["propulsion", "shields", "pointDefence", "command", "weapons", "coolingSupport"] } }, "missing wiring gets safe Wiring v3 fallback");
   const invalid = spawnShip(room, player, 0, 1, { design, wiring: { version: 2, power: { sections: [{ x1: 0, y1: 0, x2: 1, y2: 0, tier: "hacked" }], connections: [{ sourceIndex: 999, targetIndex: -1, sectionIds: ["bad"] }] }, data: { networkIds: ["client"] } } });
   assert.deepStrictEqual(invalid.wiring, validateWiring(design, invalid.wiring).wiring, "raw invalid client-derived fields are not stored");
 }

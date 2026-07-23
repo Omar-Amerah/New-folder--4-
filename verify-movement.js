@@ -162,6 +162,30 @@ function run() {
   assert(nearThruster.turnRateRight > 0 && farThruster.turnRateRight > 0, "thruster ships should be able to turn directionally");
   assert(farThruster.turnRateRight > nearThruster.turnRateRight, `a thruster far from the centre of mass should turn faster (near=${nearThruster.turnRateRight} far=${farThruster.turnRateRight})`);
 
+  // 6b. A deliberately paired port/starboard installation costs more than the
+  // compact Gyroscope and must buy substantially stronger reliable turning.
+  const turningHull = [
+    { x: 7, y: 7, type: "core" },
+    { x: 8, y: 7, type: "reactor" }
+  ];
+  const gyroscopeTurner = computeStats([
+    ...turningHull,
+    { x: 7, y: 5, type: "gyroscope" }
+  ]);
+  const pairedManeuverTurner = computeStats([
+    ...turningHull,
+    { x: 6, y: 5, type: "maneuverThruster", rotation: 90 },
+    { x: 8, y: 5, type: "maneuverThruster", rotation: 270 }
+  ]);
+  assert(pairedManeuverTurner.cost > gyroscopeTurner.cost,
+    `paired Maneuver Thrusters should cost more than one Gyroscope (${pairedManeuverTurner.cost} vs ${gyroscopeTurner.cost})`);
+  assert(pairedManeuverTurner.powerUse > gyroscopeTurner.powerUse,
+    "paired Maneuver Thrusters should retain their higher Power requirement");
+  assert(pairedManeuverTurner.turnRate >= gyroscopeTurner.turnRate * 1.4,
+    `paired Maneuver Thrusters should turn at least 40% faster with useful leverage (${pairedManeuverTurner.turnRate} vs ${gyroscopeTurner.turnRate})`);
+  assert(Math.abs(pairedManeuverTurner.turnRateLeft - pairedManeuverTurner.turnRateRight) < 0.01,
+    "a mirrored Maneuver Thruster pair should provide balanced left/right authority");
+
   // 7. Asteroid route checks use the whole command segment, so a right-click
   // destination behind an asteroid is recognized before the ship noses into it.
   const blockedRoute = segmentCircleClearance(0, 0, 1000, 0, 500, 0, 120);

@@ -22,7 +22,14 @@
   // order so a future allocator can read a single deterministic list regardless
   // of the chosen preset. These names are persisted in saved Blueprints and are
   // locked — renaming one later would require another migration.
-  const BALANCED_ORDER = Object.freeze([...POWER_CATEGORIES]);
+  const BALANCED_ORDER = Object.freeze([
+    "propulsion",
+    "shields",
+    "pointDefence",
+    "command",
+    "weapons",
+    "coolingSupport"
+  ]);
   // Visible, deterministic preset display orders. These are for presentation and
   // deterministic listing only — PRESET_BANDS below is the authority for which
   // categories are tied during allocation. The two are kept consistent: a
@@ -175,10 +182,9 @@
   // Authoritative priority bands per named preset. Each band is a set of tied
   // categories; earlier bands outrank later ones. Every category appears exactly
   // once. "custom" is resolved from the normalised customOrder (one band per
-  // category). These are the foundation a later capacity-aware allocator reads;
-  // no gameplay consumes them yet.
+  // category). The capacity-aware allocator consumes these bands directly.
   const PRESET_BANDS = Object.freeze({
-    balanced: Object.freeze([Object.freeze(["command"]), Object.freeze(["propulsion"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["weapons"]), Object.freeze(["coolingSupport"])]),
+    balanced: Object.freeze([Object.freeze(["propulsion"]), Object.freeze(["shields"]), Object.freeze(["pointDefence"]), Object.freeze(["command"]), Object.freeze(["weapons"]), Object.freeze(["coolingSupport"])]),
     defensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["propulsion"]), Object.freeze(["coolingSupport"]), Object.freeze(["weapons"])]),
     offensive: Object.freeze([Object.freeze(["command"]), Object.freeze(["weapons"]), Object.freeze(["propulsion"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["coolingSupport"])]),
     mobility: Object.freeze([Object.freeze(["command"]), Object.freeze(["propulsion"]), Object.freeze(["coolingSupport"]), Object.freeze(["shields", "pointDefence"]), Object.freeze(["weapons"])])

@@ -111,8 +111,8 @@ export const PART_DESCRIPTIONS = Object.freeze({
   heatSink: "High-capacity thermal buffer that soaks heat from connected frames and boosts adjacent components' heat capacity. Pair with radiators to shed the stored heat.",
   radiator: "Continuous heat removal that works best with an exposed exterior edge; only 25% effective when fully enclosed.",
   captureModule: "Objective module that helps dedicated capture ships contest relays.",
-  signalAmplifier: "Utility transmitter that extends weapon range for command and skirmish ships.",
-  stabilizerNode: "Utility stabilizer that improves weapon accuracy and slightly helps turning.",
+  signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
+  stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
   switchgear: "Two-cell Power switchgear with opposite A/B terminals. Saved modes: Open isolates, Closed conducts up to rating, Automatic conducts only deterministic spare power. Never carries Data."
 });
@@ -169,14 +169,14 @@ export function isPalettePart(type) {
 
 export function partCategory(type) {
   const stat = PART_STATS[type] || {};
-  if (stat.category) return stat.category;
+  if (stat.category) return stat.category === "Utility" ? "Support" : stat.category;
   if (type === "frame" || type === "armor") return "Structure";
   if (type === "reactor" || type === "battery") return "Power";
   if (type === "engine") return "Engines";
   if (type === "shield") return "Defence";
   if (stat.weapon) return "Weapons";
   if (type === "repair") return "Support";
-  return "Utility";
+  return "Support";
 }
 
 export function partDescription(type, stat) {
@@ -264,7 +264,7 @@ export function normalizeRuntimePart(part = {}) {
   const repairRate = numberOr(part.repairRate ?? part.repair, 0);
   const normalized = {
     ...part,
-    category: part.category || "Utility",
+    category: part.category === "Utility" || !part.category ? "Support" : part.category,
     powerCategory: typeof part.powerCategory === "string" ? part.powerCategory : null,
     cost: numberOr(part.cost, 0),
     mass: numberOr(part.mass, 0),
@@ -310,7 +310,7 @@ export function normalizeBalanceComponent(component) {
     : null;
   const repairRate = numberOr(component.repairRate ?? component.repair, 0);
   const part = {
-    category: component.category || "Utility",
+    category: component.category === "Utility" || !component.category ? "Support" : component.category,
     powerCategory: typeof component.powerCategory === "string" ? component.powerCategory : null,
     cost: numberOr(component.cost, 0),
     mass: numberOr(component.mass, 0),

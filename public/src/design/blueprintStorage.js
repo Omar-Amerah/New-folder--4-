@@ -73,7 +73,7 @@ function fallbackTier(kind, value) {
 
 const DEFAULT_POWER_POLICY = Object.freeze({
   preset: "balanced",
-  customOrder: Object.freeze(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"])
+  customOrder: Object.freeze(["propulsion", "shields", "pointDefence", "command", "weapons", "coolingSupport"])
 });
 
 function fallbackPowerPolicy(policy) {

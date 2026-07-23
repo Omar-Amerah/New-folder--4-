@@ -15,8 +15,10 @@ import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./scoreboardUi.js";
 import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory, handleBlueprintConfirmModalAction, closeBlueprintConfirmModalIfPending } from "./designerUi.js";
-import { resetWiringEditorState } from "./wiringUi.js";
+import { confirmPendingDesignerClose, cancelPendingDesignerClose } from "./designerScreenUi.js";
+import { resetWiringEditorState, wiringReadinessWarning } from "./wiringUi.js";
 let modalReturnFocus = null;
+let pendingUnwiredSave = false;
 let persistSavedDesignsImpl = persistSavedDesigns;
 let persistDesignImpl = persistDesign;
 
@@ -341,9 +343,11 @@ export function deleteSavedDesign(id) {
 }
 
 export function openDeleteDesignModal(saved) {
+  pendingUnwiredSave = false;
   modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.pendingDeleteDesignId = saved.id;
   state.pendingKickTargetId = null;
+  if (dom.confirmModal) delete dom.confirmModal.dataset.intent;
   if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Delete blueprint?";
   if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = `Delete ${saved.name}? This cannot be undone.`;
   if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Delete";
@@ -352,15 +356,31 @@ export function openDeleteDesignModal(saved) {
 }
 
 export function closeConfirmModal() {
+  if (cancelPendingDesignerClose()) return;
   if (closeBlueprintConfirmModalIfPending()) return;
+  pendingUnwiredSave = false;
   state.pendingDeleteDesignId = null;
   state.pendingKickTargetId = null;
-  if (dom.confirmModal) dom.confirmModal.hidden = true;
+  if (dom.confirmModal) {
+    delete dom.confirmModal.dataset.intent;
+    dom.confirmModal.hidden = true;
+  }
   modalReturnFocus?.focus?.();
   modalReturnFocus = null;
 }
 
 export function confirmModalAction() {
+  if (confirmPendingDesignerClose()) return;
+  if (pendingUnwiredSave) {
+    pendingUnwiredSave = false;
+    if (dom.confirmModal) {
+      delete dom.confirmModal.dataset.intent;
+      dom.confirmModal.hidden = true;
+    }
+    modalReturnFocus = null;
+    void saveCurrentDesign({ skipWiringWarning: true });
+    return;
+  }
   if (handleBlueprintConfirmModalAction()) return;
   if (state.pendingKickTargetId) {
     const targetId = state.pendingKickTargetId;
@@ -460,7 +480,7 @@ export function initializeSavedBlueprintLibraryControls() {
   }
 }
 
-export async function saveCurrentDesign() {
+export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   const blueprint = state.design.map((part) => ({ ...part }));
   // Saved designs keep an independent copy of the wiring arrays.
   const wiring = normalizeWiring(state.wiring, blueprint);
@@ -468,7 +488,27 @@ export async function saveCurrentDesign() {
   const validation = validateBlueprint(blueprint, { requireThrust: true, stats });
   if (!validation.ok) {
     showToast(validation.errors[0] || "Cannot save invalid blueprint.", "warning");
-    return;
+    return false;
+  }
+  const wiringWarning = wiringReadinessWarning();
+  if (wiringWarning && !skipWiringWarning) {
+    pendingUnwiredSave = true;
+    modalReturnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : dom.saveDesignButton;
+    state.pendingDeleteDesignId = null;
+    state.pendingKickTargetId = null;
+    state.pendingBlueprintDestructiveAction = null;
+    state.pendingWiringClearNetwork = null;
+    dom.confirmModal.dataset.intent = "wiring-warning";
+    dom.confirmModalTitle.textContent = wiringWarning.kind === "no-wiring"
+      ? "Save blueprint without wiring?"
+      : "Save blueprint with incomplete wiring?";
+    dom.confirmModalMessage.textContent = `${wiringWarning.message} Save it anyway?`;
+    dom.confirmAcceptButton.textContent = "Save Anyway";
+    dom.confirmModal.hidden = false;
+    dom.confirmCancelButton?.focus?.();
+    return false;
   }
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
 
@@ -487,7 +527,7 @@ export async function saveCurrentDesign() {
   } else {
     if (state.savedDesigns.length >= 12) {
       showToast("Design library is full (max 12 slots). Delete some before saving.", "warning");
-      return;
+      return false;
     }
     const name = `Design ${state.savedDesigns.length + 1}`;
     const id = makeDesignId();
@@ -511,14 +551,14 @@ export async function saveCurrentDesign() {
   const savedOk = persistSavedDesignsImpl(state.savedDesigns);
   if (!savedOk) {
     showToast("Could not save blueprint. Please try again.", "warning");
-    return;
+    return false;
   }
   const repaired = state.designNeedsAttention;
   if (repaired) {
     const repairedOk = persistDesignImpl(state.design, state.wiring, state.combatStyle);
     if (!repairedOk) {
       showToast("Could not save repaired blueprint. Please try again.", "warning");
-      return;
+      return false;
     }
     state.designNeedsAttention = false;
     state.designNormalizationIssues = [];
@@ -538,6 +578,7 @@ export async function saveCurrentDesign() {
     mod.invalidateHeatAnalysisCache();
     mod.renderBuildGrid();
   });
+  return true;
 }
 
 

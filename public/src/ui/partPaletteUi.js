@@ -15,6 +15,9 @@ export function setPartPaletteSelectionPresentationRefresh(handler) {
 
 export function renderPalette() {
   const locked = !isPaletteBlueprintEditMode();
+  if (!PART_CATEGORIES.includes(state.selectedPartCategory)) {
+    state.selectedPartCategory = state.selectedPartCategory === "Utility" ? "Support" : PART_CATEGORIES[0];
+  }
   dom.palette.textContent = "";
   dom.palette.classList.toggle("palette-locked", locked);
   dom.palette.setAttribute("aria-disabled", String(locked));

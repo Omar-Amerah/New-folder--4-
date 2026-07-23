@@ -7,7 +7,7 @@ import { renderPalette, setPartPaletteSelectionPresentationRefresh } from "./ui/
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats, requestResetDesign, requestClearDesign, undoBlueprintEdit, refreshBlueprintSelectionPresentation } from "./ui/designerUi.js";
 import { renderSavedDesigns, initializeSavedBlueprintLibraryControls, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
-import { openBlueprintDesigner, closeBlueprintDesigner } from "./ui/designerScreenUi.js";
+import { openBlueprintDesigner, closeBlueprintDesigner, requestCloseBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { initializeDesignerInspector } from "./ui/designerInspectorUi.js";
 import { bindPowerPriorityControls } from "./ui/wiringUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
@@ -61,7 +61,7 @@ dom.createButton.addEventListener("click", createGame);
 dom.joinButton.addEventListener("click", joinExistingGame);
 dom.deployButton.addEventListener("click", deployDesign);
 if (dom.openBlueprintDesignerButton) dom.openBlueprintDesignerButton.addEventListener("click", openBlueprintDesigner);
-if (dom.closeBlueprintDesignerButton) dom.closeBlueprintDesignerButton.addEventListener("click", closeBlueprintDesigner);
+if (dom.closeBlueprintDesignerButton) dom.closeBlueprintDesignerButton.addEventListener("click", requestCloseBlueprintDesigner);
 dom.shipGroupList?.addEventListener("click", handleShipGroupListClick);
 dom.shipGroupList?.addEventListener("change", handleShipGroupListChange);
 dom.rallyPointButton?.addEventListener("click", beginRallyPointPlacement);

@@ -145,9 +145,75 @@
 .thermal-value-hot { color:#fdba74 !important; }
 .thermal-value-cool { color:#86efac !important; }
 .thermal-explainer { margin:6px 0 0; color:#9db4cd; font-size:10px; line-height:1.45; }
-.thermal-properties-details { margin-top:9px; }
-.thermal-properties-details summary { cursor:pointer; list-style-position:inside; color:#fb923c; font-size:10px; font-weight:950; letter-spacing:.08em; text-transform:uppercase; user-select:none; }
-.thermal-properties-details[open] summary { margin-bottom:5px; }
+.thermal-properties-details {
+  margin-top: 2px;
+  overflow: hidden;
+  border-color: rgba(251, 146, 60, .24);
+  background: rgba(74, 30, 12, .055);
+}
+
+.part-inspector-details.thermal-properties-details summary {
+  display: flex;
+  align-items: center;
+  /* Remains above 40px after the 95% interface-density scale. */
+  min-height: 43px;
+  padding: 10px 13px;
+  cursor: pointer;
+  list-style: none;
+  color: #fdba74;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.part-inspector-details.thermal-properties-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.part-inspector-details.thermal-properties-details summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 9px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 140ms ease;
+}
+
+.part-inspector-details.thermal-properties-details summary:hover {
+  background: rgba(251, 146, 60, .07);
+}
+
+.part-inspector-details.thermal-properties-details summary:focus-visible {
+  outline: 2px solid #79dcff;
+  outline-offset: -3px;
+}
+
+.part-inspector-details.thermal-properties-details[open] summary {
+  border-bottom: 1px solid rgba(251, 146, 60, .16);
+  background: rgba(251, 146, 60, .065);
+}
+
+.part-inspector-details.thermal-properties-details[open] summary::before {
+  transform: rotate(45deg);
+}
+
+.heat-details-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px 13px 14px;
+}
+
+.heat-details-body > .part-detail-heading {
+  margin: 3px 1px -5px;
+}
+
+.heat-details-body > .thermal-explainer {
+  margin: -1px 1px 0;
+}
 
 .part-inspector-section {
   display: grid;

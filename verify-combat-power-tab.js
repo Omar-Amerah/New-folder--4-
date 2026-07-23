@@ -71,35 +71,35 @@ check("Heat summary retains overall thermal totals", () => {
   }
 });
 
-// 8-14. Power tab renders the required groups and values.
-check("Power summary renders supply/demand values", () => {
+// 8-14. Power tab renders the compact operational hierarchy.
+check("Power summary renders compact overall state and balance values", () => {
   const body = fnBody(panel, "function renderPowerSummary");
-  for (const label of ["Generation", "Requested", "Delivered", "Spare", "Unmet", "Partial consumers", "Shed consumers", "Throttled consumers", "Disabled consumers"]) {
-    assert(body.includes(`>${label}<`), `Power summary shows: ${label}`);
+  for (const label of ["Power balance", "Generation", "Requested", "Delivered", "Spare", "Unmet", "Priority"]) {
+    assert(body.includes(label), `Power summary shows: ${label}`);
   }
-  assert(body.includes("Priority preset"), "Power summary shows priority preset");
-  assert(body.includes("Overall status"), "Power summary shows overall status");
+  assert(body.includes("power-overall"), "overall status uses the compact status header");
+  assert(body.includes("power-kv-grid"), "balance uses compact key/value rows");
 });
-check("Power summary renders distribution values incl. authoritative cable Heat", () => {
+check("Power summary renders prioritized issues and healthy zero state", () => {
   const body = fnBody(panel, "function renderPowerSummary");
-  for (const label of ["Power networks", "Disabled sections", "Broken routes", "Above sustained", "At peak", "Critical-stress sections", "Most-stressed section", "Hottest cable", "Cable Heat rate"]) {
-    assert(body.includes(`>${label}<`), `Power distribution shows: ${label}`);
-  }
+  assert(body.includes("powerIssueList"), "issues come from the prioritized issue helper");
+  assert(body.includes("slice(0, 3)"), "only the first three issues are initially visible");
+  assert(body.includes("No Power issues detected"), "healthy state avoids empty issue cards");
+  assert(body.includes("power-more-issues"), "additional issues use progressive disclosure");
+});
+check("Power summary renders compact distribution incl. authoritative cable Heat", () => {
+  const body = fnBody(panel, "function renderPowerSummary");
+  for (const label of ["Distribution", "network", "broken/disabled", "overloaded", "Cable Heat"]) assert(body.includes(label), `Power distribution shows: ${label}`);
   // Cable Heat is read from powerThermal (authoritative), not recomputed.
   assert(/powerCableHeatRate/.test(body), "cable Heat sourced from powerThermal");
 });
-check("Power summary renders protection values", () => {
+check("Power summary omits specialist protection diagnostics", () => {
   const body = fnBody(panel, "function renderPowerSummary");
-  for (const label of ["Protection state", "Tripped Switchgear", "Nearest retry", "Switchgear"]) {
-    assert(body.includes(`>${label}<`), `Power protection shows: ${label}`);
+  for (const gone of [">Protection<", "Advanced Power Diagnostics", "Switchgear", "powerAdvancedHtml"]) {
+    assert(!body.includes(gone), `compact summary omits: ${gone}`);
   }
-  assert(body.includes("protectionStateLabel"), "uses the established protection labels");
-});
-check("protection labels use the established Normal/Strained/Brownout/Load shedding/Protection trip", () => {
-  const body = fnBody(panel, "function protectionStateLabel");
-  for (const label of ["Normal", "Strained", "Brownout", "Load shedding", "Protection trip"]) {
-    assert(body.includes(label), `label present: ${label}`);
-  }
+  const issues = fnBody(panel, "function powerIssueList");
+  assert(!issues.includes("Switchgear tripped"), "issues use plain Power-route language");
 });
 
 // 15-17. Overlay draws all sections, tiers distinguishable, disabled distinct.
@@ -126,7 +126,7 @@ check("overlay endpoints use the same cell→screen mapping as component geometr
   assert(/originY \+ \(cy - SHIP_DAMAGE_GRID_CENTER\) \* cellSize/.test(cellCenter), "y mapping matches componentScreenRect");
 });
 
-// 19-21. Component / generator / Switchgear hover readouts.
+// Component and generator hover readouts.
 check("component hover shows Power-specific details", () => {
   const body = fnBody(panel, "function renderComponentPowerReadout");
   assert(/requested/.test(body) && /allocated/.test(body), "consumer shows requested/allocated");
@@ -137,13 +137,6 @@ check("generator hover shows generation details", () => {
   const body = fnBody(panel, "function renderComponentPowerReadout");
   assert(/generator/.test(body) && /available/.test(body), "generator shows available generation");
 });
-check("Switchgear hover shows trip/retry details", () => {
-  const body = fnBody(panel, "function renderComponentPowerReadout");
-  for (const token of ["mode", "state", "rating", "trip", "cooldown", "retries", "stress", "util"]) {
-    assert(body.includes(token), `Switchgear readout shows: ${token}`);
-  }
-});
-
 // 22. Section inspection shows flow/capacity/utilisation/Heat/stress.
 check("section inspection shows flow, capacity, utilisation, Heat and stress", () => {
   const body = fnBody(panel, "function renderPowerSectionReadout");
@@ -184,10 +177,17 @@ check("Power UI sanitises values and duplicates no gameplay formula", () => {
 
 // 10 (empty states). Clear fallbacks for missing data.
 check("Power tab uses clear empty/unavailable states", () => {
-  const body = fnBody(panel, "function renderPowerSummary");
-  assert(/This ship has no installed Power wiring/.test(body), "no-wiring fallback");
-  assert(/No Power-flow data is available/.test(body), "no-flow fallback");
-  assert(/No Power section selected|No active retry|No live flow on this section/.test(panel), "section/retry fallbacks present");
+  const body = fnBody(panel, "function powerOverallState");
+  assert(/No valid Power network/.test(body), "no-wiring fallback");
+  assert(/Live Power details could not be read/.test(body), "missing snapshot fallback");
+  assert(/No Power section selected|No live flow on this section/.test(panel), "section fallbacks present");
+});
+
+check("Power issue Locate action selects only an authoritative section", () => {
+  const body = fnBody(panel, "function handlePowerSummaryClick");
+  assert(/data-power-locate-section/.test(body), "Locate action is delegated from the summary");
+  assert(/powerSectionsView\(ship\)\.some/.test(body), "section id is checked against snapshot layout");
+  assert(/sectionSelectedId = sectionId/.test(body), "exact cable section is selected");
 });
 
 // 38. No touch/mobile-specific behaviour added.

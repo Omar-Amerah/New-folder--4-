@@ -9,6 +9,11 @@ global.window = { devicePixelRatio: 1 };
 (async () => {
   const parts = await import('./public/src/design/parts.js');
   const before = parts.PART_STATS.core.cost;
+  for (const type of ['captureModule', 'signalAmplifier', 'stabilizerNode']) {
+    assert.strictEqual(parts.PART_STATS[type].category, 'Support', `${type} belongs to Support`);
+  }
+  assert.strictEqual(Object.values(parts.PART_STATS).some((part) => part.category === 'Utility'), false,
+    'the component catalogue exposes no Utility category');
   assert.notStrictEqual(parts.componentCatalogueSource(), 'server');
   parts.applyServerParts({ core: { cost: 123, mass: 1, hp: 1, footprint: { width: 1, height: 1 } } });
   assert.strictEqual(parts.componentCatalogueSource(), 'server');

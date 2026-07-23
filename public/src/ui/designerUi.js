@@ -18,13 +18,13 @@ import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedB
 import { updateEconomyUi } from "./purchaseUi.js";
 import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
-import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { formatPowerState } from "./section13bUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
   refreshWiringPresentation,
+  refreshWiringAnalysisPresentation,
   clearWiringPresentation,
   handleWiringCellClick,
   handleWiringCellHover,
@@ -35,6 +35,8 @@ import {
   clearAllWiring,
   resetWiringEditorState,
   resetWiringTransientState,
+  canUndoWiring,
+  undoWiring,
   refreshPowerPriorityControls,
   powerAllocationAnalysisHtml,
   confirmPendingWiringClear,
@@ -54,6 +56,11 @@ const HEAT_FLOW_THRESHOLD = 0.05;
 const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
 let blueprintEditUiHooks = null;
+
+function powerPresetLabel(preset) {
+  const value = String(preset || "Default");
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 export function isPhysicalBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isPaletteBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
@@ -137,6 +144,7 @@ export function renderBuildGrid() {
   } else {
     applyBlueprintPresentation();
   }
+  if (state.blueprintView !== "wiring") refreshWiringAnalysisPresentation();
   refreshBlueprintControls();
   refreshBlueprintDiscoverabilityUi();
   refreshBlueprintUndoControl();
@@ -228,7 +236,6 @@ function refreshBlueprintControls() {
   if (dom.blueprintModeTitle) dom.blueprintModeTitle.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].title;
   if (dom.blueprintModeDescription) dom.blueprintModeDescription.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].description;
   if (dom.wiringToolbar) dom.wiringToolbar.hidden = !wiringView;
-  if (dom.wiringStatusPanel && !wiringView) dom.wiringStatusPanel.hidden = true;
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
   if (dom.thermalLoadModes) {
@@ -514,7 +521,7 @@ function blueprintHeatSummaryMarkup(result) {
     ${row("Power requested", fmtMw(power.requestedDemandMw))}
     ${row("Power delivered", fmtMw(power.deliveredDemandMw))}
     ${row("Power spare / unmet", `${fmtMw(power.spareGenerationMw)} / ${fmtMw(power.unmetDemandMw)}`)}
-    ${row("Priority preset", power.preset || "Default")}
+    ${row("Priority preset", powerPresetLabel(power.preset))}
   </div>`;
 }
 
@@ -889,7 +896,12 @@ function clearInvalidHeatIndexes() {
 }
 
 export function refreshBlueprintUndoControl() {
-  if (dom.undoBlueprintEditButton) dom.undoBlueprintEditButton.disabled = !canUndoBlueprintEdit();
+  if (!dom.undoBlueprintEditButton) return;
+  const wiringContext = state.blueprintView === "wiring";
+  const wiringUndoAvailable = wiringContext && canUndoWiring();
+  dom.undoBlueprintEditButton.disabled = !(wiringUndoAvailable || canUndoBlueprintEdit());
+  dom.undoBlueprintEditButton.title = wiringUndoAvailable ? "Undo last wiring change (Ctrl+Z)" : "Undo last blueprint edit (Ctrl+Z)";
+  dom.undoBlueprintEditButton.setAttribute("aria-label", wiringUndoAvailable ? "Undo last wiring change" : "Undo last blueprint edit");
 }
 
 function persistCurrentEditorDesign() {
@@ -997,6 +1009,11 @@ export function applyPowerPolicyChange(transform) {
 }
 
 export function undoBlueprintEdit() {
+  if (state.blueprintView === "wiring" && canUndoWiring()) {
+    const changed = undoWiring();
+    refreshBlueprintUndoControl();
+    return changed;
+  }
   if (!canUndoBlueprintEdit()) return false;
   const restored = popBlueprintEditUndo();
   if (!restored) return false;
@@ -1287,24 +1304,6 @@ function analysisGridMarkup(rows) {
     <div${tone ? ` class="${escapeHtml(tone)}"` : ""}><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}</div>`;
 }
 
-function wiringNetworkCount(sections = []) {
-  if (!sections.length) return 0;
-  const parent = new Map();
-  const find = (key) => {
-    if (!parent.has(key)) parent.set(key, key);
-    if (parent.get(key) !== key) parent.set(key, find(parent.get(key)));
-    return parent.get(key);
-  };
-  const join = (a, b) => {
-    const rootA = find(a), rootB = find(b);
-    if (rootA !== rootB) parent.set(rootA, rootB);
-  };
-  for (const section of sections) {
-    join(`${section.x1},${section.y1}`, `${section.x2},${section.y2}`);
-  }
-  return new Set([...parent.keys()].map(find)).size;
-}
-
 function renderAnalysisPanels(stats, heat) {
   const power = heat?.powerThermal?.powerSummary || {};
   const requested = Number(power.requestedDemandMw ?? stats.powerUse) || 0;
@@ -1319,7 +1318,7 @@ function renderAnalysisPanels(stats, heat) {
     ["Spare power", `${spare.toFixed(1)} MW`, spare > 0 ? "good" : ""],
     ["Unmet demand", `${unmet.toFixed(1)} MW`, unmet > 0 ? "bad" : "good"],
     ["Efficiency", formatPercent(stats.powerEfficiency)],
-    ["Priority preset", power.preset || state.wiring?.powerPolicy?.preset || "Default"],
+    ["Priority preset", powerPresetLabel(power.preset || state.wiring?.powerPolicy?.preset)],
     ["Overloaded sections", String(overloadedSections)]
   ];
   const switchgear = (state.design || []).filter(part => part.type === "switchgear");
@@ -1331,39 +1330,14 @@ function renderAnalysisPanels(stats, heat) {
     }, {});
     powerRows.push(["Switchgear", Object.entries(states).map(([mode, count]) => `${count} ${mode}`).join(" · ")]);
   }
-  const powerSections = state.wiring?.power?.sections || [];
-  const dataSections = state.wiring?.data?.sections || [];
-  const disabled = [...powerSections, ...dataSections].filter(section => section.disabled || section.broken).length;
-  const tierCounts = powerSections.reduce((counts, section) => {
-    const tier = section.tier || "standard";
-    counts[tier] = (counts[tier] || 0) + 1;
-    return counts;
-  }, {});
-  const clarity = globalThis.WiringClarityRules;
-  const alternatePaths = clarity?.alternatePathCount ? clarity.alternatePathCount(powerSections) : null;
-  let displacement = 0;
-  try {
-    const accounting = globalThis.WiringInfrastructureRules?.accountInfrastructure(state.design, state.wiring, PART_STATS, WIRING_INFRASTRUCTURE);
-    displacement = Number(accounting?.power?.displacement || 0) + Number(accounting?.data?.displacement || 0);
-  } catch (_) { displacement = 0; }
-  const wiringRows = [
-    ["Power networks", String(wiringNetworkCount(powerSections))],
-    ["Data networks", String(wiringNetworkCount(dataSections))],
-    ["Broken / disabled", String(disabled)],
-    ["Bottlenecks", String(overloadedSections)],
-    ["Tier usage", `Light ${tierCounts.light || 0} · Standard ${tierCounts.standard || 0} · Heavy ${tierCounts.heavy || 0}`],
-    ["Alternate paths", alternatePaths == null ? "Route evidence unavailable" : String(alternatePaths)],
-    ["Power routes", `${powerSections.length} physical sections`],
-    ["Data routes", `${dataSections.length} physical sections`],
-    ["Infrastructure cost", `$${stats.costBreakdown?.totalInfrastructure || 0}`],
-    ["Infrastructure share", formatPercent(stats.costBreakdown?.infrastructurePercentage || 0)],
-    ["Heat displacement", String(displacement)]
-  ];
   if (dom.powerAnalysisSummary) {
     dom.powerAnalysisSummary.innerHTML = `<section class="analysis-summary-card"><h3>Power analysis</h3>${analysisGridMarkup(powerRows)}</section>${powerAllocationAnalysisHtml()}`;
   }
   if (dom.wiringAnalysisSummary) {
-    dom.wiringAnalysisSummary.innerHTML = `<section class="analysis-summary-card"><h3>Wiring analysis</h3>${analysisGridMarkup(wiringRows)}</section>`;
+    // Wiring owns a prioritised, actionable analysis renderer. Keep this legacy
+    // summary host empty so the same raw values are not repeated above it.
+    dom.wiringAnalysisSummary.innerHTML = "";
+    dom.wiringAnalysisSummary.hidden = true;
   }
 
   const speedPenalty = stats.speedCapped ? `Limited to ${formatSpeed(stats.speedCap)} by mass drag` : "None";

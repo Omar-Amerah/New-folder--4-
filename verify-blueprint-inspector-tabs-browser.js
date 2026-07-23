@@ -53,6 +53,43 @@ const viewports = [
     });
     await page.locator("#blueprintDesignerScreen:not([hidden])").waitFor({ state: "visible" });
     assert.equal(await page.locator("#combatStyleSelect").inputValue(), "hold", "new Blueprints default to Hold movement");
+    const thumbnailDirections = await page.evaluate(async () => {
+      const { shipThumbnailDataUrl } = await import("/src/ui/shipThumbnail.js");
+      async function bounds(type, rotation) {
+        const image = new Image();
+        image.src = shipThumbnailDataUrl([{ x: 7, y: 7, type, rotation }], "#8fb4ff", 96);
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1;
+        for (let y = 0; y < canvas.height; y += 1) {
+          for (let x = 0; x < canvas.width; x += 1) {
+            if (pixels[(y * canvas.width + x) * 4 + 3] < 16) continue;
+            minX = Math.min(minX, x); minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+          }
+        }
+        return { width: maxX - minX + 1, height: maxY - minY + 1 };
+      }
+      return {
+        reactor0: await bounds("reactor", 0),
+        reactor90: await bounds("reactor", 90),
+        repair0: await bounds("repairBeam", 0),
+        repair90: await bounds("repairBeam", 90)
+      };
+    });
+    assert.ok(thumbnailDirections.reactor0.width > thumbnailDirections.reactor0.height,
+      `0° Reactor thumbnail points across its horizontal footprint (${JSON.stringify(thumbnailDirections.reactor0)})`);
+    assert.ok(thumbnailDirections.reactor90.height > thumbnailDirections.reactor90.width,
+      `90° Reactor thumbnail points down its vertical footprint (${JSON.stringify(thumbnailDirections.reactor90)})`);
+    assert.ok(thumbnailDirections.repair0.width > thumbnailDirections.repair0.height,
+      `0° Repair Beam thumbnail points across its horizontal footprint (${JSON.stringify(thumbnailDirections.repair0)})`);
+    assert.ok(thumbnailDirections.repair90.height > thumbnailDirections.repair90.width,
+      `90° Repair Beam thumbnail points down its vertical footprint (${JSON.stringify(thumbnailDirections.repair90)})`);
 
     await assertTopTab(page, "design", "designerDesignPanel");
     assert.equal(await page.locator("#loadedBlueprintName").textContent(), "Unsaved design");
@@ -144,6 +181,55 @@ const viewports = [
     await page.locator("#confirmAcceptButton").click();
     assert.equal(await page.locator(".bp-card[data-saved-id='beta']").count(), 0);
 
+    await page.locator("#designerDesignTab").click();
+    const warningSetup = await page.evaluate(async () => {
+      const storage = await import("/src/design/blueprintStorage.js");
+      const designerUi = await import("/src/ui/designerUi.js");
+      const wiringUi = await import("/src/ui/wiringUi.js");
+      const { state } = await import("/src/state.js");
+      state.design = storage.defaultDesign();
+      state.wiring = storage.defaultWiring();
+      const completePowerWarning = wiringUi.wiringReadinessWarning();
+      state.wiring = window.WiringRules.emptyWiring();
+      state.loadedEditorBlueprintId = null;
+      designerUi.renderBuildGrid();
+      designerUi.renderLocalStats();
+      return { savedCount: state.savedDesigns.length, completePowerWarning };
+    });
+    const savedCountBeforeWarning = warningSetup.savedCount;
+    assert.equal(warningSetup.completePowerWarning, null,
+      "fully powered components do not require optional Data support before closing or saving");
+    await page.locator("#saveDesignButton").click();
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#confirmModal").isVisible(), true, "saving without Wiring opens a blocking warning");
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /save blueprint without wiring/i);
+    assert.match(await page.locator("#confirmModalMessage").textContent(), /no Power or Data wiring/i);
+    assert.equal(await page.locator("#confirmAcceptButton").textContent(), "Save Anyway");
+    assert.equal(await page.locator("#confirmModal").getAttribute("data-intent"), "wiring-warning");
+    assert.equal(await page.evaluate(() => window.__mfaState.savedDesigns.length), savedCountBeforeWarning,
+      "the blueprint is not saved before confirmation");
+    await page.locator("#confirmCancelButton").click();
+    assert.equal(await page.locator("#confirmModal").isHidden(), true);
+    assert.equal(await page.evaluate(() => window.__mfaState.savedDesigns.length), savedCountBeforeWarning,
+      "cancelling the warning does not save");
+
+    await page.locator("#saveDesignButton").click();
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    await page.locator("#confirmAcceptButton").click();
+    await page.waitForFunction(expected => window.__mfaState.savedDesigns.length === expected, savedCountBeforeWarning + 1);
+    assert.equal(await page.locator("#confirmModal").isHidden(), true, "Save Anyway completes the save");
+
+    await page.locator("#closeBlueprintDesignerButton").click();
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#confirmModal").isVisible(), true, "closing with no Wiring opens a blocking warning");
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /close with no wiring/i);
+    assert.equal(await page.locator("#confirmAcceptButton").textContent(), "Close Anyway");
+    assert.equal(await page.locator("#blueprintDesignerScreen").isVisible(), true,
+      "the designer remains open before confirmation");
+    await page.locator("#confirmCancelButton").click();
+    assert.equal(await page.locator("#blueprintDesignerScreen").isVisible(), true,
+      "cancelling the warning keeps the designer open");
+
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       await page.locator("#designerBlueprintsTab").click();
@@ -190,6 +276,12 @@ const viewports = [
     await page.mouse.move(1, 1);
     await page.screenshot({ path: path.join(artifactDir, "mobile-blueprints.png") });
 
+    await page.locator("#closeBlueprintDesignerButton").click();
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    await page.locator("#confirmAcceptButton").click();
+    assert.equal(await page.locator("#blueprintDesignerScreen").isHidden(), true,
+      "Close Anyway closes the designer");
+
     assert.deepEqual(errors, [], `unexpected browser errors:\n${errors.join("\n")}`);
     console.log(`Blueprint inspector tabs browser verification passed; screenshots: ${artifactDir}`);
   } catch (error) {
@@ -227,13 +319,21 @@ async function assertViewDrivenAnalysis(page) {
       .filter(panel => !panel.hidden).map(panel => panel.id));
     assert.deepEqual(visible, [panel]);
   }
-  assert.match(await page.locator("#analysisWiringPanel").textContent(), /Wiring analysis/);
+  assert.match(await page.locator("#analysisWiringPanel").textContent(), /Summary[\s\S]*Selected tier[\s\S]*Issues/i);
   assert.doesNotMatch(await page.locator("#analysisWiringPanel").textContent(), /Power analysis/);
   assert.equal(await page.locator("#analysisWiringTab").getAttribute("aria-selected"), "true");
   await page.locator("#analysisPowerTab").click();
   assert.equal(await page.locator("#analysisPowerTab").getAttribute("aria-selected"), "true");
   assert.match(await page.locator("#analysisPowerPanel").textContent(), /Power analysis/);
   await page.locator("#blueprintHeatTab").click();
+  await page.locator("#analysisWiringTab").click();
+  assert.equal(await page.evaluate(() => window.__mfaState.blueprintView), "heat",
+    "opening Wiring analysis does not switch the active blueprint editing mode");
+  assert.equal(await page.locator("#wiringToolbar").isHidden(), true,
+    "Wiring editor controls remain hidden outside Wiring mode");
+  assert.match(await page.locator("#wiringStatusPanel").textContent(), /Summary[\s\S]*Selected tier[\s\S]*Issues/i,
+    "Wiring analysis stays populated when Heat mode is active");
+  await page.locator("#analysisHeatTab").click();
 }
 
 async function resetMobileScroll(page, panelId) {

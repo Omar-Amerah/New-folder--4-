@@ -194,6 +194,14 @@
   box-shadow: none;
 }
 
+@media (max-width: 430px) {
+  .designer-actions > .blueprint-undo-button {
+    flex: 0 0 64px;
+    width: 64px;
+    min-width: 64px;
+  }
+}
+
 .designer-actions .labeled-action {
   display: inline-flex;
   align-items: center;

@@ -178,14 +178,14 @@ check("named priorities still control shortages under activity demand", () => {
   updateShipPowerDemand(s, room(), 8000);
   assert.ok(getComponentPowerMultiplier(s, 1) > getComponentPowerMultiplier(s, 2), "shields prioritised over weapons");
 });
-check("tied consumers remain fairly (proportionally) allocated under activity demand", () => {
-  // Balanced ties shields + point defence; both fully active, scarce generation.
+check("Balanced keeps shields above point defence under activity demand", () => {
+  // Both are fully active with scarce generation; Shields have the higher band.
   const s = makeShip([mod("auxGenerator", 0, 0), mod("shield", 1, 0), mod("pointDefense", 0, 1)], [[{ x: 0, y: 0 }, { x: 1, y: 0 }], [{ x: 0, y: 0 }, { x: 0, y: 1 }]]);
   s.maxShield = 100; s.shield = 0;
   s.weaponFireTargetIds = [null, null, "enemy"]; // point defence active
   updateShipPowerDemand(s, room(), 8100);
   const m1 = getComponentPowerMultiplier(s, 1); const m2 = getComponentPowerMultiplier(s, 2);
-  assert.ok(m1 > 0 && m2 > 0 && Math.abs(m1 - m2) < 2e-3, "tied consumers share proportionally");
+  assert.ok(m1 > m2, "shields receive Power before point defence");
 });
 
 // Activity changes sectionFlows and cable Heat; peak enforced.

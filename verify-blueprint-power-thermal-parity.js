@@ -121,12 +121,12 @@ const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
     const pt = predict(d, w, "full");
     assert.ok(pt.components[1].operationalMultiplier > pt.components[2].operationalMultiplier, "shields prioritised over weapons");
   });
-  check("Tied categories remain fairly (proportionally) allocated", () => {
+  check("Balanced predicts Shields above Point Defence", () => {
     const d = [at("auxGenerator", 0, 0), at("shield", 1, 0), at("pointDefense", 0, 1)];
     const w = wire(d, [[{ x: 0, y: 0 }, { x: 1, y: 0 }], [{ x: 0, y: 0 }, { x: 0, y: 1 }]], { preset: "balanced" });
     const pt = predict(d, w, "full");
-    assert.ok(pt.components[1].operationalMultiplier > 0 && pt.components[2].operationalMultiplier > 0
-      && Math.abs(pt.components[1].operationalMultiplier - pt.components[2].operationalMultiplier) < 2e-3, "tied shields/point-defence share proportionally");
+    assert.ok(pt.components[1].operationalMultiplier > pt.components[2].operationalMultiplier,
+      "shields receive Power before point defence");
   });
   check("Bottlenecks reduce delivered demand and cable Heat follows delivered flow", () => {
     // beamEmitter (7.5) fed through a LIGHT trunk (peak 7): delivery is capped.

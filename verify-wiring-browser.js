@@ -263,7 +263,7 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
       clearButtonDisabled = await clearNetworkButton.isDisabled();
       assert.equal(clearButtonDisabled, false, "Clear Network is enabled for the selected default Power network");
       panelText = await page.locator("#wiringStatusPanel").textContent();
-      assert.match(panelText, /Physical power wiring/i, "Power wiring panel remains active");
+      assert.match(panelText, /Summary[\s\S]*Selected tier[\s\S]*Issues/i, "Prioritised Power wiring panel remains active");
       assert.match(panelText, /generation/i, "selected Power network panel reports generation");
       assert.match(panelText, /demand/i, "selected Power network panel reports demand");
     } catch (error) {
@@ -525,15 +525,22 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.equal(new Set(snapshot.wiring.power.sections.map((section) => section.id)).size, snapshot.wiring.power.sections.length, "drag does not duplicate shared sections");
     assert.ok(snapshot.wiring.power.sections.some((section) => section.id === "6,5:7,5"), "original trunk remains");
     assert.equal(await page.locator(".wire-junction").evaluate((node) => getComputedStyle(node).pointerEvents), "none", "junction cannot steal selection");
+    await page.evaluate(() => {
+      const details = document.querySelector("#shipStatusDetails");
+      if (details && !details.hidden) document.querySelector("#shipStatusChip")?.click();
+    });
     const junctionPoint = await wiringGridPointToScreen(svg, 6, 5); const junctionTarget = await hitAt(page, junctionPoint);
     assert.doesNotMatch(junctionTarget.className, /\bwire-junction\b/, "junction marker does not steal the intended actionable element");
-    assert.ok(junctionTarget.sectionId || /\bwire-port\b/.test(junctionTarget.className), "junction centre reaches an actionable cable or port");
+    assert.ok(junctionTarget.sectionId || /\bwire-port\b/.test(junctionTarget.className),
+      `junction centre reaches an actionable cable or port (${JSON.stringify(junctionTarget)})`);
 
     const branchHit = page.locator('.wire-hit[data-section-id="6,5:6,6"]');
     const vertical = await assertSectionHit(page, branchHit, "6,5:6,6");
     assert.equal(vertical.geometry.rect.width, 0, "vertical SVG line exposes the zero-width box that locator actionability rejects");
     await page.mouse.click(vertical.point.x, vertical.point.y);
     const countBeforeRemove = snapshot.wiring.power.sections.length;
+    const advancedDetails = page.locator('[data-wiring-details="advanced"]');
+    if ((await advancedDetails.getAttribute("open")) === null) await advancedDetails.locator(":scope > summary").click();
     await page.locator('[data-wiring-action="remove-branch"]').click();
     snapshot = await editorState(page);
     assert.equal(snapshot.wiring.power.sections.length, countBeforeRemove - 1, "Remove branch removes only the leaf");

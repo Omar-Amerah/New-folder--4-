@@ -18,6 +18,7 @@ import { drawModuleDamage, drawModuleFlash } from "../game/componentDamageCanvas
 import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, COMPONENT_HEAT_VALUE, normalizeComponentHeatTuple } from "../shared/componentHeatSnapshot.js";
 import { shipHeatPercent, formatHeatPercent, checkShipHeatConsistency } from "../shared/heatDisplay.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
+import { escapeHtml } from "../shared/formatting.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -57,41 +58,123 @@ function formatHeatAmount(value) {
   return Number(value).toFixed(Math.abs(value) >= 100 ? 0 : 1).replace(/\.0$/, "");
 }
 
-function switchgearSummaryText(ship) {
-  const records = Array.isArray(ship.switchgear) ? ship.switchgear : [];
-  if (!records.length) return "None";
-  return records.map((record) => {
-    const label = SWITCHGEAR_STATE_LABEL[record.presentationState] || SWITCHGEAR_STATE_LABEL.unknown;
-    const parts = [`#${record.componentIndex} ${label} ${record.ratingTier || "standard"} ${record.classification || "isolator"} ${formatHeatAmount(record.signedTransferMw || 0)} MW`];
-    // Section 7G runtime protection: saved mode, overload stress, trip reason,
-    // cooldown, retry count and last retry reason as clear text labels.
-    parts.push(`mode ${record.mode || "closed"}`);
-    if ((record.overloadStress || 0) > 0) parts.push(`stress ${Math.round((record.overloadStress || 0) * 100)}%`);
-    if (record.state === "tripped") {
-      parts.push(`trip: ${record.trippedReason || record.lastTripReason || "Unknown"}`);
-      parts.push(`cooldown ${formatHeatAmount(record.cooldownRemaining || 0)}s`);
-    }
-    if ((record.retryCount || 0) > 0) parts.push(`retries ${record.retryCount}${record.lastRetryReason ? ` (${record.lastRetryReason})` : ""}`);
-    return parts.join(" · ");
-  }).join("; ");
-}
-
-// Section 7G ship-level Power-protection summary (diagnostics only; states
-// come from the authoritative server snapshot).
-function protectionStateLabel(state) {
-  const labels = {
-    "normal": "Normal",
-    "strained": "Strained",
-    "brownout": "Brownout",
-    "load-shedding": "Load shedding",
-    "protection-trip": "Protection trip"
-  };
-  return labels[state] || "Unknown";
+function powerPresetLabel(preset) {
+  const value = String(preset || "Default");
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function mostStressedSectionText(pp) {
   if (!pp || !pp.mostStressedSectionId) return "None";
   return `${pp.mostStressedSectionId} ${Math.round((pp.mostStressedStress || 0) * 100)}%`;
+}
+
+function finitePowerValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function countOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function powerOverallState(ship, pt, pp, ws, sections) {
+  const generation = finitePowerValue(pt.powerGenerationMw);
+  const requested = finitePowerValue(pt.requestedDemandMw);
+  const delivered = finitePowerValue(pt.deliveredDemandMw);
+  const unmet = finitePowerValue(pt.unmetDemandMw);
+  const hasBalanceSnapshot = [generation, requested, delivered, unmet].some((value) => value !== null);
+  const missingRuntime = !hasBalanceSnapshot && !ship.componentPower;
+  if (missingRuntime) return { key: "unavailable", label: "Power data unavailable", explanation: "Live Power details could not be read", icon: "?" };
+  const networkCount = finitePowerValue(ws.powerNetworks);
+  if (!ship.powerWiring || !sections.length || networkCount === 0) {
+    return { key: "disconnected", label: "Disconnected", explanation: "No valid Power network", icon: "!" };
+  }
+  if (generation !== null && generation <= 0) {
+    return { key: "offline", label: "Offline", explanation: "No operational generation available", icon: "X" };
+  }
+  if (pp.state === "protection-trip") {
+    return { key: "critical", label: "Critical", explanation: "Part of the Power network is temporarily offline", icon: "!" };
+  }
+  if ((requested || 0) > 0 && (delivered || 0) <= 0) {
+    return { key: "critical", label: "Critical", explanation: "Active systems are not receiving Power", icon: "!" };
+  }
+  if (unmet !== null && unmet > 0) {
+    return { key: "underpowered", label: "Underpowered", explanation: `${mw(unmet)} of active demand is unmet`, icon: "!" };
+  }
+  const affected = countOrZero(pp.partialConsumerCount) + countOrZero(pp.shedConsumerCount)
+    + countOrZero(pt.throttledComponentCount) + countOrZero(pt.disabledComponentCount);
+  if (affected > 0 || ship.powerStatus === "partially-powered") {
+    return { key: "partial", label: "Partially powered", explanation: `${affected} consumer${affected === 1 ? "" : "s"} operating below normal`, icon: "!" };
+  }
+  if (requested !== null && requested <= 0) {
+    return { key: "powered", label: "Powered", explanation: "Generation available - No active demand", icon: "OK" };
+  }
+  return { key: "powered", label: "Powered", explanation: "All active demand is being supplied", icon: "OK" };
+}
+
+function powerIssueList(ship, pt, pp, ws, sections, overall) {
+  const issues = [];
+  const add = (priority, severity, title, detail, sectionId = null) => issues.push({ priority, severity, title, detail, sectionId });
+  const unmet = finitePowerValue(pt.unmetDemandMw);
+  const disabledConsumers = countOrZero(pt.disabledComponentCount);
+  const shedConsumers = countOrZero(pp.shedConsumerCount);
+  const throttledConsumers = countOrZero(pt.throttledComponentCount);
+  const partialConsumers = countOrZero(pp.partialConsumerCount);
+  const brokenRoutes = countOrZero(ws.brokenPowerConnections);
+  const disabledSections = countOrZero(ws.disabledPowerSections);
+  const tripped = countOrZero(pp.trippedSwitchgearCount);
+
+  if (overall.key === "unavailable") add(0, "critical", "Power data unavailable", "Live Power details could not be read.");
+  if (overall.key === "disconnected") add(1, "critical", "Power network disconnected", "No valid Power network is available.");
+  if (overall.key === "offline") add(2, "critical", "Generation offline", "No operational generation is available.");
+  if (tripped) add(3, "critical", `${tripped} Power route${tripped === 1 ? "" : "s"} temporarily offline`, pp.nextRetrySeconds > 0 ? `Automatic recovery in ${formatHeatAmount(pp.nextRetrySeconds)} s.` : "Automatic Power protection has isolated a route.");
+  if (unmet !== null && unmet > 0) add(4, unmet > 2 ? "critical" : "warning", "Unmet Power demand", `${mw(unmet)} of active demand is not supplied.`);
+  if (disabledConsumers) add(5, "critical", `${disabledConsumers} consumer${disabledConsumers === 1 ? "" : "s"} disabled`, "Affected systems are offline.");
+  if (shedConsumers) add(6, "critical", `${shedConsumers} consumer${shedConsumers === 1 ? "" : "s"} shed`, "Lower-priority systems have been disconnected by allocation.");
+  if (throttledConsumers) add(7, "warning", `${throttledConsumers} consumer${throttledConsumers === 1 ? "" : "s"} throttled`, "Allocated Power is reducing system output.");
+  if (partialConsumers) add(8, "warning", `${partialConsumers} consumer${partialConsumers === 1 ? "" : "s"} partially supplied`, "Some active demand is receiving reduced Power.");
+  if (brokenRoutes) add(9, "critical", `${brokenRoutes} broken Power route${brokenRoutes === 1 ? "" : "s"}`, "Cable connectivity is interrupted.");
+  if (disabledSections) add(10, "critical", `${disabledSections} disabled cable section${disabledSections === 1 ? "" : "s"}`, "Destroyed hosts or protection state disabled a route.");
+
+  const stressedSections = sections.filter((section) => {
+    const stateValue = section.runtime?.state;
+    return stateValue === "at-peak" || stateValue === "critical" || stateValue === "overloaded";
+  }).sort((a, b) => {
+    const rank = { "at-peak": 0, critical: 1, overloaded: 2 };
+    return (rank[a.runtime?.state] ?? 3) - (rank[b.runtime?.state] ?? 3)
+      || (Number(b.runtime?.stress) || 0) - (Number(a.runtime?.stress) || 0);
+  });
+  for (const section of stressedSections) {
+    const runtime = section.runtime;
+    const stateValue = runtime.state;
+    const title = stateValue === "at-peak" ? "Cable at peak capacity"
+      : stateValue === "critical" ? "Critical cable stress" : "Cable above sustained load";
+    add(stateValue === "at-peak" ? 11 : stateValue === "critical" ? 12 : 13,
+      stateValue === "at-peak" || stateValue === "critical" ? "critical" : "warning",
+      title,
+      `Section ${section.id} - ${mw(runtime.absoluteFlowMw)} flow - ${mw(runtime.sustainedCapacityMw)} sustained - ${mw(runtime.peakCapacityMw)} peak`,
+      section.id);
+  }
+  if (!stressedSections.length && countOrZero(pp.atPeakSectionCount)) add(11, "critical", `${countOrZero(pp.atPeakSectionCount)} cable section${countOrZero(pp.atPeakSectionCount) === 1 ? "" : "s"} at peak`, "Peak-capacity sections require attention.");
+  if (!stressedSections.length && countOrZero(pp.criticalSectionCount)) add(12, "critical", `${countOrZero(pp.criticalSectionCount)} critically stressed cable section${countOrZero(pp.criticalSectionCount) === 1 ? "" : "s"}`, "Cable protection is under critical stress.");
+  if (!stressedSections.length && countOrZero(pp.aboveSustainedSectionCount)) add(13, "warning", `${countOrZero(pp.aboveSustainedSectionCount)} cable section${countOrZero(pp.aboveSustainedSectionCount) === 1 ? "" : "s"} overloaded`, "Continuous flow is above sustained capacity.");
+  return issues.sort((a, b) => a.priority - b.priority);
+}
+
+function powerIssueHtml(issue) {
+  const action = issue.sectionId
+    ? `<button type="button" class="power-inline-action" data-power-locate-section="${escapeHtml(issue.sectionId)}">Locate</button>`
+    : "";
+  return `<article class="power-issue power-issue-${escapeHtml(issue.severity)}">
+    <span class="power-issue-icon" aria-hidden="true">${issue.severity === "critical" ? "!" : "^"}</span>
+    <div><strong>${escapeHtml(issue.title)}</strong><p>${escapeHtml(issue.detail)}</p>${action}</div>
+  </article>`;
+}
+
+function powerDiagnosticRow(label, value) {
+  return `<div class="power-diagnostic-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,18 +186,6 @@ function mostStressedSectionText(pp) {
 const POWER_SECTION_STATE_LABEL = {
   normal: "Working", "near-sustained": "Near sustained", overloaded: "Overloaded",
   critical: "Critical stress", "at-peak": "At peak", disabled: "Disabled"
-};
-const SWITCHGEAR_STATE_LABEL = {
-  open: "Open",
-  "closed-conducting": "Closed and conducting",
-  "automatic-idle": "Automatic — idle",
-  "automatic-conducting": "Automatic — conducting",
-  "tripped-cooling": "Tripped — cooling down",
-  "tripped-retry-pending": "Tripped — retry pending",
-  destroyed: "Destroyed",
-  disconnected: "Disconnected",
-  unpowered: "Unpowered",
-  unknown: "Unknown or unavailable"
 };
 const POWER_CATEGORY_LABEL = {
   command: "Command", propulsion: "Propulsion", shields: "Shields",
@@ -169,75 +240,68 @@ function renderPowerSummary(ship) {
   const pp = ship.powerProtection || {};
   const ws = ship.wiringStatus || {};
   const sections = powerSectionsView(ship);
+  const moreIssuesOpen = Boolean(summary.querySelector(".power-more-issues[open]"));
+  const previousAnnouncement = summary.dataset.powerStatusAnnouncement || "";
   summary.hidden = false;
-
-  if (!ship.powerWiring || !sections.length) {
-    summary.innerHTML = `<div class="ship-power-empty" role="status">This ship has no installed Power wiring.</div>`;
-    return;
-  }
-  if (!ship.componentPower && !ship.powerThermal) {
-    summary.innerHTML = `<div class="ship-power-empty" role="status">No Power-flow data is available.</div>`;
-    return;
-  }
-
-  const status = safeText(ship.powerStatus, "powered");
-  const statusLabelText = status.charAt(0).toUpperCase() + status.slice(1);
-  const nextRetry = (pp.trippedSwitchgearCount || 0) > 0 ? `${formatHeatAmount(pp.nextRetrySeconds || 0)}s` : "No active retry";
-  const mostStressed = pp.mostStressedSectionId ? mostStressedSectionText(pp) : "None";
-
+  const overall = powerOverallState(ship, pt, pp, ws, sections);
+  const issues = powerIssueList(ship, pt, pp, ws, sections, overall);
+  const visibleIssues = issues.slice(0, 3);
+  const hiddenIssues = issues.slice(3);
+  const networks = finitePowerValue(ws.powerNetworks);
+  const broken = countOrZero(ws.brokenPowerConnections) + countOrZero(ws.disabledPowerSections);
+  const overloaded = countOrZero(pp.aboveSustainedSectionCount) + countOrZero(pp.atPeakSectionCount);
+  const cableHeat = finitePowerValue(pt.powerCableHeatRate);
+  const issueMarkup = visibleIssues.length
+    ? visibleIssues.map(powerIssueHtml).join("")
+    : `<p class="power-healthy-line"><span aria-hidden="true">OK</span> No Power issues detected</p>`;
+  const moreIssuesMarkup = hiddenIssues.length
+    ? `<details class="power-more-issues"${moreIssuesOpen ? " open" : ""}><summary>View ${hiddenIssues.length} more issue${hiddenIssues.length === 1 ? "" : "s"}</summary>${hiddenIssues.map(powerIssueHtml).join("")}</details>`
+    : "";
   summary.innerHTML = `
-    <section class="power-summary-group" aria-label="Power balance">
+    <section class="power-overall power-overall-${escapeHtml(overall.key)}" aria-label="Overall Power state">
+      <span class="power-overall-icon" aria-hidden="true">${overall.icon}</span>
+      <div><strong>${escapeHtml(overall.label)}</strong><p>${escapeHtml(overall.explanation)}</p></div>
+    </section>
+    <section class="power-compact-section power-balance" aria-label="Power balance">
       <h4>Power balance</h4>
-      <div><span>Generation</span><strong>${mwOrUnavailable(pt.powerGenerationMw)}</strong></div>
-      <div><span>Requested</span><strong>${mwOrUnavailable(pt.requestedDemandMw)}</strong></div>
-      <div><span>Delivered</span><strong>${mwOrUnavailable(pt.deliveredDemandMw)}</strong></div>
-      <div><span>Spare</span><strong>${mwOrUnavailable(pt.sparePowerMw)}</strong></div>
-      <div><span>Unmet</span><strong>${mwOrUnavailable(pt.unmetDemandMw)}</strong></div>
-      <div><span>Priority preset</span><strong>${safeText(pt.activePriorityPreset, "Default")}</strong></div>
-      <div><span>Overall status</span><strong>${statusLabelText}</strong></div>
-      <div><span>Partial consumers</span><strong>${pp.partialConsumerCount || 0}</strong></div>
-      <div><span>Shed consumers</span><strong>${pp.shedConsumerCount || 0}</strong></div>
-      <div><span>Throttled consumers</span><strong>${pt.throttledComponentCount || 0}</strong></div>
-      <div><span>Disabled consumers</span><strong>${pt.disabledComponentCount || 0}</strong></div>
+      <div class="power-kv-grid">
+        ${powerDiagnosticRow("Generation", mwOrUnavailable(pt.powerGenerationMw))}
+        ${powerDiagnosticRow("Requested", mwOrUnavailable(pt.requestedDemandMw))}
+        ${powerDiagnosticRow("Delivered", mwOrUnavailable(pt.deliveredDemandMw))}
+        ${powerDiagnosticRow("Spare", mwOrUnavailable(pt.sparePowerMw))}
+        ${powerDiagnosticRow("Unmet", mwOrUnavailable(pt.unmetDemandMw))}
+        ${powerDiagnosticRow("Priority", powerPresetLabel(pt.activePriorityPreset))}
+      </div>
     </section>
-    <section class="power-summary-group" aria-label="Distribution">
+    <section class="power-compact-section power-issues-section" aria-label="Power issues">
+      <h4>Issues</h4>${issueMarkup}${moreIssuesMarkup}
+    </section>
+    <section class="power-compact-section power-distribution" aria-label="Distribution">
       <h4>Distribution</h4>
-      <div><span>Power networks</span><strong>${ws.powerNetworks || 0}</strong></div>
-      <div><span>Disabled sections</span><strong>${ws.disabledPowerSections || 0}</strong></div>
-      <div><span>Broken routes</span><strong>${ws.brokenPowerConnections || 0}</strong></div>
-      <div><span>Above sustained</span><strong>${pp.aboveSustainedSectionCount || 0}</strong></div>
-      <div><span>At peak</span><strong>${pp.atPeakSectionCount || 0}</strong></div>
-      <div><span>Critical-stress sections</span><strong>${pp.criticalSectionCount || 0}</strong></div>
-      <div><span>Most-stressed section</span><strong>${mostStressed}</strong></div>
-      <div><span>Hottest cable</span><strong>${safeText(pt.hottestSectionId, "None")}</strong></div>
-      <div><span>Cable Heat rate</span><strong>${formatHeatAmount(pt.powerCableHeatRate || 0)} H/s</strong></div>
+      <p><strong>${networks === null ? "Unavailable" : networks}</strong> network${networks === 1 ? "" : "s"} - <strong>${broken}</strong> broken/disabled - <strong>${overloaded}</strong> overloaded</p>
+      <p>Cable Heat: <strong>${cableHeat === null ? "Unavailable" : `${formatHeatAmount(cableHeat)} H/s`}</strong></p>
+      ${pp.mostStressedSectionId ? `<p class="power-secondary-detail">Most stressed: ${escapeHtml(mostStressedSectionText(pp))}</p>` : ""}
+      ${pt.hottestSectionId && cableHeat > 0 ? `<p class="power-secondary-detail">Hottest cable: ${escapeHtml(pt.hottestSectionId)}</p>` : ""}
     </section>
-    <section class="power-summary-group" aria-label="Protection">
-      <h4>Protection</h4>
-      <div><span>Protection state</span><strong>${protectionStateLabel(pp.state || "normal")}</strong></div>
-      <div><span>Tripped Switchgear</span><strong>${pp.trippedSwitchgearCount || 0}</strong></div>
-      <div><span>Nearest retry</span><strong>${nextRetry}</strong></div>
-      <div class="power-summary-wide"><span>Switchgear</span><strong>${switchgearSummaryText(ship)}</strong></div>
-    </section>`;
+    `;
+  const announcement = `${overall.label}. ${overall.explanation}`;
+  summary.dataset.powerStatusAnnouncement = announcement;
+  if (announcement !== previousAnnouncement) {
+    const live = document.createElement("span");
+    live.className = "power-status-live";
+    live.setAttribute("role", "status");
+    live.setAttribute("aria-live", "polite");
+    live.textContent = announcement;
+    summary.appendChild(live);
+  }
 }
 
-// Power-focused component readout: consumer / generator / Switchgear / passive.
+// Power-focused component readout: consumer / generator / passive.
 function renderComponentPowerReadout(ship, index) {
   if (!dom.shipDamageHover) return;
   const part = ship.design[index];
   const name = partDisplayName(part.type);
   const alive = (Number(ship.chp?.[index]) || 0) > 0;
-  const switchgear = (ship.switchgear || []).find((record) => record.componentIndex === index);
-  if (switchgear) {
-    const util = `${Math.round((switchgear.utilisation || 0) * 100)}%`;
-    const stress = `${Math.round((switchgear.overloadStress || 0) * 100)}%`;
-    const trip = (switchgear.presentationState || switchgear.state || "").startsWith("tripped") ? ` · trip: ${safeText(switchgear.trippedReason || switchgear.lastTripReason)} · cooldown ${formatHeatAmount(switchgear.cooldownRemaining || 0)}s` : "";
-    const retry = (switchgear.retryCount || 0) > 0 ? ` · retries ${switchgear.retryCount}${switchgear.lastRetryReason ? ` (${switchgear.lastRetryReason})` : ""}` : "";
-    const stateLabel = SWITCHGEAR_STATE_LABEL[switchgear.presentationState] || SWITCHGEAR_STATE_LABEL.unknown;
-    const reason = switchgear.conducts ? "conducting" : `not conducting: ${safeText(switchgear.reasonNotConducting, "unavailable")}`;
-    dom.shipDamageHover.textContent = `${name} — ${stateLabel} · saved mode ${safeText(switchgear.mode, "closed")} · runtime ${safeText(switchgear.runtimeState || switchgear.state, "closed")} · ${reason} · ${safeText(switchgear.ratingTier, "standard")} rating · ${safeText(switchgear.classification, "isolator")} · transferred ${mw(switchgear.signedTransferMw)} · rated ${mw(switchgear.sustainedCapacityMw)}/${mw(switchgear.peakCapacityMw)} · ${util} util · stress ${stress}${trip}${retry}`;
-    return;
-  }
   const power = ship.componentPower?.[index]; // [state, networkId, multiplier]
   const diag = ship.powerThermal?.components?.[index];
   const isGenerator = ["core", "reactor", "auxGenerator"].includes(part.type) || (power && power[0] === "source");
@@ -280,7 +344,7 @@ function renderPowerSectionReadout(ship, sectionId) {
   const runtime = view.runtime;
   const hosts = (view.hosts || []).map((i) => (ship.design?.[i] ? partDisplayName(ship.design[i].type) : `#${i}`)).join(", ") || "None";
   const tierName = WIRING_INFRASTRUCTURE?.powerTiers?.[view.tier]?.inspectionLabel || view.tier;
-  const kindLabel = view.kind === "switchgear" ? "Switchgear internal edge" : "cable";
+  const kindLabel = view.kind === "switchgear" ? "protected internal connection" : "cable";
   if (view.operational === false) {
     dom.shipDamageHover.textContent = `${view.id} (${tierName} ${kindLabel}) — Disabled because a host component is destroyed. Hosts: ${hosts}.`;
     return;
@@ -473,7 +537,9 @@ function renderComponentDamageReadout(ship, index) {
   const max = componentMaxFromShip(ship, index);
   const hp = ship.chp[index] ?? 0;
   const status = statusFor(max > 0 ? hp / max : 0);
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.max(0, Math.round(hp))}/${Math.round(max)} — ${statusLabel(status)}`;
+  const effectiveRange = Number(ship.weaponRanges?.[index]);
+  const rangeText = Number.isFinite(effectiveRange) && effectiveRange > 0 ? ` · Range ${Math.round(effectiveRange)}` : "";
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.max(0, Math.round(hp))}/${Math.round(max)} — ${statusLabel(status)}${rangeText}`;
 }
 
 // Re-renders the component readout from the latest ship snapshot object. Used
@@ -544,6 +610,25 @@ function canvasPointFromEvent(event) {
   };
 }
 
+function handlePowerSummaryClick(event) {
+  const button = event.target?.closest?.("[data-power-locate-section]");
+  if (!button) return;
+  const ship = selectedSingleShip();
+  const sectionId = button.dataset.powerLocateSection;
+  if (!ship || !sectionId || !powerSectionsView(ship).some((section) => section.id === sectionId)) return;
+  if (!diagramInteraction || diagramInteraction.shipId !== ship.id) {
+    drawDiagram(ship);
+  }
+  if (!diagramInteraction || diagramInteraction.shipId !== ship.id) return;
+  diagramInteraction.sectionSelectedId = sectionId;
+  diagramInteraction.sectionHoverId = undefined;
+  diagramInteraction.componentIndex = undefined;
+  diagramInteraction.hoverIndex = undefined;
+  renderPowerSectionReadout(ship, sectionId);
+  drawDiagram(ship);
+  dom.shipDamageCanvas?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+}
+
 function bindOnce() {
   if (bound) return;
   bound = true;
@@ -559,6 +644,7 @@ function bindOnce() {
   dom.shipDamageTab?.addEventListener("click", () => { switchStatusView("damage"); });
   dom.shipHeatTab?.addEventListener("click", () => { switchStatusView("heat"); });
   dom.shipPowerTab?.addEventListener("click", () => { switchStatusView("power"); });
+  dom.shipPowerSummary?.addEventListener("click", handlePowerSummaryClick);
   for (const tab of statusTabs()) tab?.addEventListener("keydown", handleStatusTabKeydown);
 }
 

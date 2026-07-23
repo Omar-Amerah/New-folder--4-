@@ -6,6 +6,8 @@
 // tier buttons explain purpose + capacity, a legend is present, and reduced
 // motion still leaves a static status cue.
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
 
@@ -13,6 +15,8 @@ const port = uniquePort();
 const base = `http://127.0.0.1:${port}`;
 const { server } = startServer(port);
 let browser;
+const artifactDir = path.join(__dirname, "test-artifacts", "wiring-analysis");
+fs.mkdirSync(artifactDir, { recursive: true });
 
 async function buildFixture(page) {
   await page.evaluate(async () => {
@@ -40,11 +44,79 @@ async function buildFixture(page) {
     w = window.WiringRules.addPath(w, "data", [{ x: 0, y: 8 }, { x: 1, y: 8 }], state.design, PART_STATS);
     state.wiring = w;
     wiring.resetWiringEditorState();
+    state.wiringUi.mode = "power";
     designer.renderBuildGrid();
     designer.setBlueprintView("wiring");
+    wiring.refreshWiringPresentation();
     designer.renderLocalStats();
   });
+  await page.locator("#designerAnalysisTab").evaluate((button) => button.click());
+  await page.locator("#analysisWiringTab").evaluate((button) => button.click());
   await page.locator(".wiring-overlay-host svg.wiring-overlay").waitFor({ state: "visible", timeout: 5000 });
+}
+
+async function makeHealthyFixture(page) {
+  await page.evaluate(async () => {
+    const [{ state }, designer, wiring, { PART_STATS }] = await Promise.all([
+      import("/src/state.js"), import("/src/ui/designerUi.js"), import("/src/ui/wiringUi.js"), import("/src/design/parts.js")
+    ]);
+    state.design = [{ x: 0, y: 0, type: "core" }, { x: 1, y: 0, type: "gyroscope" }];
+    let next = window.WiringRules.emptyWiring();
+    next = window.WiringRules.addPathWithTier(next, "power", [{ x: 0, y: 0 }, { x: 1, y: 0 }], state.design, PART_STATS, "standard");
+    state.wiring = next;
+    wiring.resetWiringEditorState();
+    designer.renderBuildGrid();
+    designer.setBlueprintView("wiring");
+    wiring.refreshWiringPresentation();
+    designer.renderLocalStats();
+  });
+  await page.locator('[data-wiring-status="healthy"]').waitFor({ state: "visible", timeout: 5000 });
+}
+
+async function makePriorityFixture(page) {
+  await page.evaluate(async () => {
+    const [{ state }, designer, wiring, { PART_STATS }] = await Promise.all([
+      import("/src/state.js"), import("/src/ui/designerUi.js"), import("/src/ui/wiringUi.js"), import("/src/design/parts.js")
+    ]);
+    state.design = [
+      { x: 5, y: 0, type: "reactor" },
+      { x: 7, y: 0, type: "beamEmitter" },
+      { x: 6, y: 1, type: "frame" },
+      { x: 7, y: 1, type: "frame" }
+    ];
+    let next = window.WiringRules.emptyWiring();
+    next = window.WiringRules.addPathWithTier(next, "power", [{ x: 6, y: 0 }, { x: 7, y: 0 }], state.design, PART_STATS, "light");
+    next = window.WiringRules.addPathWithTier(next, "power", [{ x: 6, y: 0 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 0 }], state.design, PART_STATS, "standard");
+    state.wiring = next;
+    wiring.resetWiringEditorState();
+    designer.renderBuildGrid();
+    designer.setBlueprintView("wiring");
+    wiring.refreshWiringPresentation();
+    designer.renderLocalStats();
+  });
+  await page.locator("#designerAnalysisTab").evaluate((button) => button.click());
+  await page.locator("#analysisWiringTab").evaluate((button) => button.click());
+  await page.locator(".wiring-issue-card").first().waitFor({ state: "visible", timeout: 5000 });
+}
+
+async function makeDataOnlyFixture(page) {
+  await page.evaluate(async () => {
+    const [{ state }, designer, wiring, { PART_STATS }] = await Promise.all([
+      import("/src/state.js"), import("/src/ui/designerUi.js"), import("/src/ui/wiringUi.js"), import("/src/design/parts.js")
+    ]);
+    state.design = [{ x: 0, y: 0, type: "fireControl" }, { x: 1, y: 0, type: "railgun" }];
+    let next = window.WiringRules.emptyWiring();
+    next = window.WiringRules.addPath(next, "data", [{ x: 0, y: 0 }, { x: 1, y: 0 }], state.design, PART_STATS);
+    state.wiring = next;
+    wiring.resetWiringEditorState();
+    state.wiringUi.mode = "data";
+    designer.renderBuildGrid();
+    designer.setBlueprintView("wiring");
+    wiring.refreshWiringPresentation();
+    designer.renderLocalStats();
+  });
+  await page.locator("#designerAnalysisTab").evaluate((button) => button.click());
+  await page.locator("#analysisWiringTab").evaluate((button) => button.click());
 }
 // Computed style of the visible cable line for a section id.
 async function visibleStyle(page, sectionId) {
@@ -80,7 +152,7 @@ async function inspectCircleSafety(page) {
   try {
     await waitForServer(base);
     browser = await launchChromium(chromium);
-    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
     await page.evaluate(async () => { const d = await import("/src/ui/designerUi.js"); document.querySelector("#blueprintDesignerScreen").hidden = false; d.renderBuildGrid(); });
     await page.locator("#blueprintWiringTab").click();
@@ -121,6 +193,79 @@ async function inspectCircleSafety(page) {
     const peakHalos = await haloClasses(page, "6,0:7,0");
     assert.ok(peakHalos.some((c) => /wire-status-peak/.test(c)), "at-peak halo present");
     assert.ok(await page.locator(".wire-glow-layer .wire-status-peak-marker").count() >= 1, "at-peak shows a static marker");
+
+    // The default Wiring Analysis hierarchy is concise and issue-led.
+    const panel = page.locator("#wiringStatusPanel");
+    const hierarchy = await panel.evaluate((node) => Array.from(node.children).map((child) => child.matches?.("[data-wiring-details]") ? child.dataset.wiringDetails : child.dataset?.wiringPanel || child.dataset?.wiringStatus || child.tagName.toLowerCase()));
+    assert.ok(hierarchy.indexOf("compact-summary") < hierarchy.indexOf("selected-tier"), "compact Summary appears before Selected Tier");
+    assert.ok(hierarchy.indexOf("selected-tier") < hierarchy.indexOf("issues"), "Selected Tier appears before Issues");
+    assert.ok(hierarchy.indexOf("issues") < hierarchy.indexOf("healthy"), "issues appear before healthy observations");
+    assert.ok(hierarchy.indexOf("healthy") < hierarchy.indexOf("advanced"), "Healthy Properties appears before Advanced Details");
+    assert.strictEqual(await page.locator('[data-wiring-details="healthy"]').getAttribute("open"), null, "Healthy Properties is collapsed by default");
+    assert.strictEqual(await page.locator('[data-wiring-details="advanced"]').getAttribute("open"), null, "Advanced Details is collapsed by default");
+    assert.strictEqual(await page.locator("[data-infra-guidance]").isVisible(), false, "long reference-range prose is hidden by default");
+    assert.match(await page.locator('[data-wiring-panel="compact-summary"]').innerText(), /Cost[\s\S]*Ship share[\s\S]*Displacement[\s\S]*Power \/ Data cells[\s\S]*Networks/i, "summary uses the compact authoritative stat set");
+    assert.match(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /Standard Cable[\s\S]*10\/16 MW[\s\S]*\$2\/cell[\s\S]*4 Heat displacement/i, "selected tier is one compact authoritative row");
+
+    const overloadIssue = page.locator(".wiring-issue-card").filter({ hasText: "Section 6,0 → 7,0" }).first();
+    assert.strictEqual(await overloadIssue.count(), 1, "the proven overloaded section has an actionable issue card");
+    assert.match(await overloadIssue.textContent(), /Flow \d+(?:\.\d+)? MW[\s\S]*Sustained 4 MW[\s\S]*Peak 7 MW/i, "overload issue exposes flow, sustained and peak values");
+    const issueOrder = await page.locator(".wiring-issue-card h5").allInnerTexts();
+    assert.match(issueOrder[0], /disconnected/i, "disconnected consumers are prioritised ahead of overloads and healthy properties");
+
+    // Locate is non-mutating and paints only a bounded pulse around the exact line.
+    const moreIssues = page.locator(".wiring-more-issues");
+    if (await moreIssues.count()) await moreIssues.evaluate((details) => { details.open = true; });
+    const beforeLocate = await page.evaluate(() => JSON.stringify(window.__mfaState.wiring));
+    await overloadIssue.locator('[data-wiring-action="locate-issue"]').evaluate((button) => button.click());
+    assert.strictEqual(await page.evaluate(() => JSON.stringify(window.__mfaState.wiring)), beforeLocate, "Locate does not mutate wiring");
+    assert.strictEqual(await page.evaluate(() => window.__mfaState.wiringUi.selectedSectionId), "6,0:7,0", "Locate selects the exact issue section");
+    const locateGeometry = await page.locator('.wire-visible-layer [data-section-id="6,0:7,0"]').evaluate((line) => {
+      const rect = line.getBoundingClientRect();
+      const svgRect = line.ownerSVGElement.getBoundingClientRect();
+      return { hasClass: line.classList.contains("wire-section-locate"), widthCells: rect.width / (svgRect.width / 15), heightCells: rect.height / (svgRect.height / 15) };
+    });
+    assert.strictEqual(locateGeometry.hasClass, true, "Locate applies the bounded cable pulse class");
+    assert.ok(locateGeometry.widthCells <= 2.01 && locateGeometry.heightCells <= 2.01, `Locate highlight is bounded (${JSON.stringify(locateGeometry)})`);
+    assert.strictEqual(await page.locator(".wiring-overlay :is(line,circle,rect,g)").evaluateAll((nodes) => nodes.some((node) => {
+      const style = getComputedStyle(node);
+      return style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0;
+    })), false, "Locate creates no native SVG outline");
+
+    // A safe upgrade previews its cost delta, changes exactly one section, and is
+    // one Undo transaction. Eligibility and target tier come from balance + solve.
+    const freshOverloadIssue = page.locator(".wiring-issue-card").filter({ hasText: "Section 6,0 → 7,0" }).first();
+    const upgradeButton = freshOverloadIssue.locator('[data-wiring-action="upgrade-issue"]');
+    assert.strictEqual(await upgradeButton.count(), 1, "a single-section upgrade is offered when it resolves the overload");
+    assert.match(await upgradeButton.textContent(), /\(\+\$\d+(?:\.\d+)?\)/, "upgrade shows its cost delta before commit");
+    const beforeUpgrade = await page.evaluate(async () => {
+      const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
+      return { sections: Object.fromEntries(state.wiring.power.sections.map((item) => [item.id, item.tier])), cost: computeStats(state.design, { wiring: state.wiring }).unitCost, undo: state.wiringUi.undoStack.length };
+    });
+    await upgradeButton.evaluate((button) => button.click());
+    const afterUpgrade = await page.evaluate(async () => {
+      const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
+      return { sections: Object.fromEntries(state.wiring.power.sections.map((item) => [item.id, item.tier])), cost: computeStats(state.design, { wiring: state.wiring }).unitCost, undo: state.wiringUi.undoStack.length };
+    });
+    const changedSections = Object.keys(beforeUpgrade.sections).filter((id) => beforeUpgrade.sections[id] !== afterUpgrade.sections[id]);
+    assert.deepStrictEqual(changedSections, ["6,0:7,0"], "upgrade changes only the selected issue section");
+    assert.ok(afterUpgrade.cost > beforeUpgrade.cost, "upgrade refreshes authoritative wiring cost");
+    assert.strictEqual(afterUpgrade.undo, beforeUpgrade.undo + 1, "upgrade is one wiring Undo transaction");
+    assert.strictEqual(await page.locator(".wiring-issue-card").filter({ hasText: "Section 6,0 → 7,0" }).count(), 0, "resolved overload leaves the issue list");
+    await page.locator("#wiringUndoButton").click();
+    assert.deepStrictEqual(await page.evaluate(() => Object.fromEntries(window.__mfaState.wiring.power.sections.map((item) => [item.id, item.tier]))), beforeUpgrade.sections, "Undo restores all original tiers");
+
+    // Native expanders stay accessible and retain state across analysis subtabs.
+    await page.locator('[data-wiring-details="healthy"] > summary').evaluate((summary) => summary.click());
+    assert.strictEqual(await page.locator('[data-wiring-details="healthy"]').getAttribute("open"), "", "Healthy Properties expands");
+    await page.locator('[data-wiring-details="healthy"] > summary').evaluate((summary) => summary.click());
+    assert.strictEqual(await page.locator('[data-wiring-details="healthy"]').getAttribute("open"), null, "Healthy Properties collapses");
+    await page.locator('[data-wiring-details="advanced"] > summary').evaluate((summary) => summary.click());
+    assert.match(await page.locator('[data-wiring-details="advanced"]').innerText(), /Power wiring[\s\S]*Data wiring[\s\S]*Tier usage|Power wiring[\s\S]*Benefits and downsides/i, "Advanced Details preserves detailed accounting and observations");
+    await page.locator("#analysisHeatTab").evaluate((button) => button.click());
+    await page.locator("#analysisWiringTab").evaluate((button) => button.click());
+    assert.strictEqual(await page.locator('[data-wiring-details="advanced"]').getAttribute("open"), "", "Advanced Details state survives analysis-tab switching");
+
     // Broken (sourceless) section: broken status + tier intact, dashed halo.
     const broken = await visibleStyle(page, "10,0:11,0");
     assert.strictEqual(broken.powerStatus, "broken", "sourceless section reports broken status");
@@ -312,10 +457,14 @@ async function inspectCircleSafety(page) {
     assert.match(tierText, /4\s*\/\s*7 MW/, "Light button shows sustained/peak capacity");
     assert.match(tierText, /10\s*\/\s*16 MW/, "Standard capacity");
     assert.match(tierText, /24\s*\/\s*36 MW/, "Heavy capacity");
-    assert.match(tierText, /\$1\/cell/, "Light button shows its per-cell cost");
-    assert.match(tierText, /\$2\/cell/, "Standard button shows its per-cell cost");
-    assert.match(tierText, /\$5\/cell/, "Heavy button shows its per-cell cost");
-    assert.match(await page.locator("#wiringModeData").innerText(), /\$0\.25\/cell/, "Data mode shows its per-cell cost");
+    assert.match(tierText, /\$1\s*·\s*−2 Heat/, "Light button shows concise cost and displacement");
+    assert.match(tierText, /\$2\s*·\s*−4 Heat/, "Standard button shows concise cost and displacement");
+    assert.match(tierText, /\$5\s*·\s*−8 Heat/, "Heavy button shows concise cost and displacement");
+    assert.equal((await page.locator("#wiringModeData").innerText()).trim(), "Data", "Data mode contains only its primary label");
+    assert.doesNotMatch(await page.locator("#wiringModeData").innerText(), /\$|Heat|\/cell/i,
+      "Data mode keeps cost and Heat details out of the segmented control");
+    assert.match(await page.locator("#wiringModeData").getAttribute("title"), /Cost and displacement are shown in Wiring Analysis/i,
+      "Data tooltip directs secondary information to Wiring Analysis");
     assert.match(await page.locator('[data-wiring-tier="light"]').getAttribute("title"), /branch/i, "Light tooltip explains purpose");
     assert.match(await page.locator('[data-wiring-tier="standard"]').getAttribute("title"), /distribution/i, "Standard tooltip explains purpose");
     assert.match(await page.locator('[data-wiring-tier="heavy"]').getAttribute("title"), /trunk|backbone/i, "Heavy tooltip explains purpose");
@@ -356,7 +505,94 @@ async function inspectCircleSafety(page) {
     assert.match(costSync.breakdown, new RegExp(`Total ship cost\\s*\\$${costSync.authoritative}`), "cost breakdown total refreshes");
     assert.strictEqual(costSync.purchase, `$${costSync.authoritative}`, "current-design purchase cost refreshes");
 
-    // 9. Reduced motion keeps a static status cue (glow filter) without animation.
+    // 9. The Analysis subtab bar stays opaque and sticky inside its own inspector.
+    await page.locator("#designerAnalysisPanel").evaluate((panel) => { panel.scrollTop = panel.scrollHeight; });
+    const sticky = await page.evaluate(() => {
+      const panel = document.querySelector("#designerAnalysisPanel");
+      const tabs = document.querySelector("#designerAnalysisSubtabs");
+      const panelRect = panel.getBoundingClientRect();
+      const tabRect = tabs.getBoundingClientRect();
+      const background = getComputedStyle(tabs).backgroundColor;
+      const channels = background.match(/[\d.]+/g) || [];
+      const alpha = background.startsWith("rgba") ? Number(channels[3]) : 1;
+      return { panelTop: panelRect.top, panelBottom: panelRect.bottom, tabTop: tabRect.top, tabBottom: tabRect.bottom, background, alpha };
+    });
+    assert.ok(sticky.tabTop >= sticky.panelTop - 1 && sticky.tabBottom <= sticky.panelBottom + 1, `analysis tabs remain sticky inside the inspector (${JSON.stringify(sticky)})`);
+    assert.ok(sticky.alpha === 1, `analysis tabs use an opaque background (${sticky.background})`);
+    for (const id of ["analysisHeatTab", "analysisPowerTab", "analysisWiringTab", "analysisMovementTab"]) {
+      await page.locator(`#${id}`).evaluate((button) => button.click());
+      assert.strictEqual(await page.locator(`#${id}`).getAttribute("aria-selected"), "true", `${id} remains clickable after inspector scrolling`);
+    }
+    await page.locator("#analysisWiringTab").evaluate((button) => button.click());
+
+    // 10. Responsive acceptance and screenshot set.
+    await makePriorityFixture(page);
+    assert.match(await page.locator(".wiring-issue-card").first().textContent(), /cable .*overloaded|peak capacity/i, "with no disconnections, the proven overload is the first issue");
+    assert.match(await page.locator('[data-wiring-panel="compact-summary"]').textContent(), /Alternate paths\s*[1-9]/i, "priority fixture contains authoritative alternate-path evidence");
+    assert.strictEqual(await page.locator('[data-wiring-details="healthy"]').getAttribute("open"), null, "alternate-path healthy observation remains collapsed behind Healthy Properties");
+    assert.match(await page.locator('[data-wiring-details="healthy"]').textContent(), /Alternate Power path detected/i, "collapsed healthy observations retain alternate-path evidence");
+    const viewports = [
+      [1920, 1080], [1440, 900], [1280, 720], [768, 1024], [430, 932], [390, 844]
+    ];
+    for (const [width, height] of viewports) {
+      await page.setViewportSize({ width, height });
+      await makePriorityFixture(page);
+      await page.locator("#designerAnalysisPanel").evaluate((panel) => { panel.scrollTop = 0; });
+      const advanced = page.locator('[data-wiring-details="advanced"]');
+      if ((await advanced.getAttribute("open")) !== null) await advanced.locator(":scope > summary").evaluate((summary) => summary.click());
+      const metrics = await page.evaluate(() => {
+        const panel = document.querySelector("#wiringStatusPanel");
+        const inspector = document.querySelector(".designer-right-col");
+        const issue = document.querySelector(".wiring-issue-card");
+        const issueRect = issue?.getBoundingClientRect();
+        const inspectorRect = inspector?.getBoundingClientRect();
+        return {
+          panelOverflow: panel.scrollWidth - panel.clientWidth,
+          inspectorOverflow: inspector.scrollWidth - inspector.clientWidth,
+          issueVisible: Boolean(issueRect && inspectorRect && issueRect.top < inspectorRect.bottom && issueRect.bottom > inspectorRect.top),
+          panelHidden: panel.hidden,
+          issueRect: issueRect ? { top: issueRect.top, bottom: issueRect.bottom, width: issueRect.width, height: issueRect.height } : null,
+          inspectorRect: inspectorRect ? { top: inspectorRect.top, bottom: inspectorRect.bottom, width: inspectorRect.width, height: inspectorRect.height } : null,
+          summaryColumns: getComputedStyle(document.querySelector(".wiring-compact-stats")).gridTemplateColumns.split(" ").length
+        };
+      });
+      assert.ok(metrics.panelOverflow <= 1 && metrics.inspectorOverflow <= 1, `${width}x${height}: no horizontal inspector overflow (${JSON.stringify(metrics)})`);
+      assert.strictEqual(metrics.issueVisible, true, `${width}x${height}: first actionable issue is visible (${JSON.stringify(metrics)})`);
+      if (width <= 360) assert.strictEqual(metrics.summaryColumns, 1, `${width}x${height}: compact summary reduces to one column`);
+      await page.screenshot({ path: path.join(artifactDir, `overloaded-${width}x${height}.png`) });
+      if (width === 1920) {
+        await advanced.locator(":scope > summary").evaluate((summary) => summary.click());
+        await page.screenshot({ path: path.join(artifactDir, "desktop-advanced-expanded.png") });
+      }
+      if (width === 430) {
+        const more = page.locator(".wiring-more-issues");
+        if (await more.count()) await more.evaluate((details) => { details.open = true; });
+        const card = page.locator(".wiring-issue-card").filter({ hasText: "Section 6,0 → 7,0" }).first();
+        await card.locator('[data-wiring-action="locate-issue"]').evaluate((button) => button.click());
+        await page.locator("#designerAnalysisPanel").evaluate((panel) => { panel.scrollTop = 150; });
+        await page.waitForTimeout(80);
+        await page.screenshot({ path: path.join(artifactDir, "mobile-issue-locate.png") });
+      }
+    }
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await buildFixture(page);
+    await makeHealthyFixture(page);
+    await page.screenshot({ path: path.join(artifactDir, "desktop-healthy.png") });
+
+    // 11. Empty and single-network states avoid misleading zero-value reports.
+    await page.evaluate(async () => {
+      const [{ state }, wiring] = await Promise.all([import("/src/state.js"), import("/src/ui/wiringUi.js")]);
+      state.wiring = window.WiringRules.emptyWiring();
+      wiring.resetWiringEditorState();
+      wiring.refreshWiringPresentation();
+    });
+    assert.match(await page.locator('[data-wiring-status="no-wiring"]').innerText(), /Draw Power or Data cable to begin analysis/i, "No Wiring state gives one clear next action");
+    assert.strictEqual(await page.locator('[data-wiring-panel="compact-summary"]').count(), 0, "No Wiring state does not display misleading zero summary values");
+    await makeDataOnlyFixture(page);
+    assert.match(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /Data cable[\s\S]*\$0\.25\/cell[\s\S]*no Power capacity/i, "Data-only state uses the compact Data network row");
+    assert.doesNotMatch(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /MW sustained|MW peak/i, "Data-only state omits Power capacity fields");
+
+    // 12. Reduced motion keeps a static status cue (glow filter) without animation.
     await page.emulateMedia({ reducedMotion: "reduce" });
     await buildFixture(page);
     const peakMotion = await page.evaluate(() => {
@@ -369,7 +605,7 @@ async function inspectCircleSafety(page) {
     assert.ok(peakMotion.animationName === "none", "no pulse animation under reduced motion");
     assert.ok(peakMotion.filter && peakMotion.filter !== "none", "static glow cue remains under reduced motion");
 
-    console.log("Wiring tier/status clarity browser verification passed");
+    console.log(`Wiring tier/status and prioritised analysis browser verification passed; screenshots: ${path.relative(__dirname, artifactDir)}`);
   } finally {
     if (browser) await browser.close().catch(() => {});
     server.kill("SIGTERM");

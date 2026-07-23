@@ -74,12 +74,28 @@ export function selectedShipSummary(ships) {
 }
 function oneShipSummary(ship) {
   const style = normalizeStyle(ship.combatStyle);
-  const power = formatPowerState(ship.powerGeneration ?? ship.stats?.powerGeneration, ship.powerUse ?? ship.stats?.powerUse, ship.powerEfficiency ?? ship.efficiency ?? ship.stats?.efficiency);
-  return { text: `Hull ${formatNumber(ship.hp)}/${formatNumber(ship.maxHp)} · Shield ${formatNumber(ship.shield || 0)}/${formatNumber(ship.maxShield || 0)} · Heat ${formatHeatPercent(shipHeatPercent(ship))} · ${Number(ship.overheated || 0)} overheated · Speed ${formatNumber(ship.speed || 0)} · Power ${power} · Style ${STYLE_LABELS[style] || style} · ${ship.order || ship.currentOrder || "No order"}${ship.targetName ? ` · Target ${ship.targetName}` : ""}`, style };
+  const livePower = ship.powerThermal || {};
+  const generated = livePower.powerGenerationMw ?? ship.powerGeneration ?? ship.stats?.powerGeneration;
+  const required = livePower.requestedDemandMw ?? ship.powerUse ?? ship.stats?.powerUse;
+  const delivered = Number(livePower.deliveredDemandMw);
+  const liveEfficiency = Number(required) > 0 && Number.isFinite(delivered)
+    ? delivered / Number(required)
+    : ship.powerEfficiency ?? ship.efficiency ?? ship.stats?.efficiency;
+  const power = formatPowerState(generated, required, liveEfficiency);
+  const ranges = [ship.blasterRange, ship.missileRange, ship.railgunRange, ship.beamRange].map(Number).filter(Number.isFinite);
+  const range = ranges.length ? Math.max(...ranges) : 0;
+  return { text: `Hull ${formatNumber(ship.hp)}/${formatNumber(ship.maxHp)} · Shield ${formatNumber(ship.shield || 0)}/${formatNumber(ship.maxShield || 0)} · Heat ${formatHeatPercent(shipHeatPercent(ship))} · ${Number(ship.overheated || 0)} overheated · Speed ${formatNumber(ship.speed || 0)} · Power ${power} · Range ${formatNumber(range)} · Style ${STYLE_LABELS[style] || style} · ${ship.order || ship.currentOrder || "No order"}${ship.targetName ? ` · Target ${ship.targetName}` : ""}`, style };
 }
 function sumPair(list, cur, max) { return list.reduce((a, s) => ({ current: a.current + Number(s[cur] || 0), max: a.max + Number(s[max] || 0) }), { current: 0, max: 0 }); }
 function pct(c, m) { return m > 0 ? `${Math.round((c / m) * 100)}%` : "0%"; }
-function isPowerStarved(s) { const g = Number(s.powerGeneration ?? s.stats?.powerGeneration); const r = Number(s.powerUse ?? s.stats?.powerUse); return Number.isFinite(g) && Number.isFinite(r) && r > g; }
+function isPowerStarved(s) {
+  const power = s.powerThermal || {};
+  const requested = Number(power.requestedDemandMw ?? s.powerUse ?? s.stats?.powerUse);
+  const delivered = Number(power.deliveredDemandMw);
+  if (Number.isFinite(requested) && Number.isFinite(delivered)) return requested > delivered;
+  const generated = Number(power.powerGenerationMw ?? s.powerGeneration ?? s.stats?.powerGeneration);
+  return Number.isFinite(generated) && Number.isFinite(requested) && requested > generated;
+}
 function distribution(values) { const counts = new Map(); values.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1)); return [...counts].map(([k, v]) => `${STYLE_LABELS[k] || k} ${v}`).join(", "); }
 function commonText(values) { const clean = values.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim()); if (!clean.length) return ""; return clean.every((v) => v === clean[0]) ? clean[0] : clean[0]?.includes("target") ? "Mixed targets" : "Mixed orders"; }
 export function normalizeStyle(style) { return STYLE_LABELS[style] ? style : "charge"; }

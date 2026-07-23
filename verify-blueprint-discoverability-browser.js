@@ -348,6 +348,31 @@ async function main() {
     await setupDesigner(page);
     await assertToolbarGeometryForViewports(page);
 
+    const paletteCategories = await page.locator("#partPalette .part-category-tabs button").allTextContents();
+    assert.equal(paletteCategories.includes("Utility"), false, "Utility is removed as a palette category");
+    assert.equal(paletteCategories.includes("Support"), true, "Support remains available");
+    await page.locator("#partPalette .part-category-tabs button").filter({ hasText: "Support" }).click();
+    for (const name of ["Capture Module", "Signal Amplifier", "Stabilizer Node"]) {
+      assert.equal(await page.locator("#partPalette").getByRole("button", { name, exact: true }).isVisible(), true,
+        `${name} is available under Support`);
+    }
+    await selectPalettePart(page, { category: "Support", type: "captureModule", name: "Capture Module", rotatable: false });
+    const captureInspectorText = await page.locator("#partInspector").textContent();
+    assert.match(captureInspectorText, /Capture pressure\s*\+18%/i,
+      "non-zero support output is promoted to Key stats");
+    assert.doesNotMatch(captureInspectorText, /Power and support details/i);
+    const captureDisclosures = await page.locator("#partInspector details > summary").allTextContents();
+    const captureCombatIndex = captureDisclosures.indexOf("Combat details");
+    const captureHeatIndex = captureDisclosures.indexOf("Heat details");
+    assert.ok(captureHeatIndex > captureCombatIndex, "Heat details appears below Combat details");
+    await selectPalettePart(page, { category: "Support", type: "repair", name: "Repair", rotatable: false });
+    assert.match(await page.locator("#partInspector").textContent(), /Healing rate\s*3\.5 HP\/s/i,
+      "Repair shows its authoritative healing rate");
+    await selectPalettePart(page, { category: "Support", type: "repairBeam", name: "Repair Beam", rotatable: true });
+    assert.match(await page.locator("#partInspector").textContent(), /Healing rate\s*8 HP\/s/i,
+      "Repair Beam shows its authoritative healing rate");
+    await selectPalettePart(page, { category: "Weapons", type: "blaster", name: "Blaster", rotatable: true });
+
     const guide = page.locator("#buildInteractionGuide");
     await assert.equal(await guide.isVisible(), true, "Build interaction guide is visible");
     const buildGuide = await guide.textContent();

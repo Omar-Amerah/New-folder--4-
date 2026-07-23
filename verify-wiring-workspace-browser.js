@@ -110,18 +110,68 @@ async function sectionTier(page, id) {
     assert.equal(await page.locator("#wiringToolbar #wiringUndoButton").count(), 1);
     assert.equal(await page.locator("#wiringToolbar #wiringClearNetworkButton").count(), 1);
     assert.equal(await page.locator("#wiringToolbar #wiringHelpButton").count(), 1);
+    assert.equal((await page.locator("#wiringModePower").innerText()).trim(), "Power", "Power is a compact mode label");
+    assert.equal((await page.locator("#wiringModeData").innerText()).trim(), "Data", "Data is a compact mode label");
+    assert.doesNotMatch(await page.locator("#wiringModePower, #wiringModeData").allInnerTexts().then(values => values.join(" ")), /\$|Heat|\/cell/i,
+      "network selectors contain no cost or Heat statistics");
+    assert.equal(await page.locator(".wiring-tool-row .wiring-control-icon svg").count(), 3, "each drawing tool has one project-style icon");
+    assert.equal(await page.locator("#wiringTierRow .wiring-tier").count(), 3, "three tier cards remain available");
+    assert.ok(await page.locator("#wiringTierRow .wiring-tier").evaluateAll(tiers => tiers.every(tier =>
+      tier.children.length === 3
+      && tier.querySelectorAll(".wiring-tier-name").length === 1
+      && tier.querySelectorAll(".wiring-tier-capacity").length === 1
+      && tier.querySelectorAll(".wiring-tier-meta").length === 1
+    )), "every tier card has exactly name, capacity and cost/displacement lines");
+    assert.equal(await page.locator("#wiringToolbar .wiring-mode-cost, #wiringToolbar .status-dot").count(), 0,
+      "legacy secondary lines and corner-dot elements are absent");
+    assert.equal(await page.locator("#wiringHelpButton").getAttribute("aria-label"), "Open Wiring help");
+    assert.equal(await page.locator("#wiringHelpButton").getAttribute("title"), "Help");
+    assert.equal(await page.locator(".wiring-action-row .wiring-utility").count(), 3, "utility actions use the utility treatment");
     const selectedPresentation = await page.locator('#wiringToolbar button[aria-pressed="true"]').evaluateAll(buttons => ({
       text: buttons.map(button => button.textContent).join(" "),
-      before: buttons.map(button => getComputedStyle(button, "::before").content)
+      before: buttons.map(button => getComputedStyle(button, "::before").content),
+      after: buttons.map(button => getComputedStyle(button, "::after").content),
+      backgrounds: buttons.map(button => getComputedStyle(button).backgroundImage),
+      indicators: buttons.map(button => getComputedStyle(button).boxShadow)
     }));
     assert.doesNotMatch(selectedPresentation.text, /✓|✔/, "selected controls contain no checkmark characters");
     assert.ok(selectedPresentation.before.every(content => content === "none" || content === "normal"), "selected controls add no checkmark pseudo-content");
+    assert.ok(selectedPresentation.after.every(content => content === "none" || content === "normal"), "selected controls add no corner-dot pseudo-content");
+    assert.ok(selectedPresentation.backgrounds.every(background => background.includes("gradient")), "selected controls use a restrained tint");
+    assert.ok(selectedPresentation.indicators.every(shadow => shadow !== "none"), "selected controls include a non-colour inset indicator");
+
+    const dimensionsBeforeSelection = await page.evaluate(() => Object.fromEntries(
+      ["#wiringModeData", '[data-wiring-tool="inspect"]', '[data-wiring-tier="light"]'].map(selector => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return [selector, [rect.width, rect.height]];
+      })
+    ));
+    await page.locator("#wiringModeData").click();
+    await page.locator('[data-wiring-tool="inspect"]').click();
+    await page.locator("#wiringModePower").click();
+    await page.locator('[data-wiring-tier="light"]').dispatchEvent("click");
+    const dimensionsAfterSelection = await page.evaluate(() => Object.fromEntries(
+      ["#wiringModeData", '[data-wiring-tool="inspect"]', '[data-wiring-tier="light"]'].map(selector => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return [selector, [rect.width, rect.height]];
+      })
+    ));
+    assert.deepEqual(dimensionsAfterSelection, dimensionsBeforeSelection, "selected controls never change dimensions");
+    await page.locator('[data-wiring-tool="draw"]').click();
+    await page.locator('[data-wiring-tier="standard"]').click();
+    assert.equal(await page.locator("#wiringClearNetworkButton").isEnabled(), true,
+      "Clear targets the sole active Power network without requiring a prior cable selection");
+    await page.locator("#wiringClearNetworkButton").click();
+    assert.equal(await page.locator("#confirmModal").isVisible(), true,
+      "Clear opens its network confirmation when one unambiguous network exists");
+    await page.locator("#confirmCancelButton").click();
     assert.equal(await page.locator("#wiringHelpPanel").isHidden(), true);
     assert.equal(await page.locator("#analysisWiringTab").getAttribute("aria-selected"), "true");
     assert.match(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /Standard Cable/);
 
     for (const target of [
       { width: 1920, height: 1080, maxRows: 1, file: "wiring-1920x1080.png" },
+      { width: 1440, height: 900, maxRows: 2, file: "wiring-1440x900.png" },
       { width: 1280, height: 720, maxRows: 2, file: "wiring-1280x720.png" }
     ]) {
       await page.setViewportSize(target);
@@ -129,14 +179,14 @@ async function sectionTier(page, id) {
         const toolbar = document.querySelector("#blueprintModeContext").getBoundingClientRect();
         const grid = document.querySelector("#buildGridStage").getBoundingClientRect();
         const forward = document.querySelector(".forward-marker").getBoundingClientRect();
-        const groups = [...document.querySelectorAll("#wiringToolbar > .wiring-control-row")];
+        const groups = [...document.querySelectorAll("#wiringToolbar .wiring-control-row")];
         const groupTops = groups.map(group => Math.round(group.getBoundingClientRect().top)).sort((a, b) => a - b);
         const groupRows = groupTops.reduce((rows, top) => !rows.length || top - rows.at(-1) > 10 ? [...rows, top] : rows, []);
-        const controlsInside = [...document.querySelectorAll("#wiringToolbar button")].every(button => {
-          if (button.closest("[hidden]")) return true;
+        const clippedControls = [...document.querySelectorAll("#wiringToolbar button")].filter(button => {
+          if (button.closest("[hidden]")) return false;
           const rect = button.getBoundingClientRect();
-          return rect.left >= toolbar.left - 1 && rect.right <= toolbar.right + 1;
-        });
+          return rect.left < toolbar.left - 1 || rect.right > toolbar.right + 1;
+        }).map(button => button.id || button.dataset.wiringTool || button.dataset.wiringTier);
         return {
           toolbarHeight: Math.round(toolbar.height),
           markerGap: Math.round(grid.top - forward.bottom),
@@ -144,14 +194,15 @@ async function sectionTier(page, id) {
           groupRows: groupRows.length,
           toolbarWidth: Math.round(toolbar.width),
           groupWidths: groups.map(group => Math.round(group.getBoundingClientRect().width)),
-          controlsInside
+          controlsInside: clippedControls.length === 0,
+          clippedControls
         };
       });
-      assert.ok(desktopGeometry.toolbarHeight <= 100, `${target.width}px toolbar is ${desktopGeometry.toolbarHeight}px tall`);
+      assert.ok(desktopGeometry.toolbarHeight <= (target.width === 1920 ? 78 : 110), `${target.width}px toolbar is ${desktopGeometry.toolbarHeight}px tall`);
       assert.ok(desktopGeometry.markerGap >= -8 && desktopGeometry.markerGap <= 8, `Forward marker gap is ${desktopGeometry.markerGap}px`);
       assert.equal(desktopGeometry.gridVisible, true, `grid visible at ${target.width}x${target.height}`);
       assert.ok(desktopGeometry.groupRows <= target.maxRows, `${target.width}px toolbar layout: ${JSON.stringify(desktopGeometry)}`);
-      assert.equal(desktopGeometry.controlsInside, true, "toolbar controls are not clipped");
+      assert.equal(desktopGeometry.controlsInside, true, `toolbar controls are not clipped: ${JSON.stringify(desktopGeometry)}`);
       console.log(`${target.width}x${target.height}: toolbar ${desktopGeometry.toolbarHeight}px, ${desktopGeometry.groupRows} row(s), Forward gap ${desktopGeometry.markerGap}px`);
       await page.screenshot({ path: path.join(artifactDir, target.file) });
     }
@@ -189,10 +240,16 @@ async function sectionTier(page, id) {
       return accounting.power.cost + accounting.data.cost;
     });
     assert.ok(afterCost > beforeCost, "redraw updates authoritative infrastructure cost");
-    await page.locator("#wiringUndoButton").click();
+    assert.equal(await page.locator("#undoBlueprintEditButton").isEnabled(), true,
+      "header Undo reflects Wiring history while Wiring mode is active");
+    assert.equal(await page.locator("#undoBlueprintEditButton").getAttribute("aria-label"), "Undo last wiring change");
+    assert.equal(await page.locator("#undoBlueprintEditButton").getAttribute("title"), "Undo last wiring change (Ctrl+Z)");
+    await page.locator("#undoBlueprintEditButton").click();
     assert.equal(await sectionTier(page, "2,0:3,0"), "standard");
     assert.equal(await sectionTier(page, "3,0:4,0"), "light");
     assert.equal(await sectionTier(page, "4,0:4,1"), undefined);
+    assert.equal(await page.locator("#wiringUndoButton").isDisabled(), true,
+      "header Undo consumes the same Wiring history as the toolbar control");
 
     // Same-tier redraw is a no-op: no new revision and no new Undo entry.
     await preparePath(page, "standard", [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]);
@@ -212,8 +269,22 @@ async function sectionTier(page, id) {
     await page.locator('[data-wiring-tool="inspect"]').click();
     await page.locator('.wire-hit[data-section-id="3,0:4,0"]').click({ force: true });
     assert.equal(await page.evaluate(() => JSON.stringify(window.__mfaState.wiring)), beforeInspect);
+    await page.locator('[data-wiring-details="advanced"] > summary').click();
     assert.match(await page.locator('[data-wiring-inspection="power-section"]').innerText(), /Cable rating:/);
     assert.match(await page.locator('[data-wiring-inspection="power-section"]').innerText(), /Network ID:/);
+    const removeSectionButton = page.locator('[data-wiring-action="remove-section"]');
+    await removeSectionButton.scrollIntoViewIfNeeded();
+    const deleteScrollBefore = await page.locator("#designerAnalysisPanel").evaluate(panel => panel.scrollTop);
+    await removeSectionButton.click();
+    assert.equal(await sectionTier(page, "3,0:4,0"), undefined,
+      "Remove section deletes the inspected physical cable section");
+    const deleteScrollAfter = await page.locator("#designerAnalysisPanel").evaluate(panel => panel.scrollTop);
+    assert.ok(Math.abs(deleteScrollAfter - deleteScrollBefore) < 80,
+      `deleting a section does not make the information panel jump (${deleteScrollBefore} -> ${deleteScrollAfter})`);
+    await page.locator("#wiringUndoButton").click();
+    assert.equal(await sectionTier(page, "3,0:4,0"), "light", "Undo restores the section removed from inspection");
+    await page.locator('[data-wiring-tool="inspect"]').click();
+    await page.locator('.wire-hit[data-section-id="3,0:4,0"]').click({ force: true });
     await page.screenshot({ path: path.join(artifactDir, "desktop-inspect.png") });
 
     // Erase remains a one-step edit and Undo restores the exact section.
@@ -251,8 +322,9 @@ async function sectionTier(page, id) {
           const rect = button.getBoundingClientRect();
           return rect.left >= toolbarRect.left - 1 && rect.right <= toolbarRect.right + 1;
         });
-        const groupTops = [...document.querySelectorAll("#wiringToolbar > .wiring-control-row")]
+        const groupTops = [...document.querySelectorAll("#wiringToolbar .wiring-control-row")]
           .map(group => Math.round(group.getBoundingClientRect().top));
+        const helpRect = document.querySelector("#wiringHelpButton").getBoundingClientRect();
         return {
           documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
           toolbarOverflow: document.querySelector("#wiringToolbar").scrollWidth > document.querySelector("#wiringToolbar").clientWidth + 1,
@@ -260,6 +332,10 @@ async function sectionTier(page, id) {
           gridVisible: grid.top < innerHeight,
           mobileGridFirst: innerWidth > 900 || center.top < analysis.top,
           controlsInside,
+          labelsUnclipped: [...document.querySelectorAll("#wiringToolbar button:not([hidden])")].every(button =>
+            button.scrollWidth <= button.clientWidth + 1 && button.scrollHeight <= button.clientHeight + 1
+          ),
+          helpSquare: innerWidth > 720 || (Math.abs(helpRect.width - helpRect.height) <= 1 && helpRect.width <= 44),
           mobileGroupOrder: innerWidth > 430 || groupTops.every((top, index) => index === 0 || top > groupTops[index - 1])
         };
       });
@@ -270,11 +346,11 @@ async function sectionTier(page, id) {
         gridVisible: true,
         mobileGridFirst: true,
         controlsInside: true,
+        labelsUnclipped: true,
+        helpSquare: true,
         mobileGroupOrder: true
       }, `responsive Wiring geometry at ${viewport.width}x${viewport.height}`);
-      if (viewport.width === 768 || viewport.width === 390) {
-        await page.screenshot({ path: path.join(artifactDir, `wiring-${viewport.width}x${viewport.height}.png`) });
-      }
+      await page.screenshot({ path: path.join(artifactDir, `wiring-${viewport.width}x${viewport.height}.png`) });
     }
 
     await page.setViewportSize({ width: 390, height: 844 });

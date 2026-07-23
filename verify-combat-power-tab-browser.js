@@ -7,6 +7,8 @@
 // overlay, and that component/section readouts respond — with no page errors
 // and no touch/mobile controls.
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
 
@@ -14,6 +16,8 @@ const port = uniquePort();
 const base = `http://127.0.0.1:${port}`;
 const { server } = startServer(port);
 let browser;
+const artifactDir = path.join(__dirname, "test-artifacts", "combat-power-tab");
+fs.mkdirSync(artifactDir, { recursive: true });
 
 // A fabricated selected-ship snapshot with every Power block the Power tab
 // reads. Kept inline so the test does not need a live match.
@@ -75,12 +79,95 @@ const SHIP = {
   }
 };
 
+function cloneShip(ship = SHIP) { return structuredClone(ship); }
+function healthyShip() {
+  const ship = cloneShip();
+  ship.powerStatus = "powered";
+  Object.assign(ship.powerThermal, {
+    powerCableHeatRate: 0.4,
+    totalHeatRate: 1.6,
+    netHeatRate: 0.6,
+    aboveSustainedSectionCount: 0,
+    atPeakSectionCount: 0,
+    throttledComponentCount: 0,
+    disabledComponentCount: 0,
+    powerGenerationMw: 10,
+    requestedDemandMw: 7.5,
+    deliveredDemandMw: 7.5,
+    sparePowerMw: 2.5,
+    unmetDemandMw: 0,
+    hottestSectionId: "2,0:3,0"
+  });
+  for (const component of ship.powerThermal.components) {
+    component.allocatedMw = component.requestedMw;
+    component.operationalMultiplier = 1;
+  }
+  Object.assign(ship.powerProtection, {
+    state: "normal",
+    aboveSustainedSectionCount: 0,
+    atPeakSectionCount: 0,
+    criticalSectionCount: 0,
+    mostStressedSectionId: null,
+    mostStressedStress: 0,
+    trippedSwitchgearCount: 0,
+    nextRetrySeconds: 0,
+    partialConsumerCount: 0,
+    shedConsumerCount: 0
+  });
+  ship.switchgear = [];
+  ship.powerWiringRuntime.sections = ship.powerWiringRuntime.sections.map((section) => ({
+    ...section,
+    absoluteFlowMw: Math.min(section.absoluteFlowMw, section.sustainedCapacityMw * 0.6),
+    sustainedUtilisation: 0.6,
+    peakUtilisation: 0.35,
+    stress: 0,
+    secondsAboveSustained: 0,
+    state: "normal"
+  }));
+  return ship;
+}
+function protectedRouteShip() {
+  const ship = cloneShip();
+  ship.powerStatus = "partially-powered";
+  Object.assign(ship.powerProtection, {
+    state: "protection-trip",
+    trippedSwitchgearCount: 1,
+    nextRetrySeconds: 2,
+    partialConsumerCount: 1
+  });
+  return ship;
+}
+
 async function setup(page, ship) {
   await page.evaluate(async (shipData) => {
     const [{ state }, panel] = await Promise.all([import("/src/state.js"), import("/src/ui/shipDamagePanelUi.js")]);
+    if (!document.getElementById("powerPanelTestIsolation")) {
+      const style = document.createElement("style");
+      style.id = "powerPanelTestIsolation";
+      style.textContent = `
+        #pixiFatalErrorPanel, .purchase-bar, .top-hud { display: none !important; }
+        .score-panel {
+          position: fixed !important;
+          inset: 0 0 0 auto !important;
+          width: min(310px, 100vw) !important;
+          height: 100vh !important;
+          overflow: auto !important;
+          z-index: 4000 !important;
+        }
+        #scoreList, #eventLog, .screen-buttons { display: none !important; }
+        #shipDamagePanel {
+          position: relative !important;
+          z-index: 5000 !important;
+          background: #07101c !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    document.querySelectorAll(".menu-screen, .confirm-modal").forEach((screen) => { screen.hidden = true; });
     document.querySelector("#battleScreen") && (document.querySelector("#battleScreen").hidden = false);
     const panelEl = document.querySelector("#shipDamagePanel");
     if (panelEl) panelEl.hidden = false;
+    document.querySelector(".power-more-issues")?.removeAttribute("open");
     state.snapshot = { ships: [shipData], players: [{ id: "p1", color: "#8fd8ff" }] };
     state.selectedShipIds = new Set([shipData.id]);
     state.shipStatusView = "damage";
@@ -97,6 +184,13 @@ async function clickTab(page, id) {
     await waitForServer(base);
     browser = await launchChromium(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+    // This is a deterministic panel test, not a live arena-loop test. Prevent
+    // the match renderer from replacing the fabricated snapshot between UI
+    // assertions and screenshot capture.
+    await page.addInitScript(() => {
+      globalThis.requestAnimationFrame = () => 0;
+      globalThis.cancelAnimationFrame = () => {};
+    });
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
@@ -137,15 +231,58 @@ async function clickTab(page, id) {
     assert(powerState.heatSummaryHidden, "Heat summary hidden on Power tab");
     assert(!powerState.powerLegendHidden, "Power legend visible");
 
-    // 8-14. Power summary groups and values.
+    // Compact operational hierarchy and authoritative balance values.
     const s = powerState.summaryText;
-    for (const label of ["Power balance", "Distribution", "Protection", "Generation", "Requested", "Delivered", "Spare", "Unmet", "Priority preset", "Partial consumers", "Shed consumers", "Power networks", "Above sustained", "At peak", "Cable Heat rate", "Protection state", "Tripped Switchgear", "Nearest retry"]) {
+    for (const label of ["Underpowered", "Power balance", "Issues", "Distribution", "Generation", "Requested", "Delivered", "Spare", "Unmet", "Priority", "Cable Heat"]) {
       assert(s.includes(label), `Power summary shows: ${label}`);
     }
+    for (const gone of ["Switchgear", "Advanced Power Diagnostics", "Protection"]) {
+      assert(!s.includes(gone), `simplified Power summary omits ${gone}`);
+    }
     assert(/10 MW/.test(s), "generation value shown");
-    for (const text of ["Open", "Automatic — idle", "Tripped — cooling down"]) assert(s.includes(text), `switchgear state rendered as text: ${text}`);
-    assert(/Strained/.test(s), "protection state label shown");
     assert(!/NaN|Infinity|undefined/.test(s), "no NaN/Infinity/undefined in Power summary");
+    const compactStructure = await page.evaluate(() => {
+      const summary = document.getElementById("shipPowerSummary");
+      return {
+        oldCards: summary.querySelectorAll(".power-summary-group").length,
+        directIssues: summary.querySelectorAll(".power-issues-section > .power-issue").length,
+        summaryWidth: summary.getBoundingClientRect().width,
+        summaryClientWidth: summary.clientWidth,
+        summaryScrollWidth: summary.scrollWidth,
+        summaryHeight: summary.getBoundingClientRect().height,
+        previewWidth: document.getElementById("shipDamageCanvas").getBoundingClientRect().width,
+        previewBottom: document.getElementById("shipDamageCanvas").getBoundingClientRect().bottom,
+        viewportHeight: innerHeight
+      };
+    });
+    assert.strictEqual(compactStructure.oldCards, 0, "old equal-weight card wall removed");
+    assert(compactStructure.directIssues <= 3, "at most three priority issues visible initially");
+    assert(compactStructure.summaryScrollWidth <= compactStructure.summaryClientWidth + 1, `summary has no horizontal overflow (${compactStructure.summaryScrollWidth}/${compactStructure.summaryClientWidth})`);
+    assert(compactStructure.summaryHeight <= 331, `summary remains compact (${compactStructure.summaryHeight}px)`);
+    assert(compactStructure.previewWidth >= 150, `ship preview remains usable (${compactStructure.previewWidth}px)`);
+    assert(compactStructure.previewBottom <= compactStructure.viewportHeight + 1, "ship preview remains visible in the status viewport");
+    await page.locator("#shipDamagePanel").screenshot({ path: path.join(artifactDir, "power-underpowered-1280x960.png") });
+
+    // Locate selects the exact overloaded section in the preview. It changes
+    // only UI selection state, never the snapshot wiring topology.
+    const wiringBeforeLocate = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return JSON.stringify(state.snapshot.ships[0].powerWiring);
+    });
+    const moreIssues = page.locator(".power-more-issues");
+    if (await moreIssues.count()) await page.evaluate(() => document.querySelector(".power-more-issues > summary").click());
+    const locate = page.locator("[data-power-locate-section=\"3,0:4,0\"]");
+    assert(await locate.count(), "overloaded section offers Locate");
+    await page.evaluate(() => document.querySelector("[data-power-locate-section=\"3,0:4,0\"]").click());
+    const located = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return {
+        readout: document.getElementById("shipDamageHover").textContent,
+        wiring: JSON.stringify(state.snapshot.ships[0].powerWiring)
+      };
+    });
+    assert(located.readout.includes("3,0:4,0"), `Locate opens exact section readout: ${located.readout}`);
+    assert.strictEqual(located.wiring, wiringBeforeLocate, "Locate does not mutate Power wiring");
 
     // 15. Overlay draws on the canvas in Power view (non-empty pixels).
     const painted = await page.evaluate(() => {
@@ -216,6 +353,71 @@ async function clickTab(page, id) {
       return document.getElementById("shipDamageHover").textContent;
     });
     assert(consumerReadout && /requested|allocated|Power/.test(consumerReadout), `consumer hover shows Power details: ${consumerReadout}`);
+
+    // Healthy snapshots show a single affirmative line rather than zero-value
+    // warning cards.
+    await setup(page, healthyShip());
+    await clickTab(page, "shipPowerTab");
+    const healthy = await page.evaluate(() => {
+      const summary = document.getElementById("shipPowerSummary");
+      return {
+        powered: !!summary.querySelector(".power-overall-powered"),
+        issueCards: summary.querySelectorAll(".power-issue").length,
+        text: summary.textContent
+      };
+    });
+    assert(healthy.powered, "healthy snapshot renders Powered state");
+    assert.strictEqual(healthy.issueCards, 0, "healthy snapshot renders no warning cards");
+    assert(healthy.text.includes("No Power issues detected"), "healthy state is explicit");
+
+    // Automatic route isolation is explained in plain Power terminology.
+    await setup(page, protectedRouteShip());
+    await clickTab(page, "shipPowerTab");
+    const tripped = await page.evaluate(() => {
+      const summary = document.getElementById("shipPowerSummary");
+      const more = summary.querySelector(".power-more-issues");
+      if (more) more.open = true;
+      return {
+        critical: !!summary.querySelector(".power-overall-critical"),
+        text: summary.textContent
+      };
+    });
+    assert(tripped.critical, "protection trip renders Critical overall state");
+    assert(tripped.text.includes("Power route temporarily offline"), "isolated route is a prioritized issue");
+    assert(tripped.text.includes("recovery in 2 s"), "recovery timing is visible");
+    assert(!tripped.text.includes("Switchgear"), "specialist component terminology is hidden");
+    await page.locator("#shipDamagePanel").screenshot({ path: path.join(artifactDir, "power-route-offline-1280x960.png") });
+
+    // The panel remains internally compact and unclipped at the specified
+    // desktop/tablet/mobile viewports. Capture each state as regression output.
+    for (const [width, height] of [[1920, 1080], [1440, 900], [1280, 720], [768, 1024], [430, 932], [390, 844]]) {
+      await page.setViewportSize({ width, height });
+      await setup(page, healthyShip());
+      await clickTab(page, "shipPowerTab");
+      const geometry = await page.evaluate(() => {
+        const panel = document.getElementById("shipDamagePanel");
+        const summary = document.getElementById("shipPowerSummary");
+        const canvas = document.getElementById("shipDamageCanvas");
+        const tabs = document.querySelector(".status-view-tabs");
+        return {
+          panelOverflow: panel.scrollWidth - panel.clientWidth,
+          summaryOverflow: summary.scrollWidth - summary.clientWidth,
+          summaryHeight: summary.getBoundingClientRect().height,
+          canvasWidth: canvas.getBoundingClientRect().width,
+          tabsWidth: tabs.getBoundingClientRect().width,
+          panelWidth: panel.getBoundingClientRect().width
+        };
+      });
+      assert(geometry.panelOverflow <= 1, `${width}x${height}: panel has no horizontal overflow`);
+      assert(geometry.summaryOverflow <= 1, `${width}x${height}: summary has no horizontal overflow`);
+      assert(geometry.summaryHeight <= 331, `${width}x${height}: summary stays compact`);
+      assert(geometry.canvasWidth >= 150, `${width}x${height}: preview remains usable`);
+      assert(geometry.tabsWidth <= geometry.panelWidth, `${width}x${height}: tabs are not clipped`);
+      await page.locator("#shipDamagePanel").screenshot({ path: path.join(artifactDir, `power-healthy-${width}x${height}.png`) });
+    }
+    await page.setViewportSize({ width: 1280, height: 960 });
+    await setup(page, SHIP);
+    await clickTab(page, "shipPowerTab");
 
     // 3-6. Heat tab is thermal-only.
     await clickTab(page, "shipHeatTab");

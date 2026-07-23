@@ -9,6 +9,7 @@ const { addComponentHeat, componentPerformance } = require("./heat");
 const { calculateDirectionalTurnInputs, calculateMovementPowerMultiplier, calculateMovementStats, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
 const { selectOwnedLivingShips } = require("./selection");
 const { getComponentPowerMultiplier, effectiveShieldStats } = require("./componentPower");
+const { getEffectiveWeaponStatsInternal, getEffectiveWeaponRanges } = require("./componentData");
 
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
@@ -388,15 +389,8 @@ function updateCombatMoveTarget(room, ship, target, style) {
 }
 
 function getMaxWeaponRange(ship) {
-  const stats = ship.stats || {};
-
-  const rawMaxRange = Math.max(
-    stats.blasterRange || 0,
-    stats.missileRange || 0,
-    stats.railgunRange || 0,
-    stats.beamRange || 0
-  );
-
+  const ranges = getEffectiveWeaponRanges(ship);
+  const rawMaxRange = Math.max(ranges.blaster, ranges.missile, ranges.railgun, ranges.beam);
   return rawMaxRange > 0 ? Math.max(120, rawMaxRange) : 0;
 }
 
@@ -766,13 +760,14 @@ function findOptimalHullAngle(ship, target) {
   let weapons = ship.hullAngleWeapons;
   if (!weapons) {
     weapons = [];
-    for (const module of ship.design || []) {
+    for (let componentIndex = 0; componentIndex < (ship.design || []).length; componentIndex += 1) {
+      const module = ship.design[componentIndex];
       const part = PARTS[module.type];
       if (!part?.weapon) continue;
 
       weapons.push({
+        componentIndex,
         local: moduleLocalPosition(module),
-        range: ship.stats[part.weapon.type + "Range"] || part.weapon.range,
         arcRadians: (part.weapon.arc || 360) * Math.PI / 180,
         rotationOffset: moduleRotationToRadians(normalizeRotation(module.rotation))
       });
@@ -783,6 +778,13 @@ function findOptimalHullAngle(ship, target) {
   if (weapons.length === 0) {
     return angleToTarget;
   }
+  const operationalWeapons = weapons.map((weapon) => ({
+    ...weapon,
+    range: (ship.componentHp?.[weapon.componentIndex] ?? 1) > 0
+      ? Number(getEffectiveWeaponStatsInternal(ship, weapon.componentIndex)?.range) || 0
+      : 0
+  })).filter((weapon) => weapon.range > 0);
+  if (operationalWeapons.length === 0) return angleToTarget;
 
   let bestAngle = angleToTarget;
   let bestScore = -Infinity;
@@ -790,11 +792,11 @@ function findOptimalHullAngle(ship, target) {
   for (let i = 0; i < 24; i += 1) {
     const candidateAngle = (i * Math.PI) / 12 - Math.PI;
 
-    let activeWeapons = 0;
+    let activeWeaponCount = 0;
     const cos = Math.cos(candidateAngle);
     const sin = Math.sin(candidateAngle);
 
-    for (const weapon of weapons) {
+    for (const weapon of operationalWeapons) {
       const worldX = ship.x + weapon.local.x * cos - weapon.local.y * sin;
       const worldY = ship.y + weapon.local.x * sin + weapon.local.y * cos;
 
@@ -809,13 +811,13 @@ function findOptimalHullAngle(ship, target) {
       const diff = angleDifference(weaponFacing, targetAngle);
 
       if (Math.abs(diff) <= weapon.arcRadians / 2) {
-        activeWeapons += 1;
+        activeWeaponCount += 1;
       }
     }
 
     const rotationPenalty = Math.abs(angleDifference(candidateAngle, ship.angle)) * 0.06;
     const facingPenalty = Math.abs(angleDifference(candidateAngle, angleToTarget)) * 0.01;
-    const score = activeWeapons - rotationPenalty - facingPenalty;
+    const score = activeWeaponCount - rotationPenalty - facingPenalty;
 
     if (score > bestScore) {
       bestScore = score;

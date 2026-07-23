@@ -289,6 +289,8 @@ async function collectVulnerabilityDiagnostics(page) {
     });
     await page.locator("#designerAnalysisTab").click();
     const panel = page.locator("#wiringStatusPanel");
+    const dataAdvanced = page.locator('[data-wiring-details="advanced"]');
+    if ((await dataAdvanced.getAttribute("open")) === null) await dataAdvanced.locator(":scope > summary").click();
 
     const resetToDataOverview = async () => {
       await page.evaluate(async () => {
@@ -523,10 +525,12 @@ async function collectVulnerabilityDiagnostics(page) {
     }, referenceFixtures.allReferenceShips());
     assert.equal(browserReferenceParity.length, 5, `browser validates all five Section 6E reference fixtures: ${JSON.stringify(browserReferenceParity)}`);
 
+    const advancedDetails = page.locator('[data-wiring-details="advanced"]');
+    if ((await advancedDetails.getAttribute("open")) === null) await advancedDetails.locator(":scope > summary").click();
     await scenario.selectOption("full");
     const freshPanel = page.locator("#wiringStatusPanel");
     assert(/Maximum Sustained Load|Data-support inspection/.test(await freshPanel.textContent()), "scenario select works after panel rerender without stale handles");
-    await page.locator("#wiringModePower").click(); assert(/Physical power wiring/i.test(await panel.textContent()), "Power inspection still works");
+    await page.locator("#wiringModePower").click(); assert(/Summary[\s\S]*Selected tier[\s\S]*Issues/i.test(await panel.textContent()), "Power inspection still works");
     await page.locator("#blueprintHeatTab").click(); assert(await page.locator(".wire-comp-data-source-active,.wire-comp-data-weapon-supported").count() === 0, "Data overlay classes removed in Heat view");
     await page.locator("#blueprintBuildTab").click(); assert(await page.locator("#wiringStatusPanel").evaluate((el) => el.hidden || !/Data-support inspection/.test(el.textContent)), "no stale Data panel after returning to Blueprint");
     assert.deepEqual({ errors, consoleErrors }, { errors: [], consoleErrors: [] }, `Unexpected browser diagnostics: ${JSON.stringify({ errors, consoleErrors }, null, 2)}`);
