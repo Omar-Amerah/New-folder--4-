@@ -99,7 +99,7 @@ function statChips(stats) {
 }
 
 function buildCard(saved, color) {
-  const stats = computeStats(saved.blueprint);
+  const stats = computeStats(saved.blueprint, { wiring: saved.wiring });
   const isEditing = saved.id === state.loadedEditorBlueprintId;
   const isInvalid = Boolean(saved.invalid);
   const thumb = shipThumbnailDataUrl(saved.blueprint, color, 84);
@@ -151,7 +151,7 @@ function buildCard(saved, color) {
 }
 
 function buildInspector(saved, color) {
-  const stats = computeStats(saved.blueprint);
+  const stats = computeStats(saved.blueprint, { wiring: saved.wiring });
   const thumb = shipThumbnailDataUrl(saved.blueprint, color, 160);
   const inspector = document.createElement("div");
   inspector.className = "bp-inspector";
@@ -464,7 +464,7 @@ export async function saveCurrentDesign() {
   const blueprint = state.design.map((part) => ({ ...part }));
   // Saved designs keep an independent copy of the wiring arrays.
   const wiring = normalizeWiring(state.wiring, blueprint);
-  const stats = computeStats(blueprint);
+  const stats = computeStats(blueprint, { wiring });
   const validation = validateBlueprint(blueprint, { requireThrust: true, stats });
   if (!validation.ok) {
     showToast(validation.errors[0] || "Cannot save invalid blueprint.", "warning");
@@ -554,7 +554,7 @@ function buildComparison() {
   const panel = document.createElement("section");
   panel.className = "blueprint-comparison";
   panel.setAttribute("aria-label", `Comparing current design with ${saved.name}`);
-  const rows = blueprintComparisonRows(state.design, saved.blueprint);
+  const rows = blueprintComparisonRows(state.design, saved.blueprint, state.wiring, saved.wiring);
   panel.innerHTML = `
     <div class="section-heading compact"><h3>Comparison: ${escapeHtml(saved.name)}</h3><button type="button" class="secondary" data-saved-action="clearCompare" data-saved-id="${escapeHtml(saved.id)}">Clear</button></div>
     <div class="comparison-grid" role="table" aria-label="Current design versus saved blueprint statistics">

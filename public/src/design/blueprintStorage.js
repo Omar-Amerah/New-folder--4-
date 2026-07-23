@@ -241,8 +241,8 @@ function defaultCurrentDesign() {
   return { modules, wiring: normalizeWiring(defaultWiring(), modules), combatStyle: "hold" };
 }
 
-function savedDesignSummary(blueprint) {
-  const stats = computeStats(blueprint);
+function savedDesignSummary(blueprint, wiring) {
+  const stats = computeStats(blueprint, { wiring });
   return { cost: stats.unitCost, weapons: `${stats.weaponDps} DPS`, speed: Math.round(stats.maxSpeed) };
 }
 function normalizeSavedDesign(design, index) {
@@ -269,13 +269,14 @@ function normalizeSavedDesign(design, index) {
   }
   if (!blueprint.length) return null;
   const validation = validateBlueprint(blueprint, { requireThrust: true, normalizationIssues: detailed.issues });
-  const summary = savedDesignSummary(blueprint);
+  const wiring = normalizeStoredWiringForDesign(design.wiring, blueprint);
+  const summary = savedDesignSummary(blueprint, wiring);
   return {
     id: String(design.id || `saved-${index}`).slice(0, 64),
     name: String(design.name || `Design ${index + 1}`).slice(0, 28),
     blueprint,
     // Each saved design keeps an independent, normalized copy of its wiring.
-    wiring: normalizeStoredWiringForDesign(design.wiring, blueprint),
+    wiring,
     invalid: !validation.ok,
     invalidReason: validation.errors[0] || "Invalid blueprint.",
     combatStyle: safeStyle(design.combatStyle, "hold"),

@@ -474,13 +474,20 @@ function renderStaticClarity() {
   const cards = clarity.tierCards(WIRING_INFRASTRUCTURE);
   document.querySelectorAll("[data-tier-capacity-compact]").forEach((element) => {
     const card = cards.find((item) => item.key === element.dataset.tierCapacityCompact);
-    if (card) element.textContent = `${card.sustainedMw} / ${card.peakMw} MW`;
+    if (card) element.textContent = `${card.sustainedMw} / ${card.peakMw} MW · $${card.costPerCell}/cell`;
   });
   document.querySelectorAll("[data-wiring-tier]").forEach((button) => {
     const card = cards.find((item) => item.key === button.dataset.wiringTier);
     if (!card) return;
     button.title = `${card.label}: ${card.sustainedMw} MW sustained / ${card.peakMw} MW peak; $${card.costPerCell} and ${card.displacementPerCell} Heat capacity per new cell. ${card.bestFor}`;
   });
+  const dataCard = cards.find((item) => item.key === "data");
+  document.querySelectorAll("[data-wiring-data-cost]").forEach((element) => {
+    if (dataCard) element.textContent = `$${dataCard.costPerCell}/cell`;
+  });
+  if (dom.wiringModeData && dataCard) {
+    dom.wiringModeData.title = `Edit Data wiring (cyan); $${dataCard.costPerCell} per new cell`;
+  }
   if (dom.wiringTierCardList) {
     dom.wiringTierCardList.innerHTML = cards.map((card) => `
       <article class="wiring-tier-card" data-tier-card="${escapeHtml(card.key)}">

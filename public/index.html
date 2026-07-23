@@ -7,7 +7,7 @@
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
     <link rel="stylesheet" href="/styles.css?v=power-tab-1">
-    <link rel="stylesheet" href="/design.css?v=wiring-hit-focus-fix-9">
+    <link rel="stylesheet" href="/design.css?v=wiring-cost-sync-10">
     <link rel="stylesheet" href="/hud.css?v=preview-click-fix-1">
   </head>
   <body>
@@ -447,7 +447,7 @@
               <div id="wiringToolbar" class="wiring-toolbar" role="toolbar" aria-label="Wiring editor" hidden>
                 <div class="wiring-control-row" role="group" aria-label="Wiring network type">
                   <button type="button" id="wiringModePower" class="wiring-mode-power active" aria-pressed="true" title="Edit Power wiring (amber)">Power</button>
-                  <button type="button" id="wiringModeData" class="wiring-mode-data" aria-pressed="false" title="Edit Data wiring (cyan)">Data</button>
+                  <button type="button" id="wiringModeData" class="wiring-mode-data" aria-pressed="false" title="Edit Data wiring (cyan)"><span>Data</span><span class="wiring-mode-cost" data-wiring-data-cost>—/cell</span></button>
                 </div>
                 <div class="wiring-control-row wiring-tool-row" role="group" aria-label="Wiring tool">
                   <button type="button" class="wiring-tool" data-wiring-tool="draw" aria-pressed="true" title="Draw cable or redraw existing Power cable at the selected tier">Draw</button>

@@ -389,7 +389,10 @@ export function getPendingPurchaseForOption(optionId) {
 
 export function validateBlueprintForPurchase(blueprint, option = null) {
   if (option?.source === "editor" && state.designNeedsAttention) return { ok: false, reason: "Invalid design: review and save the repaired blueprint before deployment." };
-  const validation = validateBlueprint(blueprint, { requireThrust: true, stats: Array.isArray(blueprint) ? computeStats(blueprint) : null });
+  const validation = validateBlueprint(blueprint, {
+    requireThrust: true,
+    stats: Array.isArray(blueprint) ? (option?.stats || computeStats(blueprint, { wiring: option?.wiring })) : null
+  });
   return { ok: validation.ok, reason: validation.errors[0] || "" };
 }
 

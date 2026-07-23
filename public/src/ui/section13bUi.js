@@ -32,9 +32,9 @@ function enrich(stats) {
   };
 }
 
-export function blueprintComparisonRows(currentBlueprint, savedBlueprint) {
-  const current = enrich(computeStats(Array.isArray(currentBlueprint) ? currentBlueprint : []));
-  const saved = enrich(computeStats(Array.isArray(savedBlueprint) ? savedBlueprint : []));
+export function blueprintComparisonRows(currentBlueprint, savedBlueprint, currentWiring = null, savedWiring = null) {
+  const current = enrich(computeStats(Array.isArray(currentBlueprint) ? currentBlueprint : [], { wiring: currentWiring }));
+  const saved = enrich(computeStats(Array.isArray(savedBlueprint) ? savedBlueprint : [], { wiring: savedWiring }));
   return COMPARE_STATS.map(([key, label, unit]) => {
     const c = Number(current[key]);
     const s = Number(saved[key]);

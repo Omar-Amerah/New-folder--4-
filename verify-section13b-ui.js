@@ -7,6 +7,7 @@ globalThis.window = globalThis;
 globalThis.localStorage = { getItem(){ return null; }, setItem(){}, removeItem(){} };
 globalThis.performance = { now(){ return 0; } };
 globalThis.WiringRules = require("./public/src/shared/wiringRules.js");
+globalThis.WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
 globalThis.EngineExhaustRules = {
   analyze(modules) { return { validEngineIndices: new Set(modules.map((_, i) => i)), blockedEngineIndices: new Set() }; }
 };
@@ -19,6 +20,13 @@ globalThis.EngineExhaustRules = {
   assert(rows.find((r) => r.key === "unitCost"));
   assert(rows.some((r) => r.delta > 0), "neutral positive deltas are calculated");
   assert(ui.blueprintComparisonRows(saved, current).some((r) => r.delta < 0), "neutral negative deltas are calculated");
+  const wiringDesign = [{ x:0, y:0, type:"core" }, { x:1, y:0, type:"gyroscope" }];
+  const wiring = globalThis.WiringRules.addPathWithTier(
+    globalThis.WiringRules.emptyWiring(), "power", [{ x:0, y:0 }, { x:1, y:0 }],
+    wiringDesign, (await import("./public/src/design/parts.js")).PART_STATS, "standard"
+  );
+  const wiringCostRow = ui.blueprintComparisonRows(wiringDesign, wiringDesign, wiring, null).find((row) => row.key === "unitCost");
+  assert(wiringCostRow.delta > 0, "blueprint comparison includes each design's wiring cost");
   assert(!rows.some((r) => /undefined|NaN/.test(JSON.stringify(r))), "missing optional stats are omitted safely");
   assert.strictEqual(ui.formatDelta(2, "MW"), "+2 MW");
   assert.strictEqual(ui.formatDelta(-2, "MW"), "-2 MW");

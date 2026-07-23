@@ -59,6 +59,7 @@ await import("./public/src/shared/powerFlowRules.js");
 await import("./public/src/shared/wiringInfrastructureRules.js");
 await import("./public/src/shared/powerCableThermalRules.js");
 const storageMod = await import("./public/src/design/blueprintStorage.js");
+const { computeStats } = await import("./public/src/design/componentStats.js");
 const { PART_STATS } = await import("./public/src/design/parts.js");
 const constants = await import("./public/src/constants.js");
 const {
@@ -82,6 +83,9 @@ function installStorage(s) { Object.defineProperty(globalThis, "localStorage", {
 
 const current = defaultDesign();
 const wiring = defaultWiring();
+const wiringAwareSaved = migrateSavedDesignsStorage(savedDesignsEnvelope([{ id: "cost-aware", blueprint: current, wiring }]))[0];
+assert.equal(wiringAwareSaved.cost, computeStats(current, { wiring: wiringAwareSaved.wiring }).unitCost,
+  "saved blueprint summary cost includes its normalized Power/Data wiring");
 
 // ---- Storage version / key break: old data is discarded, not migrated ----
 assert.equal(BLUEPRINT_STORAGE_VERSION, 2, "wiring storage bumps the schema version");

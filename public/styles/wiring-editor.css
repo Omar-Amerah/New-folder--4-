@@ -687,8 +687,8 @@
   opacity: .8;
 }
 .wiring-toolbar .wiring-tier {
-  width: 60px;
-  min-width: 60px;
+  width: 86px;
+  min-width: 86px;
   height: 30px;
   min-height: 30px;
   padding: 3px;
@@ -696,6 +696,18 @@
 .wiring-toolbar .wiring-tier-detail {
   font-size: 8px;
   line-height: 1;
+}
+.wiring-toolbar .wiring-mode-data {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.wiring-toolbar .wiring-mode-cost {
+  font-size: 8px;
+  line-height: 1;
+  opacity: .82;
+  white-space: nowrap;
 }
 .wiring-toolbar .wiring-tier-name {
   white-space: nowrap;
@@ -719,6 +731,10 @@
   }
   .wiring-toolbar .wiring-tier-name {
     font-size: 9px;
+  }
+  .wiring-toolbar .wiring-tier {
+    width: 82px;
+    min-width: 82px;
   }
 }
 
@@ -745,12 +761,12 @@
   }
   .wiring-toolbar .wiring-tier-row {
     display: grid;
-    grid-template-columns: repeat(3, 72px);
+    grid-template-columns: repeat(3, 88px);
     justify-content: center;
   }
   .wiring-toolbar .wiring-tier {
-    width: 72px;
-    min-width: 72px;
+    width: 88px;
+    min-width: 88px;
   }
   .wiring-toolbar .wiring-action-row button {
     flex: 0 0 72px;

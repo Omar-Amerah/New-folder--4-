@@ -42,6 +42,7 @@ async function buildFixture(page) {
     wiring.resetWiringEditorState();
     designer.renderBuildGrid();
     designer.setBlueprintView("wiring");
+    designer.renderLocalStats();
   });
   await page.locator(".wiring-overlay-host svg.wiring-overlay").waitFor({ state: "visible", timeout: 5000 });
 }
@@ -306,12 +307,15 @@ async function inspectCircleSafety(page) {
     await page.locator("#wiringModePower").click();
     await page.waitForTimeout(30);
 
-    // 6. Compact tier buttons show capacity; purpose/cost stays in tooltips
-    // and the selected-tier Analysis summary.
+    // 6. Compact tier buttons show both capacity and authoritative per-cell cost.
     const tierText = await page.locator("#wiringTierRow").innerText();
     assert.match(tierText, /4\s*\/\s*7 MW/, "Light button shows sustained/peak capacity");
     assert.match(tierText, /10\s*\/\s*16 MW/, "Standard capacity");
     assert.match(tierText, /24\s*\/\s*36 MW/, "Heavy capacity");
+    assert.match(tierText, /\$1\/cell/, "Light button shows its per-cell cost");
+    assert.match(tierText, /\$2\/cell/, "Standard button shows its per-cell cost");
+    assert.match(tierText, /\$5\/cell/, "Heavy button shows its per-cell cost");
+    assert.match(await page.locator("#wiringModeData").innerText(), /\$0\.25\/cell/, "Data mode shows its per-cell cost");
     assert.match(await page.locator('[data-wiring-tier="light"]').getAttribute("title"), /branch/i, "Light tooltip explains purpose");
     assert.match(await page.locator('[data-wiring-tier="standard"]').getAttribute("title"), /distribution/i, "Standard tooltip explains purpose");
     assert.match(await page.locator('[data-wiring-tier="heavy"]').getAttribute("title"), /trunk|backbone/i, "Heavy tooltip explains purpose");
@@ -324,7 +328,35 @@ async function inspectCircleSafety(page) {
     assert.match(await legend.innerText(), /red dashed disconnected/i, "Help explains status styles");
     await page.locator("#wiringHelpCloseButton").click();
 
-    // 8. Reduced motion keeps a static status cue (glow filter) without animation.
+    // 8. Committing a wiring edit refreshes every live cost surface from the
+    // authoritative wiring-aware component stats.
+    const costBefore = await page.evaluate(async () => {
+      const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
+      return computeStats(state.design, { wiring: state.wiring }).unitCost;
+    });
+    await page.locator('[data-wiring-tool="erase"]').click();
+    await page.locator('.wire-hit[data-section-id="0,4:1,4"]').dispatchEvent("click");
+    await page.waitForTimeout(40);
+    const costSync = await page.evaluate(async () => {
+      const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
+      const stats = computeStats(state.design, { wiring: state.wiring });
+      return {
+        authoritative: stats.unitCost,
+        powerWiring: stats.costBreakdown.powerWiring,
+        banner: document.querySelector("#blueprintCostLabel")?.textContent || "",
+        stats: document.querySelector("#statsGrid")?.textContent || "",
+        breakdown: document.querySelector("#blueprintCostBreakdown")?.textContent || "",
+        purchase: document.querySelector('.purchase-option[data-option-id="current"] .purchase-cost')?.textContent || ""
+      };
+    });
+    assert.ok(costSync.authoritative < costBefore, "removing Heavy wiring reduces the authoritative build cost");
+    assert.strictEqual(costSync.banner, `$${costSync.authoritative.toLocaleString()}`, "Build cost banner refreshes");
+    assert.match(costSync.stats, new RegExp(`Build cost\\s*\\$${costSync.authoritative}`), "ship summary Build cost refreshes");
+    assert.match(costSync.breakdown, new RegExp(`Power wiring\\s*\\$${costSync.powerWiring}`), "cost breakdown Power wiring refreshes");
+    assert.match(costSync.breakdown, new RegExp(`Total ship cost\\s*\\$${costSync.authoritative}`), "cost breakdown total refreshes");
+    assert.strictEqual(costSync.purchase, `$${costSync.authoritative}`, "current-design purchase cost refreshes");
+
+    // 9. Reduced motion keeps a static status cue (glow filter) without animation.
     await page.emulateMedia({ reducedMotion: "reduce" });
     await buildFixture(page);
     const peakMotion = await page.evaluate(() => {

@@ -322,7 +322,7 @@ function releaseClickedControlFocus() {
 
 export function deployDesign() {
   releaseClickedControlFocus();
-  const stats = computeStats(state.design);
+  const stats = computeStats(state.design, { wiring: state.wiring });
   const mine = state.mine;
   const isDesignStage = state.phase === "design";
   const ready = mine?.ready;
