@@ -11,7 +11,7 @@ import heatRules from "./public/src/shared/heatRules.js";
 // Section 7C-4 — Blueprint Designer Power Priority controls, the authoritative
 // policy update path, Undo/persistence integration, solver-backed diagnostics,
 // and the component-catalogue category audit. Non-browser: a fake DOM captures
-// the rendered panel HTML so we assert on stable semantic markup, never CSS.
+// the rendered diagnostics and Custom-order markup.
 
 globalThis.WiringRules = wiringRules;
 globalThis.PowerPolicyRules = powerPolicyRules;
@@ -85,7 +85,7 @@ const designer = await import("./public/src/ui/designerUi.js");
 const wiringUi = await import("./public/src/ui/wiringUi.js");
 const { canonicalBlueprintEditSnapshot, clearBlueprintEditHistory, blueprintEditHistorySize } = history;
 const { applyPowerPolicyChange, undoBlueprintEdit, setBlueprintEditHistoryUiHooksForTests } = designer;
-const { refreshWiringPresentation } = wiringUi;
+const { refreshWiringPresentation, refreshPowerPriorityControls } = wiringUi;
 
 let persistCalls = 0; let refreshCalls = 0;
 setBlueprintEditHistoryUiHooksForTests({
@@ -105,33 +105,26 @@ function resetDesigner(preset = "balanced") {
   state.wiringUi.path = [];
   clearBlueprintEditHistory();
 }
-function panelHtml() { refreshWiringPresentation(); return fakeElement("wiringStatusPanel").innerHTML; }
+function panelHtml() { return wiringUi.powerAllocationAnalysisHtml(); }
+function customOrderHtml() { refreshPowerPriorityControls(); return fakeElement("powerPriorityCustomOrder").innerHTML; }
 function policyNow() { return powerPolicyRules.normalizePolicy(state.wiring.powerPolicy); }
 
-console.log("Designer Power Priority panel");
+console.log("Designer Power Priority controls");
 resetDesigner("balanced");
-check("Power Priority panel is visible in the Power Wiring view", () => {
-  assert.ok(panelHtml().includes('data-wiring-panel="power-priority"'), "priority panel rendered");
+check("Power Allocation diagnostics remain visible in the Power Analysis view", () => {
+  assert.ok(panelHtml().includes('data-wiring-panel="power-allocation"'), "allocation diagnostics rendered");
 });
-check("All five preset choices are offered", () => {
-  const html = panelHtml();
-  for (const preset of ["balanced", "defensive", "offensive", "mobility", "custom"]) {
-    assert.ok(html.includes(`data-preset="${preset}"`), `${preset} preset control present`);
-  }
+check("The left-column dropdown reflects the saved preset", () => {
+  refreshPowerPriorityControls();
+  assert.strictEqual(fakeElement("powerPrioritySelect").value, "balanced");
+  assert.strictEqual(fakeElement("powerPriorityCustomOrder").hidden, true);
 });
-check("Six separate authoritative category labels are shown (Shields and Point Defence distinct)", () => {
+check("Diagnostics show six separate authoritative categories", () => {
   const html = panelHtml();
   for (const label of ["Command &amp; Control", "Propulsion", "Shields", "Point Defence", "Weapons", "Cooling &amp; Support"]) {
     assert.ok(html.includes(label), `label ${label} present`);
   }
   assert.ok(!html.includes(">Defence<"), "no combined Defence label");
-});
-check("Balanced shows Shields and Point Defence tied at the same priority number, still separate rows", () => {
-  const html = panelHtml();
-  // Both categories carry data-priority-band="3" (command 1, propulsion 2, tied 3).
-  assert.ok(/data-priority-band="3" data-category="shields"/.test(html), "shields at priority 3");
-  assert.ok(/data-priority-band="3" data-category="pointDefence"/.test(html), "point defence at priority 3");
-  assert.ok(html.includes("power-priority-tied"), "tie indicated");
 });
 check("Solver-backed diagnostics render unmet demand by separate category", () => {
   const html = panelHtml();
@@ -176,14 +169,15 @@ check("Selecting a named preset preserves the previously configured Custom order
 console.log("Custom ordering controls");
 resetDesigner("custom");
 check("Custom mode renders six independently ordered rows with Up/Down controls", () => {
-  const html = panelHtml();
+  const html = customOrderHtml();
+  assert.strictEqual(fakeElement("powerPriorityCustomOrder").hidden, false, "Custom editor shown");
   for (const cat of AUTH) assert.ok(html.includes(`data-custom-row data-category="${cat}"`), `${cat} custom row`);
-  const moves = html.match(/data-wiring-action="power-priority-move"/g) || [];
+  const moves = html.match(/data-power-priority-move/g) || [];
   assert.strictEqual(moves.length, 12, "two move controls per row");
 });
 check("Up is disabled on the first row and Down on the last", () => {
   const order = policyNow().customOrder;
-  const html = panelHtml();
+  const html = customOrderHtml();
   const first = order[0]; const last = order[order.length - 1];
   assert.ok(new RegExp(`data-category="${first}" data-direction="up"[^>]*disabled`).test(html), "first row up disabled");
   assert.ok(new RegExp(`data-category="${last}" data-direction="down"[^>]*disabled`).test(html), "last row down disabled");

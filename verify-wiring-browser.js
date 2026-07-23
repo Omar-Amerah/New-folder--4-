@@ -273,6 +273,9 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     }
 
     await clearNetworkButton.click();
+    await page.locator("#confirmModal").waitFor({ state: "visible" });
+    assert.match(await page.locator("#confirmModalTitle").textContent(), /Clear .*Network/i, "Clear Network opens confirmation");
+    await page.locator("#confirmAcceptButton").click();
     await page.waitForFunction(async () => {
       const { state } = await import("/src/state.js");
       return state.wiring.power.sections.length === 0;
@@ -374,8 +377,33 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
       const physicalSections = new Set(state.wiring.power.sections.map((section) => section.id));
       ["5,5:6,5", "6,5:7,5"].forEach((id) => fail(physicalSections.has(id), `expected physical Power cable section ${id} is missing`));
     });
+    // Source ports are scoped to the active mode. A cross-mode port is not
+    // drawable (the click handler rejects it) and would only steal hit-testing
+    // from the cable beneath it, so it must not render at all.
     await assertFixturePort(page, { x: 5, y: 5 }, "power", 0);
+    assert.equal(await page.locator('[data-wiring-port-kind="data"]').count(), 0, "Power mode renders no Data source ports");
+    await page.locator("#wiringModeData").click();
     await assertFixturePort(page, { x: 9, y: 5 }, "data", 5);
+    assert.equal(await page.locator('[data-wiring-port-kind="power"]').count(), 0, "Data mode renders no Power source ports");
+    await page.locator("#wiringModePower").click();
+    await assertFixturePort(page, { x: 5, y: 5 }, "power", 0);
+
+    // Terminals mark the components a network actually uses for the active mode
+    // (source + consumer for Power, source + compatible weapon for Data). The
+    // frame at 6,5 is only routed *through*, so it must never be a terminal.
+    const terminalsFor = async () => page.evaluate(async () => {
+      const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+      const centre = (index) => window.WiringRules.componentCenter(state.design[index], PART_STATS);
+      const at = [...document.querySelectorAll("svg.wiring-overlay .wire-terminal")]
+        .map((t) => `${t.getAttribute("cx")},${t.getAttribute("cy")}`);
+      const key = (index) => { const c = centre(index); return `${c.x},${c.y}`; };
+      return { count: at.length, at, frame: at.includes(key(1)), source: at.includes(key(0)), consumer: at.includes(key(2)) };
+    });
+    const powerTerminals = await terminalsFor();
+    assert.equal(powerTerminals.source, true, "Power terminal marks the source component");
+    assert.equal(powerTerminals.consumer, true, "Power terminal marks the powered consumer");
+    assert.equal(powerTerminals.frame, false, "a routed-through frame is not a Power terminal");
+    assert.equal(powerTerminals.count, 2, `Power mode marks only the two functional participants (got ${JSON.stringify(powerTerminals.at)})`);
     const fixture = await page.evaluate(async () => structuredClone((await import("/src/state.js")).state.design));
     const targetModule = fixture[1];
     assert.deepEqual({ x: targetModule.x, y: targetModule.y }, { x: 6, y: 5 }, "fixture target remains the intended occupied cell");
@@ -424,13 +452,15 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     snapshot = await editorState(page);
     assert.equal(snapshot.ui.sourceIndex, null, "clicking the existing destination endpoint again completes the Power path");
 
-    await page.mouse.click(portPoint.x, portPoint.y);
+    const restartPort = await assertPortHit(page, svg, { x: 5, y: 5 }, "power", 0, "power-port-restart-failure");
+    await page.mouse.click(restartPort.point.x, restartPort.point.y);
     await clickWiringGridPoint(page, svg, targetModule.x, targetModule.y);
     const verticalDestination = await clickWiringGridPoint(page, svg, fixture[3].x, fixture[3].y);
     await assertActivePath(page, svg, { x: fixture[3].x, y: fixture[3].y }, verticalDestination,
       [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 6, y: 6 }], "vertical click-step extends the active cable preview");
     assert.equal(await page.locator('[data-wiring-action="cancel-drawing"]').count(), 1, "active paths expose Cancel drawing");
     const savedBeforeCancel = (await editorState(page)).wiring.power.sections.length;
+    await page.locator("#designerAnalysisTab").click();
     await page.locator('[data-wiring-action="cancel-drawing"]').click();
     snapshot = await editorState(page);
     assert.equal(snapshot.wiring.power.sections.length, savedBeforeCancel, "cancel leaves saved sections unchanged");

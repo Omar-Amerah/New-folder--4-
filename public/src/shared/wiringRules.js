@@ -505,18 +505,53 @@
   function addPath(wiring, kind, cells, modules, catalogue) {
     return addPathWithTier(wiring, kind, cells, modules, catalogue, STANDARD_TIER);
   }
-  // Draw a path where NEW sections receive the requested tier (Power only; Data
-  // always normalises to standard). Existing sections keep their current tier —
-  // Draw never silently overwrites an installed cable, so upgrades stay the
-  // exclusive job of setSectionTier.
-  function addPathWithTier(wiring, kind, cells, modules, catalogue, tier) {
-    const next = cloneWiring(wiring); const bucket = next[kind];
-    const newTier = normalizeTier(tier, kind);
-    for (let i = 1; i < (cells || []).length; i += 1) {
-      const id = sectionIdFromCells(cells[i - 1], cells[i]);
-      if (!bucket.sections.some((s) => segmentKey(s) === id)) bucket.sections.push({ id, ...canonicalSectionCoordinates(cells[i - 1], cells[i]), tier: newTier });
+  // Draw or redraw a path atomically. New and existing traversed Power sections
+  // receive the requested tier; Data always normalises to standard.
+  function applyPathWithTier(wiring, kind, cells, modules, catalogue, tier) {
+    const current = normalizeWiring(wiring, modules, catalogue).wiring;
+    if (!NETWORK_KINDS.includes(kind) || !Array.isArray(cells) || cells.length < 2) {
+      return { changed: false, wiring: current, newSectionIds: [], retieredSectionIds: [], reason: "empty-path" };
     }
-    return normalizeWiring(next, modules, catalogue).wiring;
+    const occupied = new Set(occupancy(Array.isArray(modules) ? modules : [], catalogue).keys());
+    const seen = new Set();
+    for (let i = 0; i < cells.length; i += 1) {
+      const cell = cells[i];
+      const key = cellKey(cell?.x, cell?.y);
+      const previous = cells[i - 1];
+      if (!Number.isInteger(cell?.x) || !Number.isInteger(cell?.y)
+        || cell.x < 0 || cell.y < 0 || cell.x >= GRID_SIZE || cell.y >= GRID_SIZE
+        || !occupied.has(key) || (seen.has(key) && !(i === cells.length - 1 && key === cellKey(cells[0]?.x, cells[0]?.y)))
+        || (previous && Math.abs(previous.x - cell.x) + Math.abs(previous.y - cell.y) !== 1)) {
+        return { changed: false, wiring: current, newSectionIds: [], retieredSectionIds: [], reason: "invalid-path" };
+      }
+      seen.add(key);
+    }
+    const next = cloneWiring(current); const bucket = next[kind];
+    const newTier = normalizeTier(tier, kind);
+    const newSectionIds = []; const retieredSectionIds = [];
+    for (let i = 1; i < cells.length; i += 1) {
+      const id = sectionIdFromCells(cells[i - 1], cells[i]);
+      const existing = bucket.sections.find((section) => segmentKey(section) === id);
+      if (!existing) {
+        bucket.sections.push({ id, ...canonicalSectionCoordinates(cells[i - 1], cells[i]), tier: newTier });
+        newSectionIds.push(id);
+      } else if (existing.tier !== newTier) {
+        existing.tier = newTier;
+        retieredSectionIds.push(id);
+      }
+    }
+    const normalized = normalizeWiring(next, modules, catalogue).wiring;
+    const changed = JSON.stringify(normalized) !== JSON.stringify(current);
+    return {
+      changed,
+      wiring: normalized,
+      newSectionIds: changed ? newSectionIds : [],
+      retieredSectionIds: changed ? retieredSectionIds : [],
+      reason: changed ? null : "no-change"
+    };
+  }
+  function addPathWithTier(wiring, kind, cells, modules, catalogue, tier) {
+    return applyPathWithTier(wiring, kind, cells, modules, catalogue, tier).wiring;
   }
   // Change the tier of one existing Power section (upgrade or downgrade). Only
   // that section changes; hosted-cell accounting re-derives installed tiers
@@ -546,5 +581,5 @@
   }
   function removePhysicalNetwork(wiring, kind, network, modules, catalogue) { const ids = new Set(network.sectionIds); const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((s) => !ids.has(segmentKey(s))); next[kind].connections = next[kind].connections.filter((c) => !c.sectionIds.some((id) => ids.has(id))); return normalizeWiring(next, modules, catalogue).wiring; }
 
-  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, POWER_TIERS, POWER_TIER_PRECEDENCE, higherPowerTier, migrateWiringToCurrentVersion, PowerPolicyRules, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, addPathWithTier, setSectionTier, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
+  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, POWER_TIERS, POWER_TIER_PRECEDENCE, higherPowerTier, migrateWiringToCurrentVersion, PowerPolicyRules, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, addPathWithTier, applyPathWithTier, setSectionTier, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
 }));

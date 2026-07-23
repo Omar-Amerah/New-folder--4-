@@ -150,22 +150,17 @@
   // the tier; existing sections keep theirs.
   function previewPowerPathEdit(design, wiring, kind, cells, tier, catalogue, infrastructure, options = {}) {
     if (!Array.isArray(cells) || cells.length < 2) return invalidPreview("empty-path");
-    let proposed;
-    try { proposed = WiringRules.addPathWithTier(wiring, kind, cells, design, catalogue, tier); }
+    let result;
+    try { result = WiringRules.applyPathWithTier(wiring, kind, cells, design, catalogue, tier); }
     catch (_) { return invalidPreview("invalid-path"); }
+    if (result.reason === "invalid-path" || result.reason === "empty-path") return invalidPreview(result.reason);
+    const proposed = result.wiring;
     const preview = diffWiring(design, WiringRules.normalizeWiring(wiring, design, catalogue).wiring, proposed, catalogue, infrastructure, options);
     preview.newSections = countNewSections(wiring, proposed, kind, design, catalogue);
+    preview.changed = result.changed;
+    preview.affectedSectionIds = [...result.retieredSectionIds];
+    preview.newSectionIds = [...result.newSectionIds];
     preview.proposedWiring = proposed;
-    return preview;
-  }
-
-  // Preview a single-section tier change (upgrade or downgrade).
-  function previewPowerTierEdit(design, wiring, sectionId, targetTier, catalogue, infrastructure, options = {}) {
-    const result = WiringRules.setSectionTier(wiring, "power", sectionId, targetTier, design, catalogue);
-    if (!result.changed) return invalidPreview(result.reason || "no-change");
-    const preview = diffWiring(design, WiringRules.normalizeWiring(wiring, design, catalogue).wiring, result.wiring, catalogue, infrastructure, options);
-    preview.affectedSectionIds = result.affectedSectionIds;
-    preview.proposedWiring = result.wiring;
     return preview;
   }
 
@@ -198,7 +193,6 @@
     infrastructureSnapshot,
     diffWiring,
     previewPowerPathEdit,
-    previewPowerTierEdit,
     previewWiringSectionRemoval,
     previewSignature
   };

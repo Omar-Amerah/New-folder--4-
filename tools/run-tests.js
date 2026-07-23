@@ -153,6 +153,7 @@ const GROUPS = {
     "verify-blueprint-discoverability-browser.js",
     "verify-blueprint-modes-browser.js",
     "verify-blueprint-information-polish-browser.js",
+    "verify-blueprint-inspector-tabs-browser.js",
     "verify-data-support-browser.js",
     "verify-live-turrets.js",
     "verify-heat-browser.js",

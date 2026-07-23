@@ -11,7 +11,7 @@ import { preDisplacementHeatCapacities } from "../design/thermalAnalysis.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { getCachedDesignDataSupport, getCachedDataVulnerabilities } from "../design/dataSupportAnalysis.js";
 import { formatDataSupportValue, formatDataSupportEquation } from "../design/dataSupportPresentation.js";
-import { applyPowerPolicyChange } from "./designerUi.js";
+import { applyPowerPolicyChange, renderLocalStats } from "./designerUi.js";
 
 const GRID_SIZE = 15;
 const MAX_UNDO = 60;
@@ -27,10 +27,9 @@ function clarityRules() { return globalThis.WiringClarityRules; }
 function cableThermalRules() { return globalThis.PowerCableThermalRules; }
 function ui() { return state.wiringUi; }
 const POWER_TIERS = Object.freeze(["light", "standard", "heavy"]);
-function currentTool() { return ui().wiringTool || "draw"; }
+function currentTool() { return ["draw", "erase", "inspect"].includes(ui().wiringTool) ? ui().wiringTool : "draw"; }
 function selectedTier() { return POWER_TIERS.includes(ui().selectedPowerTier) ? ui().selectedPowerTier : "standard"; }
 function tierLabel(tier) { return WIRING_INFRASTRUCTURE?.powerTiers?.[tier]?.inspectionLabel || (tier ? tier[0].toUpperCase() + tier.slice(1) : ""); }
-function isPowerTierTool() { return ui().mode === "power" && currentTool() === "tier"; }
 // Visible stroke width in SVG grid units, driven by authoritative renderedThickness.
 // Standard (thickness 2) ~= the historical wiring width so migrated designs look
 // unchanged; Light is clearly thinner, Heavy clearly thicker.
@@ -40,17 +39,16 @@ function renderedStrokeWidth(tier) {
   return (0.07 * scaled).toFixed(3);
 }
 function sectionActionVerb() {
-  if (isPowerTierTool()) return "Change tier of";
   if (currentTool() === "erase") return "Erase";
   if (currentTool() === "inspect") return "Inspect";
-  return "Select";
+  return "Draw from";
 }
 // Cheap hover highlight: toggles a class on already-rendered visible lines
 // without rebuilding the overlay or re-running analysis.
 function applyHoverHighlight() {
   const host = dom.wiringOverlayHost; if (!host) return;
   const hoveredId = ui().sourceIndex == null ? ui().hoveredSectionId : null;
-  const previewTool = isPowerTierTool() || currentTool() === "erase";
+  const previewTool = currentTool() === "erase";
   const inspectTool = currentTool() === "inspect";
   host.querySelectorAll(".wire-visible-layer [data-section-id]").forEach((element) => {
     const on = element.dataset.sectionId === hoveredId;
@@ -86,7 +84,8 @@ const REASON_TEXT = Object.freeze({
   "already-selected-tier": "This section is already that tier.",
   "empty-path": "No valid path between these components.",
   "invalid-path": "Power routes must stay inside occupied ship cells.",
-  "no-change": "No change to apply."
+  "no-change": "No change to apply.",
+  "over-cable-limit": "This route exceeds the cable length limit."
 });
 function reasonText(reason) { return REASON_TEXT[reason] || "That action is not valid here."; }
 function currentAnalysis() { return rules().analyzeWiring(state.design, state.wiring, PART_STATS); }
@@ -99,18 +98,20 @@ function isValidSource(mode, type) { return mode === "data" ? rules().isDataSour
 function isValidDestination(mode, sourceType, destinationType) { return mode === "data" ? rules().isCompatibleWeapon(sourceType, destinationType, PART_STATS) : rules().isPowerConsumer(destinationType, PART_STATS); }
 
 function pushUndo() { const stack = ui().undoStack; stack.push(rules().cloneWiring(state.wiring)); if (stack.length > MAX_UNDO) stack.shift(); }
-function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); }
+// Every committed wiring edit changes infrastructure cost, so the designer-derived
+// presentation (build cost, funds remaining, ship status, analysis) must refresh
+// alongside the wiring panel — not just refreshWiringPresentation().
+function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); renderLocalStats(); }
 
-// Section 7B tool/tier selection. Data ignores tier selection and cannot use
-// the Change Tier tool.
+// Tool/tier selection. Data ignores the remembered Power tier.
 function setTool(tool) {
-  if (!["draw", "tier", "erase", "inspect"].includes(tool)) return;
+  if (!["draw", "erase", "inspect"].includes(tool)) return;
   if (currentTool() === tool) return;
   ui().wiringTool = tool;
   resetInteraction(false);
   ui().hoveredSectionId = null;
   invalidatePreviewCache();
-  setTransientReason(ui().mode === "data" && tool === "tier" ? "data-has-no-tiers" : null);
+  setTransientReason(null);
   refreshWiringPresentation();
 }
 function setTier(tier) {
@@ -120,12 +121,6 @@ function setTier(tier) {
   refreshWiringPresentation();
 }
 
-// Apply the selected tier to one existing Power section (upgrade or downgrade).
-function applyTierChangeToSection(id) {
-  const result = rules().setSectionTier(state.wiring, "power", id, selectedTier(), state.design, PART_STATS);
-  if (!result.changed) { setTransientReason(result.reason); ui().selectedSectionId = id; refreshWiringPresentation(); return; }
-  pushUndo(); resetInteraction(false); ui().selectedSectionId = id; commitWiring(result.wiring);
-}
 // Erase one physical section (Power or Data). Unrelated sections, all Data
 // wiring and powerPolicy are preserved by shared normalisation.
 function eraseSectionById(id) {
@@ -151,7 +146,16 @@ function inspectComponent(index) {
   else { ui().selectedIndex = index; ui().selectedConnectionKey = null; ui().selectedSectionId = null; refreshWiringPresentation(); }
 }
 function cancelDrawing() { resetInteraction(false); refreshWiringPresentation(); }
-function focusStatusPanel() { requestAnimationFrame(() => dom.wiringStatusPanel?.focus()); }
+function focusStatusPanel() {
+  requestAnimationFrame(() => {
+    const panel = dom.wiringStatusPanel;
+    if (!panel) return;
+    panel.focus({ preventScroll: true });
+    const scroller = panel.closest?.(".designer-inspector-panel");
+    const stickyTabs = scroller?.querySelector?.(".designer-analysis-tabs");
+    if (scroller) scroller.scrollTop = Math.max(0, panel.offsetTop - (stickyTabs?.offsetHeight || 0) - 56);
+  });
+}
 function removeDrawingStep() { const view = ui(); if (view.sourceIndex == null) return false; if (view.path.length > 1) view.path.pop(); else cancelDrawing(); refreshWiringPresentation(); return true; }
 
 export function handleWiringCellClick(x, y) {
@@ -170,7 +174,22 @@ export function handleWiringCellClick(x, y) {
 }
 function beginPath(index, cell) { resetInteraction(false); ui().sourceIndex = index; ui().selectedIndex = index; ui().path = [{ x: cell.x, y: cell.y }]; ui().activeOrigin = { x: cell.x, y: cell.y }; refreshWiringPresentation(); }
 function pathOverLimit() { const limit = CABLE_LIMITS[ui().mode]; return Number.isFinite(limit) && rules().countUniqueSections(state.wiring, ui().mode) + rules().additionalLengthForPath(state.wiring, ui().mode, ui().path) > limit; }
-function commitActivePath() { if (ui().path.length < 2 || pathOverLimit()) return; pushUndo(); const next = rules().addPathWithTier(state.wiring, ui().mode, ui().path, state.design, PART_STATS, selectedTier()); resetInteraction(); ui().activeOrigin = null; commitWiring(next); }
+function commitActivePath() {
+  if (ui().path.length < 2) { setTransientReason("empty-path"); refreshWiringPresentation(); return; }
+  if (pathOverLimit()) { setTransientReason("over-cable-limit"); refreshWiringPresentation(); return; }
+  const result = rules().applyPathWithTier(state.wiring, ui().mode, ui().path, state.design, PART_STATS, selectedTier());
+  if (!result.changed) {
+    const reason = result.reason;
+    resetInteraction();
+    setTransientReason(reason);
+    refreshWiringPresentation();
+    return;
+  }
+  pushUndo();
+  resetInteraction();
+  ui().activeOrigin = null;
+  commitWiring(result.wiring);
+}
 export function handleWiringCellHover(x, y) { if (ui().sourceIndex == null) return; const last = ui().path.at(-1); ui().hoverCell = { x, y, valid: partIndexAt(x, y) >= 0 && Math.abs(last.x - x) + Math.abs(last.y - y) === 1 && !ui().path.some((cell) => cell.x === x && cell.y === y) }; renderWiringOverlay(); }
 export function handleWiringGridLeave() { ui().hoverCell = null; if (state.blueprintView === "wiring") renderWiringOverlay(); }
 
@@ -181,7 +200,12 @@ function pointerGridPoint(clientX, clientY) {
   const right = px(style.borderRightWidth) + px(style.paddingRight, 8); const bottom = px(style.borderBottomWidth) + px(style.paddingBottom, 8);
   const gapX = px(style.columnGap || style.gap, 2); const gapY = px(style.rowGap || style.gap, 2);
   const cellWidth = (rect.width - left - right - gapX * (GRID_SIZE - 1)) / GRID_SIZE; const cellHeight = (rect.height - top - bottom - gapY * (GRID_SIZE - 1)) / GRID_SIZE;
-  return { x: (clientX - rect.left - left) / (cellWidth + gapX), y: (clientY - rect.top - top) / (cellHeight + gapY) };
+  const stepX = cellWidth + gapX; const stepY = cellHeight + gapY;
+  // Guard against a mid-layout race where the grid momentarily reports a
+  // zero/negative cell size: dividing by it would yield ±Infinity coordinates
+  // that render as a giant stray shape in the overlay.
+  if (!(stepX > 0) || !(stepY > 0)) return null;
+  return { x: (clientX - rect.left - left) / stepX, y: (clientY - rect.top - top) / stepY };
 }
 function cellFromPointer(clientX, clientY) { const point = pointerGridPoint(clientX, clientY); return point ? { x: Math.floor(point.x), y: Math.floor(point.y) } : null; }
 function pointerToSvgPoint(svg, event) {
@@ -267,17 +291,58 @@ function selectedNetwork() {
   if (view.mode === "data" && view.selectedDataNetworkId) return analysis.data.networks.find((network) => network.id === view.selectedDataNetworkId) || null;
   return view.selectedIndex == null ? null : rules().networkForComponent(analysis, view.mode, view.selectedIndex);
 }
-function clearSelectedNetwork() { const network = selectedNetwork(); if (!network || ui().sourceIndex != null) return; pushUndo(); resetInteraction(); commitWiring(rules().removeNetwork(state.wiring, ui().mode, network, state.design, PART_STATS)); }
+function clearSelectedNetwork() {
+  const network = selectedNetwork();
+  if (!network || ui().sourceIndex != null) return;
+  state.pendingWiringClearNetwork = { mode: ui().mode, networkId: network.id };
+  state.pendingBlueprintDestructiveAction = null;
+  state.pendingDeleteDesignId = null;
+  state.pendingKickTargetId = null;
+  state.blueprintModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = `Clear ${network.label || ui().mode + " network"}?`;
+  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = "Every cable section in this network will be removed. You can Undo this afterward.";
+  if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Clear Network";
+  if (dom.confirmModal) dom.confirmModal.hidden = false;
+  dom.confirmCancelButton?.focus?.();
+}
+export function confirmPendingWiringClear() {
+  const pending = state.pendingWiringClearNetwork;
+  if (!pending) return false;
+  state.pendingWiringClearNetwork = null;
+  const network = currentAnalysis()?.[pending.mode]?.networks?.find((item) => item.id === pending.networkId);
+  if (network) {
+    pushUndo();
+    resetInteraction();
+    commitWiring(rules().removeNetwork(state.wiring, pending.mode, network, state.design, PART_STATS));
+  }
+  if (dom.confirmModal) dom.confirmModal.hidden = true;
+  state.blueprintModalReturnFocus?.focus?.();
+  state.blueprintModalReturnFocus = null;
+  return true;
+}
+export function cancelPendingWiringClear() {
+  if (!state.pendingWiringClearNetwork) return false;
+  state.pendingWiringClearNetwork = null;
+  if (dom.confirmModal) dom.confirmModal.hidden = true;
+  state.blueprintModalReturnFocus?.focus?.();
+  state.blueprintModalReturnFocus = null;
+  return true;
+}
 function setMode(mode) {
   if (ui().mode === mode) return;
   resetInteraction(); ui().mode = mode; ui().hoveredSectionId = null; invalidatePreviewCache(); setTransientReason(null);
-  // Data has no Change Tier tool; fall back to Draw so the toolbar stays valid.
-  if (mode === "data" && currentTool() === "tier") ui().wiringTool = "draw";
   refreshWiringPresentation();
 }
 
 let controlsBound = false;
 export function suppressWiringClick() { if (!suppressNextClick) return false; suppressNextClick = false; return true; }
+function setWiringHelpOpen(open, { restoreFocus = false } = {}) {
+  if (!dom.wiringHelpPanel || !dom.wiringHelpButton) return;
+  dom.wiringHelpPanel.hidden = !open;
+  dom.wiringHelpButton.setAttribute("aria-expanded", String(open));
+  if (open) requestAnimationFrame(() => dom.wiringHelpCloseButton?.focus());
+  else if (restoreFocus) dom.wiringHelpButton.focus();
+}
 export function bindWiringControls() {
   if (controlsBound) return; controlsBound = true;
   bindPointerDrawing();
@@ -285,6 +350,8 @@ export function bindWiringControls() {
   dom.wiringModeData?.addEventListener("click", () => setMode("data"));
   dom.wiringUndoButton?.addEventListener("click", undoWiring);
   dom.wiringClearNetworkButton?.addEventListener("click", clearSelectedNetwork);
+  dom.wiringHelpButton?.addEventListener("click", () => setWiringHelpOpen(dom.wiringHelpPanel?.hidden !== false));
+  dom.wiringHelpCloseButton?.addEventListener("click", () => setWiringHelpOpen(false, { restoreFocus: true }));
   dom.wiringToolbar?.addEventListener("click", (event) => {
     const toolButton = event.target?.closest?.("[data-wiring-tool]");
     if (toolButton && !toolButton.disabled) { setTool(toolButton.dataset.wiringTool); return; }
@@ -313,10 +380,9 @@ export function bindWiringControls() {
       event.preventDefault(); event.stopPropagation(); handleWiringCellClick(endpoint.x, endpoint.y); return;
     }
     event.stopPropagation();
-    // Tool-aware section click: Change Tier / Erase mutate; Inspect / Draw select.
-    if (isPowerTierTool()) { applyTierChangeToSection(id); return; }
+    // Tool-aware section click: Erase mutates; Inspect / Draw select.
     if (currentTool() === "erase") { eraseSectionById(id); return; }
-    resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation();
+    resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation(); focusStatusPanel();
   });
   dom.wiringOverlayHost?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -329,31 +395,33 @@ export function bindWiringControls() {
     // Keyboard activation of a focused section honours the active tool.
     const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
     event.preventDefault(); event.stopPropagation();
-    if (isPowerTierTool()) { applyTierChangeToSection(id); return; }
     if (currentTool() === "erase") { eraseSectionById(id); return; }
-    resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation();
+    resetInteraction(); ui().selectedSectionId = id; refreshWiringPresentation(); focusStatusPanel();
   });
   dom.wiringOverlayHost?.addEventListener("contextmenu", (event) => {
     const id = event.target?.dataset?.sectionId; if (!id) return; event.preventDefault(); event.stopPropagation();
     if (ui().sourceIndex != null) { removeDrawingStep(); return; }
     ui().selectedSectionId = id; removeSelectedSection();
   });
-  document.addEventListener("keydown", (event) => { if (state.blueprintView === "wiring" && event.key === "Escape" && ui().sourceIndex != null) { event.preventDefault(); cancelDrawing(); focusStatusPanel(); } });
+  document.addEventListener("keydown", (event) => {
+    if (state.blueprintView !== "wiring" || event.key !== "Escape") return;
+    if (dom.wiringHelpPanel?.hidden === false) { event.preventDefault(); setWiringHelpOpen(false, { restoreFocus: true }); return; }
+    if (ui().sourceIndex != null) { event.preventDefault(); cancelDrawing(); focusStatusPanel(); }
+  });
   dom.grid?.addEventListener("contextmenu", (event) => {
     if (state.blueprintView !== "wiring") return; event.preventDefault();
     if (ui().sourceIndex != null) { removeDrawingStep(); return; }
     // Component context menus never delete physical cable implicitly.
   });
   dom.wiringStatusPanel?.addEventListener("change", (event) => { const select = event.target?.closest?.("[data-wiring-action=\"data-scenario\"]"); if (!select) return; state.thermalLoadMode = select.value; refreshWiringPresentation(); });
-  dom.wiringStatusPanel?.addEventListener("click", (event) => { const actionButton = event.target?.closest?.("[data-wiring-action]"); const action = actionButton?.dataset?.wiringAction || event.target?.dataset?.wiringAction; if (action === "power-preset") { if (!actionButton?.disabled) setPowerPreset(actionButton.dataset.preset); return; } if (action === "power-priority-move") { if (!actionButton?.disabled) movePowerPriority(actionButton.dataset.category, actionButton.dataset.direction); return; } if (action === "branch-a" || action === "branch-b") branchFrom(action.at(-1)); else if (action === "remove-section") { removeSelectedSection(); focusStatusPanel(); } else if (action === "remove-branch") { removeSelectedBranch(); focusStatusPanel(); } else if (action === "inspect-component") { inspectComponent(Number(event.target.dataset.index)); focusStatusPanel(); } else if (action === "select-network") { ui().selectedDataNetworkId = event.target.dataset.networkId; ui().selectedIndex = null; ui().selectedSectionId = null; refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-selection") { resetInteraction(); refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-drawing") { cancelDrawing(); focusStatusPanel(); } else if (action === "finish") { commitActivePath(); focusStatusPanel(); } });
+  dom.wiringStatusPanel?.addEventListener("click", (event) => { const actionButton = event.target?.closest?.("[data-wiring-action]"); const action = actionButton?.dataset?.wiringAction || event.target?.dataset?.wiringAction; if (action === "branch-a" || action === "branch-b") branchFrom(action.at(-1)); else if (action === "remove-section") { removeSelectedSection(); focusStatusPanel(); } else if (action === "remove-branch") { removeSelectedBranch(); focusStatusPanel(); } else if (action === "inspect-component") { inspectComponent(Number(event.target.dataset.index)); focusStatusPanel(); } else if (action === "select-network") { ui().selectedDataNetworkId = event.target.dataset.networkId; ui().selectedIndex = null; ui().selectedSectionId = null; refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-selection") { resetInteraction(); refreshWiringPresentation(); focusStatusPanel(); } else if (action === "cancel-drawing") { cancelDrawing(); focusStatusPanel(); } else if (action === "finish") { commitActivePath(); focusStatusPanel(); } });
 }
 
 export function canUndoWiring() { return ui().undoStack.length > 0; }
 export function refreshWiringPresentation() { if (state.blueprintView !== "wiring") return; bindWiringControls(); refreshToolbar(); renderWiringOverlay(); renderPreviewPanel(); renderStatusPanel(); }
-export function clearWiringPresentation() { resetInteraction(false); ui().hoveredSectionId = null; invalidatePreviewCache(); dom.wiringOverlayHost?.replaceChildren(); dom.grid?.classList.remove("wiring-overlay-active"); if (dom.wiringPreviewPanel) { dom.wiringPreviewPanel.hidden = true; dom.wiringPreviewPanel.innerHTML = ""; } if (dom.wiringStatusPanel) { dom.wiringStatusPanel.hidden = true; dom.wiringStatusPanel.innerHTML = ""; } }
+export function clearWiringPresentation() { resetInteraction(false); ui().hoveredSectionId = null; invalidatePreviewCache(); setWiringHelpOpen(false); dom.wiringOverlayHost?.replaceChildren(); dom.grid?.classList.remove("wiring-overlay-active"); if (dom.wiringPreviewPanel) { dom.wiringPreviewPanel.hidden = true; dom.wiringPreviewPanel.innerHTML = ""; } if (dom.wiringStatusPanel) { dom.wiringStatusPanel.hidden = true; dom.wiringStatusPanel.innerHTML = ""; } }
 const TOOL_HINTS = Object.freeze({
-  draw: "Draw through occupied cells with the selected tier. New sections use the tier; existing cable keeps its own.",
-  tier: "Click a Power section to apply the selected tier. Existing tier is preserved until you change it.",
+  draw: "Draw through occupied cells. Existing Power cable on the route changes to the selected tier.",
   erase: "Click a Power or Data section to remove it. Unrelated cable and Data wiring are preserved.",
   inspect: "Click a section to read its cable rating, hosts and net design impact. No changes are made."
 });
@@ -371,6 +439,15 @@ function renderStaticClarity() {
   if (staticClarityRendered || !clarity) return;
   staticClarityRendered = true;
   const cards = clarity.tierCards(WIRING_INFRASTRUCTURE);
+  document.querySelectorAll("[data-tier-capacity-compact]").forEach((element) => {
+    const card = cards.find((item) => item.key === element.dataset.tierCapacityCompact);
+    if (card) element.textContent = `${card.sustainedMw} / ${card.peakMw} MW`;
+  });
+  document.querySelectorAll("[data-wiring-tier]").forEach((button) => {
+    const card = cards.find((item) => item.key === button.dataset.wiringTier);
+    if (!card) return;
+    button.title = `${card.label}: ${card.sustainedMw} MW sustained / ${card.peakMw} MW peak; $${card.costPerCell} and ${card.displacementPerCell} Heat capacity per new cell. ${card.bestFor}`;
+  });
   if (dom.wiringTierCardList) {
     dom.wiringTierCardList.innerHTML = cards.map((card) => `
       <article class="wiring-tier-card" data-tier-card="${escapeHtml(card.key)}">
@@ -430,8 +507,6 @@ function refreshToolbar() {
   dom.wiringToolbar?.querySelectorAll("[data-wiring-tool]").forEach((button) => {
     const active = button.dataset.wiringTool === currentTool();
     button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active));
-    // Change Tier is Power-only; disable it for Data so the control cannot lie.
-    if (button.dataset.wiringTool === "tier") button.disabled = !power;
   });
   // Data has no cable tiers, so the tier row and legend are hidden for Data.
   if (dom.wiringTierRow) dom.wiringTierRow.hidden = !power;
@@ -449,16 +524,47 @@ function refreshToolbar() {
 
 // ---------------------------------------------------------------------------
 // Section 7C-4 — Power Priority controls and authoritative solver diagnostics.
-// The panel lives in the Power Wiring status area (never the component palette).
-// Preset and Custom-order changes go through the single authoritative policy
-// path (applyPowerPolicyChange -> Blueprint design edit + Undo + persistence).
+// The compact preset control lives with the other Blueprint-wide settings in
+// the left column. Solver diagnostics remain in the Power Wiring analysis.
+// All changes go through the single authoritative policy edit path.
 // ---------------------------------------------------------------------------
 function policyRules() { return globalThis.PowerPolicyRules; }
-const PRESET_LABELS = Object.freeze({ balanced: "Balanced", defensive: "Defensive", offensive: "Offensive", mobility: "Mobility", custom: "Custom" });
-const PRESET_CHOICES = Object.freeze(["balanced", "defensive", "offensive", "mobility", "custom"]);
 function currentPowerPolicy() { const pr = policyRules(); return pr ? pr.normalizePolicy(state.wiring?.powerPolicy) : { preset: "balanced", customOrder: [] }; }
 function setPowerPreset(preset) { const pr = policyRules(); if (pr) applyPowerPolicyChange((current) => pr.selectPreset(current, preset)); }
 function movePowerPriority(category, direction) { const pr = policyRules(); if (pr) applyPowerPolicyChange((current) => pr.moveCustomCategory(current, category, direction === "up" ? -1 : 1)); }
+
+function renderCustomPowerPriorityOrder(policy) {
+  const pr = policyRules();
+  if (!pr || policy.preset !== "custom") return "";
+  const labels = pr.POWER_CATEGORY_LABELS;
+  const rows = policy.customOrder.map((cat, index) => {
+    const upDisabled = index === 0 ? " disabled" : "";
+    const downDisabled = index === policy.customOrder.length - 1 ? " disabled" : "";
+    return `<li class="power-priority-row" data-custom-row data-category="${cat}"><span class="power-priority-number">${index + 1}</span><span class="power-priority-chip" data-category="${cat}">${escapeHtml(labels[cat])}</span><span class="power-priority-move"><button type="button" data-power-priority-move data-category="${cat}" data-direction="up" aria-label="Move ${escapeHtml(labels[cat])} up"${upDisabled}>▲</button><button type="button" data-power-priority-move data-category="${cat}" data-direction="down" aria-label="Move ${escapeHtml(labels[cat])} down"${downDisabled}>▼</button></span></li>`;
+  }).join("");
+  return `<div class="power-priority-hint">Reorder categories from highest to lowest priority.</div><ol class="power-priority-order">${rows}</ol>`;
+}
+
+let powerPriorityControlsBound = false;
+export function bindPowerPriorityControls() {
+  if (powerPriorityControlsBound) return;
+  powerPriorityControlsBound = true;
+  dom.powerPrioritySelect?.addEventListener("change", (event) => setPowerPreset(event.target.value));
+  dom.powerPriorityCustomOrder?.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-power-priority-move]");
+    if (!button || button.disabled) return;
+    movePowerPriority(button.dataset.category, button.dataset.direction);
+  });
+}
+
+export function refreshPowerPriorityControls() {
+  const policy = currentPowerPolicy();
+  if (dom.powerPrioritySelect) dom.powerPrioritySelect.value = policy.preset;
+  if (!dom.powerPriorityCustomOrder) return;
+  const isCustom = policy.preset === "custom";
+  dom.powerPriorityCustomOrder.hidden = !isCustom;
+  dom.powerPriorityCustomOrder.innerHTML = isCustom ? renderCustomPowerPriorityOrder(policy) : "";
+}
 
 // The designer prediction uses the authoritative shared solver (never a UI-only
 // calculation), with all components intact and nominal source generation so the
@@ -544,55 +650,79 @@ function renderPowerPriorityDiagnostics() {
   const pr = policyRules(); const flow = designerPowerFlow();
   if (!pr || !flow || !flow.summary) return "";
   const summary = flow.summary; const labels = pr.POWER_CATEGORY_LABELS;
-  const catRows = pr.POWER_CATEGORIES.map((cat) => {
-    const c = summary.byCategory?.[cat] || { demandMw: 0, allocatedMw: 0, unmetMw: 0, priorityBand: null };
-    const band = c.priorityBand == null ? "" : ` · priority ${c.priorityBand + 1}`;
-    const shed = Number(c.unmetMw) > 0 ? " power-priority-shed" : "";
-    return `<li class="power-priority-cat-row${shed}" data-diag-category="${cat}"><span class="power-priority-chip" data-category="${cat}">${escapeHtml(labels[cat])}</span> <span data-cat-demand>${mwText(c.demandMw)} demand</span> · <span data-cat-delivered>${mwText(c.allocatedMw)} delivered</span> · <span data-cat-unmet>${mwText(c.unmetMw)} unmet</span>${band}</li>`;
+  // Categories read as a priority ladder, so order by the band the solver actually
+  // used (declaration order is meaningless to the player). Every category is still
+  // listed — zero-demand ones stay, muted, so the ladder has no gaps.
+  const entries = pr.POWER_CATEGORIES.map((cat) => ({
+    cat, c: summary.byCategory?.[cat] || { demandMw: 0, allocatedMw: 0, unmetMw: 0, priorityBand: null }
+  })).sort((a, b) => {
+    const ab = a.c.priorityBand == null ? Infinity : a.c.priorityBand;
+    const bb = b.c.priorityBand == null ? Infinity : b.c.priorityBand;
+    return ab - bb || pr.POWER_CATEGORIES.indexOf(a.cat) - pr.POWER_CATEGORIES.indexOf(b.cat);
+  });
+  // One shared scale across every bar so lengths are comparable between rows.
+  const scaleMw = Math.max(...entries.map(({ c }) => Number(c.demandMw) || 0), 0);
+  const pct = (value) => (scaleMw > 0 ? `${(((Number(value) || 0) / scaleMw) * 100).toFixed(2)}%` : "0%");
+  const catRows = entries.map(({ cat, c }) => {
+    const demand = Number(c.demandMw) || 0, delivered = Number(c.allocatedMw) || 0, unmet = Number(c.unmetMw) || 0;
+    const band = c.priorityBand == null ? "" : String(c.priorityBand + 1);
+    const shed = unmet > 0 ? " power-priority-shed" : "";
+    const idle = demand <= 0 ? " power-priority-idle" : "";
+    // The bar is decorative for AT; the aria-label carries the same numbers.
+    const bar = demand > 0
+      ? `<span class="power-alloc-track" role="img" aria-label="${escapeHtml(labels[cat])}: ${mwText(delivered)} delivered of ${mwText(demand)} demand, ${mwText(unmet)} unmet.">
+          ${delivered > 0 ? `<span class="power-alloc-fill power-alloc-delivered" style="width:${pct(delivered)}"></span>` : ""}
+          ${unmet > 0 ? `<span class="power-alloc-fill power-alloc-unmet" style="width:${pct(unmet)}"></span>` : ""}
+        </span>`
+      : `<span class="power-alloc-track power-alloc-track-empty" aria-hidden="true"></span>`;
+    const note = demand <= 0
+      ? `<span class="power-alloc-note">No demand</span>`
+      : unmet > 0
+        ? `<span class="power-alloc-note power-alloc-note-shed">${mwText(delivered)} of ${mwText(demand)} delivered · ${mwText(unmet)} unmet</span>`
+        : `<span class="power-alloc-note">${mwText(demand)} fully delivered</span>`;
+    // Hidden mirrors keep the machine-readable per-category values addressable.
+    // aria-hidden: the visible note and the bar's aria-label already say this, and
+    // a screen reader should not hear the same three numbers a third time.
+    const values = `<span class="power-alloc-values" aria-hidden="true"><span data-cat-demand>${mwText(demand)} demand</span> · <span data-cat-delivered>${mwText(delivered)} delivered</span> · <span data-cat-unmet>${mwText(unmet)} unmet</span></span>`;
+    return `<li class="power-priority-cat-row${shed}${idle}" data-diag-category="${cat}">
+      <span class="power-alloc-rank${band ? "" : " is-none"}" aria-label="${band ? `Priority ${band}` : "No priority band"}">${band || "–"}</span>
+      <span class="power-priority-chip" data-category="${cat}">${escapeHtml(labels[cat])}</span>
+      <span class="power-alloc-total">${mwText(demand)}</span>
+      ${bar}${note}${values}
+    </li>`;
   }).join("");
-  const shedText = (summary.loadShedCategories || []).length
-    ? `Load-shed: ${summary.loadShedCategories.map((c) => escapeHtml(labels[c])).join(", ")}` : "No load shedding";
+  const loadShed = (summary.loadShedCategories || []);
+  const shedText = loadShed.length
+    ? `Load-shed: ${loadShed.map((c) => labels[c]).join(", ")}` : "No load shedding";
+  const unmetTotal = Number(summary.unmetMw) || 0;
+  const kpi = (label, value, tone = "") => `<div class="power-alloc-kpi${tone}"><span class="power-alloc-kpi-label">${escapeHtml(label)}</span><strong class="power-alloc-kpi-value">${escapeHtml(mwText(value))}</strong></div>`;
   return `<div class="power-priority-diagnostics" data-power-priority-diagnostics>
-    <div class="wiring-summary-line">${mwText(summary.availableGenerationMw)} generation · ${mwText(summary.demandMw)} demand · ${mwText(summary.allocatedMw)} delivered · ${mwText(summary.unmetMw)} unmet</div>
-    <div class="wiring-summary-line">${mwText(summary.spareGenerationMw)} spare · ${mwText(summary.strandedGenerationMw)} stranded · ${escapeHtml(shedText)}</div>
-    <div class="wiring-summary-line power-priority-diag-heading">Unmet demand by priority</div>
+    <div class="power-alloc-kpis">
+      ${kpi("Generation", summary.availableGenerationMw)}
+      ${kpi("Demand", summary.demandMw)}
+      ${kpi("Delivered", summary.allocatedMw)}
+      ${kpi("Unmet", summary.unmetMw, unmetTotal > 0 ? " power-alloc-kpi-bad" : "")}
+    </div>
+    <div class="power-alloc-meta">
+      <span class="power-alloc-meta-item">${escapeHtml(mwText(summary.spareGenerationMw))} spare</span>
+      <span class="power-alloc-meta-item">${escapeHtml(mwText(summary.strandedGenerationMw))} stranded</span>
+      <span class="power-alloc-chip${loadShed.length ? " power-alloc-chip-bad" : " power-alloc-chip-ok"}">${escapeHtml(shedText)}</span>
+    </div>
+    <div class="power-alloc-chart-head">
+      <span class="power-priority-diag-heading">Unmet demand by priority</span>
+      <span class="power-alloc-legend">
+        <span class="power-alloc-key"><i class="power-alloc-swatch power-alloc-delivered"></i>Delivered</span>
+        <span class="power-alloc-key"><i class="power-alloc-swatch power-alloc-unmet"></i>Unmet</span>
+      </span>
+    </div>
     <ul class="power-priority-cat-list">${catRows}</ul>
   </div>`;
 }
 
-function renderPowerPriorityPanel() {
-  const pr = policyRules(); if (!pr) return "";
-  const policy = pr.normalizePolicy(state.wiring?.powerPolicy);
-  const labels = pr.POWER_CATEGORY_LABELS;
-  const bands = pr.resolvePriorityBands(policy);
-  const isCustom = policy.preset === "custom";
-  const presetButtons = PRESET_CHOICES.map((preset) => `<button type="button" class="power-priority-preset${policy.preset === preset ? " active" : ""}" data-wiring-action="power-preset" data-preset="${preset}" aria-pressed="${policy.preset === preset}">${escapeHtml(PRESET_LABELS[preset])}</button>`).join("");
-  const bandNumberByCategory = new Map();
-  bands.forEach((band, index) => band.forEach((cat) => bandNumberByCategory.set(cat, index + 1)));
-  const order = isCustom ? policy.customOrder : pr.presetOrder(policy.preset);
-  let rows;
-  if (isCustom) {
-    rows = order.map((cat, index) => {
-      const upDisabled = index === 0 ? " disabled" : "";
-      const downDisabled = index === order.length - 1 ? " disabled" : "";
-      return `<li class="power-priority-row" data-custom-row data-category="${cat}"><span class="power-priority-number">${index + 1}</span><span class="power-priority-chip" data-category="${cat}">${escapeHtml(labels[cat])}</span><span class="power-priority-move"><button type="button" data-wiring-action="power-priority-move" data-category="${cat}" data-direction="up" aria-label="Move ${escapeHtml(labels[cat])} up"${upDisabled}>▲</button><button type="button" data-wiring-action="power-priority-move" data-category="${cat}" data-direction="down" aria-label="Move ${escapeHtml(labels[cat])} down"${downDisabled}>▼</button></span></li>`;
-    }).join("");
-  } else {
-    rows = order.map((cat) => {
-      const number = bandNumberByCategory.get(cat);
-      const tied = bands[number - 1].length > 1;
-      return `<li class="power-priority-row${tied ? " power-priority-tied" : ""}" data-priority-band="${number}" data-category="${cat}"><span class="power-priority-number">${number}</span><span class="power-priority-chip" data-category="${cat}">${escapeHtml(labels[cat])}</span>${tied ? `<span class="power-priority-tie-note" aria-label="tied priority">tied</span>` : ""}</li>`;
-    }).join("");
-  }
-  const hint = isCustom
-    ? `<div class="wiring-summary-line power-priority-hint">Reorder categories to set Custom priority. Shields and Point Defence order independently.</div>`
-    : (bands.some((band) => band.length > 1) ? `<div class="wiring-summary-line power-priority-hint">Categories sharing a number are tied and share shortages fairly, staying separate categories.</div>` : "");
-  return `<section class="wiring-summary-section" data-wiring-panel="power-priority"><h4>Power Priority</h4>
-    <div class="power-priority-presets" role="group" aria-label="Power priority preset">${presetButtons}</div>
-    <div class="power-priority-current wiring-summary-line">Preset: <strong data-power-priority-preset>${escapeHtml(PRESET_LABELS[policy.preset])}</strong></div>
-    <ol class="power-priority-order">${rows}</ol>
-    ${hint}
-    ${renderPowerPriorityDiagnostics()}</section>`;
+export function powerAllocationAnalysisHtml() {
+  const diagnostics = renderPowerPriorityDiagnostics();
+  if (!diagnostics) return "";
+  return `<section class="wiring-summary-section" data-wiring-panel="power-allocation"><h4>Power Allocation</h4>${diagnostics}</section>`;
 }
 
 function signed(value) { const n = Math.round((Number(value) || 0) * 100) / 100; return n > 0 ? `+${n}` : `${n}`; }
@@ -608,16 +738,7 @@ function renderPreviewPanel() {
     panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(transientReason))}</div>`;
     return;
   }
-  if (!preview) {
-    // Clear guidance instead of an empty panel while a comparison tool is
-    // active but nothing is hovered or drawn yet.
-    if (isPowerTierTool() && clarityRules()) {
-      panel.hidden = false;
-      panel.innerHTML = `<div class="wiring-preview-line" data-preview-empty-state>${escapeHtml(clarityRules().EMPTY_STATES.noSelection)}</div>`;
-      return;
-    }
-    panel.hidden = true; panel.innerHTML = ""; return;
-  }
+  if (!preview) { panel.hidden = true; panel.innerHTML = ""; return; }
   if (!preview.valid) {
     panel.hidden = false;
     panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(preview.reason))}</div>`;
@@ -628,10 +749,7 @@ function renderPreviewPanel() {
   const rows = [];
   const tool = currentTool();
   const clarity = clarityRules();
-  if (tool === "tier" && preview.affectedSectionIds) {
-    const section = bucket("power").sections.find((s) => s.id === preview.affectedSectionIds[0]);
-    rows.push(`<div class="wiring-preview-head">${escapeHtml(tierLabel(section?.tier))} → ${escapeHtml(tierLabel(selectedTier()))}</div>`);
-  } else if (tool === "erase") {
+  if (tool === "erase") {
     rows.push(`<div class="wiring-preview-head">Remove ${escapeHtml(ui().mode)} section</div>`);
   } else if (ui().sourceIndex != null) {
     rows.push(`<div class="wiring-preview-head">New sections: ${preview.newSections ?? 0} · New host cells: ${preview.newPowerCells}</div>`);
@@ -707,10 +825,6 @@ function hoverPreview() {
     return cachedPreview(signature, () => attachPreviewClarity(editRules().previewPowerPathEdit(state.design, state.wiring, ui().mode, cells, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()), "draw", null));
   }
   if (!id) return null;
-  if (isPowerTierTool()) {
-    const signature = editRules().previewSignature(["tier", id, selectedTier(), state.wiring.power.sections.length]);
-    return cachedPreview(signature, () => attachPreviewClarity(editRules().previewPowerTierEdit(state.design, state.wiring, id, selectedTier(), PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()), "tier", id));
-  }
   if (tool === "erase") {
     const signature = editRules().previewSignature(["erase", ui().mode, id, state.wiring.power.sections.length, state.wiring.data.sections.length]);
     return cachedPreview(signature, () => editRules().previewWiringSectionRemoval(state.design, state.wiring, ui().mode, id, PART_STATS, WIRING_INFRASTRUCTURE, previewOptions()));
@@ -759,7 +873,7 @@ function renderWiringOverlay() {
     // line below), so Light cable stays easy to tap.
     const tierClass = view.mode === "power" ? ` wire-tier-${section.tier || "standard"}` : "";
     const hovered = ui().hoveredSectionId === section.id && ui().sourceIndex == null;
-    const previewClass = hovered && (isPowerTierTool() || currentTool() === "erase") ? " wire-section-preview" : hovered && currentTool() === "inspect" ? " wire-section-hover" : "";
+    const previewClass = hovered && currentTool() === "erase" ? " wire-section-preview" : hovered && currentTool() === "inspect" ? " wire-section-hover" : "";
     // Power status is an OVERLAY (halo), so the tier colour on the visible line is
     // never replaced. Determine the status severity from connectivity + flow.
     let powerSeverity = null;
@@ -791,16 +905,27 @@ function renderWiringOverlay() {
     const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("tabindex", "0"); hit.setAttribute("role", "button"); hit.setAttribute("aria-label", `${sectionActionVerb()} ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${tierText}${statusText}${severityText}`); hitLayer.appendChild(hit);
   }
   rules().junctionCells(bucket()).forEach((cell) => markerLayer.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
-  (selectedNet?.componentIndices || []).forEach((index) => indicatorLayer.appendChild(terminal(index, view.mode, true)));
+  // Terminals mark the components a network actually *uses* for the active mode —
+  // sources plus consumers for Power, sources plus compatible weapons for Data.
+  // A cable may route across any occupied cell, but those pass-through hosts
+  // (network.hostIndices) are not terminals and must not be marked as such.
+  const selectedTerminalIndices = new Set(selectedNet?.componentIndices || []);
+  const terminalIndices = new Set(selectedTerminalIndices);
+  for (const network of analysis[view.mode]?.networks || []) for (const index of network.componentIndices) terminalIndices.add(index);
+  [...terminalIndices].sort((a, b) => a - b).forEach((index) => indicatorLayer.appendChild(terminal(index, view.mode, selectedTerminalIndices.has(index))));
   if (view.mode === "power") state.design.forEach((module, index) => {
     if (!rules().isPowerConsumer(module.type, PART_STATS)) return;
     const className = analysis.power.disconnectedConsumerIndices.includes(index) ? "wire-comp-disconnected" : analysis.power.underpoweredConsumerIndices.includes(index) ? "wire-comp-underpowered" : "wire-comp-connected-dest";
     const rect = moduleRect(index, className); if (rect) indicatorLayer.appendChild(rect);
   });
+  // Only the active mode's source ports are drawable, so only they are drawn: a
+  // Power port shown in Data mode is dead UI (the click handler rejects it) and
+  // makes the two modes look identical. One kind renders, so it sits centred.
   state.design.forEach((module, index) => rules().moduleCells(module, PART_STATS).forEach((cell) => {
-    const power = rules().isPowerSourceType(module.type); const data = rules().isDataSourceType(module.type); const offset = power && data ? .08 : 0;
-    const addPort = (kind, x) => { const port = svgEl("circle", { cx: cell.x + .5 + x, cy: cell.y + .5, r: .11, tabindex: 0, role: "button", "aria-label": `Start ${kind} cable from ${moduleLabel(index)}` }, `wire-port wire-port-${kind} source`); port.dataset.wiringPortKind = kind; port.dataset.wiringComponentIndex = index; port.dataset.wiringCellX = cell.x; port.dataset.wiringCellY = cell.y; portLayer.appendChild(port); };
-    if (power) addPort("power", -offset); if (data) addPort("data", offset);
+    if (!isValidSource(view.mode, module.type)) return;
+    const kind = view.mode;
+    const port = svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .11, tabindex: 0, role: "button", "aria-label": `Start ${kind} cable from ${moduleLabel(index)}` }, `wire-port wire-port-${kind} source`);
+    port.dataset.wiringPortKind = kind; port.dataset.wiringComponentIndex = index; port.dataset.wiringCellX = cell.x; port.dataset.wiringCellY = cell.y; portLayer.appendChild(port);
   }));
   if (view.mode === "data" && dataAnalysis) {
     dataAnalysis.sources.forEach((src) => { const rel = dataSource ? (src.sourceIndex === dataSource.sourceIndex ? " wire-comp-data-source-selected" : " wire-comp-data-unrelated") : dataWeapon ? (selectedWeaponActiveContributors.has(src.sourceIndex) ? " wire-comp-data-contributor-active" : selectedWeaponZeroContributors.has(src.sourceIndex) ? " wire-comp-data-contributor-zero" : " wire-comp-data-unrelated") : ""; const cls = src.status === "active" ? "wire-comp-data-source-active" : src.status === "underpowered" ? "wire-comp-data-source-underpowered" : src.status === "thermally-reduced" ? "wire-comp-data-source-underpowered" : src.status === "overheated" ? "wire-comp-data-source-overheated" : src.status === "unpowered" ? "wire-comp-data-source-unpowered" : "wire-comp-data-source-underpowered"; const rect = moduleRect(src.sourceIndex, `${cls}${rel}`); if (rect) { rect.setAttribute("aria-label", `${moduleLabel(src.sourceIndex)} Data source status ${src.status}${rel ? `. Relationship: ${rel.trim().replace("wire-comp-data-", "").replaceAll("-", " ")}.` : ""}`); indicatorLayer.appendChild(rect); } });
@@ -819,7 +944,7 @@ function renderWiringOverlay() {
     const sourceType = state.design[view.sourceIndex]?.type; state.design.forEach((module, index) => { if (sourceType && index !== view.sourceIndex && isValidDestination(view.mode, sourceType, module.type)) { const rect = moduleRect(index, "wire-comp-candidate"); if (rect) indicatorLayer.appendChild(rect); } });
     for (let i = 1; i < view.path.length; i += 1) visibleLayer.appendChild(line({ x1: view.path[i - 1].x, y1: view.path[i - 1].y, x2: view.path[i].x, y2: view.path[i].y }, `wire-preview confirmed wire-preview-${view.mode}`));
     if (view.activeOrigin) markerLayer.appendChild(svgEl("circle", { cx: view.activeOrigin.x + .5, cy: view.activeOrigin.y + .5, r: .18 }, "wire-branch-origin"));
-    if (view.dragging && view.livePointer) { const last = view.path.at(-1); visibleLayer.appendChild(svgEl("line", { x1: last.x + .5, y1: last.y + .5, x2: view.livePointer.x, y2: view.livePointer.y }, `wire-preview ${view.hoverCell && !view.hoverCell.valid ? "invalid" : "valid"} wire-preview-${view.mode}`)); }
+    if (view.dragging && view.livePointer) { const last = view.path.at(-1); const clampCoord = (v) => Math.max(0, Math.min(GRID_SIZE, Number.isFinite(v) ? v : 0)); const px = clampCoord(view.livePointer.x); const py = clampCoord(view.livePointer.y); visibleLayer.appendChild(svgEl("line", { x1: last.x + .5, y1: last.y + .5, x2: px, y2: py }, `wire-preview ${view.hoverCell && !view.hoverCell.valid ? "invalid" : "valid"} wire-preview-${view.mode}`)); }
     const last = view.path.at(-1); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = last.x + dx; const y = last.y + dy; if (partIndexAt(x, y) >= 0 && !view.path.some((cell) => cell.x === x && cell.y === y)) markerLayer.appendChild(svgEl("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.12 }, "wire-next-cell")); }
     if (view.hoverCell && !view.hoverCell.valid) markerLayer.appendChild(svgEl("circle", { cx: view.hoverCell.x + 0.5, cy: view.hoverCell.y + 0.5, r: 0.15 }, "wire-invalid-cell"));
   }
@@ -918,6 +1043,7 @@ function powerSectionInspectionHtml(section) {
       ? protection.protectionStateFor({ operational: true, absoluteFlowMw: flow.absoluteFlowMw, sustainedCapacityMw: flow.sustainedCapacityMw, peakCapacityMw: flow.peakCapacityMw, stress: 0 }, undefined)
       : "normal";
     const interpretation = clarity.sectionInterpretation({ flow, disabled: false, isBottleneck, hasAlternateRoute });
+    const headroom = flow ? Math.round(Math.max(0, (Number(flow.peakCapacityMw) || 0) - (Number(flow.absoluteFlowMw) || 0)) * 100) / 100 : null;
     const flowRows = flow
       ? `<div class="wiring-summary-line" data-section-flow>Predicted flow: ${Math.round((Number(flow.absoluteFlowMw) || 0) * 100) / 100} MW · ${Math.round((Number(flow.sustainedUtilisation) || 0) * 100)}% of sustained · ${Math.round((Number(flow.peakUtilisation) || 0) * 100)}% of peak (current estimate)</div>
          <div class="wiring-summary-line" data-section-heat>${heatRate === null ? escapeHtml(clarity.EMPTY_STATES.incompleteRoute) : `Cable Heat contribution: ${Math.round(heatRate * 1000) / 1000} H/s under this activity`}</div>
@@ -925,6 +1051,7 @@ function powerSectionInspectionHtml(section) {
       : `<div class="wiring-summary-line" data-section-flow>${escapeHtml(clarity.EMPTY_STATES.noPowerPath)}</div>`;
     clarityHtml = `
     ${flowRows}
+    ${flow ? `<div class="wiring-summary-line" data-section-headroom>Headroom: ${headroom} MW to peak · Operational: yes</div>` : ""}
     <div class="wiring-summary-line" data-section-cell-cost>Selected cells: $${cellCost} installed cost · ${cellDisplacement} Heat-capacity displacement</div>
     <div class="wiring-summary-line" data-section-route>${isBottleneck ? "Bottleneck: yes" : "Bottleneck: no"} · ${hasAlternateRoute ? "Alternate route: yes" : escapeHtml(clarity.EMPTY_STATES.noAlternateRoute)}</div>
     <div class="wiring-summary-line wiring-section-interpretation" data-section-interpretation>${interpretation.map(escapeHtml).join(" ")}</div>`;
@@ -933,7 +1060,7 @@ function powerSectionInspectionHtml(section) {
     <div class="wiring-summary-line">Cable rating: ${Number(tier.sustainedCapacityMw) || 0} MW sustained / ${Number(tier.peakCapacityMw) || 0} MW peak</div>
     <div class="wiring-summary-line">Section (${section.x1},${section.y1}) ↔ (${section.x2},${section.y2})</div>
     <div class="wiring-summary-line">Hosts: ${endpointHtml}</div>
-    <div class="wiring-summary-line">${network ? `Physical network: ${escapeHtml(network.label)}` : "Not part of a sourced network"}</div>
+    <div class="wiring-summary-line">Network type: Power · ${network ? `Network ID: ${escapeHtml(network.id)} (${escapeHtml(network.label)})` : "Network ID: unavailable — not part of a sourced network"}</div>
     ${clarityHtml}
     ${impact}</div>`;
 }
@@ -1016,6 +1143,19 @@ function blueprintObservationsHtml() {
   </section>`;
 }
 
+function selectedTierSummaryHtml() {
+  const clarity = clarityRules();
+  if (!clarity) return "";
+  const summary = clarity.toolSummary(WIRING_INFRASTRUCTURE, ui().mode, selectedTier());
+  return `<section class="wiring-summary-section selected-tier-summary" data-wiring-panel="selected-tier">
+    <h4>Selected ${ui().mode === "power" ? "tier" : "network"}</h4>
+    <div class="wiring-summary-line"><strong>${escapeHtml(summary.title)}</strong></div>
+    <div class="wiring-summary-line">${escapeHtml(summary.capacityText)}</div>
+    <div class="wiring-summary-line">${escapeHtml(summary.costText)} · ${escapeHtml(summary.displacementText)}</div>
+    <div class="wiring-summary-line wiring-section-interpretation">${escapeHtml(summary.recommendation)}</div>
+  </section>`;
+}
+
 function renderStatusPanel() {
   const panel = dom.wiringStatusPanel; if (!panel || state.blueprintView !== "wiring") return; const analysis = currentAnalysis(); const network = selectedNetwork(); const section = bucket().sections.find((item) => item.id === ui().selectedSectionId);
   const current = rules().countUniqueSections(state.wiring, ui().mode); const additional = rules().additionalLengthForPath(state.wiring, ui().mode, ui().path); const limit = CABLE_LIMITS[ui().mode];
@@ -1023,16 +1163,15 @@ function renderStatusPanel() {
   const branch = section ? rules().findLeafBranchSections(bucket(), section.id) : null; const role = !section ? "" : degrees.some((degree) => degree > 2) ? "junction-adjacent" : branch.reason === "leaf-branch" ? "leaf branch" : degrees.every((degree) => degree === 2) ? "trunk or loop" : "branch";
   const status = network ? (ui().mode === "power" ? network.status : network.sourceIndices.length ? "online" : "source-less") : null;
   if (ui().sourceIndex == null && ui().mode === "data" && renderDataInspectionPanel(panel, section)) return;
-  const priorityPanel = ui().mode === "power" ? renderPowerPriorityPanel() : "";
   const infrastructurePanel = ui().mode === "power" ? infrastructureSummaryHtml() : "";
   const observationsPanel = ui().mode === "power" ? blueprintObservationsHtml() : "";
   panel.hidden = false; panel.tabIndex = -1; panel.innerHTML = `<h3>Physical ${escapeHtml(ui().mode)} wiring</h3>
+    ${section ? powerSectionInspectionHtml(section) : selectedTierSummaryHtml()}
     ${infrastructurePanel}
     ${observationsPanel}
-    ${priorityPanel}
     <div class="wiring-summary-line">${current} unique cable sections${ui().path.length > 1 ? ` · +${additional} new in preview` : ""}${Number.isFinite(limit) ? ` · ${Math.max(0, limit - current - additional)} remaining` : ""}</div>
     ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}
     ${network ? `<div class="wiring-summary-section"><h4>${escapeHtml(network.label)} — ${escapeHtml(status)}</h4><div class="wiring-summary-line">${network.sections.length} sections · ${junctionCount} junctions · ${network.sourceIndices.length ? "contains a source" : "source-less"}</div><div class="wiring-summary-line">Sources: ${labels(network.sourceIndices)}</div><div class="wiring-summary-line">${ui().mode === "power" ? `Consumers: ${labels(network.consumerIndices)}<br>${mw(network.generationMw)} generation / ${mw(network.demandMw)} demand · ${network.surplusMw >= 0 ? `${mw(network.surplusMw)} surplus` : `${mw(network.deficitMw)} deficit`} · ${Math.round(network.availableEfficiency * 100)}% available` : `Data supports: ${labels(network.sourceIndices)}<br>Compatible weapons: ${labels(network.weaponIndices)}`}</div><div class="wiring-summary-line">Passive hosts: ${labels(network.hostIndices.filter((index) => !network.componentIndices.includes(index)))}</div></div>` : ""}
     ${section ? `<div class="wiring-summary-section"><h4>Selected physical section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(section.tier)} tier · ${role}</div><div class="wiring-summary-line">Endpoint degrees: ${degrees[0]} / ${degrees[1]} · Hosts: ${labels([...new Set(rules().sectionCells(section).map((cell) => partIndexAt(cell.x, cell.y)).filter((index) => index >= 0))])}</div><div class="wiring-section-actions"><button type="button" data-wiring-action="branch-a">Branch from A</button><button type="button" data-wiring-action="branch-b">Branch from B</button><button type="button" data-wiring-action="remove-section">Remove section</button><button type="button" data-wiring-action="remove-branch">Remove branch</button><button type="button" data-wiring-action="cancel-selection">Cancel selection</button></div></div>` : ""}
-    ${section ? powerSectionInspectionHtml(section) : ""}`;
+    `;
 }

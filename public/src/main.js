@@ -6,8 +6,10 @@ import { state } from "./state.js";
 import { renderPalette, setPartPaletteSelectionPresentationRefresh } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats, requestResetDesign, requestClearDesign, undoBlueprintEdit, refreshBlueprintSelectionPresentation } from "./ui/designerUi.js";
-import { renderSavedDesigns, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
+import { renderSavedDesigns, initializeSavedBlueprintLibraryControls, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
 import { openBlueprintDesigner, closeBlueprintDesigner } from "./ui/designerScreenUi.js";
+import { initializeDesignerInspector } from "./ui/designerInspectorUi.js";
+import { bindPowerPriorityControls } from "./ui/wiringUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
 import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
@@ -26,7 +28,7 @@ dom.pilotName.value = loadedPreferences.pilotName;
 dom.teamSelect.value = loadedPreferences.preferredTeam;
 dom.formationSelect.value = loadedPreferences.formation;
 if (dom.combatStyleSelect) {
-  dom.combatStyleSelect.value = state.combatStyle || "sentry";
+  dom.combatStyleSelect.value = state.combatStyle || "hold";
 }
 
 // Debug/test handle: read-only access to the client state from the console
@@ -219,6 +221,9 @@ initializeClient();
 async function initializeClient() {
   await loadComponentBalance();
   renderPalette();
+  initializeDesignerInspector();
+  bindPowerPriorityControls();
+  initializeSavedBlueprintLibraryControls();
   renderPartInspector();
   renderBuildGrid();
   renderLocalStats();

@@ -287,6 +287,7 @@ async function collectVulnerabilityDiagnostics(page) {
       }
       wiringUi.refreshWiringPresentation();
     });
+    await page.locator("#designerAnalysisTab").click();
     const panel = page.locator("#wiringStatusPanel");
 
     const resetToDataOverview = async () => {

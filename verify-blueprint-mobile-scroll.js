@@ -61,65 +61,56 @@ async function inspectMobile(page) {
     const panel = document.querySelector(".blueprint-designer-panel");
     const right = document.querySelector(".designer-right-col");
     const header = document.querySelector(".blueprint-designer-panel > .menu-head");
-    const columns = [".designer-left-col", ".designer-center-col", ".designer-right-col"].map((selector) => {
-      const el = document.querySelector(selector);
-      const previous = el.scrollTop;
-      el.scrollTop = Math.max(1, el.scrollHeight - el.clientHeight);
-      const moved = el.scrollTop > 0 || el.scrollHeight <= el.clientHeight + 1;
-      el.scrollTop = previous;
-      return { selector, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, moved, overflowY: getComputedStyle(el).overflowY };
-    });
+    const tabs = document.getElementById("designerInspectorTabs");
     return {
       overlayScrollWidth: overlay.scrollWidth,
       overlayClientWidth: overlay.clientWidth,
       panelLeft: panel.getBoundingClientRect().left,
+      panelRight: panel.getBoundingClientRect().right,
       headerPosition: getComputedStyle(header).position,
       bodyOverflow: getComputedStyle(document.body).overflow,
-      columns,
-      rightBefore: right.getBoundingClientRect()
+      rightBefore: right.getBoundingClientRect(),
+      tabs: tabs.getBoundingClientRect(),
+      rightOverflowX: getComputedStyle(right).overflowX,
+      overflowers: [...document.querySelectorAll("#blueprintDesignerScreen *")].map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { id: element.id, className: String(element.className || ""), left: rect.left, right: rect.right, width: rect.width };
+      }).filter(item => item.left < -1 || item.right > window.innerWidth + 1).slice(0, 8)
     };
   });
 
-  if (!(before.overlayScrollWidth > before.overlayClientWidth)) throw new Error("mobile overlay is not horizontally scrollable");
-  if (Math.abs(before.panelLeft - 12) > 2) throw new Error(`panel is not left aligned: ${before.panelLeft}`);
+  if (before.overlayScrollWidth > before.overlayClientWidth + 1) throw new Error(`mobile overlay has horizontal overflow: ${before.overlayScrollWidth}/${before.overlayClientWidth} ${JSON.stringify(before.overflowers)}`);
+  if (Math.abs(before.panelLeft) > 2 || Math.abs(before.panelRight - before.overlayClientWidth) > 2) throw new Error(`panel does not fit viewport: ${before.panelLeft}..${before.panelRight}`);
   if (before.headerPosition !== "sticky") throw new Error(`header is not sticky: ${before.headerPosition}`);
-  for (const col of before.columns) {
-    if (!["auto", "scroll", "hidden"].includes(col.overflowY)) throw new Error(`${col.selector} has unexpected overflow-y ${col.overflowY}`);
-    if (!col.moved) throw new Error(`${col.selector} vertical scrolling check failed`);
-  }
+  if (before.tabs.left < 0 || before.tabs.right > before.overlayClientWidth) throw new Error("inspector tabs do not fit viewport");
 
-  const after = await page.evaluate(() => {
+  const after = await page.evaluate(async () => {
     const overlay = document.getElementById("blueprintDesignerScreen");
-    overlay.scrollLeft = overlay.scrollWidth - overlay.clientWidth;
+    const inspector = await import("/src/ui/designerInspectorUi.js");
+    inspector.activateDesignerInspectorTab("blueprints");
     const right = document.querySelector(".designer-right-col").getBoundingClientRect();
     const saved = [...document.querySelectorAll(".designer-right-col h2")].find((h) => h.textContent.includes("Saved Blueprints")).getBoundingClientRect();
     const loadouts = [...document.querySelectorAll(".designer-right-col h2")].find((h) => h.textContent.includes("Loadouts")).getBoundingClientRect();
+    const activePanel = document.getElementById("designerBlueprintsPanel");
+    const activePanelScrollable = activePanel.scrollHeight > activePanel.clientHeight;
     const closeButton = document.getElementById("closeBlueprintDesignerButton");
     const close = closeButton.getBoundingClientRect();
-    const maxScrollLeft = overlay.scrollWidth - overlay.clientWidth;
-    // Read the scroll position BEFORE closing: a hidden (display:none) overlay
-    // has no layout and reports scrollLeft 0.
-    const scrollLeftAtMax = overlay.scrollLeft;
     closeButton.click();
     return {
-      scrollLeft: scrollLeftAtMax,
-      maxScrollLeft,
       right,
       saved,
       loadouts,
       close,
+      activePanelScrollable,
       closed: overlay.hidden,
-      viewportWidth: window.innerWidth,
-      elementAtCenter: document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.id || ""
+      viewportWidth: window.innerWidth
     };
   });
 
-  if (!(after.scrollLeft > 0)) throw new Error("overlay scrollLeft did not move");
-  if (!approx(after.scrollLeft, after.maxScrollLeft)) throw new Error(`overlay did not reach max scroll: ${after.scrollLeft} / ${after.maxScrollLeft}`);
-  if (after.right.left < -2 || after.right.right > after.viewportWidth + 2) throw new Error("right designer column is not fully visible at max scroll");
+  if (after.right.left < -2 || after.right.right > after.viewportWidth + 2) throw new Error("right designer column is not fully visible");
   if (after.saved.left < 0 || after.saved.right > after.viewportWidth) throw new Error("Saved Blueprints heading is not reachable");
   if (after.loadouts.left < 0 || after.loadouts.right > after.viewportWidth) throw new Error("Loadouts heading is not reachable");
-  if (after.close.left < 0 || after.close.right > after.viewportWidth) throw new Error("Close button is not reachable at max scroll");
+  if (after.close.left < 0 || after.close.right > after.viewportWidth) throw new Error("Close button is not reachable");
   if (!after.closed) throw new Error("Close button did not close the designer");
 
   return { before, after };

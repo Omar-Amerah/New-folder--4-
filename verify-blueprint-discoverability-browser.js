@@ -354,8 +354,8 @@ async function main() {
     assert.match(buildGuide, /left-click/i);
     assert.match(buildGuide, /Rotate/i);
     assert.match(buildGuide, /right-click/i);
-    await assert.equal(await page.locator("#resetButton").innerText(), "Reset Ship", "Reset has visible label");
-    await assert.equal(await page.locator("#clearGridButton").innerText(), "Clear Ship", "Clear has visible label");
+    await assert.equal(await page.locator("#resetButton").getAttribute("aria-label"), "Reset to starter ship and default Wiring", "Reset has an accessible label");
+    await assert.equal(await page.locator("#clearGridButton").getAttribute("aria-label"), "Clear all components and Wiring", "Clear has an accessible label");
 
     const indicator = page.locator("#rotationIndicator");
     const beforeRotation = await indicator.textContent();
@@ -399,7 +399,7 @@ async function main() {
     await page.locator('.build-cell[data-x="8"][data-y="8"]').click();
     assert.notEqual(await snapshot(page), beforeHeatPlace, "Heat placement changes physical design");
     assert.equal(await page.evaluate(() => window.__mfaState.blueprintView), "heat", "view remains Heat after edit");
-    assert.equal(await page.locator("#heatToolbar").isVisible(), true, "Heat UI remains rendered");
+    assert.equal(await page.locator("#blueprintThermalHud").isVisible(), false, "Heat summary is not duplicated over the grid");
     assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "Undo enables after Heat edit");
     await page.click("#undoBlueprintEditButton");
     assert.equal(await snapshot(page), beforeHeatPlace, "Undo restores exact design/Wiring after Heat edit");

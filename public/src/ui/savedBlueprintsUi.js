@@ -40,10 +40,17 @@ export function refreshLoadedBlueprintPresentation() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
   if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved design";
   if (dom.saveDesignButton) dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
+  if (dom.loadedBlueprintState) {
+    const unchanged = existing
+      && JSON.stringify(existing.blueprint || []) === JSON.stringify(state.design || [])
+      && JSON.stringify(normalizeWiring(existing.wiring, existing.blueprint)) === JSON.stringify(normalizeWiring(state.wiring, state.design));
+    dom.loadedBlueprintState.textContent = unchanged ? "Saved" : "Unsaved changes";
+    dom.loadedBlueprintState.classList.toggle("saved", Boolean(unchanged));
+  }
 }
 
 function styleLabel(style) {
-  const raw = style || "sentry";
+  const raw = style || "hold";
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
@@ -62,15 +69,21 @@ export function renderSavedDesigns() {
   }
 
   const color = previewColor();
-  // The inspector at the top reflects the design currently loaded in the editor —
-  // it is populated only by pressing Edit, never by clicking a card.
-  const editing = state.savedDesigns.find((d) => d.id === state.loadedEditorBlueprintId);
-  if (editing) dom.savedDesignList.appendChild(buildInspector(editing, color));
   const comparison = buildComparison();
   if (comparison) dom.savedDesignList.appendChild(comparison);
 
-  for (const saved of state.savedDesigns) {
+  const query = String(state.savedBlueprintSearch || "").trim().toLowerCase();
+  let designs = state.savedDesigns.filter(saved => !query || saved.name.toLowerCase().includes(query));
+  if (state.savedBlueprintSort === "name") designs = designs.slice().sort((a, b) => a.name.localeCompare(b.name));
+  if (state.savedBlueprintSort === "updated") designs = designs.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  for (const saved of designs) {
     dom.savedDesignList.appendChild(buildCard(saved, color));
+  }
+  if (!designs.length) {
+    const empty = document.createElement("div");
+    empty.className = "saved-design-empty";
+    empty.textContent = "No blueprints match this search.";
+    dom.savedDesignList.appendChild(empty);
   }
   renderPurchaseBar();
   renderLoadoutManager();
@@ -109,10 +122,17 @@ function buildCard(saved, color) {
       <div class="bp-chips">${isInvalid ? escapeHtml(saved.invalidReason || "Invalid blueprint") : statChips(stats)}</div>
     </div>
     <div class="bp-actions saved-design-actions">
+      <button type="button" class="primary" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Load</button>
+      <button type="button" data-saved-action="edit" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit</button>
       <button type="button" data-saved-action="compare" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""} title="Compare with current editor design">Compare</button>
-      <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit</button>
-      <button type="button" data-saved-action="duplicate" data-saved-id="${escapeHtml(saved.id)}" title="Duplicate">⧉</button>
-      <button type="button" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}" title="Delete">✕</button>
+      <details class="bp-overflow">
+        <summary aria-label="More actions for ${escapeHtml(saved.name)}" title="More actions">⋯</summary>
+        <div class="bp-overflow-menu">
+          <button type="button" class="bp-mobile-only" data-saved-action="compare" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Compare</button>
+          <button type="button" data-saved-action="duplicate" data-saved-id="${escapeHtml(saved.id)}">Duplicate</button>
+          <button type="button" class="danger" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}">Delete</button>
+        </div>
+      </details>
     </div>
   `;
 
@@ -125,7 +145,8 @@ function buildCard(saved, color) {
     event.stopPropagation();
   });
 
-  bindCardDrag(card, saved.id);
+  if ((state.savedBlueprintSort || "manual") === "manual") bindCardDrag(card, saved.id);
+  else card.querySelector(".bp-drag")?.setAttribute("hidden", "");
   return card;
 }
 
@@ -260,7 +281,8 @@ export function handleSavedDesignKeyboardClick(event) {
 export function runSavedDesignAction(action, id) {
   if (action === "compare") compareSavedDesign(id);
   else if (action === "clearCompare") { state.compareSavedBlueprintId = null; renderSavedDesigns(); }
-  else if (action === "load") loadSavedDesign(id);
+  else if (action === "load") loadSavedDesign(id, false);
+  else if (action === "edit") loadSavedDesign(id, true);
   else if (action === "duplicate") duplicateSavedDesign(id);
   else if (action === "delete") deleteSavedDesign(id);
 }
@@ -369,7 +391,7 @@ export function confirmModalAction() {
   showToast(`Deleted ${saved.name}`, "warning");
 }
 
-function loadSavedDesign(id) {
+function loadSavedDesign(id, editSource = true) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
   if (saved.invalid) {
@@ -385,8 +407,8 @@ function loadSavedDesign(id) {
   clearPhysicalBlueprintHistory();
   invalidateHeatAnalysisCache();
   state.hoveredHeatPartIndex = null;
-  state.combatStyle = saved.combatStyle || "sentry";
-  state.loadedEditorBlueprintId = saved.id;
+  state.combatStyle = saved.combatStyle || "hold";
+  state.loadedEditorBlueprintId = editSource ? saved.id : null;
   refreshLoadedBlueprintPresentation();
 
   if (dom.combatStyleSelect) {
@@ -406,7 +428,36 @@ function loadSavedDesign(id) {
   });
   renderSavedDesigns();
   updateEconomyUi();
-  showToast(`Editing ${saved.name}`, "good");
+  document.dispatchEvent(new CustomEvent("designer-inspector-activate", { detail: { tab: "design" } }));
+  showToast(editSource ? `Editing ${saved.name}` : `Loaded ${saved.name} as a new design`, "good");
+}
+
+export function initializeSavedBlueprintLibraryControls() {
+  if (dom.savedBlueprintSearch && dom.savedBlueprintSearch.dataset.bound !== "true") {
+    dom.savedBlueprintSearch.value = state.savedBlueprintSearch || "";
+    dom.savedBlueprintSearch.addEventListener("input", () => {
+      state.savedBlueprintSearch = dom.savedBlueprintSearch.value;
+      renderSavedDesigns();
+    });
+    dom.savedBlueprintSearch.dataset.bound = "true";
+  }
+  if (dom.savedBlueprintSort && dom.savedBlueprintSort.dataset.bound !== "true") {
+    dom.savedBlueprintSort.value = state.savedBlueprintSort || "manual";
+    dom.savedBlueprintSort.addEventListener("change", () => {
+      state.savedBlueprintSort = dom.savedBlueprintSort.value;
+      renderSavedDesigns();
+    });
+    dom.savedBlueprintSort.dataset.bound = "true";
+  }
+  if (dom.newBlueprintButton && dom.newBlueprintButton.dataset.bound !== "true") {
+    dom.newBlueprintButton.addEventListener("click", () => {
+      state.loadedEditorBlueprintId = null;
+      refreshLoadedBlueprintPresentation();
+      document.dispatchEvent(new CustomEvent("designer-inspector-activate", { detail: { tab: "design" } }));
+      showToast("Current ship will save as a new blueprint", "good");
+    });
+    dom.newBlueprintButton.dataset.bound = "true";
+  }
 }
 
 export async function saveCurrentDesign() {
@@ -426,7 +477,7 @@ export async function saveCurrentDesign() {
       ...design,
       blueprint,
       wiring,
-      combatStyle: state.combatStyle || "sentry",
+      combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
       speed: Math.round(stats.maxSpeed),
@@ -445,7 +496,7 @@ export async function saveCurrentDesign() {
       name,
       blueprint,
       wiring,
-      combatStyle: state.combatStyle || "sentry",
+      combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
       speed: Math.round(stats.maxSpeed),
@@ -477,7 +528,7 @@ export async function saveCurrentDesign() {
   }
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: blueprint, wiring, combatStyle: state.combatStyle || "sentry" });
+    send({ type: "deploy", design: blueprint, wiring, combatStyle: state.combatStyle || "hold" });
   }
 
   refreshLoadedBlueprintPresentation();

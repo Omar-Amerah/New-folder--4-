@@ -11,14 +11,13 @@ import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
 export function renderPartInspector() {
   const type = state.selectedPart;
   if (!type) {
-    dom.partInspector.innerHTML = `<p class="part-description">Select a component to view its details</p>`;
+    dom.partInspector.innerHTML = `<p class="part-description part-inspector-empty">Select a component on the grid to inspect it.</p>`;
     return;
   }
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
   const effectiveCost = `$${estimatePartEffectiveCost(type, state.design).toLocaleString()}`;
   const details = partInspectorDetails(type, stat, effectiveCost);
-  const thermal = partThermalDetails(type, stat);
   const baseDesc = partDescription(type, stat);
   const enrichedDesc = enrichDescription(type, baseDesc);
   const footprint = stat.footprint || { width: 1, height: 1 };
@@ -26,6 +25,12 @@ export function renderPartInspector() {
   const keyStats = keyInspectorStats(type, stat, effectiveCost);
   const combatDetails = details.filter(([label]) => /damage|dps|shield dps|hull dps|range|projectile|accuracy|turret|arc|tracking|track|lock|missile|beam|behavior|anti-missile|target|ship damage|frontal|front arc/i.test(label));
   const supportDetails = details.filter(([label]) => !combatDetails.some(([combatLabel]) => combatLabel === label));
+  const placed = selectedPlacedPartOfType(type);
+  const componentActions = placed && placed.type !== "core" ? `
+    <div class="part-inspector-actions" aria-label="Selected component actions">
+      ${isRotatablePart(type) ? `<button type="button" data-component-action="rotate">Rotate</button>` : ""}
+      <button type="button" class="danger" data-component-action="remove">Remove</button>
+    </div>` : "";
 
   let tipHtml = "";
   if (isRotatablePart(type)) {
@@ -42,22 +47,47 @@ export function renderPartInspector() {
       <p class="part-description">${escapeHtml(enrichedDesc)}</p>
     </section>
     <section class="part-inspector-section">
-      <div class="part-detail-heading">Key stats</div>
+      <div class="part-detail-heading part-detail-heading-key">Key stats</div>
       <div class="part-inspector-grid">
         ${keyStats.map(([label, value]) => inspectorStat(label, value)).join("")}
       </div>
     </section>
     ${switchgearControlsMarkup(type)}
-    ${thermalSectionMarkup(type, stat, thermal)}
+    ${componentActions}
     ${collapsibleDetails("combat", "Combat details", combatDetails)}
     ${collapsibleDetails("support", "Power and support details", supportDetails)}
     ${tipHtml}
   `;
   attachSwitchgearControlHandlers();
+  dom.partInspector.querySelectorAll("[data-component-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.dispatchEvent(new CustomEvent("blueprint-component-action", { detail: { action: button.dataset.componentAction } }));
+    });
+  });
   dom.partInspector.querySelectorAll("details[data-inspector-section]").forEach((detailsEl) => {
     detailsEl.addEventListener("toggle", event => {
       state.partInspectorOpen = state.partInspectorOpen || {};
       state.partInspectorOpen[event.target.dataset.inspectorSection] = event.target.open;
+    });
+  });
+}
+
+// The "Heat analysis" (design-specific prediction + static thermal properties)
+// renders in its own panel below the component stats so it sits under them and
+// refreshes on every stats/mode update — independent of the part inspector.
+export function renderThermalAnalysis() {
+  if (!dom.thermalAnalysisPanel) return;
+  const type = state.selectedPart;
+  if (!type) { dom.thermalAnalysisPanel.innerHTML = ""; return; }
+  const stat = PART_STATS[type] || PART_STATS.frame;
+  const thermal = partThermalDetails(type, stat);
+  dom.thermalAnalysisPanel.innerHTML = `
+    <section class="part-inspector-section">
+      <div class="part-detail-heading part-detail-heading-heat">Heat analysis</div>
+      ${thermalSectionMarkup(type, stat, thermal)}
+    </section>`;
+  dom.thermalAnalysisPanel.querySelectorAll("details[data-inspector-section]").forEach((detailsEl) => {
+    detailsEl.addEventListener("toggle", event => {
       if (event.target.classList.contains("thermal-properties-details")) state.partThermalPropsOpen = event.target.open;
     });
   });
@@ -115,6 +145,8 @@ function keyInspectorStats(type, stat, effectiveCost) {
   } else if ((stat.heat || 0) > 0 || type === "radiator" || type === "heatSink" || type === "heatPipe") {
     rows.push(["Thermal role", thermalRoleText(type, stat)]);
   }
+  const heatGeneration = globalThis.HeatRules?.activityHeat?.(type, stat) || 0;
+  if (heatGeneration > 0.05) rows.push(["Heat generation", `+${heatGeneration.toFixed(1)} H/s`]);
   return rows;
 }
 
@@ -175,13 +207,13 @@ function thermalSectionMarkup(type, stat, thermal) {
       <p class="thermal-explainer">Not placed in this design yet${thermal.generation > 0 ? ` — generates +${thermal.generation.toFixed(1)} H/s ${escapeHtml(thermal.cadence.toLowerCase())}` : ""}.</p>`;
   }
   return `
-    ${predictedRows}
-    ${explainer}
-    <details class="thermal-properties-details" data-inspector-section="thermal"${state.partThermalPropsOpen ? " open" : ""}>
+    <details class="thermal-properties-details" data-inspector-section="thermal"${state.partThermalPropsOpen === false ? "" : " open"}>
       <summary>Thermal properties</summary>
       <div class="thermal-stat-rows">
         ${thermal.details.map(([label, value]) => thermalRow(label, value)).join("")}
       </div>
+      ${predictedRows}
+      ${explainer}
     </details>`;
 }
 
@@ -253,7 +285,8 @@ function partThermalDetails(type, stat) {
       rows.push(["Overheated", `Takes ×${rules.structuralDamageMultiplierForState(rules.STATE.OVERHEATED).toFixed(2)} damage`]);
     }
   }
-  rows.push(["Recovery threshold", `Below ${Math.round(rules.THRESHOLDS.recover * 100)}% heat`], ["Conduction", effect]);
+  const recoverThreshold = rules.THRESHOLDS.overheated - rules.HYSTERESIS.overheated;
+  rows.push(["Recovery threshold", `Below ${Math.round(recoverThreshold * 100)}% heat`], ["Conduction", effect]);
 
   return { capacity, generation, cadence, details: rows };
 }
@@ -272,7 +305,7 @@ function partPowerText(stat) {
   if (generation && use) return `+${generation} MW / -${use} MW`;
   if (generation) return `+${generation} MW`;
   if (use) return `-${use} MW`;
-  return "No Power requirement";
+  return "NA";
 }
 
 function formatMultiplierPercent(value) {

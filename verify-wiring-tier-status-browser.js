@@ -136,20 +136,23 @@ async function haloClasses(page, sectionId) {
     await page.locator("#wiringModePower").click();
     await page.waitForTimeout(30);
 
-    // 6. Tier buttons explain purpose + sustained/peak capacity.
+    // 6. Compact tier buttons show capacity; purpose/cost stays in tooltips
+    // and the selected-tier Analysis summary.
     const tierText = await page.locator("#wiringTierRow").innerText();
-    assert.match(tierText, /Local branch/, "Light button explains its purpose");
     assert.match(tierText, /4\s*\/\s*7 MW/, "Light button shows sustained/peak capacity");
-    assert.match(tierText, /General cable/, "Standard purpose");
     assert.match(tierText, /10\s*\/\s*16 MW/, "Standard capacity");
-    assert.match(tierText, /Main trunk/, "Heavy purpose");
     assert.match(tierText, /24\s*\/\s*36 MW/, "Heavy capacity");
+    assert.match(await page.locator('[data-wiring-tier="light"]').getAttribute("title"), /branch/i, "Light tooltip explains purpose");
+    assert.match(await page.locator('[data-wiring-tier="standard"]').getAttribute("title"), /distribution/i, "Standard tooltip explains purpose");
+    assert.match(await page.locator('[data-wiring-tier="heavy"]').getAttribute("title"), /trunk|backbone/i, "Heavy tooltip explains purpose");
 
-    // 7. Legend present and visible in Power mode.
-    const legend = page.locator("#wiringTierLegend");
-    assert.strictEqual(await legend.count(), 1, "tier legend exists");
-    assert.strictEqual(await legend.isVisible(), true, "tier legend is visible in Power mode");
-    assert.match(await legend.innerText(), /sustained\s*\/\s*peak/i, "legend explains sustained/peak values");
+    // 7. Legend is available through Help and closed by default.
+    const legend = page.locator("#wiringHelpPanel");
+    assert.strictEqual(await legend.isHidden(), true, "Help legend is closed by default");
+    await page.locator("#wiringHelpButton").click();
+    assert.match(await legend.innerText(), /sustained is safe continuous load/i, "Help explains sustained/peak values");
+    assert.match(await legend.innerText(), /red dashed disconnected/i, "Help explains status styles");
+    await page.locator("#wiringHelpCloseButton").click();
 
     // 8. Reduced motion keeps a static status cue (glow filter) without animation.
     await page.emulateMedia({ reducedMotion: "reduce" });

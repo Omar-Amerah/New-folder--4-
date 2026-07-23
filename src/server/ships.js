@@ -35,7 +35,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     vx: 0,
     vy: 0,
     angle: spawn.angle,
-    combatStyle: options.combatStyle || "sentry",
+    combatStyle: options.combatStyle || "hold",
     targetX: spawnPoint.x,
     targetY: spawnPoint.y,
     arrived: true,

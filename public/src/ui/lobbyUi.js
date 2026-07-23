@@ -340,7 +340,7 @@ export function deployDesign() {
       type: "deploy",
       design: state.design,
       wiring: state.wiring,
-      combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "sentry"
+      combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "hold"
     });
     // Readying the first design confirms it; drop back to the arena view.
     closeBlueprintDesigner();

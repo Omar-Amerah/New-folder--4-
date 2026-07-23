@@ -289,7 +289,7 @@ function getCombatStyle(ship) {
   if (ship.combatStyle === "sentry") return "sentry";
   if (ship.combatStyle === "circle") return "circle";
   if (ship.combatStyle === "charge") return "charge";
-  return "sentry";
+  return "hold";
 }
 
 function ensureMoveTarget(ship) {

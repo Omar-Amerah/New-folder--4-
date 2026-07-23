@@ -112,7 +112,7 @@ function preservedWiringFallback(wiring) {
 }
 
 function nowIso() { return new Date().toISOString(); }
-function safeStyle(value, fallback = "sentry") { return ["charge", "circle", "sentry", "hold"].includes(value) ? value : fallback; }
+function safeStyle(value, fallback = "hold") { return ["charge", "circle", "sentry", "hold"].includes(value) ? value : fallback; }
 function storage() {
   try {
     if (typeof localStorage === "undefined" || !localStorage) return null;
@@ -238,7 +238,7 @@ function normalizeStoredWiringForDesign(wiring, modules) {
 
 function defaultCurrentDesign() {
   const modules = defaultDesign();
-  return { modules, wiring: normalizeWiring(defaultWiring(), modules), combatStyle: "sentry" };
+  return { modules, wiring: normalizeWiring(defaultWiring(), modules), combatStyle: "hold" };
 }
 
 function savedDesignSummary(blueprint) {
@@ -259,7 +259,7 @@ function normalizeSavedDesign(design, index) {
       invalid: true,
       invalidReason: detailed.issues[0].message,
       invalidCode: detailed.issues[0].code,
-      combatStyle: safeStyle(design.combatStyle, "sentry"),
+      combatStyle: safeStyle(design.combatStyle, "hold"),
       cost: 0,
       weapons: "0 DPS",
       speed: 0,
@@ -278,7 +278,7 @@ function normalizeSavedDesign(design, index) {
     wiring: normalizeStoredWiringForDesign(design.wiring, blueprint),
     invalid: !validation.ok,
     invalidReason: validation.errors[0] || "Invalid blueprint.",
-    combatStyle: safeStyle(design.combatStyle, "sentry"),
+    combatStyle: safeStyle(design.combatStyle, "hold"),
     cost: summary.cost,
     weapons: summary.weapons,
     speed: summary.speed,
@@ -301,15 +301,15 @@ export function migrateDesignStorage(value) {
     normalizationIssues: detailed.issues,
     needsAttention: detailed.issues.length > 0,
     wiring: normalizeStoredWiringForDesign(payload.wiring, modules),
-    combatStyle: safeStyle(payload.combatStyle, "sentry")
+    combatStyle: safeStyle(payload.combatStyle, "hold")
   };
 }
-export function designEnvelope(design, wiring, combatStyle = "sentry", timestamps = {}) {
+export function designEnvelope(design, wiring, combatStyle = "hold", timestamps = {}) {
   const modules = normalizeDesign(design, { allowEmpty: true });
   return envelope("current-design", {
     modules,
     wiring: normalizeWiring(wiring, modules),
-    combatStyle: safeStyle(combatStyle, "sentry")
+    combatStyle: safeStyle(combatStyle, "hold")
   }, timestamps);
 }
 export function loadDesign() {
@@ -322,7 +322,7 @@ export function loadDesign() {
   if (read.empty) return defaultCurrentDesign();
   return migrateDesignStorage(read.value);
 }
-export function persistDesign(design, wiring, combatStyle = "sentry") {
+export function persistDesign(design, wiring, combatStyle = "hold") {
   const env = designEnvelope(design, wiring, combatStyle);
   const ok = writeJson(LOCAL_DESIGN_KEY, env);
   if (ok && validateBlueprint(env.payload.modules).ok) writeJson(LOCAL_DESIGN_BACKUP_KEY, env);

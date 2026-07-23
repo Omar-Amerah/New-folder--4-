@@ -4,7 +4,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .saved-designs {
@@ -45,7 +45,10 @@
 
 .bp-card {
   display: grid;
-  grid-template-columns: 14px 56px minmax(0, 1fr) auto;
+  grid-template-columns: 14px 64px minmax(0, 1fr);
+  grid-template-areas:
+    "drag thumb main"
+    "drag thumb actions";
   align-items: center;
   gap: 9px;
   padding: 7px 9px 7px 4px;
@@ -79,6 +82,7 @@
 }
 
 .bp-drag {
+  grid-area: drag;
   cursor: grab;
   color: rgba(174, 199, 231, 0.4);
   font-size: 13px;
@@ -92,8 +96,9 @@
 }
 
 .bp-thumb {
-  width: 56px;
-  height: 56px;
+  grid-area: thumb;
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -110,6 +115,7 @@
 }
 
 .bp-main {
+  grid-area: main;
   min-width: 0;
   display: grid;
   gap: 5px;
@@ -174,22 +180,22 @@
 }
 
 .bp-actions {
-  display: grid;
-  grid-auto-flow: row;
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  align-content: center;
+  align-items: center;
 }
 
 .saved-design-actions button {
-  min-height: 24px;
-  padding: 4px 9px;
+  min-height: 30px;
+  padding: 5px 9px;
   font-size: 10px;
   box-shadow: none;
   touch-action: manipulation;
 }
 
 .saved-design-actions button[data-saved-action="delete"] {
-  padding: 4px 8px;
   color: #ffb4b4;
 }
 
@@ -197,6 +203,104 @@
   transform: translateY(1px);
   border-color: rgba(56, 213, 255, 0.58);
   box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.1);
+}
+
+.saved-design-actions .primary {
+  border-color: rgba(56, 213, 255, .48);
+  background: rgba(25, 128, 168, .32);
+  color: #b8f2ff;
+}
+
+.bp-overflow {
+  position: relative;
+}
+
+.bp-overflow summary {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 30px;
+  border: 1px solid rgba(174, 199, 231, .18);
+  border-radius: 6px;
+  color: #cdd9eb;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  list-style: none;
+}
+
+.bp-overflow summary::-webkit-details-marker { display: none; }
+
+.bp-overflow-menu {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  min-width: 112px;
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid rgba(174, 199, 231, .24);
+  border-radius: 7px;
+  background: #0b1320;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+}
+
+.bp-overflow:not([open]) .bp-overflow-menu { display: none; }
+.bp-mobile-only { display: none; }
+
+.blueprint-library-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, auto) auto;
+  gap: 5px;
+}
+
+.blueprint-library-tools input,
+.blueprint-library-tools select,
+.blueprint-library-tools button {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 8px;
+  font-size: 10px;
+}
+
+@media (max-width: 430px) {
+  .blueprint-library-tools {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .blueprint-library-tools select {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .bp-card {
+    grid-template-columns: 10px 58px minmax(0, 1fr);
+    gap: 7px;
+    padding-right: 7px;
+  }
+
+  .bp-thumb {
+    width: 58px;
+    height: 58px;
+  }
+
+  .saved-design-actions button {
+    min-height: 38px;
+  }
+
+  .saved-design-actions button[data-saved-action="compare"] {
+    display: none;
+  }
+
+  .bp-overflow-menu .bp-mobile-only {
+    display: block;
+  }
+
+  .bp-overflow summary {
+    min-width: 38px;
+    min-height: 38px;
+  }
 }
 
 /* ---- Selected-blueprint inspector ---- */

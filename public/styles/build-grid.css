@@ -166,7 +166,7 @@
 .heat-flow-overlay .heat-flow-focus { filter:drop-shadow(0 0 .16px currentColor); }
 .heat-flow-overlay .heat-flow-incoming { color:#38d9ff; stroke:#38d9ff; }
 .heat-flow-overlay .heat-flow-outgoing { color:#ff9a3d; stroke:#ff9a3d; }
-.build-grid-stage { position:relative; flex:0 0 auto; width:min(62vh,620px,100%); min-width:420px; max-width:620px; aspect-ratio:1; isolation:isolate; }
+.build-grid-stage { position:relative; flex:0 0 auto; width:min(62vh,620px,100%); min-width:0; max-width:620px; aspect-ratio:1; isolation:isolate; }
 .build-grid-stage > .build-grid { position:absolute; z-index:1; inset:0; display:grid; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; aspect-ratio:auto; margin:0; }
 .heat-flow-overlay-host { position:absolute; z-index:20; inset:0; pointer-events:none; background:transparent; }
 .heat-flow-overlay-host .heat-flow-overlay { inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); }
@@ -188,13 +188,13 @@
 .blueprint-thermal-hud b.unsustainable { color:#fca5a5; }
 .blueprint-thermal-hud span { color:#9fb4ca; }
 .blueprint-thermal-hud em { color:#fff; font-style:normal; font-weight:900; text-align:right; }
-.heat-context-card { position:absolute; z-index:32; min-width:210px; max-width:260px; padding:9px 10px; border:1px solid rgba(255,209,102,.5); border-radius:10px; background:rgba(4,10,18,.94); color:#dcefff; font-size:11px; line-height:1.2; box-shadow:0 10px 28px rgba(0,0,0,.45); pointer-events:none; backdrop-filter:blur(5px); }
+.heat-context-card { position:absolute; z-index:32; min-width:230px; max-width:300px; padding:9px 10px; border:1px solid rgba(255,209,102,.5); border-radius:10px; background:rgba(4,10,18,.94); color:#dcefff; font-size:11px; line-height:1.2; box-shadow:0 10px 28px rgba(0,0,0,.45); pointer-events:none; backdrop-filter:blur(5px); }
 .heat-context-card h4 { margin:0 0 5px; color:#fff; letter-spacing:.05em; text-transform:uppercase; }
 .heat-card-state { margin-bottom:7px; color:#ffc46b; font-weight:950; }
 .heat-card-state small { color:#dbeafe; float:right; }
-.heat-card-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 9px; }
-.heat-card-grid span { color:#9fb4ca; }
-.heat-card-grid strong { color:#fff; text-align:right; }
+.heat-card-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,auto); gap:3px 9px; align-items:baseline; }
+.heat-card-grid span { color:#9fb4ca; min-width:0; overflow-wrap:anywhere; }
+.heat-card-grid strong { color:#fff; text-align:right; min-width:0; overflow-wrap:anywhere; }
 .heat-card-grid span[title^="An exterior"], .heat-card-grid span[title^="Exposed radiator"], .heat-card-grid span[title^="Enclosed radiators"] { color:#67e8f9; }
 .heat-card-grid span[title^="An exterior"] + strong, .heat-card-grid span[title^="Exposed radiator"] + strong, .heat-card-grid span[title^="Enclosed radiators"] + strong { color:#a7f3d0; }
 .heat-card-grid .heat-card-warning { color:#fcd34d; }

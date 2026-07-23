@@ -54,28 +54,23 @@ const artifactDir = path.join("test-artifacts", "blueprint-information-polish");
       inspectorHeadings.includes("Key stats"),
       `inspector shows semantic Key stats heading: ${JSON.stringify(inspectorHeadings)}`
     );
-    assert.ok(
+    assert.equal(
       inspectorHeadings.includes("Predicted in this design"),
-      `inspector shows semantic thermal prediction heading: ${JSON.stringify(inspectorHeadings)}`
+      false,
+      "component inspector does not duplicate Heat analysis"
     );
     await page.locator("#blueprintHeatTab").click();
+    await page.locator("#designerAnalysisTab").click();
     await page.waitForFunction(() => window.__mfaState?.blueprintView === "heat");
     const heatInspector = await page.evaluate(() => ({
       mode: window.__mfaState?.blueprintView,
-      headings: Array.from(document.querySelectorAll("#partInspector .part-detail-heading"))
-        .map(node => node.textContent?.trim()),
-      hasPredictionRows: Boolean(document.querySelector("#partInspector .thermal-stat-rows")),
-      text: document.querySelector("#partInspector")?.textContent
+      inspectorTab: window.__mfaState?.designerInspectorTab,
+      hasSummary: Boolean(document.querySelector("#fullLoadThermalPanel .thermal-analysis-status")),
+      text: document.querySelector("#analysisHeatPanel")?.textContent
     }));
     assert.equal(heatInspector.mode, "heat", "Heat tab activates Heat mode");
-    assert.ok(
-      heatInspector.headings.includes("Predicted in this design"),
-      `Heat inspector shows semantic prediction heading: ${JSON.stringify(heatInspector)}`
-    );
-    assert.ok(
-      heatInspector.hasPredictionRows || heatInspector.text?.includes("Not placed in this design yet"),
-      `Heat inspector shows a prediction or an unplaced explanation: ${JSON.stringify(heatInspector)}`
-    );
+    assert.equal(heatInspector.inspectorTab, "analysis", "Analysis inspector is selected");
+    assert.equal(heatInspector.hasSummary, true, "Analysis shows one ship-wide Heat summary");
     const statusCss = await page.locator(".purchase-status").first().evaluate(el => getComputedStyle(el).whiteSpace).catch(() => "normal");
     assert.equal(statusCss, "normal", "purchase status allows wrapping");
 

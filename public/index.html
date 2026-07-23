@@ -387,10 +387,21 @@
               <label for="combatStyleSelect">Combat Movement Style</label>
               <select id="combatStyleSelect">
                 <option value="charge">Charge (Approach closer)</option>
-                <option value="hold">Hold (Stay at max range)</option>
+                <option value="hold" selected>Hold (Stay at max range)</option>
                 <option value="sentry">Sentry (Fire from position)</option>
                 <option value="circle">Circle (Orbit target)</option>
               </select>
+            </div>
+            <div class="combat-style-selector power-priority-selector">
+              <label for="powerPrioritySelect">Power Priority</label>
+              <select id="powerPrioritySelect">
+                <option value="balanced">Balanced</option>
+                <option value="defensive">Defensive</option>
+                <option value="offensive">Offensive</option>
+                <option value="mobility">Mobility</option>
+                <option value="custom">Custom</option>
+              </select>
+              <div id="powerPriorityCustomOrder" class="power-priority-custom-order" hidden></div>
             </div>
             <div class="blueprint-cost-wrap">
               <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite" aria-haspopup="true" aria-expanded="false">
@@ -404,7 +415,14 @@
 
           <div class="designer-center-col">
             <div class="designer-top">
-              <div class="section-heading">
+              <div class="blueprint-view-tabs" role="tablist" aria-label="Blueprint view">
+                <button id="blueprintBuildTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="blueprintModeContext">Build</button>
+                <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Heat</button>
+                <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Wiring</button>
+              </div>
+              <div class="designer-top-right">
+                <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Remove: right-click</div>
+                <div id="rotationIndicator" class="rotation-indicator" aria-label="Pending placement rotation" hidden></div>
                 <div class="designer-actions">
                   <button id="undoBlueprintEditButton" type="button" class="icon-button blueprint-undo-button" title="Undo last blueprint edit (Ctrl+Z)" aria-label="Undo last blueprint edit" disabled>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
@@ -420,110 +438,44 @@
             </div>
 
             <div class="designer-workspace">
-              <div class="blueprint-view-tabs" role="tablist" aria-label="Blueprint view">
-                <button id="blueprintBuildTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="blueprintModeContext">Build</button>
-                <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Heat</button>
-                <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Wiring</button>
-              </div>
               <div id="blueprintModeContext" class="blueprint-mode-context" role="region" aria-labelledby="blueprintModeTitle">
                 <div class="blueprint-mode-summary">
                   <strong id="blueprintModeTitle">Build</strong>
                   <span id="blueprintModeDescription">Add, rotate and remove ship components.</span>
                 </div>
                 <div id="blueprintModeControls" class="blueprint-mode-controls">
-              <div id="wiringToolbar" class="wiring-toolbar" hidden>
+              <div id="wiringToolbar" class="wiring-toolbar" role="toolbar" aria-label="Wiring editor" hidden>
                 <div class="wiring-control-row" role="group" aria-label="Wiring network type">
-                  <span class="wiring-control-label">Network</span>
                   <button type="button" id="wiringModePower" class="wiring-mode-power active" aria-pressed="true" title="Edit Power wiring (amber)">Power</button>
                   <button type="button" id="wiringModeData" class="wiring-mode-data" aria-pressed="false" title="Edit Data wiring (cyan)">Data</button>
                 </div>
                 <div class="wiring-control-row wiring-tool-row" role="group" aria-label="Wiring tool">
-                  <span class="wiring-control-label">Tool</span>
-                  <button type="button" class="wiring-tool" data-wiring-tool="draw" aria-pressed="true" title="Draw new cable">Draw</button>
-                  <button type="button" class="wiring-tool" data-wiring-tool="tier" aria-pressed="false" title="Upgrade or downgrade an existing Power section">Change Tier</button>
+                  <button type="button" class="wiring-tool" data-wiring-tool="draw" aria-pressed="true" title="Draw cable or redraw existing Power cable at the selected tier">Draw</button>
                   <button type="button" class="wiring-tool" data-wiring-tool="erase" aria-pressed="false" title="Erase a cable section">Erase</button>
                   <button type="button" class="wiring-tool" data-wiring-tool="inspect" aria-pressed="false" title="Inspect a cable section">Inspect</button>
-                  <button type="button" class="wiring-tool wiring-tool-reserved" data-wiring-tool="switchgear" aria-pressed="false" disabled title="Place Switchgear (coming in a later phase)">Switchgear</button>
                 </div>
                 <div id="wiringTierRow" class="wiring-control-row wiring-tier-row" role="group" aria-label="Power cable tier">
-                  <span class="wiring-control-label">Tier</span>
-                  <button type="button" class="wiring-tier" data-wiring-tier="light" aria-pressed="false" title="Light Cable — local branch."><span class="wiring-tier-name">Light</span><span class="wiring-tier-detail" data-tier-detail="light">Local branch</span></button>
-                  <button type="button" class="wiring-tier" data-wiring-tier="standard" aria-pressed="true" title="Standard Cable — general cable."><span class="wiring-tier-name">Standard</span><span class="wiring-tier-detail" data-tier-detail="standard">General cable</span></button>
-                  <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false" title="Heavy Bus — main trunk."><span class="wiring-tier-name">Heavy Bus</span><span class="wiring-tier-detail" data-tier-detail="heavy">Main trunk</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="light" aria-pressed="false"><span class="wiring-tier-name">Light</span><span class="wiring-tier-detail" data-tier-capacity-compact="light">— / — MW</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="standard" aria-pressed="true"><span class="wiring-tier-name">Standard</span><span class="wiring-tier-detail" data-tier-capacity-compact="standard">— / — MW</span></button>
+                  <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false"><span class="wiring-tier-name">Heavy Bus</span><span class="wiring-tier-detail" data-tier-capacity-compact="heavy">— / — MW</span></button>
                 </div>
-                <div id="wiringToolSummary" class="wiring-tool-summary" role="status" aria-label="Selected wiring tool summary"></div>
-                <details id="wiringTierCards" class="wiring-tier-legend wiring-tier-cards">
-                  <summary>Compare cable tiers</summary>
-                  <div id="wiringTierCardList" class="wiring-tier-card-list" aria-label="Cable tier comparison"></div>
-                </details>
-                <div id="wiringTierLegend" class="wiring-tier-legend" hidden>
-                  <div class="wiring-legend-line"><span class="wiring-legend-swatch wiring-legend-light"></span>Light</div>
-                  <div class="wiring-legend-line"><span class="wiring-legend-swatch wiring-legend-standard"></span>Standard</div>
-                  <div class="wiring-legend-line"><span class="wiring-legend-swatch wiring-legend-heavy"></span>Heavy Bus</div>
-                  <div class="wiring-legend-note">Values are sustained / peak MW. Thicker, darker cable = higher-capacity tier. A glow or outline shows current status (green working · yellow loaded · orange above sustained · red at peak · red dashed disconnected · blue selected).</div>
-                </div>
-                <details id="powerInfrastructureReference" class="wiring-tier-legend power-infrastructure-reference">
-                  <summary>Power Infrastructure reference</summary>
-                  <div class="wiring-legend-note">
-                    <p><strong>Cable tiers.</strong> Light Cable (<span data-tier-capacity="light">low capacity</span>) suits short low-demand final branches. Standard Cable (<span data-tier-capacity="standard">medium capacity</span>) is the normal general-purpose distribution tier. Heavy Bus (<span data-tier-capacity="heavy">high capacity</span>) is worth its cost only on major high-throughput trunks. Heavy cable placed after a Light bottleneck does not remove that bottleneck — capacity is limited by the weakest section on the route.</p>
-                    <p><strong>Sustained vs peak.</strong> Below sustained capacity a cable runs continuously. Between sustained and peak it works, but generates extra cable Heat and accumulates overload stress over time; delivery is always capped at peak. Physical cables never trip, burn or take damage from overload — when their load falls, stress recovers.</p>
-                    <p><strong>Switchgear.</strong> An optional two-terminal component (not required for ordinary branches). Saved modes: Open isolates, Closed always connects through its rating, Automatic closes only for a safe, useful spare-power transfer that never sacrifices donor-side or equal-priority demand. A conducting Switchgear that stays overloaded trips (runtime Tripped state), waits out a cooldown, then deterministically retries — a safe retry restores it, an unsafe one stays Tripped and retries later. A Destroyed Switchgear stops conducting until repaired, then returns to its saved mode.</p>
-                    <p><strong>Priorities.</strong> When Power is short, delivery follows your saved priority order across the six categories: command, propulsion, shields, point defence, weapons, cooling &amp; support. Shields and point defence are always separate categories.</p>
-                    <div id="architectureComparison" class="architecture-comparison" aria-label="Wiring architecture comparison">
-                      <p><strong>Architectures.</strong> Redundancy improves resilience but always costs money and Heat capacity.</p>
-                    </div>
-                    <p><strong>Data wiring is separate.</strong> Data cables are a single cheap tier with their own cost/displacement and no capacity, overload, Heat or breaker mechanics.</p>
-                  </div>
-                </details>
-                <div class="wiring-control-row" role="group" aria-label="Wiring actions">
+                <div class="wiring-control-row wiring-action-row" role="group" aria-label="Wiring actions">
                   <button type="button" id="wiringUndoButton" title="Undo last completed wiring change">Undo</button>
-                  <button type="button" id="wiringClearNetworkButton" title="Remove the active inspected network">Clear Network</button>
+                  <button type="button" id="wiringClearNetworkButton" class="wiring-clear-action" aria-label="Clear Network" title="Remove the active inspected network">Clear</button>
+                  <button type="button" id="wiringHelpButton" aria-expanded="false" aria-controls="wiringHelpPanel">Help</button>
+                  <div id="wiringHelpPanel" class="wiring-help-panel" role="dialog" aria-label="Wiring help" hidden>
+                    <div class="wiring-help-head"><strong>Wiring help</strong><button id="wiringHelpCloseButton" type="button" aria-label="Close Wiring help">×</button></div>
+                    <p><strong>Draw:</strong> drag through occupied ship cells. Drawing Power over existing cable changes traversed sections to the selected tier; same-tier cable is reused.</p>
+                    <p><strong>Erase:</strong> removes the selected physical section. <strong>Inspect:</strong> selects a section without changing it.</p>
+                    <p><strong>Capacity:</strong> sustained is safe continuous load; peak is the delivery ceiling. Power cable above sustained generates extra Heat and overload stress.</p>
+                    <p><strong>Display:</strong> Light, Standard and Heavy use increasing thickness. Green is working, yellow loaded, orange above sustained, red at peak, red dashed disconnected, and blue selected.</p>
+                    <p><strong>Power vs Data:</strong> Power carries energy and uses tiers. Data is a separate single-tier network with no capacity or overload mechanics; overlap never silently deletes the other network.</p>
+                  </div>
                 </div>
                 <div id="wiringPreviewPanel" class="wiring-preview-panel" hidden aria-live="polite"></div>
                 <small id="wiringHint" class="wiring-hint" aria-live="polite"></small>
               </div>
-              <div id="heatToolbar" class="heat-toolbar" hidden>
-                <div class="heat-control-panel">
-                  <div class="heat-control-row heat-scenario-row">
-                    <span class="heat-control-label">Scenario</span>
-                    <div id="thermalLoadModes" class="thermal-load-modes" role="group" aria-label="Thermal prediction scenario" hidden>
-                      <button type="button" data-thermal-load="idle" class="active" aria-pressed="true" title="Idle: systems mostly inactive">Idle</button>
-                      <button type="button" data-thermal-load="combat" aria-pressed="false" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
-                      <button type="button" data-thermal-load="full" aria-pressed="false" title="Maximum Sustained Load: all major systems operating continuously">Maximum Sustained Load</button>
-                    </div>
-                  </div>
-                  <div id="heatFlowViewControls" class="heat-control-row heat-flow-row" role="group" aria-label="Heat flows" hidden>
-                    <span class="heat-control-label">Flows</span>
-                    <small id="heatFlowHint">All heat flows shown · hover a component for its H/s values.</small>
-                  </div>
-                  <details id="blueprintHeatLegend" class="blueprint-heat-legend" hidden>
-                    <summary>Legend</summary>
-                    <div class="heat-legend-content">
-                      <section>
-                        <h4>Heat states</h4>
-                        <div class="heat-state-list"><span>Cool 0–25%</span><span>Warm 26–50%</span><span>Hot 51–75%</span><span>Critical 76–99%</span><span>Overheated 100%</span></div>
-                      </section>
-                      <section>
-                        <h4>Overlay meaning</h4>
-                        <ul>
-                          <li>arrow direction = heat movement</li>
-                          <li>thickness = transfer amount</li>
-                          <li>dashed = Frame or Heat Pipe route</li>
-                          <li>cyan outward arrow = exterior cooling</li>
-                          <li>percentage = heat-capacity usage</li>
-                          <li>top-left warning = Critical, Overheated or Meltdown</li>
-                          <li>orange spark = active heat source</li>
-                          <li>dashed red route = thermal bottleneck or broken route</li>
-                          <li>network issues appear in the component hover card</li>
-                        </ul>
-                      </section>
-                    </div>
-                  </details>
-                </div>
-              </div>
               <div id="thermalScenarioLabel" class="sr-only" aria-live="polite" hidden></div>
-              <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Remove: right-click</div>
-              <div id="rotationIndicator" class="rotation-indicator" aria-label="Pending placement rotation" hidden></div>
                 </div>
               </div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
@@ -548,32 +500,114 @@
             </div>
           </div>
 
-          <div class="designer-right-col">
-            <div class="designer-right-actions">
-              <div class="designer-save-context">
-                <span>Current design</span>
-                <strong id="loadedBlueprintName">Unsaved design</strong>
-              </div>
-              <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
-            </div>
-            <section id="fullLoadThermalPanel" class="full-load-thermal-panel" hidden></section>
-            <section id="wiringStatusPanel" class="wiring-status-panel" hidden aria-label="Wiring status"></section>
-            <div id="partInspector" class="part-inspector"></div>
-            <div id="statsGrid" class="stats-grid"></div>
-            <div class="saved-designs">
-              <div class="section-heading compact">
-                <h2>Saved Blueprints</h2>
-              </div>
-              <div id="savedDesignList" class="saved-design-list"></div>
+          <div class="designer-right-col" aria-label="Blueprint inspector">
+            <div id="designerInspectorTabs" class="designer-inspector-tabs" role="tablist" aria-label="Blueprint inspector sections">
+              <button id="designerDesignTab" type="button" role="tab" aria-selected="true" aria-controls="designerDesignPanel" tabindex="0">Design</button>
+              <button id="designerAnalysisTab" type="button" role="tab" aria-selected="false" aria-controls="designerAnalysisPanel" tabindex="-1">Analysis</button>
+              <button id="designerBlueprintsTab" type="button" role="tab" aria-selected="false" aria-controls="designerBlueprintsPanel" tabindex="-1">Blueprints</button>
             </div>
 
-            <div class="saved-designs loadout-manager">
-              <div class="section-heading compact">
-                <h2>Loadouts</h2>
+            <div id="designerDesignPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerDesignTab">
+              <div class="designer-right-actions">
+                <div class="designer-save-context">
+                  <span>Current design</span>
+                  <strong id="loadedBlueprintName">Unsaved design</strong>
+                  <small id="loadedBlueprintState">Unsaved changes</small>
+                </div>
+                <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
               </div>
-              <p class="loadout-manager-hint">Group saved blueprints into loadouts. The purchase bar shows the loadout you pick here.</p>
-              <div id="loadoutManagerTabs" class="loadout-tabs" role="tablist" aria-label="Manage ship loadouts"></div>
-              <div id="loadoutManagerEditor" class="loadout-editor loadout-manager-editor" hidden></div>
+              <section class="inspector-section" aria-labelledby="selectedComponentHeading">
+                <div class="section-heading compact"><h2 id="selectedComponentHeading">Selected component</h2></div>
+                <div id="partInspector" class="part-inspector"></div>
+              </section>
+              <section class="inspector-section" aria-labelledby="shipSummaryHeading">
+                <div class="section-heading compact"><h2 id="shipSummaryHeading">Ship summary</h2></div>
+                <div id="statsGrid" class="stats-grid"></div>
+              </section>
+            </div>
+
+            <div id="designerAnalysisPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerAnalysisTab" hidden>
+              <div id="designerAnalysisSubtabs" class="designer-analysis-tabs designer-analysis-subtabs" role="tablist" aria-label="Analysis type">
+                <button id="analysisHeatTab" type="button" role="tab" aria-selected="false" aria-controls="analysisHeatPanel" tabindex="-1">Heat</button>
+                <button id="analysisPowerTab" type="button" role="tab" aria-selected="false" aria-controls="analysisPowerPanel" tabindex="-1">Power</button>
+                <button id="analysisWiringTab" type="button" role="tab" aria-selected="false" aria-controls="analysisWiringPanel" tabindex="-1">Wiring</button>
+                <button id="analysisMovementTab" type="button" role="tab" aria-selected="true" aria-controls="analysisMovementPanel" tabindex="0">Movement</button>
+              </div>
+              <div id="analysisHeatPanel" class="designer-analysis-panel" aria-label="Heat analysis" hidden>
+                <div id="heatToolbar" class="heat-toolbar">
+                  <div class="heat-control-panel">
+                    <div class="heat-control-row heat-scenario-row">
+                      <span class="heat-control-label">Scenario</span>
+                      <div id="thermalLoadModes" class="thermal-load-modes" role="group" aria-label="Thermal prediction scenario">
+                        <button type="button" data-thermal-load="idle" class="active" aria-pressed="true" title="Idle: systems mostly inactive">Idle</button>
+                        <button type="button" data-thermal-load="combat" aria-pressed="false" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
+                        <button type="button" data-thermal-load="full" aria-pressed="false" title="Maximum Sustained Load: all major systems operating continuously">Max Load</button>
+                      </div>
+                    </div>
+                    <div id="heatFlowViewControls" class="heat-control-row heat-flow-row" role="group" aria-label="Heat flows">
+                      <span class="heat-control-label">Overlay</span>
+                      <small id="heatFlowHint">All heat flows shown · hover a component for its H/s values.</small>
+                    </div>
+                    <details id="blueprintHeatLegend" class="blueprint-heat-legend">
+                      <summary>Overlay legend</summary>
+                      <div class="heat-legend-content">
+                        <section>
+                          <h4>Heat states</h4>
+                          <div class="heat-state-list"><span>Cool 0–25%</span><span>Warm 26–50%</span><span>Hot 51–75%</span><span>Critical 76–99%</span><span>Overheated 100%</span></div>
+                        </section>
+                        <section>
+                          <h4>Overlay meaning</h4>
+                          <ul>
+                            <li>arrow direction = heat movement</li>
+                            <li>thickness = transfer amount</li>
+                            <li>dashed = Frame or Heat Pipe route</li>
+                            <li>cyan outward arrow = exterior cooling</li>
+                            <li>percentage = heat-capacity usage</li>
+                          </ul>
+                        </section>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+                <section id="fullLoadThermalPanel" class="full-load-thermal-panel" hidden></section>
+              </div>
+              <div id="analysisPowerPanel" class="designer-analysis-panel" aria-label="Power analysis" hidden>
+                <div id="powerAnalysisSummary" class="combined-analysis-summary"></div>
+              </div>
+              <div id="analysisWiringPanel" class="designer-analysis-panel" aria-label="Wiring analysis" hidden>
+                <div id="wiringAnalysisSummary" class="combined-analysis-summary"></div>
+                <section id="wiringStatusPanel" class="wiring-status-panel" hidden aria-label="Wiring status"></section>
+              </div>
+              <div id="analysisMovementPanel" class="designer-analysis-panel" aria-label="Movement analysis"></div>
+            </div>
+
+            <div id="designerBlueprintsPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerBlueprintsTab" hidden>
+              <div class="saved-designs">
+                <div class="section-heading compact">
+                  <h2>Saved Blueprints</h2>
+                </div>
+                <div class="blueprint-library-tools">
+                  <label class="sr-only" for="savedBlueprintSearch">Search blueprints</label>
+                  <input id="savedBlueprintSearch" type="search" placeholder="Search" autocomplete="off">
+                  <label class="sr-only" for="savedBlueprintSort">Sort blueprints</label>
+                  <select id="savedBlueprintSort" aria-label="Sort blueprints">
+                    <option value="manual">Manual order</option>
+                    <option value="name">Name</option>
+                    <option value="updated">Recently updated</option>
+                  </select>
+                  <button id="newBlueprintButton" type="button" class="secondary">+ New</button>
+                </div>
+                <div id="savedDesignList" class="saved-design-list"></div>
+              </div>
+
+              <div class="saved-designs loadout-manager">
+                <div class="section-heading compact">
+                  <h2>Loadouts</h2>
+                </div>
+                <p class="loadout-manager-hint">Group saved blueprints into loadouts. The purchase bar shows the loadout you pick here.</p>
+                <div id="loadoutManagerTabs" class="loadout-tabs" role="tablist" aria-label="Manage ship loadouts"></div>
+                <div id="loadoutManagerEditor" class="loadout-editor loadout-manager-editor" hidden></div>
+              </div>
             </div>
           </div>
         </div>

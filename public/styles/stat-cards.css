@@ -41,11 +41,13 @@
 .stat strong {
   display: block;
   margin-top: 1px;
-  overflow: hidden;
+  overflow: visible;
   color: var(--stat-value);
-  font-size: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /* Subtle full-card diagnostic states, no left stripe. */

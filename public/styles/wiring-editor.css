@@ -71,7 +71,10 @@
   inset: 8px;
   width: calc(100% - 16px);
   height: calc(100% - 16px);
-  overflow: visible;
+  /* Clip to the grid so a stray/degenerate preview line can never paint as a
+     giant streak across the whole designer. Cable glow sits well within the
+     edge cells, so clipping at the grid edge is imperceptible. */
+  overflow: hidden;
   pointer-events: none;
 }
 
@@ -318,7 +321,7 @@
 
 /* Hover: a pale neutral outline that does NOT recolour the tier cable. */
 .wiring-overlay .wire-section-hover { filter: drop-shadow(0 0 0.06px #cfe4ff) drop-shadow(0 0 0.1px #cfe4ff); }
-/* Change-Tier preview intentionally shows the target tier colour. */
+/* Destructive section previews use a visible dashed highlight. */
 .wiring-overlay .wire-section-preview { stroke: #ffd27a; stroke-dasharray: 0.14 0.08; }
 
 .wiring-preview-panel {
@@ -362,4 +365,363 @@
   .wiring-preview-panel { max-width: 100%; }
   .wiring-tool-row, .wiring-tier-row { overflow-x: auto; }
   .wiring-preview-compare-grid { grid-template-columns: 1fr; }
+}
+
+/* Compact drawing workspace: primary controls stay above the grid while
+   reference prose lives in the Help popover and right-side Analysis panel. */
+.blueprint-mode-context[data-mode="wiring"] {
+  padding: 5px 6px;
+}
+.blueprint-mode-context[data-mode="wiring"] .blueprint-mode-summary {
+  display: none;
+}
+.blueprint-mode-context[data-mode="wiring"] .blueprint-mode-controls {
+  display: block;
+}
+.wiring-toolbar {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+  padding: 6px 8px;
+}
+.wiring-toolbar .wiring-control-row {
+  flex-wrap: nowrap;
+  gap: 5px;
+}
+.wiring-toolbar .wiring-tier-row,
+.wiring-toolbar .wiring-action-row,
+.wiring-toolbar .wiring-preview-panel,
+.wiring-toolbar .wiring-hint {
+  grid-column: 1 / -1;
+}
+.wiring-toolbar .wiring-tier-row {
+  justify-content: center;
+}
+.wiring-toolbar .wiring-action-row {
+  position: relative;
+}
+.wiring-toolbar .wiring-action-row #wiringHelpButton {
+  margin-left: auto;
+}
+.wiring-toolbar button {
+  min-height: 30px;
+  padding: 3px 9px;
+}
+.wiring-toolbar button[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+.wiring-toolbar button:focus-visible,
+.wiring-help-panel button:focus-visible {
+  outline: 3px solid #ffd166;
+  outline-offset: 2px;
+}
+.wiring-toolbar .wiring-tier {
+  min-width: 112px;
+  min-height: 38px;
+}
+.wiring-toolbar .wiring-tier-detail {
+  font-size: 10px;
+}
+.wiring-toolbar .wiring-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.wiring-toolbar .wiring-preview-panel {
+  margin-top: 0;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+.wiring-help-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  width: min(460px, calc(100vw - 36px));
+  max-height: min(62vh, 520px);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 211, 252, .42);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, .98);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .58);
+  color: #cfe0f5;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.wiring-help-panel[hidden] { display: none; }
+#wiringStatusPanel { scroll-margin-top: 58px; }
+.wiring-help-panel p { margin: 7px 0 0; }
+.wiring-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wiring-help-head button {
+  min-width: 30px;
+  padding: 2px 7px;
+  font-size: 18px;
+}
+
+@media (max-width: 720px) {
+  .wiring-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .wiring-toolbar > * {
+    grid-column: 1;
+  }
+  .wiring-toolbar .wiring-control-row {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .wiring-toolbar .wiring-tier-row {
+    justify-content: flex-start;
+  }
+  .wiring-toolbar .wiring-tier {
+    flex: 1 1 92px;
+    min-width: 92px;
+  }
+  .wiring-help-panel {
+    position: fixed;
+    inset: 12px;
+    width: auto;
+    max-height: none;
+  }
+}
+
+/* Wiring toolbar refinement: one lightweight flex surface, one row when wide,
+   two rows on medium desktops, and four logical groups on phones. */
+.blueprint-mode-context[data-mode="wiring"] {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: center;
+  align-self: center;
+  padding: 2px;
+  background: rgba(5, 10, 18, .62);
+}
+.wiring-toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  align-content: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.wiring-toolbar .wiring-control-row {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+}
+.wiring-toolbar .wiring-preview-panel,
+.wiring-toolbar .wiring-hint {
+  flex: 1 0 100%;
+}
+.wiring-toolbar .wiring-control-row + .wiring-control-row {
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid rgba(174, 199, 231, .2);
+}
+.wiring-toolbar .wiring-tier-row {
+  justify-content: flex-start;
+}
+.wiring-toolbar .wiring-action-row {
+  position: relative;
+}
+.wiring-toolbar .wiring-action-row #wiringHelpButton {
+  margin-left: 0;
+}
+.wiring-toolbar button {
+  position: relative;
+  width: 60px;
+  min-width: 60px;
+  height: 30px;
+  min-height: 30px;
+  padding: 3px;
+  font-size: 10px;
+  line-height: 1.1;
+}
+.wiring-toolbar button[aria-pressed="true"]::before {
+  content: none;
+}
+.wiring-toolbar button[aria-pressed="true"] {
+  font-weight: 900;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16);
+}
+.wiring-toolbar button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .8;
+}
+.wiring-toolbar .wiring-tier {
+  width: 60px;
+  min-width: 60px;
+  height: 30px;
+  min-height: 30px;
+  padding: 3px;
+}
+.wiring-toolbar .wiring-tier-detail {
+  font-size: 8px;
+  line-height: 1;
+}
+.wiring-toolbar .wiring-tier-name {
+  white-space: nowrap;
+}
+.wiring-toolbar .wiring-clear-action:not(:disabled) {
+  border-color: rgba(255, 150, 125, .42);
+  color: #ffd2c6;
+}
+
+@media (min-width: 721px) and (max-width: 1500px) {
+  .wiring-toolbar {
+    padding: 2px 3px;
+  }
+  .wiring-toolbar button,
+  .wiring-toolbar .wiring-tier {
+    width: 56px;
+    min-width: 56px;
+    height: 28px;
+    min-height: 28px;
+    padding: 2px;
+  }
+  .wiring-toolbar .wiring-tier-name {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 720px) {
+  .wiring-toolbar {
+    gap: 6px;
+    padding: 4px;
+  }
+  .wiring-toolbar button,
+  .wiring-toolbar .wiring-tier {
+    width: 72px;
+    min-width: 72px;
+    height: 36px;
+    min-height: 36px;
+    font-size: 11px;
+  }
+  .wiring-toolbar .wiring-control-row {
+    flex: 1 0 100%;
+    padding-inline-start: 0;
+    border-inline-start: 0;
+  }
+  .wiring-toolbar .wiring-control-row:not(.wiring-tier-row) {
+    justify-content: center;
+  }
+  .wiring-toolbar .wiring-tier-row {
+    display: grid;
+    grid-template-columns: repeat(3, 72px);
+    justify-content: center;
+  }
+  .wiring-toolbar .wiring-tier {
+    width: 72px;
+    min-width: 72px;
+  }
+  .wiring-toolbar .wiring-action-row button {
+    flex: 0 0 72px;
+    width: 72px;
+    min-width: 72px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Power Allocation panel.
+   Headline totals are figures, not a chart (KPI tiles). The per-category
+   breakdown is a horizontal stacked bar on ONE shared scale, so row lengths are
+   comparable. Delivered/unmet is a status pair: the fills are the app's Power
+   amber and fault red snapped into the dark-surface lightness band (OKLCH L
+   0.48-0.67) so they stay legible on the panel — validated for CVD separation
+   (deutan dE 9.0), normal-vision separation (dE 16.6) and >=3:1 contrast.
+   Identity never rides on colour alone: every row carries a text note and an
+   aria-label, and the legend names both fills.
+--------------------------------------------------------------------------- */
+.power-alloc-delivered { --power-alloc-ink: #c8841a; }
+.power-alloc-unmet { --power-alloc-ink: #d84357; }
+
+.power-priority-diagnostics { --power-alloc-surface: #0c1420; display: flex; flex-direction: column; gap: 10px; }
+
+/* KPI row — a handful of headline numbers, so tiles rather than a chart. */
+.power-alloc-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 6px; }
+.power-alloc-kpi {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 8px; border-radius: 6px;
+  background: rgba(20, 32, 52, 0.55);
+  border: 1px solid rgba(126, 160, 210, 0.16);
+}
+.power-alloc-kpi-label { color: #8ea6c8; font-size: 11px; letter-spacing: 0.02em; }
+.power-alloc-kpi-value { color: #e6eefb; font-size: 15px; font-weight: 650; line-height: 1.25; }
+.power-alloc-kpi-bad { border-color: rgba(216, 67, 87, 0.5); background: rgba(216, 67, 87, 0.12); }
+.power-alloc-kpi-bad .power-alloc-kpi-value { color: #ff9aa3; }
+
+.power-alloc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: #9db4d6; font-size: 12px; }
+.power-alloc-chip { padding: 2px 7px; border-radius: 999px; font-size: 11px; border: 1px solid transparent; }
+.power-alloc-chip-ok { color: #9fe6bb; background: rgba(69, 224, 124, 0.12); border-color: rgba(69, 224, 124, 0.32); }
+.power-alloc-chip-bad { color: #ffb0b8; background: rgba(216, 67, 87, 0.15); border-color: rgba(216, 67, 87, 0.45); }
+
+.power-alloc-chart-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
+.power-priority-diag-heading { color: #d7e4f5; font-size: 12px; font-weight: 600; }
+.power-alloc-legend { display: flex; gap: 10px; color: #8ea6c8; font-size: 11px; }
+.power-alloc-key { display: inline-flex; align-items: center; gap: 5px; }
+.power-alloc-swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--power-alloc-ink); flex: 0 0 auto; }
+
+.power-priority-cat-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.power-priority-cat-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  align-items: center;
+}
+.power-alloc-rank {
+  grid-column: 1; justify-self: start;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 5px; background: rgba(126, 160, 210, 0.16);
+  color: #b8cbe6; font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.power-alloc-rank.is-none { background: transparent; color: #6c82a2; }
+.power-priority-cat-row .power-priority-chip { grid-column: 2; color: #dce7f7; font-size: 12px; min-width: 0; }
+.power-alloc-total { grid-column: 3; color: #dce7f7; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* The track is the shared scale; fills are the data. Bars grow from the left
+   baseline (square) to a 4px-rounded data end. */
+.power-alloc-track {
+  grid-column: 2 / 4; display: flex; width: 100%; height: 8px;
+  border-radius: 2px; background: rgba(126, 160, 210, 0.13); overflow: hidden;
+}
+.power-alloc-track-empty { background: rgba(126, 160, 210, 0.07); }
+.power-alloc-fill { height: 100%; background: var(--power-alloc-ink); min-width: 2px; }
+/* 2px surface gap separates touching segments — no stroke around the marks. */
+.power-alloc-fill + .power-alloc-fill { margin-left: 2px; box-shadow: -2px 0 0 0 var(--power-alloc-surface); }
+.power-alloc-fill:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+
+.power-alloc-note { grid-column: 2 / 4; color: #8ea6c8; font-size: 11px; font-variant-numeric: tabular-nums; }
+.power-alloc-note-shed { color: #c8a6ae; }
+.power-priority-idle .power-priority-chip, .power-priority-idle .power-alloc-total { color: #7f95b4; }
+/* Machine-readable mirrors of each row's numbers; the visible note says the same. */
+.power-alloc-values { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+@media (max-width: 720px) {
+  .power-alloc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

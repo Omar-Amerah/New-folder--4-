@@ -36,7 +36,7 @@ function buyShip(room, player, now, options = {}) {
 
   player.shipsBuilt = (player.shipsBuilt || 0) + 1;
   const activeCount = activeFleetCount(player);
-  const combatStyle = options.combatStyle || player.combatStyle || "sentry";
+  const combatStyle = options.combatStyle || player.combatStyle || "hold";
   const ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle });
   player.money = finiteMoney(player.money - stats.unitCost);
   player.spent = finiteMoney(player.spent + stats.unitCost);
@@ -118,7 +118,7 @@ function executePurchase(room, player, request, now) {
 
   const blueprint = createShipBlueprintSnapshot(request.design, request.wiring);
   const { design, wiring } = blueprint;
-  const combatStyle = request.combatStyle || player.combatStyle || "sentry";
+  const combatStyle = request.combatStyle || player.combatStyle || "hold";
   const createdShips = [];
   const original = {
     money: player.money,

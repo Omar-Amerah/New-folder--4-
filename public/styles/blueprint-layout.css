@@ -1,20 +1,20 @@
 /* Blueprint designer modal, desktop column layout, and workspace sizing. Keep import order in ../design.css unchanged. */
 
 .blueprint-designer-panel {
-  width: 96vw;
-  height: 94vh;
-  min-width: 1180px;
-  max-width: none;
+  width: min(96vw, 1800px);
+  height: min(94vh, 1080px);
+  min-width: 0;
+  max-width: 1800px;
   max-height: none;
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .blueprint-designer-layout {
   display: grid;
-  grid-template-columns: 280px minmax(400px, 1fr) 300px;
-  gap: 20px;
+  grid-template-columns: minmax(220px, 260px) minmax(420px, 1fr) minmax(360px, 420px);
+  gap: 12px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -27,6 +27,15 @@
   gap: 12px;
   overflow-y: auto;
   padding-right: 8px;
+}
+
+.designer-right-col {
+  gap: 0;
+  overflow: hidden;
+  padding-right: 0;
+  border: 1px solid rgba(174, 199, 231, .16);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, .62);
 }
 
 .designer-center-col {
@@ -47,10 +56,25 @@
   padding-right: 4px;
 }
 
-/* The cost breakdown is now an absolutely positioned dropdown, so the top row
-   must not clip it and no longer needs to scroll. */
+/* Compact header row: view tabs on the left, placement guide + action buttons
+   on the right, using the horizontal space that used to sit empty. */
 .designer-top {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   overflow: visible;
+  padding-right: 0;
+}
+
+.designer-top-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .designer-workspace {
@@ -121,6 +145,19 @@
   margin: 0;
 }
 
+.designer-center-col:has(.blueprint-mode-context[data-mode="wiring"]) {
+  gap: 6px;
+}
+
+.designer-workspace:has(.blueprint-mode-context[data-mode="wiring"]) {
+  gap: 2px;
+}
+
+.blueprint-mode-context[data-mode="wiring"] + .forward-marker {
+  margin: 0 0 -1px;
+  line-height: 1;
+}
+
 .blueprint-designer-panel .menu-head {
   flex-shrink: 0;
   margin-bottom: 20px;
@@ -133,26 +170,90 @@
   background: rgba(9, 15, 25, 0.94);
 }
 
-@media (max-width: 1179px) {
-  .blueprint-designer-screen {
-    display: flex;
+@media (max-width: 900px) {
+  .menu-screen.blueprint-designer-screen {
+    display: block;
     align-items: flex-start;
-    justify-content: flex-start;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 12px;
+    overflow: hidden;
+    padding: 0;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    touch-action: pan-x pan-y;
+    touch-action: pan-y;
   }
 
   .blueprint-designer-panel {
-    flex: 0 0 1180px;
-    width: 1180px;
-    min-width: 1180px;
-    height: calc(100dvh - 24px);
-    max-height: calc(100dvh - 24px);
+    width: 100vw;
+    min-width: 0;
+    height: 100dvh;
+    max-height: 100dvh;
     margin: 0;
+    border-radius: 0;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+
+  .blueprint-designer-panel .menu-head {
+    margin-bottom: 8px;
+  }
+
+  .blueprint-designer-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: auto;
+    overflow: visible;
+  }
+
+  .designer-right-col {
+    order: -1;
+    flex: 0 0 min(42dvh, 390px);
+    height: min(42dvh, 390px);
+    min-height: 290px;
+  }
+
+  .designer-center-col {
+    min-height: 520px;
+    height: min(76dvh, 720px);
+  }
+
+  .designer-left-col {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  /* Wiring is a drawing workspace: put its compact controls and grid before
+     the component catalogue and the longer Analysis content on narrow screens. */
+  .blueprint-designer-layout:has(.blueprint-mode-context[data-mode="wiring"]) .designer-center-col {
+    order: -2;
+  }
+
+  .blueprint-designer-layout:has(.blueprint-mode-context[data-mode="wiring"]) .designer-right-col {
+    order: -1;
+  }
+
+  .designer-top {
+    align-items: stretch;
+  }
+
+  .designer-top-right {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    margin-left: 0;
+  }
+
+  .designer-top-right .build-interaction-guide {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .blueprint-view-tabs {
+    width: 100%;
+  }
+
+  .blueprint-view-tabs button {
+    flex: 1 1 0;
+    min-height: 36px;
   }
 }
 .thermal-action-list { margin:6px 0 0; padding:7px 8px 7px 20px; border:1px solid rgba(251,146,60,.18); border-radius:7px; background:rgba(7,12,20,.42); color:#ffd0aa; font-size:10px; line-height:1.35; }
@@ -171,8 +272,10 @@
   background: rgba(5, 10, 18, .74);
   overflow: visible;
 }
-.blueprint-mode-context[data-mode="heat"] { border-color: rgba(251,146,60,.30); }
 .blueprint-mode-context[data-mode="wiring"] { border-color: rgba(56,217,255,.28); }
+/* Build has no mode controls, and Heat controls live in the analysis inspector. */
+.blueprint-mode-context[data-mode="build"],
+.blueprint-mode-context[data-mode="heat"] { display: none; }
 .blueprint-mode-summary { display:flex; gap:8px; align-items:baseline; justify-content:center; min-width:0; color:#cfe8ff; font-size:12px; }
 .blueprint-mode-summary strong { text-transform:uppercase; letter-spacing:.06em; }
 .blueprint-mode-summary span { color:#9fb2cc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -220,4 +323,209 @@
   width: auto;
   min-height: 32px;
   white-space: nowrap;
+}
+
+.designer-inspector-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 5px;
+  border-bottom: 1px solid rgba(174, 199, 231, .16);
+  background: rgba(6, 11, 19, .98);
+}
+
+.designer-inspector-tabs button,
+.designer-analysis-tabs button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #8fa7c6;
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.designer-inspector-tabs button[aria-selected="true"],
+.designer-analysis-tabs button[aria-selected="true"] {
+  background: rgba(25, 128, 168, .3);
+  color: #9eefff;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, .32);
+}
+
+.designer-inspector-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 10px;
+  scrollbar-gutter: stable;
+}
+
+.designer-inspector-panel[hidden],
+.designer-analysis-panel[hidden] {
+  display: none;
+}
+
+.designer-analysis-tabs {
+  position: sticky;
+  top: -10px;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  margin: -10px -10px 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(174, 199, 231, .14);
+  background: rgba(7, 12, 20, .97);
+}
+
+.designer-analysis-panel {
+  min-width: 0;
+}
+
+.designer-right-actions {
+  position: static;
+  margin-bottom: 10px;
+}
+
+.designer-save-context small {
+  color: #fcd34d;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.designer-save-context small.saved {
+  color: #86efac;
+}
+
+.inspector-section {
+  display: grid;
+  gap: 7px;
+}
+
+.inspector-section + .inspector-section {
+  margin-top: 12px;
+}
+
+.inspector-section .section-heading h2,
+.designer-inspector-panel .section-heading h2 {
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.analysis-summary-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(174, 199, 231, .16);
+  border-radius: 9px;
+  background: rgba(7, 12, 20, .7);
+}
+
+.combined-analysis-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.analysis-summary-card h3 {
+  margin: 0;
+  color: #cfe8ff;
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.analysis-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.analysis-stat-grid > div {
+  min-width: 0;
+  padding: 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .04);
+}
+
+.analysis-stat-grid span,
+.analysis-stat-grid strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.analysis-stat-grid span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.analysis-stat-grid strong {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.analysis-stat-grid .good strong { color: #86efac; }
+.analysis-stat-grid .bad strong { color: #fda4af; }
+
+#analysisHeatPanel .heat-toolbar {
+  margin-bottom: 8px;
+}
+
+#analysisHeatPanel .heat-control-panel {
+  width: 100%;
+}
+
+@media (max-width: 430px) {
+  .blueprint-designer-panel {
+    padding: 8px;
+  }
+
+  .designer-right-col {
+    flex-basis: 44dvh;
+    height: 44dvh;
+  }
+
+  .designer-inspector-panel {
+    padding: 8px;
+  }
+
+  .designer-analysis-tabs {
+    top: -8px;
+    margin: -8px -8px 8px;
+    padding-inline: 8px;
+  }
+
+  .designer-inspector-tabs button,
+  .designer-analysis-tabs button {
+    min-height: 40px;
+    font-size: 9px;
+  }
+
+  .analysis-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .heat-scenario-row,
+  .heat-flow-row {
+    grid-template-columns: 1fr;
+  }
+
+  .thermal-load-modes button {
+    min-height: 38px;
+    white-space: normal;
+  }
 }

@@ -3,7 +3,7 @@
 
 // Section 7B — Advanced Power Wiring Designer Tools.
 // Verifies the shared edit/preview layer used by the tiered wiring editor:
-// tier-aware Draw, Change Tier, Erase, live preview parity with committed
+// tier-aware Draw/redraw, Erase, live preview parity with committed
 // results, client/server parity, and save/load compatibility.
 
 const assert = require("assert");
@@ -47,16 +47,17 @@ check("1-3. New path sections receive the selected tier", () => {
     assert.ok(w.power.sections.every((s) => s.tier === tier), `${tier} sections`);
   }
 });
-check("4. Existing sections keep their tier when Draw crosses them", () => {
+check("4. Draw changes traversed existing sections to the selected tier", () => {
   let w = W.addPathWithTier(empty(), "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "light");
   w = W.addPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }, { x: 8, y: 7 }), straight, PARTS, "heavy");
-  assert.strictEqual(tierOf(w, "6,7:7,7"), "light", "existing Light section is not overwritten");
+  assert.strictEqual(tierOf(w, "6,7:7,7"), "heavy", "traversed Light section becomes Heavy");
   assert.strictEqual(tierOf(w, "7,7:8,7"), "heavy", "new section is Heavy");
 });
 check("5. Duplicate sections are not created", () => {
   let w = W.addPathWithTier(empty(), "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "standard");
   w = W.addPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "heavy");
   assert.strictEqual(w.power.sections.length, 1);
+  assert.strictEqual(tierOf(w, "6,7:7,7"), "heavy");
 });
 check("6. Data Draw remains single-tier regardless of requested tier", () => {
   const dataDesign = [{ x: 5, y: 6, type: "fireControl" }, { x: 6, y: 6, type: "beamEmitter" }];
@@ -77,9 +78,9 @@ check("8. Multi-section Draw yields a single proposed wiring (one Undo snapshot)
 });
 
 // ---------------------------------------------------------------------------
-// Change Tier (9-20)
+// Draw over existing cable (9-20)
 // ---------------------------------------------------------------------------
-console.log("Change Tier");
+console.log("Draw over existing cable");
 function wired(t1, t2) {
   let w = W.addPathWithTier(empty(), "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, t1);
   return W.addPathWithTier(w, "power", path({ x: 7, y: 7 }, { x: 8, y: 7 }), straight, PARTS, t2);
@@ -95,42 +96,42 @@ const transitions = [
 for (const [label, from, to] of transitions) {
   check(label, () => {
     const w = wired(from, from);
-    const result = W.setSectionTier(w, "power", "6,7:7,7", to, straight, PARTS);
+    const result = W.applyPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, to);
     assert.ok(result.changed);
     assert.strictEqual(tierOf(result.wiring, "6,7:7,7"), to);
   });
 }
 check("15. Applying the current tier is a deterministic no-op", () => {
   const w = wired("heavy", "heavy");
-  const result = W.setSectionTier(w, "power", "6,7:7,7", "heavy", straight, PARTS);
+  const result = W.applyPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "heavy");
   assert.strictEqual(result.changed, false);
-  assert.strictEqual(result.reason, "already-selected-tier");
+  assert.strictEqual(result.reason, "no-change");
   assert.deepStrictEqual(result.wiring.power.sections.map((s) => s.tier), w.power.sections.map((s) => s.tier));
 });
 check("16-17. Only the selected section changes; neighbours unchanged", () => {
   const w = wired("heavy", "heavy");
-  const result = W.setSectionTier(w, "power", "6,7:7,7", "light", straight, PARTS);
+  const result = W.applyPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "light");
   assert.strictEqual(tierOf(result.wiring, "6,7:7,7"), "light");
   assert.strictEqual(tierOf(result.wiring, "7,7:8,7"), "heavy", "neighbour section keeps Heavy");
 });
 check("18. Hosted-cell accounting updates correctly at junctions", () => {
   const w = wired("heavy", "light");
   // Junction cell 7,7 is Heavy (highest incident). Downgrade the heavy section:
-  const result = W.setSectionTier(w, "power", "6,7:7,7", "light", straight, PARTS);
+  const result = W.applyPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "light");
   const acc = WI.accountInfrastructure(straight, result.wiring, PARTS, INFRA);
   assert.strictEqual(acc.maps.power.byCellKey.get("7,7").tier, "light", "junction drops to Light once no heavy section is incident");
 });
-check("19. Change Tier preserves Data wiring", () => {
+check("19. Power redraw preserves Data wiring", () => {
   let w = wired("standard", "standard");
   w = W.addPathWithTier(w, "data", path({ x: 7, y: 7 }, { x: 8, y: 7 }), straight, PARTS, "standard");
   const before = JSON.stringify(w.data);
-  const result = W.setSectionTier(w, "power", "6,7:7,7", "heavy", straight, PARTS);
+  const result = W.applyPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "heavy");
   assert.strictEqual(JSON.stringify(result.wiring.data), before);
 });
-check("20. Change Tier preserves powerPolicy", () => {
+check("20. Power redraw preserves powerPolicy", () => {
   let w = wired("standard", "standard");
   w.powerPolicy = PP.normalizePolicy({ preset: "mobility" });
-  const result = W.setSectionTier(w, "power", "6,7:7,7", "heavy", straight, PARTS);
+  const result = W.applyPathWithTier(w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), straight, PARTS, "heavy");
   assert.strictEqual(result.wiring.powerPolicy.preset, "mobility");
 });
 
@@ -201,10 +202,11 @@ check("30. Draw preview delta matches the committed result", () => {
   assert.strictEqual(preview.delta.totalInfrastructure, b.total - a.total);
   assert.strictEqual(preview.delta.displacement, b.displacement - a.displacement);
 });
-check("31. Tier-change preview delta matches the committed result", () => {
+check("31. Draw-over preview delta matches the committed result", () => {
   const w = wired("heavy", "light");
-  const preview = WE.previewPowerTierEdit(straight, w, "6,7:7,7", "standard", PARTS, INFRA, opts);
-  const committed = W.setSectionTier(w, "power", "6,7:7,7", "standard", straight, PARTS).wiring;
+  const cells = path({ x: 6, y: 7 }, { x: 7, y: 7 });
+  const preview = WE.previewPowerPathEdit(straight, w, "power", cells, "standard", PARTS, INFRA, opts);
+  const committed = W.addPathWithTier(w, "power", cells, straight, PARTS, "standard");
   const a = infraTotals(normalized(w)); const b = infraTotals(committed);
   assert.strictEqual(preview.delta.totalInfrastructure, b.total - a.total);
 });
@@ -256,7 +258,7 @@ check("38. Light, Standard and Heavy have strictly increasing rendered widths", 
   assert.ok(t.light.renderedThickness < t.standard.renderedThickness);
   assert.ok(t.standard.renderedThickness < t.heavy.renderedThickness);
 });
-check("40. Data has no functional tier (Change Tier on Data is a rejected reason)", () => {
+check("40. Data has no functional tier (tier mutation is rejected)", () => {
   const result = W.setSectionTier(W.emptyWiring(), "data", "x", "heavy", straight, PARTS);
   assert.strictEqual(result.changed, false);
   assert.strictEqual(result.reason, "data-has-no-tiers");
@@ -265,12 +267,12 @@ check("42. Inspect/preview performs no Blueprint mutation", () => {
   const w = wired("heavy", "light");
   const snapshot = JSON.stringify(w);
   WE.previewWiringSectionRemoval(straight, w, "power", "7,7:8,7", PARTS, INFRA, opts);
-  WE.previewPowerTierEdit(straight, w, "6,7:7,7", "standard", PARTS, INFRA, opts);
+  WE.previewPowerPathEdit(straight, w, "power", path({ x: 6, y: 7 }, { x: 7, y: 7 }), "standard", PARTS, INFRA, opts);
   assert.strictEqual(JSON.stringify(w), snapshot, "preview never mutates the input wiring");
 });
 check("43. Invalid actions expose a reason", () => {
   assert.strictEqual(WE.previewPowerPathEdit(straight, empty(), "power", [{ x: 6, y: 7 }], "heavy", PARTS, INFRA, opts).reason, "empty-path");
-  assert.strictEqual(WE.previewPowerTierEdit(straight, empty(), "no-such", "heavy", PARTS, INFRA, opts).reason, "missing-section");
+  assert.strictEqual(WE.previewPowerPathEdit(straight, empty(), "power", [{ x: 6, y: 7 }, { x: 9, y: 7 }], "heavy", PARTS, INFRA, opts).reason, "invalid-path");
 });
 
 // ---------------------------------------------------------------------------

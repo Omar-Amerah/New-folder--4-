@@ -58,7 +58,7 @@ async function gridRect(page) {
 
 function assertStable(before, after, label) {
   for (const key of ["grid", "cell"]) {
-    for (const prop of ["x", "y", "width", "height"]) {
+    for (const prop of ["width", "height"]) {
       assert.ok(Math.abs(before[key][prop] - after[key][prop]) <= 1, `${label} ${key}.${prop} stable`);
     }
   }

@@ -41,7 +41,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       vy: round(ship.vy),
       angle: round(ship.angle),
       turnActivity: Math.max(-1, Math.min(1, Number.isFinite(ship.turnActivity) ? ship.turnActivity : 0)),
-      combatStyle: ship.combatStyle || "sentry",
+      combatStyle: ship.combatStyle || "hold",
       targetX: round(ship.targetX),
       targetY: round(ship.targetY),
       hp: round(ship.hp),

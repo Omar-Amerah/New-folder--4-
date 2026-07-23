@@ -170,7 +170,7 @@ assert.deepEqual(migrateLoadoutsStorage(loadouts), [], "raw legacy loadout lists
 
 localStorage.setItem(LOCAL_DESIGN_KEY, "not-json");
 localStorage.removeItem(LOCAL_DESIGN_BACKUP_KEY);
-assert.equal(loadDesign().combatStyle, "sentry", "corrupt current-design JSON recovers with default");
+assert.equal(loadDesign().combatStyle, "hold", "corrupt current-design JSON recovers with default");
 localStorage.setItem(LOCAL_SAVED_DESIGNS_KEY, JSON.stringify({ wrong: true }));
 assert.deepEqual(loadSavedDesigns(), [], "wrong saved-design top-level type is rejected");
 localStorage.setItem(LOCAL_LOADOUTS_KEY, JSON.stringify({ schemaVersion: 999, kind: "loadouts", payload: loadouts }));

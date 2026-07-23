@@ -49,6 +49,10 @@ export const state = {
   hoveredCell: null,
   selectedCell: null,
   blueprintView: "build",
+  designerInspectorTab: "design",
+  designerAnalysisTab: "heat",
+  savedBlueprintSearch: "",
+  savedBlueprintSort: "manual",
   // Manual Wiring editor state. Physical section tier is stored in wiring,
   // while this object only tracks an unfinished path and inspection.
   wiringUi: {
@@ -74,6 +78,7 @@ export const state = {
   hoveredHeatPartIndex: null,
   blueprintStatusDisclosure: { expanded: false, currentErrorFingerprint: null, dismissedErrorFingerprint: null },
   pendingBlueprintDestructiveAction: null,
+  pendingWiringClearNetwork: null,
   shipStatusView: "damage",
   debugTurrets: false,
   selectedShipIds: new Set(),

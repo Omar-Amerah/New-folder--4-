@@ -160,7 +160,7 @@ function handleMessage(client, message) {
       send(client, { type: "purchaseResult", ok: false, requestId, code: "invalid-design", message: purchaseDesign.reason });
       return;
     }
-    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
+    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "hold");
     const purchaseWiring = validateWiring(purchaseDesign.modules, message.wiring).wiring;
     if (message.wiring !== undefined) client.player.wiring = purchaseWiring;
     // Affordability and the deducted cost must include infrastructure, so stats
@@ -186,7 +186,7 @@ function handleMessage(client, message) {
 
   if (message.type === "setCombatStyle") {
     if (client.room.phase !== "active") return;
-    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "sentry");
+    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "hold");
     const selected = selectOwnedLivingShips(client.player, Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined);
     if (!selected.ok) return;
     let updatedCount = 0;
