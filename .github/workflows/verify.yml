@@ -71,6 +71,10 @@ jobs:
         run: npx --no-install playwright install --with-deps chromium
       - name: Browser tests (real server + real frontend in headless Chromium)
         run: npm run test:browser
+      - name: Combat Power browser validation (focused PR gate)
+        run: npm run test:combat-power-tab-browser
+      - name: Wiring cost/benefit browser validation (focused PR gate)
+        run: npm run test:wiring-cost-benefit-browser
       - name: Upload screenshots and logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

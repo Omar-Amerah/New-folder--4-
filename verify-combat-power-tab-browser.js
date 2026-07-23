@@ -34,8 +34,13 @@ const SHIP = {
     hottestComponentIndex: 2, aboveSustainedSectionCount: 1, atPeakSectionCount: 0,
     throttledComponentCount: 1, disabledComponentCount: 0, powerGenerationMw: 10, requestedDemandMw: 9.5,
     deliveredDemandMw: 8, sparePowerMw: 0.5, unmetDemandMw: 1.5, activePriorityPreset: "balanced", hottestSectionId: "2,0:3,0",
+    powerCableHeatBySectionId: {
+      "1,0:2,0": { baseHeatPerSecond: 0.2, overloadHeatPerSecond: 0, totalHeatPerSecond: 0.2 },
+      "2,0:3,0": { baseHeatPerSecond: 0.8, overloadHeatPerSecond: 0, totalHeatPerSecond: 0.8 },
+      "3,0:4,0": { baseHeatPerSecond: 1, overloadHeatPerSecond: 1.4, totalHeatPerSecond: 2.4 }
+    },
     components: [
-      { componentIndex: 0, requestedMw: 0, allocatedMw: 0, operationalMultiplier: 1, powerCableHeatRate: 0, hostedActiveSectionIds: [] },
+      { componentIndex: 0, requestedMw: 0, allocatedMw: 0, operationalMultiplier: 1, powerRole: "source", ratedGenerationMw: 12, availableGenerationMw: 10, deliveredGenerationMw: 8, unusedGenerationMw: 2, reductionReasons: ["curtailed-by-demand"], powerCableHeatRate: 0, hostedActiveSectionIds: [] },
       { componentIndex: 2, requestedMw: 3.5, allocatedMw: 3.5, operationalMultiplier: 1, powerCableHeatRate: 1.2, hostedActiveSectionIds: ["2,0:3,0"] },
       { componentIndex: 3, requestedMw: 6, allocatedMw: 4, operationalMultiplier: 0.6, powerCableHeatRate: 1.2, hostedActiveSectionIds: ["3,0:4,0"] }
     ]
@@ -46,7 +51,11 @@ const SHIP = {
     partialConsumerCount: 1, shedConsumerCount: 0, sections: []
   },
   wiringStatus: { powerNetworks: 1, brokenPowerConnections: 0, disabledPowerSections: 0, dataNetworks: 0 },
-  switchgear: [],
+  switchgear: [
+    { componentIndex: 10, mode: "open", runtimeState: "open", presentationState: "open", conducts: false, reasonNotConducting: "saved-mode-open", ratingTier: "light", classification: "bus-tie", signedTransferMw: 0, sustainedCapacityMw: 4, peakCapacityMw: 7, utilisation: 0, sideANetworkId: "0", sideBNetworkId: "1" },
+    { componentIndex: 11, mode: "automatic", runtimeState: "automatic", presentationState: "automatic-idle", conducts: false, reasonNotConducting: "open: no jointly valid priority-safe subset", ratingTier: "light", classification: "bus-tie", signedTransferMw: 0, sustainedCapacityMw: 4, peakCapacityMw: 7, utilisation: 0, sideANetworkId: "0", sideBNetworkId: "1" },
+    { componentIndex: 12, mode: "closed", runtimeState: "tripped", state: "tripped", presentationState: "tripped-cooling", conducts: false, reasonNotConducting: "overload", trippedReason: "overload", cooldownRemaining: 2, retryCount: 1, ratingTier: "light", classification: "bus-tie", signedTransferMw: 0, sustainedCapacityMw: 4, peakCapacityMw: 7, utilisation: 0, sideANetworkId: "0", sideBNetworkId: "1" }
+  ],
   powerWiring: {
     revision: 1,
     sections: [
@@ -96,15 +105,22 @@ async function clickTab(page, id) {
     // 1/2. Three accessible tabs.
     const tabs = await page.evaluate(() => ["shipDamageTab", "shipHeatTab", "shipPowerTab"].map((id) => {
       const el = document.getElementById(id);
-      return { id, exists: !!el, role: el?.getAttribute("role"), controls: el?.getAttribute("aria-controls"), text: el?.textContent };
+      return { id, exists: !!el, role: el?.getAttribute("role"), controls: el?.getAttribute("aria-controls"), selected: el?.getAttribute("aria-selected"), tabIndex: el?.getAttribute("tabindex"), text: el?.textContent };
     }));
-    for (const t of tabs) { assert(t.exists, `${t.id} exists`); assert.strictEqual(t.role, "tab", `${t.id} is a tab`); assert(t.controls, `${t.id} owns a tabpanel`); }
+    for (const t of tabs) { assert(t.exists, `${t.id} exists`); assert.strictEqual(t.role, "tab", `${t.id} is a tab`); assert.strictEqual(t.controls, "shipStatusPanelBody", `${t.id} owns the status tabpanel`); }
+    assert.strictEqual(tabs[0].selected, "true", "Damage initially selected");
+    assert.strictEqual(tabs[0].tabIndex, "0", "active Damage tab focusable");
+    assert.strictEqual(tabs[1].tabIndex, "-1", "inactive Heat tab not in tab order");
     assert.strictEqual(tabs[2].text, "Power", "Power tab labelled");
+    assert.strictEqual(await page.$eval("#shipStatusPanelBody", (el) => el.getAttribute("role")), "tabpanel", "status body is a tabpanel");
+    assert.strictEqual(await page.$eval("#shipStatusPanelBody", (el) => el.getAttribute("aria-labelledby")), "shipDamageTab", "tabpanel labelled by active tab");
 
     // Switch to Power.
     await clickTab(page, "shipPowerTab");
     const powerState = await page.evaluate(() => ({
       powerSelected: document.getElementById("shipPowerTab").getAttribute("aria-selected"),
+      powerTabIndex: document.getElementById("shipPowerTab").getAttribute("tabindex"),
+      panelLabelledBy: document.getElementById("shipStatusPanelBody").getAttribute("aria-labelledby"),
       heatSelected: document.getElementById("shipHeatTab").getAttribute("aria-selected"),
       powerActiveClass: document.getElementById("shipPowerTab").classList.contains("active"),
       powerSummaryHidden: document.getElementById("shipPowerSummary").hidden,
@@ -114,6 +130,8 @@ async function clickTab(page, id) {
     }));
     assert.strictEqual(powerState.powerSelected, "true", "Power tab aria-selected true");
     assert.strictEqual(powerState.heatSelected, "false", "Heat tab deselected");
+    assert.strictEqual(powerState.powerTabIndex, "0", "active Power tab focusable");
+    assert.strictEqual(powerState.panelLabelledBy, "shipPowerTab", "tabpanel labelled by Power tab");
     assert(powerState.powerActiveClass, "Power tab active class (not colour-only)");
     assert(!powerState.powerSummaryHidden, "Power summary visible");
     assert(powerState.heatSummaryHidden, "Heat summary hidden on Power tab");
@@ -125,6 +143,7 @@ async function clickTab(page, id) {
       assert(s.includes(label), `Power summary shows: ${label}`);
     }
     assert(/10 MW/.test(s), "generation value shown");
+    for (const text of ["Open", "Automatic — idle", "Tripped — cooling down"]) assert(s.includes(text), `switchgear state rendered as text: ${text}`);
     assert(/Strained/.test(s), "protection state label shown");
     assert(!/NaN|Infinity|undefined/.test(s), "no NaN/Infinity/undefined in Power summary");
 
@@ -140,6 +159,53 @@ async function clickTab(page, id) {
     assert(painted > 500, `Power view draws the diagram + wiring overlay (painted ${painted}px)`);
 
     // 19. Component hover shows Power-specific details (drive the module readout).
+    const generatorReadout = await page.evaluate(() => {
+      const canvas = document.getElementById("shipDamageCanvas");
+      const diag = window.__mfaPanel.shipDamageComponentClientPoint("s1", 0);
+      if (!diag) return null;
+      canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: diag.x, clientY: diag.y, pointerType: "mouse", bubbles: true }));
+      return document.getElementById("shipDamageHover").textContent;
+    });
+    for (const text of ["Rated: 12 MW", "Available: 10 MW", "Delivered: 8 MW", "Unused: 2 MW"]) assert(generatorReadout.includes(text), `generator readout includes ${text}: ${generatorReadout}`);
+    const unavailableGenerator = await page.evaluate(async (shipData) => {
+      const [{ state }, panel] = await Promise.all([import("/src/state.js"), import("/src/ui/shipDamagePanelUi.js")]);
+      const clone = structuredClone(shipData);
+      clone.powerThermal.components[0].availableGenerationMw = null;
+      clone.powerThermal.components[0].deliveredGenerationMw = null;
+      clone.powerThermal.components[0].unusedGenerationMw = null;
+      state.snapshot = { ships: [clone], players: [{ id: "p1", color: "#8fd8ff" }] };
+      state.selectedShipIds = new Set([clone.id]);
+      state.shipStatusView = "power";
+      panel.renderShipDamagePanel();
+      const canvas = document.getElementById("shipDamageCanvas");
+      const diag = panel.shipDamageComponentClientPoint("s1", 0);
+      canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: diag.x, clientY: diag.y, pointerType: "mouse", bubbles: true }));
+      return document.getElementById("shipDamageHover").textContent;
+    }, SHIP);
+    assert(unavailableGenerator.includes("Available: Unavailable"), unavailableGenerator);
+    await setup(page, SHIP);
+    await clickTab(page, "shipPowerTab");
+    const keyboard = await page.evaluate(() => {
+      const damage = document.getElementById("shipDamageTab");
+      const heat = document.getElementById("shipHeatTab");
+      const power = document.getElementById("shipPowerTab");
+      damage.focus();
+      damage.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      const afterRight = document.activeElement.id;
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+      const afterEnd = document.activeElement.id;
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+      const afterHome = document.activeElement.id;
+      heat.focus();
+      heat.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      return { afterRight, afterEnd, afterHome, heatSelected: heat.getAttribute("aria-selected"), powerTabIndex: power.getAttribute("tabindex") };
+    });
+    assert.strictEqual(keyboard.afterRight, "shipHeatTab", "Right arrow focuses Heat");
+    assert.strictEqual(keyboard.afterEnd, "shipPowerTab", "End focuses Power");
+    assert.strictEqual(keyboard.afterHome, "shipDamageTab", "Home focuses Damage");
+    assert.strictEqual(keyboard.heatSelected, "true", "Enter activates focused Heat tab");
+    assert.strictEqual(keyboard.powerTabIndex, "-1", "inactive Power tab removed from tab order");
+    await clickTab(page, "shipPowerTab");
     const consumerReadout = await page.evaluate(() => {
       const canvas = document.getElementById("shipDamageCanvas");
       const rect = canvas.getBoundingClientRect();

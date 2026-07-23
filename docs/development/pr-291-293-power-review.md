@@ -29,3 +29,11 @@ The overlap is consistent with PR #293 having been branched from, merged with, o
 - Backporting switchgear state fixes without the snapshot schema version can make older clients collapse distinct states into generic disabled/broken wording.
 - Backporting per-section Heat without tests risks double-counting host-component aggregate Heat across multiple sections.
 - Any backport must keep the server Power solver authoritative and must not introduce client-side allocation, overload, Heat, priority, generation or switchgear rules.
+
+## Follow-up work intentionally out of PR #294 scope
+
+- **Authoritative route-path analysis:** expose real source-to-consumer flow paths or predecessor trees before making route-specific upgrade claims.
+- **Power-network bridge and articulation analysis:** add production topology fields for bridges, articulation points and shared demand before stronger architecture classifications.
+- **Consumer-level resilience test expansion:** broaden resilience tests to assert surviving consumer delivery component-by-component for every failure mode.
+- **Wiring-preview caching and benchmark:** add a large-blueprint benchmark for hover previews, tier changes and cache invalidation.
+- **Broad infrastructure balance sampling:** expand reporting beyond curated reference ships without changing balance constants to fit the report.

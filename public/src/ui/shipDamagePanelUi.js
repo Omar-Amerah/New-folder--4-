@@ -188,11 +188,11 @@ function renderPowerSummary(ship) {
   summary.innerHTML = `
     <section class="power-summary-group" aria-label="Power balance">
       <h4>Power balance</h4>
-      <div><span>Generation</span><strong>${mw(pt.powerGenerationMw)}</strong></div>
-      <div><span>Requested</span><strong>${mw(pt.requestedDemandMw)}</strong></div>
-      <div><span>Delivered</span><strong>${mw(pt.deliveredDemandMw)}</strong></div>
-      <div><span>Spare</span><strong>${mw(pt.sparePowerMw)}</strong></div>
-      <div><span>Unmet</span><strong>${mw(pt.unmetDemandMw)}</strong></div>
+      <div><span>Generation</span><strong>${mwOrUnavailable(pt.powerGenerationMw)}</strong></div>
+      <div><span>Requested</span><strong>${mwOrUnavailable(pt.requestedDemandMw)}</strong></div>
+      <div><span>Delivered</span><strong>${mwOrUnavailable(pt.deliveredDemandMw)}</strong></div>
+      <div><span>Spare</span><strong>${mwOrUnavailable(pt.sparePowerMw)}</strong></div>
+      <div><span>Unmet</span><strong>${mwOrUnavailable(pt.unmetDemandMw)}</strong></div>
       <div><span>Priority preset</span><strong>${safeText(pt.activePriorityPreset, "Default")}</strong></div>
       <div><span>Overall status</span><strong>${statusLabelText}</strong></div>
       <div><span>Partial consumers</span><strong>${pp.partialConsumerCount || 0}</strong></div>
@@ -308,7 +308,8 @@ function renderPowerSectionReadout(ship, sectionId) {
   } else {
     sentences = [flow <= 0 ? "No live flow on this section." : runtime.state === "at-peak" ? "At peak: further demand will be shed." : runtime.state === "overloaded" || runtime.state === "critical" ? "Above sustained: producing additional cable Heat and overload stress." : sustained > 0 && flow >= sustained * 0.75 ? "Near continuous capacity." : "Comfortably below sustained capacity."];
   }
-  const heat = `${formatHeatAmount(cableHeatForSection(ship, view.id))} H/s`;
+  const sectionHeat = cableHeatForSection(ship, view.id);
+  const heat = sectionHeat ? `${formatHeatAmount(sectionHeat.total)} H/s (base ${formatHeatAmount(sectionHeat.base)}, overload ${formatHeatAmount(sectionHeat.overload)})` : "Unavailable";
   const secondsText = secondsAbove > 0 ? ` · ${formatHeatAmount(secondsAbove)}s above sustained` : "";
   const stressedText = isMostStressed ? " · most-stressed section" : "";
   dom.shipDamageHover.textContent = `${view.id} (${tierName}) — ${mw(flow)} · ${mw(sustained)}/${mw(peak)} · ${sustainedUtil}% sustained, ${peakUtil}% peak · stress ${stress}%${secondsText} · Heat ${heat} · ${POWER_SECTION_STATE_LABEL[runtime.state] || "Working"} · network ${safeText(runtime.networkId, "—")} · hosts ${hosts}${stressedText} — ${sentences.join(" ")}`;
@@ -319,12 +320,17 @@ function renderPowerSectionReadout(ship, sectionId) {
 // PowerCableThermalRules); never recomputed here.
 function cableHeatForSection(ship, sectionId) {
   let total = 0;
-  const direct = ship.powerThermal?.powerCableHeatBySectionId?.[sectionId];
-  if (direct) return Number(direct.totalHeatMw) || 0;
+  const normalize = (entry) => entry ? {
+    base: Number(entry.baseHeatPerSecond ?? entry.baseHeatMw) || 0,
+    overload: Number(entry.overloadHeatPerSecond ?? entry.overloadHeatMw) || 0,
+    total: Number(entry.totalHeatPerSecond ?? entry.totalHeatMw) || 0
+  } : null;
+  const direct = normalize(ship.powerThermal?.powerCableHeatBySectionId?.[sectionId]);
+  if (direct) return direct;
   const raw = String(sectionId).replace(/^power:/, "");
-  const rawDirect = ship.powerThermal?.powerCableHeatBySectionId?.[raw];
-  if (rawDirect) return Number(rawDirect.totalHeatMw) || 0;
-  return total;
+  const rawDirect = normalize(ship.powerThermal?.powerCableHeatBySectionId?.[raw]);
+  if (rawDirect) return rawDirect;
+  return total ? { base: total, overload: 0, total } : null;
 }
 
 function renderHeatSummary(ship) {
@@ -553,6 +559,29 @@ function bindOnce() {
   dom.shipDamageTab?.addEventListener("click", () => { switchStatusView("damage"); });
   dom.shipHeatTab?.addEventListener("click", () => { switchStatusView("heat"); });
   dom.shipPowerTab?.addEventListener("click", () => { switchStatusView("power"); });
+  for (const tab of statusTabs()) tab?.addEventListener("keydown", handleStatusTabKeydown);
+}
+
+function statusTabs() { return [dom.shipDamageTab, dom.shipHeatTab, dom.shipPowerTab].filter(Boolean); }
+function statusTabView(tab) {
+  if (tab === dom.shipHeatTab) return "heat";
+  if (tab === dom.shipPowerTab) return "power";
+  return "damage";
+}
+function focusStatusTab(index) {
+  const tabs = statusTabs();
+  if (!tabs.length) return;
+  tabs[((index % tabs.length) + tabs.length) % tabs.length]?.focus?.();
+}
+function handleStatusTabKeydown(event) {
+  const tabs = statusTabs();
+  const index = tabs.indexOf(event.currentTarget);
+  if (index < 0) return;
+  if (event.key === "ArrowRight") { event.preventDefault(); focusStatusTab(index + 1); }
+  else if (event.key === "ArrowLeft") { event.preventDefault(); focusStatusTab(index - 1); }
+  else if (event.key === "Home") { event.preventDefault(); focusStatusTab(0); }
+  else if (event.key === "End") { event.preventDefault(); focusStatusTab(tabs.length - 1); }
+  else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); switchStatusView(statusTabView(event.currentTarget)); }
 }
 
 function switchStatusView(view) {
@@ -1061,6 +1090,10 @@ export function renderShipDamagePanel() {
   dom.shipDamageTab?.setAttribute("aria-selected", String(damageView));
   dom.shipHeatTab?.setAttribute("aria-selected", String(heatView));
   dom.shipPowerTab?.setAttribute("aria-selected", String(powerView));
+  dom.shipDamageTab?.setAttribute("tabindex", damageView ? "0" : "-1");
+  dom.shipHeatTab?.setAttribute("tabindex", heatView ? "0" : "-1");
+  dom.shipPowerTab?.setAttribute("tabindex", powerView ? "0" : "-1");
+  dom.shipStatusPanelBody?.setAttribute("aria-labelledby", powerView ? "shipPowerTab" : heatView ? "shipHeatTab" : "shipDamageTab");
   if (dom.damageLegend) dom.damageLegend.hidden = !damageView;
   if (dom.heatLegend) dom.heatLegend.hidden = !heatView;
   if (dom.powerLegend) dom.powerLegend.hidden = !powerView;

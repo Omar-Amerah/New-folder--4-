@@ -140,6 +140,7 @@ export const dom = {
   shipDamagePanel: document.getElementById("shipDamagePanel"),
   shipHeatSummary: document.getElementById("shipHeatSummary"),
   shipPowerSummary: document.getElementById("shipPowerSummary"),
+  shipStatusPanelBody: document.getElementById("shipStatusPanelBody"),
   shipDamageCanvas: document.getElementById("shipDamageCanvas"),
   shipDamageHover: document.getElementById("shipDamageHover"),
   coreStatusLabel: document.getElementById("coreStatusLabel"),

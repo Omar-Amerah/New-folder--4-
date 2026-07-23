@@ -327,12 +327,21 @@ function buildRuntimePowerThermalSnapshot(ship) {
   });
   });
   const powerCableHeatBySectionId = {};
+  let powerCableOverloadHeatRate = 0;
   for (const section of cable.sections || []) {
     const id = namespacedPowerSectionId(section.sectionId);
+    const baseHeatPerSecond = finiteOrNull(section.baseHeatPerSecond) ?? 0;
+    const overloadHeatPerSecond = finiteOrNull(section.overloadHeatPerSecond) ?? 0;
+    const totalHeatPerSecond = finiteOrNull(section.totalHeatPerSecond) ?? 0;
+    powerCableOverloadHeatRate += overloadHeatPerSecond;
     powerCableHeatBySectionId[id] = {
-      baseHeatMw: finiteOrNull(section.baseHeatPerSecond) ?? 0,
-      overloadHeatMw: finiteOrNull(section.overloadHeatPerSecond) ?? 0,
-      totalHeatMw: finiteOrNull(section.totalHeatPerSecond) ?? 0
+      baseHeatPerSecond,
+      overloadHeatPerSecond,
+      totalHeatPerSecond,
+      // Deprecated v2 compatibility aliases: these are Heat-rate values, not MW.
+      baseHeatMw: baseHeatPerSecond,
+      overloadHeatMw: overloadHeatPerSecond,
+      totalHeatMw: totalHeatPerSecond
     };
   }
   return {
@@ -341,8 +350,8 @@ function buildRuntimePowerThermalSnapshot(ship) {
     powerCableHeatBySectionId,
     snapshotVersion: 2,
     totalRatedGenerationMw: components.reduce((sum, c) => sum + c.ratedGenerationMw, 0),
-    totalAvailableGenerationMw: Number(powerSummary.availableGenerationMw) || 0,
-    totalDeliveredGenerationMw: Number(powerSummary.usedGenerationMw) || 0,
+    totalAvailableGenerationMw: finiteOrNull(powerSummary.availableGenerationMw),
+    totalDeliveredGenerationMw: finiteOrNull(powerSummary.usedGenerationMw),
     totalHeatRate: componentHeatRate + powerCableHeatRate,
     cooling,
     netHeatRate: componentHeatRate + powerCableHeatRate - cooling,
@@ -351,11 +360,12 @@ function buildRuntimePowerThermalSnapshot(ship) {
     atPeakSectionCount: Number(powerSummary.atPeakSections) || 0,
     throttledComponentCount: components.filter(c => c.operationalMultiplier > 0 && c.operationalMultiplier < 1).length,
     disabledComponentCount: components.filter(c => c.operationalMultiplier <= 0).length,
-    powerGenerationMw: Number(powerSummary.availableGenerationMw) || 0,
-    requestedDemandMw: Number(powerSummary.demandMw) || 0,
-    deliveredDemandMw: Number(powerSummary.allocatedMw) || 0,
-    sparePowerMw: Number(powerSummary.spareGenerationMw) || 0,
-    unmetDemandMw: Number(powerSummary.unmetMw) || 0,
+    powerCableOverloadHeatRate,
+    powerGenerationMw: finiteOrNull(powerSummary.availableGenerationMw),
+    requestedDemandMw: finiteOrNull(powerSummary.demandMw),
+    deliveredDemandMw: finiteOrNull(powerSummary.allocatedMw),
+    sparePowerMw: finiteOrNull(powerSummary.spareGenerationMw),
+    unmetDemandMw: finiteOrNull(powerSummary.unmetMw),
     activePriorityPreset: powerSummary.preset || null,
     hottestSectionId: cableSummary.hottestSectionId || null,
     components
