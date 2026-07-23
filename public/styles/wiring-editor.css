@@ -94,13 +94,13 @@
 
 .wiring-overlay .wire-power {
   stroke: #ffb84d; /* amber */
-  stroke-width: 0.09;
+  stroke-width: 0.09px !important;
   opacity: 0.92;
 }
 
 .wiring-overlay .wire-data {
   stroke: #38d9ff; /* cyan */
-  stroke-width: 0.09;
+  stroke-width: 0.09px !important;
   opacity: 0.92;
   stroke-dasharray: 0.22 0.1;
 }
@@ -112,14 +112,14 @@
 
 .wiring-overlay .wire-hit {
   stroke: transparent;
-  stroke-width: 0.42;
+  stroke-width: 0.42px !important;
   pointer-events: stroke;
   cursor: pointer;
   touch-action: none;
 }
 
 .wiring-overlay .wire-preview {
-  stroke-width: 0.12;
+  stroke-width: 0.12px !important;
   stroke-dasharray: 0.16 0.12;
   animation: wiring-preview-march 0.9s linear infinite;
 }
@@ -144,13 +144,16 @@
 .wiring-overlay .wire-comp-candidate { stroke: rgba(255, 255, 255, 0.55); stroke-dasharray: 0.08 0.12; }
 
 .wiring-overlay .wire-port {
+  /* SVG geometry is repeated in CSS so a broad/injected `circle` rule cannot
+     replace the small grid-space radius with a screen-sized marker. */
+  r: 0.11px !important;
   fill: #6fa8ff;
   stroke: #0b1526;
-  stroke-width: 0.03;
+  stroke-width: 0.03px !important;
 }
 .wiring-overlay .wire-port { pointer-events: all; cursor: crosshair; touch-action: none; }
-.wiring-overlay .wire-junction { fill: #f4f8ff; stroke: #07111f; stroke-width: .035; pointer-events: none; }
-.wiring-overlay .wire-branch-origin { fill: rgba(111,168,255,.25); stroke: #8fbcff; stroke-width: .055; pointer-events: none; }
+.wiring-overlay circle.wire-junction { r: .09px !important; fill: #f4f8ff; stroke: #07111f; stroke-width: .035px !important; pointer-events: none; }
+.wiring-overlay circle.wire-branch-origin { r: .18px !important; fill: rgba(111,168,255,.25); stroke: #8fbcff; stroke-width: .055px !important; pointer-events: none; }
 .wiring-section-actions, .wiring-drawing-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .wiring-section-actions button, .wiring-drawing-actions button { min-height: 32px; }
 
@@ -211,18 +214,18 @@
 /* Cell-centre routing and explicit v2 terminals. */
 .wiring-overlay .wire-port-power { fill: #ffb84d; }
 .wiring-overlay .wire-port-data { fill: #38d9ff; }
-.wiring-overlay .wire-port.source { stroke: #fff2c7; stroke-width: .035; }
-.wiring-overlay .wire-terminal { stroke: #07111f; stroke-width: .04; }
+.wiring-overlay circle.wire-port.source { stroke: #fff2c7; stroke-width: .035px !important; }
+.wiring-overlay circle.wire-terminal { r: .14px !important; stroke: #07111f; stroke-width: .04px !important; }
 .wiring-overlay .wire-terminal-power { fill: #ffb84d; }
 .wiring-overlay .wire-terminal-data { fill: #38d9ff; }
-.wiring-overlay .wire-terminal.selected { stroke: #6fa8ff; stroke-width: .08; }
+.wiring-overlay circle.wire-terminal.selected { stroke: #6fa8ff; stroke-width: .08px !important; }
 .wiring-overlay .wire-terminal-lead { stroke-width: .07; }
-.wiring-overlay .wire-next-cell { fill: rgba(255,255,255,.12); stroke: #fff; stroke-width: .035; stroke-dasharray: .05 .04; }
+.wiring-overlay circle.wire-next-cell { r: .12px !important; fill: rgba(255,255,255,.12); stroke: #fff; stroke-width: .035px !important; stroke-dasharray: .05 .04; }
 .wiring-overlay .wire-preview.confirmed { stroke-dasharray: none; stroke: #ffd94d; }
 .wiring-overlay .wire-comp-candidate { animation: wiring-destination-pulse 1.1s ease-in-out infinite; }
 @keyframes wiring-destination-pulse { 50% { stroke-width: .13; stroke: #fff; } }
 .wiring-overlay .wire-branch { fill: #d9e8ff; stroke: #07111f; stroke-width: .025; }
-.wiring-overlay .wire-invalid-cell { fill: rgba(255,95,107,.28); stroke: #ff5f6b; stroke-width: .05; }
+.wiring-overlay circle.wire-invalid-cell { r: .15px !important; fill: rgba(255,95,107,.28); stroke: #ff5f6b; stroke-width: .05px !important; }
 
 /* Section 6D Data-support inspector hardening */
 #wiringStatusPanel { max-height: min(70vh, 760px); overflow: auto; }
@@ -239,11 +242,11 @@
 .data-severity-low { border-color: #8ecae6; }
 .data-severity-redundant { border-color: #7bd88f; }
 .wiring-overlay .wire-data.data-dimmed { opacity: .28; stroke-dasharray: .08 .08; }
-.wiring-overlay .wire-data.wire-net-selected { stroke-width: .13; filter: drop-shadow(0 0 0.14px #5b8cff) drop-shadow(0 0 0.2px #5b8cff); } /* blue selection glow for the chosen Data network */
-.wiring-overlay .wire-data.data-critical-section { stroke: #ff4d6d; stroke-width: .14; stroke-dasharray: .18 .08; }
-.wiring-overlay .wire-data.data-high-impact-section { stroke: #ff9f1c; stroke-width: .12; stroke-dasharray: .28 .08; }
-.wiring-overlay .wire-data.data-medium-impact-section { stroke: #ffd166; stroke-width: .105; stroke-dasharray: .16 .08; }
-.wiring-overlay .wire-data.data-low-impact-section { stroke: #8ecae6; stroke-width: .095; stroke-dasharray: .22 .12; }
+.wiring-overlay .wire-data.wire-net-selected { stroke-width: .13px !important; filter: drop-shadow(0 0 0.14px #5b8cff) drop-shadow(0 0 0.2px #5b8cff); } /* blue selection glow for the chosen Data network */
+.wiring-overlay .wire-data.data-critical-section { stroke: #ff4d6d; stroke-width: .14px !important; stroke-dasharray: .18 .08; }
+.wiring-overlay .wire-data.data-high-impact-section { stroke: #ff9f1c; stroke-width: .12px !important; stroke-dasharray: .28 .08; }
+.wiring-overlay .wire-data.data-medium-impact-section { stroke: #ffd166; stroke-width: .105px !important; stroke-dasharray: .16 .08; }
+.wiring-overlay .wire-data.data-low-impact-section { stroke: #8ecae6; stroke-width: .095px !important; stroke-dasharray: .22 .12; }
 .wiring-overlay .wire-data.data-redundant-section { stroke: #7bd88f; stroke-dasharray: .04 .08; }
 .wiring-overlay .wire-comp-data-source-active { stroke: #7bd88f; stroke-width: .08; fill: rgba(123,216,143,.12); }
 .wiring-overlay .wire-comp-data-source-underpowered { stroke: #ffd166; stroke-width: .08; stroke-dasharray: .12 .06; }
@@ -281,9 +284,9 @@
 .wiring-tier-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.7rem; margin-top: 0.35rem; padding: 0.35rem 0.5rem; border-radius: 0.4rem; background: rgba(16, 26, 42, 0.62); border: 1px solid rgba(120, 160, 220, 0.28); font-size: 0.78rem; color: #d7e4f5; }
 .wiring-legend-line { display: inline-flex; align-items: center; gap: 0.3rem; }
 .wiring-legend-swatch { display: inline-block; border-radius: 1px; height: 0; }
-.wiring-legend-light { width: 1rem; border-top: 2px solid #ffe08a; }
-.wiring-legend-standard { width: 1rem; border-top: 3px solid #ffb347; }
-.wiring-legend-heavy { width: 1rem; border-top: 5px solid #cc7a3d; }
+.wiring-legend-light { width: 1rem; border-top: 2px solid #fff3a3; }
+.wiring-legend-standard { width: 1rem; border-top: 3px solid #ff9800; }
+.wiring-legend-heavy { width: 1rem; border-top: 5px solid #c43c2f; }
 .wiring-legend-note { flex-basis: 100%; opacity: 0.85; line-height: 1.3; }
 /* Enlarged hit targets keep Light cable and tier/tool buttons tappable on touch. */
 .wiring-toolbar .wiring-tool, .wiring-toolbar .wiring-tier { min-height: 34px; min-width: 44px; }
@@ -292,18 +295,27 @@
    amber/copper shade AND its thickness in every status, so tier identity is
    never lost when a status overlay is applied. Status is shown by the separate
    halo layer below, never by replacing the cable's tier colour. */
-.wiring-overlay .wire-tier-light { stroke-width: 0.07; opacity: 0.95; }
-.wiring-overlay .wire-tier-standard { stroke-width: 0.14; }
-.wiring-overlay .wire-tier-heavy { stroke-width: 0.28; }
-.wiring-overlay .wire-power.wire-tier-light { stroke: #ffe08a; }   /* pale yellow-amber */
-.wiring-overlay .wire-power.wire-tier-standard { stroke: #ffb347; } /* amber/orange */
-.wiring-overlay .wire-power.wire-tier-heavy { stroke: #cc7a3d; }   /* darker copper-orange */
+.wiring-overlay .wire-visible-layer .wire-tier-light { stroke-width: 0.07px !important; opacity: 0.95; }
+.wiring-overlay .wire-visible-layer .wire-tier-standard { stroke-width: 0.14px !important; }
+.wiring-overlay .wire-visible-layer .wire-tier-heavy { stroke-width: 0.28px !important; }
+.wiring-overlay .wire-power.wire-tier-light { stroke: #fff3a3; }    /* pale yellow */
+.wiring-overlay .wire-power.wire-tier-standard { stroke: #ff9800; } /* vivid orange */
+.wiring-overlay .wire-power.wire-tier-heavy { stroke: #c43c2f; }    /* deep copper-red */
 
 /* Status overlays: separate halo lines drawn UNDER the tier-coloured cable so a
    coloured outline + glow reads as an outer ring while the tier core stays
    visible. Each state uses a static drop-shadow/outline cue (never animation
    alone) so it survives prefers-reduced-motion. */
-.wiring-overlay .wire-status-halo { fill: none; pointer-events: none; opacity: 0.9; }
+.wiring-overlay .wire-status-halo { fill: none; stroke-width: .21px !important; pointer-events: none; opacity: 0.9; }
+/* Compatibility guard for cached clients that still create the retired click
+   selection halo. Inspect selection now lives in the analysis panel only. */
+.wiring-overlay .wire-status-selected { display: none !important; }
+/* Inspect adds round-capped selection/status halos. Their widths are repeated
+   here by tier so stale inline values or broad SVG `line` rules cannot turn a
+   one-cell section into a screen-sized capsule/ring. */
+.wiring-overlay .wire-status-halo.wire-tier-light { stroke-width: .14px !important; }
+.wiring-overlay .wire-status-halo.wire-tier-standard { stroke-width: .21px !important; }
+.wiring-overlay .wire-status-halo.wire-tier-heavy { stroke-width: .35px !important; }
 .wiring-overlay .wire-status-working { stroke: #45e07c; filter: drop-shadow(0 0 0.05px #45e07c); }
 .wiring-overlay .wire-status-loaded { stroke: #ffd166; filter: drop-shadow(0 0 0.1px #ffd166); }
 .wiring-overlay .wire-status-above { stroke: #ff9f1c; filter: drop-shadow(0 0 0.13px #ff9f1c); animation: wire-status-pulse 1.1s ease-in-out infinite; }
@@ -317,10 +329,58 @@
   .wiring-overlay .wire-status-above, .wiring-overlay .wire-status-peak { animation: none !important; opacity: 0.95; }
 }
 /* At-peak marker: a static red dot so capping is clear without relying on the pulse. */
-.wiring-overlay .wire-status-peak-marker { fill: #ff4d4d; stroke: #2a0a0a; stroke-width: 0.02; }
+.wiring-overlay circle.wire-status-peak-marker { r: .09px !important; fill: #ff4d4d; stroke: #2a0a0a; stroke-width: 0.02px !important; }
 
-/* Hover: a pale neutral outline that does NOT recolour the tier cable. */
-.wiring-overlay .wire-section-hover { filter: drop-shadow(0 0 0.06px #cfe4ff) drop-shadow(0 0 0.1px #cfe4ff); }
+/* Inspect is hover-led like Heat inspection: unrelated cable recedes while the
+   exact section under the pointer keeps its tier colour and gains a cool glow.
+   Nothing persists after pointer exit or click. */
+.wiring-overlay-host.wiring-inspect-hover-active .wire-visible-layer [data-section-id] { opacity: .2; }
+.wiring-overlay-host.wiring-inspect-hover-active .wire-visible-layer .wire-section-hover {
+  opacity: 1;
+  filter: drop-shadow(0 0 0.08px #ffffff) drop-shadow(0 0 0.2px #38d9ff);
+}
+
+.wiring-hover-card[hidden] { display: none; }
+.wiring-hover-card {
+  position: absolute;
+  z-index: 34;
+  min-width: 220px;
+  max-width: 290px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 184, 77, 0.62);
+  border-radius: 10px;
+  background: rgba(4, 10, 18, 0.95);
+  color: #dcefff;
+  font-size: 11px;
+  line-height: 1.25;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.48), 0 0 18px rgba(255, 152, 0, 0.08);
+  pointer-events: none;
+  backdrop-filter: blur(5px);
+}
+.wiring-hover-card h4 {
+  margin: 0 0 4px;
+  color: #fff3a3;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.wiring-hover-flow {
+  margin-bottom: 7px;
+  color: #ffb84d;
+  font-size: 16px;
+  font-weight: 950;
+}
+.wiring-hover-card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: baseline;
+}
+.wiring-hover-card-grid span { color: #9fb4ca; }
+.wiring-hover-card-grid strong {
+  color: #fff;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
 /* Destructive section previews use a visible dashed highlight. */
 .wiring-overlay .wire-section-preview { stroke: #ffd27a; stroke-dasharray: 0.14 0.08; }
 
@@ -663,7 +723,9 @@
 .power-priority-diagnostics { --power-alloc-surface: #0c1420; display: flex; flex-direction: column; gap: 10px; }
 
 /* KPI row — a handful of headline numbers, so tiles rather than a chart. */
-.power-alloc-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 6px; }
+/* 120px floor makes this fall to a balanced 2x2 in the real inspector width and
+   open to a single row of four only when there is genuinely room. */
+.power-alloc-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
 .power-alloc-kpi {
   display: flex; flex-direction: column; gap: 1px;
   padding: 6px 8px; border-radius: 6px;
@@ -706,22 +768,25 @@
 
 /* The track is the shared scale; fills are the data. Bars grow from the left
    baseline (square) to a 4px-rounded data end. */
+/* No overflow:hidden — it would clip the fill's 4px data-end back to the track's
+   own radius. Fills never exceed the track, so there is nothing to clip. */
 .power-alloc-track {
   grid-column: 2 / 4; display: flex; width: 100%; height: 8px;
-  border-radius: 2px; background: rgba(126, 160, 210, 0.13); overflow: hidden;
+  border-radius: 4px; background: rgba(126, 160, 210, 0.13);
 }
-.power-alloc-track-empty { background: rgba(126, 160, 210, 0.07); }
 .power-alloc-fill { height: 100%; background: var(--power-alloc-ink); min-width: 2px; }
 /* 2px surface gap separates touching segments — no stroke around the marks. */
 .power-alloc-fill + .power-alloc-fill { margin-left: 2px; box-shadow: -2px 0 0 0 var(--power-alloc-surface); }
+/* Square at the baseline, 4px rounded at the data end. */
 .power-alloc-fill:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
 
-.power-alloc-note { grid-column: 2 / 4; color: #8ea6c8; font-size: 11px; font-variant-numeric: tabular-nums; }
+.power-alloc-note { grid-column: 2 / 4; color: #8ea6c8; font-size: 11px; }
 .power-alloc-note-shed { color: #c8a6ae; }
 .power-priority-idle .power-priority-chip, .power-priority-idle .power-alloc-total { color: #7f95b4; }
 /* Machine-readable mirrors of each row's numbers; the visible note says the same. */
 .power-alloc-values { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 @media (max-width: 720px) {
-  .power-alloc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .power-alloc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+  .power-alloc-kpi-value { font-size: 14px; }
 }

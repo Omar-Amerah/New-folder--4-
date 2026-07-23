@@ -86,6 +86,7 @@ export const dom = {
   heatFlowOverlayHost: document.getElementById("heatFlowOverlayHost"),
   blueprintThermalHud: document.getElementById("blueprintThermalHud"),
   heatContextCard: document.getElementById("heatContextCard"),
+  wiringHoverCard: document.getElementById("wiringHoverCard"),
   blueprintBuildTab: document.getElementById("blueprintBuildTab"),
   blueprintHeatTab: document.getElementById("blueprintHeatTab"),
   blueprintWiringTab: document.getElementById("blueprintWiringTab"),

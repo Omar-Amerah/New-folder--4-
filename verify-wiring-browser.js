@@ -404,6 +404,30 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.equal(powerTerminals.consumer, true, "Power terminal marks the powered consumer");
     assert.equal(powerTerminals.frame, false, "a routed-through frame is not a Power terminal");
     assert.equal(powerTerminals.count, 2, `Power mode marks only the two functional participants (got ${JSON.stringify(powerTerminals.at)})`);
+    const terminalCollisionGeometry = await page.evaluate(() => {
+      // Recreate the broad circle rule that produced a several-cells-wide
+      // terminal ring. Wiring marker geometry must remain locally owned.
+      const collision = document.createElement("style");
+      collision.textContent = ".wiring-overlay circle { r: 3.5px !important; stroke-width: 2px !important; }";
+      document.head.appendChild(collision);
+      const overlay = document.querySelector("svg.wiring-overlay");
+      const terminal = overlay?.querySelector(".wire-terminal");
+      const rect = terminal?.getBoundingClientRect();
+      const overlayRect = overlay?.getBoundingClientRect();
+      const computed = terminal ? getComputedStyle(terminal) : null;
+      const result = {
+        diameter: rect?.width || 0,
+        cellSize: (overlayRect?.width || 0) / 15,
+        radius: computed?.r || "",
+        strokeWidth: computed?.strokeWidth || ""
+      };
+      collision.remove();
+      return result;
+    });
+    assert.ok(terminalCollisionGeometry.diameter > 0 && terminalCollisionGeometry.diameter < terminalCollisionGeometry.cellSize,
+      `terminal stays smaller than one grid cell under a broad SVG circle rule (${JSON.stringify(terminalCollisionGeometry)})`);
+    assert.equal(terminalCollisionGeometry.radius, "0.14px", "terminal owns its grid-space radius");
+    assert.equal(terminalCollisionGeometry.strokeWidth, "0.04px", "terminal owns its grid-space stroke width");
     const fixture = await page.evaluate(async () => structuredClone((await import("/src/state.js")).state.design));
     const targetModule = fixture[1];
     assert.deepEqual({ x: targetModule.x, y: targetModule.y }, { x: 6, y: 5 }, "fixture target remains the intended occupied cell");

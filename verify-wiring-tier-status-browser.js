@@ -79,6 +79,9 @@ async function haloClasses(page, sectionId) {
     assert.match(heavy.className, /wire-tier-heavy/, "heavy section keeps its tier class");
     const colours = new Set([light.stroke, standard.stroke, heavy.stroke]);
     assert.strictEqual(colours.size, 3, `three distinct tier colours (got ${[...colours].join(", ")})`);
+    assert.match(light.stroke, /rgb\(\s*255,\s*243,\s*163\s*\)/i, "Light cable is pale yellow");
+    assert.match(standard.stroke, /rgb\(\s*255,\s*152,\s*0\s*\)/i, "Standard cable is vivid orange");
+    assert.match(heavy.stroke, /rgb\(\s*196,\s*60,\s*47\s*\)/i, "Heavy cable is deep copper-red");
 
     // 2. Distinct thicknesses preserved.
     const widths = [parseFloat(light.strokeWidth), parseFloat(standard.strokeWidth), parseFloat(heavy.strokeWidth)];
@@ -107,12 +110,57 @@ async function haloClasses(page, sectionId) {
     const brokenHalo = await page.evaluate(() => { const el = document.querySelector('.wire-glow-layer .wire-status-broken'); return el ? getComputedStyle(el).strokeDasharray : null; });
     assert.ok(brokenHalo && brokenHalo !== "none", "broken status uses a dashed outline");
 
-    // 4. Selection combines with status without removing tier identity.
-    await page.locator('.wire-hit[data-section-id="0,0:1,0"]').first().dispatchEvent("click");
+    // 4. Inspect is hover-led: the exact section is emphasized temporarily,
+    // while clicking updates the panel without adding a persistent grid effect.
+    await page.locator('[data-wiring-tool="inspect"]').click();
+    const inspectHit = page.locator('.wire-hit[data-section-id="0,0:1,0"]').first();
+    await inspectHit.dispatchEvent("mouseover");
+    const hoverPresentation = await page.evaluate(() => {
+      const hovered = document.querySelector('.wire-visible-layer [data-section-id="0,0:1,0"]');
+      const unrelated = document.querySelector('.wire-visible-layer [data-section-id="0,2:1,2"]');
+      return {
+        hostActive: document.querySelector("#wiringOverlayHost").classList.contains("wiring-inspect-hover-active"),
+        hoveredClass: hovered.classList.contains("wire-section-hover"),
+        hoveredOpacity: getComputedStyle(hovered).opacity,
+        hoveredFilter: getComputedStyle(hovered).filter,
+        unrelatedOpacity: getComputedStyle(unrelated).opacity
+      };
+    });
+    assert.strictEqual(hoverPresentation.hostActive, true, "Inspect hover activates section focus");
+    assert.strictEqual(hoverPresentation.hoveredClass, true, "hover marks only the pointed section");
+    assert.strictEqual(hoverPresentation.hoveredOpacity, "1", "hovered section remains fully visible");
+    assert.notStrictEqual(hoverPresentation.hoveredFilter, "none", "hovered section receives a transient glow");
+    assert.strictEqual(hoverPresentation.unrelatedOpacity, "0.2", "unrelated sections recede during Inspect hover");
+    const hoverCard = page.locator("#wiringHoverCard");
+    await hoverCard.waitFor({ state: "visible" });
+    const hoverCardText = await hoverCard.innerText();
+    assert.match(hoverCardText, /\d+(?:\.\d+)? MW/, "hover card reports solved section flow in MW");
+    assert.match(hoverCardText, /Sustained load\s+\d+%/, "hover card reports sustained utilisation");
+    assert.match(hoverCardText, /Direction\s+\(0,0\)\s*→\s*\(1,0\)/, "hover card reports solved flow direction");
+    assert.match(hoverCardText, /From\s+Core \(0,0\)/, "hover card identifies the upstream generator");
+    await inspectHit.dispatchEvent("mouseout");
+    assert.strictEqual(await page.locator("#wiringOverlayHost").evaluate((host) => host.classList.contains("wiring-inspect-hover-active")), false,
+      "Inspect focus clears on pointer exit");
+    assert.strictEqual(await hoverCard.isHidden(), true, "Power-flow hover card clears on pointer exit");
+
+    await inspectHit.dispatchEvent("click");
     await page.waitForTimeout(30);
     const selLight = await visibleStyle(page, "0,0:1,0");
-    assert.match(selLight.className, /wire-tier-light/, "selected section keeps tier identity");
-    assert.ok(await page.locator('.wire-glow-layer .wire-status-selected').count() >= 1, "selection shows a blue halo alongside the status halo");
+    assert.match(selLight.className, /wire-tier-light/, "inspected section keeps its normal tier identity");
+    assert.doesNotMatch(selLight.className, /wire-section-hover/, "click does not retain the hover effect");
+    assert.strictEqual(await page.locator('.wire-glow-layer .wire-status-selected').count(), 0, "click creates no selection halo");
+    assert.strictEqual(await page.locator("#wiringOverlayHost").evaluate((host) => host.classList.contains("wiring-inspect-hover-active")), false,
+      "click leaves no persistent grid focus");
+    const legacySelectionDisplay = await page.evaluate(() => {
+      const svg = document.querySelector("svg.wiring-overlay");
+      const legacy = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      legacy.setAttribute("class", "wire-status-halo wire-status-selected");
+      svg.appendChild(legacy);
+      const display = getComputedStyle(legacy).display;
+      legacy.remove();
+      return display;
+    });
+    assert.strictEqual(legacySelectionDisplay, "none", "cached legacy selection halos are suppressed");
 
     // 5. Data remains cyan and dashed.
     await page.locator("#wiringModeData").click();
