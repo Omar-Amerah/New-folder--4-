@@ -429,7 +429,6 @@ function applyHeatPresentation(heatAnalysis) {
       (componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0) ? "heat-flag-cable-risk" : "",
       (componentDiag.operationalMultiplier ?? 1) < 1 ? "heat-flag-throttled" : ""
     ].filter(Boolean).join(" ");
-    const flagMarkup = flags.length ? `<span class="heat-status-markers" aria-label="${escapeHtml(flags.join("; "))}">${flags.map((_, i) => `<i>${i + 1}</i>`).join("")}</span>` : "";
     const threeDigitHeat = displayedHeat >= 100;
     const heatBadge = `<span
       class="component-heat-value${threeDigitHeat
@@ -450,7 +449,7 @@ function applyHeatPresentation(heatAnalysis) {
     updates.push({
       cell,
       heatClass: `${heatClass} ${flagClass}`,
-      markup: `${role}${heatBadge}${heatWarning}${flagMarkup}`,
+      markup: `${role}${heatBadge}${heatWarning}`,
       ariaLabel:
         `${PART_DEFS[part.type].name}. ` +
         `${stateLabel}. ` +
@@ -546,7 +545,7 @@ function clearHeatPresentation() {
     for (const className of [...cell.classList]) {
       if (className.startsWith("heat-") || className.startsWith("thermal-") || className.startsWith("radiator-exposed")) cell.classList.remove(className);
     }
-    cell.querySelectorAll(".component-heat-value, .component-overheat-warning, .component-critical-warning, .thermal-role-indicator").forEach(item => item.remove());
+    cell.querySelectorAll(".component-heat-value, .component-overheat-warning, .component-critical-warning, .thermal-role-indicator, .heat-status-markers").forEach(item => item.remove());
     const index = Number(cell.dataset.partIndex);
     const part = state.design[index];
     if (state.blueprintView === "build") {
@@ -1564,8 +1563,8 @@ function renderHeatFlows(analysis) {
   const focus = validHeatIndex(state.hoveredHeatPartIndex)
     ? state.hoveredHeatPartIndex
     : null;
-  const showAll = Boolean(state.showAllHeatFlows);
-  if (!showAll && focus == null) return;
+  // Heat flows are always shown; hovering a component just adds its H/s labels.
+  const showAll = true;
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 15 15");
@@ -2369,7 +2368,7 @@ function costBreakdownInnerMarkup(breakdown) {
   const infrastructureRows = hasInfrastructure ? [
     ["Power wiring", breakdown.powerWiring || 0],
     ["Data wiring", breakdown.dataWiring || 0],
-    ["Total infrastructure", breakdown.totalInfrastructure || 0]
+    ["Total infra", breakdown.totalInfrastructure || 0]
   ] : [];
   const percentText = hasInfrastructure ? `${Math.round((breakdown.infrastructurePercentage || 0) * 100)}%` : "";
   return `

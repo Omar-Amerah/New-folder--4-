@@ -1128,7 +1128,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 
 /* Section 7A: wiring infrastructure lines in the Blueprint cost breakdown. */
 .cost-breakdown-infrastructure { opacity: 0.92; }
-.cost-breakdown-infrastructure span::before { content: "\2192\00a0"; opacity: 0.6; }
 .cost-breakdown-total { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid rgba(148, 163, 184, 0.35); display: grid; gap: 0.15rem; }
 .cost-breakdown-total > div { display: flex; justify-content: space-between; gap: 0.75rem; }
 .cost-breakdown-total > div:last-child strong { color: #86ddff; }

@@ -25,7 +25,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 8px;
   align-items: center;
-  margin: 8px 0 0;
+  margin: 0;
   padding: 8px 10px;
   border: 1px solid rgba(255, 202, 87, 0.38);
   border-radius: 8px;
@@ -42,12 +42,14 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 12px rgba(255, 202, 87, 0.12);
 }
 
-/* Wrapper anchors the cost breakdown as a dropdown so opening it overlays the
-   grid instead of pushing/shrinking it, and keeps it visually joined to the banner. */
+/* Cost banner sits at the bottom of the left column; the breakdown opens as an
+   overlay directly above it so it never resizes the column, and stays visually
+   joined to the banner. */
 .blueprint-cost-wrap {
   position: relative;
-  flex: 0 1 auto;
-  width: min(420px, 70vw);
+  margin-top: auto;
+  flex: 0 0 auto;
+  width: 100%;
   min-width: 0;
 }
 
@@ -82,17 +84,17 @@
 
 .blueprint-cost-breakdown {
   position: absolute;
-  top: calc(100% - 1px);
   left: 0;
+  bottom: calc(100% - 1px);
   z-index: 40;
   width: 100%;
   margin: 0;
   padding: 10px;
   border: 1px solid rgba(255, 202, 87, 0.5);
-  border-top: none;
-  border-radius: 0 0 8px 8px;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
   background: linear-gradient(180deg, rgba(30, 24, 12, 0.98), rgba(16, 13, 9, 0.98));
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 -14px 30px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(12px);
 }
 
@@ -100,11 +102,11 @@
   display: none;
 }
 
-/* Square the banner's bottom corners while the dropdown is open so the two read as one panel. */
+/* Square the banner's top corners while the dropdown is open above it so the two read as one panel. */
 .blueprint-cost-wrap:has(> .blueprint-cost-breakdown:not([hidden])) .blueprint-cost-banner {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  border-bottom-color: transparent;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-top-color: transparent;
 }
 
 .blueprint-cost-banner span {
@@ -133,9 +135,9 @@
 }
 
 .blueprint-undo-button {
-  min-width: 74px;
-  gap: 4px;
-  padding-inline: 10px;
+  min-width: 0;
+  gap: 0;
+  padding: 0;
   font-weight: 900;
 }
 
