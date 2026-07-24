@@ -1254,7 +1254,7 @@ function powerTerminalVisual(index, entry, selected = false) {
     // A hit target so hovering the source (reactor) shows the network's
     // generation vs demand, the same way hovering a consumer/weapon does.
     const hit = svgEl("circle", {
-      cx: x, cy: y, r: 0.11, tabindex: 0, role: "button",
+      cx: x, cy: y, r: 0.13, tabindex: 0, role: "button",
       "aria-label": `${moduleLabel(index)}. Power source. ${formatNetworkMw(entry?.generationAvailableMw)} generation.`
     }, "wire-power-terminal-hit");
     hit.dataset.powerComponentIndex = String(index);
@@ -1276,7 +1276,7 @@ function powerTerminalVisual(index, entry, selected = false) {
     );
   }
   const hit = svgEl("circle", {
-    cx: x, cy: y, r: 0.11, tabindex: 0, role: "button",
+    cx: x, cy: y, r: 0.13, tabindex: 0, role: "button",
     "aria-label": `${moduleLabel(index)}. ${stateLabel}. ${formatNetworkMw(entry?.allocatedMw)} delivered of ${formatNetworkMw(entry?.requestedMw)} requested. Supply ${Math.max(0, Math.min(100, supply))}%.`
   }, "wire-power-terminal-hit");
   hit.dataset.powerComponentIndex = String(index);

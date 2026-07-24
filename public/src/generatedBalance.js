@@ -959,8 +959,8 @@ export const GENERATED_BALANCE = {
       "rotatable": true,
       "description": "Heavy repair beam. Aim it toward a friendly ship to project a hull-recovery beam from the emitter.",
       "footprint": {
-        "width": 2,
-        "height": 1
+        "width": 1,
+        "height": 2
       }
     },
     {

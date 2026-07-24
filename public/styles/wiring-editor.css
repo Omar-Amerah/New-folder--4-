@@ -486,7 +486,7 @@
   stroke-linecap: round;
 }
 .wiring-overlay circle.wire-power-terminal-hit {
-  r: .11px !important;
+  r: .13px !important;
   fill: rgba(0, 0, 0, .001);
   stroke: transparent;
   stroke-width: 0 !important;

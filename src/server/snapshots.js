@@ -54,7 +54,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       maxShield: round(ship.maxShield),
       radius: round(ship.radius),
       cost: ship.cost || ship.stats?.unitCost || 0,
-      focusTargetId: ship.focusTargetId,
+      focusTargetId: ship.focusTargetId || ship.repairTargetId || null,
       combatTargetId: ship.combatTargetId || null,
       weaponAngles: (ship.weaponAngles || []).map(round),
       alive: ship.alive,

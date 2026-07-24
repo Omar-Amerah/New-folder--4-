@@ -237,25 +237,28 @@ function updateShipSupport(room, ships, dt, now) {
     allocateRepairHeat(ship, activeRepairBeams, delivered);
     ship._repairIntentAt = now; // Section 7D-2: a repair beam has a valid target this cycle.
 
-    const emitterEntry = activeRepairBeams[0];
-    const emitterIndex = emitterEntry.index;
-    const emitter = emitterEntry.module;
-    const origin = weaponModuleWorldPosition(ship, emitter);
-
-    // Rotate the emitter turret toward the repair target at the shared beam
-    // traverse rate (instead of snapping) so it visibly tracks, and emit the
-    // beam from wherever the barrel is actually pointing this tick.
     if (!ship.weaponAngles) ship.weaponAngles = (ship.design || []).map((m) => moduleRotationToRadians(normalizeRotation(m.rotation)));
-    const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
-    const desiredRelative = angleDifference(ship.angle, worldAngleToTarget);
-    const currentRelative = ship.weaponAngles[emitterIndex] ?? moduleRotationToRadians(normalizeRotation(emitter.rotation));
-    ship.weaponAngles[emitterIndex] = rotateToward(currentRelative, desiredRelative, TurretRules.turnRateFor("beam") * dt);
-    const muzzle = weaponMuzzleWorldPosition(ship, emitter, ship.angle + ship.weaponAngles[emitterIndex], "beam");
 
-    // Emit a continuous repair beam from the emitter muzzle to the one target.
+    for (const entry of activeRepairBeams) {
+      const emitter = entry.module;
+      const emitterIndex = entry.index;
+      const origin = weaponModuleWorldPosition(ship, emitter);
+      const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
+      const desiredRelative = angleDifference(ship.angle, worldAngleToTarget);
+      const currentRelative = ship.weaponAngles[emitterIndex] ?? moduleRotationToRadians(normalizeRotation(emitter.rotation));
+      ship.weaponAngles[emitterIndex] = rotateToward(currentRelative, desiredRelative, TurretRules.turnRateFor("beam") * dt);
+    }
+
+    // Emit a continuous repair beam from each active repair beam emitter muzzle.
     if (now - (ship.repairPulseAt || 0) > 90) {
       ship.repairPulseAt = now;
-      room.effects.push({ type: "repairbeam", x: muzzle.x, y: muzzle.y, x2: target.x, y2: target.y, at: now, ownerId: ship.ownerId });
+      for (const entry of activeRepairBeams) {
+        const emitter = entry.module;
+        const emitterIndex = entry.index;
+        const currentAngle = ship.weaponAngles?.[emitterIndex] ?? moduleRotationToRadians(normalizeRotation(emitter.rotation));
+        const muzzle = weaponMuzzleWorldPosition(ship, emitter, ship.angle + currentAngle, "beam");
+        room.effects.push({ type: "repairbeam", x: muzzle.x, y: muzzle.y, x2: target.x, y2: target.y, at: now, ownerId: ship.ownerId });
+      }
     }
   }
 }
@@ -401,7 +404,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   (ship.design || []).forEach((module, i) => {
     const part = PARTS[module.type];
-    if (!part?.weapon) return;
+    const isRepairBeam = module.type === "repairBeam";
+    if (!part?.weapon && !isRepairBeam) return;
     if (!isComponentAlive(ship, i)) {
       // Destroyed weapons neither aim nor fire; the client freezes their art.
       ship.weaponAimTargetIds[i] = null;
@@ -419,8 +423,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       return;
     }
 
-    const effectiveWeapon = getEffectiveWeaponStatsInternal(ship, i) || part.weapon;
-    const family = effectiveWeapon.type || part.weapon.type;
+    const effectiveWeapon = isRepairBeam
+      ? { type: "beam", arc: 360, range: ship.stats?.repairRange || 400, aimSpeed: TurretRules.turnRateFor("beam") }
+      : (getEffectiveWeaponStatsInternal(ship, i) || part.weapon);
+    const family = effectiveWeapon.type || part.weapon?.type || "beam";
     const cooldown = ship.weaponCooldowns[i] || 0;
 
     const arcRadians = (effectiveWeapon.arc || 360) * Math.PI / 180;
@@ -431,20 +437,39 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const defaultRelative = moduleRotationToRadians(normalizeRotation(module.rotation));
 
-    // Aiming and firing use separate targets. fireTarget must satisfy the
-    // existing rules (inside this weapon's range, line of sight); aimTarget is
-    // what the turret visually tracks — the fire target when one exists,
-    // otherwise the ship's assigned/combat target so the barrel orients toward
-    // the enemy before it enters firing range. Point defence only ever tracks
-    // a plausible PD target (findPointDefenseTarget's own rules, which already
-    // include its ship fallback).
     let currentPdTarget = null;
     let weaponTarget = null;
     let aimEntity = null;
     let aimPoint = null;
     let fireAimPoint = null;
 
-    if (family === "pointDefense") {
+    if (isRepairBeam) {
+      let repairTarget = null;
+      if (ship.repairTargetId) {
+        const assigned = room.ships.get(ship.repairTargetId);
+        if (assigned && assigned.alive && assigned.id !== ship.id && areAllies(room, ship.ownerId, assigned.ownerId) && Math.hypot(assigned.x - worldX, assigned.y - worldY) <= range) {
+          repairTarget = assigned;
+        }
+      }
+      if (!repairTarget) {
+        let worst = 0;
+        for (const other of ships) {
+          if (other.id === ship.id || !other.alive) continue;
+          if (!areAllies(room, ship.ownerId, other.ownerId)) continue;
+          const missing = shipRepairNeed(other);
+          if (missing <= 0) continue;
+          const distance = Math.hypot(other.x - worldX, other.y - worldY);
+          if (distance > range) continue;
+          const urgency = missing / Math.max(1, distance * 0.08);
+          if (urgency > worst) {
+            repairTarget = other;
+            worst = urgency;
+          }
+        }
+      }
+      aimEntity = repairTarget;
+      if (aimEntity) aimPoint = { x: aimEntity.x, y: aimEntity.y };
+    } else if (family === "pointDefense") {
       currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id);
       aimEntity = currentPdTarget ? currentPdTarget.entity : null;
       clearWeaponComponentAim(ship, i);
@@ -492,9 +517,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     // by buildShipTurretDiagnostics and the dev debug endpoint).
     ship.weaponDesiredAngles[i] = desiredRelative;
     ship.weaponAimTargetIds[i] = isTracking && aimEntity ? aimEntity.id ?? null : null;
-    ship.weaponFireTargetIds[i] = family === "pointDefense"
-      ? (currentPdTarget ? currentPdTarget.entity.id ?? null : null)
-      : (weaponTarget ? weaponTarget.id ?? null : null);
+    ship.weaponFireTargetIds[i] = isRepairBeam ? (isTracking && aimEntity ? aimEntity.id ?? null : null)
+      : (family === "pointDefense"
+        ? (currentPdTarget ? currentPdTarget.entity.id ?? null : null)
+        : (weaponTarget ? weaponTarget.id ?? null : null));
+
+    if (isRepairBeam) return;
 
     // ---- Firing permission (independent of aiming) ----
     // Protected ships never fire: no projectile, no beam damage, no firing

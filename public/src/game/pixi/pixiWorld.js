@@ -319,7 +319,7 @@ function updatePixiCommandTarget(env, now) {
   const zoom = state.camera.zoom;
   const x = state.command.x;
   const y = state.command.y;
-  const color = state.command.targetName ? "#ff5f7e" : "#ffca57";
+  const color = state.command.targetKind === "friendly" ? "#4ade80" : (state.command.targetKind === "hostile" ? "#ff5f7e" : (state.command.targetName ? "#ff5f7e" : "#ffca57"));
   gfx.circle(x, y, 26 + age * 0.025);
   gfx.moveTo(x - 42, y);
   gfx.lineTo(x + 42, y);

@@ -28,10 +28,13 @@ export function issueCommand(event) {
   const targetShip = findShipAt(world.x, world.y, (ship) => ship.alive && (!isAllied(ship) || fleetHasRepairBeam));
   const targetPlayer = targetShip ? playerMap().get(targetShip.ownerId) : null;
 
+  const targetKind = targetShip ? (isAllied(targetShip) ? "friendly" : "hostile") : "move";
+
   state.command = {
     x: targetShip?.x || world.x,
     y: targetShip?.y || world.y,
     targetName: targetPlayer?.name || null,
+    targetKind,
     at: performance.now()
   };
 
@@ -43,7 +46,7 @@ export function issueCommand(event) {
     shipIds,
     formation: formationForCommand()
   });
-  showCommandMarker(event.clientX, event.clientY);
+  showCommandMarker(event.clientX, event.clientY, targetKind);
 }
 
 // Scuttle the currently selected ships. Requires an explicit selection so a
@@ -65,11 +68,13 @@ export function selectedShipIdsForCommand() {
   return ownLiveShips().map((ship) => ship.id);
 }
 
-export function showCommandMarker(clientX, clientY) {
+export function showCommandMarker(clientX, clientY, kind = "move") {
   const rect = dom.canvas.getBoundingClientRect();
   dom.marker.hidden = false;
   dom.marker.style.left = `${clientX - rect.left}px`;
   dom.marker.style.top = `${clientY - rect.top}px`;
+  dom.marker.classList.remove("friendly", "hostile", "move");
+  dom.marker.classList.add(kind);
   dom.marker.style.animation = "none";
   dom.marker.offsetHeight; // Trigger reflow
   dom.marker.style.animation = "";

@@ -559,21 +559,30 @@
 }
 
 .command-marker {
+  --marker-color: var(--amber);
   position: absolute;
   width: 34px;
   height: 34px;
   margin: -17px 0 0 -17px;
-  border: 2px solid var(--amber);
+  border: 2px solid var(--marker-color);
   border-radius: 50%;
   pointer-events: none;
   animation: marker 0.9s ease-out forwards;
+}
+
+.command-marker.friendly {
+  --marker-color: #4ade80;
+}
+
+.command-marker.hostile {
+  --marker-color: #ff5f7e;
 }
 
 .command-marker::before,
 .command-marker::after {
   position: absolute;
   content: "";
-  background: var(--amber);
+  background: var(--marker-color);
 }
 
 .command-marker::before {

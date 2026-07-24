@@ -950,12 +950,16 @@ function snapshotShipById(id) {
   return shipByIdCache.get(id) || null;
 }
 
-function drawPixiFocusLine(gfx, ship, zoom) {
+function drawPixiFocusLine(gfx, ship, zoom, players) {
   const target = snapshotShipById(ship.focusTargetId);
   if (!target) return;
+  const player = players?.get?.(target.ownerId) || null;
+  const mine = state.mine || players?.get?.(state.myId) || null;
+  const friendly = target.ownerId === state.myId || Boolean(mine?.team && player?.team && mine.team === player.team);
+  const color = friendly ? "rgba(124,255,138,0.5)" : "rgba(255,95,126,0.36)";
   gfx.moveTo(ship.x, ship.y);
   gfx.lineTo(target.x, target.y);
-  gfx.stroke({ width: 1.5 / zoom, color: "rgba(255,95,126,0.36)" });
+  gfx.stroke({ width: 1.5 / zoom, color });
 }
 
 export function updatePixiShips(env, now, players, bounds) {
@@ -1018,7 +1022,7 @@ export function updatePixiShips(env, now, players, bounds) {
       }
 
       if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
-      if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom);
+      if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom, players);
       if (ship.destructProgress != null && ship.alive) {
         drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
       }

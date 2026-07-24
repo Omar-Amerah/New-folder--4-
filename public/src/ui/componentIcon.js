@@ -7,6 +7,7 @@ import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
 import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
 import { withCanvasContext } from "./dom.js";
 import { drawModule, drawFootprintComponent } from "../game/componentArt.js";
+import { isRotatingWeaponPart } from "../game/weaponAim.js";
 
 const CELL = 40; // logical px per footprint cell
 const PAD = 0; // full cubes meet the exact blueprint-cell bounds
@@ -60,7 +61,7 @@ function isWeaponPart(stat) {
 // with the icon's longer footprint dimension (post-rotation w/h cells).
 function footprintArtAngle(type, rotationDeg, wCells, hCells) {
   const stat = PART_STATS[type] || {};
-  if (isRotatablePart(type) && isWeaponPart(stat)) {
+  if (isRotatingWeaponPart(type)) {
     const footprint = stat.footprint || { width: 1, height: 1 };
     const baseAngle = (footprint.width || 1) >= (footprint.height || 1) ? 0 : -Math.PI / 2;
     return baseAngle + moduleRotationToRadians(normalizeRotation(rotationDeg));
