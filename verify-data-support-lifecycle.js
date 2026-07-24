@@ -19,7 +19,9 @@ function wiring(design, dataPaths=[], powerPaths=[]) { let w=W.emptyWiring(); fo
 function ship(design, dataPaths=[], powerPaths=[]) { const s={id:"s",ownerId:"p1",alive:true,x:0,y:0,vx:0,vy:0,angle:0,radius:30,stats:computeStats(design),design,wiring:wiring(design,dataPaths,powerPaths)}; initComponentState(s); initShipHeat(s); rebuildShipWiringState(s,"test",{skipRuntimeStats:true}); s.weaponCooldowns=design.map(()=>0); s.weaponAngles=design.map(()=>0); return s; }
 function revisions(s){return [s.runtimeDataSupport.topologyRevision,s.runtimeDataSupport.allocationRevision];}
 function room(){return {effects:[],bullets:[],map:{asteroids:[]},rules:{gameMode:"solo"},players:new Map([["p1",{id:"p1",team:"a"}],["p2",{id:"p2",team:"b"}]]),ships:new Map(),combatRandom:()=>0.5};}
-function enemyAt(x){const e={id:"e",ownerId:"p2",alive:true,x,y:0,vx:0,vy:0,angle:Math.PI,radius:30,shield:0,maxShield:0,stats:computeStats([mod("frame",7,7)]),design:[mod("frame",7,7)]}; initComponentState(e); initShipHeat(e); return e;}
+// A valid combat target needs a living command core; a core-less hull is treated
+// as already-lost command and is destroyed the instant it takes any damage.
+function enemyAt(x){const design=[mod("core",7,7),mod("frame",7,6)];const e={id:"e",ownerId:"p2",alive:true,x,y:0,vx:0,vy:0,angle:Math.PI,radius:30,shield:0,maxShield:0,stats:computeStats(design),design}; initComponentState(e); initShipHeat(e); return e;}
 function destroy(s,i){const ok=detonateComponent(null,s,i,0,0,1000+i); assert(ok,`detonate ${i}`);}
 function repairOne(s,i){repairShipComponents(null,s,(s.componentMaxHp[i]||1)+1,2000+i); assert(s.componentHp[i]>0,`repair ${i}`);}
 function forcePowered(s){ s.componentPower={byComponentIndex:s.design.map(()=>({state:"powered",operationalMultiplier:1}))}; Data.refreshShipDataAllocation(s,"test-force-power"); return s; }

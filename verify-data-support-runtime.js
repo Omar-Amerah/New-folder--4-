@@ -51,7 +51,11 @@ function room(random = 0.5) {
 }
 
 function enemyAt(x, y, id = "e") {
-  const e = { id, ownerId: "p2", alive: true, x, y, vx: 0, vy: 0, angle: Math.PI, radius: 30, shield: 0, maxShield: 0, stats: computeStats([mod("frame", 7, 7)]), design: [mod("frame", 7, 7)] };
+  // A valid combat target needs a living command core; a core-less hull counts as
+  // already lost command and is destroyed the instant it takes any damage, which
+  // would mask the incremental beam/projectile damage these tests measure.
+  const design = [mod("core", 7, 7), mod("frame", 7, 6)];
+  const e = { id, ownerId: "p2", alive: true, x, y, vx: 0, vy: 0, angle: Math.PI, radius: 30, shield: 0, maxShield: 0, stats: computeStats(design), design };
   initComponentState(e);
   initShipHeat(e);
   return e;
@@ -95,22 +99,25 @@ updateShipWeapons(r, s, [s, e], 10, 1000);
 close(bulletAngle(r.bullets[0]), -spreadScale(getEffectiveWeaponStats(s, 1), "blaster"), "blaster deterministic spread uses effective accuracy");
 close(s.weaponCooldowns[1], 1 / getEffectiveWeaponStats(s, 1).fireRate, "accuracy support does not affect cooldown");
 
-// Test 1: Point Defence accuracy support changes actual projectile spread and leaves inputs immutable.
+// Test 1: Point Defence is a hitscan laser. It intercepts an incoming missile by
+// damaging it directly — never a spread interceptor projectile — and Data support
+// never lowers its "cannot miss" accuracy nor mutates the immutable inputs.
 design = [mod("targetingComputer", 7, 6), mod("pointDefense", 7, 7)];
 let paths = [[{ x: 7, y: 6 }, { x: 7, y: 7 }]];
 let snap = snapshot(design, wire(design, paths));
 s = ship(design, paths);
-r = room(0); r.bullets.push({ id: "m", type: "missile", interceptable: true, life: 5, ownerId: "p2", x: 180, y: 0 });
+r = room(0); r.bullets.push({ id: "m", type: "missile", interceptable: true, hp: 20, life: 5, ownerId: "p2", x: 180, y: 0 });
 updateShipWeapons(r, s, [s], 10, 1000);
 assert(getEffectiveWeaponStats(s, 1).accuracy >= PARTS.pointDefense.weapon.accuracy, "PD effective accuracy at or above base");
-let expectedBaseAngle = Math.atan2(r.bullets[0].y - r.bullets[1].y, r.bullets[0].x - r.bullets[1].x);
-close(bulletAngle(r.bullets[1]), expectedBaseAngle - spreadScale(getEffectiveWeaponStats(s, 1), "pointDefense"), "supported PD actual spread uses effective accuracy");
+assert.equal(r.bullets.length, 1, "hitscan PD spawns no interceptor projectile");
+assert(r.bullets[0].hp < 20, "hitscan PD damages the incoming missile directly");
+close(r.bullets[0].hp, 20 - PARTS.pointDefense.weapon.damage, "hitscan PD applies exactly its base damage to the missile");
 assertSnapshot(snap, design, wire(design, paths), "supported PD accuracy");
 
-r = room(0); s = ship([mod("pointDefense", 7, 7)], []); r.bullets.push({ id: "m2", type: "missile", interceptable: true, life: 5, ownerId: "p2", x: 180, y: 0 });
+r = room(0); s = ship([mod("pointDefense", 7, 7)], []); r.bullets.push({ id: "m2", type: "missile", interceptable: true, hp: 20, life: 5, ownerId: "p2", x: 180, y: 0 });
 updateShipWeapons(r, s, [s], 10, 1000);
-expectedBaseAngle = Math.atan2(r.bullets[0].y - r.bullets[1].y, r.bullets[0].x - r.bullets[1].x);
-close(bulletAngle(r.bullets[1]), expectedBaseAngle - spreadScale(PARTS.pointDefense.weapon, "pointDefense"), "unsupported PD spread remains base");
+assert.equal(r.bullets.length, 1, "unsupported hitscan PD spawns no interceptor projectile");
+close(r.bullets[0].hp, 20 - PARTS.pointDefense.weapon.damage, "unsupported hitscan PD applies base damage to the missile");
 
 // Test 2: PD accuracy support does not leak across two physical Data networks.
 design = [mod("targetingComputer", 7, 5), mod("pointDefense", 7, 6), mod("pointDefense", 7, 8)];
@@ -118,7 +125,12 @@ paths = [[{ x: 7, y: 5 }, { x: 7, y: 6 }]];
 s = ship(design, paths);
 close(getWeaponDataSupport(s, 1).accuracyBonus, budget("targetingComputer"), "PD A receives accuracy");
 close(getWeaponDataSupport(s, 2).accuracyBonus, 0, "PD B stays base accuracy");
-assert.notEqual(getEffectiveWeaponStats(s, 1).accuracy, getEffectiveWeaponStats(s, 2).accuracy, "PD effective accuracies differ");
+// PD is a "cannot miss" weapon (base accuracy 1.0), so accuracy support cannot
+// push its effective accuracy any higher — both PDs read a perfect 1.0. The
+// no-leak guarantee is carried by the isolated accuracy bonus above; here we
+// confirm the unsupported PD B still resolves to exactly its base accuracy.
+close(getEffectiveWeaponStats(s, 2).accuracy, PARTS.pointDefense.weapon.accuracy, "PD B effective accuracy stays at base — support does not leak across networks");
+assert(getEffectiveWeaponStats(s, 1).accuracy >= PARTS.pointDefense.weapon.accuracy, "supported PD A accuracy never drops below base");
 
 // Test 3: PD fire-rate support controls its own cooldown exactly once.
 design = [mod("fireControl", 7, 6), mod("pointDefense", 7, 7)];

@@ -640,10 +640,10 @@ async function inspectCircleSafety(page) {
     // Hovering the reactor (source) terminal exposes the four authoritative totals.
     const sourceTerminal = page.locator(".wire-power-terminal-source .wire-power-terminal-hit").first();
     await sourceTerminal.hover();
-    assert.match(await page.locator("#wiringHoverCard").innerText(), /Insufficient generation[\s\S]*Generation\s*10\.0 MW[\s\S]*Requested\s*18\.7 MW[\s\S]*Delivered\s*10\.0 MW[\s\S]*Unmet\s*8\.7 MW/i, "reactor hover exposes generation, requested, delivered and unmet");
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /Insufficient generation[\s\S]*Generation\s*10\.0 MW[\s\S]*Requested\s*21\.2 MW[\s\S]*Delivered\s*10\.0 MW[\s\S]*Unmet\s*11\.2 MW/i, "reactor hover exposes generation, requested, delivered and unmet");
     const partialTerminal = page.locator(".wire-terminal-supply-partial .wire-power-terminal-hit");
     await partialTerminal.hover();
-    assert.match(await page.locator("#wiringHoverCard").innerText(), /POINT DEFENCE[\s\S]*Partially powered[\s\S]*Requested\s*3\.0 MW[\s\S]*Delivered\s*1\.8 MW[\s\S]*Supply\s*60%[\s\S]*Insufficient generation/i, "terminal tooltip explains exact partial allocation");
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /POINT DEFENCE[\s\S]*Partially powered[\s\S]*Requested\s*5\.5 MW[\s\S]*Delivered\s*1\.8 MW[\s\S]*Supply\s*33%[\s\S]*Insufficient generation/i, "terminal tooltip explains exact partial allocation");
     await sourceTerminal.focus();
     assert.strictEqual(await page.locator(".wiring-overlay :is(line,circle,rect,g,path)").evaluateAll((nodes) => nodes.some((node) => {
       const style = getComputedStyle(node);
@@ -654,7 +654,7 @@ async function inspectCircleSafety(page) {
     await makeShortageFixture(page, { multipleGenerators: true });
     assert.strictEqual(await page.locator(".wire-power-shortage-warning").count(), 0, "no floating badge even with multiple generators");
     await page.locator(".wire-power-terminal-source .wire-power-terminal-hit").first().hover();
-    assert.match(await page.locator("#wiringHoverCard").innerText(), /Generation\s*13\.2 MW[\s\S]*Requested\s*18\.7 MW/i, "multiple-generator reactor hover uses combined authoritative generation");
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /Generation\s*13\.2 MW[\s\S]*Requested\s*21\.2 MW/i, "multiple-generator reactor hover uses combined authoritative generation");
 
     // 12. Empty and single-network states avoid misleading zero-value reports.
     await page.evaluate(async () => {

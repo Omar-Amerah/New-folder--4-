@@ -128,7 +128,11 @@
     const base = baseWeapon && typeof baseWeapon === "object" ? baseWeapon : {};
     const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
     const range = finite(base.range) + finite(support?.rangeBonus);
-    const accuracy = Math.max(0, Math.min(0.99, finite(base.accuracy) + finite(support?.accuracyBonus)));
+    // Support may sharpen accuracy up to the shared 0.99 ceiling, but never below
+    // a weapon's own base accuracy — a "cannot miss" weapon (base 1.0) keeps its
+    // perfect aim rather than being clamped down to 0.99 by the support pass.
+    const accuracyCeiling = Math.max(0.99, finite(base.accuracy));
+    const accuracy = Math.max(0, Math.min(accuracyCeiling, finite(base.accuracy) + finite(support?.accuracyBonus)));
     const fireRate = finite(base.fireRate) * (1 + finite(support?.fireRateBonus));
     const result = { ...base, range, accuracy, fireRate, reload: fireRate > 0 ? 1000 / fireRate : 0 };
     if (Number.isFinite(Number(result.damage)) && Number.isFinite(fireRate)) result.dps = Number(result.damage) * fireRate;
