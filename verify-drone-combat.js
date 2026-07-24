@@ -92,6 +92,25 @@ function drone(type, id = type) {
 }
 
 {
+  // Defence Drones now share the predictive evasion envelope; Repair Drones,
+  // which define none, still do not.
+  const { room } = makeRoom();
+  room.bullets = [{ id: "defence-threat", type: "bolt", ownerId: "red", targetId: null, x: 150, y: 0, vx: -500, vy: 0, damage: 10, life: 2 }];
+  assert.ok(fighterProjectileEvasion(room, drone("defence"), CONFIG.types.defence), "Defence Drones share predictive projectile evasion");
+  assert.equal(fighterProjectileEvasion(room, drone("repair"), CONFIG.types.repair), null, "Repair Drones still have no evasion envelope");
+}
+
+{
+  // A projectile already inside the clearance bubble adds a direct break-away
+  // push (a component pointing away from the projectile), not just a slip.
+  const { room } = makeRoom();
+  room.bullets = [{ id: "point-blank", type: "bolt", ownerId: "red", targetId: "fighter", x: 20, y: 6, vx: -400, vy: 0, damage: 10, life: 2 }];
+  const evasion = fighterProjectileEvasion(room, drone("fighter"), CONFIG.types.fighter);
+  assert.ok(evasion, "a point-blank projectile inside the clearance bubble triggers evasion");
+  assert.ok(evasion.x < 0, "break-away pushes the Fighter away from a projectile bearing down from ahead");
+}
+
+{
   const evasiveSetup = makeRoom();
   const controlSetup = makeRoom();
   evasiveSetup.room.drones.clear();

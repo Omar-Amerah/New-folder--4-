@@ -243,8 +243,10 @@ function stableDodgeSide(id) {
   return (hash & 1) === 0 ? 1 : -1;
 }
 
+// Predictive projectile evasion for combat drones. Any drone type whose balance
+// defines an evasion envelope (lookahead + clearance) uses it; Repair Drones,
+// which define none, are naturally excluded.
 function fighterProjectileEvasion(room, drone, config) {
-  if (drone.type !== "fighter") return null;
   const lookahead = Math.max(0, Number(config.evasionLookaheadSeconds) || 0);
   const clearance = Math.max(0, Number(config.evasionClearance) || 0);
   if (lookahead <= 0 || clearance <= 0) return null;
@@ -255,6 +257,8 @@ function fighterProjectileEvasion(room, drone, config) {
   let totalWeight = 0;
   let mostUrgent = null;
   let mostUrgentWeight = 0;
+  let mostUrgentDodgeX = 0;
+  let mostUrgentDodgeY = 0;
 
   for (const projectile of room.bullets || []) {
     if (!projectile || projectile.life <= 0 || !areEnemies(room, drone.ownerId, projectile.ownerId)) continue;
@@ -273,10 +277,11 @@ function fighterProjectileEvasion(room, drone, config) {
     const closestX = rx + rvx * closestTime;
     const closestY = ry + rvy * closestTime;
     const closestDistance = Math.hypot(closestX, closestY);
+    const currentDistance = Math.hypot(rx, ry);
     if (closestDistance >= clearance) continue;
     // A receding projectile only matters while it is already inside the
-    // clearance envelope; otherwise Fighters should not weave needlessly.
-    if (rawClosestTime < 0 && Math.hypot(rx, ry) >= clearance) continue;
+    // clearance envelope; otherwise drones should not weave needlessly.
+    if (rawClosestTime < 0 && currentDistance >= clearance) continue;
 
     const relativeSpeed = Math.sqrt(relativeSpeedSq);
     const perpendicularX = -rvy / relativeSpeed;
@@ -285,27 +290,55 @@ function fighterProjectileEvasion(room, drone, config) {
     const side = Math.abs(sideProjection) > 0.001
       ? (sideProjection > 0 ? -1 : 1)
       : stableDodgeSide(drone.id);
+    // Primary manoeuvre: slip perpendicular to the projectile's approach line.
+    let dirX = perpendicularX * side;
+    let dirY = perpendicularY * side;
+    // If it is already inside the clearance bubble, add a direct break-away push
+    // so the drone opens distance instead of merely sliding along the line.
+    if (currentDistance > 0.001 && currentDistance < clearance) {
+      const breakaway = (clearance - currentDistance) / clearance;
+      dirX += (-rx / currentDistance) * breakaway;
+      dirY += (-ry / currentDistance) * breakaway;
+    }
+    const dirMagnitude = Math.hypot(dirX, dirY) || 1;
+    dirX /= dirMagnitude;
+    dirY /= dirMagnitude;
+
     const clearanceUrgency = 1 - closestDistance / clearance;
-    const timeUrgency = 1 - 0.65 * (closestTime / lookahead);
+    // Urgency ramps up sharply as impact nears, so an imminent aimed shot
+    // dominates over a distant projectile that merely clips the envelope.
+    const timeFactor = 1 - closestTime / lookahead;
+    const timeUrgency = 0.2 + 0.8 * timeFactor * timeFactor;
     const projectileUrgency = projectile.targetId === drone.id
-      ? 1.35
+      ? 1.5
       : (projectile.type === "missile" || projectile.type === "torpedo")
-        ? 1.2
+        ? 1.25
         : projectile.type === "rail"
-          ? 1.1
+          ? 1.15
           : 1;
     const weight = clearanceUrgency * timeUrgency * projectileUrgency;
-    dodgeX += perpendicularX * side * weight;
-    dodgeY += perpendicularY * side * weight;
+    dodgeX += dirX * weight;
+    dodgeY += dirY * weight;
     totalWeight += weight;
     if (weight > mostUrgentWeight) {
       mostUrgentWeight = weight;
+      mostUrgentDodgeX = dirX;
+      mostUrgentDodgeY = dirY;
       mostUrgent = { projectileId: projectile.id, closestTime, closestDistance };
     }
   }
 
-  const magnitude = Math.hypot(dodgeX, dodgeY);
-  if (!mostUrgent || magnitude <= 0.0001) return null;
+  if (!mostUrgent) return null;
+  let magnitude = Math.hypot(dodgeX, dodgeY);
+  // Under crossfire the individual dodges can partly cancel and leave the drone
+  // drifting into a threat. If the combined vector collapses, commit fully to
+  // the single most dangerous projectile instead of splitting the difference.
+  if (magnitude <= 0.35 * totalWeight) {
+    dodgeX = mostUrgentDodgeX;
+    dodgeY = mostUrgentDodgeY;
+    magnitude = Math.hypot(dodgeX, dodgeY);
+  }
+  if (magnitude <= 0.0001) return null;
   return {
     x: dodgeX / magnitude,
     y: dodgeY / magnitude,
@@ -330,11 +363,16 @@ function steerFighterDrone(room, drone, targetX, targetY, config, dt, now) {
   const desiredY = targetDy / targetDistance + evasion.y * strength;
   drone.evasionProjectileId = evasion.projectileId;
   drone.lastEvasionAt = now;
+  // Briefly overdrive the engines while committing to a dodge so the drone
+  // actually clears the projectile rather than being run down by it.
+  const boost = strength > 0
+    ? 1 + Math.min(0.6, Math.max(0, Number(config.evasionSpeedBoost) || 0) * evasion.weight)
+    : 1;
   steerDrone(
     drone,
     drone.x + desiredX * Math.max(1, config.speed),
     drone.y + desiredY * Math.max(1, config.speed),
-    config.speed,
+    config.speed * boost,
     config.turnRate,
     dt
   );
@@ -399,7 +437,10 @@ function updateDroneEntity(room, drone, dt, now) {
   const phase = ((Number.parseInt(String(drone.id).replace(/\D/g, ""), 10) || drone.slot) * 2.399) + now * 0.00055;
   const pathX = anchor.x + Math.cos(phase) * orbit;
   const pathY = anchor.y + Math.sin(phase) * orbit;
-  if (drone.type === "fighter") steerFighterDrone(room, drone, pathX, pathY, config, dt, now);
+  // Evasion-capable drones (Fighter, Defence) use predictive projectile-dodging
+  // steering; others (Repair) simply hold their orbit path.
+  const canEvade = (Number(config.evasionLookaheadSeconds) || 0) > 0 && (Number(config.evasionClearance) || 0) > 0;
+  if (canEvade) steerFighterDrone(room, drone, pathX, pathY, config, dt, now);
   else steerDrone(drone, pathX, pathY, config.speed, config.turnRate, dt);
   const distance = effectiveTarget ? Math.hypot(effectiveTarget.x - drone.x, effectiveTarget.y - drone.y) : Infinity;
   if (now < drone.nextActionAt) return;
