@@ -49,6 +49,8 @@ async function launchChromium(chromium) {
   }
 }
 
+let lastSpawnedServer = null;
+
 function startServer(port) {
   const server = spawn("node", ["server.js"], {
     cwd: __dirname,
@@ -58,13 +60,15 @@ function startServer(port) {
   let log = "";
   server.stdout.on("data", (d) => { log += d; });
   server.stderr.on("data", (d) => { log += d; });
-  return { server, getLog: () => log };
+  const handle = { server, getLog: () => log, port };
+  lastSpawnedServer = handle;
+  return handle;
 }
 
 function uniquePort() {
   if (process.env.TEST_PORT) return Number(process.env.TEST_PORT);
-  const base = 30000 + (process.pid % 20000);
-  return base + Math.floor(Math.random() * 2000);
+  const base = 30000 + (process.pid % 15000);
+  return base + Math.floor(Math.random() * 5000);
 }
 
 function uniqueRoom(prefix) {
@@ -150,17 +154,47 @@ function defaultArtifactDir(name) {
   return path.join(root, name);
 }
 
-function waitForServer(base, timeoutMs = 15000) {
+function waitForServer(base, timeoutMs = 20000, serverHandle = lastSpawnedServer) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
+    let exited = false;
+    let exitCode = null;
+    const onExit = (code) => {
+      exited = true;
+      exitCode = code;
+    };
+    if (serverHandle?.server) {
+      if (serverHandle.server.exitCode !== null) {
+        exited = true;
+        exitCode = serverHandle.server.exitCode;
+      } else {
+        serverHandle.server.once("exit", onExit);
+      }
+    }
+    const cleanup = () => {
+      if (serverHandle?.server) serverHandle.server.removeListener("exit", onExit);
+    };
     const tick = () => {
+      if (exited) {
+        cleanup();
+        reject(new Error(`server process exited prematurely with code ${exitCode}. Log:\n${serverHandle?.getLog() || ""}`));
+        return;
+      }
       const req = http.get(`${base}/index.html`, (res) => {
         res.resume();
+        cleanup();
         resolve();
       });
-      req.on("error", () => {
-        if (Date.now() - start > timeoutMs) reject(new Error("server did not start"));
-        else setTimeout(tick, 200);
+      req.on("error", (err) => {
+        if (exited) {
+          cleanup();
+          reject(new Error(`server process exited prematurely with code ${exitCode}. Log:\n${serverHandle?.getLog() || ""}`));
+        } else if (Date.now() - start > timeoutMs) {
+          cleanup();
+          reject(new Error(`server did not start on ${base} after ${timeoutMs}ms (${err?.message || "connection error"}). Log:\n${serverHandle?.getLog() || ""}`));
+        } else {
+          setTimeout(tick, 200);
+        }
       });
     };
     tick();
