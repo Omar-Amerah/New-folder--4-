@@ -1139,6 +1139,20 @@ h2 {
   background: linear-gradient(90deg, #b45309, #fbbf24);
   box-shadow: none;
 }
+/* Underpowered: still building, only slowly — amber like a warning but keeps a
+   soft glow and a gentle pulse so it reads as active, not stalled. */
+.ship-drone-production.is-slowed {
+  border-color: rgba(251, 191, 36, .42);
+}
+.ship-drone-production.is-slowed > span {
+  background: linear-gradient(90deg, #b45309, #fbbf24);
+  box-shadow: 0 0 6px rgba(251, 191, 36, .4);
+  animation: ship-drone-slowed-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ship-drone-slowed-pulse { 0%, 100% { opacity: .72; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .ship-drone-production.is-slowed > span { animation: none; }
+}
 .ship-heat-summary div {
   border:1px solid rgba(103, 217, 255, .16);
   border-radius:6px;

@@ -58,11 +58,15 @@ assert.equal(queue.slots.filter((slot) => slot.state === "producing").length, 1,
 assert.equal(queue.slots[0].productionProgress, 3 / CONFIG.types.fighter.productionSeconds);
 const savedProgress = queue.slots[0].productionProgress;
 advanceBayProduction(queue, 2, 0.5, false);
-assert.equal(queue.slots[0].pauseReason, "insufficient-power");
-assert.equal(queue.slots[0].productionProgress, savedProgress, "Power interruption retains progress");
+assert.equal(queue.slots[0].pauseReason, "low-power");
+const slowedProgress = savedProgress + 2 * 0.5 / CONFIG.types.fighter.productionSeconds;
+assert.equal(queue.slots[0].productionProgress, slowedProgress, "underpowered bays build slowly instead of stalling");
+advanceBayProduction(queue, 2, 0.01, false);
+assert.equal(queue.slots[0].pauseReason, "insufficient-power", "an essentially unpowered bay still stalls");
+assert.equal(queue.slots[0].productionProgress, slowedProgress, "no-power interruption retains progress");
 advanceBayProduction(queue, 2, 1, true);
 assert.equal(queue.slots[0].pauseReason, "bay-overheated");
-assert.equal(queue.slots[0].productionProgress, savedProgress, "overheat interruption retains progress");
+assert.equal(queue.slots[0].productionProgress, slowedProgress, "overheat interruption retains progress");
 advanceBayProduction(queue, 9, 1, false);
 assert.equal(queue.slots[0].state, "ready", "production resumes to completion");
 assert.equal(queue.slots[1].state, "destroyed", "second empty slot waits for a later production cycle");

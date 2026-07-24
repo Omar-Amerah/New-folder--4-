@@ -898,12 +898,36 @@ function renderPowerShortageHoverCard(networkId, target) {
       <span>Unmet</span><strong>${escapeHtml(formatNetworkMw(network.unmetMw))}</strong>
     </div>`, target);
 }
+function renderPowerSourceHoverCard(entry, network, componentIndex, target) {
+  const demand = Number(network?.demandMw) || 0;
+  const delivered = Number(network?.allocatedMw) || 0;
+  const unmet = Number(network?.unmetMw) || 0;
+  const stateLabel = !network
+    ? "No connected demand"
+    : Number(network.availableGenerationMw) + 0.0005 < demand
+      ? "Insufficient generation"
+      : unmet > 0.0005
+        ? "Cable bottleneck"
+        : demand <= 0
+          ? "No active demand"
+          : "Demand supplied";
+  showWiringHoverCard(`<h4>${escapeHtml(partName(state.design[componentIndex]?.type))}</h4>
+    <div class="wiring-hover-flow">${escapeHtml(stateLabel)}</div>
+    <div class="wiring-hover-card-grid">
+      <span>Generation</span><strong>${escapeHtml(formatNetworkMw(network ? network.availableGenerationMw : entry.generationAvailableMw))}</strong>
+      <span>Requested</span><strong>${escapeHtml(formatNetworkMw(demand))}</strong>
+      <span>Delivered</span><strong>${escapeHtml(formatNetworkMw(delivered))}</strong>
+      <span>Unmet</span><strong>${escapeHtml(formatNetworkMw(unmet))}</strong>
+    </div>`, target);
+}
 function renderPowerComponentHoverCard(componentIndex, target) {
   if (state.blueprintView !== "wiring" || ui().mode !== "power") return clearWiringHoverCard();
   const flow = designerPowerFlow();
   const entry = flow?.byComponentIndex?.find((item) => item.componentIndex === componentIndex);
-  if (!entry || entry.role !== "consumer") return clearWiringHoverCard();
+  if (!entry) return clearWiringHoverCard();
   const network = (flow.networks || []).find((item) => entry.networkIds?.includes(item.id));
+  if (entry.role === "source") return renderPowerSourceHoverCard(entry, network, componentIndex, target);
+  if (entry.role !== "consumer") return clearWiringHoverCard();
   const supply = entry.requestedMw > 0 ? Math.round((Number(entry.allocatedMw) / Number(entry.requestedMw)) * 100) : 100;
   const stateLabel = powerSupplyState(entry) === "full" ? "Fully powered" : powerSupplyState(entry) === "partial" ? "Partially powered" : "Unpowered";
   const reason = entry.state === "disconnected"
@@ -1226,6 +1250,15 @@ function powerTerminalVisual(index, entry, selected = false) {
   if (networkId) group.dataset.powerNetworkId = networkId;
   if (entry?.role === "source") {
     group.appendChild(svgEl("circle", { cx: x, cy: y, r: 0.14 }, "wire-terminal wire-terminal-power wire-terminal-source"));
+    // A hit target so hovering the source (reactor) shows the network's
+    // generation vs demand, the same way hovering a consumer/weapon does.
+    const hit = svgEl("circle", {
+      cx: x, cy: y, r: 0.18, tabindex: 0, role: "button",
+      "aria-label": `${moduleLabel(index)}. Power source. ${formatNetworkMw(entry?.generationAvailableMw)} generation.`
+    }, "wire-power-terminal-hit");
+    hit.dataset.powerComponentIndex = String(index);
+    if (networkId) hit.dataset.powerNetworkId = networkId;
+    group.appendChild(hit);
     return group;
   }
   const supplyState = powerSupplyState(entry);
@@ -1248,33 +1281,6 @@ function powerTerminalVisual(index, entry, selected = false) {
   hit.dataset.powerComponentIndex = String(index);
   if (networkId) hit.dataset.powerNetworkId = networkId;
   group.appendChild(hit);
-  return group;
-}
-function shortageWarningVisual(network, selectedSourceIndex = null) {
-  const sourceIndex = network.sourceIndices.includes(selectedSourceIndex) ? selectedSourceIndex : network.sourceIndices[0];
-  const module = state.design[sourceIndex];
-  if (!module) return null;
-  const stat = PART_STATS[module.type] || PART_STATS.frame;
-  const bounds = getFootprintBounds(module.x, module.y, stat.footprint || { width: 1, height: 1 }, module.rotation || 0);
-  const width = 2.62; const height = 0.78;
-  const x = Math.max(0.12, Math.min(GRID_SIZE - width - 0.12, bounds.minX + bounds.width / 2 - width / 2));
-  const above = bounds.minY - height - 0.14;
-  const y = above >= 0.12 ? above : Math.min(GRID_SIZE - height - 0.12, bounds.maxY + 0.14);
-  const missingMw = Math.max(0, Number(network.demandMw) - Number(network.availableGenerationMw));
-  const group = svgGroup("wire-power-shortage-warning");
-  group.dataset.powerShortageNetworkId = network.id;
-  group.dataset.powerNetworkId = network.id;
-  group.setAttribute("tabindex", "0");
-  group.setAttribute("role", "button");
-  group.setAttribute("aria-label", `Power shortage. ${formatNetworkMw(network.availableGenerationMw)} generation, ${formatNetworkMw(network.demandMw)} requested, ${formatNetworkMw(network.allocatedMw)} delivered, ${formatNetworkMw(network.unmetMw)} unmet.`);
-  group.append(
-    svgEl("rect", { x, y, width, height, rx: 0.18, ry: 0.18 }, "wire-power-shortage-pill"),
-    svgEl("text", { x: x + 0.18, y: y + 0.29 }, "wire-power-shortage-title"),
-    svgEl("text", { x: x + 0.18, y: y + 0.59 }, "wire-power-shortage-value")
-  );
-  group.children[1].textContent = "POWER SHORTAGE";
-  group.children[2].textContent = `${formatHoverMw(network.availableGenerationMw).replace(" MW", "")} / ${formatHoverMw(network.demandMw)}`;
-  group.dataset.powerShortageMw = String(missingMw);
   return group;
 }
 const DATA_SECTION_SEVERITY_CLASS = Object.freeze({ critical: "data-critical-section", high: "data-high-impact-section", medium: "data-medium-impact-section", low: "data-low-impact-section", redundant: "data-redundant-section" });
@@ -1414,13 +1420,14 @@ function renderWiringOverlay() {
     });
   }
   if (view.mode === "power") {
+    // Underpowered networks are surfaced through the source (reactor) terminal
+    // hover card and the per-consumer supply rings — not a floating badge that
+    // covers the grid. The source module keeps a subtle amber highlight.
     for (const network of generationShortageNetworks(powerFlow)) {
       for (const sourceIndex of network.sourceIndices) {
         const sourceRect = moduleRect(sourceIndex, "wire-component-supply wire-component-supply-source");
         if (sourceRect) { sourceRect.dataset.powerNetworkId = network.id; indicatorLayer.appendChild(sourceRect); }
       }
-      const warning = shortageWarningVisual(network, view.selectedIndex);
-      if (warning) warningLayer.appendChild(warning);
     }
   }
   // Only the active mode's source ports are drawable, so only they are drawn: a

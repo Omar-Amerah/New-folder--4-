@@ -67,28 +67,36 @@ function bodyGradient(env, color) {
 }
 
 // Silhouette paths, local +x = forward (matches ship/weapon convention).
+// Deliberately chunky, faceted hulls — blunt fronts, rectangular cores and
+// hard-edged wings — so each drone reads as a small blocky craft.
 function buildDronePath(gfx, type, s) {
   if (type === "defence") {
-    // Rounded guardian diamond.
-    gfx.moveTo(s * 0.5, 0);
-    gfx.lineTo(-s * 0.02, s * 0.4);
-    gfx.lineTo(-s * 0.46, 0);
-    gfx.lineTo(-s * 0.02, -s * 0.4);
+    // Blocky guardian bastion: a blunt vertical prow and a hexagonal body.
+    gfx.moveTo(s * 0.46, -s * 0.18);
+    gfx.lineTo(s * 0.46, s * 0.18);
+    gfx.lineTo(s * 0.04, s * 0.42);
+    gfx.lineTo(-s * 0.42, s * 0.26);
+    gfx.lineTo(-s * 0.42, -s * 0.26);
+    gfx.lineTo(s * 0.04, -s * 0.42);
     gfx.closePath();
   } else if (type === "repair") {
-    // Two crossed service booms.
-    gfx.roundRect(-s * 0.34, -s * 0.12, s * 0.68, s * 0.24, s * 0.06);
-    gfx.roundRect(-s * 0.12, -s * 0.34, s * 0.24, s * 0.68, s * 0.06);
+    // Two crossed service booms with hard, square corners.
+    gfx.rect(-s * 0.36, -s * 0.14, s * 0.72, s * 0.28);
+    gfx.rect(-s * 0.14, -s * 0.36, s * 0.28, s * 0.72);
   } else {
-    // Sleek fighter dart.
-    gfx.moveTo(s * 0.62, 0);
-    gfx.lineTo(s * 0.04, s * 0.3);
-    gfx.lineTo(-s * 0.4, s * 0.42);
-    gfx.lineTo(-s * 0.24, s * 0.12);
-    gfx.lineTo(-s * 0.3, 0);
-    gfx.lineTo(-s * 0.24, -s * 0.12);
-    gfx.lineTo(-s * 0.4, -s * 0.42);
-    gfx.lineTo(s * 0.04, -s * 0.3);
+    // Blocky gunship: blunt nose, rectangular engine block, hard-edged wings.
+    gfx.moveTo(s * 0.5, -s * 0.13);
+    gfx.lineTo(s * 0.5, s * 0.13);
+    gfx.lineTo(s * 0.04, s * 0.2);
+    gfx.lineTo(-s * 0.04, s * 0.44);
+    gfx.lineTo(-s * 0.26, s * 0.44);
+    gfx.lineTo(-s * 0.2, s * 0.16);
+    gfx.lineTo(-s * 0.4, s * 0.16);
+    gfx.lineTo(-s * 0.4, -s * 0.16);
+    gfx.lineTo(-s * 0.2, -s * 0.16);
+    gfx.lineTo(-s * 0.26, -s * 0.44);
+    gfx.lineTo(-s * 0.04, -s * 0.44);
+    gfx.lineTo(s * 0.04, -s * 0.2);
     gfx.closePath();
   }
 }
@@ -173,12 +181,11 @@ function ensureTrails(env) {
 // bright core, round caps), replacing the old baked static tail stub. The plume
 // is anchored to the rear thruster port in the drone's *facing* frame (not raw
 // velocity) so it stays glued to the tail while the drone strafes or orbits.
-function drawDroneTrail(gfx, drone, x, y, scale, zoom, damaged, now) {
+function drawDroneTrail(gfx, drone, x, y, scale, zoom, damaged, now, angle = drone.angle || 0) {
   if (drone.state === "docking") return;
   const colors = droneColors(drone.type);
   const speed = Math.hypot(drone.vx || 0, drone.vy || 0);
   if (speed > 5) {
-    const angle = drone.angle || 0;
     const facingX = Math.cos(angle);
     const facingY = Math.sin(angle);
     // Start exactly at the thruster port (local -0.24 * size, rotated + scaled).
@@ -276,8 +283,12 @@ function updateProductionBars(env, now, bounds) {
     for (const bay of ship.droneBays || []) {
       const slot = bay.slots?.find((candidate) => candidate.state === "producing");
       if (!slot || (bounds && !isCircleVisible(bay.x, bay.y, 24, bounds))) continue;
+      // "low-power" means the bay is still building, just slowly, so it reads as
+      // active (amber + moving scan line) rather than a hard pause.
+      const lowPower = slot.pauseReason === "low-power";
+      const hardPaused = Boolean(slot.pauseReason) && !lowPower;
       renderedProductionBarCount += 1;
-      if (slot.pauseReason) renderedPausedBarCount += 1;
+      if (hardPaused) renderedPausedBarCount += 1;
       const width = 24;
       const x = bay.x - width / 2;
       const y = bay.y - 18;
@@ -285,7 +296,7 @@ function updateProductionBars(env, now, bounds) {
       productionBars.fill({ color: 0x07111f, alpha: 0.86 });
       productionBars.roundRect(x + 1, y + 1, Math.max(0, (width - 2) * slot.progress), 2, 1);
       productionBars.fill({ color: slot.pauseReason ? 0xfbbf24 : 0x67e8f9, alpha: 0.95 });
-      if (!slot.pauseReason) {
+      if (!hardPaused) {
         const scan = x + 1 + ((now * 0.025) % Math.max(1, width - 2));
         productionBars.rect(scan, y, 1, 4);
         productionBars.fill({ color: 0xe0f2fe, alpha: 0.55 });
@@ -299,14 +310,18 @@ export function updatePixiDrones(env, now, players, bounds) {
   trailGfx.clear();
   const live = new Set();
   const zoom = Math.max(0.25, Number(state.camera?.zoom) || 1);
-  const snapshotAge = Math.min(0.12, Math.max(0, (now - (state.snapshotReceivedAt || now)) / 1000));
   for (const drone of state.snapshot?.drones || []) {
     live.add(drone.id);
     let view = views.get(drone.id);
     if (!view) view = createView(env, drone);
     const player = players?.get?.(drone.ownerId);
-    const x = drone.x + (drone.vx || 0) * snapshotAge;
-    const y = drone.y + (drone.vy || 0) * snapshotAge;
+    // Use the shared render-interpolation transform (same 100ms delayed,
+    // extrapolation-capped timeline as ships) so drones glide between snapshots
+    // instead of jittering on each heading change.
+    const vis = state.visualDrones?.get?.(drone.id);
+    const x = vis ? vis.x : drone.x;
+    const y = vis ? vis.y : drone.y;
+    const angle = vis ? vis.angle : (drone.angle || 0);
     view.root.visible = !bounds || isCircleVisible(x, y, 24, bounds);
     if (!view.root.visible) continue;
     if (view.type !== drone.type || view.teamColor !== player?.color) {
@@ -315,7 +330,7 @@ export function updatePixiDrones(env, now, players, bounds) {
       drawDrone(env, view, drone, player);
     }
     view.root.position.set(x, y);
-    view.root.rotation = drone.angle || 0;
+    view.root.rotation = angle;
     const launchScale = drone.state === "launching" ? 0.7 + 0.3 * (drone.stateProgress || 0) : 1;
     const damageScale = drone.maxHull > 0 ? 0.9 + 0.1 * Math.max(0, drone.hull / drone.maxHull) : 1;
     // Keep drones readable when zoomed out without letting them balloon.
@@ -328,7 +343,7 @@ export function updatePixiDrones(env, now, players, bounds) {
     if (damaged) alpha *= 0.68 + 0.32 * Math.abs(Math.sin(now * 0.012));
     view.root.alpha = alpha;
 
-    drawDroneTrail(trailGfx, drone, x, y, scale, zoom, damaged, now);
+    drawDroneTrail(trailGfx, drone, x, y, scale, zoom, damaged, now, angle);
   }
   for (const [id, view] of views) {
     if (live.has(id)) continue;

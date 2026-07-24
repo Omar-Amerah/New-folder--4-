@@ -1130,17 +1130,23 @@ export function removeCell(x, y) {
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part !== existing);
   const validation = validateBlueprint(next, { requireThrust: false });
-  if (validation.ok) {
-    const before = captureBlueprintEditSnapshot(state);
-    commitPhysicalEdit(before, () => {
-      state.design = next;
-      syncWiringWithDesign();
-    });
-  } else {
-    const message = validation.errors[0] || "Removing that part would make the blueprint invalid";
+  // Removing a part must never be blocked by problems that already existed
+  // before the removal (e.g. an unconfigured Drone Bay elsewhere in the design).
+  // Only block when the removal itself introduces a NEW blueprint error, such as
+  // disconnecting the ship from its core.
+  const preexisting = new Set(validateBlueprint(state.design, { requireThrust: false }).errors);
+  const introduced = validation.errors.filter((message) => !preexisting.has(message));
+  if (introduced.length) {
+    const message = introduced[0] || "Removing that part would make the blueprint invalid";
     setBuildStatus(message, "warning");
     showToast(message, "warning");
+    return;
   }
+  const snapshot = captureBlueprintEditSnapshot(state);
+  commitPhysicalEdit(snapshot, () => {
+    state.design = next;
+    syncWiringWithDesign();
+  });
 }
 
 
@@ -2059,7 +2065,16 @@ function statusGroupMarkup(severity, title, issues) {
   `;
 }
 
-function errorFingerprint(groups) { return groups.errors[0] ? `error:${String(groups.errors[0]).trim().toLowerCase().replace(/\s+/g, " ")}` : null; }
+function errorFingerprint(groups) {
+  if (!groups.errors[0]) return null;
+  // Identify the error by its wording, not the exact figures inside it. Editing
+  // wiring nudges cost/power totals, so a message like "Need $75 more" becomes
+  // "Need $80 more" — the same affordability problem. Collapsing the numbers
+  // keeps the fingerprint stable so a dismissed panel does not re-open on every
+  // wire edit; a genuinely different error (different wording) still reopens it.
+  const normalized = String(groups.errors[0]).trim().toLowerCase().replace(/\d[\d.,]*/g, "#").replace(/\s+/g, " ");
+  return `error:${normalized}`;
+}
 
 function updateStatusAutoDisclosure(groups) {
   const disclosure = state.blueprintStatusDisclosure;

@@ -8,6 +8,11 @@ const HeatRules = require("../../public/src/shared/heatRules");
 const CONFIG = BALANCE.drones;
 const MODULE_SCALE = 13;
 const GRID_CENTER = 7;
+// A drone bay only needs meaningful power to launch and command drones — not a
+// near-perfect supply. Below this floor it is treated as effectively unpowered
+// (drones fall back / stop launching); above it, partial power just means a
+// slower launch cadence rather than a hard stop.
+const MIN_BAY_OPERATING_POWER = 0.05;
 
 function initializeDroneBays(room, ship, now) {
   const validation = DroneBayRules.validateDroneBays(ship.design || [], PARTS, { maximum: CONFIG.maxBaysPerShip });
@@ -350,7 +355,7 @@ function updateDroneEntity(room, drone, dt, now) {
   }
   const bay = parent.droneBays?.find((entry) => entry.componentId === drone.bayComponentId);
   const bayOperational = bay && (parent.componentHp?.[bay.componentIndex] ?? 0) > 0;
-  const bayPowered = bayOperational && require("./componentPower").getComponentPowerMultiplier(parent, bay.componentIndex) >= 0.98;
+  const bayPowered = bayOperational && require("./componentPower").getComponentPowerMultiplier(parent, bay.componentIndex) > MIN_BAY_OPERATING_POWER;
   const fallback = !bayOperational || !bayPowered;
   drone.commandState = fallback ? "fallback" : bay.mode;
   if (fallback) drone.state = "fallback";
@@ -435,16 +440,20 @@ function advanceBayProduction(bay, dt, power, overheated, operational = true) {
     producing.pauseReason = "bay-overheated";
     return producing;
   }
-  if (power < 0.98) {
-    producing.pauseReason = "insufficient-power";
-    return producing;
-  }
   const duration = CONFIG.types[bay.droneType]?.productionSeconds;
   if (!(duration > 0)) {
     producing.pauseReason = "invalid-configuration";
     return producing;
   }
-  producing.pauseReason = null;
+  // Underpowered bays build slowly rather than stalling: production progress
+  // already scales with the delivered power fraction (dt * power / duration), so
+  // partial power simply means a slower build. Only an essentially unpowered bay
+  // (no meaningful allocation) makes no progress at all.
+  if (power <= 0.02) {
+    producing.pauseReason = "insufficient-power";
+    return producing;
+  }
+  producing.pauseReason = power < 0.98 ? "low-power" : null;
   producing.productionProgress = Math.min(1, producing.productionProgress + dt * power / duration);
   if (producing.productionProgress >= 1) producing.state = bay.mode === "deployed" ? "ready" : "stored";
   return producing;
@@ -469,11 +478,14 @@ function updateDroneBays(room, ships, dt, now) {
       const active = bay.slots.some((slot) => ["launching", "active", "returning"].includes(slot.state));
       const heatPerSecond = producing ? CONFIG.productionHeatPerSecond : active ? CONFIG.activeHeatPerSecond : CONFIG.standbyHeatPerSecond;
       addComponentHeat(ship, bay.componentIndex, heatPerSecond * power * dt);
-      if (bay.mode !== "deployed" || now < bay.nextLaunchAt || power < 0.98 || overheated) continue;
+      if (bay.mode !== "deployed" || now < bay.nextLaunchAt || power <= MIN_BAY_OPERATING_POWER || overheated) continue;
       const ready = bay.slots.find((slot) => slot.state === "ready" || slot.state === "stored");
       if (ready) {
         spawnDrone(room, ship, bay, ready, now);
-        bay.nextLaunchAt = now + CONFIG.launchIntervalSeconds * 1000;
+        // Underpowered bays launch on a longer cadence rather than not at all;
+        // the interval stretches as delivered power drops (clamped so a barely
+        // powered bay is slow, not frozen).
+        bay.nextLaunchAt = now + CONFIG.launchIntervalSeconds * 1000 / Math.max(0.35, power);
       }
     }
   }

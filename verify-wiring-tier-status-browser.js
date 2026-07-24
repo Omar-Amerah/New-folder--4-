@@ -152,7 +152,7 @@ async function makeShortageFixture(page, { multipleGenerators = false } = {}) {
     wiring.refreshWiringPresentation();
     designer.renderLocalStats();
   }, multipleGenerators);
-  await page.locator(".wire-power-shortage-warning").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".wire-component-supply-source").first().waitFor({ state: "visible", timeout: 5000 });
 }
 // Computed style of the visible cable line for a section id.
 async function visibleStyle(page, sectionId) {
@@ -623,12 +623,11 @@ async function inspectCircleSafety(page) {
     assert.ok(await page.locator(".wire-visible-layer .wire-supply-full").count() >= 1, "fully powered cable uses the normal supplied state");
     assert.strictEqual(await page.locator(".wire-terminal-supply-full").count(), 1, "healthy consumer terminal shows a complete supplied ring");
 
-    // 11. One compact, authoritative shortage summary drives cable, terminal,
-    // component-highlight and accessible hover states.
+    // 11. Underpowered networks are surfaced through the source (reactor)
+    // terminal hover — generation vs demand — and the per-consumer supply rings.
+    // No floating badge covers the grid.
     await makeShortageFixture(page);
-    const shortage = page.locator(".wire-power-shortage-warning");
-    assert.strictEqual(await shortage.count(), 1, "one shortage warning is rendered for one underpowered network");
-    assert.match(await shortage.textContent(), /POWER SHORTAGE[\s\S]*10\s*\/\s*18\.7 MW/i, "warning uses authoritative generation and requested demand");
+    assert.strictEqual(await page.locator(".wire-power-shortage-warning").count(), 0, "no floating shortage badge is rendered over the grid");
     assert.strictEqual(await page.locator(".wire-terminal-supply-full").count(), 3, "higher-priority healthy consumers retain full terminal rings");
     assert.strictEqual(await page.locator(".wire-terminal-supply-partial").count(), 1, "throttled consumer gets one half-ring terminal");
     assert.strictEqual(await page.locator(".wire-terminal-supply-none").count(), 1, "shed consumer gets one crossed terminal");
@@ -638,28 +637,24 @@ async function inspectCircleSafety(page) {
       const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
       return computeStats(state.design, { wiring: state.wiring }).maxShield;
     }), 200, "Blueprint Shield preview follows priority allocation instead of a network-wide shortage ratio");
-    await shortage.hover();
-    assert.match(await page.locator("#wiringHoverCard").innerText(), /Power shortage[\s\S]*Generation\s*10\.0 MW[\s\S]*Requested\s*18\.7 MW[\s\S]*Delivered\s*10\.0 MW[\s\S]*Unmet\s*8\.7 MW/i, "shortage tooltip exposes the four authoritative totals");
-    assert.strictEqual(await page.locator(".wire-component-supply-partial.wire-shortage-related").count(), 1, "warning hover identifies the partially powered consumer");
-    assert.strictEqual(await page.locator(".wire-component-supply-none.wire-shortage-related").count(), 1, "warning hover identifies the unpowered consumer");
-    assert.strictEqual(await page.locator(".wire-component-supply-source.wire-shortage-related").count(), 1, "warning hover identifies the contributing generator");
+    // Hovering the reactor (source) terminal exposes the four authoritative totals.
+    const sourceTerminal = page.locator(".wire-power-terminal-source .wire-power-terminal-hit").first();
+    await sourceTerminal.hover();
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /Insufficient generation[\s\S]*Generation\s*10\.0 MW[\s\S]*Requested\s*18\.7 MW[\s\S]*Delivered\s*10\.0 MW[\s\S]*Unmet\s*8\.7 MW/i, "reactor hover exposes generation, requested, delivered and unmet");
     const partialTerminal = page.locator(".wire-terminal-supply-partial .wire-power-terminal-hit");
     await partialTerminal.hover();
     assert.match(await page.locator("#wiringHoverCard").innerText(), /POINT DEFENCE[\s\S]*Partially powered[\s\S]*Requested\s*3\.0 MW[\s\S]*Delivered\s*1\.8 MW[\s\S]*Supply\s*60%[\s\S]*Insufficient generation/i, "terminal tooltip explains exact partial allocation");
-    await shortage.focus();
-    await page.keyboard.press("Enter");
-    assert.ok(await page.locator(".wire-power-shortage-warning").evaluate((node) => node.classList.contains("is-selected")), "keyboard activation selects the compact warning");
+    await sourceTerminal.focus();
     assert.strictEqual(await page.locator(".wiring-overlay :is(line,circle,rect,g,path)").evaluateAll((nodes) => nodes.some((node) => {
       const style = getComputedStyle(node);
       return style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0;
-    })), false, "shortage and terminal keyboard focus create no native SVG outline");
+    })), false, "terminal keyboard focus creates no native SVG outline");
     await page.screenshot({ path: path.join(artifactDir, "desktop-power-shortage.png"), fullPage: true });
 
     await makeShortageFixture(page, { multipleGenerators: true });
-    assert.strictEqual(await page.locator(".wire-power-shortage-warning").count(), 1, "shared network with multiple generators still gets one warning");
-    assert.match(await page.locator(".wire-power-shortage-warning").textContent(), /13\.2\s*\/\s*18\.7 MW/i, "multiple-generator output is combined exactly once");
-    await page.locator(".wire-power-shortage-warning").hover();
-    assert.match(await page.locator("#wiringHoverCard").innerText(), /Generation\s*13\.2 MW[\s\S]*Requested\s*18\.7 MW/i, "multiple-generator tooltip uses combined authoritative generation");
+    assert.strictEqual(await page.locator(".wire-power-shortage-warning").count(), 0, "no floating badge even with multiple generators");
+    await page.locator(".wire-power-terminal-source .wire-power-terminal-hit").first().hover();
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /Generation\s*13\.2 MW[\s\S]*Requested\s*18\.7 MW/i, "multiple-generator reactor hover uses combined authoritative generation");
 
     // 12. Empty and single-network states avoid misleading zero-value reports.
     await page.evaluate(async () => {

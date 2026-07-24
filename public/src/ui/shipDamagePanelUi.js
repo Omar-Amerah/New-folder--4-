@@ -670,7 +670,11 @@ function renderDroneSummary(ship) {
       const ready = slots.filter((slot) => slot.state === "ready" || slot.state === "stored").length;
       const label = String(bay.droneType || "drone").replace(/^./, (letter) => letter.toUpperCase());
       const commandRange = Math.max(0, Math.round(Number(bay.commandRange) || 0));
+      // "low-power" means the bay is still building, only slowly, so it is shown
+      // as a slowed build rather than a hard pause.
+      const lowPower = bay.productionPausedReason === "low-power";
       const problem = bay.productionPausedReason ? String(bay.productionPausedReason).replaceAll("-", " ") : null;
+      const hardProblem = problem && !lowPower ? problem : null;
       const progress = producing ? Math.max(0, Math.min(1, Number(producing.progress) || 0)) : null;
       const progressPercent = progress === null ? null : Math.round(progress * 100);
       const squadComplete = slots.length > 0 && active + ready === slots.length;
@@ -681,7 +685,7 @@ function renderDroneSummary(ship) {
         return `<i class="ship-drone-pip is-${escapeHtml(stateName)}" aria-hidden="true" title="${escapeHtml(title)}"${pipProgress}></i>`;
       }).join("");
       const progressBar = progressPercent === null ? "" : `
-        <div class="ship-drone-production${problem ? " is-paused" : ""}" role="progressbar" aria-label="${escapeHtml(label)} replacement production" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" title="${problem ? `Paused: ${escapeHtml(problem)}` : `${progressPercent}% complete`}">
+        <div class="ship-drone-production${hardProblem ? " is-paused" : ""}${lowPower ? " is-slowed" : ""}" role="progressbar" aria-label="${escapeHtml(label)} replacement production" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" title="${hardProblem ? `Paused: ${escapeHtml(hardProblem)}` : lowPower ? `Building slowly: low power (${progressPercent}%)` : `${progressPercent}% complete`}">
           <span style="width:${progressPercent}%"></span>
         </div>`;
       return `<div class="ship-drone-bay-row">
