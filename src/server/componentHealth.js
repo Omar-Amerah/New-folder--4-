@@ -33,15 +33,8 @@ function initComponentState(ship) {
   const rawSum = rawHp.reduce((sum, hp, i) => (design[i].type === "core" ? sum : sum + hp), 0) || 1;
   const scale = (ship.stats?.maxHp || rawSum) / rawSum;
 
-  ship.componentMaxHp = rawHp.map((hp) => hp * scale);
+  ship.componentMaxHp = rawHp.map((hp, i) => (design[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale));
   ship.componentHp = ship.componentMaxHp.slice();
-  const coreHp = Math.max(320, Math.round((ship.stats?.maxHp || rawSum) * 0.45));
-  design.forEach((module, i) => {
-    if (module.type === "core") {
-      ship.componentMaxHp[i] = coreHp;
-      ship.componentHp[i] = coreHp;
-    }
-  });
   ship.maxHp = ship.stats?.maxHp || rawSum;
   ship.hp = ship.maxHp;
   ship.coreDestroyed = false;
@@ -138,7 +131,6 @@ function nearestAliveComponent(ship, gx, gy) {
   const design = ship.design || [];
   for (let i = 0; i < design.length; i += 1) {
     if (ship.componentHp[i] <= 0) continue;
-    if (design[i].type === "core") continue; // indestructible, can't soak the fallback hit
     const dx = design[i].x - gx;
     const dy = design[i].y - gy;
     const distSq = dx * dx + dy * dy;
@@ -413,6 +405,7 @@ function repairShipComponents(room, ship, amount, now) {
     let idx = -1;
     let worstMissing = 0.0001;
     for (let i = 0; i < ship.componentHp.length; i += 1) {
+      if (ship.design[i].type === "core" && ship.componentHp[i] <= 0) continue;
       const missing = ship.componentMaxHp[i] - ship.componentHp[i];
       if (missing > worstMissing) {
         worstMissing = missing;

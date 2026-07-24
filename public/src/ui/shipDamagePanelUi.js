@@ -531,10 +531,6 @@ function renderComponentHeatReadout(ship, index) {
 function renderComponentDamageReadout(ship, index) {
   if (!dom.shipDamageHover) return;
   const part = ship.design[index];
-  if (part.type === "core") {
-    dom.shipDamageHover.textContent = "Core — indestructible";
-    return;
-  }
   const max = componentMaxFromShip(ship, index);
   const hp = ship.chp[index] ?? 0;
   const status = statusFor(max > 0 ? hp / max : 0);
@@ -1177,7 +1173,19 @@ function renderCoreStatus(ship) {
 
   let text = "";
   let tone = "";
-  if (!ship.alive || coreHp <= 0) {
+  if (!ship.alive) {
+    text = "SHIP LOST";
+    tone = "destroyed";
+  } else if (ship.commandState === "backupCore") {
+    if (ship.emergencyReserveUntil && performance.now() < ship.emergencyReserveUntil) {
+      const remainingSec = Math.max(0, (ship.emergencyReserveUntil - performance.now()) / 1000).toFixed(1);
+      text = `EMERGENCY RESERVE (${remainingSec}s)`;
+      tone = "critical";
+    } else {
+      text = "BACKUP COMMAND ACTIVE";
+      tone = "exposed";
+    }
+  } else if (coreHp <= 0) {
     text = "SHIP LOST";
     tone = "destroyed";
   } else if (coreMax > 0 && coreHp / coreMax <= CRITICAL_RATIO) {

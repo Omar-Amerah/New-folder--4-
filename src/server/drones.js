@@ -421,7 +421,10 @@ function steerFighterDrone(room, drone, targetX, targetY, config, dt, now) {
 
 function updateDroneEntity(room, drone, dt, now) {
   const parent = room.ships.get(drone.parentShipId);
-  const config = CONFIG.types[drone.type];
+  const baseConfig = CONFIG.types[drone.type];
+  const config = parent?.commandState === "backupCore"
+    ? { ...baseConfig, commandRange: (baseConfig?.commandRange || 0) * 0.80 }
+    : baseConfig;
   if (!parent?.alive) {
     drone.orphanedAt ||= now;
     drone.state = "orphaned";

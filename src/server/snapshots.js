@@ -57,6 +57,8 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       focusTargetId: ship.focusTargetId || ship.repairTargetId || null,
       combatTargetId: ship.combatTargetId || null,
       weaponAngles: (ship.weaponAngles || []).map(round),
+      commandState: ship.commandState || "mainCore",
+      emergencyReserveUntil: ship.emergencyReserveUntil || null,
       alive: ship.alive,
       blasterRange: effectiveRanges.blaster,
       missileRange: effectiveRanges.missile,

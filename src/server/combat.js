@@ -51,7 +51,7 @@ function targetCoreAimWorldPosition(target) {
 
   for (let i = 0; i < target.design.length; i += 1) {
     const type = target.design[i].type;
-    if ((type === "emergencyCore" || type === "commandCore" || type === "emergencyCommandCore") && isComponentAlive(target, i)) {
+    if ((type === "backupCore" || type === "emergencyCore" || type === "commandCore" || type === "emergencyCommandCore") && isComponentAlive(target, i)) {
       const pos = componentAimWorldPosition(target, i);
       if (pos) return { ...pos, componentIndex: i };
     }
@@ -360,70 +360,115 @@ function weaponSpreadRadians(weapon, family) {
   return (1 - accuracy) * scale;
 }
 
+function getCandidatePriorityIndex(candidate, priorityList) {
+  if (!priorityList || !priorityList.length) return -1;
+  const type = candidate.type;
+  if (type === "drone") {
+    const droneType = candidate.entity.type;
+    const droneClass = droneType === "fighter" ? "droneFighter" : "droneOther";
+    let idx = priorityList.indexOf(droneClass);
+    if (idx === -1) idx = priorityList.indexOf("drone");
+    return idx;
+  }
+  if (type === "projectile") {
+    let idx = priorityList.indexOf(candidate.entity.type);
+    if (idx === -1) idx = priorityList.indexOf("projectile");
+    return idx;
+  }
+  if (type === "ship") {
+    return priorityList.indexOf("ship");
+  }
+  return -1;
+}
+
+function isCandidateTargetingProtected(candidate, protectedShipId, room, shipOwnerId) {
+  if (!protectedShipId) return false;
+  const ent = candidate.entity;
+  if (candidate.type === "projectile") {
+    return ent.targetId === protectedShipId;
+  }
+  if (candidate.type === "drone") {
+    return ent.targetId === protectedShipId || ent.parentShipId === protectedShipId;
+  }
+  if (candidate.type === "ship") {
+    return ent.combatTargetId === protectedShipId || ent.focusTargetId === protectedShipId;
+  }
+  return false;
+}
+
+function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq, priorityList, protectedShipId, room, shipOwnerId) {
+  if (!bestCandidate) return true;
+  const pA = getCandidatePriorityIndex(candidate, priorityList);
+  const pB = getCandidatePriorityIndex(bestCandidate, priorityList);
+  if (pA !== pB) return pA < pB;
+
+  const tA = isCandidateTargetingProtected(candidate, protectedShipId, room, shipOwnerId);
+  const tB = isCandidateTargetingProtected(bestCandidate, protectedShipId, room, shipOwnerId);
+  if (tA !== tB) return tA;
+
+  if (Math.abs(candidateDistSq - bestDistSq) > 1e-4) return candidateDistSq < bestDistSq;
+
+  return isStableIdBefore(candidate.entity, bestCandidate.entity);
+}
+
 function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null) {
-  let best = null;
-  let bestScore = -Infinity;
   const rangeSq = weapon.range * weapon.range;
+  const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "ship"];
+  let best = null;
+  let bestDistSq = Infinity;
 
-  for (const bullet of room.bullets) {
+  for (const bullet of room.bullets || []) {
     if (!bullet.interceptable || bullet.life <= 0 || !areEnemies(room, shipOwnerId, bullet.ownerId)) continue;
-
     const dx = bullet.x - worldX;
     const dy = bullet.y - worldY;
     const distSq = dx * dx + dy * dy;
+    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, bullet.x, bullet.y, 4)) continue;
 
-    if (distSq <= rangeSq && !isLineBlocked(room, worldX, worldY, bullet.x, bullet.y, 4)) {
-      let score = -distSq;
-      if (protectedShipId && bullet.targetId === protectedShipId) score += 10000000;
-      else if (ships.some((ally) => ally?.alive && ally.id === bullet.targetId && areAllies(room, shipOwnerId, ally.ownerId))) score += 5000000;
+    const cand = { type: "projectile", entity: bullet };
+    const pIdx = getCandidatePriorityIndex(cand, priorityList);
+    if (pIdx === -1) continue;
 
-      const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "ship"];
-      const pIndex = priorityList.indexOf(bullet.type);
-      if (pIndex !== -1) {
-          score -= pIndex * 100000;
-      }
-
-      if (score > bestScore || (score === bestScore && (!best || isStableIdBefore(bullet, best.entity)))) {
-        bestScore = score;
-        best = { type: 'projectile', entity: bullet };
-      }
+    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
+      best = cand;
+      bestDistSq = distSq;
     }
   }
 
-  if (best) return best;
-
-  let bestDrone = null;
-  let bestDroneDistSq = rangeSq;
   for (const drone of room.drones?.values?.() || []) {
     if (drone.destroyed || !areEnemies(room, shipOwnerId, drone.ownerId)) continue;
     const dx = drone.x - worldX;
     const dy = drone.y - worldY;
     const distSq = dx * dx + dy * dy;
-    if (distSq <= bestDroneDistSq && !isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3)
-      && (distSq < bestDroneDistSq || !bestDrone || isStableIdBefore(drone, bestDrone))) {
-      bestDrone = drone;
-      bestDroneDistSq = distSq;
+    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3)) continue;
+
+    const cand = { type: "drone", entity: drone };
+    const pIdx = getCandidatePriorityIndex(cand, priorityList);
+    if (pIdx === -1) continue;
+
+    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
+      best = cand;
+      bestDistSq = distSq;
     }
   }
-  if (bestDrone) return { type: "drone", entity: bestDrone };
 
-  let bestShip = null;
-  let bestShipDist = Infinity;
-
-  for (const other of ships) {
+  for (const other of ships || []) {
     if (!other.alive || !areEnemies(room, shipOwnerId, other.ownerId)) continue;
     const dx = other.x - worldX;
     const dy = other.y - worldY;
-    const dist = Math.hypot(dx, dy);
-    if (dist <= weapon.range && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)
-      && (dist < bestShipDist || (dist === bestShipDist && (!bestShip || isStableIdBefore(other, bestShip))))) {
-      bestShip = other;
-      bestShipDist = dist;
+    const distSq = dx * dx + dy * dy;
+    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) continue;
+
+    const cand = { type: "ship", entity: other };
+    const pIdx = getCandidatePriorityIndex(cand, priorityList);
+    if (pIdx === -1) continue;
+
+    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
+      best = cand;
+      bestDistSq = distSq;
     }
   }
 
-  if (bestShip) return { type: 'ship', entity: bestShip };
-  return null;
+  return best;
 }
 
 
@@ -784,44 +829,87 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       }
     } else if (family === "pointDefense") {
       if (currentPdTarget) {
-         const speed = effectiveWeapon.projectileSpeed || 1000;
-         const life = (effectiveWeapon.range || 0) / speed;
-         const targetEnt = currentPdTarget.entity;
-         const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
-         const pdSpreadScale = weaponSpreadRadians(effectiveWeapon, family);
-         const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -pdSpreadScale, pdSpreadScale);
+         const isHitscanLaserPd = module.type === "pointDefense" || (Number(effectiveWeapon.projectileSpeed) || 0) === 0;
+         if (isHitscanLaserPd) {
+            const targetEnt = currentPdTarget.entity;
+            if (!isLineBlocked(room, muzzle.x, muzzle.y, targetEnt.x, targetEnt.y, 4)) {
+               const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
+               const damage = effectiveWeapon.damage;
 
-         addBullet(room, {
-            type: "pdShot",
-            subtype: module.type,
-            ownerId: ship.ownerId,
-            targetId: targetEnt.id,
-            x: muzzle.x,
-            y: muzzle.y,
-            vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
-            vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
-            damage: effectiveWeapon.damage * (currentPdTarget.type === "ship" ? (effectiveWeapon.shipDamageMultiplier || 0.1) : 1),
-            shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
-            hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
-            pdTargetType: currentPdTarget.type,
-            pdTargetId: targetEnt.id,
-            life: life,
-            bornAt: now,
-            armorInteractionSeconds: currentPdTarget.type === "ship" ? Math.min(1, reload) : undefined
-         });
-         ship.weaponCooldowns[i] = reload;
-         addComponentHeat(ship, i, 4);
+               if (currentPdTarget.type === "drone") {
+                  require("./drones").damageDrone(room, targetEnt, damage, ship.ownerId, now);
+               } else if (currentPdTarget.type === "projectile") {
+                  const projHp = targetEnt.hp !== undefined ? targetEnt.hp : (targetEnt.damage || 20);
+                  targetEnt.hp = projHp - damage;
+                  if (targetEnt.hp <= 0.001) {
+                     targetEnt.life = 0;
+                     room.effects.push({ type: "pdIntercept", x: targetEnt.x, y: targetEnt.y, at: now });
+                  }
+               } else if (currentPdTarget.type === "ship") {
+                  const mult = Number(effectiveWeapon.shipDamageMultiplier ?? 0.04);
+                  damageShip(room, targetEnt, damage * mult, ship.ownerId, now, muzzle.x, muzzle.y, {
+                     armorInteractionSeconds: Math.min(1, reload)
+                  });
+               }
 
-         const pdCount = (ship.design || []).filter(m => PARTS[m.type]?.weapon?.type === "pointDefense").length || 1;
-         if (pdCount > 1) {
-           const stagger = reload / pdCount;
-           (ship.design || []).forEach((otherModule, j) => {
-             if (i === j) return;
-             const otherPart = PARTS[otherModule.type];
-             if (otherPart?.weapon?.type === "pointDefense") {
-               ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
-             }
-           });
+               room.effects.push({ type: "laserPdPulse", x: muzzle.x, y: muzzle.y, x2: targetEnt.x, y2: targetEnt.y, at: now });
+               room.effects.push({ type: "spark", x: targetEnt.x, y: targetEnt.y, at: now });
+
+               ship.weaponCooldowns[i] = reload;
+               addComponentHeat(ship, i, 4);
+
+               const pdCount = (ship.design || []).filter(m => PARTS[m.type]?.weapon?.type === "pointDefense").length || 1;
+               if (pdCount > 1) {
+                 const stagger = reload / pdCount;
+                 (ship.design || []).forEach((otherModule, j) => {
+                   if (i === j) return;
+                   const otherPart = PARTS[otherModule.type];
+                   if (otherPart?.weapon?.type === "pointDefense") {
+                     ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
+                   }
+                 });
+               }
+            }
+         } else {
+            const speed = effectiveWeapon.projectileSpeed || 1000;
+            const life = (effectiveWeapon.range || 0) / speed;
+            const targetEnt = currentPdTarget.entity;
+            const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
+            const pdSpreadScale = weaponSpreadRadians(effectiveWeapon, family);
+            const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -pdSpreadScale, pdSpreadScale);
+
+            addBullet(room, {
+               type: "pdShot",
+               subtype: module.type,
+               ownerId: ship.ownerId,
+               targetId: targetEnt.id,
+               x: muzzle.x,
+               y: muzzle.y,
+               vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
+               vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
+               damage: effectiveWeapon.damage * (currentPdTarget.type === "ship" ? (effectiveWeapon.shipDamageMultiplier || 0.1) : 1),
+               shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+               hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
+               pdTargetType: currentPdTarget.type,
+               pdTargetId: targetEnt.id,
+               life: life,
+               bornAt: now,
+               armorInteractionSeconds: currentPdTarget.type === "ship" ? Math.min(1, reload) : undefined
+            });
+            ship.weaponCooldowns[i] = reload;
+            addComponentHeat(ship, i, 4);
+
+            const pdCount = (ship.design || []).filter(m => PARTS[m.type]?.weapon?.type === "pointDefense").length || 1;
+            if (pdCount > 1) {
+              const stagger = reload / pdCount;
+              (ship.design || []).forEach((otherModule, j) => {
+                if (i === j) return;
+                const otherPart = PARTS[otherModule.type];
+                if (otherPart?.weapon?.type === "pointDefense") {
+                  ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
+                }
+              });
+            }
          }
       }
     } else if (family === "railgun") {
@@ -1183,8 +1271,8 @@ function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, 
       }
       pushDamageEffect(room, ship, now, dealt, false);
     }
-    if (ship.hp > 0.001 && !ship.coreDestroyed) return dealt;
-    destroyShip(room, ship, attackerId, now);
+    if (ship.hp <= 0.001) destroyShip(room, ship, attackerId, now);
+    else evaluateShipCommandState(room, ship, now, attackerId);
     return dealt;
   }
 
@@ -1205,8 +1293,10 @@ function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, 
     pushDamageEffect(room, ship, now, dealt, false);
   }
 
-  if (ship.hp <= 0.001 || ship.coreDestroyed) {
+  if (ship.hp <= 0.001) {
     destroyShip(room, ship, attackerId, now);
+  } else {
+    evaluateShipCommandState(room, ship, now, attackerId);
   }
 
   return dealt;
@@ -1286,8 +1376,76 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
     if (applied > 0) pushDamageEffect(room, ship, now, applied, false);
   }
 
-  if (ship.hp > 0.001 && !ship.coreDestroyed) return;
-  destroyShip(room, ship, attackerId, now);
+  if (ship.hp <= 0.001) {
+    destroyShip(room, ship, attackerId, now);
+  } else {
+    evaluateShipCommandState(room, ship, now, attackerId);
+  }
+}
+
+function evaluateShipCommandState(room, ship, now, attackerId = null) {
+  if (!ship || ship.alive === false || ship.destroyFinalizedAt) return false;
+  const design = ship.design || [];
+  const mainCoreIdx = design.findIndex((part) => part.type === "core");
+  const mainCoreAlive = mainCoreIdx >= 0 && (ship.componentHp?.[mainCoreIdx] ?? 0) > 0;
+
+  if (mainCoreAlive) {
+    ship.coreDestroyed = false;
+    ship.commandState = "mainCore";
+    ship.emergencyReserveUntil = null;
+    return true;
+  }
+
+  // Main Core is destroyed
+  ship.coreDestroyed = true;
+  const backupCoreIdx = design.findIndex((part) => part.type === "backupCore");
+  const backupCoreAlive = backupCoreIdx >= 0 && (ship.componentHp?.[backupCoreIdx] ?? 0) > 0;
+
+  if (!backupCoreAlive) {
+    ship.commandState = "noCommand";
+    destroyShip(room, ship, attackerId || ship.lastDamagedBy, now);
+    return false;
+  }
+
+  const { getComponentPowerMultiplier, reallocateShipPower } = require("./componentPower");
+  reallocateShipPower(ship, "commandState");
+  const powerMult = getComponentPowerMultiplier(ship, backupCoreIdx);
+  const isBackupPowered = powerMult > 0;
+
+  if (isBackupPowered) {
+    const wasBackup = ship.commandState === "backupCore";
+    ship.commandState = "backupCore";
+    ship.emergencyReserveUntil = null;
+    if (!wasBackup && room && room.effects) {
+      room.effects.push({
+        type: "text",
+        text: "BACKUP COMMAND ACTIVE",
+        x: ship.x,
+        y: ship.y,
+        at: now
+      });
+      room.effects.push({
+        type: "burst",
+        x: ship.x,
+        y: ship.y,
+        at: now
+      });
+    }
+    return true;
+  }
+
+  // Backup Core is alive but unpowered (Power interruption)
+  ship.commandState = "backupCore";
+  if (!ship.emergencyReserveUntil) {
+    ship.emergencyReserveUntil = now + 2000;
+  }
+
+  if (now >= ship.emergencyReserveUntil) {
+    destroyShip(room, ship, attackerId || ship.lastDamagedBy, now);
+    return false;
+  }
+
+  return true;
 }
 
 function destroyShip(room, ship, attackerId, now) {
@@ -1409,6 +1567,9 @@ function updateDestroyedShips(room, now) {
   for (const player of room.players.values()) {
     let removedAny = false;
     for (const ship of player.ships) {
+      if (ship.alive && !ship.removed) {
+        evaluateShipCommandState(room, ship, now);
+      }
       if (!ship.alive && !ship.removed && ship.removeAt && now >= ship.removeAt) {
         ship.removed = true;
         ship.weaponComponentTargetIds = null;
@@ -1618,6 +1779,9 @@ function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
   for (const asteroid of room.map?.asteroids || []) {
     if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
   }
+  for (const pt of room.points || []) {
+    if (pt.type === "asteroid" && segmentCircleHit(x1, y1, x2, y2, pt.x, pt.y, (pt.radius || 20) + margin)) return true;
+  }
   return false;
 }
 
@@ -1700,6 +1864,7 @@ function buildShipTurretDiagnostics(room, ship) {
 }
 
 module.exports = {
+  evaluateShipCommandState,
   updateShipSupport,
   shipRepairNeed,
   updateShipWeapons,

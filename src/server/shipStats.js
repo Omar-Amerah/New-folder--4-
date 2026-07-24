@@ -344,7 +344,10 @@ function shipWarnings(stats) {
   if (stats.modules.some((module) => module.type === "maneuverThruster" && Math.abs((module.y || 0) - 7) < 0.75)) warnings.push("Manoeuvre thrusters near the centre provide weak torque");
   if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
   if (stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
-  if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack");
+  if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack.");
+  const hasBackupCore = stats.modules.some((module) => module.type === "backupCore");
+  if (hasBackupCore) warnings.push("Backup available: ship can survive main Core loss");
+  else warnings.push("Main Core only: destruction disables ship");
   return warnings;
 }
 

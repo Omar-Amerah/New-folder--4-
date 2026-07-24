@@ -465,6 +465,13 @@ export function shipWarnings(stats) {
     warnings.push("No weapons installed: this ship cannot attack.");
   }
 
+  const hasBackupCore = modules.some((module) => module.type === "backupCore");
+  if (hasBackupCore) {
+    warnings.push("Backup available: ship can survive main Core loss");
+  } else {
+    warnings.push("Main Core only: destruction disables ship");
+  }
+
   if (isUnderpowered && (hasShield || hasRepair || effectiveThrust > 0 || powerDebuff > 0)) {
     const affected = [];
 

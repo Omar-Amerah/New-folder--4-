@@ -7,7 +7,7 @@ import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js"
 import { isCircleVisible } from "../viewportCulling.js";
 import { getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, isFriendlyProjectile } from "../worldArt.js";
 import { activeEngineSmoke } from "../shipDynamics.js";
-import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration } from "./pixiBake.js";
+import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
 
 let gridCache = { width: 0, height: 0, zoom: 0 };
@@ -82,19 +82,19 @@ function acquireNebulaLease(env, cloud) {
 // A pooled world-object view that owns a single texture lease and releases it
 // on recycle / pool destruction.
 function makeLeasedSpriteView(env) {
-  const sprite = new env.PIXI.Sprite();
+  const sprite = new env.PIXI.Sprite(env.PIXI.Texture.EMPTY);
   sprite.anchor.set(0.5);
   return {
     root: sprite,
     lease: null,
     textureKey: null,
     release() {
+      this.root.texture = env.PIXI.Texture.EMPTY;
       if (this.lease) {
         this.lease.release();
         this.lease = null;
       }
       this.textureKey = null;
-      this.root.texture = null;
     }
   };
 }
@@ -153,14 +153,13 @@ function updatePixiMapFeatures(env, now, bounds) {
       const key = `${worldObjectId(cloud)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
       if (view.textureKey !== key) {
         const { lease, extent } = acquireNebulaLease(env, cloud);
-        if (view.lease) view.lease.release();
-        view.lease = lease;
-        view.textureKey = key;
-        view.root.texture = lease.texture;
-        view.root.width = extent * 2;
-        view.root.height = extent * 2;
-        view.root.position.set(cloud.x, cloud.y);
-        view.root.rotation = cloud.rotation || 0;
+        swapTextureLease(view, lease, key, (texture) => {
+          view.root.texture = texture;
+          view.root.width = extent * 2;
+          view.root.height = extent * 2;
+          view.root.position.set(cloud.x, cloud.y);
+          view.root.rotation = cloud.rotation || 0;
+        });
       }
     }
     for (const asteroid of map.asteroids || []) {
@@ -171,12 +170,11 @@ function updatePixiMapFeatures(env, now, bounds) {
       const key = `${worldObjectId(asteroid)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
       if (view.textureKey !== key) {
         const lease = acquireAsteroidLease(env, asteroid);
-        if (view.lease) view.lease.release();
-        view.lease = lease;
-        view.textureKey = key;
-        view.root.texture = lease.texture;
-        view.root.scale.set(1 / env.bakeScale);
-        view.root.position.set(asteroid.x, asteroid.y);
+        swapTextureLease(view, lease, key, (texture) => {
+          view.root.texture = texture;
+          view.root.scale.set(1 / env.bakeScale);
+          view.root.position.set(asteroid.x, asteroid.y);
+        });
       }
       view.root.rotation = (asteroid.rotation || 0) + (asteroid.spin || 0) * now * 0.001;
     }
@@ -376,11 +374,10 @@ function updatePixiBullets(env, players, bounds) {
       const textureKey = `${getPixiBakeGeneration()}|${env.bakeScale}|${bulletArtKey(bullet, color)}`;
       if (view.textureKey !== textureKey) {
         const lease = acquireBulletLease(env, bullet, color);
-        if (view.lease) view.lease.release();
-        view.lease = lease;
-        view.textureKey = textureKey;
-        view.root.texture = lease.texture;
-        view.root.scale.set(1 / env.bakeScale);
+        swapTextureLease(view, lease, textureKey, (texture) => {
+          view.root.texture = texture;
+          view.root.scale.set(1 / env.bakeScale);
+        });
       }
       view.root.position.set(renderX, renderY);
       view.root.rotation = Math.atan2(bullet.vy, bullet.vx);
@@ -455,6 +452,19 @@ function updatePixiEffects(env, now, bounds) {
         gfx.stroke({ width: 2 / zoom, color: "rgba(190,255,214,0.95)", alpha: beamAlpha, cap: "round" });
         gfx.circle(x2, y2, 6);
         gfx.fill({ color: "#4ade80", alpha: beamAlpha * 0.6 });
+      } else if (effect.type === "laserPdPulse" || effect.type === "laserpd") {
+        const pulseT = clamp(age / 120, 0, 1);
+        const pulseAlpha = (1 - pulseT) * 0.95;
+        const x2 = effect.x2 ?? x;
+        const y2 = effect.y2 ?? y;
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: 3.5 / zoom, color: "rgba(251,113,133,0.45)", alpha: pulseAlpha, cap: "round" });
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: 1.2 / zoom, color: "rgba(255,241,242,0.95)", alpha: pulseAlpha, cap: "round" });
+        gfx.circle(x2, y2, 3);
+        gfx.fill({ color: "#fb7185", alpha: pulseAlpha * 0.85 });
       } else if (effect.type === "droneshot" || effect.type === "dronerepair") {
         const x2 = effect.x2 ?? x;
         const y2 = effect.y2 ?? y;

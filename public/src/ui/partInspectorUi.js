@@ -460,11 +460,15 @@ function partInspectorDetails(type, stat, effectiveCost) {
       details.push(["Behavior", "Sustained line damage"]);
     } else if (weapon.antiMissile) {
       details.push(["Anti-Missile", "Yes"]);
+      if (type === "pointDefense" || (Number(weapon.projectileSpeed) || 0) === 0) {
+        details.push(["Firing Mode", "Hitscan (Guaranteed hit once aligned)"]);
+        details.push(["Role", "Anti-drone & anti-ordnance"]);
+      }
       if (weapon.targetPriority && weapon.targetPriority.length > 0) {
         details.push(["Target Priority", weapon.targetPriority.join(", ")]);
       }
-      const pdShipDamage = Math.round((weapon.shipDamageMultiplier || 0.1) * 100);
-      details.push(["Ship Damage", `${pdShipDamage}%`]);
+      const pdShipDamage = Math.round((weapon.shipDamageMultiplier || 0.04) * 100);
+      details.push(["Ship Damage", `${pdShipDamage}% (Negligible against ships)`]);
     }
 
     return details.filter(Boolean);

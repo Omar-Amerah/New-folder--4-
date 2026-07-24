@@ -42,15 +42,17 @@ function heatAdjustedMovementStats(ship, stats) {
       calculateMovementPowerMultiplier(stats.powerGeneration || 0, stats.powerUse || 0)) }) };
 }
 
-function directionalTurnRate(stats, current, desired) {
+function directionalTurnRate(stats, current, desired, ship = null) {
   const diff = angleDifference(current, desired);
   if (Math.abs(diff) < 1e-9) return 0;
-  return diff > 0 ? (stats.turnRateRight ?? stats.turnRate ?? 0) : (stats.turnRateLeft ?? stats.turnRate ?? 0);
+  const baseRate = diff > 0 ? (stats.turnRateRight ?? stats.turnRate ?? 0) : (stats.turnRateLeft ?? stats.turnRate ?? 0);
+  if (ship?.commandState === "backupCore") return baseRate * 0.90;
+  return baseRate;
 }
 
 function rotateShipToward(ship, desired, stats, dt) {
   const before = ship.angle || 0;
-  const rate = directionalTurnRate(stats, before, desired);
+  const rate = directionalTurnRate(stats, before, desired, ship);
   const next = rotateToward(before, desired, rate * dt);
   const applied = Math.abs(angleDifference(before, next));
   ship.angle = next;

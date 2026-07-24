@@ -361,6 +361,7 @@ export function destroyPixiDrones() {
     view.root.destroy({ children: true });
   }
   views = new Map();
+  bodyGradients.clear();
   if (productionBars) {
     productionBars.parent?.removeChild(productionBars);
     productionBars.destroy();

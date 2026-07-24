@@ -32,7 +32,7 @@ import {
   moduleRotationToRadians,
   normalizeRotation
 } from "../../design/rotation.js";
-import { pixiBakeTexture, getPixiBakeGeneration, createPixiTextureCache } from "./pixiBake.js";
+import { pixiBakeTexture, getPixiBakeGeneration, createPixiTextureCache, swapTextureLease } from "./pixiBake.js";
 import {
   drawShipStructure,
   drawRotatingWeaponTop
@@ -314,28 +314,29 @@ export function setHullFrameRotation(view, angle) {
 // clears the turret sprites. Safe to call more than once. Sprites are destroyed
 // WITHOUT destroying their cache-owned textures.
 function releaseShipViewLeases(view) {
-  for (const sprite of view.turretSprites) {
+  view.turretContainer.removeChildren();
+  const emptyTex = view.staticHullSprite?.texture?.constructor?.EMPTY || null;
+  if (emptyTex) view.staticHullSprite.texture = emptyTex;
+
+  const oldTurretSprites = view.turretSprites;
+  view.turretSprites = [];
+  view.turretsByDesignIndex.clear();
+  const oldArrowLease = view.arrowLease;
+  view.arrowLease = null;
+  const oldHullLease = view.hullLease;
+  view.hullLease = null;
+
+  for (const sprite of oldTurretSprites) {
+    if (emptyTex) sprite.texture = emptyTex;
+    sprite.__baseTexture = null;
+    if (!sprite.destroyed) sprite.destroy(SPRITE_DESTROY_OPTS);
     if (sprite.__lease) {
       sprite.__lease.release();
       sprite.__lease = null;
     }
-    sprite.__baseTexture = null;
-    if (!sprite.destroyed) sprite.destroy(SPRITE_DESTROY_OPTS);
   }
-  view.turretSprites = [];
-  view.turretsByDesignIndex.clear();
-  view.turretContainer.removeChildren();
-  if (view.arrowLease) {
-    view.arrowLease.release();
-    view.arrowLease = null;
-  }
-  if (view.hullLease) {
-    view.hullLease.release();
-    view.hullLease = null;
-  }
-  // The hull sprite's texture is cache-owned; drop the reference without
-  // destroying it.
-  view.staticHullSprite.texture = null;
+  if (oldArrowLease) oldArrowLease.release();
+  if (oldHullLease) oldHullLease.release();
 }
 
 // Full per-ship visual reset, used when a pooled view is handed to another ship
@@ -374,34 +375,34 @@ export function resetPixiShipView(view) {
 // design. Called only when the static signature changes — never on ordinary
 // snapshot/position/angle/weaponAngle updates.
 export function rebuildPixiShipStatic(env, view, design, color, radius, staticKey) {
-  // Static hull: acquire the replacement lease FIRST, assign its texture, then
-  // release the old one — so no frame ever references a destroyed texture and
-  // an identical re-acquire keeps a positive refcount throughout.
-  const previousHullLease = view.hullLease;
+  // Static hull: acquire replacement lease FIRST, assign texture to staticHullSprite,
+  // then release previous lease so no live sprite ever holds a destroyed texture.
   const hullLease = acquireHullLease(env, design, color, radius, staticKey);
+  const previousHullLease = view.hullLease;
   view.hullLease = hullLease;
   view.staticHullSprite.texture = hullLease.texture;
   view.staticHullSprite.scale.set(1 / env.bakeScale);
   if (previousHullLease) previousHullLease.release();
 
-  // Persistent turrets: exactly one per rotating weapon, keyed by ORIGINAL
-  // design index (never a compressed weapon-list index). Release the old turret
-  // leases/sprites, then acquire fresh shared leases so identical weapon types
-  // reference the exact same Texture object.
-  for (const sprite of view.turretSprites) {
-    if (sprite.__lease) sprite.__lease.release();
-    sprite.__lease = null;
-    sprite.__baseTexture = null;
-    if (!sprite.destroyed) sprite.destroy(SPRITE_DESTROY_OPTS);
-  }
+  // Persistent turrets: detach old turret sprites from container FIRST
+  view.turretContainer.removeChildren();
+  const oldTurretSprites = view.turretSprites;
   view.turretSprites = [];
   view.turretsByDesignIndex.clear();
-  view.turretContainer.removeChildren();
   view.forcedArrowActive = false;
-  if (view.arrowLease) {
-    view.arrowLease.release();
-    view.arrowLease = null;
+  const previousArrowLease = view.arrowLease;
+  view.arrowLease = null;
+
+  for (const sprite of oldTurretSprites) {
+    if (env?.PIXI?.Texture?.EMPTY) sprite.texture = env.PIXI.Texture.EMPTY;
+    sprite.__baseTexture = null;
+    if (!sprite.destroyed) sprite.destroy(SPRITE_DESTROY_OPTS);
+    if (sprite.__lease) {
+      sprite.__lease.release();
+      sprite.__lease = null;
+    }
   }
+  if (previousArrowLease) previousArrowLease.release();
 
   design.forEach((part, i) => {
     if (!isRotatingWeaponPart(part.type)) return;

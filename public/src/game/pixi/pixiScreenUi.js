@@ -60,7 +60,7 @@ function updatePixiBackdrop(env, rect) {
       bctx.fillStyle = gradient;
       bctx.fillRect(0, 0, rect.width, rect.height);
     });
-    if (old && old !== env.PIXI.Texture.WHITE) old.destroy(true);
+    if (old && old !== env.PIXI.Texture.WHITE) old.destroy(false);
     views.backdrop.width = rect.width;
     views.backdrop.height = rect.height;
   }
@@ -142,7 +142,7 @@ function updatePixiMinimap(env, players, rect) {
       view.staticCanvas = staticCanvas;
       const old = view.staticSprite.texture;
       view.staticSprite.texture = env.PIXI.Texture.from(staticCanvas);
-      if (old && old !== env.PIXI.Texture.EMPTY) old.destroy(true);
+      if (old && old !== env.PIXI.Texture.EMPTY) old.destroy(false);
     }
     view.staticSprite.visible = true;
   } else {
@@ -202,7 +202,7 @@ export function updatePixiScreenUi(env, now, players, rect) {
 export function destroyPixiScreenUi(env) {
   if (screenUiViews) {
     const bt = screenUiViews.backdrop.texture;
-    if (bt && bt !== env.PIXI.Texture.WHITE) bt.destroy(true);
+    if (bt && bt !== env.PIXI.Texture.WHITE) bt.destroy(false);
     screenUiViews.backdrop.destroy({ children: true, texture: false, textureSource: false });
     screenUiViews.starContainer.destroy({ children: true, texture: false, textureSource: false });
     screenUiViews.joinText.destroy({ children: true, texture: false, textureSource: false });
@@ -210,7 +210,7 @@ export function destroyPixiScreenUi(env) {
   }
   if (minimapView) {
     const mt = minimapView.staticSprite.texture;
-    if (mt && mt !== env.PIXI.Texture.EMPTY) mt.destroy(true);
+    if (mt && mt !== env.PIXI.Texture.EMPTY) mt.destroy(false);
     if (minimapView.root.parent) minimapView.root.parent.removeChild(minimapView.root);
     minimapView.root.destroy({ children: true, texture: false, textureSource: false });
     minimapView = null;

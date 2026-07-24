@@ -424,6 +424,8 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     ctx.fillStyle = "#fda4af";
     roundRect(ctx, { x: 0, y: -size * 0.08, width: size * 0.62, height: size * 0.16, radius: size * 0.04 });
     ctx.fill();
+    ctx.fillStyle = "#fff1f2";
+    ctx.fillRect(size * 0.52, -size * 0.05, size * 0.1, size * 0.1);
     ctx.strokeStyle = "rgba(255,225,232,0.72)";
     ctx.lineWidth = Math.max(0.7, size * 0.045);
     ctx.beginPath();

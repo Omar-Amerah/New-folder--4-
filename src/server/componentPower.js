@@ -681,6 +681,7 @@ function reallocateShipPower(ship, reason = "source-availability") {
 
 function getComponentPowerMultiplier(ship, componentIndex) {
   if ((ship?.componentHp?.[componentIndex] ?? 1) <= 0) return 0;
+  if (ship?.componentPowerState?.[componentIndex] === 0) return 0;
   const value = ship?.componentPower?.byComponentIndex?.[componentIndex]?.operationalMultiplier;
   return clampNumber(Number.isFinite(value) ? value : 1, 0, 1);
 }

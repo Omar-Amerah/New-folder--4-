@@ -67,14 +67,40 @@ export function pixiTextureDiagnostics() {
   };
 }
 
+function isTextureValid(tex) {
+  if (!tex) return false;
+  if (tex.destroyed) return false;
+  if (tex.source && tex.source.destroyed) return false;
+  if (tex._source && tex._source.destroyed) return false;
+  return true;
+}
+
+// Atomically swaps a display object / view's texture lease.
+// The new texture is assigned to the sprite BEFORE releasing the previous lease,
+// ensuring no live sprite ever references a destroyed texture or TextureSource.
+export function swapTextureLease(viewHolder, nextLease, nextKey, updateSpriteFn) {
+  const previousLease = viewHolder.lease;
+  viewHolder.lease = nextLease;
+  if (nextKey !== undefined) viewHolder.textureKey = nextKey;
+  if (typeof updateSpriteFn === "function") {
+    updateSpriteFn(nextLease.texture);
+  } else if (viewHolder.root && viewHolder.root.texture !== undefined) {
+    viewHolder.root.texture = nextLease.texture;
+  }
+  if (previousLease) {
+    previousLease.release();
+  }
+}
+
 function destroyCacheTexture(entry) {
   if (entry.destroyed) return;
   entry.destroyed = true;
   destroyedTextureCount += 1;
   const texture = entry.texture;
   if (texture && typeof texture.destroy === "function") {
-    // The cache owns the texture AND its source, so destroy both exactly once.
-    texture.destroy(true);
+    // Destroy texture wrapper without setting texture._source = null, so mid-frame
+    // sprite references never read properties of null.
+    texture.destroy(false);
   }
 }
 
@@ -103,7 +129,12 @@ export function createPixiTextureCache(name) {
     // is called only on a cache miss (or when the cached entry was destroyed).
     acquire(key, factory) {
       let entry = entries.get(key);
-      if (!entry || entry.destroyed) {
+      if (!entry || entry.destroyed || !isTextureValid(entry.texture)) {
+        if (entry && !entry.destroyed) {
+          console.warn(`[pixiBake] Cache '${name}' entry '${key}' texture/source destroyed. Recreating.`);
+          entry.destroyed = true;
+          entries.delete(key);
+        }
         const texture = factory();
         createdTextureCount += 1;
         entry = { texture, refs: 0, generation: pixiBakeGeneration, key, destroyed: false, stale: false };
@@ -222,6 +253,8 @@ export function createPixiKeyedPool(container, create) {
         entry = free.pop();
         if (!entry) {
           entry = { view: create(), key: null, stamp: 0 };
+        }
+        if (!entry.view.root.parent) {
           container.addChild(entry.view.root);
         }
         entry.key = key;
@@ -239,6 +272,9 @@ export function createPixiKeyedPool(container, create) {
         if (entry.stamp !== stamp) {
           active.delete(key);
           entry.view.root.visible = false;
+          if (entry.view.root.parent) {
+            entry.view.root.parent.removeChild(entry.view.root);
+          }
           // Release design-specific texture leases so idle pooled views hold no
           // textures; a later acquire rebuilds the view.
           if (typeof entry.view.release === "function") entry.view.release();

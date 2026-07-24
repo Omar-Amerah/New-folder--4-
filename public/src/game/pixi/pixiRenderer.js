@@ -155,11 +155,26 @@ export async function initPixiRenderer() {
   return pixiEnv;
 }
 
+let pixiTextureRecoveryAttempts = 0;
+let pixiLastTextureRecoveryAt = 0;
+
+function syncPixiQuality() {
+  if (!pixiEnv) return;
+  const quality = getRenderQuality();
+  if (quality !== pixiEnv.quality) {
+    pixiEnv.quality = quality;
+    pixiEnv.bakeScale = pixiBakeScaleForQuality(quality);
+    advancePixiBakeGeneration();
+    setRendererMetricsPhase("transition", { reset: true });
+  }
+}
+
 function pixiFrame() {
   if (!pixiEnv || pixiFatalFrameError) return;
   let lastRenderStage = "start";
   const start = performance.now();
   try {
+    syncPixiQuality();
     const now = start;
     const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrameAt) / 1000));
     state.lastFrameAt = now;
@@ -266,7 +281,39 @@ function showFatalPixiErrorPanel(diagnostics) {
   panel.querySelector("pre").textContent = JSON.stringify(diagnostics, null, 2);
 }
 
+function isRecoverableTextureError(error) {
+  if (!error) return false;
+  const msg = String(error?.message || error || "");
+  const stack = String(error?.stack || "");
+  return (
+    msg.includes("alphaMode") ||
+    msg.includes("TextureSource") ||
+    msg.includes("destroyed") ||
+    stack.includes("alphaMode") ||
+    stack.includes("TextureSource")
+  );
+}
+
 function handleFatalPixiFrameError(error, stage) {
+  const now = performance.now();
+  if (isRecoverableTextureError(error) && (now - pixiLastTextureRecoveryAt > 2000 || pixiTextureRecoveryAttempts < 3)) {
+    pixiLastTextureRecoveryAt = now;
+    pixiTextureRecoveryAttempts += 1;
+    console.warn(`[pixi] Controlled texture recovery triggered for '${stage}': ${error?.message || error}`);
+    try {
+      advancePixiBakeGeneration();
+      destroyPixiShipPool();
+      destroyPixiWorld();
+      destroyPixiDrones();
+      if (pixiEnv?.app?.ticker && !pixiEnv.app.ticker.started) {
+        pixiEnv.app.ticker.start();
+      }
+      return;
+    } catch (recoveryErr) {
+      console.error("[pixi] Texture recovery failed:", recoveryErr);
+    }
+  }
+
   if (pixiFatalFrameError) return;
   pixiFatalFrameError = collectFatalPixiDiagnostics(error, stage);
   pixiEnv?.app?.ticker?.stop();

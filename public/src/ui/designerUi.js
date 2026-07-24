@@ -2001,6 +2001,8 @@ const SUGGESTION_PATTERNS = [
   /no weapons/i,
   /speed capped by mass/i,
   /large hull/i,
+  /main core only/i,
+  /backup available/i,
   /^add /i,
   /^consider /i
 ];
@@ -2302,7 +2304,7 @@ function buildStatTooltipData(key, stats) {
       }
       return {
         label: "Hull Hit Points",
-        desc: "Total structural health of the ship, tracked per component along the impact path. The core keeps its own separate pool (45% of hull, minimum 320) outside this total and is only damaged by shots that penetrate to it. The ship dies at 0 hull or when the core is destroyed.",
+        desc: "Total structural health of the ship, tracked per component along the impact path. The main Core has 340 HP outside this sum. The ship dies when no operational command core remains or when overall hull integrity is depleted.",
         formula: "MaxHp = Max(140, Round(RawHP * 1.15))",
         breakdown: `Core: ${coreHp} HP
 Armor: +${armorHp} HP

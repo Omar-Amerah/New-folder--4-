@@ -173,7 +173,15 @@ function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
   if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return null;
   const cache = ensureEffectiveWeaponProfileCache(ship);
   const profile = cache?.profiles?.[weaponIndex] || null;
-  if (profile) bump("profileCacheHitCount");
+  if (profile) {
+    bump("profileCacheHitCount");
+    if (ship?.commandState === "backupCore") {
+      return {
+        ...profile,
+        accuracy: Number.isFinite(profile.accuracy) ? profile.accuracy * 0.85 : 0.85
+      };
+    }
+  }
   return profile;
 }
 function getMaxEffectiveWeaponRange(ship) { return ensureEffectiveWeaponProfileCache(ship)?.maxRange || 420; }

@@ -27,6 +27,7 @@ function validateDesign(input) {
   const occupied = new Set();
   const issues = [];
   let coreCount = 0;
+  let backupCoreCount = 0;
 
   for (let inputIndex = 0; inputIndex < input.length; inputIndex += 1) {
     const raw = input[inputIndex];
@@ -49,6 +50,7 @@ function validateDesign(input) {
     if (outOfBounds) { issues.push(designIssue("out-of-bounds", inputIndex)); continue; }
     if (overlap) { issues.push(designIssue("overlap", inputIndex)); continue; }
     if (type === "core") coreCount += 1;
+    if (type === "backupCore") backupCoreCount += 1;
     for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
     if (type === "switchgear") clean.push(SwitchgearRules.normalizeDesignPart({ x, y, type, rotation, switchgearMode: raw?.switchgearMode, switchgearRatingTier: raw?.switchgearRatingTier }));
     else if (type === "droneBay") clean.push({ x, y, type, rotation: 0, droneType: DroneBayRules.normalizeDroneType(raw?.droneType) });
@@ -59,13 +61,12 @@ function validateDesign(input) {
   if (!clean.length) return { ok: false, reason: "Invalid design: blueprint is empty." };
   if (coreCount === 0) return { ok: false, reason: "Invalid design: missing core." };
   if (coreCount > 1) return { ok: false, reason: "Invalid design: exactly one core is required." };
+  if (backupCoreCount > 1) return { ok: false, reason: "Invalid design: maximum one Backup Command Core is allowed." };
   if (!isConnected(clean)) return { ok: false, reason: "Invalid design: disconnected parts." };
   const droneValidation = DroneBayRules.validateDroneBays(clean, PARTS, { maximum: BALANCE.drones.maxBaysPerShip });
   if (!droneValidation.ok) return { ok: false, reason: `Invalid design: ${droneValidation.errors[0].message}`, issue: droneValidation.errors[0], issues: droneValidation.errors, modules: clean };
 
   const stats = computeStats(clean);
-  if (stats.thrust <= 0) return { ok: false, reason: "Invalid design: add at least one engine." };
-
   return { ok: true, modules: clean, stats, issues: [] };
 }
 

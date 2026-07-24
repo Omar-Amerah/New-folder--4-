@@ -9,6 +9,10 @@ export function coreCount(parts) {
   return parts.filter((part) => part?.type === "core").length;
 }
 
+export function backupCoreCount(parts) {
+  return parts.filter((part) => part?.type === "backupCore").length;
+}
+
 // Overlap is validated first; the shared BFS (also used by the server's
 // deploy validation, so the two sides cannot drift) assumes no overlaps.
 export function isConnected(parts) {
@@ -22,8 +26,10 @@ export function validateBlueprint(parts, { requireThrust = true, stats = null, n
   if (firstIssue) errors.push(firstIssue.message);
   if (!Array.isArray(parts) || parts.length === 0) errors.push("Invalid design: blueprint is empty.");
   const cores = Array.isArray(parts) ? coreCount(parts) : 0;
+  const backupCores = Array.isArray(parts) ? backupCoreCount(parts) : 0;
   if (cores === 0) errors.push("Invalid design: missing core.");
   else if (cores > 1) errors.push("Invalid design: exactly one core is required.");
+  if (backupCores > 1) errors.push("Invalid design: maximum one Backup Command Core is allowed.");
   if (Array.isArray(parts) && isOutOfBounds(parts)) errors.push("Invalid design: modules outside build grid.");
   if (Array.isArray(parts) && isOverlapping(parts)) errors.push("Invalid design: overlapping modules.");
   if (Array.isArray(parts) && cores === 1 && !isOverlapping(parts) && !isConnected(parts)) errors.push("Invalid design: disconnected parts.");
