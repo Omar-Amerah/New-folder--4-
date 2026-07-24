@@ -1,5 +1,6 @@
 // Validates structural connection rules to make sure all parts connect back to the core.
 import "../shared/structuralConnectivity.js";
+import "../shared/droneBayRules.js";
 import { PART_STATS } from "./parts.js";
 import { computeStats } from "./componentStats.js";
 import { getOccupiedCells } from "./footprint.js";
@@ -26,6 +27,10 @@ export function validateBlueprint(parts, { requireThrust = true, stats = null, n
   if (Array.isArray(parts) && isOutOfBounds(parts)) errors.push("Invalid design: modules outside build grid.");
   if (Array.isArray(parts) && isOverlapping(parts)) errors.push("Invalid design: overlapping modules.");
   if (Array.isArray(parts) && cores === 1 && !isOverlapping(parts) && !isConnected(parts)) errors.push("Invalid design: disconnected parts.");
+  if (Array.isArray(parts)) {
+    const droneValidation = globalThis.DroneBayRules?.validateDroneBays(parts, PART_STATS, { maximum: PART_STATS.droneBay?.droneConfig?.maxBaysPerShip });
+    if (droneValidation && !droneValidation.ok) errors.push(...droneValidation.errors.map((error) => error.message));
+  }
   if (requireThrust) {
     const computedStats = stats || (Array.isArray(parts) ? computeStats(parts) : null);
     if (computedStats && computedStats.thrust <= 0) errors.push("Invalid design: add at least one engine.");

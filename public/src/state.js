@@ -2,6 +2,7 @@
 
 import { WORLD_FALLBACK } from "./constants.js";
 import { loadDesign, loadSavedDesigns, loadLoadouts } from "./design/blueprintStorage.js";
+import { GENERATED_BALANCE } from "./generatedBalance.js";
 
 const initialDesign = loadDesign();
 
@@ -65,6 +66,8 @@ export const state = {
     selectedIndex: null,
     selectedConnectionKey: null,
     selectedSectionId: null,
+    selectedPowerShortageNetworkId: null,
+    hoveredPowerShortageNetworkId: null,
     sourceIndex: null,
     path: [],
     hoverCell: null,
@@ -108,7 +111,7 @@ export const state = {
   drag: null,
   keys: new Set(),
   stars: makeStars(260),
-  rules: { startingMoney: 700, shipCap: 30, maxPlayers: 12, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium" },
+  rules: { startingMoney: GENERATED_BALANCE.economy.startingMoney, shipCap: 30, maxPlayers: 12, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium" },
   minimap: null,
   shipHud: new Map(),
   engineSmoke: [],

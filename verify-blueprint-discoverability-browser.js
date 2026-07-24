@@ -490,6 +490,15 @@ async function main() {
     const cellBox = await page.locator('.build-cell[data-x="7"][data-y="7"]').boundingBox();
     await status.click();
     assert.equal(await status.getAttribute("aria-expanded"), "true", "status click opens details");
+    const statusBox = await status.boundingBox();
+    const statusDetailsBox = await page.locator("#shipStatusDetails").boundingBox();
+    assert.ok(statusDetailsBox, "status details have rendered geometry");
+    const statusGap = statusBox.y - (statusDetailsBox.y + statusDetailsBox.height);
+    assert.ok(statusGap >= 6 && statusGap <= 12, `status details sit directly above chip (gap ${statusGap}px)`);
+    assert.ok(
+      Math.abs((statusDetailsBox.x + statusDetailsBox.width / 2) - (statusBox.x + statusBox.width / 2)) <= 2,
+      "status details are horizontally centred over chip"
+    );
     await page.keyboard.press("Escape");
     assert.equal(await status.getAttribute("aria-expanded"), "false", "Escape closes status details");
     await status.click();

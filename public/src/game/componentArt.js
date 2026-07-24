@@ -1541,6 +1541,45 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     return true;
   }
 
+  if (type === "droneBay") {
+    // Launch deck: a translucent bay opening (keeps the lit hull cube showing
+    // through, like every other multi-tile module) with three recessed docking
+    // cradles for the squad and a bright central launch rail. One signature
+    // accent — cyan — instead of the former flat crosshair on an opaque box.
+    drawFootprintPanel(unit, hl, hc, 0.9, 0.9, 0.14);
+
+    const accent = "#67e8f9";
+    const cradleFill = mixColor(color, "#04121f", 0.42);
+    const bays = 3; // matches the drone squad size
+    const span = hl * 1.5;
+    const cradleW = span / bays;
+    for (let i = 0; i < bays; i += 1) {
+      const cx = -span * 0.5 + cradleW * (i + 0.5);
+      ctx.fillStyle = cradleFill;
+      roundRect(ctx, { x: cx - cradleW * 0.34, y: -hc * 0.5, width: cradleW * 0.68, height: hc, radius: unit * 0.06 });
+      ctx.fill();
+      ctx.strokeStyle = "rgba(225,238,255,0.22)";
+      ctx.lineWidth = fine;
+      ctx.stroke();
+      drawFootprintPort(unit, cx, 0, unit * 0.1, accent);
+    }
+
+    // Central launch rail down the long axis with a restrained glow.
+    ctx.save();
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = qualityShadowBlur(5);
+    ctx.strokeStyle = "#a5f3fc";
+    ctx.lineWidth = Math.max(fine, unit * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(-span * 0.5, 0);
+    ctx.lineTo(span * 0.5, 0);
+    ctx.stroke();
+    ctx.restore();
+
+    drawFootprintSeams(unit, hl, hc, Math.max(2, tilesLong));
+    return true;
+  }
+
   return false;
 }
 

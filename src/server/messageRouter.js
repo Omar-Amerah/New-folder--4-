@@ -201,6 +201,13 @@ function handleMessage(client, message) {
     return;
   }
 
+  if (message.type === "setDroneBayMode") {
+    if (client.room.phase !== "active") return;
+    const changed = require("./drones").setDroneBayMode(client.room, client.player, message.shipId, message.componentId, message.mode);
+    if (changed) broadcastSnapshot(client.room, performanceNow());
+    return;
+  }
+
   if (message.type === "setRallyPoint") {
     if (client.room.phase !== "active") return;
     const x = clampNumber(message.x, 0, client.room.world.width);

@@ -117,6 +117,65 @@
       "maximumLever": 1.75
     }
   },
+  "drones": {
+    "squadSize": 3,
+    "maxBaysPerShip": 4,
+    "maxActivePerShip": 12,
+    "maxActivePerPlayer": 48,
+    "launchIntervalSeconds": 0.65,
+    "launchDurationSeconds": 0.8,
+    "orphanLifetimeSeconds": 3,
+    "standbyPowerMw": 3,
+    "activePowerMw": 7,
+    "productionPowerMw": 11,
+    "standbyHeatPerSecond": 0.5,
+    "activeHeatPerSecond": 1.2,
+    "productionHeatPerSecond": 3,
+    "types": {
+      "fighter": {
+        "label": "Fighter",
+        "intendedUse": "Attacks the parent ship's target and nearby hostile drones.",
+        "productionSeconds": 12,
+        "hull": 45,
+        "speed": 430,
+        "turnRate": 5.2,
+        "evasionLookaheadSeconds": 0.75,
+        "evasionClearance": 75,
+        "evasionStrength": 2.1,
+        "commandRange": 1650,
+        "orbitDistance": 100,
+        "weaponRange": 310,
+        "damage": 8,
+        "fireRate": 1.4
+      },
+      "defence": {
+        "label": "Defence",
+        "intendedUse": "Guards the parent ship and prioritises hostile drones.",
+        "productionSeconds": 14,
+        "hull": 60,
+        "speed": 340,
+        "turnRate": 4.2,
+        "commandRange": 400,
+        "orbitDistance": 75,
+        "weaponRange": 240,
+        "damage": 3.2,
+        "fireRate": 2.4
+      },
+      "repair": {
+        "label": "Repair",
+        "intendedUse": "Repairs the parent ship, then nearby friendly ships.",
+        "productionSeconds": 16,
+        "hull": 40,
+        "speed": 230,
+        "turnRate": 3.4,
+        "commandRange": 500,
+        "orbitDistance": 90,
+        "repairRange": 85,
+        "repairPerSecond": 1.2,
+        "targetCommitSeconds": 1.5
+      }
+    }
+  },
   "components": [
     {
       "id": "core",
@@ -157,7 +216,7 @@
       "id": "compositeArmor",
       "name": "Composite Armor",
       "category": "Structure",
-      "cost": 10,
+      "cost": 13,
       "mass": 6,
       "hull": 190,
       "armorFlatReduction": 3.5,
@@ -176,7 +235,7 @@
       "name": "Frame",
       "category": "Structure",
       "cost": 3,
-      "mass": 3,
+      "mass": 4,
       "hull": 40,
       "powerGeneration": 0,
       "powerUse": 0,
@@ -213,7 +272,7 @@
       "id": "halfCompositeArmorDiagonal",
       "name": "Half Composite Armor",
       "category": "Structure",
-      "cost": 10,
+      "cost": 7,
       "mass": 3,
       "hull": 95,
       "armorFlatReduction": 1.75,
@@ -254,7 +313,7 @@
       "id": "wingArmor",
       "name": "Wing Armor",
       "category": "Structure",
-      "cost": 10,
+      "cost": 7,
       "mass": 9,
       "hull": 192,
       "armorFlatReduction": 4,
@@ -275,7 +334,7 @@
       "id": "wingCompositeArmor",
       "name": "Wing Composite Armor",
       "category": "Structure",
-      "cost": 10,
+      "cost": 11,
       "mass": 5,
       "hull": 152,
       "armorFlatReduction": 2.75,
@@ -853,6 +912,29 @@
       "description": "Small support module that slowly repairs hull over time."
     },
     {
+      "id": "droneBay",
+      "name": "Drone Bay",
+      "category": "Support",
+      "cost": 150,
+      "mass": 32,
+      "hull": 240,
+      "powerGeneration": 0,
+      "powerUse": 7,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.025,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": false,
+      "description": "Launches and rebuilds a configurable squad of three Fighter, Defence, or Repair drones. Requires one completely exposed two-cell launch edge.",
+      "footprint": {
+        "width": 2,
+        "height": 2
+      }
+    },
+    {
       "id": "repairBeam",
       "name": "Repair Beam",
       "category": "Support",
@@ -1120,7 +1202,7 @@
     }
   },
   "economy": {
-    "startingMoney": 700,
+    "startingMoney": 1000,
     "maxMoney": 9999,
     "baseIncome": 25,
     "relayIncome": 10,

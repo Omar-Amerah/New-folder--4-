@@ -575,6 +575,7 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
     ship.removed = true;
   }
   room.ships.clear();
+  room.drones = new Map();
   room.bullets = [];
   room.effects = [];
   room.controlVictory = {

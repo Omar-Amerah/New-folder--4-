@@ -68,6 +68,10 @@ function computeStats(modules, wiring = null) {
   let frontDamageReduction = 0;
   let frontArc = 0;
   let pointDefense = 0;
+  let droneBays = 0;
+  let droneCapacity = 0;
+  const droneSquads = { fighter: 0, defence: 0, repair: 0 };
+  const dronesByType = { fighter: 0, defence: 0, repair: 0 };
   const weaponTotals = {
     blaster: weaponAccumulator(),
     missile: weaponAccumulator(),
@@ -105,6 +109,15 @@ function computeStats(modules, wiring = null) {
     railgun += part.railgun || 0;
     beam += part.beam || 0;
     pointDefense += part.pointDefense || 0;
+    if (module.type === "droneBay") {
+      droneBays += 1;
+      const squadSize = Math.max(0, Number(part.droneConfig?.squadSize) || 0);
+      droneCapacity += squadSize;
+      if (Object.prototype.hasOwnProperty.call(droneSquads, module.droneType)) {
+        droneSquads[module.droneType] += 1;
+        dronesByType[module.droneType] += squadSize;
+      }
+    }
     repair += part.repair || 0;
     repairRate += part.repairRate || 0;
     if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
@@ -184,6 +197,10 @@ function computeStats(modules, wiring = null) {
     coolingBonus: round(coolingBonus),
     captureBonus: round(captureBonus),
     pointDefense,
+    droneBays,
+    droneCapacity,
+    droneSquads,
+    dronesByType,
     ecmStrength: round(ecmStrength),
     frontDamageReduction: round(frontDamageReduction),
     frontArc,
@@ -361,6 +378,10 @@ function summarizeStats(stats) {
     coolingBonus: stats.coolingBonus,
     captureBonus: stats.captureBonus,
     pointDefense: stats.pointDefense,
+    droneBays: stats.droneBays,
+    droneCapacity: stats.droneCapacity,
+    droneSquads: stats.droneSquads,
+    dronesByType: stats.dronesByType,
     ecmStrength: stats.ecmStrength,
     frontDamageReduction: stats.frontDamageReduction,
     frontArc: stats.frontArc,

@@ -62,6 +62,7 @@ export const PART_DEFS = {
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
+  droneBay: { name: "Drone Bay", color: "#67e8f9", glyph: "radial-gradient(circle at 50% 50%, #e0f2fe 0 13%, #22d3ee 15% 28%, #0e7490 30% 43%, #082f49 45%)" },
   switchgear: { name: "Switchgear", color: "#facc15", glyph: "linear-gradient(90deg, #422006 0 22%, #facc15 24% 42%, #111827 44% 56%, #facc15 58% 76%, #422006 78%)" }
 };
 
@@ -114,6 +115,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
+  droneBay: "Launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed.",
   switchgear: "Two-cell Power switchgear with opposite A/B terminals. Saved modes: Open isolates, Closed conducts up to rating, Automatic conducts only deterministic spare power. Never carries Data."
 });
 
@@ -243,7 +245,7 @@ export function buildPartStatsFromBalance(balance, fallbackParts) {
   const parts = {};
   for (const component of components) {
     if (!component || typeof component.id !== "string") continue;
-    parts[component.id] = normalizeBalanceComponent(component);
+    parts[component.id] = normalizeBalanceComponent(component, balance);
   }
   if (!parts.core && fallbackParts.core) parts.core = normalizeRuntimePart(fallbackParts.core);
   return parts;
@@ -304,7 +306,7 @@ export function normalizeRuntimePart(part = {}) {
   return normalized;
 }
 
-export function normalizeBalanceComponent(component) {
+export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE) {
   const weapon = component.weapon
     ? makeWeapon(component.weapon.family || component.weapon.type || "blaster", component.weapon)
     : null;
@@ -340,6 +342,10 @@ export function normalizeBalanceComponent(component) {
     frontArc: numberOr(component.frontArc, 0),
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
+  if (component.id === "droneBay" && balance?.drones) {
+    part.activityHeat = numberOr(balance.drones.activeHeatPerSecond, 0);
+    part.droneConfig = JSON.parse(JSON.stringify(balance.drones));
+  }
   if (weapon) part[weapon.type] = 1;
   for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
     if (component[family]) part[family] = numberOr(component[family], part[family] || 0);

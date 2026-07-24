@@ -68,8 +68,8 @@ function keyEvent(key) { return { key, preventDefault(){ this.defaultPrevented=t
 function clickCell(grid, x, y, button = 0) { const cell = grid.querySelector(`.build-cell[data-x="${x}"][data-y="${y}"]`) || grid.querySelector(".build-cell"); const ev = mouseEvent(button===2?"contextmenu":"click", cell, button); grid.dispatchEvent(ev); return ev; }
 
 (async () => {
-  const [{ state }, storage, designer, history, wiringUi, paletteUi] = await Promise.all([
-    import("./public/src/state.js"), import("./public/src/design/blueprintStorage.js"), import("./public/src/ui/designerUi.js"), import("./public/src/design/blueprintEditHistory.js"), import("./public/src/ui/wiringUi.js"), import("./public/src/ui/partPaletteUi.js")
+  const [{ state }, storage, designer, history, wiringUi, paletteUi, { PART_DEFS }] = await Promise.all([
+    import("./public/src/state.js"), import("./public/src/design/blueprintStorage.js"), import("./public/src/ui/designerUi.js"), import("./public/src/design/blueprintEditHistory.js"), import("./public/src/ui/wiringUi.js"), import("./public/src/ui/partPaletteUi.js"), import("./public/src/design/parts.js")
   ]);
   paletteUi.setPartPaletteSelectionPresentationRefresh(designer.refreshBlueprintSelectionPresentation);
   let persistCalls = 0;
@@ -96,6 +96,14 @@ function clickCell(grid, x, y, button = 0) { const cell = grid.querySelector(`.b
   clickPaletteCategory("Weapons"); assert.equal(state.selectedPart, "blaster", "category change selects first weapon"); assert.equal(elements.get("rotationIndicator").hidden, false, "category change to rotatable first part shows indicator");
   clickPaletteCategory("Structure"); clickPalettePart("Armor"); assert.equal(state.selectedPart, "armor", "real palette click selects Armor"); assert.equal(elements.get("rotationIndicator").hidden, true, "non-rotatable palette part hides indicator");
   clickPalettePart("Armor"); assert.equal(state.selectedPart, null, "real palette click deselects active Armor"); assert.equal(elements.get("rotationIndicator").hidden, true, "deselecting active part hides indicator");
+  state.design = storage.defaultDesign(); designer.renderBuildGrid(); state.selectedCell = null;
+  const inspectTarget = state.design.find(part => part.type !== "core") || state.design[0];
+  const designBeforeInspection = JSON.stringify(state.design);
+  designer.editCell(inspectTarget.x, inspectTarget.y);
+  assert.deepEqual(state.selectedCell, { x: inspectTarget.x, y: inspectTarget.y }, "clicking a placed component with no palette selection records it for inspection");
+  assert.equal(state.selectedPart, null, "inspecting a placed component does not activate the placement tool");
+  assert.match(elements.get("partInspector").innerHTML, new RegExp(PART_DEFS[inspectTarget.type].name, "i"), "the right-side component summary shows the clicked component");
+  assert.equal(JSON.stringify(state.design), designBeforeInspection, "inspection does not mutate the Blueprint");
   clickPaletteCategory("Weapons"); assert.equal(elements.get("rotationIndicator").hidden, false, "rotatable palette part immediately shows indicator"); const beforePaletteR = state.previewRotation; designer.rotateFocusedPart(); assert.notEqual(state.previewRotation, beforePaletteR, "pressing R path changes previewRotation"); assert.ok(elements.get("rotationIndicator").textContent.includes(`Rotation: ${state.previewRotation}°`), "pressing R path updates displayed normalized rotation");
   state.design = []; designer.renderBuildGrid(); assert.equal(elements.get("emptyGridInstruction").hidden, false, "Build empty instruction visible");
   designer.setBlueprintView("heat"); clickPaletteCategory("Weapons"); assert.equal(elements.get("buildInteractionGuide").hidden, false, "Heat guide visible"); assert.match(elements.get("buildInteractionGuide").textContent, /Hover to inspect Heat/i); assert.equal(elements.get("rotationIndicator").hidden, false, "Heat rotatable palette selection shows indicator"); assert.equal(elements.get("emptyGridInstruction").hidden, false, "Heat empty instruction visible");

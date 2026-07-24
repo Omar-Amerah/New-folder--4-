@@ -331,7 +331,8 @@ export function renderBaseBlueprintGrid() {
         const blockedExhaust = exhaustAnalysis.blockedEngineIndices.has(partIndex);
         const rotation = normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x);
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
-        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${exhaustWarning}`;
+        const droneBadge = part.type === "droneBay" ? `<span class="drone-bay-type-badge drone-${part.droneType || "unconfigured"}" aria-label="${part.droneType ? `${part.droneType} drones` : "Drone type not configured"}">${part.droneType ? part.droneType.slice(0, 1).toUpperCase() : "!"}</span>` : "";
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${droneBadge}${exhaustWarning}`;
         cell.dataset.partIndex = String(partIndex);
       }
       cell.dataset.x = String(x);
@@ -652,6 +653,7 @@ function ensureBlueprintGridEventHandlers() {
       removeCell(x, y);
     });
     document.addEventListener("blueprint-switchgear-config", (event) => { configureSelectedSwitchgear(event.detail?.kind, event.detail?.value); });
+    document.addEventListener("blueprint-drone-config", (event) => { configureSelectedDroneBay(event.detail?.droneType); });
     document.addEventListener("blueprint-component-action", (event) => {
       const cell = state.selectedCell || state.hoveredCell;
       const part = cell ? findPartAt(cell.x, cell.y) : null;
@@ -1036,8 +1038,12 @@ export function undoBlueprintEdit() {
 
 export function editCell(x, y) {
   if (state.blueprintView === "wiring") return;
-  if (!state.selectedPart) return;
   const existing = findPartAt(x, y);
+  if (!state.selectedPart) {
+    state.selectedCell = existing ? { x: existing.x, y: existing.y } : null;
+    renderPartInspector();
+    return;
+  }
   if (existing?.type === "core") return;
 
   const candidate = createPlacementCandidate({
@@ -1269,6 +1275,10 @@ export function renderLocalStats() {
   if (state.designNeedsAttention) setBuildStatus(designRepairWarningMessage(), "warning");
   const statDiagnostics = buildStatDiagnostics(stats);
   const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
+  const droneSummary = Object.entries(stats.dronesByType || {})
+    .filter(([, count]) => count > 0)
+    .map(([type, count]) => `${type.replace(/^./, (letter) => letter.toUpperCase())} ${count}`)
+    .join(" · ");
   dom.stats.innerHTML = [
     statCard("cost", "Build cost", `$${stats.unitCost.toLocaleString()}`),
     stats.fleetCount > 1 ? statCard("fleetCost", "Fleet cost", `$${(stats.unitCost * stats.fleetCount).toLocaleString()}`) : "",
@@ -1285,6 +1295,7 @@ export function renderLocalStats() {
     statCard("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
     statCard("thrustRatio", "Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
     statCard("weapons", "Weapons", `${stats.weaponDps} DPS`),
+    stats.droneCapacity > 0 ? statCard("drones", `Drones (${stats.droneCapacity})`, droneSummary) : "",
     stats.captureBonus > 0 ? statCard("capture", "Capture", `+${formatPercent(stats.captureBonus)}`) : "",
     statCard("repair", "Repair", formatRepair(stats.repairRate)),
     statCard("mass", "Mass", formatMass(stats.mass))
@@ -1297,6 +1308,17 @@ export function renderLocalStats() {
   renderShipStatus(status);
   updateEconomyUi();
   renderAnalysisPanels(stats, heat);
+}
+
+function configureSelectedDroneBay(value) {
+  const cell = state.selectedCell || state.hoveredCell;
+  const part = cell ? findPartAt(cell.x, cell.y) : null;
+  const droneType = globalThis.DroneBayRules?.normalizeDroneType(value);
+  if (!part || part.type !== "droneBay" || !droneType || part.droneType === droneType) return false;
+  const before = captureBlueprintEditSnapshot(state);
+  return commitPhysicalEdit(before, () => {
+    state.design = state.design.map((candidate) => candidate === part ? { ...candidate, droneType } : candidate);
+  });
 }
 
 function analysisGridMarkup(rows) {
@@ -1997,6 +2019,7 @@ export function renderShipStatus(status) {
   // Keep the popover in sync if it is currently open.
   if (dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
     renderShipStatusDetails(groups);
+    positionShipStatusDetails();
   }
 }
 

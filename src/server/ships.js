@@ -68,6 +68,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   ship.maxShield = Math.max(0, shield.capacity);
   ship.shield = ship.maxShield;
   initShipHeat(ship);
+  require("./drones").initializeDroneBays(room, ship, now);
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });

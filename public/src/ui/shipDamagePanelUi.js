@@ -19,6 +19,7 @@ import { COMPONENT_HEAT_CAPACITY, COMPONENT_HEAT_RATIO, COMPONENT_HEAT_STATE, CO
 import { shipHeatPercent, formatHeatPercent, checkShipHeatConsistency } from "../shared/heatDisplay.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { escapeHtml } from "../shared/formatting.js";
+import { send } from "../network.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -645,7 +646,50 @@ function bindOnce() {
   dom.shipHeatTab?.addEventListener("click", () => { switchStatusView("heat"); });
   dom.shipPowerTab?.addEventListener("click", () => { switchStatusView("power"); });
   dom.shipPowerSummary?.addEventListener("click", handlePowerSummaryClick);
+  dom.shipDroneSummary?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-drone-bay-mode]");
+    const ship = selectedSingleShip();
+    if (!button || !ship) return;
+    send({ type: "setDroneBayMode", shipId: ship.id, componentId: button.dataset.droneBayId, mode: button.dataset.droneBayMode });
+  });
   for (const tab of statusTabs()) tab?.addEventListener("keydown", handleStatusTabKeydown);
+}
+
+function renderDroneSummary(ship) {
+  const target = dom.shipDroneSummary;
+  if (!target) return;
+  const bays = Array.isArray(ship?.droneBays) ? ship.droneBays : [];
+  target.hidden = bays.length === 0;
+  if (!bays.length) { target.innerHTML = ""; return; }
+  target.innerHTML = `<section aria-label="Drone Bay status">
+    <strong class="ship-drone-summary-title">Drones</strong>
+    ${bays.map((bay) => {
+      const slots = bay.slots || [];
+      const active = slots.filter((slot) => ["launching", "active", "returning"].includes(slot.state)).length;
+      const producing = slots.find((slot) => slot.state === "producing");
+      const ready = slots.filter((slot) => slot.state === "ready" || slot.state === "stored").length;
+      const label = String(bay.droneType || "drone").replace(/^./, (letter) => letter.toUpperCase());
+      const commandRange = Math.max(0, Math.round(Number(bay.commandRange) || 0));
+      const problem = bay.productionPausedReason ? String(bay.productionPausedReason).replaceAll("-", " ") : null;
+      const progress = producing ? Math.max(0, Math.min(1, Number(producing.progress) || 0)) : null;
+      const progressPercent = progress === null ? null : Math.round(progress * 100);
+      const squadComplete = slots.length > 0 && active + ready === slots.length;
+      const squadPips = slots.map((slot, index) => {
+        const stateName = String(slot.state || "unavailable");
+        const title = `Drone ${index + 1}: ${stateName}${stateName === "producing" ? ` ${Math.round((Number(slot.progress) || 0) * 100)}%` : ""}`;
+        const pipProgress = stateName === "producing" ? ` style="--drone-production-progress:${Math.round((Number(slot.progress) || 0) * 100)}%"` : "";
+        return `<i class="ship-drone-pip is-${escapeHtml(stateName)}" aria-hidden="true" title="${escapeHtml(title)}"${pipProgress}></i>`;
+      }).join("");
+      const progressBar = progressPercent === null ? "" : `
+        <div class="ship-drone-production${problem ? " is-paused" : ""}" role="progressbar" aria-label="${escapeHtml(label)} replacement production" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" title="${problem ? `Paused: ${escapeHtml(problem)}` : `${progressPercent}% complete`}">
+          <span style="width:${progressPercent}%"></span>
+        </div>`;
+      return `<div class="ship-drone-bay-row">
+        <div class="ship-drone-bay-info"><b>${escapeHtml(label)} · ${bay.operational ? "Operational" : "Offline"}</b>${commandRange ? `<small class="ship-drone-range">360° drone range · ${commandRange} m</small>` : ""}<div class="ship-drone-squad-pips" aria-label="${active} of ${slots.length} drones active">${squadPips}</div><small>${active} active · ${ready} ready · ${Number(bay.runtimePowerMw) || 0} MW${producing ? ` · ${progressPercent}% rebuilding` : squadComplete ? " · squad complete" : " · replacement pending"}${problem ? ` · ${escapeHtml(problem)}` : ""}</small>${progressBar}</div>
+        <button type="button" data-drone-bay-id="${escapeHtml(bay.componentId)}" data-drone-bay-mode="${bay.mode === "recalled" ? "deployed" : "recalled"}">${bay.mode === "recalled" ? "Deploy" : "Recall"}</button>
+      </div>`;
+    }).join("")}
+  </section>`;
 }
 
 function statusTabs() { return [dom.shipDamageTab, dom.shipHeatTab, dom.shipPowerTab].filter(Boolean); }
@@ -1194,9 +1238,11 @@ export function renderShipDamagePanel() {
     clearComponentReadout();
     if (dom.shipHeatSummary) dom.shipHeatSummary.hidden = true;
     if (dom.shipPowerSummary) dom.shipPowerSummary.hidden = true;
+    if (dom.shipDroneSummary) dom.shipDroneSummary.hidden = true;
     return;
   }
   panel.hidden = false;
+  renderDroneSummary(ship);
   if (heatView) updateComponentHeatTrends(ship, state.snapshotReceivedAt, state.room);
   drawDiagram(ship);
   // Every new snapshot re-renders the readout from the latest ship object so

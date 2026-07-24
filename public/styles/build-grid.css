@@ -77,6 +77,30 @@
   z-index: 3;
 }
 
+.drone-bay-type-badge {
+  position: absolute;
+  right: 7%;
+  bottom: 7%;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 20%;
+  min-width: 14px;
+  aspect-ratio: 1;
+  border: 1px solid rgba(224, 242, 254, .8);
+  border-radius: 50%;
+  background: #082f49;
+  color: #e0f2fe;
+  font-size: clamp(8px, 1.4vw, 13px);
+  font-weight: 850;
+  box-shadow: 0 0 6px rgba(34, 211, 238, .45);
+  pointer-events: none;
+}
+.drone-bay-type-badge.drone-fighter { background: #881337; color: #ffe4e6; }
+.drone-bay-type-badge.drone-defence { background: #164e63; color: #cffafe; }
+.drone-bay-type-badge.drone-repair { background: #14532d; color: #dcfce7; }
+.drone-bay-type-badge.drone-unconfigured { border-color: #fda4af; background: #4c0519; color: #fecdd3; }
+
 .build-cell.core {
   cursor: default;
 }

@@ -41,7 +41,8 @@ function canonicalDesign(design) {
     y: Math.trunc(Number(part.y)),
     rotation: Math.trunc(Number(part.rotation) || 0),
     switchgearMode: part.type === "switchgear" ? (part.switchgearMode || "closed") : undefined,
-    switchgearRatingTier: part.type === "switchgear" ? (part.switchgearRatingTier || "standard") : undefined
+    switchgearRatingTier: part.type === "switchgear" ? (part.switchgearRatingTier || "standard") : undefined,
+    droneType: part.type === "droneBay" ? (part.droneType || null) : undefined
   }));
 }
 

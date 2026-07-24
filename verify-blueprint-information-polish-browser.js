@@ -42,6 +42,44 @@ const artifactDir = path.join("test-artifacts", "blueprint-information-polish");
       throw new Error(`Blueprint information setup failed: ${error.message}\n${JSON.stringify(diagnostics, null, 2)}\nServer log:\n${getLog()}`);
     }
 
+    const placedComponentInspection = await page.evaluate(async () => {
+      const [{ state }, paletteUi, inspectorUi, { PART_DEFS }] = await Promise.all([
+        import("/src/state.js"),
+        import("/src/ui/partPaletteUi.js"),
+        import("/src/ui/partInspectorUi.js"),
+        import("/src/design/parts.js")
+      ]);
+      const index = state.design.findIndex((part) => part.type !== "core");
+      const target = state.design[index];
+      state.selectedPart = null;
+      state.selectedCell = null;
+      paletteUi.renderPalette();
+      inspectorUi.renderPartInspector();
+      return {
+        index,
+        name: PART_DEFS[target?.type]?.name || target?.type || "",
+        design: JSON.stringify(state.design),
+        wiring: JSON.stringify(state.wiring)
+      };
+    });
+    assert.ok(placedComponentInspection.index >= 0, "starter Blueprint has a placed component to inspect");
+    await page.locator(`.build-cell[data-part-index="${placedComponentInspection.index}"]`).click();
+    const placedComponentInspectionResult = await page.evaluate(() => ({
+      selectedPart: window.__mfaState.selectedPart,
+      selectedCell: window.__mfaState.selectedCell,
+      activePaletteCount: document.querySelectorAll("#partPalette .part-button.active").length,
+      inspectorText: document.querySelector("#partInspector")?.textContent || "",
+      design: JSON.stringify(window.__mfaState.design),
+      wiring: JSON.stringify(window.__mfaState.wiring)
+    }));
+    assert.equal(placedComponentInspectionResult.selectedPart, null, "grid inspection leaves the placement palette empty");
+    assert.ok(placedComponentInspectionResult.selectedCell, "grid inspection records the clicked placed component");
+    assert.equal(placedComponentInspectionResult.activePaletteCount, 0, "grid inspection does not visually select a placement component");
+    assert.match(placedComponentInspectionResult.inspectorText, new RegExp(placedComponentInspection.name, "i"), "clicked placed component appears in the right-side summary");
+    assert.doesNotMatch(placedComponentInspectionResult.inspectorText, /Select a component on the grid to inspect it/i, "the empty summary is replaced after the grid click");
+    assert.equal(placedComponentInspectionResult.design, placedComponentInspection.design, "grid inspection does not mutate the Blueprint");
+    assert.equal(placedComponentInspectionResult.wiring, placedComponentInspection.wiring, "grid inspection does not mutate Wiring");
+
     await assertVisible(page, "#saveDesignButton", "Save button visible without page scrolling");
     await page.locator(".designer-right-col").evaluate(el => { el.scrollTop = el.scrollHeight; });
     await assertVisible(page, "#saveDesignButton", "Save button remains visible while right column scrolls");

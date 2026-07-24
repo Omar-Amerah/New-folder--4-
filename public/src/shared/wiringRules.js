@@ -495,7 +495,10 @@
     const analysis = analyzePhysicalPower(modules, normalized, componentCatalog);
     const missing = consumerIndices.filter((index) => analysis.disconnectedConsumerIndices.includes(index));
     const unusedSources = sourceIndices.filter((index) => !analysis.networkByComponent.get(index));
-    if (unreachable.length || missing.length || unusedSources.length || analysis.underpoweredConsumerIndices.length) {
+    // Generation shortage is a valid connected design state, not incomplete
+    // wiring. Only unreachable terminals and disconnected sources/consumers
+    // make generated wiring structurally incomplete.
+    if (unreachable.length || missing.length || unusedSources.length) {
       const details = [...unreachable, ...missing.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog) })), ...unusedSources.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog), reason: "source-not-connected" }))];
       throw new Error(`Generated default Power wiring is incomplete: ${JSON.stringify(details)}`);
     }
@@ -512,7 +515,8 @@
     if (!NETWORK_KINDS.includes(kind) || !Array.isArray(cells) || cells.length < 2) {
       return { changed: false, wiring: current, newSectionIds: [], retieredSectionIds: [], reason: "empty-path" };
     }
-    const occupied = new Set(occupancy(Array.isArray(modules) ? modules : [], catalogue).keys());
+    const occupiedMap = occupancy(Array.isArray(modules) ? modules : [], catalogue);
+    const occupied = new Set(occupiedMap.keys());
     const seen = new Set();
     for (let i = 0; i < cells.length; i += 1) {
       const cell = cells[i];
@@ -525,6 +529,17 @@
         return { changed: false, wiring: current, newSectionIds: [], retieredSectionIds: [], reason: "invalid-path" };
       }
       seen.add(key);
+    }
+    // A cable that never leaves a single component only connects that component's
+    // own terminals, which are already electrically connected inside it. Reject
+    // such a route outright so no meaningless cable (cost/Heat/clutter/spurious
+    // Power node) is created. A route that also reaches another component is a
+    // real connection and keeps every segment, even where it crosses a component.
+    const owns = (a, b) => { const owner = occupiedMap.get(cellKey(a.x, a.y)); return owner !== undefined && owner === occupiedMap.get(cellKey(b.x, b.y)); };
+    let crossesComponents = false;
+    for (let i = 1; i < cells.length; i += 1) { if (!owns(cells[i - 1], cells[i])) { crossesComponents = true; break; } }
+    if (!crossesComponents) {
+      return { changed: false, wiring: current, newSectionIds: [], retieredSectionIds: [], reason: "internal-terminal" };
     }
     const next = cloneWiring(current); const bucket = next[kind];
     const newTier = normalizeTier(tier, kind);

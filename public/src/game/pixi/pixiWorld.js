@@ -455,6 +455,23 @@ function updatePixiEffects(env, now, bounds) {
         gfx.stroke({ width: 2 / zoom, color: "rgba(190,255,214,0.95)", alpha: beamAlpha, cap: "round" });
         gfx.circle(x2, y2, 6);
         gfx.fill({ color: "#4ade80", alpha: beamAlpha * 0.6 });
+      } else if (effect.type === "droneshot" || effect.type === "dronerepair") {
+        const x2 = effect.x2 ?? x;
+        const y2 = effect.y2 ?? y;
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: 1.5 / zoom, color: effect.type === "dronerepair" ? "#86efac" : "#fb7185", alpha: alpha * 0.8 });
+      } else if (effect.type === "dronelaunch") {
+        gfx.moveTo(x - 12 * (1 - t), y);
+        gfx.lineTo(x, y);
+        gfx.stroke({ width: 2 / zoom, color: "#67e8f9", alpha });
+        gfx.circle(x, y, 3 + t * 5);
+        gfx.stroke({ width: 1 / zoom, color: "#cffafe", alpha });
+      } else if (effect.type === "droneburst") {
+        gfx.circle(x, y, 4 + t * 14);
+        gfx.fill({ color: "#fb7185", alpha: alpha * 0.75 });
+        gfx.circle(x, y, 6 + t * 18);
+        gfx.stroke({ width: 1.5 / zoom, color: "#fda4af", alpha });
       } else if (effect.type === "boom") {
         gfx.circle(x, y, 18 + t * 64);
         gfx.fill({ color: "#ffca57", alpha });

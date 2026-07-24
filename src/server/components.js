@@ -65,13 +65,13 @@ function buildPartsFromBalance(balance) {
   const parts = {};
   for (const component of components) {
     if (!component || typeof component.id !== "string") continue;
-    parts[component.id] = normalizeBalanceComponent(component);
+    parts[component.id] = normalizeBalanceComponent(component, balance);
   }
   if (!parts.core) throw new Error("component-balance.json must define core.");
   return Object.freeze(parts);
 }
 
-function normalizeBalanceComponent(component) {
+function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
   const weapon = component.weapon
     ? makeWeapon(component.weapon.family || component.weapon.type || "blaster", component.weapon)
     : null;
@@ -99,6 +99,7 @@ function normalizeBalanceComponent(component) {
     accuracyBonus: toNumber(component.accuracyBonus, 0),
     fireRateBonus: toNumber(component.fireRateBonus, 0),
     captureBonus: toNumber(component.captureBonus, 0),
+    rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: toNumber(component.ecmStrength, 0),
@@ -111,6 +112,10 @@ function normalizeBalanceComponent(component) {
     armorFlatReduction: toNumber(component.armorFlatReduction, 0),
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
+  if (component.id === "droneBay" && balance?.drones) {
+    part.activityHeat = toNumber(balance.drones.activeHeatPerSecond, 0);
+    part.droneConfig = JSON.parse(JSON.stringify(balance.drones));
+  }
 
   if (weapon) part[weapon.type] = 1;
   for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {

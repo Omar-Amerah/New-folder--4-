@@ -646,7 +646,9 @@ function updateShipPowerDemand(ship, room, now) {
     const alive = (ship.componentHp?.[i] ?? 1) > 0;
     const level = alive ? clamp01(componentActivityLevel(ship, i, module, part, now)) : 0;
     activity[i] = level;
-    const requested = PowerDemandRules.requestedMwForComponent(part, level, standby);
+    const requested = module.type === "droneBay"
+      ? require("./drones").bayPowerRequest(ship, i)
+      : PowerDemandRules.requestedMwForComponent(part, level, standby);
     demandByIndex[i] = requested;
     signatureParts.push(`${i}:${PowerAllocationRules.mwToPowerUnits(requested)}`);
   }

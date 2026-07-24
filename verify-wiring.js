@@ -74,4 +74,21 @@ const loopDesign = [{x:1,y:1,type:"frame"},{x:2,y:1,type:"frame"},{x:2,y:2,type:
 let loop = W.emptyWiring(); loop = W.addPath(loop, "power", [{x:1,y:1},{x:2,y:1},{x:2,y:2},{x:1,y:2},{x:1,y:1}], loopDesign, PARTS);
 assert.equal(W.findLeafBranchSections(loop.power, "1,1:2,1").reason, "not-leaf-branch", "closed loops are never guessed destructively");
 assert.deepEqual(W.findLeafBranchSections(loop.power, "1,1:2,1").sectionIds, ["1,1:2,1"], "ambiguous removal falls back to the selected section");
+// Intra-component (internal) cable rejection. A component's compatible terminals
+// are already connected inside it, so a cable drawn between two cells of the same
+// component instance is refused instead of adding a meaningless route. A route
+// that also reaches another component is a real connection and keeps every
+// segment (an internal transit leg stays load-bearing for connectivity).
+const internalShip = [{ x: 5, y: 5, type: "reactor" }, { x: 7, y: 5, type: "shield" }]; // reactor occupies (5,5)&(6,5)
+const selfCable = W.applyPathWithTier(W.emptyWiring(), "power", [{ x: 5, y: 5 }, { x: 6, y: 5 }], internalShip, PARTS, "standard");
+assert.equal(selfCable.changed, false, "a cable between one component's own terminals is rejected");
+assert.equal(selfCable.reason, "internal-terminal", "rejection identifies the internal-terminal case");
+assert.equal(selfCable.wiring.power.sections.length, 0, "no meaningless internal section is stored");
+const realCable = W.applyPathWithTier(W.emptyWiring(), "power", [{ x: 6, y: 5 }, { x: 7, y: 5 }], internalShip, PARTS, "standard");
+assert.equal(realCable.changed, true, "a cable from a terminal to another component is accepted");
+assert.equal(realCable.wiring.power.sections.length, 1, "the external section is stored");
+const throughCable = W.applyPathWithTier(W.emptyWiring(), "power", [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }], internalShip, PARTS, "standard");
+assert.equal(throughCable.changed, true, "a route crossing a component to reach another is accepted");
+assert.equal(throughCable.wiring.power.sections.length, 2, "an internal transit segment is retained for connectivity");
+
 console.log("Wiring v2 physical-section verification passed");

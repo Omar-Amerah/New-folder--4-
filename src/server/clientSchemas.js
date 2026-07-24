@@ -1,7 +1,7 @@
 const { sanitizeRoomCode } = require('./validation');
 const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
 const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
-const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setRallyPoint','resetRallyPoint','command','destruct','setTeam','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
+const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setDroneBayMode','setRallyPoint','resetRallyPoint','command','destruct','setTeam','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
 const COMBAT = new Set(['sentry','charge','circle','hold']);
 const FORMATIONS = new Set(['line','wedge','clump']);
 const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
@@ -38,6 +38,7 @@ function validateSpecific(m){
     case 'deploy': { const miss=checkRequired(m,['design']); if(miss)return miss; if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
     case 'buyShip': { const miss=checkRequired(m,['requestId','design']); if(miss)return miss; if(!reqId(m.requestId))return fail('invalid-request','Invalid request id'); if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.count!==undefined&&!int(m.count,1,5))return fail('invalid-request','Invalid purchase quantity'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
     case 'setCombatStyle': { const miss=checkRequired(m,['combatStyle']); if(miss)return miss; if(!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null; }
+    case 'setDroneBayMode': { const miss=checkRequired(m,['shipId','componentId','mode']); if(miss)return miss; return id(m.shipId)&&id(m.componentId)&&['deployed','recalled'].includes(m.mode)?null:fail('invalid-drone-command','Invalid Drone Bay command'); }
     case 'setRallyPoint': { const miss=checkRequired(m,['x','y']); if(miss)return miss; return num(m.x)&&num(m.y)?null:fail('invalid-rally','Invalid rally point'); }
     case 'command': { const miss=checkRequired(m,['x','y']); if(miss)return miss; if(!num(m.x)||!num(m.y))return fail('invalid-command','Invalid command coordinates'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(m.targetId!==undefined&&m.targetId!==null&&!id(m.targetId))return fail('invalid-target','Invalid target'); if(m.formation!==undefined&&!FORMATIONS.has(m.formation))return fail('invalid-command','Invalid formation'); return null; }
     case 'resetRallyPoint': return null;

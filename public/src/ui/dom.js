@@ -166,6 +166,7 @@ export const dom = {
   selectionPanelCount: document.getElementById("selectionPanelCount"),
   combatStyleControls: document.getElementById("combatStyleControls"),
   shipDamagePanel: document.getElementById("shipDamagePanel"),
+  shipDroneSummary: document.getElementById("shipDroneSummary"),
   shipHeatSummary: document.getElementById("shipHeatSummary"),
   shipPowerSummary: document.getElementById("shipPowerSummary"),
   shipStatusPanelBody: document.getElementById("shipStatusPanelBody"),

@@ -6,6 +6,7 @@ import { SHIP_ECONOMY, WIRING_INFRASTRUCTURE } from "../constants.js";
 import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import ShieldRules from "../shared/shieldRules.js";
+import { solveBlueprintPower } from "./powerAllocationAnalysis.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
@@ -45,6 +46,10 @@ export function computeStats(modules, options = {}) {
   let frontDamageReduction = 0;
   let frontArc = 0;
   let pointDefense = 0;
+  let droneBays = 0;
+  let droneCapacity = 0;
+  const droneSquads = { fighter: 0, defence: 0, repair: 0 };
+  const dronesByType = { fighter: 0, defence: 0, repair: 0 };
 
   const weaponTotals = {
     blaster: weaponAccumulator(),
@@ -81,6 +86,15 @@ export function computeStats(modules, options = {}) {
     railgun += part.railgun || 0;
     beam += part.beam || 0;
     pointDefense += part.pointDefense || 0;
+    if (module.type === "droneBay") {
+      droneBays += 1;
+      const squadSize = Math.max(0, Number(part.droneConfig?.squadSize) || 0);
+      droneCapacity += squadSize;
+      if (Object.prototype.hasOwnProperty.call(droneSquads, module.droneType)) {
+        droneSquads[module.droneType] += 1;
+        dronesByType[module.droneType] += squadSize;
+      }
+    }
     repair += part.repair || 0;
     repairRate += part.repairRate || 0;
 
@@ -164,6 +178,10 @@ export function computeStats(modules, options = {}) {
     railgun,
     beam,
     pointDefense,
+    droneBays,
+    droneCapacity,
+    droneSquads,
+    dronesByType,
     mass,
     turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
@@ -238,14 +256,19 @@ export function computeStats(modules, options = {}) {
 
 export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
   if (!wiring) return ShieldRules.calculateShieldStats(modules, PART_STATS);
-  let analysis;
-  try { analysis = WiringRules.analyzePowerNetworks(modules, wiring, PART_STATS); }
-  catch (_) { analysis = { networks: [], networkByComponent: new Map() }; }
-  const networkByComponent = analysis.networkByComponent || new Map();
+  const flow = solveBlueprintPower(modules, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
+  const powerByComponent = new Map((flow?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
+  let fallbackNetworkByComponent = new Map();
+  if (!flow) {
+    try { fallbackNetworkByComponent = WiringRules.analyzePowerNetworks(modules, wiring, PART_STATS).networkByComponent || new Map(); }
+    catch (_) { fallbackNetworkByComponent = new Map(); }
+  }
   return ShieldRules.calculateShieldStats(modules, PART_STATS, {
     powerMultiplier: (index, module, part) => {
       if (!((Number(part.shield) || 0) > 0 || (Number(part.shieldRegen) || 0) > 0)) return 1;
-      const network = networkByComponent.get(index);
+      const entry = powerByComponent.get(index);
+      if (entry) return entry.state === "disconnected" ? 0 : clamp(Number(entry.operationalMultiplier), 0, 1);
+      const network = fallbackNetworkByComponent.get(index);
       if (!network || !(network.sourceIndices || []).length) return 0;
       return clamp(Number(network.availableEfficiency), 0, 1);
     },

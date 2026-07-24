@@ -15,6 +15,7 @@ import { playerMap } from "../../ui/scoreboardUi.js";
 import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagnostics } from "./pixiBake.js";
 import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
 import { updatePixiShips, destroyPixiShipPool, pixiShipViewCounts } from "./pixiShips.js";
+import { updatePixiDrones, destroyPixiDrones } from "./pixiDrones.js";
 import { recordRendererFrame, rendererMetricsSnapshot, resetRendererMetrics, setRendererMetricsPhase } from "../rendererMetrics.js";
 import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
 
@@ -83,6 +84,7 @@ export async function initPixiRenderer() {
     engineSmoke: new PIXI.Graphics(),
     enemyBullets: new PIXI.Container(),
     ships: new PIXI.Container(),
+    drones: new PIXI.Container(),
     friendlyBullets: new PIXI.Container(),
     effects: new PIXI.Container(),
     effectText: new PIXI.Container(),
@@ -96,6 +98,7 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.engineSmoke);
   worldRoot.addChild(layers.enemyBullets);
   worldRoot.addChild(layers.ships);
+  worldRoot.addChild(layers.drones);
   worldRoot.addChild(layers.friendlyBullets);
   worldRoot.addChild(layers.effects);
   worldRoot.addChild(layers.effectText);
@@ -182,6 +185,8 @@ function pixiFrame() {
     updatePixiWorld(pixiEnv, now, players, bounds, rect);
     lastRenderStage = "updatePixiShips";
     updatePixiShips(pixiEnv, now, players, bounds);
+    lastRenderStage = "updatePixiDrones";
+    updatePixiDrones(pixiEnv, now, players, bounds);
     lastRenderStage = "updatePixiScreenUi";
     updatePixiScreenUi(pixiEnv, now, players, rect);
 
@@ -355,6 +360,7 @@ export function destroyPixiRenderer() {
   unbindArenaPointerListeners();
   // 2-6. Destroy pools/views (releases every texture lease; resets globals).
   destroyPixiShipPool();
+  destroyPixiDrones();
   destroyPixiWorld();
   destroyPixiScreenUi(env);
   // 7. Now that no lease remains, destroy every cache-owned texture exactly once.

@@ -310,6 +310,21 @@
 .wiring-overlay .wire-power.wire-tier-standard { stroke: #ff9800; } /* vivid orange */
 .wiring-overlay .wire-power.wire-tier-heavy { stroke: #c43c2f; }    /* deep copper-red */
 
+/* Delivered-supply states are independent of installed tier and cable load.
+   Full keeps the tier treatment, partial is interrupted amber, and zero
+   delivery stays physically visible as a quiet dashed route. */
+.wiring-overlay .wire-power.wire-supply-partial {
+  stroke: #ffd166;
+  stroke-dasharray: .13 .085;
+  opacity: .9;
+}
+.wiring-overlay .wire-power.wire-supply-none {
+  stroke: #768397;
+  stroke-dasharray: .055 .1;
+  opacity: .34;
+  filter: none;
+}
+
 /* Status overlays: separate halo lines drawn UNDER the tier-coloured cable so a
    coloured outline + glow reads as an outer ring while the tier core stays
    visible. Each state uses a static drop-shadow/outline cue (never animation
@@ -368,6 +383,13 @@
 .wiring-overlay .wire-energy-pulse.active.wire-energy-reverse {
   opacity: 1;
   animation: wiring-energy-reverse .58s linear infinite;
+}
+.wiring-overlay .wire-energy-pulse.wire-energy-partial {
+  stroke: #ffd166;
+  stroke-dasharray: .025 .24;
+}
+.wiring-overlay .wire-energy-pulse.wire-energy-partial.active {
+  animation-duration: 1.15s;
 }
 .wiring-overlay .wire-energy-source {
   stroke: #fff3a3;
@@ -432,6 +454,133 @@
   color: #fff;
   text-align: right;
   overflow-wrap: anywhere;
+}
+.wiring-hover-reason {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, .11);
+  color: #ffd991;
+  font-weight: 750;
+}
+
+/* Power consumer terminals use shape as well as colour: a complete ring is
+   fully supplied, a half-ring is partial, and a cross means no delivery. */
+.wiring-overlay .wire-power-terminal { pointer-events: none; }
+.wiring-overlay circle.wire-terminal-supply-ring {
+  r: .14px !important;
+  fill: rgba(5, 11, 20, .94);
+  stroke-width: .045px !important;
+}
+.wiring-overlay .wire-terminal-supply-full .wire-terminal-supply-ring { stroke: #45e07c; }
+.wiring-overlay .wire-terminal-supply-partial .wire-terminal-supply-ring { stroke: rgba(255, 209, 102, .42); }
+.wiring-overlay .wire-terminal-supply-none .wire-terminal-supply-ring { stroke: #748196; }
+.wiring-overlay .wire-terminal-partial-mark {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: .075px;
+  stroke-linecap: round;
+}
+.wiring-overlay .wire-terminal-unpowered-mark {
+  stroke: #c8d0dc;
+  stroke-width: .045px !important;
+  stroke-linecap: round;
+}
+.wiring-overlay circle.wire-power-terminal-hit {
+  r: .18px !important;
+  fill: rgba(0, 0, 0, .001);
+  stroke: transparent;
+  stroke-width: 0 !important;
+  pointer-events: all;
+  cursor: help;
+  outline: none !important;
+}
+.wiring-overlay circle.wire-power-terminal-hit:focus,
+.wiring-overlay circle.wire-power-terminal-hit:focus-visible { outline: none !important; }
+.wiring-overlay .wire-power-terminal:has(.wire-power-terminal-hit:focus) .wire-terminal-supply-ring {
+  filter: drop-shadow(0 0 .07px #fff) drop-shadow(0 0 .13px #79dcff);
+}
+.wiring-overlay .wire-power-terminal.wire-terminal-selected .wire-terminal {
+  stroke-width: .075px !important;
+  filter: drop-shadow(0 0 .09px #6fa8ff);
+}
+
+/* Component outlines are dormant until a shortage summary is inspected.
+   Only the contributing source keeps a slow, restrained warning pulse. */
+.wiring-overlay .wire-component-supply {
+  opacity: 0;
+  pointer-events: none;
+  fill: none;
+}
+.wiring-overlay .wire-component-supply-source {
+  opacity: .58;
+  stroke: #ffd166;
+  stroke-width: .075px;
+  stroke-dasharray: .14 .08;
+  animation: wiring-source-shortage-pulse 2.4s ease-in-out infinite;
+}
+@keyframes wiring-source-shortage-pulse {
+  0%, 100% { opacity: .4; }
+  50% { opacity: .78; }
+}
+.wiring-shortage-highlight-active .wire-component-supply.wire-shortage-related { opacity: .9; }
+.wiring-shortage-highlight-active .wire-component-supply-full.wire-shortage-related {
+  opacity: .28;
+  stroke: #86d99a;
+}
+.wiring-shortage-highlight-active .wire-component-supply-partial.wire-shortage-related {
+  stroke: #ffd166;
+  stroke-width: .095px;
+  stroke-dasharray: .12 .06;
+}
+.wiring-shortage-highlight-active .wire-component-supply-none.wire-shortage-related {
+  stroke: #c2cad6;
+  stroke-width: .085px;
+  stroke-dasharray: .045 .065;
+}
+.wiring-shortage-highlight-active .wire-visible-layer [data-power-network-id] { opacity: .14; }
+.wiring-shortage-highlight-active .wire-visible-layer .wire-shortage-related { opacity: 1; }
+.wiring-shortage-highlight-active .wire-power-terminal.wire-shortage-unrelated { opacity: .22; }
+.wiring-shortage-highlight-active .wire-power-terminal.wire-shortage-related { opacity: 1; }
+
+/* One keyboard-accessible summary per underpowered physical network. SVG focus
+   is represented by a bounded rect shadow, never a browser-native outline. */
+.wiring-overlay .wire-warning-layer { pointer-events: none; }
+.wiring-overlay .wire-power-shortage-warning {
+  pointer-events: all;
+  cursor: help;
+  outline: none !important;
+}
+.wiring-overlay .wire-power-shortage-warning:focus,
+.wiring-overlay .wire-power-shortage-warning:focus-visible { outline: none !important; }
+.wiring-overlay .wire-power-shortage-pill {
+  fill: rgba(43, 27, 8, .96);
+  stroke: #ffd166;
+  stroke-width: .035px;
+}
+.wiring-overlay .wire-power-shortage-title,
+.wiring-overlay .wire-power-shortage-value {
+  fill: #fff1bd;
+  font-family: inherit;
+  font-weight: 850;
+  pointer-events: none;
+}
+.wiring-overlay .wire-power-shortage-title {
+  font-size: .205px;
+  letter-spacing: .018px;
+}
+.wiring-overlay .wire-power-shortage-value {
+  fill: #ffd166;
+  font-size: .19px;
+  font-variant-numeric: tabular-nums;
+}
+.wiring-overlay .wire-power-shortage-warning:is(:focus, .is-selected) .wire-power-shortage-pill {
+  stroke: #79dcff;
+  stroke-width: .055px;
+  filter: drop-shadow(0 0 .08px #79dcff);
+}
+.wiring-shortage-highlight-active .wire-warning-layer .wire-shortage-unrelated { opacity: .28; }
+@media (prefers-reduced-motion: reduce) {
+  .wiring-overlay .wire-component-supply-source { animation: none !important; opacity: .72; }
 }
 /* Destructive section previews use a visible dashed highlight. */
 .wiring-overlay .wire-section-preview { stroke: #ffd27a; stroke-dasharray: 0.14 0.08; }

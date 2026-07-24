@@ -52,6 +52,7 @@
       if (part.weapon.type === "pointDefense") return 4 * fireRate;
       return Math.max(5, Math.sqrt(damage) * 1.5) * fireRate;
     }
+    if (Number.isFinite(Number(part.activityHeat)) && Number(part.activityHeat) > 0) return Number(part.activityHeat);
     if (type === "battery" || type === "capacitor") return 0;
     if ((part.powerGeneration || 0) > 0) return 2 + part.powerGeneration * 0.42;
     if ((part.thrust || 0) > 0) return 2 + part.thrust * 0.018;

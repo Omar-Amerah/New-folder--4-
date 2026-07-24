@@ -103,7 +103,7 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
       dom.rulesGrid.hidden = true;
       dom.rulesReadOnly.hidden = false;
       const gameMode = rules.gameMode === "solo" ? "Solo" : "Teams";
-      const startMoney = rules.startingMoney ?? 700;
+      const startMoney = rules.startingMoney ?? state.rules.startingMoney;
       const maxP = rules.maxPlayers ?? 12;
       const mapSize = rules.mapSize || "Auto";
       const asteroidDensity = ASTEROID_DENSITY_LABELS[rules.asteroidDensity] || "Medium";
@@ -498,7 +498,7 @@ export function clearServerSetting() {
 
 export function sendRulesUpdate() {
   if (!state.room || !isAdmin() || state.phase !== "lobby") return;
-  const startingMoney = Number(dom.startingMoneyInput?.value) || 700;
+  const startingMoney = Number(dom.startingMoneyInput?.value) || state.rules.startingMoney;
   const maxPlayers = Number(dom.maxPlayersInput?.value) || 12;
   const mapSize = dom.mapSizeSelect?.value || "auto";
   const gameMode = dom.gameModeSelect?.value || "teams";

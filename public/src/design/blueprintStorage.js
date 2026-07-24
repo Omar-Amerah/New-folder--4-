@@ -4,6 +4,7 @@
 
 import "../shared/dataSupportRules.js";
 import "../shared/switchgearRules.js";
+import "../shared/droneBayRules.js";
 import "../shared/wiringRules.js";
 import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
@@ -151,7 +152,9 @@ export function makeDesignPart(x, y, type, previousRotation = 0) {
   const rotation = type === "maneuverThruster"
     ? maneuverThrusterAutoRotation(x)
     : isRotatablePart(type) ? normalizeRotation(previousRotation, allowed, x) : 0;
-  return { x, y, type, rotation };
+  return type === "droneBay"
+    ? { x, y, type, rotation: 0, droneType: null }
+    : { x, y, type, rotation };
 }
 
 function normalizationIssue(code, inputIndex) {
@@ -186,6 +189,7 @@ export function normalizeDesignDetailed(input, options = {}) {
     if (!PART_DEFS[type]) { issues.push(normalizationIssue("unknown-module", inputIndex)); continue; }
     let newPart = makeDesignPart(x, y, type, raw?.rotation);
     if (type === "switchgear" && globalThis.SwitchgearRules) newPart = globalThis.SwitchgearRules.normalizeDesignPart({ ...newPart, switchgearMode: raw?.switchgearMode, switchgearRatingTier: raw?.switchgearRatingTier });
+    if (type === "droneBay") newPart = { ...newPart, rotation: 0, droneType: globalThis.DroneBayRules?.normalizeDroneType(raw?.droneType) || null };
     const footprint = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
     const cells = getOccupiedCells(x, y, footprint, newPart.rotation);
     let outOfBounds = false;

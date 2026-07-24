@@ -7,6 +7,7 @@ const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
 const { getPlayerRallyPoint } = require("./ships");
 const { ensureEffectiveWeaponProfileCache, getEffectiveWeaponRanges } = require("./componentData");
+const { buildDroneSnapshots, buildBaySnapshots } = require("./drones");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -68,6 +69,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       respawnIn: 0,
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     };
+    if (ship.droneBays?.length) entry.droneBays = buildBaySnapshots(ship);
     if (ship.blockedEngineIndices?.size) entry.engBlocked = [...ship.blockedEngineIndices];
     // One decimal place so ships below 0.5% pressure don't flatten to 0%.
     const heatPercent = Math.max(0, (ship.heatPressure || 0) * 100);
@@ -115,6 +117,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
 
   return {
     ships,
+    drones: buildDroneSnapshots(room, now),
     bullets: room.bullets.map((bullet) => ({
       id: bullet.id,
       type: bullet.type,
@@ -523,6 +526,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     adminId: room.adminId,
     players,
     ships: buildClientShips(room, shared.ships, client, sendStatic),
+    drones: shared.drones || [],
     bullets: shared.bullets,
     points: shared.points,
     effects: shared.effects,

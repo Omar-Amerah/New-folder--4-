@@ -7,9 +7,11 @@ import { escapeHtml } from "../shared/formatting.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPowerUse, formatPowerGeneration, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
 import { estimatePartEffectiveCost } from "../design/componentStats.js";
 import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
+import { getOccupiedCells } from "../design/footprint.js";
+import { GENERATED_BALANCE } from "../generatedBalance.js";
 
 export function renderPartInspector() {
-  const type = state.selectedPart;
+  const type = state.selectedPart || selectedPlacedPart()?.type;
   if (!type) {
     dom.partInspector.innerHTML = `<p class="part-description part-inspector-empty">Select a component on the grid to inspect it.</p>`;
     return;
@@ -54,12 +56,14 @@ export function renderPartInspector() {
       </div>
     </section>
     ${switchgearControlsMarkup(type)}
+    ${droneBayControlsMarkup(type)}
     ${componentActions}
     ${collapsibleDetails("combat", "Combat details", combatDetails)}
     ${heatDetails}
     ${tipHtml}
   `;
   attachSwitchgearControlHandlers();
+  attachDroneBayControlHandlers();
   dom.partInspector.querySelectorAll("[data-component-action]").forEach((button) => {
     button.addEventListener("click", () => {
       document.dispatchEvent(new CustomEvent("blueprint-component-action", { detail: { action: button.dataset.componentAction } }));
@@ -78,7 +82,7 @@ export function renderPartInspector() {
 // refreshes on every stats/mode update — independent of the part inspector.
 export function renderThermalAnalysis() {
   if (!dom.thermalAnalysisPanel) return;
-  const type = state.selectedPart;
+  const type = state.selectedPart || selectedPlacedPart()?.type;
   if (!type) { dom.thermalAnalysisPanel.innerHTML = ""; return; }
   const stat = PART_STATS[type] || PART_STATS.frame;
   const thermal = partThermalDetails(type, stat);
@@ -94,14 +98,19 @@ export function renderThermalAnalysis() {
   });
 }
 
-function selectedPlacedPartOfType(type) {
+function selectedPlacedPart() {
   const cell = state.selectedCell;
   if (!cell) return null;
   return state.design.find((part) => {
-    if (part.type !== type) return false;
-    const cells = globalThis.SwitchgearRules && part.type === "switchgear" ? [globalThis.SwitchgearRules.terminalCells(part).A, globalThis.SwitchgearRules.terminalCells(part).B] : [];
+    const footprint = (PART_STATS[part.type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
     return cells.some((candidate) => candidate.x === cell.x && candidate.y === cell.y) || (part.x === cell.x && part.y === cell.y);
   }) || null;
+}
+
+function selectedPlacedPartOfType(type) {
+  const placed = selectedPlacedPart();
+  return placed?.type === type ? placed : null;
 }
 function switchgearControlsMarkup(type) {
   if (type !== "switchgear") return "";
@@ -154,6 +163,42 @@ function keyInspectorStats(type, stat, effectiveCost) {
   const heatGeneration = globalThis.HeatRules?.activityHeat?.(type, stat) || 0;
   if (heatGeneration > 0.05) rows.push(["Heat generation", `+${heatGeneration.toFixed(1)} H/s`]);
   return rows;
+}
+function droneBayControlsMarkup(type) {
+  if (type !== "droneBay") return "";
+  const placed = selectedPlacedPartOfType(type);
+  if (!placed) return `<div class="part-inspector-tip">Place or select a Drone Bay to choose its squad.</div>`;
+  const selected = globalThis.DroneBayRules?.normalizeDroneType(placed.droneType);
+  const droneConfig = PART_STATS.droneBay?.droneConfig || GENERATED_BALANCE?.drones || {};
+  const types = droneConfig.types || GENERATED_BALANCE?.drones?.types || {};
+  const button = (value) => {
+    const config = types[value] || {};
+    const label = config.label || value;
+    return `<button type="button" class="drone-type-choice drone-type-${value}" data-drone-type="${value}" aria-pressed="${String(selected === value)}">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${Number(config.productionSeconds) || 0}s rebuild</span>
+      <small>${escapeHtml(config.intendedUse || "")}</small>
+    </button>`;
+  };
+  const launch = globalThis.DroneBayRules?.exposedLaunchEdges(state.design, state.design.indexOf(placed), PART_STATS)?.[0];
+  return `<section class="part-inspector-section drone-bay-config" aria-label="Drone Bay configuration">
+    <div class="part-detail-heading">Drone squad</div>
+    <p class="drone-config-status ${selected ? "is-configured" : "is-required"}">${selected ? `${types[selected]?.label || selected} squad selected` : "Choose a drone type before saving or deploying."}</p>
+    <div class="drone-type-choices" role="radiogroup" aria-label="Drone type">${["fighter", "defence", "repair"].map(button).join("")}</div>
+    <div class="drone-config-stats" aria-label="Drone Bay operating requirements">
+      <span>Squad <b>${Number(droneConfig.squadSize) || 0}</b></span>
+      <span>Power <b>${Number(droneConfig.standbyPowerMw) || 0} / ${Number(droneConfig.activePowerMw) || 0} / ${Number(droneConfig.productionPowerMw) || 0} MW</b><small>standby · active · production</small></span>
+      <span>Heat <b>${Number(droneConfig.standbyHeatPerSecond) || 0} / ${Number(droneConfig.activeHeatPerSecond) || 0} / ${Number(droneConfig.productionHeatPerSecond) || 0} H/s</b></span>
+    </div>
+    <p class="drone-launch-status ${launch ? "is-valid" : "is-blocked"}">${launch ? `Launch edge: ${launch.side}` : "Blocked: one complete two-cell edge must face open space."}</p>
+  </section>`;
+}
+function attachDroneBayControlHandlers() {
+  dom.partInspector.querySelectorAll("[data-drone-type]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.dispatchEvent(new CustomEvent("blueprint-drone-config", { detail: { droneType: button.dataset.droneType } }));
+    });
+  });
 }
 
 function mergeNonZeroKeyStats(keyStats, details) {

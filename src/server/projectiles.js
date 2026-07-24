@@ -56,6 +56,8 @@ function updateBullets(room, dt, now) {
 
   const liveShips = getLiveShips(room);
   const byId = new Map(liveShips.map((ship) => [ship.id, ship]));
+  const liveDrones = [...(room.drones?.values?.() || [])].filter((drone) => !drone.destroyed);
+  const targetById = new Map([...byId, ...liveDrones.map((drone) => [drone.id, drone])]);
   let bulletsById = null;
   const kept = [];
 
@@ -63,6 +65,7 @@ function updateBullets(room, dt, now) {
   // duration of this tick so a missile swarm doesn't recompute it per missile.
   const ecmModCache = new Map();
   const ecmModifierFor = (target) => {
+    if (room.drones?.get?.(target.id) === target) return 1;
     let mod = ecmModCache.get(target.id);
     if (mod === undefined) {
       const { effectiveComponentBonus } = require("./heat");
@@ -93,7 +96,7 @@ function updateBullets(room, dt, now) {
       if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
         bullet.trackingDisabledFor -= dt;
       }
-      const target = byId.get(bullet.targetId);
+      const target = targetById.get(bullet.targetId);
       const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
         const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
@@ -162,6 +165,18 @@ function updateBullets(room, dt, now) {
              }
           }
        }
+       if (bullet.pdTargetType === "drone") {
+          const target = room.drones?.get?.(bullet.pdTargetId);
+          if (target && !target.destroyed) {
+             const dx = target.x - bullet.x;
+             const dy = target.y - bullet.y;
+             if (dx * dx + dy * dy <= PROJECTILES.interceptRadius * PROJECTILES.interceptRadius) {
+                require("./drones").damageDrone(room, target, bullet.damage, bullet.ownerId, now);
+                room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
+                continue;
+             }
+          }
+       }
     }
 
     const rockHit = projectileMapImpact(room, previousX, previousY, bullet);
@@ -215,6 +230,25 @@ function updateBullets(room, dt, now) {
       }
     }
 
+    for (const drone of liveDrones) {
+      if (drone.destroyed || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
+      const hitRadius = bullet.type === "missile"
+        ? PROJECTILES.hitRadius.missile
+        : bullet.type === "rail"
+          ? PROJECTILES.hitRadius.rail
+          : PROJECTILES.hitRadius.default;
+      const hit = segmentCircleHit(
+        previousX,
+        previousY,
+        bullet.x,
+        bullet.y,
+        drone.x,
+        drone.y,
+        (Number(drone.radius) || 10) + hitRadius
+      );
+      if (hit) recordHit({ kind: "drone", t: hit.t, x: hit.x, y: hit.y, drone, entityId: drone.id });
+    }
+
     if (earliest?.kind === "asteroid") {
       room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
       continue;
@@ -242,6 +276,17 @@ function updateBullets(room, dt, now) {
       } else {
         room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: earliest.x, y: earliest.y, at: now });
       }
+      continue;
+    }
+
+    if (earliest?.kind === "drone") {
+      require("./drones").damageDrone(room, earliest.drone, bullet.damage, bullet.ownerId, now);
+      room.effects.push({
+        type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark",
+        x: earliest.x,
+        y: earliest.y,
+        at: now
+      });
       continue;
     }
 

@@ -311,6 +311,21 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
   if (best) return best;
 
+  let bestDrone = null;
+  let bestDroneDistSq = rangeSq;
+  for (const drone of room.drones?.values?.() || []) {
+    if (drone.destroyed || !areEnemies(room, shipOwnerId, drone.ownerId)) continue;
+    const dx = drone.x - worldX;
+    const dy = drone.y - worldY;
+    const distSq = dx * dx + dy * dy;
+    if (distSq <= bestDroneDistSq && !isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3)
+      && (distSq < bestDroneDistSq || !bestDrone || isStableIdBefore(drone, bestDrone))) {
+      bestDrone = drone;
+      bestDroneDistSq = distSq;
+    }
+  }
+  if (bestDrone) return { type: "drone", entity: bestDrone };
+
   let bestShip = null;
   let bestShipDist = Infinity;
 
@@ -438,8 +453,11 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       // fall back to any valid enemy already in this weapon's range so it does
       // not idle while the primary target is out of reach. The assigned target
       // itself is retained at the ship level and resumed once it is attackable.
-      weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range);
-      aimEntity = weaponTarget || (target && target.alive ? target : null);
+      weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range, {
+        weapon: effectiveWeapon,
+        module
+      });
+      aimEntity = weaponTarget || (target && target.alive !== false && !target.destroyed ? target : null);
       if (aimEntity) {
         aimPoint = weaponComponentAimPoint(room, ship, i, aimEntity, now);
         if (weaponTarget && aimEntity === weaponTarget) fireAimPoint = aimPoint;
@@ -778,6 +796,24 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
       damageShip(room, target, damage, ship.ownerId, now, hitPoint.x, hitPoint.y, options);
     }
   }
+
+  // Drones are authoritative combat entities rather than miniature ships, so
+  // they are not present in the ship loop above.
+  for (const drone of room.drones?.values?.() || []) {
+    if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
+    const hit = segmentCircleHit(
+      x1,
+      y1,
+      x2,
+      y2,
+      drone.x,
+      drone.y,
+      (Number(drone.radius) || 10) + beamRadius
+    );
+    if (!hit) continue;
+    require("./drones").damageDrone(room, drone, damage, ship.ownerId, now);
+    room.effects.push({ type: "spark", x: hit.x, y: hit.y, at: now });
+  }
 }
 
 function isDamageFromFront(ship, sourceX, sourceY, frontArcDegrees) {
@@ -994,9 +1030,21 @@ function maxShipWeaponAcquisitionRange(ship) {
   return getMaxEffectiveWeaponRange(ship);
 }
 
+function enemyShipThreatScore(defendedShip, enemy, distance, acquisitionRange) {
+  const proximity = acquisitionRange > 0
+    ? Math.max(0, 1 - distance / acquisitionRange) * 80
+    : 0;
+  const weaponDps = Math.max(0, Number(enemy.stats?.weaponDps) || 0);
+  const weaponThreat = Math.min(120, Math.sqrt(weaponDps) * 10);
+  const attackingThisShip = enemy.focusTargetId === defendedShip.id
+    || enemy.combatTargetId === defendedShip.id;
+  return proximity + weaponThreat + (attackingThisShip ? 80 : 0);
+}
+
 function findTarget(room, ship, ships) {
   let best = null;
   let bestDistance = Infinity;
+  let bestScore = -Infinity;
   const range = maxShipWeaponAcquisitionRange(ship);
 
   if (ship.focusTargetId) {
@@ -1010,38 +1058,162 @@ function findTarget(room, ship, ships) {
   for (const other of ships) {
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
     const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
-    if (distance <= range && !isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)
-      && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best))))) {
+    if (distance > range || isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) continue;
+    const score = enemyShipThreatScore(ship, other, distance, range);
+    if (score > bestScore
+      || (score === bestScore && (distance < bestDistance
+        || (distance === bestDistance && (!best || isStableIdBefore(other, best)))))) {
       best = other;
       bestDistance = distance;
+      bestScore = score;
+    }
+  }
+
+  // Ordinary weapons retain their ship-first behaviour, but can defend
+  // themselves against hostile drones when no enemy ship is currently valid.
+  if (!best) {
+    for (const drone of room.drones?.values?.() || []) {
+      if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
+      const distance = Math.hypot(drone.x - ship.x, drone.y - ship.y);
+      if (distance <= range && !isLineBlocked(room, ship.x, ship.y, drone.x, drone.y, 3)
+        && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(drone, best))))) {
+        best = drone;
+        bestDistance = distance;
+      }
     }
   }
 
   return best;
 }
 
-// Per-weapon firing target: prefer the ship's assigned/primary target when this
-// weapon can actually reach it (range + line of sight), otherwise the nearest
-// valid enemy already in this weapon's range so the weapon never idles while the
-// primary target is out of reach. The assigned target is not changed here.
-function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range) {
-  if (primary && primary.alive) {
-    const distance = Math.hypot(primary.x - worldX, primary.y - worldY);
-    if (distance <= range && !isLineBlocked(room, worldX, worldY, primary.x, primary.y, 8)) return primary;
+const DRONE_THREAT_OVERRIDE_SCORE = 100;
+
+function canWeaponDefensivelyTargetDrones(weapon) {
+  if (!weapon || weapon.type === "pointDefense") return false;
+  // Use the effective live weapon profile: rapid, agile blasters may peel off
+  // to defend the ship. Slow/high-impact families remain committed to ships.
+  return weapon.type === "blaster"
+    && (Number(weapon.fireRate) || 0) >= 3
+    && getWeaponTurnRate(weapon) >= 3;
+}
+
+function droneThreatCloseRange(ship, weaponRange) {
+  return Math.min(
+    Math.max(0, Number(weaponRange) || 0),
+    Math.max(140, (Number(ship.radius) || 0) * 4)
+  );
+}
+
+function countNearbyArmedDrones(room, ship, swarmRange) {
+  if (swarmRange <= 0) return 0;
+  let count = 0;
+  const droneTypes = require("./drones").CONFIG.types;
+  for (const other of room.drones?.values?.() || []) {
+    if (other.destroyed || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+    const otherConfig = droneTypes[other.type] || {};
+    const armed = (Number(otherConfig.damage) || 0) > 0 && (Number(otherConfig.fireRate) || 0) > 0;
+    if ((armed || other.targetId === ship.id)
+      && Math.hypot(other.x - ship.x, other.y - ship.y) <= swarmRange) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function droneThreatScore(room, ship, drone, weaponRange, context = {}) {
+  if (!drone || drone.destroyed) return -Infinity;
+  const distance = Math.hypot(drone.x - ship.x, drone.y - ship.y);
+  const closeRange = droneThreatCloseRange(ship, weaponRange);
+  const droneConfig = require("./drones").CONFIG.types[drone.type] || {};
+  const weaponDps = Math.max(0, (Number(droneConfig.damage) || 0) * (Number(droneConfig.fireRate) || 0));
+  const attackingShip = drone.targetId === ship.id;
+  let score = 0;
+
+  if (attackingShip) score += 70;
+  if (weaponDps > 0) score += 20 + Math.min(20, weaponDps * 3);
+  if (closeRange > 0 && distance <= closeRange) {
+    score += 35 + 35 * (1 - distance / closeRange);
   }
 
+  const targetIndex = Number.isInteger(drone.targetComponentIndex) ? drone.targetComponentIndex : -1;
+  if (attackingShip && targetIndex >= 0 && isComponentAlive(ship, targetIndex)) {
+    const hp = Number(ship.componentHp?.[targetIndex]) || 0;
+    const maxHp = Math.max(1, Number(ship.componentMaxHp?.[targetIndex]) || hp);
+    const type = ship.design?.[targetIndex]?.type;
+    if (hp / maxHp <= 0.4 || PRIORITY_COMPONENT_TYPES.has(type)) score += 55;
+  }
+
+  const swarmRange = closeRange * 1.5;
+  if (swarmRange > 0) {
+    const nearbyHostiles = Number.isInteger(context.nearbyArmedCount)
+      ? context.nearbyArmedCount
+      : countNearbyArmedDrones(room, ship, swarmRange);
+    if (nearbyHostiles >= 3) score += 20 + Math.min(32, (nearbyHostiles - 3) * 8);
+  }
+
+  return score;
+}
+
+function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, weapon = null) {
   let best = null;
+  let bestScore = -Infinity;
   let bestDistance = Infinity;
-  for (const other of ships) {
-    if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
-    const distance = Math.hypot(other.x - worldX, other.y - worldY);
-    if (distance <= range && !isLineBlocked(room, worldX, worldY, other.x, other.y, 8)
-      && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best))))) {
-      best = other;
+  const closeRange = droneThreatCloseRange(ship, range);
+  const nearbyArmedCount = countNearbyArmedDrones(room, ship, closeRange * 1.5);
+  for (const drone of room.drones?.values?.() || []) {
+    if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
+    const distance = Math.hypot(drone.x - worldX, drone.y - worldY);
+    if (distance > range || isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3)) continue;
+    const arcRadians = (Number(weapon?.arc) || 360) * Math.PI / 180;
+    if (module && !isTargetInWeaponArc(ship, module, drone, arcRadians)) continue;
+    const score = droneThreatScore(room, ship, drone, range, { nearbyArmedCount });
+    if (score > bestScore
+      || (score === bestScore && (distance < bestDistance
+        || (distance === bestDistance && (!best || isStableIdBefore(drone, best)))))) {
+      best = drone;
+      bestScore = score;
       bestDistance = distance;
     }
   }
-  return best;
+  return best ? { target: best, score: bestScore } : null;
+}
+
+// Targeting remains per weapon. Heavy/main weapons keep the assigned enemy
+// ship; only suitable defensive weapons may override it for a sufficiently
+// threatening drone. No per-weapon diversion changes ship.combatTargetId.
+function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range, options = {}) {
+  let shipTarget = null;
+  if (primary?.alive && !room.drones?.has?.(primary.id)) {
+    const distance = Math.hypot(primary.x - worldX, primary.y - worldY);
+    if (distance <= range && !isLineBlocked(room, worldX, worldY, primary.x, primary.y, 8)) shipTarget = primary;
+  }
+
+  let bestDistance = Infinity;
+  let bestShipScore = -Infinity;
+  if (!shipTarget) {
+    for (const other of ships) {
+      if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+      const distance = Math.hypot(other.x - worldX, other.y - worldY);
+      if (distance > range || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) continue;
+      const score = enemyShipThreatScore(ship, other, distance, range);
+      if (score > bestShipScore
+        || (score === bestShipScore && (distance < bestDistance
+          || (distance === bestDistance && (!shipTarget || isStableIdBefore(other, shipTarget)))))) {
+        shipTarget = other;
+        bestDistance = distance;
+        bestShipScore = score;
+      }
+    }
+  }
+
+  const canDivert = canWeaponDefensivelyTargetDrones(options.weapon);
+  if (shipTarget && !canDivert) return shipTarget;
+  const droneChoice = bestDroneFireTarget(room, ship, worldX, worldY, range, options.module, options.weapon);
+  if (!shipTarget) return droneChoice?.target || null;
+  if (droneChoice?.score >= DRONE_THREAT_OVERRIDE_SCORE) {
+    return droneChoice.target;
+  }
+  return shipTarget;
 }
 
 function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
@@ -1151,6 +1323,9 @@ module.exports = {
   findTarget,
   findPointDefenseTarget,
   pickWeaponFireTarget,
+  droneThreatScore,
+  canWeaponDefensivelyTargetDrones,
+  enemyShipThreatScore,
   componentAimWorldPosition,
   selectComponentAimIndex,
   buildShipTurretDiagnostics,

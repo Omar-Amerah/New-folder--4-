@@ -86,7 +86,7 @@ async function verifyBlueprintRuntimeShieldParity() {
 
   const zeroGen = shipFor([at("battery",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
   bp = computeBlueprintStats(zeroGen.design, { wiring: zeroGen.wiring });
-  close(bp.maxShield, 0, "zero-generation blueprint network contributes zero capacity");
+  close(bp.maxShield, Math.round(effectiveShieldStats(zeroGen).capacity), "zero-generation blueprint preview matches passive battery buffer and unpowered generator");
 
   const damaged = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
   damaged.componentHp[1] = 0;

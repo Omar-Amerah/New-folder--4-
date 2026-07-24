@@ -118,6 +118,42 @@ async function makeDataOnlyFixture(page) {
   await page.locator("#designerAnalysisTab").evaluate((button) => button.click());
   await page.locator("#analysisWiringTab").evaluate((button) => button.click());
 }
+async function makeShortageFixture(page, { multipleGenerators = false } = {}) {
+  await page.evaluate(async (withAux) => {
+    const [{ state }, designer, wiring, { PART_STATS }] = await Promise.all([
+      import("/src/state.js"), import("/src/ui/designerUi.js"), import("/src/ui/wiringUi.js"), import("/src/design/parts.js")
+    ]);
+    state.design = [
+      { x: 1, y: 5, type: "reactor" },
+      { x: 3, y: 5, type: "engine" },
+      { x: 4, y: 5, type: "shield" },
+      { x: 5, y: 5, type: "shield" },
+      { x: 6, y: 5, type: "pointDefense" },
+      { x: 7, y: 5, type: "beamEmitter" },
+      ...(withAux ? [{ x: 1, y: 4, type: "auxGenerator" }] : [])
+    ];
+    let next = window.WiringRules.emptyWiring();
+    next = window.WiringRules.addPathWithTier(next, "power", [
+      { x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 },
+      { x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }
+    ], state.design, PART_STATS, "standard");
+    if (withAux) {
+      next = window.WiringRules.addPathWithTier(next, "power", [{ x: 1, y: 4 }, { x: 1, y: 5 }, { x: 2, y: 5 }], state.design, PART_STATS, "standard");
+    }
+    next.powerPolicy = window.PowerPolicyRules.normalizePolicy({
+      preset: "custom",
+      customOrder: ["propulsion", "shields", "pointDefence", "command", "weapons", "coolingSupport"]
+    });
+    state.wiring = next;
+    wiring.resetWiringEditorState();
+    state.wiringUi.mode = "power";
+    designer.renderBuildGrid();
+    designer.setBlueprintView("wiring");
+    wiring.refreshWiringPresentation();
+    designer.renderLocalStats();
+  }, multipleGenerators);
+  await page.locator(".wire-power-shortage-warning").waitFor({ state: "visible", timeout: 5000 });
+}
 // Computed style of the visible cable line for a section id.
 async function visibleStyle(page, sectionId) {
   return page.evaluate((id) => {
@@ -193,6 +229,11 @@ async function inspectCircleSafety(page) {
     const peakHalos = await haloClasses(page, "6,0:7,0");
     assert.ok(peakHalos.some((c) => /wire-status-peak/.test(c)), "at-peak halo present");
     assert.ok(await page.locator(".wire-glow-layer .wire-status-peak-marker").count() >= 1, "at-peak shows a static marker");
+    assert.strictEqual(await page.locator(".wire-power-shortage-warning").count(), 0, "cable-limited network is not mislabeled as a generation shortage");
+    await page.locator('[data-wiring-tool="inspect"]').click();
+    await page.locator('.wire-hit[data-section-id="6,0:7,0"]').dispatchEvent("mouseover");
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /Cable overload[\s\S]*Sustained load[\s\S]*Cable capacity/i, "capacity-limited route is explicitly described as cable overload");
+    await page.locator('[data-wiring-tool="draw"]').click();
 
     // The default Wiring Analysis hierarchy is concise and issue-led.
     const panel = page.locator("#wiringStatusPanel");
@@ -578,8 +619,49 @@ async function inspectCircleSafety(page) {
     await buildFixture(page);
     await makeHealthyFixture(page);
     await page.screenshot({ path: path.join(artifactDir, "desktop-healthy.png") });
+    assert.strictEqual(await page.locator(".wire-power-shortage-warning").count(), 0, "fully powered network has no shortage warning");
+    assert.ok(await page.locator(".wire-visible-layer .wire-supply-full").count() >= 1, "fully powered cable uses the normal supplied state");
+    assert.strictEqual(await page.locator(".wire-terminal-supply-full").count(), 1, "healthy consumer terminal shows a complete supplied ring");
 
-    // 11. Empty and single-network states avoid misleading zero-value reports.
+    // 11. One compact, authoritative shortage summary drives cable, terminal,
+    // component-highlight and accessible hover states.
+    await makeShortageFixture(page);
+    const shortage = page.locator(".wire-power-shortage-warning");
+    assert.strictEqual(await shortage.count(), 1, "one shortage warning is rendered for one underpowered network");
+    assert.match(await shortage.textContent(), /POWER SHORTAGE[\s\S]*10\s*\/\s*18\.7 MW/i, "warning uses authoritative generation and requested demand");
+    assert.strictEqual(await page.locator(".wire-terminal-supply-full").count(), 3, "higher-priority healthy consumers retain full terminal rings");
+    assert.strictEqual(await page.locator(".wire-terminal-supply-partial").count(), 1, "throttled consumer gets one half-ring terminal");
+    assert.strictEqual(await page.locator(".wire-terminal-supply-none").count(), 1, "shed consumer gets one crossed terminal");
+    assert.ok(await page.locator(".wire-visible-layer .wire-supply-partial").count() >= 1, "carrying sections in the short network use interrupted amber");
+    assert.ok(await page.locator(".wire-visible-layer .wire-supply-none").count() >= 1, "zero-delivery section stays visible in the no-Power state");
+    assert.strictEqual(await page.evaluate(async () => {
+      const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
+      return computeStats(state.design, { wiring: state.wiring }).maxShield;
+    }), 200, "Blueprint Shield preview follows priority allocation instead of a network-wide shortage ratio");
+    await shortage.hover();
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /Power shortage[\s\S]*Generation\s*10\.0 MW[\s\S]*Requested\s*18\.7 MW[\s\S]*Delivered\s*10\.0 MW[\s\S]*Unmet\s*8\.7 MW/i, "shortage tooltip exposes the four authoritative totals");
+    assert.strictEqual(await page.locator(".wire-component-supply-partial.wire-shortage-related").count(), 1, "warning hover identifies the partially powered consumer");
+    assert.strictEqual(await page.locator(".wire-component-supply-none.wire-shortage-related").count(), 1, "warning hover identifies the unpowered consumer");
+    assert.strictEqual(await page.locator(".wire-component-supply-source.wire-shortage-related").count(), 1, "warning hover identifies the contributing generator");
+    const partialTerminal = page.locator(".wire-terminal-supply-partial .wire-power-terminal-hit");
+    await partialTerminal.hover();
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /POINT DEFENCE[\s\S]*Partially powered[\s\S]*Requested\s*3\.0 MW[\s\S]*Delivered\s*1\.8 MW[\s\S]*Supply\s*60%[\s\S]*Insufficient generation/i, "terminal tooltip explains exact partial allocation");
+    await shortage.focus();
+    await page.keyboard.press("Enter");
+    assert.ok(await page.locator(".wire-power-shortage-warning").evaluate((node) => node.classList.contains("is-selected")), "keyboard activation selects the compact warning");
+    assert.strictEqual(await page.locator(".wiring-overlay :is(line,circle,rect,g,path)").evaluateAll((nodes) => nodes.some((node) => {
+      const style = getComputedStyle(node);
+      return style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0;
+    })), false, "shortage and terminal keyboard focus create no native SVG outline");
+    await page.screenshot({ path: path.join(artifactDir, "desktop-power-shortage.png"), fullPage: true });
+
+    await makeShortageFixture(page, { multipleGenerators: true });
+    assert.strictEqual(await page.locator(".wire-power-shortage-warning").count(), 1, "shared network with multiple generators still gets one warning");
+    assert.match(await page.locator(".wire-power-shortage-warning").textContent(), /13\.2\s*\/\s*18\.7 MW/i, "multiple-generator output is combined exactly once");
+    await page.locator(".wire-power-shortage-warning").hover();
+    assert.match(await page.locator("#wiringHoverCard").innerText(), /Generation\s*13\.2 MW[\s\S]*Requested\s*18\.7 MW/i, "multiple-generator tooltip uses combined authoritative generation");
+
+    // 12. Empty and single-network states avoid misleading zero-value reports.
     await page.evaluate(async () => {
       const [{ state }, wiring] = await Promise.all([import("/src/state.js"), import("/src/ui/wiringUi.js")]);
       state.wiring = window.WiringRules.emptyWiring();
@@ -592,7 +674,7 @@ async function inspectCircleSafety(page) {
     assert.match(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /Data cable[\s\S]*\$0\.25\/cell[\s\S]*no Power capacity/i, "Data-only state uses the compact Data network row");
     assert.doesNotMatch(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /MW sustained|MW peak/i, "Data-only state omits Power capacity fields");
 
-    // 12. Reduced motion keeps a static status cue (glow filter) without animation.
+    // 13. Reduced motion keeps a static status cue (glow filter) without animation.
     await page.emulateMedia({ reducedMotion: "reduce" });
     await buildFixture(page);
     const peakMotion = await page.evaluate(() => {

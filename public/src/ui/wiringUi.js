@@ -12,6 +12,7 @@ import { preDisplacementHeatCapacities } from "../design/thermalAnalysis.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { getCachedDesignDataSupport, getCachedDataVulnerabilities } from "../design/dataSupportAnalysis.js";
 import { formatDataSupportValue, formatDataSupportEquation } from "../design/dataSupportPresentation.js";
+import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { applyPowerPolicyChange, renderLocalStats } from "./designerUi.js";
 
 const GRID_SIZE = 15;
@@ -55,7 +56,9 @@ function applyHoverHighlight() {
   const hoveredId = ui().sourceIndex == null ? ui().hoveredSectionId : null;
   const previewTool = currentTool() === "erase";
   const inspectTool = currentTool() === "inspect";
+  const shortageNetworkId = ui().hoveredPowerShortageNetworkId || ui().selectedPowerShortageNetworkId || null;
   host.classList.toggle("wiring-inspect-hover-active", Boolean(hoveredId && inspectTool));
+  host.classList.toggle("wiring-shortage-highlight-active", Boolean(shortageNetworkId));
   let hoveredNetworkId = null;
   host.querySelectorAll(".wire-visible-layer [data-section-id]").forEach((element) => {
     const on = element.dataset.sectionId === hoveredId;
@@ -64,7 +67,18 @@ function applyHoverHighlight() {
     element.classList.toggle("wire-section-hover", on && inspectTool);
   });
   host.querySelectorAll(".wire-energy-layer [data-network-id]").forEach((element) => {
-    element.classList.toggle("active", Boolean(inspectTool && hoveredNetworkId && element.dataset.networkId === hoveredNetworkId));
+    element.classList.toggle("active", Boolean(
+      (inspectTool && hoveredNetworkId && element.dataset.networkId === hoveredNetworkId)
+      || (shortageNetworkId && element.dataset.networkId === shortageNetworkId)
+    ));
+  });
+  host.querySelectorAll("[data-power-network-id]").forEach((element) => {
+    const related = Boolean(shortageNetworkId && element.dataset.powerNetworkId === shortageNetworkId);
+    element.classList.toggle("wire-shortage-related", related);
+    element.classList.toggle("wire-shortage-unrelated", Boolean(shortageNetworkId && !related));
+  });
+  host.querySelectorAll("[data-power-shortage-network-id]").forEach((element) => {
+    element.classList.toggle("is-selected", element.dataset.powerShortageNetworkId === ui().selectedPowerShortageNetworkId);
   });
 }
 
@@ -101,6 +115,7 @@ const REASON_TEXT = Object.freeze({
   "already-selected-tier": "This section is already that tier.",
   "empty-path": "No valid path between these components.",
   "invalid-path": "Power routes must stay inside occupied ship cells.",
+  "internal-terminal": "These terminals are on the same component and are already connected internally.",
   "no-change": "No change to apply.",
   "over-cable-limit": "This route exceeds the cable length limit."
 });
@@ -165,7 +180,7 @@ function eraseSectionById(id) {
   pushUndo(); const mode = ui().mode; resetInteraction(); commitWiring(rules().removeSection(state.wiring, mode, id, state.design, PART_STATS));
 }
 function releasePointerCapture() { if (!pointerDrag) return; const { target, pointerId } = pointerDrag; if (target?.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId); pointerDrag = null; }
-function resetInteraction(clearSelection = true) { releasePointerCapture(); suppressNextClick = false; const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; view.selectedDataNetworkId = null; } }
+function resetInteraction(clearSelection = true) { releasePointerCapture(); suppressNextClick = false; const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; view.hoveredPowerShortageNetworkId = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; view.selectedDataNetworkId = null; view.selectedPowerShortageNetworkId = null; } }
 export function resetWiringTransientState({ clearSelection = true } = {}) { resetInteraction(clearSelection); }
 export function syncWiringWithDesign() { state.wiring = normalizeWiring(state.wiring, state.design); resetInteraction(); }
 export function resetWiringToDefault(options = {}) { state.wiring = normalizeWiring(defaultWiring(), state.design); if (options.resetEditorHistory !== false) resetWiringEditorState(); }
@@ -431,14 +446,55 @@ export function bindWiringControls() {
   // full overlay rebuild — so pointer movement does not re-run infrastructure
   // analysis for every frame.
   dom.wiringOverlayHost?.addEventListener("mouseover", (event) => {
+    const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
+    if (shortage) {
+      ui().hoveredPowerShortageNetworkId = shortage.dataset.powerShortageNetworkId;
+      applyHoverHighlight();
+      renderPowerShortageHoverCard(shortage.dataset.powerShortageNetworkId, shortage);
+      return;
+    }
+    const terminalHit = event.target?.closest?.("[data-power-component-index]");
+    if (terminalHit) {
+      renderPowerComponentHoverCard(Number(terminalHit.dataset.powerComponentIndex), terminalHit);
+      return;
+    }
     const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
     ui().hoveredSectionId = id; applyHoverHighlight(); renderWiringHoverCard(id, event.target); renderPreviewPanel();
   });
   dom.wiringOverlayHost?.addEventListener("mouseout", (event) => {
+    const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
+    if (shortage) {
+      if (shortage.contains?.(event.relatedTarget)) return;
+      ui().hoveredPowerShortageNetworkId = null;
+      applyHoverHighlight();
+      if (ui().selectedPowerShortageNetworkId) {
+        const selected = dom.wiringOverlayHost.querySelector(`[data-power-shortage-network-id="${ui().selectedPowerShortageNetworkId}"]`);
+        renderPowerShortageHoverCard(ui().selectedPowerShortageNetworkId, selected);
+      } else clearWiringHoverCard();
+      return;
+    }
+    const terminalHit = event.target?.closest?.("[data-power-component-index]");
+    if (terminalHit) {
+      if (terminalHit.contains?.(event.relatedTarget)) return;
+      clearWiringHoverCard();
+      return;
+    }
     if (!event.target?.dataset?.sectionId) return;
     ui().hoveredSectionId = null; clearWiringHoverCard(); applyHoverHighlight(); renderPreviewPanel();
   });
   dom.wiringOverlayHost?.addEventListener("focusin", (event) => {
+    const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
+    if (shortage) {
+      ui().hoveredPowerShortageNetworkId = shortage.dataset.powerShortageNetworkId;
+      applyHoverHighlight();
+      renderPowerShortageHoverCard(shortage.dataset.powerShortageNetworkId, shortage);
+      return;
+    }
+    const terminalHit = event.target?.closest?.("[data-power-component-index]");
+    if (terminalHit) {
+      renderPowerComponentHoverCard(Number(terminalHit.dataset.powerComponentIndex), terminalHit);
+      return;
+    }
     const id = event.target?.matches?.(".wire-hit[data-section-id]") ? event.target.dataset.sectionId : null;
     if (!id) return;
     dom.wiringOverlayHost.querySelectorAll(".wire-visible-layer [data-section-id]").forEach((element) => {
@@ -446,11 +502,34 @@ export function bindWiringControls() {
     });
   });
   dom.wiringOverlayHost?.addEventListener("focusout", (event) => {
+    const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
+    if (shortage) {
+      ui().hoveredPowerShortageNetworkId = null;
+      applyHoverHighlight();
+      if (!ui().selectedPowerShortageNetworkId) clearWiringHoverCard();
+      return;
+    }
+    if (event.target?.matches?.("[data-power-component-index]")) {
+      clearWiringHoverCard();
+      return;
+    }
     if (!event.target?.matches?.(".wire-hit[data-section-id]")) return;
     dom.wiringOverlayHost.querySelectorAll(".wire-visible-layer .wire-section-keyboard-focus")
       .forEach((element) => element.classList.remove("wire-section-keyboard-focus"));
   });
   dom.wiringOverlayHost?.addEventListener("click", (event) => {
+    const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
+    if (shortage) {
+      event.preventDefault(); event.stopPropagation();
+      ui().selectedPowerShortageNetworkId = shortage.dataset.powerShortageNetworkId;
+      applyHoverHighlight();
+      renderPowerShortageHoverCard(shortage.dataset.powerShortageNetworkId, shortage);
+      return;
+    }
+    if (event.target?.closest?.("[data-power-component-index]")) {
+      event.stopPropagation();
+      return;
+    }
     const port = event.target?.closest?.("[data-wiring-port-kind]");
     // Ports only start a Draw path; other tools ignore them.
     if (port && ui().sourceIndex == null) { event.stopPropagation(); if (currentTool() === "draw" && port.dataset.wiringPortKind === ui().mode) beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) }); return; }
@@ -467,6 +546,20 @@ export function bindWiringControls() {
   });
   dom.wiringOverlayHost?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
+    const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
+    if (shortage) {
+      event.preventDefault(); event.stopPropagation();
+      ui().selectedPowerShortageNetworkId = shortage.dataset.powerShortageNetworkId;
+      applyHoverHighlight();
+      renderPowerShortageHoverCard(shortage.dataset.powerShortageNetworkId, shortage);
+      return;
+    }
+    const terminalHit = event.target?.closest?.("[data-power-component-index]");
+    if (terminalHit) {
+      event.preventDefault(); event.stopPropagation();
+      renderPowerComponentHoverCard(Number(terminalHit.dataset.powerComponentIndex), terminalHit);
+      return;
+    }
     const port = event.target?.closest?.("[data-wiring-port-kind]");
     if (port && ui().sourceIndex == null && currentTool() === "draw" && port.dataset.wiringPortKind === ui().mode) {
       event.preventDefault(); event.stopPropagation();
@@ -741,16 +834,7 @@ export function refreshPowerPriorityControls() {
 // calculation), with all components intact and nominal source generation so the
 // preview reflects the saved Blueprint policy over the current wiring.
 function designerPowerFlowFor(wiring) {
-  const PF = globalThis.PowerFlowRules; if (!PF) return null;
-  const design = Array.isArray(state.design) ? state.design : [];
-  const sourceGenerationByIndex = {};
-  design.forEach((module, index) => {
-    const gen = Number(PART_STATS[module?.type]?.powerGeneration) || 0;
-    if (gen > 0 || rules().isPowerSourceType(module?.type)) sourceGenerationByIndex[index] = gen;
-  });
-  try {
-    return PF.solvePowerFlow({ design, wiring, catalogue: PART_STATS, infrastructure: WIRING_INFRASTRUCTURE, sourceGenerationByIndex, componentOperationalByIndex: design.map(() => true) });
-  } catch (_) { return null; }
+  return solveBlueprintPower(Array.isArray(state.design) ? state.design : [], wiring, PART_STATS, WIRING_INFRASTRUCTURE);
 }
 function designerPowerFlow() { return designerPowerFlowFor(state.wiring); }
 
@@ -765,6 +849,78 @@ function sectionFlowsById(wiring) {
 function formatHoverMw(value) {
   const rounded = Math.round((Number(value) || 0) * 100) / 100;
   return `${rounded.toLocaleString(undefined, { maximumFractionDigits: 2 })} MW`;
+}
+function formatNetworkMw(value) { return `${(Number(value) || 0).toFixed(1)} MW`; }
+function powerSupplyState(entry) {
+  if (!entry || entry.role !== "consumer" || ["disconnected", "unpowered", "destroyed"].includes(entry.state)) return "none";
+  if (entry.state === "underpowered" || Number(entry.unmetMw) > 0) return "partial";
+  return "full";
+}
+function generationShortageNetworks(flow) {
+  return (flow?.networks || []).filter((network) =>
+    Number(network.demandMw) > 0
+    && Number(network.availableGenerationMw) + 0.0005 < Number(network.demandMw)
+  );
+}
+function positionWiringHoverCard(target) {
+  const card = dom.wiringHoverCard;
+  const targetRect = target?.getBoundingClientRect?.();
+  const stageRect = dom.gridStage?.getBoundingClientRect?.();
+  if (!card || !targetRect || !stageRect) return;
+  const gap = 12;
+  const cardWidth = card.offsetWidth;
+  const cardHeight = card.offsetHeight;
+  const anchorX = targetRect.left + targetRect.width / 2 - stageRect.left;
+  const anchorY = targetRect.top + targetRect.height / 2 - stageRect.top;
+  const left = Math.max(6, Math.min(stageRect.width - cardWidth - 6, anchorX + gap));
+  const top = Math.max(6, Math.min(stageRect.height - cardHeight - 6, anchorY + gap));
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+}
+function showWiringHoverCard(markup, target) {
+  const card = dom.wiringHoverCard;
+  if (!card) return;
+  card.innerHTML = markup;
+  card.hidden = false;
+  positionWiringHoverCard(target);
+}
+function renderPowerShortageHoverCard(networkId, target) {
+  if (state.blueprintView !== "wiring" || ui().mode !== "power") return clearWiringHoverCard();
+  const flow = designerPowerFlow();
+  const network = flow?.networks?.find((item) => item.id === networkId);
+  if (!network || !generationShortageNetworks(flow).some((item) => item.id === networkId)) return clearWiringHoverCard();
+  showWiringHoverCard(`<h4>Power shortage</h4>
+    <div class="wiring-hover-flow">${escapeHtml(formatNetworkMw(Math.max(0, Number(network.demandMw) - Number(network.availableGenerationMw))))} short</div>
+    <div class="wiring-hover-card-grid">
+      <span>Generation</span><strong>${escapeHtml(formatNetworkMw(network.availableGenerationMw))}</strong>
+      <span>Requested</span><strong>${escapeHtml(formatNetworkMw(network.demandMw))}</strong>
+      <span>Delivered</span><strong>${escapeHtml(formatNetworkMw(network.allocatedMw))}</strong>
+      <span>Unmet</span><strong>${escapeHtml(formatNetworkMw(network.unmetMw))}</strong>
+    </div>`, target);
+}
+function renderPowerComponentHoverCard(componentIndex, target) {
+  if (state.blueprintView !== "wiring" || ui().mode !== "power") return clearWiringHoverCard();
+  const flow = designerPowerFlow();
+  const entry = flow?.byComponentIndex?.find((item) => item.componentIndex === componentIndex);
+  if (!entry || entry.role !== "consumer") return clearWiringHoverCard();
+  const network = (flow.networks || []).find((item) => entry.networkIds?.includes(item.id));
+  const supply = entry.requestedMw > 0 ? Math.round((Number(entry.allocatedMw) / Number(entry.requestedMw)) * 100) : 100;
+  const stateLabel = powerSupplyState(entry) === "full" ? "Fully powered" : powerSupplyState(entry) === "partial" ? "Partially powered" : "Unpowered";
+  const reason = entry.state === "disconnected"
+    ? "No completed Power connection"
+    : network && Number(network.availableGenerationMw) + 0.0005 < Number(network.demandMw)
+      ? "Insufficient generation"
+      : Number(entry.unmetMw) > 0
+        ? "Cable bottleneck"
+        : "Power demand supplied";
+  showWiringHoverCard(`<h4>${escapeHtml(partName(state.design[componentIndex]?.type))}</h4>
+    <div class="wiring-hover-flow">${escapeHtml(stateLabel)}</div>
+    <div class="wiring-hover-card-grid">
+      <span>Requested</span><strong>${escapeHtml(formatNetworkMw(entry.requestedMw))}</strong>
+      <span>Delivered</span><strong>${escapeHtml(formatNetworkMw(entry.allocatedMw))}</strong>
+      <span>Supply</span><strong>${Math.max(0, Math.min(100, supply))}%</strong>
+    </div>
+    <div class="wiring-hover-reason">${escapeHtml(reason)}</div>`, target);
 }
 
 // Heat-style context card for the exact section under the pointer. Power flow
@@ -783,7 +939,8 @@ function renderWiringHoverCard(sectionId, hitTarget) {
     const flow = sectionFlowsById(state.wiring).get(section.id) || null;
     const utilisation = flow ? `${Math.round((Number(flow.sustainedUtilisation) || 0) * 100)}%` : "Unavailable";
     const capacity = flow ? formatHoverMw(flow.sustainedCapacityMw) : "Unavailable";
-    card.innerHTML = `<h4>${escapeHtml(tierLabel(section.tier))} Power cable</h4>
+    const overloaded = Boolean(flow?.aboveSustained || flow?.atPeak);
+    card.innerHTML = `<h4>${escapeHtml(overloaded ? "Cable overload" : `${tierLabel(section.tier)} Power cable`)}</h4>
       <div class="wiring-hover-flow">${escapeHtml(flow ? formatHoverMw(flow.absoluteFlowMw) : "Flow unavailable")}</div>
       <div class="wiring-hover-card-grid">
         <span>Sustained load</span><strong>${escapeHtml(utilisation)}</strong>
@@ -801,22 +958,7 @@ function renderWiringHoverCard(sectionId, hitTarget) {
       </div>`;
   }
   card.hidden = false;
-
-  const svg = hitTarget?.ownerSVGElement;
-  const matrix = svg?.getScreenCTM?.();
-  const stageRect = dom.gridStage?.getBoundingClientRect?.();
-  if (!svg || !matrix || !stageRect) return;
-  const point = svg.createSVGPoint();
-  point.x = (Number(hitTarget.getAttribute("x1")) + Number(hitTarget.getAttribute("x2"))) / 2;
-  point.y = (Number(hitTarget.getAttribute("y1")) + Number(hitTarget.getAttribute("y2"))) / 2;
-  const screen = point.matrixTransform(matrix);
-  const gap = 12;
-  const cardWidth = card.offsetWidth;
-  const cardHeight = card.offsetHeight;
-  const left = Math.max(6, Math.min(stageRect.width - cardWidth - 6, screen.x - stageRect.left + gap));
-  const top = Math.max(6, Math.min(stageRect.height - cardHeight - 6, screen.y - stageRect.top + gap));
-  card.style.left = `${left}px`;
-  card.style.top = `${top}px`;
+  positionWiringHoverCard(hitTarget);
 }
 // Sections belonging to the same physical Power network as sectionId within
 // an arbitrary wiring value (shared analysis; nothing is mutated).
@@ -1074,6 +1216,67 @@ function terminal(index, kind, selected) {
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > GRID_SIZE || y < 0 || y > GRID_SIZE) return null;
   return svgEl("circle", { cx: x, cy: y, r: 0.14 }, `wire-terminal wire-terminal-${kind}${selected ? " wire-terminal-selected" : ""}`);
 }
+function powerTerminalVisual(index, entry, selected = false) {
+  let center;
+  try { center = rules().componentCenter(state.design[index], PART_STATS); } catch (_) { return null; }
+  const x = Number(center?.x); const y = Number(center?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > GRID_SIZE || y < 0 || y > GRID_SIZE) return null;
+  const networkId = entry?.networkIds?.[0] || "";
+  const group = svgGroup(`wire-power-terminal wire-power-terminal-${entry?.role || "consumer"}${selected ? " wire-terminal-selected" : ""}`);
+  if (networkId) group.dataset.powerNetworkId = networkId;
+  if (entry?.role === "source") {
+    group.appendChild(svgEl("circle", { cx: x, cy: y, r: 0.14 }, "wire-terminal wire-terminal-power wire-terminal-source"));
+    return group;
+  }
+  const supplyState = powerSupplyState(entry);
+  group.classList.add(`wire-terminal-supply-${supplyState}`);
+  const supply = Number(entry?.requestedMw) > 0 ? Math.round((Number(entry.allocatedMw) / Number(entry.requestedMw)) * 100) : 0;
+  const stateLabel = supplyState === "full" ? "Fully powered" : supplyState === "partial" ? "Partially powered" : "Unpowered";
+  group.appendChild(svgEl("circle", { cx: x, cy: y, r: 0.14 }, "wire-terminal wire-terminal-power wire-terminal-supply-ring"));
+  if (supplyState === "partial") {
+    group.appendChild(svgEl("path", { d: `M ${x} ${y - 0.14} A 0.14 0.14 0 0 1 ${x} ${y + 0.14}` }, "wire-terminal-partial-mark"));
+  } else if (supplyState === "none") {
+    group.append(
+      svgEl("line", { x1: x - 0.075, y1: y - 0.075, x2: x + 0.075, y2: y + 0.075 }, "wire-terminal-unpowered-mark"),
+      svgEl("line", { x1: x + 0.075, y1: y - 0.075, x2: x - 0.075, y2: y + 0.075 }, "wire-terminal-unpowered-mark")
+    );
+  }
+  const hit = svgEl("circle", {
+    cx: x, cy: y, r: 0.18, tabindex: 0, role: "button",
+    "aria-label": `${moduleLabel(index)}. ${stateLabel}. ${formatNetworkMw(entry?.allocatedMw)} delivered of ${formatNetworkMw(entry?.requestedMw)} requested. Supply ${Math.max(0, Math.min(100, supply))}%.`
+  }, "wire-power-terminal-hit");
+  hit.dataset.powerComponentIndex = String(index);
+  if (networkId) hit.dataset.powerNetworkId = networkId;
+  group.appendChild(hit);
+  return group;
+}
+function shortageWarningVisual(network, selectedSourceIndex = null) {
+  const sourceIndex = network.sourceIndices.includes(selectedSourceIndex) ? selectedSourceIndex : network.sourceIndices[0];
+  const module = state.design[sourceIndex];
+  if (!module) return null;
+  const stat = PART_STATS[module.type] || PART_STATS.frame;
+  const bounds = getFootprintBounds(module.x, module.y, stat.footprint || { width: 1, height: 1 }, module.rotation || 0);
+  const width = 2.62; const height = 0.78;
+  const x = Math.max(0.12, Math.min(GRID_SIZE - width - 0.12, bounds.minX + bounds.width / 2 - width / 2));
+  const above = bounds.minY - height - 0.14;
+  const y = above >= 0.12 ? above : Math.min(GRID_SIZE - height - 0.12, bounds.maxY + 0.14);
+  const missingMw = Math.max(0, Number(network.demandMw) - Number(network.availableGenerationMw));
+  const group = svgGroup("wire-power-shortage-warning");
+  group.dataset.powerShortageNetworkId = network.id;
+  group.dataset.powerNetworkId = network.id;
+  group.setAttribute("tabindex", "0");
+  group.setAttribute("role", "button");
+  group.setAttribute("aria-label", `Power shortage. ${formatNetworkMw(network.availableGenerationMw)} generation, ${formatNetworkMw(network.demandMw)} requested, ${formatNetworkMw(network.allocatedMw)} delivered, ${formatNetworkMw(network.unmetMw)} unmet.`);
+  group.append(
+    svgEl("rect", { x, y, width, height, rx: 0.18, ry: 0.18 }, "wire-power-shortage-pill"),
+    svgEl("text", { x: x + 0.18, y: y + 0.29 }, "wire-power-shortage-title"),
+    svgEl("text", { x: x + 0.18, y: y + 0.59 }, "wire-power-shortage-value")
+  );
+  group.children[1].textContent = "POWER SHORTAGE";
+  group.children[2].textContent = `${formatHoverMw(network.availableGenerationMw).replace(" MW", "")} / ${formatHoverMw(network.demandMw)}`;
+  group.dataset.powerShortageMw = String(missingMw);
+  return group;
+}
 const DATA_SECTION_SEVERITY_CLASS = Object.freeze({ critical: "data-critical-section", high: "data-high-impact-section", medium: "data-medium-impact-section", low: "data-low-impact-section", redundant: "data-redundant-section" });
 function positiveContributionIndices(weapon) { return new Set((weapon?.contributions || []).filter((item) => Number(item.amount) > 0).map((item) => item.sourceIndex)); }
 
@@ -1081,6 +1284,10 @@ function renderWiringOverlay() {
   const host = dom.wiringOverlayHost; if (!host || state.blueprintView !== "wiring") return; const view = ui(); clearWiringHoverCard(); host.replaceChildren(); dom.grid?.classList.add("wiring-overlay-active");
   host.classList.toggle("wiring-inspect-hover-active", Boolean(view.hoveredSectionId && view.sourceIndex == null && currentTool() === "inspect"));
   const svg = svgEl("svg", { viewBox: `0 0 ${GRID_SIZE} ${GRID_SIZE}` }, "wiring-overlay"); const selectedNet = selectedNetwork(); const analysis = currentAnalysis(); const dataAnalysis = view.mode === "data" ? currentDataInspection() : null; const dataSource = dataAnalysis?.sourceAllocationByIndex?.[view.selectedIndex]; const dataWeapon = dataAnalysis?.weaponBonusByIndex?.[view.selectedIndex]; const selectedDataNetworkId = selectedNet?.id || dataSource?.networkId || dataWeapon?.networkId || view.selectedDataNetworkId;
+  const powerFlow = view.mode === "power" ? designerPowerFlow() : null;
+  const powerComponentByIndex = new Map((powerFlow?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
+  const powerFlowNetworkBySection = new Map();
+  for (const network of powerFlow?.networks || []) for (const sectionId of network.sectionIds || []) powerFlowNetworkBySection.set(sectionId, network);
   const vulnerabilities = view.mode === "data" && dataAnalysis ? getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, dataAnalysis) : [];
   const sectionVulnerabilityById = new Map(vulnerabilities.filter((item) => item.kind === "section").map((item) => [item.id, item]));
   const hostVulnerabilityByIndex = new Map(vulnerabilities.filter((item) => item.kind === "host").map((item) => [item.componentIndex, item]));
@@ -1090,21 +1297,20 @@ function renderWiringOverlay() {
   const selectedWeaponZeroContributors = new Set(dataWeapon ? (dataAnalysis.sources || []).filter((src) => src.networkId === dataWeapon.networkId && !selectedWeaponActiveContributors.has(src.sourceIndex)).map((src) => src.sourceIndex) : []);
   const glowLayer = svgGroup("wire-glow-layer");
   const visibleLayer = svgGroup("wire-visible-layer"); const energyLayer = svgGroup("wire-energy-layer"); const hitLayer = svgGroup("wire-hit-layer");
-  const markerLayer = svgGroup("wire-marker-layer"); const indicatorLayer = svgGroup("wire-indicator-layer"); const portLayer = svgGroup("wire-port-layer");
+  const markerLayer = svgGroup("wire-marker-layer"); const indicatorLayer = svgGroup("wire-indicator-layer"); const warningLayer = svgGroup("wire-warning-layer"); const portLayer = svgGroup("wire-port-layer");
   // SVG paint order is also hit-test order. The glow layer is drawn first (below
   // everything) so status halos read as an outer ring while the tier-coloured
   // cable stays on top. Ports remain last so they win hit testing over cable.
-  svg.append(glowLayer, visibleLayer, energyLayer, hitLayer, markerLayer, indicatorLayer, portLayer);
+  svg.append(glowLayer, visibleLayer, energyLayer, hitLayer, markerLayer, indicatorLayer, warningLayer, portLayer);
   // Section 7D-2: per-section delivered flow status from the shared solver, used
   // for the load/above-sustained/at-peak overlays (never replaces tier colour).
   const powerFlowBySection = new Map();
-  if (view.mode === "power") { try { const flow = designerPowerFlow(); if (flow && Array.isArray(flow.sectionFlows)) for (const f of flow.sectionFlows) powerFlowBySection.set(f.sectionId, f); } catch (_) { /* preview optional */ } }
-  const POWER_STATUS_TEXT = { working: "working", loaded: "highly loaded", above: "above sustained capacity", peak: "at peak capacity", broken: "disconnected" };
+  if (view.mode === "power" && Array.isArray(powerFlow?.sectionFlows)) for (const flow of powerFlow.sectionFlows) powerFlowBySection.set(flow.sectionId, flow);
+  const POWER_STATUS_TEXT = { working: "fully supplied", loaded: "partially supplied", above: "cable above sustained capacity", peak: "cable at peak capacity", broken: "no Power delivered" };
   for (const section of bucket().sections) {
     const netForSection = view.mode === "data" ? dataAnalysis?.networks?.find((network) => network.sectionIds.includes(section.id)) : null;
     const isSelected = selectedNet?.sectionIds.includes(section.id) || (view.mode === "data" && selectedDataNetworkId && netForSection?.id === selectedDataNetworkId);
-    const powerNetwork = view.mode === "power" ? analysis.power.networks.find((network) => network.sectionIds.includes(section.id)) : null;
-    const powerState = powerNetwork?.status || null;
+    const powerNetwork = view.mode === "power" ? powerFlowNetworkBySection.get(section.id) : null;
     const sectionFlow = view.mode === "power" ? powerFlowBySection.get(section.id) : null;
     const dim = view.mode === "data" && selectedDataNetworkId && netForSection?.id !== selectedDataNetworkId ? " data-dimmed" : "";
     const sectionVulnerability = sectionVulnerabilityById.get(section.id);
@@ -1118,11 +1324,14 @@ function renderWiringOverlay() {
     // Power status is an OVERLAY (halo), so the tier colour on the visible line is
     // never replaced. Determine the status severity from connectivity + flow.
     let powerSeverity = null;
+    let supplyState = null;
     if (view.mode === "power") {
-      if (powerState === "unpowered") powerSeverity = "broken";
-      else if (sectionFlow && sectionFlow.atPeak) powerSeverity = "peak";
+      const delivered = Number(sectionFlow?.absoluteFlowMw) || 0;
+      supplyState = delivered <= 0.0005 ? "none" : Number(powerNetwork?.unmetMw) > 0.0005 ? "partial" : "full";
+      if (sectionFlow && sectionFlow.atPeak) powerSeverity = "peak";
       else if (sectionFlow && sectionFlow.aboveSustained) powerSeverity = "above";
-      else if ((sectionFlow && Number(sectionFlow.sustainedUtilisation) >= 0.75) || powerState === "underpowered") powerSeverity = "loaded";
+      else if (supplyState === "none") powerSeverity = "broken";
+      else if (supplyState === "partial") powerSeverity = "loaded";
       else powerSeverity = "working";
     }
     if (view.mode === "power") {
@@ -1136,17 +1345,22 @@ function renderWiringOverlay() {
     // a whole network. Clicking a physical section never recolours the grid.
     const selectedClass = view.mode === "data" && view.selectedDataNetworkId && isSelected ? " wire-net-selected" : "";
     const locateClass = locatedSectionId === section.id ? " wire-section-locate" : "";
-    const visible = line(section, `wire-${view.mode}${tierClass}${dim}${selectedClass}${severityClass ? ` ${severityClass}` : ""}${previewClass}${locateClass}`);
+    const supplyClass = view.mode === "power" ? ` wire-supply-${supplyState || "none"}` : "";
+    const visible = line(section, `wire-${view.mode}${tierClass}${supplyClass}${dim}${selectedClass}${severityClass ? ` ${severityClass}` : ""}${previewClass}${locateClass}`);
     if (view.mode === "power") {
       visible.style.strokeWidth = renderedStrokeWidth(section.tier);
       if (powerSeverity) visible.dataset.powerStatus = powerSeverity;
-      if (powerNetwork) visible.dataset.networkId = powerNetwork.id;
+      if (powerNetwork) {
+        visible.dataset.networkId = powerNetwork.id;
+        visible.dataset.powerNetworkId = powerNetwork.id;
+      }
     }
     visible.dataset.sectionId = section.id; visibleLayer.appendChild(visible);
     if (view.mode === "power" && powerNetwork && Number(sectionFlow?.absoluteFlowMw) > 0) {
       const directionClass = Number(sectionFlow.signedFlowMw) < 0 ? "wire-energy-reverse" : "wire-energy-forward";
-      const pulse = line(section, `wire-energy-pulse ${directionClass}`);
+      const pulse = line(section, `wire-energy-pulse ${directionClass} wire-energy-${supplyState}`);
       pulse.dataset.networkId = powerNetwork.id;
+      pulse.dataset.powerNetworkId = powerNetwork.id;
       pulse.dataset.sectionId = section.id;
       energyLayer.appendChild(pulse);
     }
@@ -1156,11 +1370,12 @@ function renderWiringOverlay() {
     const hit = line(section, "wire-hit"); hit.dataset.sectionId = section.id; hit.setAttribute("tabindex", "0"); hit.setAttribute("role", "button"); hit.setAttribute("aria-label", `${sectionActionVerb()} ${view.mode} cable section from ${section.x1},${section.y1} to ${section.x2},${section.y2}${tierText}${statusText}${severityText}`); hitLayer.appendChild(hit);
   }
   if (view.mode === "power") {
-    for (const network of analysis.power.networks) {
+    for (const network of powerFlow?.networks || []) {
       for (const sourceIndex of network.sourceIndices) {
         const sourcePulse = moduleRect(sourceIndex, "wire-energy-source");
         if (!sourcePulse) continue;
         sourcePulse.dataset.networkId = network.id;
+        sourcePulse.dataset.powerNetworkId = network.id;
         sourcePulse.dataset.sourceIndex = String(sourceIndex);
         energyLayer.appendChild(sourcePulse);
       }
@@ -1172,17 +1387,42 @@ function renderWiringOverlay() {
   // A cable may route across any occupied cell, but those pass-through hosts
   // (network.hostIndices) are not terminals and must not be marked as such.
   const selectedTerminalIndices = new Set(view.selectedSectionId ? [] : selectedNet?.componentIndices || []);
-  const terminalIndices = new Set(selectedTerminalIndices);
-  for (const network of analysis[view.mode]?.networks || []) for (const index of network.componentIndices) terminalIndices.add(index);
-  [...terminalIndices].sort((a, b) => a - b).forEach((index) => {
-    const marker = terminal(index, view.mode, selectedTerminalIndices.has(index));
-    if (marker) indicatorLayer.appendChild(marker);
-  });
-  if (view.mode === "power") state.design.forEach((module, index) => {
-    if (!rules().isPowerConsumer(module.type, PART_STATS)) return;
-    const className = analysis.power.disconnectedConsumerIndices.includes(index) ? "wire-comp-disconnected" : analysis.power.underpoweredConsumerIndices.includes(index) ? "wire-comp-underpowered" : "wire-comp-connected-dest";
-    const rect = moduleRect(index, className); if (rect) indicatorLayer.appendChild(rect);
-  });
+  if (view.mode === "power") {
+    const terminalIndices = new Set();
+    powerComponentByIndex.forEach((entry, index) => {
+      if (entry.role === "source" || entry.role === "consumer") terminalIndices.add(index);
+    });
+    [...terminalIndices].sort((a, b) => a - b).forEach((index) => {
+      const entry = powerComponentByIndex.get(index);
+      const marker = powerTerminalVisual(index, entry, selectedTerminalIndices.has(index));
+      if (marker) indicatorLayer.appendChild(marker);
+      if (entry?.role !== "consumer") return;
+      const networkId = entry.networkIds?.[0] || "";
+      const supplyState = powerSupplyState(entry);
+      const rect = moduleRect(index, `wire-component-supply wire-component-supply-${supplyState}`);
+      if (rect) {
+        if (networkId) rect.dataset.powerNetworkId = networkId;
+        indicatorLayer.appendChild(rect);
+      }
+    });
+  } else {
+    const terminalIndices = new Set(selectedTerminalIndices);
+    for (const network of analysis.data?.networks || []) for (const index of network.componentIndices) terminalIndices.add(index);
+    [...terminalIndices].sort((a, b) => a - b).forEach((index) => {
+      const marker = terminal(index, view.mode, selectedTerminalIndices.has(index));
+      if (marker) indicatorLayer.appendChild(marker);
+    });
+  }
+  if (view.mode === "power") {
+    for (const network of generationShortageNetworks(powerFlow)) {
+      for (const sourceIndex of network.sourceIndices) {
+        const sourceRect = moduleRect(sourceIndex, "wire-component-supply wire-component-supply-source");
+        if (sourceRect) { sourceRect.dataset.powerNetworkId = network.id; indicatorLayer.appendChild(sourceRect); }
+      }
+      const warning = shortageWarningVisual(network, view.selectedIndex);
+      if (warning) warningLayer.appendChild(warning);
+    }
+  }
   // Only the active mode's source ports are drawable, so only they are drawn: a
   // Power port shown in Data mode is dead UI (the click handler rejects it) and
   // makes the two modes look identical. One kind renders, so it sits centred.
@@ -1215,6 +1455,7 @@ function renderWiringOverlay() {
     if (view.hoverCell && !view.hoverCell.valid) markerLayer.appendChild(svgEl("circle", { cx: view.hoverCell.x + 0.5, cy: view.hoverCell.y + 0.5, r: 0.15 }, "wire-invalid-cell"));
   }
   host.appendChild(svg);
+  applyHoverHighlight();
 }
 
 function pct(value) { return `${Math.round((Number(value) || 0) * 100)}%`; }

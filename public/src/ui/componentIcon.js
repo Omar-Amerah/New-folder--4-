@@ -39,12 +39,12 @@ function emblemAngle(type, rotationDeg) {
   if (type === "engine") return -Math.PI / 2;
   if (type === "maneuverThruster") return moduleRotationToRadians(rot) - Math.PI / 2;
   // Every rotatable part rotates its own art with placement (there is no separate
-  // rotation marker). Weapons additionally face their firing direction, so
-  // rotation 0 points forward (up in the grid); structural diagonal/wing shapes
-  // rotate in their natural frame.
+  // rotation marker). The arena art is authored in the +x-forward convention, so
+  // all rotatable parts (weapons AND structural diagonal/wing shapes) need the
+  // same -pi/2 correction to read nose-up on the blueprint, matching how
+  // drawPlacedStaticComponent renders them on the map and in saved previews.
   if (isRotatablePart(type)) {
-    const stat = PART_STATS[type] || {};
-    return isWeaponPart(stat) ? moduleRotationToRadians(rot) - Math.PI / 2 : moduleRotationToRadians(rot);
+    return moduleRotationToRadians(rot) - Math.PI / 2;
   }
   // Non-rotatable parts align the emblem with the footprint's long axis so
   // elongated parts (engine, reactor, ...) point along their body.

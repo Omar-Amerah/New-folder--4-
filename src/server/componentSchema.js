@@ -181,7 +181,19 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   if (!Array.isArray(balance.components)) {
     return { ok: false, errors: [`${filePath}.components must be an array.`] };
   }
-  for (const key of ["metadata","shipPricing","economy","rewards","match","movement","projectiles","missileGuidance","fleetLimits","capture","repair"]) validateRequiredSection(balance, key, errors);
+  for (const key of ["metadata","shipPricing","economy","rewards","match","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
+  if (balance.drones) {
+    const required = ["squadSize", "maxBaysPerShip", "maxActivePerShip", "maxActivePerPlayer", "launchIntervalSeconds", "launchDurationSeconds", "orphanLifetimeSeconds", "standbyPowerMw", "activePowerMw", "productionPowerMw", "standbyHeatPerSecond", "activeHeatPerSecond", "productionHeatPerSecond"];
+    for (const field of required) if (!isFiniteNonNegative(balance.drones[field])) errors.push(`${filePath}.drones.${field} must be a finite non-negative number.`);
+    if (!balance.drones.types || typeof balance.drones.types !== "object") errors.push(`${filePath}.drones.types must be an object.`);
+    for (const type of ["fighter", "defence", "repair"]) {
+      const config = balance.drones.types?.[type];
+      if (!config || typeof config !== "object") errors.push(`${filePath}.drones.types.${type} must be an object.`);
+      else if (!isFiniteNonNegative(config.productionSeconds) || !isFiniteNonNegative(config.hull) || !isFiniteNonNegative(config.speed)) {
+        errors.push(`${filePath}.drones.types.${type} must define non-negative productionSeconds, hull, and speed.`);
+      }
+    }
+  }
   validateFiniteMap(balance, filePath, errors);
   if (balance.shipPricing) {
     if (balance.shipPricing.minimum > balance.shipPricing.maximum) errors.push(`${filePath}.shipPricing minimum must be <= maximum.`);
