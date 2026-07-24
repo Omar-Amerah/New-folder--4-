@@ -4,6 +4,88 @@ const { ECONOMY, SCORE_PER_CONTROLLED_POINT } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 const { effectiveComponentBonus } = require("./heat");
 
+// ---------------------------------------------------------------------------
+// Authoritative side scoring
+//
+// Objective score (relay captures + periodic relay-control income) belongs to a
+// SIDE, not to individual players, so a larger team can never earn objective
+// score faster than a smaller one. In team mode the authoritative store is a
+// single room-level total per team (`room.teamScores`); in solo mode each
+// player is their own side and keeps their per-player `player.score` (which, in
+// solo, also includes personal combat score — solo scoring is unchanged).
+//
+// Decision — does personal combat score feed the shared team score?  NO. In
+// team mode the shared team score is objective-only. Personal combat score
+// (kills) still accrues on `player.score` as an individual statistic but does
+// NOT contribute to the team total used by the scoreboard or victory checks, so
+// team score stays strictly independent of team size. Solo mode is per-player,
+// so combat score continues to count toward that player's own side score.
+//
+// Because the team total lives on the room (not summed from player records),
+// joining / disconnecting / kicking / reconnecting can never duplicate or erase
+// existing team score.
+// ---------------------------------------------------------------------------
+
+function isSoloMode(room) {
+  return room.rules?.gameMode === "solo";
+}
+
+function ensureTeamScores(room) {
+  if (!room.teamScores || typeof room.teamScores !== "object") room.teamScores = {};
+  return room.teamScores;
+}
+
+function resetTeamScores(room) {
+  room.teamScores = {};
+}
+
+// Add objective score to a side exactly once. In solo mode the side is a player
+// id and the score lands on that player; in team mode it lands on the shared
+// team total.
+function addSideObjectiveScore(room, side, amount) {
+  if (!side || !amount) return;
+  if (isSoloMode(room)) {
+    const player = room.players.get(side);
+    if (player) player.score += amount;
+  } else {
+    const scores = ensureTeamScores(room);
+    scores[side] = (scores[side] || 0) + amount;
+  }
+}
+
+// The single authoritative score for a side, used by BOTH the scoreboard
+// snapshot and the victory checks so the two can never disagree.
+function sideScore(room, side) {
+  if (isSoloMode(room)) return Math.floor(room.players.get(side)?.score || 0);
+  return Math.floor(ensureTeamScores(room)[side] || 0);
+}
+
+// Map of side -> authoritative score for every side currently in play.
+function scoreSides(room) {
+  const sides = new Map();
+  if (isSoloMode(room)) {
+    for (const player of room.players.values()) sides.set(player.id, Math.floor(player.score || 0));
+  } else {
+    const scores = ensureTeamScores(room);
+    for (const player of room.players.values()) {
+      if (!sides.has(player.team)) sides.set(player.team, Math.floor(scores[player.team] || 0));
+    }
+    for (const team of Object.keys(scores)) {
+      if (!sides.has(team)) sides.set(team, Math.floor(scores[team] || 0));
+    }
+  }
+  return sides;
+}
+
+// Plain object of side -> score for embedding in a snapshot so clients render
+// and compare against the exact authoritative values instead of reconstructing
+// team totals from player records.
+function snapshotSideScores(room) {
+  const out = {};
+  for (const [side, score] of scoreSides(room)) out[side] = score;
+  return out;
+}
+
 function updateCapturePoints(room, ships, dt) {
   const { teamLabel } = require("./players");
   const { broadcastRoom } = require("./messages");
@@ -44,12 +126,15 @@ function updateCapturePoints(room, ships, dt) {
         point.ownerTeam = leaderTeam;
         point.ownerId = leader.ownerId;
         point.progress = Math.min(1, captureRate * BALANCE.capture.newOwnerProgressMultiplier);
+        // Objective capture score is awarded once to the capturing side. Money
+        // and personal capture counts stay per-player (economy/personal stats),
+        // but the shared team objective score is not multiplied by team size.
+        addSideObjectiveScore(room, leaderTeam, BALANCE.capture.captureScore);
         for (const player of room.players.values()) {
           if (player.team === leaderTeam) {
             player.captures += 1;
             player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + ECONOMY.captureBonus);
             player.earned += ECONOMY.captureBonus;
-            player.score += BALANCE.capture.captureScore;
           }
         }
         broadcastRoom(room, {
@@ -155,12 +240,8 @@ function finalizeSoloControlVictory(room, playerId, now) {
 }
 
 function topScoringSide(room) {
-  const sides = new Map();
-  for (const player of room.players.values()) {
-    const side = room.rules?.gameMode === "solo" ? player.id : player.team;
-    sides.set(side, (sides.get(side) || 0) + Math.floor(player.score || 0));
-  }
-  return [...sides.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0] || null;
+  // Uses the same authoritative per-side score as the scoreboard snapshot.
+  return [...scoreSides(room).entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0] || null;
 }
 
 function finalizeScoreVictoryIfNeeded(room, now) {
@@ -181,14 +262,13 @@ function updateScoring(room, now) {
   const tickScore = now - (room.lastScoreAt || 0) >= 1000;
   if (tickScore) {
     room.lastScoreAt = now;
+    // Periodic relay-control income increments once per controlled relay per
+    // side, never once per player, so a larger team does not earn faster.
     for (const point of room.points) {
       if (point.contested || point.progress < 0.98) continue;
-      const ownerKey = room.rules?.gameMode === "solo" ? point.ownerId : point.ownerTeam;
+      const ownerKey = isSoloMode(room) ? point.ownerId : point.ownerTeam;
       if (!ownerKey) continue;
-      for (const player of room.players.values()) {
-        const playerKey = room.rules?.gameMode === "solo" ? player.id : player.team;
-        if (playerKey === ownerKey) player.score += SCORE_PER_CONTROLLED_POINT;
-      }
+      addSideObjectiveScore(room, ownerKey, SCORE_PER_CONTROLLED_POINT);
     }
   }
 
@@ -242,8 +322,14 @@ module.exports = {
   updateCapturePoints,
   updateScoring,
   resetControlVictory,
+  resetTeamScores,
   getTeamWithFullControl,
   getPlayerWithFullControl,
   finalizeMatchWinner,
-  finalizeScoreVictoryIfNeeded
+  finalizeScoreVictoryIfNeeded,
+  addSideObjectiveScore,
+  sideScore,
+  scoreSides,
+  snapshotSideScores,
+  topScoringSide
 };

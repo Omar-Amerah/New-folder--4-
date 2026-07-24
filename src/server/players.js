@@ -472,6 +472,7 @@ function maybeStartMatch(room, now) {
     requiredSeconds: 20
   };
   room.lastScoreAt = now;
+  require("./objectives").resetTeamScores(room);
   for (const player of players) {
     resetPlayerForMatch(room, player, now, { spawn: true });
   }
@@ -508,6 +509,7 @@ function startDesignPhase(room, requester) {
     requiredSeconds: 20
   };
   room.lastScoreAt = performanceNow();
+  require("./objectives").resetTeamScores(room);
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;
@@ -543,6 +545,7 @@ function restartFromEnd(room, requester) {
     requiredSeconds: 20
   };
   room.lastScoreAt = performanceNow();
+  require("./objectives").resetTeamScores(room);
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;
@@ -585,6 +588,7 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
     remaining: null,
     requiredSeconds: 20
   };
+  require("./objectives").resetTeamScores(room);
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;

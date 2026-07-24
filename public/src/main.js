@@ -1,6 +1,7 @@
 // Bootstraps the browser client by wiring state, networking, UI, input, and rendering.
 
 import { applyShipEconomy, applyWiringInfrastructure } from "./constants.js";
+import { showToast } from "./ui/toastUi.js";
 import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
 import { renderPalette, setPartPaletteSelectionPresentationRefresh } from "./ui/partPaletteUi.js";
@@ -15,7 +16,7 @@ import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
 import { handleKeyDown, bindArenaPointerListeners } from "./game/input.js";
-import { LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "./constants.js";
+import { LOCAL_ACTIVE_ROOM_KEY, syncUrlParams, DIAGNOSTICS_ENABLED } from "./constants.js";
 import { loadPreferences, persistPreferences, applyInterfacePreferences } from "./localPreferences.js";
 import { bindRoomRecoveryCard, renderRecoveryCard } from "./ui/roomRecoveryUi.js";
 import { send, getConfiguredServerUrl, persistServerQueryParam } from "./network.js";
@@ -31,15 +32,17 @@ if (dom.combatStyleSelect) {
   dom.combatStyleSelect.value = state.combatStyle || "hold";
 }
 
-// Debug/test handle: read-only access to the client state from the console
-// and automated browser checks. Not used by game code.
-window.__mfaMainLoaded = true;
-window.__mfaState = state;
-
-// Debug/test handle: send a message through the live WebSocket. Lets the
-// end-to-end turret test drive real lobby/deploy/command messages over the
-// real protocol (never used by game code).
-window.__mfaNetSend = (message) => send(message);
+// Development/test-only handles: read-only client-state access and an
+// arbitrary-protocol-send function. Exposed only when diagnostics are enabled
+// (local dev hosts or explicit ?diagnostics=1 / window.__mfaEnableDiagnostics),
+// never in normal production builds. Not used by game code.
+if (DIAGNOSTICS_ENABLED) {
+  window.__mfaMainLoaded = true;
+  window.__mfaState = state;
+  // Send a message through the live WebSocket. Lets the end-to-end turret test
+  // drive real lobby/deploy/command messages over the real protocol.
+  window.__mfaNetSend = (message) => send(message);
+}
 
 setPartPaletteSelectionPresentationRefresh(refreshBlueprintSelectionPresentation);
 
@@ -263,20 +266,40 @@ async function initializeClient() {
 
 async function loadComponentBalance() {
   if (typeof fetch !== "function") return;
+  const { acceptDownloadedBalance, recordBalanceFetchFailure } = await import("./balanceStatus.js");
+  let balance;
   try {
     const response = await fetch("/component-balance.json", { cache: "no-store" });
-    if (!response.ok) return;
-    const balance = await response.json();
-    applyShipEconomy(balance.shipPricing);
-    applyWiringInfrastructure(balance.wiringInfrastructure);
-    const applied = applyComponentBalance(balance);
-    if (!applied) return;
-    renderPalette();
-    renderPartInspector();
-    renderBuildGrid();
-    renderLocalStats();
-    renderSavedDesigns();
-  } catch {
-    // Fail silently, use defaults
+    if (!response.ok) {
+      // Fetch failed: keep the packaged copy and surface a restrained warning.
+      recordBalanceFetchFailure(`HTTP ${response.status}`);
+      showToast("Live game balance could not be confirmed; using the built-in copy.", "warning");
+      return;
+    }
+    balance = await response.json();
+  } catch (error) {
+    recordBalanceFetchFailure(String(error?.message || error));
+    showToast("Live game balance could not be confirmed; using the built-in copy.", "warning");
+    return;
   }
+
+  // Validate the downloaded payload before applying anything. A malformed
+  // response must never be partially applied or coerced to zeros — keep the last
+  // known good balance and record a diagnostic.
+  const result = acceptDownloadedBalance(balance);
+  if (!result.ok) {
+    console.error("[mfa] Rejected live component balance:", result.errors.join("; "));
+    showToast("Live game balance was invalid; using the built-in copy.", "warning");
+    return;
+  }
+
+  applyShipEconomy(balance.shipPricing);
+  applyWiringInfrastructure(balance.wiringInfrastructure);
+  const applied = applyComponentBalance(balance);
+  if (!applied) return;
+  renderPalette();
+  renderPartInspector();
+  renderBuildGrid();
+  renderLocalStats();
+  renderSavedDesigns();
 }

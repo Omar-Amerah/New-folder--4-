@@ -6,7 +6,7 @@ import "../shared/dataSupportRules.js";
 import "../shared/switchgearRules.js";
 import "../shared/droneBayRules.js";
 import "../shared/wiringRules.js";
-import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
+import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { validateBlueprint } from "./blueprintValidation.js";
@@ -292,15 +292,16 @@ function normalizeSavedDesign(design, index) {
   };
 }
 
-// Storage schema v2 accepts only v2 "current-design" envelopes. Everything
-// else — legacy arrays, v1 envelopes, future versions — resolves to the
-// current default ship with its default wiring. There is no migration path.
-export function migrateDesignStorage(value) {
-  if (!isCurrentEnvelope(value, "current-design")) return { ...defaultCurrentDesign(), discarded: value != null, fallback: value != null };
-  const payload = value.payload;
-  if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return { ...defaultCurrentDesign(), discarded: true, fallback: true };
+// Build a normalized current-design result from a { modules, wiring?, combatStyle? }
+// payload, preserving component-specific configuration (drone type, switchgear
+// mode/tier via normalizeDesignDetailed) and valid wiring + Power priority policy
+// (via normalizeStoredWiringForDesign, which never auto-wires custom designs).
+// Returns null when the payload has no usable modules.
+function buildCurrentDesignFromPayload(payload) {
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return null;
   const detailed = normalizeDesignDetailed(payload.modules, { allowEmpty: true });
   const modules = detailed.modules;
+  if (!modules.length) return null;
   return {
     modules,
     normalizationIssues: detailed.issues,
@@ -308,6 +309,71 @@ export function migrateDesignStorage(value) {
     wiring: normalizeStoredWiringForDesign(payload.wiring, modules),
     combatStyle: safeStyle(payload.combatStyle, "hold")
   };
+}
+
+// Recognize a payload from a KNOWN older current-design format:
+//  - a bare array of modules (oldest storage),
+//  - a pre-envelope object storing { modules|design, wiring?, combatStyle? },
+//  - an older versioned "current-design" envelope (schemaVersion < current).
+// Returns a { modules, wiring, combatStyle } payload, or null if unrecognized.
+function legacyCurrentDesignPayload(value) {
+  if (Array.isArray(value)) return { modules: value, wiring: null, combatStyle: "hold" };
+  if (!value || typeof value !== "object") return null;
+  if (isEnvelope(value, "current-design") && Number(value.schemaVersion) < BLUEPRINT_STORAGE_VERSION) {
+    return value.payload && typeof value.payload === "object" ? value.payload : null;
+  }
+  if (!Object.hasOwn(value, "schemaVersion")) {
+    if (Array.isArray(value.modules)) return { modules: value.modules, wiring: value.wiring ?? null, combatStyle: value.combatStyle };
+    if (Array.isArray(value.design)) return { modules: value.design, wiring: value.wiring ?? null, combatStyle: value.combatStyle };
+  }
+  return null;
+}
+
+// Storage schema v2 loads v2 "current-design" envelopes directly, migrates known
+// older formats (legacy arrays, pre-envelope objects, v1 envelopes) into the
+// current { modules, wiring, combatStyle } shape while preserving specialised
+// component settings, valid wiring and combat style, and refuses to silently
+// overwrite an unknown FUTURE schema. Anything genuinely unmigratable resolves
+// to the default ship (with a warning) so startup never crashes.
+export function migrateDesignStorage(value) {
+  if (isCurrentEnvelope(value, "current-design")) {
+    const built = buildCurrentDesignFromPayload(value.payload);
+    return built || { ...defaultCurrentDesign(), discarded: true, fallback: true };
+  }
+  // A newer-than-supported envelope is left untouched: do not overwrite it with
+  // migrated/default data. Load the default ship for this session only.
+  if (isEnvelope(value, "current-design") && Number(value.schemaVersion) > BLUEPRINT_STORAGE_VERSION) {
+    return {
+      ...defaultCurrentDesign(),
+      fallback: true,
+      unsupportedFuture: true,
+      preserveStored: true,
+      migrationWarning: `Saved design uses a newer storage format (v${value.schemaVersion}); it was left untouched and the default ship was loaded. Update the app to use it.`
+    };
+  }
+  const legacyPayload = legacyCurrentDesignPayload(value);
+  if (legacyPayload) {
+    const built = buildCurrentDesignFromPayload(legacyPayload);
+    if (built) return { ...built, migrated: true };
+  }
+  return {
+    ...defaultCurrentDesign(),
+    discarded: value != null,
+    fallback: value != null,
+    migrationWarning: value != null ? "Saved current design could not be migrated; the default ship was loaded (your data was backed up)." : null
+  };
+}
+
+// Preserve the exact original stored value before a migration/unsupported load,
+// without clobbering an earlier pre-migration backup.
+function backupPreMigrationDesign(original) {
+  const s = storage();
+  if (!s) return;
+  try {
+    if (s.getItem(LOCAL_DESIGN_PREMIGRATION_KEY) == null) {
+      s.setItem(LOCAL_DESIGN_PREMIGRATION_KEY, JSON.stringify(original));
+    }
+  } catch { /* storage full/unavailable — best effort */ }
 }
 export function designEnvelope(design, wiring, combatStyle = "hold", timestamps = {}) {
   const modules = normalizeDesign(design, { allowEmpty: true });
@@ -325,7 +391,15 @@ export function loadDesign() {
     return { ...defaultCurrentDesign(), recovered: Boolean(read.corrupt), fallback: true };
   }
   if (read.empty) return defaultCurrentDesign();
-  return migrateDesignStorage(read.value);
+  const result = migrateDesignStorage(read.value);
+  // Preserve the original data before it can be overwritten by a later
+  // persistDesign() in the current format, and surface a clear warning.
+  if (result.migrated || result.unsupportedFuture || result.discarded) {
+    backupPreMigrationDesign(read.value);
+  }
+  if (result.migrationWarning && typeof console !== "undefined") console.warn(`[mfa] ${result.migrationWarning}`);
+  else if (result.migrated && typeof console !== "undefined") console.info("[mfa] Migrated an older saved current design into the current format.");
+  return result;
 }
 export function persistDesign(design, wiring, combatStyle = "hold") {
   const env = designEnvelope(design, wiring, combatStyle);

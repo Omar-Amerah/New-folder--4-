@@ -65,24 +65,48 @@ function prunePurchaseRequestCache(player, now) {
   }
 }
 
+// Deterministic canonical serialization: recursively sort object keys so that
+// reordering keys in the wire payload cannot change the signature, while any
+// meaningful value change does. Arrays keep their order (wiring section/
+// connection arrays are explicitly sorted below before canonicalization).
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = canonicalize(value[key]);
+    return out;
+  }
+  return value;
+}
+
+// The purchase idempotency signature is derived from the COMPLETE authoritative
+// normalized blueprint + wiring, so retries with a genuinely different payload
+// are detected as conflicts even when only component-specific configuration
+// differs (Drone Bay drone type, Switchgear mode/tier, cable tiers, Power
+// priority preset/custom order, ...). We serialize the normalized parts directly
+// rather than maintaining a hand-picked field list, so future part-specific
+// configuration is covered automatically.
 function stablePayloadSignature(payload) {
   const blueprint = createShipBlueprintSnapshot(payload.design, payload.wiring);
   const canonicalKind = (kind) => ({
-    sections: kind.sections.map((section) => ({ ...section })).sort((a, b) => a.id.localeCompare(b.id)),
-    connections: kind.connections.map((connection) => ({ ...connection, sectionIds: [...connection.sectionIds] }))
+    sections: kind.sections.map((section) => canonicalize(section)).sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    connections: kind.connections.map((connection) => canonicalize({ ...connection, sectionIds: [...connection.sectionIds] }))
       .sort((a, b) => `${a.sourceIndex}>${a.targetIndex}:${a.sectionIds.join(";")}`.localeCompare(`${b.sourceIndex}>${b.targetIndex}:${b.sectionIds.join(";")}`))
   });
-  return JSON.stringify({
+  return JSON.stringify(canonicalize({
     count: payload.count,
     combatStyle: payload.combatStyle || "",
-    design: blueprint.design.map((part) => ({
-      x: part.x,
-      y: part.y,
-      type: part.type,
-      rotation: part.rotation || 0
-    })),
-    wiring: { version: blueprint.wiring.version, power: canonicalKind(blueprint.wiring.power), data: canonicalKind(blueprint.wiring.data) }
-  });
+    // Full normalized design parts — every field the normalizer preserves,
+    // including droneType, switchgearMode and switchgearRatingTier.
+    design: blueprint.design.map((part) => canonicalize(part)),
+    wiring: {
+      version: blueprint.wiring.version,
+      power: canonicalKind(blueprint.wiring.power),
+      data: canonicalKind(blueprint.wiring.data),
+      // Power priority preset + custom priority order (and any future policy).
+      powerPolicy: blueprint.wiring.powerPolicy || null
+    }
+  }));
 }
 
 function makePurchaseFailure(requestId, code, message) {
@@ -132,8 +156,12 @@ function executePurchase(room, player, request, now) {
   };
 
   try {
+    // Capture the active fleet count ONCE before spawning. Recomputing it inside
+    // the loop double-counts each freshly spawned ship, producing spread-out
+    // spawn indexes (0, 2, 4) instead of consecutive ones (0, 1, 2).
+    const initialActiveCount = activeFleetCount(player);
     for (let i = 0; i < validation.count; i += 1) {
-      const index = activeFleetCount(player) + i;
+      const index = initialActiveCount + i;
       createdShips.push(spawnShip(room, player, now, index, {
         stats: validation.shipStats,
         design,

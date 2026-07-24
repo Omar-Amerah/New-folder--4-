@@ -10,6 +10,7 @@ import { normalizeDesign, normalizeWiring, persistLoadouts } from "../design/blu
 import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
 import { makePurchaseRequestId, makeDesignId } from "../shared/ids.js";
+import { isBalanceIncompatible, balanceBlockMessage } from "../balanceStatus.js";
 import { formatHull, formatShield, formatSpeed, formatMass, formatEnergy, formatRepair, formatPercent } from "../design/statFormatting.js";
 import { weaponAbbrevText, previewColor } from "./savedBlueprintsUi.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
@@ -92,6 +93,12 @@ export function buyPurchaseOption(optionId) {
   const mine = state.mine;
   if (!mine?.ready) {
     setPurchaseError(optionId, "Not ready");
+    return;
+  }
+  // Never buy while the client and server disagree on gameplay balance.
+  if (isBalanceIncompatible()) {
+    setPurchaseError(optionId, "Balance out of date — refresh");
+    showToast(balanceBlockMessage(), "error");
     return;
   }
   if (!purchase.canBuy) {

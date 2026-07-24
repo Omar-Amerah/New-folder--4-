@@ -28,7 +28,17 @@ outbound.configureOutbound({ writeFrame(socket,payload){ const packet=decode(pay
   const s=r.ships.get('s'); s.componentHp[0]=7; s.dirtyComponents.add(0); s.componentHeat[1]=9; s.dirtyHeat.add(1); const n=makeShip('n','pc',9); r.ships.set('n',n); r.players.get('pc').ships.push(n); delivery.broadcastSnapshot(r,5);
   assert.equal(outbound.getOutbound(c).snapshot.meta.snapshotKind,'full'); assert.equal(outbound.getOutbound(c).snapshot.meta.snapshotSeq,5);
   c.socket.emit('drain');
-  const snaps=await Promise.all([mergeWritten(a.socket.writes),mergeWritten(b.socket.writes),mergeWritten(c.socket.writes)]);
-  for(const snap of snaps){ const ship=snap.ships.find(x=>x.id==='s'); const newer=snap.ships.find(x=>x.id==='n'); assert.ok(newer?.design); assert.equal(ship.chp[0],7); assert.equal(ship.componentHeat[1][0],9); assert.ok(snap.map&&snap.world&&snap.rules); }
+  const [snapA,snapB,snapC]=await Promise.all([mergeWritten(a.socket.writes),mergeWritten(b.socket.writes),mergeWritten(c.socket.writes)]);
+  // Solo mode: every ship is an enemy to non-owners. Owners see full internal
+  // detail; enemies receive only the public visual design (no component HP/Heat).
+  { const ship=snapA.ships.find(x=>x.id==='s'); const newer=snapA.ships.find(x=>x.id==='n');
+    assert.equal(ship.chp[0],7,'owner pa sees full component hp of own ship'); assert.equal(ship.componentHeat[1][0],9,'owner pa sees full component heat of own ship');
+    assert.ok(newer?.design,'enemy ship keeps a public visual design'); assert.ok(!newer.chp,'enemy ship omits per-component hp'); assert.ok(!newer.componentHeat,'enemy ship omits per-component heat'); assert.ok(!newer.componentPower,'enemy ship omits component power');
+    assert.ok(snapA.map&&snapA.world&&snapA.rules); }
+  { const ship=snapC.ships.find(x=>x.id==='s'); const newer=snapC.ships.find(x=>x.id==='n');
+    assert.ok(newer.chp,'owner pc sees full component hp of own ship'); assert.ok(newer.design);
+    assert.ok(ship?.design,'enemy ship s keeps a public visual design for pc'); assert.ok(!ship.chp,'enemy ship s hidden from pc'); assert.ok(snapC.map); }
+  { const ship=snapB.ships.find(x=>x.id==='s'); const newer=snapB.ships.find(x=>x.id==='n');
+    assert.ok(!ship.chp&&!newer.chp,'pb owns neither ship, both redacted'); assert.ok(ship.design&&newer.design,'both enemy ships still render'); assert.ok(snapB.map&&snapB.world&&snapB.rules); }
   console.log('Snapshot multi-client strict verification passed');
 })().catch(e=>{ console.error(e); process.exit(1); });

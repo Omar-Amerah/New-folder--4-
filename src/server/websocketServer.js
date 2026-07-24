@@ -62,6 +62,7 @@ function createClient(socket) {
     protocolVersion: PROTOCOL_VERSION,
     serverBuildSha: SERVER_BUILD_SHA,
     backendBuildSha: SERVER_BUILD_SHA,
+    balanceRevision: require("./balanceConfig").BALANCE_REVISION,
     world: WORLD,
     parts: PARTS,
     economy: {

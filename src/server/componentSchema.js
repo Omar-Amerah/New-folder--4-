@@ -2,6 +2,8 @@
 // cannot be silently repaired into a different authoritative catalogue.
 
 const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", "pointDefense"]);
+// Weapon families for which Beam burn-through carry-over is meaningful.
+const BURN_THROUGH_WEAPON_FAMILIES = new Set(["beam"]);
 const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "projectile"]);
 const VALID_POWER_CATEGORIES = new Set(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]);
 const POWER_SOURCE_IDS = new Set(["core", "reactor", "auxGenerator"]);
@@ -255,6 +257,19 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
         if (typeof family !== "string" || !VALID_WEAPON_FAMILIES.has(family)) errors.push(`${path}.weapon.family must be one of ${[...VALID_WEAPON_FAMILIES].join(", ")}.`);
         validateNumberObject(component.weapon, WEAPON_NUMERIC_FIELDS, `${path}.weapon`, errors);
         if (component.weapon.fireRate !== undefined && component.weapon.fireRate <= 0) errors.push(`${path}.weapon.fireRate must be greater than zero.`);
+        // Beam burn-through carry multiplier: optional, but when present must be
+        // a finite number in [0, 1] and only on a supported (beam) weapon. Invalid
+        // source data fails loudly rather than being silently clamped/zeroed.
+        if (component.weapon.burnThroughCarryMultiplier !== undefined) {
+          const btc = component.weapon.burnThroughCarryMultiplier;
+          if (!isFiniteNumber(btc)) {
+            errors.push(`${path}.weapon.burnThroughCarryMultiplier must be a finite number when present.`);
+          } else if (btc < 0 || btc > 1) {
+            errors.push(`${path}.weapon.burnThroughCarryMultiplier must be between 0 and 1 (inclusive).`);
+          } else if (typeof family === "string" && !BURN_THROUGH_WEAPON_FAMILIES.has(family)) {
+            errors.push(`${path}.weapon.burnThroughCarryMultiplier is only supported for ${[...BURN_THROUGH_WEAPON_FAMILIES].join(", ")} weapons.`);
+          }
+        }
         if (component.weapon.targetPriority !== undefined) {
           if (!Array.isArray(component.weapon.targetPriority)) errors.push(`${path}.weapon.targetPriority must be an array when present.`);
           else for (const target of component.weapon.targetPriority) if (typeof target !== "string" || !VALID_TARGET_PRIORITIES.has(target)) errors.push(`${path}.weapon.targetPriority contains invalid target '${target}'.`);

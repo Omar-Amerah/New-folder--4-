@@ -414,9 +414,12 @@ function applyHeatPresentation(heatAnalysis) {
         Math.round(heatAnalysis.componentHeat.get(part) || 0)
       )
     );
+    // Warning tiers come from the authoritative Heat state (shared runtime
+    // thresholds), not from duplicated percentage cutoffs.
+    const HeatState = globalThis.HeatRules.STATE;
     const meltdown = prediction?.meltdownTime != null;
-    const overheated = !meltdown && displayedHeat >= 100;
-    const critical = !meltdown && !overheated && displayedHeat >= 76;
+    const overheated = !meltdown && (displayedHeat >= 100 || prediction.state >= HeatState.OVERHEATED);
+    const critical = !meltdown && !overheated && prediction.state === HeatState.CRITICAL;
     const role = thermalRoleMarkup(part, prediction, heatAnalysis, index);
     const stateLabel = globalThis.HeatRules.STATE_LABELS[prediction.state] || "Cool";
     const powerThermal = heatAnalysis.powerThermal;
@@ -1561,16 +1564,27 @@ function renderFullLoadThermalPanel(fullLoadResult) {
     const bestPrediction = fullLoadResult.predictions?.get(state.design[best]);
     return (prediction?.ratio || 0) > (bestPrediction?.ratio || 0) ? index : best;
   }, 0);
+  // Expected peak Heat state derived from the shared authoritative thresholds,
+  // so the label matches the runtime Warm/Hot/Critical/Overheated bands. This is
+  // a simulated peak, not current combat Heat — the wording says so explicitly.
+  const HeatRules = globalThis.HeatRules;
+  const peakPercent = Math.round(analysis.peakPredictedHeat * 100);
+  const peakState = HeatRules.STATE_LABELS[HeatRules.stateFor(analysis.peakPredictedHeat, HeatRules.STATE.NORMAL)] || "Cool";
+  const overheatForecast = analysis.firstOverheatTime === null
+    ? null
+    : `Predicted to overheat after ${analysis.firstOverheatTime.toFixed(0)} seconds`;
   panel.innerHTML = `
     <h3>Heat analysis</h3>
     <p>${escapeHtml(THERMAL_SCENARIO_NAMES[analysis.mode] || analysis.mode)} — ${escapeHtml(THERMAL_SCENARIO_EXPLANATIONS[analysis.mode] || "")}</p>
     <div class="thermal-analysis-status ${tone}">${escapeHtml(statusText)}</div>
     <div class="thermal-key-stats">
       <div><span>${spareCooling ? "Removal reserve" : "Net heat"}</span><strong class="${spareCooling ? "thermal-good" : "thermal-bad"}">${spareCooling ? `${analysis.reserve.toFixed(1)} H/s` : `+${analysis.net.toFixed(1)} H/s`}</strong></div>
-      <div><span>Peak component heat</span><strong>${Math.round(analysis.peakPredictedHeat * 100)}%</strong></div>
+      <div><span>Peak predicted Heat (simulated)</span><strong>${peakPercent}%</strong></div>
+      <div><span>Expected state</span><strong>${escapeHtml(peakState)}</strong></div>
       <div><span>First overheat</span><strong class="${analysis.firstOverheatTime === null ? "thermal-good" : "thermal-bad"}">${seconds(analysis.firstOverheatTime)}</strong></div>
       <div><span>Reactor meltdown</span><strong class="${analysis.firstMeltdownTime === null ? "thermal-good" : "thermal-bad"}">${seconds(analysis.firstMeltdownTime)}</strong></div>
     </div>
+    ${overheatForecast ? `<p class="thermal-overheat-forecast">${escapeHtml(overheatForecast)}</p>` : ""}
     <details class="thermal-detailed-analysis"${state.thermalDetailsOpen ? " open" : ""}>
       <summary>Detailed analysis</summary>
       <div class="thermal-analysis-rows">
@@ -1584,7 +1598,8 @@ function renderFullLoadThermalPanel(fullLoadResult) {
         ${row("Net Heat rate", `${analysis.net >= 0 ? "+" : ""}${analysis.net.toFixed(1)} H/s`)}
         ${row("Thermal equilibrium", equilibrium)}
         ${row("Hottest component", describeThermalComponent(hottestIndex, state.design))}
-        ${row("Peak Heat", `${Math.round(analysis.peakPredictedHeat * 100)}%`)}
+        ${row("Peak predicted Heat (simulated)", `${peakPercent}%`)}
+        ${row("Expected state", peakState)}
         ${row("First overheat", seconds(analysis.firstOverheatTime))}
         ${row("Reactor meltdown", seconds(analysis.firstMeltdownTime))}
         ${row("Removal reserve", `${analysis.reserve.toFixed(1)} H/s`)}

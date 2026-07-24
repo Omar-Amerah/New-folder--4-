@@ -1,6 +1,7 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
 const { clampNumber, rotateToward } = require("./utils");
+const { getShipComponentCellWorldCoords, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
 const { BALANCE } = require("./balanceConfig");
 const PROJECTILES = BALANCE.projectiles;
 const MISSILE_GUIDANCE = BALANCE.missileGuidance;
@@ -51,7 +52,7 @@ function segmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
 }
 
 function updateBullets(room, dt, now) {
-  const { getLiveShips, getShipModuleWorldCoords } = require("./ships");
+  const { getLiveShips } = require("./ships");
   const { areEnemies, damageShip } = require("./combat");
 
   const liveShips = getLiveShips(room);
@@ -211,18 +212,26 @@ function updateBullets(room, dt, now) {
       if (!hullHit) continue;
 
       // Shield down: bullets must strike an actual hull module. Test the swept
-      // segment against each live module and choose the earliest module impact,
-      // with design index as the deterministic tie-breaker.
-      const coords = getShipModuleWorldCoords(ship);
+      // segment against every occupied grid cell of each live component (shared
+      // footprint-aware geometry, so a rotated or multi-cell component collides
+      // on any of its cells), and choose the earliest component impact, with
+      // component index as the deterministic tie-breaker. A multi-cell component
+      // is recorded once (by index), so it takes a single damage event even when
+      // several of its cells are crossed. Destroyed components are skipped via
+      // componentHp and so no longer block later projectiles.
+      const cellCoords = getShipComponentCellWorldCoords(ship);
       const componentHp = ship.componentHp;
       let moduleHit = null;
-      const collisionR = 8.5 + hitRadius;
-      for (let i = 0; i < coords.length; i++) {
+      const collisionR = COMPONENT_CELL_COLLISION_RADIUS + hitRadius;
+      for (let i = 0; i < cellCoords.length; i++) {
         if (componentHp && componentHp[i] <= 0) continue;
-        const m = coords[i];
-        const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, m.x, m.y, collisionR);
-        if (hit && (!moduleHit || hit.t < moduleHit.t || (hit.t === moduleHit.t && i < moduleHit.index))) {
-          moduleHit = { ...hit, index: i };
+        const cells = cellCoords[i];
+        for (let c = 0; c < cells.length; c++) {
+          const cell = cells[c];
+          const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, cell.x, cell.y, collisionR);
+          if (hit && (!moduleHit || hit.t < moduleHit.t || (hit.t === moduleHit.t && i < moduleHit.index))) {
+            moduleHit = { ...hit, index: i };
+          }
         }
       }
       if (moduleHit) {

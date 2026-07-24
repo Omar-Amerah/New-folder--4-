@@ -68,7 +68,7 @@ const {
   migrateSavedDesignsStorage, normalizeDesign, persistDesign, persistLoadouts, persistSavedDesigns, savedDesignsEnvelope,
   exportBlueprints, importBlueprints
 } = storageMod;
-const { LOCAL_DESIGN_KEY, LOCAL_LOADOUTS_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_SERVER_KEY, LOCAL_DESIGN_BACKUP_KEY } = constants;
+const { LOCAL_DESIGN_KEY, LOCAL_LOADOUTS_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_SERVER_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY } = constants;
 
 const prefsMod = await import("./public/src/localPreferences.js");
 const { DEFAULT_PREFERENCES, LOCAL_PREFERENCES_KEY, loadPreferences, persistPreferences, validatePreferences } = prefsMod;
@@ -101,12 +101,86 @@ assert.ok(fresh.wiring.power.sections.length > 0, "empty storage yields wired de
 assert.equal(fresh.wiring.power.connections.length, 0, "default physical wiring does not require legacy route metadata");
 assert.deepEqual(fresh.wiring.data, { sections: [], connections: [] }, "default ship has no data wiring");
 
+// ---- Known older current-design formats migrate into the current shape ----
 const legacyArray = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }];
-assert.deepEqual(migrateDesignStorage(legacyArray).modules, current, "legacy raw arrays are discarded to the default ship");
-assert.deepEqual(migrateDesignStorage({ modules: legacyArray, combatStyle: "circle" }).modules, current, "legacy v1 objects are discarded");
-assert.deepEqual(migrateDesignStorage({ schemaVersion: 1, kind: "current-design", payload: { modules: legacyArray } }).modules, current, "v1 envelopes are discarded");
-assert.deepEqual(migrateDesignStorage({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 1, kind: "current-design", payload: { modules: legacyArray } }).modules, current, "future envelopes are discarded safely");
-assert.deepEqual(migrateDesignStorage(legacyArray).wiring, normalizeWiring(wiring, current), "discarded data receives default wiring");
+const expectedLegacyModules = normalizeDesign(legacyArray, { allowEmpty: true });
+{
+  const migratedArray = migrateDesignStorage(legacyArray);
+  assert.equal(migratedArray.migrated, true, "legacy raw arrays are migrated, not discarded");
+  assert.deepEqual(migratedArray.modules, expectedLegacyModules, "legacy raw array modules are preserved through migration");
+
+  const migratedObject = migrateDesignStorage({ modules: legacyArray, combatStyle: "hold" });
+  assert.equal(migratedObject.migrated, true, "pre-envelope objects are migrated");
+  assert.deepEqual(migratedObject.modules, expectedLegacyModules, "pre-envelope object modules are preserved");
+  assert.equal(migratedObject.combatStyle, "hold", "migration preserves a valid combat style");
+
+  const migratedV1 = migrateDesignStorage({ schemaVersion: 1, kind: "current-design", payload: { modules: legacyArray } });
+  assert.equal(migratedV1.migrated, true, "v1 envelopes are migrated");
+  assert.deepEqual(migratedV1.modules, expectedLegacyModules, "v1 envelope modules are preserved");
+
+  // Unknown FUTURE schema must NOT be silently overwritten: default is loaded for
+  // the session, the stored data is preserved, and a warning is surfaced.
+  const future = migrateDesignStorage({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 1, kind: "current-design", payload: { modules: legacyArray } });
+  assert.deepEqual(future.modules, current, "an unsupported future envelope loads the default ship for the session");
+  assert.equal(future.unsupportedFuture, true, "future envelope is flagged unsupported, not discarded");
+  assert.equal(future.preserveStored, true, "future envelope's stored data is preserved (not overwritten)");
+  assert.ok(future.migrationWarning, "future envelope surfaces a clear warning");
+
+  // Genuinely unmigratable data fails safely to the default ship with a warning.
+  const junk = migrateDesignStorage({ nonsense: true });
+  assert.deepEqual(junk.modules, current, "unmigratable data falls back to the default ship");
+  assert.equal(junk.discarded, true, "unmigratable data is marked discarded");
+  assert.ok(junk.migrationWarning, "unmigratable data surfaces a clear warning");
+}
+
+// ---- Migration preserves specialised component settings + wiring + style ----
+{
+  globalThis.SwitchgearRules = globalThis.SwitchgearRules || (await import("./public/src/shared/switchgearRules.js")).default;
+  globalThis.DroneBayRules = globalThis.DroneBayRules || (await import("./public/src/shared/droneBayRules.js")).default || (await import("./public/src/shared/droneBayRules.js"));
+  const configuredLegacy = [
+    { x: 7, y: 7, type: "core" },
+    { x: 7, y: 8, type: "engine" },
+    { x: 5, y: 7, type: "droneBay", droneType: "fighter" },
+    { x: 9, y: 7, type: "switchgear", switchgearMode: "open", switchgearRatingTier: "heavy" }
+  ];
+  const migratedConfig = migrateDesignStorage(configuredLegacy);
+  assert.equal(migratedConfig.migrated, true, "configured legacy array migrates");
+  const droneBay = migratedConfig.modules.find((m) => m.type === "droneBay");
+  const switchgear = migratedConfig.modules.find((m) => m.type === "switchgear");
+  assert.equal(droneBay?.droneType, "fighter", "migration preserves Drone Bay drone type");
+  assert.equal(switchgear?.switchgearMode, "open", "migration preserves Switchgear mode");
+  assert.equal(switchgear?.switchgearRatingTier, "heavy", "migration preserves Switchgear rating tier");
+
+  // Wiring + combat style survive migration of a pre-envelope object.
+  const wiredEnvelope = designEnvelope(current, wiring, "charge");
+  const preEnvelope = { modules: wiredEnvelope.payload.modules, wiring: wiredEnvelope.payload.wiring, combatStyle: "charge" };
+  const migratedWired = migrateDesignStorage(preEnvelope);
+  assert.equal(migratedWired.migrated, true, "pre-envelope object with wiring migrates");
+  assert.equal(migratedWired.combatStyle, "charge", "migration preserves combat style");
+  assert.deepEqual(migratedWired.wiring.power, normalizeWiring(wiring, current).power, "migration preserves valid Power wiring");
+}
+
+// ---- Corrupt JSON fails safely without crashing startup ----
+{
+  const s = new MemoryStorage();
+  s.setItem(LOCAL_DESIGN_KEY, "{ this is not valid json");
+  installStorage(s);
+  const recovered = loadDesign();
+  assert.deepEqual(recovered.modules, current, "corrupt current-design JSON falls back to the default ship");
+  installStorage(new MemoryStorage());
+}
+
+// ---- Failed/again migration leaves the original recoverable via a backup ----
+{
+  const s = new MemoryStorage();
+  const original = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }];
+  s.setItem(LOCAL_DESIGN_KEY, JSON.stringify(original));
+  installStorage(s);
+  const migrated = loadDesign();
+  assert.equal(migrated.migrated, true, "legacy stored data migrates on load");
+  assert.deepEqual(JSON.parse(s.getItem(LOCAL_DESIGN_PREMIGRATION_KEY)), original, "the original pre-migration data is backed up and recoverable");
+  installStorage(new MemoryStorage());
+}
 
 // ---- v2 round trip keeps modules + wiring + combat style ----
 const envelope2 = designEnvelope(current, wiring, "hold");

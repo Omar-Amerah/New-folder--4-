@@ -4,6 +4,11 @@ import { PART_DEFS, PART_STATS } from "./parts.js";
 import { getOccupiedCells } from "./footprint.js";
 import { WIRING_INFRASTRUCTURE, POWER_DEMAND } from "../constants.js";
 
+// UI colour bucket per authoritative Heat STATE index (Cool/Warm/Hot/Critical/
+// Overheated). The state itself is derived from the shared runtime thresholds
+// (HeatRules.stateFor), so these class names carry no duplicated threshold values.
+const HEAT_UI_STATE_CLASSES = ["heat-ui-cool", "heat-ui-warm", "heat-ui-hot", "heat-ui-critical", "heat-ui-overheated"];
+
 // Per-component unique hosted-cell accounting for installed wiring. Uses the
 // shared infrastructure authority so Blueprint thermal capacity matches the
 // server runtime capacity for the same design + wiring.
@@ -393,11 +398,13 @@ export function summariseThermalResult(model, load, simulation) {
   const componentNetwork = design.map(() => []);
   for (const network of networks) for (const index of [...network.frameIndices, ...network.attached]) componentNetwork[index].push(network.id);
   const componentClasses = new Map(design.map((module, i) => {
-    const percent = Math.max(0, Math.min(100, Math.round(peakRatios[i] * 100)));
-    const stateClass = percent >= 100 ? "heat-ui-overheated" : percent >= 76 ? "heat-ui-critical" : percent >= 51 ? "heat-ui-hot" : percent >= 26 ? "heat-ui-warm" : "heat-ui-cool";
+    // Heat state colour buckets come from the shared authoritative thresholds
+    // (rules.stateFor / rules.THRESHOLDS), so the Designer matches combat exactly
+    // and the boundary percentages are never duplicated in the UI.
+    const stateClass = HEAT_UI_STATE_CLASSES[rules.stateFor(peakRatios[i], rules.STATE.NORMAL)] || "heat-ui-cool";
     const network = componentNetwork[i].length ? networks[componentNetwork[i][0]] : null;
     const networkClass = network ? `thermal-network-${network.id % 4}` : "";
-    const frameLoad = isFrame(module.type) ? (peakRatios[i] >= .76 ? " thermal-frame-heavy" : peakRatios[i] >= .26 ? " thermal-frame-moderate" : " thermal-frame-cool") : "";
+    const frameLoad = isFrame(module.type) ? (peakRatios[i] >= rules.THRESHOLDS.hot ? " thermal-frame-heavy" : peakRatios[i] >= rules.THRESHOLDS.warm ? " thermal-frame-moderate" : " thermal-frame-cool") : "";
     const broken = isFrame(module.type) && (network?.isolated || problems.criticalFrames.has(i)) ? " thermal-route-broken" : "";
     const coolingEffect = module.type === "heatSink" ? " heat-sink-absorption" : module.type === "radiator" && exposed[i] ? ` radiator-exposed radiator-exposed-${[...exteriorDirections[i]][0] || "right"}` : "";
     return [module, `${stateClass} ${networkClass}${frameLoad}${broken}${coolingEffect}`.trim()];
@@ -413,7 +420,7 @@ export function summariseThermalResult(model, load, simulation) {
   design.forEach((module, i) => { if (module.type === "radiator") { radiators += 1; if (exposed[i]) exposedRadiators += 1; } });
   const peakPredictedHeat = peakRatios.length ? Math.max(...peakRatios) : 0;
   const reserve = coolingRate - averageGenerationRate;
-  const balance = overheatedIndices.size ? "Unsustainable" : equilibriumTime !== null && peakPredictedHeat < .76 && reserve >= 0 ? "Stable" : "Marginal";
+  const balance = overheatedIndices.size ? "Unsustainable" : equilibriumTime !== null && peakPredictedHeat < rules.THRESHOLDS.critical && reserve >= 0 ? "Stable" : "Marginal";
   const hottestNetwork = networks.length ? networks.reduce((best, network) => {
     const members = [...network.frameIndices, ...network.attached];
     const score = members.length ? Math.max(...members.map(i => peakRatios[i] || 0)) : 0;

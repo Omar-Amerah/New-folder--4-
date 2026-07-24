@@ -56,6 +56,9 @@ function createRoom(code, options = {}) {
     rewardsFinalizedForWinner: null,
     winnerAt: 0,
     maxScore: MATCH_SCORE,
+    // Authoritative per-team objective score (team mode). Solo mode scores are
+    // per-player on player.score; see src/server/objectives.js.
+    teamScores: {},
     controlVictory: {
       team: null,
       playerId: null,
@@ -587,6 +590,7 @@ function resetMatch(room, now) {
   room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.lastScoreAt = now;
+  require("./objectives").resetTeamScores(room);
   room.drones = new Map();
   applyAuthoritativeSafeZones(room);
   for (const point of room.points) {

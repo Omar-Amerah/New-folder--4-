@@ -3,6 +3,7 @@
 // renders through a GPU scene graph with baked textures and pooled sprites.
 
 import { dom, replaceArenaCanvas } from "../../ui/dom.js";
+import { DIAGNOSTICS_ENABLED } from "../../constants.js";
 import { state } from "../../state.js";
 import { updateCamera } from "../camera.js";
 import { bindArenaPointerListeners, unbindArenaPointerListeners, inputDiagnostics } from "../input.js";
@@ -389,7 +390,9 @@ if (typeof document !== "undefined") {
   });
 }
 
-if (typeof window !== "undefined") {
+// Renderer failure-injection / metrics-phase test hooks: exposed only when
+// diagnostics are enabled (local dev or explicit opt-in), never in production.
+if (typeof window !== "undefined" && DIAGNOSTICS_ENABLED) {
   window.__mfaSetRendererMetricsPhase = (phase, options) => setRendererMetricsPhase(phase, options);
   window.__mfaInjectPixiFrameFailure = (message = "Injected test frame failure") => { pixiFatalFrameError = null; handleFatalPixiFrameError(new Error(message), "test-injected-frame-failure"); return getPixiRuntimeDiagnostics(); };
 }

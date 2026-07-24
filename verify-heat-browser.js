@@ -240,7 +240,24 @@ async function until(fn, what, timeoutMs = 15000) {
       if (!state || state.phase !== "active" || !Array.isArray(state.ships)) return null;
       return state.ships.find((s) => s.ownerId === myId && s.alive);
     }, "active merged snapshot with living browser-owned ship");
-    assertValidAuthoritativeShip(bot.latest.state, ship, myId);
+    // Enemy ships are redacted server-side, so the bot (team red) legitimately
+    // does NOT receive the browser's internal component data. Authoritative
+    // component HP/Heat is validated from the OWNER's own snapshot instead.
+    await page.waitForFunction((id) => {
+      const s = window.__mfaState?.snapshot?.ships?.find((sh) => sh.id === id);
+      return s && Array.isArray(s.design) && Array.isArray(s.chp) && Array.isArray(s.componentHeat);
+    }, ship.id, { timeout: 15000 });
+    const ownerView = await page.evaluate((id) => {
+      const snap = window.__mfaState?.snapshot || {};
+      return { snapshot: { players: snap.players, map: snap.map, world: snap.world, rules: snap.rules }, ship: (snap.ships || []).find((s) => s.id === id) };
+    }, ship.id);
+    assertValidAuthoritativeShip(ownerView.snapshot, ownerView.ship, myId);
+    // The enemy (bot) view of the same ship must be redacted: public visual
+    // design only, with no internal component HP/Heat.
+    const enemyShip = bot.latest.state.ships.find((s) => s.id === ship.id);
+    assertPrerequisite("enemy-ship-visible", !!enemyShip);
+    assertPrerequisite("enemy-ship-componentHp-redacted", !Array.isArray(enemyShip.chp));
+    assertPrerequisite("enemy-ship-componentHeat-redacted", !Array.isArray(enemyShip.componentHeat));
     diagnostics.authoritativeShip = summarizeState(bot.latest.state, bot.latest.rawState, bot.mergeEvents.at(-1), myId);
     diagnostics.shipIds = bot.latest.state.ships.map((s) => s.id);
     diagnostics.selectedShipId = ship.id;
@@ -289,9 +306,19 @@ async function until(fn, what, timeoutMs = 15000) {
     await page.click("#shipHeatTab");
     await until(() => page.locator("#shipHeatSummary").textContent().then((t) => /Overall heat|Stored/.test(t || "")), "heat panel summary");
     await page.evaluate((id) => window.__mfaNetSend({ type: "command", shipIds: [id], x: 1800, y: 1300 }), ship.id);
-    const heated = await until(() => { assertNoMergeError(bot); return bot.latest.state?.ships?.find((s) => s.id === ship.id && Number(s.heatNow) > 0 && Array.isArray(s.componentHeat)); }, "authoritative heat update", 20000);
-    assertValidAuthoritativeShip(bot.latest.state, heated, myId);
-    diagnostics.heat = { heatNow: heated.heatNow, heatMax: heated.heatMax, hot: heated.hot, overheated: heated.overheated, componentHeat: heated.componentHeat };
+    // Authoritative Heat update is validated from the OWNER's own snapshot,
+    // since the enemy (bot) view has redacted per-component Heat.
+    const heated = await until(async () => {
+      assertNoMergeError(bot);
+      return page.evaluate((id) => {
+        const snap = window.__mfaState?.snapshot || {};
+        const found = (snap.ships || []).find((s) => s.id === id);
+        if (!found || !(Number(found.heatNow) > 0) || !Array.isArray(found.componentHeat)) return null;
+        return { snapshot: { players: snap.players, map: snap.map, world: snap.world, rules: snap.rules }, ship: found };
+      }, ship.id);
+    }, "authoritative heat update", 20000);
+    assertValidAuthoritativeShip(heated.snapshot, heated.ship, myId);
+    diagnostics.heat = { heatNow: heated.ship.heatNow, heatMax: heated.ship.heatMax, hot: heated.ship.hot, overheated: heated.ship.overheated, componentHeat: heated.ship.componentHeat };
     await page.waitForFunction((id) => {
       const ship = window.__mfaState?.snapshot?.ships?.find((s) => s.id === id);
       return ship && Number(ship.heatNow) > 0 && !document.querySelector("#shipHeatSummary")?.hidden;

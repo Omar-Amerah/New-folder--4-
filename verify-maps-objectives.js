@@ -4,7 +4,7 @@ const assert = require("assert");
 const { WORLD_SIZES, ASTEROID_DENSITY, SCORE_PER_CONTROLLED_POINT } = require("./src/server/config");
 const { generateMap, chooseWorldSize } = require("./src/server/rooms");
 const { validateGeneratedMap } = require("./src/server/mapValidation");
-const { updateCapturePoints, updateScoring, getTeamWithFullControl, getPlayerWithFullControl } = require("./src/server/objectives");
+const { updateCapturePoints, updateScoring, getTeamWithFullControl, getPlayerWithFullControl, sideScore } = require("./src/server/objectives");
 
 function assertMap(seed, world, mode, density) {
   const input = { seed, world: world.label, mode, density };
@@ -115,10 +115,15 @@ function testObjectives() {
   assert.strictEqual(room.points[0].ownerTeam, "blue", "team capture should set ownerTeam");
   assert.strictEqual(room.points[0].ownerId, "p1", "team capture should keep credit ownerId");
   assert.strictEqual(room.players.get("p1").captures, 1, "capture credit once to capturing team member");
+  // Objective score now belongs to the team, not to individual players, so a
+  // larger team cannot earn it faster. Personal player.score carries only
+  // personal combat score (none here).
+  assert.strictEqual(room.players.get("p1").score, 0, "team objective score does not land on personal player.score");
+  assert.strictEqual(sideScore(room, "blue"), 14, "capture score accrues once to the team");
   room.points[0].progress = 1;
   room.lastScoreAt = 0;
   updateScoring(room, 1000);
-  assert.strictEqual(room.players.get("p1").score, 14 + SCORE_PER_CONTROLLED_POINT, "controlled relay score should accrue to owning team");
+  assert.strictEqual(sideScore(room, "blue"), 14 + SCORE_PER_CONTROLLED_POINT, "controlled relay score should accrue to owning team");
   assert.strictEqual(getTeamWithFullControl(room), "blue", "full team control should be detected");
 
   room = makeRoom("teams");

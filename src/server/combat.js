@@ -5,6 +5,7 @@ const { ECONOMY } = require("./config");
 const { rngRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
+const { getShipComponentCellWorldCoords, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
 const { addBullet, segmentCircleHit, shieldCollisionRadius, SHIELD_HIT_MIN } = require("./projectiles");
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents, onComponentDestroyed } = require("./componentHealth");
 const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance } = require("./heat");
@@ -87,22 +88,16 @@ function targetCoreAimWorldPosition(target) {
 function findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius = 0) {
   if (!target?.alive || !target.design?.length) return [];
 
+  // Footprint-aware, shared with projectile collision so beam and bullet
+  // geometry can never drift apart. Every occupied cell is tested; the earliest
+  // cell hit represents the component.
+  const cellCoords = getShipComponentCellWorldCoords(target);
   const hitMap = new Map();
   for (let i = 0; i < target.design.length; i += 1) {
     if (!isComponentAlive(target, i)) continue;
-    const module = target.design[i];
-    const part = PARTS[module.type] || PARTS.frame;
-    const cells = getOccupiedCells(module.x, module.y, part.footprint || { width: 1, height: 1 }, normalizeRotation(module.rotation));
-    const cos = Math.cos(target.angle || 0);
-    const sin = Math.sin(target.angle || 0);
-
+    const cells = cellCoords[i] || [];
     for (const cell of cells) {
-      const lx = (7 - cell.y) * MODULE_SCALE;
-      const ly = (cell.x - 7) * MODULE_SCALE;
-      const cellWx = target.x + lx * cos - ly * sin;
-      const cellWy = target.y + lx * sin + ly * cos;
-
-      const hit = segmentCircleHit(x1, y1, x2, y2, cellWx, cellWy, 8.5 + beamRadius);
+      const hit = segmentCircleHit(x1, y1, x2, y2, cell.x, cell.y, COMPONENT_CELL_COLLISION_RADIUS + beamRadius);
       if (hit) {
         const existing = hitMap.get(i);
         if (!existing || hit.t < existing.t) {
@@ -1057,8 +1052,26 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
   return applied;
 }
 
+// A beam ray damages only the nearest blocking entity. All candidate blockers —
+// asteroids, active shield bubbles, living ship components, and living drones —
+// are collected into one ordered list, sorted by ray parameter (with a
+// deterministic tie-break), and only the nearest one is resolved. The visible
+// beam stops at that same impact point. This guarantees:
+//   - a drone in front of a ship absorbs the beam and shields the ship,
+//   - an asteroid blocks both damage and the visual beam,
+//   - burn-through never continues into a second ship or drone,
+//   - a shielded ship in front takes only its shield's damage.
+// Burn-through (into at most one further component) is still resolved, but only
+// inside the single nearest ship that was hit.
 function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now, options = {}) {
-  let closestHit = null;
+  const candidates = [];
+
+  const asteroids = room.map?.asteroids || [];
+  for (let a = 0; a < asteroids.length; a += 1) {
+    const asteroid = asteroids[a];
+    const hit = segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + beamRadius);
+    if (hit) candidates.push({ kind: "asteroid", t: hit.t, hit, tie: `a:${asteroid.id ?? a}` });
+  }
 
   for (const target of ships) {
     if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
@@ -1066,73 +1079,82 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     const broadHit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
     if (!broadHit) continue;
 
-    // While shield holds (>= SHIELD_HIT_MIN), beam stops on outer shield bubble (matching bullet behavior)
+    // While the shield holds (>= SHIELD_HIT_MIN) the beam stops on the outer
+    // shield bubble and only the shield can be damaged.
     if (target.shield >= SHIELD_HIT_MIN) {
       const ringR = shieldCollisionRadius(target) + beamRadius;
       const broadShieldHit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, ringR);
-      if (broadShieldHit) {
-        const ang = Math.atan2(y1 - target.y, x1 - target.x);
-        const surfaceR = shieldCollisionRadius(target);
-        const shieldHitX = target.x + Math.cos(ang) * surfaceR;
-        const shieldHitY = target.y + Math.sin(ang) * surfaceR;
-
-        damageShip(room, target, damage, ship.ownerId, now, shieldHitX, shieldHitY, options);
-        room.effects.push({
-          type: "shieldhit",
-          x: shieldHitX,
-          y: shieldHitY,
-          nx: Math.cos(ang),
-          ny: Math.sin(ang),
-          at: now
-        });
-
-        if (!closestHit || broadShieldHit.t < closestHit.t) {
-          closestHit = { hitX: shieldHitX, hitY: shieldHitY, t: broadShieldHit.t, firstHitIndex: -1 };
-        }
-      }
+      if (broadShieldHit) candidates.push({ kind: "shield", target, t: broadShieldHit.t, tie: `s:${target.id}` });
       continue;
     }
 
-    // Shield depleted/down (< SHIELD_HIT_MIN): beam passes through to physical components
+    // Shield depleted/down: the beam reaches physical components.
     const intersections = findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius);
-    if (!intersections.length) continue;
-
-    const comp1 = intersections[0];
-    const hitPoint1 = comp1.hit;
-    const burnThroughMult = Number(options.burnThroughCarryMultiplier) || 0;
-
-    damageShip(room, target, damage, ship.ownerId, now, hitPoint1.x, hitPoint1.y, {
-      ...options,
-      intersections
-    });
-
-    let contactHitX = hitPoint1.x;
-    let contactHitY = hitPoint1.y;
-
-    if (burnThroughMult > 0 && intersections.length > 1 && !isComponentAlive(target, comp1.index)) {
-      const comp2 = intersections[1];
-      contactHitX = comp2.hit.x;
-      contactHitY = comp2.hit.y;
-      room.effects.push({ type: "burst", x: hitPoint1.x, y: hitPoint1.y, at: now });
-    }
-
-    if (!closestHit || hitPoint1.t < closestHit.t) {
-      closestHit = { hitX: contactHitX, hitY: contactHitY, t: hitPoint1.t, firstHitIndex: comp1.index };
+    if (intersections.length) {
+      candidates.push({ kind: "component", target, t: intersections[0].hit.t, intersections, tie: `s:${target.id}` });
     }
   }
 
   for (const drone of room.drones?.values?.() || []) {
     if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
     const hit = segmentCircleHit(x1, y1, x2, y2, drone.x, drone.y, (Number(drone.radius) || 10) + beamRadius);
-    if (!hit) continue;
-    require("./drones").damageDrone(room, drone, damage, ship.ownerId, now);
-    room.effects.push({ type: "spark", x: hit.x, y: hit.y, at: now });
-    if (!closestHit || hit.t < closestHit.t) {
-      closestHit = { hitX: hit.x, hitY: hit.y, t: hit.t, firstHitIndex: -1 };
-    }
+    if (hit) candidates.push({ kind: "drone", drone, t: hit.t, hit, tie: `d:${drone.id}` });
   }
 
-  return closestHit;
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => {
+    if (Math.abs(a.t - b.t) > 1e-6) return a.t - b.t;
+    return a.tie.localeCompare(b.tie);
+  });
+
+  const nearest = candidates[0];
+
+  if (nearest.kind === "asteroid") {
+    // Asteroids block both damage and the visible beam; nothing behind resolves.
+    return { hitX: nearest.hit.x, hitY: nearest.hit.y, t: nearest.t, firstHitIndex: -1 };
+  }
+
+  if (nearest.kind === "shield") {
+    const target = nearest.target;
+    const ang = Math.atan2(y1 - target.y, x1 - target.x);
+    const surfaceR = shieldCollisionRadius(target);
+    const shieldHitX = target.x + Math.cos(ang) * surfaceR;
+    const shieldHitY = target.y + Math.sin(ang) * surfaceR;
+    damageShip(room, target, damage, ship.ownerId, now, shieldHitX, shieldHitY, options);
+    room.effects.push({ type: "shieldhit", x: shieldHitX, y: shieldHitY, nx: Math.cos(ang), ny: Math.sin(ang), at: now });
+    return { hitX: shieldHitX, hitY: shieldHitY, t: nearest.t, firstHitIndex: -1 };
+  }
+
+  if (nearest.kind === "drone") {
+    require("./drones").damageDrone(room, nearest.drone, damage, ship.ownerId, now);
+    room.effects.push({ type: "spark", x: nearest.hit.x, y: nearest.hit.y, at: now });
+    return { hitX: nearest.hit.x, hitY: nearest.hit.y, t: nearest.t, firstHitIndex: -1 };
+  }
+
+  // Unshielded ship: damage the first physical component hit; beam burn-through
+  // may carry excess into at most one further component inside this same ship.
+  const target = nearest.target;
+  const intersections = nearest.intersections;
+  const comp1 = intersections[0];
+  const hitPoint1 = comp1.hit;
+  const burnThroughMult = Number(options.burnThroughCarryMultiplier) || 0;
+
+  damageShip(room, target, damage, ship.ownerId, now, hitPoint1.x, hitPoint1.y, {
+    ...options,
+    intersections
+  });
+
+  let contactHitX = hitPoint1.x;
+  let contactHitY = hitPoint1.y;
+  if (burnThroughMult > 0 && intersections.length > 1 && !isComponentAlive(target, comp1.index)) {
+    const comp2 = intersections[1];
+    contactHitX = comp2.hit.x;
+    contactHitY = comp2.hit.y;
+    room.effects.push({ type: "burst", x: hitPoint1.x, y: hitPoint1.y, at: now });
+  }
+
+  return { hitX: contactHitX, hitY: contactHitY, t: hitPoint1.t, firstHitIndex: comp1.index };
 }
 
 function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, options = {}) {

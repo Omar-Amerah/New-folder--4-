@@ -12,18 +12,30 @@ Open `http://localhost:3000`. Friends on the same network can use the LAN URL pr
 
 ## Testing
 
+None of these commands launch a browser unless the command name contains `browser` or `all` — normal local testing never requires Chromium.
+
 ```bash
-npm run check                 # build + static/syntax checks
-npm run test:unit             # fast deterministic module/static tests
+npm test                      # build + unit and browser-free integration tests (no Chromium)
+npm run test:unit             # unit tests only — fast deterministic module/static/contract tests
 npm run test:integration      # browser-free module/lifecycle integration
 npm run test:protocol         # real server + WebSocket/MessagePack protocol checks
 npm run test:smoke            # production HTTP asset smoke
 npm run test:soak             # browser-free deterministic server/simulation soak
+npm run check                 # build + static/syntax/architecture checks (no Chromium)
 npm run test:all-non-browser  # complete non-browser umbrella; does not launch Chromium
-npm run test:browser          # real Chromium/WebGL/Pixi browser coverage
-npm run test:renderer-soak    # dedicated long real Chromium/WebGL/Pixi renderer soak
+npm run test:browser          # real Chromium/WebGL/Pixi browser coverage (launches a browser)
+npm run test:renderer-soak    # dedicated long real Chromium/WebGL/Pixi renderer soak (launches a browser)
 npm run test:all              # complete umbrella; requires Chromium
 ```
+
+`npm test` is the everyday command: it runs the unit group plus the browser-free
+integration group so a green run does not misleadingly imply the browser suite
+also passed. Run `npm run test:browser` (or `npm run test:all`) separately when a
+browser is available. Tests that only inspect source or DOM contracts (for
+example `verify-canvas-removal.js`, `verify-diagnostics-gating.js`,
+`verify-section13b-ui.js`) are static/contract tests and live in the unit group;
+a test is only named/grouped as a browser test when it actually launches a real
+browser (the `*-browser.js` scripts and the `browser` / `renderer-soak` groups).
 
 CI keeps the same dependency split: the server-integration job does not install Chromium and runs integration/protocol/smoke/server-soak only; the browser job installs Playwright Chromium and runs `test:browser`; the renderer-soak job installs Playwright Chromium and runs only `test:renderer-soak`. Browser tests fail strictly if Chromium, WebGL or Pixi cannot initialize; they are not skipped or downgraded.
 

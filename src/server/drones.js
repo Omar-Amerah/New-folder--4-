@@ -192,16 +192,57 @@ function nearestEnemyShip(room, drone, maximumRange) {
   return best;
 }
 
+// Fraction of "important" components (weapons + priority systems + core) that
+// are below full health. Aggregate ship.hp misses Core-only or isolated
+// component damage, so repair targeting must look at component health.
+function importantComponentDamageFraction(ship) {
+  const { PRIORITY_COMPONENT_TYPES } = require("./combat");
+  const design = ship.design || [];
+  let important = 0;
+  let damaged = 0;
+  for (let i = 0; i < design.length; i += 1) {
+    const type = design[i].type;
+    const isImportant = type === "core" || PRIORITY_COMPONENT_TYPES.has(type) || PARTS[type]?.weapon;
+    if (!isImportant) continue;
+    important += 1;
+    const hp = Number(ship.componentHp?.[i]) || 0;
+    const max = Number(ship.componentMaxHp?.[i]) || 0;
+    if (max > 0 && hp < max - 0.01) damaged += 1;
+  }
+  return important > 0 ? damaged / important : 0;
+}
+
+function repairTargetScore(ship, need, distance, config) {
+  // Weight raw repairable damage, then boost ships whose important systems are
+  // hurt, and prefer closer allies within command range.
+  const range = Math.max(1, config.commandRange || 1);
+  const distanceFactor = 1 - Math.min(1, distance / range);
+  return need * (1 + importantComponentDamageFraction(ship)) + distanceFactor * 25;
+}
+
 function chooseTarget(room, drone, parent, config) {
   if (drone.type === "repair") {
-    if (parent.hp < parent.maxHp - 0.01) return parent;
-    const candidates = [...room.ships.values()].filter((ship) => ship !== parent && ship?.alive && require("./combat").areAllies(room, drone.ownerId, ship.ownerId));
-    candidates.sort((a, b) => {
-      const ar = (a.maxHp - a.hp) / Math.max(1, a.maxHp);
-      const br = (b.maxHp - b.hp) / Math.max(1, b.maxHp);
-      return br - ar || String(a.id).localeCompare(String(b.id));
-    });
-    return candidates.find((ship) => ship.hp < ship.maxHp - 0.01 && Math.hypot(ship.x - parent.x, ship.y - parent.y) <= config.commandRange) || parent;
+    const { shipRepairNeed, areAllies } = require("./combat");
+    // Prefer the parent while it has ANY repairable damage (component or Core),
+    // using the same shared repair-need helper as repair modules and beams so
+    // Core-only and component-only damage are never missed.
+    if (shipRepairNeed(parent) > 0) return parent;
+    let best = null;
+    let bestScore = -Infinity;
+    for (const ship of room.ships.values()) {
+      if (ship === parent || !ship?.alive) continue;
+      if (!areAllies(room, drone.ownerId, ship.ownerId)) continue;
+      const distance = Math.hypot(ship.x - parent.x, ship.y - parent.y);
+      if (distance > config.commandRange) continue;
+      const need = shipRepairNeed(ship);
+      if (need <= 0) continue;
+      const score = repairTargetScore(ship, need, distance, config);
+      if (score > bestScore || (score === bestScore && (!best || String(ship.id).localeCompare(String(best.id)) < 0))) {
+        best = ship;
+        bestScore = score;
+      }
+    }
+    return best || parent;
   }
   if (drone.type === "defence") {
     const missile = nearestHostileMissile(room, drone, config.commandRange);

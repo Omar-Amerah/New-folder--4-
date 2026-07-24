@@ -198,13 +198,19 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
       if (remaining <= 0) break;
     }
     const passiveStructure = HeatRules.isPassiveStructure(ship.design[idx].type, part);
-    const incoming = passiveStructure ? remaining * HeatRules.structuralDamageMultiplierForState(ship.componentHeatState?.[idx] || HeatRules.STATE.NORMAL) : remaining;
+    // Thermal amplification multiplies the HP damage a hot passive structure
+    // takes, but it must NOT multiply the raw penetration budget it consumes.
+    // Destroying a thermally weakened component consumes only the equivalent raw
+    // damage (hpRemoved / mult), matching Beam burn-through accounting, so the
+    // remaining raw damage penetrates further exactly as it should.
+    const mult = passiveStructure ? HeatRules.structuralDamageMultiplierForState(ship.componentHeatState?.[idx] || HeatRules.STATE.NORMAL) : 1;
+    const incoming = remaining * mult;
     const dealt = Math.min(ship.componentHp[idx], incoming);
     if (dealt <= 0) continue;
     ship.componentHp[idx] -= dealt;
     if (ship.design[idx].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, idx);
     ship.hp -= dealt;
-    remaining -= dealt;
+    remaining -= mult > 0 ? dealt / mult : remaining;
     applied += dealt;
     ship.dirtyComponents.add(idx);
     if (ship.componentHp[idx] <= 0.0001) {

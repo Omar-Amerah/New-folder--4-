@@ -39,18 +39,24 @@ export function generateScoreboardHTML(players) {
 
   const soloMode = state.rules?.gameMode === "solo";
   const teams = soloMode ? players.map((player) => player.team) : ["blue", "red"];
+  // Authoritative per-side score straight from the server snapshot — the same
+  // value the server's victory check uses. Never reconstruct it from player
+  // records (e.g. the maximum or sum of player scores), which drifts from the
+  // victory calculation and scales with team size.
+  const teamScores = state.snapshot.teamScores || {};
   for (const team of teams) {
     const teamPlayers = players.filter((player) => player.team === team);
-    const score = Math.max(0, ...teamPlayers.map((player) => player.score || 0));
+    const score = Math.max(0, Math.floor(teamScores[team] || 0));
     const objectives = state.snapshot.points.filter((point) => point.ownerTeam === team && point.progress > 0.98);
     const title = soloMode
       ? (teamPlayers[0]?.name || "Solo")
       : `${team.toUpperCase()} TEAM`;
+    const scoreLabel = soloMode ? "Battle score" : "Team score";
 
     html += `<div class="team-card ${soloMode ? "solo" : team}">
       <div class="team-card-head">
         <strong>${escapeHtml(title)}</strong>
-        <span>Battle score: ${score}</span>
+        <span>${scoreLabel}: ${score}</span>
       </div>
       <div class="team-objectives">Objectives: ${objectives.length ? escapeHtml(objectives.map((point) => point.id).join(", ")) : "None"}</div>`;
 

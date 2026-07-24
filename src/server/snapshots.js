@@ -395,15 +395,68 @@ function wiringStatus(ship) {
   } : undefined;
 }
 
+// Viewer-specific ship-detail policy. Owner and allied ships may receive full
+// operational internals (design, per-component HP/Heat, Power allocation, power
+// status/thermal diagnostics, wiring status, switchgear, power protection,
+// installed wiring layout + runtime). Enemy ships receive only the public
+// visual representation (the design needed to draw the hull and weapons) plus
+// the externally observable dynamic fields already present in the shared
+// baseline (position, velocity, facing, hull/shield totals, radius, weapon
+// angles, alive state...).
+//
+// A null viewer is the trusted/diagnostic path (internal tooling and tests):
+// the network delivery path always supplies client.player, so production
+// clients are always evaluated against a concrete viewer.
+function canViewShipInternals(viewer, ship, room) {
+  if (!ship) return false;
+  if (!viewer) return true;
+  if (viewer.id === ship.ownerId) return true;
+  if (room?.rules?.gameMode === "solo") return false;
+  const owner = room?.players?.get?.(ship.ownerId);
+  return Boolean(owner && viewer.team !== undefined && viewer.team === owner.team);
+}
+
+// Every private per-ship field. Enemy entries must never carry any of these,
+// and the client merge (public/src/snapshotMerge.js) keeps an identical list so
+// cached copies are discarded when a ship becomes public.
+const PRIVATE_SHIP_FIELDS = [
+  "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
+  "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision",
+  "powerWiring", "powerWiringRevision", "powerWiringRuntime",
+  "chp", "chpD", "componentHeat", "componentHeatD"
+];
+
+// Enemy ships: attach only a safe public visual representation. This is the raw
+// design geometry (module types/positions/rotations) required to render the
+// hull and weapon mounts — it carries NO per-component HP, Heat, Power, wiring,
+// switchgear or protection state. Any private field that leaked in from a shared
+// baseline copy is stripped here defensively, so redaction holds no matter how
+// the base entry was constructed. The `detail: "public"` marker lets the client
+// merge discard any private fields cached from an earlier full-detail snapshot
+// so redacted data can never survive a visibility change.
+function appendPublicShipVisual(entry, ship, includeDesign) {
+  entry.detail = "public";
+  entry.design = includeDesign ? (ship.design || []) : undefined;
+  if (entry.design === undefined) delete entry.design;
+  for (const key of PRIVATE_SHIP_FIELDS) delete entry[key];
+}
+
 function buildClientShips(room, sharedShips, client, sendStatic) {
   const known = getKnownShipDesigns(client);
+  const viewer = client?.player || null;
   return sharedShips.map((base) => {
     const entry = { ...base };
     const ship = room.ships.get(entry.id);
     if (!ship || ship.removed) return entry;
     const revision = ship.designRevision || 1;
-    if (sendStatic || known.get(ship.id) !== revision) appendFullShipBaseline(entry, ship);
-    else appendShipDeltas(entry, ship, client);
+    const needBaseline = sendStatic || known.get(ship.id) !== revision;
+    if (canViewShipInternals(viewer, ship, room)) {
+      entry.detail = "full";
+      if (needBaseline) appendFullShipBaseline(entry, ship);
+      else appendShipDeltas(entry, ship, client);
+    } else {
+      appendPublicShipVisual(entry, ship, needBaseline);
+    }
     return entry;
   });
 }
@@ -513,6 +566,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     // its own protocol support to detect a stale separately-deployed backend.
     protocolVersion: PROTOCOL_VERSION,
     serverBuildSha: SERVER_BUILD_SHA,
+    balanceRevision: require("./balanceConfig").BALANCE_REVISION,
     stateEpoch: room.stateEpoch || 1,
     snapshotSeq: room._buildingSnapshotSeq || room.snapshotSeq || 0,
     snapshotKind: sendStatic ? "full" : "compact",
@@ -533,6 +587,10 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     winner: room.winner,
     matchStartedAt: room.matchStartedAt,
     maxScore: room.maxScore,
+    // Authoritative per-side score used by both the scoreboard and the victory
+    // checks. Clients render/compare against these values directly rather than
+    // reconstructing team totals from player records.
+    teamScores: require("./objectives").snapshotSideScores(room),
     controlVictory: room.controlVictory ? {
       active: Boolean(room.controlVictory.team || room.controlVictory.playerId),
       team: room.controlVictory.team,

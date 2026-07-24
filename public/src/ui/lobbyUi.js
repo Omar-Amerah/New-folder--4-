@@ -6,6 +6,7 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { send, getSocketUrl, getConfiguredServerUrl, connect, disableReconnect, withClientProtocol } from "../network.js";
 import { showToast } from "./toastUi.js";
+import { isBalanceIncompatible, balanceBlockMessage } from "../balanceStatus.js";
 import { renderSavedDesigns } from "./savedBlueprintsUi.js";
 import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
 import { renderPalette } from "./partPaletteUi.js";
@@ -328,6 +329,10 @@ export function deployDesign() {
   const ready = mine?.ready;
 
   if (isDesignStage && !ready) {
+    if (isBalanceIncompatible()) {
+      showToast(balanceBlockMessage(), "error");
+      return;
+    }
     if (state.designNeedsAttention) {
       showToast("Invalid design: review and save the repaired blueprint before deployment.", "warning");
       renderBuildGrid();

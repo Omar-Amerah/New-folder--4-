@@ -17,6 +17,7 @@ import { renderSideControls } from "./ui/sidePanelUi.js";
 import { renderScoreboard } from "./ui/scoreboardUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
+import { recordServerBalanceRevision } from "./balanceStatus.js";
 import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
@@ -67,13 +68,25 @@ export function checkServerProtocol(info) {
   return "ok";
 }
 
+let balanceMismatchReported = false;
 function recordServerBuild(message) {
   const info = {
     protocolVersion: message.protocolVersion ?? null,
-    buildSha: message.serverBuildSha || null
+    buildSha: message.serverBuildSha || null,
+    balanceRevision: message.balanceRevision || null
   };
+  // Authoritative-balance skew: block combat if the server simulates a different
+  // balance than this frontend was built with.
+  const balanceCompatibility = recordServerBalanceRevision(info.balanceRevision);
+  info.balanceCompatibility = balanceCompatibility;
+  if (balanceCompatibility === "mismatch" && !balanceMismatchReported) {
+    balanceMismatchReported = true;
+    showToast("Game balance is out of date — refresh the page (or redeploy the server) before playing.", "error");
+  } else if (balanceCompatibility === "ok") {
+    balanceMismatchReported = false;
+  }
   const previous = state.server;
-  if (previous && previous.protocolVersion === info.protocolVersion && previous.buildSha === info.buildSha) {
+  if (previous && previous.protocolVersion === info.protocolVersion && previous.buildSha === info.buildSha && previous.balanceRevision === info.balanceRevision) {
     return previous.compatibility;
   }
   info.compatibility = checkServerProtocol(info);

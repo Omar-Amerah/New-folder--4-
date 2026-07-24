@@ -14,6 +14,17 @@ export const SNAPSHOT_REJECTION = Object.freeze({
 
 function isNullish(value) { return value === undefined || value === null; }
 
+// Private per-ship fields that may only ever reach an owner/ally viewer. When a
+// ship arrives marked `detail: "public"` (an enemy ship), these are stripped and
+// never inherited from an earlier cached snapshot, so redacted enemy data can
+// never survive a full->compact merge or a visibility change.
+const PRIVATE_SHIP_FIELDS = Object.freeze([
+  "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
+  "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision",
+  "powerWiring", "powerWiringRevision", "powerWiringRuntime",
+  "chp", "chpD", "componentHeat", "componentHeatD"
+]);
+
 export function mergeStaticPlayerFields(previousPlayers, nextPlayers) {
   if (!Array.isArray(previousPlayers) || !Array.isArray(nextPlayers)) return nextPlayers;
   const oldPlayers = new Map(previousPlayers.map((p) => [p.id, p]));
@@ -90,6 +101,15 @@ export function mergeCachedShipFields(previousShips, nextShips) {
   const oldShips = new Map(previousShips.map((ship) => [ship.id, ship]));
   return nextShips.map((ship) => {
     const oldShip = oldShips.get(ship.id);
+    if (ship.detail === "public") {
+      // Enemy ship: only the public visual design may carry forward. Any private
+      // runtime detail cached while the ship was visible is discarded here so it
+      // can never leak after redaction.
+      const merged = { ...ship };
+      if (isNullish(merged.design)) merged.design = oldShip?.design;
+      for (const key of PRIVATE_SHIP_FIELDS) delete merged[key];
+      return merged;
+    }
     if (!oldShip) return { ...ship, componentHeat: normalizeComponentHeatSnapshot(ship.componentHeat) };
     const merged = { ...ship };
     if (isNullish(merged.design)) merged.design = oldShip.design;
