@@ -1,11 +1,89 @@
 /* Designer stats grid and saved blueprint card/list styles. Keep import order in ../design.css unchanged. */
 
+/* Ship summary: one outer panel holding a headline grid, a small status area and
+   collapsed detail accordions. */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
   margin-top: 0;
 }
+
+/* Three columns on wide desktop, two on medium, one on narrow mobile. */
+.ship-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+@media (max-width: 1240px) {
+  .ship-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .ship-summary-grid { grid-template-columns: 1fr; }
+}
+
+.stat-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+/* Status messages: meaning is carried by an icon and the text, not colour alone. */
+.ship-summary-status {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ship-status-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.ship-status-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(174, 199, 231, 0.22);
+  color: var(--text);
+  font-size: 9px;
+  font-weight: 950;
+  line-height: 14px;
+  text-align: center;
+}
+
+.ship-status-line.is-good {
+  background: rgba(34, 197, 94, 0.1);
+  color: #b7f0c7;
+}
+.ship-status-line.is-good .ship-status-icon { background: #86efac; color: #0a2414; }
+
+.ship-status-line.is-warning {
+  background: rgba(251, 191, 36, 0.1);
+  color: #f0dcb2;
+}
+.ship-status-line.is-warning .ship-status-icon { background: #fcd34d; color: #2b1d05; }
+
+.ship-status-line.is-bad {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f5cccc;
+}
+.ship-status-line.is-bad .ship-status-icon { background: #fca5a5; color: #2b0707; }
 
 .saved-designs {
   display: grid;

@@ -1,14 +1,22 @@
-// Renders descriptions and detailed properties for the currently selected part.
+// Renders the Blueprint "Selected Component" inspector.
+//
+// The information architecture lives in design/componentInspectorModel.js; this
+// module only turns that model into DOM. Layout is deliberately flat — one outer
+// panel, lightweight specification cells, one capability group, warning panels
+// where warranted, and accordion dividers — rather than boxes nested in boxes.
 
 import { dom } from "./dom.js";
 import { state, DEFAULT_THERMAL_LOAD_MODE } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partCategory, partDescription, partIconMarkup } from "../design/parts.js";
 import { escapeHtml } from "../shared/formatting.js";
-import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatPowerUse, formatPowerGeneration, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
 import { estimatePartEffectiveCost } from "../design/componentStats.js";
 import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
 import { getOccupiedCells } from "../design/footprint.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { WIRING_INFRASTRUCTURE } from "../constants.js";
+import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
+import { getCachedDesignDataSupport, getDesignSourceAllocation } from "../design/dataSupportAnalysis.js";
+import { buildComponentInspectorModel, powerRequirementState, dataRequirementState } from "../design/componentInspectorModel.js";
 
 export function renderPartInspector() {
   const type = state.selectedPart || selectedPlacedPart()?.type;
@@ -18,85 +26,342 @@ export function renderPartInspector() {
   }
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
-  const effectiveCost = `$${estimatePartEffectiveCost(type, state.design).toLocaleString()}`;
-  const details = partInspectorDetails(type, stat, effectiveCost);
-  const baseDesc = partDescription(type, stat);
-  const enrichedDesc = enrichDescription(type, baseDesc);
-  const footprint = stat.footprint || { width: 1, height: 1 };
-  const footprintText = `${footprint.width}x${footprint.height}`;
-  const combatDetails = details.filter(([label]) => /damage|dps|shield dps|hull dps|range|projectile|accuracy|turret|arc|tracking|track|lock|missile|beam|behavior|anti-missile|target|targeting|burn-through|penetration|ship damage|frontal|front arc/i.test(label));
-  const supportDetails = details.filter(([label]) => !combatDetails.some(([combatLabel]) => combatLabel === label));
-  const keyStats = mergeNonZeroKeyStats(keyInspectorStats(type, stat, effectiveCost), supportDetails);
-  const heatDetails = thermalSectionMarkup(type, stat, partThermalDetails(type, stat));
   const placed = selectedPlacedPartOfType(type);
+  const model = buildComponentInspectorModel(type, stat, {
+    name: def.name,
+    description: enrichDescription(type, partDescription(type, stat)),
+    category: partCategory(type),
+    effectiveCost: `$${estimatePartEffectiveCost(type, state.design).toLocaleString()}`,
+    prediction: thermalPredictionFor(type),
+    droneType: placed?.droneType || globalThis.DroneBayRules?.normalizeDroneType?.(placed?.droneType) || null,
+    thermalNote: thermalNoteFor(type),
+    requirementStatus: requirementStatusFor(placed)
+  });
+
+  // Expanded accordions persist while the same component stays selected and
+  // reset when the selection moves to a different component.
+  const openState = openSectionsFor(type);
+
   const componentActions = placed && placed.type !== "core" ? `
     <div class="part-inspector-actions" aria-label="Selected component actions">
       ${isRotatablePart(type) ? `<button type="button" data-component-action="rotate">Rotate</button>` : ""}
       <button type="button" class="danger" data-component-action="remove">Remove</button>
     </div>` : "";
 
-  let tipHtml = "";
-  if (isRotatablePart(type)) {
-    tipHtml = `<div class="part-inspector-tip">Tip: hover a placed matching part and press R to rotate.</div>`;
-  }
-
   dom.partInspector.innerHTML = `
-    <section class="part-inspector-section part-identity-section">
-      <div class="part-inspector-title">
-        ${partIconMarkup(type, "inspector-glyph")}
-        <strong>${escapeHtml(def.name)}</strong>
-      </div>
-      <div class="part-category-label">${escapeHtml(partCategory(type))} | Footprint: ${footprintText}</div>
-      <p class="part-description">${escapeHtml(enrichedDesc)}</p>
-    </section>
-    <section class="part-inspector-section">
-      <div class="part-detail-heading part-detail-heading-key">Key stats</div>
-      <div class="part-inspector-grid">
-        ${keyStats.map(([label, value]) => inspectorStat(label, value)).join("")}
-      </div>
-    </section>
+    ${headerMarkup(type, model)}
+    ${coreSpecMarkup(model)}
+    ${capabilityMarkup(model)}
+    ${requirementsMarkup(model)}
+    ${thermalSummaryMarkup(model)}
+    ${warningsMarkup(model)}
     ${switchgearControlsMarkup(type)}
     ${droneBayControlsMarkup(type)}
     ${componentActions}
-    ${collapsibleDetails("combat", "Combat details", combatDetails)}
-    ${heatDetails}
-    ${tipHtml}
+    ${model.sections.map((section) => accordionMarkup(section, openState)).join("")}
+    ${isRotatablePart(type) ? `<p class="part-inspector-tip">Hover a placed matching part and press R to rotate.</p>` : ""}
   `;
+
   attachSwitchgearControlHandlers();
   attachDroneBayControlHandlers();
+  attachRequirementHandlers();
   dom.partInspector.querySelectorAll("[data-component-action]").forEach((button) => {
     button.addEventListener("click", () => {
       document.dispatchEvent(new CustomEvent("blueprint-component-action", { detail: { action: button.dataset.componentAction } }));
     });
   });
-  dom.partInspector.querySelectorAll("details[data-inspector-section]").forEach((detailsEl) => {
-    detailsEl.addEventListener("toggle", event => {
-      state.partInspectorOpen = state.partInspectorOpen || {};
-      state.partInspectorOpen[event.target.dataset.inspectorSection] = event.target.open;
+  attachAccordionHandlers(type);
+}
+
+// ---------------------------------------------------------------------------
+// Markup builders
+// ---------------------------------------------------------------------------
+
+function headerMarkup(type, model) {
+  return `
+    <header class="part-inspector-header">
+      <div class="part-inspector-title">
+        ${partIconMarkup(type, "inspector-glyph")}
+        <div class="part-inspector-heading">
+          <strong class="part-inspector-name">${escapeHtml(model.header.name)}</strong>
+          <span class="part-category-label">${escapeHtml(model.header.badge)}</span>
+        </div>
+      </div>
+      <p class="part-description">${escapeHtml(model.header.description)}</p>
+    </header>`;
+}
+
+function coreSpecMarkup(model) {
+  if (!model.core.length) return "";
+  return `
+    <div class="part-core-specs" role="list" aria-label="Core specifications">
+      ${model.core.map((row) => `
+        <div class="part-spec-cell${row.tone ? ` is-${row.tone}` : ""}" role="listitem">
+          <span class="part-spec-label">${escapeHtml(row.label)}</span>
+          <strong class="part-spec-value">${escapeHtml(row.value)}</strong>
+        </div>`).join("")}
+    </div>`;
+}
+
+function capabilityMarkup(model) {
+  if (!model.capability.length) return "";
+  return `
+    <section class="part-capability" aria-label="Primary capability">
+      <h4 class="part-section-heading">Primary capability</h4>
+      <div class="part-capability-grid">
+        ${model.capability.map((row) => `
+          <div class="part-capability-cell">
+            <span class="part-spec-label">${escapeHtml(row.label)}</span>
+            <strong class="part-spec-value">${escapeHtml(row.value)}</strong>
+          </div>`).join("")}
+      </div>
+    </section>`;
+}
+
+// One consistent requirements area. Icons never sit beside individual stat
+// values, and every chip is a real button that discloses a compact explanation.
+// A currently-failing dependency is stated visibly on the row itself — never
+// hidden behind the tooltip.
+function requirementsMarkup(model) {
+  if (!model.requirements.length) return "";
+  const chips = model.requirements.map((requirement) => {
+    const unmet = requirement.status === "unmet";
+    const tipId = `partRequirementTip-${requirement.id}`;
+    const ariaLabel = unmet
+      ? `${requirement.label} requirement not met: ${requirement.failureText || "dependency unmet"}. Show details.`
+      : `${requirement.label} requirement: ${requirement.summary}. Show details.`;
+    return `
+      <button type="button" class="part-requirement${unmet ? " is-unmet" : ""}"
+              data-requirement="${escapeHtml(requirement.id)}"
+              aria-expanded="false" aria-controls="${tipId}"
+              aria-label="${escapeHtml(ariaLabel)}">
+        <span class="part-requirement-icon" aria-hidden="true">${escapeHtml(requirement.icon)}</span>
+        <span class="part-requirement-label">${escapeHtml(requirement.label)}</span>
+        ${unmet ? `<span class="part-requirement-flag">Unmet</span>` : ""}
+      </button>`;
+  }).join("");
+
+  const tips = model.requirements.map((requirement) => `
+    <div class="part-requirement-tip" id="partRequirementTip-${escapeHtml(requirement.id)}" role="region"
+         data-requirement-tip="${escapeHtml(requirement.id)}" hidden>
+      <strong>${escapeHtml(requirement.label)} — ${escapeHtml(requirement.summary)}</strong>
+      <span>${escapeHtml(requirement.detail)}</span>
+    </div>`).join("");
+
+  // Visible, non-tooltip statement of any active failure.
+  const failures = model.requirements.filter((requirement) => requirement.status === "unmet" && requirement.failureText);
+  const failureMarkup = failures.map((requirement) => `
+    <p class="part-requirement-failure">
+      <span class="part-requirement-failure-label">${escapeHtml(requirement.label)} unmet</span>
+      <span>${escapeHtml(requirement.failureText)}</span>
+    </p>`).join("");
+
+  return `
+    <section class="part-requirements" aria-label="Requirements">
+      <div class="part-requirements-row">
+        <h4 class="part-section-heading part-requirements-heading">Requirements</h4>
+        <div class="part-requirement-chips">${chips}</div>
+      </div>
+      ${failureMarkup}
+      ${tips}
+    </section>`;
+}
+
+// Resolve whether the selected *placed* component currently meets its Power and
+// Data dependencies, using the same authoritative Blueprint solvers the Power and
+// Wiring analysis panels use. Unplaced palette components report no status.
+function requirementStatusFor(placed) {
+  if (!placed) return {};
+  const design = Array.isArray(state.design) ? state.design : [];
+  const index = design.indexOf(placed);
+  if (index < 0) return {};
+  const status = {};
+  const stat = PART_STATS[placed.type] || PART_STATS.frame;
+
+  if ((stat.powerUse || 0) > 0) {
+    try {
+      const flow = solveBlueprintPower(design, state.wiring || null, PART_STATS, WIRING_INFRASTRUCTURE);
+      const entry = flow?.byComponentIndex?.find((item) => item.componentIndex === index) || null;
+      status.power = powerRequirementState(entry);
+    } catch { status.power = { state: "unplaced", reason: null }; }
+  }
+
+  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus) {
+    try {
+      const analysis = getCachedDesignDataSupport(design, state.wiring || null, PART_STATS, {
+        thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE
+      });
+      status.data = dataRequirementState(getDesignSourceAllocation(analysis, index));
+    } catch { status.data = { state: "unplaced", reason: null }; }
+  }
+
+  return status;
+}
+
+// Hover, keyboard focus and tap all disclose the explanation; Escape, an outside
+// click and moving focus away all close it.
+function attachRequirementHandlers() {
+  const root = dom.partInspector;
+  const chips = Array.from(root.querySelectorAll("[data-requirement]"));
+  if (!chips.length) return;
+
+  const tipFor = (chip) => root.querySelector(`[data-requirement-tip="${chip.dataset.requirement}"]`);
+  // Hover and focus open the tip transiently; a click or tap pins it open so it
+  // survives the pointer leaving, and a second click dismisses it.
+  const setOpen = (chip, open, { pinned = false } = {}) => {
+    const tip = tipFor(chip);
+    if (!tip) return;
+    chip.setAttribute("aria-expanded", open ? "true" : "false");
+    tip.hidden = !open;
+    if (open && pinned) chip.dataset.requirementPinned = "true";
+    if (!open) delete chip.dataset.requirementPinned;
+  };
+  const closeAll = (except = null) => chips.forEach((chip) => { if (chip !== except) setOpen(chip, false); });
+
+  for (const chip of chips) {
+    chip.addEventListener("click", () => {
+      const pinned = chip.dataset.requirementPinned === "true";
+      closeAll(chip);
+      setOpen(chip, !pinned, { pinned: !pinned });
+    });
+    chip.addEventListener("mouseenter", () => { closeAll(chip); setOpen(chip, true); });
+    chip.addEventListener("focus", () => { closeAll(chip); setOpen(chip, true); });
+    chip.addEventListener("mouseleave", () => {
+      if (document.activeElement !== chip && chip.dataset.requirementPinned !== "true") setOpen(chip, false);
+    });
+    chip.addEventListener("blur", () => { if (chip.dataset.requirementPinned !== "true") setOpen(chip, false); });
+    chip.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { setOpen(chip, false); chip.blur(); }
+    });
+  }
+
+  installGlobalRequirementDismissal();
+}
+
+// Outside-click and Escape dismissal live on the document and are installed once,
+// so repeated inspector renders never stack duplicate listeners.
+let globalRequirementDismissalInstalled = false;
+function installGlobalRequirementDismissal() {
+  if (globalRequirementDismissalInstalled) return;
+  globalRequirementDismissalInstalled = true;
+  const closeEverything = () => {
+    dom.partInspector?.querySelectorAll("[data-requirement][aria-expanded='true']").forEach((chip) => {
+      chip.setAttribute("aria-expanded", "false");
+      delete chip.dataset.requirementPinned;
+      const tip = dom.partInspector.querySelector(`[data-requirement-tip="${chip.dataset.requirement}"]`);
+      if (tip) tip.hidden = true;
+    });
+  };
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest?.("[data-requirement]")) closeEverything();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeEverything();
+  });
+}
+
+function thermalSummaryMarkup(model) {
+  if (!model.thermalSummary.length) return "";
+  return `
+    <div class="part-thermal-summary" aria-label="Thermal summary">
+      ${model.thermalSummary.map((row) => `
+        <p class="part-thermal-line${row.tone ? ` is-${row.tone}` : ""}">
+          <span class="part-thermal-label">${escapeHtml(row.label)}</span>
+          <span class="part-thermal-value">${escapeHtml(row.value)}</span>
+        </p>`).join("")}
+    </div>`;
+}
+
+function warningsMarkup(model) {
+  if (!model.warnings.length) return "";
+  return model.warnings.map((warning) => `
+    <div class="part-warning" role="note" data-warning="${escapeHtml(warning.id)}">
+      <span class="part-warning-icon" aria-hidden="true">!</span>
+      <div class="part-warning-body">
+        <strong class="part-warning-title">${escapeHtml(warning.title)}</strong>
+        <span class="part-warning-text">${escapeHtml(warning.body)}</span>
+      </div>
+    </div>`).join("");
+}
+
+function accordionMarkup(section, openState) {
+  const open = Boolean(openState[section.id]);
+  const panelId = `partInspectorSection-${section.id}`;
+  const triggerId = `${panelId}-trigger`;
+  return `
+    <div class="part-accordion${open ? " is-open" : ""}" data-accordion="${escapeHtml(section.id)}">
+      <button type="button" class="part-accordion-trigger" id="${triggerId}"
+              aria-expanded="${open ? "true" : "false"}" aria-controls="${panelId}"
+              data-inspector-section="${escapeHtml(section.id)}">
+        <span class="part-accordion-marker" aria-hidden="true"></span>
+        <span class="part-accordion-title">${escapeHtml(section.title)}</span>
+      </button>
+      <div class="part-accordion-panel" id="${panelId}" role="region" aria-labelledby="${triggerId}"${open ? "" : " hidden"}>
+        <div class="part-detail-list">
+          ${section.rows.map((row) => `
+            <div class="part-detail-row${row.tone ? ` is-${row.tone}` : ""}">
+              <span class="part-spec-label">${escapeHtml(row.label)}</span>
+              <strong class="part-detail-value">${escapeHtml(row.value)}</strong>
+            </div>`).join("")}
+        </div>
+        ${section.note ? `<p class="part-accordion-note">${escapeHtml(section.note)}</p>` : ""}
+      </div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Accordion state — remembered per selected component, reset on change
+// ---------------------------------------------------------------------------
+
+function openSectionsFor(type) {
+  const store = state.partInspectorOpen;
+  if (!store || store.forType !== type) {
+    state.partInspectorOpen = { forType: type, sections: {} };
+    return state.partInspectorOpen.sections;
+  }
+  return store.sections;
+}
+
+function attachAccordionHandlers(type) {
+  dom.partInspector.querySelectorAll("[data-inspector-section]").forEach((trigger) => {
+    trigger.addEventListener("click", () => {
+      const wrapper = trigger.closest(".part-accordion");
+      const panel = wrapper?.querySelector(".part-accordion-panel");
+      if (!panel) return;
+      const next = trigger.getAttribute("aria-expanded") !== "true";
+      trigger.setAttribute("aria-expanded", next ? "true" : "false");
+      panel.hidden = !next;
+      wrapper.classList.toggle("is-open", next);
+      const store = openSectionsFor(type);
+      store[trigger.dataset.inspectorSection] = next;
     });
   });
 }
 
-// The "Heat analysis" (design-specific prediction + static thermal properties)
-// renders in its own panel below the component stats so it sits under them and
-// refreshes on every stats/mode update — independent of the part inspector.
-export function renderThermalAnalysis() {
-  if (!dom.thermalAnalysisPanel) return;
-  const type = state.selectedPart || selectedPlacedPart()?.type;
-  if (!type) { dom.thermalAnalysisPanel.innerHTML = ""; return; }
-  const stat = PART_STATS[type] || PART_STATS.frame;
-  const thermal = partThermalDetails(type, stat);
-  dom.thermalAnalysisPanel.innerHTML = `
-    <section class="part-inspector-section">
-      <div class="part-detail-heading part-detail-heading-heat">Heat analysis</div>
-      ${thermalSectionMarkup(type, stat, thermal)}
-    </section>`;
-  dom.thermalAnalysisPanel.querySelectorAll("details[data-inspector-section]").forEach((detailsEl) => {
-    detailsEl.addEventListener("toggle", event => {
-      if (event.target.classList.contains("thermal-properties-details")) state.partThermalPropsOpen = event.target.open;
-    });
-  });
+// ---------------------------------------------------------------------------
+// Design-specific thermal prediction for the selected component type
+// ---------------------------------------------------------------------------
+
+function thermalPredictionFor(type) {
+  const placed = state.design.filter((part) => part.type === type);
+  if (!placed.length) return null;
+  const analysis = analyzeDesignHeat(state.design, state.wiring || null, state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
+  return placed
+    .map((part) => analysis.predictions.get(part))
+    .filter(Boolean)
+    .reduce((hottest, candidate) => !hottest || candidate.ratio > hottest.ratio ? candidate : hottest, null);
 }
+
+function thermalNoteFor(type) {
+  const placed = state.design.filter((part) => part.type === type);
+  if (!placed.length) return "Not placed in this design yet — predictions use the catalogue profile.";
+  if (placed.length > 1) return `Showing the hottest of ${placed.length} placed ${PART_DEFS[type]?.name || type} components.`;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Selection helpers
+// ---------------------------------------------------------------------------
 
 function selectedPlacedPart() {
   const cell = state.selectedCell;
@@ -112,19 +377,25 @@ function selectedPlacedPartOfType(type) {
   const placed = selectedPlacedPart();
   return placed?.type === type ? placed : null;
 }
+
+// ---------------------------------------------------------------------------
+// Interactive component configuration (not statistics)
+// ---------------------------------------------------------------------------
+
 function switchgearControlsMarkup(type) {
   if (type !== "switchgear") return "";
   const placed = selectedPlacedPartOfType(type);
-  if (!placed) return `<div class="part-inspector-tip">Place or select a Switchgear component to configure its saved mode and rating.</div>`;
+  if (!placed) return `<p class="part-inspector-tip">Place or select a Switchgear component to configure its saved mode and rating.</p>`;
   const mode = placed.switchgearMode || "closed";
   const rating = placed.switchgearRatingTier || "standard";
   const button = (kind, value, label) => `<button type="button" data-switchgear-config="${kind}" data-switchgear-value="${value}" aria-pressed="${String((kind === "mode" ? mode : rating) === value)}">${label}</button>`;
-  return `<section class="part-inspector-section switchgear-config" aria-label="Switchgear Blueprint configuration">
-    <div class="part-detail-heading">Switchgear settings</div>
+  return `<section class="part-inspector-config switchgear-config" aria-label="Switchgear Blueprint configuration">
+    <h4 class="part-section-heading">Switchgear settings</h4>
     <div class="switchgear-control-row"><span>Default mode</span>${button("mode", "open", "Open")}${button("mode", "closed", "Closed")}${button("mode", "automatic", "Automatic")}</div>
     <div class="switchgear-control-row"><span>Rating</span>${button("rating", "light", "Light")}${button("rating", "standard", "Standard")}${button("rating", "heavy", "Heavy")}</div>
   </section>`;
 }
+
 function attachSwitchgearControlHandlers() {
   dom.partInspector.querySelectorAll("[data-switchgear-config]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -133,41 +404,10 @@ function attachSwitchgearControlHandlers() {
   });
 }
 
-function keyInspectorStats(type, stat, effectiveCost) {
-  const rows = [
-    ["Build cost", effectiveCost],
-    ["Mass", formatMass(stat.mass)],
-    ["Hull", formatHull(stat.hp)]
-  ];
-  if ((stat.powerGeneration || 0) !== 0 || (stat.powerUse || 0) !== 0) {
-    rows.push(["Power", partPowerText(stat)]);
-  }
-  if (stat.weapon) {
-    rows.push(["Damage", stat.weapon.type === "beam" ? `${formatDamage(stat.weapon.damage)}/s` : formatDamage(stat.weapon.damage)]);
-    rows.push(["Fire rate", stat.weapon.type === "beam" ? "Continuous beam" : `${stat.weapon.fireRate} shots/s`]);
-  }
-  if ((stat.thrust || 0) > 0 || (stat.lateralThrust || 0) > 0) {
-    rows.push([type === "maneuverThruster" ? "Lateral thrust" : "Thrust", formatThrust(type === "maneuverThruster" ? stat.lateralThrust : stat.thrust)]);
-  }
-  if ((stat.repairRate || 0) > 0) {
-    rows.push(["Healing rate", formatRepair(stat.repairRate)]);
-  }
-  if ((stat.shield || 0) !== 0) rows.push(["Shield", formatShield(stat.shield)]);
-  if ((stat.shieldRegen || 0) !== 0) rows.push(["Recharge", `${stat.shieldRegen}/s`]);
-  if ((stat.energyStorage || 0) > 0) {
-    rows.push(["Storage", formatEnergy(stat.energyStorage)]);
-  }
-  if ((stat.heat || 0) > 0 || type === "radiator" || type === "heatSink" || type === "heatPipe") {
-    rows.push(["Thermal role", thermalRoleText(type, stat)]);
-  }
-  const heatGeneration = globalThis.HeatRules?.activityHeat?.(type, stat) || 0;
-  if (heatGeneration > 0.05) rows.push(["Heat generation", `+${heatGeneration.toFixed(1)} H/s`]);
-  return rows;
-}
 function droneBayControlsMarkup(type) {
   if (type !== "droneBay") return "";
   const placed = selectedPlacedPartOfType(type);
-  if (!placed) return `<div class="part-inspector-tip">Place or select a Drone Bay to choose its squad.</div>`;
+  if (!placed) return `<p class="part-inspector-tip">Place or select a Drone Bay to choose its squad.</p>`;
   const selected = globalThis.DroneBayRules?.normalizeDroneType(placed.droneType);
   const droneConfig = PART_STATS.droneBay?.droneConfig || GENERATED_BALANCE?.drones || {};
   const types = droneConfig.types || GENERATED_BALANCE?.drones?.types || {};
@@ -181,18 +421,14 @@ function droneBayControlsMarkup(type) {
     </button>`;
   };
   const launch = globalThis.DroneBayRules?.exposedLaunchEdges(state.design, state.design.indexOf(placed), PART_STATS)?.[0];
-  return `<section class="part-inspector-section drone-bay-config" aria-label="Drone Bay configuration">
-    <div class="part-detail-heading">Drone squad</div>
+  return `<section class="part-inspector-config drone-bay-config" aria-label="Drone Bay configuration">
+    <h4 class="part-section-heading">Drone squad</h4>
     <p class="drone-config-status ${selected ? "is-configured" : "is-required"}">${selected ? `${types[selected]?.label || selected} squad selected` : "Choose a drone type before saving or deploying."}</p>
     <div class="drone-type-choices" role="radiogroup" aria-label="Drone type">${["fighter", "defence", "repair"].map(button).join("")}</div>
-    <div class="drone-config-stats" aria-label="Drone Bay operating requirements">
-      <span>Squad <b>${Number(droneConfig.squadSize) || 0}</b></span>
-      <span>Power <b>${Number(droneConfig.standbyPowerMw) || 0} / ${Number(droneConfig.activePowerMw) || 0} / ${Number(droneConfig.productionPowerMw) || 0} MW</b><small>standby · active · production</small></span>
-      <span>Heat <b>${Number(droneConfig.standbyHeatPerSecond) || 0} / ${Number(droneConfig.activeHeatPerSecond) || 0} / ${Number(droneConfig.productionHeatPerSecond) || 0} H/s</b></span>
-    </div>
     <p class="drone-launch-status ${launch ? "is-valid" : "is-blocked"}">${launch ? `Launch edge: ${launch.side}` : "Blocked: one complete two-cell edge must face open space."}</p>
   </section>`;
 }
+
 function attachDroneBayControlHandlers() {
   dom.partInspector.querySelectorAll("[data-drone-type]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -201,188 +437,9 @@ function attachDroneBayControlHandlers() {
   });
 }
 
-function mergeNonZeroKeyStats(keyStats, details) {
-  const rows = [...keyStats];
-  const labels = new Set(rows.map(([label]) => label.toLowerCase()));
-  for (const [label, value] of details) {
-    const numbers = String(value).match(/[-+]?\d+(?:\.\d+)?/g)?.map(Number) || [];
-    if (!numbers.some((number) => Number.isFinite(number) && number !== 0)) continue;
-    if (labels.has(label.toLowerCase())) continue;
-    labels.add(label.toLowerCase());
-    rows.push([label, value]);
-  }
-  return rows;
-}
-
-function thermalRoleText(type, stat) {
-  if (type === "radiator") return "Active cooling";
-  if (type === "heatSink") return "Heat storage";
-  if (type === "heatPipe") return "Heat transfer";
-  return stat.heat ? "Heat support" : "Thermal support";
-}
-
-function collapsibleDetails(key, label, rows) {
-  if (!rows.length) return "";
-  const open = state.partInspectorOpen?.[key] ? " open" : "";
-  return `<details class="part-inspector-details" data-inspector-section="${escapeHtml(key)}"${open}>
-    <summary>${escapeHtml(label)}</summary>
-    <div class="part-detail-list">${rows.map(([detailLabel, value]) => inspectorDetail(detailLabel, value)).join("")}</div>
-  </details>`;
-}
-
-// Design-specific thermal prediction for the selected part type, plus its static
-// thermal properties in a collapsed section so the two are never conflated.
-function thermalSectionMarkup(type, stat, thermal) {
-  const rules = globalThis.HeatRules;
-  const signed = (value, decimals = 1) => Math.abs(value) < 0.05 ? "0.0 H/s" : `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(decimals)} H/s`;
-  const placed = state.design.filter(part => part.type === type);
-  let predictedRows = "";
-  let explainer = "";
-  if (placed.length) {
-    const analysis = analyzeDesignHeat(state.design, state.wiring || null, state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
-    const prediction = placed
-      .map(part => analysis.predictions.get(part))
-      .filter(Boolean)
-      .reduce((hottest, candidate) => !hottest || candidate.ratio > hottest.ratio ? candidate : hottest, null);
-    if (prediction) {
-      const percent = Math.min(100, Math.round(prediction.ratio * 100));
-      const coolingReceived = prediction.cooling + prediction.transferredOut - prediction.received;
-      const net = prediction.generation - coolingReceived;
-      predictedRows = `
-        <div class="part-detail-heading">Predicted in this design</div>
-        <div class="thermal-stat-rows">
-          ${thermalRow("Predicted heat", `${percent}%`)}
-          ${thermalRow("Thermal state", rules.STATE_LABELS[prediction.state])}
-          ${thermalRow("Heat generation", signed(prediction.generation), "thermal-value-hot")}
-          ${thermalRow("Cooling received", signed(-coolingReceived), coolingReceived >= 0 ? "thermal-value-cool" : "thermal-value-hot")}
-          ${thermalRow("Net heat", signed(net), net > 0.05 ? "thermal-value-hot" : "thermal-value-cool")}
-          ${thermalRow("Heat capacity", `${prediction.capacity} H`)}
-          ${prediction.meltdownTime != null ? thermalRow("Meltdown predicted", `at ${prediction.meltdownTime.toFixed(1)}s sustained load`, "thermal-value-hot") : ""}
-        </div>`;
-      if (thermal.generation > 0.5 && prediction.ratio < 0.26) {
-        explainer = `<p class="thermal-explainer">Generates +${thermal.generation.toFixed(1)} H/s ${escapeHtml(thermal.cadence.toLowerCase())}. Predicted peak in this design: ${percent}% — the cooling layout is managing it.</p>`;
-      } else if (placed.length > 1) {
-        explainer = `<p class="thermal-explainer">Showing the hottest of ${placed.length} placed ${escapeHtml(PART_DEFS[type]?.name || type)} components.</p>`;
-      }
-    }
-  } else {
-    predictedRows = `
-      <div class="part-detail-heading">Predicted in this design</div>
-      <p class="thermal-explainer">Not placed in this design yet${thermal.generation > 0 ? ` — generates +${thermal.generation.toFixed(1)} H/s ${escapeHtml(thermal.cadence.toLowerCase())}` : ""}.</p>`;
-  }
-  return `
-    <details class="part-inspector-details thermal-properties-details" data-inspector-section="thermal"${state.partInspectorOpen?.thermal ? " open" : ""}>
-      <summary>Heat details</summary>
-      <div class="heat-details-body">
-        <div class="thermal-stat-rows">
-          ${thermal.details.map(([label, value]) => thermalRow(label, value)).join("")}
-        </div>
-        ${predictedRows}
-        ${explainer}
-      </div>
-    </details>`;
-}
-
-function thermalRow(label, value, valueClass = "") {
-  return `<div><span>${escapeHtml(label)}</span><strong${valueClass ? ` class="${valueClass}"` : ""}>${escapeHtml(value)}</strong></div>`;
-}
-
-function partThermalDetails(type, stat) {
-  const rules = globalThis.HeatRules;
-  const thermalProfile = rules.profile(type, stat);
-  const capacity = thermalProfile.capacity;
-  const naturalCooling = thermalProfile.cooling;
-  let generation = rules.activityHeat(type, stat);
-  let cadence = "While active";
-  if (stat.weapon) {
-    cadence = stat.weapon.type === "beam" ? "while firing" : "at sustained fire";
-  } else if ((stat.powerGeneration || 0) > 0) {
-    generation = 2 + stat.powerGeneration * 0.42;
-    cadence = "At power load";
-  } else if ((stat.thrust || 0) > 0) {
-    generation = 2 + stat.thrust * 0.018;
-    cadence = "While thrusting";
-  } else if ((stat.shieldRegen || 0) > 0) {
-    generation = stat.shieldRegen * 0.7;
-    cadence = "Recharging / hit";
-  }
-
-  let effect = "Loses heat naturally and exchanges heat with adjacent occupied components.";
-  if (type === "heatPipe") effect = "High-conductivity route that transfers heat to connected sinks/radiators; removes no heat by itself, stores little heat, and provides no structural support.";
-  if (type === "heatSink") effect = "Adds 35 H capacity to every adjacent component and absorbs burst heat locally.";
-  if (type === "radiator") effect = "Removes ~14 H/s with an exposed exterior edge (25% output when enclosed); dissipation scales up as it stores more heat.";
-  if (type === "armor") effect = "Retains slightly more heat than frame.";
-
-  const pct = (value) => `${Math.round(value * 100)}%`;
-  const active = rules.activeOutputForState || rules.performanceForState;
-  const passive = rules.passiveProtectionForState;
-  const cooling = rules.activeCoolingForState;
-  const rows = [
-    ["Heat generation", generation > 0 ? `+${generation.toFixed(1)} H/s — ${cadence}` : "None"],
-    ["Natural cooling", `-${naturalCooling.toFixed(1)} H/s`],
-    ["Base heat capacity", `${capacity} H`]
-  ];
-  const activeLabel = stat.weapon ? (stat.weapon.type === "beam" ? "beam output" : "fire rate")
-    : (stat.thrust || 0) > 0 ? "thrust"
-    : (stat.shieldRegen || 0) > 0 ? "recharge rate"
-    : (stat.repairRate || 0) > 0 ? "repair output"
-    : (stat.powerGeneration || 0) > 0 ? "power output"
-    : (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength) ? "bonus effectiveness" : null;
-  const passiveStructure = /frame/i.test(type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(type);
-  if (activeLabel) {
-    rows.push(["Hot", `${pct(active(rules.STATE.HOT))} ${activeLabel}`]);
-    rows.push(["Critical", `${pct(active(rules.STATE.CRITICAL))} ${activeLabel}`]);
-    rows.push(["Overheated", `${activeLabel.replace(/^./, c => c.toUpperCase())} offline${(stat.powerGeneration || 0) > 0 ? `; meltdown after ${rules.REACTOR_MELTDOWN_SECONDS}s pinned at overheat` : ""}`]);
-  } else if (type === "heatPipe") {
-    rows.push(["Heat penalty", "Transfer unaffected"]);
-  } else if (type === "heatSink") {
-    rows.push(["Storage", "Unaffected"]);
-    rows.push(["Cooling output", `${pct(cooling(rules.STATE.HOT))} Hot / ${pct(cooling(rules.STATE.CRITICAL))} Critical`]);
-  } else if (type === "radiator") {
-    rows.push(["Cooling output", `${pct(cooling(rules.STATE.HOT))} Hot / ${pct(cooling(rules.STATE.CRITICAL))} Critical / passive floor when overheated`]);
-  } else if (passiveStructure) {
-    if (type === "armor" || type === "compositeArmor") {
-      rows.push(["Hot", `${pct(passive(rules.STATE.HOT))} protection`]);
-      rows.push(["Critical", `${pct(passive(rules.STATE.CRITICAL))} protection`]);
-      rows.push(["Overheated", `${pct(passive(rules.STATE.OVERHEATED))} protection`]);
-    } else {
-      rows.push(["Hot", `Takes ×${rules.structuralDamageMultiplierForState(rules.STATE.HOT).toFixed(2)} damage`]);
-      rows.push(["Critical", `Takes ×${rules.structuralDamageMultiplierForState(rules.STATE.CRITICAL).toFixed(2)} damage`]);
-      rows.push(["Overheated", `Takes ×${rules.structuralDamageMultiplierForState(rules.STATE.OVERHEATED).toFixed(2)} damage`]);
-    }
-  }
-  const recoverThreshold = rules.THRESHOLDS.overheated - rules.HYSTERESIS.overheated;
-  rows.push(["Recovery threshold", `Below ${Math.round(recoverThreshold * 100)}% heat`], ["Conduction", effect]);
-
-  return { capacity, generation, cadence, details: rows };
-}
-
-function inspectorStat(label, value) {
-  return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
-}
-
-function inspectorDetail(label, value) {
-  return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
-}
-
-function partPowerText(stat) {
-  const generation = stat.powerGeneration || 0;
-  const use = stat.powerUse || 0;
-  if (generation && use) return `+${generation} MW / -${use} MW`;
-  if (generation) return `+${generation} MW`;
-  if (use) return `-${use} MW`;
-  return "NA";
-}
-
-function formatMultiplierPercent(value) {
-  return `${Math.round((value ?? 1) * 100)}%`;
-}
-
-function formatAimSpeed(value) {
-  if (value === undefined) return "Instant";
-  const degs = Math.round(value * (180 / Math.PI));
-  return `${value.toFixed(2)} rad/s (${degs} deg/s)`;
-}
+// ---------------------------------------------------------------------------
+// Description enrichment (unchanged gameplay copy)
+// ---------------------------------------------------------------------------
 
 function enrichDescription(type, baseDescription) {
   if (type === "railgun" || type === "lightRailgun" || type === "heavyRailgun") {
@@ -404,154 +461,4 @@ function enrichDescription(type, baseDescription) {
     return `${baseDescription} Defensive weapon that intercepts incoming missiles and torpedoes. Weak against ships.`;
   }
   return baseDescription;
-}
-
-function partInspectorDetails(type, stat, effectiveCost) {
-  if (stat.weapon) {
-    const weapon = stat.weapon;
-    const details = [];
-
-    // Basic Weapon Stats
-    if (weapon.type === "beam") {
-      details.push(["Damage", `${formatDamage(weapon.damage)}/s`]);
-    } else {
-      details.push(["Damage", formatDamage(weapon.damage)]);
-      details.push(["Fire rate", `${weapon.fireRate} shots/s`]);
-      details.push(["Reload", `${weapon.reload}s`]);
-    }
-    details.push(["DPS", weapon.dps.toFixed(1)]);
-
-    // Damage Profile
-    const shieldMult = weapon.shieldDamageMultiplier ?? 1;
-    const hullMult = weapon.hullDamageMultiplier ?? 1;
-    details.push(["Vs Shields", formatMultiplierPercent(shieldMult)]);
-    details.push(["Vs Hull", formatMultiplierPercent(hullMult)]);
-    details.push(["Shield DPS", (weapon.dps * shieldMult).toFixed(1)]);
-    details.push(["Hull DPS", (weapon.dps * hullMult).toFixed(1)]);
-
-    // Combat Behaviour
-    details.push(["Range", formatDistance(weapon.range)]);
-    if (weapon.type !== "beam") {
-      details.push(["Projectile speed", formatSpeed(weapon.projectileSpeed)]);
-      details.push(["Accuracy", `${Math.round(weapon.accuracy * 100)}%`]);
-    }
-    
-    // Turret traverse rate comes from the shared TurretRules table, the same
-    // one the server aims with — no weapon snaps instantly any more.
-    details.push(["Turret Turn", formatAimSpeed(globalThis.TurretRules.turnRateFor(weapon))]);
-    
-    details.push(["Arc", `${weapon.arc || 360} deg`]);
-
-    if (weapon.burnThroughCarryMultiplier || type === "beamEmitter") {
-      const pct = Math.round((weapon.burnThroughCarryMultiplier || 0.4) * 100);
-      details.push(["Targeting", "Core-directed"]);
-      details.push(["Burn-through", `${pct}% excess damage`]);
-      details.push(["Maximum penetration", "1 additional component"]);
-    }
-
-    // Special Conditionals
-    if (weapon.type === "missile") {
-      details.push(["Tracking", `${Math.round(weapon.tracking * 100)}%`]);
-      details.push(["Track time", `${weapon.trackTime}s`]);
-      details.push(["Lock delay", `${weapon.trackingDelay}s`]);
-      details.push(["Missile HP", `${weapon.missileHp}`]);
-    } else if (weapon.type === "beam") {
-      details.push(["Beam radius", formatDistance(weapon.radius || 0)]);
-      details.push(["Behavior", "Sustained line damage"]);
-    } else if (weapon.antiMissile) {
-      details.push(["Anti-Missile", "Yes"]);
-      if (type === "pointDefense" || (Number(weapon.projectileSpeed) || 0) === 0) {
-        details.push(["Firing Mode", "Hitscan (Guaranteed hit once aligned)"]);
-        details.push(["Role", "Anti-drone & anti-ordnance"]);
-      }
-      if (weapon.targetPriority && weapon.targetPriority.length > 0) {
-        details.push(["Target Priority", weapon.targetPriority.join(", ")]);
-      }
-      const pdShipDamage = Math.round((weapon.shipDamageMultiplier || 0.04) * 100);
-      details.push(["Ship Damage", `${pdShipDamage}% (Negligible against ships)`]);
-    }
-
-    return details.filter(Boolean);
-  }
-
-  if (type === "switchgear") {
-    return [
-      ["Default mode", "Closed (Open / Closed / Automatic saved per component)"],
-      ["Rating", "Standard by default; Light, Standard, and Heavy match Power cable sustained/peak limits"],
-      ["Terminal orientation", "Rotation sets opposite terminal A and B cells: horizontal at 0°/180°, vertical at 90°/270°"],
-      ["Power behaviour", "Open isolates sides; Closed conducts through the rated internal Power edge; Automatic only uses deterministic spare Power"],
-      ["Data wiring", "No Data connection passes through Switchgear"]
-    ];
-  }
-
-  if (type === "maneuverThruster") {
-    const rotation = state.previewRotation === 270 ? 270 : 90;
-    return [
-      ["Lateral thrust", formatThrust(stat.lateralThrust || 0)],
-      ["Turn contribution", `${stat.turn || 0} base, scaled by front/rear lever arm`],
-      ["Allowed facing", "Left or right only"],
-      ["Current exhaust", rotation === 90 ? "Left nozzle" : "Right nozzle"],
-      ["Current force", rotation === 90 ? "Pushes right" : "Pushes left"],
-      ["Forward speed", "Does not increase forward speed"],
-      ["Placement note", "Distance ahead/behind the centre of mass affects turning strength"]
-    ];
-  }
-
-  if (type === "engine") {
-    return [
-      ["Thrust", formatThrust(stat.thrust)],
-      ["Speed contribution", "Total thrust / total mass"]
-    ];
-  }
-
-  if ((stat.powerGeneration || 0) > 0 && type !== "core") {
-    const rules = globalThis.HeatRules;
-    return [
-      ["Meltdown risk", `Explodes after ${rules.REACTOR_MELTDOWN_SECONDS}s pinned at overheat`],
-      ["Meltdown blast", `${rules.REACTOR_EXPLOSION_DAMAGE} damage within ${rules.REACTOR_EXPLOSION_RADIUS} tiles`],
-      ["Heat at full load", `+${(2 + stat.powerGeneration * 0.42).toFixed(1)} H/s`]
-    ];
-  }
-
-  if (type === "battery") {
-    return [
-      ["Recharge", `${stat.shieldRegen}/s`]
-    ];
-  }
-
-  if (type === "shield") {
-    return [
-      ["Recharge rate", `${stat.shieldRegen}/s`]
-    ];
-  }
-
-  if (type === "repair") {
-    return [];
-  }
-
-  if (type === "ecmModule") {
-    return [
-      ["ECM Strength", `-${Math.round((stat.ecmStrength || 0) * 100)}% missile tracking`]
-    ];
-  }
-
-
-  if (type === "forwardDeflector") {
-    return [
-      ["Frontal reduction", `${Math.round((stat.frontDamageReduction || 0) * 100)}%`],
-      ["Front arc", `${stat.frontArc || 0} deg`],
-      ["Recharge rate", `${stat.shieldRegen}/s`]
-    ];
-  }
-
-  if (stat.utilityEffect || stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.heat) {
-    return [
-      ["Range bonus", stat.rangeBonus ? formatDistance(stat.rangeBonus) : "None"],
-      ["Accuracy bonus", stat.accuracyBonus ? formatPercent(stat.accuracyBonus) : "None"],
-      ["Fire rate bonus", stat.fireRateBonus ? formatPercent(stat.fireRateBonus) : "None"],
-      ["Capture pressure", stat.captureBonus ? `+${formatPercent(stat.captureBonus)}` : "None"]
-    ];
-  }
-
-  return [];
 }

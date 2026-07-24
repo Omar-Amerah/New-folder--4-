@@ -33,7 +33,7 @@ class FakeElement {
 }
 
 const elements = new Map([
-  "saveDesignButton", "loadedBlueprintName", "confirmModal", "confirmModalTitle", "confirmModalMessage", "confirmAcceptButton", "confirmCancelButton", "combatStyleSelect", "blueprintCostLabel", "blueprintCostStatus", "statsGrid", "partInspector", "buildGrid", "shipStatusChip", "shipStatusText", "shipStatusDetails", "deployButton", "openBlueprintDesignerButton", "moneyHudLabel", "incomeHudLabel", "phaseDetail"
+  "saveDesignButton", "loadedBlueprintName", "confirmModal", "confirmModalTitle", "confirmModalMessage", "confirmAcceptButton", "confirmCancelButton", "combatStyleSelect", "blueprintCostLabel", "blueprintCostStatus", "statsGrid", "partInspector", "buildGrid", "deployButton", "openBlueprintDesignerButton", "moneyHudLabel", "incomeHudLabel", "phaseDetail"
 ].map((id) => [id, new FakeElement(id.endsWith("Button") ? "button" : "div", id)]));
 
 globalThis.document = {

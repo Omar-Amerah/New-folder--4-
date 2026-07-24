@@ -533,10 +533,6 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.equal(new Set(snapshot.wiring.power.sections.map((section) => section.id)).size, snapshot.wiring.power.sections.length, "drag does not duplicate shared sections");
     assert.ok(snapshot.wiring.power.sections.some((section) => section.id === "6,5:7,5"), "original trunk remains");
     assert.equal(await page.locator(".wire-junction").evaluate((node) => getComputedStyle(node).pointerEvents), "none", "junction cannot steal selection");
-    await page.evaluate(() => {
-      const details = document.querySelector("#shipStatusDetails");
-      if (details && !details.hidden) document.querySelector("#shipStatusChip")?.click();
-    });
     const junctionPoint = await wiringGridPointToScreen(svg, 6, 5); const junctionTarget = await hitAt(page, junctionPoint);
     assert.doesNotMatch(junctionTarget.className, /\bwire-junction\b/, "junction marker does not steal the intended actionable element");
     assert.ok(junctionTarget.sectionId || /\bwire-port\b/.test(junctionTarget.className),

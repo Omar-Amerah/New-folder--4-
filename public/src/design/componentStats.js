@@ -222,6 +222,9 @@ export function computeStats(modules, options = {}) {
     turnRateRight: movement.turnRateRight,
     massClass: movement.massClass,
     speedCap: movement.speedCap,
+    // Presentation-only passthrough of the movement solver's own flag so the
+    // summary can explain why top speed and the mass drag limit differ.
+    speedCapped: movement.speedCapped,
     turnCap: movement.turnCap,
     thrustRatio: Number(movement.thrustRatio.toFixed(2)),
     blaster,

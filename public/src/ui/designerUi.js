@@ -11,15 +11,15 @@ import { normalizeRotation, nextRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
+import { buildShipSummaryModel, turnText, resolvePowerSummary } from "../design/shipSummaryModel.js";
 import { defaultDesign, defaultWiring, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, blueprintSnapshotsEqual, canUndoBlueprintEdit, undoBlueprintEdit as popBlueprintEditUndo, clearBlueprintEditHistory } from "../design/blueprintEditHistory.js";
 import { showToast } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedBlueprintPresentation } from "./savedBlueprintsUi.js";
 import { updateEconomyUi } from "./purchaseUi.js";
-import { formatHull, formatShield, formatThrust, formatRepair, formatMass, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
+import { formatThrust, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { renderPartInspector } from "./partInspectorUi.js";
-import { formatPowerState } from "./section13bUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
@@ -1243,21 +1243,109 @@ export function closeBlueprintConfirmModalIfPending() {
   return true;
 }
 
-function designRepairBlocker() {
-  if (!state.designNeedsAttention) return "";
-  return "Invalid design: review and save the repaired blueprint before deployment.";
-}
-
 function designRepairWarningMessage() {
   const first = Array.isArray(state.designNormalizationIssues) ? state.designNormalizationIssues[0] : null;
   const reason = first?.message || "Invalid design: modules were removed during local-storage recovery.";
   return `This locally saved design contained invalid modules and was repaired. ${reason} Review and explicitly save the repaired design before using it.`;
 }
 
+// The Ship summary leads with nine headline outcomes, follows with concise
+// status messages driven by real conditions, and keeps engineering calculations
+// in collapsed sections. Structure and value selection come from
+// buildShipSummaryModel; this function only renders it.
+function renderShipSummary(stats, heat) {
+  if (!dom.stats) return;
+  const model = buildShipSummaryModel(stats, {
+    design: state.design,
+    powerSummary: heat?.powerThermal?.powerSummary || null,
+    overheatingCount: overheatingComponentCount(heat)
+  });
+  const open = shipSummaryOpenSections();
+
+  const overview = `
+    <div class="ship-summary-grid" role="list">
+      ${model.overview.map((row) => statMarkup(row.id, row.label, row.value, row.tone === "bad" ? "bad" : row.tone === "good" ? "good" : "neutral", row.hint)).join("")}
+    </div>`;
+
+  const status = model.status.length ? `
+    <ul class="ship-summary-status" aria-label="Design status">
+      ${model.status.map((message) => `
+        <li class="ship-status-line is-${escapeHtml(message.level)}" data-status-id="${escapeHtml(message.id)}">
+          <span class="ship-status-icon" aria-hidden="true">${statusIcon(message.level)}</span>
+          <span class="ship-status-text">${escapeHtml(message.text)}</span>
+        </li>`).join("")}
+    </ul>` : "";
+
+  const sections = model.sections.map((section) => {
+    const isOpen = Boolean(open[section.id]);
+    const panelId = `shipSummarySection-${section.id}`;
+    const triggerId = `${panelId}-trigger`;
+    return `
+      <div class="part-accordion${isOpen ? " is-open" : ""}" data-accordion="${escapeHtml(section.id)}">
+        <button type="button" class="part-accordion-trigger" id="${triggerId}"
+                aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${panelId}"
+                data-summary-section="${escapeHtml(section.id)}">
+          <span class="part-accordion-marker" aria-hidden="true"></span>
+          <span class="part-accordion-title">${escapeHtml(section.title)}</span>
+        </button>
+        <div class="part-accordion-panel" id="${panelId}" role="region" aria-labelledby="${triggerId}"${isOpen ? "" : " hidden"}>
+          <div class="part-detail-list">
+            ${section.rows.map((row) => `
+              <div class="part-detail-row${row.tone ? ` is-${escapeHtml(row.tone)}` : ""}">
+                <span class="part-spec-label">${escapeHtml(row.label)}</span>
+                <strong class="part-detail-value">${escapeHtml(row.value)}</strong>
+              </div>`).join("")}
+          </div>
+          ${section.note ? `<p class="part-accordion-note">${escapeHtml(section.note)}</p>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  dom.stats.innerHTML = `${overview}${status}${sections}`;
+  attachShipSummaryAccordionHandlers();
+}
+
+function statusIcon(level) {
+  if (level === "good") return "✓";
+  if (level === "bad") return "✕";
+  if (level === "warning") return "!";
+  return "•";
+}
+
+// Count components the authoritative thermal analysis predicts will overheat.
+function overheatingComponentCount(heat) {
+  const rules = globalThis.HeatRules;
+  if (!heat?.predictions || !rules) return 0;
+  let count = 0;
+  for (const prediction of heat.predictions.values()) {
+    if (prediction?.state >= rules.STATE.OVERHEATED) count += 1;
+  }
+  return count;
+}
+
+function shipSummaryOpenSections() {
+  if (!state.shipSummaryOpen || typeof state.shipSummaryOpen !== "object") state.shipSummaryOpen = {};
+  return state.shipSummaryOpen;
+}
+
+function attachShipSummaryAccordionHandlers() {
+  dom.stats.querySelectorAll("[data-summary-section]").forEach((trigger) => {
+    trigger.addEventListener("click", () => {
+      const wrapper = trigger.closest(".part-accordion");
+      const panel = wrapper?.querySelector(".part-accordion-panel");
+      if (!panel) return;
+      const next = trigger.getAttribute("aria-expanded") !== "true";
+      trigger.setAttribute("aria-expanded", next ? "true" : "false");
+      panel.hidden = !next;
+      wrapper.classList.toggle("is-open", next);
+      shipSummaryOpenSections()[trigger.dataset.summarySection] = next;
+    });
+  });
+}
+
 export function renderLocalStats() {
   const stats = computeStats(state.design, { wiring: state.wiring });
   const heat = currentHeatAnalysis();
-  const status = getShipStatus(stats);
   const mine = state.mine;
   const money = currentMatchMoney(mine);
   const canAfford = money >= stats.unitCost;
@@ -1282,39 +1370,12 @@ export function renderLocalStats() {
     }
   }
   if (state.designNeedsAttention) setBuildStatus(designRepairWarningMessage(), "warning");
-  const statDiagnostics = buildStatDiagnostics(stats);
-  const statCard = (key, label, value) => statMarkup(key, label, value, statDiagnostics[key]);
-  const droneSummary = Object.entries(stats.dronesByType || {})
-    .filter(([, count]) => count > 0)
-    .map(([type, count]) => `${type.replace(/^./, (letter) => letter.toUpperCase())} ${count}`)
-    .join(" · ");
-  dom.stats.innerHTML = [
-    statCard("cost", "Build cost", `$${stats.unitCost.toLocaleString()}`),
-    stats.fleetCount > 1 ? statCard("fleetCost", "Fleet cost", `$${(stats.unitCost * stats.fleetCount).toLocaleString()}`) : "",
-    statCard("class", "Class", stats.massClass),
-    statCard("hull", "Hull", formatHull(stats.maxHp)),
-    statCard("shield", "Shield", formatShield(stats.maxShield)),
-    statCard("speed", "Speed", formatSpeed(Math.round(stats.maxSpeed))),
-    statCard("turn", "Turn", directionalTurnText(stats)),
-    statCard("power", "Power Gen / Demand", formatPowerState(stats.powerGeneration, stats.powerUse, stats.powerEfficiency)),
-    statCard("thrust", "Effective Thrust", formatThrust(stats.effectiveThrust)),
-    statCard("engineEfficiency", "Engine Efficiency", formatPercent(stats.engineEfficiency)),
-    statCard("powerEfficiency", "Power Efficiency", formatPercent(stats.powerEfficiency)),
-    statCard("powerDebuff", "Power Penalty", stats.powerDebuff > 0 ? `-${formatPercent(stats.powerDebuff)}` : "None"),
-    statCard("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
-    statCard("thrustRatio", "Thrust/Mass", `${round2(stats.thrustRatio)} kN/T`),
-    statCard("weapons", "Weapons", `${stats.weaponDps} DPS`),
-    stats.droneCapacity > 0 ? statCard("drones", `Drones (${stats.droneCapacity})`, droneSummary) : "",
-    stats.captureBonus > 0 ? statCard("capture", "Capture", `+${formatPercent(stats.captureBonus)}`) : "",
-    statCard("repair", "Repair", formatRepair(stats.repairRate)),
-    statCard("mass", "Mass", formatMass(stats.mass))
-  ].join("");
+  renderShipSummary(stats, heat);
 
   if (dom.blueprintCostBreakdown) {
     dom.blueprintCostBreakdown.innerHTML = costBreakdownInnerMarkup(stats.costBreakdown);
   }
 
-  renderShipStatus(status);
   updateEconomyUi();
   renderAnalysisPanels(stats, heat);
 }
@@ -1336,14 +1397,13 @@ function analysisGridMarkup(rows) {
 }
 
 function renderAnalysisPanels(stats, heat) {
+  // One shared resolver keeps the Ship summary, its Power details and this panel
+  // reporting identical authoritative figures.
   const power = heat?.powerThermal?.powerSummary || {};
-  const requested = Number(power.requestedDemandMw ?? stats.powerUse) || 0;
-  const delivered = Number(power.deliveredDemandMw ?? Math.min(stats.powerGeneration, requested)) || 0;
-  const spare = Number(power.spareGenerationMw ?? Math.max(0, stats.powerGeneration - requested)) || 0;
-  const unmet = Number(power.unmetDemandMw ?? Math.max(0, requested - delivered)) || 0;
-  const overloadedSections = (power.aboveSustainedSectionCount || 0) + (power.atPeakSectionCount || 0);
+  const resolved = resolvePowerSummary(stats, power);
+  const { requested, delivered, spare, unmet, overloadedSections } = resolved;
   const powerRows = [
-    ["Generation", `${Number(stats.powerGeneration || 0).toFixed(1)} MW`],
+    ["Generation", `${resolved.generation.toFixed(1)} MW`],
     ["Demand", `${requested.toFixed(1)} MW`],
     ["Delivered demand", `${delivered.toFixed(1)} MW`],
     ["Spare power", `${spare.toFixed(1)} MW`, spare > 0 ? "good" : ""],
@@ -1375,7 +1435,7 @@ function renderAnalysisPanels(stats, heat) {
   if (dom.analysisMovementPanel) {
     dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card"><h3>Movement analysis</h3>${analysisGridMarkup([
       ["Speed", formatSpeed(Math.round(stats.maxSpeed))],
-      ["Turn rate", directionalTurnText(stats).text],
+      ["Turn rate", turnText(stats)],
       ["Effective thrust", formatThrust(stats.effectiveThrust)],
       ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`],
       ["Engine efficiency", formatPercent(stats.engineEfficiency)],
@@ -1975,197 +2035,6 @@ export function setBuildStatus(text, className) {
   dom.buildStatus.className = `build-status ${className || ""}`.trim();
 }
 
-export function getShipStatus(stats) {
-  const mine = state.mine;
-  const blockers = [];
-  const money = currentMatchMoney(mine);
-  const isActiveBuild = state.phase === "active";
-  const blueprintValidation = validateBlueprint(state.design, { requireThrust: true, stats });
-
-  const repairBlocker = designRepairBlocker();
-  if (repairBlocker) blockers.push(repairBlocker);
-  blockers.push(...blueprintValidation.errors);
-  if (money < stats.unitCost) blockers.push(`${isActiveBuild ? "Cannot afford ship" : "Cannot ready design"}. Need $${Math.ceil(stats.unitCost - money)} more.`);
-
-  const warnings = [...stats.warnings];
-  if (money > 0 && stats.unitCost > money * 0.75) warnings.push("High cost for current money.");
-  if (stats.maxShield < 35 && stats.maxHp < 210) warnings.push("Weak defence: low combined hull and shield.");
-
-  return { blockers, warnings };
-}
-
-// Client-side severity mapper: the validation system exposes blocking issues
-// (red) and warnings; we further split warnings into yellow warnings and green
-// suggestions for display only. This does not change what blocks Ready/Build.
-const SUGGESTION_PATTERNS = [
-  /no weapons/i,
-  /speed capped by mass/i,
-  /large hull/i,
-  /main core only/i,
-  /backup available/i,
-  /^add /i,
-  /^consider /i
-];
-
-function classifyStatus(status) {
-  const errors = [...status.blockers];
-  const warnings = [];
-  const suggestions = [];
-  for (const message of status.warnings) {
-    if (SUGGESTION_PATTERNS.some((pattern) => pattern.test(message))) {
-      suggestions.push(message);
-    } else {
-      warnings.push(message);
-    }
-  }
-  return { errors, warnings, suggestions };
-}
-
-export function renderShipStatus(status) {
-  if (!dom.shipStatusChip) return;
-  const groups = classifyStatus(status);
-  const severity = groups.errors.length
-    ? "error"
-    : groups.warnings.length
-      ? "warning"
-      : groups.suggestions.length
-        ? "suggestion"
-        : "ready";
-
-  dom.shipStatusChip.className = `ship-status-chip ${severity}`;
-  if (dom.shipStatusText) dom.shipStatusText.textContent = chipSummaryText(severity, groups);
-
-  const total = groups.errors.length + groups.warnings.length + groups.suggestions.length;
-  dom.shipStatusChip.setAttribute("aria-label", `Ship status: ${chipSummaryText(severity, groups)}. ${total ? "Expand status details." : "Status details available."}`.trim());
-  updateStatusAutoDisclosure(groups);
-
-  // Keep the popover in sync if it is currently open.
-  if (dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
-    renderShipStatusDetails(groups);
-    positionShipStatusDetails();
-  }
-}
-
-function chipSummaryText(severity, groups) {
-  if (severity === "error") {
-    return `${groups.errors.length} Blocking Error${groups.errors.length === 1 ? "" : "s"}`;
-  }
-  if (severity === "warning") {
-    return `Ready with ${groups.warnings.length} warning${groups.warnings.length === 1 ? "" : "s"}`;
-  }
-  if (severity === "suggestion") {
-    return `${groups.suggestions.length} Suggestion${groups.suggestions.length === 1 ? "" : "s"}`;
-  }
-  return "Ready";
-}
-
-function renderShipStatusDetails(groups) {
-  if (!dom.shipStatusDetails) return;
-  const total = groups.errors.length + groups.warnings.length + groups.suggestions.length;
-  const body = total
-    ? [
-        statusGroupMarkup("error", "Blocking Errors", groups.errors),
-        statusGroupMarkup("warning", "Warnings", groups.warnings),
-        statusGroupMarkup("suggestion", "Suggestions", groups.suggestions)
-      ].join("")
-    : `<div class="status-group ready"><p>No issues — this ship is ready.</p></div>`;
-  dom.shipStatusDetails.innerHTML = body;
-}
-
-function statusGroupMarkup(severity, title, issues) {
-  if (!issues.length) return "";
-  return `
-    <div class="status-group ${severity}">
-      <span>${title}</span>
-      <ul>${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>
-    </div>
-  `;
-}
-
-function errorFingerprint(groups) {
-  if (!groups.errors[0]) return null;
-  // Identify the error by its wording, not the exact figures inside it. Editing
-  // wiring nudges cost/power totals, so a message like "Need $75 more" becomes
-  // "Need $80 more" — the same affordability problem. Collapsing the numbers
-  // keeps the fingerprint stable so a dismissed panel does not re-open on every
-  // wire edit; a genuinely different error (different wording) still reopens it.
-  const normalized = String(groups.errors[0]).trim().toLowerCase().replace(/\d[\d.,]*/g, "#").replace(/\s+/g, " ");
-  return `error:${normalized}`;
-}
-
-function updateStatusAutoDisclosure(groups) {
-  const disclosure = state.blueprintStatusDisclosure;
-  const fp = errorFingerprint(groups);
-  if (!fp) { disclosure.currentErrorFingerprint = null; disclosure.dismissedErrorFingerprint = null; return; }
-  if (fp !== disclosure.currentErrorFingerprint) {
-    disclosure.currentErrorFingerprint = fp;
-    if (disclosure.dismissedErrorFingerprint !== fp) toggleShipStatusDetails(true);
-  }
-}
-
-function toggleShipStatusDetails(forceOpen) {
-  if (!dom.shipStatusDetails || !dom.shipStatusChip) return;
-  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : dom.shipStatusDetails.hidden;
-  if (shouldOpen) {
-    const status = getShipStatus(computeStats(state.design, { wiring: state.wiring }));
-    renderShipStatusDetails(classifyStatus(status));
-    state.blueprintStatusDisclosure.expanded = true;
-    dom.shipStatusDetails.hidden = false;
-    dom.shipStatusChip.setAttribute("aria-expanded", "true");
-    positionShipStatusDetails();
-  } else {
-    state.blueprintStatusDisclosure.expanded = false;
-    const fp = state.blueprintStatusDisclosure.currentErrorFingerprint;
-    if (fp) state.blueprintStatusDisclosure.dismissedErrorFingerprint = fp;
-    dom.shipStatusDetails.hidden = true;
-    dom.shipStatusChip.setAttribute("aria-expanded", "false");
-  }
-}
-
-// Position the fixed popover just above the chip (desktop). Narrow screens use a
-// CSS bottom-sheet layout instead, so we skip JS placement there.
-function positionShipStatusDetails() {
-  const details = dom.shipStatusDetails;
-  const chip = dom.shipStatusChip;
-  if (!details || !chip || typeof chip.getBoundingClientRect !== "function") return;
-  if (typeof window !== "undefined" && window.innerWidth <= 900) return;
-
-  const margin = 12;
-  const chipRect = chip.getBoundingClientRect();
-  const detailsRect = details.getBoundingClientRect();
-  const viewportW = (typeof window !== "undefined" && window.innerWidth) || 1024;
-
-  let left = chipRect.left + chipRect.width / 2 - detailsRect.width / 2;
-  left = Math.max(margin, Math.min(left, viewportW - detailsRect.width - margin));
-  const top = Math.max(margin, chipRect.top - detailsRect.height - 8);
-
-  details.style.left = `${left}px`;
-  details.style.top = `${top}px`;
-}
-
-if (dom.shipStatusChip) {
-  dom.shipStatusChip.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleShipStatusDetails();
-  });
-}
-
-if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
-  document.addEventListener("click", (event) => {
-    if (dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
-      if (!event.target.closest("#shipStatusDetails") && !event.target.closest("#shipStatusChip")) {
-        toggleShipStatusDetails(false);
-      }
-    }
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && dom.shipStatusDetails && !dom.shipStatusDetails.hidden) {
-      toggleShipStatusDetails(false);
-      dom.shipStatusChip?.focus();
-    }
-  });
-}
-
 function currentMatchMoney(mine) {
   return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
 }
@@ -2540,112 +2409,21 @@ function costBreakdownInnerMarkup(breakdown) {
 
 const DIAGNOSTIC_LEVELS = new Set(["neutral", "good", "warning", "bad"]);
 
-function directionalTurnText(stats) {
-  const left = Number(stats.turnRateLeft ?? stats.turnRate ?? 0);
-  const right = Number(stats.turnRateRight ?? stats.turnRate ?? 0);
-  if (Math.abs(left - right) < 0.01) {
-    const text = `${left.toFixed(2)} rad/s`;
-    return { text, html: escapeHtml(text) };
-  }
-  const leftValue = left.toFixed(2);
-  const rightValue = right.toFixed(2);
-  return {
-    text: `Left ${leftValue} rad/s / Right ${rightValue} rad/s`,
-    html: `<span class="turn-stat-lines"><span><em>Left</em><b>${escapeHtml(leftValue)}</b></span><span><em>Right</em><b>${escapeHtml(rightValue)}</b></span><small>rad/s</small></span>`
-  };
-}
-
-function buildStatDiagnostics(stats) {
-  return {
-    power: classifyPower(stats),
-    engineEfficiency: classifyEfficiency(stats.engineEfficiency, { good: 0.95, warning: 0.75, zeroIsBad: true }),
-    powerEfficiency: classifyEfficiency(stats.powerEfficiency, { good: 1, warning: 0.8 }),
-    thrust: classifyThrust(stats),
-    thrustRatio: classifyThrustRatio(stats.thrustRatio),
-    speed: classifySpeed(stats.maxSpeed),
-    turn: classifyTurn(stats.turnRate),
-    speedCap: classifyMassDrag(stats)
-  };
-}
-
 function diagnostic(status = "neutral") {
   return DIAGNOSTIC_LEVELS.has(status) ? status : "neutral";
 }
 
-function classifyPower(stats) {
-  const powerUse = Number(stats.powerUse) || 0;
-  const powerGeneration = Number(stats.powerGeneration) || 0;
-  if (powerUse <= 0) return powerGeneration > 0 ? "good" : "neutral";
-  if (powerGeneration <= 0) return "bad";
-
-  const useRatio = powerUse / powerGeneration;
-  if (useRatio > 1) return "bad";
-  if (useRatio >= 0.8) return "warning";
-  return "good";
-}
-
-function classifyEfficiency(value, thresholds) {
-  const amount = Number(value) || 0;
-  if (thresholds.zeroIsBad && amount <= 0) return "bad";
-  if (amount >= thresholds.good) return "good";
-  if (amount >= thresholds.warning) return "warning";
-  return "bad";
-}
-
-function classifyThrust(stats) {
-  const thrust = Number(stats.effectiveThrust) || 0;
-  const ratio = Number(stats.thrustRatio) || 0;
-  if (thrust <= 0 || ratio < 1.5) return "bad";
-  if (ratio < 2.7) return "warning";
-  if (thrust >= 220 && ratio >= 3.5) return "good";
-  return "neutral";
-}
-
-function classifyThrustRatio(value) {
-  const ratio = Number(value) || 0;
-  if (ratio <= 0 || ratio < 1.5) return "bad";
-  if (ratio < 2.7) return "warning";
-  if (ratio >= 4.5) return "good";
-  return "neutral";
-}
-
-function classifySpeed(value) {
-  const speed = Number(value) || 0;
-  if (speed <= 0 || speed < 130) return "bad";
-  if (speed < 190) return "warning";
-  if (speed >= 275) return "good";
-  return "neutral";
-}
-
-function classifyTurn(value) {
-  const turn = Number(value) || 0;
-  if (turn <= 0.35) return "bad";
-  if (turn < 0.75) return "warning";
-  if (turn >= 1.8) return "good";
-  return "neutral";
-}
-
-function classifyMassDrag(stats) {
-  const mass = Number(stats.mass) || 0;
-  if (mass <= 0) return "neutral";
-  const dragFactor = 1 / Math.pow(1 + mass / 100, 0.65);
-  const speed = Number(stats.maxSpeed) || 0;
-  const speedCap = Number(stats.speedCap) || 0;
-  const capRatio = speedCap > 0 ? speed / speedCap : 0;
-  if (dragFactor < 0.48) return "bad";
-  if (dragFactor < 0.62 || stats.speedCapped || capRatio >= 0.95) return "warning";
-  return "neutral";
-}
-
-function statMarkup(key, label, value, diagnosticStatus = "neutral") {
+function statMarkup(key, label, value, diagnosticStatus = "neutral", hint = "") {
   const status = diagnostic(diagnosticStatus);
   const diagnosticText = status === "neutral" ? "" : ` ${status}`;
   const textValue = typeof value === "object" && value ? value.text : String(value);
   const htmlValue = typeof value === "object" && value?.html ? value.html : escapeHtml(textValue);
+  const hintText = hint ? String(hint) : "";
   return `
-    <div class="stat stat-${status}" tabindex="0" data-stat-key="${escapeHtml(key)}" data-stat-label="${escapeHtml(label)}" data-stat-value="${escapeHtml(textValue)}" data-stat-diagnostic="${escapeHtml(status)}" aria-label="${escapeHtml(`${label}: ${textValue}${diagnosticText}`)}">
+    <div class="stat stat-${status}" role="listitem" tabindex="0" data-stat-key="${escapeHtml(key)}" data-stat-label="${escapeHtml(label)}" data-stat-value="${escapeHtml(textValue)}" data-stat-diagnostic="${escapeHtml(status)}" aria-label="${escapeHtml(`${label}: ${textValue}${hintText ? `. ${hintText}` : ""}${diagnosticText}`)}">
       <span>${escapeHtml(label)}</span>
       <strong>${htmlValue}</strong>
+      ${hintText ? `<small class="stat-hint">${escapeHtml(hintText)}</small>` : ""}
     </div>
   `;
 }

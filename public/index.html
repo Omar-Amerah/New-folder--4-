@@ -515,15 +515,6 @@
                 <div id="wiringHoverCard" class="wiring-hover-card" role="status" hidden></div>
               </div>
             </div>
-
-            <div class="designer-bottom">
-              <div class="ship-status-row">
-                <button id="shipStatusChip" type="button" class="ship-status-chip" aria-haspopup="dialog" aria-expanded="false" aria-controls="shipStatusDetails">
-                  <span class="ship-status-dot" aria-hidden="true"></span>
-                  <span id="shipStatusText" class="ship-status-text">Ready</span><span class="ship-status-chevron" aria-hidden="true">▾</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           <div class="designer-right-col" aria-label="Blueprint inspector">
@@ -638,10 +629,6 @@
           </div>
         </div>
       </div>
-      <!-- Fixed overlays must stay outside the density-scaled designer panel.
-           Nesting this beside the chip makes browser zoom scale its viewport
-           coordinates a second time and leaves it detached from the trigger. -->
-      <div id="shipStatusDetails" class="ship-status-details" role="dialog" aria-label="Ship status details" hidden></div>
     </section>
 
     <script src="/build-sha.js"></script>

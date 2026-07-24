@@ -85,42 +85,52 @@ const artifactDir = path.join("test-artifacts", "blueprint-information-polish");
     await assertVisible(page, "#saveDesignButton", "Save button remains visible while right column scrolls");
     const costHeading = await page.locator("#blueprintCostBanner > span").textContent();
     assert.equal(costHeading?.trim(), "Build cost", "cost banner semantic label says Build cost");
+    // The inspector leads with an unlabelled core specification row rather than a
+    // "Key stats" card grid; only genuinely optional groups carry a heading.
+    const coreSpecLabels = await page
+      .locator("#partInspector .part-core-specs .part-spec-label")
+      .evaluateAll(nodes => nodes.map(node => node.textContent?.trim().toLowerCase()));
+    assert.deepEqual(coreSpecLabels.slice(0, 3), ["build cost", "mass", "durability"],
+      `inspector leads with the core specification row: ${JSON.stringify(coreSpecLabels)}`);
     const inspectorHeadings = await page
-      .locator("#partInspector .part-detail-heading")
+      .locator("#partInspector .part-section-heading")
       .evaluateAll(nodes => nodes.map(node => node.textContent?.trim()));
-    assert.ok(
-      inspectorHeadings.includes("Key stats"),
-      `inspector shows semantic Key stats heading: ${JSON.stringify(inspectorHeadings)}`
-    );
+    assert.equal(inspectorHeadings.includes("Key stats"), false,
+      `the Key stats card grid is replaced by the core specification row: ${JSON.stringify(inspectorHeadings)}`);
+
+    // Advanced sections are keyboard-operable accordions with context-specific
+    // headings, collapsed by default.
     const inspectorDisclosures = await page
-      .locator("#partInspector details > summary")
+      .locator("#partInspector .part-accordion-title")
       .evaluateAll(nodes => nodes.map(node => node.textContent?.trim()));
     assert.equal(inspectorDisclosures.includes("Power and support details"), false,
       "power and support values are no longer hidden in a disclosure");
-    assert.ok(inspectorDisclosures.includes("Heat details"), "component inspector includes Heat details");
-    const combatIndex = inspectorDisclosures.indexOf("Combat details");
-    const heatIndex = inspectorDisclosures.indexOf("Heat details");
-    if (combatIndex >= 0) assert.ok(heatIndex > combatIndex, "Heat details follows Combat details");
-    const heatDetails = page.locator("#partInspector .thermal-properties-details");
-    await heatDetails.locator("summary").click();
-    assert.equal(await heatDetails.getAttribute("open"), "", "Heat details opens from its summary");
-    const heatGeometry = await heatDetails.evaluate((details) => {
-      const summary = details.querySelector("summary");
-      const body = details.querySelector(".heat-details-body");
-      const outer = details.getBoundingClientRect();
-      const bodyRect = body.getBoundingClientRect();
-      const style = getComputedStyle(body);
-      return {
-        summaryHeight: summary.getBoundingClientRect().height,
-        insetLeft: bodyRect.left - outer.left,
-        paddingTop: parseFloat(style.paddingTop),
-        paddingLeft: parseFloat(style.paddingLeft),
-        gap: parseFloat(style.rowGap)
-      };
-    });
-    assert.ok(heatGeometry.summaryHeight >= 40, `Heat summary remains comfortably tappable: ${heatGeometry.summaryHeight}px`);
-    assert.ok(heatGeometry.paddingTop >= 10 && heatGeometry.paddingLeft >= 12 && heatGeometry.gap >= 10,
-      `opened Heat details has balanced internal spacing: ${JSON.stringify(heatGeometry)}`);
+    assert.equal(inspectorDisclosures.includes("Combat details"), false,
+      `generic Combat details is replaced by context-specific headings: ${JSON.stringify(inspectorDisclosures)}`);
+    assert.equal(inspectorDisclosures.includes("Heat details"), false,
+      `Heat details is replaced by Thermal details: ${JSON.stringify(inspectorDisclosures)}`);
+    const thermalIndex = inspectorDisclosures.indexOf("Thermal details");
+    if (thermalIndex >= 0) {
+      assert.equal(thermalIndex, inspectorDisclosures.length - 1, "Thermal details is the last advanced section");
+      const thermal = page.locator('#partInspector [data-accordion="thermal"]');
+      const trigger = thermal.locator(".part-accordion-trigger");
+      assert.equal(await trigger.getAttribute("aria-expanded"), "false", "Thermal details starts collapsed");
+      await trigger.click();
+      assert.equal(await trigger.getAttribute("aria-expanded"), "true", "Thermal details opens from its trigger");
+      const thermalGeometry = await thermal.evaluate((accordion) => {
+        const button = accordion.querySelector(".part-accordion-trigger");
+        const panel = accordion.querySelector(".part-accordion-panel");
+        const style = getComputedStyle(panel.querySelector(".part-detail-list"));
+        return {
+          triggerHeight: button.getBoundingClientRect().height,
+          panelVisible: !panel.hidden && panel.getBoundingClientRect().height > 0,
+          gap: parseFloat(style.rowGap)
+        };
+      });
+      assert.ok(thermalGeometry.triggerHeight >= 40, `Thermal trigger remains comfortably tappable: ${thermalGeometry.triggerHeight}px`);
+      assert.equal(thermalGeometry.panelVisible, true, "opened Thermal details reveals its rows");
+      assert.ok(thermalGeometry.gap >= 2, `opened Thermal details has readable row spacing: ${JSON.stringify(thermalGeometry)}`);
+    }
     await page.locator("#blueprintHeatTab").click();
     await page.locator("#designerAnalysisTab").click();
     await page.waitForFunction(() => window.__mfaState?.blueprintView === "heat");

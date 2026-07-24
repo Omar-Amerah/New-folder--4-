@@ -79,7 +79,6 @@ export const state = {
   heatFlowView: "local",
   showAllHeatFlows: false,
   hoveredHeatPartIndex: null,
-  blueprintStatusDisclosure: { expanded: false, currentErrorFingerprint: null, dismissedErrorFingerprint: null },
   pendingBlueprintDestructiveAction: null,
   pendingWiringClearNetwork: null,
   shipStatusView: "damage",

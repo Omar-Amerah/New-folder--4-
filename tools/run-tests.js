@@ -113,6 +113,8 @@ const GROUPS = {
     "verify-components.js",
     "verify-burn-through-schema.js",
     "verify-component-catalogue.js",
+    "verify-component-inspector.js",
+    "verify-ship-summary.js",
     "verify-section13b-ui.js",
     "verify-section14-security.js",
     "verify-diagnostics-gating.js"
@@ -164,6 +166,8 @@ const GROUPS = {
     "verify-blueprint-discoverability-browser.js",
     "verify-blueprint-modes-browser.js",
     "verify-blueprint-information-polish-browser.js",
+    "verify-component-inspector-browser.js",
+    "verify-ship-summary-browser.js",
     "verify-blueprint-inspector-tabs-browser.js",
     "verify-data-support-browser.js",
     "verify-live-turrets.js",

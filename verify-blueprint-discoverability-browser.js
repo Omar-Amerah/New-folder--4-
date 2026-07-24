@@ -173,8 +173,7 @@ async function rightClickRemovalDiagnostics(page, screenshotName = "right-click-
       previewRotation: state.previewRotation,
       designLength: state.design.length,
       physicalHistorySize: history.blueprintEditHistorySize(),
-      removalValidation: validation ? { ok: validation.ok, errors: structuredClone(validation.errors || []) } : { ok: false, reason: "target-missing" },
-      shipStatusText: document.querySelector("#shipStatusText")?.textContent || null
+      removalValidation: validation ? { ok: validation.ok, errors: structuredClone(validation.errors || []) } : { ok: false, reason: "target-missing" }
     };
   }, screenshotPath);
 }
@@ -359,17 +358,26 @@ async function main() {
     await selectPalettePart(page, { category: "Support", type: "captureModule", name: "Capture Module", rotatable: false });
     const captureInspectorText = await page.locator("#partInspector").textContent();
     assert.match(captureInspectorText, /Capture pressure\s*\+18%/i,
-      "non-zero support output is promoted to Key stats");
+      "non-zero support output is promoted to the primary capability");
     assert.doesNotMatch(captureInspectorText, /Power and support details/i);
-    const captureDisclosures = await page.locator("#partInspector details > summary").allTextContents();
-    const captureCombatIndex = captureDisclosures.indexOf("Combat details");
-    const captureHeatIndex = captureDisclosures.indexOf("Heat details");
-    assert.ok(captureHeatIndex > captureCombatIndex, "Heat details appears below Combat details");
+    // Advanced sections are accordions with context-specific headings; Thermal
+    // details is always the last of them.
+    const captureDisclosures = await page.locator("#partInspector .part-accordion-title").allTextContents();
+    assert.equal(captureDisclosures.includes("Combat details"), false,
+      `generic Combat details is replaced by context-specific headings: ${JSON.stringify(captureDisclosures)}`);
+    assert.equal(captureDisclosures.includes("Heat details"), false,
+      `Heat details is replaced by Thermal details: ${JSON.stringify(captureDisclosures)}`);
+    const captureThermalIndex = captureDisclosures.indexOf("Thermal details");
+    if (captureThermalIndex >= 0) {
+      assert.equal(captureThermalIndex, captureDisclosures.length - 1,
+        `Thermal details is the last advanced section: ${JSON.stringify(captureDisclosures)}`);
+    }
+    // The canonical label is "Repair rate"; the authoritative values are unchanged.
     await selectPalettePart(page, { category: "Support", type: "repair", name: "Repair", rotatable: false });
-    assert.match(await page.locator("#partInspector").textContent(), /Healing rate\s*3\.5 HP\/s/i,
+    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*3\.5 HP\/s/i,
       "Repair shows its authoritative healing rate");
     await selectPalettePart(page, { category: "Support", type: "repairBeam", name: "Repair Beam", rotatable: true });
-    assert.match(await page.locator("#partInspector").textContent(), /Healing rate\s*8 HP\/s/i,
+    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*8 HP\/s/i,
       "Repair Beam shows its authoritative healing rate");
     await selectPalettePart(page, { category: "Weapons", type: "blaster", name: "Blaster", rotatable: true });
 
@@ -483,47 +491,6 @@ async function main() {
     });
     await page.click("#resetButton");
     assert.equal(await page.locator("#confirmModal").isVisible(), false, "semantic no-op Reset does not open modal");
-
-    const status = page.locator("#shipStatusChip");
-    assert.equal(await status.getAttribute("aria-expanded"), "false", "status starts collapsed");
-    const gridBox = await page.locator("#buildGrid").boundingBox();
-    const cellBox = await page.locator('.build-cell[data-x="7"][data-y="7"]').boundingBox();
-    await status.click();
-    assert.equal(await status.getAttribute("aria-expanded"), "true", "status click opens details");
-    const statusBox = await status.boundingBox();
-    const statusDetailsBox = await page.locator("#shipStatusDetails").boundingBox();
-    assert.ok(statusDetailsBox, "status details have rendered geometry");
-    const statusGap = statusBox.y - (statusDetailsBox.y + statusDetailsBox.height);
-    assert.ok(statusGap >= 6 && statusGap <= 12, `status details sit directly above chip (gap ${statusGap}px)`);
-    assert.ok(
-      Math.abs((statusDetailsBox.x + statusDetailsBox.width / 2) - (statusBox.x + statusBox.width / 2)) <= 2,
-      "status details are horizontally centred over chip"
-    );
-    await page.keyboard.press("Escape");
-    assert.equal(await status.getAttribute("aria-expanded"), "false", "Escape closes status details");
-    await status.click();
-    await status.click();
-    const gridBox2 = await page.locator("#buildGrid").boundingBox();
-    const cellBox2 = await page.locator('.build-cell[data-x="7"][data-y="7"]').boundingBox();
-    assert.ok(Math.abs(gridBox.width - gridBox2.width) < 0.5 && Math.abs(gridBox.height - gridBox2.height) < 0.5, "status details do not resize grid");
-    assert.ok(Math.abs(cellBox.x - cellBox2.x) < 1 && Math.abs(cellBox.y - cellBox2.y) < 1, "status details do not move cell");
-
-    await page.evaluate(async () => {
-      const designer = await import("/src/ui/designerUi.js");
-      window.__mfaState.design = [];
-      designer.renderBuildGrid(); designer.renderLocalStats();
-    });
-    await page.waitForFunction(() => document.querySelector("#shipStatusChip")?.getAttribute("aria-expanded") === "true");
-    await status.click();
-    assert.equal(await status.getAttribute("aria-expanded"), "false", "manual close respected for current error");
-    await page.evaluate(async () => { const designer = await import("/src/ui/designerUi.js"); designer.renderLocalStats(); });
-    assert.equal(await status.getAttribute("aria-expanded"), "false", "same error rerender does not reopen");
-    await page.evaluate(async () => {
-      const designer = await import("/src/ui/designerUi.js");
-      window.__mfaState.design = [{ type: "core", x: 7, y: 7, rotation: 0 }];
-      designer.renderBuildGrid(); designer.renderLocalStats();
-    });
-    await page.waitForFunction(() => document.querySelector("#shipStatusChip")?.getAttribute("aria-expanded") === "true");
 
     await assertNoClientErrors(clientErrors);
   } finally {

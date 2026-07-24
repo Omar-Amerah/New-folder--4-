@@ -340,6 +340,11 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     ecmStrength: numberOr(component.ecmStrength, 0),
     frontDamageReduction: numberOr(component.frontDamageReduction, 0),
     frontArc: numberOr(component.frontArc, 0),
+    // Presentation-only passthroughs: the inspector reports flat armour
+    // mitigation and per-ship placement limits from the authoritative balance
+    // file instead of restating those constants in UI code.
+    armorFlatReduction: numberOr(component.armorFlatReduction, 0),
+    maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {
