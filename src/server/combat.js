@@ -5,8 +5,8 @@ const { ECONOMY } = require("./config");
 const { rngRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
-const { addBullet, segmentCircleHit } = require("./projectiles");
-const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents } = require("./componentHealth");
+const { addBullet, segmentCircleHit, shieldCollisionRadius, SHIELD_HIT_MIN } = require("./projectiles");
+const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents, onComponentDestroyed } = require("./componentHealth");
 const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance } = require("./heat");
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
@@ -36,6 +36,89 @@ function componentAimWorldPosition(ship, index) {
     x: ship.x + local.x * cos - local.y * sin,
     y: ship.y + local.x * sin + local.y * cos
   };
+}
+
+function targetCoreAimWorldPosition(target) {
+  if (!target?.alive || !target.design?.length) return null;
+
+  for (let i = 0; i < target.design.length; i += 1) {
+    if (target.design[i].type === "core" && isComponentAlive(target, i)) {
+      const pos = componentAimWorldPosition(target, i);
+      if (pos) return { ...pos, componentIndex: i };
+    }
+  }
+
+  for (let i = 0; i < target.design.length; i += 1) {
+    const type = target.design[i].type;
+    if ((type === "emergencyCore" || type === "commandCore" || type === "emergencyCommandCore") && isComponentAlive(target, i)) {
+      const pos = componentAimWorldPosition(target, i);
+      if (pos) return { ...pos, componentIndex: i };
+    }
+  }
+
+  const livingCells = [];
+  for (let i = 0; i < target.design.length; i += 1) {
+    if (!isComponentAlive(target, i)) continue;
+    const module = target.design[i];
+    const part = PARTS[module.type] || PARTS.frame;
+    const cells = getOccupiedCells(module.x, module.y, part.footprint || { width: 1, height: 1 }, normalizeRotation(module.rotation));
+    livingCells.push(...cells);
+  }
+
+  if (!livingCells.length) return null;
+
+  let sumX = 0;
+  let sumY = 0;
+  for (const cell of livingCells) {
+    const local = moduleLocalPosition(cell);
+    sumX += local.x;
+    sumY += local.y;
+  }
+  const avgLocal = { x: sumX / livingCells.length, y: sumY / livingCells.length };
+  const cos = Math.cos(target.angle || 0);
+  const sin = Math.sin(target.angle || 0);
+  return {
+    x: target.x + avgLocal.x * cos - avgLocal.y * sin,
+    y: target.y + avgLocal.x * sin + avgLocal.y * cos,
+    componentIndex: -1
+  };
+}
+
+function findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius = 0) {
+  if (!target?.alive || !target.design?.length) return [];
+
+  const hitMap = new Map();
+  for (let i = 0; i < target.design.length; i += 1) {
+    if (!isComponentAlive(target, i)) continue;
+    const module = target.design[i];
+    const part = PARTS[module.type] || PARTS.frame;
+    const cells = getOccupiedCells(module.x, module.y, part.footprint || { width: 1, height: 1 }, normalizeRotation(module.rotation));
+    const cos = Math.cos(target.angle || 0);
+    const sin = Math.sin(target.angle || 0);
+
+    for (const cell of cells) {
+      const lx = (7 - cell.y) * MODULE_SCALE;
+      const ly = (cell.x - 7) * MODULE_SCALE;
+      const cellWx = target.x + lx * cos - ly * sin;
+      const cellWy = target.y + lx * sin + ly * cos;
+
+      const hit = segmentCircleHit(x1, y1, x2, y2, cellWx, cellWy, 8.5 + beamRadius);
+      if (hit) {
+        const existing = hitMap.get(i);
+        if (!existing || hit.t < existing.t) {
+          hitMap.set(i, { index: i, hit, t: hit.t });
+        }
+      }
+    }
+  }
+
+  const intersections = Array.from(hitMap.values());
+  intersections.sort((a, b) => {
+    if (Math.abs(a.t - b.t) > 1e-6) return a.t - b.t;
+    return a.index - b.index;
+  });
+
+  return intersections;
 }
 
 function isComponentExposed(ship, index) {
@@ -389,6 +472,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   if (!ship.weaponComponentRetargetAt) {
     ship.weaponComponentRetargetAt = new Array(ship.design ? ship.design.length : 0).fill(0);
   }
+  if (!ship.weaponBeamContacts) {
+    ship.weaponBeamContacts = new Array(ship.design ? ship.design.length : 0).fill(null);
+  }
 
   for (let i = 0; i < ship.weaponCooldowns.length; i += 1) {
     ship.weaponCooldowns[i] = Math.max(0, ship.weaponCooldowns[i] - dt);
@@ -411,6 +497,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       ship.weaponAimTargetIds[i] = null;
       ship.weaponFireTargetIds[i] = null;
       clearWeaponComponentAim(ship, i);
+      if (ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
       return;
     }
     const powerMultiplier = getComponentPowerMultiplier(ship, i);
@@ -420,6 +507,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       ship.weaponAimTargetIds[i] = null;
       ship.weaponFireTargetIds[i] = null;
       clearWeaponComponentAim(ship, i);
+      if (ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
       return;
     }
 
@@ -484,8 +572,28 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       });
       aimEntity = weaponTarget || (target && target.alive !== false && !target.destroyed ? target : null);
       if (aimEntity) {
-        aimPoint = weaponComponentAimPoint(room, ship, i, aimEntity, now);
-        if (weaponTarget && aimEntity === weaponTarget) fireAimPoint = aimPoint;
+        if (family === "beam") {
+          aimPoint = targetCoreAimWorldPosition(aimEntity);
+          if (aimPoint && effectiveWeapon.accuracy < 1) {
+            const acc = clampNumber(Number(effectiveWeapon.accuracy) || 0.99, 0.1, 0.99);
+            const maxErrorRad = (1 - acc) * 0.15;
+            const seed = (((String(ship.id).split("").reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0)) & 0x7fffffff) + i * 37) % 1000;
+            const smoothError = maxErrorRad * Math.sin(seed + now * 0.0015);
+            aimPoint = {
+              ...aimPoint,
+              smoothError
+            };
+          }
+          if (!aimPoint) {
+            aimEntity = null;
+            clearWeaponComponentAim(ship, i);
+          } else if (weaponTarget && aimEntity === weaponTarget) {
+            fireAimPoint = aimPoint;
+          }
+        } else {
+          aimPoint = weaponComponentAimPoint(room, ship, i, aimEntity, now);
+          if (weaponTarget && aimEntity === weaponTarget) fireAimPoint = aimPoint;
+        }
       } else {
         clearWeaponComponentAim(ship, i);
       }
@@ -500,7 +608,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     if (aimEntity) {
       const aimX = aimPoint ? aimPoint.x : aimEntity.x;
       const aimY = aimPoint ? aimPoint.y : aimEntity.y;
-      const worldAngleToTarget = Math.atan2(aimY - worldY, aimX - worldX);
+      let worldAngleToTarget = Math.atan2(aimY - worldY, aimX - worldX);
+      if (aimPoint?.smoothError) {
+        worldAngleToTarget += aimPoint.smoothError;
+      }
       const relativeAngleToTarget = angleDifference(ship.angle, worldAngleToTarget);
       const diff = angleDifference(defaultRelative, relativeAngleToTarget);
       if (Math.abs(diff) <= arcRadians / 2) {
@@ -533,17 +644,26 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     // Powered but thermally disabled weapons may keep tracking, but cannot fire.
     const heatMultiplier = componentPerformance(ship, i);
     const activityMultiplier = powerMultiplier * heatMultiplier;
-    if (activityMultiplier <= 0) return;
+    if (activityMultiplier <= 0) {
+      if (family === "beam" && ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
+      return;
+    }
 
     // Tracking is continuous while reloading. Only firing is cooldown-gated;
     // otherwise the visible turret freezes between shots and snaps at fire time.
-    if (cooldown > 0) return;
+    if (cooldown > 0) {
+      if (family === "beam" && ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
+      return;
+    }
 
     // Fire only at an in-range target the turret is actually tracking in-arc.
     if (family === "pointDefense") {
       if (!currentPdTarget || !isTracking) return;
     } else {
-      if (!weaponTarget || !isTracking || aimEntity !== weaponTarget) return;
+      if (!weaponTarget || !isTracking || aimEntity !== weaponTarget) {
+        if (family === "beam" && ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
+        return;
+      }
     }
 
     const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
@@ -624,11 +744,35 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       // Continuous beams do not spend cooldowns; Fire Control's per-weapon
       // fire-rate allocation is interpreted exactly once as sustained output.
       const dataFireRateFactor = baseFireRate > 0 ? effectiveFireRate / baseFireRate : 1;
-      damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * dt, now, {
+      const beamResult = damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * dt, now, {
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
-        armorInteractionSeconds: dt
+        burnThroughCarryMultiplier: effectiveWeapon.burnThroughCarryMultiplier,
+        armorInteractionSeconds: dt,
+        weaponIndex: i
       });
+
+      const firstHitIndex = beamResult?.firstHitIndex ?? -1;
+      const prevContact = ship.weaponBeamContacts[i];
+      const targetChanged = !weaponTarget || (prevContact && prevContact.targetShipId !== weaponTarget.id);
+      const componentChanged = prevContact && prevContact.firstHitComponentIndex !== firstHitIndex;
+      const angleShifted = prevContact && Math.abs(angleDifference(prevContact.contactAngle, worldWeaponAngle)) > 0.05;
+
+      if (!prevContact || targetChanged || componentChanged || angleShifted || firstHitIndex < 0) {
+        ship.weaponBeamContacts[i] = weaponTarget && firstHitIndex >= 0 ? {
+          targetShipId: weaponTarget.id,
+          firstHitComponentIndex: firstHitIndex,
+          contactAngle: worldWeaponAngle,
+          contactDuration: dt
+        } : null;
+      } else if (prevContact) {
+        prevContact.contactDuration += dt;
+        prevContact.contactAngle = worldWeaponAngle;
+      }
+
+      const effectX2 = beamResult?.hitX ?? beamEnd.x;
+      const effectY2 = beamResult?.hitY ?? beamEnd.y;
+
       addComponentHeat(ship, i, Math.max(3, Math.sqrt(effectiveWeapon.damage || 1)) * dataFireRateFactor * beamPerformance * dt);
       if (now - (ship.beamEffectsAt[i] || 0) > 55) {
         ship.beamEffectsAt[i] = now;
@@ -637,8 +781,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           ownerId: ship.ownerId,
           x: muzzle.x,
           y: muzzle.y,
-          x2: beamEnd.x,
-          y2: beamEnd.y,
+          x2: effectX2,
+          y2: effectY2,
           radius: beamRadius,
           at: now
         });
@@ -796,52 +940,254 @@ function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
   return end;
 }
 
+function normalizedArmorInteractionSeconds(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(0, Math.min(1, parsed));
+}
+
+function applyBeamHullDamage(room, ship, damage, now, intersections, options = {}) {
+  if (!ship.componentHp || damage <= 0 || !intersections || !intersections.length) {
+    ship.hp -= Math.max(0, damage);
+    return Math.max(0, damage);
+  }
+
+  const burnThroughMultiplier = Number(options.burnThroughCarryMultiplier) || 0;
+  let applied = 0;
+  const comp1 = intersections[0];
+  const idx1 = comp1.index;
+
+  const part1 = PARTS[ship.design[idx1].type] || PARTS.frame;
+  let effectiveDamage1 = damage;
+  if (part1.armorFlatReduction > 0) {
+    const protection = HeatRules.passiveProtectionForState(ship.componentHeatState?.[idx1] || HeatRules.STATE.NORMAL);
+    const interactionSeconds = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
+    const reduction = part1.armorFlatReduction * protection * interactionSeconds;
+    effectiveDamage1 = Math.max(0, damage - Math.max(0, reduction));
+  }
+
+  if (effectiveDamage1 <= 0) return 0;
+
+  if (ship.design[idx1].type === "core") {
+    const dealt = Math.min(ship.componentHp[idx1], effectiveDamage1);
+    if (dealt > 0) {
+      ship.componentHp[idx1] -= dealt;
+      applied += dealt;
+      ship.dirtyComponents.add(idx1);
+      if (ship.componentHp[idx1] <= 0.0001) {
+        ship.componentHp[idx1] = 0;
+        onComponentDestroyed(room, ship, idx1, now);
+      }
+    }
+    return applied;
+  }
+
+  const passiveStructure1 = HeatRules.isPassiveStructure(ship.design[idx1].type, part1);
+  const mult1 = passiveStructure1 ? HeatRules.structuralDamageMultiplierForState(ship.componentHeatState?.[idx1] || HeatRules.STATE.NORMAL) : 1;
+  const incomingToHp1 = effectiveDamage1 * mult1;
+  const currentHp1 = ship.componentHp[idx1];
+
+  if (incomingToHp1 < currentHp1 - 0.0001) {
+    ship.componentHp[idx1] -= incomingToHp1;
+    if (ship.design[idx1].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, idx1);
+    ship.hp -= incomingToHp1;
+    applied += incomingToHp1;
+    ship.dirtyComponents.add(idx1);
+    return applied;
+  }
+
+  const hpAbsorbed1 = currentHp1;
+  const effectiveUsed1 = hpAbsorbed1 / mult1;
+  const excessEffective1 = Math.max(0, effectiveDamage1 - effectiveUsed1);
+
+  ship.componentHp[idx1] = 0;
+  ship.hp -= hpAbsorbed1;
+  applied += hpAbsorbed1;
+  ship.dirtyComponents.add(idx1);
+  onComponentDestroyed(room, ship, idx1, now);
+
+  if (burnThroughMultiplier > 0 && excessEffective1 > 0.0001 && intersections.length > 1) {
+    const comp2 = intersections[1];
+    const idx2 = comp2.index;
+    const carryThroughDamage = excessEffective1 * burnThroughMultiplier;
+
+    if (ship.componentHp[idx2] > 0) {
+      if (ship.design[idx2].type === "core") {
+        const dealt2 = Math.min(ship.componentHp[idx2], carryThroughDamage);
+        if (dealt2 > 0) {
+          ship.componentHp[idx2] -= dealt2;
+          applied += dealt2;
+          ship.dirtyComponents.add(idx2);
+          if (ship.componentHp[idx2] <= 0.0001) {
+            ship.componentHp[idx2] = 0;
+            onComponentDestroyed(room, ship, idx2, now);
+          }
+        }
+      } else {
+        const part2 = PARTS[ship.design[idx2].type] || PARTS.frame;
+        let effectiveDamage2 = carryThroughDamage;
+        if (part2.armorFlatReduction > 0) {
+          const protection2 = HeatRules.passiveProtectionForState(ship.componentHeatState?.[idx2] || HeatRules.STATE.NORMAL);
+          const interactionSeconds2 = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
+          const reduction2 = part2.armorFlatReduction * protection2 * interactionSeconds2;
+          effectiveDamage2 = Math.max(0, carryThroughDamage - Math.max(0, reduction2));
+        }
+        if (effectiveDamage2 > 0) {
+          const passiveStructure2 = HeatRules.isPassiveStructure(ship.design[idx2].type, part2);
+          const mult2 = passiveStructure2 ? HeatRules.structuralDamageMultiplierForState(ship.componentHeatState?.[idx2] || HeatRules.STATE.NORMAL) : 1;
+          const incomingToHp2 = effectiveDamage2 * mult2;
+          const dealt2 = Math.min(ship.componentHp[idx2], incomingToHp2);
+          if (dealt2 > 0) {
+            ship.componentHp[idx2] -= dealt2;
+            if (ship.design[idx2].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, idx2);
+            ship.hp -= dealt2;
+            applied += dealt2;
+            ship.dirtyComponents.add(idx2);
+            if (ship.componentHp[idx2] <= 0.0001) {
+              ship.componentHp[idx2] = 0;
+              onComponentDestroyed(room, ship, idx2, now);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (ship.hp < 0) ship.hp = 0;
+  return applied;
+}
+
 function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now, options = {}) {
-  const { getShipModuleWorldCoords } = require("./ships");
+  let closestHit = null;
+
   for (const target of ships) {
     if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
 
-    // Broad-phase: check if the beam line segment is anywhere near the ship's bounding circle
     const broadHit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
     if (!broadHit) continue;
 
-    // Narrow-phase: check segment-circle intersection against precomputed individual hull module world positions
-    let hitPoint = null;
-    const coords = getShipModuleWorldCoords(target);
+    // While shield holds (>= SHIELD_HIT_MIN), beam stops on outer shield bubble (matching bullet behavior)
+    if (target.shield >= SHIELD_HIT_MIN) {
+      const ringR = shieldCollisionRadius(target) + beamRadius;
+      const broadShieldHit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, ringR);
+      if (broadShieldHit) {
+        const ang = Math.atan2(y1 - target.y, x1 - target.x);
+        const surfaceR = shieldCollisionRadius(target);
+        const shieldHitX = target.x + Math.cos(ang) * surfaceR;
+        const shieldHitY = target.y + Math.sin(ang) * surfaceR;
 
-    for (let i = 0; i < coords.length; i++) {
-      if (!isComponentAlive(target, i)) continue; // destroyed modules no longer block
-      const m = coords[i];
-      const hit = segmentCircleHit(x1, y1, x2, y2, m.x, m.y, 8.5 + beamRadius);
-      // Components are stored in blueprint order, which is not guaranteed to
-      // match the beam entry order. Use the closest intersection along the beam
-      // so continuous beams damage the front component instead of sometimes
-      // skipping through to a later-listed rear module.
-      if (hit && (!hitPoint || hit.t < hitPoint.t)) hitPoint = hit;
+        damageShip(room, target, damage, ship.ownerId, now, shieldHitX, shieldHitY, options);
+        room.effects.push({
+          type: "shieldhit",
+          x: shieldHitX,
+          y: shieldHitY,
+          nx: Math.cos(ang),
+          ny: Math.sin(ang),
+          at: now
+        });
+
+        if (!closestHit || broadShieldHit.t < closestHit.t) {
+          closestHit = { hitX: shieldHitX, hitY: shieldHitY, t: broadShieldHit.t, firstHitIndex: -1 };
+        }
+      }
+      continue;
     }
 
-    if (hitPoint) {
-      damageShip(room, target, damage, ship.ownerId, now, hitPoint.x, hitPoint.y, options);
+    // Shield depleted/down (< SHIELD_HIT_MIN): beam passes through to physical components
+    const intersections = findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius);
+    if (!intersections.length) continue;
+
+    const comp1 = intersections[0];
+    const hitPoint1 = comp1.hit;
+    const burnThroughMult = Number(options.burnThroughCarryMultiplier) || 0;
+
+    damageShip(room, target, damage, ship.ownerId, now, hitPoint1.x, hitPoint1.y, {
+      ...options,
+      intersections
+    });
+
+    let contactHitX = hitPoint1.x;
+    let contactHitY = hitPoint1.y;
+
+    if (burnThroughMult > 0 && intersections.length > 1 && !isComponentAlive(target, comp1.index)) {
+      const comp2 = intersections[1];
+      contactHitX = comp2.hit.x;
+      contactHitY = comp2.hit.y;
+      room.effects.push({ type: "burst", x: hitPoint1.x, y: hitPoint1.y, at: now });
+    }
+
+    if (!closestHit || hitPoint1.t < closestHit.t) {
+      closestHit = { hitX: contactHitX, hitY: contactHitY, t: hitPoint1.t, firstHitIndex: comp1.index };
     }
   }
 
-  // Drones are authoritative combat entities rather than miniature ships, so
-  // they are not present in the ship loop above.
   for (const drone of room.drones?.values?.() || []) {
     if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
-    const hit = segmentCircleHit(
-      x1,
-      y1,
-      x2,
-      y2,
-      drone.x,
-      drone.y,
-      (Number(drone.radius) || 10) + beamRadius
-    );
+    const hit = segmentCircleHit(x1, y1, x2, y2, drone.x, drone.y, (Number(drone.radius) || 10) + beamRadius);
     if (!hit) continue;
     require("./drones").damageDrone(room, drone, damage, ship.ownerId, now);
     room.effects.push({ type: "spark", x: hit.x, y: hit.y, at: now });
+    if (!closestHit || hit.t < closestHit.t) {
+      closestHit = { hitX: hit.x, hitY: hit.y, t: hit.t, firstHitIndex: -1 };
+    }
   }
+
+  return closestHit;
+}
+
+function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, options = {}) {
+  if (isInSafeZone(room, ship.x, ship.y, ship) || damage <= 0) return 0;
+  ship.lastDamagedBy = attackerId;
+  if (!ship.componentHp || !isComponentAlive(ship, index)) return 0;
+
+  const part = PARTS[ship.design[index].type] || PARTS.frame;
+  let effectiveDamage = damage;
+  if (part.armorFlatReduction > 0) {
+    const protection = HeatRules.passiveProtectionForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL);
+    const interactionSeconds = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
+    const reduction = part.armorFlatReduction * protection * interactionSeconds;
+    effectiveDamage = Math.max(0, effectiveDamage - Math.max(0, reduction));
+  }
+  if (effectiveDamage <= 0) return 0;
+
+  if (ship.design[index].type === "core") {
+    const dealt = Math.min(ship.componentHp[index], effectiveDamage);
+    if (dealt > 0) {
+      ship.componentHp[index] -= dealt;
+      ship.dirtyComponents.add(index);
+      if (ship.componentHp[index] <= 0.0001) {
+        ship.componentHp[index] = 0;
+        onComponentDestroyed(room, ship, index, now);
+      }
+      pushDamageEffect(room, ship, now, dealt, false);
+    }
+    if (ship.hp > 0.001 && !ship.coreDestroyed) return dealt;
+    destroyShip(room, ship, attackerId, now);
+    return dealt;
+  }
+
+  const passiveStructure = HeatRules.isPassiveStructure(ship.design[index].type, part);
+  const mult = passiveStructure ? HeatRules.structuralDamageMultiplierForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL) : 1;
+  const incomingToHp = effectiveDamage * mult;
+  const dealt = Math.min(ship.componentHp[index], incomingToHp);
+
+  if (dealt > 0) {
+    ship.componentHp[index] -= dealt;
+    if (ship.design[index].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, index);
+    ship.hp -= dealt;
+    ship.dirtyComponents.add(index);
+    if (ship.componentHp[index] <= 0.0001) {
+      ship.componentHp[index] = 0;
+      onComponentDestroyed(room, ship, index, now);
+    }
+    pushDamageEffect(room, ship, now, dealt, false);
+  }
+
+  if (ship.hp <= 0.001 || ship.coreDestroyed) {
+    destroyShip(room, ship, attackerId, now);
+  }
+
+  return dealt;
 }
 
 function isDamageFromFront(ship, sourceX, sourceY, frontArcDegrees) {
@@ -905,14 +1251,16 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
   }
 
   if (hullDamage > 0) {
-    // Route hull damage into the component under the impact point (armour on
-    // that side first). Only the damage actually absorbed by components is
-    // shown as a floating number — armour flat reduction eats the rest.
-    const impactX = sourceX !== undefined ? sourceX : ship.x;
-    const impactY = sourceY !== undefined ? sourceY : ship.y;
-    const applied = applyHullDamage(room, ship, hullDamage, now, impactX, impactY, {
-      armorInteractionSeconds: options.armorInteractionSeconds
-    });
+    let applied = 0;
+    if (options.intersections) {
+      applied = applyBeamHullDamage(room, ship, hullDamage, now, options.intersections, options);
+    } else {
+      const impactX = sourceX !== undefined ? sourceX : ship.x;
+      const impactY = sourceY !== undefined ? sourceY : ship.y;
+      applied = applyHullDamage(room, ship, hullDamage, now, impactX, impactY, {
+        armorInteractionSeconds: options.armorInteractionSeconds
+      });
+    }
     if (applied > 0) pushDamageEffect(room, ship, now, applied, false);
   }
 
@@ -1355,6 +1703,10 @@ module.exports = {
   canWeaponDefensivelyTargetDrones,
   enemyShipThreatScore,
   componentAimWorldPosition,
+  targetCoreAimWorldPosition,
+  findBeamRayIntersections,
+  applyBeamHullDamage,
+  applyDirectComponentDamage,
   selectComponentAimIndex,
   buildShipTurretDiagnostics,
   isInSafeZone,

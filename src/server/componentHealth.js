@@ -469,6 +469,7 @@ function assertComponentHpConsistency(ship) {
 module.exports = {
   initComponentState,
   isComponentAlive,
+  onComponentDestroyed,
   worldToGrid,
   componentsAlongImpactRay,
   applyHullDamage,

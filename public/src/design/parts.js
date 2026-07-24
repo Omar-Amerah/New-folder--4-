@@ -103,7 +103,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   autocannon: "Rapid-fire weapon with high spread. Best against nearby light targets.",
   torpedo: "Slow heavy missile with major burst damage against large ships.",
   swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
-  beamEmitter: "Medium-short sustained beam weapon with a focused burn path and high power use.",
+  beamEmitter: "Sustained shield-breaking beam that aims towards the enemy Core. It strikes the first obstruction and can carry part of its excess damage into one component directly behind a destroyed module.",
   aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
   sensorArray: "Support electronics that extend weapon range for long-distance ships.",
   targetingComputer: "Support computer that improves weapon accuracy.",

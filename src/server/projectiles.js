@@ -304,5 +304,7 @@ module.exports = {
   addBullet,
   projectileMapImpact,
   segmentCircleHit,
-  updateBullets
+  updateBullets,
+  shieldCollisionRadius,
+  SHIELD_HIT_MIN
 };

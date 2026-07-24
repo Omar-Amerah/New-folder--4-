@@ -52,7 +52,8 @@ function makeWeapon(type, stats) {
     shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
     targetPriority: stats.targetPriority || [],
     shieldDamageMultiplier: Number(stats.shieldDamageMultiplier ?? 1),
-    hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1)
+    hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1),
+    burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined
   };
 }
 

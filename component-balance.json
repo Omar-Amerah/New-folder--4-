@@ -617,10 +617,11 @@
         "aimSpeed": 1.55,
         "arc": 105,
         "shieldDamageMultiplier": 1.55,
-        "hullDamageMultiplier": 0.65
+        "hullDamageMultiplier": 0.65,
+        "burnThroughCarryMultiplier": 0.4
       },
       "rotatable": true,
-      "description": "Medium-short sustained beam weapon with a focused burn path and heavy power draw.",
+      "description": "Sustained shield-breaking beam that aims towards the enemy Core. It strikes the first obstruction and can carry part of its excess damage into one component directly behind a destroyed module.",
       "footprint": {
         "width": 1,
         "height": 2

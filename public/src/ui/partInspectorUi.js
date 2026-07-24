@@ -24,7 +24,7 @@ export function renderPartInspector() {
   const enrichedDesc = enrichDescription(type, baseDesc);
   const footprint = stat.footprint || { width: 1, height: 1 };
   const footprintText = `${footprint.width}x${footprint.height}`;
-  const combatDetails = details.filter(([label]) => /damage|dps|shield dps|hull dps|range|projectile|accuracy|turret|arc|tracking|track|lock|missile|beam|behavior|anti-missile|target|ship damage|frontal|front arc/i.test(label));
+  const combatDetails = details.filter(([label]) => /damage|dps|shield dps|hull dps|range|projectile|accuracy|turret|arc|tracking|track|lock|missile|beam|behavior|anti-missile|target|targeting|burn-through|penetration|ship damage|frontal|front arc/i.test(label));
   const supportDetails = details.filter(([label]) => !combatDetails.some(([combatLabel]) => combatLabel === label));
   const keyStats = mergeNonZeroKeyStats(keyInspectorStats(type, stat, effectiveCost), supportDetails);
   const heatDetails = thermalSectionMarkup(type, stat, partThermalDetails(type, stat));
@@ -389,7 +389,7 @@ function enrichDescription(type, baseDescription) {
     return `${baseDescription} Long-range kinetic weapon. Weak into shields, strong against exposed hull. Narrow arc and slow fire rate.`;
   }
   if (type === "beamEmitter") {
-    return `${baseDescription} Shield-stripping energy weapon. Strong against shields, weaker against hull.`;
+    return "Sustained shield-breaking beam that aims towards the enemy Core. It strikes the first obstruction and can carry part of its excess damage into one component directly behind a destroyed module.";
   }
   if (type === "autocannon") {
     return `${baseDescription} Rapid kinetic weapon. Poor against shields, better against exposed hull and light ships.`;
@@ -441,6 +441,13 @@ function partInspectorDetails(type, stat, effectiveCost) {
     details.push(["Turret Turn", formatAimSpeed(globalThis.TurretRules.turnRateFor(weapon))]);
     
     details.push(["Arc", `${weapon.arc || 360} deg`]);
+
+    if (weapon.burnThroughCarryMultiplier || type === "beamEmitter") {
+      const pct = Math.round((weapon.burnThroughCarryMultiplier || 0.4) * 100);
+      details.push(["Targeting", "Core-directed"]);
+      details.push(["Burn-through", `${pct}% excess damage`]);
+      details.push(["Maximum penetration", "1 additional component"]);
+    }
 
     // Special Conditionals
     if (weapon.type === "missile") {

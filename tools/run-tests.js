@@ -40,6 +40,7 @@ const GROUPS = {
     "verify-movement.js",
     "verify-targeting.js",
     "verify-turrets.js",
+    "verify-beam-emitter.js",
     "verify-heat.js",
     "verify-thermal-topology.js",
     "verify-heat-transfer.js",
