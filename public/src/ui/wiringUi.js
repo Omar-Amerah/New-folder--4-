@@ -518,6 +518,12 @@ export function bindWiringControls() {
       .forEach((element) => element.classList.remove("wire-section-keyboard-focus"));
   });
   dom.wiringOverlayHost?.addEventListener("click", (event) => {
+    if (ui().sourceIndex != null) {
+      if (event.button !== 0) return;
+      const endpoint = wireEndpointFromEvent(event) || cellFromPointer(event.clientX, event.clientY);
+      if (!endpoint) return;
+      event.preventDefault(); event.stopPropagation(); handleWiringCellClick(endpoint.x, endpoint.y); return;
+    }
     const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
     if (shortage) {
       event.preventDefault(); event.stopPropagation();
@@ -534,11 +540,6 @@ export function bindWiringControls() {
     // Ports only start a Draw path; other tools ignore them.
     if (port && ui().sourceIndex == null) { event.stopPropagation(); if (currentTool() === "draw" && port.dataset.wiringPortKind === ui().mode) beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) }); return; }
     const id = event.target?.dataset?.sectionId; if (!id) return;
-    if (ui().sourceIndex != null) {
-      if (event.button !== 0) return;
-      const endpoint = wireEndpointFromEvent(event); if (!endpoint) return;
-      event.preventDefault(); event.stopPropagation(); handleWiringCellClick(endpoint.x, endpoint.y); return;
-    }
     event.stopPropagation();
     // Tool-aware section click: Erase mutates; Inspect / Draw select.
     if (currentTool() === "erase") { eraseSectionById(id); return; }
@@ -1253,7 +1254,7 @@ function powerTerminalVisual(index, entry, selected = false) {
     // A hit target so hovering the source (reactor) shows the network's
     // generation vs demand, the same way hovering a consumer/weapon does.
     const hit = svgEl("circle", {
-      cx: x, cy: y, r: 0.18, tabindex: 0, role: "button",
+      cx: x, cy: y, r: 0.11, tabindex: 0, role: "button",
       "aria-label": `${moduleLabel(index)}. Power source. ${formatNetworkMw(entry?.generationAvailableMw)} generation.`
     }, "wire-power-terminal-hit");
     hit.dataset.powerComponentIndex = String(index);
@@ -1275,7 +1276,7 @@ function powerTerminalVisual(index, entry, selected = false) {
     );
   }
   const hit = svgEl("circle", {
-    cx: x, cy: y, r: 0.18, tabindex: 0, role: "button",
+    cx: x, cy: y, r: 0.11, tabindex: 0, role: "button",
     "aria-label": `${moduleLabel(index)}. ${stateLabel}. ${formatNetworkMw(entry?.allocatedMw)} delivered of ${formatNetworkMw(entry?.requestedMw)} requested. Supply ${Math.max(0, Math.min(100, supply))}%.`
   }, "wire-power-terminal-hit");
   hit.dataset.powerComponentIndex = String(index);

@@ -67,7 +67,6 @@ export function handleKeyDown(event) {
   if (designerOpen && key === "z" && (event.ctrlKey || event.metaKey) && !event.shiftKey && !eventComesFromEditableControl(event)) {
     if (state.blueprintView === "wiring") {
       if (canUndoWiring()) { event.preventDefault(); undoWiring(); }
-      else if (canUndoBlueprintEdit()) { event.preventDefault(); undoBlueprintEdit(); }
       return;
     }
     if (canUndoBlueprintEdit()) { event.preventDefault(); undoBlueprintEdit(); }
