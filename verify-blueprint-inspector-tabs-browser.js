@@ -86,10 +86,10 @@ const viewports = [
       `0° Reactor thumbnail points across its horizontal footprint (${JSON.stringify(thumbnailDirections.reactor0)})`);
     assert.ok(thumbnailDirections.reactor90.height > thumbnailDirections.reactor90.width,
       `90° Reactor thumbnail points down its vertical footprint (${JSON.stringify(thumbnailDirections.reactor90)})`);
-    assert.ok(thumbnailDirections.repair0.width > thumbnailDirections.repair0.height,
-      `0° Repair Beam thumbnail points across its horizontal footprint (${JSON.stringify(thumbnailDirections.repair0)})`);
-    assert.ok(thumbnailDirections.repair90.height > thumbnailDirections.repair90.width,
-      `90° Repair Beam thumbnail points down its vertical footprint (${JSON.stringify(thumbnailDirections.repair90)})`);
+    assert.ok(thumbnailDirections.repair0.height > thumbnailDirections.repair0.width,
+      `0° Repair Beam thumbnail points down its vertical footprint (${JSON.stringify(thumbnailDirections.repair0)})`);
+    assert.ok(thumbnailDirections.repair90.width > thumbnailDirections.repair90.height,
+      `90° Repair Beam thumbnail points across its horizontal footprint (${JSON.stringify(thumbnailDirections.repair90)})`);
 
     await assertTopTab(page, "design", "designerDesignPanel");
     assert.equal(await page.locator("#loadedBlueprintName").textContent(), "Unsaved design");
