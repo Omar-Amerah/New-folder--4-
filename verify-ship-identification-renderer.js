@@ -3,7 +3,7 @@ const fs = require('fs');
 
 const ships = fs.readFileSync('public/src/game/pixi/pixiShips.js', 'utf8');
 const view = fs.readFileSync('public/src/game/pixi/pixiShipView.js', 'utf8');
-const outline = ships.match(/function updatePixiPlayerHullOutline[\s\S]*?\n}\n/)?.[0] || '';
+const outline = ships.match(/function updatePixiPlayerHullOutline[\s\S]*?\r?\n}\r?\n/)?.[0] || '';
 
 assert.match(ships, /TEAM_STATUS_BORDER_COLORS[\s\S]*friendly:\s*"#38d5ff"[\s\S]*enemy:\s*"#ef4444"/, 'friendly/enemy status box borders use team colours');
 assert.match(ships, /function statusBorderColorForPlayer[\s\S]*relation === "solo"\) return player\?\.color/, 'solo status boxes use the owner player colour');

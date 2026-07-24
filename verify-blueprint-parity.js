@@ -96,11 +96,11 @@ const corpus = {
   assert(defaultStats.power > 0, "default design has positive power reserve");
   assert(defaultStats.maxSpeed > 0, "default design can move");
   assert(defaultStats.turnRate > 1, "default design can turn effectively");
-  assert(defaultStats.unitCost >= 500 && defaultStats.unitCost <= 560, `default unit cost expected near $500 and below starting money, got ${defaultStats.unitCost}`);
+  assert(defaultStats.unitCost >= 380 && defaultStats.unitCost <= 460, `default unit cost expected near $400 and below starting money, got ${defaultStats.unitCost}`);
   assert(defaultStats.unitCost <= ECONOMY.startingMoney, "default design is affordable at normal starting money");
   assert.strictEqual(defaultStats.missile, 1, "default design has one missile launcher");
   assert.strictEqual(defaultStats.beam, 0, "default design has no beam emitter");
-  assert.strictEqual(defaultStats.cost, 259, "default component cost total matches the defensive stock design");
+  assert.strictEqual(defaultStats.cost, 170, "default component cost total matches the defensive stock design");
   const exhaust = EngineExhaust.analyze(DEFAULT_DESIGN, PARTS);
   assert.strictEqual(exhaust.blockedEngineIndices.size, 0, "default engine exhaust has no blockers");
   const occupied = new Map();

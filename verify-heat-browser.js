@@ -248,6 +248,18 @@ async function until(fn, what, timeoutMs = 15000) {
       const ship = window.__mfaState?.snapshot?.ships?.find((s) => s.id === id);
       return ship && Array.isArray(ship.design) && Array.isArray(ship.componentHeat);
     }, ship.id, { timeout: 15000 });
+    // Deterministically centre the production camera on the target ship before
+    // computing its on-screen position. The camera follow is smoothed (~260ms
+    // half-life) and a freshly spawned ship can otherwise still be off-canvas
+    // when we click; verify-live-turrets.js centres the camera the same way.
+    await page.evaluate((id) => {
+      const s = window.__mfaState?.snapshot?.ships?.find((sh) => sh.id === id);
+      if (s && window.__mfaState?.camera) {
+        window.__mfaState.camera.x = s.x;
+        window.__mfaState.camera.y = s.y;
+        window.__mfaState.camera.follow = false;
+      }
+    }, ship.id);
     const visualTarget = await until(async () => page.evaluate(async (id) => {
       const mod = await import("/src/game/visualTargeting.js");
       const target = mod.shipVisualClientTarget(id);

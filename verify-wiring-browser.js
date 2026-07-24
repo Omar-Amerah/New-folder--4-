@@ -357,7 +357,7 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     await svg.waitFor({ state: "visible", timeout: 5_000 });
     assert.equal(await svg.count(), 1, "fixture renders exactly one Wiring overlay SVG");
     assert.deepEqual(await svg.locator(":scope > g").evaluateAll((groups) => groups.map((group) => group.getAttribute("class"))),
-      ["wire-glow-layer", "wire-visible-layer", "wire-energy-layer", "wire-hit-layer", "wire-marker-layer", "wire-indicator-layer", "wire-port-layer"],
+      ["wire-glow-layer", "wire-visible-layer", "wire-energy-layer", "wire-hit-layer", "wire-marker-layer", "wire-indicator-layer", "wire-warning-layer", "wire-port-layer"],
       "overlay recreates the explicit paint and hit-test layer order (glow below cable, energy above it)");
     await page.evaluate(async () => {
       const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
@@ -388,22 +388,30 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     await page.locator("#wiringModePower").click();
     await assertFixturePort(page, { x: 5, y: 5 }, "power", 0);
 
-    // Terminals mark the components a network actually uses for the active mode
-    // (source + consumer for Power, source + compatible weapon for Data). The
-    // frame at 6,5 is only routed *through*, so it must never be a terminal.
+    // Power mode marks every power participant once: the source plus every
+    // power-consuming component, each showing its supply state (connected,
+    // partial or unpowered). Passive routed-through components (frames) carry
+    // no Power demand, so they must never become terminals — the frame at 6,5
+    // is only routed *through*.
     const terminalsFor = async () => page.evaluate(async () => {
       const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
       const centre = (index) => window.WiringRules.componentCenter(state.design[index], PART_STATS);
+      const key = (index) => { const c = centre(index); return `${c.x},${c.y}`; };
       const at = [...document.querySelectorAll("svg.wiring-overlay .wire-terminal")]
         .map((t) => `${t.getAttribute("cx")},${t.getAttribute("cy")}`);
-      const key = (index) => { const c = centre(index); return `${c.x},${c.y}`; };
-      return { count: at.length, at, frame: at.includes(key(1)), source: at.includes(key(0)), consumer: at.includes(key(2)) };
+      const atSet = new Set(at);
+      const isPowerParticipant = (i) => { const p = PART_STATS[state.design[i].type] || {}; return (Number(p.powerGeneration) || 0) > 0 || (Number(p.powerUse) || 0) > 0; };
+      const indices = state.design.map((_, i) => i);
+      const participants = indices.filter(isPowerParticipant);
+      const passiveMarked = indices.filter((i) => !isPowerParticipant(i) && atSet.has(key(i))).map(key);
+      return { uniqueCount: atSet.size, at, frame: atSet.has(key(1)), source: atSet.has(key(0)), consumer: atSet.has(key(2)), participantKeys: participants.map(key), participantCount: participants.length, passiveMarked };
     });
     const powerTerminals = await terminalsFor();
     assert.equal(powerTerminals.source, true, "Power terminal marks the source component");
     assert.equal(powerTerminals.consumer, true, "Power terminal marks the powered consumer");
     assert.equal(powerTerminals.frame, false, "a routed-through frame is not a Power terminal");
-    assert.equal(powerTerminals.count, 2, `Power mode marks only the two functional participants (got ${JSON.stringify(powerTerminals.at)})`);
+    assert.deepEqual(powerTerminals.passiveMarked, [], `passive routed-through components are never Power terminals (got ${JSON.stringify(powerTerminals.passiveMarked)})`);
+    assert.equal(powerTerminals.uniqueCount, powerTerminals.participantCount, `Power mode marks every power participant once (terminals ${JSON.stringify(powerTerminals.at)} vs participants ${JSON.stringify(powerTerminals.participantKeys)})`);
     const terminalCollisionGeometry = await page.evaluate(() => {
       // Recreate the broad circle rule that produced a several-cells-wide
       // terminal ring. Wiring marker geometry must remain locally owned.

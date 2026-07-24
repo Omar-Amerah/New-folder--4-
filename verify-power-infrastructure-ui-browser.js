@@ -51,23 +51,20 @@ assert(index.includes("data-wiring-tier") && !index.includes("Change Tier"), "ti
 // protection state, overload counts, most stressed section, cable Heat,
 // consumer counts and full Switchgear runtime inspection (Sections 7D-7G).
 const damagePanel = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
+// Compact Power tab: balance rows plus a prioritised protection issue list and
+// authoritative cable Heat (protection/Switchgear detail surfaces through issues,
+// not dedicated rows — see verify-combat-power-tab.js).
 for (const label of [
   "Generation",
   "Requested",
   "Delivered",
   "Spare",
   "Unmet",
-  "Cable Heat rate",
-  "Protection state",
-  "Above sustained",
-  "At peak",
-  "Most-stressed section",
-  "Tripped Switchgear",
-  "Nearest retry",
-  "Partial consumers",
-  "Shed consumers"
+  "Cable Heat"
 ]) assert(damagePanel.includes(label), `live diagnostics label present: ${label}`);
-assert(damagePanel.includes("switchgearSummaryText") && damagePanel.includes("cooldown") && damagePanel.includes("retries"), "Switchgear runtime inspection shows state, stress, cooldown and retries");
+assert(/trippedSwitchgearCount[\s\S]*?temporarily offline/.test(damagePanel), "tripped Switchgear routes surface as a protection issue");
+assert(/shedConsumerCount[\s\S]*?shed/.test(damagePanel) && /partialConsumerCount[\s\S]*?partially supplied/.test(damagePanel), "shed and partial consumers surface as protection issues");
+assert(damagePanel.includes("Cable at peak capacity") && damagePanel.includes("Cable above sustained load"), "cable stress states have readable issue titles");
 assert(damagePanel.includes("renderPowerSectionReadout") && damagePanel.includes("disabled"), "section inspection distinguishes disabled from overloaded sections");
 
 // Damage/repair distinguishability: disabled sections render as disconnected

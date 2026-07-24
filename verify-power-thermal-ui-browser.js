@@ -30,9 +30,10 @@ has(designer, /previousView === "wiring" && state\.blueprintView !== "wiring"\) 
 has(snapshots, /powerThermal = buildRuntimePowerThermalSnapshot\(ship\)/, "Runtime snapshot exposes authoritative compact Power/Heat diagnostics");
 has(merge, /"powerThermal"/, "Snapshot merge safely carries optional runtime diagnostics");
 // The Heat tab keeps thermal-only rows; the dedicated Power tab now renders the
-// runtime supply/distribution/protection Power values.
+// compact runtime supply/distribution Power values (protection detail is surfaced
+// through the prioritised issue list rather than dedicated rows).
 has(damage, /Component Heat rate[\s\S]*Total \/ net Heat rate[\s\S]*Cooling/, "Heat tab renders runtime thermal values");
-has(damage, /Generation[\s\S]*Requested[\s\S]*Delivered[\s\S]*Priority preset[\s\S]*Cable Heat rate/, "Power tab renders runtime supply/distribution Power values");
+has(damage, /Generation[\s\S]*Requested[\s\S]*Delivered[\s\S]*Spare[\s\S]*Unmet[\s\S]*Cable Heat/, "Power tab renders runtime supply/distribution Power values");
 has(damage, /hostedActiveSectionIds[\s\S]*join\(", "\)[\s\S]*\|\| "None"/, "Power component readout degrades missing hosted-section diagnostics safely");
 has(runner, /verify-power-thermal-ui-browser\.js/, "New verifier is registered in the browser group");
 assert(!/NaN|undefined/.test(designer.match(/blueprintHeatSummaryMarkup[\s\S]*?}\n/)?.[0] || ""), "Blueprint summary avoids literal NaN/undefined fallbacks");

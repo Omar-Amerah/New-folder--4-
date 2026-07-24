@@ -14,27 +14,17 @@ const index = fs.readFileSync("public/index.html", "utf8");
 assert(index.includes("powerProtectionRules.js"), "browser loads shared Power-protection rules");
 
 const damagePanel = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
-// Selected-ship Power protection diagnostics now live in the dedicated Power
-// tab (clear text labels, not colour-only).
-for (const label of [
-  "Protection state",
-  "Above sustained",
-  "At peak",
-  "Critical-stress sections",
-  "Most-stressed section",
-  "Tripped Switchgear",
-  "Nearest retry",
-  "Partial consumers",
-  "Shed consumers"
-]) assert(damagePanel.includes(label), `selected-ship diagnostics label missing: ${label}`);
-assert(damagePanel.includes("protectionStateLabel") && damagePanel.includes("Load shedding") && damagePanel.includes("Protection trip"), "overall protection states have readable labels");
-
-// Switchgear runtime inspection: saved mode, state, rating, transfer,
-// utilisation, stress, trip reason, cooldown, retry count, last retry reason.
-assert(damagePanel.includes("switchgearSummaryText"), "Switchgear summary renderer present");
-for (const token of ["mode ", "stress ", "cooldown ", "retries ", "trippedReason", "lastRetryReason", "retryCount", "cooldownRemaining", "overloadStress"]) {
-  assert(damagePanel.includes(token), `Switchgear runtime inspection missing: ${token}`);
-}
+// The dedicated Power tab surfaces protection through the prioritised issue list
+// (compact design) rather than dedicated protection/Switchgear inspection rows.
+// Each protection condition still reads as clear text; verify-combat-power-tab.js
+// covers the compact tab structure in full.
+assert(/trippedSwitchgearCount[\s\S]*?temporarily offline/.test(damagePanel), "tripped Switchgear routes surface as a protection issue");
+assert(/nextRetrySeconds[\s\S]*?Automatic recovery in/.test(damagePanel), "automatic retry timing surfaces in the tripped-route issue detail");
+assert(/shedConsumerCount[\s\S]*?shed/.test(damagePanel), "shed consumers surface as a protection issue");
+assert(/partialConsumerCount[\s\S]*?partially supplied/.test(damagePanel), "partially supplied consumers surface as a protection issue");
+assert(damagePanel.includes("Cable at peak capacity") && damagePanel.includes("Critical cable stress") && damagePanel.includes("Cable above sustained load"), "cable stress states have readable issue titles");
+assert(damagePanel.includes("most-stressed section") && damagePanel.includes("mostStressedSectionText"), "the most-stressed section is called out in plain text");
+assert(damagePanel.includes("Partially powered") && damagePanel.includes("Powered"), "overall Power states have readable labels");
 
 // Wiring-section inspection (Power tab): id, tier, flow, capacities,
 // utilisation, stress, seconds above sustained, protection state, disabled.

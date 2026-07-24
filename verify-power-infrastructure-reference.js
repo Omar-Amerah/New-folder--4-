@@ -52,7 +52,7 @@ check("1. final documented tier, Data and Switchgear values are authoritative", 
   assert.deepStrictEqual(
     [BALANCE.wiringInfrastructure.data.costPerHostedCell, BALANCE.wiringInfrastructure.data.heatCapacityDisplacement],
     [0.25, 1]);
-  assert.strictEqual(PARTS.switchgear.cost, 18);
+  assert.strictEqual(PARTS.switchgear.cost, 10);
   assert.strictEqual(PARTS.switchgear.hp, 35);
   // Section 7G protection defaults remain the provisional values (unchanged in 7H).
   assert.deepStrictEqual(
