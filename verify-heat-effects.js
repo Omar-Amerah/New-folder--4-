@@ -41,8 +41,8 @@ assert.strictEqual(heat.effectiveComponentBonus(utility,"accuracyBonus"),0,"over
 assert(heat.effectiveComponentBonus(utility,"fireRateBonus") > 0, "hot fire-control utility bonus is partially active");
 
 // Armour uses passive protection; frames/passive structure use structural damage effects.
-let armor=shipFor([{x:7,y:7,type:"armor"},{x:7,y:9,type:"core"}],"ar","a"); armor.componentHeatState[0]=S.OVERHEATED; const hp0=armor.componentHp[0]; health.applyHullDamage(null, armor, 10, 0, 100, 0); assert(hp0-armor.componentHp[0] > 0, "overheated armour keeps partial protection but takes damage");
-let frame=shipFor([{x:7,y:7,type:"frame"},{x:7,y:9,type:"core"}],"fr","a"); frame.componentHeatState[0]=S.OVERHEATED; const before=frame.componentHp[0]; health.applyHullDamage(null, frame, 10, 0, 100, 0); assert(Math.abs((before-frame.componentHp[0]) - 16) < 0.01, "frame structural damage multiplier applies once");
+let armor=shipFor([{x:7,y:7,type:"armor"},{x:7,y:9,type:"core"}],"ar","a"); armor.componentHeatState[0]=S.OVERHEATED; const hp0=armor.componentHp[0]; health.applyHullDamage(null, armor, 20, 0, 500, 0); assert(hp0-armor.componentHp[0] > 0, "overheated armour keeps partial protection but takes damage");
+let frame=shipFor([{x:7,y:7,type:"frame"},{x:7,y:9,type:"core"}],"fr","a"); frame.componentHeatState[0]=S.OVERHEATED; const before=frame.componentHp[0]; health.applyHullDamage(null, frame, 10, 0, 500, 0); assert(Math.abs((before-frame.componentHp[0]) - 16) < 0.01, "frame structural damage multiplier applies once");
 
 // Radiators use active cooling.
 let rad=shipFor([{x:7,y:7,type:"radiator"}],"r","a"); rad.componentHeat[0]=60; rad.componentHeatState[0]=S.OVERHEATED; rad.hasActiveHeat=true; heat.updateShipHeat(rad,0.25,roomFor([rad]),1000); assert(rad.componentHeatRemoved[0] > 0 && rad.componentHeatRemoved[0] < 10, "overheated radiator falls back to passive floor cooling");

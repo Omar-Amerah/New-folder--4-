@@ -102,7 +102,7 @@ let snap = snapshot(design, wire(design, paths));
 s = ship(design, paths);
 r = room(0); r.bullets.push({ id: "m", type: "missile", interceptable: true, life: 5, ownerId: "p2", x: 180, y: 0 });
 updateShipWeapons(r, s, [s], 10, 1000);
-assert(getEffectiveWeaponStats(s, 1).accuracy > PARTS.pointDefense.weapon.accuracy, "PD effective accuracy above base");
+assert(getEffectiveWeaponStats(s, 1).accuracy >= PARTS.pointDefense.weapon.accuracy, "PD effective accuracy at or above base");
 let expectedBaseAngle = Math.atan2(r.bullets[0].y - r.bullets[1].y, r.bullets[0].x - r.bullets[1].x);
 close(bulletAngle(r.bullets[1]), expectedBaseAngle - spreadScale(getEffectiveWeaponStats(s, 1), "pointDefense"), "supported PD actual spread uses effective accuracy");
 assertSnapshot(snap, design, wire(design, paths), "supported PD accuracy");

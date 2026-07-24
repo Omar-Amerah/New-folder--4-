@@ -126,7 +126,7 @@ check("19/20. hybrid Automatic tie shares only safe spare Power and protects the
   const hybrid = row("hybrid");
   const tie = hybrid.protection.switchgear.find((s) => s.mode === "automatic");
   assert(tie && tie.conducting, "Automatic tie conducts at baseline");
-  assert(Math.abs(tie.transferMw) > 3 && Math.abs(tie.transferMw) < 4, "transfer covers exactly the receiver deficit");
+  assert(Math.abs(tie.transferMw) > 5 && Math.abs(tie.transferMw) < 7, "transfer covers exactly the receiver deficit");
   for (const [category, entry] of Object.entries(hybrid.power.byCategory)) {
     assert.strictEqual(entry.unmetMw, 0, `${category} fully served with the tie conducting`);
   }

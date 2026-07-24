@@ -143,7 +143,7 @@ function standardFrigate() {
     moduleAt("core", 7, 1),
     moduleAt("frame", 8, 1),
     moduleAt("engine", 4, 2),
-    moduleAt("fireControl", 5, 0),
+    moduleAt("frame", 5, 0),
     moduleAt("shield", 6, 0),
     moduleAt("radiator", 6, 2),
     moduleAt("pointDefense", 7, 0),
@@ -154,9 +154,9 @@ function standardFrigate() {
       ...pathSections([[1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1]], "standard"),
       section([4, 1], [4, 2], "light"),
       section([5, 1], [5, 0], "light"),
-      section([6, 1], [6, 0], "light"),
+      section([6, 1], [6, 0], "standard"),
       section([6, 1], [6, 2], "light"),
-      section([7, 1], [7, 0], "light"),
+      section([7, 1], [7, 0], "standard"),
       section([8, 1], [8, 0], "light")
     ],
     pathSections([[5, 0], [6, 0], [7, 0], [8, 0]], "standard")
@@ -183,6 +183,7 @@ function heavyCombat() {
   const design = [
     moduleAt("reactor", 0, 1),
     moduleAt("reactor", 0, 2),
+    moduleAt("auxGenerator", 2, 2),
     moduleAt("frame", 2, 1),
     moduleAt("frame", 3, 1),
     moduleAt("frame", 4, 1),
@@ -200,15 +201,15 @@ function heavyCombat() {
   ];
   const wiring = makeWiring([
     section([1, 2], [1, 1], "heavy"),
-    ...pathSections([[1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1]], "heavy"),
-    section([7, 1], [8, 1], "standard"),
+    section([2, 2], [2, 1], "standard"),
+    ...pathSections([[1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1]], "heavy"),
     section([8, 1], [9, 1], "standard"),
     section([3, 1], [3, 2], "light"),
-    section([4, 1], [4, 0], "light"),
-    section([5, 1], [5, 0], "light"),
+    section([4, 1], [4, 0], "standard"),
+    section([5, 1], [5, 0], "standard"),
     section([6, 1], [6, 0], "light"),
     section([7, 1], [7, 0], "light"),
-    section([8, 1], [8, 0], "light")
+    section([8, 1], [8, 0], "standard")
   ]);
   return make({
     key: "heavyCombat",
@@ -233,17 +234,21 @@ function distributedGrid() {
   const design = [
     moduleAt("core", 0, 0),
     moduleAt("auxGenerator", 1, 0),
+    moduleAt("auxGenerator", 1, 1),
     moduleAt("engine", 2, 0),
     moduleAt("blaster", 3, 0),
     moduleAt("frame", 4, 0),
     moduleAt("frame", 5, 0),
     moduleAt("reactor", 6, 0),
+    moduleAt("auxGenerator", 6, 1),
     moduleAt("shield", 8, 0),
     moduleAt("pointDefense", 9, 0)
   ];
   const wiring = makeWiring([
     ...pathSections([[0, 0], [1, 0], [2, 0], [3, 0]], "light"),
-    ...pathSections([[7, 0], [8, 0], [9, 0]], "standard")
+    section([1, 1], [1, 0], "light"),
+    ...pathSections([[6, 0], [7, 0], [8, 0], [9, 0]], "standard"),
+    section([6, 1], [6, 0], "standard")
   ]);
   return make({
     key: "distributed",
@@ -271,7 +276,7 @@ function ringBus() {
     moduleAt("blaster", 5, 0),
     moduleAt("frame", 5, 1),
     moduleAt("radiator", 5, 2),
-    moduleAt("fireControl", 4, 2),
+    moduleAt("frame", 4, 2),
     moduleAt("frame", 3, 2),
     moduleAt("engine", 2, 2),
     moduleAt("frame", 1, 2),
@@ -283,8 +288,8 @@ function ringBus() {
     [5, 1], [5, 2], [4, 2], [3, 2], [2, 2], [1, 2], [0, 2], [0, 1], [0, 0]
   ];
   const wiring = makeWiring(
-    pathSections(ringCells, "standard"),
-    pathSections([[4, 2], [5, 2], [5, 1], [5, 0]], "standard")
+    pathSections(ringCells, "heavy"),
+    pathSections([[5, 2], [5, 1], [5, 0]], "standard")
   );
   return make({
     key: "ring",
