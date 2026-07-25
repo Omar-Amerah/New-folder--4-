@@ -2,21 +2,21 @@
 // max-flow/allocation solver as the server instead of deriving local ratios.
 
 export function solveBlueprintPower(design, wiring, catalogue, infrastructure, options = {}) {
-  const PowerFlowRules = globalThis.PowerFlowRules;
-  const WiringRules = globalThis.WiringRules;
-  if (!PowerFlowRules || !WiringRules || !Array.isArray(design) || !wiring) return null;
+  const pRules = globalThis.PowerFlowRules || (typeof require !== "undefined" ? require("../shared/powerFlowRules") : null);
+  const wRules = globalThis.WiringRules || (typeof require !== "undefined" ? require("../shared/wiringRules") : null);
+  if (!pRules || !wRules || !Array.isArray(design) || !wiring) return null;
 
   const sourceGenerationByIndex = {};
   design.forEach((module, index) => {
     const type = module?.type;
     const generation = Number(catalogue?.[type]?.powerGeneration) || 0;
-    if (generation > 0 || WiringRules.isPowerSourceType(type)) {
+    if (generation > 0) {
       sourceGenerationByIndex[index] = generation;
     }
   });
 
   try {
-    return PowerFlowRules.solvePowerFlow({
+    return pRules.solvePowerFlow({
       design,
       wiring,
       catalogue,
@@ -26,7 +26,8 @@ export function solveBlueprintPower(design, wiring, catalogue, infrastructure, o
       componentDemandByIndex: options.componentDemandByIndex,
       powerPolicy: wiring.powerPolicy
     });
-  } catch (_) {
+  } catch (err) {
+    console.error("solveBlueprintPower error:", err);
     return null;
   }
 }

@@ -25,7 +25,7 @@ let suppressNextClick = false;
 let locatedSectionId = null;
 let locatedComponentIndex = null;
 let locateHighlightTimer = null;
-const analysisDetailsState = { healthy: false, advanced: false, tier: false };
+const analysisDetailsState = { healthy: false, advanced: true, tier: false };
 function rules() { return globalThis.WiringRules; }
 function editRules() { return globalThis.WiringEditRules; }
 function infraRules() { return globalThis.WiringInfrastructureRules; }
@@ -80,6 +80,21 @@ function applyHoverHighlight() {
   host.querySelectorAll("[data-power-shortage-network-id]").forEach((element) => {
     element.classList.toggle("is-selected", element.dataset.powerShortageNetworkId === ui().selectedPowerShortageNetworkId);
   });
+}
+
+// The element a Power hover card should describe, or null.
+//
+// A Power source's drag-to-draw port is painted in the topmost layer, directly
+// over that component's terminal, so hovering a single-cell generator resolved
+// to the port and reported nothing. Hover resolves a port back to its component;
+// clicking is deliberately left alone, because there the port is the control
+// that begins a cable path.
+function powerHoverTargetFrom(target) {
+  const terminalHit = target?.closest?.("[data-power-component-index]");
+  if (terminalHit) return terminalHit;
+  if (ui().mode !== "power" || ui().sourceIndex != null) return null;
+  const port = target?.closest?.("[data-wiring-port-kind]");
+  return port && port.dataset.wiringPortKind === "power" ? port : null;
 }
 
 function clearWiringHoverCard() {
@@ -181,7 +196,7 @@ function eraseSectionById(id) {
 }
 function releasePointerCapture() { if (!pointerDrag) return; const { target, pointerId } = pointerDrag; if (target?.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId); pointerDrag = null; }
 function resetInteraction(clearSelection = true) { releasePointerCapture(); suppressNextClick = false; const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; view.hoveredPowerShortageNetworkId = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; view.selectedDataNetworkId = null; view.selectedPowerShortageNetworkId = null; } }
-export function resetWiringTransientState({ clearSelection = true } = {}) { resetInteraction(clearSelection); }
+export function resetWiringTransientState({ clearSelection = true } = {}) { resetInteraction(clearSelection); analysisDetailsState.advanced = true; }
 export function syncWiringWithDesign() { state.wiring = normalizeWiring(state.wiring, state.design); resetInteraction(); }
 export function resetWiringToDefault(options = {}) { state.wiring = normalizeWiring(defaultWiring(), state.design); if (options.resetEditorHistory !== false) resetWiringEditorState(); }
 export function clearAllWiring(options = {}) { state.wiring = rules().emptyWiring(); if (options.resetEditorHistory !== false) resetWiringEditorState(); }
@@ -325,20 +340,51 @@ function finishDraggedConnection(cell) {
   if (!valid) { cancelDrawing(); return; }
   commitActivePath();
 }
+// Overlays that answer hover but never own a pointer action. A Power terminal is
+// painted above the cable hit layer so a cable crossing a component cannot
+// swallow its hover card — but it is not a drawing control, and must not stop a
+// drag branching off that cable or a click selecting that section.
+const PASSTHROUGH_OVERLAY_SELECTOR = ".wire-power-terminal-hit";
+
+// The overlay element a pointer action means, looking past those informational
+// overlays. Everything else — ports, cable hit strokes, Data terminals — still
+// resolves exactly as the topmost element under the pointer, so a source port
+// keeps its click where it overlaps a cable. This is why the terminal layer no
+// longer has to be traded against the hit layer: hover follows paint order,
+// pointer actions look through the one layer that is purely informational.
+function overlayTargetFrom(event, selector) {
+  const direct = event.target?.closest?.(selector);
+  if (direct) return direct;
+  if (!event.target?.closest?.(PASSTHROUGH_OVERLAY_SELECTOR)) return null;
+  const stack = typeof document !== "undefined" && document.elementsFromPoint
+    ? document.elementsFromPoint(event.clientX, event.clientY)
+    : [];
+  for (const element of stack) {
+    if (element.closest?.(PASSTHROUGH_OVERLAY_SELECTOR)) continue;
+    const match = element.closest?.(selector);
+    if (match) return match;
+  }
+  return null;
+}
+
 function bindPointerDrawing() {
   const pointerSurface = dom.grid?.parentElement; if (!pointerSurface) return;
   pointerSurface.addEventListener("pointerdown", (event) => {
     // Native SVG focus outlines are enormous once this 15x15 viewBox is scaled
     // to the grid. Pointer inspection must not focus the transparent hit line;
     // keyboard focus remains available through tabindex and Enter/Space.
-    const inspectHit = event.target.closest?.(".wire-hit[data-section-id]");
+    const inspectHit = overlayTargetFrom(event, ".wire-hit[data-section-id]");
     if (state.blueprintView === "wiring" && currentTool() === "inspect" && inspectHit) {
       event.preventDefault();
+      const id = inspectHit.dataset.sectionId;
+      if (id) {
+        clearLocateHighlight(); resetInteraction(); ui().hoveredSectionId = null; clearWiringHoverCard(); ui().selectedSectionId = id; refreshWiringPresentation(); focusStatusPanel();
+      }
       return;
     }
     if (state.blueprintView !== "wiring" || event.button !== 0 || event.pointerType === "touch" || ui().sourceIndex != null) return;
     if (currentTool() !== "draw") return; // Draw is the only path-creating tool.
-    const target = event.target.closest?.("[data-wiring-port-kind], [data-section-id]"); if (!target) return;
+    const target = overlayTargetFrom(event, "[data-wiring-port-kind], [data-section-id]"); if (!target) return;
     const point = pointerGridPoint(event.clientX, event.clientY); let cell; let index;
     if (target.dataset.wiringPortKind) { if (target.dataset.wiringPortKind !== ui().mode) return; cell = { x: Number(target.dataset.wiringCellX), y: Number(target.dataset.wiringCellY) }; index = Number(target.dataset.wiringComponentIndex); }
     else { const section = bucket().sections.find((item) => item.id === target.dataset.sectionId); if (!section) return; cell = rules().nearestSectionEndpoint(section, point); index = partIndexAt(cell.x, cell.y); }
@@ -453,9 +499,14 @@ export function bindWiringControls() {
       renderPowerShortageHoverCard(shortage.dataset.powerShortageNetworkId, shortage);
       return;
     }
-    const terminalHit = event.target?.closest?.("[data-power-component-index]");
+    const terminalHit = powerHoverTargetFrom(event.target);
     if (terminalHit) {
-      renderPowerComponentHoverCard(Number(terminalHit.dataset.powerComponentIndex), terminalHit);
+      renderPowerComponentHoverCard(Number(terminalHit.dataset.powerComponentIndex ?? terminalHit.dataset.wiringComponentIndex), terminalHit);
+      return;
+    }
+    const dataHit = event.target?.closest?.("[data-data-component-index]");
+    if (dataHit) {
+      renderDataComponentHoverCard(Number(dataHit.dataset.dataComponentIndex), dataHit);
       return;
     }
     const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
@@ -473,9 +524,15 @@ export function bindWiringControls() {
       } else clearWiringHoverCard();
       return;
     }
-    const terminalHit = event.target?.closest?.("[data-power-component-index]");
+    const terminalHit = powerHoverTargetFrom(event.target);
     if (terminalHit) {
       if (terminalHit.contains?.(event.relatedTarget)) return;
+      clearWiringHoverCard();
+      return;
+    }
+    const dataHit = event.target?.closest?.("[data-data-component-index]");
+    if (dataHit) {
+      if (dataHit.contains?.(event.relatedTarget)) return;
       clearWiringHoverCard();
       return;
     }
@@ -490,9 +547,14 @@ export function bindWiringControls() {
       renderPowerShortageHoverCard(shortage.dataset.powerShortageNetworkId, shortage);
       return;
     }
-    const terminalHit = event.target?.closest?.("[data-power-component-index]");
+    const terminalHit = powerHoverTargetFrom(event.target);
     if (terminalHit) {
-      renderPowerComponentHoverCard(Number(terminalHit.dataset.powerComponentIndex), terminalHit);
+      renderPowerComponentHoverCard(Number(terminalHit.dataset.powerComponentIndex ?? terminalHit.dataset.wiringComponentIndex), terminalHit);
+      return;
+    }
+    const dataHit = event.target?.closest?.("[data-data-component-index]");
+    if (dataHit) {
+      renderDataComponentHoverCard(Number(dataHit.dataset.dataComponentIndex), dataHit);
       return;
     }
     const id = event.target?.matches?.(".wire-hit[data-section-id]") ? event.target.dataset.sectionId : null;
@@ -509,7 +571,7 @@ export function bindWiringControls() {
       if (!ui().selectedPowerShortageNetworkId) clearWiringHoverCard();
       return;
     }
-    if (event.target?.matches?.("[data-power-component-index]")) {
+    if (event.target?.matches?.("[data-power-component-index]") || event.target?.matches?.("[data-data-component-index]")) {
       clearWiringHoverCard();
       return;
     }
@@ -532,6 +594,23 @@ export function bindWiringControls() {
       renderPowerShortageHoverCard(shortage.dataset.powerShortageNetworkId, shortage);
       return;
     }
+    const sectionHit = overlayTargetFrom(event, "[data-section-id]");
+    if (sectionHit) {
+      const id = sectionHit.getAttribute("data-section-id") || sectionHit.dataset?.sectionId;
+      if (id) {
+        event.stopPropagation();
+        if (currentTool() === "erase") { eraseSectionById(id); return; }
+        clearLocateHighlight(); resetInteraction(); ui().hoveredSectionId = null; clearWiringHoverCard(); ui().selectedSectionId = id; refreshWiringPresentation(); focusStatusPanel();
+        return;
+      }
+    }
+    const dataHit = event.target?.closest?.("[data-data-component-index]");
+    if (dataHit) {
+      const componentIndex = Number(dataHit.dataset.dataComponentIndex);
+      event.stopPropagation();
+      clearLocateHighlight(); resetInteraction(); ui().selectedIndex = componentIndex; refreshWiringPresentation(); focusStatusPanel();
+      return;
+    }
     if (event.target?.closest?.("[data-power-component-index]")) {
       event.stopPropagation();
       return;
@@ -539,11 +618,6 @@ export function bindWiringControls() {
     const port = event.target?.closest?.("[data-wiring-port-kind]");
     // Ports only start a Draw path; other tools ignore them.
     if (port && ui().sourceIndex == null) { event.stopPropagation(); if (currentTool() === "draw" && port.dataset.wiringPortKind === ui().mode) beginPath(Number(port.dataset.wiringComponentIndex), { x: Number(port.dataset.wiringCellX), y: Number(port.dataset.wiringCellY) }); return; }
-    const id = event.target?.dataset?.sectionId; if (!id) return;
-    event.stopPropagation();
-    // Tool-aware section click: Erase mutates; Inspect / Draw select.
-    if (currentTool() === "erase") { eraseSectionById(id); return; }
-    clearLocateHighlight(); resetInteraction(); ui().hoveredSectionId = null; clearWiringHoverCard(); ui().selectedSectionId = id; refreshWiringPresentation(); focusStatusPanel();
   });
   dom.wiringOverlayHost?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -837,7 +911,23 @@ export function refreshPowerPriorityControls() {
 function designerPowerFlowFor(wiring) {
   return solveBlueprintPower(Array.isArray(state.design) ? state.design : [], wiring, PART_STATS, WIRING_INFRASTRUCTURE);
 }
-function designerPowerFlow() { return designerPowerFlowFor(state.wiring); }
+
+// One solve per (design, wiring) pair. Every designer surface that reports Power
+// — the Ship summary, Power details, the Power-balance tooltip, the wiring
+// overlay, the hover card and the allocation panel — reads this same result, so
+// they cannot disagree. Cached on object identity: a Blueprint edit replaces the
+// design array or the wiring object, which invalidates the entry.
+let cachedDesignerFlow = null;
+export function designerPowerFlow() {
+  const design = Array.isArray(state.design) ? state.design : [];
+  const wiring = state.wiring;
+  if (cachedDesignerFlow && cachedDesignerFlow.design === design && cachedDesignerFlow.wiring === wiring) {
+    return cachedDesignerFlow.flow;
+  }
+  const flow = designerPowerFlowFor(wiring);
+  cachedDesignerFlow = { design, wiring, flow };
+  return flow;
+}
 
 // Section flows keyed by id for one wiring value (authoritative solver only).
 function sectionFlowsById(wiring) {
@@ -929,15 +1019,15 @@ function renderPowerComponentHoverCard(componentIndex, target) {
   const network = (flow.networks || []).find((item) => entry.networkIds?.includes(item.id));
   if (entry.role === "source") return renderPowerSourceHoverCard(entry, network, componentIndex, target);
   if (entry.role !== "consumer") return clearWiringHoverCard();
+
+  const PowerDiag = globalThis.PowerDiagnostics;
+  const diag = PowerDiag ? PowerDiag.classifyPowerDeliveryIssue({ componentEntry: entry, network, flow }) : null;
+
   const supply = entry.requestedMw > 0 ? Math.round((Number(entry.allocatedMw) / Number(entry.requestedMw)) * 100) : 100;
   const stateLabel = powerSupplyState(entry) === "full" ? "Fully powered" : powerSupplyState(entry) === "partial" ? "Partially powered" : "Unpowered";
-  const reason = entry.state === "disconnected"
-    ? "No completed Power connection"
-    : network && Number(network.availableGenerationMw) + 0.0005 < Number(network.demandMw)
-      ? "Insufficient generation"
-      : Number(entry.unmetMw) > 0
-        ? "Cable bottleneck"
-        : "Power demand supplied";
+  const mainReason = diag ? diag.causeMessage : "Power demand supplied";
+  const extraReason = diag && diag.consequenceMessage ? `<div class="wiring-hover-reason">${escapeHtml(diag.consequenceMessage)}</div>` : "";
+
   showWiringHoverCard(`<h4>${escapeHtml(partName(state.design[componentIndex]?.type))}</h4>
     <div class="wiring-hover-flow">${escapeHtml(stateLabel)}</div>
     <div class="wiring-hover-card-grid">
@@ -945,12 +1035,44 @@ function renderPowerComponentHoverCard(componentIndex, target) {
       <span>Delivered</span><strong>${escapeHtml(formatNetworkMw(entry.allocatedMw))}</strong>
       <span>Supply</span><strong>${Math.max(0, Math.min(100, supply))}%</strong>
     </div>
-    <div class="wiring-hover-reason">${escapeHtml(reason)}</div>`, target);
+    <div class="wiring-hover-reason">${escapeHtml(mainReason)}</div>${extraReason}`, target);
 }
 
 // Heat-style context card for the exact section under the pointer. Power flow
 // comes from the shared solver; Data topology and vulnerability come from the
 // same authoritative analyses used by the detailed inspector.
+function renderDataComponentHoverCard(componentIndex, target) {
+  if (state.blueprintView !== "wiring" || ui().mode !== "data") return clearWiringHoverCard();
+  const analysis = currentDataInspection();
+  const source = analysis?.sourceAllocationByIndex?.[componentIndex];
+  const weapon = analysis?.weaponBonusByIndex?.[componentIndex];
+  if (!source && !weapon) return clearWiringHoverCard();
+
+  const mod = state.design[componentIndex];
+  const coords = mod ? ` (${mod.x},${mod.y})` : "";
+  const fmtBonus = (v, f) => formatDataSupportValue({ bonusField: f || "accuracyBonus", amount: v });
+
+  if (source) {
+    showWiringHoverCard(`<h4>${escapeHtml(partName(source.sourceType))}${escapeHtml(coords)}</h4>
+      <div class="wiring-hover-flow">${escapeHtml(sourceStatusBadge(source))}</div>
+      <div class="wiring-hover-card-grid">
+        <span>Nominal budget</span><strong>${fmtBonus(source.nominalBudget, source.bonusField)}</strong>
+        <span>Effective budget</span><strong>${fmtBonus(source.effectiveBudget, source.bonusField)}</strong>
+        <span>Recipients</span><strong>${source.recipientCount}</strong>
+        <span>Per weapon</span><strong>${fmtBonus(source.bonusPerWeapon, source.bonusField)}</strong>
+      </div>
+      <div class="wiring-hover-reason">${escapeHtml(source.statusReason)}</div>`, target);
+  } else if (weapon) {
+    const statRows = weaponStatComparisonHtml(weapon.baseProfile, weapon.effectiveProfile);
+    showWiringHoverCard(`<h4>${escapeHtml(partName(weapon.weaponType))}${escapeHtml(coords)}</h4>
+      <div class="wiring-hover-flow">${escapeHtml(weapon.status === "supported" ? `Supported (${weapon.sourceIndices.length} sources)` : weapon.status === "connected-unsupported" ? "Connected but unsupported" : "Disconnected")}</div>
+      <div class="wiring-hover-card-grid">
+        ${statRows || `<span>Status</span><strong>${escapeHtml(weapon.status)}</strong>`}
+      </div>
+      <div class="wiring-hover-reason">${escapeHtml(weapon.statusReason)}</div>`, target);
+  }
+}
+
 function renderWiringHoverCard(sectionId, hitTarget) {
   const card = dom.wiringHoverCard;
   if (!card || state.blueprintView !== "wiring" || currentTool() !== "inspect") {
@@ -972,15 +1094,23 @@ function renderWiringHoverCard(sectionId, hitTarget) {
         <span>Cable capacity</span><strong>${escapeHtml(capacity)}</strong>
       </div>`;
   } else {
+    const analysis = currentDataInspection();
     const network = rules().networkForSection(currentAnalysis(), "data", section.id);
-    const vulnerability = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, currentDataInspection())
+    const vulnerability = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis)
       .find((item) => item.kind === "section" && item.id === section.id);
-    card.innerHTML = `<h4>Data cable</h4>
-      <div class="wiring-hover-flow">Signal link</div>
+    const supportedCount = network ? analysis.weapons.filter(w => w.networkId === network.id && w.status === "supported").length : 0;
+    const effectsText = effectsCarriedOnNetwork(network, analysis);
+    const concreteLosses = formatConcreteLosses(vulnerability);
+
+    card.innerHTML = `<h4>DATA CABLE</h4>
+      <div class="wiring-hover-flow">Network: ${escapeHtml(network?.label || "Unconnected")}</div>
       <div class="wiring-hover-card-grid">
-        <span>Network</span><strong>${escapeHtml(network?.label || "Source-less")}</strong>
-        <span>Failure impact</span><strong>${escapeHtml(vulnerability?.severity || "none")}</strong>
-      </div>`;
+        <span>Sources</span><strong>${network?.sourceIndices?.length || 0}</strong>
+        <span>Supported weapons</span><strong>${supportedCount}</strong>
+        <span>Effects</span><strong>${escapeHtml(effectsText)}</strong>
+        <span>Failure impact</span><strong>${escapeHtml(vulnerability?.severity || "redundant")}</strong>
+      </div>
+      ${concreteLosses && !concreteLosses.includes("No predicted") ? `<div class="wiring-hover-reason"><strong>IF DESTROYED</strong><br>${concreteLosses}</div>` : ""}`;
   }
   card.hidden = false;
   positionWiringHoverCard(hitTarget);
@@ -1090,23 +1220,30 @@ function renderPowerPriorityDiagnostics() {
       ${bar}${note}${values}
     </li>`;
   }).join("");
-  const loadShed = (summary.loadShedCategories || []);
-  const shedText = loadShed.length
-    ? `Load-shed: ${loadShed.map((c) => labels[c]).join(", ")}` : "No load shedding";
   const unmetTotal = Number(summary.unmetMw) || 0;
+  // Same authoritative view the Ship summary and the Power-balance tooltip read:
+  // reachable spare is never published alongside unmet demand, generation no
+  // network can reach stays counted as stranded rather than as usable spare, and
+  // load shedding is claimed only for demand the policy actually deprioritised.
+  const view = globalThis.PowerDiagnostics?.buildPowerBalanceView(flow, { design: state.design, componentLabel: (index) => partName(state.design[index]?.type) }) || null;
+  const loadShed = view ? view.loadShedLabels : (summary.loadShedCategories || []).map((c) => labels[c]);
+  const shedText = loadShed.length ? `Load-shed: ${loadShed.join(", ")}` : "No load shedding";
+  const spareMw = view ? view.spareMw : (unmetTotal > 0 ? 0 : Number(summary.spareGenerationMw) || 0);
+  const strandedMw = view ? view.strandedMw : Math.max(0, (Number(summary.strandedGenerationMw) || 0) - (Number(summary.spareGenerationMw) || 0));
   const kpi = (label, value, tone = "") => `<div class="power-alloc-kpi${tone}"><span class="power-alloc-kpi-label">${escapeHtml(label)}</span><strong class="power-alloc-kpi-value">${escapeHtml(mwText(value))}</strong></div>`;
   return `<div class="power-priority-diagnostics" data-power-priority-diagnostics>
     <div class="power-alloc-kpis">
-      ${kpi("Generation", summary.availableGenerationMw)}
-      ${kpi("Demand", summary.demandMw)}
+      ${kpi("Available generation", summary.availableGenerationMw)}
+      ${kpi("Active demand", summary.demandMw)}
       ${kpi("Delivered", summary.allocatedMw)}
       ${kpi("Unmet", summary.unmetMw, unmetTotal > 0 ? " power-alloc-kpi-bad" : "")}
     </div>
     <div class="power-alloc-meta">
-      <span class="power-alloc-meta-item">${escapeHtml(mwText(summary.spareGenerationMw))} spare</span>
-      <span class="power-alloc-meta-item">${escapeHtml(mwText(summary.strandedGenerationMw))} stranded</span>
+      <span class="power-alloc-meta-item" data-alloc-spare>${escapeHtml(mwText(spareMw))} reachable spare</span>
+      <span class="power-alloc-meta-item" data-alloc-stranded>${escapeHtml(mwText(strandedMw))} stranded</span>
       <span class="power-alloc-chip${loadShed.length ? " power-alloc-chip-bad" : " power-alloc-chip-ok"}">${escapeHtml(shedText)}</span>
     </div>
+    ${view && view.explanation ? `<p class="power-alloc-explanation" data-alloc-explanation>${escapeHtml(view.explanation)}</p>` : ""}
     <div class="power-alloc-chart-head">
       <span class="power-priority-diag-heading">Unmet demand by priority</span>
       <span class="power-alloc-legend">
@@ -1115,6 +1252,29 @@ function renderPowerPriorityDiagnostics() {
       </span>
     </div>
     <ul class="power-priority-cat-list">${catRows}</ul>
+    ${((summary.storageComponents && summary.storageComponents.length > 0) || (flow?.summary?.storageComponents && flow.summary.storageComponents.length > 0)) ? `
+      <div class="power-storage-diagnostics" data-power-storage-diagnostics>
+        <span class="power-priority-diag-heading">Power storage</span>
+        <div class="power-storage-grid">
+          ${(summary.storageComponents || flow.summary.storageComponents).map((st) => {
+            const rateText = st.dischargeRateMw > 0
+              ? `Discharging: ${st.dischargeRateMw.toFixed(1)} MW`
+              : st.chargeRateMw > 0
+                ? `Charging: ${st.chargeRateMw.toFixed(1)} MW`
+                : st.state;
+            const estText = (st.estimatedRuntimeSeconds !== null && st.estimatedRuntimeSeconds !== undefined)
+              ? ` · Est. runtime: ${st.estimatedRuntimeSeconds.toFixed(1)} s`
+              : "";
+            const stateCap = st.state ? (st.state[0].toUpperCase() + st.state.slice(1)) : "Idle";
+            return `<div class="power-storage-card" data-storage-index="${st.componentIndex}">
+              <strong>${escapeHtml((st.name || st.type || "STORAGE").toUpperCase())}</strong>
+              <div>${st.currentChargeMj.toFixed(0)} / ${st.maxChargeMj.toFixed(0)} MJ (${st.chargePercentage.toFixed(0)}%)</div>
+              <div>State: ${escapeHtml(stateCap)} · ${escapeHtml(rateText)}${escapeHtml(estText)}</div>
+            </div>`;
+          }).join("")}
+        </div>
+      </div>
+    ` : ""}
   </div>`;
 }
 
@@ -1241,6 +1401,12 @@ function terminal(index, kind, selected) {
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > GRID_SIZE || y < 0 || y > GRID_SIZE) return null;
   return svgEl("circle", { cx: x, cy: y, r: 0.14 }, `wire-terminal wire-terminal-${kind}${selected ? " wire-terminal-selected" : ""}`);
 }
+// The hover/focus target matches the terminal ring drawn at r .14, so what you
+// can see is what answers. It must not grow past the ring: the cable hit stroke
+// runs straight through a component's centre, and a wider terminal would take
+// over points on the cable that belong to section inspection.
+const POWER_TERMINAL_HIT_RADIUS = 0.13;
+
 function powerTerminalVisual(index, entry, selected = false) {
   let center;
   try { center = rules().componentCenter(state.design[index], PART_STATS); } catch (_) { return null; }
@@ -1254,7 +1420,7 @@ function powerTerminalVisual(index, entry, selected = false) {
     // A hit target so hovering the source (reactor) shows the network's
     // generation vs demand, the same way hovering a consumer/weapon does.
     const hit = svgEl("circle", {
-      cx: x, cy: y, r: 0.13, tabindex: 0, role: "button",
+      cx: x, cy: y, r: POWER_TERMINAL_HIT_RADIUS, tabindex: 0, role: "button",
       "aria-label": `${moduleLabel(index)}. Power source. ${formatNetworkMw(entry?.generationAvailableMw)} generation.`
     }, "wire-power-terminal-hit");
     hit.dataset.powerComponentIndex = String(index);
@@ -1307,7 +1473,10 @@ function renderWiringOverlay() {
   const markerLayer = svgGroup("wire-marker-layer"); const indicatorLayer = svgGroup("wire-indicator-layer"); const warningLayer = svgGroup("wire-warning-layer"); const portLayer = svgGroup("wire-port-layer");
   // SVG paint order is also hit-test order. The glow layer is drawn first (below
   // everything) so status halos read as an outer ring while the tier-coloured
-  // cable stays on top. Ports remain last so they win hit testing over cable.
+  // cable stays on top. The indicator layer holds only inert decoration
+  // (pointer-events: none), so section clicks still win where a cable runs; the
+  // interactive Power terminals live in the marker layer, above the cable hit
+  // targets, so a cable crossing a component cannot swallow its hover card.
   svg.append(glowLayer, visibleLayer, energyLayer, hitLayer, markerLayer, indicatorLayer, warningLayer, portLayer);
   // Section 7D-2: per-section delivered flow status from the shared solver, used
   // for the load/above-sustained/at-peak overlays (never replaces tier colour).
@@ -1402,7 +1571,13 @@ function renderWiringOverlay() {
     [...terminalIndices].sort((a, b) => a - b).forEach((index) => {
       const entry = powerComponentByIndex.get(index);
       const marker = powerTerminalVisual(index, entry, selectedTerminalIndices.has(index));
-      if (marker) indicatorLayer.appendChild(marker);
+      // Power terminals carry the component's own hover/focus target, so they go
+      // in the marker layer — above the cable hit layer. In the indicator layer
+      // a cable running through a component's centre painted over its terminal
+      // and swallowed the hover, which is why single-cell components stopped
+      // answering while a reactor or engine (whose centre sits off the cable
+      // line) still did.
+      if (marker) markerLayer.appendChild(marker);
       if (entry?.role !== "consumer") return;
       const networkId = entry.networkIds?.[0] || "";
       const supplyState = powerSupplyState(entry);
@@ -1468,46 +1643,352 @@ function renderWiringOverlay() {
 
 function pct(value) { return `${Math.round((Number(value) || 0) * 100)}%`; }
 function statLine(label, base, effective, suffix = "") { if (!Number.isFinite(Number(base))) return ""; return `<div class="wiring-summary-line"><strong>${label}:</strong> ${Number(base).toFixed(label === "Accuracy" ? 0 : 2)}${suffix} → ${Number(effective).toFixed(label === "Accuracy" ? 0 : 2)}${suffix}</div>`; }
+function effectsCarriedOnNetwork(network, analysis) {
+  if (!network || !analysis) return "None";
+  const sources = (analysis.sources || []).filter(s => s.networkId === network.id && Number(s.effectiveBudget) > 0);
+  const effects = new Set();
+  sources.forEach(s => {
+    if (s.effect === "range" || s.bonusField === "rangeBonus") effects.add("Range");
+    if (s.effect === "accuracy" || s.bonusField === "accuracyBonus") effects.add("Accuracy");
+    if (s.effect === "fire rate" || s.bonusField === "fireRateBonus") effects.add("Fire rate");
+  });
+  const arr = [...effects];
+  if (!arr.length) return "None";
+  if (arr.length === 1) return arr[0];
+  if (arr.length === 2) return `${arr[0]} and ${arr[1].toLowerCase()}`;
+  return `${arr[0]}, ${arr[1].toLowerCase()} and ${arr[2].toLowerCase()}`;
+}
+
+function formatConcreteLosses(hit) {
+  if (!hit) return "No predicted support loss.";
+  const losses = hit.losses || hit.lostByWeapon || [];
+  const disconnected = hit.disconnectedWeaponIndices || [];
+  if (!losses.length && !disconnected.length) return "No predicted support loss.";
+
+  const rangeLosses = [];
+  const accuracyLosses = [];
+  const fireRateLosses = [];
+  const weaponNames = new Set();
+
+  for (const l of losses) {
+    if (l.weaponIndex != null && state.design?.[l.weaponIndex]) {
+      weaponNames.add(partName(state.design[l.weaponIndex].type));
+    }
+    if (l.lostRangeBonus > 1e-6) rangeLosses.push(l);
+    if (l.lostAccuracyBonus > 1e-6) accuracyLosses.push(l);
+    if (l.lostFireRateBonus > 1e-6) fireRateLosses.push(l);
+  }
+
+  for (const wIdx of disconnected) {
+    if (wIdx != null && state.design?.[wIdx]) {
+      weaponNames.add(partName(state.design[wIdx].type));
+    }
+  }
+
+  const lines = [];
+
+  if (rangeLosses.length) {
+    const amount = rangeLosses[0].lostRangeBonus;
+    const fmt = formatDataSupportValue({ bonusField: "rangeBonus", amount });
+    lines.push(`${rangeLosses.length} weapon${rangeLosses.length === 1 ? "" : "s"} lose ${fmt} range`);
+  }
+  if (accuracyLosses.length) {
+    const amount = accuracyLosses[0].lostAccuracyBonus;
+    const fmt = formatDataSupportValue({ bonusField: "accuracyBonus", amount });
+    lines.push(`${accuracyLosses.length} weapon${accuracyLosses.length === 1 ? "" : "s"} lose ${fmt} accuracy`);
+  }
+  if (fireRateLosses.length) {
+    const amount = fireRateLosses[0].lostFireRateBonus;
+    const fmt = formatDataSupportValue({ bonusField: "fireRateBonus", amount });
+    lines.push(`${fireRateLosses.length} weapon${fireRateLosses.length === 1 ? "" : "s"} lose ${fmt} fire rate`);
+  }
+
+  if (lines.length === 0 && disconnected.length > 0) {
+    lines.push(`${disconnected.length} weapon${disconnected.length === 1 ? "" : "s"} lose all Data support`);
+  }
+
+  if (weaponNames.size > 0) {
+    lines.push(`Affected: ${[...weaponNames].map(escapeHtml).join(", ")}`);
+  }
+
+  return lines.length ? lines.join(" · ") : "No predicted support loss.";
+}
+
+function sourceStatusBadge(source) {
+  if (!source) return "Disconnected";
+  const parts = [];
+  if (source.status === "active") parts.push("Active");
+  else if (source.status === "underpowered") parts.push("Underpowered");
+  else if (source.status === "thermally-reduced") parts.push("Thermally reduced");
+  else if (source.status === "overheated") parts.push("Overheated");
+  else if (source.status === "unpowered") parts.push("Unpowered");
+  else parts.push(source.status.charAt(0).toUpperCase() + source.status.slice(1));
+
+  if (source.predictedPowerMultiplier >= 1) parts.push("Fully powered");
+  else if (source.predictedPowerMultiplier <= 0) parts.push("No Power");
+  else parts.push(`Power ${Math.round(source.predictedPowerMultiplier * 100)}%`);
+
+  if (source.predictedThermalMultiplier >= 1) parts.push("Normal temperature");
+  else if (source.predictedThermalMultiplier <= 0) parts.push("Overheated");
+  else parts.push(`Heat ${Math.round(source.predictedThermalMultiplier * 100)}%`);
+
+  return parts.join(" · ");
+}
+
+function weaponStatComparisonHtml(baseProfile, effectiveProfile) {
+  if (!baseProfile || !effectiveProfile) return "";
+  const rows = [];
+
+  const bRange = Number(baseProfile.range);
+  const eRange = Number(effectiveProfile.range);
+  if (Number.isFinite(bRange) && Number.isFinite(eRange) && Math.abs(eRange - bRange) > 1e-4) {
+    rows.push(`<div class="wiring-summary-line"><strong>Range:</strong> ${Math.round(bRange)} m → ${Math.round(eRange)} m</div>`);
+  }
+
+  const bAcc = Number(baseProfile.accuracy);
+  const eAcc = Number(effectiveProfile.accuracy);
+  if (Number.isFinite(bAcc) && Number.isFinite(eAcc) && Math.abs(eAcc - bAcc) > 1e-4) {
+    rows.push(`<div class="wiring-summary-line"><strong>Accuracy:</strong> ${Math.round(bAcc * 100)}% → ${Math.round(eAcc * 100)}%</div>`);
+  }
+
+  const bFr = Number(baseProfile.fireRate);
+  const eFr = Number(effectiveProfile.fireRate);
+  if (Number.isFinite(bFr) && Number.isFinite(eFr) && Math.abs(eFr - bFr) > 1e-4) {
+    rows.push(`<div class="wiring-summary-line"><strong>Fire rate:</strong> ${bFr.toFixed(2)}/s → ${eFr.toFixed(2)}/s</div>`);
+  }
+
+  const bRel = Number(baseProfile.reload);
+  const eRel = Number(effectiveProfile.reload);
+  if (Number.isFinite(bRel) && Number.isFinite(eRel) && Math.abs(eRel - bRel) > 1e-4) {
+    rows.push(`<div class="wiring-summary-line"><strong>Reload:</strong> ${Math.round(bRel)} ms → ${Math.round(eRel)} ms</div>`);
+  }
+
+  const bDps = Number(baseProfile.dps);
+  const eDps = Number(effectiveProfile.dps);
+  if (Number.isFinite(bDps) && Number.isFinite(eDps) && Math.abs(eDps - bDps) > 1e-2) {
+    rows.push(`<div class="wiring-summary-line"><strong>DPS:</strong> ${bDps.toFixed(1)} → ${eDps.toFixed(1)}</div>`);
+  }
+
+  return rows.join("");
+}
+
 function renderDataInspectionPanel(panel, section) {
   let analysis;
   try { analysis = currentDataInspection(); } catch (error) { console.error("Data-support inspection failed", error); panel.hidden = false; panel.innerHTML = `<h3>Data-support inspection</h3><div role="status" class="wiring-summary-line">Data-inspection error. Switch views or edit wiring to retry.</div>`; return true; }
-  const selectedIndex = ui().selectedIndex;
-  const source = analysis.sourceAllocationByIndex[selectedIndex];
-  const weapon = analysis.weaponBonusByIndex[selectedIndex];
-  const vuln = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
-  const network = selectedNetwork() || (source?.networkId ? analysis.networks.find(n => n.id === source.networkId) : null) || (weapon?.networkId ? analysis.networks.find(n => n.id === weapon.networkId) : null);
-  const selectedHost = selectedIndex != null && !source && !weapon ? vuln.find(v => v.kind === "host" && v.componentIndex === selectedIndex) : null;
-  const selectedSourceVulnerability = source ? vuln.find(v => v.kind === "source" && v.componentIndex === source.sourceIndex) : null;
-  const fmtBonus = (v, f) => formatDataSupportValue({ bonusField: f || "accuracyBonus", amount: v });
-  const lossesHtml = (hit) => !hit ? "No predicted support loss." : [ ["rangeBonus", hit.lostRangeBonus], ["accuracyBonus", hit.lostAccuracyBonus], ["fireRateBonus", hit.lostFireRateBonus] ].filter(([,v]) => Number(v) > 0).map(([f,v]) => formatDataSupportValue({ bonusField:f, amount:v })).join(" · ") || "No predicted support loss.";
-  const inspectionRoleLabel = (role) => role ? role.split("-").map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") : "Component";
-  const buttons = (indices, role) => indices.map(i => `<button type="button" data-wiring-action="inspect-component" data-index="${i}" data-inspection-role="${escapeHtml(role)}" aria-label="Inspect ${escapeHtml(moduleLabel(i))} ${escapeHtml(inspectionRoleLabel(role).toLowerCase())}">${escapeHtml(moduleLabel(i))}</button>`).join(" ") || "None";
-  let body = `<h3>Data-support inspection</h3><div id="data-support-live" aria-live="polite" class="sr-only">Data support prediction refreshed for ${escapeHtml(analysis.scenarioLabel)}.</div><label class="wiring-summary-line data-scenario-label">Prediction scenario <select data-wiring-action="data-scenario" aria-label="Data support prediction scenario"><option value="idle" ${analysis.scenario === "idle" ? "selected" : ""}>Idle</option><option value="combat" ${analysis.scenario === "combat" ? "selected" : ""}>Typical Combat</option><option value="full" ${analysis.scenario === "full" ? "selected" : ""}>Maximum Sustained Load</option></select></label>`;
-  body += `<div class="wiring-summary-line">${analysis.networks.length} physical Data networks · ${analysis.sources.filter(s => s.effectiveBudget > 0).length} active sources · ${analysis.weapons.filter(w => w.status === "supported").length} supported weapons · ${analysis.cableSectionCount} cable sections</div>`;
-  if (source) {
-    body += `<section class="wiring-summary-section" data-data-inspector="source"><h4>${escapeHtml(partName(source.sourceType))} — ${escapeHtml(source.status)}</h4><div class="wiring-summary-line">Network: ${escapeHtml(source.networkLabel || "Disconnected")}</div><div class="wiring-summary-line">Effect: ${escapeHtml(source.effect)} · nominal ${fmtBonus(source.nominalBudget, source.bonusField)}</div><div class="wiring-summary-line">Power ${pct(source.predictedPowerMultiplier)} · Heat ${pct(source.predictedThermalMultiplier)} · Operational ${pct(source.predictedOperationalMultiplier)} · Final ${pct(source.predictedSourceMultiplier)}</div><div class="wiring-summary-line">Effective budget ${fmtBonus(source.effectiveBudget, source.bonusField)} · recipients ${source.recipientCount} · each receives ${fmtBonus(source.bonusPerWeapon, source.bonusField)}</div><div class="wiring-summary-line">${escapeHtml(source.statusReason)}</div><div class="wiring-summary-line">${escapeHtml(partName(source.sourceType))} effective budget: ${escapeHtml(formatDataSupportEquation(source))}.</div><div class="wiring-summary-line">Connected weapons: ${buttons(source.connectedWeaponIndices, "recipient")}</div><div class="wiring-summary-line"><strong>Failure impact:</strong> ${escapeHtml(selectedSourceVulnerability?.severity || "redundant")} · lost ${escapeHtml(lossesHtml(selectedSourceVulnerability))}. ${selectedSourceVulnerability?.severity === "redundant" ? "Another source fully preserves current output." : "Other Data sources remain operational where connected."}</div></section>`;
-  } else if (weapon) {
-    const b = weapon.baseProfile, e = weapon.effectiveProfile;
-    body += `<section class="wiring-summary-section" data-data-inspector="weapon"><h4>${escapeHtml(partName(weapon.weaponType))} — ${escapeHtml(weapon.status)}</h4><div class="wiring-summary-line">Network: ${escapeHtml(weapon.networkLabel || "Disconnected")}</div><div class="wiring-summary-line">${escapeHtml(weapon.statusReason)}</div><div class="wiring-summary-line">Contributing sources: ${buttons(weapon.sourceIndices, "contributor")}</div>${statLine("Range", b.range, e.range, "")}${statLine("Accuracy", (b.accuracy || 0) * 100, (e.accuracy || 0) * 100, "%")}${statLine("Fire rate", b.fireRate, e.fireRate, "/s")}${statLine("Reload", b.reload, e.reload, "ms")}${statLine("DPS", b.dps, e.dps, "")}`;
-    if (!weapon.contributions.length) body += `<div class="wiring-summary-line">Operating at base stats.</div>`;
-    else body += weapon.contributions.map(c => `<div class="wiring-summary-line">${escapeHtml(partName(c.sourceType))}: ${fmtBonus(c.amount, c.bonusField)} ${escapeHtml(c.effect || c.bonusField)} (${fmtBonus(c.effectiveBudget, c.bonusField)} ÷ ${c.recipientCount})</div>`).join("");
-    body += `</section>`;
+  let body = "";
+  try {
+    const selectedIndex = ui().selectedIndex;
+    const source = analysis.sourceAllocationByIndex[selectedIndex];
+    const weapon = analysis.weaponBonusByIndex[selectedIndex];
+    const vuln = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
+    const network = selectedNetwork() || (source?.networkId ? analysis.networks.find(n => n.id === source.networkId) : null) || (weapon?.networkId ? analysis.networks.find(n => n.id === weapon.networkId) : null) || (section ? rules().networkForSection(analysis, "data", section.id) : null) || (analysis.networks.length === 1 ? analysis.networks[0] : null);
+    const selectedHost = selectedIndex != null && !source && !weapon ? vuln.find(v => v.kind === "host" && v.componentIndex === selectedIndex) : null;
+    const selectedSourceVulnerability = source ? vuln.find(v => v.kind === "source" && v.componentIndex === source.sourceIndex) : null;
+    const fmtBonus = (v, f) => formatDataSupportValue({ bonusField: f || "accuracyBonus", amount: v });
+    const buttons = (indices, role) => indices.map(i => `<button type="button" data-wiring-action="inspect-component" data-index="${i}" data-inspection-role="${escapeHtml(role)}" aria-label="Inspect ${escapeHtml(moduleLabel(i))}">${escapeHtml(moduleLabel(i))}</button>`).join(" ") || "None";
+
+    body = `<h3>Data-support inspection</h3><div id="data-support-live" aria-live="polite" class="sr-only">Data support prediction refreshed for ${escapeHtml(analysis.scenarioLabel)}.</div><label class="wiring-summary-line data-scenario-label">Prediction scenario <select data-wiring-action="data-scenario" aria-label="Data support prediction scenario"><option value="idle" ${analysis.scenario === "idle" ? "selected" : ""}>Idle</option><option value="combat" ${analysis.scenario === "combat" ? "selected" : ""}>Typical Combat</option><option value="full" ${analysis.scenario === "full" ? "selected" : ""}>Maximum Sustained Load</option></select></label>`;
+
+  if (!section && source) {
+    const mod = state.design[source.sourceIndex];
+    const coords = mod ? ` (${mod.x},${mod.y})` : "";
+    body += `<section class="wiring-summary-section" data-data-inspector="source">
+      <h4>${escapeHtml(partName(source.sourceType))}${escapeHtml(coords)}</h4>
+      <div class="wiring-summary-line"><strong>${escapeHtml(sourceStatusBadge(source))}</strong></div>
+      ${source.statusReason ? `<div class="wiring-summary-line data-status-reason">${escapeHtml(source.statusReason)}</div>` : ""}
+
+      <div class="wiring-summary-subsection">
+        <h5>PROVIDES</h5>
+        <div class="wiring-summary-line">Nominal ${escapeHtml(source.effect)} budget: ${fmtBonus(source.nominalBudget, source.bonusField)}</div>
+        <div class="wiring-summary-line">Operational output: ${pct(source.predictedSourceMultiplier)} (Power ${pct(source.predictedPowerMultiplier)} · Heat ${pct(source.predictedThermalMultiplier)})</div>
+        <div class="wiring-summary-line">Effective budget: ${fmtBonus(source.effectiveBudget, source.bonusField)}</div>
+      </div>
+
+      <div class="wiring-summary-subsection">
+        <h5>ALLOCATION</h5>
+        <div class="wiring-summary-line">${source.eligibleWeaponIndices.length} eligible weapon${source.eligibleWeaponIndices.length === 1 ? "" : "s"}</div>
+        <div class="wiring-summary-line">${fmtBonus(source.bonusPerWeapon, source.bonusField)} ${escapeHtml(source.effect)} per weapon</div>
+      </div>
+
+      <div class="wiring-summary-subsection">
+        <h5>RECIPIENTS</h5>
+        ${source.eligibleWeaponIndices.length ? source.eligibleWeaponIndices.map(wIdx => {
+          const w = analysis.weaponBonusByIndex[wIdx];
+          const wMod = state.design[wIdx];
+          const b = w?.baseProfile || {}, e = w?.effectiveProfile || {};
+          let delta = "";
+          if (source.effect === "range") delta = `${b.range} m → ${e.range} m`;
+          else if (source.effect === "accuracy") delta = `${Math.round((b.accuracy||0)*100)}% → ${Math.round((e.accuracy||0)*100)}%`;
+          else if (source.effect === "fire rate") delta = `${Number(b.fireRate||0).toFixed(2)}/s → ${Number(e.fireRate||0).toFixed(2)}/s`;
+          return `<div class="wiring-summary-line"><button type="button" data-wiring-action="inspect-component" data-index="${wIdx}" data-inspection-role="recipient" aria-label="Inspect ${escapeHtml(moduleLabel(wIdx))} recipient">${escapeHtml(moduleLabel(wIdx))}</button> (${escapeHtml(partName(w?.weaponType))}): ${escapeHtml(delta)}</div>`;
+        }).join("") : `<div class="wiring-summary-line">No eligible weapon recipients connected.</div>`}
+      </div>
+
+      <div class="wiring-summary-subsection">
+        <h5>FAILURE IMPACT</h5>
+        <div class="wiring-summary-line">Severity: <strong>${escapeHtml(selectedSourceVulnerability?.severity || "redundant")}</strong></div>
+        <div class="wiring-summary-line">Lost support: ${formatConcreteLosses(selectedSourceVulnerability)}</div>
+      </div>
+    </section>`;
+  } else if (!section && weapon) {
+    const mod = state.design[weapon.weaponIndex];
+    const coords = mod ? ` (${mod.x},${mod.y})` : "";
+    const statRows = weaponStatComparisonHtml(weapon.baseProfile, weapon.effectiveProfile);
+
+    body += `<section class="wiring-summary-section" data-data-inspector="weapon">
+      <h4>${escapeHtml(partName(weapon.weaponType))}${escapeHtml(coords)}</h4>
+
+      <div class="wiring-summary-subsection">
+        <h5>DATA SUPPORT</h5>
+        <div class="wiring-summary-line"><strong>${weapon.status === "supported" ? `Supported by ${weapon.sourceIndices.length} source${weapon.sourceIndices.length === 1 ? "" : "s"}` : weapon.status === "connected-unsupported" ? "Connected but unsupported" : "Disconnected"}</strong></div>
+        <div class="wiring-summary-line">${escapeHtml(weapon.statusReason)}</div>
+      </div>
+
+      ${statRows ? `<div class="wiring-summary-subsection">
+        <h5>BASE → EFFECTIVE</h5>
+        ${statRows}
+      </div>` : ""}
+
+      <div class="wiring-summary-subsection">
+        <h5>CONTRIBUTIONS</h5>
+        ${weapon.contributions && weapon.contributions.length ? weapon.contributions.map(c => `<div class="wiring-summary-line"><button type="button" data-wiring-action="inspect-component" data-index="${c.sourceIndex}" data-inspection-role="contributor" aria-label="Inspect ${escapeHtml(moduleLabel(c.sourceIndex))} contributor">${escapeHtml(moduleLabel(c.sourceIndex))}</button> (${escapeHtml(partName(c.sourceType))}): ${fmtBonus(c.amount, c.bonusField)} ${escapeHtml(c.effect || c.bonusField)}</div>`).join("") : `<div class="wiring-summary-line">Operating at base stats; no active source contributes.</div>`}
+      </div>
+    </section>`;
   }
-  if (network) body += `<section class="wiring-summary-section" data-data-inspector="network"><h4>${escapeHtml(network.label)}</h4><div class="wiring-summary-line">Sources: ${buttons(network.sourceIndices, "network-source")}</div><div class="wiring-summary-line">Weapons: ${buttons(network.weaponIndices, "network-weapon")}</div></section>`;
-  if (selectedHost) body += `<section class="wiring-summary-section" data-data-inspector="host-vulnerability"><h4>${escapeHtml(moduleLabel(selectedHost.componentIndex))}</h4><div class="wiring-summary-line">Hosts Data cable sections. Failure impact: <strong>${escapeHtml(selectedHost.severity)}</strong></div><div class="wiring-summary-line">Topology changes: ${selectedHost.topologyChanged ? "yes" : "no"} · ${escapeHtml(selectedHost.summary)}</div><div class="wiring-summary-line">Lost support: ${escapeHtml(lossesHtml(selectedHost))}</div><div class="wiring-summary-line">Redundancy: ${selectedHost.severity === "redundant" ? "redundant route preserves connectivity" : "single point of failure for listed support"}</div></section>`;
+
   if (section) {
-    const hit = vuln.find(v => v.kind === "section" && v.id === section.id);
-    // Data-section clarity: authoritative per-cell cost/displacement only —
-    // Data has no Power capacity, Heat or overload rows by design.
+    const secKey = rules() ? rules().segmentKey(section) : section.id;
+    const hit = vuln.find(v => v.kind === "section" && (v.id === section.id || v.id === secKey));
+    const secNet = rules().networkForSection(analysis, "data", section.id);
+    const secNetSections = secNet ? bucket("data").sections.filter(s => (secNet.sectionIds || []).includes(s.id)) : [];
+    const netSources = secNet ? secNet.sourceIndices.length : 0;
+    const supportedWeapons = secNet ? analysis.weapons.filter(w => w.networkId === secNet.id && w.status === "supported").length : 0;
     const dataConfig = WIRING_INFRASTRUCTURE?.data || {};
     const cellCost = (Number(dataConfig.costPerHostedCell) || 0) * 2;
     const cellDisplacement = (Number(dataConfig.heatCapacityDisplacement) || 0) * 2;
-    const dataClarity = clarityRules() ? `<div class="wiring-summary-line" data-data-section-cost>Selected cells: $${cellCost} cost · ${cellDisplacement} Heat-capacity displacement</div><div class="wiring-summary-line" data-data-section-note>${escapeHtml(clarityRules().EMPTY_STATES.dataNoPower)} No capacity, Heat or overload mechanics.</div>` : "";
-    body += `<section class="wiring-summary-section" data-data-inspector="section-vulnerability"><h4>Selected Data section</h4><div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2}) · ${escapeHtml(hit?.severity || "ordinary")}</div>${dataClarity}<div class="wiring-summary-line">${escapeHtml(hit?.summary || "No predicted support loss.")}</div><div class="wiring-summary-line">Lost support: ${escapeHtml(lossesHtml(hit))}</div></section>`;
+    const hasAlt = secNetSections.length > 0 && (clarityRules()?.alternatePathCount?.(secNetSections) || 0) > 0;
+
+    body += `<section class="wiring-summary-section" data-data-inspector="section-vulnerability">
+      <h4>Selected Data section</h4>
+      <div class="wiring-summary-line">(${section.x1},${section.y1}) ↔ (${section.x2},${section.y2})</div>
+      <div class="wiring-summary-line">Network: <strong>${escapeHtml(secNet?.label || "Unconnected")}</strong></div>
+      <div class="wiring-summary-line">Sources: ${netSources} · Supported weapons: ${supportedWeapons}</div>
+      <div class="wiring-summary-line">Effects: ${escapeHtml(effectsCarriedOnNetwork(secNet, analysis))}</div>
+      <div class="wiring-summary-line">Redundancy: ${hasAlt ? "Redundant route available" : "No alternate route"}</div>
+      <div class="wiring-summary-line">Failure impact: <strong>${escapeHtml(hit?.severity || "redundant")}</strong></div>
+
+      <div class="wiring-summary-subsection">
+        <h5>IF DESTROYED</h5>
+        <div class="wiring-summary-line">${escapeHtml(hit?.summary || "No predicted support loss.")}</div>
+        <div class="wiring-summary-line">Lost support: ${formatConcreteLosses(hit)}</div>
+      </div>
+
+      <div class="wiring-summary-subsection data-infra-details">
+        <h5>INFRASTRUCTURE DETAILS</h5>
+        <div class="wiring-summary-line data-data-section-cost">Selected cells: ${formatWiringMoney(cellCost)} cost · ${cellDisplacement} Heat-capacity displacement</div>
+        <div class="wiring-summary-line data-data-section-note">No capacity, Heat or overload mechanics.</div>
+      </div>
+    </section>`;
   }
-  if (!source && !weapon && !section) body += `<section class="wiring-summary-section" data-data-inspector="overview"><h4>Networks</h4>${analysis.networks.map(n => `<button type="button" aria-selected="${network?.id === n.id}" data-wiring-action="select-network" data-network-id="${escapeHtml(n.id)}">${escapeHtml(n.label)} · ${n.sourceIndices.length} sources · ${n.weaponIndices.length} weapons${n.sourceIndices.length ? "" : " · no source"}</button>`).join(" ") || "<div class=\"wiring-summary-line\">No Data networks yet.</div>"}</section>`;
-  const warnings = [...analysis.networks.filter(n => !n.sourceIndices.length && n.weaponIndices.length).map(n => `${n.label} has weapons but no support source.`), ...analysis.sources.filter(s => s.predictedPowerMultiplier <= 0 && s.networkId).map(s => `${partName(s.sourceType)} is connected to Data but has no Power.`), ...analysis.sources.filter(s => s.predictedThermalMultiplier < 1).map(s => `${partName(s.sourceType)} is predicted thermally reduced in ${analysis.scenarioLabel}.`)];
+
+  if (selectedHost) {
+    body += `<section class="wiring-summary-section" data-data-inspector="host-vulnerability">
+      <h4>${escapeHtml(moduleLabel(selectedHost.componentIndex))}</h4>
+      <div class="wiring-summary-line">Hosts Data cable sections. Failure impact: <strong>${escapeHtml(selectedHost.severity)}</strong></div>
+      <div class="wiring-summary-line">Topology changes: ${selectedHost.topologyChanged ? "yes" : "no"} · ${escapeHtml(selectedHost.summary)}</div>
+      <div class="wiring-summary-subsection">
+        <h5>IF DESTROYED</h5>
+        <div class="wiring-summary-line">${escapeHtml(selectedHost.summary || "No predicted support loss.")}</div>
+        <div class="wiring-summary-line">Lost support: ${formatConcreteLosses(selectedHost)}</div>
+      </div>
+    </section>`;
+  }
+
+  if (network) {
+    const netSources = analysis.sources.filter(s => s.networkId === network.id);
+    const activeSources = netSources.filter(s => s.status === "active" || s.effectiveBudget > 0);
+    const netWeapons = analysis.weapons.filter(w => w.networkId === network.id);
+    const supportedWeapons = netWeapons.filter(w => w.status === "supported");
+
+    let totalRange = 0, totalAccuracy = 0, totalFireRate = 0;
+    activeSources.forEach(s => {
+      if (s.bonusField === "rangeBonus") totalRange += s.effectiveBudget;
+      if (s.bonusField === "accuracyBonus") totalAccuracy += s.effectiveBudget;
+      if (s.bonusField === "fireRateBonus") totalFireRate += s.effectiveBudget;
+    });
+
+    const allOperational = netSources.every(s => s.predictedPowerMultiplier >= 1 && s.predictedThermalMultiplier >= 1);
+    const netSections = bucket("data").sections.filter(s => (network.sectionIds || []).includes(s.id));
+    const hasAltRoute = netSections.length > 0 && (clarityRules()?.alternatePathCount?.(netSections) || 0) > 0;
+    const netCost = (network.sectionIds.length * 2) * (Number(WIRING_INFRASTRUCTURE?.data?.costPerHostedCell) || 0);
+    const netDisplacement = (network.sectionIds.length * 2) * (Number(WIRING_INFRASTRUCTURE?.data?.heatCapacityDisplacement) || 0);
+
+    body += `<section class="wiring-summary-section" data-data-inspector="network">
+      <h4>${escapeHtml(network.label.toUpperCase())}</h4>
+      <div class="wiring-summary-line"><strong>${activeSources.length} active source${activeSources.length === 1 ? "" : "s"} → ${supportedWeapons.length} supported weapon${supportedWeapons.length === 1 ? "" : "s"}</strong></div>
+
+      <div class="wiring-summary-subsection">
+        <h5>DELIVERED SUPPORT</h5>
+        ${totalRange > 0 ? `<div class="wiring-summary-line">Range budget: +${totalRange} m</div>` : ""}
+        ${totalAccuracy > 0 ? `<div class="wiring-summary-line">Accuracy budget: +${Math.round(totalAccuracy * 100)}%</div>` : ""}
+        ${totalFireRate > 0 ? `<div class="wiring-summary-line">Fire-rate budget: +${Math.round(totalFireRate * 100)}%</div>` : ""}
+        ${totalRange <= 0 && totalAccuracy <= 0 && totalFireRate <= 0 ? `<div class="wiring-summary-line">No active support delivered</div>` : ""}
+      </div>
+
+      <div class="wiring-summary-subsection">
+        <h5>STATUS</h5>
+        <div class="wiring-summary-line">${allOperational ? "All sources fully operational" : "Some sources underpowered or reduced"}</div>
+        <div class="wiring-summary-line">${supportedWeapons.length} of ${netWeapons.length} weapons receiving support</div>
+        <div class="wiring-summary-line">${hasAltRoute ? "Redundant route available" : "No alternate route"}</div>
+      </div>
+
+      <div class="wiring-summary-subsection">
+        <h5>NETWORK COMPONENTS</h5>
+        <div class="wiring-summary-line">Sources: ${buttons(network.sourceIndices, "network-source")}</div>
+        <div class="wiring-summary-line">Weapons: ${buttons(network.weaponIndices, "network-weapon")}</div>
+      </div>
+
+      <details class="wiring-analysis-expander wiring-advanced-details" data-wiring-details="advanced" ${analysisDetailsState.advanced ? "open" : ""}>
+        <summary><span>Advanced details</span><strong>Infrastructure details</strong></summary>
+        <div class="wiring-summary-subsection data-infra-details">
+          <h5>INFRASTRUCTURE DETAILS</h5>
+          <div class="wiring-summary-line">Wiring cost: ${formatWiringMoney(netCost)}</div>
+          <div class="wiring-summary-line">Displacement: ${netDisplacement} Heat capacity</div>
+          <div class="wiring-summary-line">Cable sections: ${network.sectionIds.length}</div>
+        </div>
+      </details>
+    </section>`;
+  }
+
+  if (!source && !weapon && !section) {
+    body += `<section class="wiring-summary-section" data-data-inspector="overview">
+      <h4>Overview</h4>
+      <div class="wiring-summary-line">${analysis.networks.length} physical Data networks · ${analysis.sources.filter(s => s.effectiveBudget > 0).length} active sources · ${analysis.weapons.filter(w => w.status === "supported").length} supported weapons · ${analysis.cableSectionCount} cable sections</div>
+      ${analysis.networks.map(n => `<button type="button" aria-selected="${network?.id === n.id}" data-wiring-action="select-network" data-network-id="${escapeHtml(n.id)}">${escapeHtml(n.label)} · ${n.sourceIndices.length} sources · ${n.weaponIndices.length} weapons</button>`).join(" ") || "<div class=\"wiring-summary-line\">No Data networks present.</div>"}
+    </section>`;
+  }
+
+  const warnings = [
+    ...analysis.networks.filter(n => !n.sourceIndices.length && n.weaponIndices.length).map(n => `${n.label} has weapons but no support source.`),
+    ...analysis.sources.filter(s => s.predictedPowerMultiplier <= 0 && s.networkId).map(s => `${partName(s.sourceType)} is connected to Data but has no Power.`),
+    ...analysis.sources.filter(s => s.predictedThermalMultiplier < 1 && s.networkId).map(s => `${partName(s.sourceType)} is predicted thermally reduced in ${analysis.scenarioLabel}.`)
+  ];
   body += warnings.length ? `<section class="wiring-summary-section"><h4>Warnings</h4>${warnings.slice(0, 5).map(w => `<div class="wiring-summary-line">⚠ ${escapeHtml(w)}</div>`).join("")}</section>` : "";
+
+  const totalCost = (analysis.cableSectionCount * 2) * (Number(WIRING_INFRASTRUCTURE?.data?.costPerHostedCell) || 0);
+  const totalDisplacement = (analysis.cableSectionCount * 2) * (Number(WIRING_INFRASTRUCTURE?.data?.heatCapacityDisplacement) || 0);
+
+  body += `<details class="wiring-analysis-expander wiring-advanced-details" data-wiring-details="advanced" ${analysisDetailsState.advanced ? "open" : ""}>
+    <summary><span>Advanced details</span><strong>Infrastructure and accounting values</strong></summary>
+    <div class="wiring-summary-section data-infra-details">
+      <h5>INFRASTRUCTURE DETAILS</h5>
+      <div class="wiring-summary-line">Total Data wiring cost: ${formatWiringMoney(totalCost)}</div>
+      <div class="wiring-summary-line">Total Heat displacement: ${totalDisplacement} Heat capacity</div>
+      <div class="wiring-summary-line">Total Data cable sections: ${analysis.cableSectionCount}</div>
+      <div class="wiring-summary-line">No capacity, flow, or overload limits apply to Data cables.</div>
+  </details>`;
+  } catch (err) { console.error("renderDataInspectionPanel BODY ERROR:", err); }
+
   panel.hidden = false; panel.tabIndex = -1; panel.innerHTML = body;
   return true;
 }
@@ -1741,7 +2222,29 @@ function wiringIssueModel(analysis, flow, observations) {
   const issues = [];
   const add = (issue) => issues.push(issue);
   for (const index of analysis.power.disconnectedConsumerIndices || []) {
-    add({ priority: 1, severity: "critical", title: "Power consumer disconnected", affected: moduleLabel(index), current: "No powered route", safe: "Connected to a Power source", consequence: "This component cannot receive Power.", recommendation: "Draw or repair a Power route to this component.", mode: "power", componentIndex: index });
+    const mod = state.design[index];
+    const isDataSrc = mod && rules().isDataSourceType(mod.type);
+    let dataConsequence = "";
+    if (isDataSrc) {
+      const nominal = globalThis.DataSupportRules ? globalThis.DataSupportRules.nominalSupportBudget(mod.type, PART_STATS) : 0;
+      const desc = globalThis.DataSupportRules ? globalThis.DataSupportRules.supportDescriptorForType(mod.type) : null;
+      const fmt = formatDataSupportValue({ bonusField: desc?.bonusField, amount: nominal });
+      dataConsequence = ` ${partName(mod.type)} is unpowered, so its ${fmt} ${desc?.effect || "support"} budget is not being distributed.`;
+    }
+    add({
+      priority: 1,
+      severity: "critical",
+      title: isDataSrc ? "Data source unpowered" : "Power consumer disconnected",
+      affected: moduleLabel(index),
+      current: "No powered route",
+      safe: "Connected to a Power source",
+      consequence: isDataSrc
+        ? `${moduleLabel(index)} is unpowered, so its ${formatDataSupportValue({ bonusField: globalThis.DataSupportRules?.supportDescriptorForType(mod.type)?.bonusField, amount: globalThis.DataSupportRules?.nominalSupportBudget(mod.type, PART_STATS) })} ${globalThis.DataSupportRules?.supportDescriptorForType(mod.type)?.effect || "support"} budget is not being distributed.`
+        : "This component cannot receive Power.",
+      recommendation: "Draw or repair a Power route to this component.",
+      mode: isDataSrc ? "data" : "power",
+      componentIndex: index
+    });
   }
   for (const index of analysis.power.unusedSourceIndices || []) {
     add({ priority: 1, severity: "warning", title: "Power source disconnected", affected: moduleLabel(index), current: "No consumer route", safe: "Connected to a useful Power network", consequence: "This source cannot deliver Power to a consumer.", recommendation: "Connect it to demand or remove the unused source.", mode: "power", componentIndex: index });
@@ -1777,11 +2280,14 @@ function wiringIssueModel(analysis, flow, observations) {
   try {
     const data = currentDataInspection();
     for (const network of data.networks.filter((item) => !item.sourceIndices.length && item.weaponIndices.length)) {
-      const componentIndex = network.weaponIndices[0];
-      add({ priority: 6, severity: "critical", title: "Data support disconnected", affected: network.label, current: `${network.weaponIndices.length} weapon${network.weaponIndices.length === 1 ? "" : "s"} without a Data source`, safe: "Connected to a compatible Data source", consequence: "Connected systems receive no Data support from this network.", recommendation: "Draw a Data route from a compatible source.", mode: "data", componentIndex });
+      for (const componentIndex of network.weaponIndices) {
+        add({ priority: 6, severity: "critical", title: "Data support disconnected", affected: moduleLabel(componentIndex), current: "No active Data source connected", safe: "Connected to an active Data source", consequence: `${moduleLabel(componentIndex)} receives no Data support and operates at base stats.`, recommendation: "Draw a Data route from a compatible Data source.", mode: "data", componentIndex });
+      }
     }
     for (const source of data.sources.filter((item) => item.networkId && item.predictedPowerMultiplier <= 0)) {
-      add({ priority: 6, severity: "warning", title: "Data source has no Power", affected: moduleLabel(source.sourceIndex), current: "0% predicted Power", safe: "Powered source", consequence: "This source cannot provide its Data benefit.", recommendation: "Connect the source to a working Power network.", mode: "data", componentIndex: source.sourceIndex });
+      const desc = globalThis.DataSupportRules?.supportDescriptorForType(source.sourceType);
+      const fmt = formatDataSupportValue({ bonusField: desc?.bonusField, amount: source.nominalBudget });
+      add({ priority: 6, severity: "warning", title: "Data source has no Power", affected: moduleLabel(source.sourceIndex), current: "0% predicted Power", safe: "Powered source", consequence: `${moduleLabel(source.sourceIndex)} is unpowered, so its ${fmt} ${desc?.effect || "support"} budget is not being distributed.`, recommendation: "Connect the source to a working Power network.", mode: "data", componentIndex: source.sourceIndex });
     }
   } catch (_) { /* Data details remain available in Advanced Details. */ }
   const structuralWarnings = (observations.warnings || []).filter((text) => !/section .*above rating|current flow|overload/i.test(text));
@@ -1899,13 +2405,19 @@ function renderStatusPanel() {
     panel.innerHTML = `${wiringStatusHeaderHtml("unavailable", "The wiring solver could not produce a result.")}<button type="button" data-wiring-action="retry-analysis">Retry</button>`;
     return;
   }
-  const network = selectedNetwork(); const section = bucket().sections.find((item) => item.id === ui().selectedSectionId);
+  const network = selectedNetwork();
+  const secId = ui().selectedSectionId;
+  const section = secId ? bucket().sections.find((item) => item.id === secId || (rules() && rules().segmentKey(item) === secId)) : null;
   const current = rules().countUniqueSections(state.wiring, ui().mode); const additional = rules().additionalLengthForPath(state.wiring, ui().mode, ui().path); const limit = CABLE_LIMITS[ui().mode];
   const degrees = section ? rules().sectionEndpointDegrees(bucket()).get(section.id) : null; const junctionCount = network ? rules().junctionCells({ sections: network.sections }).length : 0; const mw = (value) => `${Number(value).toFixed(1)} MW`; const labels = (indices) => indices.map(moduleLabel).map(escapeHtml).join(", ") || "None";
   const branch = section ? rules().findLeafBranchSections(bucket(), section.id) : null; const role = !section ? "" : degrees.some((degree) => degree > 2) ? "junction-adjacent" : branch.reason === "leaf-branch" ? "leaf branch" : degrees.every((degree) => degree === 2) ? "trunk or loop" : "branch";
   const status = network ? (ui().mode === "power" ? network.status : network.sourceIndices.length ? "online" : "source-less") : null;
   const hasWiring = bucket("power").sections.length + bucket("data").sections.length > 0;
   panel.hidden = false; panel.tabIndex = -1;
+  if (ui().mode === "data") {
+    renderDataInspectionPanel(panel, section);
+    return;
+  }
   if (!hasWiring) {
     panel.innerHTML = `${wiringStatusHeaderHtml("no-wiring", "Draw Power or Data cable to begin analysis.")}${selectedTierSummaryHtml()}
       ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}`;

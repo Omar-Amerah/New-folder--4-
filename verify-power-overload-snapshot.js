@@ -3,13 +3,12 @@
 
 // Section 7G — runtime Power-protection snapshot verifier.
 // Covers the compact protection block, its dedicated revision, per-client
-// delta preservation, immediate trip/retry delivery, reset-on-replacement
-// and numeric hygiene (no NaN/Infinity/negative zero).
+// delta preservation, reset-on-replacement and numeric hygiene (no NaN/Infinity/-0).
 
 const assert = require("assert");
 const { snapshotRoom } = require("./src/server/snapshots");
 const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
-const { initializeComponentPower, reallocateShipPower, powerProtectionConfig } = require("./src/server/componentPower");
+const { initializeComponentPower, powerProtectionConfig } = require("./src/server/componentPower");
 const { updateShipPowerProtection } = require("./src/server/powerProtection");
 
 function finite(value) {
@@ -18,15 +17,16 @@ function finite(value) {
   else if (value && typeof value === "object") Object.values(value).forEach(finite);
 }
 
+// Reactor -> light cable -> frame -> light cable -> shield (6 MW demand on light cables)
 function makeShip() {
   const design = [
     { x: 0, y: 0, type: "reactor" },
-    { x: 3, y: 0, type: "shield" },
-    { x: 1, y: 0, type: "switchgear", rotation: 0, switchgearMode: "closed", switchgearRatingTier: "light" }
+    { x: 1, y: 0, type: "frame" },
+    { x: 2, y: 0, type: "shield" }
   ];
   const wiring = {
     version: 3,
-    power: { sections: [{ id: "a1", x1: 0, y1: 0, x2: 1, y2: 0, tier: "standard" }, { id: "b1", x1: 2, y1: 0, x2: 3, y2: 0, tier: "standard" }], connections: [] },
+    power: { sections: [{ id: "l1", x1: 0, y1: 0, x2: 1, y2: 0, tier: "light" }, { id: "l2", x1: 1, y1: 0, x2: 2, y2: 0, tier: "light" }], connections: [] },
     data: { sections: [], connections: [] },
     powerPolicy: { preset: "custom", customOrder: ["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"] }
   };
@@ -39,7 +39,7 @@ function makeShip() {
     componentHeat: snap.design.map(() => 0), componentHeatState: snap.design.map(() => 0),
     componentThermals: snap.design.map(() => ({ capacity: 100 })),
     dirtyComponents: new Set(), dirtyHeat: new Set(),
-    _activityDemandByIndex: { 1: 6 }
+    _activityDemandByIndex: { 2: 6 }
   };
   initializeComponentPower(ship);
   return ship;
@@ -57,23 +57,20 @@ function makeShip() {
   const full = snapshotRoom(room, 0, player, true, null, client);
   const fullShip = full.ships[0];
   assert(fullShip.powerProtection, "full snapshot includes powerProtection");
-  assert.strictEqual(fullShip.powerProtection.state, "strained", "6 MW through a light internal edge is strained");
+  assert.strictEqual(fullShip.powerProtection.state, "strained", "6 MW through light cables is strained");
   assert(fullShip.powerProtection.aboveSustainedSectionCount >= 1);
   assert(fullShip.powerProtection.sections.length >= 1, "compact stressed-section records present");
-  const internal = fullShip.powerProtection.sections.find((s) => s.kind === "switchgear");
-  assert(internal && internal.stress > 0 && internal.tier === "light");
   assert(Number.isInteger(fullShip.powerProtectionRevision) && fullShip.powerProtectionRevision >= 1);
   finite(fullShip.powerProtection);
-  finite(fullShip.switchgear);
-  assert(Object.prototype.hasOwnProperty.call(fullShip.switchgear[0], "cooldownRemaining"), "switchgear snapshot carries expanded trip/retry fields");
+  // switchgear array is always empty now
+  assert(Array.isArray(fullShip.switchgear) && fullShip.switchgear.length === 0, "switchgear snapshot is an empty array");
 
   // Mark the client as having written this state.
   client.knownShipDesignRevisions = new Map([["s", 1]]);
   client.knownShipPowerRevisions.set("s", ship.powerRevision);
   client.knownShipPowerProtectionRevisions.set("s", ship.powerProtectionRevision);
 
-  // Stress-only change: protection block is resent without resending
-  // componentPower (no Power revision change).
+  // Stress-only change: protection block is resent without resending componentPower.
   const powerRevBefore = ship.powerRevision;
   updateShipPowerProtection(ship, 0.5);
   assert.strictEqual(ship.powerRevision, powerRevBefore, "stress accumulation does not bump the Power revision");
@@ -83,8 +80,7 @@ function makeShip() {
   assert(stressOnly.powerProtection, "stress change is delivered to the player");
   assert(stressOnly.powerProtection.mostStressedStress > fullShip.powerProtection.mostStressedStress);
 
-  // Client merge keeps the newest protection block and preserves it when a
-  // later compact update omits it.
+  // Client merge keeps the newest protection block and preserves it when a later compact update omits it.
   const merged = mergeCachedShipFields([fullShip], [stressOnly])[0];
   assert.strictEqual(merged.powerProtection.mostStressedStress, stressOnly.powerProtection.mostStressedStress);
   client.knownShipPowerProtectionRevisions.set("s", ship.powerProtectionRevision);
@@ -93,42 +89,14 @@ function makeShip() {
   const retained = mergeCachedShipFields([merged], [unchanged])[0];
   assert.strictEqual(retained.powerProtection.mostStressedStress, stressOnly.powerProtection.mostStressedStress, "omitted protection block preserves the previous one");
 
-  // 40. Trip changes are sent immediately even when unrelated allocations are
-  // untouched between the two snapshots.
-  while (ship.runtimeSwitchgear[0].state !== "tripped") updateShipPowerProtection(ship, 0.05);
-  const afterTrip = snapshotRoom(room, 48, player, false, null, client).ships[0];
-  assert(afterTrip.powerProtection, "trip state change is delivered immediately");
-  assert.strictEqual(afterTrip.powerProtection.trippedSwitchgearCount, 1);
-  assert.strictEqual(afterTrip.powerProtection.state, "protection-trip");
-  assert(afterTrip.powerProtection.nextRetrySeconds > 0);
-  assert(afterTrip.switchgear, "switchgear runtime block refreshed with the trip");
-  const trippedRecord = afterTrip.switchgear.find((r) => r.state === "tripped");
-  assert(trippedRecord && /overload trip/.test(trippedRecord.trippedReason));
-  assert(trippedRecord.cooldownRemaining > 0 && trippedRecord.lastTripFlowMw === 6);
-  finite(afterTrip.powerProtection);
-  finite(afterTrip.switchgear);
-  client.knownShipPowerProtectionRevisions.set("s", ship.powerProtectionRevision);
-  client.knownShipPowerRevisions.set("s", ship.powerRevision);
-
-  // Failed retry fields flow through the compact snapshot too.
-  const config = powerProtectionConfig();
-  for (let t = 0; t < config.tripCooldownSeconds + config.retryIntervalSeconds + 0.5; t += 0.05) updateShipPowerProtection(ship, 0.05);
-  const afterRetry = snapshotRoom(room, 64, player, false, null, client).ships[0];
-  assert(afterRetry.powerProtection, "retry bookkeeping change is delivered");
-  const retriedRecord = afterRetry.switchgear.find((r) => r.state === "tripped");
-  assert(retriedRecord.retryCount >= 1, "retry count visible");
-  assert.strictEqual(retriedRecord.lastRetryReason, "projected flow above safe reclose threshold");
-
   // 36-analogue at the snapshot level: replacement clears stale diagnostics.
-  ship._activityDemandByIndex = { 1: 1 };
+  ship._activityDemandByIndex = { 2: 1 };
   initializeComponentPower(ship);
   updateShipPowerProtection(ship, 0.05);
   const replaced = snapshotRoom(room, 96, player, true, null, client).ships[0];
   assert.strictEqual(replaced.powerProtection.state, "normal");
-  assert.strictEqual(replaced.powerProtection.trippedSwitchgearCount, 0);
   assert.strictEqual(replaced.powerProtection.sections.length, 0, "no stale stressed sections after design replacement");
   assert.strictEqual(replaced.powerProtection.mostStressedSectionId, null);
-  assert.strictEqual(replaced.powerProtection.nextRetrySeconds, 0, "missing optional values normalise to zero");
   finite(replaced.powerProtection);
 
   console.log("Section 7G runtime Power-protection snapshot verification passed.");

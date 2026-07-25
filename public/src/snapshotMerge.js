@@ -22,7 +22,7 @@ const PRIVATE_SHIP_FIELDS = Object.freeze([
   "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
   "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision",
   "powerWiring", "powerWiringRevision", "powerWiringRuntime",
-  "chp", "chpD", "componentHeat", "componentHeatD"
+  "chp", "chpD", "componentHeat", "componentHeatD", "storageCharge"
 ]);
 
 export function mergeStaticPlayerFields(previousPlayers, nextPlayers) {
@@ -115,7 +115,7 @@ export function mergeCachedShipFields(previousShips, nextShips) {
     if (isNullish(merged.design)) merged.design = oldShip.design;
     // Carried fields are shared by reference: snapshots are treated as
     // immutable once merged, so cloning here would only produce GC churn.
-    for (const key of ["componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision", "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision", "powerWiring", "powerWiringRevision", "powerWiringRuntime"]) {
+    for (const key of ["componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision", "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision", "powerWiring", "powerWiringRevision", "powerWiringRuntime", "storageCharge"]) {
       if (isNullish(merged[key])) merged[key] = oldShip[key];
     }
     if (isNullish(merged.chp)) {

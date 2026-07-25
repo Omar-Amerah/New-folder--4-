@@ -52,8 +52,6 @@ check("1. final documented tier, Data and Switchgear values are authoritative", 
   assert.deepStrictEqual(
     [BALANCE.wiringInfrastructure.data.costPerHostedCell, BALANCE.wiringInfrastructure.data.heatCapacityDisplacement],
     [0.25, 1]);
-  assert.strictEqual(PARTS.switchgear.cost, 10);
-  assert.strictEqual(PARTS.switchgear.hp, 35);
   // Section 7G protection defaults remain the provisional values (unchanged in 7H).
   assert.deepStrictEqual(
     [CONFIG.overloadStartRatio, CONFIG.recoveryStartRatio, CONFIG.tripStressThreshold, CONFIG.baseStressPerSecond, CONFIG.additionalStressPerSecondAtPeak, CONFIG.recoveryPerSecond, CONFIG.criticalStressRatio, CONFIG.tripCooldownSeconds, CONFIG.retryIntervalSeconds, CONFIG.safeRecloseSustainedRatio, CONFIG.maxAutomaticRetrySubsets, CONFIG.maximumProtectionDeltaSeconds],
@@ -106,7 +104,7 @@ check("4/5. every reference Blueprint normalises idempotently and is buildable",
   }
   assert.strictEqual(allShips.length, 7, "seven reference architectures");
   const architectures = new Set(allShips.map((f) => f.architecture));
-  for (const family of ["central-heavy-bus", "distributed-grids", "ring-bus", "hybrid-switchgear"]) {
+  for (const family of ["central-heavy-bus", "distributed-grids", "ring-bus", "hybrid-storage"]) {
     assert(architectures.has(family), `architecture family present: ${family}`);
   }
 });
@@ -163,16 +161,6 @@ check("37/38. the same solved flow drives utilisation, cable Heat, stress, trips
   const room = { code: "R", phase: "active", adminId: "p", stateEpoch: 1, snapshotSeq: 1, staticRevision: 1, mapSizeLabel: "tiny", world: { width: 100, height: 100 }, map: { asteroids: [] }, rules: { gameMode: "control" }, players: new Map([["p", player]]), ships: new Map([["s", ship]]), bullets: [], points: [], effects: [], winner: null, matchStartedAt: 1, maxScore: 100, controlVictory: null };
   const snapshotShip = snapshotRoom(room, 0, player, true, null, { player }).ships[0];
   finite(snapshotShip.powerProtection);
-  finite(snapshotShip.switchgear);
-  const flowsById = new Map(ship.powerFlow.sectionFlows.map((f) => [f.sectionId, f]));
-  for (const record of snapshotShip.switchgear) {
-    const runtime = ship.runtimeSwitchgear.find((r) => r.componentIndex === record.componentIndex);
-    assert.strictEqual(record.signedTransferMw, runtime.signedTransferMw, "snapshot Switchgear transfer equals solved value");
-    if (runtime.conducts) {
-      const flow = flowsById.get(runtime.internalEdgeId);
-      assert(Math.abs(record.signedTransferMw - Math.abs(flow.signedFlowMw)) < 1e-9 || Math.abs(record.signedTransferMw - flow.signedFlowMw) < 1e-9);
-    }
-  }
   for (const section of snapshotShip.powerProtection.sections) {
     const runtime = protectionSections.get(section.sectionId);
     assert(runtime, "snapshot section has runtime record");

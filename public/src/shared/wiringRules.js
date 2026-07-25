@@ -28,7 +28,7 @@
   // Null means unlimited.  Balance can opt in without teaching the editor a
   // second, hidden limit.
   const DEFAULT_CABLE_LIMITS = Object.freeze({ power: null, data: null });
-  const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "auxGenerator"]);
+  const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "auxGenerator", "battery", "capacitor"]);
   if (!DataSupportRules) throw new Error("DataSupportRules must load before WiringRules");
   if (!PowerPolicyRules) throw new Error("PowerPolicyRules must load before WiringRules");
   const { DATA_SOURCE_INFO, DATA_SOURCE_TYPES } = DataSupportRules;
@@ -40,7 +40,7 @@
 
   function partStat(catalogue, type) { return (catalogue && (catalogue[type] || catalogue.frame)) || {}; }
   function isPowerSourceType(type) { return POWER_SOURCE_TYPES.includes(type); }
-  function isPowerConsumer(type, catalogue) { return !isPowerSourceType(type) && (Number(partStat(catalogue, type).powerUse) || 0) > 0; }
+  function isPowerConsumer(type, catalogue) { const p = partStat(catalogue, type); return !isPowerSourceType(type) && ((Number(p.powerUse) || 0) > 0 || (p.energyCapacity || p.energyStorage || p.maxDischargeRate || 0) > 0); }
   function isDataSourceType(type) { return DataSupportRules.isDataSupportSource(type); }
   function isDataTarget(type, catalogue) { return Boolean(partStat(catalogue, type).weapon); }
   function isCompatibleWeapon(sourceType, weaponType, catalogue) { return isDataSourceType(sourceType) && isDataTarget(weaponType, catalogue); }
@@ -255,8 +255,9 @@
     return [...groups.values()].map((group) => {
       const touched = new Set(); group.forEach((section) => sectionCells(section).forEach((cell) => { const index = occupied.get(cellKey(cell.x, cell.y)); if (index !== undefined) touched.add(index); }));
       const sectionIds = group.map((s) => s.id).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-      const sourceIndices = [...touched].filter((i) => kind === "power" ? isPowerSourceType(modules[i].type) : isDataSourceType(modules[i].type)).sort((a, b) => a - b);
-      const consumerIndices = kind === "power" ? [...touched].filter((i) => isPowerConsumer(modules[i].type, catalogue)).sort((a, b) => a - b) : [];
+      const isStorage = (t) => { const p = partStat(catalogue, t); return (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0) && (p.powerGeneration || 0) === 0; };
+      const sourceIndices = [...touched].filter((i) => kind === "power" ? (isPowerSourceType(modules[i].type) || isStorage(modules[i].type)) : isDataSourceType(modules[i].type)).sort((a, b) => a - b);
+      const consumerIndices = kind === "power" ? [...touched].filter((i) => isPowerConsumer(modules[i].type, catalogue) && !isStorage(modules[i].type)).sort((a, b) => a - b) : [];
       const weaponIndices = kind === "data" ? [...touched].filter((i) => isDataTarget(modules[i].type, catalogue)).sort((a, b) => a - b) : [];
       const componentIndices = [...new Set([...sourceIndices, ...consumerIndices, ...weaponIndices])].sort((a, b) => a - b);
       const hostIndices = [...touched].sort((a, b) => a - b); const first = sectionIds[0];
@@ -433,12 +434,16 @@
   function analyzePhysicalPower(design, wiring, catalogue) {
     const modules = Array.isArray(design) ? design : []; const normalized = normalizeWiring(wiring, modules, catalogue); const all = physicalGroups(modules, normalized.wiring.power, catalogue, "power");
     const networks = all.map((network, index) => {
-      const generationMw = network.sourceIndices.reduce((sum, i) => sum + (Number(partStat(catalogue, modules[i].type).powerGeneration) || 0), 0);
+      const generationMw = network.sourceIndices.reduce((sum, i) => {
+        const p = partStat(catalogue, modules[i].type);
+        return sum + (Number(p.powerGeneration) || Number(p.maxDischargeRate) || 0);
+      }, 0);
       const demandMw = network.consumerIndices.reduce((sum, i) => sum + (Number(partStat(catalogue, modules[i].type).powerUse) || 0), 0); const surplusMw = generationMw - demandMw;
       const status = network.consumerIndices.length ? generationMw <= 0 ? "unpowered" : generationMw < demandMw ? "underpowered" : "online" : network.sourceIndices.length ? "idle" : "empty";
       return { ...network, label: `Power Network ${String.fromCharCode(65 + index)}`, status, generationMw, demandMw, surplusMw, deficitMw: Math.max(0, -surplusMw), generation: generationMw, demand: demandMw, loadRatio: generationMw > 0 ? demandMw / generationMw : demandMw ? null : 0, availableEfficiency: demandMw ? Math.max(0, Math.min(1, generationMw / demandMw)) : 1, powered: generationMw > 0 };
     });
-    const sourceIndices = [], consumerIndices = []; modules.forEach((m, i) => { if (isPowerSourceType(m.type)) sourceIndices.push(i); if (isPowerConsumer(m.type, catalogue)) consumerIndices.push(i); });
+    const isStorage = (t) => { const p = partStat(catalogue, t); return (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0) && (p.powerGeneration || 0) === 0; };
+    const sourceIndices = [], consumerIndices = []; modules.forEach((m, i) => { if (isPowerSourceType(m.type) || isStorage(m.type)) sourceIndices.push(i); else if (isPowerConsumer(m.type, catalogue)) consumerIndices.push(i); });
     const networkByComponent = new Map(); networks.forEach((n) => n.componentIndices.forEach((i) => networkByComponent.set(i, n)));
     const disconnectedConsumerIndices = consumerIndices.filter((i) => !networkByComponent.get(i)?.sourceIndices.length); const underpoweredConsumerIndices = networks.filter((n) => n.status === "underpowered").flatMap((n) => n.consumerIndices);
     const totalGenerationMw = networks.reduce((s, n) => s + n.generationMw, 0), totalDemandMw = networks.reduce((s, n) => s + n.demandMw, 0);
@@ -474,9 +479,10 @@
   function createGeneratedPowerWiring(design, componentCatalog) {
     const modules = Array.isArray(design) ? design.map((module) => ({ ...module })) : [];
     const occupiedKeys = new Set();
+    const isStorage = (t) => { const p = partStat(componentCatalog, t); return (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0) && (p.powerGeneration || 0) === 0; };
     modules.forEach((module) => moduleCells(module, componentCatalog).forEach((cell) => occupiedKeys.add(cellKey(cell.x, cell.y))));
-    const sourceIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerSourceType(module.type)).map(({ index }) => index);
-    const consumerIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerConsumer(module.type, componentCatalog)).map(({ index }) => index);
+    const sourceIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerSourceType(module.type) || isStorage(module.type)).map(({ index }) => index);
+    const consumerIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerConsumer(module.type, componentCatalog) && !isStorage(module.type)).map(({ index }) => index);
     if (!sourceIndices.length) return emptyWiring();
     let wiring = emptyWiring();
     const networkCells = new Set(moduleCells(modules[sourceIndices[0]], componentCatalog).map((cell) => cellKey(cell.x, cell.y)));
@@ -490,6 +496,7 @@
       if (!route || route.length < 2) { unreachable.push({ index: targetIndex, type: modules[targetIndex]?.type, cells: targetCells }); continue; }
       wiring = addPath(wiring, "power", route, modules, componentCatalog);
       route.forEach((cell) => networkCells.add(cellKey(cell.x, cell.y)));
+      moduleCells(modules[targetIndex], componentCatalog).forEach((cell) => networkCells.add(cellKey(cell.x, cell.y)));
     }
     const normalized = normalizeWiring(wiring, modules, componentCatalog).wiring;
     const analysis = analyzePhysicalPower(modules, normalized, componentCatalog);

@@ -64,15 +64,14 @@ function makeActiveRoom() {
   return { room, p1 };
 }
 
-// A design that carries configurable components (droneBay + switchgear) so we
+// A design that carries configurable components (droneBay) so we
 // can vary component-specific configuration without moving anything.
 function configurableDesign() {
   return [
     { type: "core", x: 7, y: 7, rotation: 0 },
     { type: "reactor", x: 7, y: 5, rotation: 0 },
     { type: "engine", x: 7, y: 8, rotation: 0 },
-    { type: "droneBay", x: 5, y: 7, rotation: 0, droneType: "fighter" },
-    { type: "switchgear", x: 9, y: 7, rotation: 0, switchgearMode: "closed", switchgearRatingTier: "standard" }
+    { type: "droneBay", x: 5, y: 7, rotation: 0, droneType: "fighter" }
   ];
 }
 
@@ -127,8 +126,6 @@ function reverseKeys(value) {
 (function specialisedFieldsConflict() {
   const cases = {
     "drone bay drone type": (d) => { d.design = configurableDesign(); d.design[3].droneType = "defence"; },
-    "switchgear mode": (d) => { d.design = configurableDesign(); d.design[4].switchgearMode = "open"; },
-    "switchgear rating tier": (d) => { d.design = configurableDesign(); d.design[4].switchgearRatingTier = "heavy"; },
     "combat style": (d) => { d.combatStyle = "hold"; },
     "purchase quantity": (d) => { d.count = 2; },
     "power priority preset": (d) => {

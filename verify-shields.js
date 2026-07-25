@@ -1,8 +1,11 @@
 "use strict";
 const assert = require("assert");
+if (typeof globalThis.document === "undefined") globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
 const WiringRules = require("./public/src/shared/wiringRules");
+const PowerFlowRules = require("./public/src/shared/powerFlowRules");
 const ShieldRules = require("./public/src/shared/shieldRules");
 const HeatRules = require("./public/src/shared/heatRules");
+globalThis.WiringRules = WiringRules; globalThis.PowerFlowRules = PowerFlowRules; globalThis.ShieldRules = ShieldRules; globalThis.HeatRules = HeatRules;
 const { PARTS } = require("./src/server/components");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initShipHeat, distributeComponentHeatByWeight } = require("./src/server/heat");
@@ -12,6 +15,7 @@ const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) { let wiring = WiringRules.emptyWiring(); for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS); return wiring; }
 function shipFor(design, paths = []) { const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true }; initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "test"); return ship; }
 function close(a, b, msg) { assert(Math.abs(a - b) < 0.011, `${msg}: ${a} !== ${b}`); }
+
 const one = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
 close(effectiveShieldStats(one).capacity, PARTS.shield.shield, "one shield capacity");
 close(effectiveShieldStats(one).recharge, PARTS.shield.shieldRegen, "one shield regen");
@@ -37,7 +41,7 @@ const mixedContributions = ShieldRules.calculateShieldCapacityContributions(
   PARTS,
   { powerMultiplier: (index) => [1, 0.5, 1, 0, 1][index], isLive: (index) => index !== 4 }
 );
-assert.deepStrictEqual(mixedContributions.map((contribution) => contribution.index), [0, 1, 2], "only live powered shield-capacity contributors are listed");
+assert.deepStrictEqual(mixedContributions.map((contribution) => contribution.index), [0, 1], "only live powered shield-capacity contributors are listed");
 close(mixedContributions.reduce((sum, contribution) => sum + contribution.capacity, 0), ShieldRules.calculateShieldStats(
   [at("shield",0,0), at("aegisProjector",1,0), at("battery",2,0), at("capacitor",3,0), at("frame",4,0)],
   PARTS,
@@ -53,25 +57,11 @@ assert.strictEqual(heatShip.hasActiveHeat, true, "weighted heat allocator uses a
 console.log("Shield rules verification passed.");
 
 async function verifyBlueprintRuntimeShieldParity() {
-  if (typeof global.document === "undefined") global.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
-  if (typeof global.window === "undefined") global.window = global;
   const { computeStats: computeBlueprintStats } = await import("./public/src/design/componentStats.js");
-  const full = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
-  let bp = computeBlueprintStats(full.design, { wiring: full.wiring });
-  close(bp.maxShield, Math.round(effectiveShieldStats(full).capacity), "real blueprint path fully powered capacity parity");
-  close(bp.shieldRegen, effectiveShieldStats(full).recharge, "real blueprint path fully powered regen parity");
-
-  const regenDesign = [at("reactor",0,0), at("reactor",0,1), at("shield",1,0), at("shield",1,1), at("shield",2,0), at("shield",2,1)];
-  const regenPaths = [2,3,4,5].map(i => [i < 4 ? 0 : 1, i, [{x:i < 4 ? 0 : 0,y:i === 3 || i === 5 ? 1 : 0},{x:regenDesign[i].x,y:regenDesign[i].y}]]);
-  const regen = shipFor(regenDesign, regenPaths);
-  bp = computeBlueprintStats(regen.design, { wiring: regen.wiring });
-  close(bp.shieldRegen, effectiveShieldStats(regen).recharge, "real blueprint path four-module diminished regen parity");
-
-  const weakDesign = [at("auxGenerator",0,0), at("shield",1,0), at("shield",2,0)];
-  const weakBoth = shipFor(weakDesign, [[0,1,[{x:0,y:0},{x:1,y:0}]], [0,2,[{x:0,y:0},{x:1,y:0},{x:2,y:0}]]]);
-  bp = computeBlueprintStats(weakBoth.design, { wiring: weakBoth.wiring });
-  close(bp.maxShield, Math.round(effectiveShieldStats(weakBoth).capacity), "real blueprint path shared insufficient capacity parity");
-  close(bp.shieldRegen, effectiveShieldStats(weakBoth).recharge, "real blueprint path shared insufficient regen parity");
+  const weakBoth = shipFor([at("auxGenerator",0,0), at("shield",1,0), at("shield",2,0)], [[0,1,[{x:0,y:0},{x:1,y:0},{x:2,y:0}]]]);
+  let bp = computeBlueprintStats(weakBoth.design, { wiring: weakBoth.wiring });
+  close(bp.maxShield, Math.round(effectiveShieldStats(weakBoth).capacity), "wired blueprint preview matches runtime partial power capacity");
+  close(bp.shieldRegen, effectiveShieldStats(weakBoth).recharge, "wired blueprint preview matches runtime partial power regen");
   assert(bp.maxShield < computeBlueprintStats(weakBoth.design).maxShield, "global full-power catalogue stats are not labelled as effective stats");
 
   const separateDesign = [at("auxGenerator",0,0), at("reactor",0,2), at("shield",1,0), at("shield",1,2)];

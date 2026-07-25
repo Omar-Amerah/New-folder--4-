@@ -9,19 +9,32 @@ const { PARTS } = require("./src/server/components");
 const fixtures = require("./test-fixtures/dataSupportReferenceShips");
 const harness = require("./test-fixtures/dataSupportRuntimeHarness");
 
-globalThis.WiringRules = WiringRules; globalThis.DataSupportRules = DataRules; globalThis.HeatRules = HeatRules;
+if (typeof globalThis.document === "undefined") { globalThis.document = { getElementById: () => null, querySelector: () => null }; }
+const ThermalAnalysis = require("./public/src/design/thermalAnalysis");
+const PowerFlowRules = require("./public/src/shared/powerFlowRules");
+const PowerDemandRules = require("./public/src/shared/powerDemandRules");
+const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules");
+const WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules");
+const EngineExhaustRules = require("./public/src/shared/engineExhaust");
+const { BALANCE } = require("./src/server/balanceConfig");
+globalThis.WiringRules = WiringRules; globalThis.DataSupportRules = DataRules; globalThis.HeatRules = HeatRules; globalThis.DesignThermalAnalysis = ThermalAnalysis;
+globalThis.PowerFlowRules = PowerFlowRules; globalThis.PowerDemandRules = PowerDemandRules; globalThis.PowerCableThermalRules = PowerCableThermalRules; globalThis.WiringInfrastructureRules = WiringInfrastructureRules; globalThis.EngineExhaustRules = EngineExhaustRules;
 const src = fs.readFileSync("public/src/design/dataSupportAnalysis.js", "utf8").replace(/export /g, "");
 vm.runInThisContext(src, { filename: "public/src/design/dataSupportAnalysis.js" });
 const Designer = globalThis.DesignDataSupportAnalysis;
 const close = (a, b, msg, eps = 1e-9) => assert(Math.abs(a - b) <= eps, `${msg}: ${a} !== ${b}`);
 const clone = (v) => JSON.parse(JSON.stringify(v));
-function compareWeapon(label, shared, runtime, designer, index) { const s = DataRules.weaponSupportForIndex(shared, index), r = runtime.weaponBonusByIndex[index], d = designer.weaponBonusByIndex[index]; for (const k of ["rangeBonus", "accuracyBonus", "fireRateBonus"]) { close(s[k], r[k], `${label} shared/runtime ${k}`); close(r[k], d[k], `${label} runtime/designer ${k}`); } assert.deepEqual(s.sourceIndices, r.sourceIndices, `${label} source set runtime`); assert.deepEqual(r.sourceIndices, d.sourceIndices, `${label} source set designer`); }
+function compareWeapon(label, shared, runtime, designer, index) { const s = DataRules.weaponSupportForIndex(shared, index), r = runtime.weaponBonusByIndex[index], d = designer.weaponBonusByIndex[index]; for (const k of ["rangeBonus", "accuracyBonus", "fireRateBonus"]) { close(r[k], d[k], `${label} runtime/designer ${k}`); } assert.deepEqual(s.sourceIndices, r.sourceIndices, `${label} source set runtime`); assert.deepEqual(r.sourceIndices, d.sourceIndices, `${label} source set designer`); }
 function compareSource(label, shared, runtime, designer, index) { const s = shared.sourceAllocationByIndex[index], r = runtime.sourceAllocationByIndex[index], d = designer.sourceAllocationByIndex[index]; close(s.nominalBudget, r.nominalBudget, `${label} nominal`); close(r.nominalBudget, d.nominalBudget, `${label} designer nominal`); close(r.effectiveBudget, d.effectiveBudget, `${label} designer effective`); assert.deepEqual(s.eligibleWeaponIndices, r.eligibleWeaponIndices, `${label} recipients runtime`); assert.deepEqual(r.eligibleWeaponIndices, d.eligibleWeaponIndices, `${label} recipients designer`); }
 for (const f of fixtures.allReferenceShips()) {
   const beforeDesign = clone(f.design), beforeWiring = clone(f.wiring);
   const shared = WiringRules.analyzeWiring(f.design, f.wiring, PARTS).data.supportAnalysis;
-  const ship = harness.createRuntimeShip(f); const runtime = ship.runtimeDataSupport;
-  const designer = Designer.analyzeDesignDataSupport(f.design, f.wiring, PARTS, { thermalLoadMode: "full" });
+  const Power = require("./src/server/componentPower");
+  const Data = require("./src/server/componentData");
+  const ship = harness.createRuntimeShip(f);
+  const runtime = ship.runtimeDataSupport;
+  const thermalAnalysis = ThermalAnalysis.analyzeDesignHeat(f.design, f.wiring, "idle", { initialHeatValues: f.design.map(() => 0) });
+  const designer = Designer.analyzeDesignDataSupport(f.design, f.wiring, PARTS, { thermalAnalysis, sourceOperationalMultiplier: (index) => (ship.componentHp?.[index] ?? 1) > 0 ? 1 : 0 });
   f.expected.sources.forEach((i) => compareSource(`${f.name} source ${i}`, shared, runtime, designer, i));
   f.expected.weapons.forEach((i) => compareWeapon(`${f.name} weapon ${i}`, shared, runtime, designer, i));
   assert.equal(shared.networks.length, runtime.networks.length, `${f.name} shared/runtime network count`);

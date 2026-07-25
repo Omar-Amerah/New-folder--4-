@@ -196,8 +196,21 @@
     };
 
     // Classify components and gather their live cable terminal cells.
-    const sources = []; const consumers = [];
+    const sources = []; const consumers = []; const storages = [];
     const cellKeysSet = new Set(orderedCellKeys);
+    const dt = Math.max(0.001, numberOr(options.dt, 1.0));
+    const storageChargeOverride = options.componentStorageChargeByIndex || options.componentStorageCharge;
+
+    const isPowerGeneratorType = (t) => (partFor(catalogue, t).powerGeneration || 0) > 0;
+    const isStorageComponent = (t) => {
+      const p = partFor(catalogue, t);
+      return (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0) && (p.powerGeneration || 0) === 0;
+    };
+    const isPowerConsumerType = (index, t) => {
+      const p = partFor(catalogue, t);
+      return !isPowerGeneratorType(t) && !isStorageComponent(t) && (consumerDemandMw(index, t) > 0 || (p.powerUse || 0) > 0);
+    };
+
     modules.forEach((moduleValue, index) => {
       const type = moduleValue && moduleValue.type;
       const alive = operationalOf(index);
@@ -206,17 +219,33 @@
       // One terminal per island so a multi-cell component injects/draws at a
       // single cell per network and cannot bypass its own cable sections.
       const islandTerminals = selectIslandTerminals(uniqueTerminals);
-      if (isPowerSourceType(type)) {
+      if (isPowerGeneratorType(type)) {
         sources.push({ index, type, terminals: islandTerminals, alive, generationMw: alive ? sourceGenMw(index, type) : 0, stableKey: stableComponentKey(moduleValue, catalogue) });
-      } else if (isPowerConsumer(type, catalogue)) {
+      } else if (isStorageComponent(type)) {
+        const part = partFor(catalogue, type);
+        const energyCap = numberOr(part.energyCapacity ?? part.energyStorage ?? part.energy, 0);
+        const initialCharge = storageChargeOverride ? storageChargeOverride[index] : undefined;
+        const currentCharge = initialCharge !== undefined ? numberOr(initialCharge, energyCap) : energyCap;
+        storages.push({
+          index, type, terminals: islandTerminals, uniqueTerminals, alive,
+          energyCapacity: energyCap,
+          currentChargeMj: Math.max(0, Math.min(energyCap, currentCharge)),
+          maxChargeRateMw: numberOr(part.maxChargeRate, 0),
+          maxDischargeRateMw: numberOr(part.maxDischargeRate, 0),
+          chargeEfficiency: part.chargeEfficiency !== undefined ? numberOr(part.chargeEfficiency, 1) : 1,
+          dischargeEfficiency: part.dischargeEfficiency !== undefined ? numberOr(part.dischargeEfficiency, 1) : 1,
+          dischargeHeatAtMax: numberOr(part.dischargeHeatAtMax ?? part.dischargeHeat, 0),
+          stableKey: stableComponentKey(moduleValue, catalogue)
+        });
+      } else if (isPowerConsumerType(index, type)) {
         consumers.push({ index, type, terminals: islandTerminals, alive, demandMw: alive ? consumerDemandMw(index, type) : 0, powerCategory: partFor(catalogue, type).powerCategory || null, stableKey: stableComponentKey(moduleValue, catalogue) });
       }
     });
-    // Order sources and consumers by stable physical identity (design-array
-    // index is only an impossible final tie-break) so graph construction,
-    // routing and fairness never depend on component ordering.
+    // Order sources, storages, and consumers by stable physical identity so
+    // graph construction, routing and fairness never depend on component ordering.
     const byStableKey = (a, b) => compareCanonicalIds(a.stableKey, b.stableKey) || (a.index - b.index);
     sources.sort(byStableKey);
+    storages.sort(byStableKey);
     consumers.sort(byStableKey);
 
     // ---- Build the flow network (nodes: S, T, one per cable cell, one per
@@ -367,7 +396,7 @@
       }
     }
 
-    // ---- Read committed flow into serialisable results. ----
+    // ---- Read initial generator flow into networks. ----
     const usedGenUnits = sources.map((_, s) => net.edgeFlow(sourceSupplyEdge[s]));
     const totalUsedGenUnits = usedGenUnits.reduce((sum, value) => sum + value, 0);
 
@@ -417,6 +446,98 @@
       if (attachedNets.length) networks[attachedNets[0]].demandUnits += Math.max(0, consumerDemandUnits[c] - allocated);
     });
 
+    // ---- Storage Allocation: Step 2 Charging & Step 3 Discharging ----
+    // Calculate network spare generation from normal generators.
+    const networkSpareUnits = networks.map((netVal) => Math.max(0, netVal.availableGenUnits - netVal.usedGenUnits));
+
+    // Step 2: Storage charging from spare generation.
+    const chargeMw = storages.map(() => 0);
+    const chargedUnits = storages.map(() => 0);
+    const addedMj = storages.map(() => 0);
+
+    for (let s = 0; s < storages.length; s += 1) {
+      const st = storages[s];
+      if (!st.alive || st.terminals.length === 0 || st.maxChargeRateMw <= 0) continue;
+      const roomMj = Math.max(0, st.energyCapacity - st.currentChargeMj);
+      if (roomMj <= 0.0001) continue;
+      const maxChargeMwNeeded = Math.min(st.maxChargeRateMw, roomMj / (st.chargeEfficiency * dt));
+      const reqUnits = mwToPowerUnits(maxChargeMwNeeded);
+      if (reqUnits <= 0) continue;
+
+      const attachedNets = networkOfComponentIndex(st.terminals);
+      let unitsTaken = 0;
+      for (const netId of attachedNets) {
+        const avail = networkSpareUnits[netId];
+        if (avail <= 0) continue;
+        const take = Math.min(reqUnits - unitsTaken, avail);
+        networkSpareUnits[netId] -= take;
+        networks[netId].usedGenUnits += take;
+        unitsTaken += take;
+        if (unitsTaken >= reqUnits) break;
+      }
+      chargedUnits[s] = unitsTaken;
+      chargeMw[s] = powerUnitsToMw(unitsTaken);
+      addedMj[s] = chargeMw[s] * dt * st.chargeEfficiency;
+    }
+
+    // Step 3: Storage discharging during shortages for consumers.
+    const dischargeMw = storages.map(() => 0);
+    const dischargedUnits = storages.map(() => 0);
+    const removedMj = storages.map(() => 0);
+    const dischargeHeatGen = storages.map(() => 0);
+
+    let totalUnmetUnits = consumers.reduce((sum, _, c) => sum + Math.max(0, consumerDemandUnits[c] - grantedUnits[c]), 0);
+
+    if (totalUnmetUnits > 0) {
+      for (let s = 0; s < storages.length; s += 1) {
+        const st = storages[s];
+        if (chargedUnits[s] > 0 || !st.alive || st.terminals.length === 0 || st.maxDischargeRateMw <= 0 || st.currentChargeMj <= 0.0001) continue;
+        const maxDischargeMwAvail = Math.min(st.maxDischargeRateMw, (st.currentChargeMj * st.dischargeEfficiency) / dt);
+        const availUnits = mwToPowerUnits(maxDischargeMwAvail);
+        if (availUnits <= 0) continue;
+
+        const attachedNets = networkOfComponentIndex(st.terminals);
+        const attachedNetSet = new Set(attachedNets);
+        let unitsGiven = 0;
+
+        for (const bandIndex of orderedBandIndices) {
+          const bandConsumers = consumers.map((_, c) => c).filter((c) => {
+            if (bandOfConsumer(c) !== bandIndex || consumerDemandUnits[c] <= grantedUnits[c]) return false;
+            const cNets = networkOfComponentIndex(consumers[c].terminals);
+            return cNets.some((n) => attachedNetSet.has(n));
+          });
+          for (const c of bandConsumers) {
+            const needed = consumerDemandUnits[c] - grantedUnits[c];
+            if (needed <= 0) continue;
+            const give = Math.min(availUnits - unitsGiven, needed);
+            grantedUnits[c] += give;
+            unitsGiven += give;
+            if (unitsGiven >= availUnits) break;
+          }
+          if (unitsGiven >= availUnits) break;
+        }
+
+        dischargedUnits[s] = unitsGiven;
+        dischargeMw[s] = powerUnitsToMw(unitsGiven);
+        removedMj[s] = (dischargeMw[s] * dt) / st.dischargeEfficiency;
+        dischargeHeatGen[s] = st.maxDischargeRateMw > 0 ? (st.dischargeHeatAtMax * (dischargeMw[s] / st.maxDischargeRateMw) * dt) : 0;
+      }
+    }
+
+    const finalStorageCharges = storages.map((st, s) => {
+      return Math.max(0, Math.min(st.energyCapacity, st.currentChargeMj + addedMj[s] - removedMj[s]));
+    });
+
+    const storageStates = storages.map((st, s) => {
+      if (!st.alive) return "destroyed";
+      if (st.terminals.length === 0) return "disconnected";
+      if (chargeMw[s] > 0) return "charging";
+      if (dischargeMw[s] > 0) return "discharging";
+      if (finalStorageCharges[s] >= st.energyCapacity - 0.001) return "full";
+      if (finalStorageCharges[s] <= 0.001) return "empty";
+      return "idle";
+    });
+
     const sectionFlows = sectionInfo.map(({ section, tier, config, peakUnits, sustainedUnits }) => {
       const signedUnits = net.edgeFlow(sectionFwdEdge.get(section.id));
       const absUnits = Math.abs(signedUnits);
@@ -436,10 +557,11 @@
       };
     }).sort((a, b) => compareCanonicalIds(a.sectionId, b.sectionId));
 
-    // Per-component output for sources, consumers and passive hosts.
+    // Per-component output for sources, consumers, storages and passive hosts.
     const powerCategoryOf = (index, type) => partFor(catalogue, type).powerCategory || null;
     const byComponentIndex = [];
     const sourceByIndex = new Map(sources.map((source, s) => [source.index, s]));
+    const storageByIndex = new Map(storages.map((st, s) => [st.index, s]));
     modules.forEach((moduleValue, index) => {
       const type = moduleValue && moduleValue.type;
       const alive = operationalOf(index);
@@ -453,6 +575,31 @@
           requestedMw: 0, allocatedMw: 0, unmetMw: 0,
           generationAvailableMw: powerUnitsToMw(sourceGenUnits[s]), generationUsedMw: powerUnitsToMw(usedGenUnits[s]),
           operationalMultiplier: 1, priorityBand: null, networkIds, state: alive ? "source" : "destroyed"
+        });
+      } else if (storageByIndex.has(index)) {
+        const s = storageByIndex.get(index);
+        const st = storages[s];
+        const cMw = chargeMw[s] || 0;
+        const dMw = dischargeMw[s] || 0;
+        const stState = storageStates[s];
+        const currentCharge = finalStorageCharges[s];
+        const pct = st.energyCapacity > 0 ? Math.round((currentCharge / st.energyCapacity) * 1000) / 10 : 0;
+        const estRuntime = dMw > 0 ? Math.round((currentCharge / dMw) * 10) / 10 : null;
+        byComponentIndex.push({
+          componentIndex: index, role: "storage", powerCategory: null,
+          requestedMw: cMw, allocatedMw: cMw, unmetMw: 0,
+          generationAvailableMw: dMw, generationUsedMw: dMw,
+          operationalMultiplier: 1, priorityBand: null, networkIds, state: stState,
+          storageDetails: {
+            currentChargeMj: Math.round(currentCharge * 100) / 100,
+            maxChargeMj: st.energyCapacity,
+            chargeRateMw: cMw,
+            dischargeRateMw: dMw,
+            chargePercentage: pct,
+            estimatedRuntimeSeconds: estRuntime,
+            dischargeHeat: Math.round(dischargeHeatGen[s] * 1000) / 1000,
+            state: stState
+          }
         });
       } else if (consumerByIndex.has(index)) {
         const c = consumerByIndex.get(index);
@@ -557,7 +704,22 @@
         aboveSustainedSections: sectionFlows.filter((flow) => flow.aboveSustained).length,
         atPeakSections: sectionFlows.filter((flow) => flow.atPeak).length,
         byCategory,
-        loadShedCategories
+        loadShedCategories,
+        storageChargingMw: powerUnitsToMw(chargedUnits.reduce((sum, v) => sum + v, 0)),
+        storageDischargingMw: powerUnitsToMw(dischargedUnits.reduce((sum, v) => sum + v, 0)),
+        storageComponents: storages.map((st, s) => ({
+          componentIndex: st.index,
+          type: st.type,
+          name: partFor(catalogue, st.type).name || st.type,
+          currentChargeMj: Math.round(finalStorageCharges[s] * 100) / 100,
+          maxChargeMj: st.energyCapacity,
+          chargeRateMw: chargeMw[s],
+          dischargeRateMw: dischargeMw[s],
+          chargePercentage: st.energyCapacity > 0 ? Math.round((finalStorageCharges[s] / st.energyCapacity) * 1000) / 10 : 0,
+          estimatedRuntimeSeconds: dischargeMw[s] > 0 ? Math.round((finalStorageCharges[s] / dischargeMw[s]) * 10) / 10 : null,
+          dischargeHeat: Math.round(dischargeHeatGen[s] * 1000) / 1000,
+          state: storageStates[s]
+        }))
       }
     };
   }

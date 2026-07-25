@@ -350,16 +350,6 @@
       }
     }
 
-    // Switchgear observations (from authoritative design + tier data).
-    for (const sg of Array.isArray(input.switchgear) ? input.switchgear : []) {
-      if (sg.mode === "automatic") positives.push("Automatic tie can share spare generation when a priority-safe transfer exists.");
-      const ratingSustained = sanitize(tierConfig(infrastructure, sg.ratingTier).sustainedCapacityMw);
-      const maxAdjacent = Math.max(0, ...(sg.adjacentTiers || []).map((tier) => sanitize(tierConfig(infrastructure, tier).sustainedCapacityMw)));
-      if (maxAdjacent > ratingSustained) {
-        warnings.push(`Switchgear rating (${tierName(infrastructure, sg.ratingTier)}, ${mw(ratingSustained)} sustained) is below its surrounding cable capacity (${mw(maxAdjacent)}).`);
-      }
-    }
-
     // Data observations.
     const dataNetworks = Array.isArray(input.dataNetworks) ? input.dataNetworks : [];
     for (const network of dataNetworks) {

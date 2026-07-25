@@ -21,7 +21,7 @@ function thermalAnalysisFor(design, wiring, mode, injected) {
 function thermalMultiplier(index, design, thermalAnalysis) {
   try {
     if (!thermalAnalysis) return 1;
-    const prediction = thermalAnalysis.predictions?.get?.(modulesOf(design)[index]);
+    const prediction = thermalAnalysis.predictions?.get?.(modulesOf(design)[index]) || (thermalAnalysis.predictions ? [...thermalAnalysis.predictions.values()][index] : null);
     if (!prediction) return 1;
     return heatRules().activeOutputForState(prediction.state ?? heatRules().STATE.NORMAL);
   } catch (_error) { return 0; }
@@ -61,8 +61,9 @@ export function analyzeDesignDataSupport(design, wiring, catalogue, options = {}
   const sourcePrediction = new Map();
   modules.forEach((module, index) => {
     if (!dataRules().isDataSupportSource(module?.type)) return;
-    const predictedPowerMultiplier = powerMultiplier(index, physical.power);
-    const predictedThermalMultiplier = thermalMultiplier(index, modules, thermalAnalysis);
+    const pred = thermalAnalysis?.predictions?.get?.(module) || (thermalAnalysis?.predictions ? [...thermalAnalysis.predictions.values()][index] : null);
+    const predictedPowerMultiplier = pred && typeof pred.powerMultiplier === "number" ? pred.powerMultiplier : powerMultiplier(index, physical.power);
+    const predictedThermalMultiplier = typeof options.sourceThermalMultiplier === "function" ? Number(options.sourceThermalMultiplier(index, module)) || 0 : options.sourceThermalMultiplier != null ? Number(options.sourceThermalMultiplier) || 0 : thermalMultiplier(index, modules, thermalAnalysis);
     const op = options.sourceOperationalMultiplier ?? options.operationalMultiplier;
     const predictedOperationalMultiplier = typeof op === "function" ? Number(op(index, module)) || 0 : op == null ? 1 : Number(op) || 0;
     sourcePrediction.set(index, { predictedPowerMultiplier, predictedThermalMultiplier, predictedOperationalMultiplier, predictedSourceMultiplier: predictedPowerMultiplier * predictedThermalMultiplier * predictedOperationalMultiplier });

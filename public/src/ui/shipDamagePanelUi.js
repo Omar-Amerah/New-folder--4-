@@ -274,6 +274,25 @@ function renderPowerSummary(ship) {
         ${powerDiagnosticRow("Priority", powerPresetLabel(pt.activePriorityPreset))}
       </div>
     </section>
+    ${(pt.storageComponents && pt.storageComponents.length > 0) ? `<section class="power-compact-section power-storage-section" aria-label="Power storage">
+      <h4>Power storage</h4>
+      ${pt.storageComponents.map((st) => {
+        const rateText = st.dischargeRateMw > 0
+          ? `Discharging: ${st.dischargeRateMw.toFixed(1)} MW`
+          : st.chargeRateMw > 0
+            ? `Charging: ${st.chargeRateMw.toFixed(1)} MW`
+            : st.state;
+        const estText = (st.estimatedRuntimeSeconds !== null && st.estimatedRuntimeSeconds !== undefined)
+          ? ` · Est. runtime: ${st.estimatedRuntimeSeconds.toFixed(1)} s`
+          : "";
+        const stateCap = st.state ? (st.state[0].toUpperCase() + st.state.slice(1)) : "Idle";
+        return `<div class="power-storage-card" data-storage-index="${st.componentIndex}">
+          <strong>${escapeHtml((st.name || st.type || "STORAGE").toUpperCase())}</strong>
+          <div>${st.currentChargeMj.toFixed(0)} / ${st.maxChargeMj.toFixed(0)} MJ (${st.chargePercentage.toFixed(0)}%)</div>
+          <div>${escapeHtml(stateCap)} · ${escapeHtml(rateText)}${escapeHtml(estText)}</div>
+        </div>`;
+      }).join("")}
+    </section>` : ""}
     <section class="power-compact-section power-issues-section" aria-label="Power issues">
       <h4>Issues</h4>${issueMarkup}${moreIssuesMarkup}
     </section>

@@ -30,34 +30,6 @@ check("disabled Power sections and similar Data IDs are deterministic and non-co
   assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), "repeated disabled-section analysis is deterministic");
   close(a.summary.totalPowerCableHeatPerSecond, a.sections[0].totalHeatPerSecond, "disabled sections do not contribute");
 });
-function shipForSwitch(record, hp=100){ return { runtimeSwitchgear:[{ sustainedCapacityMw:4, peakCapacityMw:7, signedTransferMw:0, utilisation:0, classification:"isolator", ratingTier:"light", decisionReason:"test", ...record }], componentHp:{ [record.componentIndex]:hp }, _powerProtection:{ switchgear:new Map(), sections:new Map() } }; }
-function snapSwitch(record, hp){ return _test.buildSwitchgearSnapshot(shipForSwitch(record,hp))[0]; }
-check("switchgear presentation states use explicit null network checks", () => {
-  const cases = [
-    [{componentIndex:1, mode:"open", state:"open", conducts:false, sideANetworkId:"0", sideBNetworkId:"n1"}, "open"],
-    [{componentIndex:2, mode:"closed", state:"closed", conducts:true, sideANetworkId:"0", sideBNetworkId:"n1", signedTransferMw:3}, "closed-conducting"],
-    [{componentIndex:3, mode:"closed", state:"closed", conducts:false, sideANetworkId:"0", sideBNetworkId:"n1"}, "unpowered"],
-    [{componentIndex:4, mode:"automatic", state:"automatic", conducts:false, sideANetworkId:"a", sideBNetworkId:"b"}, "automatic-idle"],
-    [{componentIndex:5, mode:"automatic", state:"automatic", conducts:true, sideANetworkId:"a", sideBNetworkId:"b"}, "automatic-conducting"],
-    [{componentIndex:6, mode:"closed", state:"tripped", conducts:false, sideANetworkId:"a", sideBNetworkId:"b", cooldownRemaining:1.5, trippedReason:"overload"}, "tripped-cooling"],
-    [{componentIndex:7, mode:"closed", state:"tripped", conducts:false, sideANetworkId:"a", sideBNetworkId:"b", cooldownRemaining:0, retryCount:2}, "tripped-retry-pending"],
-    [{componentIndex:8, mode:"closed", state:"closed", conducts:false, sideANetworkId:"a", sideBNetworkId:"b"}, "destroyed", 0],
-    [{componentIndex:9, mode:"closed", state:"closed", conducts:false, sideANetworkId:null, sideBNetworkId:null}, "disconnected"],
-    [{componentIndex:10, mode:"closed", state:"closed", conducts:false, sideANetworkId:null, sideBNetworkId:"b"}, "disconnected"],
-    [{componentIndex:11, mode:"closed", state:"closed", conducts:false, sideANetworkId:"a", sideBNetworkId:null}, "disconnected"]
-  ];
-  for (const [record, expected, hp] of cases) {
-    const out = snapSwitch(record, hp);
-    assert.strictEqual(out.presentationState, expected, `${record.componentIndex}`);
-    assert.strictEqual(out.runtimeState, record.state);
-    assert.strictEqual(out.conducts, Boolean(record.conducts));
-    assert.strictEqual(out.sideANetworkId, record.sideANetworkId ?? null);
-    assert.strictEqual(out.sideBNetworkId, record.sideBNetworkId ?? null);
-    assert.strictEqual(out.sustainedCapacityMw, 4);
-    assert.strictEqual(out.peakCapacityMw, 7);
-    if (!record.conducts) assert(out.reasonNotConducting);
-  }
-});
 function genSnapshot(cp){ const ship={ design:[{type:"reactor"}], componentHp:[100], componentPower:{byComponentIndex:[{role:"source", networkId:cp.networkId, requestedMw:0, allocatedMw:0, operationalMultiplier:1, ...cp}]}, powerFlow:{summary:{}}, powerCableThermalAnalysis:{sections:[],components:[],summary:{}}, componentHeatGenerated:[0], componentHeatCooled:[0], lastHeatTickDelta:1 }; return _test.buildRuntimePowerThermalSnapshot(ship).components[0]; }
 check("generator runtime fields preserve missing vs authoritative zero", () => {
   assert.strictEqual(genSnapshot({}).availableGenerationMw, null);
@@ -90,16 +62,14 @@ check("ship summary generation fields preserve null, zero and positive values", 
 check("serialized combat Power snapshot v2 contract exposes stable fields", () => {
   const analysis = thermal([flow("section-normal", 1), flow("section-overload", 6), flow("section-disabled", 6, "light", false)], { "section-normal": cells(0,1), "section-overload": cells(1,2), "section-disabled": cells(3,4) });
   const ship = {
-    design:[{type:"reactor"},{type:"auxGenerator"},{type:"shield"},{type:"switchgear"}], componentHp:[100,40,100,100],
+    design:[{type:"reactor"},{type:"auxGenerator"},{type:"shield"}], componentHp:[100,40,100],
     componentPower:{byComponentIndex:[
       {role:"source", networkId:"0", requestedMw:0, allocatedMw:0, operationalMultiplier:1, generationAvailableMw:10, generationUsedMw:8, generationReductionReasons:["curtailed-by-demand"]},
       {role:"source", networkId:"1", requestedMw:0, allocatedMw:0, operationalMultiplier:1, generationAvailableMw:0, generationUsedMw:0, generationReductionReasons:["thermal-penalty"]},
-      {role:"consumer", networkId:"0", requestedMw:4, allocatedMw:4, operationalMultiplier:1},
-      {role:"passive", networkId:"0", requestedMw:null, allocatedMw:null, operationalMultiplier:null}
+      {role:"consumer", networkId:"0", requestedMw:4, allocatedMw:4, operationalMultiplier:1}
     ]},
     powerFlow:{summary:{availableGenerationMw:10, usedGenerationMw:8, demandMw:4, allocatedMw:4, unmetMw:0, spareGenerationMw:6, aboveSustainedSections:1}},
-    powerCableThermalAnalysis:analysis, powerCableHeatRate:analysis.summary.totalPowerCableHeatPerSecond, componentHeatGenerated:[0,0,0,0], componentHeatCooled:[0,0,0,0], lastHeatTickDelta:1,
-    runtimeSwitchgear:[{componentIndex:3, mode:"open", state:"open", conducts:false, sideANetworkId:"0", sideBNetworkId:"1", sustainedCapacityMw:4, peakCapacityMw:7, signedTransferMw:0, utilisation:0, ratingTier:"light", classification:"bus-tie", decisionReason:"saved-mode-open"}], _powerProtection:{switchgear:new Map(), sections:new Map()}
+    powerCableThermalAnalysis:analysis, powerCableHeatRate:analysis.summary.totalPowerCableHeatPerSecond, componentHeatGenerated:[0,0,0], componentHeatCooled:[0,0,0], lastHeatTickDelta:1
   };
   const thermalSnap = JSON.parse(JSON.stringify(_test.buildRuntimePowerThermalSnapshot(ship)));
   const switchSnap = JSON.parse(JSON.stringify(_test.buildSwitchgearSnapshot(ship)));
@@ -109,8 +79,7 @@ check("serialized combat Power snapshot v2 contract exposes stable fields", () =
   for (const field of ["componentIndex","networkId","powerRole","requestedMw","allocatedMw","ratedGenerationMw","availableGenerationMw","deliveredGenerationMw","unusedGenerationMw","reductionReasons"]) assert(field in gen, field);
   const heat = thermalSnap.powerCableHeatBySectionId["power:section-overload"];
   assert(heat && heat.overloadHeatPerSecond > 0 && heat.totalHeatPerSecond > heat.baseHeatPerSecond);
-  assert.strictEqual(switchSnap[0].presentationState, "open");
-  assert.strictEqual(switchSnap[0].sideANetworkId, "0");
-  assert.strictEqual(switchSnap[0].conducts, false);
+  // switchgear snapshot is always an empty array now
+  assert(Array.isArray(switchSnap) && switchSnap.length === 0, "buildSwitchgearSnapshot returns empty array");
 });
 console.log(`verify-power-review-regressions: ${n} behavioural checks passed`);

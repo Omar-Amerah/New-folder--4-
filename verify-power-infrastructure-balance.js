@@ -39,9 +39,8 @@ check("8. conventional frigate infrastructure cost sits in the intended 5-10% ra
   assert.strictEqual(frigate.switchgearCost, 0, "frigate carries no optional Switchgear");
   // Switchgear is reported separately and included in the combined total.
   const hybrid = row("hybrid").economics;
-  assert.strictEqual(hybrid.switchgearCost, 2 * PARTS.switchgear.cost);
+  assert.strictEqual(hybrid.switchgearCost, 0);
   assert(Math.abs(hybrid.combinedInfrastructureCost - (hybrid.infrastructureCost + hybrid.switchgearCost)) < 1e-9);
-  assert(hybrid.combinedPercentOfTotal > hybrid.wiringPercentOfTotal, "combined total includes Switchgear");
   // Small utility hulls sit below the conventional range; the redundant ring
   // exceeds the frigate for a clear resilience benefit (never forced to 5-10%).
   assert(row("interceptor").economics.wiringPercentOfTotal < 5);
@@ -122,20 +121,10 @@ check("17/18. ring survives a single failure and pays a measurable premium", () 
   assert(ring.power.installedGenerationMw === frigate.power.installedGenerationMw, "no duplicate generation through parallel routes");
   assert(ring.power.deliveredDemandMw <= ring.power.installedGenerationMw, "no generation double-counting");
 });
-check("19/20. hybrid Automatic tie shares only safe spare Power and protects the donor", () => {
+check("19/20. hybrid storage shares spare Power and supports connected grid", () => {
   const hybrid = row("hybrid");
-  const tie = hybrid.protection.switchgear.find((s) => s.mode === "automatic");
-  assert(tie && tie.conducting, "Automatic tie conducts at baseline");
-  assert(Math.abs(tie.transferMw) > 5 && Math.abs(tie.transferMw) < 7, "transfer covers exactly the receiver deficit");
   for (const [category, entry] of Object.entries(hybrid.power.byCategory)) {
-    assert.strictEqual(entry.unmetMw, 0, `${category} fully served with the tie conducting`);
-  }
-  // Donor-side demand protection under scarcity: with the donor reactor gone,
-  // the donor's own consumers must not be sacrificed to feed the other grid.
-  const donorLoss = hybrid.damageVariants.find((v) => v.key === "donor-generator-destroyed");
-  const donorConsumers = ["blaster@3,0", "engine@2,3"];
-  for (const key of donorConsumers) {
-    assert(donorLoss.afterDamage.consumers.powered.includes(key), `donor consumer ${key} stays fully powered`);
+    assert.strictEqual(entry.unmetMw, 0, `${category} fully served with hybrid storage`);
   }
 });
 check("cheap bus is cheaper but materially less resilient", () => {

@@ -47,7 +47,7 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
   ];
 
   const REPRESENTATIVE = ["frame", "reactor", "blaster", "sensorArray", "shield", "droneBay", "heatSink", "core", "backupCore",
-    "armor", "pointDefense", "radiator", "engine", "heatPipe", "capacitor", "repair", "missile", "railgun", "beamEmitter", "switchgear"];
+    "armor", "pointDefense", "radiator", "engine", "heatPipe", "capacitor", "repair", "missile", "railgun", "beamEmitter", "battery"];
 
   // -- 1. No statistic ever appears twice in one inspector --------------------
   check("no canonical statistic is rendered twice in a single inspector", () => {
@@ -322,7 +322,6 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     assert.ok(titles("sensorArray").includes("Sensor details"));
     assert.ok(titles("backupCore").includes("Command details"));
     assert.ok(titles("reactor").includes("Thermal details"));
-    assert.ok(titles("switchgear").includes("Power details"));
     for (const type of REPRESENTATIVE) {
       for (const title of titles(type)) {
         assert.notEqual(title, "Combat details", `${type} uses no generic Combat details heading`);

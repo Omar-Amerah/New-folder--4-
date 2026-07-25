@@ -62,8 +62,7 @@ export const PART_DEFS = {
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
-  droneBay: { name: "Drone Bay", color: "#67e8f9", glyph: "radial-gradient(circle at 50% 50%, #e0f2fe 0 13%, #22d3ee 15% 28%, #0e7490 30% 43%, #082f49 45%)" },
-  switchgear: { name: "Switchgear", color: "#facc15", glyph: "linear-gradient(90deg, #422006 0 22%, #facc15 24% 42%, #111827 44% 56%, #facc15 58% 76%, #422006 78%)" }
+  droneBay: { name: "Drone Bay", color: "#67e8f9", glyph: "radial-gradient(circle at 50% 50%, #e0f2fe 0 13%, #22d3ee 15% 28%, #0e7490 30% 43%, #082f49 45%)" }
 };
 
 // These structural silhouettes show their direction through their geometry, so
@@ -115,8 +114,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
-  droneBay: "Launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed.",
-  switchgear: "Two-cell Power switchgear with opposite A/B terminals. Saved modes: Open isolates, Closed conducts up to rating, Automatic conducts only deterministic spare power. Never carries Data."
+  droneBay: "Launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed."
 });
 
 export const FALLBACK_PART_STATS = {};
@@ -278,7 +276,13 @@ export function normalizeRuntimePart(part = {}) {
     thrust: numberOr(part.thrust, 0),
     lateralThrust: numberOr(part.lateralThrust, 0),
     turn: numberOr(part.turn, 0),
-    energyStorage: numberOr(part.energyStorage ?? part.energy, 0),
+    energyStorage: numberOr(part.energyStorage ?? part.energyCapacity ?? part.energy, 0),
+    energyCapacity: numberOr(part.energyCapacity ?? part.energyStorage ?? part.energy, 0),
+    maxChargeRate: numberOr(part.maxChargeRate, 0),
+    maxDischargeRate: numberOr(part.maxDischargeRate, 0),
+    chargeEfficiency: part.chargeEfficiency !== undefined ? numberOr(part.chargeEfficiency, 1) : 1,
+    dischargeEfficiency: part.dischargeEfficiency !== undefined ? numberOr(part.dischargeEfficiency, 1) : 1,
+    dischargeHeatAtMax: numberOr(part.dischargeHeatAtMax ?? part.dischargeHeat, 0),
     repairRate,
     repair: repairRate > 0 ? 1 : numberOr(part.repairCount ?? part.repair, 0),
     weapon,
@@ -324,7 +328,13 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     thrust: numberOr(component.thrust, 0),
     lateralThrust: numberOr(component.lateralThrust, 0),
     turn: numberOr(component.turn, 0),
-    energyStorage: numberOr(component.energyStorage ?? component.energy, 0),
+    energyStorage: numberOr(component.energyStorage ?? component.energyCapacity ?? component.energy, 0),
+    energyCapacity: numberOr(component.energyCapacity ?? component.energyStorage ?? component.energy, 0),
+    maxChargeRate: numberOr(component.maxChargeRate, 0),
+    maxDischargeRate: numberOr(component.maxDischargeRate, 0),
+    chargeEfficiency: component.chargeEfficiency !== undefined ? numberOr(component.chargeEfficiency, 1) : 1,
+    dischargeEfficiency: component.dischargeEfficiency !== undefined ? numberOr(component.dischargeEfficiency, 1) : 1,
+    dischargeHeatAtMax: numberOr(component.dischargeHeatAtMax ?? component.dischargeHeat, 0),
     repairRate,
     repair: repairRate > 0 ? 1 : numberOr(component.repairCount, 0),
     weapon,

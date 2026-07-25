@@ -9,7 +9,6 @@
 
 const assert = require("assert");
 const PowerProtectionRules = require("./public/src/shared/powerProtectionRules");
-const SwitchgearRules = require("./public/src/shared/switchgearRules");
 const { PARTS } = require("./src/server/components");
 const { BALANCE } = require("./src/server/balanceConfig");
 const { validatePowerProtection } = require("./src/server/componentSchema");
@@ -20,8 +19,7 @@ const {
   updateShipPowerProtection,
   refreshShipPowerProtectionDiagnostics,
   resetShipPowerProtection,
-  buildPowerProtectionSnapshot,
-  switchgearProtectionFields
+  buildPowerProtectionSnapshot
 } = require("./src/server/powerProtection");
 
 let passed = 0;
@@ -56,8 +54,6 @@ function tick(ship, seconds, dt = 0.05) {
 }
 function sectionStress(ship, id) { return ship._powerProtection?.sections?.get(id)?.stress ?? 0; }
 function sectionRecord(ship, id) { return ship._powerProtection?.sections?.get(id) || null; }
-function sgRecord(ship) { return ship.runtimeSwitchgear[ship.runtimeSwitchgear.length - 1]; }
-
 // Reactor (10 MW) -> light cable -> shield. Pure physical light path.
 function lightCableShip(demandMw) {
   return makeShip(
@@ -66,44 +62,7 @@ function lightCableShip(demandMw) {
     { 2: demandMw }
   );
 }
-// Reactor -> standard cable -> [switchgear rating] -> standard cable -> shield.
-function switchgearShip(mode, rating, demandMw, externalTier = "standard") {
-  return makeShip(
-    [{ x: 0, y: 0, type: "reactor" }, { x: 3, y: 0, type: "shield" }, { x: 1, y: 0, type: "switchgear", rotation: 0, switchgearMode: mode, switchgearRatingTier: rating }],
-    [sec("a1", 0, 0, 1, 0, externalTier), sec("b1", 2, 0, 3, 0, externalTier)],
-    { 1: demandMw }
-  );
-}
-// Reactor feeding two shields, each through its own light Closed switchgear.
-function twoSwitchgearShip(order = "normal", mode = "closed", demandEach = 5) {
-  const parts = {
-    reactor: { x: 0, y: 0, type: "reactor" },
-    r1: { x: 3, y: 0, type: "shield" },
-    r2: { x: 0, y: 3, type: "shield" },
-    sw1: { x: 1, y: 0, type: "switchgear", rotation: 0, switchgearMode: mode, switchgearRatingTier: "light" },
-    sw2: { x: 0, y: 1, type: "switchgear", rotation: 90, switchgearMode: mode, switchgearRatingTier: "light" }
-  };
-  const design = order === "swapped"
-    ? [parts.reactor, parts.r1, parts.r2, parts.sw2, parts.sw1]
-    : [parts.reactor, parts.r1, parts.r2, parts.sw1, parts.sw2];
-  const sections = [sec("s1", 0, 0, 1, 0), sec("s2", 2, 0, 3, 0), sec("s3", 0, 0, 0, 1), sec("s4", 0, 2, 0, 3)];
-  const demand = {};
-  design.forEach((part, index) => { if (part.type === "shield") demand[index] = demandEach; });
-  return makeShip(design, sections, demand);
-}
-function switchStateByKey(ship) {
-  const out = {};
-  for (const record of ship.runtimeSwitchgear) out[SwitchgearRules.terminalPairKey(ship.design[record.componentIndex])] = { state: record.state, conducting: record.conducts };
-  return out;
-}
-// Key-order-independent serialisation for physical-equivalence comparisons.
-function stableSwitchStateString(ship) {
-  const byKey = switchStateByKey(ship);
-  return Object.keys(byKey).sort().map((key) => `${key}=${byKey[key].state}/${byKey[key].conducting}`).join(";");
-}
 
-// ---------------------------------------------------------------------------
-console.log("Configuration");
 // ---------------------------------------------------------------------------
 check("central balance block exists, validates and normalises safely", () => {
   const errors = [];
@@ -226,243 +185,12 @@ check("10/11. hosted cable destruction clears active stress/flow; repair returns
 });
 
 // ---------------------------------------------------------------------------
-console.log("Switchgear trips");
-// ---------------------------------------------------------------------------
-check("12. Closed Switchgear trips at the threshold with a concise runtime reason", () => {
-  const ship = switchgearShip("closed", "light", 6);
-  const before = JSON.stringify(ship.wiring);
-  let trippedAt = null; let t = 0;
-  while (trippedAt === null && t < 20) { updateShipPowerProtection(ship, 0.05); t += 0.05; if (sgRecord(ship).state === "tripped") trippedAt = t; }
-  // 6 MW on light: rate = 0.12 + 0.38*(2/3)^2 = 0.28889 -> threshold 1 at ~3.46s
-  assert(trippedAt !== null && Math.abs(trippedAt - 3.5) < 0.2, `trip near 3.46s, got ${trippedAt}`);
-  const record = sgRecord(ship);
-  assert.strictEqual(record.state, "tripped");
-  assert.strictEqual(record.signedTransferMw, 0, "transfer zero after trip");
-  assert(/overload trip/.test(record.trippedReason));
-  const fields = switchgearProtectionFields(ship, record.componentIndex);
-  assert.strictEqual(fields.lastTripFlowMw, 6);
-  assert(fields.lastTripUtilisation > 0.8);
-  close(fields.cooldownRemaining, CONFIG.tripCooldownSeconds, 1e-6, "cooldown started");
-  assert.strictEqual(ship.design[record.componentIndex].switchgearMode, "closed", "saved mode not mutated");
-  assert.strictEqual(JSON.stringify(ship.wiring), before, "Blueprint wiring not mutated by trip");
-  assert.strictEqual(sectionStress(ship, record.internalEdgeId), 0, "internal edge stress reset at trip");
-});
-check("13. conducting Automatic Switchgear trips at the threshold", () => {
-  const ship = switchgearShip("automatic", "light", 6);
-  assert.strictEqual(sgRecord(ship).automaticClosed, true, "automatic conducts before trip");
-  tick(ship, 5);
-  assert.strictEqual(sgRecord(ship).state, "tripped");
-});
-check("14. Open Switchgear never trips", () => {
-  const ship = switchgearShip("open", "light", 6);
-  tick(ship, 30);
-  assert.strictEqual(sgRecord(ship).state, "open");
-  assert.strictEqual(switchgearProtectionFields(ship, sgRecord(ship).componentIndex).lastTripReason, null);
-});
-check("15. Destroyed Switchgear never retries; repair restores zero-stress saved mode", () => {
-  const ship = switchgearShip("closed", "light", 6);
-  tick(ship, 5);
-  assert.strictEqual(sgRecord(ship).state, "tripped");
-  const index = sgRecord(ship).componentIndex;
-  ship.componentHp[index] = 0;
-  rebuildShipWiringState(ship, "component-lifecycle");
-  tick(ship, 30);
-  assert.strictEqual(sgRecord(ship).state, "destroyed", "destroyed remains destroyed through retry intervals");
-  ship.componentHp[index] = 1;
-  rebuildShipWiringState(ship, "component-lifecycle");
-  tick(ship, 0.05);
-  assert.strictEqual(sgRecord(ship).state, "closed", "repair restores saved Closed mode");
-  const fields = switchgearProtectionFields(ship, index);
-  assert.strictEqual(fields.retryCount, 0, "repair starts with reset runtime protection state");
-  assert.strictEqual(fields.lastTripReason, null);
-});
-check("16. several simultaneous trips are applied as one lifecycle batch", () => {
-  const ship = twoSwitchgearShip("normal", "closed", 5);
-  tick(ship, 6.0); // just before the ~6.16s trip point
-  assert(ship.runtimeSwitchgear.every((r) => r.state === "closed"));
-  global.__mfaDataSupportPerf = {};
-  tick(ship, 0.4);
-  assert(ship.runtimeSwitchgear.every((r) => r.state === "tripped"), "both trip in the same window");
-  assert.strictEqual(global.__mfaDataSupportPerf.wiringNormalizationCount, 1, "one topology rebuild for the batch");
-  assert.strictEqual(global.__mfaDataSupportPerf.powerFlowSolveCount, 1, "one final allocation refresh");
-  assert.strictEqual(global.__mfaDataSupportPerf.powerProtectionTripBatchCount, 1);
-  global.__mfaDataSupportPerf = null;
-});
-check("17. cooldown-only ticks perform no Power solve and no topology rebuild", () => {
-  const ship = switchgearShip("closed", "light", 6);
-  tick(ship, 5);
-  assert.strictEqual(sgRecord(ship).state, "tripped");
-  tick(ship, 1.0); // let post-trip physical stress settle to zero
-  const revBefore = ship.powerRevision;
-  global.__mfaDataSupportPerf = {};
-  tick(ship, 1.0); // inside cooldown
-  assert.strictEqual(global.__mfaDataSupportPerf.powerFlowSolveCount || 0, 0, "no solve to decrement cooldown");
-  assert.strictEqual(global.__mfaDataSupportPerf.wiringNormalizationCount || 0, 0, "no topology rebuild");
-  assert.strictEqual(ship.powerRevision, revBefore, "Power revision unchanged by cooldown ticks");
-  global.__mfaDataSupportPerf = null;
-});
-
-// ---------------------------------------------------------------------------
-console.log("Retry");
-// ---------------------------------------------------------------------------
-check("18/19. Automatic retry goes through the 7F policy and never stays labelled Tripped", () => {
-  const ship = switchgearShip("automatic", "light", 6);
-  tick(ship, 5);
-  assert.strictEqual(sgRecord(ship).state, "tripped");
-  // Make the transfer useless during cooldown: receiver demand drops to zero.
-  setDemand(ship, { 1: 0 });
-  tick(ship, CONFIG.tripCooldownSeconds + 0.2);
-  const record = sgRecord(ship);
-  assert.strictEqual(record.state, "automatic", "left Tripped after cooldown + retry evaluation");
-  assert.strictEqual(record.automaticClosed, false, "returns non-conducting when no useful transfer exists");
-  const fields = switchgearProtectionFields(ship, record.componentIndex);
-  assert.strictEqual(fields.lastRetryReason, "no safe Automatic transfer");
-  assert.strictEqual(fields.retryCount, 1);
-  // And with a useful safe transfer it recloses through the policy.
-  const useful = switchgearShip("automatic", "light", 6);
-  tick(useful, 5);
-  setDemand(useful, { 1: 3 });
-  tick(useful, CONFIG.tripCooldownSeconds + 0.2);
-  assert.strictEqual(sgRecord(useful).automaticClosed, true);
-  assert.strictEqual(switchgearProtectionFields(useful, sgRecord(useful).componentIndex).lastRetryReason, "reclosed by automatic policy");
-});
-check("20/21. Closed retry recloses only below the safe threshold; unsafe retries reschedule", () => {
-  const ship = switchgearShip("closed", "light", 6);
-  tick(ship, 5);
-  assert.strictEqual(sgRecord(ship).state, "tripped");
-  // Demand stays 6 > 0.9 * 4 = 3.6 -> every retry is unsafe.
-  tick(ship, CONFIG.tripCooldownSeconds + 2 * CONFIG.retryIntervalSeconds + 0.5);
-  let fields = switchgearProtectionFields(ship, sgRecord(ship).componentIndex);
-  assert.strictEqual(sgRecord(ship).state, "tripped");
-  assert(fields.retryCount >= 2, "multiple scheduled retries");
-  assert.strictEqual(fields.lastRetryReason, "projected flow above safe reclose threshold");
-  // Load drops below the safe threshold -> next retry recloses.
-  setDemand(ship, { 1: 3 });
-  tick(ship, CONFIG.retryIntervalSeconds + 0.2);
-  assert.strictEqual(sgRecord(ship).state, "closed");
-  fields = switchgearProtectionFields(ship, sgRecord(ship).componentIndex);
-  assert.strictEqual(fields.lastRetryReason, "reclosed: projected flow within safe threshold");
-  assert.strictEqual(ship.componentPower.byComponentIndex[1].allocatedMw, 3, "reclose restores delivery");
-});
-check("22/23. several Closed retries are evaluated jointly, in one rebuild, order-independently", () => {
-  const run = (order) => {
-    const ship = twoSwitchgearShip(order, "closed", 5);
-    tick(ship, 7);
-    assert(ship.runtimeSwitchgear.every((r) => r.state === "tripped"));
-    const demand = {};
-    ship.design.forEach((part, index) => { if (part.type === "shield") demand[index] = 3; });
-    setDemand(ship, demand);
-    global.__mfaDataSupportPerf = {};
-    tick(ship, CONFIG.tripCooldownSeconds + 0.4);
-    const rebuilds = global.__mfaDataSupportPerf.wiringNormalizationCount;
-    global.__mfaDataSupportPerf = null;
-    return { ship, rebuilds };
-  };
-  const a = run("normal");
-  assert(a.ship.runtimeSwitchgear.every((r) => r.state === "closed"), "both reclose jointly");
-  assert.strictEqual(a.rebuilds, 1, "one rebuild for the joint retry decision");
-  const b = run("swapped");
-  assert.deepStrictEqual(switchStateByKey(b.ship), switchStateByKey(a.ship), "retry decisions independent of component-array order");
-});
-check("24. oversized retry groups fail safely without closing anything", () => {
-  __setPowerProtectionConfigForTests({ maxAutomaticRetrySubsets: 2 }); // 2 candidates -> 4 subsets > 2
-  try {
-    const ship = twoSwitchgearShip("normal", "closed", 5);
-    tick(ship, 7);
-    assert(ship.runtimeSwitchgear.every((r) => r.state === "tripped"));
-    const demand = {};
-    ship.design.forEach((part, index) => { if (part.type === "shield") demand[index] = 3; });
-    setDemand(ship, demand);
-    tick(ship, componentPower.powerProtectionConfig().tripCooldownSeconds + 0.4);
-    assert(ship.runtimeSwitchgear.every((r) => r.state === "tripped"), "unresolved group stays tripped");
-    for (const record of ship.runtimeSwitchgear) {
-      const fields = switchgearProtectionFields(ship, record.componentIndex);
-      assert.strictEqual(fields.lastRetryReason, "evaluation bound exceeded");
-      assert(fields.cooldownRemaining > 0, "another retry interval scheduled");
-    }
-  } finally { __setPowerProtectionConfigForTests(null); }
-});
-check("25/42. retry counts, reasons and trip timing are deterministic across identical runs", () => {
-  const run = () => {
-    const ship = switchgearShip("closed", "light", 6);
-    const events = [];
-    for (let i = 0; i < 300; i += 1) {
-      updateShipPowerProtection(ship, 0.05);
-      const record = sgRecord(ship);
-      const fields = switchgearProtectionFields(ship, record.componentIndex);
-      events.push(`${record.state}:${fields.retryCount}:${fields.lastRetryReason || ""}`);
-    }
-    return events.join("|");
-  };
-  assert.strictEqual(run(), run(), "identical simulations produce identical trip times and retry decisions");
-});
-check("26/27. manual Closed baseline and donor demand protection survive automatic retry", () => {
-  // Manual closed switchgear feeds a 10 MW donor engine; an automatic
-  // switchgear could steal from it after its own overload trip cycle — the 7F
-  // baseline must keep protecting the manual link and donor-side demand.
-  const design = [
-    { x: 0, y: 0, type: "reactor" },
-    { x: 3, y: 0, type: "engine" },
-    { x: 0, y: 3, type: "shield" },
-    { x: 1, y: 0, type: "switchgear", rotation: 0, switchgearMode: "closed", switchgearRatingTier: "standard" },
-    { x: 0, y: 1, type: "switchgear", rotation: 90, switchgearMode: "automatic", switchgearRatingTier: "light" }
-  ];
-  const sections = [sec("m1", 0, 0, 1, 0), sec("m2", 2, 0, 3, 0), sec("a2", 0, 2, 0, 3)];
-  const ship = makeShip(design, sections, { 1: 5, 2: 6 });
-  // The automatic light tie carries ~5 MW (spare after donor) -> overload -> trip.
-  tick(ship, 40);
-  const manual = ship.runtimeSwitchgear.find((r) => r.mode === "closed");
-  assert.strictEqual(manual.state, "closed", "manual Closed link stays in the baseline throughout trips/retries");
-  assert.strictEqual(ship.componentPower.byComponentIndex[1].allocatedMw, 5, "donor-side demand never sacrificed");
-});
-check("28/29/30. six categories stay distinct; shedding follows priority; ties stay fair", () => {
-  const ship = lightCableShip(20);
-  const byCategory = ship.powerFlow.summary.byCategory;
-  assert.deepStrictEqual(Object.keys(byCategory).sort(), ["command", "coolingSupport", "pointDefence", "propulsion", "shields", "weapons"].sort());
-  // Priority shed order: shields (higher) before weapons under a bottleneck.
-  const design = [
-    { x: 0, y: 0, type: "reactor" },
-    { x: 2, y: 0, type: "shield" },
-    { x: 2, y: 1, type: "blaster" },
-    { x: 1, y: 0, type: "frame" }, { x: 1, y: 1, type: "frame" }
-  ];
-  const sections = [sec("p1", 0, 0, 1, 0, "light"), sec("p2", 1, 0, 2, 0, "light"), sec("p3", 1, 0, 1, 1, "light"), sec("p4", 1, 1, 2, 1, "light")];
-  const shed = makeShip(design, sections, { 1: 6, 2: 6 }, policy(["shields", "command", "propulsion", "pointDefence", "weapons", "coolingSupport"]));
-  updateShipPowerProtection(shed, 0.1);
-  assert.strictEqual(shed.componentPower.byComponentIndex[1].allocatedMw, 6, "higher priority fully served first");
-  assert.strictEqual(shed.componentPower.byComponentIndex[2].allocatedMw, 1, "lower priority sheds under the peak cap");
-  assert.deepStrictEqual(shed.powerFlow.summary.loadShedCategories, ["weapons"]);
-  assert.strictEqual(shed.powerProtectionDiagnostics.state, "brownout", "partial consumer -> brownout diagnostic");
-  // Tied priority consumers share fairly.
-  const tied = makeShip(
-    [{ x: 0, y: 0, type: "reactor" }, { x: 2, y: 0, type: "shield" }, { x: 2, y: 1, type: "shield" }, { x: 1, y: 0, type: "frame" }, { x: 1, y: 1, type: "frame" }],
-    [sec("t1", 0, 0, 1, 0, "light"), sec("t2", 1, 0, 2, 0, "light"), sec("t3", 1, 0, 1, 1, "light"), sec("t4", 1, 1, 2, 1, "light")],
-    { 1: 6, 2: 6 }
-  );
-  close(tied.componentPower.byComponentIndex[1].allocatedMw, tied.componentPower.byComponentIndex[2].allocatedMw, 0.01, "tied consumers share");
-});
-check("31. an external Light cable still bottlenecks a Heavy Switchgear", () => {
-  const ship = switchgearShip("closed", "heavy", 20, "light");
-  const internal = ship.powerFlow.sectionFlows.find((f) => f.sectionId.startsWith("switchgear:"));
-  assert(internal.absoluteFlowMw <= LIGHT.peakCapacityMw + 1e-9, "heavy internal edge cannot remove the light bottleneck");
-  assert.strictEqual(ship.componentPower.byComponentIndex[1].allocatedMw, LIGHT.peakCapacityMw);
-});
-
-// ---------------------------------------------------------------------------
 console.log("Cable-Heat integration");
 // ---------------------------------------------------------------------------
-check("32/33. a trip refreshes cable flow and Heat once; internal edges add no cable-cell Heat", () => {
-  const ship = switchgearShip("closed", "light", 6);
-  const heatBefore = ship.powerCableHeatRate;
-  assert(heatBefore > 0);
-  assert(!ship.powerCableThermalAnalysis.sections.some((s) => String(s.sectionId).startsWith("switchgear:")), "synthetic internal edges are not cable-Heat cells");
-  tick(ship, 3.4);
-  global.__mfaDataSupportPerf = {};
-  tick(ship, 0.3); // the trip lands here
-  assert.strictEqual(sgRecord(ship).state, "tripped");
-  assert.strictEqual(global.__mfaDataSupportPerf.powerCableThermalAnalysisCount, 1, "exactly one cable-Heat refresh after the batched solve");
-  global.__mfaDataSupportPerf = null;
-  assert(ship.powerCableHeatRate < heatBefore, "tripped flow change reduces dynamic cable Heat");
+check("32. overloaded physical cable produces dynamic Heat", () => {
+  const ship = lightCableShip(6);
+  tick(ship, 2);
+  assert(ship.powerCableHeatRate > 0, "overloaded cable produces dynamic Heat");
   const stressedIds = [...ship._powerProtection.sections.keys()];
   assert(stressedIds.every((id) => !id.includes("data")), "no Data overload records exist");
 });
@@ -499,7 +227,6 @@ check("36/38. design replacement/spawn resets to deterministic zero stress", () 
   const snapshot = buildPowerProtectionSnapshot(ship);
   assert.strictEqual(snapshot.sections.length, 0, "no stale stressed-section diagnostics after replacement");
   assert.strictEqual(snapshot.mostStressedStress, 0);
-  assert.strictEqual(snapshot.trippedSwitchgearCount, 0);
   // The still-overloaded live flow honestly reports "strained"; a ship with
   // idle demand starts fully "normal".
   setDemand(ship, { 2: 1 });
@@ -507,32 +234,15 @@ check("36/38. design replacement/spawn resets to deterministic zero stress", () 
   assert.strictEqual(buildPowerProtectionSnapshot(ship).state, "normal");
 });
 check("37. runtime protection state is never persisted into Blueprint data", () => {
-  const ship = switchgearShip("closed", "light", 6);
+  const ship = lightCableShip(6);
+  tick(ship, 5);
   const before = JSON.stringify({ wiring: ship.wiring, design: ship.design });
-  tick(ship, 30); // trips + failed retries
   assert.strictEqual(JSON.stringify({ wiring: ship.wiring, design: ship.design }), before);
   const persisted = JSON.stringify(ship.wiring) + JSON.stringify(ship.design);
   for (const token of ["stress", "cooldown", "retry", "tripped"]) assert(!persisted.includes(token), `Blueprint contains runtime token ${token}`);
 });
-check("43. correctly remapped input order produces equivalent physical results", () => {
-  const runStates = (order) => {
-    const ship = twoSwitchgearShip(order, "closed", 5);
-    const timeline = [];
-    for (let i = 0; i < 260; i += 1) {
-      updateShipPowerProtection(ship, 0.05);
-      timeline.push(stableSwitchStateString(ship));
-    }
-    const stress = {};
-    for (const [id, record] of ship._powerProtection.sections) stress[id] = Math.round(record.stress * 1e9);
-    return { timeline: timeline.join("|"), stress };
-  };
-  const a = runStates("normal");
-  const b = runStates("swapped");
-  assert.strictEqual(b.timeline, a.timeline, "trip/retry timeline equivalent under remapped order");
-  assert.deepStrictEqual(b.stress, a.stress, "section stress equivalent under remapped order");
-});
 check("44. diagnostics and snapshots contain no NaN, Infinity or negative zero", () => {
-  const ship = switchgearShip("closed", "light", 6);
+  const ship = lightCableShip(6);
   tick(ship, 12);
   finite(ship.powerProtectionDiagnostics);
   finite(buildPowerProtectionSnapshot(ship));

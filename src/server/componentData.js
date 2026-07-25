@@ -30,11 +30,13 @@ function cloneAllocation(record, sourceIndex) {
 }
 function isAlive(ship, index) { return (ship?.componentHp?.[index] ?? 1) > 0; }
 function sourcePowerMultiplier(ship, sourceIndex) {
-  const record = ship?.componentPower?.byComponentIndex?.[sourceIndex];
+  const module = ship?.design?.[sourceIndex];
+  const part = module ? PARTS[module.type] : null;
+  const powerUse = Number(part?.powerUse) || 0;
+  const byComp = ship?.componentPower?.byComponentIndex;
+  const record = Array.isArray(byComp) ? byComp[sourceIndex] : null;
+  if (!record) return powerUse > 0 ? 0 : 1;
   const value = record?.operationalMultiplier;
-  // Section 6C must respect the authoritative per-component Power runtime.
-  // Missing or invalid runtime Power state fails safely instead of inferring
-  // implicit full output from blueprint shape or legacy/no-cable designs.
   return DataSupportRules.normalizeSourceMultiplier(Number.isFinite(value) ? value : 0);
 }
 function sourceThermalMultiplier(ship, sourceIndex) {

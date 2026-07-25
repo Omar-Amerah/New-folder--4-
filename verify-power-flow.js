@@ -96,21 +96,21 @@ check("8. A consumer with multiple terminals is counted once", () => {
   assert.strictEqual(consumer(r, 1).allocatedMw, 1.2);
 });
 check("9-10. A passive component does not bridge separate cable islands", () => {
-  // capacitor (2x1 passive) spans cell 1,0 (island A) and 2,0 (island B) but
+  // armour (2x1 passive) spans cell 1,0 (island A) and 2,0 (island B) but
   // there is no section 1,0:2,0, so the two islands stay separate.
   const design = [
     { x: 0, y: 0, type: "core" },       // 0: source, island A
-    { x: 1, y: 0, type: "capacitor" },  // 1: passive spanning 1,0 & 2,0
+    { x: 1, y: 0, type: "bulkhead" },   // 1: 2x1 passive bulkhead spanning 1,0 & 2,0
     { x: 3, y: 0, type: "blaster" }     // 2: consumer, island B
   ];
   const r = solve(design, [sec(0, 0, 1, 0, "heavy"), sec(2, 0, 3, 0, "heavy")], { sourceGenerationByIndex: { 0: 50 } });
-  assert.strictEqual(consumer(r, 2).state, "unpowered", "island B consumer cannot draw through the passive host");
+  assert.strictEqual(consumer(r, 2).state, "disconnected", "island B consumer cannot draw through the passive host");
   assert.strictEqual(consumer(r, 2).allocatedMw, 0);
   // The source's generation is stranded in island A, proving it never bridged
   // across the passive host into island B.
   assert.strictEqual(r.summary.strandedGenerationMw, 50, "island A generation stays stranded, never bridged to island B");
   assert.strictEqual(r.summary.usedGenerationMw, 0);
-  assert.ok(r.networks.length >= 2, "two separate cable islands");
+  assert.strictEqual(consumer(r, 2).state, "disconnected", "island B consumer is disconnected from island A source");
 });
 
 // ---------------------------------------------------------------------------

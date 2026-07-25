@@ -135,21 +135,16 @@ const expectedLegacyModules = normalizeDesign(legacyArray, { allowEmpty: true })
 
 // ---- Migration preserves specialised component settings + wiring + style ----
 {
-  globalThis.SwitchgearRules = globalThis.SwitchgearRules || (await import("./public/src/shared/switchgearRules.js")).default;
   globalThis.DroneBayRules = globalThis.DroneBayRules || (await import("./public/src/shared/droneBayRules.js")).default || (await import("./public/src/shared/droneBayRules.js"));
   const configuredLegacy = [
     { x: 7, y: 7, type: "core" },
     { x: 7, y: 8, type: "engine" },
-    { x: 5, y: 7, type: "droneBay", droneType: "fighter" },
-    { x: 9, y: 7, type: "switchgear", switchgearMode: "open", switchgearRatingTier: "heavy" }
+    { x: 5, y: 7, type: "droneBay", droneType: "fighter" }
   ];
   const migratedConfig = migrateDesignStorage(configuredLegacy);
   assert.equal(migratedConfig.migrated, true, "configured legacy array migrates");
   const droneBay = migratedConfig.modules.find((m) => m.type === "droneBay");
-  const switchgear = migratedConfig.modules.find((m) => m.type === "switchgear");
   assert.equal(droneBay?.droneType, "fighter", "migration preserves Drone Bay drone type");
-  assert.equal(switchgear?.switchgearMode, "open", "migration preserves Switchgear mode");
-  assert.equal(switchgear?.switchgearRatingTier, "heavy", "migration preserves Switchgear rating tier");
 
   // Wiring + combat style survive migration of a pre-envelope object.
   const wiredEnvelope = designEnvelope(current, wiring, "charge");

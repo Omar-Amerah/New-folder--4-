@@ -157,44 +157,7 @@ function getKnownShipDesigns(client) {
 
 function presentNetworkId(value) { return value === null || value === undefined ? null : value; }
 function finiteOrNull(value) { const number = Number(value); return Number.isFinite(number) ? number : null; }
-function switchgearPresentationState(record, ship) {
-  const hp = Number(ship?.componentHp?.[record.componentIndex]);
-  if (Number.isFinite(hp) && hp <= 0) return "destroyed";
-  if (record.state === "tripped") return Number(record.cooldownRemaining) > 0 ? "tripped-cooling" : "tripped-retry-pending";
-  const aConnected = record.sideANetworkId !== null && record.sideANetworkId !== undefined;
-  const bConnected = record.sideBNetworkId !== null && record.sideBNetworkId !== undefined;
-  if (!aConnected && !bConnected) return "disconnected";
-  if (!aConnected || !bConnected) return "disconnected";
-  if (record.mode === "open") return "open";
-  if (record.mode === "automatic") return record.conducts ? "automatic-conducting" : "automatic-idle";
-  if (record.mode === "closed") return record.conducts ? "closed-conducting" : "unpowered";
-  return "unknown";
-}
-function buildSwitchgearSnapshot(ship) {
-  const { switchgearProtectionFields } = require("./powerProtection");
-  return (Array.isArray(ship.runtimeSwitchgear) ? ship.runtimeSwitchgear : []).map((record) => ({
-    componentIndex: record.componentIndex,
-    classification: record.classification || "isolator",
-    mode: record.mode || "closed",
-    state: record.state || record.mode || "closed",
-    presentationState: switchgearPresentationState(record, ship),
-    runtimeState: record.state || null,
-    conducts: Boolean(record.conducts),
-    reasonNotConducting: record.conducts ? null : (record.trippedReason || record.decisionReason || (record.mode === "open" ? "saved-mode-open" : "not-conducting")),
-    automaticClosed: Boolean(record.automaticClosed),
-    sideANetworkId: presentNetworkId(record.sideANetworkId),
-    sideBNetworkId: presentNetworkId(record.sideBNetworkId),
-    ratingTier: record.ratingTier || "standard",
-    sustainedCapacityMw: Number(record.sustainedCapacityMw) || 0,
-    peakCapacityMw: Number(record.peakCapacityMw) || 0,
-    signedTransferMw: Number(record.signedTransferMw) || 0,
-    utilisation: Number(record.utilisation) || 0,
-    decisionReason: record.decisionReason || "Unknown",
-    trippedReason: record.trippedReason || null,
-    // Section 7G runtime overload trip/cooldown/retry inspection fields.
-    ...switchgearProtectionFields(ship, record.componentIndex)
-  }));
-}
+function buildSwitchgearSnapshot(_ship) { return []; }
 
 function buildProtectionSnapshot(ship) {
   return require("./powerProtection").buildPowerProtectionSnapshot(ship);
@@ -229,6 +192,7 @@ function appendFullShipBaseline(entry, ship) {
   }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
+  if (ship.componentStorageCharge) entry.storageCharge = ship.componentStorageCharge.map((v) => Math.round(v * 10) / 10);
 }
 
 function appendShipDeltas(entry, ship, client = null) {
@@ -378,6 +342,9 @@ function buildRuntimePowerThermalSnapshot(ship) {
     sparePowerMw: finiteOrNull(powerSummary.spareGenerationMw),
     unmetDemandMw: finiteOrNull(powerSummary.unmetMw),
     activePriorityPreset: powerSummary.preset || null,
+    storageChargingMw: finiteOrNull(powerSummary.storageChargingMw),
+    storageDischargingMw: finiteOrNull(powerSummary.storageDischargingMw),
+    storageComponents: powerSummary.storageComponents || [],
     hottestSectionId: cableSummary.hottestSectionId || null,
     components
   };
@@ -631,5 +598,5 @@ module.exports = {
   markSnapshotPowerProtectionWritten,
   markSnapshotWiringLayoutWritten,
   canViewPlayerEconomy,
-  _test: { buildSwitchgearSnapshot, buildRuntimePowerThermalSnapshot, switchgearPresentationState, finiteOrNull }
+  _test: { buildSwitchgearSnapshot, buildRuntimePowerThermalSnapshot, finiteOrNull }
 };

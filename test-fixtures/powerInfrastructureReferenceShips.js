@@ -65,8 +65,8 @@ function nominalDemand(design) {
 function installedGeneration(design) {
   return design.reduce((sum, module) => sum + (Number(PARTS[module.type].powerGeneration) || 0), 0);
 }
-function switchgearComponentCost(design) {
-  return design.reduce((sum, module) => sum + (module.type === "switchgear" ? (Number(PARTS.switchgear.cost) || 0) : 0), 0);
+function switchgearComponentCost(_design) {
+  return 0;
 }
 
 function validateReferenceFixture(fixture) {
@@ -315,29 +315,27 @@ function hybridSwitchgear() {
     moduleAt("reactor", 0, 0),
     moduleAt("core", 2, 0),
     moduleAt("blaster", 3, 0),
-    moduleAt("switchgear", 4, 0, { switchgearMode: "automatic", switchgearRatingTier: "standard" }),
-    moduleAt("auxGenerator", 6, 0),
-    moduleAt("shield", 7, 0),
-    moduleAt("pointDefense", 8, 0),
-    moduleAt("switchgear", 2, 1, { rotation: 90, switchgearMode: "closed", switchgearRatingTier: "light" }),
-    moduleAt("engine", 2, 3)
+    moduleAt("battery", 4, 0),
+    moduleAt("auxGenerator", 5, 0),
+    moduleAt("shield", 6, 0),
+    moduleAt("pointDefense", 7, 0),
+    moduleAt("capacitor", 2, 1),
+    moduleAt("engine", 2, 2)
   ];
   const wiring = makeWiring([
     ...pathSections([[1, 0], [2, 0], [3, 0], [4, 0]], "standard"),
-    ...pathSections([[5, 0], [6, 0], [7, 0], [8, 0]], "standard"),
+    ...pathSections([[4, 0], [5, 0], [6, 0], [7, 0]], "standard"),
     section([2, 0], [2, 1], "light"),
-    section([2, 2], [2, 3], "light")
+    section([2, 1], [2, 2], "light")
   ]);
   return make({
     key: "hybrid",
-    name: "Reference F — Hybrid Switchgear ship",
-    architecture: "hybrid-switchgear",
+    name: "Reference F — Hybrid Storage ship",
+    architecture: "hybrid-storage",
     design, wiring,
-    // Two physical grids; the conducting Automatic tie merges them into one
-    // runtime Power network at baseline.
     expected: { powerNetworkCount: 1, isolatedGridCount: 2, alternatePaths: 0, fullyPoweredAtBaseline: true },
     damageVariants: [
-      { key: "tie-switchgear-destroyed", role: "switchgear", cells: [[4, 0]], description: "Automatic bus-tie Switchgear destroyed" },
+      { key: "tie-battery-destroyed", role: "battery", cells: [[4, 0]], description: "Bus-tie Battery destroyed" },
       { key: "donor-generator-destroyed", role: "generator", cells: [[0, 0]], description: "donor-grid reactor destroyed" }
     ]
   });

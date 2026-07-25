@@ -3,7 +3,6 @@
 // intentionally discarded (no migration) — stale data falls back to the default ship.
 
 import "../shared/dataSupportRules.js";
-import "../shared/switchgearRules.js";
 import "../shared/droneBayRules.js";
 import "../shared/wiringRules.js";
 import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
@@ -188,7 +187,6 @@ export function normalizeDesignDetailed(input, options = {}) {
     if (!Number.isInteger(x) || !Number.isInteger(y)) { issues.push(normalizationIssue("invalid-coordinate", inputIndex)); continue; }
     if (!PART_DEFS[type]) { issues.push(normalizationIssue("unknown-module", inputIndex)); continue; }
     let newPart = makeDesignPart(x, y, type, raw?.rotation);
-    if (type === "switchgear" && globalThis.SwitchgearRules) newPart = globalThis.SwitchgearRules.normalizeDesignPart({ ...newPart, switchgearMode: raw?.switchgearMode, switchgearRatingTier: raw?.switchgearRatingTier });
     if (type === "droneBay") newPart = { ...newPart, rotation: 0, droneType: globalThis.DroneBayRules?.normalizeDroneType(raw?.droneType) || null };
     const footprint = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
     const cells = getOccupiedCells(x, y, footprint, newPart.rotation);
@@ -293,8 +291,8 @@ function normalizeSavedDesign(design, index) {
 }
 
 // Build a normalized current-design result from a { modules, wiring?, combatStyle? }
-// payload, preserving component-specific configuration (drone type, switchgear
-// mode/tier via normalizeDesignDetailed) and valid wiring + Power priority policy
+// payload, preserving component-specific configuration (drone type via
+// normalizeDesignDetailed) and valid wiring + Power priority policy
 // (via normalizeStoredWiringForDesign, which never auto-wires custom designs).
 // Returns null when the payload has no usable modules.
 function buildCurrentDesignFromPayload(payload) {

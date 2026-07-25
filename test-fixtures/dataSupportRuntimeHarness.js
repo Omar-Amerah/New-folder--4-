@@ -15,10 +15,12 @@ function createRuntimeShip(fixture) {
   initComponentState(ship);
   Heat.initShipHeat(ship);
   Power.initializeComponentPower(ship);
+  delete ship._activityDemandByIndex;
+  Power.applyShipPowerAllocation(ship);
   Data.rebuildShipDataTopology(ship, "fixture-runtime");
   return ship;
 }
-function applyFullPower(ship) { Power.applyShipPowerAllocation(ship); Data.refreshShipDataAllocation(ship, "full-power"); return ship.componentPower; }
+function applyFullPower(ship) { delete ship._activityDemandByIndex; Power.applyShipPowerAllocation(ship); Data.refreshShipDataAllocation(ship, "full-power"); return ship.componentPower; }
 function applyPartialPower(ship, sourceIndex, targetMultiplier = 0.5) {
   // Drive brownout through the production Power allocator by removing live
   // generation from the source's Power network. The resulting multiplier is the

@@ -212,7 +212,13 @@ function capabilityRows(type, stat, family) {
       // Power output already appears in the core row; the ledger drops the repeat
       // and leaves storage as the meaningful capability for batteries/capacitors.
       if ((stat.powerGeneration || 0) > 0) rows.push(statRow("power", "Power output", `${stat.powerGeneration} MW`));
-      if ((stat.energyStorage || 0) > 0) rows.push(statRow("power.storage", "Energy storage", formatEnergy(stat.energyStorage)));
+      const capacity = stat.energyCapacity || stat.energyStorage || 0;
+      if (capacity > 0) rows.push(statRow("power.storage", "Energy capacity", formatEnergy(capacity)));
+      if ((stat.maxChargeRate || 0) > 0) rows.push(statRow("power.chargeRate", "Max charge rate", `${stat.maxChargeRate} MW`));
+      if ((stat.maxDischargeRate || 0) > 0) rows.push(statRow("power.dischargeRate", "Max discharge rate", `${stat.maxDischargeRate} MW`));
+      if ((stat.chargeEfficiency || 0) > 0 && stat.chargeEfficiency < 1) rows.push(statRow("power.chargeEff", "Charge efficiency", formatPercent(stat.chargeEfficiency)));
+      if ((stat.dischargeEfficiency || 0) > 0 && stat.dischargeEfficiency < 1) rows.push(statRow("power.dischargeEff", "Discharge efficiency", formatPercent(stat.dischargeEfficiency)));
+      if ((stat.dischargeHeatAtMax || 0) > 0) rows.push(statRow("power.dischargeHeat", "Max discharge heat", heatRate(stat.dischargeHeatAtMax)));
       if ((stat.shield || 0) > 0) rows.push(statRow("shield.capacity", "Shield capacity", formatShield(stat.shield)));
       return rows;
     }
@@ -534,14 +540,6 @@ function advancedSections(type, stat, family, ledger, context) {
       statRow("thrust.speed", "Speed contribution", "Total thrust divided by total ship mass."),
       statRow("thrust.placement", type === "maneuverThruster" ? "Placement" : "Facing",
         type === "maneuverThruster" ? "Turning strength scales with distance from the centre of mass." : null)
-    ]);
-  }
-
-  if (type === "switchgear") {
-    push("power", "Power details", [
-      statRow("switchgear.mode", "Default mode", "Closed — Open, Closed and Automatic are saved per component."),
-      statRow("switchgear.rating", "Rating", "Light, Standard and Heavy match the Power cable sustained and peak limits."),
-      statRow("switchgear.data", "Data wiring", "No Data connection passes through Switchgear.")
     ]);
   }
 

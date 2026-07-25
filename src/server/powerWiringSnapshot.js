@@ -14,7 +14,6 @@
 // Every emitted number is finite and never NaN, Infinity, undefined or -0.
 
 const PowerProtectionRules = require("../../public/src/shared/powerProtectionRules");
-const SwitchgearRules = require("../../public/src/shared/switchgearRules");
 
 const sanitize = PowerProtectionRules.sanitizeNumber;
 function round2(value) { return sanitize(Math.round(sanitize(value) * 100) / 100); }
@@ -62,28 +61,6 @@ function buildPowerWiringLayout(ship) {
       tier: section.tier || "standard",
       hosts,
       operational: !disabled.has(id)
-    });
-  }
-
-  // Switchgear synthetic internal edges: terminal geometry is design-static, so
-  // it belongs in the layout; live conduction is reported in the runtime block.
-  for (const record of Array.isArray(ship.runtimeSwitchgear) ? ship.runtimeSwitchgear : []) {
-    const module = design[record.componentIndex];
-    if (!module) continue;
-    const terminals = SwitchgearRules.terminalCells(module);
-    sections.push({
-      id: String(record.internalEdgeId),
-      rawSectionId: String(record.internalEdgeId),
-      networkType: "power",
-      kind: "switchgear",
-      x1: Math.trunc(sanitize(terminals.A.x)),
-      y1: Math.trunc(sanitize(terminals.A.y)),
-      x2: Math.trunc(sanitize(terminals.B.x)),
-      y2: Math.trunc(sanitize(terminals.B.y)),
-      tier: record.ratingTier || "standard",
-      hosts: [record.componentIndex],
-      switchgearIndex: record.componentIndex,
-      operational: record.state !== "destroyed"
     });
   }
 

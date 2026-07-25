@@ -341,17 +341,6 @@ check("selected Data section shows cost/displacement but no Power-capacity or He
   assert(/No capacity, Heat or overload mechanics/.test(src));
 });
 
-// ---- 26. Switchgear cost and rating limitation shown ----
-check("Switchgear cost and rating limitations are clearly shown", () => {
-  const obs = clarity.blueprintObservations({
-    infrastructure: infra, sectionFlows: [], flowSummary: {}, sectionTierById: {}, powerNetworks: [],
-    dataNetworks: [], switchgear: [{ index: 4, mode: "closed", ratingTier: "light", adjacentTiers: ["standard", "heavy"] }],
-    alternatePaths: 0, infrastructurePercentage: 0.05, dataSeparateFromPower: false
-  });
-  assert(obs.warnings.some((w) => /Switchgear rating.*below its surrounding cable capacity/.test(w)), "rating-below-cable warned");
-  const src = readFile("public/src/ui/wiringUi.js");
-  assert(/Switchgear components \$\$\{switchgearCost\}/.test(src), "wiring panel shows Switchgear component cost");
-});
 
 // ---- 27. all values finite and sanitised ----
 check("all clarity outputs remain finite and sanitised", () => {

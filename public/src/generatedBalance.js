@@ -427,13 +427,19 @@ export const GENERATED_BALANCE = {
       "hull": 42,
       "powerGeneration": 0,
       "powerUse": 0,
-      "shield": 35,
-      "shieldRegen": 0.45,
+      "shield": 0,
+      "shieldRegen": 0,
       "thrust": 0,
       "turn": 0,
-      "energy": 220,
+      "energy": 80,
+      "energyCapacity": 80,
+      "maxChargeRate": 3,
+      "maxDischargeRate": 4,
+      "chargeEfficiency": 0.9,
+      "dischargeEfficiency": 0.9,
+      "dischargeHeatAtMax": 0.6,
       "repair": 0,
-      "description": "Energy reserve with a small shield buffer, but no power generation."
+      "description": "Efficient emergency Power reserve. Charges from spare reactor output and automatically supports its connected network during shortages."
     },
     {
       "id": "capacitor",
@@ -444,13 +450,19 @@ export const GENERATED_BALANCE = {
       "hull": 70,
       "powerGeneration": 0,
       "powerUse": 0,
-      "shield": 75,
-      "shieldRegen": 0.2,
+      "shield": 0,
+      "shieldRegen": 0,
       "thrust": 0,
-      "turn": -0.015,
-      "energy": 500,
+      "turn": 0,
+      "energy": 160,
+      "energyCapacity": 160,
+      "maxChargeRate": 5,
+      "maxDischargeRate": 12,
+      "chargeEfficiency": 0.8,
+      "dischargeEfficiency": 0.8,
+      "dischargeHeatAtMax": 2.5,
       "repair": 0,
-      "description": "Large energy bank with extra shield capacity and heavy mass.",
+      "description": "High-output combat reserve. Delivers large bursts of Power for a short duration, but charges less efficiently and produces substantial Heat.",
       "footprint": {
         "width": 2,
         "height": 1
@@ -847,27 +859,6 @@ export const GENERATED_BALANCE = {
       "utility": "fireRate",
       "fireRateBonus": 0.075,
       "description": "Weapon coordinator that improves fire rate."
-    },
-    {
-      "id": "switchgear",
-      "category": "Power Infrastructure",
-      "cost": 10,
-      "mass": 4,
-      "hp": 35,
-      "rotatable": true,
-      "rotationRequired": true,
-      "allowedRotations": [
-        0,
-        90,
-        180,
-        270
-      ],
-      "footprint": {
-        "width": 2,
-        "height": 1
-      },
-      "description": "Two-terminal Switchgear for isolating a Power branch or automatically tying independently wired Power buses. Its internal link carries only Power, never Data.",
-      "utilityEffect": "Default mode Closed; optional Open or Automatic. Rating tiers match Light, Standard, or Heavy Power cable capacities."
     },
     {
       "id": "heatPipe",

@@ -7,7 +7,6 @@ const { getOccupiedCells } = require("./footprint");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
 const StructuralConnectivity = require("../../public/src/shared/structuralConnectivity");
-const SwitchgearRules = require("../../public/src/shared/switchgearRules");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const { BALANCE } = require("./balanceConfig");
 
@@ -52,8 +51,7 @@ function validateDesign(input) {
     if (type === "core") coreCount += 1;
     if (type === "backupCore") backupCoreCount += 1;
     for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
-    if (type === "switchgear") clean.push(SwitchgearRules.normalizeDesignPart({ x, y, type, rotation, switchgearMode: raw?.switchgearMode, switchgearRatingTier: raw?.switchgearRatingTier }));
-    else if (type === "droneBay") clean.push({ x, y, type, rotation: 0, droneType: DroneBayRules.normalizeDroneType(raw?.droneType) });
+    if (type === "droneBay") clean.push({ x, y, type, rotation: 0, droneType: DroneBayRules.normalizeDroneType(raw?.droneType) });
     else clean.push({ x, y, type, rotation });
   }
 
@@ -122,7 +120,6 @@ function normalizeShipDesignSnapshot(design, { sourceGridSize = 15 } = {}) {
     const y = Math.trunc(Number(part?.y));
     const type = String(part?.type || "");
     const rotation = normalizePartRotation(type, x, part?.rotation);
-    if (type === "switchgear") return SwitchgearRules.normalizeDesignPart({ x, y, type, rotation, switchgearMode: part?.switchgearMode, switchgearRatingTier: part?.switchgearRatingTier });
     if (type === "droneBay") return { x, y, type, rotation: 0, droneType: DroneBayRules.normalizeDroneType(part?.droneType) };
     return { x, y, type, rotation };
   });

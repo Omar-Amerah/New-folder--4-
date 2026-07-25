@@ -11,7 +11,8 @@ const POWER_TIER_NAMES = ["light", "standard", "heavy"];
 const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "costPerHostedCell", "heatCapacityDisplacement", "renderedThickness"];
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
-  "thrust", "turn", "energy", "energyStorage", "repair", "repairRate",
+  "thrust", "turn", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
+  "chargeEfficiency", "dischargeEfficiency", "dischargeHeatAtMax", "dischargeHeat", "repair", "repairRate",
   "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength",
   "frontDamageReduction", "frontArc", "maxPerShip"
 ];
