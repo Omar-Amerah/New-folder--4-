@@ -276,6 +276,7 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     await page.locator("#confirmModal").waitFor({ state: "visible" });
     assert.match(await page.locator("#confirmModalTitle").textContent(), /Clear .*Network/i, "Clear Network opens confirmation");
     await page.locator("#confirmAcceptButton").click();
+    await page.locator("#confirmModal").waitFor({ state: "hidden" });
     await page.waitForFunction(async () => {
       const { state } = await import("/src/state.js");
       return state.wiring.power.sections.length === 0;
@@ -519,7 +520,7 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
     assert.equal(snapshot.wiring.data.sections.length, savedDataBeforeCancel, "cancel leaves saved Data sections unchanged");
     assert.equal(snapshot.ui.sourceIndex, null, "Data cancel clears sourceIndex");
     assert.deepEqual(snapshot.ui.path, [], "Data cancel clears the preview path");
-    assert(/Data-support inspection/.test(await page.locator("#wiringStatusPanel").textContent()), "Data inspection returns after cancelling Data drawing");
+    assert(/DATA NETWORK|DATA SUPPORT|Data-support/i.test(await page.locator("#wiringStatusPanel").textContent()), "Data inspection returns after cancelling Data drawing");
     await page.locator("#wiringModePower").click();
 
     // Mouse drag starts only after the threshold and uses the nearest canonical endpoint.

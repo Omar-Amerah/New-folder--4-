@@ -62,7 +62,7 @@ export function analyzeDesignDataSupport(design, wiring, catalogue, options = {}
   modules.forEach((module, index) => {
     if (!dataRules().isDataSupportSource(module?.type)) return;
     const pred = thermalAnalysis?.predictions?.get?.(module) || (thermalAnalysis?.predictions ? [...thermalAnalysis.predictions.values()][index] : null);
-    const predictedPowerMultiplier = pred && typeof pred.powerMultiplier === "number" ? pred.powerMultiplier : powerMultiplier(index, physical.power);
+    const predictedPowerMultiplier = typeof options.sourcePowerMultiplier === "function" ? Number(options.sourcePowerMultiplier(index, module)) || 0 : options.sourcePowerMultiplier != null ? Number(options.sourcePowerMultiplier) || 0 : pred && typeof pred.powerMultiplier === "number" ? pred.powerMultiplier : powerMultiplier(index, physical.power);
     const predictedThermalMultiplier = typeof options.sourceThermalMultiplier === "function" ? Number(options.sourceThermalMultiplier(index, module)) || 0 : options.sourceThermalMultiplier != null ? Number(options.sourceThermalMultiplier) || 0 : thermalMultiplier(index, modules, thermalAnalysis);
     const op = options.sourceOperationalMultiplier ?? options.operationalMultiplier;
     const predictedOperationalMultiplier = typeof op === "function" ? Number(op(index, module)) || 0 : op == null ? 1 : Number(op) || 0;

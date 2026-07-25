@@ -113,7 +113,7 @@ const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
       const power = model.overview.filter((row) => row.id === "power");
       assert.equal(power.length, 1, `${key} shows exactly one Power item`);
       assert.equal(power[0].hint, undefined, `${key} keeps the Power headline to a single value with no sub-line`);
-      assert.match(power[0].value, /MW (spare|short)$/, `${key} states the spare or shortfall`);
+      assert.match(power[0].value, /MW (spare|short|generation deficit)$/, `${key} states the spare or shortfall`);
       // No separate generation / efficiency / penalty cards in the overview.
       const strays = model.overview.filter((row) => /efficiency|penalty|generation|demand/i.test(row.label));
       assert.deepEqual(strays, [], `${key} has no separate Power cards: ${strays.map((r) => r.label)}`);
@@ -132,12 +132,12 @@ const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
   check("an underpowered design reports the shortfall and the systems it degrades", () => {
     const { model } = build("underpowered");
     const power = model.overview.find((row) => row.id === "power");
-    assert.match(power.value, /MW short$/);
+    assert.match(power.value, /MW (short|generation deficit)$/);
     assert.equal(power.tone, "bad");
     const shortfall = model.status.find((message) => message.id === "power-short");
     assert.ok(shortfall, "a shortfall status is raised");
     assert.equal(shortfall.level, "bad");
-    assert.match(shortfall.text, /MW short ·/);
+    assert.match(shortfall.text, /MW (short|generation deficit)/);
     assert.match(shortfall.text, /shields/, "names the affected systems");
     assert.equal(model.status.some((message) => message.id === "power-ok"), false, "not also reported as fully powered");
   });

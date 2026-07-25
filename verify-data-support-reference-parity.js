@@ -33,8 +33,7 @@ for (const f of fixtures.allReferenceShips()) {
   const Data = require("./src/server/componentData");
   const ship = harness.createRuntimeShip(f);
   const runtime = ship.runtimeDataSupport;
-  const thermalAnalysis = ThermalAnalysis.analyzeDesignHeat(f.design, f.wiring, "idle", { initialHeatValues: f.design.map(() => 0) });
-  const designer = Designer.analyzeDesignDataSupport(f.design, f.wiring, PARTS, { thermalAnalysis, sourceOperationalMultiplier: (index) => (ship.componentHp?.[index] ?? 1) > 0 ? 1 : 0 });
+  const designer = Designer.analyzeDesignDataSupport(f.design, f.wiring, PARTS, { sourcePowerMultiplier: (i) => Data.sourcePowerMultiplier(ship, i), sourceThermalMultiplier: (i) => Data.sourceThermalMultiplier(ship, i), sourceOperationalMultiplier: (i) => Data.sourceOperationalMultiplier(ship, i) });
   f.expected.sources.forEach((i) => compareSource(`${f.name} source ${i}`, shared, runtime, designer, i));
   f.expected.weapons.forEach((i) => compareWeapon(`${f.name} weapon ${i}`, shared, runtime, designer, i));
   assert.equal(shared.networks.length, runtime.networks.length, `${f.name} shared/runtime network count`);

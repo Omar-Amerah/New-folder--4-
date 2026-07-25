@@ -176,14 +176,14 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     }
   });
 
-  check("a 100% hull modifier is hidden while a non-standard shield modifier is kept", () => {
+  check("shield and hull damage multipliers are shown for all weapons including 100%", () => {
     const blasterRows = allRows(build("blaster"));
-    assert.equal(PART_STATS.blaster.weapon.hullDamageMultiplier ?? 1, 1, "fixture assumption: Blaster is standard vs hull");
-    assert.equal(blasterRows.some((row) => row.id === "weapon.vsHull"), false, "no Vs hull: 100% noise");
+    assert.ok(blasterRows.some((row) => row.id === "weapon.vsHull" && row.value === "100%"), "Vs hull 100% is shown for blaster");
+    assert.ok(blasterRows.some((row) => row.id === "weapon.vsShields"), "Vs shields is shown for blaster");
 
     const beamRows = allRows(build("beamEmitter"));
-    assert.ok(PART_STATS.beamEmitter.weapon.shieldDamageMultiplier !== 1, "fixture assumption: beam is non-standard vs shields");
-    assert.ok(beamRows.some((row) => row.id === "weapon.vsShields"), "a meaningful shield modifier is still shown");
+    assert.ok(beamRows.some((row) => row.id === "weapon.vsShields"), "a meaningful shield modifier is shown for beam");
+    assert.ok(beamRows.some((row) => row.id === "weapon.vsHull"), "Vs hull is shown for beam");
   });
 
   check("damage is stated exactly once per weapon", () => {

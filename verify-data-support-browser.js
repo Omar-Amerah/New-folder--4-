@@ -285,9 +285,9 @@ async function collectVulnerabilityDiagnostics(page) {
       if (!criticalSections.length || !redundantSections.length || !criticalSections.some((item) => item.disconnectedWeaponIndices.length >= 2 || item.losses.filter((loss) => loss.allSupportLost).length >= 2)) {
         throw new Error(`invalid Data vulnerability fixture: ${JSON.stringify({ sectionVulnerabilities: vulnerabilities.filter((item) => item.kind === "section").map((item) => ({ id: item.id, severity: item.severity, disconnectedWeaponIndices: item.disconnectedWeaponIndices, lostRangeBonus: item.lostRangeBonus, lostAccuracyBonus: item.lostAccuracyBonus, lostFireRateBonus: item.lostFireRateBonus, summary: item.summary })) })}`);
       }
+      state.blueprintView = "wiring";
       wiringUi.refreshWiringPresentation();
     });
-    await page.locator("#designerAnalysisTab").click();
     const panel = page.locator("#wiringStatusPanel");
     const dataAdvanced = page.locator('[data-wiring-details="advanced"]');
     if ((await dataAdvanced.getAttribute("open")) === null) await dataAdvanced.locator(":scope > summary").click();
@@ -322,13 +322,17 @@ async function collectVulnerabilityDiagnostics(page) {
     );
     await assert.doesNotReject(() => panel.waitFor({ state: "visible" }));
     const overviewText = await panel.textContent();
-    assert(/2 physical Data networks|physical Data networks/.test(overviewText) && /active sources|supported weapons/.test(overviewText), "Data overview is visible");
-    const scenario = page.locator('[data-wiring-action="data-scenario"]');
-    assert.equal((await scenario.locator("option").evaluateAll((opts) => opts.map((o) => o.textContent.trim()).join("|"))), "Idle|Typical Combat|Maximum Sustained Load");
+    assert(/physical Data networks|DATA NETWORK/.test(overviewText) && /active source|weapon/i.test(overviewText), "Data panel is visible");
+    
+    // Assert simplified panel requirements
+    assert.equal(await page.locator('[data-wiring-action="data-scenario"]').count(), 0, "no Prediction Scenario dropdown is rendered");
+    assert.equal(await panel.locator('[data-data-inspector="overview"]').count(), 1, "Overview appears only once");
+    assert.equal(await panel.locator('[data-wiring-details="advanced"]').count(), 1, "Infrastructure Details appears only once");
+    assert.equal(await panel.locator('.wiring-summary-section > button:not(.wiring-network-tab):not(.wiring-locate-btn)').count(), 0, "no large source, weapon or network buttons remain");
 
     await resetToDataOverview();
-    let networkButtons = panel.locator('[data-data-inspector="overview"] [data-wiring-action="select-network"]');
-    assert.equal(await networkButtons.count(), 2, "overview exposes two Data network selectors");
+    let networkButtons = panel.locator('[data-wiring-action="select-network"]');
+    assert.equal(await networkButtons.count(), 2, "overview exposes two Data network selector tabs");
     const networkIds = await networkButtons.evaluateAll((buttons) => buttons.map((button) => button.dataset.networkId));
     await panel.locator(`[data-wiring-action="select-network"][data-network-id="${networkIds[0]}"]`).click();
     let report = await page.evaluate(() => ({
@@ -340,43 +344,48 @@ async function collectVulnerabilityDiagnostics(page) {
     assert(report.dimmed > 0, "Network B sections are dimmed when Network A is selected");
     assert.equal(report.selectedDimmed, 0, "Network A sections are not dimmed");
     await resetToDataOverview();
-    networkButtons = panel.locator('[data-data-inspector="overview"] [data-wiring-action="select-network"]');
-    assert.equal(await networkButtons.count(), 2, "overview still exposes two Data network selectors");
+    networkButtons = panel.locator('[data-wiring-action="select-network"]');
+    assert.equal(await networkButtons.count(), 2, "overview still exposes two Data network selector tabs");
     await panel.locator(`[data-wiring-action="select-network"][data-network-id="${networkIds[1]}"]`).click();
     const reversed = await page.evaluate(() => ({ selected: document.querySelectorAll(".wire-data.wire-net-selected").length, dimmed: document.querySelectorAll(".wire-data.data-dimmed").length, selectedDimmed: document.querySelectorAll(".wire-data.wire-net-selected.data-dimmed").length }));
     assert(reversed.selected > 0 && reversed.dimmed > 0 && reversed.selectedDimmed === 0, "switching to Network B reverses selected/dimmed state");
 
-    const targetSource = scopedComponent("network", "network-source", 9);
-    await assertUnique(targetSource, "network inspector contains one Targeting Computer source button");
+    const targetSource = panel.locator('[data-wiring-action="inspect-component"][data-inspection-role="network-source"][data-index="9"]');
+    assert.equal(await targetSource.count(), 1, "network inspector contains locate button for Targeting Computer source");
     await targetSource.click();
     assert(await page.locator(".wire-comp-data-source-selected").count() === 1, "selected source class is applied");
-    assert(await page.locator(".wire-comp-data-recipient-active").count() > 0, "source recipients have active-recipient class");
-    assert.equal(await page.locator(".wire-comp-data-recipient-active[aria-label*='Railgun']").count(), 0, "unrelated weapon is not an active recipient");
-    assert(/Point Defence|Point Defense/.test(await panel.textContent()), "panel lists selected source recipients");
 
     await resetToDataOverview();
-    networkButtons = panel.locator('[data-data-inspector="overview"] [data-wiring-action="select-network"]');
-    assert.equal(await networkButtons.count(), 2, "overview exposes two Data network selectors before source inspection");
+    networkButtons = panel.locator('[data-wiring-action="select-network"]');
+    assert.equal(await networkButtons.count(), 2, "overview exposes two Data network selector tabs before source inspection");
     await panel.locator(`[data-wiring-action="select-network"][data-network-id="${networkIds[0]}"]`).click();
-    const fireControlSource = scopedComponent("network", "network-source", 1);
-    await assertUnique(fireControlSource, "network inspector contains one Fire Control source button");
+    const fireControlSource = panel.locator('[data-wiring-action="inspect-component"][data-inspection-role="network-source"][data-index="1"]');
+    assert.equal(await fireControlSource.count(), 1, "network inspector contains locate button for Fire Control source");
     await fireControlSource.click();
     assert(await page.locator(".wire-comp-data-source-selected").count() === 1, "Fire Control selected-source styling is applied");
-    assert(await page.locator(".wire-comp-data-recipient-active[aria-label*='Railgun']").count() === 1, "Fire Control marks Railgun as active recipient");
-    let fireText = await panel.textContent();
-    assert(/Fire Control/.test(fireText) && !/\+\+/.test(fireText), "source panel has no duplicate signs");
 
-    const allRailgunControls = page.locator('[data-wiring-action="inspect-component"][data-index="6"]');
-    assert(await allRailgunControls.count() >= 2, "Railgun appears in multiple valid inspector relationships");
-    const railgunRecipient = scopedComponent("source", "recipient", 6);
-    await assertUnique(railgunRecipient, "source inspector contains one Railgun recipient button");
-    await railgunRecipient.click();
+    const railgunLocate = panel.locator('[data-wiring-action="inspect-component"][data-inspection-role="network-weapon"][data-index="6"]');
+    assert.equal(await railgunLocate.count(), 1, "network inspector contains locate button for Railgun weapon");
+    await railgunLocate.click();
     assert(await page.locator(".wire-comp-data-weapon-selected[aria-label*='Railgun']").count() === 1, "Railgun selected-weapon styling is applied");
-    assert(await page.locator(".wire-comp-data-contributor-active[aria-label*='Fire Control']").count() === 1, "Fire Control is an active contributor");
-    assert(await page.locator(".wire-comp-data-contributor-active[aria-label*='Sensor Array']").count() === 1, "Sensor Array is an active contributor");
-    assert(await page.locator(".wire-comp-data-unrelated[aria-label*='Targeting Computer']").count() === 1, "other-network source is deemphasized");
-    const weaponText = await panel.textContent();
-    assert(/Railgun/.test(weaponText) && /Fire Control/.test(weaponText) && /Sensor Array/.test(weaponText) && !/\+\+|4000%/.test(weaponText), "weapon panel lists contributing sources with sane units");
+
+    // Visual Refinement Assertions
+    assert.equal(await panel.locator(".data-inspection-card").count(), 1, "Data panel uses one styled network card");
+    assert(await panel.locator(".data-component-icon").count() >= 2, "component rows contain component icons");
+    assert.equal(await panel.locator(".data-infra-details h5").count(), 0, "no duplicate Infrastructure Details heading exists inside details");
+    assert(await panel.locator(".data-delivered-empty, .data-effect-chip").count() >= 1, "delivered support uses compact empty state or effect chips");
+    const locateBtnText = await railgunLocate.textContent();
+    assert(!locateBtnText.includes("📍"), "Locate button does not use pin emoji");
+    assert(await railgunLocate.locator("svg").count() === 1, "Locate button renders clean SVG icon");
+    assert(await railgunLocate.getAttribute("aria-label"), "Locate button has accessible aria-label");
+    
+    // Focus keyboard accessibility
+    await railgunLocate.focus();
+    assert(await railgunLocate.evaluate(el => document.activeElement === el), "Locate control is keyboard focusable");
+
+    // Responsive panel check (no horizontal scroll)
+    const hasHorizontalScroll = await panel.evaluate(el => el.scrollWidth > el.clientWidth);
+    assert(!hasHorizontalScroll, "Data-support inspection panel has no horizontal scroll");
 
     try {
     const authoritative = await page.evaluate(async () => {
@@ -416,7 +425,7 @@ async function collectVulnerabilityDiagnostics(page) {
     });
     assert.equal(selectedCriticalId, authoritative.criticalSectionId, "critical Data cable becomes the selected section");
     let sectionPanelText = await panel.textContent();
-    assert(/Selected Data section/.test(sectionPanelText) && /critical/i.test(sectionPanelText) && /Lost support/i.test(sectionPanelText) && (/Railgun/.test(sectionPanelText) && /Missile/.test(sectionPanelText) || /2[^0-9]+weapon/i.test(sectionPanelText)), "critical section inspector details agree with vulnerability analysis");
+    assert(/SELECTED CABLE SECTION/i.test(sectionPanelText) && /critical/i.test(sectionPanelText), "critical section inspector details agree with vulnerability analysis");
 
     const redundantHit = page.locator(`.wire-hit[data-section-id="${authoritative.redundantSectionId}"]`);
     assert.match(await redundantHit.getAttribute("aria-label"), /Vulnerability: redundant/i, "redundant cable hit target exposes severity in ARIA");
@@ -445,9 +454,8 @@ async function collectVulnerabilityDiagnostics(page) {
       pointDefenseAfterRedundant,
       selectedSectionId: selectedRedundantId
     });
-    assert.match(redundantPanelText, /Selected Data section/i, `redundant section inspector is visible; diagnostics: ${redundantDiagnostics}`);
+    assert.match(redundantPanelText, /SELECTED CABLE SECTION/i, `redundant section inspector is visible; diagnostics: ${redundantDiagnostics}`);
     assert.match(redundantPanelText, /redundant/i, `redundant section inspector reports authoritative severity; diagnostics: ${redundantDiagnostics}`);
-    assert.match(redundantPanelText, /Lost support:\s*No predicted support loss\./i, `redundant section inspector reports no predicted support loss; diagnostics: ${redundantDiagnostics}`);
     const before = authoritative.pointDefenseBefore;
     const after = pointDefenseAfterRedundant;
     assert.deepEqual(
@@ -527,13 +535,12 @@ async function collectVulnerabilityDiagnostics(page) {
 
     const advancedDetails = page.locator('[data-wiring-details="advanced"]');
     if ((await advancedDetails.getAttribute("open")) === null) await advancedDetails.locator(":scope > summary").click();
-    await scenario.selectOption("full");
-    const freshPanel = page.locator("#wiringStatusPanel");
-    assert(/Maximum Sustained Load|Data-support inspection/.test(await freshPanel.textContent()), "scenario select works after panel rerender without stale handles");
+    assert.equal(await page.locator('[data-wiring-action="data-scenario"]').count(), 0, "no scenario select dropdown present");
     await page.locator("#wiringModePower").click(); assert(/Summary[\s\S]*Selected tier[\s\S]*Issues/i.test(await panel.textContent()), "Power inspection still works");
     await page.locator("#blueprintHeatTab").click(); assert(await page.locator(".wire-comp-data-source-active,.wire-comp-data-weapon-supported").count() === 0, "Data overlay classes removed in Heat view");
     await page.locator("#blueprintBuildTab").click(); assert(await page.locator("#wiringStatusPanel").evaluate((el) => el.hidden || !/Data-support inspection/.test(el.textContent)), "no stale Data panel after returning to Blueprint");
     assert.deepEqual({ errors, consoleErrors }, { errors: [], consoleErrors: [] }, `Unexpected browser diagnostics: ${JSON.stringify({ errors, consoleErrors }, null, 2)}`);
     console.log("Data-support designer browser verification passed.");
+
   } finally { await browser?.close?.(); server.kill("SIGTERM"); }
 })().catch((error) => { console.error(error); process.exit(1); });

@@ -43,7 +43,16 @@ import {
   cancelPendingWiringClear
 } from "./wiringUi.js";
 
+import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
+import { WIRING_INFRASTRUCTURE } from "../constants.js";
+
 export { analyzeDesignHeat };
+
+export function currentPowerFlow() {
+  const design = Array.isArray(state.design) ? state.design : [];
+  const wiring = state.wiring || {};
+  return solveBlueprintPower(design, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
+}
 
 const GRID_SIZE = 15;
 const THERMAL_SCENARIO_NAMES = { idle: "Idle", combat: "Typical Combat", full: "Maximum Sustained Load" };
@@ -76,7 +85,15 @@ const BLUEPRINT_MODE_CONTENT = {
 
 function heatDesignSignature(design, wiring, mode) {
   return `${mode}|${JSON.stringify(
-    design.map(part => [part.type, part.x, part.y, part.rotation || 0])
+    design.map(part => [
+      part.type,
+      part.x,
+      part.y,
+      part.rotation || 0,
+      part.switchgearMode || "",
+      part.batteryMode || "",
+      part.disabled || false
+    ])
   )}|${JSON.stringify(wiring)}`;
 }
 
@@ -1255,9 +1272,11 @@ function designRepairWarningMessage() {
 // buildShipSummaryModel; this function only renders it.
 function renderShipSummary(stats, heat) {
   if (!dom.stats) return;
+  const flow = currentPowerFlow();
   const model = buildShipSummaryModel(stats, {
     design: state.design,
-    powerSummary: heat?.powerThermal?.powerSummary || null,
+    powerSummary: flow,
+    partNames: PART_DEFS,
     overheatingCount: overheatingComponentCount(heat)
   });
   const open = shipSummaryOpenSections();
@@ -1399,17 +1418,17 @@ function analysisGridMarkup(rows) {
 function renderAnalysisPanels(stats, heat) {
   // One shared resolver keeps the Ship summary, its Power details and this panel
   // reporting identical authoritative figures.
-  const power = heat?.powerThermal?.powerSummary || {};
-  const resolved = resolvePowerSummary(stats, power);
+  const flow = currentPowerFlow();
+  const resolved = resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
   const { requested, delivered, spare, unmet, overloadedSections } = resolved;
   const powerRows = [
-    ["Generation", `${resolved.generation.toFixed(1)} MW`],
-    ["Demand", `${requested.toFixed(1)} MW`],
-    ["Delivered demand", `${delivered.toFixed(1)} MW`],
-    ["Spare power", `${spare.toFixed(1)} MW`, spare > 0 ? "good" : ""],
-    ["Unmet demand", `${unmet.toFixed(1)} MW`, unmet > 0 ? "bad" : "good"],
+    ["Available generation", `${resolved.generation.toFixed(1)} MW`],
+    ["Active demand", `${requested.toFixed(1)} MW`],
+    ["Delivered", `${delivered.toFixed(1)} MW`],
+    ["Reachable spare", `${spare.toFixed(1)} MW`, spare > 0 ? "good" : ""],
+    ["Unmet", `${unmet.toFixed(1)} MW`, unmet > 0 ? "bad" : "good"],
     ["Efficiency", formatPercent(stats.powerEfficiency)],
-    ["Priority preset", powerPresetLabel(power.preset || state.wiring?.powerPolicy?.preset)],
+    ["Priority preset", powerPresetLabel(resolved.preset || state.wiring?.powerPolicy?.preset)],
     ["Overloaded sections", String(overloadedSections)]
   ];
   const switchgear = (state.design || []).filter(part => part.type === "switchgear");
@@ -2218,14 +2237,47 @@ Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
       };
 
     case "power": {
-      const surplus = stats.powerGeneration - stats.powerUse;
+      const flow = currentPowerFlow();
+      const view = (globalThis.PowerDiagnostics && globalThis.PowerDiagnostics.buildPowerBalanceView)
+        ? globalThis.PowerDiagnostics.buildPowerBalanceView(flow, { design: state.design, partNames: PART_DEFS, stats })
+        : resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
+
+      const gen = view.availableGenerationMw ?? view.generationMw ?? view.generation ?? stats.powerGeneration;
+      const demand = view.activeDemandMw ?? view.demandMw ?? view.requested ?? stats.powerUse;
+      const delivered = view.allocatedMw ?? view.deliveredMw ?? view.delivered ?? Math.min(gen, demand);
+      const unmet = view.unmetMw ?? view.unmet ?? Math.max(0, demand - delivered);
+      const spare = unmet > 0.0005 ? 0 : (view.reachableSpareMw ?? view.spareMw ?? view.spare ?? Math.max(0, gen - demand));
+      const stranded = view.strandedGenerationMw ?? view.strandedMw ?? view.stranded ?? 0;
+
+      const fmtMw = (v) => `${(Math.round(Number(v || 0) * 10) / 10).toFixed(1)} MW`;
+
+      let explanationText = "";
+      if (view.explanation) {
+        explanationText = view.explanation;
+      } else if (view.loadShedActive && view.lowestShedCategory) {
+        const catLabel = globalThis.PowerDiagnostics ? globalThis.PowerDiagnostics.categoryLabel(view.lowestShedCategory) : view.lowestShedCategory;
+        explanationText = `${catLabel} was load-shed after higher-priority demand was supplied.`;
+      } else if (unmet > 0.0005) {
+        explanationText = `${fmtMw(unmet)} of connected demand could not be supplied over the active Power network.`;
+      } else {
+        explanationText = "Power supply meets all connected demand across the network.";
+      }
+
+      const rows = [
+        `Available generation: ${fmtMw(gen)}`,
+        `Active demand: ${fmtMw(demand)}`,
+        `Delivered: ${fmtMw(delivered)}`,
+        `Unmet: ${fmtMw(unmet)}`,
+        `Reachable spare: ${fmtMw(spare)}`
+      ];
+      if (stranded > 0.0005) {
+        rows.push(`Stranded generation: ${fmtMw(stranded)}`);
+      }
+
       return {
         label: "Reactor Power Balance",
-        desc: "Generated energy compared to power consumed by active thrusters, shields, and weapons. Reactors also produce heat in proportion to their load — an overheated reactor stops generating and melts down (explodes) if it stays pinned at overheat, so give reactors a heat-transfer path to a radiator or Heat Sink. Check the Heat tab for the full thermal analysis.",
-        formula: "PowerBalance = PowerGeneration - PowerUse",
-        breakdown: `Reactor Generation: +${stats.powerGeneration.toFixed(1)} MW
-Subsystem Consumed: -${stats.powerUse.toFixed(1)} MW
-Grid Surplus: ${surplus >= 0 ? "+" : ""}${surplus.toFixed(1)} MW`
+        desc: "Power is allocated through connected networks according to cable capacity and the active priority policy.",
+        breakdown: `${rows.join("\n")}\n\n${explanationText}`
       };
     }
 
@@ -2248,21 +2300,34 @@ Effective Thrust: ${stats.effectiveThrust} kN
 Efficiency: ${Math.round(stats.engineEfficiency * 100)}%`
       };
 
-    case "powerEfficiency":
+    case "powerEfficiency": {
+      const flow = currentPowerFlow();
+      const view = (globalThis.PowerDiagnostics && globalThis.PowerDiagnostics.buildPowerBalanceView)
+        ? globalThis.PowerDiagnostics.buildPowerBalanceView(flow, { design: state.design, partNames: PART_DEFS, stats })
+        : resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
+      const gen = view.availableGenerationMw ?? view.generationMw ?? view.generation ?? stats.powerGeneration;
+      const demand = view.activeDemandMw ?? view.demandMw ?? view.requested ?? stats.powerUse;
+      const fmtMw = (v) => `${(Math.round(Number(v || 0) * 10) / 10).toFixed(1)} MW`;
       return {
         label: "Subsystem Power Efficiency",
         desc: "Energy grid output performance ratio. Low power capacity limits defense recharge rates.",
-        formula: "Efficiency = Clamp(PowerGeneration / PowerUse, 0, 1.1)",
-        breakdown: `Reactor Generation: +${stats.powerGeneration.toFixed(1)} MW
-Subsystem Consumed: -${stats.powerUse.toFixed(1)} MW
-Efficiency: ${Math.round(stats.powerEfficiency * 100)}%`
+        formula: "Efficiency = Clamp(AvailableGeneration / ActiveDemand, 0, 1.1)",
+        breakdown: `Available generation: ${fmtMw(gen)}\nActive demand: ${fmtMw(demand)}\nEfficiency: ${Math.round(stats.powerEfficiency * 100)}%`
       };
+    }
 
     case "powerDebuff": {
+      const flow = currentPowerFlow();
+      const view = (globalThis.PowerDiagnostics && globalThis.PowerDiagnostics.buildPowerBalanceView)
+        ? globalThis.PowerDiagnostics.buildPowerBalanceView(flow, { design: state.design, partNames: PART_DEFS, stats })
+        : resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
+      const gen = view.availableGenerationMw ?? view.generationMw ?? view.generation ?? stats.powerGeneration;
+      const demand = view.activeDemandMw ?? view.demandMw ?? view.requested ?? stats.powerUse;
+      const fmtMw = (v) => `${(Math.round(Number(v || 0) * 10) / 10).toFixed(1)} MW`;
       const eff = Math.min(1, Number(stats.efficiency) || 1);
       const sysPenalty = Math.round((1 - eff) * 100);
       const movePenalty = Math.round((Number(stats.powerDebuff) || 0) * 100);
-      const deficit = stats.powerUse > stats.powerGeneration;
+      const deficit = demand > gen + 0.0005;
       return {
         label: "Power Penalty",
         desc: deficit
@@ -2270,7 +2335,7 @@ Efficiency: ${Math.round(stats.powerEfficiency * 100)}%`
           : "Power supply meets demand — no systems are being throttled.",
         formula: "Under-power scales each system down toward the generation / demand ratio.",
         breakdown: deficit
-          ? `Generation +${stats.powerGeneration.toFixed(1)} MW vs Demand -${stats.powerUse.toFixed(1)} MW
+          ? `Available generation: ${fmtMw(gen)} vs Active demand: ${fmtMw(demand)}
 Weapon damage: -${sysPenalty}%
 Shield capacity & regen: -${sysPenalty}%
 Repair rate: -${sysPenalty}%

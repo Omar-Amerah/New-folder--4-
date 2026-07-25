@@ -243,6 +243,17 @@
 .wiring-summary-section button[aria-pressed="true"] { outline: 2px solid #38d9ff; background: rgba(56,217,255,.16); }
 .wiring-summary-section button:focus-visible,
 .data-scenario-label select:focus-visible { outline: 3px solid #ffd166; outline-offset: 2px; }
+
+.wiring-network-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .5rem; }
+.wiring-network-tab { padding: .15rem .55rem; font-size: .82rem; border-radius: 4px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); color: #d9e8ff; cursor: pointer; }
+.wiring-network-tab.active,
+.wiring-network-tab[aria-selected="true"] { background: rgba(56,217,255,.22); border-color: #38d9ff; color: #ffffff; font-weight: 600; }
+
+.wiring-component-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .1rem 0; }
+.wiring-locate-btn { background: none; border: none; padding: 0 .2rem; margin: 0; cursor: pointer; font-size: .9rem; line-height: 1; opacity: .8; border-radius: 3px; }
+.wiring-locate-btn:hover,
+.wiring-locate-btn:focus-visible { opacity: 1; outline: 1px solid #38d9ff; background: rgba(56,217,255,.15); }
+
 .data-support-badge,
 .data-severity-badge { display: inline-block; border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: .1rem .45rem; margin: .1rem; font-size: .85em; }
 .data-severity-critical { border-color: #ff4d6d; }
@@ -688,6 +699,236 @@
 }
 .wiring-compact-stats strong { color: #e5edf8; text-align: right; }
 
+/* Summary Stat Grid & Conditions Strip */
+.wiring-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
+.wiring-stat-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 5px 7px;
+  background: rgba(18, 26, 38, 0.6);
+  border: 1px solid rgba(126, 160, 210, 0.18);
+  border-radius: 6px;
+  box-sizing: border-box;
+  min-height: 44px;
+}
+.wiring-stat-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #7e9ac0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+.wiring-stat-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e5edf8;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiring-conditions-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.wiring-condition-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 5px;
+  background: rgba(22, 33, 49, 0.5);
+  border: 1px solid rgba(126, 160, 210, 0.12);
+  color: #94a3b8;
+}
+.wiring-condition-item.is-good {
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.wiring-condition-item.is-warning {
+  color: #fde047;
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.3);
+}
+.wiring-condition-item.is-bad {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Selected Tier Highlight Card */
+.wiring-tier-card {
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(15, 23, 36, 0.7);
+  border: 1px solid rgba(126, 160, 210, 0.2);
+  border-left-width: 4px;
+  margin-block: 4px;
+}
+.wiring-tier-card.tier-light {
+  border-left-color: #fff3a3;
+  background: linear-gradient(90deg, rgba(255, 243, 163, 0.06) 0%, rgba(15, 23, 36, 0.7) 100%);
+}
+.wiring-tier-card.tier-standard {
+  border-left-color: #ff9800;
+  background: linear-gradient(90deg, rgba(255, 152, 0, 0.06) 0%, rgba(15, 23, 36, 0.7) 100%);
+}
+.wiring-tier-card.tier-heavy {
+  border-left-color: #c43c2f;
+  background: linear-gradient(90deg, rgba(196, 60, 47, 0.06) 0%, rgba(15, 23, 36, 0.7) 100%);
+}
+.wiring-tier-card.tier-data {
+  border-left-color: #38d9ff;
+  background: linear-gradient(90deg, rgba(56, 217, 255, 0.06) 0%, rgba(15, 23, 36, 0.7) 100%);
+}
+.wiring-tier-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.wiring-tier-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f1f5f9;
+}
+.wiring-tier-card-header summary {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  place-items: center;
+  border: 1px solid rgba(126, 160, 210, 0.35);
+  border-radius: 50%;
+  color: #9edfff;
+  font-weight: 900;
+  font-size: 11px;
+  list-style: none;
+}
+.wiring-tier-card-header summary::-webkit-details-marker { display: none; }
+.wiring-tier-card-header details[open] {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+.wiring-tier-card-header details[open] p {
+  margin: 2px 0;
+  color: #9db4d6;
+  font-size: 11px;
+}
+.wiring-tier-specs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+}
+.wiring-tier-spec-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.wiring-tier-spec-label {
+  color: #8298b8;
+}
+.wiring-tier-spec-val {
+  color: #dce8f8;
+  font-weight: 700;
+}
+
+/* Empty Issues Strip */
+.wiring-no-issues-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  border-radius: 6px;
+  color: #34d399;
+  font-size: 11px;
+  font-weight: 600;
+  margin-block: 4px;
+}
+.wiring-no-issues-icon {
+  font-weight: 900;
+  font-size: 12px;
+}
+
+/* Accordion Header Adjustments */
+.wiring-analysis-expander > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 2px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.wiring-analysis-expander > summary::-webkit-details-marker { display: none; }
+.wiring-expander-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wiring-expander-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #bdd0ea;
+}
+.wiring-expander-subtitle {
+  font-size: 10px;
+  font-weight: 500;
+  color: #7e9ac0;
+  text-transform: none;
+}
+.wiring-expander-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(126, 160, 210, 0.2);
+  color: #94a3b8;
+  text-transform: none;
+}
+.wiring-expander-badge.is-good {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+.wiring-expander-body {
+  padding: 4px 0 8px 6px;
+}
+.wiring-muted-text {
+  color: #7e9ac0;
+  font-size: 11px;
+}
+
 .wiring-selected-tier-row {
   display: flex;
   gap: 7px;
@@ -812,14 +1053,18 @@
   .wiring-analysis-section { padding-block: 5px; }
   .wiring-compact-stats > div { padding-block: 2px; }
   .wiring-analysis-expander > summary {
-    grid-template-columns: 1fr;
-    gap: 1px;
+    gap: 4px;
   }
-  .wiring-analysis-expander > summary strong { text-align: left; }
   .wiring-issue-actions button { flex: 1 1 120px; }
 }
 
-@media (max-width: 360px) {
+@media (max-width: 480px) {
+  .wiring-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wiring-tier-specs { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 280px) {
+  .wiring-stat-grid { grid-template-columns: 1fr; }
   .wiring-compact-stats { grid-template-columns: 1fr; }
 }
 
@@ -1502,4 +1747,341 @@
 @media (max-width: 720px) {
   .power-alloc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
   .power-alloc-kpi-value { font-size: 14px; }
+}
+
+/* Data Inspection Panel Design System Refinement */
+.data-inspection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(10, 18, 30, 0.85);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 6px;
+}
+
+.data-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 2px;
+}
+
+.data-network-title {
+  color: #00e5ff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.data-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.data-badge-active,
+.badge-active {
+  background: rgba(0, 230, 118, 0.12);
+  color: #00e676;
+  border: 1px solid rgba(0, 230, 118, 0.32);
+}
+
+.data-badge-partially-active,
+.badge-reduced {
+  background: rgba(255, 193, 7, 0.12);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.32);
+}
+
+.data-badge-offline,
+.badge-offline {
+  background: rgba(255, 82, 82, 0.12);
+  color: #ff5252;
+  border: 1px solid rgba(255, 82, 82, 0.32);
+}
+
+.badge-neutral {
+  background: rgba(142, 166, 200, 0.12);
+  color: #8ea6c8;
+  border: 1px solid rgba(142, 166, 200, 0.24);
+}
+
+/* Summary stats cells */
+.data-summary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.data-stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  background: rgba(20, 32, 52, 0.55);
+  border: 1px solid rgba(126, 160, 210, 0.16);
+  border-radius: 6px;
+}
+
+.data-stat-label {
+  color: #8ea6c8;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.data-stat-value {
+  color: #e6eefb;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-stat-active {
+  color: #00e5ff;
+}
+
+.data-stat-none {
+  color: #8ea6c8;
+  font-weight: 500;
+}
+
+/* Network Components Card */
+.data-components-card,
+.data-delivered-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-section-heading {
+  color: #8ea6c8;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.data-component-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.data-component-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(16, 26, 42, 0.6);
+  border: 1px solid rgba(126, 160, 210, 0.14);
+  border-radius: 5px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.data-component-row:hover {
+  background: rgba(22, 36, 58, 0.75);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+
+.data-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.data-component-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.data-component-name {
+  color: #d7e4f5;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-component-coords {
+  color: #728aa8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.data-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.data-status-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.wiring-locate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid rgba(126, 160, 210, 0.22);
+  border-radius: 4px;
+  background: rgba(25, 38, 60, 0.6);
+  color: #8ea6c8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wiring-locate-btn:hover {
+  color: #00e5ff;
+  border-color: rgba(0, 229, 255, 0.5);
+  background: rgba(0, 229, 255, 0.12);
+}
+
+.wiring-locate-btn:focus-visible {
+  outline: 2px solid #00e5ff;
+  outline-offset: 1px;
+  color: #00e5ff;
+  border-color: #00e5ff;
+  background: rgba(0, 229, 255, 0.2);
+}
+
+/* Delivered support */
+.data-delivered-empty {
+  padding: 8px 12px;
+  background: rgba(16, 26, 42, 0.4);
+  border: 1px dashed rgba(126, 160, 210, 0.2);
+  border-radius: 5px;
+  color: #8ea6c8;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.data-delivered-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.data-effect-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: rgba(0, 229, 255, 0.1);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 4px;
+  color: #00e5ff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Warnings */
+.data-warnings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-warning-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(255, 193, 7, 0.08);
+  border-left: 3px solid #ffc107;
+  border-top: 1px solid rgba(255, 193, 7, 0.18);
+  border-right: 1px solid rgba(255, 193, 7, 0.18);
+  border-bottom: 1px solid rgba(255, 193, 7, 0.18);
+  border-radius: 4px;
+}
+
+.data-warning-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffc107;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.data-warning-msg {
+  color: #d7e4f5;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Infrastructure details inside accordion */
+.data-infra-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.data-infra-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #8ea6c8;
+  font-size: 12px;
+}
+
+.data-infra-row strong {
+  color: #e6eefb;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-infra-note {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(20, 32, 52, 0.5);
+  border: 1px solid rgba(126, 160, 210, 0.12);
+  border-radius: 4px;
+  color: #728aa8;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 480px) {
+  .data-summary-stats {
+    grid-template-columns: 1fr;
+  }
+  .data-component-row {
+    flex-wrap: wrap;
+  }
+  .data-row-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
 }

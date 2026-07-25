@@ -440,8 +440,8 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.projectileSpeed", "Projectile speed", (Number(weapon.projectileSpeed) || 0) > 0 ? formatSpeed(weapon.projectileSpeed) : "Hitscan"));
   }
   rows.push(statRow("weapon.traverse", "Turret traverse", aimSpeedText(turretRules().turnRateFor(weapon))));
-  rows.push(statRow("weapon.vsShields", "Vs shields", formatMultiplierPercent(weapon.shieldDamageMultiplier), { kind: "modifier", raw: weapon.shieldDamageMultiplier ?? 1 }));
-  rows.push(statRow("weapon.vsHull", "Vs hull", formatMultiplierPercent(weapon.hullDamageMultiplier), { kind: "modifier", raw: weapon.hullDamageMultiplier ?? 1 }));
+  rows.push(statRow("weapon.vsShields", "Vs shields", formatMultiplierPercent(weapon.shieldDamageMultiplier)));
+  rows.push(statRow("weapon.vsHull", "Vs hull", formatMultiplierPercent(weapon.hullDamageMultiplier)));
 
   if (weapon.type === "missile") {
     rows.push(statRow("weapon.tracking", "Tracking", formatPercent(weapon.tracking)));
