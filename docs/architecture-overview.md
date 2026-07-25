@@ -60,7 +60,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 | `componentData.js` | Derived Section 6A/6B/6C Data-support topology and allocation; reads authoritative per-component Power and Heat runtime state, treats disconnected or missing Power as zero output, and never persists runtime support into blueprints |
 | `componentPower.js` | Damage-aware Power/Wiring runtime projection and per-component operational Power allocation used by movement, shields, Heat and Data-support lifecycle refreshes |
 | `economy.js` | Income ticks, purchase validation, `buyShip`, fleet cost |
-| `objectives.js` | Capture points, scoring, control-victory countdown |
+| `objectives.js` | Relay capture, capture rewards, and the full-control victory countdown |
 | `snapshots.js` | Snapshot assembly: shared-per-room arrays + per-team economy visibility; static vs dynamic fields; component HP/heat delta encoding |
 | `components.js` | `PARTS` catalogue; merges `component-balance.json` overrides |
 | `buildInfo.js` | `SERVER_BUILD_SHA` + `PROTOCOL_VERSION` (from shared `protocolVersion.js`) |
@@ -79,7 +79,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
   omitted from dynamic snapshots: designs, map, rules, stats; applying `chpD`
   component-HP and `componentHeatD` heat deltas); protocol/build skew reporting.
 - **Lobby/UI** — `ui/*.js`: dom registry (`dom.js`), lobby management, rules,
-  scoreboard, purchase bar, side panel, toasts, end-game screen, ship damage/heat
+  match status, purchase bar, side panel, toasts, end-game screen, ship damage/heat
   panels, saved blueprints, loadouts.
 - **Designer** — `design/*.js` + `ui/designerUi.js` + `ui/designerScreenUi.js`:
   blueprint grid editing, rotation, footprints, validation, cost, thermal analysis
@@ -137,7 +137,7 @@ user input (pointer/keys/UI)
   → authoritative room mutation      players.js / movement.js / economy.js / …
   → simulation tick (30 Hz)          server.js tickRoom(): bots, economy,
                                      movement, separation, collisions, support,
-                                     weapons, heat, bullets, capture, scoring
+                                     weapons, heat, bullets, capture, control victory
   → snapshot build (15 Hz)           snapshots.js: shared arrays once per room,
                                      static fields only on "static" snapshots,
                                      component HP/heat deltas otherwise
@@ -212,8 +212,8 @@ Map generation is deterministic once a per-room `mapSeed` has been created. The 
 
 Combat remains server-authoritative. Active ticks execute bot decisions, economy,
 self-destruct countdowns, destroyed-ship removal, movement, separation, map
-collisions, support/repair, weapon aiming/firing, heat, projectiles, capture and
-scoring in that order. Target acquisition, per-weapon fallback, point defence,
+collisions, support/repair, weapon aiming/firing, heat, projectiles, relay capture
+and control victory in that order. Target acquisition, per-weapon fallback, point defence,
 projectile impacts and destruction now use explicit deterministic tie-breaks and
 idempotent finalization; see [combat-targeting-weapons.md](combat-targeting-weapons.md).
 

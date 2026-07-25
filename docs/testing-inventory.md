@@ -165,7 +165,8 @@ idempotency and swept projectile asteroid-first precedence with deterministic se
 | `npm run test:lifecycle` | Deterministic reconnect/lifecycle coverage. |
 | `npm run test:spawn-planner` | Spawn/map invariant verifier entry point. |
 | `npm run test:map-invariants` | Map invariant verifier entry point. |
-| `npm run test:objectives` | Objective/scoring verifier entry point. |
+| `npm run test:objectives` | Map and relay-capture invariant entry point. |
+| `npm run test:control-victory` | Continuous 20-second full-control victory and relay-economy checks. |
 
 Only the commands above that are wired to executable verifier scripts are documented here.
 

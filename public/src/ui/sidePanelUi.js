@@ -37,10 +37,18 @@ const GROUP_COMBAT_STYLES = [
   ...SELECTED_COMBAT_STYLES
 ];
 
+let lastTelemetryFocusShipId;
+function syncTelemetryFocus() {
+  const next = state.selectedShipIds.size === 1 ? [...state.selectedShipIds][0] : null;
+  if (lastTelemetryFocusShipId === next) return;
+  if (send({ type: "setTelemetryFocus", shipId: next })) lastTelemetryFocusShipId = next;
+}
+
 export function renderSideControls() {
   renderShipGroups();
   renderRallyControls();
   renderSelectionControls();
+  syncTelemetryFocus();
 }
 
 export function handleShipGroupListClick(event) {

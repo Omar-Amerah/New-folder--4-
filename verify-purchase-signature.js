@@ -49,7 +49,7 @@ function makePlayer(id, team = "blue") {
     design, stats: computeStats(design), ships: [], money: 100000, bank: 100000,
     income: ECONOMY.baseIncome, earned: 100000, spent: 0, maxMoney: ECONOMY.maxMoney,
     shipCap: 50, deployedFleetCost: 0, destroyedEnemyCost: 0, lostFleetCost: 0,
-    lastReward: null, score: 0, kills: 0, losses: 0, captures: 0,
+    lastReward: null, kills: 0, losses: 0, captures: 0,
     connected: true, removed: false, client: {}, purchaseRequests: new Map()
   };
 }

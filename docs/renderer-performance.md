@@ -4,7 +4,7 @@ PixiJS/WebGL remains the sole arena renderer. The scene graph is created once pe
 
 ## Object classes and counts
 
-* **Authoritative entities** are entities from MessagePack protocol v4 snapshots.
+* **Authoritative entities** are entities from MessagePack protocol v5 snapshots.
 * **Visual entities** are interpolated render records derived from authoritative timestamp history.
 * **Allocated views** are Pixi display-object trees currently active or idle in pools.
 * **Active visible views** intersect expanded viewport bounds.

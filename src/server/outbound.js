@@ -3,6 +3,7 @@
 const { encodeMessage } = require("./wsCodec");
 const { validateClientMessage } = require("./clientSchemas");
 const { serverEnvelope } = require("./protocol");
+const { recordOutbound } = require("./performanceTelemetry");
 
 const BINARY_OPCODE = 0x2;
 const CONTROL_QUEUE_BYTE_LIMIT = 256 * 1024;
@@ -47,7 +48,7 @@ function markBlocked(client, out) {
 }
 function flushOutbound(client) {
   const out = getOutbound(client); if (out.flushing || out.blocked || client.isClosed || client.socket.destroyed) return; out.flushing = true;
-  try { while (!out.blocked && (out.control.length || out.snapshot)) { const item = out.control.length ? out.control.shift() : out.snapshot; if (!out.control.length && item === out.snapshot) out.snapshot = null; const ok = writeFrame(client.socket, item.payload, BINARY_OPCODE); emitLifecycle(client, 'written', item); out.bytes = Math.max(0, out.bytes - item.bytes); if (!item.kind?.startsWith('snapshot-')) out.controlBytes = Math.max(0, out.controlBytes - item.bytes); if (!ok) markBlocked(client, out); } }
+  try { while (!out.blocked && (out.control.length || out.snapshot)) { const item = out.control.length ? out.control.shift() : out.snapshot; if (!out.control.length && item === out.snapshot) out.snapshot = null; const ok = writeFrame(client.socket, item.payload, BINARY_OPCODE); recordOutbound(item.bytes, item.kind); emitLifecycle(client, 'written', item); out.bytes = Math.max(0, out.bytes - item.bytes); if (!item.kind?.startsWith('snapshot-')) out.controlBytes = Math.max(0, out.controlBytes - item.bytes); if (!ok) markBlocked(client, out); } }
   catch (err) { console.error('outbound write failed', err); safeClose(client, 1011, 'Send failed'); }
   finally { out.flushing = false; }
 }

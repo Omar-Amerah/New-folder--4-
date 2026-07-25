@@ -57,8 +57,8 @@ const assert = require("assert");
   function makeRoom(ships = []) {
     const shipMap = new Map();
     const playerMap = new Map([
-      ["p1", { id: "p1", name: "Player 1", team: "A", kills: 0, losses: 0, score: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }],
-      ["p2", { id: "p2", name: "Player 2", team: "B", kills: 0, losses: 0, score: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }]
+      ["p1", { id: "p1", name: "Player 1", team: "A", kills: 0, losses: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }],
+      ["p2", { id: "p2", name: "Player 2", team: "B", kills: 0, losses: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }]
     ]);
     for (const ship of ships) {
       shipMap.set(ship.id, ship);

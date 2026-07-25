@@ -154,7 +154,7 @@ export const dom = {
   loadoutManagerEditor: document.getElementById("loadoutManagerEditor"),
   purchaseTooltip: document.getElementById("purchaseTooltip"),
   statTooltip: document.getElementById("statTooltip"),
-  scoreList: document.getElementById("scoreList"),
+  playerStatusList: document.getElementById("playerStatusList"),
   eventLog: document.getElementById("eventLog"),
   toastStack: document.getElementById("toastStack"),
   matchProgressFill: document.getElementById("matchProgressFill"),

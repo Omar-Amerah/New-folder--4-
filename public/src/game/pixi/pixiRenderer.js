@@ -12,7 +12,7 @@ import { getViewportWorldBounds } from "../viewportCulling.js";
 import { cameraViewportWorldBounds } from "../camera.js";
 import { getRenderQuality, getRenderQualityDprCap, renderQualityProfile } from "../renderSettings.js";
 import { setDebugFrameStats, updateDebugOverlay } from "../debugOverlay.js";
-import { playerMap } from "../../ui/scoreboardUi.js";
+import { playerMap } from "../../ui/matchStatusUi.js";
 import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagnostics } from "./pixiBake.js";
 import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
 import { updatePixiShips, destroyPixiShipPool, pixiShipViewCounts } from "./pixiShips.js";

@@ -6,7 +6,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
   const m = await import("./public/src/snapshotMerge.js");
   const full = {
     type:"state", room:"R", stateEpoch:1, snapshotSeq:1, snapshotKind:"full", staticRevision:1,
-    players:[{id:"p",design:[{type:"core"}],stats:{kills:0},name:"Pilot",team:"blue",colour:"#39f",score:7}],
+    players:[{id:"p",design:[{type:"core"}],stats:{kills:0},name:"Pilot",team:"blue",colour:"#39f",captures:7}],
     ships:[{id:"s",ownerId:"p",alive:true,design:[{type:"core"},{type:"engine"},{type:"heatSink"}],chp:[10,20,30],componentHeat:[[1,0,0.1,10],[2,0,0.2,10],[0,0,0,10]]}],
     bullets:[], effects:[], map:{seed:1}, world:{width:1}, rules:{asteroidDensity:"none"}, mapSizeLabel:"small"
   };
@@ -17,7 +17,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.deepEqual(r1.snapshot.ships[0].chp, [10,20,30]);
   assert.deepEqual(r1.snapshot.ships[0].componentHeat, [[1,0,0.1,10],[2,0,0.2,10],[0,0,0,10]]);
 
-  const compact2 = { type:"state", room:"R", stateEpoch:1, snapshotSeq:2, snapshotKind:"compact", baseSnapshotSeq:1, staticRevision:1, players:[{id:"p",score:8}], ships:[{id:"s",ownerId:"p",alive:true,chpD:[0,9],componentHeatD:[1,3,0,0.3,10]}], bullets:[], effects:[] };
+  const compact2 = { type:"state", room:"R", stateEpoch:1, snapshotSeq:2, snapshotKind:"compact", baseSnapshotSeq:1, staticRevision:1, players:[{id:"p",captures:8}], ships:[{id:"s",ownerId:"p",alive:true,chpD:[0,9],componentHeatD:[1,3,0,0.3,10]}], bullets:[], effects:[] };
   const r2 = m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, compact2);
   assert.equal(r2.ok, true);
   assert.deepEqual(r2.snapshot.ships[0].design, full.ships[0].design);
@@ -28,7 +28,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.deepEqual(r1.snapshot.ships[0].chp, [10,20,30]);
   assert.deepEqual(r1.snapshot.ships[0].componentHeat[1], [2,0,0.2,10]);
 
-  const compact3 = { ...compact2, snapshotSeq:3, baseSnapshotSeq:2, players:[{id:"p",score:9}], ships:[{id:"s",ownerId:"p",alive:true,chpD:[2,25],componentHeatD:[0,4,1,0.4,10,2,5,0,0.5,10]}] };
+  const compact3 = { ...compact2, snapshotSeq:3, baseSnapshotSeq:2, players:[{id:"p",captures:9}], ships:[{id:"s",ownerId:"p",alive:true,chpD:[2,25],componentHeatD:[0,4,1,0.4,10,2,5,0,0.5,10]}] };
   const r3 = m.mergeSnapshotTransaction(r2.snapshot, r2.networkState, compact3);
   assert.equal(r3.ok, true);
   assert.deepEqual(r3.snapshot.ships[0].chp, [9,20,25]);
@@ -40,7 +40,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.equal(r3.snapshot.players[0].name, "Pilot");
   assert.equal(r3.snapshot.players[0].team, "blue");
   assert.equal(r3.snapshot.players[0].colour, "#39f");
-  assert.equal(r3.snapshot.players[0].score, 9);
+  assert.equal(r3.snapshot.players[0].captures, 9);
   assert.deepEqual(r3.snapshot.map, full.map);
   assert.deepEqual(r3.snapshot.world, full.world);
   assert.deepEqual(r3.snapshot.rules, full.rules);
@@ -65,7 +65,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
   const nullStaticCompact = {
     type:"state", room:"R", stateEpoch:1, snapshotSeq:5, snapshotKind:"compact", baseSnapshotSeq:4, staticRevision:1,
     map:null, world:null, rules:null, mapSizeLabel:null,
-    players:[{id:"p",design:null,stats:null,name:null,team:null,colour:null,color:null,score:0,money:0,ready:false,connected:false}],
+    players:[{id:"p",design:null,stats:null,name:null,team:null,colour:null,color:null,captures:0,money:0,ready:false,connected:false}],
     ships:[{id:"s",ownerId:"p",alive:true,design:null,chp:null,componentHeat:null,chpD:[1,18],componentHeatD:[1,6,0,0.6,10]}],
     bullets:[], effects:[], emptyObject:{}, emptyArray:[], falseValue:false, zeroValue:0
   };
@@ -81,7 +81,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.equal(r5.snapshot.players[0].team, "blue");
   assert.equal(r5.snapshot.players[0].colour, "#39f");
   assert.equal(r5.snapshot.players[0].color, undefined);
-  assert.equal(r5.snapshot.players[0].score, 0, "legitimate zero remains authoritative");
+  assert.equal(r5.snapshot.players[0].captures, 0, "legitimate zero remains authoritative");
   assert.equal(r5.snapshot.players[0].money, 0, "legitimate zero money remains authoritative");
   assert.equal(r5.snapshot.players[0].ready, false, "legitimate false remains authoritative");
   assert.equal(r5.snapshot.players[0].connected, false, "legitimate false connected remains authoritative");
@@ -101,7 +101,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
     world:undefined,
     rules:undefined,
     mapSizeLabel:undefined,
-    players:[{id:"p",design:undefined,stats:undefined,name:undefined,team:undefined,colour:undefined,color:undefined,score:10}],
+    players:[{id:"p",design:undefined,stats:undefined,name:undefined,team:undefined,colour:undefined,color:undefined,captures:10}],
     ships:[{id:"s",ownerId:"p",alive:true,design:undefined,chp:undefined,componentHeat:undefined,chpD:[0,7],componentHeatD:[0,8,0,0.8,10]}]
   }));
   assert.equal(undefinedWireCompact.map, null, "MessagePack decodes explicit undefined properties as null");
@@ -138,15 +138,18 @@ const { snapshotRoom } = require("./src/server/snapshots");
   const room = {
     code:"WIRE", phase:"active", adminId:"p", stateEpoch:1, snapshotSeq:1, staticRevision:1, componentCatalogueRevision:1,
     mapSizeLabel:"tiny", world:{width:100,height:100,label:"tiny"}, map:{asteroids:[],relays:[]}, rules:{gameMode:"control"},
-    winner:null, matchStartedAt:1, maxScore:100, bullets:[], effects:[], points:[], controlVictory:null,
+    winner:null, matchStartedAt:1, bullets:[], effects:[], points:[], controlVictory:null,
     players:new Map(), ships:new Map()
   };
-  const player = { id:"p", name:"Pilot", color:"#39f", team:"blue", isBot:false, connected:true, ready:false, money:0, income:0, earned:0, spent:0, shipCap:3, deployedFleetCost:0, destroyedEnemyCost:0, lastReward:0, score:0, kills:0, losses:0, captures:0, ships:[], design:[{type:"core"}], stats:{unitCost:1}, shipsBuilt:0, lostFleetCost:0, rallyPoint:{x:0,y:0} };
+  const player = { id:"p", name:"Pilot", color:"#39f", team:"blue", isBot:false, connected:true, ready:false, money:0, income:0, earned:0, spent:0, shipCap:3, deployedFleetCost:0, destroyedEnemyCost:0, lastReward:0, kills:0, losses:0, captures:0, ships:[], design:[{type:"core"}], stats:{unitCost:1}, shipsBuilt:0, lostFleetCost:0, rallyPoint:{x:0,y:0} };
   const ship = { id:"ship", ownerId:"p", designRevision:1, x:0, y:0, vx:0, vy:0, angle:0, targetX:0, targetY:0, hp:10, maxHp:10, shield:0, maxShield:0, radius:10, cost:1, weaponAngles:[], alive:true, stats:{unitCost:1}, design:[{type:"core"},{type:"engine"}], componentHp:[10,20], componentHeat:[1,2], componentHeatState:[0,0], componentThermals:[{capacity:10},{capacity:20}], dirtyComponents:new Set([1]), dirtyHeat:new Set([1]), designSent:false };
   player.ships.push(ship);
   room.players.set(player.id, player);
   room.ships.set(ship.id, ship);
   const fullWire = decode(encode(snapshotRoom(room, 1000, player, true)));
+  assert.equal(Object.prototype.hasOwnProperty.call(fullWire, "maxScore"), false, "snapshot omits removed match total");
+  assert.equal(Object.prototype.hasOwnProperty.call(fullWire, "teamScores"), false, "snapshot omits removed team totals");
+  assert.equal(Object.prototype.hasOwnProperty.call(fullWire.players[0], "score"), false, "snapshot omits removed player total");
   const acceptedFull = m.mergeSnapshotTransaction(null, baselineNet, fullWire);
   assert.equal(acceptedFull.ok, true);
   ship.designSent = true;

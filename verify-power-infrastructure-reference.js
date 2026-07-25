@@ -158,7 +158,7 @@ check("37/38. the same solved flow drives utilisation, cable Heat, stress, trips
   const player = { id: "p", name: "P", color: "#fff", team: "blue", ships: [ship], selectedShipIds: new Set(), stats: {}, money: 0, rallyPoint: { x: 0, y: 0 } };
   ship.id = "s"; ship.ownerId = "p"; ship.designRevision = 1; ship.hp = 100; ship.maxHp = 100; ship.shield = 0; ship.maxShield = 0;
   ship.vx = 0; ship.vy = 0; ship.targetX = 0; ship.targetY = 0; ship.weaponAngles = []; ship.cost = 1; ship.stats = { unitCost: 1 };
-  const room = { code: "R", phase: "active", adminId: "p", stateEpoch: 1, snapshotSeq: 1, staticRevision: 1, mapSizeLabel: "tiny", world: { width: 100, height: 100 }, map: { asteroids: [] }, rules: { gameMode: "control" }, players: new Map([["p", player]]), ships: new Map([["s", ship]]), bullets: [], points: [], effects: [], winner: null, matchStartedAt: 1, maxScore: 100, controlVictory: null };
+  const room = { code: "R", phase: "active", adminId: "p", stateEpoch: 1, snapshotSeq: 1, staticRevision: 1, mapSizeLabel: "tiny", world: { width: 100, height: 100 }, map: { asteroids: [] }, rules: { gameMode: "control" }, players: new Map([["p", player]]), ships: new Map([["s", ship]]), bullets: [], points: [], effects: [], winner: null, matchStartedAt: 1, controlVictory: null };
   const snapshotShip = snapshotRoom(room, 0, player, true, null, { player }).ships[0];
   finite(snapshotShip.powerProtection);
   for (const section of snapshotShip.powerProtection.sections) {

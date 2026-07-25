@@ -12,7 +12,7 @@ import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purc
 import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
-import { playerMap } from "./scoreboardUi.js";
+import { playerMap } from "./matchStatusUi.js";
 import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory, handleBlueprintConfirmModalAction, closeBlueprintConfirmModalIfPending } from "./designerUi.js";
 import { confirmPendingDesignerClose, cancelPendingDesignerClose } from "./designerScreenUi.js";

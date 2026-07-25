@@ -1476,7 +1476,6 @@ function destroyShip(room, ship, attackerId, now) {
     attacker.destroyedEnemyCost += ship.cost || ship.stats?.unitCost || 0;
     attacker.money = Math.min(attacker.maxMoney || ECONOMY.maxMoney, attacker.money + bounty);
     attacker.earned += bounty;
-    attacker.score += 30 + Math.round(bounty * 0.4);
   }
   return true;
 }

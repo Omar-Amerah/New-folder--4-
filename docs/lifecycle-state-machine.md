@@ -52,7 +52,7 @@ This document covers lobby, room, player identity, reconnect, admin and match li
 | grace -> removed | Timer expiry | Server | Slot still disconnected and unattached | Delete slot, invalidate credential, remove ships/bullets/objective ownership, maybe promote admin | Snapshot if room has clients | Empty-lobby cleanup may start |
 | lobby -> design | `startDesign` | Admin human | Phase is lobby; current attachment | Prepare arena, reset round stats, clear ships/bullets, bots ready | Notice; static snapshot | Empty lobby timer cancelled |
 | design -> active | Valid deploy/readiness | Players/server | All required present slots ready | Spawn starter fleet exactly once for ready participants, set match times | Notice; static snapshot | None |
-| active -> ended | Victory/scoring condition | Server | Match rules satisfied | Freeze winner/final scoring | Snapshot/banner | None |
+| active -> ended | Full-control victory | Server | One side holds every relay continuously for 20 seconds | Freeze winner and finalize rewards | Snapshot/banner | None |
 | ended -> design | `restart` | Admin human | Phase is ended; current attachment | Prepare arena, reset round stats and readiness | Notice; static snapshot | Old combat state removed |
 | design/active/ended -> lobby | `returnToLobby`/`restartLobby` | Admin human | Phase after design started; current attachment | Reset phase/rules-derived money/readiness as lobby state | Notice; static snapshot | Ships, bullets, effects removed |
 | lobby/ended -> closed | `closeLobby` or inactivity | Admin/server | Admin if manual | Invalidate credentials, detach clients, delete room | `closed` to clients | Cancel pending timers, remove room lookup |

@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { send } from "../network.js";
 import { minimapWorldAt, screenToWorld } from "./camera.js";
 import { findShipAt, pruneSelection, ownLiveShips } from "./selection.js";
-import { playerMap } from "../ui/scoreboardUi.js";
+import { playerMap } from "../ui/matchStatusUi.js";
 import { formationForCommand } from "../ui/sidePanelUi.js";
 import { showToast } from "../ui/toastUi.js";
 

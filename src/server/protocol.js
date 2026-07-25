@@ -1,11 +1,11 @@
 const { PROTOCOL_VERSION } = require('./buildInfo');
 
-const MIN_CLIENT_PROTOCOL = 4;
-const MAX_CLIENT_PROTOCOL = 4;
-const MIN_SERVER_PROTOCOL = 4;
-const MAX_SERVER_PROTOCOL = 4;
+const MIN_CLIENT_PROTOCOL = 5;
+const MAX_CLIENT_PROTOCOL = 5;
+const MIN_SERVER_PROTOCOL = 5;
+const MAX_SERVER_PROTOCOL = 5;
 const REQUIRED_CAPABILITIES = Object.freeze(['messagepack']);
-const OPTIONAL_CAPABILITIES = Object.freeze(['resume-v1', 'heartbeat-v1']);
+const OPTIONAL_CAPABILITIES = Object.freeze(['resume-v1', 'heartbeat-v1', 'telemetry-focus-v1']);
 
 const ERROR_CODES = Object.freeze({
   BAD_MESSAGE: 'bad-message', INVALID_TYPE: 'invalid-type', UNKNOWN_TYPE: 'unknown-type', MESSAGE_TOO_LARGE: 'message-too-large', PROTOCOL_ERROR: 'protocol-error',

@@ -166,7 +166,7 @@ async function failConnectionAttempt(attempt, category, event) {
     if (health.category === "timeout") category = "health-timeout";
     else if (health.category === "online" && !attempt.joinedReceived) {
       const pv = Number(health.body?.protocolVersion);
-      const max = Number(globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 4);
+      const max = Number(globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 5);
       if (Number.isFinite(pv) && pv > max) category = "incompatible-protocol";
       else category = "health-online-ws-rejected";
     } else if (health.category === "offline") category = "offline";
@@ -370,11 +370,11 @@ export function normalizeSocketUrl(value) {
 
 export function withClientProtocol(message) {
   return {
-    protocolVersion: globalThis.MFAProtocol?.PROTOCOL_VERSION ?? 4,
-    minProtocolVersion: globalThis.MFAProtocol?.MIN_SUPPORTED_PROTOCOL ?? 4,
-    maxProtocolVersion: globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 4,
+    protocolVersion: globalThis.MFAProtocol?.PROTOCOL_VERSION ?? 5,
+    minProtocolVersion: globalThis.MFAProtocol?.MIN_SUPPORTED_PROTOCOL ?? 5,
+    maxProtocolVersion: globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 5,
     frontendBuildSha: globalThis.MFA_FRONTEND_BUILD_SHA || "dev",
-    capabilities: ["messagepack", "resume-v1", "heartbeat-v1"],
+    capabilities: ["messagepack", "resume-v1", "heartbeat-v1", "telemetry-focus-v1"],
     ...message
   };
 }

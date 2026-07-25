@@ -87,7 +87,7 @@ The game remembers that server URL locally and includes it when you copy invites
 - Use the formation selector before issuing an order.
 - Use the minimap to jump the camera. Mouse wheel zooms; WASD or arrow keys pan; `F` follows your fleet; `Q` selects all live ships.
 - Add bots from the lobby controls for practice or fuller team matches.
-- Hold relays and destroy enemy ships to score. First side to the match score wins, then the admin chooses restart or close.
+- Capture every relay and hold full control continuously for 20 seconds to win. Destroying ships and capturing relays still pays economy rewards.
 
 
 ## Frontend build path

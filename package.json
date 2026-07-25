@@ -43,13 +43,12 @@
     "test:maps": "node verify-maps-objectives.js",
     "test:map-invariants": "node verify-maps-objectives.js",
     "test:objectives": "node verify-maps-objectives.js",
-    "test:scoring": "node verify-maps-objectives.js",
+    "test:control-victory": "node verify-control-victory.js",
     "test:match-progression": "node verify-maps-objectives.js",
     "test:economy": "node verify-economy.js",
     "test:combat": "node verify-combat-determinism.js && node verify-combat-review.js && node verify-combat-catchup.js",
     "test:beam-nearest-entity": "node verify-beam-nearest-entity.js",
     "test:projectile-footprint": "node verify-projectile-footprint.js",
-    "test:team-scoring": "node verify-team-scoring.js",
     "test:snapshot-visibility": "node verify-snapshot-visibility.js",
     "test:projectiles": "node verify-combat-catchup.js",
     "test:point-defense": "node verify-combat-catchup.js",
@@ -178,12 +177,12 @@
     "test:combat-power-tab": "node verify-combat-power-tab.js && node verify-combat-power-overlay-snapshot.js",
     "test:combat-power-tab-browser": "npm run build && node verify-combat-power-tab-browser.js",
     "test:power-review-regressions": "node verify-power-review-regressions.js",
-    "test:command-panel-browser": "npm run build && node verify-command-panel-browser.js"
-    ,"test:drone-bay": "node verify-drone-bay.js"
-    ,"test:drone-production": "node verify-drone-production.js"
-    ,"test:drone-combat": "node verify-drone-combat.js"
-    ,"test:drone-networking": "node verify-drone-networking.js"
-    ,"test:drone-bay-browser": "npm run build && node verify-drone-bay-browser.js"
+    "test:command-panel-browser": "npm run build && node verify-command-panel-browser.js",
+    "test:drone-bay": "node verify-drone-bay.js",
+    "test:drone-production": "node verify-drone-production.js",
+    "test:drone-combat": "node verify-drone-combat.js",
+    "test:drone-networking": "node verify-drone-networking.js",
+    "test:drone-bay-browser": "npm run build && node verify-drone-bay-browser.js"
   },
   "keywords": [
     "browser-game",
@@ -199,6 +198,7 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.2",
+    "cloudflared": "^0.7.1",
     "pixi.js": "^8.19.0"
   },
   "devDependencies": {

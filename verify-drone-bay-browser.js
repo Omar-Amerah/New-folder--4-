@@ -50,10 +50,10 @@ async function showCombatState(page, {
       const style = document.createElement("style");
       style.id = "droneBrowserIsolation";
       style.textContent = `
-        .main-menu-screen, .purchase-bar, .top-hud, .side-panel, #scoreList, #eventLog { display:none !important; }
+        .main-menu-screen, .purchase-bar, .top-hud, .side-panel, #playerStatusList, #eventLog { display:none !important; }
         .app { grid-template-columns:minmax(0, 1fr) minmax(270px, 320px) !important; }
         .arena-wrap { min-height:100vh !important; }
-        .score-panel { display:block !important; overflow:auto !important; max-height:100vh !important; }
+        .match-panel { display:block !important; overflow:auto !important; max-height:100vh !important; }
       `;
       document.head.appendChild(style);
     }
@@ -122,7 +122,7 @@ async function showCombatState(page, {
     state.visualShips?.clear?.();
     state.snapshot = {
       ships: [ship], drones,
-      players: [{ id: "p1", name: "Carrier", color: "#5ee7ff", team: "blue", score: 0 }],
+      players: [{ id: "p1", name: "Carrier", color: "#5ee7ff", team: "blue" }],
       bullets: [], points: [],
       effects: droneStates.includes("launching")
         ? [{ type: "dronelaunch", subtype: type, ownerId: "p1", x: 500, y: 400, age: 80 }]
@@ -162,7 +162,7 @@ async function showCombatState(page, {
       ];
       state.wiring = window.WiringRules.emptyWiring();
       state.blueprintView = "build";
-      state.selectedPartCategory = "Support";
+      state.selectedPartCategory = "Weapons";
       state.selectedPart = "droneBay";
       state.previewRotation = 0;
       state.selectedCell = null;
@@ -188,6 +188,7 @@ async function showCombatState(page, {
     assert.equal(placement.bay.droneType, null, "placement does not silently select a type");
     assert.equal(placement.bay.rotation, 0);
     assert.equal(placement.history, 1);
+    assert.equal(await page.locator(".part-category-tabs button.active").textContent(), "Weapons");
     assert.equal(await page.locator(".drone-bay-config").isVisible(), true, "placing a bay opens its compact type configuration");
     assert.equal(await page.locator(".drone-type-choice").count(), 3);
     assert.equal(await page.locator('[data-component-action="rotate"]').count(), 0, "non-rotatable bay has no Rotate control");

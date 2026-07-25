@@ -183,7 +183,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   if (!Array.isArray(balance.components)) {
     return { ok: false, errors: [`${filePath}.components must be an array.`] };
   }
-  for (const key of ["metadata","shipPricing","economy","rewards","match","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
+  for (const key of ["metadata","shipPricing","economy","rewards","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
   if (balance.drones) {
     const required = ["squadSize", "maxBaysPerShip", "maxActivePerShip", "maxActivePerPlayer", "launchIntervalSeconds", "launchDurationSeconds", "orphanLifetimeSeconds", "standbyPowerMw", "activePowerMw", "productionPowerMw", "standbyHeatPerSecond", "activeHeatPerSecond", "productionHeatPerSecond"];
     for (const field of required) if (!isFiniteNonNegative(balance.drones[field])) errors.push(`${filePath}.drones.${field} must be a finite non-negative number.`);
@@ -205,8 +205,6 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   validateWiringInfrastructure(balance.wiringInfrastructure, filePath, errors);
   validatePowerDemand(balance.powerDemand, filePath, errors);
   validatePowerProtection(balance.powerProtection, filePath, errors);
-  if (balance.match && balance.match.matchScore < 0) errors.push(`${filePath}.match.matchScore must be non-negative.`);
-
   const seen = new Set();
   balance.components.forEach((component, index) => {
     const prefix = `${filePath}.components[${index}]`;

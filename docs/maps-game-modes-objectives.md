@@ -1,4 +1,4 @@
-# Maps, game modes, objectives, scoring, and match progression
+# Maps, game modes, objectives, and match progression
 
 ## Data flow and seed lifecycle
 
@@ -25,7 +25,7 @@ Stars, clouds, and decorative effects are not authoritative gameplay geometry. R
 
 ## Teams versus solo semantics
 
-Teams mode uses team keys (`blue`, `red`) for enemies, relay ownership, relay income, scoring, control victory, scoreboard grouping, victory, and safe zones. If the player who last captured a team relay leaves, the relay remains owned by that team and its credit owner is reassigned to a remaining teammate when possible.
+Teams mode uses team keys (`blue`, `red`) for enemies, relay ownership, relay income, player grouping, control victory, and safe zones. If the player who last captured a team relay leaves, the relay remains owned by that team and its credit owner is reassigned to a remaining teammate when possible.
 
 Solo mode uses player IDs as ownership keys. A solo player's `team` is their stable player ID for compatibility with existing ally/enemy checks. Relay `ownerId` is the winning player and `ownerTeam` mirrors the same player ID for older client fields. Removing a solo owner neutralizes their relay.
 
@@ -37,26 +37,26 @@ Starter ships and built ships use the same spawn rules for humans and bots. Team
 
 Ships count when alive, owned by a current player, and inside relay radius. Capture strength is one plus capture bonus component effects. Equal leading opposing strength marks a relay contested and freezes progress. No ships decay progress toward neutral. A clear leader reverses progress; when progress reaches zero, ownership flips, progress is restarted, capture credit is awarded, and the capture reward is paid once for that ownership change. Multiple friendly ships accelerate capture through their summed capture strength.
 
-## Scoring and victory precedence
+## Victory rule and economy incentives
 
-The score authority is `src/server/objectives.js`. Score sources are capture credit, periodic controlled-relay score, kill/destruction rewards from combat/economy, and final rewards. Periodic relay score uses team ownership in teams mode and player ownership in solo mode; contested or partially captured relays do not score.
+There is one win condition: capture every relay and hold full control continuously for 20 seconds. `src/server/objectives.js` starts one authoritative countdown when a team or solo player fully owns every uncontested relay. Losing ownership or contesting any relay immediately resets the countdown; regaining full control starts a fresh 20-second hold. Victory finalization is idempotent, so later ticks cannot overwrite an ended match.
 
-Victory finalization is idempotent: once a winner exists or the phase is `ended`, later ticks cannot overwrite it. Score victory is checked after periodic score ticks and before control victory. Ties are resolved deterministically by sorted ownership key. Team control victory starts a single 20-second countdown when one team fully controls every relay; it resets immediately on loss/contest. Solo full control wins immediately, matching the current UI rule.
+Captures still increment the capture statistic and award `economy.captureBonus`. Fully owned relays still add `economy.relayIncome` to each eligible teammate's income. Kills still award bounties, and post-match rewards and highlights still use combat, fleet, capture, and economy statistics. None of these rewards create a second victory path.
 
 ## Reset matrix
 
-| Transition | Map seed/name/world | Relays/asteroids/clouds/safe zones | Ownership/progress/score/captures/winner/control | Ships/bullets/effects/rally | Money/stats | Rules/teams/bots |
+| Transition | Map seed/name/world | Relays/asteroids/clouds/safe zones | Ownership/progress/captures/winner/control | Ships/bullets/effects/rally | Money/stats | Rules/teams/bots |
 | --- | --- | --- | --- | --- | --- | --- |
 | Lobby rule change | Regenerated | Regenerated | Reset | Removed where applicable | Starting money reapplied | Updated rules; teams normalized by mode |
 | Lobby -> design | Regenerated | Regenerated | Reset | Removed; no starter ships yet | Round stats reset | Preserved |
-| Design -> active | Preserved from design | Preserved | Score/control reset | Starter fleets spawned once | Starting economy active | Preserved |
+| Design -> active | Preserved from design | Preserved | Control reset | Starter fleets spawned once | Starting economy active | Preserved |
 | Ended -> design rematch | Regenerated | Regenerated | Reset | Removed; no starter ships yet | Round stats reset | Preserved |
 | Design/active/ended -> lobby | Preserved until next rule/start generation | Preserved | Reset | Removed | Round stats reset | Preserved |
 | Room closure | Removed | Removed | Removed | Removed | Removed | Removed |
 
 ## Test strategy and deferred risks
 
-`verify-maps-objectives.js` covers fixed deterministic seeds across all configured world sizes, both modes, and every asteroid density, plus direct relay capture/scoring invariants. Wider browser objective rendering and real-protocol forced victory hooks remain deferred because they require explicit test-only server controls that should not be exposed in production.
+`verify-maps-objectives.js` covers fixed deterministic seeds across all configured world sizes, both modes, and every asteroid density, plus direct relay-capture invariants. `verify-control-victory.js` covers continuous holds, interruption/reset behavior, solo parity, and retained capture/relay economy rewards. Wider browser objective rendering and real-protocol forced victory hooks remain deferred because they require explicit test-only server controls that should not be exposed in production.
 
 ## Catch-up Part 1 map/objective test status
 
@@ -72,7 +72,7 @@ The catch-up does not start the Section 8 heat/power redesign or any later redes
 
 ## Objective and victory test expectations
 
-Objective coverage must distinguish capture, scoring, victory finalization, and reset behavior. Capture and scoring rates, countdown duration, and reward values are balance constants and must not be changed by test catch-up work. Broader capture/victory/reset cases beyond the current invariant suite are intentionally deferred to the Section 13 final regression pass.
+Objective coverage distinguishes capture, economy rewards, victory finalization, and reset behavior. Capture rates, countdown duration, and reward values must not be changed by test catch-up work. Broader capture/victory/reset cases beyond the current invariant suite are intentionally deferred to the Section 13 final regression pass.
 
 ## Spawn safe-zone authority
 

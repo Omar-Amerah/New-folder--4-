@@ -4,7 +4,7 @@ const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips } = require("./combat");
 const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
 const { updateBullets } = require("./projectiles");
-const { updateCapturePoints, updateScoring } = require("./objectives");
+const { updateCapturePoints, updateControlVictory } = require("./objectives");
 const { updateShipHeat } = require("./heat");
 const { updateShipPowerDemand } = require("./componentPower");
 const { updateShipPowerProtection } = require("./powerProtection");
@@ -24,7 +24,7 @@ function tickRoom(room, dt, now) {
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships); updateShipSupport(room, ships, dt, now);
   updateDroneBays(room, ships, dt, now);
   for (const ship of ships) { updateShipWeapons(room, ship, ships, dt, now); updateShipHeat(ship, dt, room, now); }
-  updateBullets(room, dt, now); updateCapturePoints(room, ships, dt); updateScoring(room, now);
+  updateBullets(room, dt, now); updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
   if (process.env.NODE_ENV !== "production") {
     for (const ship of room.ships.values()) {
       if (!ship?.componentHp || !ship?.design) continue;

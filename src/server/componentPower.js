@@ -15,6 +15,12 @@ const { clampNumber } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
 
 const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
+// Continuous inputs such as turn effort and Heat pressure can change every
+// simulation tick. Re-solving the complete Power graph for those tiny changes
+// at 30 Hz dominated large-fleet CPU time, so ordinary changes are coalesced to
+// 10 Hz. A consumer becoming active still solves immediately so controls and
+// weapon activation do not gain an extra 100 ms of latency.
+const POWER_DEMAND_SOLVE_INTERVAL_MS = 100;
 function isPowerSource(module) {
   return SOURCE_TYPES.has(module?.type) || (Number(PARTS[module?.type]?.powerGeneration) || 0) > 0;
 }
@@ -491,10 +497,48 @@ function updateShipPowerDemand(ship, room, now) {
   ship.componentPowerActivity = activity;
   const signature = signatureParts.join("|");
   if (ship._powerDemandSignature === signature) { ship.powerDemandDirty = false; return; }
-  ship._powerDemandSignature = signature;
-  ship.powerDemandRevision = (ship.powerDemandRevision || 0) + 1;
+
+  const appliedActivity = ship._powerDemandAppliedActivity;
+  const appliedDemand = ship._powerDemandAppliedByIndex || {};
+  let activatesConsumer = !Array.isArray(appliedActivity);
+  if (!activatesConsumer) {
+    for (let i = 0; i < design.length; i += 1) {
+      const module = design[i];
+      const part = PARTS[module && module.type];
+      if (!part || !(Number(part.powerUse) > 0)) continue;
+      const previousLevel = Number(appliedActivity[i]) || 0;
+      if (activity[i] > 0 && previousLevel <= 0) {
+        activatesConsumer = true;
+        break;
+      }
+      // Drone Bay demand also follows production/deployment state rather than
+      // its generic activity level, so a rise in its requested MW is urgent.
+      if (module.type === "droneBay"
+        && PowerAllocationRules.mwToPowerUnits(demandByIndex[i]) > PowerAllocationRules.mwToPowerUnits(appliedDemand[i])) {
+        activatesConsumer = true;
+        break;
+      }
+    }
+  }
+
+  const lastSolvedAt = Number(ship._powerDemandLastSolvedAt);
+  const elapsed = Number(now) - lastSolvedAt;
+  const solveDue = !Number.isFinite(lastSolvedAt)
+    || !Number.isFinite(elapsed)
+    || elapsed < 0
+    || elapsed + 1e-6 >= POWER_DEMAND_SOLVE_INTERVAL_MS;
   ship.powerDemandDirty = true;
   ship._activityDemandByIndex = demandByIndex;
+  if (!activatesConsumer && !solveDue) {
+    bump("powerDemandDeferredCount");
+    return;
+  }
+
+  ship._powerDemandSignature = signature;
+  ship._powerDemandAppliedActivity = activity.slice();
+  ship._powerDemandAppliedByIndex = { ...demandByIndex };
+  ship._powerDemandLastSolvedAt = Number(now);
+  ship.powerDemandRevision = (ship.powerDemandRevision || 0) + 1;
   bump("powerDemandSolveCount");
   reallocateShipPower(ship, "activity-demand");
 }

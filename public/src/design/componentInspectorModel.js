@@ -77,7 +77,10 @@ export const FAMILIES = ["structure", "power", "propulsion", "weapon", "defence"
 /** Map a component onto the presentation family whose rules describe it best. */
 export function componentFamily(type, stat = {}) {
   if (type === "core" || type === "backupCore" || stat.category === "Command") return "command";
-  if (stat.category === "Weapons") return "weapon";
+  // Palette placement and capability family are related but not identical:
+  // Drone Bays live under Weapons for discoverability, while their capability
+  // is squad control rather than a direct-fire weapon profile.
+  if (stat.category === "Weapons" && stat.weapon) return "weapon";
   if (stat.category === "Defence") return "defence";
   if (stat.category === "Power" || (stat.powerGeneration || 0) > 0) return "power";
   if (stat.category === "Engines") return "propulsion";

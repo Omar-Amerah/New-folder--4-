@@ -41,7 +41,7 @@
   // metadata must not force a spurious incompatibility. Missing sections are
   // serialized as null so absence still contributes deterministically.
   const REVISION_SECTIONS = [
-    "components", "shipPricing", "economy", "rewards", "match", "movement",
+    "components", "shipPricing", "economy", "rewards", "movement",
     "projectiles", "missileGuidance", "fleetLimits", "capture", "repair", "drones",
     "wiringInfrastructure", "powerDemand", "powerProtection"
   ];
@@ -72,7 +72,7 @@
         }
       });
     }
-    for (const key of ["shipPricing", "economy", "match"]) {
+    for (const key of ["shipPricing", "economy"]) {
       if (balance[key] === undefined) errors.push(`Balance payload is missing required section '${key}'.`);
     }
     return { ok: errors.length === 0, errors };

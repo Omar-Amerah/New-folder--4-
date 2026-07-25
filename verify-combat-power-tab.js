@@ -56,9 +56,10 @@ check("Heat summary no longer shows Power-protection or Switchgear diagnostics",
     assert(!body.includes(gone), `Heat summary must not contain: ${gone}`);
   }
 });
-check("Heat component readout no longer appends Power information", () => {
+check("Heat component readout uses authoritative activity Heat without Power diagnostics", () => {
   const body = fnBody(panel, "function renderComponentHeatReadout");
-  for (const gone of ["powerThermal", "Cable Heat", "requestedMw", "hostedActiveSectionIds", "sectionProtectionText"]) {
+  assert(body.includes("componentHeatRate"), "activity Heat comes from the authoritative runtime thermal record");
+  for (const gone of ["Cable Heat", "requestedMw", "hostedActiveSectionIds", "sectionProtectionText"]) {
     assert(!body.includes(gone), `Heat component readout must not contain: ${gone}`);
   }
 });

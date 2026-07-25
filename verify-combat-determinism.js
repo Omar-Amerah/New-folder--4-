@@ -48,7 +48,7 @@ function makeShip(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "core" }, { x
 
 {
   const victim = makeShip("v", "p2", 0, 0);
-  const room = { players: new Map([["p1", { id: "p1", team: 1, kills: 0, destroyedEnemyCost: 0, money: 0, maxMoney: 9999, earned: 0, score: 0 }], ["p2", { id: "p2", team: 2, losses: 0, lostFleetCost: 0 }]]), effects: [] };
+  const room = { players: new Map([["p1", { id: "p1", team: 1, kills: 0, destroyedEnemyCost: 0, money: 0, maxMoney: 9999, earned: 0 }], ["p2", { id: "p2", team: 2, losses: 0, lostFleetCost: 0 }]]), effects: [] };
   assert.strictEqual(destroyShip(room, victim, "p1", 1), true);
   assert.strictEqual(destroyShip(room, victim, "p1", 2), false);
   assert.strictEqual(room.players.get("p2").losses, 1, "destruction is idempotent for losses");

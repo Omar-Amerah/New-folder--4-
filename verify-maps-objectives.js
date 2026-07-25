@@ -1,10 +1,10 @@
 "use strict";
 
 const assert = require("assert");
-const { WORLD_SIZES, ASTEROID_DENSITY, SCORE_PER_CONTROLLED_POINT } = require("./src/server/config");
+const { WORLD_SIZES, ASTEROID_DENSITY, ECONOMY } = require("./src/server/config");
 const { generateMap, chooseWorldSize } = require("./src/server/rooms");
 const { validateGeneratedMap } = require("./src/server/mapValidation");
-const { updateCapturePoints, updateScoring, getTeamWithFullControl, getPlayerWithFullControl, sideScore } = require("./src/server/objectives");
+const { updateCapturePoints, updateControlVictory, getTeamWithFullControl, getPlayerWithFullControl } = require("./src/server/objectives");
 
 function assertMap(seed, world, mode, density) {
   const input = { seed, world: world.label, mode, density };
@@ -91,8 +91,8 @@ function testMapInvariants() {
 
 function makeRoom(mode = "teams") {
   const players = new Map([
-    ["p1", { id: "p1", name: "One", team: mode === "solo" ? "p1" : "blue", captures: 0, score: 0, money: 0, earned: 0, maxMoney: 9999, ready: true, ships: [] }],
-    ["p2", { id: "p2", name: "Two", team: mode === "solo" ? "p2" : "red", captures: 0, score: 0, money: 0, earned: 0, maxMoney: 9999, ready: true, ships: [] }]
+    ["p1", { id: "p1", name: "One", team: mode === "solo" ? "p1" : "blue", captures: 0, money: 0, earned: 0, maxMoney: 9999, ready: true, ships: [] }],
+    ["p2", { id: "p2", name: "Two", team: mode === "solo" ? "p2" : "red", captures: 0, money: 0, earned: 0, maxMoney: 9999, ready: true, ships: [] }]
   ]);
   return {
     code: "TEST",
@@ -103,9 +103,7 @@ function makeRoom(mode = "teams") {
     points: [{ id: "A", x: 100, y: 100, radius: 80, ownerId: null, ownerTeam: null, progress: 0, contested: false }],
     winner: null,
     winnerAt: 0,
-    controlVictory: { team: null, playerId: null, startedAt: null, remaining: null, requiredSeconds: 20 },
-    lastScoreAt: 0,
-    maxScore: 900
+    controlVictory: { team: null, playerId: null, startedAt: null, remaining: null, requiredSeconds: 20 }
   };
 }
 
@@ -115,15 +113,12 @@ function testObjectives() {
   assert.strictEqual(room.points[0].ownerTeam, "blue", "team capture should set ownerTeam");
   assert.strictEqual(room.points[0].ownerId, "p1", "team capture should keep credit ownerId");
   assert.strictEqual(room.players.get("p1").captures, 1, "capture credit once to capturing team member");
-  // Objective score now belongs to the team, not to individual players, so a
-  // larger team cannot earn it faster. Personal player.score carries only
-  // personal combat score (none here).
-  assert.strictEqual(room.players.get("p1").score, 0, "team objective score does not land on personal player.score");
-  assert.strictEqual(sideScore(room, "blue"), 14, "capture score accrues once to the team");
+  assert.strictEqual(room.players.get("p1").money, ECONOMY.captureBonus, "capture should retain its economy reward");
+  assert.strictEqual(room.players.get("p1").earned, ECONOMY.captureBonus, "capture reward should remain in money earned");
   room.points[0].progress = 1;
-  room.lastScoreAt = 0;
-  updateScoring(room, 1000);
-  assert.strictEqual(sideScore(room, "blue"), 14 + SCORE_PER_CONTROLLED_POINT, "controlled relay score should accrue to owning team");
+  updateControlVictory(room, 1000);
+  assert.strictEqual(room.controlVictory.team, "blue", "full control should start the team victory countdown");
+  assert.strictEqual(room.controlVictory.remaining, 20, "full control should require an uninterrupted 20-second hold");
   assert.strictEqual(getTeamWithFullControl(room), "blue", "full team control should be detected");
 
   room = makeRoom("teams");
@@ -140,6 +135,9 @@ function testObjectives() {
   assert.strictEqual(room.points[0].ownerId, "p1", "solo capture should set ownerId to player");
   room.points[0].progress = 1;
   assert.strictEqual(getPlayerWithFullControl(room), "p1", "solo full control should use player id");
+  updateControlVictory(room, 1000);
+  assert.strictEqual(room.controlVictory.playerId, "p1", "solo full control should start the same victory countdown");
+  assert.strictEqual(room.winner, null, "solo full control should not bypass the 20-second hold");
 }
 
 testMapInvariants();

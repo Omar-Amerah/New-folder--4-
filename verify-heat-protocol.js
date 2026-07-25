@@ -1,13 +1,178 @@
 "use strict";
+
 const assert = require("assert");
 const msgpack = require("@msgpack/msgpack");
 const { spawn } = require("child_process");
 const http = require("http");
+
 const PORT = 32187;
 const BASE = `http://127.0.0.1:${PORT}`;
 const ROOM = `heat-protocol-${Date.now()}`;
-const DESIGN = [{x:7,y:7,type:"core",rotation:0},{x:7,y:8,type:"frame",rotation:0},{x:6,y:8,type:"engine",rotation:0},{x:8,y:8,type:"engine",rotation:0},{x:6,y:7,type:"maneuverThruster",rotation:0},{x:8,y:7,type:"maneuverThruster",rotation:0},{x:6,y:6,type:"reactor",rotation:0},{x:7,y:5,type:"blaster",rotation:0},{x:8,y:6,type:"heatSink",rotation:0},{x:9,y:6,type:"radiator",rotation:0}];
-function waitServer(){return new Promise((res,rej)=>{const st=Date.now();(function t(){http.get(`${BASE}/index.html`,r=>{r.resume();res();}).on('error',()=>Date.now()-st>15000?rej(new Error('server did not start')):setTimeout(t,100));})();});}
-class C{constructor(name){this.name=name;this.latest={};this.states=[];this.designs=new Map();}async open(){this.ws=new WebSocket(`ws://127.0.0.1:${PORT}/socket`);this.ws.binaryType="arraybuffer";this.ws.addEventListener('message',async e=>{let bytes=e.data instanceof ArrayBuffer?new Uint8Array(e.data):new Uint8Array(await e.data.arrayBuffer?.()||[]);let m;try{m=bytes.length?msgpack.decode(bytes):JSON.parse(e.data)}catch{m=JSON.parse(e.data)}this.latest[m.type]=m;if(m.type==='error'){ if(this.name==='a')globalThis.__AERR=m; else globalThis.__BERR=m;}if(m.type==='state'){for(const s of m.ships||[]){if(s.design)this.designs.set(s.id,s.design);else s.design=this.designs.get(s.id);}this.states.push(m);}});await new Promise((res,rej)=>{this.ws.addEventListener('open',res,{once:true});this.ws.addEventListener('error',()=>rej(new Error('ws error')),{once:true});});}send(o){this.ws.send(msgpack.encode(o));}close(){try{this.ws.close()}catch{}}}
-async function until(fn,label,ms=15000){const st=Date.now();while(Date.now()-st<ms){const v=fn();if(v)return v;await new Promise(r=>setTimeout(r,50));}throw new Error(`timeout ${label}; aerr=${JSON.stringify(globalThis.__AERR||null)} berr=${JSON.stringify(globalThis.__BERR||null)}`)}
-(async()=>{const server=spawn(process.execPath,["server.js"],{cwd:__dirname,env:{...process.env,PORT:String(PORT)},stdio:["ignore","pipe","pipe"]});let log="";server.stdout.on('data',d=>log+=d);server.stderr.on('data',d=>log+=d);const a=new C('a'), b=new C('b');try{await waitServer();await a.open();await b.open();await until(()=>a.latest.hello,'hello');a.send({type:'join',room:ROOM,name:'A',team:'blue',protocolVersion:4,minProtocolVersion:4,maxProtocolVersion:4,capabilities:['messagepack']});await until(()=>a.latest.joined,'join a');b.send({type:'join',room:ROOM,name:'B',team:'red',protocolVersion:4,minProtocolVersion:4,maxProtocolVersion:4,capabilities:['messagepack']});await until(()=>b.latest.joined,'join b');a.send({type:'setTeam',team:'blue'});b.send({type:'setTeam',team:'red'});a.send({type:'setRules',rules:{asteroidDensity:'none'}});a.send({type:'startDesign'});await until(()=>a.latest.state?.phase==='design','design');a.send({type:'deploy',design:DESIGN,combatStyle:'sentry'});b.send({type:'deploy',design:DESIGN,combatStyle:'sentry'});await until(()=>a.latest.state?.phase==='active'&&a.latest.state.ships?.length>=2,'active');const active=a.latest.state;let mine=active.ships.find(s=>s.ownerId===a.latest.joined.id); if(!mine?.componentHeat){ mine=await until(()=>{for(const st of a.states){const s=st.ships?.find(x=>x.ownerId===a.latest.joined.id&&Array.isArray(x.componentHeat)); if(s)return s;}},'full component heat'); } assert(mine&&Array.isArray(mine.componentHeat),"receives full component heat snapshot");assert.strictEqual(mine.componentHeat.length,DESIGN.length,"component heat indexes align with design");a.send({type:'command',x:(mine.x||1000)+600,y:mine.y||1000});const deltaShip=await until(()=>{for(const st of a.states.slice(-80)){const s=st.ships?.find(x=>x.id===mine.id&&Array.isArray(x.componentHeatD));if(s)return s;}},'compact heat delta',20000);assert(deltaShip.componentHeatD.length%5===0,"compact heat delta uses stride 5");const full=mine;assert(Array.isArray(full.componentHeat)&&full.componentHeat.length===DESIGN.length,'full current heat reconstruction is available for reconnect/static snapshots');a.send({type:'returnToLobby'});await new Promise(r=>setTimeout(r,500));assert(a.states.some(s=>s.phase==='lobby'||s.phase==='design'||(s.ships||[]).every(sh=>!sh.componentHeatD)),"reset/rematch does not preserve stale thermal deltas");console.log('Real heat protocol WebSocket/MessagePack verification passed');a.close();b.close();server.kill();}catch(e){console.error(e);console.error(log.split('\n').slice(-30).join('\n'));a.close();b.close();server.kill();process.exit(1);}})();
+const DESIGN = [
+  { x: 7, y: 7, type: "core", rotation: 0 },
+  { x: 7, y: 8, type: "frame", rotation: 0 },
+  { x: 6, y: 8, type: "engine", rotation: 0 },
+  { x: 8, y: 8, type: "engine", rotation: 0 },
+  { x: 6, y: 7, type: "maneuverThruster", rotation: 0 },
+  { x: 8, y: 7, type: "maneuverThruster", rotation: 0 },
+  { x: 6, y: 6, type: "reactor", rotation: 0 },
+  { x: 7, y: 5, type: "blaster", rotation: 0 },
+  { x: 8, y: 6, type: "heatSink", rotation: 0 },
+  { x: 9, y: 6, type: "radiator", rotation: 0 }
+];
+
+function waitServer() {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    (function tryRequest() {
+      http.get(`${BASE}/index.html`, (response) => {
+        response.resume();
+        resolve();
+      }).on("error", () => {
+        if (Date.now() - startedAt > 15000) reject(new Error("server did not start"));
+        else setTimeout(tryRequest, 100);
+      });
+    }());
+  });
+}
+
+class Client {
+  constructor(name) {
+    this.name = name;
+    this.latest = {};
+    this.states = [];
+    this.designs = new Map();
+  }
+
+  async open() {
+    this.ws = new WebSocket(`ws://127.0.0.1:${PORT}/socket`);
+    this.ws.binaryType = "arraybuffer";
+    this.ws.addEventListener("message", async (event) => {
+      const bytes = event.data instanceof ArrayBuffer
+        ? new Uint8Array(event.data)
+        : new Uint8Array(await event.data.arrayBuffer?.() || []);
+      let message;
+      try {
+        message = bytes.length ? msgpack.decode(bytes) : JSON.parse(event.data);
+      } catch {
+        message = JSON.parse(event.data);
+      }
+      this.latest[message.type] = message;
+      if (message.type === "error") {
+        if (this.name === "a") globalThis.__AERR = message;
+        else globalThis.__BERR = message;
+      }
+      if (message.type === "state") {
+        for (const ship of message.ships || []) {
+          if (ship.design) this.designs.set(ship.id, ship.design);
+          else ship.design = this.designs.get(ship.id);
+        }
+        this.states.push(message);
+      }
+    });
+    await new Promise((resolve, reject) => {
+      this.ws.addEventListener("open", resolve, { once: true });
+      this.ws.addEventListener("error", () => reject(new Error("ws error")), { once: true });
+    });
+  }
+
+  send(message) {
+    this.ws.send(msgpack.encode(message));
+  }
+
+  close() {
+    try {
+      this.ws.close();
+    } catch {
+      // Best-effort test cleanup.
+    }
+  }
+}
+
+async function until(read, label, timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = read();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`timeout ${label}; aerr=${JSON.stringify(globalThis.__AERR || null)} berr=${JSON.stringify(globalThis.__BERR || null)}`);
+}
+
+(async () => {
+  const server = spawn(process.execPath, ["server.js"], {
+    cwd: __dirname,
+    env: { ...process.env, PORT: String(PORT) },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let log = "";
+  server.stdout.on("data", (data) => { log += data; });
+  server.stderr.on("data", (data) => { log += data; });
+  const a = new Client("a");
+  const b = new Client("b");
+
+  try {
+    await waitServer();
+    await a.open();
+    await b.open();
+    await until(() => a.latest.hello, "hello");
+    const protocol = {
+      protocolVersion: 5,
+      minProtocolVersion: 5,
+      maxProtocolVersion: 5,
+      capabilities: ["messagepack"]
+    };
+    a.send({ type: "join", room: ROOM, name: "A", team: "blue", ...protocol });
+    await until(() => a.latest.joined, "join a");
+    b.send({ type: "join", room: ROOM, name: "B", team: "red", ...protocol });
+    await until(() => b.latest.joined, "join b");
+    a.send({ type: "setTeam", team: "blue" });
+    b.send({ type: "setTeam", team: "red" });
+    a.send({ type: "setRules", rules: { asteroidDensity: "none" } });
+    a.send({ type: "startDesign" });
+    await until(() => a.latest.state?.phase === "design", "design");
+    a.send({ type: "deploy", design: DESIGN, combatStyle: "sentry" });
+    b.send({ type: "deploy", design: DESIGN, combatStyle: "sentry" });
+    await until(() => a.latest.state?.phase === "active" && a.latest.state.ships?.length >= 2, "active");
+
+    const active = a.latest.state;
+    let mine = active.ships.find((ship) => ship.ownerId === a.latest.joined.id);
+    if (!mine?.componentHeat) {
+      mine = await until(() => {
+        for (const state of a.states) {
+          const ship = state.ships?.find((candidate) => candidate.ownerId === a.latest.joined.id && Array.isArray(candidate.componentHeat));
+          if (ship) return ship;
+        }
+        return null;
+      }, "full component heat");
+    }
+    assert(mine && Array.isArray(mine.componentHeat), "receives full component heat snapshot");
+    assert.strictEqual(mine.componentHeat.length, DESIGN.length, "component heat indexes align with design");
+
+    a.send({ type: "command", x: (mine.x || 1000) + 600, y: mine.y || 1000 });
+    const deltaShip = await until(() => {
+      for (const state of a.states.slice(-80)) {
+        const ship = state.ships?.find((candidate) => candidate.id === mine.id && Array.isArray(candidate.componentHeatD));
+        if (ship) return ship;
+      }
+      return null;
+    }, "compact heat delta", 20000);
+    assert.strictEqual(deltaShip.componentHeatD.length % 5, 0, "compact heat delta uses stride 5");
+    assert(Array.isArray(mine.componentHeat) && mine.componentHeat.length === DESIGN.length, "full current heat reconstruction is available for reconnect/static snapshots");
+
+    a.send({ type: "returnToLobby" });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert(a.states.some((state) => state.phase === "lobby" || state.phase === "design" || (state.ships || []).every((ship) => !ship.componentHeatD)), "reset/rematch does not preserve stale thermal deltas");
+    console.log("Real heat protocol WebSocket/MessagePack verification passed");
+    a.close();
+    b.close();
+    server.kill();
+  } catch (error) {
+    console.error(error);
+    console.error(log.split("\n").slice(-30).join("\n"));
+    a.close();
+    b.close();
+    server.kill();
+    process.exit(1);
+  }
+})();

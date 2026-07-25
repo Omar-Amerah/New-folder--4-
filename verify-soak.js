@@ -8,7 +8,7 @@ const { updateEconomy } = require("./src/server/economy");
 const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./src/server/movement");
 const { updateShipSupport, updateShipWeapons, updateDestroyedShips } = require("./src/server/combat");
 const { updateBullets } = require("./src/server/projectiles");
-const { updateCapturePoints, updateScoring } = require("./src/server/objectives");
+const { updateCapturePoints, updateControlVictory } = require("./src/server/objectives");
 const { updateShipHeat } = require("./src/server/heat");
 const { performanceNow, seededRandom, rngRange } = require("./src/server/utils");
 
@@ -23,13 +23,13 @@ const designs = [
   [{ x:7,y:7,type:"core" },{ x:7,y:6,type:"engine" },{ x:6,y:6,type:"missile" },{ x:8,y:6,type:"pointDefense" },{ x:7,y:5,type:"armor" },{ x:6,y:7,type:"repair" }],
   [{ x:7,y:7,type:"core" },{ x:7,y:6,type:"engine" },{ x:6,y:6,type:"swarmMissile" },{ x:8,y:6,type:"flakCannon" },{ x:7,y:5,type:"blaster" },{ x:6,y:7,type:"shield" }]
 ];
-function player(id, team, design) { return { id, name:id, team, isBot: id.includes("bot"), connected:true, ships:[], design, stats: computeStats(design), money:5000, maxMoney:99999, income:0, score:0, kills:0, losses:0, destroyedEnemyCost:0, lostFleetCost:0, earned:0, purchaseRequests:new Map(), color:"#fff", shipCap:SHIPS_PER_PLAYER }; }
+function player(id, team, design) { return { id, name:id, team, isBot: id.includes("bot"), connected:true, ships:[], design, stats: computeStats(design), money:5000, maxMoney:99999, income:0, kills:0, losses:0, destroyedEnemyCost:0, lostFleetCost:0, earned:0, purchaseRequests:new Map(), color:"#fff", shipCap:SHIPS_PER_PLAYER }; }
 function tick(room, dt, now) {
   updateEconomy(room, dt); updateDestroyedShips(room, now); const ships = getLiveShips(room);
   for (const s of ships) { if (Math.floor(now / 400) % 5 === 0) { s.targetX = rngRange(rng, 100, room.world.width - 100); s.targetY = rngRange(rng, 100, room.world.height - 100); s.arrived = false; s.isManualMove = true; } updateShipMovement(room, s, dt); }
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships); updateShipSupport(room, ships, dt, now);
   for (const s of ships) { updateShipWeapons(room, s, ships, dt, now); updateShipHeat(s, dt, room, now); }
-  updateBullets(room, dt, now); updateCapturePoints(room, ships, dt); updateScoring(room, now);
+  updateBullets(room, dt, now); updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
 }
 function assertFiniteEntity(room) {
   const ids = new Set();

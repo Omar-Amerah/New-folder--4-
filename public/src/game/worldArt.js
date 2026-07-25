@@ -9,7 +9,7 @@ import { ctx } from "../ui/dom.js";
 import { state } from "../state.js";
 import { qualityShadowBlur } from "./renderSettings.js";
 import { roundRect } from "./componentArt.js";
-import { playerMap } from "../ui/scoreboardUi.js";
+import { playerMap } from "../ui/matchStatusUi.js";
 
 // --- Nebula sprite (own offscreen canvas) ------------------------------------
 // Nebulas are static but cost several radial gradients to draw. Each cloud is

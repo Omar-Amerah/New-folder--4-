@@ -178,7 +178,6 @@ function joinRoom(client, message) {
     lostFleetCost: 0,
     lastReward: null,
     rallyPoint: null,
-    score: 0,
     kills: 0,
     losses: 0,
     captures: 0,
@@ -442,7 +441,6 @@ function resetPlayerForMatch(room, player, now, options = {}) {
 }
 
 function resetRoundPlayerStats(player) {
-  player.score = 0;
   player.kills = 0;
   player.losses = 0;
   player.captures = 0;
@@ -471,8 +469,6 @@ function maybeStartMatch(room, now) {
     remaining: null,
     requiredSeconds: 20
   };
-  room.lastScoreAt = now;
-  require("./objectives").resetTeamScores(room);
   for (const player of players) {
     resetPlayerForMatch(room, player, now, { spawn: true });
   }
@@ -508,8 +504,6 @@ function startDesignPhase(room, requester) {
     remaining: null,
     requiredSeconds: 20
   };
-  room.lastScoreAt = performanceNow();
-  require("./objectives").resetTeamScores(room);
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;
@@ -544,8 +538,6 @@ function restartFromEnd(room, requester) {
     remaining: null,
     requiredSeconds: 20
   };
-  room.lastScoreAt = performanceNow();
-  require("./objectives").resetTeamScores(room);
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;
@@ -588,7 +580,6 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
     remaining: null,
     requiredSeconds: 20
   };
-  require("./objectives").resetTeamScores(room);
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;

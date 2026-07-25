@@ -17,6 +17,7 @@ const transport = require("./src/server/websocketServer");
 const messages = require("./src/server/messages");
 const { broadcastSnapshot } = require("./src/server/snapshotDelivery");
 const { tickRoom } = require("./src/server/simulation");
+const { recordTick, performanceSnapshot } = require("./src/server/performanceTelemetry");
 
 // In-memory static file cache (validated against file mtime) with pre-compressed
 // gzip variants for text assets — avoids re-reading and re-sending full payloads.
@@ -187,6 +188,7 @@ function healthPayload() {
     uptimeSeconds: Math.floor(process.uptime()),
     activeRooms: rooms.size,
     activeClients: transport.sockets.size,
+    performance: performanceSnapshot(TICK_HZ),
     originPolicy: { mode: policy.mode, allowedOriginCount: policy.allowedOriginCount }
   };
 }
@@ -317,17 +319,27 @@ function createGameServer(options = {}) {
         // load, making the real snapshot spacing wobble; tick-aligned
         // broadcasts keep the cadence steady and always ship a fresh state.
         const ticksPerSnapshot = Math.max(1, Math.round(TICK_HZ / SNAPSHOT_HZ));
+        const tickIntervalMs = 1000 / TICK_HZ;
         let tickCount = 0;
         timers.set("simulation", setInterval(() => {
           const now = performanceNow();
-          const dt = Math.min(0.06, Math.max(0.001, (now - lastTick) / 1000));
+          const elapsedSinceTick = now - lastTick;
+          const dt = Math.min(0.06, Math.max(0.001, elapsedSinceTick / 1000));
           lastTick = now;
+          const cycleStartedAt = performanceNow();
           for (const room of rooms.values()) tickRoom(room, dt, now);
+          const simulationMs = performanceNow() - cycleStartedAt;
           tickCount += 1;
           if (tickCount % ticksPerSnapshot === 0) {
             for (const room of rooms.values()) if (room.phase === "active") broadcastSnapshot(room, now);
           }
-        }, 1000 / TICK_HZ));
+          recordTick({
+            simulationMs,
+            cycleMs: performanceNow() - cycleStartedAt,
+            eventLoopLagMs: Math.max(0, elapsedSinceTick - tickIntervalMs),
+            budgetMs: tickIntervalMs
+          });
+        }, tickIntervalMs));
         for (const t of timers.values()) t.unref?.();
         httpServer.removeListener("error", reject);
         resolve(api);
@@ -348,7 +360,7 @@ function createGameServer(options = {}) {
   }
 
   function address() { return httpServer.address(); }
-  function diagnostics() { return { ...diagnosticsState, activeClients: transport.sockets.size, activeRooms: rooms.size, activeTimers: Array.from(timers.keys()) }; }
+  function diagnostics() { return { ...diagnosticsState, activeClients: transport.sockets.size, activeRooms: rooms.size, activeTimers: Array.from(timers.keys()), performance: performanceSnapshot(TICK_HZ) }; }
   const api = { start, stop, address, diagnostics, server: httpServer };
   return api;
 }

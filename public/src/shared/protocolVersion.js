@@ -18,13 +18,14 @@
   //   3 = stable room-scoped player IDs and private resumeToken credentials.
   //   4 = explicit compatibility negotiation, connectionId/playerId split,
   //       MessagePack-only production client traffic and stable error codes.
-  const PROTOCOL_VERSION = 4;
+  //   5 = relay-control-only victory snapshots; abstract match/player totals removed.
+  const PROTOCOL_VERSION = 5;
 
   // Highest protocol this client build understands. A server reporting a newer
   // protocol is actually incompatible and is rejected with a clear message
   // (differing build SHAs alone never block play).
-  const MIN_SUPPORTED_PROTOCOL = 4;
-  const MAX_SUPPORTED_PROTOCOL = 4;
+  const MIN_SUPPORTED_PROTOCOL = 5;
+  const MAX_SUPPORTED_PROTOCOL = 5;
 
   // Minimum protocol that guarantees authoritative weapon angles. Backends
   // below (or not reporting) this need redeploying; turret verification cannot

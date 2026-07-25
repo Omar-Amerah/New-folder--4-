@@ -296,7 +296,7 @@ async function main() {
       assert(Number.isFinite(enemy.latest.hello.protocolVersion), "hello.protocolVersion missing");
       assert(enemy.latest.hello.serverBuildSha, "hello.serverBuildSha missing");
     });
-    enemy.send({ type: "join", room: ROOM, name: "EnemyBrick", team: "red", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
+    enemy.send({ type: "join", room: ROOM, name: "EnemyBrick", team: "red", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
     await until(() => enemy.latest.joined, 10000, "enemy joined room");
     const enemyPlayerId = enemy.latest.joined.playerId || enemy.latest.joined.id;
     report.enemyPlayerId = enemyPlayerId;

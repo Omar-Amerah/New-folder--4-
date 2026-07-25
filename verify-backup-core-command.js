@@ -51,8 +51,8 @@ const assert = require("assert");
   function makeRoom(ships = []) {
     const shipMap = new Map();
     const playerMap = new Map([
-      ["p1", { id: "p1", name: "Player 1", team: "A", kills: 0, losses: 0, score: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }],
-      ["p2", { id: "p2", name: "Player 2", team: "B", kills: 0, losses: 0, score: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }]
+      ["p1", { id: "p1", name: "Player 1", team: "A", kills: 0, losses: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }],
+      ["p2", { id: "p2", name: "Player 2", team: "B", kills: 0, losses: 0, money: 1000, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0, ships: [], design: [] }]
     ]);
     for (const ship of ships) {
       shipMap.set(ship.id, ship);
@@ -284,7 +284,7 @@ const assert = require("assert");
     console.log("✔ Test 11 passed: Blueprint validation enforces one main Core and at most one backup.");
   }
 
-  // 12. Kill attribution and scoring occur exactly once
+  // 12. Kill attribution and economy rewards occur exactly once
   {
     const design = [{ x: 7, y: 7, type: "core" }];
     const ship = makeTestShip(design);
@@ -299,7 +299,7 @@ const assert = require("assert");
     const res2 = destroyShip(room, ship, "p2", 1010);
     assert.strictEqual(res2, false, "Duplicate destroyShip call returns false");
     assert.strictEqual(attacker.kills, initialKills + 1, "Kills count not incremented twice");
-    console.log("✔ Test 12 passed: Kill attribution and scoring occur exactly once.");
+    console.log("✔ Test 12 passed: Kill attribution and economy rewards occur exactly once.");
   }
 
   // 13. Save/load, snapshots and reconnect preserve command state

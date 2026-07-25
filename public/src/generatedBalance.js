@@ -936,7 +936,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "droneBay",
       "name": "Drone Bay",
-      "category": "Support",
+      "category": "Weapons",
       "cost": 150,
       "mass": 32,
       "hull": 130,
@@ -1249,10 +1249,6 @@ export const GENERATED_BALANCE = {
     "maxEfficiencyBonus": 80,
     "minimumOverpowerRewardMultiplier": 0.65
   },
-  "match": {
-    "matchScore": 900,
-    "scorePerControlledPoint": 7
-  },
   "projectiles": {
     "shieldHitMinimum": 10,
     "shieldCollision": {
@@ -1292,8 +1288,7 @@ export const GENERATED_BALANCE = {
     "neutralDecayPerSecond": 0.08,
     "baseCaptureRate": 0.1,
     "captureRatePerShip": 0.045,
-    "newOwnerProgressMultiplier": 3,
-    "captureScore": 14
+    "newOwnerProgressMultiplier": 3
   },
   "repair": {
     "repairRange": 410,

@@ -22,7 +22,7 @@ This document records the authoritative movement contract after the Section 6 re
 | `formationX`, `formationY` | Command-owned metadata describing the assigned formation-relative slot offset. |
 | `rallyPoint` | Player-owned authoritative rally target. It is validated and adjusted server-side; new purchased ships spawn-to-rally without commanding existing ships. |
 | `validEngineIndices`, `blockedEngineIndices`, component Power state | Component-health/heat/power derived state consumed by movement stats. Destroyed, blocked, overheated or underpowered propulsion contributes reduced or zero movement. |
-| `hullAngleWeapons` | Movement/combat-facing cache for hull rotation scoring; derived from immutable spawned design and not client-authored. |
+| `hullAngleWeapons` | Movement/combat-facing cache for hull-rotation candidate ranking; derived from immutable spawned design and not client-authored. |
 
 ## Command selection semantics
 

@@ -201,7 +201,7 @@ function createPlayerRow(player) {
   const canKick = isAdmin() && player.id !== state.myId && (state.phase === "lobby" || state.phase === "design");
   const status = player.isAdmin ? "Admin" : player.ready ? "Ready" : state.phase === "design" ? "Designing" : player.isBot ? "Bot" : "Waiting";
   row.innerHTML = `
-    <span class="score-color" style="background:${player.color}"></span>
+    <span class="player-color" style="background:${player.color}"></span>
     <div>
       <strong>${escapeHtml(player.name)}${player.id === state.myId ? " (you)" : ""}</strong>
       <span>${escapeHtml(state.rules?.gameMode === "solo" ? "No wing" : player.teamName || "Blue wing")} | ${status}</span>

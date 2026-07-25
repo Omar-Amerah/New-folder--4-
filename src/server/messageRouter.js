@@ -6,7 +6,7 @@ const { sendFullSnapshot, broadcastSnapshot } = require("./snapshotDelivery");
 const { getRoute } = require("./routeRegistry");
 
 const RATE_LIMITS = {
-  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "setCombatStyle", "setRallyPoint", "resetRallyPoint", "ping"]) },
+  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
   management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
 };
 function bucketForType(type) {
@@ -68,6 +68,11 @@ function handleMessage(client, message) {
       return;
     }
     client.protocol = { protocolVersion: message.protocolVersion, minProtocolVersion: message.minProtocolVersion, maxProtocolVersion: message.maxProtocolVersion, frontendBuildSha: message.frontendBuildSha || null, capabilities: message.capabilities || [] };
+    // Older protocol-4 clients do not report selection focus. Preserve their
+    // historical all-detail snapshots until they refresh to the focused stream.
+    client.telemetryFocusShipId = client.protocol.capabilities.includes("telemetry-focus-v1") ? null : undefined;
+    client.telemetryLastWrittenFocusId = null;
+    client.telemetryLastWrittenAt = 0;
     joinRoom(client, message);
     return;
   }
@@ -206,6 +211,20 @@ function handleMessage(client, message) {
     const now = performanceNow();
     const changed = require("./drones").setDroneBayMode(client.room, client.player, message.shipId, message.componentId, message.mode, now);
     if (changed) broadcastSnapshot(client.room, now);
+    return;
+  }
+
+  if (message.type === "setTelemetryFocus") {
+    let shipId = typeof message.shipId === "string" ? message.shipId : null;
+    if (shipId) {
+      const ship = client.room.ships.get(shipId);
+      if (!ship || !ship.alive || ship.ownerId !== client.player.id) shipId = null;
+    }
+    if (client.telemetryFocusShipId !== shipId) {
+      client.telemetryFocusShipId = shipId;
+      client.telemetryLastWrittenFocusId = null;
+      client.telemetryLastWrittenAt = 0;
+    }
     return;
   }
 

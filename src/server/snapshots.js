@@ -170,44 +170,52 @@ function buildPowerWiringRuntimeSnapshot(ship) {
   return require("./powerWiringSnapshot").buildPowerWiringRuntime(ship);
 }
 
-function appendFullShipBaseline(entry, ship) {
+function appendComponentPowerState(entry, ship) {
+  entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
+  entry.powerStatus = ship.powerStatus;
+  entry.powerRevision = ship.powerRevision || 0;
+  entry.wiringRevision = ship.wiringRevision || 0;
+}
+
+function appendDetailedPowerTelemetry(entry, ship) {
+  appendComponentPowerState(entry, ship);
+  entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
+  entry.wiringStatus = wiringStatus(ship);
+  entry.switchgear = buildSwitchgearSnapshot(ship);
+  entry.powerProtection = buildProtectionSnapshot(ship);
+  entry.powerProtectionRevision = ship.powerProtectionRevision || 0;
+  entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
+  entry.powerWiringRevision = ship.wiringRevision || 0;
+  entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
+}
+
+function appendFullShipBaseline(entry, ship, includeTelemetry = true) {
   delete entry.chpD;
   delete entry.componentHeatD;
   entry.design = ship.design || [];
   if (ship.componentPower?.byComponentIndex) {
-    entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
-    entry.powerStatus = ship.powerStatus;
-    entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
-    entry.powerRevision = ship.powerRevision || 0;
-    entry.wiringRevision = ship.wiringRevision || 0;
-    entry.wiringStatus = wiringStatus(ship);
-    entry.switchgear = buildSwitchgearSnapshot(ship);
-    entry.powerProtection = buildProtectionSnapshot(ship);
-    entry.powerProtectionRevision = ship.powerProtectionRevision || 0;
-    // Combat Power tab: full installed Power-wiring layout (keyed by wiring
-    // revision) plus the live per-section runtime block.
-    entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
-    entry.powerWiringRevision = ship.wiringRevision || 0;
-    entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
+    appendComponentPowerState(entry, ship);
+    if (includeTelemetry) appendDetailedPowerTelemetry(entry, ship);
   }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
   if (ship.componentStorageCharge) entry.storageCharge = ship.componentStorageCharge.map((v) => Math.round(v * 10) / 10);
 }
 
-function appendShipDeltas(entry, ship, client = null) {
+function appendShipDeltas(entry, ship, client = null, options = {}) {
+  const includeTelemetry = options.includeTelemetry !== false;
+  const forceTelemetry = options.forceTelemetry === true;
   const knownPower = client?.knownShipPowerRevisions instanceof Map ? client.knownShipPowerRevisions : null;
   const known = knownPower ? knownPower.get(ship.id) : undefined;
   const currentPowerRevision = ship.powerRevision || 0;
   const powerChanged = ship.componentPower?.byComponentIndex && (knownPower ? known !== currentPowerRevision : ship.dirtyPower);
   if (powerChanged) {
-    entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
-    entry.powerStatus = ship.powerStatus;
-    entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
-    entry.powerRevision = ship.powerRevision || 0;
-    entry.wiringRevision = ship.wiringRevision || 0;
-    entry.wiringStatus = wiringStatus(ship);
-    entry.switchgear = buildSwitchgearSnapshot(ship);
+    appendComponentPowerState(entry, ship);
+    if (includeTelemetry) {
+      entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
+      entry.wiringStatus = wiringStatus(ship);
+      entry.switchgear = buildSwitchgearSnapshot(ship);
+    }
   }
   // Section 7G: the compact runtime protection block has its own revision so
   // stress/trip/retry changes reach the player even when component allocations
@@ -217,7 +225,7 @@ function appendShipDeltas(entry, ship, client = null) {
   const currentProtectionRevision = ship.powerProtectionRevision || 0;
   const protectionChanged = ship.componentPower?.byComponentIndex
     && (knownProtection ? knownProtection.get(ship.id) !== currentProtectionRevision : ship.dirtyPowerProtection);
-  if (protectionChanged) {
+  if (includeTelemetry && protectionChanged) {
     entry.powerProtection = buildProtectionSnapshot(ship);
     entry.powerProtectionRevision = currentProtectionRevision;
     if (!powerChanged) entry.switchgear = buildSwitchgearSnapshot(ship);
@@ -229,13 +237,13 @@ function appendShipDeltas(entry, ship, client = null) {
   const currentWiringRevision = ship.wiringRevision || 0;
   const wiringLayoutChanged = ship.componentPower?.byComponentIndex
     && (knownWiring ? knownWiring.get(ship.id) !== currentWiringRevision : (powerChanged || protectionChanged));
-  if (wiringLayoutChanged) {
+  if (includeTelemetry && wiringLayoutChanged) {
     entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
     entry.powerWiringRevision = currentWiringRevision;
   }
   // Live per-section runtime block: whenever flow (power) or stress/protection
   // changed. Layout stays cached; only the runtime values refresh.
-  if ((powerChanged || protectionChanged) && ship.componentPower?.byComponentIndex) {
+  if (includeTelemetry && (powerChanged || protectionChanged) && ship.componentPower?.byComponentIndex) {
     entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
   }
   // `powerThermal` contains Heat-derived values (component Heat generated,
@@ -243,9 +251,13 @@ function appendShipDeltas(entry, ship, client = null) {
   // during ordinary thermal ticks even when the Power allocator does not run.
   // Send a fresh compact diagnostics block with Heat deltas, without forcing a
   // Power solve or resending static design data.
-  if (!powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
+  if (includeTelemetry && !powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
     entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
   }
+  // Focused telemetry is deliberately independent of dirty/revision flags: a
+  // newly selected ship must receive a complete current diagnostics block, and
+  // the scheduled 2 Hz refresh must not depend on whether a topology changed.
+  if (forceTelemetry && ship.componentPower?.byComponentIndex) appendDetailedPowerTelemetry(entry, ship);
   if (ship.dirtyComponents && ship.dirtyComponents.size) {
     const delta = [];
     for (const index of [...ship.dirtyComponents].sort((a, b) => a - b)) {
@@ -412,9 +424,10 @@ function appendPublicShipVisual(entry, ship, includeDesign) {
   for (const key of PRIVATE_SHIP_FIELDS) delete entry[key];
 }
 
-function buildClientShips(room, sharedShips, client, sendStatic) {
+function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusShipId) {
   const known = getKnownShipDesigns(client);
   const viewer = client?.player || null;
+  const legacyTelemetry = telemetryFocusShipId === undefined;
   return sharedShips.map((base) => {
     const entry = { ...base };
     const ship = room.ships.get(entry.id);
@@ -423,8 +436,10 @@ function buildClientShips(room, sharedShips, client, sendStatic) {
     const needBaseline = sendStatic || known.get(ship.id) !== revision;
     if (canViewShipInternals(viewer, ship, room)) {
       entry.detail = "full";
-      if (needBaseline) appendFullShipBaseline(entry, ship);
-      else appendShipDeltas(entry, ship, client);
+      const focusedTelemetry = telemetryFocusShipId === ship.id;
+      const includeTelemetry = legacyTelemetry || focusedTelemetry;
+      if (needBaseline) appendFullShipBaseline(entry, ship, includeTelemetry);
+      else appendShipDeltas(entry, ship, client, { includeTelemetry, forceTelemetry: focusedTelemetry && !legacyTelemetry });
     } else {
       appendPublicShipVisual(entry, ship, needBaseline);
     }
@@ -481,8 +496,11 @@ function markSnapshotDesignsWritten(client, designRevisions = []) {
   for (const [shipId, revision] of designRevisions) known.set(shipId, revision);
 }
 
-function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null) {
+function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null, options = null) {
   if (!shared) shared = buildSharedSnapshot(room, now, sendStatic, Boolean(client));
+  const telemetryFocusShipId = options && Object.prototype.hasOwnProperty.call(options, "telemetryFocusShipId")
+    ? options.telemetryFocusShipId
+    : (client && Object.prototype.hasOwnProperty.call(client, "telemetryFocusShipId") ? client.telemetryFocusShipId : undefined);
 
   const phaseEnded = room.phase === "ended";
   const players = [];
@@ -514,7 +532,6 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
       destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
       lastReward: player.lastReward,
       activeShips,
-      score: Math.floor(player.score),
       kills: player.kills,
       losses: player.losses,
       captures: player.captures,
@@ -550,18 +567,13 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     phase: room.phase,
     adminId: room.adminId,
     players,
-    ships: buildClientShips(room, shared.ships, client, sendStatic),
+    ships: buildClientShips(room, shared.ships, client, sendStatic, telemetryFocusShipId),
     drones: shared.drones || [],
     bullets: shared.bullets,
     points: shared.points,
     effects: shared.effects,
     winner: room.winner,
     matchStartedAt: room.matchStartedAt,
-    maxScore: room.maxScore,
-    // Authoritative per-side score used by both the scoreboard and the victory
-    // checks. Clients render/compare against these values directly rather than
-    // reconstructing team totals from player records.
-    teamScores: require("./objectives").snapshotSideScores(room),
     controlVictory: room.controlVictory ? {
       active: Boolean(room.controlVictory.team || room.controlVictory.playerId),
       team: room.controlVictory.team,

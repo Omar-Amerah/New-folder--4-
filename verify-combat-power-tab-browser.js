@@ -146,7 +146,7 @@ async function setup(page, ship) {
       style.id = "powerPanelTestIsolation";
       style.textContent = `
         #pixiFatalErrorPanel, .purchase-bar, .top-hud { display: none !important; }
-        .score-panel {
+        .match-panel {
           position: fixed !important;
           inset: 0 0 0 auto !important;
           width: min(310px, 100vw) !important;
@@ -154,7 +154,7 @@ async function setup(page, ship) {
           overflow: auto !important;
           z-index: 4000 !important;
         }
-        #scoreList, #eventLog, .screen-buttons { display: none !important; }
+        #playerStatusList, #eventLog, .screen-buttons { display: none !important; }
         #shipDamagePanel {
           position: relative !important;
           z-index: 5000 !important;

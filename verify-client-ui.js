@@ -246,7 +246,7 @@ const ids = [
   "fleetCapLabel",
   "buildShipButton",
   "buildFiveButton",
-  "scoreList",
+  "playerStatusList",
   "eventLog",
   "toastStack",
   "matchProgressFill",

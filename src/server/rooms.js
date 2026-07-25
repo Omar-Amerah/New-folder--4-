@@ -6,7 +6,6 @@ const {
   MAX_PLAYERS_PER_ROOM,
   DEFAULT_ROOM_RULES,
   ASTEROID_DENSITY,
-  MATCH_SCORE,
   ECONOMY,
   CLOSED_ROOM_CODE_TTL_MS,
   MAP_NAMES,
@@ -51,14 +50,9 @@ function createRoom(code, options = {}) {
     nextBotId: 1,
     colorCursor: 0,
     lastEmptyAt: 0,
-    lastScoreAt: performanceNow(),
     winner: null,
     rewardsFinalizedForWinner: null,
     winnerAt: 0,
-    maxScore: MATCH_SCORE,
-    // Authoritative per-team objective score (team mode). Solo mode scores are
-    // per-player on player.score; see src/server/objectives.js.
-    teamScores: {},
     controlVictory: {
       team: null,
       playerId: null,
@@ -589,8 +583,6 @@ function resetMatch(room, now) {
   room.winner = null;
   room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
-  room.lastScoreAt = now;
-  require("./objectives").resetTeamScores(room);
   room.drones = new Map();
   applyAuthoritativeSafeZones(room);
   for (const point of room.points) {

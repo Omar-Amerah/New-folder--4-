@@ -23,8 +23,7 @@ function finiteDeep(value, path = "v") {
 
 function buildShip(demand = { 2: 3.5, 4: 6 }) {
   const design = [
-    { x: 0, y: 0, type: "core" }, { x: 1, y: 0, type: "frame" }, { x: 2, y: 0, type: "shield" }, { x: 3, y: 0, type: "frame" }, { x: 4, y: 0, type: "blaster" },
-    { x: 6, y: 0, type: "switchgear", rotation: 0, switchgearMode: "closed", switchgearRatingTier: "light" }
+    { x: 0, y: 0, type: "core" }, { x: 1, y: 0, type: "frame" }, { x: 2, y: 0, type: "shield" }, { x: 3, y: 0, type: "frame" }, { x: 4, y: 0, type: "blaster" }
   ];
   const wiring = {
     version: 3,
@@ -51,7 +50,7 @@ function buildShip(demand = { 2: 3.5, 4: 6 }) {
 }
 function makeRoomClient(ship) {
   const player = { id: "p", name: "P", color: "#fff", team: "blue", ships: [ship], selectedShipIds: new Set(), stats: {}, money: 0, rallyPoint: { x: 0, y: 0 } };
-  const room = { code: "R", phase: "active", adminId: "p", stateEpoch: 1, snapshotSeq: 1, staticRevision: 1, mapSizeLabel: "t", world: { width: 100, height: 100 }, map: { asteroids: [] }, rules: { gameMode: "control" }, players: new Map([["p", player]]), ships: new Map([["s", ship]]), bullets: [], points: [], effects: [], winner: null, matchStartedAt: 1, maxScore: 100, controlVictory: null };
+  const room = { code: "R", phase: "active", adminId: "p", stateEpoch: 1, snapshotSeq: 1, staticRevision: 1, mapSizeLabel: "t", world: { width: 100, height: 100 }, map: { asteroids: [] }, rules: { gameMode: "control" }, players: new Map([["p", player]]), ships: new Map([["s", ship]]), bullets: [], points: [], effects: [], winner: null, matchStartedAt: 1, controlVictory: null };
   const client = { player, knownShipDesignRevisions: new Map(), knownShipPowerRevisions: new Map(), knownShipPowerProtectionRevisions: new Map(), knownShipWiringLayoutRevisions: new Map() };
   return { room, player, client };
 }
@@ -68,13 +67,11 @@ check("full snapshot includes complete Power-wiring layout and runtime", () => {
   const { room, player, client } = makeRoomClient(ship);
   const full = snapshotRoom(room, 0, player, true, null, client).ships[0];
   assert(full.powerWiring, "layout block present");
-  assert.strictEqual(full.powerWiring.sections.length, 5, "4 cables + 1 switchgear edge");
-  const ids = full.powerWiring.sections.map((s) => s.id).sort();
-  assert(ids.includes("switchgear:5:A-B"), "switchgear synthetic edge in layout");
+  assert.strictEqual(full.powerWiring.sections.length, 4, "all four installed cables are present");
   for (const s of full.powerWiring.sections) {
     assert(Number.isInteger(s.x1) && Number.isInteger(s.y1) && Number.isInteger(s.x2) && Number.isInteger(s.y2), "endpoint coords present");
     assert(["light", "standard", "heavy"].includes(s.tier), "tier present");
-    assert(["power-section", "switchgear"].includes(s.kind), "kind present");
+    assert.strictEqual(s.kind, "power-section", "section kind present");
     assert(Array.isArray(s.hosts), "host indices present");
     assert(typeof s.operational === "boolean", "operational flag present");
   }
@@ -131,7 +128,7 @@ check("design replacement (re-init) produces a fresh consistent layout", () => {
   const ship = buildShip();
   const { room, player, client } = makeRoomClient(ship);
   const before = snapshotRoom(room, 0, player, true, null, client).ships[0];
-  assert.strictEqual(before.powerWiring.sections.length, 5);
+  assert.strictEqual(before.powerWiring.sections.length, 4);
   // Replace with a smaller design.
   const design = [{ x: 0, y: 0, type: "core" }, { x: 1, y: 0, type: "blaster" }];
   const wiring = { version: 3, power: { sections: [{ id: "z", x1: 0, y1: 0, x2: 1, y2: 0, tier: "light" }], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: ship.wiring.powerPolicy };

@@ -222,7 +222,7 @@ async function until(fn, what, timeoutMs = 15000) {
     diagnostics.playerId = myId;
 
     await bot.open();
-    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "red", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
+    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "red", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
     await until(() => bot.latest.joined, "bot join");
     diagnostics.botPlayerId = bot.latest.joined.playerId || bot.latest.joined.id;
     await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none" } }));
@@ -342,10 +342,10 @@ async function until(fn, what, timeoutMs = 15000) {
         const r = el?.getBoundingClientRect();
         return r ? { x: r.left, y: r.top, width: r.width, height: r.height, bottom: r.bottom, right: r.right } : null;
       };
-      const score = document.querySelector(".score-panel");
+      const matchPanel = document.querySelector(".match-panel");
       return {
         viewport: { width: window.innerWidth, height: window.innerHeight },
-        scorePanel: { rect: rectOf(".score-panel"), scrollTop: score?.scrollTop ?? null, clientHeight: score?.clientHeight ?? null, scrollHeight: score?.scrollHeight ?? null },
+        matchPanel: { rect: rectOf(".match-panel"), scrollTop: matchPanel?.scrollTop ?? null, clientHeight: matchPanel?.clientHeight ?? null, scrollHeight: matchPanel?.scrollHeight ?? null },
         shipStatusPanel: rectOf("#shipDamagePanel"),
         canvas: rectOf("#shipDamageCanvas"),
         heatReadout: rectOf("#shipDamageHover"),

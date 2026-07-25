@@ -23,7 +23,7 @@ function damageHull(ship, amount) {
   ship.hp = ship.componentHp.reduce((sum, hp, i) => ship.design[i].type === "core" ? sum : sum + hp, 0);
 }
 function room(ships) {
-  const players = new Map([["a", { id: "a", team: 1, ships: [], money: 0, maxMoney: 9999, earned: 0, score: 0 }], ["b", { id: "b", team: 2, ships: [], money: 0, maxMoney: 9999, earned: 0, score: 0 }], ["c", { id: "c", team: 1, ships: [], money: 0, maxMoney: 9999, earned: 0, score: 0 }]]);
+  const players = new Map([["a", { id: "a", team: 1, ships: [], money: 0, maxMoney: 9999, earned: 0 }], ["b", { id: "b", team: 2, ships: [], money: 0, maxMoney: 9999, earned: 0 }], ["c", { id: "c", team: 1, ships: [], money: 0, maxMoney: 9999, earned: 0 }]]);
   const r = { phase: "active", rules: { gameMode: "teams" }, players, ships: new Map(ships.map(s => [s.id, s])), bullets: [], effects: [], map: { asteroids: [], safeZones: [], relays: [] }, points: [], world: { width: 2000, height: 2000 }, combatRandom: () => 0 };
   for (const s of ships) players.get(s.ownerId)?.ships.push(s);
   return r;

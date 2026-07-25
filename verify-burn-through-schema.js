@@ -14,7 +14,7 @@ const { validateComponentBalance } = require("./src/server/componentSchema");
 function balanceWith(weapon) {
   return {
     metadata: {}, shipPricing: { minimum: 1, maximum: 2, weaponPremiums: {} }, economy: { shipCap: 1 },
-    rewards: {}, match: { matchScore: 1 }, movement: {}, projectiles: {}, missileGuidance: {},
+    rewards: {}, movement: {}, projectiles: {}, missileGuidance: {},
     fleetLimits: {}, capture: {}, repair: {},
     drones: {
       squadSize: 1, maxBaysPerShip: 1, maxActivePerShip: 1, maxActivePerPlayer: 1,

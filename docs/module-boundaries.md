@@ -17,7 +17,7 @@ Section 1 makes the native ES-module frontend the only production frontend path 
 - **State:** `state.js` owns the stable global state object; tests and modules must mutate fields rather than replace stable Maps/Sets.
 - **Networking:** `network.js` owns WebSocket connection, MessagePack decode/encode, and URL resolution.
 - **Message/snapshot handling:** `messages.js` routes server messages; pure snapshot reconstruction helpers are in `snapshotMerge.js`.
-- **UI:** `ui/*.js` owns DOM rendering, lobby screens, purchase UI, HUD, scoreboard, toasts, and end-game panels.
+- **UI:** `ui/*.js` owns DOM rendering, lobby screens, purchase UI, HUD, match status, toasts, and end-game panels.
 - **Designer:** `design/*.js` plus designer UI modules own blueprint editing, validation preview, local storage, and thermal preview.
 - **Input/commands:** `game/input.js`, `game/commands.js`, and `game/selection.js` own user intent collection and outbound commands.
 - **Renderer:** `game/renderController.js` and `game/pixi/*.js` own Pixi resources, render lifecycle, pooling, and visual interpolation.

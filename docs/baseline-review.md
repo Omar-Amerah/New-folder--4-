@@ -190,7 +190,7 @@ protocol, UI, renderer, or server-logic files were modified.**
 
 ## Section 4 baseline follow-up
 
-Map generation now records a reproducible seed, validates generated geometry, and exposes the seed in static snapshots. Objective scoring now has an idempotent victory finalizer and uses solo player ownership for solo relay scoring while preserving team ownership semantics for teams mode.
+Map generation records a reproducible seed, validates generated geometry, and exposes the seed in static snapshots. Objective authority uses solo player ownership or team ownership as appropriate, with one idempotent victory rule: hold every relay continuously for 20 seconds.
 
 ## Section 7 combat review addendum
 

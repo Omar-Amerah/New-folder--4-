@@ -30,7 +30,6 @@ function makePlayer(id, team = "blue") {
     destroyedEnemyCost: 0,
     lostFleetCost: 0,
     lastReward: null,
-    score: 0,
     kills: 0,
     losses: 0,
     captures: 0,

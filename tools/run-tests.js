@@ -91,7 +91,7 @@ const GROUPS = {
     "verify-repair-drone-targeting.js",
     "verify-engine-exhaust.js",
     "verify-maps-objectives.js",
-    "verify-team-scoring.js",
+    "verify-control-victory.js",
     "verify-snapshot-visibility.js",
     "verify-camera-transforms.js",
     "verify-render-interpolation.js",

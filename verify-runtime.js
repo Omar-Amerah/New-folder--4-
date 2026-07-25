@@ -46,7 +46,7 @@ async function main() {
     // Alpha must complete this first (and become room admin) before Beta joins;
     // sending both concurrently races the server's processing order and can
     // make Beta the admin, failing the addBot step below.
-    const createGameJoin = { type: "join", name: "Alpha", room: "", protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] };
+    const createGameJoin = { type: "join", name: "Alpha", room: "", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] };
     if (createGameJoin.room !== "") throw new Error("Create Game join payload must send room: empty string");
     alpha.send(createGameJoin);
     const alphaJoined = await alpha.waitFor(
@@ -58,7 +58,7 @@ async function main() {
       (message) => message.type === "state" && message.snapshotKind === "full" && message.room === room,
       "alpha did not receive first full snapshot after Create Game"
     );
-    beta.send({ type: "join", name: "Beta", room, protocolVersion:4, minProtocolVersion:4, maxProtocolVersion:4, capabilities:["messagepack"] });
+    beta.send({ type: "join", name: "Beta", room, protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
     await beta.waitFor((message) => message.type === "joined" && message.room === room, "beta did not join");
 
     alpha.send({ type: "addBot" });

@@ -9,7 +9,7 @@ fixes, not a combat rebalance.
 `server.js` runs active-room combat in this order: bot decisions, economy,
 self-destruct countdowns, destroyed-ship removal, live-ship movement, ship
 separation, map collision resolution, repair/support, weapon aiming/firing,
-ship heat, projectile simulation, capture updates, and scoring. Non-active rooms
+ship heat, projectile simulation, relay capture updates, and control victory. Non-active rooms
 only age effects. Combat systems operate on the live-ship list captured after
 self-destruction and removal, so dead ships do not receive movement, support or
 weapon updates later in that tick.

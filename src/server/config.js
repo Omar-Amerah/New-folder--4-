@@ -22,9 +22,6 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_PLAYERS_PER_ROOM = 12;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const CLOSED_ROOM_CODE_TTL_MS = 24 * 60 * 60 * 1000;
-const MATCH_SCORE = BALANCE.match.matchScore;
-const SCORE_PER_CONTROLLED_POINT = BALANCE.match.scorePerControlledPoint;
-
 const ECONOMY = Object.freeze({ ...BALANCE.economy, ...BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...BALANCE.shipPricing.weaponPremiums }) });
 
 const REWARDS = Object.freeze({ ...BALANCE.rewards });
@@ -156,8 +153,6 @@ module.exports = {
   MAX_PLAYERS_PER_ROOM,
   ROOM_IDLE_MS,
   CLOSED_ROOM_CODE_TTL_MS,
-  MATCH_SCORE,
-  SCORE_PER_CONTROLLED_POINT,
   ECONOMY,
   DEFAULT_ROOM_RULES,
   ASTEROID_DENSITY,

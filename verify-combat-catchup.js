@@ -18,7 +18,7 @@ function ship(id, ownerId, x, y, design) {
   return s;
 }
 function room(ships = []) {
-  const r = { rules: { gameMode: "teams" }, players: new Map([["a", { id: "a", team: 1, ships: [], kills: 0, losses: 0, destroyedEnemyCost: 0, lostFleetCost: 0, money: 0, maxMoney: 99999, earned: 0, score: 0 }], ["b", { id: "b", team: 2, ships: [], kills: 0, losses: 0, destroyedEnemyCost: 0, lostFleetCost: 0, money: 0, maxMoney: 99999, earned: 0, score: 0 }], ["c", { id: "c", team: 1, ships: [], kills: 0, losses: 0, destroyedEnemyCost: 0, lostFleetCost: 0, money: 0, maxMoney: 99999, earned: 0, score: 0 }]]), ships: new Map(ships.map((s) => [s.id, s])), bullets: [], effects: [], map: { asteroids: [], safeZones: [] }, world: { width: 2000, height: 2000 }, combatRandom: seededRandom(777) };
+  const r = { rules: { gameMode: "teams" }, players: new Map([["a", { id: "a", team: 1, ships: [], kills: 0, losses: 0, destroyedEnemyCost: 0, lostFleetCost: 0, money: 0, maxMoney: 99999, earned: 0 }], ["b", { id: "b", team: 2, ships: [], kills: 0, losses: 0, destroyedEnemyCost: 0, lostFleetCost: 0, money: 0, maxMoney: 99999, earned: 0 }], ["c", { id: "c", team: 1, ships: [], kills: 0, losses: 0, destroyedEnemyCost: 0, lostFleetCost: 0, money: 0, maxMoney: 99999, earned: 0 }]]), ships: new Map(ships.map((s) => [s.id, s])), bullets: [], effects: [], map: { asteroids: [], safeZones: [] }, world: { width: 2000, height: 2000 }, combatRandom: seededRandom(777) };
   for (const s of ships) r.players.get(s.ownerId)?.ships.push(s);
   return r;
 }

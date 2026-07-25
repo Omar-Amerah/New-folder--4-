@@ -63,7 +63,7 @@ assert.equal(room.drones.size, 1, "snapshot generation never spawns or duplicate
 
 const player = {
   id: "owner", name: "Owner", team: "blue", ships: [ship], connected: true,
-  ready: true, shipCap: 3, score: 0, kills: 0, losses: 0, captures: 0,
+  ready: true, shipCap: 3, kills: 0, losses: 0, captures: 0,
   deployedFleetCost: 0, destroyedEnemyCost: 0, shipsBuilt: 1, lostFleetCost: 0
 };
 const networkRoom = {

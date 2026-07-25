@@ -28,7 +28,7 @@ function makePlayer(id, team) {
   return {
     id, name: id, color: "#39f", team, isBot: false, connected: true, ready: true,
     money: 0, income: 0, earned: 0, spent: 0, shipCap: 5, deployedFleetCost: 0,
-    destroyedEnemyCost: 0, lastReward: 0, score: 0, kills: 0, losses: 0, captures: 0,
+    destroyedEnemyCost: 0, lastReward: 0, kills: 0, losses: 0, captures: 0,
     ships: [], design: [{ type: "core" }], stats: { unitCost: 1 }, shipsBuilt: 0,
     lostFleetCost: 0, rallyPoint: { x: 0, y: 0 }
   };
@@ -58,8 +58,8 @@ function makeRoom(mode) {
     code: "R", phase: "active", adminId: "pa", stateEpoch: 1, snapshotSeq: 0,
     staticRevision: 1, componentCatalogueRevision: 1, mapSizeLabel: "tiny",
     world: { width: 100, height: 100 }, map: { seed: 1, asteroids: [] },
-    rules: { gameMode: mode }, winner: null, matchStartedAt: 1, maxScore: 100,
-    bullets: [], effects: [], points: [], controlVictory: null, teamScores: {},
+    rules: { gameMode: mode }, winner: null, matchStartedAt: 1,
+    bullets: [], effects: [], points: [], controlVictory: null,
     players: new Map([["pa", pa], ["pAlly", pAlly], ["pe", pe]]),
     ships: new Map([["shipA", shipA]]), clients: new Set()
   };

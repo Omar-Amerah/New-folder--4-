@@ -643,7 +643,7 @@
   }
 }
 
-.score-list {
+.player-status-list {
   display: grid;
   gap: 8px;
 }
@@ -799,47 +799,10 @@
   line-height: 1.35;
 }
 
-.score-row {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: center;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(10, 15, 25, 0.66);
-}
-
-.score-row.mine {
-  border-color: rgba(255, 202, 87, 0.44);
-  background: rgba(37, 30, 17, 0.48);
-}
-
-.score-color {
+.player-color {
   width: 10px;
   height: 42px;
   border-radius: 99px;
-}
-
-.score-name {
-  overflow: hidden;
-  font-weight: 900;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.score-meta {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.score-value {
-  min-width: 44px;
-  text-align: right;
-  font-size: 20px;
-  font-weight: 900;
 }
 
 .event-log {
@@ -886,7 +849,7 @@
     order: 2;
   }
 
-  .score-panel {
+  .match-panel {
     position: absolute;
     right: 12px;
     bottom: 112px;
@@ -925,7 +888,7 @@
   }
 
   .side-panel,
-  .score-panel {
+  .match-panel {
     position: relative;
     order: initial;
     width: auto;

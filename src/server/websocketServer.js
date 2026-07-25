@@ -43,6 +43,9 @@ function createClient(socket) {
     joinedAt: Date.now(),
     lastMessageAt: Date.now(),
     isClosed: false,
+    telemetryFocusShipId: null,
+    telemetryLastWrittenFocusId: null,
+    telemetryLastWrittenAt: 0,
     snapshotBaseline: { stateEpoch: 0, lastSentSeq: 0, lastFullSeq: 0, fullRequired: true, staticRevisionKnown: 0, queuedSnapshotKind: null, backpressure: "healthy" },
     heartbeat: { lastInboundAt: Date.now(), lastPongAt: Date.now(), pingIntervalMs: 10000, pongTimeoutMs: 30000, maxSilentMs: 45000, pingTimer: null }
   };

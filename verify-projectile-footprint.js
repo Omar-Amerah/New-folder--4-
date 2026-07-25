@@ -24,8 +24,8 @@ function createRoom() {
     drones: new Map(),
     effects: [],
     players: new Map([
-      ["p1", { id: "p1", team: "blue", ships: [], kills: 0, losses: 0, money: 0, earned: 0, score: 0, destroyedEnemyCost: 0, lostFleetCost: 0 }],
-      ["p2", { id: "p2", team: "red", ships: [], kills: 0, losses: 0, money: 0, earned: 0, score: 0, destroyedEnemyCost: 0, lostFleetCost: 0 }]
+      ["p1", { id: "p1", team: "blue", ships: [], kills: 0, losses: 0, money: 0, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0 }],
+      ["p2", { id: "p2", team: "red", ships: [], kills: 0, losses: 0, money: 0, earned: 0, destroyedEnemyCost: 0, lostFleetCost: 0 }]
     ])
   };
 }

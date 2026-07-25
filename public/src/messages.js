@@ -14,7 +14,7 @@ import * as purchaseUi from "./ui/purchaseUi.js";
 import { pruneSelection } from "./game/selection.js";
 import { updateHud } from "./ui/hudUi.js";
 import { renderSideControls } from "./ui/sidePanelUi.js";
-import { renderScoreboard } from "./ui/scoreboardUi.js";
+import { renderMatchStatus } from "./ui/matchStatusUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
 import { recordServerBalanceRevision } from "./balanceStatus.js";
@@ -196,7 +196,7 @@ export function handleServerMessage(message) {
     pruneSelection();
     updateHud();
     renderSideControls();
-    renderScoreboard();
+    renderMatchStatus();
     purchaseUi.updateEconomyUi();
     lobbyUi.updateLobbyState();
     updateWinnerBanner();

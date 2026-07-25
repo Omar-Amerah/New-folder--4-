@@ -211,7 +211,7 @@ dom.purchaseOptions?.addEventListener("click", handlePurchaseKeyboardClick);
 
 // Bind kick handlers
 bindKickButtonContainer(dom.playerList);
-bindKickButtonContainer(dom.scoreList);
+bindKickButtonContainer(dom.playerStatusList);
 
 // Bind canvas pointer listeners
 if (dom.canvas) bindArenaPointerListeners(dom.canvas);

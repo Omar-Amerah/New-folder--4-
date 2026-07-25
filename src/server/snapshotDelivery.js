@@ -2,6 +2,9 @@ const { encodeMessage } = require("./wsCodec");
 const { performanceNow } = require("./utils");
 const { sendRaw, getOutbound } = require("./outbound");
 const { snapshotRoom, buildSharedSnapshot, collectSnapshotDesignRevisions, collectSnapshotPowerRevisions, collectSnapshotPowerProtectionRevisions, collectSnapshotWiringLayoutRevisions, markSnapshotDesignsWritten, markSnapshotPowerWritten, markSnapshotPowerProtectionWritten, markSnapshotWiringLayoutWritten } = require("./snapshots");
+const { recordSnapshot } = require("./performanceTelemetry");
+
+const TELEMETRY_INTERVAL_MS = 500;
 
 function diag(client) { return client.snapshotDeliveryDiagnostics ||= { fullBuilt: 0, compactBuilt: 0, queued: 0, written: 0, replaced: 0, dropped: 0, reset: 0, promotions: 0, recoveryRequests: 0, completedRecoveries: 0 }; }
 function ensureSnapshotBaseline(client, room) {
@@ -16,32 +19,46 @@ function onSnapshotLifecycle(client, outcome, meta) {
   const b = ensureSnapshotBaseline(client, client.room || { stateEpoch: meta?.stateEpoch || 1 }); const d = diag(client); d[outcome] = (d[outcome] || 0) + 1;
   if (outcome === 'queued') { b.lastQueuedSeq = meta.snapshotSeq; b.queuedSnapshotKind = meta.snapshotKind; b.queuedBaseSeq = meta.baseSnapshotSeq ?? null; b.queuedStaticRevision = meta.staticRevision || 0; }
   if (outcome === 'replaced' || outcome === 'dropped' || outcome === 'reset') { if (b.lastQueuedSeq === meta.snapshotSeq) { b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; } }
-  if (outcome === 'written') { b.lastWrittenSeq = meta.snapshotSeq; b.lastSentSeq = b.lastWrittenSeq; b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; markSnapshotDesignsWritten(client, meta.shipDesignRevisions); markSnapshotPowerWritten(client, meta.shipPowerRevisions); markSnapshotPowerProtectionWritten(client, meta.shipPowerProtectionRevisions); markSnapshotWiringLayoutWritten(client, meta.shipWiringLayoutRevisions); if (meta.snapshotKind === 'full') { b.lastWrittenFullSeq = meta.snapshotSeq; b.fullRequired = false; b.staticRevisionKnown = meta.staticRevision || 1; d.completedRecoveries += 1; } }
+  if (outcome === 'written') { b.lastWrittenSeq = meta.snapshotSeq; b.lastSentSeq = b.lastWrittenSeq; b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; markSnapshotDesignsWritten(client, meta.shipDesignRevisions); markSnapshotPowerWritten(client, meta.shipPowerRevisions); markSnapshotPowerProtectionWritten(client, meta.shipPowerProtectionRevisions); markSnapshotWiringLayoutWritten(client, meta.shipWiringLayoutRevisions); if (meta.telemetryFocusShipId) { client.telemetryLastWrittenFocusId = meta.telemetryFocusShipId; client.telemetryLastWrittenAt = meta.telemetryAt || performanceNow(); } if (meta.snapshotKind === 'full') { b.lastWrittenFullSeq = meta.snapshotSeq; b.fullRequired = false; b.staticRevisionKnown = meta.staticRevision || 1; d.completedRecoveries += 1; } }
 }
 // The shared snapshot carries only viewer-independent dynamic fields
 // (suppressed deltas, no baselines); buildClientShips layers per-client
 // baselines or deltas onto copies, so one shared build serves both full and
 // compact recipients.
+function telemetryFocusForPayload(client, now, full) {
+  const focus = client?.telemetryFocusShipId;
+  // `undefined` is the compatibility mode for older clients and direct test
+  // harnesses: preserve the historical all-detail snapshot contract.
+  if (focus === undefined) return undefined;
+  if (typeof focus !== "string" || !focus) return null;
+  const elapsed = now - (Number(client.telemetryLastWrittenAt) || 0);
+  if (full || client.telemetryLastWrittenFocusId !== focus || elapsed >= TELEMETRY_INTERVAL_MS) return focus;
+  return null;
+}
 function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
   room._buildingSnapshotSeq = seq; room._buildingBaseSnapshotSeq = baseSeq;
   if (!shared) shared = buildSharedSnapshot(room, now, false, true);
-  const snap = snapshotRoom(room, now, client.player, full, shared, client);
+  const telemetryFocusShipId = telemetryFocusForPayload(client, now, full);
+  const snap = snapshotRoom(room, now, client.player, full, shared, client, { telemetryFocusShipId });
   delete room._buildingSnapshotSeq; delete room._buildingBaseSnapshotSeq;
-  return { payload: encodeMessage(snap), designRevisions: collectSnapshotDesignRevisions(snap), powerRevisions: collectSnapshotPowerRevisions(snap), powerProtectionRevisions: collectSnapshotPowerProtectionRevisions(snap), wiringLayoutRevisions: collectSnapshotWiringLayoutRevisions(snap) };
+  return { payload: encodeMessage(snap), telemetryFocusShipId, designRevisions: collectSnapshotDesignRevisions(snap), powerRevisions: collectSnapshotPowerRevisions(snap), powerProtectionRevisions: collectSnapshotPowerProtectionRevisions(snap), wiringLayoutRevisions: collectSnapshotWiringLayoutRevisions(snap) };
 }
 function enqueueSnapshot(client, payload, meta) { sendRaw(client, payload, { kind: meta.snapshotKind === 'full' ? 'snapshot-full' : 'snapshot-compact', snapshotMeta: meta, onSnapshotLifecycle: (outcome, itemMeta) => onSnapshotLifecycle(client, outcome, itemMeta) }); }
 function nextSeq(room) { return (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1); }
 function sendFullSnapshot(client, now = performanceNow(), reason = 'client-request') {
   if (!client.room) return;
+  const startedAt = performanceNow();
   const room = client.room;
   ensureSnapshotBaseline(client, room);
   const seq = nextSeq(room);
   const meta = { stateEpoch: room.stateEpoch || 1, snapshotSeq: seq, baseSnapshotSeq: null, snapshotKind: 'full', staticRevision: room.staticRevision || 1, completeStatic: true, reason };
   const built = buildPayload(room, client, now, true, seq, null);
+  meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
   meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions;
   diag(client).fullBuilt += 1;
   if (reason) diag(client).recoveryRequests += 1;
   enqueueSnapshot(client, built.payload, meta);
+  recordSnapshot({ durationMs: performanceNow() - startedAt, payloadBytes: built.payload.length, maxClientBytes: built.payload.length, clients: 1 });
 }
 function canSendCompact(room, b, broadcastSeq, forceStatic) {
   const revision = room.staticRevision || 1;
@@ -55,6 +72,7 @@ function canSendCompact(room, b, broadcastSeq, forceStatic) {
 }
 function broadcastSnapshot(room, now, forceStatic = false) {
   if (room.clients.size === 0) return;
+  const startedAt = performanceNow();
   const seq = nextSeq(room);
   const revision = room.staticRevision || 1;
   const epoch = room.stateEpoch || 1;
@@ -62,6 +80,8 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   // was rebuilt inside buildPayload per client, making broadcast cost scale
   // as O(clients x ships) on the viewer-independent work too.
   const shared = buildSharedSnapshot(room, now, false, true);
+  let payloadBytes = 0;
+  let maxClientBytes = 0;
   for (const client of room.clients) {
     const b = ensureSnapshotBaseline(client, room);
     const existing = getOutbound(client).snapshot;
@@ -70,9 +90,13 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     const base = full ? null : b.lastWrittenSeq;
     const meta = { stateEpoch: epoch, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', staticRevision: revision, completeStatic: full };
     const built = buildPayload(room, client, now, full, seq, base, shared);
+    meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
     meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions;
     diag(client)[full ? 'fullBuilt' : 'compactBuilt'] += 1;
     enqueueSnapshot(client, built.payload, meta);
+    payloadBytes += built.payload.length;
+    maxClientBytes = Math.max(maxClientBytes, built.payload.length);
   }
+  recordSnapshot({ durationMs: performanceNow() - startedAt, payloadBytes, maxClientBytes, clients: room.clients.size });
 }
-module.exports = { ensureSnapshotBaseline, sendFullSnapshot, broadcastSnapshot, onSnapshotLifecycle };
+module.exports = { ensureSnapshotBaseline, sendFullSnapshot, broadcastSnapshot, onSnapshotLifecycle, constants: { TELEMETRY_INTERVAL_MS } };
