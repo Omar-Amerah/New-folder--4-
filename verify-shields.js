@@ -10,7 +10,7 @@ const { PARTS } = require("./src/server/components");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initShipHeat, distributeComponentHeatByWeight } = require("./src/server/heat");
 const { computeStats } = require("./src/server/shipStats");
-const { rebuildShipWiringState, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
+const { rebuildShipWiringState, updateShipPowerDemand, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) { let wiring = WiringRules.emptyWiring(); for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS); return wiring; }
 function shipFor(design, paths = []) { const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true }; initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "test"); return ship; }
@@ -24,13 +24,13 @@ const four = shipFor(fourDesign, [[0,2,[{x:0,y:0},{x:1,y:0},{x:2,y:0},{x:3,y:0},
 close(effectiveShieldStats(four).recharge, ShieldRules.effectiveStackedValue([2,3,4,5].map(i => PARTS.shield.shieldRegen * four.componentPower.byComponentIndex[i].operationalMultiplier)), "four module diminishing regen");
 const weak = shipFor([at("auxGenerator",0,0), at("shield",1,0), at("shield",2,0)], [[0,1,[{x:0,y:0},{x:1,y:0},{x:2,y:0}]]]);
 const mult = PARTS.auxGenerator.powerGeneration / (PARTS.shield.powerUse * 2);
-close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * mult * 2, "partially powered capacity");
+close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * 2, "standby allocation maintains full shield capacity");
 weak.componentHeatState[1] = HeatRules.STATE.HOT;
-close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * mult * 2, "capacity ignores Heat state");
+close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * 2, "capacity ignores Heat state");
 close(effectiveShieldStats(weak).recharge, ShieldRules.effectiveStackedValue([PARTS.shield.shieldRegen * mult * HeatRules.activeOutputForState(HeatRules.STATE.HOT), PARTS.shield.shieldRegen * mult]), "regen responds to Heat state");
 weak.componentHp[2] = 0;
-close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * mult, "destroyed capacity removed");
-const designer = ShieldRules.calculateShieldStats(weak.design, PARTS, { isLive: i => (weak.componentHp[i] ?? 1) > 0, powerMultiplier: i => weak.componentPower.byComponentIndex[i].operationalMultiplier, heatMultiplier: i => HeatRules.activeOutputForState(weak.componentHeatState[i] || 0) });
+close(effectiveShieldStats(weak).capacity, PARTS.shield.shield, "destroyed capacity removed");
+const designer = ShieldRules.calculateShieldStats(weak.design, PARTS, { isLive: i => (weak.componentHp[i] ?? 1) > 0, powerMultiplier: i => weak.componentPower.byComponentIndex[i].operationalMultiplier, capacityPowerMultiplier: i => i === 1 ? 1 : 0, heatMultiplier: i => HeatRules.activeOutputForState(weak.componentHeatState[i] || 0) });
 close(designer.capacity, effectiveShieldStats(weak).capacity, "designer/runtime capacity parity");
 close(designer.recharge, effectiveShieldStats(weak).recharge, "designer/runtime regen parity");
 const contributions = effectiveShieldCapacityContributions(weak);
@@ -54,6 +54,22 @@ close(heatShip.componentHeatInput[0], 12, "weighted heat allocator assigns propo
 close(heatShip.componentHeatInput[1], 12, "weighted heat allocator combines duplicate indexes");
 close(heatShip.componentHeatInput[2], 0, "weighted heat allocator ignores destroyed indexes");
 assert.strictEqual(heatShip.hasActiveHeat, true, "weighted heat allocator uses addComponentHeat side effects");
+
+const stable = shipFor([at("auxGenerator",0,0), at("shield",1,0), at("shield",2,0)], [[0,1,[{x:0,y:0},{x:1,y:0},{x:2,y:0}]]]);
+stable.maxShield = effectiveShieldStats(stable).capacity;
+stable.shield = stable.maxShield * 0.5;
+const stableCaps = [];
+const stableDemands = [];
+for (let tick = 0; tick < 12; tick += 1) {
+  updateShipPowerDemand(stable, null, 1000 + tick * 100);
+  const effective = effectiveShieldStats(stable);
+  stable.maxShield = effective.capacity;
+  stable.shield = Math.min(stable.maxShield, stable.shield + effective.recharge * 0.1);
+  stableCaps.push(stable.maxShield);
+  stableDemands.push(stable.componentPowerActivity[1]);
+}
+assert(stableCaps.every((capacity) => Math.abs(capacity - stableCaps[0]) < 0.011), "recharge demand must not alternate maxShield");
+assert(stableDemands.every((activity) => activity === 1), "a real shield deficit must remain active while power-starved");
 console.log("Shield rules verification passed.");
 
 async function verifyBlueprintRuntimeShieldParity() {
@@ -62,7 +78,7 @@ async function verifyBlueprintRuntimeShieldParity() {
   let bp = computeBlueprintStats(weakBoth.design, { wiring: weakBoth.wiring });
   close(bp.maxShield, Math.round(effectiveShieldStats(weakBoth).capacity), "wired blueprint preview matches runtime partial power capacity");
   close(bp.shieldRegen, effectiveShieldStats(weakBoth).recharge, "wired blueprint preview matches runtime partial power regen");
-  assert(bp.maxShield < computeBlueprintStats(weakBoth.design).maxShield, "global full-power catalogue stats are not labelled as effective stats");
+  close(bp.maxShield, computeBlueprintStats(weakBoth.design).maxShield, "standby Power preserves full shield capacity in the blueprint");
 
   const separateDesign = [at("auxGenerator",0,0), at("reactor",0,2), at("shield",1,0), at("shield",1,2)];
   const separate = shipFor(separateDesign, [[0,2,[{x:0,y:0},{x:1,y:0}]], [1,3,[{x:0,y:2},{x:1,y:2}]]]);

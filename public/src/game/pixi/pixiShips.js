@@ -17,7 +17,7 @@ import { normalizeRotation } from "../../design/rotation.js";
 import { isCircleVisible } from "../viewportCulling.js";
 import { footprintLocalPlacement, footprintCorners } from "../shipGeometry.js";
 import { buildExteriorHullEdges } from "../shipHullOutline.js";
-import { componentHealthRatio, shieldRatioForShip, shieldRingRadius, hullColorForRatio } from "../shipVitals.js";
+import { componentHealthRatio, shieldRingRadius, hullColorForRatio } from "../shipVitals.js";
 import {
   getWeaponTurnRate,
   authoritativeWeaponAngle,
@@ -136,29 +136,34 @@ function brightenPixiShieldColor(color, amount = 0.52) {
   return blendPixiShieldColor(color, 0xffffff, amount);
 }
 
-function updatePixiShieldRing(view, ship, zoom) {
+function updatePixiShieldRing(view, ship, zoom, displayedShield = ship?.shield) {
   const gfx = view.shieldGfx;
+  const maxShield = Math.max(0, Number(ship?.maxShield) || 0);
+  const ratio = maxShield > 0 ? clamp((Number(displayedShield) || 0) / maxShield, 0, 1) : 0;
+  const ringRadius = shieldRingRadius(ship);
+  // The ring is static at a stable shield value. Quantising only the visual
+  // ratio avoids rebuilding Pixi geometry for insignificant float noise.
+  const sig = `${ship?.id || ""}|${ship?.alive ? 1 : 0}|${ringRadius.toFixed(2)}|${Math.round(ratio * 1000)}|${zoom.toFixed(3)}`;
+  if (view.shieldRingSig === sig) return;
+  view.shieldRingSig = sig;
   gfx.clear();
   if (!ship?.alive) {
     gfx.visible = false;
     return;
   }
 
-  const ratio = shieldRatioForShip(ship);
   if (ratio <= 0) {
     gfx.visible = false;
     return;
   }
 
-  const ringRadius = shieldRingRadius(ship);
   const color = pixiShieldColorForRatio(ratio);
   const highlightColor = brightenPixiShieldColor(color);
   const baseLineWidth = Math.max(1.7, ringRadius * 0.04) / zoom;
   const lineWidth = baseLineWidth * (0.72 + ratio * 0.28);
   const ringAlpha = 0.24 + ratio * 0.46;
   const fieldAlpha = 0.018 + ratio * 0.055;
-  const now = performance.now() * 0.001;
-  const phase = now * 1.15 + pixiShieldIdPhase(ship.id);
+  const phase = pixiShieldIdPhase(ship.id);
 
   gfx.visible = true;
 
@@ -172,7 +177,8 @@ function updatePixiShieldRing(view, ship, zoom) {
   gfx.circle(0, 0, ringRadius);
   gfx.stroke({ width: lineWidth, color, alpha: ringAlpha });
 
-  // Short bright travelling arc, kept deliberately subtle and non-pulsing.
+  // A fixed, ship-specific highlight keeps the field dimensional without a
+  // travelling bright patch that can read as flicker during camera movement.
   gfx.moveTo(Math.cos(phase) * ringRadius, Math.sin(phase) * ringRadius);
   gfx.arc(0, 0, ringRadius, phase, phase + Math.PI * 0.42);
   gfx.stroke({ width: Math.max(1, lineWidth * 0.48), color: highlightColor, alpha: Math.min(0.9, ringAlpha + 0.18) });
@@ -734,7 +740,7 @@ function setPixiBarText(text, val, maxVal, height, centerX, centerY) {
   text.visible = true;
 }
 
-function updatePixiHealthBars(env, view, ship, player, zoom) {
+function updatePixiHealthBars(env, view, ship, player, zoom, shipHud = null) {
   const gfx = view.hudGfx;
   if (!ship.alive) {
     if (view.hudBarsSig !== null) {
@@ -748,16 +754,15 @@ function updatePixiHealthBars(env, view, ship, player, zoom) {
   }
 
   const radius = ship.radius || 0;
-  const now = performance.now();
   // updateShipHud runs every frame so the smoothed hp/lag animation advances;
   // the Graphics re-tessellation below is the expensive part and is skipped
   // whenever every input that affects the drawn output is unchanged.
-  const hud = updateShipHud(ship, now);
+  const hud = shipHud || updateShipHud(ship, performance.now());
   const selected = state.selectedShipIds.has(ship.id);
   const borderColor = statusBorderColorForPlayer(player);
   view.cachedStatusBorderOwnerId = player.id;
   view.cachedStatusBorderColor = borderColor;
-  const sig = `${selected ? 1 : 0}|${borderColor}|${player.name}|${radius}|${ship.maxHp}|${ship.maxShield}|${Math.round(ship.hp * 10)}|${Math.round(hud.hp * 10)}|${Math.round(hud.hpLag * 10)}|${Math.round(ship.shield * 10)}|${zoom.toFixed(2)}`;
+  const sig = `${selected ? 1 : 0}|${borderColor}|${player.name}|${radius}|${ship.maxHp}|${ship.maxShield}|${Math.round(ship.hp * 10)}|${Math.round(hud.hp * 10)}|${Math.round(hud.hpLag * 10)}|${Math.round(hud.shield * 10)}|${Math.round(hud.shieldLag * 10)}|${zoom.toFixed(2)}`;
   if (view.hudBarsSig === sig) return;
   view.hudBarsSig = sig;
 
@@ -771,7 +776,8 @@ function updatePixiHealthBars(env, view, ship, player, zoom) {
   const y = -radius - (selected ? 62 : 48);
   const hullRatio = clamp(hud.hp / ship.maxHp, 0, 1);
   const hullLagRatio = clamp(hud.hpLag / ship.maxHp, 0, 1);
-  const shieldRatio = ship.maxShield > 0 ? clamp(ship.shield / ship.maxShield, 0, 1) : 0;
+  const shieldRatio = ship.maxShield > 0 ? clamp(hud.shield / ship.maxShield, 0, 1) : 0;
+  const shieldLagRatio = ship.maxShield > 0 ? clamp(hud.shieldLag / ship.maxShield, 0, 1) : 0;
   const lowHull = hullRatio <= 0.25;
   const alpha = selected || damaged ? 1 : 0.68;
   gfx.alpha = alpha;
@@ -788,10 +794,10 @@ function updatePixiHealthBars(env, view, ship, player, zoom) {
   if (ship.maxShield > 0) {
     drawPixiShieldStatusBar(env, gfx, {
       x: barX, y: shieldY, width: barWidth, height: shieldHeight,
-      ratio: shieldRatio, lagRatio: shieldRatio,
+      ratio: shieldRatio, lagRatio: shieldLagRatio,
       zoom
     });
-    setPixiBarText(view.shieldText, ship.shield, ship.maxShield, shieldHeight, barX + barWidth / 2, shieldY + shieldHeight / 2);
+    setPixiBarText(view.shieldText, hud.shield, ship.maxShield, shieldHeight, barX + barWidth / 2, shieldY + shieldHeight / 2);
   } else {
     const dash = 4 / zoom;
     for (let dx = 0; dx < barWidth; dx += dash * 2) {
@@ -1005,14 +1011,15 @@ export function updatePixiShips(env, now, players, bounds) {
       view.root.position.set(renderShip.x, renderShip.y);
       setHullFrameRotation(view, renderShip.angle);
       view.hullContainer.alpha = ship.alive ? 1 : 0.32;
-      updatePixiShieldRing(view, ship, zoom);
+      const shipHud = updateShipHud(ship, now);
+      updatePixiShieldRing(view, ship, zoom, shipHud.shield);
       updatePixiPlayerHullOutline(view, ship, player, design, zoom);
       updatePixiEngineExhaust(view, renderShip, now);
       updatePixiTurrets(env, view, ship, design);
       updatePixiComponentDamage(view, ship, design);
       updatePixiDamageFlashes(view, ship, design, performance.now());
       updatePixiCoreWarning(view, ship, zoom);
-      updatePixiHealthBars(env, view, ship, player, zoom);
+      updatePixiHealthBars(env, view, ship, player, zoom, shipHud);
       updatePixiShipLabels(view, renderShip, player, zoom);
 
       if (debug) {

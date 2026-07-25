@@ -2,7 +2,7 @@
 
 import { clamp } from "../shared/math.js";
 import { PART_STATS } from "./parts.js";
-import { SHIP_ECONOMY, WIRING_INFRASTRUCTURE } from "../constants.js";
+import { SHIP_ECONOMY, WIRING_INFRASTRUCTURE, POWER_DEMAND } from "../constants.js";
 import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import ShieldRules from "../shared/shieldRules.js";
@@ -266,6 +266,17 @@ export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
     try { fallbackNetworkByComponent = WiringRules.analyzePowerNetworks(modules, wiring, PART_STATS).networkByComponent || new Map(); }
     catch (_) { fallbackNetworkByComponent = new Map(); }
   }
+  const powerDemandRules = globalThis.PowerDemandRules;
+  const capacityPowerMultiplier = (index, module, part) => {
+    if (!((Number(part.shield) || 0) > 0)) return 1;
+    const entry = powerByComponent.get(index);
+    if (!entry || entry.state === "disconnected") return 0;
+    const maintenanceMw = powerDemandRules?.requestedMwForComponent
+      ? powerDemandRules.requestedMwForComponent(part, 0, POWER_DEMAND)
+      : Number(part.powerUse) || 0;
+    if (!(maintenanceMw > 0)) return 1;
+    return clamp((Number(entry.allocatedMw) || 0) / maintenanceMw, 0, 1);
+  };
   return ShieldRules.calculateShieldStats(modules, PART_STATS, {
     powerMultiplier: (index, module, part) => {
       if (!((Number(part.shield) || 0) > 0 || (Number(part.shieldRegen) || 0) > 0)) return 1;
@@ -275,6 +286,7 @@ export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
       if (!network || !(network.sourceIndices || []).length) return 0;
       return clamp(Number(network.availableEfficiency), 0, 1);
     },
+    capacityPowerMultiplier,
     heatMultiplier: () => 1
   });
 }

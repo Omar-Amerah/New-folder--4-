@@ -35,9 +35,14 @@
   }
   function calculateShieldStats(modules, parts, options = {}) {
     const powerMultiplier = options.powerMultiplier || (() => 1);
+    // Holding an existing shield field and actively rebuilding it are separate
+    // loads. Callers may therefore provide a maintenance/capacity multiplier
+    // independently from the active recharge multiplier. The fallback preserves
+    // the original behaviour for catalogue and legacy callers.
+    const capacityPowerMultiplier = options.capacityPowerMultiplier || powerMultiplier;
     const heatMultiplier = options.heatMultiplier || (() => 1);
     const isLive = options.isLive || (() => true);
-    const capacityContributions = calculateShieldCapacityContributions(modules, parts, { powerMultiplier, isLive });
+    const capacityContributions = calculateShieldCapacityContributions(modules, parts, { powerMultiplier: capacityPowerMultiplier, isLive });
     const capacity = capacityContributions.reduce((sum, contribution) => sum + contribution.capacity, 0);
     const regen = [];
     for (let i = 0; i < (modules || []).length; i += 1) {

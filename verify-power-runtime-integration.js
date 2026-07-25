@@ -114,10 +114,13 @@ check("saved Power policy — not persisted connections — is the flow authorit
 check("runtime power policy is a clone of the immutable Blueprint policy",
   defensive._runtimePowerWiring.powerPolicy !== defensive.wiring.powerPolicy
     && defensive._runtimePowerWiring.powerPolicy.preset === "defensive");
-// Recalc ordering: systems read the fresh per-component multiplier after solve.
+// Recalc ordering: active output reads the fresh solver multiplier after solve,
+// while the delivered standby allocation keeps the existing shield field whole.
 const defShieldMult = getComponentPowerMultiplier(defensive, 1);
-check("effective ship stats reflect the fresh solver multiplier (recalc ordering preserved)",
-  Math.abs(effectiveShieldStats(defensive).capacity - PARTS.shield.shield * defShieldMult) < 1e-6);
+const defensiveShieldStats = effectiveShieldStats(defensive);
+check("effective shield recharge reflects the fresh solver multiplier while standby maintains capacity",
+  Math.abs(defensiveShieldStats.capacity - PARTS.shield.shield) < 1e-6
+    && Math.abs(defensiveShieldStats.recharge - PARTS.shield.shieldRegen * defShieldMult) < 1e-6);
 
 // Ship C2 — Balanced keeps Shields above Point Defence while the two remain
 // separate categories with separate diagnostics.

@@ -49,12 +49,12 @@ const isolated = shipFor(isolatedDesign, wiringFor(isolatedDesign, [[0, 1, [{ x:
 assert.equal(getComponentPowerMultiplier(isolated, 1), 1);
 assert.equal(getComponentPowerMultiplier(isolated, 2), 0);
 
-// Shield capacity is the sum of operational component contributions, without
-// mutating the catalogue/base balance values.
+// Standby allocation maintains the operational shield field, while active
+// allocation independently controls recharge output.
 const shieldDesign = [at("auxGenerator", 0, 0), at("shield", 1, 0), at("shield", 3, 0)];
 const shields = shipFor(shieldDesign, wiringFor(shieldDesign, [[0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]]]));
 const shieldMultiplier = Math.min(1, PARTS.auxGenerator.powerGeneration / PARTS.shield.powerUse);
-assert(Math.abs(effectiveShieldStats(shields).capacity - PARTS.shield.shield * shieldMultiplier) < 1e-6, "shield capacity scales with the solver's Power multiplier");
+assert(Math.abs(effectiveShieldStats(shields).capacity - PARTS.shield.shield) < 1e-6, "shield standby allocation maintains full capacity");
 assert(Math.abs(effectiveShieldStats(shields).recharge - PARTS.shield.shieldRegen * shieldMultiplier) < 1e-6, "shield recharge scales with the solver's Power multiplier");
 
 ship.componentHp[1] = 0;

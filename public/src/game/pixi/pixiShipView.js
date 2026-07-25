@@ -289,6 +289,7 @@ export function createPixiShipView(env) {
     // Rebuild signature + per-view state
     staticKey: null,
     boundShipId: null,
+    shieldRingSig: null,
     damageSig: null,
     playerHullOutlineSig: null,
     cachedStatusBorderOwnerId: null,
@@ -345,6 +346,7 @@ function releaseShipViewLeases(view) {
 export function resetPixiShipView(view) {
   view.staticKey = null;
   view.boundShipId = null;
+  view.shieldRingSig = null;
   view.damageSig = null;
   view.playerHullOutlineSig = null;
   view.cachedStatusBorderOwnerId = null;

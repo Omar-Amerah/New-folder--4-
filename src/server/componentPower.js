@@ -443,10 +443,27 @@ function propulsionActivity(ship, part) {
   const moving = ship.arrived === false ? 1 : 0;
   return Math.max(turn, moving);
 }
+function shieldRechargeTarget(ship) {
+  // Recharge intent must not use the current Power-dependent maxShield. Doing
+  // so creates a feedback loop: active demand lowers the allocation ratio and
+  // cap, the clamped shield then appears full, demand returns to standby, and
+  // the cap rises again. Target the surviving, physically wired shield hardware
+  // instead. A starved generator keeps requesting Power until the deficit is
+  // genuinely gone.
+  return ShieldRules.calculateShieldCapacityContributions(ship.design || [], PARTS, {
+    isLive: (index) => {
+      if ((ship.componentHp?.[index] ?? 1) <= 0) return false;
+      if (ship.componentPowerState?.[index] === 0) return false;
+      const entry = ship.componentPower?.byComponentIndex?.[index];
+      return !entry || entry.state !== "disconnected";
+    }
+  }).reduce((sum, contribution) => sum + contribution.capacity, 0);
+}
 function shieldActivity(ship) {
-  const maxShield = Number(ship.maxShield) || 0;
+  const maxShield = shieldRechargeTarget(ship);
   const current = Number(ship.shield) || 0;
-  return maxShield > 0 && current < maxShield - 1e-6 ? 1 : 0;
+  const tolerance = Math.max(0.01, maxShield * 0.0001);
+  return maxShield > 0 && current < maxShield - tolerance ? 1 : 0;
 }
 function repairActivity(ship, now) {
   const last = ship._repairIntentAt;
@@ -570,6 +587,23 @@ function getComponentPowerMultiplier(ship, componentIndex) {
   return clampNumber(Number.isFinite(value) ? value : 1, 0, 1);
 }
 
+function getShieldCapacityPowerMultiplier(ship, componentIndex) {
+  if ((ship?.componentHp?.[componentIndex] ?? 1) <= 0) return 0;
+  if (ship?.componentPowerState?.[componentIndex] === 0) return 0;
+  const module = ship?.design?.[componentIndex];
+  const part = PARTS[module?.type] || {};
+  const entry = ship?.componentPower?.byComponentIndex?.[componentIndex];
+  if (!entry) return getComponentPowerMultiplier(ship, componentIndex);
+  if (entry.state === "disconnected") return 0;
+
+  // Standby Power holds the field at its current capacity. Extra active Power
+  // controls recharge speed, not the size of the field, so changing from
+  // standby to recharge demand cannot make maxShield alternate every solve.
+  const maintenanceMw = PowerDemandRules.requestedMwForComponent(part, 0, BALANCE.powerDemand);
+  if (!(maintenanceMw > 0)) return 1;
+  return clampNumber((Number(entry.allocatedMw) || 0) / maintenanceMw, 0, 1);
+}
+
 function summarizePower(entries) {
   const consumers = entries.filter((entry) => ["disconnected", "unpowered", "underpowered", "powered"].includes(entry.state));
   if (!consumers.length) return "powered";
@@ -582,7 +616,7 @@ function summarizePower(entries) {
 function effectiveShieldCapacityContributions(ship) {
   return ShieldRules.calculateShieldCapacityContributions(ship.design || [], PARTS, {
     isLive: (index) => (ship.componentHp?.[index] ?? 1) > 0,
-    powerMultiplier: (index) => getComponentPowerMultiplier(ship, index)
+    powerMultiplier: (index) => getShieldCapacityPowerMultiplier(ship, index)
   });
 }
 
@@ -591,6 +625,7 @@ function effectiveShieldStats(ship) {
   return ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
     isLive: (index) => (ship.componentHp?.[index] ?? 1) > 0,
     powerMultiplier: (index) => getComponentPowerMultiplier(ship, index),
+    capacityPowerMultiplier: (index) => getShieldCapacityPowerMultiplier(ship, index),
     heatMultiplier: (index, module, part) => (Number(part.shieldRegen) || 0) > 0 ? HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL) : 1
   });
 }
@@ -601,4 +636,4 @@ function componentHostsWiring(ship, index) {
   return (maps.power.byComponentIndex.get(index)?.length || 0) > 0 || (maps.data.byComponentIndex.get(index)?.length || 0) > 0;
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring, powerProtectionConfig, __setPowerProtectionConfigForTests, buildShipPowerSolveBaseInput };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, getShieldCapacityPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring, powerProtectionConfig, __setPowerProtectionConfigForTests, buildShipPowerSolveBaseInput };

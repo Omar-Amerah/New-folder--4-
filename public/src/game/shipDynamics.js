@@ -267,9 +267,15 @@ export function updateShipHud(ship, now) {
   const hullHit = ship.hp < previous.actualHp;
   const displayRate = 14 * dt;
   const lagRate = 4.4 * dt;
+  // Snapshot shield values arrive in discrete steps. Ease the visible field
+  // toward them so normal recharge and network jitter cannot flash the ring,
+  // while using a faster response for real incoming damage.
+  const shieldResponse = shieldHit ? 22 : 12;
+  const shieldBlend = 1 - Math.exp(-shieldResponse * dt);
+  const displayShield = previous.shield + (ship.shield - previous.shield) * shieldBlend;
   const next = {
     hp: approach(previous.hp, ship.hp, displayRate),
-    shield: approach(previous.shield, ship.shield, displayRate),
+    shield: Number.isFinite(displayShield) ? displayShield : ship.shield,
     hpLag: approach(previous.hpLag, ship.hp, lagRate),
     shieldLag: approach(previous.shieldLag, ship.shield, lagRate),
     actualHp: ship.hp,

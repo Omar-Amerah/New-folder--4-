@@ -37,9 +37,12 @@ assert.strictEqual((shieldBody.match(/gfx\.circle/g) || []).length, 2, "shield r
 assert.match(shieldBody, /ringAlpha\s*=\s*0\.24\s*\+\s*ratio\s*\*\s*0\.46/, "main ring opacity should decrease with shield ratio while staying visible");
 assert.match(shieldBody, /lineWidth\s*=\s*baseLineWidth\s*\*\s*\(0\.72\s*\+\s*ratio\s*\*\s*0\.28\)/, "main ring thickness should decrease with shield ratio");
 assert.match(shieldBody, /if \(ratio <= 0\)[\s\S]*gfx\.visible = false/, "zero shields should hide shield graphics");
-assert.match(shieldBody, /phase\s*=\s*now \* 1\.15 \+ pixiShieldIdPhase/, "animated highlight should continue rotating smoothly");
-assert.match(shieldBody, /phase \+ Math\.PI \* 0\.42/, "animated highlight should remain a short arc");
-assert.match(shieldBody, /highlightColor/, "animated highlight should use a brighter current shield colour");
+assert.match(shieldBody, /shieldRingSig/, "stable shield values should reuse their existing ring geometry");
+assert.match(shieldBody, /Math\.round\(ratio \* 1000\)/, "insignificant shield float noise should be quantized before redraw");
+assert.match(shieldBody, /phase\s*=\s*pixiShieldIdPhase/, "the highlight should be stable for each ship rather than animate like flicker");
+assert.match(shieldBody, /phase \+ Math\.PI \* 0\.42/, "static highlight should remain a short arc");
+assert.match(shieldBody, /highlightColor/, "static highlight should use a brighter current shield colour");
+assert.doesNotMatch(shieldBody, /performance\.now|now \*/, "shield geometry should not redraw for a wall-clock animation");
 assert.match(brightenBody, /0xffffff/, "highlight should brighten the active shield colour");
 
 assert.doesNotMatch(shieldBody, /segmentCount|activeSegments/, "segmented shield counters should be removed");
