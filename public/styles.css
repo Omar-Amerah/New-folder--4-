@@ -1203,11 +1203,43 @@ h2 {
 }
 .ship-drone-bay-row:first-of-type { border-top: 0; }
 .ship-drone-bay-info { flex: 1 1 auto; min-width: 0; }
+.ship-drone-bay-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
+}
 .ship-drone-bay-info b,
 .ship-drone-bay-info small { display: block; }
 .ship-drone-bay-row b { color: var(--text); font-size: 11px; }
 .ship-drone-bay-row small { color: var(--muted); font-size: 9px; line-height: 1.35; }
-.ship-drone-bay-row button { min-height: 30px; padding: 4px 9px; font-size: 10px; }
+.ship-drone-command-state {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.ship-drone-command-state.is-deployed { color: #86efac; }
+.ship-drone-command-state.is-deploying,
+.ship-drone-command-state.is-queued { color: #67e8f9; }
+.ship-drone-command-state.is-recalling,
+.ship-drone-command-state.is-recalled { color: #fcd34d; }
+.ship-drone-command-state.is-paused,
+.ship-drone-command-state.is-offline { color: #fda4af; }
+.ship-drone-bay-row button {
+  min-width: 88px;
+  min-height: 32px;
+  padding: 4px 9px;
+  border-radius: 5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.ship-drone-command-button.is-recalling,
+.ship-drone-command-button.is-recalled {
+  border-color: rgba(252, 211, 77, .36);
+  background: rgba(93, 64, 16, .34);
+  color: #fde68a;
+}
+.ship-drone-command-button[aria-busy="true"] { cursor: wait; }
 .ship-drone-squad-pips {
   display: flex;
   gap: 4px;

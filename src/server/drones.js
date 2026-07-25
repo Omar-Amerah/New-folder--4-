@@ -449,6 +449,14 @@ function updateDroneEntity(room, drone, dt, now) {
   }
   const pose = bay ? bayWorldPose(parent, bay) : { x: parent.x, y: parent.y };
   if (bayOperational && bay.mode === "recalled") drone.state = "returning";
+  else if (bayOperational && bay.mode === "deployed" && ["returning", "docking"].includes(drone.state)) {
+    // Deploy is also the authoritative cancellation path for an in-progress
+    // recall. Previously these drones continued docking while the bay already
+    // reported "deployed".
+    drone.state = bayPowered ? "active" : "fallback";
+    const returningSlot = bay.slots[drone.slot];
+    if (returningSlot) returningSlot.state = drone.state;
+  }
   if (drone.state === "returning" || drone.state === "docking") {
     steerDrone(drone, pose.x, pose.y, config.speed, config.turnRate, dt);
     if (Math.hypot(drone.x - pose.x, drone.y - pose.y) < 30) {
@@ -577,14 +585,39 @@ function updateDroneBays(room, ships, dt, now) {
   for (const drone of [...room.drones.values()]) updateDroneEntity(room, drone, dt, now);
 }
 
-function setDroneBayMode(room, player, shipId, componentId, mode) {
+function setDroneBayMode(room, player, shipId, componentId, mode, now = Date.now()) {
   const ship = room.ships.get(String(shipId || ""));
   if (!ship?.alive || ship.ownerId !== player?.id) return false;
   const bay = ship.droneBays?.find((entry) => entry.componentId === componentId);
   if (!bay || !["deployed", "recalled"].includes(mode)) return false;
   bay.mode = mode;
-  if (mode === "deployed") {
+  const operational = (ship.componentHp?.[bay.componentIndex] ?? 0) > 0;
+  const powered = operational && require("./componentPower").getComponentPowerMultiplier(ship, bay.componentIndex) > MIN_BAY_OPERATING_POWER;
+  const drones = [...(room.drones?.values?.() || [])]
+    .filter((drone) => !drone.destroyed && drone.parentShipId === ship.id && drone.bayComponentId === bay.componentId);
+
+  if (mode === "recalled") {
+    for (const slot of bay.slots) if (slot.state === "ready") slot.state = "stored";
+    for (const drone of drones) {
+      drone.commandState = "recalled";
+      drone.targetId = null;
+      if (operational) drone.state = "returning";
+      const slot = bay.slots[drone.slot];
+      if (slot && operational) slot.state = "returning";
+    }
+  } else {
+    // A Deploy command cancels an unfinished recall. Drones still in space
+    // resume immediately; already stored drones enter the launch queue.
+    bay.nextLaunchAt = Math.min(Number(bay.nextLaunchAt) || now, now);
     for (const slot of bay.slots) if (slot.state === "stored") slot.state = "ready";
+    for (const drone of drones) {
+      drone.commandState = powered ? "deployed" : "fallback";
+      drone.targetId = null;
+      if (["returning", "docking"].includes(drone.state)) drone.state = powered ? "active" : "fallback";
+      const slot = bay.slots[drone.slot];
+      if (slot && ["returning", "docking"].includes(slot.state)) slot.state = drone.state;
+      drone.nextThinkAt = Math.min(Number(drone.nextThinkAt) || now, now);
+    }
   }
   return true;
 }
@@ -611,10 +644,13 @@ function buildDroneSnapshots(room, now) {
 }
 
 function buildBaySnapshots(ship) {
+  const { getComponentPowerMultiplier } = require("./componentPower");
   return (ship.droneBays || []).map((bay) => {
     const pose = bayWorldPose(ship, bay);
     const producing = bay.slots.find((slot) => slot.state === "producing");
     const operational = ship.alive !== false && (ship.componentHp?.[bay.componentIndex] ?? 0) > 0;
+    const powerFraction = operational ? getComponentPowerMultiplier(ship, bay.componentIndex) : 0;
+    const overheated = operational && (ship.componentHeatState?.[bay.componentIndex] || HeatRules.STATE.NORMAL) >= HeatRules.STATE.OVERHEATED;
     return {
       componentId: bay.componentId,
       componentIndex: bay.componentIndex,
@@ -625,6 +661,8 @@ function buildBaySnapshots(ship) {
       storedCount: bay.slots.filter((slot) => ["stored", "ready"].includes(slot.state)).length,
       mode: bay.mode,
       operational,
+      powerFraction: Math.round(Math.max(0, Number(powerFraction) || 0) * 1000) / 1000,
+      overheated,
       runtimePowerMw: bayPowerRequest(ship, bay.componentIndex),
       producingSlot: producing?.slot ?? null,
       productionProgress: producing?.productionProgress ?? null,

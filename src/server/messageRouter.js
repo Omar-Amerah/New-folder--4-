@@ -203,8 +203,9 @@ function handleMessage(client, message) {
 
   if (message.type === "setDroneBayMode") {
     if (client.room.phase !== "active") return;
-    const changed = require("./drones").setDroneBayMode(client.room, client.player, message.shipId, message.componentId, message.mode);
-    if (changed) broadcastSnapshot(client.room, performanceNow());
+    const now = performanceNow();
+    const changed = require("./drones").setDroneBayMode(client.room, client.player, message.shipId, message.componentId, message.mode, now);
+    if (changed) broadcastSnapshot(client.room, now);
     return;
   }
 

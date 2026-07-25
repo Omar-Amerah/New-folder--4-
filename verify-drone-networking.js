@@ -29,7 +29,7 @@ const ship = {
 };
 const drone = {
   id: "d1", ownerId: "owner", parentShipId: "carrier", bayComponentId: "drone-bay:5,6",
-  type: "fighter", state: "active", x: 50.123, y: 60.456, vx: 1.2, vy: -3.4,
+  slot: 0, type: "fighter", state: "active", x: 50.123, y: 60.456, vx: 1.2, vy: -3.4,
   angle: 0.5, hull: 41.2, maxHull: 45, targetId: "enemy"
 };
 const room = { ships: new Map([[ship.id, ship]]), drones: new Map([[drone.id, drone]]) };
@@ -45,6 +45,8 @@ assert.equal(decoded.drones[0].parentShipId, ship.id);
 assert.equal(decoded.drones[0].bayComponentId, ship.droneBays[0].componentId);
 assert.equal(decoded.ships[0].droneBays[0].productionProgress, 0.46);
 assert.equal(decoded.ships[0].droneBays[0].productionPausedReason, "insufficient-power");
+assert.equal(decoded.ships[0].droneBays[0].powerFraction, 1);
+assert.equal(decoded.ships[0].droneBays[0].overheated, false);
 assert.equal(decoded.ships[0].droneBays[0].commandRange, CONFIG.types.fighter.commandRange, "bay snapshots expose the authoritative drone operating radius");
 assert.ok(CONFIG.types.fighter.commandRange > CONFIG.types.repair.commandRange);
 assert.ok(CONFIG.types.repair.commandRange > CONFIG.types.defence.commandRange);
@@ -99,5 +101,13 @@ assert.equal(ship.droneBays[0].mode, "deployed");
 assert.equal(setDroneBayMode(room, { id: "owner" }, ship.id, ship.droneBays[0].componentId, "recalled"), true);
 assert.equal(ship.droneBays[0].mode, "recalled");
 assert.equal(room.drones.size, 1, "permitted parent command never creates a client-authoritative drone");
+assert.equal(drone.state, "returning", "Recall immediately transitions an active drone");
+assert.equal(ship.droneBays[0].slots[0].state, "returning", "Recall immediately updates its occupied slot");
+assert.equal(ship.droneBays[0].slots[2].state, "stored", "Recall stores a drone that had not launched");
+assert.equal(setDroneBayMode(room, { id: "owner" }, ship.id, ship.droneBays[0].componentId, "deployed", 2000), true);
+assert.equal(ship.droneBays[0].mode, "deployed");
+assert.equal(drone.state, "active", "Deploy cancels an in-progress return");
+assert.equal(ship.droneBays[0].slots[0].state, "active", "cancelled recall restores the occupied slot");
+assert.equal(ship.droneBays[0].slots[2].state, "ready", "stored drones re-enter the launch queue");
 
 console.log("Drone networking and reconnect verification passed");

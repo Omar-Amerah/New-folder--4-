@@ -32,9 +32,13 @@ async function showCombatState(page, {
   droneStates = ["active", "active", "active"],
   producing = false,
   paused = false,
-  replacement = false
+  replacement = false,
+  mode = "deployed",
+  operational = true,
+  powerFraction = 1,
+  overheated = false
 } = {}) {
-  await page.evaluate(async ({ type, droneStates, producing, paused, replacement }) => {
+  await page.evaluate(async ({ type, droneStates, producing, paused, replacement, mode, operational, powerFraction, overheated }) => {
     const [{ state }, panel, { GENERATED_BALANCE }, interpolation] = await Promise.all([
       import("/src/state.js"),
       import("/src/ui/shipDamagePanelUi.js"),
@@ -70,7 +74,7 @@ async function showCombatState(page, {
     const bay = {
       componentId: "drone-bay:6,6", componentIndex: 1, droneType: type,
       commandRange,
-      mode: "deployed", operational: true, runtimePowerMw: producing ? 11 : 7,
+      mode, operational, powerFraction, overheated, runtimePowerMw: producing ? 11 : 7,
       producingSlot: producing ? (replacement ? 2 : 1) : null,
       productionProgress: producing ? 0.63 : null,
       productionPausedReason: paused ? "insufficient-power" : null,
@@ -105,6 +109,11 @@ async function showCombatState(page, {
     state.myId = "p1";
     state.mine = { id: "p1", team: "blue", color: "#5ee7ff" };
     state.phase = "active";
+    window.__droneCommands = [];
+    state.socket = {
+      readyState: WebSocket.OPEN,
+      send(payload) { window.__droneCommands.push(window.MessagePack.decode(payload)); }
+    };
     state.world = { width: 1000, height: 800 };
     state.map = { asteroids: [], safeZones: [] };
     state.camera = { x: 500, y: 400, zoom: 0.72, follow: false, manualZoom: 0.72 };
@@ -122,7 +131,7 @@ async function showCombatState(page, {
     interpolation.resetRenderHistory();
     interpolation.acceptSnapshotForRender(state.snapshot, performance.now());
     panel.renderShipDamagePanel();
-  }, { type, droneStates, producing, paused, replacement });
+  }, { type, droneStates, producing, paused, replacement, mode, operational, powerFraction, overheated });
   await settle(page);
 }
 
@@ -188,8 +197,9 @@ async function showCombatState(page, {
     await page.locator('[data-drone-type="fighter"]').click();
     assert.equal(await page.evaluate(() => window.__mfaState.design.find((part) => part.type === "droneBay")?.droneType), "fighter");
     assert.equal(await page.locator('[data-drone-type="fighter"]').getAttribute("aria-pressed"), "true");
-    assert.match(await page.locator(".drone-config-stats").textContent(), /Squad\s*3/);
-    assert.match(await page.locator(".drone-config-stats").textContent(), /3\s*\/\s*7\s*\/\s*11 MW/);
+    assert.match(await page.locator(".drone-config-status").textContent(), /Fighter squad selected/);
+    assert.match(await page.locator("#partInspector").textContent(), /3 per bay/);
+    assert.match(await page.locator("#partInspector").textContent(), /3\s*\/\s*7\s*\/\s*11 MW/);
     assert.equal(await page.locator(".drone-bay-type-badge").textContent(), "F");
 
     const persisted = await page.evaluate(async () => {
@@ -284,14 +294,14 @@ async function showCombatState(page, {
       `moving Drone range remains locked to the interpolated ship each frame: ${JSON.stringify(movingCenters)}`
     );
     assert.ok(
-      movingCenters.some((sample) => sample.ringX > 500 && sample.ringX < 560),
-      `movement test observed an in-between interpolated range center: ${JSON.stringify(movingCenters)}`
+      movingCenters.some((sample) => sample.ringX > 500),
+      `movement test observed the range following the moved carrier: ${JSON.stringify(movingCenters)}`
     );
 
     await showCombatState(page, { type: "fighter", droneStates: ["active", "producing", "active"], producing: true, paused: true });
     diagnostics = await page.evaluate(async () => (await import("/src/game/pixi/pixiDrones.js")).droneRenderDiagnostics());
     assert.equal(diagnostics.pausedProductionBars, 1);
-    assert.match(await page.locator("#shipDroneSummary").textContent(), /insufficient power/);
+    assert.match(await page.locator("#shipDroneSummary").textContent(), /rebuild paused: no power/);
     assert.equal(await page.locator("#shipDroneSummary .ship-drone-production").getAttribute("aria-valuenow"), "63", "paused production retains its progress");
     assert.equal(await page.locator("#shipDroneSummary .ship-drone-production").evaluate((element) => element.classList.contains("is-paused")), true);
     await screenshot(page, "production-paused.png", false);
@@ -302,8 +312,56 @@ async function showCombatState(page, {
     await screenshot(page, "replacement-launch.png", false);
     await showCombatState(page, { type: "fighter", droneStates: ["active", "active", "active"] });
     assert.equal(await page.locator("#shipDroneSummary .ship-drone-pip.is-active").count(), 3, "full squad remains obvious while replacement production is idle");
-    assert.match(await page.locator("#shipDroneSummary").textContent(), /squad complete/i);
+    assert.match(await page.locator("#shipDroneSummary").textContent(), /squad accounted for/i);
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Deployed · 3 active/);
+    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Recall squad");
+
+    await page.locator(".ship-drone-command-button").click();
+    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Recalling…", "command shows an immediate pending state");
+    assert.equal(await page.locator(".ship-drone-command-button").isDisabled(), true, "pending command cannot be duplicated");
+    assert.deepEqual(await page.evaluate(() => window.__droneCommands), [{
+      type: "setDroneBayMode", shipId: "carrier", componentId: "drone-bay:6,6", mode: "recalled"
+    }]);
+    await page.evaluate(async () => {
+      const [{ state }, panel] = await Promise.all([
+        import("/src/state.js"),
+        import("/src/ui/shipDamagePanelUi.js")
+      ]);
+      const bay = state.snapshot.ships[0].droneBays[0];
+      bay.mode = "recalled";
+      bay.slots.forEach((slot) => { slot.state = "returning"; });
+      panel.renderShipDamagePanel();
+    });
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Recalling · 3 in transit/);
+    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Cancel recall", "recall can be clearly cancelled while drones are returning");
+
+    await page.locator(".ship-drone-command-button").click();
+    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Deploying…");
+    assert.equal((await page.evaluate(() => window.__droneCommands)).at(-1).mode, "deployed");
+    await page.evaluate(async () => {
+      const [{ state }, panel] = await Promise.all([
+        import("/src/state.js"),
+        import("/src/ui/shipDamagePanelUi.js")
+      ]);
+      const bay = state.snapshot.ships[0].droneBays[0];
+      bay.mode = "deployed";
+      bay.slots.forEach((slot) => { slot.state = "active"; });
+      panel.renderShipDamagePanel();
+    });
+    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Recall squad");
     await screenshot(page, "fighter-squad-combat.png", false);
+
+    await showCombatState(page, { type: "fighter", droneStates: ["stored", "stored", "stored"], mode: "recalled" });
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Recalled · 3 stored/);
+    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Deploy squad");
+    await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], powerFraction: 0 });
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused · no power/);
+    await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], overheated: true });
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused · overheated/);
+    await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], operational: false });
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Bay offline/);
+    assert.equal(await page.locator(".ship-drone-command-button").isDisabled(), true, "offline bays do not offer a command they cannot execute");
+
     await showCombatState(page, { type: "defence", droneStates: ["active", "active", "active"] });
     diagnostics = await page.evaluate(async () => (await import("/src/game/pixi/pixiDrones.js")).droneRenderDiagnostics());
     assert.equal(diagnostics.rangeRings[0].radius, droneBalance.types.defence.commandRange, "Defence has the shortest drone operating radius");

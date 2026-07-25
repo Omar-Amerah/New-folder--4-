@@ -20,6 +20,7 @@ import { shipHeatPercent, formatHeatPercent, checkShipHeatConsistency } from "..
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { send } from "../network.js";
+import { showToast } from "./toastUi.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -39,6 +40,9 @@ let bound = false;
 // diagram. componentIndex is a persistent tap selection; hoverIndex is the
 // transient mouse hover.
 let diagramInteraction = null; // { shipId, componentIndex, hoverIndex, cellMap, cellSize, originX, originY }
+const pendingDroneBayCommands = new Map();
+const DRONE_COMMAND_TIMEOUT_MS = 3000;
+const MIN_DRONE_UI_POWER = 0.05;
 
 const HEAT_LABELS = ["Cool", "Warm", "Hot", "Critical", "Overheated"];
 
@@ -672,8 +676,28 @@ function bindOnce() {
   dom.shipDroneSummary?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-drone-bay-mode]");
     const ship = selectedSingleShip();
-    if (!button || !ship) return;
-    send({ type: "setDroneBayMode", shipId: ship.id, componentId: button.dataset.droneBayId, mode: button.dataset.droneBayMode });
+    if (!button || !ship || button.disabled) return;
+    const componentId = button.dataset.droneBayId;
+    const mode = button.dataset.droneBayMode;
+    const bay = ship.droneBays?.find((entry) => entry.componentId === componentId);
+    if (!bay || !["deployed", "recalled"].includes(mode)) return;
+    const key = droneCommandKey(ship.id, componentId);
+    if (pendingDroneBayCommands.has(key)) return;
+    if (!send({ type: "setDroneBayMode", shipId: ship.id, componentId, mode })) {
+      showToast("Drone command not sent: connection unavailable.", "warning");
+      return;
+    }
+    const pending = { mode, at: performance.now() };
+    pendingDroneBayCommands.set(key, pending);
+    showToast(`${droneTypeLabel(bay)} drones ${mode === "recalled" ? "recalling" : "deploying"}.`, "good");
+    renderDroneSummary(ship);
+    setTimeout(() => {
+      if (pendingDroneBayCommands.get(key) !== pending) return;
+      pendingDroneBayCommands.delete(key);
+      const current = selectedSingleShip();
+      if (current?.id === ship.id) renderDroneSummary(current);
+      showToast("Drone command was not confirmed. Check the connection and try again.", "warning");
+    }, DRONE_COMMAND_TIMEOUT_MS);
   });
   for (const tab of statusTabs()) tab?.addEventListener("keydown", handleStatusTabKeydown);
 }
@@ -688,19 +712,30 @@ function renderDroneSummary(ship) {
     <strong class="ship-drone-summary-title">Drones</strong>
     ${bays.map((bay) => {
       const slots = bay.slots || [];
-      const active = slots.filter((slot) => ["launching", "active", "returning"].includes(slot.state)).length;
+      const active = slots.filter((slot) => ["launching", "active"].includes(slot.state)).length;
+      const returning = slots.filter((slot) => ["returning", "docking"].includes(slot.state)).length;
+      const inSpace = active + returning;
       const producing = slots.find((slot) => slot.state === "producing");
-      const ready = slots.filter((slot) => slot.state === "ready" || slot.state === "stored").length;
-      const label = String(bay.droneType || "drone").replace(/^./, (letter) => letter.toUpperCase());
+      const ready = slots.filter((slot) => slot.state === "ready").length;
+      const stored = slots.filter((slot) => slot.state === "stored").length;
+      const label = droneTypeLabel(bay);
       const commandRange = Math.max(0, Math.round(Number(bay.commandRange) || 0));
       // "low-power" means the bay is still building, only slowly, so it is shown
       // as a slowed build rather than a hard pause.
       const lowPower = bay.productionPausedReason === "low-power";
-      const problem = bay.productionPausedReason ? String(bay.productionPausedReason).replaceAll("-", " ") : null;
+      const problem = droneProblemLabel(bay.productionPausedReason);
       const hardProblem = problem && !lowPower ? problem : null;
       const progress = producing ? Math.max(0, Math.min(1, Number(producing.progress) || 0)) : null;
       const progressPercent = progress === null ? null : Math.round(progress * 100);
-      const squadComplete = slots.length > 0 && active + ready === slots.length;
+      const squadComplete = slots.length > 0 && inSpace + ready + stored === slots.length;
+      const commandKey = droneCommandKey(ship.id, bay.componentId);
+      let pending = pendingDroneBayCommands.get(commandKey) || null;
+      if (pending && bay.mode === pending.mode) {
+        pendingDroneBayCommands.delete(commandKey);
+        pending = null;
+      }
+      const powerFraction = Number.isFinite(Number(bay.powerFraction)) ? Number(bay.powerFraction) : (bay.operational ? 1 : 0);
+      const command = droneCommandPresentation(bay, { active, returning, ready, stored, producing, powerFraction });
       const squadPips = slots.map((slot, index) => {
         const stateName = String(slot.state || "unavailable");
         const title = `Drone ${index + 1}: ${stateName}${stateName === "producing" ? ` ${Math.round((Number(slot.progress) || 0) * 100)}%` : ""}`;
@@ -711,12 +746,57 @@ function renderDroneSummary(ship) {
         <div class="ship-drone-production${hardProblem ? " is-paused" : ""}${lowPower ? " is-slowed" : ""}" role="progressbar" aria-label="${escapeHtml(label)} replacement production" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" title="${hardProblem ? `Paused: ${escapeHtml(hardProblem)}` : lowPower ? `Building slowly: low power (${progressPercent}%)` : `${progressPercent}% complete`}">
           <span style="width:${progressPercent}%"></span>
         </div>`;
-      return `<div class="ship-drone-bay-row">
-        <div class="ship-drone-bay-info"><b>${escapeHtml(label)} · ${bay.operational ? "Operational" : "Offline"}</b>${commandRange ? `<small class="ship-drone-range">360° drone range · ${commandRange} m</small>` : ""}<div class="ship-drone-squad-pips" aria-label="${active} of ${slots.length} drones active">${squadPips}</div><small>${active} active · ${ready} ready · ${Number(bay.runtimePowerMw) || 0} MW${producing ? ` · ${progressPercent}% rebuilding` : squadComplete ? " · squad complete" : " · replacement pending"}${problem ? ` · ${escapeHtml(problem)}` : ""}</small>${progressBar}</div>
-        <button type="button" data-drone-bay-id="${escapeHtml(bay.componentId)}" data-drone-bay-mode="${bay.mode === "recalled" ? "deployed" : "recalled"}">${bay.mode === "recalled" ? "Deploy" : "Recall"}</button>
+      const targetMode = bay.mode === "recalled" ? "deployed" : "recalled";
+      const actionLabel = pending
+        ? (pending.mode === "recalled" ? "Recalling…" : "Deploying…")
+        : command.action;
+      const disabled = Boolean(pending) || !bay.operational;
+      return `<div class="ship-drone-bay-row" data-drone-command-state="${escapeHtml(command.tone)}">
+        <div class="ship-drone-bay-info"><div class="ship-drone-bay-heading"><b>${escapeHtml(label)}</b><span class="ship-drone-command-state is-${escapeHtml(command.tone)}">${escapeHtml(command.status)}</span></div>${commandRange ? `<small class="ship-drone-range">360° drone range · ${commandRange} m</small>` : ""}<div class="ship-drone-squad-pips" aria-label="${active} active, ${returning} returning, ${stored} stored out of ${slots.length} drones">${squadPips}</div><small>${active} active${returning ? ` · ${returning} returning` : ""} · ${ready} ready · ${stored} stored · ${Number(bay.runtimePowerMw) || 0} MW${producing ? ` · ${progressPercent}% rebuilding` : squadComplete ? " · squad accounted for" : " · replacement pending"}${problem ? ` · ${escapeHtml(problem)}` : ""}</small>${progressBar}</div>
+        <button type="button" class="ship-drone-command-button is-${escapeHtml(command.tone)}" data-drone-bay-id="${escapeHtml(bay.componentId)}" data-drone-bay-mode="${targetMode}" aria-label="${escapeHtml(`${actionLabel} for ${label} Drone Bay`)}"${pending ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${escapeHtml(actionLabel)}</button>
       </div>`;
     }).join("")}
   </section>`;
+}
+
+function droneCommandKey(shipId, componentId) {
+  return `${String(shipId)}:${String(componentId)}`;
+}
+
+function droneTypeLabel(bay) {
+  return String(bay?.droneType || "drone").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function droneProblemLabel(reason) {
+  return {
+    "low-power": "rebuilding slowly: low power",
+    "insufficient-power": "rebuild paused: no power",
+    "bay-overheated": "rebuild paused: overheated",
+    "bay-destroyed": "rebuild paused: bay offline",
+    "parent-destroyed": "parent ship destroyed",
+    "invalid-configuration": "invalid bay configuration"
+  }[reason] || (reason ? String(reason).replaceAll("-", " ") : null);
+}
+
+function droneCommandPresentation(bay, counts) {
+  if (!bay.operational) {
+    return { tone: "offline", status: "Bay offline", action: bay.mode === "recalled" ? "Deploy squad" : "Recall squad" };
+  }
+  if (bay.mode === "recalled") {
+    if (counts.returning > 0) return { tone: "recalling", status: `Recalling · ${counts.returning} in transit`, action: "Cancel recall" };
+    return { tone: "recalled", status: `Recalled · ${counts.stored + counts.ready} stored`, action: "Deploy squad" };
+  }
+  if (counts.returning > 0) return { tone: "recalling", status: `Recall cancelling · ${counts.returning} in transit`, action: "Recall squad" };
+  if (counts.active > 0) {
+    const launching = (bay.slots || []).filter((slot) => slot.state === "launching").length;
+    return launching > 0
+      ? { tone: "deploying", status: `Deploying · ${launching} launching`, action: "Recall squad" }
+      : { tone: "deployed", status: `Deployed · ${counts.active} active`, action: "Recall squad" };
+  }
+  if (bay.overheated) return { tone: "paused", status: "Launch paused · overheated", action: "Recall squad" };
+  if (counts.powerFraction <= MIN_DRONE_UI_POWER) return { tone: "paused", status: "Launch paused · no power", action: "Recall squad" };
+  if (counts.producing) return { tone: "queued", status: "Rebuilding replacement", action: "Recall squad" };
+  return { tone: "queued", status: `Deployment queued · ${counts.ready} ready`, action: "Recall squad" };
 }
 
 function statusTabs() { return [dom.shipDamageTab, dom.shipHeatTab, dom.shipPowerTab].filter(Boolean); }
