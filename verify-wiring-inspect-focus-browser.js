@@ -131,9 +131,24 @@ async function runMode(page, browserName, mode) {
     };
   }, sectionId);
   assert.strictEqual(mouseInspection.selectedSectionId, sectionId, `${browserName} ${mode}: detailed section selection opens`);
-  assert.match(mouseInspection.panelText, mode === "power" ? /Cable section/i : /Selected Data section/i,
+  assert.match(mouseInspection.panelText, mode === "power" ? /Cable section/i : /Selected Data section|DATA NETWORK/i,
     `${browserName} ${mode}: detailed section panel is visible`);
   await page.screenshot({ path: path.join(artifactDir, `${browserName}-${mode}-inspect.png`), fullPage: true });
+
+  for (const tool of ["draw", "erase", "inspect"]) {
+    await page.locator(`[data-wiring-tool="${tool}"]`).click();
+    const port = page.locator(`.wire-port-${mode}`).first();
+    assert.strictEqual(await port.count(), 1, `${browserName} ${mode} ${tool}: source port exists`);
+    const portBefore = await wiringJson(page);
+    await port.focus();
+    assert.strictEqual(await page.evaluate((selector) => document.activeElement?.matches?.(selector) || false, `.wire-port-${mode}`), true,
+      `${browserName} ${mode} ${tool}: source port receives focus`);
+    await assertNoNativeSvgOutline(page, `${browserName} ${mode} ${tool} source port`);
+    await assertBoundedPaint(page, `${browserName} ${mode} ${tool} source port`);
+    assert.strictEqual(await wiringJson(page), portBefore, `${browserName} ${mode} ${tool}: focusing the source dot does not mutate wiring`);
+    await page.screenshot({ path: path.join(artifactDir, `${browserName}-${mode}-${tool}-source-port-focus.png`), fullPage: true });
+  }
+  await page.locator('[data-wiring-tool="inspect"]').click();
 
   // Keyboard inspection: Tab focus is retained, but represented on the visible
   // cable by a bounded class instead of a native SVG outline.
@@ -177,8 +192,9 @@ async function runMode(page, browserName, mode) {
   const browsers = [];
   try {
     await waitForServer(base);
-    browsers.push(["chromium", await launchChromium(chromium)]);
-    browsers.push(["firefox", await firefox.launch({ headless: true })]);
+    const requestedBrowser = String(process.env.WIRING_FOCUS_BROWSER || "").toLowerCase();
+    if (requestedBrowser !== "firefox") browsers.push(["chromium", await launchChromium(chromium)]);
+    if (requestedBrowser !== "chromium") browsers.push(["firefox", await firefox.launch({ headless: true })]);
     for (const [browserName, browser] of browsers) {
       const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
       const page = await context.newPage();
@@ -187,7 +203,7 @@ async function runMode(page, browserName, mode) {
       await runMode(page, browserName, "data");
       await context.close();
     }
-    console.log(`Wiring Inspect focus regression passed in Chromium and Firefox; screenshots: ${path.relative(__dirname, artifactDir)}`);
+    console.log(`Wiring SVG focus regression passed in ${browsers.map(([name]) => name).join(" and ")}; screenshots: ${path.relative(__dirname, artifactDir)}`);
   } finally {
     await Promise.all(browsers.map(([, browser]) => browser.close().catch(() => {})));
     server.kill();

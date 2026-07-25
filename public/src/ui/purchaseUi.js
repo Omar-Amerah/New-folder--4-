@@ -210,17 +210,13 @@ export function updateEconomyUi() {
   dom.deployButton.disabled = !canReady;
 
   if (dom.openBlueprintDesignerButton) {
-    if (state.phase === "design" && !mine?.ready) {
-      dom.openBlueprintDesignerButton.textContent = "Blueprint Designer";
-      dom.openBlueprintDesignerButton.style.border = "2px solid var(--amber)";
-    } else {
-      dom.openBlueprintDesignerButton.textContent = "Blueprint Designer";
-      dom.openBlueprintDesignerButton.style.border = "";
-    }
+    dom.openBlueprintDesignerButton.textContent = "Open Blueprint Designer";
   }
-  dom.deployButton.textContent = mine?.ready && state.phase === "design"
-    ? "Ready"
-    : `Ready with current design ($${unitCost})`;
+  const deployLabel = dom.deployButton.querySelector(".deploy-action-label");
+  const deployCost = dom.deployButton.querySelector(".deploy-cost");
+  if (deployLabel) deployLabel.textContent = "Ready with current design";
+  if (deployCost) deployCost.textContent = `Deploy cost: $${unitCost}`;
+  dom.deployButton.setAttribute("aria-label", `Ready with current design. Deploy cost: $${unitCost}`);
 
   if (mine) {
     const status = state.phase === "design"

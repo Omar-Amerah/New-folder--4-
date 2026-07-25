@@ -125,18 +125,37 @@ function renderShipGroups() {
   ensureShipGroupSettings();
   ensureShipGroupRows();
 
-  if (dom.shipGroupTotal) dom.shipGroupTotal.textContent = String(ships.length);
+  if (dom.shipGroupTotal) {
+    const assignedIds = new Set();
+    for (const groupId of ASSIGNABLE_GROUP_IDS) {
+      for (const shipId of state.shipGroups[groupId]) if (liveIds.has(shipId)) assignedIds.add(shipId);
+    }
+    const configuredCap = Number(state.mine?.shipCap ?? state.rules?.shipCap);
+    dom.shipGroupTotal.textContent = Number.isFinite(configuredCap) && configuredCap > 0
+      ? `${assignedIds.size} / ${configuredCap} assigned`
+      : `${assignedIds.size} ship${assignedIds.size === 1 ? "" : "s"} assigned`;
+  }
   for (const group of SHIP_GROUP_DEFS) {
     const shipIds = shipIdsForGroup(group.id, liveIds);
     const groupButton = dom.shipGroupList.querySelector?.(`[data-ship-group="${group.id}"]`) || null;
-    const assignButton = dom.shipGroupList.querySelector?.(`[data-assign-ship-group="${group.id}"]`) || null;
+    const actionButton = dom.shipGroupList.querySelector?.(`[data-ship-group-action="${group.id}"]`) || null;
     const formationSelect = dom.shipGroupList.querySelector?.(`[data-ship-group-formation="${group.id}"]`) || null;
     const stanceSelect = dom.shipGroupList.querySelector?.(`[data-ship-group-stance="${group.id}"]`) || null;
     const countEl = groupButton?.querySelector?.(".ship-group-count");
-    if (groupButton) groupButton.classList.toggle("active", state.activeShipGroup === group.id);
-    if (countEl) countEl.textContent = String(shipIds.length);
+    const row = groupButton?.closest?.(".ship-group-row") || null;
+    const selected = state.activeShipGroup === group.id;
+    if (groupButton) {
+      groupButton.classList.toggle("active", selected);
+      groupButton.setAttribute("aria-pressed", String(selected));
+    }
+    if (row) {
+      row.classList.toggle("is-selected", selected);
+      row.classList.toggle("is-empty", shipIds.length === 0);
+      row.classList.toggle("has-ships", shipIds.length > 0);
+    }
+    if (countEl) countEl.textContent = `${shipIds.length} ship${shipIds.length === 1 ? "" : "s"}`;
     const assignDisabled = group.id === "unassigned" || selectedCount === 0;
-    if (assignButton) assignButton.disabled = assignDisabled;
+    if (actionButton) actionButton.disabled = group.id === "unassigned" ? false : assignDisabled;
     if (formationSelect) formationSelect.value = normalizeFormation(state.shipGroupSettings[group.id]?.formation);
     if (stanceSelect) stanceSelect.value = normalizeGroupCombatStyle(state.shipGroupSettings[group.id]?.combatStyle);
     // Formation/stance controls only make sense once a group has ships in it.
@@ -151,13 +170,18 @@ function ensureShipGroupRows() {
   dom.shipGroupList.textContent = "";
   for (const group of SHIP_GROUP_DEFS) {
     const row = document.createElement("div");
-    row.className = "ship-group-row";
+    row.className = `ship-group-row${group.id === "unassigned" ? " is-unassigned" : ""}`;
+
+    const main = document.createElement("div");
+    main.className = "ship-group-main";
 
     const groupButton = document.createElement("button");
     groupButton.type = "button";
     groupButton.className = "ship-group-button";
     groupButton.dataset.shipGroup = group.id;
     groupButton.title = `Select ${group.label}`;
+    groupButton.setAttribute("aria-label", `Select ${group.label}`);
+    groupButton.setAttribute("aria-pressed", "false");
 
     const name = document.createElement("span");
     name.className = "ship-group-name";
@@ -169,15 +193,26 @@ function ensureShipGroupRows() {
     count.textContent = "0";
     groupButton.appendChild(count);
 
-    const assignButton = document.createElement("button");
-    assignButton.type = "button";
-    assignButton.className = "ship-group-assign";
-    assignButton.dataset.assignShipGroup = group.id;
-    assignButton.title = `Assign selected ships to ${group.label}`;
-    assignButton.textContent = "+";
+    const actionButton = document.createElement("button");
+    actionButton.type = "button";
+    actionButton.dataset.shipGroupAction = group.id;
+    if (group.id === "unassigned") {
+      actionButton.className = "ship-group-action ship-group-view";
+      actionButton.dataset.shipGroup = group.id;
+      actionButton.title = "View unassigned ships";
+      actionButton.setAttribute("aria-label", "View unassigned ships");
+      actionButton.textContent = "View";
+    } else {
+      actionButton.className = "ship-group-action ship-group-assign";
+      actionButton.dataset.assignShipGroup = group.id;
+      actionButton.title = `Add selected ships to ${group.label}`;
+      actionButton.setAttribute("aria-label", `Add selected ships to ${group.label}`);
+      actionButton.textContent = "+ Add";
+    }
 
-    row.appendChild(groupButton);
-    row.appendChild(assignButton);
+    main.appendChild(groupButton);
+    main.appendChild(actionButton);
+    row.appendChild(main);
 
     if (ASSIGNABLE_GROUP_IDS.includes(group.id)) {
       const controls = document.createElement("div");

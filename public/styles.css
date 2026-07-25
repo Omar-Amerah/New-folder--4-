@@ -216,7 +216,7 @@ label {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 0 2px 4px;
+  padding: 0 2px 8px;
 }
 
 .brand-mark {
@@ -260,7 +260,14 @@ h2 {
 .connection-status {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  margin-top: 3px;
+  padding: 2px 7px 2px 5px;
+  border: 1px solid rgba(174, 199, 231, 0.12);
+  border-radius: 4px;
+  background: rgba(8, 14, 23, 0.66);
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .connection-status::before {
@@ -278,7 +285,7 @@ h2 {
 
 .connection-status.online::before {
   background: var(--green);
-  box-shadow: 0 0 12px rgba(103, 224, 138, 0.42);
+  box-shadow: 0 0 4px rgba(103, 224, 138, 0.24);
 }
 
 .connection-status.error::before,
@@ -298,6 +305,10 @@ h2 {
   padding-bottom: 0;
 }
 
+.deployment-actions {
+  display: grid;
+}
+
 .panel-section.compact {
   border-top: 0;
   padding-top: 2px;
@@ -313,12 +324,12 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 /* Ship Groups / Rally headings share one consistent gap below their title. */
 .section-heading.compact {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .section-heading span,
@@ -336,18 +347,65 @@ h2 {
 }
 
 .ready-button {
+  display: grid;
+  gap: 2px;
+  align-content: center;
   width: 100%;
-  border-color: rgba(103, 224, 138, 0.62);
-  background: linear-gradient(180deg, #239863, #12613f);
+  min-height: 46px;
+  padding: 6px 10px;
+  border-color: rgba(103, 224, 138, 0.48);
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(35, 133, 88, 0.92), rgba(18, 81, 54, 0.96));
   color: #effff5;
+  box-shadow: inset 0 1px 0 rgba(217, 255, 229, 0.08), 0 4px 10px rgba(0, 0, 0, 0.20);
+  text-align: left;
+}
+
+.ready-button:hover:not(:disabled) {
+  border-color: rgba(126, 234, 157, 0.66);
+  background: linear-gradient(180deg, rgba(40, 148, 98, 0.94), rgba(20, 91, 60, 0.98));
+  box-shadow: inset 0 1px 0 rgba(217, 255, 229, 0.10), 0 5px 12px rgba(0, 0, 0, 0.24);
+}
+
+.deploy-action-label {
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.deploy-cost {
+  color: rgba(218, 250, 228, 0.72);
+  font-size: 10px;
+  font-weight: 680;
+  line-height: 1.1;
 }
 
 .designer-button {
+  position: relative;
   width: 100%;
-  margin-top: 8px;
-  border-color: rgba(255, 202, 87, 0.42);
-  background: rgba(44, 35, 18, 0.74);
-  color: #ffe5a6;
+  min-height: 34px;
+  margin-top: 6px;
+  padding-left: 28px;
+  border-color: rgba(255, 202, 87, 0.28);
+  border-radius: 5px;
+  background: rgba(14, 21, 32, 0.88);
+  color: #dce6f4;
+  box-shadow: none;
+  font-size: 11px;
+  text-align: left;
+}
+
+.designer-button::before {
+  position: absolute;
+  left: 10px;
+  color: #e5b954;
+  content: "◇";
+  font-size: 12px;
+}
+
+.designer-button:hover {
+  border-color: rgba(255, 202, 87, 0.48);
+  background: rgba(25, 29, 35, 0.94);
   box-shadow: none;
 }
 
@@ -357,24 +415,75 @@ h2 {
   margin-top: 0;
 }
 
-.side-panel label {
-  margin-top: 10px;
+.formation-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(174, 199, 231, 0.09);
+}
+
+.side-panel .formation-control label {
+  margin: 0;
   font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.formation-control select {
+  min-height: 32px;
+  height: 32px;
+  padding-left: 9px;
+  border-radius: 5px;
+  background-position: calc(100% - 14px) 12px, calc(100% - 9px) 12px;
 }
 
 .ship-group-list {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .ship-group-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.ship-group-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(174, 199, 231, 0.16);
+  border-radius: 5px;
+  background: rgba(9, 15, 25, 0.70);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.ship-group-main:hover {
+  border-color: rgba(174, 199, 231, 0.30);
+  background: rgba(15, 23, 36, 0.88);
+}
+
+.ship-group-row.is-selected .ship-group-main {
+  border-color: rgba(56, 213, 255, 0.62);
+  background: rgba(23, 62, 78, 0.48);
+  box-shadow: inset 3px 0 0 var(--cyan);
+}
+
+.ship-group-row.is-unassigned {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(174, 199, 231, 0.14);
+}
+
+.ship-group-row.is-unassigned .ship-group-main {
+  border-color: rgba(167, 139, 250, 0.20);
+  background: rgba(18, 17, 31, 0.62);
 }
 
 .ship-group-controls {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   gap: 5px;
@@ -396,11 +505,12 @@ h2 {
 }
 
 .ship-group-button,
-.ship-group-assign {
+.ship-group-action {
   min-width: 0;
   min-height: 32px;
-  border-color: rgba(174, 199, 231, 0.18);
-  background: rgba(9, 15, 25, 0.76);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
@@ -409,7 +519,7 @@ h2 {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 8px 0 10px;
   color: #dce8f8;
   text-align: left;
 }
@@ -424,33 +534,51 @@ h2 {
 }
 
 .ship-group-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 23px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: rgba(174, 199, 231, 0.13);
-  color: #f4f8ff;
-  font-size: 11px;
-  font-weight: 950;
+  min-width: 0;
+  color: #899bb2;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
 }
 
 .ship-group-button.active {
-  border-color: rgba(56, 213, 255, 0.78);
-  background: rgba(28, 90, 111, 0.46);
   color: #effbff;
-  box-shadow: inset 3px 0 0 var(--cyan), 0 0 0 1px rgba(56, 213, 255, 0.08);
 }
 
-.ship-group-assign {
-  padding: 0;
-  color: #aebbd0;
-  font-size: 13px;
+.ship-group-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgba(56, 213, 255, 0.035);
+  box-shadow: none;
+}
+
+.ship-group-button.active .ship-group-name::before {
+  margin-right: 5px;
+  color: #75ddf7;
+  content: "✓";
+  font-size: 10px;
+}
+
+.ship-group-action {
+  min-width: 50px;
+  padding: 0 8px;
+  border-left: 1px solid rgba(174, 199, 231, 0.12);
+  color: #b9c8da;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.ship-group-action:hover:not(:disabled) {
+  border-color: rgba(174, 199, 231, 0.20);
+  background: rgba(56, 213, 255, 0.08);
+  box-shadow: none;
+}
+
+.ship-group-view {
+  color: #c9bff5;
 }
 
 .ship-group-assign:disabled {
-  opacity: 0.32;
+  opacity: 0.36;
 }
 
 .rally-actions {

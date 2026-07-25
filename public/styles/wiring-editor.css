@@ -161,6 +161,17 @@
   stroke-width: 0.03px !important;
 }
 .wiring-overlay .wire-port { pointer-events: all; cursor: crosshair; touch-action: none; }
+.wiring-overlay circle.wire-port:focus,
+.wiring-overlay circle.wire-port:focus-visible {
+  /* Native SVG outlines are measured in viewBox units by some browsers. A
+     normal CSS outline therefore expands into a grid-sized white ring. */
+  outline: none !important;
+}
+.wiring-overlay circle.wire-port:focus-visible {
+  stroke: #ffffff;
+  stroke-width: .055px !important;
+  filter: drop-shadow(0 0 .06px #ffffff) drop-shadow(0 0 .11px #6fa8ff);
+}
 .wiring-overlay circle.wire-junction { r: .09px !important; fill: #f4f8ff; stroke: #07111f; stroke-width: .035px !important; pointer-events: none; }
 .wiring-overlay circle.wire-branch-origin { r: .18px !important; fill: rgba(111,168,255,.25); stroke: #8fbcff; stroke-width: .055px !important; pointer-events: none; }
 .wiring-section-actions, .wiring-drawing-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }

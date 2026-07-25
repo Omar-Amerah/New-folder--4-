@@ -177,7 +177,8 @@
     "test:wiring-cost-benefit-browser": "npm run build && node verify-wiring-cost-benefit-ui-browser.js",
     "test:combat-power-tab": "node verify-combat-power-tab.js && node verify-combat-power-overlay-snapshot.js",
     "test:combat-power-tab-browser": "npm run build && node verify-combat-power-tab-browser.js",
-    "test:power-review-regressions": "node verify-power-review-regressions.js"
+    "test:power-review-regressions": "node verify-power-review-regressions.js",
+    "test:command-panel-browser": "npm run build && node verify-command-panel-browser.js"
     ,"test:drone-bay": "node verify-drone-bay.js"
     ,"test:drone-production": "node verify-drone-production.js"
     ,"test:drone-combat": "node verify-drone-combat.js"

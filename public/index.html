@@ -6,8 +6,8 @@
     <title>Modular Fleet Arena</title>
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
-    <link rel="stylesheet" href="/styles.css?v=power-tab-1">
-    <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-12">
+    <link rel="stylesheet" href="/styles.css?v=command-panel-1">
+    <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-13">
     <link rel="stylesheet" href="/hud.css?v=matte-match-hud-2">
   </head>
   <body>
@@ -24,22 +24,29 @@
 
         <div class="panel-section control-group">
           <div class="section-heading">
-            <h2>Control</h2>
+            <h2>Deployment</h2>
           </div>
-          <button id="deployButton" type="button" class="ready-button">Ready with current design ($0)</button>
-          <button id="openBlueprintDesignerButton" type="button" class="designer-button">Blueprint Designer</button>
-          <label for="formationSelect">Formation</label>
-          <select id="formationSelect">
-            <option value="line">Line</option>
-            <option value="wedge">Wedge</option>
-            <option value="clump">Clump</option>
-          </select>
+          <div class="deployment-actions">
+            <button id="deployButton" type="button" class="ready-button">
+              <span class="deploy-action-label">Ready with current design</span>
+              <span class="deploy-cost">Deploy cost: $0</span>
+            </button>
+            <button id="openBlueprintDesignerButton" type="button" class="designer-button">Open Blueprint Designer</button>
+          </div>
+          <div class="formation-control">
+            <label for="formationSelect">Formation</label>
+            <select id="formationSelect">
+              <option value="line">Line</option>
+              <option value="wedge">Wedge</option>
+              <option value="clump">Clump</option>
+            </select>
+          </div>
         </div>
 
         <div class="panel-section ship-groups-panel">
           <div class="section-heading compact">
             <h2>Ship Groups</h2>
-            <span id="shipGroupTotal">0</span>
+            <span id="shipGroupTotal">0 ships assigned</span>
           </div>
           <div id="shipGroupList" class="ship-group-list" aria-label="Ship groups"></div>
         </div>
