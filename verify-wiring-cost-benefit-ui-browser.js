@@ -73,7 +73,7 @@ async function buildFixture(page) {
     const light = tierData.find((tier) => tier.key === "light");
     const heavy = tierData.find((tier) => tier.key === "heavy");
     assert.match(light.text, /4\s*\/\s*7 MW/, "Light control shows authoritative capacity");
-    assert.match(light.title, /\$1/, "Light tooltip shows authoritative cost");
+    assert.doesNotMatch(light.text + light.title, /\$|Heat/i, "tier button leaves cost and Heat details to Analysis");
     assert.match(heavy.text, /24\s*\/\s*36 MW/, "Heavy control shows authoritative capacity");
     assert.strictEqual(await page.locator("#wiringTierCards").count(), 0, "large tier comparison removed");
     assert.strictEqual(await page.getByRole("button", { name: /Change Tier/i }).count(), 0, "Change Tier removed");
@@ -83,14 +83,14 @@ async function buildFixture(page) {
     async function toolSummaryText() { return page.locator('[data-wiring-panel="selected-tier"]').innerText(); }
     await page.locator('[data-wiring-tier="light"]').click();
     const lightSummary = await toolSummaryText();
-    assert.match(lightSummary, /Light Cable/, "tool summary shows Light");
+    assert.match(lightSummary, /Light Cable/i, "tool summary shows Light");
     assert.match(lightSummary, /4\s*\/\s*7 MW/, "tool summary shows Light capacity");
     assert.doesNotMatch(lightSummary, /final branches/i, "tier recommendation is collapsed by default");
     await page.locator('[data-wiring-details="tier"] > summary').click();
     assert.match(await toolSummaryText(), /final branches/i, "tier information expander preserves the Light recommendation");
     await page.locator('[data-wiring-tier="heavy"]').click();
     const heavySummary = await toolSummaryText();
-    assert.match(heavySummary, /Heavy Bus/, "tool summary updates to Heavy");
+    assert.match(heavySummary, /Heavy Bus/i, "tool summary updates to Heavy");
     assert.match(heavySummary, /24\s*\/\s*36 MW/, "tool summary shows Heavy capacity");
     assert.notStrictEqual(lightSummary, heavySummary, "tool summary content changed with the tier");
     // Data mode removes irrelevant Power controls; explanation stays in Help.
@@ -104,13 +104,13 @@ async function buildFixture(page) {
     await page.locator("#wiringHelpCloseButton").click();
     await page.locator("#wiringModePower").click();
 
-    // 3. Infrastructure summary separates Power/Data/Switchgear and networks.
+    // 3. Infrastructure summary separates Power/Data costs and networks.
     const advancedDetails = page.locator('[data-wiring-details="advanced"]');
     if ((await advancedDetails.getAttribute("open")) === null) await advancedDetails.locator(":scope > summary").click();
     const infraText = await page.locator('[data-wiring-panel="infrastructure-summary"]').innerText();
     assert.match(infraText, /Power wiring \$/, "infra summary shows Power wiring cost");
     assert.match(infraText, /Data wiring \$/, "infra summary shows Data wiring cost");
-    assert.match(infraText, /Switchgear components \$/, "infra summary shows Switchgear cost");
+    assert.doesNotMatch(infraText, /Switchgear/i, "removed component is absent from infrastructure summary");
     assert.match(infraText, /% of the \$/, "infra summary shows percentage of total ship cost");
     assert.match(infraText, /Unique Power cells/, "infra summary lists unique cells by tier");
     assert.match(infraText, /Power networks/, "infra summary shows network counts");
@@ -174,7 +174,7 @@ async function buildFixture(page) {
        const el = document.querySelector("#wiringStatusPanel");
       return el ? el.innerText : "";
     });
-    assert.match(dataInspect, /Selected cells: \$/, "data section shows cost");
+    assert.match(dataInspect, /Wiring cost\s*\$/, "data section shows cost");
     assert.match(dataInspect, /Data cables do not carry Power/, "data section states no Power");
     assert.ok(!/sustained \/ .*peak|Cable Heat contribution/.test(dataInspect), "data section shows no Power-capacity/Heat rows");
     await page.evaluate(async () => { const [{ state }, wiring] = await Promise.all([import("/src/state.js"), import("/src/ui/wiringUi.js")]); state.wiringUi.mode = "power"; wiring.refreshWiringPresentation(); });

@@ -55,14 +55,12 @@ export function renderPartInspector() {
     ${requirementsMarkup(model)}
     ${thermalSummaryMarkup(model)}
     ${warningsMarkup(model)}
-    ${switchgearControlsMarkup(type)}
     ${droneBayControlsMarkup(type)}
     ${componentActions}
     ${model.sections.map((section) => accordionMarkup(section, openState)).join("")}
     ${isRotatablePart(type) ? `<p class="part-inspector-tip">Hover a placed matching part and press R to rotate.</p>` : ""}
   `;
 
-  attachSwitchgearControlHandlers();
   attachDroneBayControlHandlers();
   attachRequirementHandlers();
   dom.partInspector.querySelectorAll("[data-component-action]").forEach((button) => {
@@ -381,28 +379,6 @@ function selectedPlacedPartOfType(type) {
 // ---------------------------------------------------------------------------
 // Interactive component configuration (not statistics)
 // ---------------------------------------------------------------------------
-
-function switchgearControlsMarkup(type) {
-  if (type !== "switchgear") return "";
-  const placed = selectedPlacedPartOfType(type);
-  if (!placed) return `<p class="part-inspector-tip">Place or select a Switchgear component to configure its saved mode and rating.</p>`;
-  const mode = placed.switchgearMode || "closed";
-  const rating = placed.switchgearRatingTier || "standard";
-  const button = (kind, value, label) => `<button type="button" data-switchgear-config="${kind}" data-switchgear-value="${value}" aria-pressed="${String((kind === "mode" ? mode : rating) === value)}">${label}</button>`;
-  return `<section class="part-inspector-config switchgear-config" aria-label="Switchgear Blueprint configuration">
-    <h4 class="part-section-heading">Switchgear settings</h4>
-    <div class="switchgear-control-row"><span>Default mode</span>${button("mode", "open", "Open")}${button("mode", "closed", "Closed")}${button("mode", "automatic", "Automatic")}</div>
-    <div class="switchgear-control-row"><span>Rating</span>${button("rating", "light", "Light")}${button("rating", "standard", "Standard")}${button("rating", "heavy", "Heavy")}</div>
-  </section>`;
-}
-
-function attachSwitchgearControlHandlers() {
-  dom.partInspector.querySelectorAll("[data-switchgear-config]").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("blueprint-switchgear-config", { detail: { kind: button.dataset.switchgearConfig, value: button.dataset.switchgearValue } }));
-    });
-  });
-}
 
 function droneBayControlsMarkup(type) {
   if (type !== "droneBay") return "";

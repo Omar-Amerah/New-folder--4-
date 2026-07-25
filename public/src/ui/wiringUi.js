@@ -773,14 +773,10 @@ function renderStaticClarity() {
     const card = cards.find((item) => item.key === element.dataset.tierCapacityCompact);
     if (card) element.textContent = `${card.sustainedMw} / ${card.peakMw} MW`;
   });
-  document.querySelectorAll("[data-tier-meta]").forEach((element) => {
-    const card = cards.find((item) => item.key === element.dataset.tierMeta);
-    if (card) element.textContent = `$${card.costPerCell} \u00b7 \u2212${card.displacementPerCell} Heat`;
-  });
   document.querySelectorAll("[data-wiring-tier]").forEach((button) => {
     const card = cards.find((item) => item.key === button.dataset.wiringTier);
     if (!card) return;
-    button.title = `${card.label}: ${card.sustainedMw} MW sustained / ${card.peakMw} MW peak; $${card.costPerCell} and ${card.displacementPerCell} Heat capacity per new cell. ${card.bestFor}`;
+    button.title = `${card.label}: ${card.sustainedMw} MW sustained / ${card.peakMw} MW peak. ${card.bestFor}`;
   });
   if (dom.wiringTierCardList) {
     dom.wiringTierCardList.innerHTML = cards.map((card) => `
@@ -2142,36 +2138,18 @@ function powerSectionInspectionHtml(section) {
 function infrastructureSummaryHtml() {
   if (!infraRules()) return "";
   const acc = infraRules().accountInfrastructure(state.design, state.wiring, PART_STATS, WIRING_INFRASTRUCTURE);
-  const switchgearParts = (state.design || []).filter((module) => module.type === "switchgear");
-  const switchgearCost = switchgearParts.length * (Number(PART_STATS.switchgear?.cost) || 0);
   const preCost = preInfrastructureShipCost();
   const presentation = infraRules().infrastructureCostPresentation(preCost, acc.power.cost, acc.data.cost);
   const analysis = currentAnalysis();
   const pct = Math.round(presentation.infrastructurePercentage * 1000) / 10;
   return `<section class="wiring-summary-section" data-wiring-panel="infrastructure-summary"><h4>Infrastructure</h4>
-    <div class="wiring-summary-line" data-infra-costs>Power wiring $${acc.power.cost} · Data wiring $${acc.data.cost} · Switchgear components $${switchgearCost}</div>
-    <div class="wiring-summary-line" data-infra-total>Total infrastructure $${presentation.totalInfrastructure} — ${pct}% of the $${presentation.totalShipCost} ship cost (Switchgear is priced with components)</div>
+    <div class="wiring-summary-line" data-infra-costs>Power wiring $${acc.power.cost} · Data wiring $${acc.data.cost}</div>
+    <div class="wiring-summary-line" data-infra-total>Total infrastructure $${presentation.totalInfrastructure} — ${pct}% of the $${presentation.totalShipCost} ship cost</div>
     <div class="wiring-summary-line" data-infra-displacement>Displacement: Power ${acc.power.displacement} · Data ${acc.data.displacement} · total ${acc.power.displacement + acc.data.displacement} Heat capacity</div>
     <div class="wiring-summary-line" data-infra-cells>Unique Power cells — Light ${acc.power.cellsByTier.light.length} · Standard ${acc.power.cellsByTier.standard.length} · Heavy ${acc.power.cellsByTier.heavy.length} · Data cells ${acc.data.uniqueHostedCellCount}</div>
-    <div class="wiring-summary-line" data-infra-networks>Switchgear ${switchgearParts.length} · Power networks ${analysis.power.networks.length} · Data networks ${analysis.data.networks.length}</div>
-    <div class="wiring-summary-line wiring-guidance" data-infra-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy. Higher can be justified by Heavy trunks, ring routes or Switchgear protection.</div>
+    <div class="wiring-summary-line" data-infra-networks>Power networks ${analysis.power.networks.length} · Data networks ${analysis.data.networks.length}</div>
+    <div class="wiring-summary-line wiring-guidance" data-infra-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy. Higher can be justified by Heavy trunks or ring routes.</div>
   </section>`;
-}
-
-function switchgearObservationInputs() {
-  return (state.design || []).map((module, index) => {
-    if (module.type !== "switchgear") return null;
-    const sg = globalThis.SwitchgearRules;
-    if (!sg) return null;
-    const terminals = sg.terminalCells(module);
-    const adjacentTiers = [];
-    for (const section of bucket("power").sections) {
-      for (const cell of [terminals.A, terminals.B]) {
-        if ((section.x1 === cell.x && section.y1 === cell.y) || (section.x2 === cell.x && section.y2 === cell.y)) adjacentTiers.push(section.tier);
-      }
-    }
-    return { index, mode: sg.normalizeMode(module.switchgearMode), ratingTier: sg.normalizeRatingTier(module.switchgearRatingTier), adjacentTiers };
-  }).filter(Boolean);
 }
 
 function blueprintObservationsHtml() {
@@ -2200,7 +2178,6 @@ function blueprintObservationsHtml() {
     sectionTierById,
     powerNetworks,
     dataNetworks,
-    switchgear: switchgearObservationInputs(),
     alternatePaths: clarity.alternatePathCount(bucket("power").sections),
     infrastructurePercentage: presentation.infrastructurePercentage,
     dataSeparateFromPower: dataSeparate
@@ -2279,7 +2256,6 @@ function wiringObservationModel(analysis, flow, accounting, presentation) {
     sectionTierById,
     powerNetworks,
     dataNetworks,
-    switchgear: switchgearObservationInputs(),
     alternatePaths: clarity.alternatePathCount(bucket("power").sections),
     infrastructurePercentage: presentation.infrastructurePercentage,
     dataSeparateFromPower: dataSeparate

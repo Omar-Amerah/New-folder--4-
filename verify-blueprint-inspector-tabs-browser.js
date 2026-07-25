@@ -312,6 +312,16 @@ async function assertTopTab(page, expected, panelId) {
 }
 
 async function assertViewDrivenAnalysis(page) {
+  await page.locator("#designerDesignTab").click();
+  await page.locator("#blueprintWiringTab").click();
+  await assertTopTab(page, "analysis", "designerAnalysisPanel");
+  assert.equal(await page.locator("#analysisWiringTab").getAttribute("aria-selected"), "true",
+    "opening Wiring mode also opens Wiring analysis");
+  await page.locator("#analysisPowerTab").click();
+  await page.locator("#blueprintWiringTab").click();
+  assert.equal(await page.locator("#analysisWiringTab").getAttribute("aria-selected"), "true",
+    "reselecting Wiring mode restores Wiring analysis");
+
   for (const [view, panel] of [["build", "analysisMovementPanel"], ["heat", "analysisHeatPanel"], ["wiring", "analysisWiringPanel"]]) {
     await page.locator(`#blueprint${view[0].toUpperCase()}${view.slice(1)}Tab`).click();
     await page.waitForFunction(expected => window.__mfaState.blueprintView === expected, view);
@@ -319,7 +329,7 @@ async function assertViewDrivenAnalysis(page) {
       .filter(panel => !panel.hidden).map(panel => panel.id));
     assert.deepEqual(visible, [panel]);
   }
-  assert.match(await page.locator("#analysisWiringPanel").textContent(), /Summary[\s\S]*Selected tier[\s\S]*Issues/i);
+  assert.match(await page.locator("#analysisWiringPanel").textContent(), /Summary[\s\S]*Cable[\s\S]*(?:actionable wiring issues|wiring issue)/i);
   assert.doesNotMatch(await page.locator("#analysisWiringPanel").textContent(), /Power analysis/);
   assert.equal(await page.locator("#analysisWiringTab").getAttribute("aria-selected"), "true");
   await page.locator("#analysisPowerTab").click();
@@ -331,7 +341,7 @@ async function assertViewDrivenAnalysis(page) {
     "opening Wiring analysis does not switch the active blueprint editing mode");
   assert.equal(await page.locator("#wiringToolbar").isHidden(), true,
     "Wiring editor controls remain hidden outside Wiring mode");
-  assert.match(await page.locator("#wiringStatusPanel").textContent(), /Summary[\s\S]*Selected tier[\s\S]*Issues/i,
+  assert.match(await page.locator("#wiringStatusPanel").textContent(), /Summary[\s\S]*Cable[\s\S]*(?:actionable wiring issues|wiring issue)/i,
     "Wiring analysis stays populated when Heat mode is active");
   await page.locator("#analysisHeatTab").click();
 }

@@ -90,7 +90,6 @@ function heatDesignSignature(design, wiring, mode) {
       part.x,
       part.y,
       part.rotation || 0,
-      part.switchgearMode || "",
       part.batteryMode || "",
       part.disabled || false
     ])
@@ -196,7 +195,14 @@ function suppressHeatGridNativeTooltips() {
 export function setBlueprintView(view) {
   const previousView = state.blueprintView;
   state.blueprintView = view === "heat" ? "heat" : view === "wiring" ? "wiring" : "build";
-  if (previousView === state.blueprintView) { refreshBlueprintControls(); return; }
+  if (state.blueprintView === "wiring") {
+    document.dispatchEvent?.(new CustomEvent("designer-inspector-activate", { detail: { tab: "analysis" } }));
+  }
+  if (previousView === state.blueprintView) {
+    refreshBlueprintControls();
+    document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView } }));
+    return;
+  }
   if (previousView === "wiring" && state.blueprintView !== "wiring") resetWiringTransientState();
   if (state.blueprintView === "wiring") { state.hoveredCell = null; state.selectedCell = null; }
   refreshBlueprintControls();
@@ -672,7 +678,6 @@ function ensureBlueprintGridEventHandlers() {
       event.preventDefault();
       removeCell(x, y);
     });
-    document.addEventListener("blueprint-switchgear-config", (event) => { configureSelectedSwitchgear(event.detail?.kind, event.detail?.value); });
     document.addEventListener("blueprint-drone-config", (event) => { configureSelectedDroneBay(event.detail?.droneType); });
     document.addEventListener("blueprint-component-action", (event) => {
       const cell = state.selectedCell || state.hoveredCell;
@@ -1170,20 +1175,6 @@ export function removeCell(x, y) {
 }
 
 
-function configureSelectedSwitchgear(kind, value) {
-  const cell = state.selectedCell || state.hoveredCell;
-  const part = cell ? findPartAt(cell.x, cell.y) : null;
-  if (!part || part.type !== "switchgear" || !globalThis.SwitchgearRules) return false;
-  const key = kind === "rating" ? "switchgearRatingTier" : kind === "mode" ? "switchgearMode" : null;
-  if (!key) return false;
-  const normalized = key === "switchgearMode" ? globalThis.SwitchgearRules.normalizeMode(value) : globalThis.SwitchgearRules.normalizeRatingTier(value);
-  if (part[key] === normalized) return false;
-  const before = captureBlueprintEditSnapshot(state);
-  return commitPhysicalEdit(before, () => {
-    state.design = state.design.map((candidate) => candidate === part ? { ...candidate, [key]: normalized } : candidate);
-  });
-}
-
 export function resetDesign() {
   const before = captureBlueprintEditSnapshot(state);
   commitPhysicalEdit(before, () => {
@@ -1431,15 +1422,6 @@ function renderAnalysisPanels(stats, heat) {
     ["Priority preset", powerPresetLabel(resolved.preset || state.wiring?.powerPolicy?.preset)],
     ["Overloaded sections", String(overloadedSections)]
   ];
-  const switchgear = (state.design || []).filter(part => part.type === "switchgear");
-  if (switchgear.length) {
-    const states = switchgear.reduce((counts, part) => {
-      const mode = part.switchgearMode || "closed";
-      counts[mode] = (counts[mode] || 0) + 1;
-      return counts;
-    }, {});
-    powerRows.push(["Switchgear", Object.entries(states).map(([mode, count]) => `${count} ${mode}`).join(" · ")]);
-  }
   if (dom.powerAnalysisSummary) {
     dom.powerAnalysisSummary.innerHTML = `<section class="analysis-summary-card"><h3>Power analysis</h3>${analysisGridMarkup(powerRows)}</section>${powerAllocationAnalysisHtml()}`;
   }
@@ -2468,7 +2450,7 @@ function costBreakdownInnerMarkup(breakdown) {
       <div><span>Infrastructure share</span><strong>${percentText}</strong></div>
       <div><span>Total ship cost</span><strong>${formatMoney(breakdown.total)}</strong></div>
     </div>
-    <p class="cost-breakdown-guidance" data-infrastructure-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy; higher can be justified by Heavy trunks, ring routes or Switchgear protection.</p>` : ""}
+    <p class="cost-breakdown-guidance" data-infrastructure-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy; higher can be justified by Heavy trunks or ring routes.</p>` : ""}
   `;
 }
 

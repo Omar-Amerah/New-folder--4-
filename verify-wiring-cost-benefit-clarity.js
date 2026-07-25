@@ -239,7 +239,7 @@ function overlapDesign() {
 }
 
 // ---- 14/15. infrastructure summary separates costs and uses total ship cost ----
-check("infrastructure summary separates Power, Data and Switchgear and uses total ship cost", () => {
+check("infrastructure summary separates Power and Data and uses total ship cost", () => {
   const { design, wiring } = overlapDesign();
   const acc = WiringInfrastructureRules.accountInfrastructure(design, wiring, PARTS, infra);
   // Power: standard(2) + light(1) unique cells... computed authoritatively.
@@ -250,7 +250,8 @@ check("infrastructure summary separates Power, Data and Switchgear and uses tota
   assert(Math.abs(presentation.infrastructurePercentage - expectedPct) < 1e-9, "percentage uses total ship cost");
   // The wiring UI renders these as separate labelled rows.
   const src = readFile("public/src/ui/wiringUi.js");
-  assert(/Power wiring \$\$\{acc\.power\.cost\}/.test(src) && /Data wiring \$\$\{acc\.data\.cost\}/.test(src) && /Switchgear components \$\$\{switchgearCost\}/.test(src), "UI renders separated infrastructure costs");
+  assert(/Power wiring \$\$\{acc\.power\.cost\}/.test(src) && /Data wiring \$\$\{acc\.data\.cost\}/.test(src), "UI renders separated infrastructure costs");
+  assert(!/Switchgear/.test(src), "UI no longer references the removed component");
 });
 
 // ---- 16. 5-10% guidance is advisory ----
@@ -277,15 +278,14 @@ check("unique cells are not double-counted and Power/Data overlap costs stay ind
 });
 
 // ---- 19. architecture summaries show benefits and downsides ----
-check("architecture summaries list benefits and downsides for all four families", () => {
+check("architecture summaries list benefits and downsides for current families", () => {
   const notes = clarity.ARCHITECTURE_NOTES;
   const keys = notes.map((n) => n.key);
-  for (const family of ["central", "distributed", "ring", "hybrid"]) assert(keys.includes(family), `has ${family}`);
+  for (const family of ["central", "distributed", "ring"]) assert(keys.includes(family), `has ${family}`);
   for (const note of notes) { assert(note.benefits && note.downsides, `${note.key} has both`); }
   const facts = clarity.ARCHITECTURE_FACTS.join(" ");
   assert(/Redundancy does not create free generation/.test(facts));
   assert(/do not automatically double usable capacity/.test(facts));
-  assert(/Switchgear is optional/.test(facts));
 });
 
 // ---- 20/21. observations only when supported by topology ----
@@ -293,7 +293,7 @@ check("central-bus vulnerability and alternate-route benefit show only when supp
   // A single multi-consumer tree network (no cycles) -> vulnerability warning.
   const treeObs = clarity.blueprintObservations({
     infrastructure: infra, sectionFlows: [], flowSummary: {}, sectionTierById: {},
-    powerNetworks: [{ consumerCount: 3, alternatePaths: 0, highFlowBridgeCount: 1, bridgeSharedDemandMw: 6 }], dataNetworks: [], switchgear: [],
+    powerNetworks: [{ consumerCount: 3, alternatePaths: 0, highFlowBridgeCount: 1, bridgeSharedDemandMw: 6 }], dataNetworks: [],
     alternatePaths: 0, infrastructurePercentage: 0.06, dataSeparateFromPower: false
   });
   assert(treeObs.warnings.some((w) => /central-trunk vulnerability/.test(w)), "vulnerability shown for tree");
@@ -301,7 +301,7 @@ check("central-bus vulnerability and alternate-route benefit show only when supp
   // A ring network -> alternate path positive, no single-vuln warning.
   const ringObs = clarity.blueprintObservations({
     infrastructure: infra, sectionFlows: [], flowSummary: {}, sectionTierById: {},
-    powerNetworks: [{ consumerCount: 3, alternatePaths: 1, availableGenerationMw: 12, demandMw: 6 }], dataNetworks: [], switchgear: [],
+    powerNetworks: [{ consumerCount: 3, alternatePaths: 1, availableGenerationMw: 12, demandMw: 6 }], dataNetworks: [],
     alternatePaths: 1, infrastructurePercentage: 0.06, dataSeparateFromPower: false
   });
   assert(ringObs.positives.some((p) => /Alternate Power path/.test(p)), "alternate path shown for a real loop");
@@ -313,7 +313,7 @@ check("distributed spare-generation warning uses authoritative generation/alloca
   const obs = clarity.blueprintObservations({
     infrastructure: infra, sectionFlows: [], flowSummary: { strandedGenerationMw: 7.1, spareGenerationMw: 7.1, unmetMw: 0 },
     sectionTierById: {}, powerNetworks: [{ consumerCount: 1, alternatePaths: 0, availableGenerationMw: 8, demandMw: 3 }, { consumerCount: 1, alternatePaths: 0, availableGenerationMw: 8, demandMw: 3 }],
-    dataNetworks: [], switchgear: [], alternatePaths: 0, infrastructurePercentage: 0.04, dataSeparateFromPower: false
+    dataNetworks: [], alternatePaths: 0, infrastructurePercentage: 0.04, dataSeparateFromPower: false
   });
   assert(obs.positives.some((p) => /Independent powered grids/.test(p)));
   assert(obs.warnings.some((w) => /stranded spare capacity.*7\.1 MW/.test(w)), "uses the supplied stranded MW value");
@@ -335,10 +335,10 @@ check("selected Power section interpretation covers capacity, disabled and bottl
 check("selected Data section shows cost/displacement but no Power-capacity or Heat rows", () => {
   const src = readFile("public/src/ui/wiringUi.js");
   // Data-section clarity renders cost/displacement + the no-Power note only.
-  assert(/data-data-section-cost/.test(src) && /data-data-section-note/.test(src), "Data section renders cost + note");
-  const dataBlock = src.slice(src.indexOf("data-data-section-cost") - 400, src.indexOf("data-data-section-note") + 200);
+  assert(/data-infra-row/.test(src) && /data-infra-note/.test(src), "Data section renders cost + note");
+  const dataBlock = src.slice(src.indexOf("data-infra-row") - 400, src.indexOf("data-infra-note") + 200);
   assert(!/sustainedCapacityMw|peakCapacityMw|cableHeat/i.test(dataBlock), "Data section block adds no Power-capacity or Heat rows");
-  assert(/No capacity, Heat or overload mechanics/.test(src));
+  assert(/no capacity, flow or overload limits/i.test(src));
 });
 
 

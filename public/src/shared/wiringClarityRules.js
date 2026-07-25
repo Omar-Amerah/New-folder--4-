@@ -362,7 +362,7 @@
 
     // Infrastructure share guidance (advisory only, never validation).
     const pct = sanitize(input.infrastructurePercentage) * 100;
-    if (pct > 10) warnings.push(`Infrastructure cost is ${round2(pct)}% of total ship cost — high, but can be justified by Heavy trunks, ring routes or Switchgear protection.`);
+    if (pct > 10) warnings.push(`Infrastructure cost is ${round2(pct)}% of total ship cost — high, but can be justified by Heavy trunks or ring routes.`);
     else if (pct > 0 && pct < 5) positives.push(`Infrastructure cost is ${round2(pct)}% of total ship cost — lower is cheaper but may indicate limited capacity or redundancy.`);
 
     // Branch isolation: tree branches only affect their own consumers.
@@ -378,14 +378,12 @@
   const ARCHITECTURE_NOTES = Object.freeze([
     Object.freeze({ key: "central", label: "Central bus", benefits: "Cheapest, simplest, easy to understand when graph analysis shows a tree or shared trunk.", downsides: "Only a proven high-flow bridge or articulation point should be treated as a trunk vulnerability." }),
     Object.freeze({ key: "distributed", label: "Distributed grids", benefits: "Local damage isolation when each island has operational generation, demand and delivery.", downsides: "Duplicated generation and potentially stranded spare capacity." }),
-    Object.freeze({ key: "ring", label: "Ring bus", benefits: "An alternate route can survive one relevant break.", downsides: "Increased cost and displacement; more cable installed." }),
-    Object.freeze({ key: "hybrid", label: "Hybrid with Switchgear", benefits: "Independent grids with controlled spare sharing and isolation.", downsides: "Switchgear cost, space, rating limits and possible overload trips." })
+    Object.freeze({ key: "ring", label: "Ring bus", benefits: "An alternate route can survive one relevant break.", downsides: "Increased cost and displacement; more cable installed." })
   ]);
   const ARCHITECTURE_FACTS = Object.freeze([
     "Redundancy does not create free generation.",
     "Parallel routes do not automatically double usable capacity.",
-    "Capacity remains limited by actual topology and bottlenecks.",
-    "Switchgear is optional for ordinary branches."
+    "Capacity remains limited by actual topology and bottlenecks."
   ]);
 
   const EMPTY_STATES = Object.freeze({

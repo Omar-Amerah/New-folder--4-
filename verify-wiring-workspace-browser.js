@@ -117,11 +117,11 @@ async function sectionTier(page, id) {
     assert.equal(await page.locator(".wiring-tool-row .wiring-control-icon svg").count(), 3, "each drawing tool has one project-style icon");
     assert.equal(await page.locator("#wiringTierRow .wiring-tier").count(), 3, "three tier cards remain available");
     assert.ok(await page.locator("#wiringTierRow .wiring-tier").evaluateAll(tiers => tiers.every(tier =>
-      tier.children.length === 3
+      tier.children.length === 2
       && tier.querySelectorAll(".wiring-tier-name").length === 1
       && tier.querySelectorAll(".wiring-tier-capacity").length === 1
-      && tier.querySelectorAll(".wiring-tier-meta").length === 1
-    )), "every tier card has exactly name, capacity and cost/displacement lines");
+      && tier.querySelectorAll(".wiring-tier-meta").length === 0
+    )), "every tier card has only name and capacity");
     assert.equal(await page.locator("#wiringToolbar .wiring-mode-cost, #wiringToolbar .status-dot").count(), 0,
       "legacy secondary lines and corner-dot elements are absent");
     assert.equal(await page.locator("#wiringHelpButton").getAttribute("aria-label"), "Open Wiring help");
@@ -167,7 +167,7 @@ async function sectionTier(page, id) {
     await page.locator("#confirmCancelButton").click();
     assert.equal(await page.locator("#wiringHelpPanel").isHidden(), true);
     assert.equal(await page.locator("#analysisWiringTab").getAttribute("aria-selected"), "true");
-    assert.match(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /Standard Cable/);
+    assert.match(await page.locator('[data-wiring-panel="selected-tier"]').innerText(), /Standard Cable/i);
 
     for (const target of [
       { width: 1920, height: 1080, maxRows: 1, file: "wiring-1920x1080.png" },
