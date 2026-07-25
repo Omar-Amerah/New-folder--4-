@@ -29,60 +29,80 @@
   position: absolute;
   top: 14px;
   left: 14px;
-  height: 50px;
+  max-width: calc(100% - 28px);
+  min-height: 54px;
   display: flex;
   align-items: center;
-  gap: 36px;
-  padding: 0 24px;
-  border: 1px solid rgba(139, 160, 190, 0.15);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(9, 15, 25, 0.82) 0%, rgba(5, 7, 12, 0.88) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 32px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(16px);
+  gap: 0;
+  padding: 6px 9px;
+  overflow: hidden;
+  border: 1px solid rgba(132, 157, 187, 0.22);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(18, 27, 40, 0.94), rgba(7, 12, 20, 0.96)),
+    #09111d;
+  box-shadow:
+    inset 0 1px 0 rgba(220, 235, 255, 0.045),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.42),
+    0 5px 14px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
   pointer-events: none;
   z-index: 5;
 }
 
+.top-hud::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(91, 201, 235, 0.13), transparent 22%, transparent 78%, rgba(91, 201, 235, 0.06)) top / 100% 1px no-repeat,
+    linear-gradient(135deg, rgba(141, 171, 204, 0.08) 0 7px, transparent 7px) top left / 12px 12px no-repeat;
+  pointer-events: none;
+}
+
 .hud-card {
   --hud-accent: #57d9ff;
-  --hud-glow: rgba(87, 217, 255, 0.16);
   position: relative;
   display: grid;
-  grid-template-columns: auto auto;
+  flex: 0 1 auto;
+  grid-template-columns: 19px minmax(0, auto);
   grid-template-rows: auto auto;
   align-items: center;
   align-content: center;
-  justify-content: center;
-  column-gap: 10px;
-  row-gap: 1px;
-  height: 100%;
+  column-gap: 8px;
+  row-gap: 0;
+  min-width: 70px;
+  min-height: 40px;
+  padding: 2px 14px 2px 11px;
 }
 
 .hud-card:not(:last-child)::after {
   content: "";
   position: absolute;
-  right: -18px;
+  right: 0;
   top: 50%;
   transform: translateY(-50%);
   width: 1px;
-  height: 18px;
-  background: rgba(139, 160, 190, 0.12);
+  height: 29px;
+  background: linear-gradient(180deg, transparent, rgba(139, 160, 190, 0.20), transparent);
 }
 
 .hud-card::before {
   content: "";
   grid-column: 1;
   grid-row: 1 / span 2;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   display: grid;
   place-items: center;
-  border-radius: 5px;
-  color: #070c14;
-  background: var(--hud-accent);
-  box-shadow: 0 0 14px var(--hud-accent);
-  font-size: 11px;
-  font-weight: 900;
+  border: 1px solid color-mix(in srgb, var(--hud-accent) 42%, transparent);
+  border-radius: 3px;
+  color: var(--hud-accent);
+  background: color-mix(in srgb, var(--hud-accent) 10%, rgba(5, 10, 17, 0.9));
+  box-shadow: inset 0 0 5px color-mix(in srgb, var(--hud-accent) 7%, transparent);
+  font-size: 10px;
+  font-weight: 850;
   line-height: 1;
   align-self: center;
   justify-self: center;
@@ -92,10 +112,10 @@
   grid-column: 2;
   grid-row: 1;
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: rgba(160, 180, 210, 0.85);
+  letter-spacing: 0.11em;
+  color: rgba(154, 175, 201, 0.70);
   line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
@@ -105,11 +125,11 @@
 .hud-card strong {
   grid-column: 2;
   grid-row: 2;
-  color: #ffffff;
+  color: #edf4ff;
   font-size: 14px;
-  font-weight: 700;
-  line-height: 1.1;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  font-weight: 720;
+  line-height: 1.15;
+  text-shadow: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -117,7 +137,6 @@
 
 .hud-room {
   --hud-accent: #7dd3fc;
-  --hud-glow: rgba(125, 211, 252, 0.18);
 }
 
 .hud-room::before {
@@ -126,7 +145,6 @@
 
 .hud-fleet {
   --hud-accent: #a78bfa;
-  --hud-glow: rgba(167, 139, 250, 0.18);
 }
 
 .hud-fleet::before {
@@ -135,7 +153,6 @@
 
 .hud-money {
   --hud-accent: #facc15;
-  --hud-glow: rgba(250, 204, 21, 0.2);
 }
 
 .hud-money::before {
@@ -144,7 +161,6 @@
 
 .hud-income {
   --hud-accent: #86efac;
-  --hud-glow: rgba(134, 239, 172, 0.2);
 }
 
 .hud-income::before {
@@ -153,7 +169,6 @@
 
 .hud-relays {
   --hud-accent: #38bdf8;
-  --hud-glow: rgba(56, 189, 248, 0.18);
 }
 
 .hud-relays::before {
@@ -162,7 +177,6 @@
 
 .hud-selected {
   --hud-accent: #fb7185;
-  --hud-glow: rgba(251, 113, 133, 0.18);
 }
 
 .hud-selected::before {
@@ -171,7 +185,6 @@
 
 .hud-target {
   --hud-accent: #fdba74;
-  --hud-glow: rgba(253, 186, 116, 0.18);
 }
 
 .hud-target::before {
@@ -180,11 +193,31 @@
 
 .top-hud strong {
   display: block;
-  margin-top: 2px;
+  margin-top: 1px;
   overflow: hidden;
-  font-size: 16px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.top-hud .hud-money strong,
+.top-hud .hud-income strong {
+  color: #fff6d2;
+  font-size: 16px;
+  font-weight: 790;
+}
+
+.top-hud .hud-income strong {
+  color: #d9fbe4;
+}
+
+.top-hud .hud-target {
+  min-width: 92px;
+}
+
+.top-hud .hud-target strong {
+  max-width: 132px;
+  font-size: 15px;
 }
 
 .winner-banner {
@@ -927,6 +960,34 @@
     padding: 12px;
   }
 
+  .top-hud {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: none;
+    padding: 4px 6px;
+  }
+
+  .hud-card {
+    min-width: 0;
+    min-height: 36px;
+    padding-inline: 8px;
+  }
+
+  .hud-card:nth-child(4)::after {
+    display: none;
+  }
+
+  .hud-card:nth-child(n + 5) {
+    border-top: 1px solid rgba(139, 160, 190, 0.09);
+  }
+
+  .top-hud .hud-target {
+    min-width: 0;
+  }
+
   .part-category-list {
     grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
   }
@@ -992,6 +1053,19 @@
 .heat-hud.overheated { color:#ff718a; animation:heat-pulse .8s ease-in-out infinite alternate; }
 .heat-hud.overheated b { background:#ff5575; }
 @keyframes heat-pulse { to { opacity:.62; } }
-.hud-team { --hud-accent:#5eead4; --hud-glow:rgba(94,234,212,.18); }
-.hud-team::before { background:var(--hud-accent); }
-.top-hud { flex-wrap:wrap; }
+.hud-team { --hud-accent:#5eead4; }
+.hud-team::before { content: "T"; }
+
+@media (max-width: 440px) {
+  .top-hud {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hud-card:nth-child(2n)::after {
+    display: none;
+  }
+
+  .hud-card:nth-child(n + 3) {
+    border-top: 1px solid rgba(139, 160, 190, 0.09);
+  }
+}
