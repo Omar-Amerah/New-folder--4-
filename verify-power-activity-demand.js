@@ -109,6 +109,21 @@ check("propulsion demand scales with requested effort (idle vs moving vs turning
   updateShipPowerDemand(prop, room(), 2200);
   close(demand(prop, 1), PARTS.engine.powerUse * (0.15 + 0.5 * 0.85), "turning propulsion scales with effort");
 });
+let turnOnly = makeShip(
+  [mod("reactor", 0, 0), mod("gyroscope", 2, 0), mod("maneuverThruster", 3, 0)],
+  [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]]
+);
+check("turn-only propulsion consumes active Power only while turning", () => {
+  turnOnly.arrived = false;
+  turnOnly.turnActivity = 0;
+  updateShipPowerDemand(turnOnly, room(), 2300);
+  close(demand(turnOnly, 1), PARTS.gyroscope.powerUse * 0.15, "straight movement keeps Gyroscope at standby");
+  close(demand(turnOnly, 2), PARTS.maneuverThruster.powerUse * 0.15, "straight movement keeps Manoeuvre Thruster at standby");
+  turnOnly.turnActivity = 0.5;
+  updateShipPowerDemand(turnOnly, room(), 2400);
+  close(demand(turnOnly, 1), PARTS.gyroscope.powerUse * (0.15 + 0.5 * 0.85), "Gyroscope demand follows turn effort");
+  close(demand(turnOnly, 2), PARTS.maneuverThruster.powerUse * (0.15 + 0.5 * 0.85), "Manoeuvre Thruster demand follows turn effort");
+});
 
 // Shields.
 let shielded = makeShip([mod("reactor", 0, 0), mod("shield", 2, 0)], [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]]);

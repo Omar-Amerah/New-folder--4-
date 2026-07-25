@@ -62,7 +62,11 @@ function run() {
   const driftBefore = Math.hypot(gyroDrifter.vx, gyroDrifter.vy);
   updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, gyroDrifter, 1 / 30);
   assert(gyroDrifter.angle > 0, "powered Gyroscope turns toward the movement target while drifting");
+  assert(gyroDrifter.componentHeatInput[2] > 0, "powered Gyroscope produces Heat while turning");
   assert(Math.hypot(gyroDrifter.vx, gyroDrifter.vy) > 0 && Math.hypot(gyroDrifter.vx, gyroDrifter.vy) <= driftBefore, "Gyroscope-only ship preserves bounded drift without accelerating");
+  const idleGyro = runtimeShip(gyroOnly, { targetX: 300, targetY: 300, arrived: true });
+  updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, idleGyro, 1 / 30);
+  assert.strictEqual(idleGyro.componentHeatInput[2], 0, "idle Gyroscope produces no activity Heat");
 
   const engineDesign = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "reactor" }, { x: 7, y: 8, type: "engine" }, { x: 6, y: 7, type: "gyroscope" }];
   const restored = runtimeShip(engineDesign, { vx: 40, targetX: 1000, targetY: 300 });
@@ -73,6 +77,7 @@ function run() {
   restored.componentPower.byComponentIndex[2].operationalMultiplier = 1;
   updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, restored, 1 / 30);
   assert(restored.vx > offlineVelocity, "restored Engine resumes acceleration without resetting velocity");
+  assert(restored.componentHeatInput[2] > 0, "powered Engine produces Heat while thrusting");
 
   const disconnectedGyro = runtimeShip(gyroOnly);
   disconnectedGyro.componentPower.byComponentIndex[2].operationalMultiplier = 0;
@@ -101,6 +106,7 @@ function run() {
   fullPowerThruster.targetY = underpoweredThruster.targetY;
   updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, fullPowerThruster, 1 / 30);
   assert(Math.abs(underpoweredThruster.angle) < Math.abs(fullPowerThruster.angle), "underpowered turning output scales below full-Power authority");
+  assert(fullPowerThruster.componentHeatInput[3] > 0, "Manoeuvre Thruster produces Heat while turning");
 
   // 2. Monotonicity: adding a powered engine never worsens movement.
   let prev = null;

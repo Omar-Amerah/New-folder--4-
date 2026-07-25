@@ -428,10 +428,12 @@ function weaponActivity(ship, index, now) {
   const last = ship._weaponIntentAt[index];
   return Number.isFinite(last) && (now - last) < WEAPON_INTENT_HOLD_MS ? 1 : 0;
 }
-function propulsionActivity(ship) {
-  // Requested effort from current controls: linear drive toward a move target
-  // and/or the recorded turn effort.
+function propulsionActivity(ship, part) {
+  // Gyroscopes and lateral thrusters do no linear work: they request active
+  // Power only while turning. Main engines also vector some thrust for turning,
+  // so either linear movement or turn effort activates them.
   const turn = clamp01(Math.abs(Number(ship.turnActivity) || 0));
+  if (!(Number(part?.thrust) > 0)) return turn;
   const moving = ship.arrived === false ? 1 : 0;
   return Math.max(turn, moving);
 }
@@ -449,7 +451,7 @@ function coolingActivity(ship) { return clamp01(Number(ship.heatPressure) || 0);
 function componentActivityLevel(ship, index, module, part, now) {
   if (part.weapon) return weaponActivity(ship, index, now);
   switch (part.powerCategory) {
-    case "propulsion": return propulsionActivity(ship);
+    case "propulsion": return propulsionActivity(ship, part);
     case "shields": return shieldActivity(ship);
     case "coolingSupport":
       if (Number(part.repair) > 0) return repairActivity(ship, now);

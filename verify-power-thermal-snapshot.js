@@ -18,7 +18,7 @@ const { snapshotRoom } = require("./src/server/snapshots");
     powerStatus: { ok: true }, powerRevision: 7, wiringRevision: 2,
     powerFlow: { summary: { availableGenerationMw: 8, demandMw: 3, allocatedMw: 3, spareGenerationMw: 5, unmetMw: 0, aboveSustainedSections: 0, atPeakSections: 0, preset: "balanced" } },
     powerCableThermalAnalysis: { summary: { hottestSectionId: "0,0:1,0" }, components: [{ componentIndex: 1, hostedActiveSectionIds: ["0,0:1,0"] }] },
-    componentHeatGenerated: [0.2, 0.4], componentPowerCableHeatRate: [0, 0.1], componentPowerCableHeatGenerated: [0, 0.05],
+    componentHeatGenerated: [0.2, 0.4], componentPowerActivity: [0, 1], componentPowerCableHeatRate: [0, 0.1], componentPowerCableHeatGenerated: [0, 0.05],
     componentHeatCooled: [0.1, 0.2], componentHeatRadiated: [9, 9], powerCableHeatRate: 0.1, lastHeatTickDelta: 0.5
   };
   const player = { id: "p", name: "P", color: "#fff", team: "blue", ships: [ship], selectedShipIds: new Set(), stats: {}, money: 0, rallyPoint: { x: 0, y: 0 } };
@@ -29,6 +29,8 @@ const { snapshotRoom } = require("./src/server/snapshots");
   const fullShip = full.ships[0];
   assert(fullShip.powerThermal, "initial full snapshot includes powerThermal");
   close(fullShip.powerThermal.componentHeatRate, 1.2, "initial component Heat rate converts amount to rate");
+  close(fullShip.powerThermal.components[1].componentHeatRate, 0.8, "per-component Heat rate is exposed");
+  close(fullShip.powerThermal.components[1].activityLevel, 1, "per-component activity is exposed");
 
   client.knownShipDesignRevisions = new Map([["s", 1]]);
   client.knownShipPowerRevisions.set("s", ship.powerRevision);

@@ -542,9 +542,17 @@ function renderComponentHeatReadout(ship, index) {
   const trendText = trend.direction === "warming" ? ` — Warming ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "cooling" ? ` — Cooling ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "stable" ? " — Stable" : "";
+  const heatRate = Number(ship.powerThermal?.components?.[index]?.componentHeatRate) || 0;
+  const activityText = heatRate > 0
+    ? part.type === "gyroscope" || part.type === "maneuverThruster"
+      ? ` · Turning · generating ${formatHeatAmount(heatRate)} H/s`
+      : (Number(PART_STATS[part.type]?.thrust) || 0) > 0
+        ? ` · Thrusting · generating ${formatHeatAmount(heatRate)} H/s`
+        : ` · Generating ${formatHeatAmount(heatRate)} H/s`
+    : "";
   // Thermal-only: Power requested/allocated, cable Heat and hosted-section
   // protection detail now live in the Power tab, not this Heat readout.
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${perfText}`;
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${activityText}${perfText}`;
 }
 
 function renderComponentDamageReadout(ship, index) {

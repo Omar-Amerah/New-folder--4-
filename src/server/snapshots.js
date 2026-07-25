@@ -296,6 +296,8 @@ function buildRuntimePowerThermalSnapshot(ship) {
     deliveredGenerationMw: used,
     unusedGenerationMw: available === null || used === null ? null : Math.max(0, available - used),
     reductionReasons: reasons,
+    activityLevel: Number(ship.componentPowerActivity?.[i]) || 0,
+    componentHeatRate: (Number(ship.componentHeatGenerated?.[i]) || 0) / elapsed,
     powerCableHeatRate: Number(ship.componentPowerCableHeatRate?.[i]) || 0,
     powerCableHeatGenerated: Number(ship.componentPowerCableHeatGenerated?.[i]) || 0,
     hostedActiveSectionIds: cable.components?.find?.((entry) => entry.componentIndex === i)?.hostedActiveSectionIds || []

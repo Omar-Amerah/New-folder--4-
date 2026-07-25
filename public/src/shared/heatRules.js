@@ -56,6 +56,8 @@
     if (type === "battery" || type === "capacitor") return 0;
     if ((part.powerGeneration || 0) > 0) return 2 + part.powerGeneration * 0.42;
     if ((part.thrust || 0) > 0) return 2 + part.thrust * 0.018;
+    if ((part.lateralThrust || 0) > 0) return 2 + part.lateralThrust * 0.018;
+    if ((part.turn || 0) > 0) return 2 + part.turn * 1.5;
     if ((part.shieldRegen || 0) > 0) return part.shieldRegen * 0.7;
     if ((part.repairRate || 0) > 0) return 1.5 + part.repairRate * 0.35;
     return 0;
