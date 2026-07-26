@@ -63,7 +63,13 @@ export const PART_DEFS = {
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
-  droneBay: { name: "Drone Bay", color: "#67e8f9", glyph: "radial-gradient(circle at 50% 50%, #e0f2fe 0 13%, #22d3ee 15% 28%, #0e7490 30% 43%, #082f49 45%)" }
+  droneBay: { name: "Drone Bay", color: "#67e8f9", glyph: "radial-gradient(circle at 50% 50%, #e0f2fe 0 13%, #22d3ee 15% 28%, #0e7490 30% 43%, #082f49 45%)" },
+  fireControlCommandCentre: { name: "Fire-Control Command Centre", color: "#fdba74", glyph: "radial-gradient(circle, #fff7ed 0 18%, #f97316 28% 55%, #7c2d12 60%)" },
+  fleetDefenceCoordinator: { name: "Fleet Defence Coordinator", color: "#fca5a5", glyph: "radial-gradient(circle, #fef2f2 0 18%, #ef4444 28% 55%, #7f1d1d 60%)" },
+  shieldCommandRelay: { name: "Shield Command Relay", color: "#86efac", glyph: "radial-gradient(circle, #dcfce7 0 18%, #22c55e 28% 55%, #14532d 60%)" },
+  engineeringCommandCentre: { name: "Engineering Command Centre", color: "#93c5fd", glyph: "radial-gradient(circle, #eff6ff 0 18%, #3b82f6 28% 55%, #172554 60%)" },
+  propulsionCommandRelay: { name: "Propulsion Command Relay", color: "#67e8f9", glyph: "radial-gradient(circle, #ecfeff 0 18%, #06b6d4 28% 55%, #164e63 60%)" },
+  electronicWarfareCommandCentre: { name: "Electronic Warfare Command Centre", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 18%, #a855f7 28% 55%, #3b0764 60%)" }
 };
 
 // These structural silhouettes show their direction through their geometry, so

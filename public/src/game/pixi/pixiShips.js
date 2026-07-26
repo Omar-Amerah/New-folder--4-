@@ -924,6 +924,35 @@ function drawPixiSelectionRing(env, gfx, ship, zoom, players) {
   });
 }
 
+function drawPixiCommandAura(env, gfx, ship, zoom, players) {
+  const player = players?.get?.(ship.ownerId) || null;
+  const mine = state.mine || players?.get?.(state.myId) || null;
+  const friendly = ship.ownerId === state.myId || Boolean(mine?.team && player?.team && mine.team === player.team);
+  if (!friendly) return;
+
+  if (ship.commandAuraActive && state.selectedShipIds.has(ship.id)) {
+    const dashLen = 5 / zoom;
+    const gapLen = 11 / zoom;
+    const circumference = Math.PI * 2 * COMMAND_AURA_RANGE;
+    const dashCount = Math.min(120, Math.max(8, Math.floor(circumference / (dashLen + gapLen))));
+    const dashAngle = (Math.PI * 2) / dashCount;
+    const dashArc = dashAngle * (dashLen / (dashLen + gapLen));
+    for (let i = 0; i < dashCount; i += 1) {
+      const startAngle = i * dashAngle;
+      gfx.moveTo(ship.x + Math.cos(startAngle) * COMMAND_AURA_RANGE, ship.y + Math.sin(startAngle) * COMMAND_AURA_RANGE);
+      gfx.arc(ship.x, ship.y, COMMAND_AURA_RANGE, startAngle, startAngle + dashArc);
+    }
+    gfx.stroke({ width: 1.5 / zoom, color: "rgba(167,139,250,0.55)" });
+  }
+
+  if (ship.commandAuraReceived) {
+    const r = (ship.radius || 26) + 7;
+    gfx.moveTo(ship.x + r, ship.y);
+    gfx.arc(ship.x, ship.y, r, 0, Math.PI * 2);
+    gfx.stroke({ width: 1.0 / zoom, color: "rgba(167,139,250,0.35)" });
+  }
+}
+
 function drawPixiDestructWarning(gfx, ship, progress, zoom, now) {
   const r = (ship.radius || 26) + 10;
   const pulse = 0.5 + 0.5 * Math.sin(now * 0.02 * (1 + progress * 3));
@@ -1037,6 +1066,7 @@ export function updatePixiShips(env, now, players, bounds) {
       }
 
       if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
+      if (ship.commandAuraActive || ship.commandAuraReceived) drawPixiCommandAura(env, overlay, renderShip, zoom, players);
       if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom, players);
       if (ship.destructProgress != null && ship.alive) {
         drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
