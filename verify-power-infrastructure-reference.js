@@ -133,6 +133,7 @@ check("37/38. the same solved flow drives utilisation, cable Heat, stress, trips
   const hostMap = ship._infrastructureHostMaps.power;
   const protectionSections = ship._powerProtection.sections;
   for (const flow of ship.powerFlow.sectionFlows) {
+    if (flow.internal) continue; // internal component-adjacency edges are not physical cables
     const record = protectionSections.get(String(flow.sectionId));
     assert(record, `protection record exists for ${flow.sectionId}`);
     // Protection reads the exact solved flow and tier capacities.
