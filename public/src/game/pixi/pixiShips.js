@@ -328,8 +328,8 @@ function updatePixiDamageFlashes(view, ship, design, now) {
   }
 }
 
-function updatePixiCoreWarning(view, ship, zoom) {
-  const warning = ship.alive ? activeCoreWarning(ship.id, performance.now()) : null;
+function updatePixiCoreWarning(view, ship, zoom, now = performance.now()) {
+  const warning = ship.alive ? activeCoreWarning(ship.id, now) : null;
   const text = view.coreWarnText;
   if (!warning) {
     text.visible = false;
@@ -364,7 +364,7 @@ function updatePixiEngineExhaust(view, ship, now) {
   const speedRatio = clamp(speed / maxSpeed, 0, 1);
   const intensity = engineThrustRatio(ship);
   const liveEngines = aliveEngineNozzles(ship, view.engines);
-  emitEngineSmoke(ship, liveEngines, SHIP_SCALE, now);
+  emitEngineSmoke(ship, liveEngines, SHIP_SCALE, now, intensity);
 
   const jets = computeManeuverJets(ship, ship.design || [], SHIP_SCALE, now);
   if (jets) {
@@ -735,12 +735,13 @@ function setPixiBarText(text, val, maxVal, height, centerX, centerY) {
   const label = `${Math.round(val)} / ${Math.round(maxVal)}`;
   if (text.text !== label) text.text = label;
   const fontSize = Math.max(7, Math.floor(height * 0.85));
-  text.scale.set(fontSize / 12);
+  const targetScale = fontSize / 12;
+  if (text.scale.x !== targetScale) text.scale.set(targetScale);
   text.position.set(centerX, centerY + 1);
   text.visible = true;
 }
 
-function updatePixiHealthBars(env, view, ship, player, zoom, shipHud = null) {
+function updatePixiHealthBars(env, view, ship, player, zoom, shipHud = null, now = performance.now()) {
   const gfx = view.hudGfx;
   if (!ship.alive) {
     if (view.hudBarsSig !== null) {
@@ -757,7 +758,7 @@ function updatePixiHealthBars(env, view, ship, player, zoom, shipHud = null) {
   // updateShipHud runs every frame so the smoothed hp/lag animation advances;
   // the Graphics re-tessellation below is the expensive part and is skipped
   // whenever every input that affects the drawn output is unchanged.
-  const hud = shipHud || updateShipHud(ship, performance.now());
+  const hud = shipHud || updateShipHud(ship, now);
   const selected = state.selectedShipIds.has(ship.id);
   const borderColor = statusBorderColorForPlayer(player);
   view.cachedStatusBorderOwnerId = player.id;
@@ -1017,9 +1018,9 @@ export function updatePixiShips(env, now, players, bounds) {
       updatePixiEngineExhaust(view, renderShip, now);
       updatePixiTurrets(env, view, ship, design);
       updatePixiComponentDamage(view, ship, design);
-      updatePixiDamageFlashes(view, ship, design, performance.now());
-      updatePixiCoreWarning(view, ship, zoom);
-      updatePixiHealthBars(env, view, ship, player, zoom, shipHud);
+      updatePixiDamageFlashes(view, ship, design, now);
+      updatePixiCoreWarning(view, ship, zoom, now);
+      updatePixiHealthBars(env, view, ship, player, zoom, shipHud, now);
       updatePixiShipLabels(view, renderShip, player, zoom);
 
       if (debug) {
@@ -1042,7 +1043,7 @@ export function updatePixiShips(env, now, players, bounds) {
     if (!visibleShipIds.has(id)) state.shipHud.delete(id);
   }
 
-  pruneComponentDamage(visibleShipIds, performance.now());
+  pruneComponentDamage(visibleShipIds, now);
 }
 
 // Tears down the ship pool (releasing every texture lease and destroying display

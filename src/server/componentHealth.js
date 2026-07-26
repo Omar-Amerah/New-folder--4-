@@ -11,6 +11,7 @@
 // only rebuilt at creation (and by the dev-mode consistency check).
 
 const { PARTS } = require("./components");
+const { getCommandAuraMultiplier } = require("./commandAuras");
 const { getOccupiedCells } = require("./footprint");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const HeatRules = require("../../public/src/shared/heatRules");
@@ -405,6 +406,7 @@ function recalcEffectiveStats(ship) {
 // Restoring a destroyed component above zero re-enables it and recalculates the
 // affected ship systems. Returns the amount actually restored.
 function repairShipComponents(room, ship, amount, now) {
+  amount *= getCommandAuraMultiplier(ship, "repairRateMultiplier");
   if (amount <= 0) return 0;
   if (!ship.componentHp) {
     const healed = Math.min(ship.maxHp - ship.hp, amount);

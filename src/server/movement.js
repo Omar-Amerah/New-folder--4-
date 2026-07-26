@@ -6,6 +6,7 @@ const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
+const { getCommandAuraMultiplier } = require("./commandAuras");
 const { calculateDirectionalTurnInputs, calculateMovementPowerMultiplier, calculateMovementStats, maneuverThrusterTorqueSign } = require("../../public/src/shared/movementStats.js");
 const { selectOwnedLivingShips } = require("./selection");
 const { getComponentPowerMultiplier, effectiveShieldStats } = require("./componentPower");
@@ -34,12 +35,19 @@ function heatAdjustedMovementStats(ship, stats) {
     componentMultiplier: multiplier,
     isBlockedEngine: (i, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && ship.validEngineIndices && !ship.validEngineIndices.has(i)
   });
-  return { ...stats, ...calculateMovementStats({ mass: stats.mass, thrust: stats.thrust, turnBonus: 0,
+  const movement = calculateMovementStats({ mass: stats.mass, thrust: stats.thrust, turnBonus: 0,
     powerGeneration: stats.powerGeneration, powerUse: stats.powerUse, engineThrustValues, engineMassValues,
     // Preserve the established surplus-Power bonus, but never reapply a
     // ship-wide deficit after consumers have been scaled individually.
     directionalTurnInputs, movementPowerMultiplier: Math.max(1,
-      calculateMovementPowerMultiplier(stats.powerGeneration || 0, stats.powerUse || 0)) }) };
+      calculateMovementPowerMultiplier(stats.powerGeneration || 0, stats.powerUse || 0)) });
+  const accelMult = getCommandAuraMultiplier(ship, "accelerationMultiplier");
+  const turnMult = getCommandAuraMultiplier(ship, "turnRateMultiplier");
+  if (Number.isFinite(movement.accel) && Number.isFinite(accelMult) && accelMult !== 1) movement.accel *= accelMult;
+  if (Number.isFinite(movement.turnRate) && Number.isFinite(turnMult) && turnMult !== 1) movement.turnRate *= turnMult;
+  if (Number.isFinite(movement.turnRateLeft) && Number.isFinite(turnMult) && turnMult !== 1) movement.turnRateLeft *= turnMult;
+  if (Number.isFinite(movement.turnRateRight) && Number.isFinite(turnMult) && turnMult !== 1) movement.turnRateRight *= turnMult;
+  return { ...stats, ...movement };
 }
 
 function directionalTurnRate(stats, current, desired, ship = null) {

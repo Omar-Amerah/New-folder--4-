@@ -9,6 +9,7 @@ const VALID_POWER_CATEGORIES = new Set(["command", "propulsion", "shields", "poi
 const POWER_SOURCE_IDS = new Set(["core", "reactor", "nuclearReactor", "auxGenerator"]);
 const POWER_TIER_NAMES = ["light", "standard", "heavy"];
 const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "costPerHostedCell", "heatCapacityDisplacement", "renderedThickness"];
+const VALID_AURA_TYPES = new Set(["command", "fireControl", "fleetDefence", "shield", "engineering", "propulsion", "ewar"]);
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
   "thrust", "turn", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
@@ -178,6 +179,40 @@ function validateWiringInfrastructure(infrastructure, filePath, errors) {
   }
 }
 
+const AURA_STAT_KEYS = [
+  "weaponAccuracyMultiplier", "weaponTrackingMultiplier", "turretAimSpeedMultiplier", "targetAcquisitionMultiplier",
+  "pointDefenceTrackingMultiplier", "flakTrackingMultiplier", "interceptionReactionMultiplier",
+  "shieldRegenMultiplier", "shieldRestartDelayMultiplier",
+  "repairRateMultiplier", "heatDissipationMultiplier", "overheatRecoveryMultiplier",
+  "accelerationMultiplier", "turnRateMultiplier", "formationResponseMultiplier",
+  "sensorRangeMultiplier", "missileTrackingResistanceMultiplier", "targetRetentionMultiplier"
+];
+
+function validateCommandAura(commandAura, filePath, errors) {
+  const path = `${filePath}.commandAura`;
+  if (!commandAura || typeof commandAura !== "object" || Array.isArray(commandAura)) {
+    errors.push(`${path} must be an object.`);
+    return;
+  }
+  if (!isFiniteNonNegative(commandAura.range)) errors.push(`${path}.range must be a finite non-negative number.`);
+  if (commandAura.selfAura !== undefined && typeof commandAura.selfAura !== "boolean") errors.push(`${path}.selfAura must be a boolean when present.`);
+  if (commandAura.notes !== undefined && typeof commandAura.notes !== "string" && !Array.isArray(commandAura.notes)) errors.push(`${path}.notes must be a string or array when present.`);
+}
+
+function validateComponentAura(aura, path, errors) {
+  if (aura === undefined || aura === null) return;
+  if (typeof aura !== "object" || Array.isArray(aura)) {
+    errors.push(`${path}.aura must be an object when present.`);
+    return;
+  }
+  if (!VALID_AURA_TYPES.has(aura.type)) errors.push(`${path}.aura.type must be one of ${[...VALID_AURA_TYPES].join(", ")}.`);
+  validateNumberObject(aura, AURA_STAT_KEYS, `${path}.aura`, errors);
+  for (const key of Object.keys(aura)) {
+    if (key === "type" || AURA_STAT_KEYS.includes(key)) continue;
+    errors.push(`${path}.aura.${key} is not a recognised aura field.`);
+  }
+}
+
 function validateComponentBalance(balance, { filePath = "component-balance.json" } = {}) {
   const errors = [];
   if (!balance || typeof balance !== "object" || Array.isArray(balance)) {
@@ -208,6 +243,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   validateWiringInfrastructure(balance.wiringInfrastructure, filePath, errors);
   validatePowerDemand(balance.powerDemand, filePath, errors);
   validatePowerProtection(balance.powerProtection, filePath, errors);
+  validateCommandAura(balance.commandAura, filePath, errors);
   const seen = new Set();
   balance.components.forEach((component, index) => {
     const prefix = `${filePath}.components[${index}]`;
@@ -240,6 +276,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     if (component.description !== undefined && typeof component.description !== "string") errors.push(`${path}.description must be a string when present.`);
     if (Object.prototype.hasOwnProperty.call(component, "heat")) errors.push(`${path}.heat is unsupported; use explicit Heat profile rules instead.`);
     validateNumberObject(component, NUMERIC_FIELDS, path, errors);
+    validateComponentAura(component.aura, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
     validateBoolean(component.rotationRequired, `${path}.rotationRequired`, errors);
     if (component.footprint !== undefined) {

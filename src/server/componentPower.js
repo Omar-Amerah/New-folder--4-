@@ -2,6 +2,7 @@
 // always the immutable normalized blueprint; all battle damage lives here.
 
 const { PARTS } = require("./components");
+const { getCommandAuraMultiplier } = require("./commandAuras");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
 const PowerFlowRules = require("../../public/src/shared/powerFlowRules");
@@ -21,6 +22,10 @@ const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
 // 10 Hz. A consumer becoming active still solves immediately so controls and
 // weapon activation do not gain an extra 100 ms of latency.
 const POWER_DEMAND_SOLVE_INTERVAL_MS = 100;
+// Resolved lazily to preserve the existing circular-import order, but memoised
+// so the per-tick demand loop does not re-enter the module cache per Drone Bay.
+let _drones = null;
+function droneModule() { return _drones || (_drones = require("./drones")); }
 function isPowerSource(module) {
   return SOURCE_TYPES.has(module?.type) || (Number(PARTS[module?.type]?.powerGeneration) || 0) > 0;
 }
@@ -471,11 +476,21 @@ function repairActivity(ship, now) {
 }
 function coolingActivity(ship) { return clamp01(Number(ship.heatPressure) || 0); }
 
-function componentActivityLevel(ship, index, module, part, now) {
+// `cache` memoises ship-wide activity terms for the duration of one demand
+// pass. `shieldActivity` walks the whole design through
+// `calculateShieldCapacityContributions`, so resolving it per shield component
+// made a ship with N shield generators do N full design scans every tick.
+// Nothing in the demand loop mutates the state it reads, so one evaluation per
+// pass is equivalent.
+function componentActivityLevel(ship, index, module, part, now, cache = null) {
   if (part.weapon) return weaponActivity(ship, index, now);
   switch (part.powerCategory) {
     case "propulsion": return propulsionActivity(ship, part);
-    case "shields": return shieldActivity(ship);
+    case "shields": {
+      if (!cache) return shieldActivity(ship);
+      if (cache.shieldActivity === undefined) cache.shieldActivity = shieldActivity(ship);
+      return cache.shieldActivity;
+    }
     case "coolingSupport":
       if (Number(part.repair) > 0) return repairActivity(ship, now);
       if (module.type === "radiator") return coolingActivity(ship);
@@ -497,23 +512,39 @@ function updateShipPowerDemand(ship, room, now) {
   const standby = BALANCE.powerDemand;
   const activity = design.map(() => 0);
   const demandByIndex = {};
-  const signatureParts = [];
+  const activityCache = {};
+  // Demand change detection compares fixed-point Power units directly instead
+  // of building a `"index:units|..."` string every tick for every ship.
+  // `mwToPowerUnits` is always a non-negative integer, so -1 is a safe
+  // "not a Power consumer" sentinel and the comparison stays exact (a hash
+  // would risk silently skipping a reallocation on collision).
+  let units = ship._powerDemandUnits;
+  if (!(units instanceof Float64Array) || units.length !== design.length) {
+    units = ship._powerDemandUnits = new Float64Array(design.length);
+  }
+  units.fill(-1);
   for (let i = 0; i < design.length; i += 1) {
     const module = design[i];
     const part = PARTS[module && module.type];
     if (!part || !(Number(part.powerUse) > 0)) continue; // demand is per Power consumer
     const alive = (ship.componentHp?.[i] ?? 1) > 0;
-    const level = alive ? clamp01(componentActivityLevel(ship, i, module, part, now)) : 0;
+    const level = alive ? clamp01(componentActivityLevel(ship, i, module, part, now, activityCache)) : 0;
     activity[i] = level;
     const requested = module.type === "droneBay"
-      ? require("./drones").bayPowerRequest(ship, i)
+      ? droneModule().bayPowerRequest(ship, i)
       : PowerDemandRules.requestedMwForComponent(part, level, standby);
     demandByIndex[i] = requested;
-    signatureParts.push(`${i}:${PowerAllocationRules.mwToPowerUnits(requested)}`);
+    units[i] = PowerAllocationRules.mwToPowerUnits(requested);
   }
   ship.componentPowerActivity = activity;
-  const signature = signatureParts.join("|");
-  if (ship._powerDemandSignature === signature) { ship.powerDemandDirty = false; return; }
+  const applied = ship._powerDemandAppliedUnits;
+  if (applied instanceof Float64Array && applied.length === units.length) {
+    let identical = true;
+    for (let i = 0; i < units.length; i += 1) {
+      if (units[i] !== applied[i]) { identical = false; break; }
+    }
+    if (identical) { ship.powerDemandDirty = false; return; }
+  }
 
   const appliedActivity = ship._powerDemandAppliedActivity;
   const appliedDemand = ship._powerDemandAppliedByIndex || {};
@@ -551,7 +582,11 @@ function updateShipPowerDemand(ship, room, now) {
     return;
   }
 
-  ship._powerDemandSignature = signature;
+  let appliedUnits = ship._powerDemandAppliedUnits;
+  if (!(appliedUnits instanceof Float64Array) || appliedUnits.length !== units.length) {
+    appliedUnits = ship._powerDemandAppliedUnits = new Float64Array(units.length);
+  }
+  appliedUnits.set(units);
   ship._powerDemandAppliedActivity = activity.slice();
   ship._powerDemandAppliedByIndex = { ...demandByIndex };
   ship._powerDemandLastSolvedAt = Number(now);
@@ -622,12 +657,14 @@ function effectiveShieldCapacityContributions(ship) {
 
 function effectiveShieldStats(ship) {
   const HeatRules = require("../../public/src/shared/heatRules");
-  return ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
+  const stats = ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
     isLive: (index) => (ship.componentHp?.[index] ?? 1) > 0,
     powerMultiplier: (index) => getComponentPowerMultiplier(ship, index),
     capacityPowerMultiplier: (index) => getShieldCapacityPowerMultiplier(ship, index),
     heatMultiplier: (index, module, part) => (Number(part.shieldRegen) || 0) > 0 ? HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL) : 1
   });
+  stats.recharge *= getCommandAuraMultiplier(ship, "shieldRegenMultiplier");
+  return stats;
 }
 
 function componentHostsWiring(ship, index) {

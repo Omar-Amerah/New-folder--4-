@@ -179,7 +179,15 @@ function pixiFrame() {
     const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrameAt) / 1000));
     state.lastFrameAt = now;
     state.dt = dt;
-    state.debugStats = { drawnShips: 0, totalShips: 0, drawnBullets: 0, totalBullets: 0, drawnAsteroids: 0, totalAsteroids: 0, drawnEffects: 0, totalEffects: 0 };
+    if (!state.debugStats) state.debugStats = { drawnShips: 0, totalShips: 0, drawnBullets: 0, totalBullets: 0, drawnAsteroids: 0, totalAsteroids: 0, drawnEffects: 0, totalEffects: 0 };
+    state.debugStats.drawnShips = 0;
+    state.debugStats.totalShips = 0;
+    state.debugStats.drawnBullets = 0;
+    state.debugStats.totalBullets = 0;
+    state.debugStats.drawnAsteroids = 0;
+    state.debugStats.totalAsteroids = 0;
+    state.debugStats.drawnEffects = 0;
+    state.debugStats.totalEffects = 0;
 
     lastRenderStage = "interpolateShips";
     interpolateShips(dt, now);

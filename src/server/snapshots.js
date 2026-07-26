@@ -311,6 +311,14 @@ function buildRuntimePowerThermalSnapshot(ship) {
   const componentHeatRate = (ship.componentHeatGenerated || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
   const cooling = (ship.componentHeatCooled || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
   const powerCableHeatRate = Number(ship.powerCableHeatRate) || 0;
+  // Index the cable component rows once. Looking each row up with
+  // `cable.components.find(...)` inside the per-component map made this
+  // O(components^2), and it runs per viewer per ship on every snapshot that
+  // carries heat deltas.
+  const cableComponentsByIndex = new Map();
+  for (const entry of cable.components || []) {
+    if (entry && !cableComponentsByIndex.has(entry.componentIndex)) cableComponentsByIndex.set(entry.componentIndex, entry);
+  }
   const components = (ship.design || []).map((part, i) => {
     const cp = ship.componentPower?.byComponentIndex?.[i] || {};
     const rated = Number(PARTS[part?.type]?.powerGeneration) || 0;
@@ -334,7 +342,7 @@ function buildRuntimePowerThermalSnapshot(ship) {
     componentHeatRate: (Number(ship.componentHeatGenerated?.[i]) || 0) / elapsed,
     powerCableHeatRate: Number(ship.componentPowerCableHeatRate?.[i]) || 0,
     powerCableHeatGenerated: Number(ship.componentPowerCableHeatGenerated?.[i]) || 0,
-    hostedActiveSectionIds: cable.components?.find?.((entry) => entry.componentIndex === i)?.hostedActiveSectionIds || []
+    hostedActiveSectionIds: cableComponentsByIndex.get(i)?.hostedActiveSectionIds || []
   });
   });
   const powerCableHeatBySectionId = {};

@@ -5,24 +5,14 @@ const { validateClientMessage } = require("./clientSchemas");
 const { serverEnvelope } = require("./protocol");
 const { recordOutbound } = require("./performanceTelemetry");
 
-const BINARY_OPCODE = 0x2;
+const { BINARY_OPCODE, writeFrameTo } = require("./wsFrame");
 const CONTROL_QUEUE_BYTE_LIMIT = 256 * 1024;
 const TOTAL_QUEUE_BYTE_LIMIT = 768 * 1024;
 const BLOCKED_CLOSE_MS = 15000;
 let writeFrame = defaultWriteFrame;
 let closeClient = null;
-function defaultWriteFrame(socket, payload, opcode = 0x2) {
-  if (typeof payload === "string") payload = Buffer.from(payload, "utf8");
-  else if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
-  const length = payload.length;
-  const headerLength = length < 126 ? 2 : length <= 65535 ? 4 : 10;
-  const frame = Buffer.allocUnsafe(headerLength + length);
-  frame[0] = 0x80 | opcode;
-  if (headerLength === 2) frame[1] = length;
-  else if (headerLength === 4) { frame[1] = 126; frame.writeUInt16BE(length, 2); }
-  else { frame[1] = 127; frame.writeUInt32BE(0, 2); frame.writeUInt32BE(length, 6); }
-  payload.copy(frame, headerLength);
-  return socket.write(frame);
+function defaultWriteFrame(socket, payload, opcode = BINARY_OPCODE) {
+  return writeFrameTo(socket, payload, opcode);
 }
 function configureOutbound(deps = {}) { writeFrame = deps.writeFrame || writeFrame; closeClient = deps.closeClient || closeClient; }
 function safeClose(client, code, reason) { if (closeClient) closeClient(client, code, reason); else { client.isClosed = true; client.socket?.destroy?.(); } }

@@ -14,6 +14,8 @@ import { footprintLocalPlacement } from "./shipGeometry.js";
 import { componentHealthRatio } from "./shipVitals.js";
 
 const renderedDesignStatsCache = new WeakMap();
+const centerOfMassCache = new WeakMap();
+let visibleSmoke = [];
 const MANEUVER_JET_FADE_SECONDS = 0.16;
 const MANEUVER_JET_RISE_SECONDS = 0.09;
 const MANEUVER_JET_MIN_ACTIVITY = 0.01;
@@ -72,9 +74,9 @@ export function aliveEngineNozzles(ship, nozzles) {
   });
 }
 
-export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now()) {
-  const intensity = engineThrustRatio(ship);
-  if (intensity < 0.18 || !Array.isArray(nozzles) || nozzles.length === 0) return;
+export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now(), intensity = null) {
+  const thrust = intensity ?? engineThrustRatio(ship);
+  if (thrust < 0.18 || !Array.isArray(nozzles) || nozzles.length === 0) return;
   if (!state.engineSmoke) state.engineSmoke = [];
   if (!state.engineSmokeEmitters) state.engineSmokeEmitters = new Map();
 
@@ -86,7 +88,7 @@ export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now
   // Slightly less smoke overall, thinned further on lower graphics settings by
   // stretching the emit cadence (fewer puffs) as density drops.
   const density = getEffectDensity();
-  const cadence = (125 - intensity * 58) / Math.max(0.2, density);
+  const cadence = (125 - thrust * 58) / Math.max(0.2, density);
   const shipKey = String(ship.id || "ship");
 
   for (let i = 0; i < nozzles.length; i += 1) {
@@ -100,12 +102,12 @@ export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now
     const nozzleAngle = nz.angle || 0;
     const exhaustX = -Math.cos(nozzleAngle), exhaustY = -Math.sin(nozzleAngle);
     const crossX = -exhaustY, crossY = exhaustX;
-    const offset = nz.halfW * (0.9 + intensity * 1.4);
+    const offset = nz.halfW * (0.9 + thrust * 1.4);
     const localX = nz.x + exhaustX * offset + crossX * jitter;
     const localY = nz.y + exhaustY * offset + crossY * jitter;
     const wx = ship.x + localX * cos - localY * sin;
     const wy = ship.y + localX * sin + localY * cos;
-    const push = 26 + intensity * 74;
+    const push = 26 + thrust * 74;
     const worldExhaustX = exhaustX * cos - exhaustY * sin;
     const worldExhaustY = exhaustX * sin + exhaustY * cos;
     state.engineSmoke.push({
@@ -113,8 +115,8 @@ export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now
       y: wy,
       vx: vx * 0.18 + worldExhaustX * push + (Math.random() - 0.5) * 14,
       vy: vy * 0.18 + worldExhaustY * push + (Math.random() - 0.5) * 14,
-      radius: Math.max(3.2, scale * (0.18 + intensity * 0.34)),
-      alpha: 0.14 + intensity * 0.18,
+      radius: Math.max(3.2, scale * (0.18 + thrust * 0.34)),
+      alpha: 0.14 + thrust * 0.18,
       createdAt: now,
       life: 1900 + Math.random() * 900
     });
@@ -127,25 +129,25 @@ export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now
 
 export function activeEngineSmoke(now = performance.now()) {
   if (!state.engineSmoke) state.engineSmoke = [];
-  const visible = [];
-  const kept = [];
-  for (const smoke of state.engineSmoke) {
+  visibleSmoke.length = 0;
+  let write = 0;
+  for (let i = 0; i < state.engineSmoke.length; i += 1) {
+    const smoke = state.engineSmoke[i];
     const age = now - smoke.createdAt;
     const life = smoke.life || 2200;
     const t = age / life;
     if (t >= 1) continue;
-    kept.push(smoke);
+    state.engineSmoke[write++] = smoke;
     const drift = age / 1000;
     const fade = Math.pow(1 - t, 1.65);
-    visible.push({
-      x: smoke.x + smoke.vx * drift,
-      y: smoke.y + smoke.vy * drift,
-      radius: smoke.radius * (1 + t * 2.2),
-      alpha: smoke.alpha * fade
-    });
+    smoke.renderX = smoke.x + smoke.vx * drift;
+    smoke.renderY = smoke.y + smoke.vy * drift;
+    smoke.renderRadius = smoke.radius * (1 + t * 2.2);
+    smoke.renderAlpha = smoke.alpha * fade;
+    visibleSmoke.push(smoke);
   }
-  state.engineSmoke = kept;
-  return visible;
+  state.engineSmoke.length = write;
+  return visibleSmoke;
 }
 
 // Tracks each ship's angular velocity between frames so maneuvering thrusters
@@ -209,7 +211,11 @@ export function computeManeuverJets(ship, design, scale, now) {
   if (speed < 0.01 || !ship.alive || !visual.direction) return null;
   const desiredSign = visual.direction;
   const density = getEffectDensity();
-  const centerOfMass = calculateCenterOfMass(design, PART_STATS);
+  let centerOfMass = centerOfMassCache.get(design);
+  if (!centerOfMass) {
+    centerOfMass = calculateCenterOfMass(design, PART_STATS);
+    centerOfMassCache.set(design, centerOfMass);
+  }
   const alive = design.map((_, i) => (componentHealthRatio(ship, i) ?? 1) > 0);
   const exhaustAnalysis = globalThis.EngineExhaustRules?.analyze?.(design, PART_STATS, { alive });
   const contributors = [];
@@ -217,7 +223,7 @@ export function computeManeuverJets(ship, design, scale, now) {
   for (let i = 0; i < design.length; i += 1) {
     const module = design[i];
     if (module.type !== "maneuverThruster") continue;
-    if ((componentHealthRatio(ship, i) ?? 1) <= 0) continue;
+    if (!alive[i]) continue;
     if (exhaustAnalysis && !exhaustAnalysis.validEngineIndices.has(i)) continue;
     const power = clamp(Number(ship.componentPower?.[i]?.[2] ?? 1), 0, 1);
     if (power <= 0) continue;

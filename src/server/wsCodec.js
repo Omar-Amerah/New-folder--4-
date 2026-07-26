@@ -7,8 +7,13 @@
 const msgpack = require("@msgpack/msgpack");
 
 // Returns a Node Buffer so it slots straight into the frame writer.
+// `msgpack.encode` hands back a Uint8Array that it does not retain, so the
+// Buffer is created as a view over the same memory rather than with
+// `Buffer.from(uint8array)`, which would copy the whole payload on every
+// encode — snapshots are the largest and most frequent messages on the wire.
 function encodeMessage(obj) {
-  return Buffer.from(msgpack.encode(obj));
+  const encoded = msgpack.encode(obj);
+  return Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength);
 }
 
 function decodeBinary(buffer) {

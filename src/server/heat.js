@@ -1,5 +1,6 @@
 // Authoritative low-frequency, per-component thermal simulation.
 const { PARTS } = require("./components");
+const { getCommandAuraMultiplier } = require("./commandAuras");
 const { getOccupiedCells } = require("./footprint");
 const HeatRules = require("../../public/src/shared/heatRules");
 const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
@@ -245,6 +246,29 @@ function rebuildThermalNetworks(ship) {
   ship.thermalNetworkBuilds = (ship.thermalNetworkBuilds || 0) + 1;
 }
 
+// Maps a Power-source component index to the network it feeds. The thermal tick
+// needs this for every component, and resolving it with
+// `powerNetworks.find(n => n.sourceIndices.includes(i))` made the per-component
+// loop O(components x networks x sources). `powerNetworks` is reassigned
+// wholesale whenever Power is re-solved, so caching against the array identity
+// needs no extra revision plumbing. First match wins, matching `.find`.
+function powerNetworkBySourceIndex(ship) {
+  const networks = ship.runtimeWiring?.powerNetworks;
+  if (!Array.isArray(networks) || networks.length === 0) return null;
+  let cache = ship._powerNetworkBySource;
+  if (!cache || cache.source !== networks) {
+    const byIndex = new Map();
+    for (const network of networks) {
+      for (const sourceIndex of network.sourceIndices || []) {
+        if (!byIndex.has(sourceIndex)) byIndex.set(sourceIndex, network);
+      }
+    }
+    cache = { source: networks, byIndex };
+    ship._powerNetworkBySource = cache;
+  }
+  return cache.byIndex;
+}
+
 function addComponentHeat(ship, index, amount) {
   if (!ship.componentHeatInput || !Number.isFinite(amount) || amount <= 0) return;
   if (index < 0 || index >= ship.componentHeatInput.length) return;
@@ -355,12 +379,13 @@ function updateShipHeat(ship, dt, room, now) {
 
   // Local generation only. Cooling is applied after transfers so a radiator can
   // remove heat arriving through its frame route in the same thermal tick.
+  const networkBySource = powerNetworkBySourceIndex(ship);
   for (let i = 0; i < heat.length; i += 1) {
     const alive = (ship.componentHp?.[i] ?? 1) > 0;
     const part = PARTS[ship.design[i].type] || {};
     const thermal = ship.componentThermals[i];
     const damagedMultiplier = alive && ship.componentMaxHp?.[i] ? 1 + 0.15 * (1 - ship.componentHp[i] / ship.componentMaxHp[i]) : 1;
-    const powerNetwork = part.powerGeneration > 0 && ship.runtimeWiring?.powerNetworks?.find(network => network.sourceIndices?.includes(i));
+    const powerNetwork = part.powerGeneration > 0 ? networkBySource?.get(i) : undefined;
     const networkGeneration = Number(powerNetwork?.availableGenerationMw) || 0;
     const networkDemand = Number(powerNetwork?.liveDemandMw ?? powerNetwork?.demandMw ?? powerNetwork?.demand) || 0;
     const load = alive && activeOutputForState(ship.componentHeatState?.[i] || STATE.NORMAL) > 0 && networkGeneration > 0
@@ -449,9 +474,11 @@ function updateShipHeat(ship, dt, room, now) {
 
   // Natural/radiator cooling consumes post-transfer heat, allowing connected
   // radiators to create a persistent temperature gradient through the frames.
+  const heatDissipationMult = getCommandAuraMultiplier(ship, "heatDissipationMultiplier");
+  const overheatRecoveryMult = getCommandAuraMultiplier(ship, "overheatRecoveryMultiplier");
   for (let i = 0; i < heat.length; i += 1) {
     const thermal = ship.componentThermals[i];
-    let coolingRate = thermal.cooling * thermal.retention;
+    let coolingRate = thermal.cooling * thermal.retention * heatDissipationMult;
     if (ship.design[i].type === "radiator") {
       const alive = (ship.componentHp?.[i] ?? 1) > 0;
       const exposure = thermal.exposedEdges > 0 ? 1 : 0.25;
@@ -521,7 +548,7 @@ function updateShipHeat(ship, dt, room, now) {
           ship.componentMeltdown[i] += elapsed;
           if (ship.componentMeltdown[i] >= REACTOR_MELTDOWN_SECONDS) (meltdowns || (meltdowns = [])).push(i);
         } else {
-          ship.componentMeltdown[i] = Math.max(0, ship.componentMeltdown[i] - elapsed * 2);
+          ship.componentMeltdown[i] = Math.max(0, ship.componentMeltdown[i] - elapsed * 2 * overheatRecoveryMult);
         }
       }
     } else if ((PARTS[ship.design[i].type]?.powerGeneration || 0) > 0) {

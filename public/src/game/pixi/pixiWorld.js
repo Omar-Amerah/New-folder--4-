@@ -4,11 +4,13 @@
 import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
-import { isCircleVisible } from "../viewportCulling.js";
+import { isCircleVisible, cullVisual } from "../viewportCulling.js";
 import { getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, isFriendlyProjectile } from "../worldArt.js";
 import { activeEngineSmoke } from "../shipDynamics.js";
 import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
+
+const LINE_EFFECT_TYPES = new Set(["beam", "repairbeam", "laserPdPulse", "laserpd", "droneshot", "dronerepair"]);
 
 let gridCache = { width: 0, height: 0, zoom: 0 };
 let pixiMapStatics = null;
@@ -268,8 +270,9 @@ function updatePixiRelays(env, now, players, bounds) {
         view.badgeText.text = point.id;
       }
       const badgeFont = Math.max(14, 18 / zoom);
-      view.badgeText.scale.set(badgeFont / 18);
-      view.badgeText.position.set(0, idLabelY);
+      const badgeScale = badgeFont / 18;
+      if (view.badgeText.scale.x !== badgeScale) view.badgeText.scale.set(badgeScale);
+      if (view.badgeText.position.y !== idLabelY) view.badgeText.position.set(0, idLabelY);
 
       // Owner label below the relay.
       const ownerLabel = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
@@ -286,8 +289,9 @@ function updatePixiRelays(env, now, players, bounds) {
         view.ownerText.style.fill = ownerFill;
       }
       const ownerFont = Math.max(10, 13 / zoom);
-      view.ownerText.scale.set(ownerFont / 13);
-      view.ownerText.position.set(0, labelY);
+      const ownerScale = ownerFont / 13;
+      if (view.ownerText.scale.x !== ownerScale) view.ownerText.scale.set(ownerScale);
+      if (view.ownerText.position.y !== labelY) view.ownerText.position.set(0, labelY);
     }
   }
   pixiRelayPool.frameEnd();
@@ -462,12 +466,19 @@ function updatePixiEffects(env, now, bounds) {
     if (state.debugStats) state.debugStats.totalEffects = snap.effects.length;
     let drawn = 0;
     for (const effect of snap.effects) {
-      drawn++;
       const age = effect.age || 0;
       const t = clamp(age / 900, 0, 1);
       const alpha = 1 - t;
       const x = effect.x;
       const y = effect.y;
+      if (bounds) {
+        const visual = LINE_EFFECT_TYPES.has(effect.type)
+          ? { type: "line", x1: x, y1: y, x2: effect.x2 || x, y2: effect.y2 || y }
+          : { x, y, radius: effect.radius || 0 };
+        const kind = effect.type === "dmg" || effect.type === "text" ? "floatingText" : "explosion";
+        if (!cullVisual(kind, visual, bounds)) continue;
+      }
+      drawn++;
 
       if (effect.type === "beam") {
         const beamT = clamp(age / 120, 0, 1);
@@ -600,7 +611,8 @@ function updatePixiEffects(env, now, bounds) {
           const fill = effect.type === "dmg" ? (effect.isShield ? "#7dd3fc" : "#ff5f7e") : "#e2e8f0";
           if (view.root.style.fill !== fill) view.root.style.fill = fill;
           const fontSize = effect.type === "dmg" ? Math.max(12, 16 / zoom) : Math.max(10, 14 / zoom);
-          view.root.scale.set(fontSize / 16);
+          const targetScale = fontSize / 16;
+          if (view.root.scale.x !== targetScale) view.root.scale.set(targetScale);
           view.root.position.set(x, y - t * 30);
           view.root.alpha = alpha;
         }
@@ -679,9 +691,9 @@ function updatePixiEngineSmoke(env, now, bounds) {
   gfx.clear();
   const particles = activeEngineSmoke(now);
   for (const p of particles) {
-    if (bounds && !isCircleVisible(p.x, p.y, p.radius, bounds)) continue;
-    gfx.circle(p.x, p.y, p.radius);
-    gfx.fill({ color: "#7f8f88", alpha: p.alpha });
+    if (bounds && !isCircleVisible(p.renderX, p.renderY, p.renderRadius, bounds)) continue;
+    gfx.circle(p.renderX, p.renderY, p.renderRadius);
+    gfx.fill({ color: "#7f8f88", alpha: p.renderAlpha });
   }
 }
 

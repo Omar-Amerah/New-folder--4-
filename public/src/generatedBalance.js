@@ -65,9 +65,9 @@ export const GENERATED_BALANCE = {
     }
   },
   "powerProtection": {
-    "overloadStartRatio": 1.0,
+    "overloadStartRatio": 1,
     "recoveryStartRatio": 0.95,
-    "tripStressThreshold": 1.0,
+    "tripStressThreshold": 1,
     "baseStressPerSecond": 0.12,
     "additionalStressPerSecondAtPeak": 0.38,
     "recoveryPerSecond": 0.25,
@@ -147,7 +147,7 @@ export const GENERATED_BALANCE = {
         "evasionLookaheadSeconds": 0.65,
         "evasionClearance": 65,
         "evasionStrength": 3,
-        "evasionSpeedBoost": 0.30,
+        "evasionSpeedBoost": 0.3,
         "commandRange": 1450,
         "orbitDistance": 300,
         "weaponRange": 300,
@@ -230,6 +230,12 @@ export const GENERATED_BALANCE = {
       "footprint": {
         "width": 2,
         "height": 1
+      },
+      "aura": {
+        "type": "command",
+        "weaponAccuracyMultiplier": 1.04,
+        "weaponTrackingMultiplier": 1.05,
+        "targetAcquisitionMultiplier": 1.08
       }
     },
     {
@@ -676,7 +682,7 @@ export const GENERATED_BALANCE = {
       "weapon": {
         "family": "beam",
         "damage": 25,
-        "fireRate": 1.20,
+        "fireRate": 1.2,
         "range": 600,
         "radius": 15,
         "projectileSpeed": 0,
@@ -781,7 +787,7 @@ export const GENERATED_BALANCE = {
       "weapon": {
         "family": "railgun",
         "damage": 120,
-        "fireRate": 0.20,
+        "fireRate": 0.2,
         "range": 1720,
         "projectileSpeed": 2300,
         "accuracy": 0.96,
@@ -1029,7 +1035,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "accuracy",
-      "accuracyBonus": 0.10,
+      "accuracyBonus": 0.1,
       "description": "Support computer that improves weapon accuracy."
     },
     {
@@ -1184,7 +1190,7 @@ export const GENERATED_BALANCE = {
         "proximityFuseRadius": 14,
         "innerFullDamageRadius": 10,
         "falloffExponent": 1.7,
-        "armourPenetration": 1.0,
+        "armourPenetration": 1,
         "directImpactBonus": 0,
         "shipDamageMultiplier": 1
       },
@@ -1227,6 +1233,156 @@ export const GENERATED_BALANCE = {
       },
       "rotatable": true,
       "description": "Longer-range missile interception. Expensive and weak against ships."
+    },
+    {
+      "id": "fireControlCommandCentre",
+      "name": "Fire-Control Command Centre",
+      "category": "Command",
+      "cost": 55,
+      "mass": 10,
+      "hp": 55,
+      "powerGeneration": 0,
+      "powerUse": 5.5,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.02,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "aura": {
+        "type": "fireControl",
+        "weaponAccuracyMultiplier": 1.08,
+        "weaponTrackingMultiplier": 1.1,
+        "turretAimSpeedMultiplier": 1.1,
+        "targetAcquisitionMultiplier": 1.12
+      },
+      "description": "Coordinates allied weapon fire within command range, improving accuracy, tracking and target acquisition without increasing raw damage."
+    },
+    {
+      "id": "fleetDefenceCoordinator",
+      "name": "Fleet Defence Coordinator",
+      "category": "Command",
+      "cost": 60,
+      "mass": 11,
+      "hp": 60,
+      "powerGeneration": 0,
+      "powerUse": 5,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.02,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "aura": {
+        "type": "fleetDefence",
+        "pointDefenceTrackingMultiplier": 1.1,
+        "flakTrackingMultiplier": 1.1,
+        "interceptionReactionMultiplier": 1.12
+      },
+      "description": "Improves nearby allied Point Defence, Flak and missile-interception tracking and reaction time."
+    },
+    {
+      "id": "shieldCommandRelay",
+      "name": "Shield Command Relay",
+      "category": "Command",
+      "cost": 70,
+      "mass": 12,
+      "hp": 50,
+      "powerGeneration": 0,
+      "powerUse": 6,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.02,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "aura": {
+        "type": "shield",
+        "shieldRegenMultiplier": 1.1,
+        "shieldRestartDelayMultiplier": 0.9
+      },
+      "description": "Boosts nearby allied shield regeneration and reduces shield restart delay. Does not increase maximum shield capacity."
+    },
+    {
+      "id": "engineeringCommandCentre",
+      "name": "Engineering Command Centre",
+      "category": "Command",
+      "cost": 50,
+      "mass": 12,
+      "hp": 70,
+      "powerGeneration": 0,
+      "powerUse": 5,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.02,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "aura": {
+        "type": "engineering",
+        "repairRateMultiplier": 1.1,
+        "heatDissipationMultiplier": 1.08,
+        "overheatRecoveryMultiplier": 1.12
+      },
+      "description": "Improves nearby allied repair rate, Heat dissipation and recovery from overheated states."
+    },
+    {
+      "id": "propulsionCommandRelay",
+      "name": "Propulsion Command Relay",
+      "category": "Command",
+      "cost": 45,
+      "mass": 9,
+      "hp": 50,
+      "powerGeneration": 0,
+      "powerUse": 4.5,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.01,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "aura": {
+        "type": "propulsion",
+        "accelerationMultiplier": 1.08,
+        "turnRateMultiplier": 1.08,
+        "formationResponseMultiplier": 1.12
+      },
+      "description": "Improves nearby allied acceleration, turning and formation response without raising top speed enough to invalidate engine balance."
+    },
+    {
+      "id": "electronicWarfareCommandCentre",
+      "name": "Electronic Warfare Command Centre",
+      "category": "Command",
+      "cost": 75,
+      "mass": 10,
+      "hp": 45,
+      "powerGeneration": 0,
+      "powerUse": 6.5,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.01,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "aura": {
+        "type": "ewar",
+        "sensorRangeMultiplier": 1.1,
+        "missileTrackingResistanceMultiplier": 1.12,
+        "targetRetentionMultiplier": 1.1
+      },
+      "description": "Improves nearby allied sensor range, missile tracking resistance and target-retention quality."
     }
   ],
   "metadata": {
@@ -1329,6 +1485,11 @@ export const GENERATED_BALANCE = {
   "repair": {
     "repairRange": 410,
     "stackingMultiplier": 0.62
+  },
+  "commandAura": {
+    "range": 500,
+    "selfAura": false,
+    "notes": "Shared command aura radius for all command components. All command circles use this range so players can judge range at a glance."
   }
 }
 ;

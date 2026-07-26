@@ -69,18 +69,23 @@ export function mixColor(a, b, t) {
 // (size, color) pair serves every module of that type on screen. The gradient
 // alone carries a soft top-left→bottom-right bevel so bodies read as raised
 // metal panels without a per-module outline.
-const moduleGradientCache = new Map();
+const moduleGradientCache = new WeakMap();
 
 function getModuleGradient(size, color) {
   const key = `${size}|${color}`;
-  let fill = moduleGradientCache.get(key);
+  let ctxCache = moduleGradientCache.get(ctx);
+  if (!ctxCache) {
+    ctxCache = new Map();
+    moduleGradientCache.set(ctx, ctxCache);
+  }
+  let fill = ctxCache.get(key);
   if (!fill) {
     fill = ctx.createLinearGradient(-size * 0.5, -size * 0.5, size * 0.5, size * 0.5);
     fill.addColorStop(0, mixColor(color, "#ffffff", 0.52));
     fill.addColorStop(0.32, mixColor(color, "#ffffff", 0.14));
     fill.addColorStop(0.6, color);
     fill.addColorStop(1, mixColor(color, "#05070c", 0.74));
-    moduleGradientCache.set(key, fill);
+    ctxCache.set(key, fill);
   }
   return fill;
 }

@@ -10,6 +10,7 @@ const SUBSYSTEM_NAMES = Object.freeze([
   "powerDemandProtection",
   "movementSeparationMap",
   "spatialIndex",
+  "commandAuras",
   "support",
   "drones",
   "weapons",

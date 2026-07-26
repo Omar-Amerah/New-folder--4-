@@ -12,6 +12,7 @@ const { assertComponentHpConsistency } = require("./componentHealth");
 const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
 const { buildRoomSpatialIndex } = require("./spatialIndex");
+const { updateCommandAuras } = require("./commandAuras");
 const { recordRoomTick } = require("./performanceTelemetry");
 const { performanceNow } = require("./utils");
 function tickRoom(room, dt, now) {
@@ -48,6 +49,11 @@ function tickRoom(room, dt, now) {
   startedAt = performanceNow();
   buildRoomSpatialIndex(room, ships, now);
   durations.spatialIndex = performanceNow() - startedAt;
+  // Command auras are authoritative and rely on the spatial index; update before
+  // any gameplay system consumes the per-ship aura multipliers this tick.
+  startedAt = performanceNow();
+  updateCommandAuras(room, ships, now);
+  durations.commandAuras = performanceNow() - startedAt;
   startedAt = performanceNow();
   for (const ship of ships) updateShipMovement(room, ship, dt);
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships);

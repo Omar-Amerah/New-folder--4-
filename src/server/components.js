@@ -86,6 +86,17 @@ function buildPartsFromBalance(balance) {
   return Object.freeze(parts);
 }
 
+function normalizeAura(aura) {
+  if (!aura || typeof aura !== "object" || Array.isArray(aura)) return null;
+  const copy = { type: typeof aura.type === "string" ? aura.type : "" };
+  for (const key of Object.keys(aura)) {
+    if (key === "type") continue;
+    const value = aura[key];
+    copy[key] = typeof value === "number" && Number.isFinite(value) ? value : value;
+  }
+  return Object.freeze(copy);
+}
+
 function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
   const weapon = component.weapon
     ? makeWeapon(component.weapon.family || component.weapon.type || "blaster", component.weapon)
@@ -125,6 +136,7 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
     ecmStrength: toNumber(component.ecmStrength, 0),
+    aura: normalizeAura(component.aura),
     frontDamageReduction: toNumber(component.frontDamageReduction, 0),
     frontArc: toNumber(component.frontArc, 0),
     // Directional armour: maximum damage removed from a single attack event.

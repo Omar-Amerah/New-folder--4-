@@ -57,7 +57,6 @@ class RoomSpatialIndex {
     this.cells = Object.fromEntries(KINDS.map((kind) => [kind, this.kindState[kind].columns]));
     this.records = Object.fromEntries(KINDS.map((kind) => [kind, this.kindState[kind].records]));
     this.recordsByEntity = Object.fromEntries(KINDS.map((kind) => [kind, this.kindState[kind].recordsByEntity]));
-    this.queryBuffers = Object.fromEntries(KINDS.map((kind) => [kind, []]));
     this.querySequence = 0;
     this.maxProjectileSpeed = 0;
     this.builtAt = 0;
@@ -95,7 +94,6 @@ class RoomSpatialIndex {
     state.records.length = 0;
     state.recordsByEntity.clear();
     state.nextOrder = 0;
-    this.queryBuffers[kind].length = 0;
   }
 
   reset({ includeAsteroids = false } = {}) {
@@ -243,8 +241,13 @@ class RoomSpatialIndex {
     return sequence;
   }
 
+  // Results are written into the caller-supplied `out` buffer so hot paths can
+  // reuse scratch across ticks. Callers that omit `out` get a fresh array:
+  // sharing one implicit buffer per kind silently clobbered any result still
+  // held across a second query of the same kind, which is a trap rather than an
+  // optimisation. Every hot call site passes its own scratch explicitly.
   _queryAabb(kind, minX, minY, maxX, maxY, out, ordered) {
-    const target = out || this.queryBuffers[kind] || [];
+    const target = out || [];
     target.length = 0;
     const state = this.kindState[kind];
     if (!state) return target;

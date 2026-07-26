@@ -3,6 +3,7 @@
 // it is intentionally not persisted into saved blueprints.
 
 const { PARTS } = require("./components");
+const { getCommandAuraMultiplier } = require("./commandAuras");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 const HeatRules = require("../../public/src/shared/heatRules");
@@ -175,16 +176,34 @@ function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
   if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return null;
   const cache = ensureEffectiveWeaponProfileCache(ship);
   const profile = cache?.profiles?.[weaponIndex] || null;
-  if (profile) {
-    bump("profileCacheHitCount");
-    if (ship?.commandState === "backupCore") {
-      return {
-        ...profile,
-        accuracy: Number.isFinite(profile.accuracy) ? profile.accuracy * 0.85 : 0.85
-      };
-    }
+  if (!profile) return null;
+  bump("profileCacheHitCount");
+  const modified = { ...profile };
+  if (ship?.commandState === "backupCore") {
+    modified.accuracy = Number.isFinite(profile.accuracy) ? profile.accuracy * 0.85 : 0.85;
   }
-  return profile;
+  const accMult = getCommandAuraMultiplier(ship, "weaponAccuracyMultiplier");
+  const trackMult = getCommandAuraMultiplier(ship, "weaponTrackingMultiplier");
+  const aimMult = getCommandAuraMultiplier(ship, "turretAimSpeedMultiplier");
+  const acqMult = getCommandAuraMultiplier(ship, "targetAcquisitionMultiplier");
+  if (accMult !== 1 && Number.isFinite(modified.accuracy)) modified.accuracy = Math.min(0.999, modified.accuracy * accMult);
+  if (trackMult !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * trackMult;
+  if (aimMult !== 1 && Number.isFinite(modified.aimSpeed)) modified.aimSpeed = modified.aimSpeed * aimMult;
+  if (acqMult !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / acqMult;
+  const family = modified.type;
+  if (family === "pointDefense") {
+    const pdTrack = getCommandAuraMultiplier(ship, "pointDefenceTrackingMultiplier");
+    const react = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
+    if (pdTrack !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * pdTrack;
+    if (react !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / react;
+  }
+  if (family === "flak") {
+    const flakTrack = getCommandAuraMultiplier(ship, "flakTrackingMultiplier");
+    const react = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
+    if (flakTrack !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * flakTrack;
+    if (react !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / react;
+  }
+  return modified;
 }
 function getMaxEffectiveWeaponRange(ship) { return ensureEffectiveWeaponProfileCache(ship)?.maxRange || 420; }
 function getEffectiveWeaponRanges(ship) {

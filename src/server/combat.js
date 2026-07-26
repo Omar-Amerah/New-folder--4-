@@ -367,6 +367,34 @@ function roomCombatRandom(room) {
   return typeof room?.combatRandom === "function" ? room.combatRandom : Math.random;
 }
 
+// Broad-phase helpers -------------------------------------------------------
+//
+// Line-of-sight and beam resolution used to scan every asteroid/ship/drone in
+// the room on every call, from inside per-weapon and per-candidate loops. Both
+// go through the room broad phase instead, exactly like projectile and
+// movement collision already do.
+//
+// Padding note: an entity is inserted into the index using its own broad-phase
+// radius R, and the narrow test accepts it at (entityRadius + extra). Because
+// R >= entityRadius for every kind, padding the query by `extra` alone makes
+// the returned set a conservative superset of the true hits.
+//
+// The index is only consulted once the asteroid kind actually mirrors the map;
+// callers reached outside the tick loop (and unit tests that build rooms by
+// hand) still fall back to the authoritative array so no rock is ever missed.
+function asteroidBroadPhase(room, x1, y1, x2, y2, padding, scratch) {
+  const asteroids = room.map?.asteroids || [];
+  const index = room.spatialIndex;
+  if (!index || typeof index.querySweptAabbUnordered !== "function") return asteroids;
+  if (index.count("asteroids") !== asteroids.length) return asteroids;
+  return index.querySweptAabbUnordered("asteroids", x1, y1, x2, y2, padding, scratch);
+}
+
+function roomScratch(room, key) {
+  const bag = room._combatScratch || (room._combatScratch = {});
+  return bag[key] || (bag[key] = []);
+}
+
 function weaponSpreadRadians(weapon, family) {
   const accuracy = clampNumber(Number(weapon?.accuracy) || 0.8, 0.1, 0.99);
   const scale = family === "missile" ? 0.35 : (family === "pointDefense" ? 0.05 : (family === "flak" ? 0.16 : 0.22));
@@ -1098,7 +1126,10 @@ function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
   const maxY = y + Math.sin(angle) * range;
   let end = { x: maxX, y: maxY, t: 1 };
 
-  for (const asteroid of room.map?.asteroids || []) {
+  const candidates = asteroidBroadPhase(room, x, y, maxX, maxY, beamRadius, roomScratch(room, "beamImpact"));
+  for (let i = 0; i < candidates.length; i += 1) {
+    const asteroid = candidates[i];
+    if (!asteroid) continue;
     const hit = segmentCircleHit(x, y, maxX, maxY, asteroid.x, asteroid.y, asteroid.radius + beamRadius);
     if (hit && hit.t < end.t) end = { x: hit.x, y: hit.y, t: hit.t };
   }
@@ -1253,18 +1284,43 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 //   - a shielded ship in front takes only its shield's damage.
 // Burn-through (into at most one further component) is still resolved, but only
 // inside the single nearest ship that was hit.
+// Tie-break ranks preserve the previous `"a:"` / `"d:"` / `"s:"` string keys
+// exactly ('a' < 'd' < 's'), without building a key string per candidate per
+// beam per tick. Shield and component hits deliberately share the ship rank,
+// as they shared the `s:` prefix before.
+const BEAM_TIE_ASTEROID = 0;
+const BEAM_TIE_DRONE = 1;
+const BEAM_TIE_SHIP = 2;
+
 function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage, now, options = {}) {
   const candidates = [];
 
-  const asteroids = room.map?.asteroids || [];
+  const mapAsteroids = room.map?.asteroids || [];
+  const asteroids = asteroidBroadPhase(room, x1, y1, x2, y2, beamRadius, roomScratch(room, "beamAsteroids"));
   for (let a = 0; a < asteroids.length; a += 1) {
     const asteroid = asteroids[a];
+    if (!asteroid) continue;
     const hit = segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + beamRadius);
-    if (hit) candidates.push({ kind: "asteroid", t: hit.t, hit, tie: `a:${asteroid.id ?? a}` });
+    // Generated asteroids always carry an id; the positional fallback stays
+    // keyed on the map array so a hand-built id-less rock keeps its old order.
+    if (hit) {
+      candidates.push({
+        kind: "asteroid",
+        t: hit.t,
+        hit,
+        tieRank: BEAM_TIE_ASTEROID,
+        tieId: String(asteroid.id ?? mapAsteroids.indexOf(asteroid))
+      });
+    }
   }
 
-  for (const target of ships) {
-    if (!target.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
+  const index = room.spatialIndex;
+  const useIndex = Boolean(index?.dynamicValid);
+  const shipCandidates = useIndex
+    ? index.querySweptAabbUnordered("ships", x1, y1, x2, y2, beamRadius, roomScratch(room, "beamShips"))
+    : ships;
+  for (const target of shipCandidates) {
+    if (!target?.alive || !areEnemies(room, ship.ownerId, target.ownerId)) continue;
 
     const broadHit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, target.radius + beamRadius);
     if (!broadHit) continue;
@@ -1274,28 +1330,32 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     if (target.shield >= SHIELD_HIT_MIN) {
       const ringR = shieldCollisionRadius(target) + beamRadius;
       const broadShieldHit = segmentCircleHit(x1, y1, x2, y2, target.x, target.y, ringR);
-      if (broadShieldHit) candidates.push({ kind: "shield", target, t: broadShieldHit.t, tie: `s:${target.id}` });
+      if (broadShieldHit) candidates.push({ kind: "shield", target, t: broadShieldHit.t, tieRank: BEAM_TIE_SHIP, tieId: target.id });
       continue;
     }
 
     // Shield depleted/down: the beam reaches physical components.
     const intersections = findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius);
     if (intersections.length) {
-      candidates.push({ kind: "component", target, t: intersections[0].hit.t, intersections, tie: `s:${target.id}` });
+      candidates.push({ kind: "component", target, t: intersections[0].hit.t, intersections, tieRank: BEAM_TIE_SHIP, tieId: target.id });
     }
   }
 
-  for (const drone of room.drones?.values?.() || []) {
-    if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
+  const droneCandidates = useIndex
+    ? index.querySweptAabbUnordered("drones", x1, y1, x2, y2, beamRadius, roomScratch(room, "beamDrones"))
+    : (room.drones?.values?.() || []);
+  for (const drone of droneCandidates) {
+    if (!drone || drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
     const hit = segmentCircleHit(x1, y1, x2, y2, drone.x, drone.y, (Number(drone.radius) || 10) + beamRadius);
-    if (hit) candidates.push({ kind: "drone", drone, t: hit.t, hit, tie: `d:${drone.id}` });
+    if (hit) candidates.push({ kind: "drone", drone, t: hit.t, hit, tieRank: BEAM_TIE_DRONE, tieId: drone.id });
   }
 
   if (!candidates.length) return null;
 
   candidates.sort((a, b) => {
     if (Math.abs(a.t - b.t) > 1e-6) return a.t - b.t;
-    return a.tie.localeCompare(b.tie);
+    if (a.tieRank !== b.tieRank) return a.tieRank - b.tieRank;
+    return String(a.tieId).localeCompare(String(b.tieId));
   });
 
   const nearest = candidates[0];
@@ -1892,12 +1952,16 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
   return shipTarget;
 }
 
+// Called from inside the per-weapon and per-candidate targeting loops, so this
+// is one of the hottest functions on the tick. `room.points` holds capture
+// relays only (built from `map.relays`), never asteroids, so the old second
+// loop could not match and has been removed.
 function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
-  for (const asteroid of room.map?.asteroids || []) {
+  const candidates = asteroidBroadPhase(room, x1, y1, x2, y2, margin, roomScratch(room, "lineBlock"));
+  for (let i = 0; i < candidates.length; i += 1) {
+    const asteroid = candidates[i];
+    if (!asteroid) continue;
     if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
-  }
-  for (const pt of room.points || []) {
-    if (pt.type === "asteroid" && segmentCircleHit(x1, y1, x2, y2, pt.x, pt.y, (pt.radius || 20) + margin)) return true;
   }
   return false;
 }
