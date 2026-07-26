@@ -1,6 +1,6 @@
 // Handles ship velocities, turning, path alignment, separation forces, map collision avoidance, and movement commands.
 
-const { clampNumber, rotateToward, angleDifference } = require("./utils");
+const { clampNumber, rotateToward, angleDifference, fastHypot } = require("./utils");
 const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
@@ -18,10 +18,6 @@ const EDGE_BOUNCE_MARGIN = 43;
 const ARRIVE_DISTANCE = 16;
 const MAX_MOVEMENT_DT = 0.25;
 const MOVEMENT_SUBSTEP = 1 / 30;
-
-// Math.hypot is robust but slow; all callers here use finite 2-D deltas well
-// inside the double range, so sqrt(x*x + y*y) is equivalent and cheaper.
-function fastHypot(dx, dy) { return Math.sqrt(dx * dx + dy * dy); }
 
 function heatAdjustedMovementStats(ship, stats) {
   const design = ship.design || [];

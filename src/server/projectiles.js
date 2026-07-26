@@ -1,6 +1,6 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
-const { clampNumber, rotateToward } = require("./utils");
+const { clampNumber, rotateToward, fastHypot } = require("./utils");
 const { getShipCollisionGeometry, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
 const { getLiveShips } = require("./ships");
 const { buildRoomSpatialIndex } = require("./spatialIndex");
@@ -75,7 +75,7 @@ function addBullet(room, bullet) {
     if (bullet.interceptable) spatialIndex.append("interceptableProjectiles", bullet, 0);
     const vx = Number(bullet.vx);
     const vy = Number(bullet.vy);
-    const speed = Math.hypot(Number.isFinite(vx) ? vx : 0, Number.isFinite(vy) ? vy : 0);
+    const speed = fastHypot(Number.isFinite(vx) ? vx : 0, Number.isFinite(vy) ? vy : 0);
     if (speed > spatialIndex.maxProjectileSpeed) spatialIndex.maxProjectileSpeed = speed;
   }
 }
@@ -277,7 +277,7 @@ function updateBullets(room, dt, now) {
       const radius = flakRadiusFor(entity, kind);
       const dx = entity.x - detonateX;
       const dy = entity.y - detonateY;
-      const edge = Math.max(0, Math.hypot(dx, dy) - radius);
+      const edge = Math.max(0, fastHypot(dx, dy) - radius);
       if (edge > blastR) return;
       processed += 1;
       if (maxTargets > 0 && processed > maxTargets) return;
@@ -383,7 +383,7 @@ function updateBullets(room, dt, now) {
 
         const current = Math.atan2(bullet.vy, bullet.vx);
         const next = rotateToward(current, desired, turnRate * dt);
-        const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, Math.hypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
+        const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, fastHypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
       }

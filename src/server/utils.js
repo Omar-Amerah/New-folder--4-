@@ -41,6 +41,10 @@ function round(value) {
   return Math.round(value * 100) / 100;
 }
 
+// Math.hypot is robust but slow for 2-D work; callers pass finite deltas well
+// inside the double range, so sqrt(x*x + y*y) is equivalent and much cheaper.
+function fastHypot(dx, dy) { return Math.sqrt(dx * dx + dy * dy); }
+
 function performanceNow() {
   return Number(process.hrtime.bigint()) / 1_000_000;
 }
@@ -66,6 +70,7 @@ module.exports = {
   angleDifference,
   rotateToward,
   round,
+  fastHypot,
   performanceNow,
   getLocalUrls
 };

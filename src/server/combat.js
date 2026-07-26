@@ -2,7 +2,7 @@
 
 const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
-const { rngRange, clampNumber, angleDifference, rotateToward } = require("./utils");
+const { rngRange, clampNumber, angleDifference, rotateToward, fastHypot } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
 const {
@@ -534,7 +534,7 @@ function isInSafeZone(room, x, y, shipOrPlayer = null) {
   if (!room.map || !room.map.safeZones) return false;
   const player = shipOrPlayer?.ownerId ? room.players?.get(shipOrPlayer.ownerId) : shipOrPlayer;
   for (const zone of room.map.safeZones) {
-    if (Math.hypot(x - zone.x, y - zone.y) > zone.radius) continue;
+    if (fastHypot(x - zone.x, y - zone.y) > zone.radius) continue;
     if (zone.ownerId) return Boolean(player && player.id === zone.ownerId);
     if (zone.team) return Boolean(player && player.team === zone.team);
     return true;
@@ -1786,14 +1786,14 @@ function findTarget(room, ship, ships) {
   if (ship.focusTargetId) {
     const focused = ships.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
     if (focused && focused.alive) {
-      const focusedDistance = Math.hypot(focused.x - ship.x, focused.y - ship.y);
+      const focusedDistance = fastHypot(focused.x - ship.x, focused.y - ship.y);
       if (focusedDistance <= range * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
     }
   }
 
   for (const other of ships) {
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
-    const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
+    const distance = fastHypot(other.x - ship.x, other.y - ship.y);
     if (distance > range || isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) continue;
     const score = enemyShipThreatScore(ship, other, distance, range);
     if (score > bestScore
@@ -1810,7 +1810,7 @@ function findTarget(room, ship, ships) {
   if (!best) {
     for (const drone of room.drones?.values?.() || []) {
       if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
-      const distance = Math.hypot(drone.x - ship.x, drone.y - ship.y);
+      const distance = fastHypot(drone.x - ship.x, drone.y - ship.y);
       if (distance <= range && !isLineBlocked(room, ship.x, ship.y, drone.x, drone.y, 3)
         && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(drone, best))))) {
         best = drone;
@@ -1849,7 +1849,7 @@ function countNearbyArmedDrones(room, ship, swarmRange) {
     const otherConfig = droneTypes[other.type] || {};
     const armed = (Number(otherConfig.damage) || 0) > 0 && (Number(otherConfig.fireRate) || 0) > 0;
     if ((armed || other.targetId === ship.id)
-      && Math.hypot(other.x - ship.x, other.y - ship.y) <= swarmRange) {
+      && fastHypot(other.x - ship.x, other.y - ship.y) <= swarmRange) {
       count += 1;
     }
   }
@@ -1858,7 +1858,7 @@ function countNearbyArmedDrones(room, ship, swarmRange) {
 
 function droneThreatScore(room, ship, drone, weaponRange, context = {}) {
   if (!drone || drone.destroyed) return -Infinity;
-  const distance = Math.hypot(drone.x - ship.x, drone.y - ship.y);
+  const distance = fastHypot(drone.x - ship.x, drone.y - ship.y);
   const closeRange = droneThreatCloseRange(ship, weaponRange);
   const droneConfig = require("./drones").CONFIG.types[drone.type] || {};
   const weaponDps = Math.max(0, (Number(droneConfig.damage) || 0) * (Number(droneConfig.fireRate) || 0));
@@ -1898,7 +1898,7 @@ function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, w
   const nearbyArmedCount = countNearbyArmedDrones(room, ship, closeRange * 1.5);
   for (const drone of room.drones?.values?.() || []) {
     if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
-    const distance = Math.hypot(drone.x - worldX, drone.y - worldY);
+    const distance = fastHypot(drone.x - worldX, drone.y - worldY);
     if (distance > range || isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3)) continue;
     const arcRadians = (Number(weapon?.arc) || 360) * Math.PI / 180;
     if (module && !isTargetInWeaponArc(ship, module, drone, arcRadians)) continue;
@@ -1920,7 +1920,7 @@ function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, w
 function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range, options = {}) {
   let shipTarget = null;
   if (primary?.alive && !room.drones?.has?.(primary.id)) {
-    const distance = Math.hypot(primary.x - worldX, primary.y - worldY);
+    const distance = fastHypot(primary.x - worldX, primary.y - worldY);
     if (distance <= range && !isLineBlocked(room, worldX, worldY, primary.x, primary.y, 8)) shipTarget = primary;
   }
 
@@ -1929,7 +1929,7 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
   if (!shipTarget) {
     for (const other of ships) {
       if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
-      const distance = Math.hypot(other.x - worldX, other.y - worldY);
+      const distance = fastHypot(other.x - worldX, other.y - worldY);
       if (distance > range || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) continue;
       const score = enemyShipThreatScore(ship, other, distance, range);
       if (score > bestShipScore
@@ -2009,7 +2009,7 @@ function buildShipTurretDiagnostics(room, ship) {
     let inFiringRange = null;
     let inFixedArc = null;
     if (targetShip) {
-      targetDistance = Math.hypot(targetShip.x - origin.x, targetShip.y - origin.y);
+      targetDistance = fastHypot(targetShip.x - origin.x, targetShip.y - origin.y);
       inFiringRange = targetDistance <= range;
       inFixedArc = isTargetInWeaponArc(ship, module, targetShip, arcRadians);
     }

@@ -1,6 +1,7 @@
 "use strict";
 
 const { BALANCE } = require("./balanceConfig");
+const { fastHypot } = require("./utils");
 const { PARTS } = require("./components");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const HeatRules = require("../../public/src/shared/heatRules");
@@ -455,11 +456,11 @@ function resolveDroneMapCollision(room, drone, previousX = drone.x, previousY = 
   if (sweptHit) {
     let nx = sweptHit.hit.x - sweptHit.asteroid.x;
     let ny = sweptHit.hit.y - sweptHit.asteroid.y;
-    let distance = Math.hypot(nx, ny);
+    let distance = fastHypot(nx, ny);
     if (distance < 0.001) {
       nx = previousX - sweptHit.asteroid.x;
       ny = previousY - sweptHit.asteroid.y;
-      distance = Math.hypot(nx, ny);
+      distance = fastHypot(nx, ny);
     }
     if (distance < 0.001) {
       nx = stableDodgeSide(drone.id);
@@ -486,7 +487,7 @@ function resolveDroneMapCollision(room, drone, previousX = drone.x, previousY = 
       if (!asteroid) continue;
       let dx = drone.x - asteroid.x;
       let dy = drone.y - asteroid.y;
-      let distance = Math.hypot(dx, dy);
+      let distance = fastHypot(dx, dy);
       const minimum = Math.max(0, Number(asteroid.radius) || 0) + radius + 2;
       if (distance >= minimum) continue;
       if (distance < 0.001) {
@@ -548,7 +549,7 @@ function resolveDroneSeparation(drones, ordered = [], spatialIndex = null, movem
       if (seqB <= seqA) continue;
       let dx = b.x - a.x;
       let dy = b.y - a.y;
-      let distance = Math.hypot(dx, dy);
+      let distance = fastHypot(dx, dy);
       const minimum = Math.max(1, Number(a.radius) || 10) + Math.max(1, Number(b.radius) || 10) + 2;
       if (distance >= minimum) continue;
       let nx;
@@ -655,7 +656,7 @@ function fighterProjectileEvasion(room, drone, config) {
       dirX += (-rx / currentDistance) * breakaway;
       dirY += (-ry / currentDistance) * breakaway;
     }
-    const dirMagnitude = Math.hypot(dirX, dirY) || 1;
+    const dirMagnitude = fastHypot(dirX, dirY) || 1;
     dirX /= dirMagnitude;
     dirY /= dirMagnitude;
 
@@ -684,14 +685,14 @@ function fighterProjectileEvasion(room, drone, config) {
   }
 
   if (!mostUrgent) return null;
-  let magnitude = Math.hypot(dodgeX, dodgeY);
+  let magnitude = fastHypot(dodgeX, dodgeY);
   // Under crossfire the individual dodges can partly cancel and leave the drone
   // drifting into a threat. If the combined vector collapses, commit fully to
   // the single most dangerous projectile instead of splitting the difference.
   if (magnitude <= 0.35 * totalWeight) {
     dodgeX = mostUrgentDodgeX;
     dodgeY = mostUrgentDodgeY;
-    magnitude = Math.hypot(dodgeX, dodgeY);
+    magnitude = fastHypot(dodgeX, dodgeY);
   }
   if (magnitude <= 0.0001) return null;
   return {
@@ -712,7 +713,7 @@ function steerFighterDrone(room, drone, targetX, targetY, config, dt, now, cache
 
   const targetDx = targetX - drone.x;
   const targetDy = targetY - drone.y;
-  const targetDistance = Math.max(0.0001, Math.hypot(targetDx, targetDy));
+  const targetDistance = Math.max(0.0001, fastHypot(targetDx, targetDy));
   const strength = Math.max(0, Number(config.evasionStrength) || 0) * evasion.weight;
   const desiredX = targetDx / targetDistance + evasion.x * strength;
   const desiredY = targetDy / targetDistance + evasion.y * strength;
