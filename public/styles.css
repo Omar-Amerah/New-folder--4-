@@ -381,26 +381,18 @@ h2 {
 }
 
 .designer-button {
-  position: relative;
   width: 100%;
   min-height: 34px;
   margin-top: 6px;
-  padding-left: 28px;
-  border-color: rgba(255, 202, 87, 0.28);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 202, 87, 0.55);
   border-radius: 5px;
-  background: rgba(14, 21, 32, 0.88);
-  color: #dce6f4;
+  background: rgba(22, 34, 50, 0.94);
+  color: #f2f7ff;
   box-shadow: none;
   font-size: 11px;
+  font-weight: 700;
   text-align: left;
-}
-
-.designer-button::before {
-  position: absolute;
-  left: 10px;
-  color: #e5b954;
-  content: "◇";
-  font-size: 12px;
 }
 
 .designer-button:hover {

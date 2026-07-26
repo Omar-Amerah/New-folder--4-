@@ -369,7 +369,7 @@ function roomCombatRandom(room) {
 
 function weaponSpreadRadians(weapon, family) {
   const accuracy = clampNumber(Number(weapon?.accuracy) || 0.8, 0.1, 0.99);
-  const scale = family === "missile" ? 0.35 : (family === "pointDefense" ? 0.05 : 0.22);
+  const scale = family === "missile" ? 0.35 : (family === "pointDefense" ? 0.05 : (family === "flak" ? 0.16 : 0.22));
   return (1 - accuracy) * scale;
 }
 
@@ -643,7 +643,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       }
       aimEntity = repairTarget;
       if (aimEntity) aimPoint = { x: aimEntity.x, y: aimEntity.y };
-    } else if (family === "pointDefense") {
+    } else if (family === "flak" || family === "pointDefense") {
       currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id);
       aimEntity = currentPdTarget ? currentPdTarget.entity : null;
       clearWeaponComponentAim(ship, i);
@@ -715,7 +715,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     ship.weaponDesiredAngles[i] = desiredRelative;
     ship.weaponAimTargetIds[i] = isTracking && aimEntity ? aimEntity.id ?? null : null;
     ship.weaponFireTargetIds[i] = isRepairBeam ? (isTracking && aimEntity ? aimEntity.id ?? null : null)
-      : (family === "pointDefense"
+      : (family === "pointDefense" || family === "flak"
         ? (currentPdTarget ? currentPdTarget.entity.id ?? null : null)
         : (weaponTarget ? weaponTarget.id ?? null : null));
 
@@ -743,7 +743,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     }
 
     // Fire only at an in-range target the turret is actually tracking in-arc.
-    if (family === "pointDefense") {
+    if (family === "pointDefense" || family === "flak") {
       if (!currentPdTarget || !isTracking) return;
     } else {
       if (!weaponTarget || !isTracking || aimEntity !== weaponTarget) {
@@ -753,7 +753,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     }
 
     const worldWeaponAngle = ship.angle + ship.weaponAngles[i];
-    const targetEntity = family === "pointDefense" ? currentPdTarget.entity : weaponTarget;
+    const targetEntity = family === "pointDefense" || family === "flak" ? currentPdTarget.entity : weaponTarget;
     const targetAimX = fireAimPoint ? fireAimPoint.x : targetEntity.x;
     const targetAimY = fireAimPoint ? fireAimPoint.y : targetEntity.y;
     const worldAngleToTarget = Math.atan2(targetAimY - worldY, targetAimX - worldX);
@@ -883,6 +883,38 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           charge: charge.progress,
           at: now
         });
+      }
+    } else if (family === "flak") {
+      if (currentPdTarget) {
+        const speed = effectiveWeapon.projectileSpeed || 850;
+        const life = (effectiveWeapon.projectileLifetime || 0) > 0
+          ? effectiveWeapon.projectileLifetime
+          : (effectiveWeapon.range || 0) / speed;
+        const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
+        const targetEnt = currentPdTarget.entity;
+        addBullet(room, {
+          type: "flak",
+          subtype: module.type,
+          ownerId: ship.ownerId,
+          x: muzzle.x,
+          y: muzzle.y,
+          vx: Math.cos(shotAngle) * speed + ship.vx * 0.2,
+          vy: Math.sin(shotAngle) * speed + ship.vy * 0.2,
+          damage: effectiveWeapon.directDamage ?? effectiveWeapon.damage ?? 0,
+          blastDamage: effectiveWeapon.blastDamage ?? 0,
+          blastRadius: effectiveWeapon.blastRadius ?? 0,
+          proximityFuseRadius: effectiveWeapon.proximityFuseRadius ?? 0,
+          innerFullDamageRadius: effectiveWeapon.innerFullDamageRadius ?? 0,
+          falloffExponent: effectiveWeapon.falloffExponent ?? 1,
+          directImpactBonus: effectiveWeapon.directImpactBonus ?? 0,
+          shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+          hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
+          armorInteractionSeconds: Math.min(1, effectiveWeapon.armourPenetration ?? 1),
+          life: life,
+          bornAt: now
+        });
+        ship.weaponCooldowns[i] = reload;
+        addComponentHeat(ship, i, 4);
       }
     } else if (family === "pointDefense") {
       if (currentPdTarget) {

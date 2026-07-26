@@ -45,6 +45,15 @@ function createSampleRing() {
   };
 }
 
+const FLAK_SERIES = [
+  "flak:active",
+  "flak:proximityCandidates",
+  "flak:detonations",
+  "flak:explosionEntities",
+  "flak:droneHits",
+  "flak:missileHits",
+  "flak:processingUs"
+];
 const seriesNames = [
   "simulationMs",
   "cycleMs",
@@ -59,7 +68,8 @@ const seriesNames = [
   "entityBullets",
   "entityEffects",
   ...SUBSYSTEM_NAMES.map((name) => `subsystem:${name}`),
-  ...PURCHASE_STAGE_NAMES.map((name) => `purchase:${name}`)
+  ...PURCHASE_STAGE_NAMES.map((name) => `purchase:${name}`),
+  ...FLAK_SERIES
 ];
 const series = Object.fromEntries(seriesNames.map((name) => [name, createSampleRing()]));
 const totals = {
@@ -141,6 +151,17 @@ function recordOutbound(bytes, kind = "control") {
 function recordPurchaseStage(stageName, durationMs) {
   if (!PURCHASE_STAGE_NAMES.includes(stageName)) return;
   boundedSample(`purchase:${stageName}`, durationMs, Date.now());
+}
+
+function recordFlakMetrics(metrics = {}) {
+  const at = Date.now();
+  boundedSample("flak:active", Math.max(0, Number(metrics.active) || 0), at);
+  boundedSample("flak:proximityCandidates", Math.max(0, Number(metrics.proximityCandidates) || 0), at);
+  boundedSample("flak:detonations", Math.max(0, Number(metrics.detonations) || 0), at);
+  boundedSample("flak:explosionEntities", Math.max(0, Number(metrics.explosionEntities) || 0), at);
+  boundedSample("flak:droneHits", Math.max(0, Number(metrics.droneHits) || 0), at);
+  boundedSample("flak:missileHits", Math.max(0, Number(metrics.missileHits) || 0), at);
+  boundedSample("flak:processingUs", Math.max(0, Number(metrics.processingUs) || 0), at);
 }
 
 function currentValues(name, now) {
@@ -236,4 +257,4 @@ function performanceSnapshot(tickHz = 30) {
   };
 }
 
-module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, recordPurchaseStage, performanceSnapshot };
+module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, recordPurchaseStage, recordFlakMetrics, performanceSnapshot };

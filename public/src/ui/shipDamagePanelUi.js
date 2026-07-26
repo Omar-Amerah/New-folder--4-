@@ -261,11 +261,37 @@ function renderPowerSummary(ship) {
     : `<p class="power-healthy-line"><span aria-hidden="true">OK</span> No Power issues detected</p>`;
   const moreIssuesMarkup = hiddenIssues.length
     ? `<details class="power-more-issues"${moreIssuesOpen ? " open" : ""}><summary>View ${hiddenIssues.length} more issue${hiddenIssues.length === 1 ? "" : "s"}</summary>${hiddenIssues.map(powerIssueHtml).join("")}</details>`
+    : "";
+  summary.innerHTML = `
+    <section class="ship-power-summary">
+      <h3 class="power-overall power-overall-${escapeHtml(overall.key)}">
+        <span class="power-overall-icon" aria-hidden="true">${escapeHtml(overall.icon)}</span>
+        <div><strong>${escapeHtml(overall.label)}</strong><p>${escapeHtml(overall.explanation)}</p></div>
+      </h3>
+      <div class="power-kv-grid">
+        ${powerDiagnosticRow("Power balance", "")}
+        ${powerDiagnosticRow("Generation", mwOrUnavailable(pt.powerGenerationMw))}
+        ${powerDiagnosticRow("Requested", mwOrUnavailable(pt.requestedDemandMw))}
+        ${powerDiagnosticRow("Delivered", mwOrUnavailable(pt.deliveredDemandMw))}
+        ${powerDiagnosticRow("Spare", mwOrUnavailable(pt.sparePowerMw))}
+        ${powerDiagnosticRow("Unmet", mwOrUnavailable(pt.unmetDemandMw))}
+        ${powerDiagnosticRow("Priority", powerPresetLabel(pp.activePriorityPreset))}
+      </div>
+      <h4>Distribution</h4>
+      <div class="power-kv-grid">
+        ${powerDiagnosticRow("network", networks !== null ? networks : "Unavailable")}
+        ${powerDiagnosticRow("broken/disabled", broken)}
+        ${powerDiagnosticRow("overloaded", overloaded)}
+      </div>
+      <div class="power-issues-section">
+        ${issueMarkup}
+        ${moreIssuesMarkup}
+      </div>
       <p>Cable Heat: <strong>${cableHeat === null ? "Unavailable" : `${formatHeatAmount(cableHeat)} H/s`}</strong></p>
       ${pp.mostStressedSectionId ? `<p class="power-secondary-detail">Most stressed: ${escapeHtml(mostStressedSectionText(pp))}</p>` : ""}
-      ${pt.hottestSectionId && cableHeat > 0 ? `<p class="power-secondary-detail">Hottest cable: ${escapeHtml(pt.hottestSectionId)}</p>` : ""}
+      ${pt.hottestSectionId && cableHeat !== null && cableHeat > 0 ? `<p class="power-secondary-detail">Hottest cable: ${escapeHtml(pt.hottestSectionId)}</p>` : ""}
     </section>
-    `;
+  `;
   const announcement = `${overall.label}. ${overall.explanation}`;
   summary.dataset.powerStatusAnnouncement = announcement;
   if (announcement !== previousAnnouncement) {

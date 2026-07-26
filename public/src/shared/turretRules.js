@@ -17,6 +17,7 @@
     railgun: 1.5,
     beam: 1.65,
     pointDefense: 7.5, // fast by design: it has to swat crossing missiles
+    flak: 4.5,
     default: 3.0
   });
 
@@ -54,6 +55,7 @@
     pointDefense: 0.62,
     pointDefenseLaser: 0.62,
     flakCannon: 0.45,
+    flak: 0.45,
     interceptorPod: 0.44,
     default: 0.6
   });

@@ -1690,94 +1690,86 @@ function drawDemolitionChargeAssembly(unit, hl, hc, color, visualState = "safed"
   }
 }
 
-function drawNuclearReactorAssembly(unit, hl, hc, color) {
+function drawNuclearReactorAssembly(unit, tilesLong, hl, hc, color) {
+  // Reads as the capital-scale sibling of the standard `reactor`: same
+  // translucent panel, coolant band and containment rings, just larger and
+  // with a hot core disc at the centre.
   const fine = Math.max(0.7, unit * 0.045);
-  const coreRadius = Math.min(hc * 0.52, unit * 0.7);
-  drawFootprintMachineFrame(unit, hl, hc, color);
+  const line = Math.max(1, unit * 0.075);
+  const coreRadius = Math.min(hc * 0.52, hl * 0.3);
 
-  // Paired coolant trunks and cross-cell containment ribs.
-  for (const y of [-hc * 0.48, hc * 0.48]) {
-    ctx.strokeStyle = "#d9a514";
-    ctx.lineWidth = Math.max(1.4, unit * 0.11);
-    ctx.beginPath();
-    ctx.moveTo(-hl + unit * 0.3, y);
-    ctx.lineTo(hl - unit * 0.3, y);
-    ctx.stroke();
-    ctx.strokeStyle = "#fff0a6";
-    ctx.lineWidth = fine;
-    ctx.beginPath();
-    ctx.moveTo(-hl + unit * 0.34, y - unit * 0.025);
-    ctx.lineTo(hl - unit * 0.34, y - unit * 0.025);
-    ctx.stroke();
-  }
+  drawFootprintPanel(unit, hl, hc, 0.9, 0.82, 0.16);
 
-  const podX = Math.max(unit * 0.72, hl * 0.55);
-  for (const x of [-podX, podX]) {
-    ctx.fillStyle = mixColor(color, "#3a2404", 0.42);
-    roundRect(ctx, { x: x - unit * 0.3, y: -hc * 0.34, width: unit * 0.6, height: hc * 0.68, radius: unit * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    drawFootprintPort(unit, x, 0, unit * 0.13, "#fde68a");
-  }
+  // Coolant band down the long axis, matching the reactor's glowing bar.
+  ctx.fillStyle = "#fff1a6";
+  roundRect(ctx, { x: -hl * 0.62, y: -hc * 0.16, width: hl * 1.24, height: hc * 0.32, radius: hc * 0.16 });
+  ctx.fill();
 
+  // Containment rings on the long axis, as on the reactor.
+  ctx.strokeStyle = "#c28b16";
+  ctx.lineWidth = line;
+  ctx.beginPath();
+  ctx.arc(-hl * 0.58, 0, hc * 0.3, 0, Math.PI * 2);
+  ctx.arc(hl * 0.58, 0, hc * 0.3, 0, Math.PI * 2);
+  ctx.stroke();
+  drawFootprintPort(unit, -hl * 0.58, 0, unit * 0.1, "#fde68a");
+  drawFootprintPort(unit, hl * 0.58, 0, unit * 0.1, "#fde68a");
+
+  // Hot core with a restrained glow and concentric shielding rings.
   ctx.save();
   ctx.shadowColor = "#fbbf24";
-  ctx.shadowBlur = qualityShadowBlur(8);
-  ctx.fillStyle = "rgba(36,22,3,0.96)";
+  ctx.shadowBlur = qualityShadowBlur(6);
+  ctx.fillStyle = "rgba(36,22,3,0.82)";
   ctx.strokeStyle = "#f59e0b";
-  ctx.lineWidth = Math.max(1.2, unit * 0.1);
+  ctx.lineWidth = line;
   ctx.beginPath();
   ctx.arc(0, 0, coreRadius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.strokeStyle = "#fde68a";
-  ctx.lineWidth = Math.max(1, unit * 0.065);
-  for (const r of [0.78, 0.54]) {
-    ctx.beginPath();
-    ctx.arc(0, 0, coreRadius * r, 0, Math.PI * 2);
-    ctx.stroke();
-  }
   ctx.restore();
-  drawFootprintPort(unit, 0, 0, unit * 0.2, "#fffde7");
+  ctx.strokeStyle = "#fde68a";
+  ctx.lineWidth = fine;
+  ctx.beginPath();
+  ctx.arc(0, 0, coreRadius * 0.66, 0, Math.PI * 2);
+  ctx.stroke();
+  drawFootprintPort(unit, 0, 0, unit * 0.14, "#fffde7");
 
-  // Four restraint brackets make the circular core part of the chassis.
-  ctx.strokeStyle = "rgba(228,236,245,0.65)";
-  ctx.lineWidth = Math.max(1, unit * 0.085);
-  for (const sx of [-1, 1]) {
-    for (const sy of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(sx * coreRadius * 0.62, sy * coreRadius * 0.62);
-      ctx.lineTo(sx * Math.min(hl - unit * 0.34, coreRadius * 1.45), sy * (hc - unit * 0.28));
-      ctx.stroke();
-    }
-  }
+  drawFootprintSeams(unit, hl, hc, tilesLong);
 }
 
-function drawBackupCoreAssembly(unit, hl, hc, color) {
-  drawFootprintMachineFrame(unit, hl, hc, color);
+function drawBackupCoreAssembly(unit, tilesLong, hl, hc, color) {
+  // Multi-cell version of the single-cell backup core badge: recessed panel,
+  // violet command ring with a crosshair, and link nodes along the long axis.
   const fine = Math.max(0.7, unit * 0.045);
-  const centreR = Math.min(hc * 0.46, unit * 0.38);
+  const line = Math.max(1, unit * 0.075);
+  const ringR = Math.min(hc * 0.54, hl * 0.34);
+
+  drawFootprintPanel(unit, hl, hc, 0.9, 0.8, 0.14);
+
+  ctx.strokeStyle = "rgba(196,181,253,0.55)";
+  ctx.lineWidth = fine;
+  ctx.beginPath();
+  ctx.moveTo(-hl * 0.72, 0);
+  ctx.lineTo(hl * 0.72, 0);
+  ctx.stroke();
+
   ctx.strokeStyle = "#c4b5fd";
-  ctx.lineWidth = Math.max(1.1, unit * 0.085);
+  ctx.lineWidth = line;
   ctx.beginPath();
-  ctx.moveTo(-hl + unit * 0.34, 0);
-  ctx.lineTo(hl - unit * 0.34, 0);
+  ctx.arc(0, 0, ringR, 0, Math.PI * 2);
   ctx.stroke();
-  for (const x of [-hl * 0.52, 0, hl * 0.52]) {
-    ctx.fillStyle = "rgba(18,15,38,0.94)";
-    ctx.strokeStyle = x === 0 ? "#ddd6fe" : "#8b5cf6";
-    ctx.lineWidth = fine;
-    ctx.beginPath();
-    ctx.arc(x, 0, x === 0 ? centreR : centreR * 0.7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    drawFootprintPort(unit, x, 0, unit * (x === 0 ? 0.12 : 0.085), x === 0 ? "#f5f3ff" : "#a78bfa");
-  }
-  ctx.strokeStyle = "rgba(216,180,254,0.68)";
-  ctx.beginPath();
-  ctx.moveTo(0, -hc + unit * 0.24);
-  ctx.lineTo(0, hc - unit * 0.24);
-  ctx.stroke();
+
+  ctx.fillStyle = "#8b5cf6";
+  roundRect(ctx, { x: -ringR * 0.16, y: -ringR * 1.16, width: ringR * 0.32, height: ringR * 2.32, radius: unit * 0.03 });
+  ctx.fill();
+  roundRect(ctx, { x: -ringR * 1.16, y: -ringR * 0.16, width: ringR * 2.32, height: ringR * 0.32, radius: unit * 0.03 });
+  ctx.fill();
+
+  drawFootprintPort(unit, 0, 0, unit * 0.12, "#f5f3ff");
+  drawFootprintPort(unit, -hl * 0.72, 0, unit * 0.09, "#a78bfa");
+  drawFootprintPort(unit, hl * 0.72, 0, unit * 0.09, "#a78bfa");
+
+  drawFootprintSeams(unit, hl, hc, tilesLong);
 }
 
 function drawGenericFootprintMachine(type, unit, tilesLong, color, hl, hc) {
@@ -1959,12 +1951,12 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
   }
 
   if (type === "nuclearReactor") {
-    drawNuclearReactorAssembly(unit, hl, hc, color);
+    drawNuclearReactorAssembly(unit, tilesLong, hl, hc, color);
     return true;
   }
 
   if (type === "backupCore") {
-    drawBackupCoreAssembly(unit, hl, hc, color);
+    drawBackupCoreAssembly(unit, tilesLong, hl, hc, color);
     return true;
   }
 

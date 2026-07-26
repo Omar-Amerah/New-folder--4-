@@ -1159,8 +1159,9 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "weapon": {
-        "family": "pointDefense",
-        "damage": 10,
+        "family": "flak",
+        "damage": 1.5,
+        "directDamage": 1.5,
         "fireRate": 2.7,
         "range": 400,
         "projectileSpeed": 850,
@@ -1176,10 +1177,19 @@ export const GENERATED_BALANCE = {
           "projectile",
           "ship"
         ],
-        "shipDamageMultiplier": 0.08
+        "shieldDamageMultiplier": 1,
+        "hullDamageMultiplier": 1,
+        "blastDamage": 7,
+        "blastRadius": 36,
+        "proximityFuseRadius": 14,
+        "innerFullDamageRadius": 10,
+        "falloffExponent": 1.7,
+        "armourPenetration": 1.0,
+        "directImpactBonus": 0,
+        "shipDamageMultiplier": 1
       },
       "rotatable": true,
-      "description": "Short-range anti-missile and anti-swarm defence. Poor range and weak direct damage."
+      "description": "Explosive proximity-fused anti-missile and anti-drone defence. Shells detonate on near-miss, direct impact or at max range, damaging all fragile targets within the blast. Weak single-target hull damage and poor armour penetration; not a replacement for Point Defence or autocannons."
     },
     {
       "id": "interceptorPod",

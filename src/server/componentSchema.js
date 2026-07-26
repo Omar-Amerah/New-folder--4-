@@ -1,7 +1,7 @@
 // Validates component-balance.json before normalization so invalid balance data
 // cannot be silently repaired into a different authoritative catalogue.
 
-const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", "pointDefense"]);
+const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", "pointDefense", "flak"]);
 // Weapon families for which Beam burn-through carry-over is meaningful.
 const BURN_THROUGH_WEAPON_FAMILIES = new Set(["beam"]);
 const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "swarmMissile", "projectile", "drone", "droneFighter", "droneOther"]);
@@ -17,10 +17,12 @@ const NUMERIC_FIELDS = [
   "frontDamageReduction", "frontArc", "maxPerShip"
 ];
 const WEAPON_NUMERIC_FIELDS = [
-  "damage", "fireRate", "range", "radius", "projectileSpeed", "accuracy", "tracking",
+  "damage", "fireRate", "range", "radius", "projectileSpeed", "projectileLifetime", "accuracy", "tracking",
   "trackTime", "trackingDelay", "aimSpeed", "arc", "missileHp", "shipDamageMultiplier",
-  "shieldDamageMultiplier", "hullDamageMultiplier", "chargeRampSeconds",
-  "maxChargeDamageBonus", "impactHeatPerDamage"
+  "shieldDamageMultiplier", "hullDamageMultiplier", "directDamage", "directImpactBonus",
+  "blastDamage", "blastRadius", "proximityFuseRadius", "innerFullDamageRadius",
+  "falloffExponent", "armourPenetration", "cooldown", "maximumExplosionTargets",
+  "chargeRampSeconds", "maxChargeDamageBonus", "impactHeatPerDamage"
 ];
 
 function isFiniteNumber(value) {

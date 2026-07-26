@@ -67,19 +67,6 @@ function prunePurchaseRequestCache(player, now) {
   }
 }
 
-// The purchase idempotency signature is derived from the COMPLETE authoritative
-// normalized blueprint + wiring. The canonical blueprint signature is computed
-// once and shared with the template cache so both systems key off the exact
-// same normalized representation.
-function stablePayloadSignature(payload) {
-  const blueprint = canonicalBlueprintSignature(payload.design, payload.wiring);
-  return JSON.stringify({
-    count: payload.count,
-    combatStyle: payload.combatStyle || "",
-    blueprint
-  });
-}
-
 function makePurchaseFailure(requestId, code, message) {
   return { type: "purchaseResult", ok: false, requestId, code, message };
 }
@@ -96,7 +83,12 @@ function executePurchase(room, player, request, now) {
   }
 
   const validationStart = performance.now();
-  const signature = stablePayloadSignature(request);
+  const canonicalBlueprint = canonicalBlueprintSignature(request.design, request.wiring);
+  const signature = JSON.stringify({
+    count: request.count,
+    combatStyle: request.combatStyle || "",
+    blueprint: canonicalBlueprint
+  });
   const cache = getPurchaseRequestCache(player);
   const previous = cache.get(requestId);
   if (previous) {
@@ -117,19 +109,11 @@ function executePurchase(room, player, request, now) {
   }
   recordPurchaseStage("designValidation", performance.now() - designValidationStart);
 
-  // Compute one authoritative blueprint signature for both idempotency and
-  // template caching, then share it with the template system.
-  const blueprintSignature = canonicalBlueprintSignature(request.design, request.wiring);
-
-  // Use template system to avoid repeated blueprint work
+  // Reuse the already-normalised canonical blueprint for the template cache key.
   const templateStart = performance.now();
-  const template = getOrCreateTemplate(player.id, request.design, request.wiring, validation.shipStats, blueprintSignature);
+  const template = getOrCreateTemplate(player.id, request.design, request.wiring, validation.shipStats, canonicalBlueprint);
   const combatStyle = request.combatStyle || player.combatStyle || "hold";
   recordPurchaseStage("statCalculation", performance.now() - templateStart);
-
-  const signatureStart = performance.now();
-  // Signature already computed above
-  recordPurchaseStage("purchaseSignatureGeneration", performance.now() - signatureStart);
 
   const createdShips = [];
   const original = {

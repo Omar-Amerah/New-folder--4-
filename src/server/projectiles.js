@@ -167,6 +167,7 @@ function missileEcmModifier(room, target, cache) {
 
 function updateBullets(room, dt, now) {
   const { areEnemies, damageShip } = require("./combat");
+  const { recordFlakMetrics } = require("./performanceTelemetry");
 
   const liveShips = getLiveShips(
     room,
@@ -182,7 +183,7 @@ function updateBullets(room, dt, now) {
   const kept = room._projectileSpare && room._projectileSpare !== sourceBullets ? room._projectileSpare : [];
   kept.length = 0;
   const scratch = room._projectileSpatialScratch || (room._projectileSpatialScratch = {
-    asteroids: [], ships: [], drones: []
+    asteroids: [], ships: [], drones: [], interceptableProjectiles: []
   });
   const asteroidCandidates = scratch.asteroids;
   const shipCandidates = scratch.ships;
@@ -198,6 +199,128 @@ function updateBullets(room, dt, now) {
   // Most projectile ticks contain no actively tracking missiles. Allocate the
   // per-target ECM cache only when guidance actually needs it.
   let ecmModCache = null;
+  const flakMetrics = { active: 0, proximityCandidates: 0, detonations: 0, explosionEntities: 0, droneHits: 0, missileHits: 0, processingNs: 0n };
+  const flakStart = process.hrtime.bigint();
+
+  function flakRadiusFor(entity, kind) {
+    if (kind === "ship") {
+      return (entity && entity.shield >= SHIELD_HIT_MIN) ? shieldCollisionRadius(entity) : (entity?.radius || 0);
+    }
+    if (kind === "drone") return Number(entity.radius) || 10;
+    return Number(entity.radius) || ((entity.type === "missile" || entity.type === "torpedo") ? PROJECTILES.hitRadius.missile : (entity.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default));
+  }
+
+  function findFlakFuseTarget(bullet, previousX, previousY, spatial, scratch) {
+    const fuseR = Math.max(0, Number(bullet.proximityFuseRadius) || 0);
+    if (fuseR <= 0) return { target: null, candidates: 0 };
+    let best = null;
+    let bestT = Infinity;
+    let bestId = "";
+    let candidates = 0;
+    const consider = (entity, kind) => {
+      if (entity === bullet) return;
+      if (!entity || (kind === "ship" && (!entity.alive || entity.destroyed))) return;
+      if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) return;
+      if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) return;
+      if (!areEnemies(room, bullet.ownerId, entity.ownerId)) return;
+      const radius = flakRadiusFor(entity, kind);
+      const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, entity.x, entity.y, radius + fuseR);
+      if (!hit) return;
+      candidates += 1;
+      const id = String(entity.id || "");
+      if (hit.t < bestT || (hit.t === bestT && id.localeCompare(bestId) < 0)) {
+        bestT = hit.t;
+        bestId = id;
+        best = { kind, entity, x: hit.x, y: hit.y };
+      }
+    };
+    const pList = spatial
+      ? spatial.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.interceptableProjectiles)
+      : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
+    for (const p of pList) consider(p, "projectile");
+    const dList = spatial
+      ? spatial.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.drones)
+      : (room.drones?.values?.() || []);
+    for (const d of dList) consider(d, "drone");
+    const sList = spatial
+      ? spatial.querySweptAabbUnordered("ships", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.ships)
+      : liveShips;
+    for (const s of sList) consider(s, "ship");
+    return { target: best, candidates };
+  }
+
+  function detonateFlakShell(bullet, detonateX, detonateY, triggerKind, triggerEntity, now) {
+    const blastR = Math.max(0, Number(bullet.blastRadius) || 0);
+    if (blastR <= 0) return;
+    room.effects.push({ type: "flakburst", x: detonateX, y: detonateY, at: now, radius: blastR });
+    flakMetrics.detonations += 1;
+    const blastDamage = Number(bullet.blastDamage) || 0;
+    const innerR = Math.max(0, Number(bullet.innerFullDamageRadius) || 0);
+    const exp = Math.max(0.1, Number(bullet.falloffExponent) || 1);
+    const directBonus = Number(bullet.directImpactBonus) || 0;
+    const maxTargets = Number(bullet.maximumExplosionTargets) || 0;
+    let processed = 0;
+
+    function damageFor(edgeDistance) {
+      if (edgeDistance >= blastR) return 0;
+      if (edgeDistance <= innerR) return blastDamage;
+      const ratio = (edgeDistance - innerR) / (blastR - innerR);
+      return blastDamage * Math.max(0, 1 - Math.pow(ratio, exp));
+    }
+
+    function damageEntity(entity, kind) {
+      if (entity === bullet) return;
+      if (!entity || !areEnemies(room, bullet.ownerId, entity.ownerId)) return;
+      if (kind === "ship" && (!entity.alive || entity.destroyed)) return;
+      if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) return;
+      if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) return;
+      const radius = flakRadiusFor(entity, kind);
+      const dx = entity.x - detonateX;
+      const dy = entity.y - detonateY;
+      const edge = Math.max(0, Math.hypot(dx, dy) - radius);
+      if (edge > blastR) return;
+      processed += 1;
+      if (maxTargets > 0 && processed > maxTargets) return;
+      let damage = damageFor(edge);
+      if (triggerEntity && entity === triggerEntity) damage += directBonus;
+      if (damage <= 0.001) return;
+
+      if (kind === "ship") {
+        damageShip(room, entity, damage, bullet.ownerId, now, detonateX, detonateY, {
+          shieldDamageMultiplier: bullet.shieldDamageMultiplier,
+          hullDamageMultiplier: bullet.hullDamageMultiplier,
+          armorInteractionSeconds: bullet.armorInteractionSeconds
+        });
+      } else if (kind === "drone") {
+        require("./drones").damageDrone(room, entity, damage, bullet.ownerId, now);
+        flakMetrics.droneHits += 1;
+      } else if (kind === "projectile") {
+        const hp = entity.hp !== undefined ? entity.hp : (entity.damage || 20);
+        entity.hp = hp - damage;
+        if (entity.hp <= 0.001) {
+          removeProjectileRuntime(room, entity);
+          room.effects.push({ type: "spark", x: entity.x, y: entity.y, at: now });
+        }
+        flakMetrics.missileHits += 1;
+      }
+    }
+
+    const spatial = room.disableSpatialIndex ? null : (room.spatialIndex?.dynamicValid ? room.spatialIndex : null);
+    const exScratch = room._flakExplosionScratch || (room._flakExplosionScratch = { interceptableProjectiles: [], drones: [], ships: [] });
+    if (spatial) {
+      for (const kind of ["interceptableProjectiles", "drones", "ships"]) {
+        const out = exScratch[kind] || (exScratch[kind] = []);
+        const candidates = spatial.queryRangeUnordered(kind, detonateX, detonateY, blastR, out);
+        const normalized = kind === "interceptableProjectiles" ? "projectile" : kind;
+        for (const candidate of candidates) damageEntity(candidate, normalized);
+      }
+    } else {
+      for (const p of room.bullets || []) damageEntity(p, "projectile");
+      for (const d of room.drones?.values?.() || []) damageEntity(d, "drone");
+      for (const s of room.ships?.values?.() || []) damageEntity(s, "ship");
+    }
+    flakMetrics.explosionEntities += processed;
+  }
 
   for (const bullet of sourceBullets) {
     if (!Number.isFinite(bullet.x) || !Number.isFinite(bullet.y)
@@ -207,12 +330,17 @@ function updateBullets(room, dt, now) {
       continue;
     }
     bullet.life -= dt;
+    let flakExpired = false;
     if (bullet.life <= 0) {
       if (bullet.type === "missile" || bullet.type === "pdShot") {
         room.effects.push({ type: "despawn", subtype: bullet.subtype, x: bullet.x, y: bullet.y, at: now });
       }
-      discardBullet(room, bulletsById, bullet);
-      continue;
+      if (bullet.type === "flak") {
+        flakExpired = true;
+      } else {
+        discardBullet(room, bulletsById, bullet);
+        continue;
+      }
     }
     const previousX = bullet.x;
     const previousY = bullet.y;
@@ -306,6 +434,25 @@ function updateBullets(room, dt, now) {
              }
           }
        }
+    }
+
+    if (bullet.type === "flak") {
+      flakMetrics.active += 1;
+      const fuseScratch = room._flakFuseScratch || (room._flakFuseScratch = { interceptableProjectiles: scratch.interceptableProjectiles, drones: scratch.drones, ships: scratch.ships });
+      if (flakExpired) {
+        detonateFlakShell(bullet, bullet.x, bullet.y, null, null, now);
+        discardBullet(room, bulletsById, bullet);
+        continue;
+      }
+      const fuseResult = findFlakFuseTarget(bullet, previousX, previousY, spatialIndex, fuseScratch);
+      flakMetrics.proximityCandidates += fuseResult.candidates;
+      if (fuseResult.target) {
+        detonateFlakShell(bullet, fuseResult.target.x, fuseResult.target.y, fuseResult.target.kind, fuseResult.target.entity, now);
+        discardBullet(room, bulletsById, bullet);
+        continue;
+      }
+      kept.push(bullet);
+      continue;
     }
 
     const rockHit = projectileMapImpact(room, previousX, previousY, bullet, spatialIndex, asteroidCandidates);
@@ -478,6 +625,20 @@ function updateBullets(room, dt, now) {
   sourceEffects.length = 0;
   room.effects = keptEffects;
   room._effectSpare = sourceEffects;
+
+  if (flakMetrics.active > 0) {
+    flakMetrics.processingNs = process.hrtime.bigint() - flakStart;
+    recordFlakMetrics({
+      active: flakMetrics.active,
+      proximityCandidates: flakMetrics.proximityCandidates,
+      detonations: flakMetrics.detonations,
+      explosionEntities: flakMetrics.explosionEntities,
+      droneHits: flakMetrics.droneHits,
+      missileHits: flakMetrics.missileHits,
+      processingUs: Number(flakMetrics.processingNs) / 1000
+    });
+  }
+
   // Projectile positions and membership have now advanced beyond the index's
   // build epoch. No later subsystem in this tick consumes it; clearing prevents
   // accidental stale queries and the next authoritative tick rebuilds once.

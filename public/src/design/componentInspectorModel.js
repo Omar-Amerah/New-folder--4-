@@ -190,6 +190,14 @@ function weaponCapability(stat) {
   if ((weapon.accuracy ?? 1) >= 1) rows.push(statRow("weapon.accuracy", "Accuracy", "Cannot miss"));
   else rows.push(statRow("weapon.accuracy", "Accuracy", formatPercent(weapon.accuracy)));
   rows.push(statRow("weapon.arc", "Firing arc", degrees(weapon.arc || 360)));
+  if (weapon.type === "flak") {
+    rows.push(statRow("weapon.blastDamage", "Blast damage", formatDamage(weapon.blastDamage ?? 0)));
+    rows.push(statRow("weapon.blastRadius", "Blast radius", formatDistance(weapon.blastRadius ?? 0)));
+    rows.push(statRow("weapon.fuseRadius", "Fuse radius", formatDistance(weapon.proximityFuseRadius ?? 0)));
+    rows.push(statRow("weapon.falloff", "Falloff", `${formatDistance(weapon.innerFullDamageRadius ?? 0)} full · exp ${Number(weapon.falloffExponent ?? 1).toFixed(1)}`));
+    rows.push(statRow("weapon.targets", "Preferred targets", "Missiles, drones, light ships"));
+    if ((weapon.directDamage ?? 1) > 0) rows.push(statRow("weapon.directDamage", "Direct hit", formatDamage(weapon.directDamage)));
+  }
   return rows;
 }
 

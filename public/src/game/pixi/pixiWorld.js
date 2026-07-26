@@ -604,6 +604,14 @@ function updatePixiEffects(env, now, bounds) {
           view.root.position.set(x, y - t * 30);
           view.root.alpha = alpha;
         }
+      } else if (effect.type === "flakburst") {
+        const rr = effect.radius || 36;
+        gfx.circle(x, y, rr * (0.2 + t));
+        gfx.fill({ color: "#fbbf24", alpha });
+        gfx.circle(x, y, rr * (0.05 + t * 0.5));
+        gfx.fill({ color: "#fff3c2", alpha: alpha * 0.75 });
+        gfx.circle(x, y, rr * (0.3 + t * 1.1));
+        gfx.stroke({ width: 3 / zoom, color: "#ef4444", alpha });
       } else if (effect.type === "burst") {
         gfx.circle(x, y, 12 + t * 40);
         gfx.fill({ color: "#ffca57", alpha });
