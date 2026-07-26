@@ -85,7 +85,7 @@ function collectStableThreats(room, ship, range, output) {
         ship.x,
         ship.y,
         range,
-        ship._decoyThreatScratch || (ship._decoyThreatScratch = [])
+        ship._decoySpatialScratch || (ship._decoySpatialScratch = [])
       )
     : (room.bullets || []);
   for (const projectile of candidates) {
