@@ -1,6 +1,6 @@
 // Handles ship velocities, turning, path alignment, separation forces, map collision avoidance, and movement commands.
 
-const { clampNumber, rotateToward, angleDifference, fastHypot } = require("./utils");
+const { clampNumber, rotateToward, angleDifference, fastHypot, performanceNow } = require("./utils");
 const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition, armedProximityChargeRanges } = require("./combat");
@@ -18,6 +18,11 @@ const EDGE_BOUNCE_MARGIN = 43;
 const ARRIVE_DISTANCE = 16;
 const MAX_MOVEMENT_DT = 0.25;
 const MOVEMENT_SUBSTEP = 1 / 30;
+
+const FORMATION_MIN_GAP = 12;
+const FORMATION_TURN_SPEED = Math.PI;
+const FORMATION_ARRIVE_DISTANCE = 24;
+const FORMATION_VELOCITY_LEAD = 0.25;
 
 function heatAdjustedMovementStats(ship, stats) {
   const design = ship.design || [];
@@ -131,12 +136,8 @@ function commandShips(room, player, x, y, options = {}) {
   const command = selectOwnedLivingShips(player, options.shipIds);
   if (!command.ok) return { ok: false, code: command.code, commanded: 0 };
 
-  // Omitted shipIds intentionally preserve the long-standing "all owned live ships" order.
-  // Explicit [] selects no ships; malformed input never falls back to every ship.
   let ships = command.ships;
   if (command.explicit && command.ids.size === 0) return { ok: true, code: "empty-selection", commanded: 0 };
-
-  ships = ships.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
   if (ships.length === 0) return { ok: true, code: "no-authorized-ships", commanded: 0 };
 
   const target = findShipById(room, options.targetId);
@@ -151,24 +152,29 @@ function commandShips(room, player, x, y, options = {}) {
     : null;
   const hasRepairBeam = (ship) => (ship.design || []).some((module) => module.type === "repairBeam");
 
-  const destination = nearestClearPoint(room, x, y, Math.max(42, Math.max(...ships.map((ship) => ship.radius || 0)) * 0.72));
   const plan = planFormation(room, ships, {
-    x: destination.x,
-    y: destination.y,
+    x,
+    y,
     formation: options.formation || "line",
-    direction: Number.isFinite(options.direction) ? options.direction : null
+    direction: Number.isFinite(options.direction) ? options.direction : null,
+    focusTargetId
   });
 
-  for (const slot of plan.slots) {
+  for (let i = 0; i < plan.slots.length; i++) {
+    const slot = plan.slots[i];
     const ship = slot.ship;
     ship.targetX = slot.x;
     ship.targetY = slot.y;
     ship.formationX = slot.offsetX;
     ship.formationY = slot.offsetY;
+    ship.formationPlan = plan;
+    ship.formationSlotIndex = i;
+    ship.formationIdealX = slot.x;
+    ship.formationIdealY = slot.y;
 
     ship.focusTargetId = focusTargetId;
     ship.repairTargetId = repairTargetId && hasRepairBeam(ship) ? repairTargetId : null;
-    ship.isManualMove = !focusTargetId;
+    ship.isManualMove = true;
     ship.arrived = false;
 
     if (focusTargetId && ship.lastOrbitTargetId !== focusTargetId) {
@@ -181,58 +187,267 @@ function commandShips(room, player, x, y, options = {}) {
 
 function planFormation(room, ships, options = {}) {
   const formation = options.formation || "line";
-  const orderedShips = ships.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
-  const maxRadius = Math.max(0, ...orderedShips.map((ship) => ship.radius || 0));
-  const spacing = clampNumber(62 + maxRadius * 0.75, 58, 132);
-  const destination = nearestClearPoint(room, options.x, options.y, Math.max(42, maxRadius * 0.72));
-  const direction = Number.isFinite(options.direction) ? options.direction : 0;
-  const cos = Math.cos(direction);
-  const sin = Math.sin(direction);
-  const slots = orderedShips.map((ship, index) => {
-    const offset = formationOffset(index, orderedShips.length, Math.max(spacing, (ship.radius || 0) * 1.5), formation);
-    const worldX = destination.x + offset.x * cos - offset.y * sin;
-    const worldY = destination.y + offset.x * sin + offset.y * cos;
-    const clearance = Math.max(42, (ship.radius || 0) * 0.72);
-    const clear = nearestClearPoint(room, worldX, worldY, clearance);
-    return {
-      ship,
-      shipId: ship.id,
-      x: clear.x,
-      y: clear.y,
-      offsetX: offset.x,
-      offsetY: offset.y,
-      clearance,
-      adjusted: clear.adjusted
-    };
-  });
-  return { x: destination.x, y: destination.y, formation, direction, slots, adjustedDestination: destination.adjusted };
+  const requestedX = Number.isFinite(options.x) ? options.x : room.world.width * 0.5;
+  const requestedY = Number.isFinite(options.y) ? options.y : room.world.height * 0.5;
+
+  const avg = fleetAnchor(ships);
+  let direction = Number.isFinite(options.direction)
+    ? options.direction
+    : Math.atan2(requestedY - avg.y, requestedX - avg.x);
+  if (!Number.isFinite(direction) || Math.hypot(requestedX - avg.x, requestedY - avg.y) < 1e-6) {
+    direction = fleetFallbackHeading(ships);
+  }
+  const dirX = Math.cos(direction);
+  const dirY = Math.sin(direction);
+  const sideX = -dirY;
+  const sideY = dirX;
+
+  const anchor = fleetAnchorForFormation(ships, formation, dirX, dirY);
+
+  const maxBodyR = ships.reduce((m, ship) => Math.max(m, shipFormationRadius(ship)), 0);
+  const spacing = 2 * maxBodyR + FORMATION_MIN_GAP;
+  const rawOffsets = generateFormationOffsets(formation, ships.length, spacing);
+  const assigned = assignShipsToSlots(ships, rawOffsets, dirX, dirY, sideX, sideY, anchor.x, anchor.y);
+  const slots = buildAuthoritativeSlots(assigned, formation, maxBodyR);
+
+  const centroidF = slots.reduce((sum, s) => sum + s.forward, 0) / slots.length || 0;
+  const centroidL = slots.reduce((sum, s) => sum + s.lateral, 0) / slots.length || 0;
+
+  const requestedLocalF = (requestedX - anchor.x) * dirX + (requestedY - anchor.y) * dirY;
+  const requestedLocalL = (requestedX - anchor.x) * sideX + (requestedY - anchor.y) * sideY;
+  const anchorTargetF = requestedLocalF - centroidF;
+  const anchorTargetL = requestedLocalL - centroidL;
+  let anchorTargetX = anchor.x + anchorTargetF * dirX + anchorTargetL * sideX;
+  let anchorTargetY = anchor.y + anchorTargetF * dirY + anchorTargetL * sideY;
+
+  let maxExtent = 0;
+  for (const slot of slots) {
+    const r = shipFormationRadius(slot.ship);
+    const extent = Math.hypot(slot.forward - centroidF, slot.lateral - centroidL) + r;
+    if (extent > maxExtent) maxExtent = extent;
+  }
+
+  const clearance = maxExtent + FORMATION_MIN_GAP;
+  const cleared = nearestClearPoint(room, anchorTargetX, anchorTargetY, clearance);
+  anchorTargetX = cleared.x;
+  anchorTargetY = cleared.y;
+  let adjusted = cleared.adjusted;
+
+  const clampedX = clampNumber(anchorTargetX, WORLD_MARGIN + clearance, room.world.width - WORLD_MARGIN - clearance);
+  const clampedY = clampNumber(anchorTargetY, WORLD_MARGIN + clearance, room.world.height - WORLD_MARGIN - clearance);
+  if (clampedX !== anchorTargetX || clampedY !== anchorTargetY) {
+    anchorTargetX = clampedX;
+    anchorTargetY = clampedY;
+    adjusted = true;
+  }
+
+  for (const slot of slots) {
+    slot.worldX = anchorTargetX + slot.forward * dirX + slot.lateral * sideX;
+    slot.worldY = anchorTargetY + slot.forward * dirY + slot.lateral * sideY;
+    slot.x = slot.worldX;
+    slot.y = slot.worldY;
+    slot.offsetX = slot.forward;
+    slot.offsetY = slot.lateral;
+    slot.shipId = slot.ship.id;
+    slot.clearance = shipFormationRadius(slot.ship);
+    slot.adjusted = adjusted;
+  }
+
+  room._formationIdSeq = (room._formationIdSeq || 0) + 1;
+  const plan = {
+    id: `fp-${ships[0]?.ownerId || "x"}-${room._formationIdSeq}`,
+    ownerId: ships[0]?.ownerId || null,
+    formation,
+    revision: 1,
+    destinationX: requestedX,
+    destinationY: requestedY,
+    anchorTargetX,
+    anchorTargetY,
+    direction,
+    anchor: { x: anchor.x, y: anchor.y, vx: 0, vy: 0, heading: direction },
+    memberShipIds: slots.map((s) => s.ship.id),
+    slots: slots.map((s) => ({ forward: s.forward, lateral: s.lateral, shipId: s.ship.id, bodyR: shipFormationRadius(s.ship) })),
+    maxBodyR,
+    maxExtent,
+    spacing,
+    focusTargetId: options.focusTargetId || null,
+    createdAt: performanceNow(),
+    buildCount: 1,
+    reassignmentCount: 0
+  };
+  for (let i = 0; i < slots.length; i++) slots[i].plan = plan;
+
+  return {
+    ...plan,
+    x: anchorTargetX,
+    y: anchorTargetY,
+    slots,
+    adjustedDestination: adjusted
+  };
+}
+
+function shipFormationRadius(ship) {
+  return Math.max(18, (ship.radius || 0) * 0.72);
+}
+
+function numericCompare(a, b) {
+  return String(a).localeCompare(String(b), undefined, { numeric: true });
+}
+
+function fleetFallbackHeading(ships) {
+  if (ships.length === 0) return 0;
+  let sx = 0, sy = 0;
+  for (const ship of ships) {
+    const a = Number.isFinite(ship.angle) ? ship.angle : 0;
+    sx += Math.cos(a);
+    sy += Math.sin(a);
+  }
+  const heading = Math.atan2(sy, sx);
+  return Number.isFinite(heading) ? heading : 0;
+}
+
+function fleetAnchor(ships) {
+  let x = 0, y = 0;
+  for (const ship of ships) {
+    x += ship.x;
+    y += ship.y;
+  }
+  return { x: x / ships.length, y: y / ships.length };
+}
+
+function fleetAnchorForFormation(ships, formation, dirX, dirY) {
+  const avg = fleetAnchor(ships);
+  if (formation !== "wedge") return avg;
+  let best = null;
+  let bestProj = -Infinity;
+  for (const ship of ships) {
+    const proj = (ship.x - avg.x) * dirX + (ship.y - avg.y) * dirY;
+    if (proj > bestProj) {
+      best = ship;
+      bestProj = proj;
+    }
+  }
+  return best ? { x: best.x, y: best.y } : avg;
+}
+
+function generateFormationOffsets(formation, count, spacing) {
+  if (formation === "wedge") return generateWedgeOffsets(count, spacing);
+  if (formation === "clump") return generateClumpOffsets(count, spacing);
+  return generateLineOffsets(count, spacing);
+}
+
+function generateLineOffsets(count, spacing) {
+  const offsets = [];
+  const center = (count - 1) / 2;
+  for (let i = 0; i < count; i++) {
+    offsets.push({ forward: 0, lateral: (i - center) * spacing });
+  }
+  return offsets;
+}
+
+function generateWedgeOffsets(count, spacing) {
+  const rowStep = spacing;
+  const sideStep = spacing / 2;
+  const offsets = [{ forward: 0, lateral: 0 }];
+  let row = 1;
+  while (offsets.length < count) {
+    offsets.push({ forward: -row * rowStep, lateral: -row * sideStep });
+    if (offsets.length >= count) break;
+    offsets.push({ forward: -row * rowStep, lateral: row * sideStep });
+    row++;
+  }
+  return offsets;
+}
+
+function generateClumpOffsets(count, spacing) {
+  const offsets = [{ forward: 0, lateral: 0 }];
+  if (count <= 1) return offsets;
+  const vX = spacing;
+  const vY = spacing * 0.5;
+  const vF = spacing * Math.sqrt(3) / 2;
+  let ring = 1;
+  while (offsets.length < count) {
+    let q = ring, r = 0;
+    const dirs = [
+      { q: 0, r: -1 }, { q: -1, r: 0 }, { q: -1, r: 1 },
+      { q: 0, r: 1 }, { q: 1, r: 0 }, { q: 1, r: -1 }
+    ];
+    for (const d of dirs) {
+      for (let s = 0; s < ring && offsets.length < count; s++) {
+        const lateral = q * vX + r * vY;
+        const forward = r * vF;
+        offsets.push({ forward, lateral });
+        q += d.q;
+        r += d.r;
+      }
+    }
+    ring++;
+  }
+  return offsets;
+}
+
+function assignShipsToSlots(ships, offsets, dirX, dirY, sideX, sideY, anchorX, anchorY) {
+  const assigned = [];
+  const used = new Set();
+  for (const offset of offsets) {
+    let best = null;
+    let bestScore = Infinity;
+    for (const ship of ships) {
+      if (used.has(ship.id)) continue;
+      const localF = (ship.x - anchorX) * dirX + (ship.y - anchorY) * dirY;
+      const localL = (ship.x - anchorX) * sideX + (ship.y - anchorY) * sideY;
+      const score = (localF - offset.forward) ** 2 + (localL - offset.lateral) ** 2;
+      if (score < bestScore || (score === bestScore && (best === null || numericCompare(ship.id, best.id) < 0))) {
+        best = ship;
+        bestScore = score;
+      }
+    }
+    if (best) {
+      used.add(best.id);
+      assigned.push({ ship: best, offset });
+    }
+  }
+  return assigned;
+}
+
+function buildAuthoritativeSlots(assigned, formation, maxBodyR) {
+  const slots = assigned.map((entry) => ({
+    ship: entry.ship,
+    forward: entry.offset.forward,
+    lateral: entry.offset.lateral
+  }));
+  if (formation === "line") {
+    const n = slots.length;
+    const radii = slots.map((slot) => shipFormationRadius(slot.ship));
+    const mid = Math.floor(n / 2);
+    if (n % 2 === 1) {
+      slots[mid].lateral = 0;
+      for (let i = mid - 1; i >= 0; i--) {
+        slots[i].lateral = slots[i + 1].lateral - (radii[i] + radii[i + 1] + FORMATION_MIN_GAP);
+      }
+      for (let i = mid + 1; i < n; i++) {
+        slots[i].lateral = slots[i - 1].lateral + (radii[i - 1] + radii[i] + FORMATION_MIN_GAP);
+      }
+    } else {
+      const half = (radii[mid - 1] + radii[mid] + FORMATION_MIN_GAP) / 2;
+      slots[mid - 1].lateral = -half;
+      slots[mid].lateral = half;
+      for (let i = mid - 2; i >= 0; i--) {
+        slots[i].lateral = slots[i + 1].lateral - (radii[i] + radii[i + 1] + FORMATION_MIN_GAP);
+      }
+      for (let i = mid + 1; i < n; i++) {
+        slots[i].lateral = slots[i - 1].lateral + (radii[i - 1] + radii[i] + FORMATION_MIN_GAP);
+      }
+    }
+    for (const slot of slots) slot.forward = 0;
+  }
+  return slots;
 }
 
 function formationOffset(index, count, spacing, formation) {
-  const center = index - (count - 1) / 2;
-
-  if (formation === "wedge") {
-    const side = index % 2 === 0 ? -1 : 1;
-    const rank = Math.ceil(index / 2);
-    return {
-      x: -rank * spacing * 0.75,
-      y: side * rank * spacing * 0.62
-    };
-  }
-
-  if (formation === "clump") {
-    const ring = Math.ceil(Math.sqrt(index + 1));
-    const angle = index * 2.399963;
-    return {
-      x: Math.cos(angle) * ring * spacing * 0.28,
-      y: Math.sin(angle) * ring * spacing * 0.28
-    };
-  }
-
-  return {
-    x: center * spacing,
-    y: Math.sin(index * 1.7) * spacing * 0.28
-  };
+  const offsets = generateFormationOffsets(formation, count, spacing);
+  const off = offsets[index] || { forward: 0, lateral: 0 };
+  return { x: off.forward, y: off.lateral };
 }
 
 function updateShipMovement(room, ship, dt) {
@@ -323,7 +538,8 @@ function sanitizeMovementState(room, ship) {
 }
 
 function getActiveCombatTarget(room, ship) {
-  const activeTargetId = ship.focusTargetId || (!ship.isManualMove ? ship.combatTargetId : null);
+  if (ship.isManualMove) return null;
+  const activeTargetId = ship.focusTargetId || ship.combatTargetId || null;
   if (!activeTargetId) return null;
 
   const target = room.ships.get(activeTargetId);
@@ -929,12 +1145,99 @@ function findOptimalHullAngle(ship, target) {
   return bestAngle;
 }
 
+function updateFormationPlans(room, ships, dt) {
+  const safeDt = Number.isFinite(Number(dt)) && Number(dt) > 0 ? Math.min(Number(dt), MAX_MOVEMENT_DT) : 0;
+  if (safeDt <= 0) return;
+  const byPlan = new Map();
+  for (const ship of ships) {
+    if (!ship || !ship.alive || !ship.formationPlan) continue;
+    const entry = byPlan.get(ship.formationPlan.id) || { plan: ship.formationPlan, members: [] };
+    if (!byPlan.has(ship.formationPlan.id)) byPlan.set(ship.formationPlan.id, entry);
+    entry.members.push(ship);
+  }
+  for (const { plan, members } of byPlan.values()) {
+    const activeBySlot = new Array(plan.slots.length).fill(null);
+    for (const ship of members) {
+      const idx = ship.formationSlotIndex;
+      if (idx >= 0 && idx < plan.slots.length) activeBySlot[idx] = ship;
+    }
+    const active = [];
+    for (let i = 0; i < plan.slots.length; i++) {
+      const ship = activeBySlot[i];
+      plan.memberShipIds[i] = ship ? ship.id : null;
+      if (ship) active.push({ ship, slot: plan.slots[i] });
+    }
+    if (active.length === 0) continue;
+
+    let destX = plan.anchorTargetX;
+    let destY = plan.anchorTargetY;
+    if (plan.focusTargetId) {
+      const target = room.ships.get(plan.focusTargetId);
+      if (target && target.alive) {
+        destX = target.x;
+        destY = target.y;
+      }
+    }
+
+    const desired = Math.atan2(destY - plan.anchor.y, destX - plan.anchor.x);
+    plan.anchor.heading = rotateToward(plan.anchor.heading, desired, FORMATION_TURN_SPEED * safeDt);
+
+    const dirX = Math.cos(plan.anchor.heading);
+    const dirY = Math.sin(plan.anchor.heading);
+    const sideX = -dirY;
+    const sideY = dirX;
+
+    let minSpeed = Infinity;
+    for (const { ship } of active) {
+      const ms = ship.stats?.maxSpeed || 0;
+      if (ms > 0 && ms < minSpeed) minSpeed = ms;
+    }
+    if (!Number.isFinite(minSpeed)) minSpeed = 0;
+
+    const dx = destX - plan.anchor.x;
+    const dy = destY - plan.anchor.y;
+    const distance = fastHypot(dx, dy);
+    if (distance > FORMATION_ARRIVE_DISTANCE) {
+      const speed = minSpeed * 0.9;
+      const maxMove = distance - FORMATION_ARRIVE_DISTANCE * 0.5;
+      const move = Math.max(0, Math.min(speed * safeDt, maxMove));
+      const nx = distance > 0 ? dx / distance : 0;
+      const ny = distance > 0 ? dy / distance : 0;
+      plan.anchor.x += nx * move;
+      plan.anchor.y += ny * move;
+      plan.anchor.vx = nx * speed;
+      plan.anchor.vy = ny * speed;
+    } else {
+      plan.anchor.vx = 0;
+      plan.anchor.vy = 0;
+    }
+
+    const clearance = plan.maxExtent + FORMATION_MIN_GAP;
+    plan.anchor.x = clampNumber(plan.anchor.x, WORLD_MARGIN + clearance, room.world.width - WORLD_MARGIN - clearance);
+    plan.anchor.y = clampNumber(plan.anchor.y, WORLD_MARGIN + clearance, room.world.height - WORLD_MARGIN - clearance);
+
+    const leadX = plan.anchor.vx * FORMATION_VELOCITY_LEAD;
+    const leadY = plan.anchor.vy * FORMATION_VELOCITY_LEAD;
+    for (const { ship, slot } of active) {
+      if (!ship.isManualMove) continue;
+      const idealX = plan.anchor.x + slot.forward * dirX + slot.lateral * sideX;
+      const idealY = plan.anchor.y + slot.forward * dirY + slot.lateral * sideY;
+      ship.targetX = idealX + leadX;
+      ship.targetY = idealY + leadY;
+      ship.formationIdealX = idealX;
+      ship.formationIdealY = idealY;
+      ship.arrived = false;
+    }
+  }
+}
+
 module.exports = {
   commandShips,
   formationOffset,
   planFormation,
   updateShipMovement,
   updateShipSeparation,
+  updateFormationPlans,
   resolveFleetMapCollisions,
   resolveMapCollision,
   nearestClearPoint,

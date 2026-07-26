@@ -280,6 +280,27 @@ function run() {
   const clear = nearestClearPoint(room, 1000, 800, 48);
   assert(clear.adjusted && clear.clear && clear.reason === "adjusted", "clear-point helper should expose successful adjustment metadata");
 
+  // 14. Formation geometry: local-coordinate slots, deterministic assignment, no duplicates.
+  const linePlan = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 3), { x: 1500, y: 1000, formation: "line" });
+  assert.strictEqual(linePlan.slots.length, 3, "line plan returns a slot per ship");
+  const lineForwards = new Set(linePlan.slots.map((s) => s.offsetX));
+  assert.strictEqual(lineForwards.size, 1, "line forward offsets are identical");
+  assert.strictEqual(linePlan.slots[1].offsetY, 0, "odd line count has a central slot");
+  assert.strictEqual([...new Set(linePlan.slots.map((s) => `${s.offsetX},${s.offsetY}`))].length, 3, "line slot offsets are unique");
+
+  const wedgePlan = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 5), { x: 1500, y: 1100, formation: "wedge" });
+  assert.strictEqual(wedgePlan.slots[0].offsetX, 0, "wedge leader is at forward zero");
+  assert.strictEqual(wedgePlan.slots[0].offsetY, 0, "wedge leader is at lateral zero");
+  assert(wedgePlan.slots.slice(1).every((s) => s.offsetX < 0), "wedge non-leader slots are behind the leader");
+
+  const clumpPlan = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 7), { x: 1500, y: 1200, formation: "clump" });
+  assert(clumpPlan.slots[0].offsetX === 0 && clumpPlan.slots[0].offsetY === 0, "clump first slot is central");
+  assert.strictEqual([...new Set(clumpPlan.slots.map((s) => `${s.offsetX},${s.offsetY}`))].length, clumpPlan.slots.length, "clump offsets are unique");
+
+  const orderA = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 3), { x: 1500, y: 1300, formation: "line" });
+  const orderB = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 3).reverse(), { x: 1500, y: 1300, formation: "line" });
+  assert.deepStrictEqual(orderA.slots.map((s) => s.shipId), orderB.slots.map((s) => s.shipId), "assignment should be deterministic regardless of input order");
+
   console.log("Movement verification passed");
   console.log(`  speeds 1..8 engines: ${[1,2,3,4,5,6,7,8].map((n) => computeStats(buildShip(n)).maxSpeed).join(", ")}`);
   console.log(`  engine efficiency 1..8: ${efficiencies.map((e) => e.toFixed(2)).join(", ")}`);

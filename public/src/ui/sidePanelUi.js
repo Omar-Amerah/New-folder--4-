@@ -4,6 +4,7 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { showToast } from "./toastUi.js";
 import { updateHud } from "./hudUi.js";
+import { send, recordNetworkEvent } from "../network.js";
 import { ownLiveShips, pruneSelection } from "../game/selection.js";
 import { renderShipDamagePanel } from "./shipDamagePanelUi.js";
 import { STYLE_DESCRIPTIONS, selectedShipSummary, commonStyle } from "./section13bUi.js";
@@ -35,6 +36,12 @@ const GROUP_COMBAT_STYLES = [
   { id: "ship", label: "Use Ship Stance" },
   ...SELECTED_COMBAT_STYLES
 ];
+
+let combatStyleRequestCounter = 0;
+function makeCombatStyleRequestId() {
+  const base = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${++combatStyleRequestCounter}`;
+  return `cs-${base}`.slice(0, 64);
+}
 
 export function renderSideControls() {
   renderShipGroups();
@@ -221,7 +228,7 @@ function ensureShipGroupRows() {
       const formationSelect = document.createElement("select");
       formationSelect.className = "ship-group-select";
       formationSelect.dataset.shipGroupFormation = group.id;
-      formationSelect.title = `${group.label} formation`;
+      formationSelect.title = "Formation for next move";
       formationSelect.setAttribute("aria-label", `${group.label} formation`);
       for (const option of FORMATION_OPTIONS) {
         const optionEl = document.createElement("option");
@@ -317,18 +324,54 @@ function selectShipGroup(groupId) {
   renderSideControls();
 }
 
+const COMBAT_STYLE_REQUEST_TIMEOUT_MS = 5000;
+const MAX_COMBAT_STYLE_EXPLICIT_IDS = 360;
+
 function setSelectedCombatStyle(style) {
   if (!SELECTED_COMBAT_STYLES.some((item) => item.id === style)) return;
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN || state.phase !== "active") return;
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN || state.phase !== "active") {
+    showToast("Style commands are only available during an active match.", "warning");
+    return;
+  }
   pruneSelection();
-  const shipIds = [...state.selectedShipIds];
+  const ownShips = ownLiveShips();
+  const ownIds = new Set(ownShips.map((ship) => ship.id));
+  const shipIds = ownShips.filter((ship) => state.selectedShipIds.has(ship.id)).map((ship) => ship.id);
   if (shipIds.length === 0) {
     showToast("Select ships before changing combat style.", "warning");
     renderSelectionControls();
     return;
   }
-  state.pendingCombatStyle = { style, shipIds: [...shipIds], at: performance.now() };
-  send({ type: "setCombatStyle", combatStyle: style, shipIds });
+  const requestId = makeCombatStyleRequestId();
+  const useScopeAll = shipIds.length === ownShips.length || shipIds.length > MAX_COMBAT_STYLE_EXPLICIT_IDS;
+  const payload = { type: "setCombatStyle", requestId, combatStyle: style };
+  if (useScopeAll) {
+    payload.scope = "all-owned";
+  } else {
+    payload.shipIds = shipIds;
+  }
+  const previousStyles = new Map();
+  for (const ship of ownShips) {
+    if (useScopeAll || shipIds.includes(ship.id)) previousStyles.set(ship.id, normalizeCombatStyle(ship.combatStyle));
+  }
+  const sent = send(payload);
+  if (!sent) {
+    showToast("Unable to send style command — connection is offline.", "warning");
+    recordNetworkEvent("notice", { message: "Style command failed to send (offline)", requestId, style });
+    return;
+  }
+  state.pendingCombatStyle = {
+    requestId,
+    style,
+    shipIds: useScopeAll ? null : shipIds,
+    scope: useScopeAll ? "all-owned" : null,
+    previousStyles,
+    connectionGeneration: state.connectionGeneration,
+    room: state.room || "",
+    at: performance.now(),
+    acknowledged: false,
+    warned: false
+  };
   renderSelectionControls();
 }
 
@@ -361,11 +404,9 @@ function applyGroupCombatStyle(groupId) {
   const shipIds = shipIdsForGroup(groupId, liveIds);
   if (shipIds.length === 0) return;
   rememberBaseCombatStyles(shipIds);
-  for (const ship of state.snapshot?.ships || []) {
-    if (shipIds.includes(ship.id)) ship.combatStyle = style;
-  }
   if (state.socket && state.socket.readyState === WebSocket.OPEN && state.phase === "active") {
-    send({ type: "setCombatStyle", combatStyle: style, shipIds });
+    const requestId = makeCombatStyleRequestId();
+    send({ type: "setCombatStyle", requestId, combatStyle: style, shipIds });
   }
 }
 
@@ -380,13 +421,12 @@ function restoreGroupCombatStyles(groupId) {
     if (!byStyle.has(style)) byStyle.set(style, []);
     byStyle.get(style).push(id);
   }
-  for (const ship of state.snapshot?.ships || []) {
-    const base = state.shipGroupBaseCombatStyles.get(ship.id);
-    if (shipIds.includes(ship.id) && base) ship.combatStyle = base;
-  }
   if (state.socket && state.socket.readyState === WebSocket.OPEN && state.phase === "active") {
     for (const [combatStyle, ids] of byStyle.entries()) {
-      if (ids.length > 0) send({ type: "setCombatStyle", combatStyle, shipIds: ids });
+      if (ids.length > 0) {
+        const requestId = makeCombatStyleRequestId();
+        send({ type: "setCombatStyle", requestId, combatStyle, shipIds: ids });
+      }
     }
   }
 }
@@ -408,17 +448,61 @@ function selectedLiveShips() {
 
 function commonCombatStyle(ships) { return commonStyle(ships); }
 
+function reconcilePendingCombatStyle() {
+  const pending = state.pendingCombatStyle;
+  if (!pending) return;
+  const now = performance.now();
+  const stale = pending.connectionGeneration !== state.connectionGeneration ||
+    (pending.room && pending.room !== (state.room || "")) ||
+    now - pending.at > COMBAT_STYLE_REQUEST_TIMEOUT_MS;
+  if (stale) {
+    if (!pending.warned) {
+      pending.warned = true;
+      showToast(pending.acknowledged ? "Style change acknowledged, but snapshot confirmation timed out." : "Style change request timed out without confirmation.", "warning");
+      recordNetworkEvent("notice", { message: "Combat style request timed out", requestId: pending.requestId, style: pending.style });
+    }
+    state.pendingCombatStyle = null;
+    return;
+  }
+  const ships = state.snapshot?.ships || [];
+  const targetIds = pending.shipIds || ships.filter((ship) => ship.ownerId === state.myId && ship.alive).map((ship) => ship.id);
+  const allConfirmed = targetIds.length > 0 && targetIds.every((id) => {
+    const ship = ships.find((s) => s.id === id);
+    return ship && normalizeCombatStyle(ship.combatStyle) === pending.style;
+  });
+  if (pending.acknowledged && allConfirmed) {
+    state.pendingCombatStyle = null;
+    return;
+  }
+}
+
 function renderSelectedSummary(selectedShips) {
   if (!dom.selectionPanelCount) return;
-  const pending = state.pendingCombatStyle;
-  if (pending && (performance.now() - pending.at > 3000 || selectedShips.every((ship) => !pending.shipIds.includes(ship.id) || normalizeCombatStyle(ship.combatStyle) === pending.style))) {
-    state.pendingCombatStyle = null;
-  }
+  reconcilePendingCombatStyle();
   const summary = selectedShipSummary(selectedShips);
-  const pendingText = state.pendingCombatStyle ? ` · Pending ${combatStyleLabel(state.pendingCombatStyle.style)}` : "";
-  dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${combatStyleLabel(summary.style)}` : ""}${pendingText}`;
+  let suffix = "";
+  const pending = state.pendingCombatStyle;
+  if (pending) {
+    suffix = ` · ${combatStyleLabel(pending.style)} Applying…`;
+  }
+  dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${combatStyleLabel(summary.style)}` : ""}${suffix}`;
   dom.selectionPanelCount.title = summary.text;
-  dom.selectionPanelCount.setAttribute("aria-label", summary.text + pendingText);
+  dom.selectionPanelCount.setAttribute("aria-label", summary.text + suffix);
+}
+
+export function onCombatStyleResult(message) {
+  const pending = state.pendingCombatStyle;
+  if (!pending || pending.requestId !== message.requestId) return;
+  if (message.ok) {
+    pending.acknowledged = true;
+    recordNetworkEvent("notice", { message: "Combat style acknowledged", requestId: message.requestId, style: message.combatStyle, updatedCount: message.updatedCount });
+    renderSelectionControls();
+  } else {
+    state.pendingCombatStyle = null;
+    showToast(message.message || "Style change failed.", "error");
+    recordNetworkEvent("error", { code: message.code || "style-failed", message: message.message || "Style change failed", requestId: message.requestId });
+    renderSelectionControls();
+  }
 }
 
 function combatStyleLabel(style) {

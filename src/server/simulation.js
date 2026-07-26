@@ -2,7 +2,7 @@
 const { updateBots, getLiveShips } = require("./ships");
 const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
-const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
+const { updateFormationPlans, updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
 const { updateBullets } = require("./projectiles");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
 const { updateShipHeat } = require("./heat");
@@ -55,6 +55,7 @@ function tickRoom(room, dt, now) {
   updateCommandAuras(room, ships, now);
   durations.commandAuras = performanceNow() - startedAt;
   startedAt = performanceNow();
+  updateFormationPlans(room, ships, dt);
   for (const ship of ships) updateShipMovement(room, ship, dt);
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships);
   durations.movementSeparationMap = performanceNow() - startedAt;
