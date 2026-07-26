@@ -56,6 +56,13 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
   } else if (overlaps.length || isOverlapping(nextDesign)) {
     reasonCode = "overlap";
     message = "Overlaps another component";
+  } else if (Number.isFinite(catalogue[type]?.maxPerShip)) {
+    const maxPerShip = catalogue[type].maxPerShip;
+    const count = nextDesign.filter((candidate) => candidate.type === type).length;
+    if (count > maxPerShip) {
+      reasonCode = "max-per-ship";
+      message = `Max ${maxPerShip} ${catalogue[type]?.name || type} per ship`;
+    }
   } else if (!isConnected(nextDesign)) {
     reasonCode = "disconnected";
     message = explainConnectionProblem(baseDesign, type, targetX, targetY, part.rotation);
