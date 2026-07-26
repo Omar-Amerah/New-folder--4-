@@ -130,7 +130,7 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
     if (editable) {
       setRuleControlValue(dom.gameModeSelect, rules.gameMode);
       setRuleControlValue(dom.startingMoneyInput, rules.startingMoney);
-      setRuleControlValue(dom.maxPlayersInput, rules.maxPlayers);
+      setRuleControlValue(dom.maxPlayersInput, String(Math.min(Number(rules.maxPlayers) || 8, 8)));
       setRuleControlValue(dom.mapSizeSelect, rules.mapSize);
       setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity);
     } else {
@@ -143,6 +143,7 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
   }
 
   if (dom.maxPlayersInput) {
+    dom.maxPlayersInput.max = "8";
     dom.maxPlayersInput.min = String(Math.max(2, playerCount || 1));
   }
 }
@@ -697,7 +698,7 @@ export function clearServerSetting() {
 export function sendRulesUpdate() {
   if (!state.room || !isAdmin() || state.phase !== "lobby") return;
   const startingMoney = Number(dom.startingMoneyInput?.value) || state.rules.startingMoney;
-  const maxPlayers = Number(dom.maxPlayersInput?.value) || 8;
+  const maxPlayers = Math.min(Math.max(Number(dom.maxPlayersInput?.value) || 8, 2), 8);
   const mapSize = dom.mapSizeSelect?.value || "auto";
   const gameMode = dom.gameModeSelect?.value || "teams";
   const asteroidDensity = dom.asteroidDensitySelect?.value || "medium";
