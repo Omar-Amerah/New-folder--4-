@@ -2121,7 +2121,8 @@ function updateProximityCharges(room, ships, dt, now) {
     for (const i of indexes) {
       if (!isComponentAlive(ship, i)) continue;
       if (ship.proximityChargeDetonated?.[i]) continue;
-      if ((now - (ship.proximityChargeLastCheckAt?.[i] || 0)) < PROXIMITY_CHARGE_UPDATE_MS) continue;
+      const lastCheckAt = ship.proximityChargeLastCheckAt[i];
+      if ((now - (lastCheckAt || 0)) < PROXIMITY_CHARGE_UPDATE_MS) continue;
       ship.proximityChargeLastCheckAt[i] = now;
       const cfg = getProximityChargeConfig(ship, i);
       if (!cfg) continue;
@@ -2130,8 +2131,9 @@ function updateProximityCharges(room, ships, dt, now) {
       const rangeSq = cfg.triggerRadius * cfg.triggerRadius;
       const targetId = findNearestEnemyShipId(room, origin.x, origin.y, rangeSq, ship.ownerId);
       const previous = ship.proximityChargeTriggerTarget?.[i];
+      const elapsed = (now - (lastCheckAt || now)) / 1000;
       if (targetId && targetId === previous) {
-        ship.proximityChargeTriggerAccumulator[i] += dt;
+        ship.proximityChargeTriggerAccumulator[i] += elapsed;
       } else {
         ship.proximityChargeTriggerAccumulator[i] = 0;
         ship.proximityChargeTriggerTarget[i] = targetId;
