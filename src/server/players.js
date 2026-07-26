@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN, DEFAULT_WIRING } = require("./config");
 const { sanitizeName, sanitizeTeam } = require("./validation");
 const { performanceNow } = require("./utils");
-const { invalidateRelationshipCache } = require("./relationships");
+const { invalidateRelationshipCache, revalidateTelemetryFocusForRoom, isTelemetryFocusEligible } = require("./relationships");
 
 // A player who drops (refresh or brief disconnect) keeps their ships and state
 // for this long; the server only despawns them if no reconnection arrives first.
@@ -58,6 +58,7 @@ function despawnPlayerShips(room, player) {
     room.ships.delete(ship.id);
   }
   player.ships = [];
+  revalidateTelemetryFocusForRoom(room);
   require("./projectiles").removeProjectilesByOwner(room, player.id);
 }
 
@@ -218,6 +219,10 @@ function attachClientToPlayer(room, player, client) {
   client.room = room;
   client.player = player;
   client.attachmentId = player.attachmentId;
+  const preservedFocus = oldClient && typeof oldClient.telemetryFocusShipId === "string" ? oldClient.telemetryFocusShipId : null;
+  if (preservedFocus && isTelemetryFocusEligible(client, preservedFocus, room)) {
+    client.telemetryFocusShipId = preservedFocus;
+  }
   if (oldClient && oldClient !== client) {
     room.clients.delete(oldClient);
     oldClient.room = null;
@@ -296,6 +301,9 @@ function leaveRoom(client, explicitLeave = false) {
   client.room = null;
   client.player = null;
   client.attachmentId = 0;
+  client.telemetryFocusShipId = null;
+  client.telemetryLastWrittenFocusId = null;
+  client.telemetryLastWrittenAt = 0;
 }
 
 function leaveLobby(client) {
@@ -361,6 +369,7 @@ function removePlayerFromRoom(room, player, reason) {
   if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
   room.players.delete(player.id);
   invalidateRelationshipCache(room);
+  revalidateTelemetryFocusForRoom(room);
   require("./projectiles").removeProjectilesByOwner(room, player.id);
   for (const point of room.points) {
     if (point.ownerId === player.id) {
@@ -434,6 +443,7 @@ function resetPlayerForMatch(room, player, now) {
     room.ships.delete(oldShip.id);
   }
   player.ships = [];
+  revalidateTelemetryFocusForRoom(room);
   const startingMoney = room.rules?.startingMoney ?? ECONOMY.startingMoney;
   player.money = startingMoney;
   player.income = ECONOMY.baseIncome;
@@ -585,6 +595,7 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
     ship.removed = true;
   }
   room.ships.clear();
+  revalidateTelemetryFocusForRoom(room);
   require("./drones").resetDroneRuntime(room);
   require("./decoys").resetDecoyRuntime(room);
   require("./projectiles").resetProjectileRuntime(room);

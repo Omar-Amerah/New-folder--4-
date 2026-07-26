@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { send } from "../network.js";
+import { synchronizeTelemetryFocus } from "../network.js";
 import { showToast } from "./toastUi.js";
 import { updateHud } from "./hudUi.js";
 import { ownLiveShips, pruneSelection } from "../game/selection.js";
@@ -37,18 +37,11 @@ const GROUP_COMBAT_STYLES = [
   ...SELECTED_COMBAT_STYLES
 ];
 
-let lastTelemetryFocusShipId;
-function syncTelemetryFocus() {
-  const next = state.selectedShipIds.size === 1 ? [...state.selectedShipIds][0] : null;
-  if (lastTelemetryFocusShipId === next) return;
-  if (send({ type: "setTelemetryFocus", shipId: next })) lastTelemetryFocusShipId = next;
-}
-
 export function renderSideControls() {
   renderShipGroups();
   renderRallyControls();
   renderSelectionControls();
-  syncTelemetryFocus();
+  synchronizeTelemetryFocus();
 }
 
 export function handleShipGroupListClick(event) {

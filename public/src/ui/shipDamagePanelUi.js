@@ -263,7 +263,7 @@ function renderPowerSummary(ship) {
     ? `<details class="power-more-issues"${moreIssuesOpen ? " open" : ""}><summary>View ${hiddenIssues.length} more issue${hiddenIssues.length === 1 ? "" : "s"}</summary>${hiddenIssues.map(powerIssueHtml).join("")}</details>`
     : "";
   summary.innerHTML = `
-    <section class="ship-power-summary">
+    <section>
       <h3 class="power-overall power-overall-${escapeHtml(overall.key)}">
         <span class="power-overall-icon" aria-hidden="true">${escapeHtml(overall.icon)}</span>
         <div><strong>${escapeHtml(overall.label)}</strong><p>${escapeHtml(overall.explanation)}</p></div>
@@ -405,6 +405,32 @@ function cableHeatForSection(ship, sectionId) {
   return total ? { base: total, overload: 0, total } : null;
 }
 
+function finiteHeatRate(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function telemetryReadout(ship) {
+  const pt = ship.powerThermal;
+  const hasSummary = pt && typeof pt === "object" && Number.isFinite(pt.componentHeatRate);
+  const isRequested = state.desiredTelemetryFocusShipId === ship.id;
+  const status = hasSummary ? "available" : isRequested ? "loading" : "unavailable";
+  const rateText = (value) => {
+    if (status === "loading") return "Loading telemetry…";
+    if (status === "unavailable") return "Unavailable";
+    const v = finiteHeatRate(value);
+    return v === null ? "Unavailable" : `${formatHeatAmount(v)} H/s`;
+  };
+  const hottest = () => {
+    if (status === "loading") return "Loading telemetry…";
+    if (status === "unavailable") return "Unavailable";
+    const index = pt?.hottestComponentIndex;
+    if (Number.isInteger(index) && ship.design?.[index]) return `${partDisplayName(ship.design[index].type)} #${index}`;
+    return "None";
+  };
+  return { status, rateText, hottest: hottest(), componentHeatRate: pt?.componentHeatRate, totalHeatRate: pt?.totalHeatRate, netHeatRate: pt?.netHeatRate, cooling: pt?.cooling };
+}
+
 function renderHeatSummary(ship) {
   const summary = dom.shipHeatSummary;
   if (!summary) return;
@@ -415,11 +441,8 @@ function renderHeatSummary(ship) {
   const percentText = formatHeatPercent(shipHeatPercent(ship));
   const hot = Number(ship.hot) || 0;
   const overheated = Number(ship.overheated) || 0;
-  const pt = ship.powerThermal || {};
   const heatState = overheated > 0 ? "Overheating" : hot > 0 ? "Heating" : "Stable";
-  const hottest = Number.isInteger(pt.hottestComponentIndex) && ship.design?.[pt.hottestComponentIndex]
-    ? `${partDisplayName(ship.design[pt.hottestComponentIndex].type)} #${pt.hottestComponentIndex}`
-    : "None";
+  const readout = telemetryReadout(ship);
   summary.hidden = false;
   let fastestHeat = null;
   ship.design?.forEach((part, i) => {
@@ -432,13 +455,14 @@ function renderHeatSummary(ship) {
   summary.innerHTML = `
     <div><span title="Aggregate stored heat across the whole ship — individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
     <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
-    <div><span>Component Heat rate</span><strong>${formatHeatAmount(pt.componentHeatRate || 0)} H/s</strong></div>
-    <div><span title="Whole-ship total; includes cable Heat because it is the authoritative thermal total">Total / net Heat rate</span><strong>${formatHeatAmount(pt.totalHeatRate || 0)} / ${formatHeatAmount(pt.netHeatRate || 0)} H/s</strong></div>
-    <div><span>Cooling</span><strong>${formatHeatAmount(pt.cooling || 0)} H/s</strong></div>
+    <div><span>Component Heat rate</span><strong>${readout.rateText(readout.componentHeatRate)}</strong></div>
+    <div><span title="Whole-ship total; includes cable Heat because it is the authoritative thermal total">Total / net Heat rate</span><strong>${readout.rateText(readout.totalHeatRate)} / ${readout.rateText(readout.netHeatRate)}</strong></div>
+    <div><span>Cooling</span><strong>${readout.rateText(readout.cooling)}</strong></div>
     <div><span>Heat state</span><strong>${heatState}</strong></div>
-    <div><span>Hottest component</span><strong>${hottest}</strong></div>
+    <div><span>Hottest component</span><strong>${readout.hottest}</strong></div>
     <div><span>Hot parts</span><strong>${hot}</strong></div>
     <div><span>Overheated</span><strong>${overheated}</strong></div>
+    ${readout.status === "unavailable" ? `<p class="heat-telemetry-note">Detailed live telemetry is unavailable for this ship.</p>` : ""}
     ${fastestHeat ? `<button type="button" class="heat-trend-jump" data-component-index="${fastestHeat.index}"><span>Fastest heating</span><strong>${fastestHeat.name} ${formatHeatRate(fastestHeat.rate)}</strong></button>` : ""}`;
   summary.querySelectorAll(".heat-trend-jump").forEach((button) => button.addEventListener("click", () => {
     diagramInteraction = diagramInteraction || { shipId: ship.id };
@@ -530,8 +554,8 @@ function renderComponentHeatReadout(ship, index) {
   const trendText = trend.direction === "warming" ? ` — Warming ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "cooling" ? ` — Cooling ${formatHeatRate(trend.smoothedRate)}`
     : trend.direction === "stable" ? " — Stable" : "";
-  const heatRate = Number(ship.powerThermal?.components?.[index]?.componentHeatRate) || 0;
-  const activityText = heatRate > 0
+  const heatRate = finitePowerValue(ship.powerThermal?.components?.[index]?.componentHeatRate);
+  const activityText = heatRate !== null && heatRate > 0
     ? part.type === "gyroscope" || part.type === "maneuverThruster"
       ? ` · Turning · generating ${formatHeatAmount(heatRate)} H/s`
       : (Number(PART_STATS[part.type]?.thrust) || 0) > 0
@@ -1349,7 +1373,7 @@ export function renderShipDamagePanel() {
   }
   panel.hidden = false;
   renderDroneSummary(ship);
-  if (heatView) updateComponentHeatTrends(ship, state.snapshotReceivedAt, state.room);
+  if (heatView) updateComponentHeatTrends(ship, state.snapshotReceivedAt, state.room, state.snapshotNetwork?.stateEpoch || 0);
   drawDiagram(ship);
   // Every new snapshot re-renders the readout from the latest ship object so
   // the component line below the diagram can never show stale values.

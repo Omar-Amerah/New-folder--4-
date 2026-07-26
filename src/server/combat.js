@@ -7,6 +7,7 @@ const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
 const {
   getShipCollisionGeometry,
+  getShipComponentCellWorldCoords,
   invalidateShipCollisionGeometry,
   COMPONENT_CELL_COLLISION_RADIUS
 } = require("./componentGeometry");
@@ -424,6 +425,9 @@ function getCandidatePriorityIndex(candidate, priorityList) {
   if (type === "ship") {
     return priorityList.indexOf("ship");
   }
+  if (type === "decoy") {
+    return priorityList.indexOf("decoy");
+  }
   return -1;
 }
 
@@ -457,7 +461,7 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
   return isStableIdBefore(candidate.entity, bestCandidate.entity);
 }
 
-function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null) {
+function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null, now = 0) {
   const rangeSq = weapon.range * weapon.range;
   const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
   let best = null;
@@ -517,6 +521,24 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) continue;
 
     const cand = { type: "ship", entity: other };
+    const pIdx = getCandidatePriorityIndex(cand, priorityList);
+    if (pIdx === -1) continue;
+
+    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
+      best = cand;
+      bestDistSq = distSq;
+    }
+  }
+
+  const decoyCandidates = room.decoys?.values?.() || [];
+  for (const decoy of decoyCandidates) {
+    if (now >= decoy.expiresAt || !areEnemies(room, shipOwnerId, decoy.ownerId)) continue;
+    const dx = decoy.x - worldX;
+    const dy = decoy.y - worldY;
+    const distSq = dx * dx + dy * dy;
+    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, decoy.x, decoy.y, 4)) continue;
+
+    const cand = { type: "decoy", entity: decoy };
     const pIdx = getCandidatePriorityIndex(cand, priorityList);
     if (pIdx === -1) continue;
 
@@ -672,7 +694,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       aimEntity = repairTarget;
       if (aimEntity) aimPoint = { x: aimEntity.x, y: aimEntity.y };
     } else if (family === "flak" || family === "pointDefense") {
-      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id);
+      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
       aimEntity = currentPdTarget ? currentPdTarget.entity : null;
       clearWeaponComponentAim(ship, i);
     } else {
@@ -990,7 +1012,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             const targetEnt = currentPdTarget.entity;
             const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
             const pdSpreadScale = weaponSpreadRadians(effectiveWeapon, family);
-            const shotAngle = Math.atan2(targetEnt.y - muzzle.y, targetEnt.x - muzzle.x) + rngRange(roomCombatRandom(room), -pdSpreadScale, pdSpreadScale);
+            const pdDx = targetEnt.x - muzzle.x;
+            const pdDy = targetEnt.y - muzzle.y;
+            const pdDist = fastHypot(pdDx, pdDy);
+            const pdFlightTime = pdDist / Math.max(1, speed);
+            const pdAimX = targetEnt.x + (targetEnt.vx || 0) * pdFlightTime;
+            const pdAimY = targetEnt.y + (targetEnt.vy || 0) * pdFlightTime;
+            const shotAngle = Math.atan2(pdAimY - muzzle.y, pdAimX - muzzle.x) + rngRange(roomCombatRandom(room), -pdSpreadScale, pdSpreadScale);
 
             addBullet(room, {
                type: "pdShot",
@@ -1627,8 +1655,9 @@ function evaluateShipCommandState(room, ship, now, attackerId = null) {
 function destroyShip(room, ship, attackerId, now) {
   if (!ship || ship.destroyFinalizedAt || ship.removed) return false;
   ship.destroyFinalizedAt = now;
-  ship.alive = false;
   ship.removeAt = now + 3200;
+  proximityChargeDestroyedShip(room, ship, now);
+  ship.alive = false;
   ship.hp = 0;
   zeroAllComponents(ship);
   ship.shield = 0;
@@ -1758,6 +1787,7 @@ function updateDestroyedShips(room, now) {
     }
     if (removedAny) {
       player.ships = player.ships.filter((ship) => !ship.removed);
+      Relationships.revalidateTelemetryFocusForRoom(room);
     }
   }
 }
@@ -2036,6 +2066,229 @@ function buildShipTurretDiagnostics(room, ship) {
   return entries;
 }
 
+// ---------------------------------------------------------------------------
+// Proximity demolition charges
+// ---------------------------------------------------------------------------
+
+const PROXIMITY_CHARGE_UPDATE_MS = 100; // ~10 Hz staggered checks
+
+function getProximityChargeConfig(ship, index) {
+  const part = PARTS[ship.design?.[index]?.type];
+  return part?.proximityCharge || null;
+}
+
+function isChargeArmed(ship, index) {
+  return (ship.proximityChargeArmed?.[index] ?? 1) && !(ship.proximityChargeDetonated?.[index] ?? 0);
+}
+
+function armedProximityChargeRanges(ship) {
+  let minTrigger = Infinity;
+  let armed = false;
+  const indexes = getShipComponentIndexes(ship).proximityChargeIndices;
+  for (const i of indexes) {
+    if (!isComponentAlive(ship, i)) continue;
+    if (!isChargeArmed(ship, i)) continue;
+    const cfg = getProximityChargeConfig(ship, i);
+    if (!cfg) continue;
+    armed = true;
+    if (cfg.triggerRadius < minTrigger) minTrigger = cfg.triggerRadius;
+  }
+  return { armed, minTrigger: armed ? minTrigger : 0 };
+}
+
+function setProximityChargeArmed(ship, index, armed) {
+  if (!ship || !ship.design || !Number.isInteger(index)) return false;
+  if (ship.design[index]?.type !== "proximityDemolitionCharge") return false;
+  if (ship.proximityChargeArmed?.[index] === undefined) return false;
+  const next = armed ? 1 : 0;
+  if (ship.proximityChargeArmed[index] === next) return false;
+  ship.proximityChargeArmed[index] = next;
+  ship.proximityChargeTriggerAccumulator[index] = 0;
+  ship.proximityChargeTriggerTarget[index] = null;
+  ship.proximityChargeRevision = (ship.proximityChargeRevision || 0) + 1;
+  return true;
+}
+
+function proximityChargeWorldPosition(ship, index) {
+  return componentAimWorldPosition(ship, index);
+}
+
+function findNearestEnemyShipId(room, x, y, rangeSq, ownerId) {
+  let best = null;
+  let bestDist = Infinity;
+  const spatial = room.disableSpatialIndex ? null : (room.spatialIndex?.dynamicValid ? room.spatialIndex : null);
+  const candidates = spatial ? spatial.queryRangeUnordered("ships", x, y, Math.sqrt(rangeSq), []) : room.ships?.values?.() || [];
+  for (const other of candidates) {
+    if (!other || !other.alive || other.id === ownerId) continue;
+    if (!areEnemies(room, ownerId, other.ownerId)) continue;
+    const dx = other.x - x;
+    const dy = other.y - y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq > rangeSq || distSq >= bestDist) continue;
+    bestDist = distSq;
+    best = other.id;
+  }
+  return best;
+}
+
+function updateProximityCharges(room, ships, dt, now) {
+  for (const ship of ships) {
+    if (!ship.alive) continue;
+    const indexes = getShipComponentIndexes(ship).proximityChargeIndices;
+    for (const i of indexes) {
+      if (!isComponentAlive(ship, i)) continue;
+      if (ship.proximityChargeDetonated?.[i]) continue;
+      if (!isChargeArmed(ship, i)) continue;
+      if ((now - (ship.proximityChargeLastCheckAt?.[i] || 0)) < PROXIMITY_CHARGE_UPDATE_MS) continue;
+      ship.proximityChargeLastCheckAt[i] = now;
+      const cfg = getProximityChargeConfig(ship, i);
+      if (!cfg) continue;
+      const origin = proximityChargeWorldPosition(ship, i);
+      if (!origin) continue;
+      const rangeSq = cfg.triggerRadius * cfg.triggerRadius;
+      const targetId = findNearestEnemyShipId(room, origin.x, origin.y, rangeSq, ship.ownerId);
+      const previous = ship.proximityChargeTriggerTarget?.[i];
+      if (targetId && targetId === previous) {
+        ship.proximityChargeTriggerAccumulator[i] += dt;
+      } else {
+        ship.proximityChargeTriggerAccumulator[i] = 0;
+        ship.proximityChargeTriggerTarget[i] = targetId;
+      }
+      if (ship.proximityChargeTriggerAccumulator[i] >= cfg.triggerConfirmationSeconds) {
+        detonateProximityCharge(room, ship, i, now, true);
+      }
+    }
+  }
+}
+
+function blastDamageFor(edge, blastR, centre, exp) {
+  if (edge >= blastR) return 0;
+  const ratio = edge / blastR;
+  return centre * Math.max(0, 1 - Math.pow(ratio, exp));
+}
+
+function applyBlastDamageToShip(room, target, origin, blastR, centre, exp, attackerId, now) {
+  if (!target || !target.alive) return;
+  const worldCells = getShipComponentCellWorldCoords(target);
+  const componentDamage = {};
+  let shield = target.shield || 0;
+  for (let i = 0; i < (target.design || []).length; i += 1) {
+    const cells = worldCells[i];
+    if (!cells || !cells.length) continue;
+    if ((target.componentHp?.[i] ?? 1) <= 0) continue;
+    for (const cell of cells) {
+      const dx = cell.x - origin.x;
+      const dy = cell.y - origin.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq >= blastR * blastR) continue;
+      const raw = blastDamageFor(Math.sqrt(distSq), blastR, centre, exp);
+      if (raw <= 1e-9) continue;
+      let hullDamage = raw;
+      let absorbed = 0;
+      if (shield > 0) {
+        const blocked = Math.min(shield, raw);
+        shield -= blocked;
+        const absorbedRatio = raw > 0 ? blocked / raw : 0;
+        const absorbedHull = hullDamage * absorbedRatio;
+        const overflowHull = hullDamage - absorbedHull;
+        const bleedThrough = absorbedHull * 0.05;
+        hullDamage = overflowHull + bleedThrough;
+        absorbed = blocked;
+      }
+      if (absorbed > 0) {
+        distributeComponentHeatByWeight(target, effectiveShieldCapacityContributions(target), absorbed * SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE);
+      }
+      if (hullDamage > 0) {
+        componentDamage[i] = (componentDamage[i] || 0) + hullDamage;
+      }
+    }
+  }
+  target.shield = Math.max(0, shield);
+  for (const idx of Object.keys(componentDamage)) {
+    const index = Number(idx);
+    applyDirectComponentDamage(room, target, index, componentDamage[index], attackerId, now, {});
+  }
+  if (target.hp <= 0.001) destroyShip(room, target, attackerId, now);
+}
+
+function detonateProximityCharge(room, ship, index, now, markDetonated = true) {
+  if (!room || !ship || ship.alive === false) return;
+  if (ship.proximityChargeDetonated?.[index]) return;
+  const cfg = getProximityChargeConfig(ship, index);
+  if (!cfg) return;
+  if (markDetonated) ship.proximityChargeDetonated[index] = 1;
+  ship.proximityChargeRevision = (ship.proximityChargeRevision || 0) + 1;
+  const origin = proximityChargeWorldPosition(ship, index);
+  if (!origin) return;
+  const blastR = cfg.blastRadius;
+  const centre = cfg.centreDamage;
+  const exp = Math.max(0.1, cfg.falloffExponent);
+
+  room.effects.push({ type: "text", text: "PROXIMITY CHARGE DETONATED", x: origin.x, y: origin.y - 18, at: now });
+  room.effects.push({ type: "boom", x: origin.x, y: origin.y, at: now });
+  room.effects.push({ type: "flakburst", x: origin.x, y: origin.y, at: now, radius: blastR });
+
+  const spatial = room.disableSpatialIndex ? null : (room.spatialIndex?.dynamicValid ? room.spatialIndex : null);
+  const scratch = room._proximityChargeScratch || (room._proximityChargeScratch = { ships: [], drones: [], projectiles: [] });
+
+  for (const kind of ["ships", "drones", "projectiles"]) {
+    const out = scratch[kind];
+    out.length = 0;
+    if (spatial) {
+      const key = kind === "projectiles" ? "interceptableProjectiles" : kind;
+      spatial.queryRangeUnordered(key, origin.x, origin.y, blastR, out);
+    } else if (kind === "ships") {
+      for (const s of room.ships?.values?.() || []) if (s?.alive) out.push(s);
+    } else if (kind === "drones") {
+      for (const d of room.drones?.values?.() || []) if (d && !d.destroyed && !d.removed) out.push(d);
+    } else if (kind === "projectiles") {
+      for (const b of room.bullets || []) if (b && b.life > 0 && b.interceptable) out.push(b);
+    }
+    for (const entity of out) {
+      if (kind === "ships") {
+        if (!entity.alive) continue;
+        applyBlastDamageToShip(room, entity, origin, blastR, centre, exp, ship.ownerId, now);
+      } else if (kind === "drones") {
+        if (entity.destroyed || entity.removed) continue;
+        const dx = entity.x - origin.x;
+        const dy = entity.y - origin.y;
+        const edge = Math.max(0, fastHypot(dx, dy) - (entity.radius || 6));
+        if (edge >= blastR) continue;
+        const damage = blastDamageFor(edge, blastR, centre, exp);
+        if (damage > 0) require("./drones").damageDrone(room, entity, damage, ship.ownerId, now);
+      } else if (kind === "projectiles") {
+        if (entity.life <= 0 || !entity.interceptable) continue;
+        const dx = entity.x - origin.x;
+        const dy = entity.y - origin.y;
+        const edge = Math.max(0, fastHypot(dx, dy) - 2);
+        if (edge >= blastR) continue;
+        const damage = blastDamageFor(edge, blastR, centre, exp);
+        if (damage <= 0.001) continue;
+        entity.hp = (entity.hp ?? (entity.damage || 20)) - damage;
+        if (entity.hp <= 0.001) {
+          removeProjectileRuntime(room, entity);
+          room.effects.push({ type: "spark", x: entity.x, y: entity.y, at: now });
+        }
+      }
+    }
+  }
+
+  if (ship.componentHp?.[index] > 0) {
+    applyDirectComponentDamage(room, ship, index, ship.componentHp[index] * 2, ship.ownerId, now, {});
+  }
+}
+
+function proximityChargeDestroyedShip(room, ship, now) {
+  if (!ship || !ship.alive) return;
+  const indexes = getShipComponentIndexes(ship).proximityChargeIndices;
+  for (const i of indexes) {
+    if (!isComponentAlive(ship, i)) continue;
+    if (!isChargeArmed(ship, i)) continue;
+    if (ship.proximityChargeDetonated?.[i]) continue;
+    detonateProximityCharge(room, ship, i, now, true);
+  }
+}
+
 module.exports = {
   evaluateShipCommandState,
   updateShipSupport,
@@ -2074,6 +2327,11 @@ module.exports = {
   isLineBlocked,
   areAllies,
   areEnemies,
+  armedProximityChargeRanges,
+  setProximityChargeArmed,
+  updateProximityCharges,
+  detonateProximityCharge,
+  proximityChargeDestroyedShip,
   PRIORITY_COMPONENT_TYPES
 };
 

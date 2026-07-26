@@ -228,6 +228,8 @@ export function connect(url, onOpenCallback, options = {}) {
   setConnectionStatus("connecting", "Connecting");
   const generation = (state.connectionGeneration || 0) + 1;
   state.connectionGeneration = generation;
+  state.telemetryFocusLastSentShipId = null;
+  state.telemetryFocusLastSentAt = 0;
   let socket;
   let attempt = null;
   try {
@@ -314,6 +316,60 @@ export function send(message) {
   markSentType(message?.type);
   if (message?.type === "join" && state.connectionAttempt) state.connectionAttempt.joinSent = true;
   return true;
+}
+
+function canFocusShipForTelemetry(ship) {
+  if (!ship || !state.myId) return false;
+  if (ship.ownerId === state.myId) return true;
+  if (state.rules?.gameMode === "solo") return false;
+  const mine = state.mine || state.snapshot?.players?.find((player) => player.id === state.myId);
+  const owner = state.snapshot?.players?.find((player) => player.id === ship.ownerId);
+  return Boolean(mine?.team && owner?.team && mine.team === owner.team);
+}
+
+export function synchronizeTelemetryFocus() {
+  const joined = Boolean(state.myId && state.room && state.phase !== "offline");
+  let desired = null;
+  if (joined && state.selectedShipIds.size === 1) {
+    const [selectedId] = [...state.selectedShipIds];
+    const ship = state.snapshot?.ships?.find((candidate) => candidate.id === selectedId);
+    if (ship && canFocusShipForTelemetry(ship)) desired = selectedId;
+  }
+  if (state.desiredTelemetryFocusShipId !== desired) state.desiredTelemetryFocusShipId = desired;
+
+  const socketOpen = state.socket && state.socket.readyState === WebSocket.OPEN;
+  const focusedShip = desired ? state.snapshot?.ships?.find((candidate) => candidate.id === desired) : null;
+  const hasPowerThermal = Boolean(focusedShip?.powerThermal);
+  const powerThermalAgeMs = hasPowerThermal && state.telemetryFocusLastSentAt
+    ? Math.max(0, performance.now() - state.telemetryFocusLastSentAt)
+    : null;
+
+  let latestFailureReason = null;
+  if (socketOpen && joined) {
+    if (state.telemetryFocusLastSentShipId !== desired) {
+      if (send({ type: "setTelemetryFocus", shipId: desired })) {
+        state.telemetryFocusLastSentShipId = desired;
+        state.telemetryFocusLastSentAt = performance.now();
+      } else {
+        latestFailureReason = "send-failed";
+      }
+    }
+  } else if (state.telemetryFocusLastSentShipId !== desired) {
+    latestFailureReason = joined ? "socket-not-open" : "not-joined";
+  }
+
+  if (typeof process !== "undefined" && process.env && process.env.NODE_ENV !== "production") {
+    globalThis.__mfaTelemetryFocusDiagnostics = {
+      desiredTelemetryFocusShipId: desired,
+      telemetryFocusLastSentShipId: state.telemetryFocusLastSentShipId,
+      connectionGeneration: state.connectionGeneration,
+      joined,
+      hasPowerThermal,
+      powerThermalAgeMs,
+      latestFailureReason,
+      at: Date.now()
+    };
+  }
 }
 
 export function getSocketUrl() {

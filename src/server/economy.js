@@ -8,6 +8,7 @@ const { spawnShip } = require("./ships");
 const { validateBuildShip } = require("./validation");
 const { getOrCreateTemplate, canonicalBlueprintSignature } = require("./shipTemplates");
 const { recordPurchaseStage } = require("./performanceTelemetry");
+const Relationships = require("./relationships");
 
 const PURCHASE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 const MAX_PURCHASE_REQUESTS = 64;
@@ -161,6 +162,7 @@ function executePurchase(room, player, request, now) {
       room.ships.delete(ship.id);
     }
     player.ships.length = original.shipsLength;
+    Relationships.revalidateTelemetryFocusForRoom(room);
     room.nextEntityId = original.nextEntityId;
     room.effects.length = original.effectsLength;
     player.money = original.money;

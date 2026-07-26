@@ -147,6 +147,7 @@ function setRoomRules(room, requester, updates) {
   room.rules = sanitizeRoomRules({ ...room.rules, ...updates }, room.players.size);
   bumpStateEpoch(room, "rule-regeneration");
   applyGameModeTeams(room);
+  require("./relationships").revalidateTelemetryFocusForRoom(room);
   invalidateSpawnPlan(room);
   try {
     const world = chooseRoomWorld(room);

@@ -5,7 +5,7 @@ const { negotiate, ERROR_CODES } = require("./protocol");
 const { send, sendPlayer, broadcastRoom } = require("./outbound");
 const { sendFullSnapshot, broadcastSnapshot } = require("./snapshotDelivery");
 const { getRoute } = require("./routeRegistry");
-const { invalidateRelationshipCache } = require("./relationships");
+const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemetryFocusForRoom } = require("./relationships");
 
 const RATE_LIMITS = {
   frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
@@ -246,12 +246,21 @@ function handleMessage(client, message) {
     return;
   }
 
+  if (message.type === "setProximityChargeArm") {
+    if (client.room.phase !== "active") return;
+    const now = performanceNow();
+    const ship = client.room.ships.get(String(message.shipId || ""));
+    if (ship && ship.ownerId === client.player.id) {
+      const { setProximityChargeArmed } = require("./combat");
+      const changed = setProximityChargeArmed(ship, message.componentIndex, Boolean(message.armed));
+      if (changed) broadcastSnapshot(client.room, now);
+    }
+    return;
+  }
+
   if (message.type === "setTelemetryFocus") {
     let shipId = typeof message.shipId === "string" ? message.shipId : null;
-    if (shipId) {
-      const ship = client.room.ships.get(shipId);
-      if (!ship || !ship.alive || ship.ownerId !== client.player.id) shipId = null;
-    }
+    if (shipId && !isTelemetryFocusEligible(client, shipId, client.room)) shipId = null;
     if (client.telemetryFocusShipId !== shipId) {
       client.telemetryFocusShipId = shipId;
       client.telemetryLastWrittenFocusId = null;
@@ -312,6 +321,7 @@ function handleMessage(client, message) {
     }
     client.player.team = sanitizeTeam(message.team, balanceTeam(client.room));
     invalidateRelationshipCache(client.room);
+    revalidateTelemetryFocusForRoom(client.room);
     require("./spawnPlanner").invalidateSpawnPlan(client.room);
     broadcastRoom(client.room, { type: "notice", message: `${client.player.name} changed wing` });
     broadcastSnapshot(client.room, performanceNow(), true);

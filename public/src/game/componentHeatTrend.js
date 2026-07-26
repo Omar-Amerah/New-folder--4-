@@ -16,9 +16,9 @@ function dirFor(rate, previous = "unknown") {
   return "stable";
 }
 
-export function updateComponentHeatTrends(ship, snapshotTime, room = "") {
+export function updateComponentHeatTrends(ship, snapshotTime, room = "", stateEpoch = 0) {
   const designLen = ship?.design?.length || 0;
-  const key = `${room}|${ship?.id || ""}|${designLen}`;
+  const key = `${room}|${stateEpoch}|${ship?.id || ""}|${designLen}`;
   const signature = `${key}|${snapshotTime}`;
   if (!ship || !Array.isArray(ship.componentHeat) || !Number.isFinite(snapshotTime)) return entries;
   if (key !== contextKey) { entries = new Map(); contextKey = key; }

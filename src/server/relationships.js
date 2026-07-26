@@ -66,4 +66,28 @@ function areEnemies(room, ownerA, ownerB) {
   return relationship(room, ownerA, ownerB).enemies;
 }
 
-module.exports = { invalidateRelationshipCache, relationship, areAllies, areEnemies };
+function isTelemetryFocusEligible(client, shipId, room) {
+  if (typeof shipId !== "string" || !shipId || !client?.player || !room) return false;
+  const ship = room.ships.get(shipId);
+  if (!ship) return false;
+  if (client.player.id === ship.ownerId) return true;
+  if (room.rules?.gameMode === "solo") return false;
+  return areAllies(room, client.player.id, ship.ownerId);
+}
+
+function revalidateTelemetryFocusForClient(client, room) {
+  if (client.telemetryFocusShipId === undefined) return;
+  if (!isTelemetryFocusEligible(client, client.telemetryFocusShipId, room)) {
+    if (client.telemetryFocusShipId !== null) {
+      client.telemetryFocusShipId = null;
+      client.telemetryLastWrittenFocusId = null;
+      client.telemetryLastWrittenAt = 0;
+    }
+  }
+}
+
+function revalidateTelemetryFocusForRoom(room) {
+  for (const client of room?.clients || []) revalidateTelemetryFocusForClient(client, room);
+}
+
+module.exports = { invalidateRelationshipCache, relationship, areAllies, areEnemies, isTelemetryFocusEligible, revalidateTelemetryFocusForClient, revalidateTelemetryFocusForRoom };
