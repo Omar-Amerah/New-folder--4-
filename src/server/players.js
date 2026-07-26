@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN, DEFAULT_WIRING } = require("./config");
 const { sanitizeName, sanitizeTeam } = require("./validation");
 const { performanceNow } = require("./utils");
+const { invalidateRelationshipCache } = require("./relationships");
 
 // A player who drops (refresh or brief disconnect) keeps their ships and state
 // for this long; the server only despawns them if no reconnection arrives first.
@@ -52,6 +53,8 @@ function despawnPlayerShips(room, player) {
   for (const ship of player.ships) {
     ship.alive = false;
     ship.removed = true;
+    require("./componentGeometry").invalidateShipCollisionGeometry(ship);
+    room.spatialIndex?.remove?.("ships", ship);
     room.ships.delete(ship.id);
   }
   player.ships = [];
@@ -193,6 +196,7 @@ function joinRoom(client, message) {
   attachClientToPlayer(room, player, client);
   room.clients.add(client);
   room.players.set(player.id, player);
+  invalidateRelationshipCache(room);
   require("./spawnPlanner").invalidateSpawnPlan(room);
   ensureAdmin(room);
   room.lastEmptyAt = 0;
@@ -242,6 +246,7 @@ function leaveRoom(client, explicitLeave = false) {
       player.removed = true;
       despawnPlayerShips(room, player);
       room.players.delete(player.id);
+      invalidateRelationshipCache(room);
       if (room.adminId === player.id) {
         room.adminId = null;
       }
@@ -256,6 +261,7 @@ function leaveRoom(client, explicitLeave = false) {
           player.removed = true;
           despawnPlayerShips(room, player);
           room.players.delete(player.id);
+          invalidateRelationshipCache(room);
           if (room.adminId === player.id) {
             room.adminId = null;
             ensureAdmin(room);
@@ -294,7 +300,6 @@ function leaveRoom(client, explicitLeave = false) {
 
 function leaveLobby(client) {
   const { send, broadcastSnapshot } = require("./messages");
-  const { rooms } = require("./rooms");
   if (!client.room || !client.player) {
     send(client, { type: "leftLobby", message: "Left lobby" });
     return;
@@ -304,7 +309,10 @@ function leaveLobby(client) {
   leaveRoom(client, true);
   send(client, { type: "leftLobby", message: `Left lobby ${code}` });
   if (room.clients.size === 0) {
-    rooms.delete(code);
+    // leaveRoom schedules the normal empty-lobby timeout before detaching the
+    // client. Dispose synchronously so that stale callback cannot later delete
+    // a replacement room which reused the same code.
+    closeLobby(room, null);
     return;
   }
   broadcastSnapshot(room, performanceNow());
@@ -343,6 +351,8 @@ function removePlayerFromRoom(room, player, reason) {
   for (const ship of player.ships) {
     ship.alive = false;
     ship.removed = true;
+    require("./componentGeometry").invalidateShipCollisionGeometry(ship);
+    room.spatialIndex?.remove?.("ships", ship);
     room.ships.delete(ship.id);
   }
   player.ships = [];
@@ -350,6 +360,7 @@ function removePlayerFromRoom(room, player, reason) {
   player.removed = true;
   if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
   room.players.delete(player.id);
+  invalidateRelationshipCache(room);
   require("./projectiles").removeProjectilesByOwner(room, player.id);
   for (const point of room.points) {
     if (point.ownerId === player.id) {
@@ -418,6 +429,8 @@ function teamLabel(room, team, fallback) {
 function resetPlayerForMatch(room, player, now) {
   for (const oldShip of player.ships) {
     oldShip.removed = true;
+    require("./componentGeometry").invalidateShipCollisionGeometry(oldShip);
+    room.spatialIndex?.remove?.("ships", oldShip);
     room.ships.delete(oldShip.id);
   }
   player.ships = [];
@@ -573,9 +586,11 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
   }
   room.ships.clear();
   require("./drones").resetDroneRuntime(room);
+  require("./decoys").resetDecoyRuntime(room);
   require("./projectiles").resetProjectileRuntime(room);
   require("./spatialIndex").clearRoomSpatialIndex(room);
   room.effects = [];
+  require("./rooms").clearRoomRuntimeScratch(room);
   room.controlVictory = {
     team: null,
     playerId: null,
@@ -626,25 +641,39 @@ function closeLobby(room, requester) {
     clearTimeout(room.emptyLobbyTimeout);
     room.emptyLobbyTimeout = null;
   }
-  const code = room.code;
-  const { rememberClosedRoom, rooms } = require("./rooms");
-  rememberClosedRoom(code);
   for (const player of room.players.values()) {
-    if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
+    if (player.disconnectTimeout) {
+      clearTimeout(player.disconnectTimeout);
+      player.disconnectTimeout = null;
+    }
     player.resumeToken = null;
     player.removed = true;
     player.client = null;
+    player.ships = [];
   }
   for (const client of [...room.clients]) {
     send(client, { type: "closed", message: requester === null ? "Lobby closed due to inactivity" : "The room admin closed this lobby" });
     client.room = null;
     client.player = null;
+    client.attachmentId = 0;
   }
   room.clients.clear();
   room.players.clear();
+  for (const ship of room.ships.values()) {
+    ship.alive = false;
+    ship.removed = true;
+    require("./componentGeometry").invalidateShipCollisionGeometry(ship);
+  }
+  room.ships.clear();
+  invalidateRelationshipCache(room);
+  require("./drones").resetDroneRuntime(room);
+  require("./decoys").resetDecoyRuntime(room);
   require("./projectiles").resetProjectileRuntime(room);
+  require("./spatialIndex").clearRoomSpatialIndex(room);
   room.effects = [];
-  rooms.delete(code);
+  const { clearRoomRuntimeScratch, deleteRoomIfCurrent } = require("./rooms");
+  clearRoomRuntimeScratch(room);
+  deleteRoomIfCurrent(room, { rememberCode: true });
 }
 
 module.exports = {

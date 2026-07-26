@@ -11,7 +11,8 @@ const { URL } = require("url");
 const { PORT, PUBLIC_DIR, MIME, TICK_HZ, SNAPSHOT_HZ, ROOM_IDLE_MS } = require("./src/server/config");
 const { COMPONENT_BALANCE } = require("./src/server/components");
 const { performanceNow, getLocalUrls } = require("./src/server/utils");
-const { rooms, pruneClosedRoomCodes, rememberClosedRoom } = require("./src/server/rooms");
+const { rooms, pruneClosedRoomCodes } = require("./src/server/rooms");
+const { closeLobby } = require("./src/server/players");
 const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./src/server/buildInfo");
 const transport = require("./src/server/websocketServer");
 const messages = require("./src/server/messages");
@@ -312,7 +313,13 @@ function createGameServer(options = {}) {
         // Idle-cleaned codes are remembered as closed so a bookmarked
         // ?room=CODE link gets an honest "lobby was closed" error instead of
         // silently creating a fresh empty room under the old code.
-        timers.set("cleanup", setInterval(() => { const now = Date.now(); pruneClosedRoomCodes(now); for (const room of rooms.values()) if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) { rememberClosedRoom(room.code); rooms.delete(room.code); } }, 60_000));
+        timers.set("cleanup", setInterval(() => {
+          const now = Date.now();
+          pruneClosedRoomCodes(now);
+          for (const room of rooms.values()) {
+            if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) closeLobby(room, null);
+          }
+        }, 60_000));
         // Snapshots broadcast from the simulation timer (every Nth tick,
         // immediately after that tick) instead of a second independent
         // interval. Two free-running timers drift against each other under
@@ -359,7 +366,13 @@ function createGameServer(options = {}) {
     if (diagnosticsState.stopped) return Promise.resolve();
     diagnosticsState.shutdown = "stopping";
     for (const t of timers.values()) clearInterval(t); timers.clear();
-    for (const client of Array.from(transport.sockets)) transport.closeClient(client, 1001, "server-shutdown");
+    const clients = Array.from(transport.sockets);
+    for (const client of clients) transport.closeClient(client, 1001, "server-shutdown");
+    // Shutdown is a terminal lifecycle transition, not a reconnect window.
+    // Finalize attachments and dispose room-owned timers/caches immediately so
+    // another server instance in this process starts from a clean registry.
+    for (const client of clients) transport.finalizeClient(client);
+    for (const room of Array.from(rooms.values())) closeLobby(room, null);
     return new Promise((resolve) => {
       const done = () => { diagnosticsState.started = false; diagnosticsState.stopped = true; diagnosticsState.shutdown = "stopped"; resolve(); };
       const timeout = setTimeout(done, options.closeTimeoutMs || 1500); timeout.unref?.();

@@ -121,6 +121,9 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     // value by the interval, making it approximately sustained DPS absorbed per
     // weapon stream.
     armorFlatReduction: toNumber(component.armorFlatReduction, 0),
+    decoyConfig: component.decoy && typeof component.decoy === "object"
+      ? Object.freeze({ ...component.decoy })
+      : null,
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {

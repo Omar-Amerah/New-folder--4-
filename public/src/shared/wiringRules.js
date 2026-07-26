@@ -28,7 +28,7 @@
   // Null means unlimited.  Balance can opt in without teaching the editor a
   // second, hidden limit.
   const DEFAULT_CABLE_LIMITS = Object.freeze({ power: null, data: null });
-  const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "auxGenerator", "battery", "capacitor"]);
+  const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "nuclearReactor", "auxGenerator", "battery", "capacitor"]);
   if (!DataSupportRules) throw new Error("DataSupportRules must load before WiringRules");
   if (!PowerPolicyRules) throw new Error("PowerPolicyRules must load before WiringRules");
   const { DATA_SOURCE_INFO, DATA_SOURCE_TYPES } = DataSupportRules;
@@ -72,6 +72,19 @@
     (Array.isArray(modules) ? modules : []).forEach((module, index) => moduleCells(module, catalogue).forEach((cell) => map.set(cellKey(cell.x, cell.y), index)));
     return map;
   }
+  function isTerminalComponent(index, kind, modules, catalogue) {
+    const type = modules?.[index]?.type;
+    if (!type) return false;
+    return kind === "power"
+      ? isPowerSourceType(type) || isPowerConsumer(type, catalogue)
+      : isDataSourceType(type) || isDataTarget(type, catalogue);
+  }
+  function isInternalTerminalEdge(a, b, kind, occupiedMap, modules, catalogue) {
+    const owner = occupiedMap.get(cellKey(a.x, a.y));
+    return owner !== undefined
+      && owner === occupiedMap.get(cellKey(b.x, b.y))
+      && isTerminalComponent(owner, kind, modules, catalogue);
+  }
   // Power accepts light/standard/heavy; anything else (and all Data) normalises
   // deterministically to standard so a malformed tier can never break a route.
   function normalizeTier(tier, kind = "power") { return kind === "power" && POWER_TIERS.includes(tier) ? tier : STANDARD_TIER; }
@@ -90,6 +103,17 @@
     if (!occupied.has(cellKey(a.x, a.y)) || !occupied.has(cellKey(b.x, b.y))) return null;
     const coords = canonicalSectionCoordinates(a, b);
     return { id: sectionIdFromCells(a, b), ...coords, tier: normalizeTier(raw?.tier, kind) };
+  }
+  function normalizeSectionForDesign(raw, occupiedMap, modules, catalogue, kind) {
+    const section = normalizeSection(raw, occupiedMap, kind);
+    if (!section) return null;
+    const a = { x: section.x1, y: section.y1 };
+    const b = { x: section.x2, y: section.y2 };
+    // Every Power/Data terminal belonging to one functional component is already
+    // joined inside that component. Persisting a cable between two such cells
+    // adds cost and clutter without carrying any additional flow.
+    if (isInternalTerminalEdge(a, b, kind, occupiedMap, modules, catalogue)) return null;
+    return section;
   }
   function sectionCells(section) { return [{ x: section.x1, y: section.y1 }, { x: section.x2, y: section.y2 }]; }
   function connectionKey(connection) { return `${connection.sourceIndex}>${connection.targetIndex}:${connection.sectionIds.join(";")}`; }
@@ -115,10 +139,10 @@
     return null;
   }
 
-  function normalizeKind(rawKind, modules, catalogue, kind, occupied) {
+  function normalizeKind(rawKind, modules, catalogue, kind, occupiedMap) {
     const raw = kindShape(rawKind); const sectionMap = new Map(); let dropped = 0;
     for (const value of Array.isArray(raw.sections) ? raw.sections.slice(0, MAX_SECTIONS_PER_KIND) : []) {
-      const section = normalizeSection(value, occupied, kind);
+      const section = normalizeSectionForDesign(value, occupiedMap, modules, catalogue, kind);
       if (!section) { dropped += 1; continue; }
       if (!sectionMap.has(section.id)) sectionMap.set(section.id, section);
     }
@@ -177,9 +201,9 @@
     // Migrate first, then validate against the current version — never empty a
     // save just because it predates Wiring v3.
     const source = migrateWiringToCurrentVersion(wiring);
-    const occupiedMap = occupancy(list, catalogue); const occupied = new Set(occupiedMap.keys());
-    const power = normalizeKind(source.power, list, catalogue, "power", occupied);
-    const data = normalizeKind(source.data, list, catalogue, "data", occupied);
+    const occupiedMap = occupancy(list, catalogue);
+    const power = normalizeKind(source.power, list, catalogue, "power", occupiedMap);
+    const data = normalizeKind(source.data, list, catalogue, "data", occupiedMap);
     return { wiring: { version: WIRING_VERSION, power: power.value, data: data.value, powerPolicy: source.powerPolicy }, droppedRoutes: power.dropped + data.dropped, droppedSegments: power.dropped + data.dropped };
   }
   function emptyKind() { return { sections: [], connections: [] }; }
@@ -250,8 +274,20 @@
     const parent = sections.map((_, i) => i); const find = (i) => parent[i] === i ? i : (parent[i] = find(parent[i]));
     const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[Math.max(a, b)] = Math.min(a, b); };
     byCell.forEach((indices) => indices.slice(1).forEach((i) => union(indices[0], i)));
-    const groups = new Map(); sections.forEach((section, i) => { const root = find(i); if (!groups.has(root)) groups.set(root, []); groups.get(root).push(section); });
+    // Sections touching different cells of the same functional component meet
+    // through that component's internal terminal bus. This is the zero-length
+    // connection assumed by the generator when it exposes every component cell
+    // as a valid terminal.
     const occupied = occupancy(modules, catalogue);
+    const byTerminalComponent = new Map();
+    sections.forEach((section, sectionIndex) => sectionCells(section).forEach((cell) => {
+      const componentIndex = occupied.get(cellKey(cell.x, cell.y));
+      if (!isTerminalComponent(componentIndex, kind, modules, catalogue)) return;
+      if (!byTerminalComponent.has(componentIndex)) byTerminalComponent.set(componentIndex, []);
+      byTerminalComponent.get(componentIndex).push(sectionIndex);
+    }));
+    byTerminalComponent.forEach((indices) => indices.slice(1).forEach((i) => union(indices[0], i)));
+    const groups = new Map(); sections.forEach((section, i) => { const root = find(i); if (!groups.has(root)) groups.set(root, []); groups.get(root).push(section); });
     return [...groups.values()].map((group) => {
       const touched = new Set(); group.forEach((section) => sectionCells(section).forEach((cell) => { const index = occupied.get(cellKey(cell.x, cell.y)); if (index !== undefined) touched.add(index); }));
       const sectionIds = group.map((s) => s.id).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -541,7 +577,7 @@
     // own terminals, which are already electrically connected inside it. Reject
     // such a route outright so no meaningless cable (cost/Heat/clutter/spurious
     // Power node) is created. A route that also reaches another component is a
-    // real connection and keeps every segment, even where it crosses a component.
+    // real connection; internal terminal-to-terminal legs remain zero-length.
     const owns = (a, b) => { const owner = occupiedMap.get(cellKey(a.x, a.y)); return owner !== undefined && owner === occupiedMap.get(cellKey(b.x, b.y)); };
     let crossesComponents = false;
     for (let i = 1; i < cells.length; i += 1) { if (!owns(cells[i - 1], cells[i])) { crossesComponents = true; break; } }
@@ -552,6 +588,7 @@
     const newTier = normalizeTier(tier, kind);
     const newSectionIds = []; const retieredSectionIds = [];
     for (let i = 1; i < cells.length; i += 1) {
+      if (isInternalTerminalEdge(cells[i - 1], cells[i], kind, occupiedMap, modules, catalogue)) continue;
       const id = sectionIdFromCells(cells[i - 1], cells[i]);
       const existing = bucket.sections.find((section) => segmentKey(section) === id);
       if (!existing) {

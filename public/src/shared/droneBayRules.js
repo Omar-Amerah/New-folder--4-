@@ -72,22 +72,45 @@
     return cells.filter((cell) => cell.x === maxX);
   }
 
-  function exposedLaunchEdges(design, componentIndex, catalogue) {
+  function launchEdgeStatuses(design, componentIndex, catalogue) {
     const part = design?.[componentIndex];
     if (!part || part.type !== "droneBay") return [];
     const cells = cellsForPart(part, catalogue);
     const occupied = occupiedCellSet(design, catalogue, componentIndex);
     const exterior = exteriorEmptyCellSet(design, catalogue);
-    return SIDE_ORDER.filter((side) => {
+    return SIDE_ORDER.map((side) => {
       const edge = edgeCells(cells, side);
-      return edge.length === 2 && edge.every((cell) => {
-        const key = `${cell.x + side.dx},${cell.y + side.dy}`;
+      const adjacentCells = edge.map((cell) => ({
+        x: cell.x + side.dx,
+        y: cell.y + side.dy
+      }));
+      const openCells = adjacentCells.filter((cell) => {
+        const key = `${cell.x},${cell.y}`;
         return !occupied.has(key) && exterior.has(key);
       });
-    }).map((side) => {
-      const edge = edgeCells(cells, side);
+      const blockedCells = adjacentCells.filter((cell) => {
+        const key = `${cell.x},${cell.y}`;
+        return occupied.has(key) || !exterior.has(key);
+      });
       return {
         ...side,
+        cells: edge,
+        adjacentCells,
+        openCells,
+        blockedCells,
+        openCellCount: openCells.length,
+        clear: edge.length === 2 && openCells.length === 2
+      };
+    });
+  }
+
+  function exposedLaunchEdges(design, componentIndex, catalogue) {
+    return launchEdgeStatuses(design, componentIndex, catalogue).filter((status) => status.clear).map((side) => {
+      const edge = side.cells;
+      return {
+        side: side.side,
+        dx: side.dx,
+        dy: side.dy,
         cells: edge,
         // Grid coordinates identify cell centres. Place the authoritative launch
         // pose just beyond the hull edge so a drone never appears inside a bay.
@@ -95,6 +118,17 @@
         centerY: edge.reduce((sum, cell) => sum + cell.y, 0) / edge.length + side.dy * 0.75
       };
     });
+  }
+
+  function preferredLaunchEdgeStatus(design, componentIndex, catalogue) {
+    const statuses = launchEdgeStatuses(design, componentIndex, catalogue);
+    const valid = statuses.find((status) => status.clear);
+    if (valid) return valid;
+    let best = null;
+    for (const status of statuses) {
+      if (!best || status.openCellCount > best.openCellCount) best = status;
+    }
+    return best;
   }
 
   function stableComponentId(part) {
@@ -133,6 +167,8 @@
     MAX_BAYS_PER_SHIP,
     cellsForPart,
     exteriorEmptyCellSet,
+    launchEdgeStatuses,
+    preferredLaunchEdgeStatus,
     exposedLaunchEdges,
     normalizeDroneType,
     stableComponentId,

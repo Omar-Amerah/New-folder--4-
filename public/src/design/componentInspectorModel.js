@@ -194,6 +194,17 @@ function weaponCapability(stat) {
 }
 
 function capabilityRows(type, stat, family) {
+  if (type === "droneBay" && stat.droneConfig) {
+    const config = stat.droneConfig;
+    return [
+      statRow("drone.squad", "Squad capacity", `${config.squadSize} drones`),
+      statRow("drone.fuel", "Fuel duration", `${config.fuelSeconds}s`),
+      statRow("drone.refuel", "Dock / refuel", `${config.refuelSeconds}s`),
+      statRow("drone.maxActive", "Ship limit", `${config.maxActivePerShip} active`),
+      statRow("drone.bays", "Bay limit", `${config.maxBaysPerShip} per ship`)
+    ];
+  }
+
   switch (family) {
     case "weapon":
       return weaponCapability(stat);
@@ -204,6 +215,10 @@ function capabilityRows(type, stat, family) {
         statRow("shield.capacity", "Shield capacity", (stat.shield || 0) > 0 ? formatShield(stat.shield) : null),
         statRow("shield.regen", "Regeneration", (stat.shieldRegen || 0) > 0 ? `${stat.shieldRegen} SP/s` : null)
       ];
+      if (stat.decoyConfig) {
+        rows.push(statRow("decoy.capacity", "Decoy capacity", `${stat.decoyConfig.capacity}`));
+        rows.push(statRow("decoy.chance", "Attraction chance", formatPercent(stat.decoyConfig.attractionChance)));
+      }
       if ((stat.frontDamageReduction || 0) > 0) {
         rows.push(statRow("defence.frontReduction", "Frontal reduction", formatPercent(stat.frontDamageReduction)));
         rows.push(statRow("defence.frontArc", "Covered arc", degrees(stat.frontArc || 0)));
@@ -254,11 +269,6 @@ function capabilityRows(type, stat, family) {
 
     default: {
       const rows = [];
-      if (type === "droneBay" && stat.droneConfig) {
-        const config = stat.droneConfig;
-        rows.push(statRow("drone.squad", "Active drones", `${config.squadSize} per bay`));
-        rows.push(statRow("drone.maxActive", "Ship limit", `${config.maxActivePerShip} drones`));
-      }
       if ((stat.repairRate || 0) > 0) rows.push(statRow("repair.rate", "Repair rate", formatRepair(stat.repairRate)));
       rows.push(statRow("bonus.range", "Weapon range bonus", (stat.rangeBonus || 0) ? `+${formatDistance(stat.rangeBonus)}` : null, { kind: "bonus", raw: stat.rangeBonus }));
       rows.push(statRow("bonus.accuracy", "Accuracy bonus", `+${formatPercent(stat.accuracyBonus)}`, { kind: "bonus", raw: stat.accuracyBonus }));
@@ -337,14 +347,6 @@ function warningsFor(type, stat, family) {
       id: "exposure",
       title: "Needs an exposed edge",
       body: "Cooling drops to a fraction of its rated output when the radiator is fully enclosed by other components."
-    });
-  }
-
-  if (type === "droneBay") {
-    warnings.push({
-      id: "launch-edge",
-      title: "Needs a launch edge",
-      body: "One complete two-cell edge must face open space or the bay cannot launch."
     });
   }
 
@@ -502,6 +504,20 @@ function advancedSections(type, stat, family, ledger, context) {
       statRow("shield.capacity", "Shield capacity", (stat.shield || 0) > 0 ? formatShield(stat.shield) : null),
       statRow("shield.regen", "Regeneration", (stat.shieldRegen || 0) > 0 ? `${stat.shieldRegen} SP/s` : null),
       statRow("shield.stacking", "Stacking", "Capacity from every Shield on the ship pools into one bubble.")
+    ]);
+  }
+
+  if (type === "decoyLauncher" && stat.decoyConfig) {
+    const config = stat.decoyConfig;
+    push("decoy", "Decoy details", [
+      statRow("decoy.capacity", "Stored decoys", `${config.capacity}`),
+      statRow("decoy.initial", "Initial stock", `${config.initialStock}`),
+      statRow("decoy.production", "Production time", `${config.productionSeconds}s per decoy`),
+      statRow("decoy.trigger", "Threat detection", formatDistance(config.triggerRange)),
+      statRow("decoy.range", "Attraction range", formatDistance(config.attractionRange)),
+      statRow("decoy.chance", "Attraction chance", formatPercent(config.attractionChance)),
+      statRow("decoy.lifetime", "False-target lifetime", `${config.lifetimeSeconds}s`),
+      statRow("decoy.guidance", "Affects", "Guided missiles only")
     ]);
   }
 

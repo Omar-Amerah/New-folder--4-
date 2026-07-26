@@ -7,7 +7,7 @@
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
     <link rel="stylesheet" href="/styles.css?v=drone-command-1">
-    <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-14">
+    <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-15">
     <link rel="stylesheet" href="/hud.css?v=matte-match-hud-2">
   </head>
   <body>
@@ -472,10 +472,6 @@
                     <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m15 5 4 4L8 20H4v-4L15 5Zm-8 12 2 2M13 7l4 4"/></svg></span>
                     <span class="wiring-control-label-text">Draw</span>
                   </button>
-                  <button type="button" class="wiring-control wiring-tool" data-wiring-tool="erase" aria-pressed="false" title="Erase a cable section">
-                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m8 4 12 12-4 4H8L3 15 8 4Zm1 15 5-5"/></svg></span>
-                    <span class="wiring-control-label-text">Erase</span>
-                  </button>
                   <button type="button" class="wiring-control wiring-tool" data-wiring-tool="inspect" aria-pressed="false" title="Inspect a cable section">
                     <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></span>
                     <span class="wiring-control-label-text">Inspect</span>
@@ -505,7 +501,7 @@
                   <div id="wiringHelpPanel" class="wiring-help-panel" role="dialog" aria-label="Wiring help" hidden>
                     <div class="wiring-help-head"><strong>Wiring help</strong><button id="wiringHelpCloseButton" type="button" aria-label="Close Wiring help">×</button></div>
                     <p><strong>Draw:</strong> drag through occupied ship cells. Drawing Power over existing cable changes traversed sections to the selected tier; same-tier cable is reused.</p>
-                    <p><strong>Erase:</strong> removes the selected physical section. <strong>Inspect:</strong> hover for live Power flow and watch energy pulse outward from its source; click only to open the detailed analysis.</p>
+                    <p><strong>Inspect:</strong> hover for live Power flow and watch energy pulse outward from its source; click to open the detailed analysis. Use Clear to remove a selected network.</p>
                     <p><strong>Capacity:</strong> sustained is safe continuous load; peak is the delivery ceiling. Power cable above sustained generates extra Heat and overload stress.</p>
                      <p><strong>Display:</strong> Light is pale yellow, Standard vivid orange, and Heavy deep copper-red; they also use increasing thickness. Green is working, yellow loaded, orange above sustained, red at peak, red dashed disconnected, and blue selected.</p>
                     <p><strong>Auto-wire:</strong> replaces the Power network with a simple deterministic Standard-cable route connecting every powered component. It preserves Data wiring and can be undone.</p>
@@ -656,7 +652,7 @@
     <script src="/src/shared/powerPolicyRules.js?v=power-policy-1"></script>
     <script src="/src/shared/powerDemandRules.js?v=power-demand-1"></script>
     <script src="/src/shared/powerAllocationRules.js?v=power-allocation-1"></script>
-    <script src="/src/shared/wiringRules.js?v=wiring-rules-5"></script>
+    <script src="/src/shared/wiringRules.js?v=wiring-rules-6"></script>
     <script src="/src/shared/powerFlowRules.js?v=power-flow-1"></script>
     <script src="/src/shared/wiringInfrastructureRules.js?v=wiring-infra-1"></script>
     <script src="/src/shared/powerCableThermalRules.js?v=power-cable-thermal-1"></script>

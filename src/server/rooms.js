@@ -26,6 +26,35 @@ const { getSpawnRegionPlan, invalidateSpawnPlan } = require("./spawnPlanner");
 const rooms = new Map();
 const closedRoomCodes = new Map();
 
+const ROOM_ARRAY_SCRATCH_FIELDS = Object.freeze([
+  "_liveShipScratch",
+  "_projectileLiveShipScratch",
+  "_supportSpatialScratch",
+  "_weaponSupportSpatialScratch",
+  "_droneMovementScratch",
+  "_droneSeparationScratch",
+  "_projectileSpare",
+  "_effectSpare"
+]);
+const ROOM_OBJECT_ARRAY_SCRATCH_FIELDS = Object.freeze([
+  "_pointDefenseSpatialScratch",
+  "_projectileSpatialScratch"
+]);
+
+function clearRoomRuntimeScratch(room) {
+  if (!room) return;
+  for (const field of ROOM_ARRAY_SCRATCH_FIELDS) {
+    if (Array.isArray(room[field])) room[field].length = 0;
+  }
+  for (const field of ROOM_OBJECT_ARRAY_SCRATCH_FIELDS) {
+    const scratch = room[field];
+    if (!scratch || typeof scratch !== "object") continue;
+    for (const value of Object.values(scratch)) {
+      if (Array.isArray(value)) value.length = 0;
+    }
+  }
+}
+
 function createRoom(code, options = {}) {
   const world = chooseWorldSize(1);
   const mapSeed = options.seed == null ? createMapSeed(code) : Number(options.seed) >>> 0;
@@ -40,9 +69,11 @@ function createRoom(code, options = {}) {
     players: new Map(),
     ships: new Map(),
     drones: new Map(),
+    decoys: new Map(),
     droneCounts: { byOwner: new Map(), byParent: new Map() },
     bullets: [],
     projectileById: new Map(),
+    _projectileLookupInitialized: true,
     spatialIndex: null,
     effects: [],
     map,
@@ -73,6 +104,7 @@ function createRoom(code, options = {}) {
 }
 
 function bumpStateEpoch(room, reason = "state-reset") {
+  require("./relationships").invalidateRelationshipCache(room);
   room.stateEpoch = Math.max(1, Number(room.stateEpoch) || 1) + 1;
   room.snapshotSeq = 0;
   room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;
@@ -180,6 +212,7 @@ function sanitizeGameMode(value) {
 function applyGameModeTeams(room) {
   if (room.rules?.gameMode === "solo") {
     for (const player of room.players.values()) player.team = player.id;
+    require("./relationships").invalidateRelationshipCache(room);
     return;
   }
 
@@ -189,6 +222,7 @@ function applyGameModeTeams(room) {
       player.team = balanceTeam(room);
     }
   }
+  require("./relationships").invalidateRelationshipCache(room);
 }
 
 function createMapSeed(roomCode = "") {
@@ -519,8 +553,10 @@ function prepareArenaForCurrentPlayers(room) {
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
   require("./projectiles").resetProjectileRuntime(room);
   require("./drones").resetDroneRuntime(room);
+  require("./decoys").resetDecoyRuntime(room);
   require("./spatialIndex").clearRoomSpatialIndex(room);
   room.effects = [];
+  clearRoomRuntimeScratch(room);
   room.nextEntityId = 1;
 }
 
@@ -562,6 +598,13 @@ function rememberClosedRoom(code) {
   closedRoomCodes.set(clean, Date.now() + CLOSED_ROOM_CODE_TTL_MS);
 }
 
+function deleteRoomIfCurrent(room, options = {}) {
+  if (!room?.code || rooms.get(room.code) !== room) return false;
+  if (options.rememberCode) rememberClosedRoom(room.code);
+  rooms.delete(room.code);
+  return true;
+}
+
 function isClosedRoomCode(code) {
   const clean = sanitizeRoomCode(code);
   const expiresAt = closedRoomCodes.get(clean);
@@ -588,6 +631,7 @@ function resetMatch(room, now) {
   room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   require("./drones").resetDroneRuntime(room);
+  require("./decoys").resetDecoyRuntime(room);
   require("./projectiles").resetProjectileRuntime(room);
   require("./spatialIndex").clearRoomSpatialIndex(room);
   applyAuthoritativeSafeZones(room);
@@ -600,6 +644,7 @@ function resetMatch(room, now) {
     resetRoundPlayerStats(player);
     resetPlayerForMatch(room, player, now);
   }
+  clearRoomRuntimeScratch(room);
   broadcastRoom(room, { type: "notice", message: "New match started" });
 }
 
@@ -631,7 +676,9 @@ module.exports = {
   chooseRoomWorld,
   makeRoomCode,
   rememberClosedRoom,
+  deleteRoomIfCurrent,
   isClosedRoomCode,
   pruneClosedRoomCodes,
-  resetMatch
+  resetMatch,
+  clearRoomRuntimeScratch
 };

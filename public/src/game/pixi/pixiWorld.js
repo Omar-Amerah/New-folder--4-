@@ -413,6 +413,51 @@ function updatePixiEffects(env, now, bounds) {
   const snap = state.snapshot;
   const combatEffectsEnabled = getCombatEffectsEnabled();
   const zoom = state.camera.zoom;
+  // Decoys are persistent gameplay entities, so they remain visible even when
+  // optional combat particles are disabled. Their noisy double image and
+  // targeting brackets deliberately read as a false sensor contact.
+  if (snap?.decoys) {
+    const elapsed = Math.min(0.15, (performance.now() - (state.snapshotReceivedAt || performance.now())) / 1000);
+    for (const decoy of snap.decoys) {
+      const x = decoy.x + (decoy.vx || 0) * elapsed;
+      const y = decoy.y + (decoy.vy || 0) * elapsed;
+      const radius = Math.max(10, Number(decoy.radius) || 12);
+      if (bounds && !isCircleVisible(x, y, radius * 2.2, bounds)) continue;
+      const pulse = 0.72 + Math.sin(now * 0.018 + String(decoy.id).length) * 0.2;
+
+      // A compact luminous body and velocity-aligned emission trail keep the
+      // flare readable at normal and low zoom, even over bright ship effects.
+      const speed = Math.hypot(decoy.vx || 0, decoy.vy || 0);
+      const dirX = speed > 0.001 ? (decoy.vx || 0) / speed : 1;
+      const dirY = speed > 0.001 ? (decoy.vy || 0) / speed : 0;
+      gfx.circle(x, y, radius * 1.18);
+      gfx.fill({ color: "#60a5fa", alpha: pulse * 0.12 });
+      gfx.moveTo(x - dirX * radius * 0.4, y - dirY * radius * 0.4);
+      gfx.lineTo(x - dirX * radius * 2.05, y - dirY * radius * 2.05);
+      gfx.stroke({ width: Math.max(3 / zoom, radius * 0.38), color: "#60a5fa", alpha: pulse * 0.2, cap: "round" });
+      gfx.moveTo(x - dirX * radius * 0.25, y - dirY * radius * 0.25);
+      gfx.lineTo(x - dirX * radius * 1.5, y - dirY * radius * 1.5);
+      gfx.stroke({ width: Math.max(1.2 / zoom, radius * 0.12), color: "#e0f2fe", alpha: pulse * 0.72, cap: "round" });
+
+      gfx.circle(x, y, radius);
+      gfx.stroke({ width: 2 / zoom, color: "#93c5fd", alpha: pulse });
+      gfx.circle(x + radius * 0.35, y - radius * 0.22, radius * 0.72);
+      gfx.stroke({ width: 1.2 / zoom, color: "#c4b5fd", alpha: pulse * 0.55 });
+      gfx.circle(x, y, radius * 0.42);
+      gfx.fill({ color: "#7dd3fc", alpha: pulse * 0.82 });
+      gfx.circle(x, y, radius * 0.2);
+      gfx.fill({ color: "#f8fafc", alpha: Math.min(1, pulse + 0.18) });
+      gfx.moveTo(x - radius * 1.65, y);
+      gfx.lineTo(x - radius * 0.75, y);
+      gfx.moveTo(x + radius * 0.75, y);
+      gfx.lineTo(x + radius * 1.65, y);
+      gfx.moveTo(x, y - radius * 1.65);
+      gfx.lineTo(x, y - radius * 0.75);
+      gfx.moveTo(x, y + radius * 0.75);
+      gfx.lineTo(x, y + radius * 1.65);
+      gfx.stroke({ width: 1.5 / zoom, color: "#a78bfa", alpha: pulse * 0.9 });
+    }
+  }
   if (snap && snap.effects) {
     if (state.debugStats) state.debugStats.totalEffects = snap.effects.length;
     let drawn = 0;

@@ -3,7 +3,7 @@ import { moduleRotationToRadians, normalizeRotation } from "../design/rotation.j
 import { drawModule, drawFootprintComponent, drawStaticComponentBase, drawStaticWeaponMount } from "./componentArt.js";
 import { isRotatingWeaponPart } from "./weaponAim.js";
 
-export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim, includeWeaponTop = false }) {
+export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim, includeWeaponTop = false, visualState }) {
   const def = PART_DEFS[part?.type] || PART_DEFS.frame;
   const bodyColor = color || def.color;
   const weapon = isRotatingWeaponPart(part?.type) || Boolean(PART_STATS[part?.type]?.weapon && isRotatablePart(part?.type));
@@ -13,15 +13,15 @@ export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim,
     ctx.rotate(place.longAxisAngle);
     drawStaticComponentBase({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim });
     drawStaticWeaponMount({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor });
-    if (includeWeaponTop) drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, drawBase: false });
+    if (includeWeaponTop) drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, drawBase: false, visualState });
   } else if (place.multi) {
     ctx.rotate(place.longAxisAngle);
-    drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim });
+    drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, visualState });
   } else if (isRotatablePart(part?.type) || part?.type === "maneuverThruster") {
     ctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-    drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim });
+    drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim, visualState });
   } else {
-    drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim });
+    drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim, visualState });
   }
   ctx.restore();
 }

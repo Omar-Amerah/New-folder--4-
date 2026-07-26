@@ -956,7 +956,7 @@
       "thrust": 0,
       "turn": -0.01,
       "energy": 0,
-      "repair": 3.5,
+      "repair": 4,
       "description": "Small support module that slowly repairs hull over time."
     },
     {
@@ -1061,9 +1061,40 @@
       "turn": 0.06,
       "energy": 0,
       "repair": 0,
-      "accuracyBonus": 0.055,
+      "accuracyBonus": 0.075,
       "utility": "accuracy",
       "description": "Support stabilizer that improves accuracy and slightly helps turning."
+    },
+    {
+      "id": "decoyLauncher",
+      "name": "Decoy Launcher",
+      "category": "Defence",
+      "cost": 20,
+      "mass": 5,
+      "hull": 40,
+      "powerGeneration": 0,
+      "powerUse": 2,
+      "powerCategory": "pointDefence",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.01,
+      "energy": 0,
+      "repair": 0,
+      "decoy": {
+        "capacity": 3,
+        "initialStock": 1,
+        "productionSeconds": 6,
+        "launchCooldownSeconds": 1.2,
+        "lifetimeSeconds": 6,
+        "triggerRange": 600,
+        "attractionRange": 420,
+        "attractionChance": 0.55,
+        "driftSpeed": 95,
+        "collisionRadius": 14
+      },
+      "rotatable": false,
+      "description": "Launches a limited supply of visible false targets against incoming guided missiles. Each decoy has a chance to attract a guided projectile, is rebuilt over time, and has no effect on unguided weapons."
     },
     {
       "id": "pointDefense",

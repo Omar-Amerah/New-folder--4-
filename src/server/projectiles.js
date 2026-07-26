@@ -1,15 +1,27 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
 const { clampNumber, rotateToward } = require("./utils");
-const { getShipComponentCellWorldCoords, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
+const { getShipCollisionGeometry, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
+const { getLiveShips } = require("./ships");
+const { buildRoomSpatialIndex } = require("./spatialIndex");
 const { BALANCE } = require("./balanceConfig");
 const PROJECTILES = BALANCE.projectiles;
 const MISSILE_GUIDANCE = BALANCE.missileGuidance;
+const MAXIMUM_DRONE_SPEED = Math.max(
+  0,
+  ...Object.values(BALANCE.drones?.types || {}).map((entry) => Number(entry?.speed) || 0)
+);
 
 function ensureProjectileLookup(room) {
   if (!room.projectileById) {
     room.projectileById = new Map();
-    for (const projectile of room.bullets || []) if (projectile?.id) room.projectileById.set(projectile.id, projectile);
+  }
+  if (!room._projectileLookupInitialized) {
+    room.projectileById.clear();
+    for (const projectile of room.bullets || []) {
+      if (projectile?.id && projectile.life > 0) room.projectileById.set(projectile.id, projectile);
+    }
+    room._projectileLookupInitialized = true;
   }
   return room.projectileById;
 }
@@ -19,23 +31,81 @@ function rebuildProjectileLookup(room) {
   lookup.clear();
   for (const projectile of room.bullets || []) if (projectile?.id) lookup.set(projectile.id, projectile);
   room.projectileById = lookup;
+  room._projectileLookupInitialized = true;
   return lookup;
 }
 
 function resetProjectileRuntime(room) {
-  room.bullets = [];
-  room.projectileById = new Map();
+  if (Array.isArray(room.bullets)) room.bullets.length = 0;
+  else room.bullets = [];
+  room._projectileSpare?.splice?.(0);
+  room._projectileLiveShipScratch?.splice?.(0);
+  room._effectSpare?.splice?.(0);
+  if (room.projectileById instanceof Map) room.projectileById.clear();
+  else room.projectileById = new Map();
+  room._projectileLookupInitialized = true;
 }
 
 function removeProjectilesByOwner(room, ownerId) {
-  room.bullets = (room.bullets || []).filter((projectile) => projectile.ownerId !== ownerId);
-  rebuildProjectileLookup(room);
+  const source = room.bullets || [];
+  const kept = room._projectileSpare && room._projectileSpare !== source ? room._projectileSpare : [];
+  kept.length = 0;
+  const lookup = ensureProjectileLookup(room);
+  for (const projectile of source) {
+    if (projectile.ownerId === ownerId) {
+      if (projectile.id) lookup.delete(projectile.id);
+      room.spatialIndex?.remove?.("projectiles", projectile);
+      room.spatialIndex?.remove?.("interceptableProjectiles", projectile);
+    } else {
+      kept.push(projectile);
+    }
+  }
+  source.length = 0;
+  room.bullets = kept;
+  room._projectileSpare = source;
 }
 
 function addBullet(room, bullet) {
   bullet.id = `b${room.nextEntityId++}`;
   room.bullets.push(bullet);
   ensureProjectileLookup(room).set(bullet.id, bullet);
+  const spatialIndex = room.spatialIndex;
+  if (spatialIndex?.dynamicValid && typeof spatialIndex.append === "function" && bullet.life > 0) {
+    spatialIndex.append("projectiles", bullet, 0);
+    if (bullet.interceptable) spatialIndex.append("interceptableProjectiles", bullet, 0);
+    const vx = Number(bullet.vx);
+    const vy = Number(bullet.vy);
+    const speed = Math.hypot(Number.isFinite(vx) ? vx : 0, Number.isFinite(vy) ? vy : 0);
+    if (speed > spatialIndex.maxProjectileSpeed) spatialIndex.maxProjectileSpeed = speed;
+  }
+}
+
+function discardBullet(room, lookup, bullet) {
+  if (bullet?.id) lookup.delete(bullet.id);
+  room.spatialIndex?.remove?.("projectiles", bullet);
+  if (bullet?.interceptable) room.spatialIndex?.remove?.("interceptableProjectiles", bullet);
+}
+
+function removeProjectileRuntime(room, projectile) {
+  if (!room || !projectile) return false;
+  projectile.life = 0;
+  discardBullet(room, ensureProjectileLookup(room), projectile);
+  return true;
+}
+
+function assertProjectileLookupConsistency(room) {
+  const lookup = ensureProjectileLookup(room);
+  const live = new Map();
+  for (const projectile of room.bullets || []) {
+    if (projectile?.id && projectile.life > 0) live.set(projectile.id, projectile);
+  }
+  if (lookup.size !== live.size) {
+    throw new Error(`projectileById size mismatch: lookup=${lookup.size}, live=${live.size}`);
+  }
+  for (const [id, projectile] of live) {
+    if (lookup.get(id) !== projectile) throw new Error(`projectileById stale or missing record: ${id}`);
+  }
+  return true;
 }
 
 // Below this shield charge the shield is treated as "down" for hit visuals only:
@@ -48,15 +118,14 @@ const SHIELD_HIT_MIN = PROJECTILES.shieldHitMinimum;
 // rendered shield ring (renderer.js shieldRingRadius) so bullets visually stop
 // exactly at the ring the player sees.
 function shieldCollisionRadius(ship) {
-  const radius = Number(ship?.radius) || 0;
-  return Math.max(PROJECTILES.shieldCollision.minimumRadius, radius + Math.max(PROJECTILES.shieldCollision.flatPadding, radius * PROJECTILES.shieldCollision.radiusMultiplier));
+  return getShipCollisionGeometry(ship).shieldRadius;
 }
 
 function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIndex, scratch = []) {
   const margin = bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
   let hit = null;
   const asteroids = spatialIndex
-    ? spatialIndex.querySweptAabb("asteroids", x1, y1, bullet.x, bullet.y, margin, scratch)
+    ? spatialIndex.querySweptAabbUnordered("asteroids", x1, y1, bullet.x, bullet.y, margin, scratch)
     : (room.map?.asteroids || []);
   for (const asteroid of asteroids) {
     const impact = segmentCircleHit(x1, y1, bullet.x, bullet.y, asteroid.x, asteroid.y, asteroid.radius + margin);
@@ -85,40 +154,56 @@ function segmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
   return { x: px, y: py, t };
 }
 
+function missileEcmModifier(room, target, cache) {
+  if (room.drones?.get?.(target.id) === target) return 1;
+  let mod = cache.get(target.id);
+  if (mod === undefined) {
+    const { effectiveComponentBonus } = require("./heat");
+    mod = Math.max(0, 1 - Math.min(MISSILE_GUIDANCE.ecmCap, effectiveComponentBonus(target, "ecmStrength")));
+    cache.set(target.id, mod);
+  }
+  return mod;
+}
+
 function updateBullets(room, dt, now) {
-  const { getLiveShips } = require("./ships");
   const { areEnemies, damageShip } = require("./combat");
 
-  const liveShips = getLiveShips(room);
+  const liveShips = getLiveShips(
+    room,
+    room._projectileLiveShipScratch || (room._projectileLiveShipScratch = [])
+  );
   const spatialIndex = room.disableSpatialIndex
     ? null
-    : (room.spatialIndex || require("./spatialIndex").buildRoomSpatialIndex(room, liveShips, now));
+    : (room.spatialIndex?.dynamicValid
+      ? room.spatialIndex
+      : buildRoomSpatialIndex(room, liveShips, now));
   const bulletsById = ensureProjectileLookup(room);
-  const kept = [];
-  const asteroidCandidates = [];
-  const shipCandidates = [];
-  const droneCandidates = [];
-  const maximumDroneSpeed = Math.max(0, ...Object.values(BALANCE.drones?.types || {}).map((entry) => Number(entry?.speed) || 0));
-  const droneMovementPadding = maximumDroneSpeed * Math.max(0, Number(dt) || 0) * 1.75 + 2;
+  const sourceBullets = room.bullets || [];
+  const kept = room._projectileSpare && room._projectileSpare !== sourceBullets ? room._projectileSpare : [];
+  kept.length = 0;
+  const scratch = room._projectileSpatialScratch || (room._projectileSpatialScratch = {
+    asteroids: [], ships: [], drones: []
+  });
+  const asteroidCandidates = scratch.asteroids;
+  const shipCandidates = scratch.ships;
+  const droneCandidates = scratch.drones;
+  const nominalDroneMovementPadding = MAXIMUM_DRONE_SPEED * Math.max(0, Number(dt) || 0) * 1.75 + 2;
+  const measuredDroneMovementPadding = Number(room.droneSpatialPadding);
+  const droneMovementPadding = Math.max(
+    nominalDroneMovementPadding,
+    Number.isFinite(measuredDroneMovementPadding) ? Math.max(0, measuredDroneMovementPadding) : 0
+  );
+  let interceptedPreviouslyKept = false;
 
-  // ECM strength scans the target's whole design; cache it per target for the
-  // duration of this tick so a missile swarm doesn't recompute it per missile.
-  const ecmModCache = new Map();
-  const ecmModifierFor = (target) => {
-    if (room.drones?.get?.(target.id) === target) return 1;
-    let mod = ecmModCache.get(target.id);
-    if (mod === undefined) {
-      const { effectiveComponentBonus } = require("./heat");
-      mod = Math.max(0, 1 - Math.min(MISSILE_GUIDANCE.ecmCap, effectiveComponentBonus(target, "ecmStrength")));
-      ecmModCache.set(target.id, mod);
-    }
-    return mod;
-  };
+  // Most projectile ticks contain no actively tracking missiles. Allocate the
+  // per-target ECM cache only when guidance actually needs it.
+  let ecmModCache = null;
 
-  for (const bullet of room.bullets) {
+  for (const bullet of sourceBullets) {
     if (!Number.isFinite(bullet.x) || !Number.isFinite(bullet.y)
       || !Number.isFinite(bullet.vx) || !Number.isFinite(bullet.vy)
       || !Number.isFinite(bullet.life) || !Number.isFinite(bullet.damage || 0)) {
+      discardBullet(room, bulletsById, bullet);
       continue;
     }
     bullet.life -= dt;
@@ -126,6 +211,7 @@ function updateBullets(room, dt, now) {
       if (bullet.type === "missile" || bullet.type === "pdShot") {
         room.effects.push({ type: "despawn", subtype: bullet.subtype, x: bullet.x, y: bullet.y, at: now });
       }
+      discardBullet(room, bulletsById, bullet);
       continue;
     }
     const previousX = bullet.x;
@@ -136,8 +222,10 @@ function updateBullets(room, dt, now) {
       if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
         bullet.trackingDisabledFor -= dt;
       }
-      const target = room.ships.get(bullet.targetId) || room.drones?.get?.(bullet.targetId);
-      const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
+      const target = room.ships.get(bullet.targetId) || room.drones?.get?.(bullet.targetId) || room.decoys?.get?.(bullet.targetId);
+      const canTrack = (Number(bullet.tracking) || 0) > 0
+        && (bullet.trackRemaining === undefined || bullet.trackRemaining > 0)
+        && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
         const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
         if (bullet.targetComponentIndex === undefined) bullet.targetComponentIndex = -1;
@@ -163,7 +251,7 @@ function updateBullets(room, dt, now) {
           desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
         }
 
-        turnRate *= ecmModifierFor(target);
+        turnRate *= missileEcmModifier(room, target, ecmModCache || (ecmModCache = new Map()));
 
         const current = Math.atan2(bullet.vy, bullet.vx);
         const next = rotateToward(current, desired, turnRate * dt);
@@ -178,6 +266,7 @@ function updateBullets(room, dt, now) {
     bullet.y += bullet.vy * dt;
 
     if (bullet.x < -PROJECTILES.worldPadding || bullet.x > room.world.width + PROJECTILES.worldPadding || bullet.y < -PROJECTILES.worldPadding || bullet.y > room.world.height + PROJECTILES.worldPadding) {
+      discardBullet(room, bulletsById, bullet);
       continue;
     }
 
@@ -194,9 +283,12 @@ function updateBullets(room, dt, now) {
                 room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
                 if (target.hp <= 0) {
                    target.life = 0;
+                   discardBullet(room, bulletsById, target);
+                   interceptedPreviouslyKept = true;
                    room.effects.push({ type: "burst", x: target.x, y: target.y, at: now });
                    room.effects.push({ type: "text", text: "INTERCEPTED", x: target.x, y: target.y, at: now });
                 }
+                discardBullet(room, bulletsById, bullet);
                 continue;
              }
           }
@@ -209,6 +301,7 @@ function updateBullets(room, dt, now) {
              if (dx * dx + dy * dy <= PROJECTILES.interceptRadius * PROJECTILES.interceptRadius) {
                 require("./drones").damageDrone(room, target, bullet.damage, bullet.ownerId, now);
                 room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
+                discardBullet(room, bulletsById, bullet);
                 continue;
              }
           }
@@ -229,8 +322,18 @@ function updateBullets(room, dt, now) {
       recordHit({ kind: "asteroid", t: rockHit.t, x: rockHit.x, y: rockHit.y, entityId: "asteroid" });
     }
 
+    // Decoys are false targets only for guided missiles. Unguided bolts, rails
+    // and other projectiles neither acquire nor collide with them.
+    if (bullet.type === "missile" && bullet.decoyTargetId && bullet.targetId === bullet.decoyTargetId) {
+      const decoy = room.decoys?.get?.(bullet.decoyTargetId);
+      if (decoy) {
+        const decoyHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, decoy.x, decoy.y, (Number(decoy.radius) || 12) + PROJECTILES.hitRadius.missile);
+        if (decoyHit) recordHit({ kind: "decoy", t: decoyHit.t, x: decoyHit.x, y: decoyHit.y, decoy, entityId: decoy.id });
+      }
+    }
+
     const possibleShips = spatialIndex
-      ? spatialIndex.querySweptAabb("ships", previousX, previousY, bullet.x, bullet.y, 0, shipCandidates)
+      ? spatialIndex.querySweptAabbUnordered("ships", previousX, previousY, bullet.x, bullet.y, 0, shipCandidates)
       : liveShips;
     for (const ship of possibleShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
@@ -257,11 +360,12 @@ function updateBullets(room, dt, now) {
       // is recorded once (by index), so it takes a single damage event even when
       // several of its cells are crossed. Destroyed components are skipped via
       // componentHp and so no longer block later projectiles.
-      const cellCoords = getShipComponentCellWorldCoords(ship);
+      const geometry = getShipCollisionGeometry(ship);
+      const cellCoords = geometry.worldCells;
       const componentHp = ship.componentHp;
       let moduleHit = null;
       const collisionR = COMPONENT_CELL_COLLISION_RADIUS + hitRadius;
-      for (let i = 0; i < cellCoords.length; i++) {
+      for (const i of geometry.liveComponentIndices) {
         if (componentHp && componentHp[i] <= 0) continue;
         const cells = cellCoords[i];
         for (let c = 0; c < cells.length; c++) {
@@ -278,7 +382,7 @@ function updateBullets(room, dt, now) {
     }
 
     const possibleDrones = spatialIndex
-      ? spatialIndex.querySweptAabb("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
+      ? spatialIndex.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
       : (room.drones?.values?.() || []);
     for (const drone of possibleDrones) {
       if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
@@ -301,6 +405,14 @@ function updateBullets(room, dt, now) {
 
     if (earliest?.kind === "asteroid") {
       room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
+      discardBullet(room, bulletsById, bullet);
+      continue;
+    }
+
+    if (earliest?.kind === "decoy") {
+      require("./decoys").removeDecoy(room, earliest.decoy, now, "hit");
+      room.effects.push({ type: "burst", subtype: "decoy", x: earliest.x, y: earliest.y, at: now });
+      discardBullet(room, bulletsById, bullet);
       continue;
     }
 
@@ -326,6 +438,7 @@ function updateBullets(room, dt, now) {
       } else {
         room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: earliest.x, y: earliest.y, at: now });
       }
+      discardBullet(room, bulletsById, bullet);
       continue;
     }
 
@@ -337,30 +450,51 @@ function updateBullets(room, dt, now) {
         y: earliest.y,
         at: now
       });
+      discardBullet(room, bulletsById, bullet);
       continue;
     }
 
     kept.push(bullet);
   }
 
+  if (interceptedPreviouslyKept) {
+    let write = 0;
+    for (let read = 0; read < kept.length; read += 1) {
+      if (kept[read]?.life > 0) kept[write++] = kept[read];
+    }
+    kept.length = write;
+  }
+  sourceBullets.length = 0;
   room.bullets = kept;
-  rebuildProjectileLookup(room);
-  room.effects = room.effects.filter((effect) => {
+  room._projectileSpare = sourceBullets;
+
+  const sourceEffects = room.effects || [];
+  const keptEffects = room._effectSpare && room._effectSpare !== sourceEffects ? room._effectSpare : [];
+  keptEffects.length = 0;
+  for (const effect of sourceEffects) {
     const life = effect.type === "beam" ? 140 : effect.type === "shieldhit" ? 340 : 900;
-    return now - effect.at < life;
-  });
+    if (now - effect.at < life) keptEffects.push(effect);
+  }
+  sourceEffects.length = 0;
+  room.effects = keptEffects;
+  room._effectSpare = sourceEffects;
   // Projectile positions and membership have now advanced beyond the index's
   // build epoch. No later subsystem in this tick consumes it; clearing prevents
   // accidental stale queries and the next authoritative tick rebuilds once.
-  room.spatialIndex = null;
+  room.spatialIndex?.invalidateDynamic?.();
+  if (room.assertProjectileLookup || process.env.MFA_ASSERT_RUNTIME_CACHES === "1" || process.env.NODE_ENV === "test") {
+    assertProjectileLookupConsistency(room);
+  }
 }
 
 module.exports = {
   addBullet,
   ensureProjectileLookup,
   rebuildProjectileLookup,
+  assertProjectileLookupConsistency,
   resetProjectileRuntime,
   removeProjectilesByOwner,
+  removeProjectileRuntime,
   projectileMapImpact,
   segmentCircleHit,
   updateBullets,

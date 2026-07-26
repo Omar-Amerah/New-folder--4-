@@ -6,8 +6,9 @@ const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 const { getActiveFleetCost } = require("./economy");
 const { summarizeStats, computeStats } = require("./shipStats");
 const { getPlayerRallyPoint } = require("./ships");
-const { ensureEffectiveWeaponProfileCache, getEffectiveWeaponRanges } = require("./componentData");
+const { ensureEffectiveWeaponProfileCache } = require("./componentData");
 const { buildDroneSnapshots, buildBaySnapshots } = require("./drones");
+const { buildDecoySnapshots, buildLauncherSnapshots } = require("./decoys");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -46,7 +47,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
   for (const ship of room.ships.values()) {
     if (ship.removed) continue;
     const effectiveWeapons = ensureEffectiveWeaponProfileCache(ship);
-    const effectiveRanges = getEffectiveWeaponRanges(ship);
+    const effectiveRanges = effectiveWeapons?.familyRanges || {};
     const entry = {
       id: ship.id,
       ownerId: ship.ownerId,
@@ -72,10 +73,10 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       commandState: ship.commandState || "mainCore",
       emergencyReserveUntil: ship.emergencyReserveUntil || null,
       alive: ship.alive,
-      blasterRange: effectiveRanges.blaster,
-      missileRange: effectiveRanges.missile,
-      railgunRange: effectiveRanges.railgun,
-      beamRange: effectiveRanges.beam,
+      blasterRange: Number(effectiveRanges.blaster) || 0,
+      missileRange: Number(effectiveRanges.missile) || 0,
+      railgunRange: Number(effectiveRanges.railgun) || 0,
+      beamRange: Number(effectiveRanges.beam) || 0,
       weaponRanges: (effectiveWeapons?.profiles || []).map((profile, index) => (
         profile && (ship.componentHp?.[index] ?? 1) > 0 ? Number(profile.range) || 0 : null
       )),
@@ -84,6 +85,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     };
     if (ship.droneBays?.length) entry.droneBays = buildBaySnapshots(ship);
+    if (ship.decoyLaunchers?.length) entry.decoyLaunchers = buildLauncherSnapshots(ship);
     if (ship.blockedEngineIndices?.size) entry.engBlocked = [...ship.blockedEngineIndices];
     // Refresh on the full baseline and whenever component condition changes.
     // Compact snapshots omit it otherwise; the client carries the last value.
@@ -135,6 +137,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
   return {
     ships,
     drones: buildDroneSnapshots(room, now),
+    decoys: buildDecoySnapshots(room, now),
     bullets: room.bullets.map((bullet) => ({
       id: bullet.id,
       type: bullet.type,
@@ -209,8 +212,8 @@ function appendFullShipBaseline(entry, ship, includeTelemetry = true) {
   delete entry.componentHeatD;
   entry.design = ship.design || [];
   if (ship.componentPower?.byComponentIndex) {
-    appendComponentPowerState(entry, ship);
     if (includeTelemetry) appendDetailedPowerTelemetry(entry, ship);
+    else appendComponentPowerState(entry, ship);
   }
   if (ship.componentHp) entry.chp = ship.componentHp.map((hp) => Math.round(hp * 10) / 10);
   if (ship.componentHeat) entry.componentHeat = ship.componentHeat.map((_, i) => buildComponentHeatTuple(ship, i));
@@ -585,6 +588,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     players,
     ships: buildClientShips(room, shared.ships, client, sendStatic, telemetryFocusShipId),
     drones: shared.drones || [],
+    decoys: shared.decoys || [],
     bullets: shared.bullets,
     points: shared.points,
     effects: shared.effects,

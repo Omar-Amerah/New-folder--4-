@@ -2,6 +2,7 @@
 
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
 const { performanceNow, seededRandom, rngRange, hashString } = require("./utils");
+const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
 
@@ -69,6 +70,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   ship.shield = ship.maxShield;
   initShipHeat(ship);
   require("./drones").initializeDroneBays(room, ship, now);
+  require("./decoys").initializeDecoyLaunchers(room, ship, now);
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
@@ -96,8 +98,9 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   return ship;
 }
 
-function getLiveShips(room) {
-  const ships = [];
+function getLiveShips(room, output = null) {
+  const ships = output || [];
+  ships.length = 0;
   for (const ship of room.ships.values()) {
     if (ship.alive) ships.push(ship);
   }
@@ -158,6 +161,7 @@ function addBot(room, requester) {
   if (room.rules?.gameMode === "solo") player.team = player.id;
 
   room.players.set(player.id, player);
+  invalidateRelationshipCache(room);
   invalidateSpawnPlan(room);
   broadcastRoom(room, { type: "notice", message: `${player.name} joined as a bot` });
   const { broadcastSnapshot } = require("./messages");

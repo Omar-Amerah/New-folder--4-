@@ -99,7 +99,7 @@ async function sectionTier(page, id) {
     await openFixture(page);
 
     const tools = await page.locator(".wiring-tool-row [data-wiring-tool]").allTextContents();
-    assert.deepEqual(tools.map(text => text.trim()), ["Draw", "Erase", "Inspect"]);
+    assert.deepEqual(tools.map(text => text.trim()), ["Draw", "Inspect"]);
     assert.equal(await page.getByRole("button", { name: /Change Tier/i }).count(), 0);
     assert.equal(await page.locator('[role="group"][aria-label="Wiring network type"]').count(), 1);
     assert.equal(await page.locator(".wiring-tool-row").getAttribute("aria-label"), "Wiring tool");
@@ -114,7 +114,7 @@ async function sectionTier(page, id) {
     assert.equal((await page.locator("#wiringModeData").innerText()).trim(), "Data", "Data is a compact mode label");
     assert.doesNotMatch(await page.locator("#wiringModePower, #wiringModeData").allInnerTexts().then(values => values.join(" ")), /\$|Heat|\/cell/i,
       "network selectors contain no cost or Heat statistics");
-    assert.equal(await page.locator(".wiring-tool-row .wiring-control-icon svg").count(), 3, "each drawing tool has one project-style icon");
+    assert.equal(await page.locator(".wiring-tool-row .wiring-control-icon svg").count(), 2, "each remaining drawing tool has one project-style icon");
     assert.equal(await page.locator("#wiringTierRow .wiring-tier").count(), 3, "three tier cards remain available");
     assert.ok(await page.locator("#wiringTierRow .wiring-tier").evaluateAll(tiers => tiers.every(tier =>
       tier.children.length === 2
@@ -126,7 +126,7 @@ async function sectionTier(page, id) {
       "legacy secondary lines and corner-dot elements are absent");
     assert.equal(await page.locator("#wiringHelpButton").getAttribute("aria-label"), "Open Wiring help");
     assert.equal(await page.locator("#wiringHelpButton").getAttribute("title"), "Help");
-    assert.equal(await page.locator(".wiring-action-row .wiring-utility").count(), 3, "utility actions use the utility treatment");
+    assert.equal(await page.locator(".wiring-action-row .wiring-utility").count(), 4, "utility actions use the utility treatment");
     const selectedPresentation = await page.locator('#wiringToolbar button[aria-pressed="true"]').evaluateAll(buttons => ({
       text: buttons.map(button => button.textContent).join(" "),
       before: buttons.map(button => getComputedStyle(button, "::before").content),
@@ -269,7 +269,10 @@ async function sectionTier(page, id) {
     await page.locator('[data-wiring-tool="inspect"]').click();
     await page.locator('.wire-hit[data-section-id="3,0:4,0"]').click({ force: true });
     assert.equal(await page.evaluate(() => JSON.stringify(window.__mfaState.wiring)), beforeInspect);
-    await page.locator('[data-wiring-details="advanced"] > summary').click();
+    const advancedDetails = page.locator('[data-wiring-details="advanced"]');
+    if ((await advancedDetails.getAttribute("open")) === null) {
+      await advancedDetails.locator("summary").first().click();
+    }
     assert.match(await page.locator('[data-wiring-inspection="power-section"]').innerText(), /Cable rating:/);
     assert.match(await page.locator('[data-wiring-inspection="power-section"]').innerText(), /Network ID:/);
     const removeSectionButton = page.locator('[data-wiring-action="remove-section"]');
@@ -286,14 +289,6 @@ async function sectionTier(page, id) {
     await page.locator('[data-wiring-tool="inspect"]').click();
     await page.locator('.wire-hit[data-section-id="3,0:4,0"]').click({ force: true });
     await page.screenshot({ path: path.join(artifactDir, "desktop-inspect.png") });
-
-    // Erase remains a one-step edit and Undo restores the exact section.
-    await page.locator('[data-wiring-tool="erase"]').click();
-    assert.equal(await page.evaluate(() => window.__mfaState.wiringUi.wiringTool), "erase");
-    await page.locator('.wire-hit[data-section-id="3,0:4,0"]').dispatchEvent("click");
-    assert.equal(await sectionTier(page, "3,0:4,0"), undefined);
-    await page.locator("#wiringUndoButton").click();
-    assert.equal(await sectionTier(page, "3,0:4,0"), "light");
 
     await page.locator('[data-wiring-tool="inspect"]').click();
     await page.locator('.wire-hit[data-section-id="3,0:4,0"]').dispatchEvent("click");

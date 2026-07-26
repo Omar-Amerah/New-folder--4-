@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { readFrame } = require('./src/server/websocketServer');
+const { readFrame, writeFrame } = require('./src/server/websocketServer');
 const { MAX_MESSAGE_BYTES } = require('./src/server/config');
 function masked(payload, opcode=2, extra={}) {
   const data = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || '');
@@ -23,4 +23,7 @@ assert.strictEqual(readFrame(masked(Buffer.alloc(126),9))?.error, true, 'large c
 assert.ok(readFrame(masked(Buffer.alloc(MAX_MESSAGE_BYTES))));
 assert.strictEqual(readFrame(masked(Buffer.alloc(MAX_MESSAGE_BYTES+1)))?.closeCode, 1009);
 assert.strictEqual(readFrame(Buffer.from([0x82,0xfe,0,1,1,2,3,4,0]))?.error, true, 'non-minimal length rejected');
+const writes = [];
+assert.strictEqual(writeFrame({ write(frame) { writes.push(frame); return true; } }, new Uint8Array([1, 2, 3]), 2), true);
+assert.deepStrictEqual([...writes[0]], [0x82, 3, 1, 2, 3], 'serializer preserves Uint8Array compatibility in one frame buffer');
 console.log('websocket frame verification passed');

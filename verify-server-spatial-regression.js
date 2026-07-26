@@ -162,6 +162,7 @@ function carrierRoom() {
   const third = spawnDrone(room, carrier, bay, bay.slots[2], 30);
   assert.ok(third);
   buildRoomSpatialIndex(room, [carrier], 30);
+  const reusedIndex = room.spatialIndex;
   setDroneDestroyed(room, third, 31);
   assert.equal(room.spatialIndex.queryRange("drones", third.x, third.y, 20).includes(third), false,
     "removal invalidates the current spatial record immediately");
@@ -169,7 +170,9 @@ function carrierRoom() {
   assert.equal(room.drones.size, 0);
   assert.equal(ownerActiveCount(room, "blue"), 0);
   assert.equal(shipActiveCount(room, carrier.id), 0);
-  assert.equal(room.spatialIndex, null);
+  assert.equal(room.spatialIndex, reusedIndex, "room reset retains the reusable index instance");
+  assert.equal(room.spatialIndex.count("drones"), 0);
+  assert.equal(room.spatialIndex.count("ships"), 0);
 }
 
 // Recall and power-loss fallback are immediate, not delayed to decision cadence.
@@ -229,7 +232,7 @@ function carrierRoom() {
   updateBullets(room, 1, 1000);
   assert.equal(room.bullets.length, 0);
   assert.equal(ensureProjectileLookup(room).has(projectile.id), false);
-  assert.equal(room.spatialIndex, null);
+  assert.equal(room.spatialIndex.dynamicValid, false);
 }
 
 // Broad phase must preserve the earliest exact shield hit.

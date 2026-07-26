@@ -4,6 +4,7 @@ const { negotiate, ERROR_CODES } = require("./protocol");
 const { send, sendPlayer, broadcastRoom } = require("./outbound");
 const { sendFullSnapshot, broadcastSnapshot } = require("./snapshotDelivery");
 const { getRoute } = require("./routeRegistry");
+const { invalidateRelationshipCache } = require("./relationships");
 
 const RATE_LIMITS = {
   frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
@@ -273,11 +274,13 @@ function handleMessage(client, message) {
       // The lobby UI hides the wing selector in solo mode, so this is only
       // reachable from non-UI clients — answer informatively, not as an error.
       client.player.team = client.player.id;
+      invalidateRelationshipCache(client.room);
       send(client, { type: "notice", message: "Solo mode: every pilot fights alone, so wings are not used" });
       broadcastSnapshot(client.room, performanceNow(), true);
       return;
     }
     client.player.team = sanitizeTeam(message.team, balanceTeam(client.room));
+    invalidateRelationshipCache(client.room);
     require("./spawnPlanner").invalidateSpawnPlan(client.room);
     broadcastRoom(client.room, { type: "notice", message: `${client.player.name} changed wing` });
     broadcastSnapshot(client.room, performanceNow(), true);

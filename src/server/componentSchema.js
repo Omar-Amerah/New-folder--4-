@@ -6,7 +6,7 @@ const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", 
 const BURN_THROUGH_WEAPON_FAMILIES = new Set(["beam"]);
 const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "projectile", "drone", "droneFighter", "droneOther"]);
 const VALID_POWER_CATEGORIES = new Set(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]);
-const POWER_SOURCE_IDS = new Set(["core", "reactor", "auxGenerator"]);
+const POWER_SOURCE_IDS = new Set(["core", "reactor", "nuclearReactor", "auxGenerator"]);
 const POWER_TIER_NAMES = ["light", "standard", "heavy"];
 const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "costPerHostedCell", "heatCapacityDisplacement", "renderedThickness"];
 const NUMERIC_FIELDS = [
@@ -246,6 +246,20 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
       } else {
         if (!isFiniteNumber(component.footprint.width) || component.footprint.width <= 0 || !Number.isInteger(component.footprint.width)) errors.push(`${path}.footprint.width must be a positive integer.`);
         if (!isFiniteNumber(component.footprint.height) || component.footprint.height <= 0 || !Number.isInteger(component.footprint.height)) errors.push(`${path}.footprint.height must be a positive integer.`);
+      }
+    }
+    if (component.decoy !== undefined) {
+      const config = component.decoy;
+      const fields = ["capacity", "initialStock", "productionSeconds", "launchCooldownSeconds", "lifetimeSeconds", "triggerRange", "attractionRange", "attractionChance", "driftSpeed", "collisionRadius"];
+      if (!config || typeof config !== "object" || Array.isArray(config)) {
+        errors.push(`${path}.decoy must be an object when present.`);
+      } else {
+        for (const field of fields) {
+          if (!isFiniteNonNegative(config[field])) errors.push(`${path}.decoy.${field} must be a finite non-negative number.`);
+        }
+        if (!Number.isInteger(config.capacity) || config.capacity < 1) errors.push(`${path}.decoy.capacity must be an integer >= 1.`);
+        if (!Number.isInteger(config.initialStock) || config.initialStock > config.capacity) errors.push(`${path}.decoy.initialStock must be an integer no greater than capacity.`);
+        if (isFiniteNonNegative(config.attractionChance) && config.attractionChance > 1) errors.push(`${path}.decoy.attractionChance must be from 0 to 1.`);
       }
     }
     if (component.weapon !== undefined && component.weapon !== null) {

@@ -14,12 +14,14 @@
 const { PARTS } = require("./components");
 const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
+const { BALANCE } = require("./balanceConfig");
 
 const MODULE_SCALE = 13;
 
 // Half-extent used when treating each occupied cell as a collision circle. Kept
 // identical for beams and projectiles so the two systems agree cell-for-cell.
 const COMPONENT_CELL_COLLISION_RADIUS = 8.5;
+const SHIELD_COLLISION = BALANCE.projectiles?.shieldCollision || {};
 
 // Local (ship-space, unrotated) coordinates of every cell a module occupies.
 function componentCellLocalCoords(module) {
@@ -45,35 +47,115 @@ function componentCellLocalCoords(module) {
 // from the cache — callers must skip them via componentHp so that a repaired
 // component reuses the same geometry and a destroyed component's cells stop
 // blocking without invalidating the whole cache.
-function getShipComponentCellWorldCoords(ship) {
+function shieldRadiusForShip(ship) {
+  const radius = Number(ship?.radius) || 0;
+  return Math.max(
+    Number(SHIELD_COLLISION.minimumRadius) || 0,
+    radius + Math.max(Number(SHIELD_COLLISION.flatPadding) || 0, radius * (Number(SHIELD_COLLISION.radiusMultiplier) || 0))
+  );
+}
+
+function invalidateShipCollisionGeometry(ship) {
+  if (!ship) return;
+  ship._collisionGeometry = null;
+  ship._componentCellWorldCoords = null;
+}
+
+function ensureLocalGeometry(cache, ship, design) {
+  const revision = Number(ship.designRevision) || 1;
+  if (cache.designSource === design && cache.designRevision === revision && cache.localCells.length === design.length) return;
+  cache.designSource = design;
+  cache.designRevision = revision;
+  cache.localCells = design.map(componentCellLocalCoords);
+  cache.worldCells = cache.localCells.map((cells) => cells.map(() => ({ x: 0, y: 0 })));
+  cache.x = NaN;
+  cache.y = NaN;
+  cache.angle = NaN;
+}
+
+function getShipCollisionGeometry(ship) {
   const design = ship.design || [];
-  if (
-    !ship._componentCellWorldCoords ||
-    ship._componentCellCoordsAngle !== ship.angle ||
-    ship._componentCellCoordsX !== ship.x ||
-    ship._componentCellCoordsY !== ship.y ||
-    ship._componentCellWorldCoords.length !== design.length
-  ) {
+  const cache = ship._collisionGeometry || (ship._collisionGeometry = {
+    designSource: null,
+    designRevision: 0,
+    localCells: [],
+    worldCells: [],
+    liveComponentIndices: [],
+    healthRevision: -1,
+    x: NaN,
+    y: NaN,
+    angle: NaN,
+    radius: NaN,
+    shieldRadius: 0,
+    bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 }
+  });
+  ensureLocalGeometry(cache, ship, design);
+
+  const angle = Number(ship.angle) || 0;
+  const x = Number(ship.x) || 0;
+  const y = Number(ship.y) || 0;
+  if (cache.angle !== angle || cache.x !== x || cache.y !== y) {
     const cos = Math.cos(ship.angle || 0);
     const sin = Math.sin(ship.angle || 0);
-    const x = ship.x || 0;
-    const y = ship.y || 0;
-    ship._componentCellWorldCoords = design.map((module) =>
-      componentCellLocalCoords(module).map((local) => ({
-        x: x + local.x * cos - local.y * sin,
-        y: y + local.x * sin + local.y * cos
-      }))
-    );
-    ship._componentCellCoordsAngle = ship.angle;
-    ship._componentCellCoordsX = ship.x;
-    ship._componentCellCoordsY = ship.y;
+    for (let i = 0; i < cache.localCells.length; i += 1) {
+      const localCells = cache.localCells[i];
+      const worldCells = cache.worldCells[i];
+      for (let c = 0; c < localCells.length; c += 1) {
+        const local = localCells[c];
+        const world = worldCells[c];
+        world.x = x + local.x * cos - local.y * sin;
+        world.y = y + local.x * sin + local.y * cos;
+      }
+    }
+    cache.angle = angle;
+    cache.x = x;
+    cache.y = y;
   }
-  return ship._componentCellWorldCoords;
+
+  const radius = Number(ship.radius) || 0;
+  if (cache.radius !== radius || cache.x !== x || cache.y !== y) {
+    cache.radius = radius;
+    cache.shieldRadius = shieldRadiusForShip(ship);
+  }
+  const coarseRadius = Math.max(radius, cache.shieldRadius);
+  cache.bounds.minX = x - coarseRadius;
+  cache.bounds.minY = y - coarseRadius;
+  cache.bounds.maxX = x + coarseRadius;
+  cache.bounds.maxY = y + coarseRadius;
+
+  // Fractional HP changes update repairCacheRevision, but cannot change which
+  // component cells participate in collision. Track only zero/alive
+  // transitions so bullet swarms do not rescan the whole design after every hit.
+  const aliveRevision = Number(ship.componentAliveRevision);
+  const healthRevision = Number.isFinite(aliveRevision)
+    ? aliveRevision
+    : (Number(ship.repairCacheRevision) || 0);
+  if (cache.healthRevision !== healthRevision || cache.liveComponentIndices.length > design.length) {
+    cache.liveComponentIndices.length = 0;
+    for (let i = 0; i < design.length; i += 1) {
+      if (!ship.componentHp || ship.componentHp[i] > 0) cache.liveComponentIndices.push(i);
+    }
+    cache.healthRevision = healthRevision;
+  }
+
+  // Compatibility aliases for older diagnostics.
+  ship._componentCellWorldCoords = cache.worldCells;
+  ship._componentCellCoordsAngle = cache.angle;
+  ship._componentCellCoordsX = cache.x;
+  ship._componentCellCoordsY = cache.y;
+  return cache;
+}
+
+function getShipComponentCellWorldCoords(ship) {
+  return getShipCollisionGeometry(ship).worldCells;
 }
 
 module.exports = {
   MODULE_SCALE,
   COMPONENT_CELL_COLLISION_RADIUS,
   componentCellLocalCoords,
-  getShipComponentCellWorldCoords
+  getShipComponentCellWorldCoords,
+  getShipCollisionGeometry,
+  invalidateShipCollisionGeometry,
+  shieldRadiusForShip
 };

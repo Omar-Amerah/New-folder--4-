@@ -17,21 +17,31 @@ const SUBSYSTEM_NAMES = Object.freeze([
   "heat",
   "objectives"
 ]);
-const series = {
-  simulationMs: [],
-  cycleMs: [],
-  eventLoopLagMs: [],
-  snapshotBuildMs: [],
-  snapshotConstructionMs: [],
-  snapshotEncodingMs: [],
-  snapshotPayloadBytes: [],
-  snapshotMaxClientBytes: [],
-  entityShips: [],
-  entityDrones: [],
-  entityBullets: [],
-  entityEffects: [],
-  ...Object.fromEntries(SUBSYSTEM_NAMES.map((name) => [`subsystem:${name}`, []]))
-};
+function createSampleRing() {
+  return {
+    times: new Float64Array(MAX_SAMPLES),
+    values: new Float64Array(MAX_SAMPLES),
+    cursor: 0,
+    count: 0
+  };
+}
+
+const seriesNames = [
+  "simulationMs",
+  "cycleMs",
+  "eventLoopLagMs",
+  "snapshotBuildMs",
+  "snapshotConstructionMs",
+  "snapshotEncodingMs",
+  "snapshotPayloadBytes",
+  "snapshotMaxClientBytes",
+  "entityShips",
+  "entityDrones",
+  "entityBullets",
+  "entityEffects",
+  ...SUBSYSTEM_NAMES.map((name) => `subsystem:${name}`)
+];
+const series = Object.fromEntries(seriesNames.map((name) => [name, createSampleRing()]));
 const totals = {
   ticks: 0,
   tickBudgetOverruns: 0,
@@ -47,10 +57,12 @@ let lastPrunedOutboundSecond = 0;
 
 function boundedSample(name, value, at = Date.now()) {
   if (!Number.isFinite(value)) return;
-  const values = series[name];
-  if (!values) return;
-  values.push({ at, value });
-  if (values.length > MAX_SAMPLES) values.splice(0, Math.floor(MAX_SAMPLES / 4));
+  const samples = series[name];
+  if (!samples) return;
+  samples.times[samples.cursor] = at;
+  samples.values[samples.cursor] = value;
+  samples.cursor = (samples.cursor + 1) % MAX_SAMPLES;
+  samples.count = Math.min(MAX_SAMPLES, samples.count + 1);
 }
 
 function recordTick({ simulationMs = 0, cycleMs = 0, eventLoopLagMs = 0, budgetMs = 0, counts = {} } = {}) {
@@ -66,7 +78,11 @@ function recordTick({ simulationMs = 0, cycleMs = 0, eventLoopLagMs = 0, budgetM
   if (budgetMs > 0 && cycleMs > budgetMs) totals.tickBudgetOverruns += 1;
 }
 
-function recordRoomTick({ durations = {} } = {}) {
+function recordRoomTick(input = {}) {
+  // Accept the historical `{ durations }` wrapper as well as the duration
+  // record itself. The simulation hot path uses the latter to avoid allocating
+  // a one-property wrapper every room tick.
+  const durations = input?.durations || input || {};
   const at = Date.now();
   for (const name of SUBSYSTEM_NAMES) boundedSample(`subsystem:${name}`, Math.max(0, Number(durations[name]) || 0), at);
 }
@@ -86,13 +102,14 @@ function recordSnapshot({ durationMs = 0, constructionMs = 0, encodingMs = 0, pa
 function recordOutbound(bytes, kind = "control") {
   const amount = Math.max(0, Number(bytes) || 0);
   if (!amount) return;
+  const isSnapshot = typeof kind === "string" && kind.startsWith("snapshot-");
   totals.outboundBytes += amount;
-  if (String(kind).startsWith("snapshot-")) totals.outboundSnapshotBytes += amount;
+  if (isSnapshot) totals.outboundSnapshotBytes += amount;
   else totals.outboundControlBytes += amount;
   const second = Math.floor(Date.now() / 1000);
   const bucket = outboundBuckets.get(second) || { total: 0, snapshot: 0, control: 0 };
   bucket.total += amount;
-  if (String(kind).startsWith("snapshot-")) bucket.snapshot += amount;
+  if (isSnapshot) bucket.snapshot += amount;
   else bucket.control += amount;
   outboundBuckets.set(second, bucket);
   if (second !== lastPrunedOutboundSecond) {
@@ -102,7 +119,15 @@ function recordOutbound(bytes, kind = "control") {
 }
 
 function currentValues(name, now) {
-  return (series[name] || []).filter((sample) => now - sample.at <= WINDOW_MS).map((sample) => sample.value);
+  const samples = series[name];
+  if (!samples?.count) return [];
+  const values = [];
+  const start = (samples.cursor - samples.count + MAX_SAMPLES) % MAX_SAMPLES;
+  for (let offset = 0; offset < samples.count; offset += 1) {
+    const index = (start + offset) % MAX_SAMPLES;
+    if (now - samples.times[index] <= WINDOW_MS) values.push(samples.values[index]);
+  }
+  return values;
 }
 
 function percentile(sorted, p) {

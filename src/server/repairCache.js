@@ -3,7 +3,7 @@
 const { PARTS } = require("./components");
 
 const PRIORITY_COMPONENT_TYPES = new Set([
-  "engine", "maneuverThruster", "reactor", "auxGenerator", "battery",
+  "engine", "maneuverThruster", "reactor", "nuclearReactor", "auxGenerator", "battery",
   "capacitor", "shield", "aegisProjector", "repair", "repairBeam", "fireControl"
 ]);
 

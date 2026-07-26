@@ -43,7 +43,7 @@ export function renderPartInspector() {
   const openState = openSectionsFor(type);
 
   const componentActions = placed && placed.type !== "core" ? `
-    <div class="part-inspector-actions" aria-label="Selected component actions">
+    <div class="part-inspector-actions${type === "droneBay" ? " drone-bay-actions" : ""}" aria-label="Selected component actions">
       ${isRotatablePart(type) ? `<button type="button" data-component-action="rotate">Rotate</button>` : ""}
       <button type="button" class="danger" data-component-action="remove">Remove</button>
     </div>` : "";
@@ -52,8 +52,7 @@ export function renderPartInspector() {
     ${headerMarkup(type, model)}
     ${coreSpecMarkup(model)}
     ${capabilityMarkup(model)}
-    ${requirementsMarkup(model)}
-    ${thermalSummaryMarkup(model)}
+    ${operationalOverviewMarkup(type, model)}
     ${warningsMarkup(model)}
     ${droneBayControlsMarkup(type)}
     ${componentActions}
@@ -77,7 +76,7 @@ export function renderPartInspector() {
 
 function headerMarkup(type, model) {
   return `
-    <header class="part-inspector-header">
+    <header class="part-inspector-header${type === "droneBay" ? " is-drone-bay" : ""}">
       <div class="part-inspector-title">
         ${partIconMarkup(type, "inspector-glyph")}
         <div class="part-inspector-heading">
@@ -104,7 +103,7 @@ function coreSpecMarkup(model) {
 function capabilityMarkup(model) {
   if (!model.capability.length) return "";
   return `
-    <section class="part-capability" aria-label="Primary capability">
+    <section class="part-capability${model.type === "droneBay" ? " is-drone-bay" : ""}" aria-label="Primary capability">
       <h4 class="part-section-heading">Primary capability</h4>
       <div class="part-capability-grid">
         ${model.capability.map((row) => `
@@ -120,7 +119,7 @@ function capabilityMarkup(model) {
 // values, and every chip is a real button that discloses a compact explanation.
 // A currently-failing dependency is stated visibly on the row itself — never
 // hidden behind the tooltip.
-function requirementsMarkup(model) {
+function requirementsMarkup(model, embedded = false) {
   if (!model.requirements.length) return "";
   const chips = model.requirements.map((requirement) => {
     const unmet = requirement.status === "unmet";
@@ -154,6 +153,14 @@ function requirementsMarkup(model) {
       <span>${escapeHtml(requirement.failureText)}</span>
     </p>`).join("");
 
+  if (embedded) {
+    return `<div class="part-requirements-embedded">
+      <div class="part-requirement-chips">${chips}</div>
+      ${failureMarkup}
+      ${tips}
+    </div>`;
+  }
+
   return `
     <section class="part-requirements" aria-label="Requirements">
       <div class="part-requirements-row">
@@ -163,6 +170,15 @@ function requirementsMarkup(model) {
       ${failureMarkup}
       ${tips}
     </section>`;
+}
+
+function operationalOverviewMarkup(type, model) {
+  if (type !== "droneBay") return `${requirementsMarkup(model)}${thermalSummaryMarkup(model)}`;
+  return `<section class="drone-operational-requirements" aria-label="Operational requirements">
+    <h4 class="part-section-heading">Operational requirements</h4>
+    ${requirementsMarkup(model, true)}
+    ${thermalSummaryMarkup(model)}
+  </section>`;
 }
 
 // Resolve whether the selected *placed* component currently meets its Power and
@@ -387,21 +403,59 @@ function droneBayControlsMarkup(type) {
   const selected = globalThis.DroneBayRules?.normalizeDroneType(placed.droneType);
   const droneConfig = PART_STATS.droneBay?.droneConfig || GENERATED_BALANCE?.drones || {};
   const types = droneConfig.types || GENERATED_BALANCE?.drones?.types || {};
+  const roles = {
+    fighter: "Attacks the parent target and nearby hostile drones",
+    defence: "Protects the parent and prioritises hostile drones",
+    repair: "Repairs the parent, then nearby allies"
+  };
+  const icons = {
+    fighter: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 3.2 6.2 5.8 2.6-5.8 2.2L12 21l-3.2-7L3 11.8l5.8-2.6L12 3Z"/></svg>`,
+    defence: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5c0 5.1-3.2 8.5-8 10-4.8-1.5-8-4.9-8-10V6l8-3Z"/><path d="M8 12h8"/></svg>`,
+    repair: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg>`
+  };
   const button = (value) => {
     const config = types[value] || {};
     const label = config.label || value;
-    return `<button type="button" class="drone-type-choice drone-type-${value}" data-drone-type="${value}" aria-pressed="${String(selected === value)}">
-      <strong>${escapeHtml(label)}</strong>
-      <span>${Number(config.productionSeconds) || 0}s rebuild</span>
-      <small>${escapeHtml(config.intendedUse || "")}</small>
+    const isSelected = selected === value;
+    return `<button type="button" role="radio" class="drone-type-choice drone-type-${value}${isSelected ? " is-selected" : ""}" data-drone-type="${value}" aria-checked="${String(isSelected)}">
+      <span class="drone-choice-topline">
+        <span class="drone-choice-icon">${icons[value]}</span>
+        ${isSelected ? `<span class="drone-choice-selected"><span aria-hidden="true">&#10003;</span> Selected</span>` : ""}
+      </span>
+      <strong class="drone-choice-name">${escapeHtml(label)}</strong>
+      <span class="drone-choice-meta">${Number(config.productionSeconds) || 0}s rebuild</span>
+      <small class="drone-choice-role">${escapeHtml(roles[value])}</small>
     </button>`;
   };
-  const launch = globalThis.DroneBayRules?.exposedLaunchEdges(state.design, state.design.indexOf(placed), PART_STATS)?.[0];
+  const componentIndex = state.design.indexOf(placed);
+  const validation = globalThis.DroneBayRules?.validateDroneBays(state.design, PART_STATS, {
+    maximum: droneConfig.maxBaysPerShip
+  });
+  const launch = validation?.bays?.find((bay) => bay.componentIndex === componentIndex)?.launchEdge || null;
+  const preferred = globalThis.DroneBayRules?.preferredLaunchEdgeStatus?.(state.design, componentIndex, PART_STATS) || null;
+  const direction = launch?.side || (preferred?.openCellCount > 0 ? preferred.side : null);
+  const directionLabel = direction ? direction.charAt(0).toUpperCase() + direction.slice(1) : null;
+  const launchLabel = launch
+    ? `Launch edge: ${directionLabel} \u00b7 Clear`
+    : directionLabel
+      ? `Launch edge: ${directionLabel} \u00b7 Blocked`
+      : "No valid launch edge";
+  const selectedConfig = selected ? types[selected] : null;
+  const squadStatus = selectedConfig
+    ? `<p class="drone-squad-summary is-configured"><span aria-hidden="true">&#10003;</span> ${droneConfig.squadSize} ${escapeHtml(selectedConfig.label || selected)} drones &middot; ${Number(selectedConfig.productionSeconds) || 0}s rebuild &middot; ${Number(droneConfig.fuelSeconds) || 0}s fuel</p>`
+    : `<div class="drone-config-warning" role="note"><span class="drone-config-warning-icon" aria-hidden="true">!</span><span><strong>Squad type required</strong>Choose Fighter, Defence or Repair before saving or deploying.</span></div>`;
   return `<section class="part-inspector-config drone-bay-config" aria-label="Drone Bay configuration">
     <h4 class="part-section-heading">Drone squad</h4>
-    <p class="drone-config-status ${selected ? "is-configured" : "is-required"}">${selected ? `${types[selected]?.label || selected} squad selected` : "Choose a drone type before saving or deploying."}</p>
+    ${squadStatus}
     <div class="drone-type-choices" role="radiogroup" aria-label="Drone type">${["fighter", "defence", "repair"].map(button).join("")}</div>
-    <p class="drone-launch-status ${launch ? "is-valid" : "is-blocked"}">${launch ? `Launch edge: ${launch.side}` : "Blocked: one complete two-cell edge must face open space."}</p>
+    <section class="drone-placement-requirement" aria-label="Placement requirement">
+      <h4 class="part-section-heading">Placement requirement</h4>
+      <div class="drone-launch-status ${launch ? "is-valid" : "is-blocked"}"
+           data-launch-edge-side="${escapeHtml(direction || "none")}" data-launch-edge-validity="${launch ? "clear" : "blocked"}">
+        <span class="drone-launch-status-icon" aria-hidden="true">${launch ? "&#8599;" : "!"}</span>
+        <span><strong>${escapeHtml(launchLabel)}</strong><small>One complete two-cell edge must face open space.</small></span>
+      </div>
+    </section>
   </section>`;
 }
 

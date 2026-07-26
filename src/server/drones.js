@@ -5,7 +5,8 @@ const { PARTS } = require("./components");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const HeatRules = require("../../public/src/shared/heatRules");
 const { getShipRepairCache } = require("./repairCache");
-const { ensureProjectileLookup } = require("./projectiles");
+const { ensureProjectileLookup, removeProjectileRuntime, segmentCircleHit } = require("./projectiles");
+const { droneBroadPhaseRadius } = require("./spatialIndex");
 
 const CONFIG = BALANCE.drones;
 const MODULE_SCALE = 13;
@@ -202,6 +203,9 @@ function spawnDrone(room, ship, bay, slot, now) {
     removed: false
   };
   room.drones.set(drone.id, drone);
+  if (room.spatialIndex?.dynamicValid && typeof room.spatialIndex.append === "function") {
+    room.spatialIndex.append("drones", drone, droneBroadPhaseRadius(drone));
+  }
   adjustDroneCount(room, drone, 1);
   slot.droneId = drone.id;
   slot.state = "launching";
@@ -246,10 +250,11 @@ function decisionScratch(drone, kind) {
   return scratch[kind];
 }
 
-function nearbyCandidates(room, drone, kind, x, y, range, fallback) {
+function nearbyCandidates(room, drone, kind, x, y, range, fallback, unordered = false) {
   if (!room.spatialIndex) return fallback;
   const movementPadding = kind === "drones" ? (Number(room.droneSpatialPadding) || 0) : 0;
-  return room.spatialIndex.queryRange(kind, x, y, range + movementPadding, decisionScratch(drone, kind));
+  const query = unordered ? "queryRangeUnordered" : "queryRange";
+  return room.spatialIndex[query](kind, x, y, range + movementPadding, decisionScratch(drone, kind));
 }
 
 function resolveDroneTarget(room, targetId) {
@@ -264,7 +269,7 @@ function nearestEnemyDrone(room, drone, maximumRange) {
   const { areEnemies } = require("./combat");
   let best = null;
   let bestDistanceSq = maximumRange * maximumRange;
-  const candidates = nearbyCandidates(room, drone, "drones", drone.x, drone.y, maximumRange, room.drones.values());
+  const candidates = nearbyCandidates(room, drone, "drones", drone.x, drone.y, maximumRange, room.drones.values(), true);
   for (const other of candidates) {
     if (other.id === drone.id || other.destroyed || other.removed || room.drones.get(other.id) !== other || !areEnemies(room, drone.ownerId, other.ownerId)) continue;
     const dx = other.x - drone.x;
@@ -282,7 +287,7 @@ function nearestHostileMissile(room, drone, maximumRange) {
   const { areEnemies } = require("./combat");
   let best = null;
   let bestDistanceSq = maximumRange * maximumRange;
-  const candidates = nearbyCandidates(room, drone, "interceptableProjectiles", drone.x, drone.y, maximumRange, room.bullets || []);
+  const candidates = nearbyCandidates(room, drone, "interceptableProjectiles", drone.x, drone.y, maximumRange, room.bullets || [], true);
   for (const projectile of candidates) {
     if (!projectile.interceptable || projectile.life <= 0 || !areEnemies(room, drone.ownerId, projectile.ownerId)) continue;
     const dx = projectile.x - drone.x;
@@ -300,7 +305,7 @@ function nearestEnemyShip(room, drone, maximumRange) {
   const { areEnemies } = require("./combat");
   let best = null;
   let bestDistanceSq = maximumRange * maximumRange;
-  const candidates = nearbyCandidates(room, drone, "ships", drone.x, drone.y, maximumRange, room.ships.values());
+  const candidates = nearbyCandidates(room, drone, "ships", drone.x, drone.y, maximumRange, room.ships.values(), true);
   for (const ship of candidates) {
     if (!ship.alive || !areEnemies(room, drone.ownerId, ship.ownerId)) continue;
     const dx = ship.x - drone.x;
@@ -391,6 +396,151 @@ function steerDrone(drone, targetX, targetY, speed, turnRate, dt) {
   drone.vy += (desiredVy - drone.vy) * blend;
   drone.x += drone.vx * dt;
   drone.y += drone.vy * dt;
+}
+
+function resolveDroneMapCollision(room, drone, previousX = drone.x, previousY = drone.y) {
+  if (!drone || drone.removed || drone.destroyed) return;
+  const radius = Math.max(1, Number(drone.radius) || 10);
+  const width = Number(room.world?.width);
+  const height = Number(room.world?.height);
+  if (Number.isFinite(width) && width > radius * 2) {
+    const clampedX = Math.max(radius, Math.min(width - radius, drone.x));
+    if (clampedX !== drone.x && ((clampedX === radius && drone.vx < 0) || (clampedX === width - radius && drone.vx > 0))) drone.vx = 0;
+    drone.x = clampedX;
+  }
+  if (Number.isFinite(height) && height > radius * 2) {
+    const clampedY = Math.max(radius, Math.min(height - radius, drone.y));
+    if (clampedY !== drone.y && ((clampedY === radius && drone.vy < 0) || (clampedY === height - radius && drone.vy > 0))) drone.vy = 0;
+    drone.y = clampedY;
+  }
+
+  let sweptHit = null;
+  for (let asteroidIndex = 0; asteroidIndex < (room.map?.asteroids || []).length; asteroidIndex += 1) {
+    const asteroid = room.map.asteroids[asteroidIndex];
+    const minimum = Math.max(0, Number(asteroid.radius) || 0) + radius + 2;
+    const startDx = previousX - asteroid.x;
+    const startDy = previousY - asteroid.y;
+    if (startDx * startDx + startDy * startDy < minimum * minimum) continue;
+    const hit = segmentCircleHit(previousX, previousY, drone.x, drone.y, asteroid.x, asteroid.y, minimum);
+    if (!hit) continue;
+    if (!sweptHit || hit.t < sweptHit.hit.t || (hit.t === sweptHit.hit.t && asteroidIndex < sweptHit.asteroidIndex)) {
+      sweptHit = { asteroid, asteroidIndex, minimum, hit };
+    }
+  }
+  if (sweptHit) {
+    let nx = sweptHit.hit.x - sweptHit.asteroid.x;
+    let ny = sweptHit.hit.y - sweptHit.asteroid.y;
+    let distance = Math.hypot(nx, ny);
+    if (distance < 0.001) {
+      nx = previousX - sweptHit.asteroid.x;
+      ny = previousY - sweptHit.asteroid.y;
+      distance = Math.hypot(nx, ny);
+    }
+    if (distance < 0.001) {
+      nx = stableDodgeSide(drone.id);
+      ny = 0;
+      distance = 1;
+    }
+    nx /= distance;
+    ny /= distance;
+    drone.x = sweptHit.asteroid.x + nx * sweptHit.minimum;
+    drone.y = sweptHit.asteroid.y + ny * sweptHit.minimum;
+    const velocityIntoRock = drone.vx * nx + drone.vy * ny;
+    if (velocityIntoRock < 0) {
+      drone.vx -= velocityIntoRock * nx;
+      drone.vy -= velocityIntoRock * ny;
+    }
+  }
+
+  // Separation or legacy positions can begin inside a rock. A few bounded
+  // passes resolve compound overlaps without changing asteroid ordering.
+  for (let pass = 0; pass < 3; pass += 1) {
+    let adjusted = false;
+    for (const asteroid of room.map?.asteroids || []) {
+      let dx = drone.x - asteroid.x;
+      let dy = drone.y - asteroid.y;
+      let distance = Math.hypot(dx, dy);
+      const minimum = Math.max(0, Number(asteroid.radius) || 0) + radius + 2;
+      if (distance >= minimum) continue;
+      if (distance < 0.001) {
+        dx = stableDodgeSide(drone.id);
+        dy = 0;
+        distance = 1;
+      }
+      const nx = dx / distance;
+      const ny = dy / distance;
+      drone.x = asteroid.x + nx * minimum;
+      drone.y = asteroid.y + ny * minimum;
+      const velocityIntoRock = drone.vx * nx + drone.vy * ny;
+      if (velocityIntoRock < 0) {
+        drone.vx -= velocityIntoRock * nx;
+        drone.vy -= velocityIntoRock * ny;
+      }
+      adjusted = true;
+    }
+    if (!adjusted) break;
+  }
+
+  if (Number.isFinite(width) && width > radius * 2) drone.x = Math.max(radius, Math.min(width - radius, drone.x));
+  if (Number.isFinite(height) && height > radius * 2) drone.y = Math.max(radius, Math.min(height - radius, drone.y));
+}
+
+function resolveDroneSeparation(drones, ordered = [], spatialIndex = null, movementPadding = 0) {
+  ordered.length = 0;
+  for (const drone of drones || []) {
+    if (drone && !drone.removed && !drone.destroyed && !["docking", "refueling"].includes(drone.state)) ordered.push(drone);
+  }
+  ordered.sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  let maximumRadius = 10;
+  for (let index = 0; index < ordered.length; index += 1) {
+    const drone = ordered[index];
+    drone._separationOrder = index;
+    maximumRadius = Math.max(maximumRadius, Math.max(1, Number(drone.radius) || 10));
+  }
+  for (let i = 0; i < ordered.length; i += 1) {
+    const a = ordered[i];
+    const candidates = spatialIndex
+      ? spatialIndex.queryRangeUnordered(
+        "drones",
+        a.x,
+        a.y,
+        maximumRadius * 2 + Math.max(0, Number(movementPadding) || 0) * 2 + 2,
+        a._separationScratch || (a._separationScratch = [])
+      )
+      : ordered;
+    for (const b of candidates) {
+      if (a === b || b.removed || b.destroyed || ["docking", "refueling"].includes(b.state)) continue;
+      if (b._separationOrder <= i) continue;
+      let dx = b.x - a.x;
+      let dy = b.y - a.y;
+      let distance = Math.hypot(dx, dy);
+      const minimum = Math.max(1, Number(a.radius) || 10) + Math.max(1, Number(b.radius) || 10) + 2;
+      if (distance >= minimum) continue;
+      let nx;
+      let ny;
+      if (distance < 0.001) {
+        nx = stableDodgeSide(`${a.id}:${b.id}`);
+        ny = 0;
+        distance = 0;
+      } else {
+        nx = dx / distance;
+        ny = dy / distance;
+      }
+      const push = (minimum - distance) * 0.5;
+      a.x -= nx * push;
+      a.y -= ny * push;
+      b.x += nx * push;
+      b.y += ny * push;
+      const relativeInto = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+      if (relativeInto < 0) {
+        const impulse = relativeInto * 0.25;
+        a.vx += nx * impulse;
+        a.vy += ny * impulse;
+        b.vx -= nx * impulse;
+        b.vy -= ny * impulse;
+      }
+    }
+  }
 }
 
 function stableDodgeSide(id) {
@@ -723,7 +873,7 @@ function updateDroneEntity(room, drone, dt, now) {
     } else if (effectiveTarget.interceptable) {
       effectiveTarget.hp = Math.max(0, (Number(effectiveTarget.hp) || 0) - config.damage);
       if (effectiveTarget.hp <= 0) {
-        effectiveTarget.life = 0;
+        removeProjectileRuntime(room, effectiveTarget);
         room.effects.push({ type: "burst", x: effectiveTarget.x, y: effectiveTarget.y, at: now });
       }
     }
@@ -803,10 +953,30 @@ function updateDroneBays(room, ships, dt, now) {
       }
     }
   }
+  const movement = room._droneMovementScratch || (room._droneMovementScratch = []);
+  let movementCount = 0;
   for (const drone of room.drones.values()) {
     const previousX = drone.x;
     const previousY = drone.y;
     updateDroneEntity(room, drone, dt, now);
+    resolveDroneMapCollision(room, drone, previousX, previousY);
+    const record = movement[movementCount] || (movement[movementCount] = {});
+    record.drone = drone;
+    record.previousX = previousX;
+    record.previousY = previousY;
+    movementCount += 1;
+  }
+  movement.length = movementCount;
+  resolveDroneSeparation(
+    room.drones.values(),
+    room._droneSeparationScratch || (room._droneSeparationScratch = []),
+    room.spatialIndex,
+    room.droneSpatialPadding
+  );
+  for (const record of movement) {
+    const { drone, previousX, previousY } = record;
+    if (room.drones.get(drone.id) !== drone) continue;
+    resolveDroneMapCollision(room, drone);
     const dx = drone.x - previousX;
     const dy = drone.y - previousY;
     const displacement = Math.sqrt(dx * dx + dy * dy) + 2;
@@ -945,6 +1115,8 @@ module.exports = {
     steerFighterDrone,
     updateDroneEntity,
     advanceBayProduction,
-    isInOwnSpawnZone
+    isInOwnSpawnZone,
+    resolveDroneMapCollision,
+    resolveDroneSeparation
   }
 };

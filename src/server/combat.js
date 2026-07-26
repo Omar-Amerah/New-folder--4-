@@ -5,14 +5,20 @@ const { ECONOMY } = require("./config");
 const { rngRange, clampNumber, angleDifference, rotateToward } = require("./utils");
 const { normalizeRotation } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
-const { getShipComponentCellWorldCoords, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
-const { addBullet, segmentCircleHit, shieldCollisionRadius, SHIELD_HIT_MIN } = require("./projectiles");
+const {
+  getShipCollisionGeometry,
+  invalidateShipCollisionGeometry,
+  COMPONENT_CELL_COLLISION_RADIUS
+} = require("./componentGeometry");
+const { addBullet, removeProjectileRuntime, segmentCircleHit, shieldCollisionRadius, SHIELD_HIT_MIN } = require("./projectiles");
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents, onComponentDestroyed } = require("./componentHealth");
 const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance } = require("./heat");
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
 const { getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange } = require("./componentData");
 const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty } = require("./repairCache");
+const Relationships = require("./relationships");
+const { getShipComponentIndexes } = require("./componentIndexes");
 
 const MODULE_SCALE = 13;
 
@@ -91,9 +97,10 @@ function findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius = 0) {
   // Footprint-aware, shared with projectile collision so beam and bullet
   // geometry can never drift apart. Every occupied cell is tested; the earliest
   // cell hit represents the component.
-  const cellCoords = getShipComponentCellWorldCoords(target);
+  const geometry = getShipCollisionGeometry(target);
+  const cellCoords = geometry.worldCells;
   const hitMap = new Map();
-  for (let i = 0; i < target.design.length; i += 1) {
+  for (const i of geometry.liveComponentIndices) {
     if (!isComponentAlive(target, i)) continue;
     const cells = cellCoords[i] || [];
     for (const cell of cells) {
@@ -237,7 +244,7 @@ function updateShipSupport(room, ships, dt, now) {
 
     const activeRepairModules = [];
     const activeRepairBeams = [];
-    for (let i = 0; i < (ship.design || []).length; i += 1) {
+    for (const i of getShipComponentIndexes(ship).repairIndices) {
       const module = ship.design[i];
       const repairRate = PARTS[module.type]?.repairRate || 0;
       if (repairRate <= 0 || !isComponentAlive(ship, i)) continue;
@@ -426,7 +433,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     projectiles: [], drones: [], ships: []
   });
   const projectileCandidates = room.spatialIndex
-    ? room.spatialIndex.queryRange("interceptableProjectiles", worldX, worldY, weapon.range, scratch.projectiles)
+    ? room.spatialIndex.queryRangeUnordered("interceptableProjectiles", worldX, worldY, weapon.range, scratch.projectiles)
     : (room.bullets || []);
 
   for (const bullet of projectileCandidates) {
@@ -447,7 +454,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
   }
 
   const droneCandidates = room.spatialIndex
-    ? room.spatialIndex.queryRange("drones", worldX, worldY, weapon.range + (Number(room.droneSpatialPadding) || 0), scratch.drones)
+    ? room.spatialIndex.queryRangeUnordered("drones", worldX, worldY, weapon.range + (Number(room.droneSpatialPadding) || 0), scratch.drones)
     : (room.drones?.values?.() || []);
   for (const drone of droneCandidates) {
     if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, shipOwnerId, drone.ownerId)) continue;
@@ -467,7 +474,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
   }
 
   const shipCandidates = room.spatialIndex
-    ? room.spatialIndex.queryRange("ships", worldX, worldY, weapon.range, scratch.ships)
+    ? room.spatialIndex.queryRangeUnordered("ships", worldX, worldY, weapon.range, scratch.ships)
     : (ships || []);
   for (const other of shipCandidates) {
     if (!other.alive || !areEnemies(room, shipOwnerId, other.ownerId)) continue;
@@ -534,7 +541,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     ship.weaponBeamContacts = new Array(ship.design ? ship.design.length : 0).fill(null);
   }
 
-  for (let i = 0; i < ship.weaponCooldowns.length; i += 1) {
+  const weaponIndices = getShipComponentIndexes(ship).weaponIndices;
+  for (const i of weaponIndices) {
     ship.weaponCooldowns[i] = Math.max(0, ship.weaponCooldowns[i] - dt);
   }
 
@@ -546,7 +554,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   const target = findTarget(room, ship, ships);
   ship.combatTargetId = target ? target.id : null;
 
-  (ship.design || []).forEach((module, i) => {
+  weaponIndices.forEach((i) => {
+    const module = ship.design[i];
     const part = PARTS[module.type];
     const isRepairBeam = module.type === "repairBeam";
     if (!part?.weapon && !isRepairBeam) return;
@@ -795,9 +804,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         damage: effectiveWeapon.damage,
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
-        tracking: effectiveWeapon.tracking || 0.75,
-        trackRemaining: effectiveWeapon.trackTime || 1.4,
-        trackingDelay: effectiveWeapon.trackingDelay || 0.25,
+        tracking: effectiveWeapon.tracking ?? 0.75,
+        trackRemaining: effectiveWeapon.trackTime ?? 1.4,
+        trackingDelay: effectiveWeapon.trackingDelay ?? 0.25,
         maxSpeed: speed * 1.45,
         life: life,
         bornAt: now,
@@ -885,7 +894,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
                   const projHp = targetEnt.hp !== undefined ? targetEnt.hp : (targetEnt.damage || 20);
                   targetEnt.hp = projHp - damage;
                   if (targetEnt.hp <= 0.001) {
-                     targetEnt.life = 0;
+                     removeProjectileRuntime(room, targetEnt);
                      room.effects.push({ type: "pdIntercept", x: targetEnt.x, y: targetEnt.y, at: now });
                   }
                } else if (currentPdTarget.type === "ship") {
@@ -901,16 +910,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
                ship.weaponCooldowns[i] = reload;
                addComponentHeat(ship, i, 4);
 
-               const pdCount = (ship.design || []).filter(m => PARTS[m.type]?.weapon?.type === "pointDefense").length || 1;
+               const pointDefenseIndices = getShipComponentIndexes(ship).pointDefenseIndices;
+               const pdCount = pointDefenseIndices.length || 1;
                if (pdCount > 1) {
                  const stagger = reload / pdCount;
-                 (ship.design || []).forEach((otherModule, j) => {
-                   if (i === j) return;
-                   const otherPart = PARTS[otherModule.type];
-                   if (otherPart?.weapon?.type === "pointDefense") {
-                     ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
-                   }
-                 });
+                 for (const j of pointDefenseIndices) {
+                   if (i !== j) ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
+                 }
                }
             }
          } else {
@@ -942,16 +948,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             ship.weaponCooldowns[i] = reload;
             addComponentHeat(ship, i, 4);
 
-            const pdCount = (ship.design || []).filter(m => PARTS[m.type]?.weapon?.type === "pointDefense").length || 1;
+            const pointDefenseIndices = getShipComponentIndexes(ship).pointDefenseIndices;
+            const pdCount = pointDefenseIndices.length || 1;
             if (pdCount > 1) {
               const stagger = reload / pdCount;
-              (ship.design || []).forEach((otherModule, j) => {
-                if (i === j) return;
-                const otherPart = PARTS[otherModule.type];
-                if (otherPart?.weapon?.type === "pointDefense") {
-                  ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
-                }
-              });
+              for (const j of pointDefenseIndices) {
+                if (i !== j) ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
+              }
             }
          }
       }
@@ -1461,8 +1464,8 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
 
 function evaluateShipCommandState(room, ship, now, attackerId = null) {
   if (!ship || ship.alive === false || ship.destroyFinalizedAt) return false;
-  const design = ship.design || [];
-  const mainCoreIdx = design.findIndex((part) => part.type === "core");
+  const componentIndexes = getShipComponentIndexes(ship);
+  const mainCoreIdx = componentIndexes.mainCoreIndex;
   const mainCoreAlive = mainCoreIdx >= 0 && (ship.componentHp?.[mainCoreIdx] ?? 0) > 0;
 
   if (mainCoreAlive) {
@@ -1474,7 +1477,7 @@ function evaluateShipCommandState(room, ship, now, attackerId = null) {
 
   // Main Core is destroyed
   ship.coreDestroyed = true;
-  const backupCoreIdx = design.findIndex((part) => part.type === "backupCore");
+  const backupCoreIdx = componentIndexes.backupCoreIndex;
   const backupCoreAlive = backupCoreIdx >= 0 && (ship.componentHp?.[backupCoreIdx] ?? 0) > 0;
 
   if (!backupCoreAlive) {
@@ -1650,6 +1653,8 @@ function updateDestroyedShips(room, now) {
         ship.weaponComponentTargetIds = null;
         ship.weaponComponentTargetIndices = null;
         ship.weaponComponentRetargetAt = null;
+        invalidateShipCollisionGeometry(ship);
+        room.spatialIndex?.remove?.("ships", ship);
         room.ships.delete(ship.id);
         removedAny = true;
       }
@@ -1861,19 +1866,11 @@ function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
 }
 
 function areAllies(room, ownerA, ownerB) {
-  if (ownerA === ownerB) return true;
-  if (room.rules?.gameMode === "solo") return false;
-  const a = room.players.get(ownerA);
-  const b = room.players.get(ownerB);
-  return Boolean(a && b && a.team === b.team);
+  return Relationships.areAllies(room, ownerA, ownerB);
 }
 
 function areEnemies(room, ownerA, ownerB) {
-  if (ownerA === ownerB) return false;
-  if (room.rules?.gameMode === "solo") return Boolean(room.players.has(ownerA) && room.players.has(ownerB));
-  const a = room.players.get(ownerA);
-  const b = room.players.get(ownerB);
-  return Boolean(a && b && a.team !== b.team);
+  return Relationships.areEnemies(room, ownerA, ownerB);
 }
 
 function getWeaponTurnRate(weapon) {

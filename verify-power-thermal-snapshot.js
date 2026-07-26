@@ -1,20 +1,27 @@
 "use strict";
 const assert = require("assert");
 function close(actual, expected, label) { assert(Math.abs(actual - expected) < 1e-9, `${label}: ${actual} !== ${expected}`); }
-const { snapshotRoom } = require("./src/server/snapshots");
+const { snapshotRoom, buildSharedSnapshot } = require("./src/server/snapshots");
+const { ensureEffectiveWeaponProfileCache } = require("./src/server/componentData");
 
 (async () => {
   const { mergeCachedShipFields } = await import("./public/src/snapshotMerge.js");
   const design = [{ type: "core" }, { type: "engine" }];
+  const componentPowerEntries = [
+    { state: "source", networkId: 0, operationalMultiplier: 1, requestedMw: 0, allocatedMw: 0 },
+    { state: "powered", networkId: 0, operationalMultiplier: 1, requestedMw: 3, allocatedMw: 3 }
+  ];
+  let componentPowerMapCalls = 0;
+  componentPowerEntries.map = function countedMap(callback, thisArg) {
+    componentPowerMapCalls += 1;
+    return Array.prototype.map.call(this, callback, thisArg);
+  };
   const ship = {
     id: "s", ownerId: "p", designRevision: 1, x: 0, y: 0, vx: 0, vy: 0, angle: 0, targetX: 0, targetY: 0,
     hp: 100, maxHp: 100, shield: 0, maxShield: 0, radius: 10, cost: 1, weaponAngles: [], alive: true,
     stats: { unitCost: 1 }, design, componentHp: [100, 80], componentHeat: [5, 10], componentHeatState: [0, 1],
     componentThermals: [{ capacity: 100 }, { capacity: 50 }], dirtyComponents: new Set(), dirtyHeat: new Set([0, 1]),
-    componentPower: { byComponentIndex: [
-      { state: "source", networkId: 0, operationalMultiplier: 1, requestedMw: 0, allocatedMw: 0 },
-      { state: "powered", networkId: 0, operationalMultiplier: 1, requestedMw: 3, allocatedMw: 3 }
-    ] },
+    componentPower: { byComponentIndex: componentPowerEntries },
     powerStatus: { ok: true }, powerRevision: 7, wiringRevision: 2,
     powerFlow: { summary: { availableGenerationMw: 8, demandMw: 3, allocatedMw: 3, spareGenerationMw: 5, unmetMw: 0, aboveSustainedSections: 0, atPeakSections: 0, preset: "balanced" } },
     powerCableThermalAnalysis: { summary: { hottestSectionId: "0,0:1,0" }, components: [{ componentIndex: 1, hostedActiveSectionIds: ["0,0:1,0"] }] },
@@ -25,8 +32,25 @@ const { snapshotRoom } = require("./src/server/snapshots");
   const room = { code: "R", phase: "active", adminId: "p", stateEpoch: 1, snapshotSeq: 1, staticRevision: 1, mapSizeLabel: "tiny", world: { width: 100, height: 100 }, map: { asteroids: [] }, rules: { gameMode: "control" }, players: new Map([["p", player]]), ships: new Map([["s", ship]]), bullets: [], points: [], effects: [], winner: null, matchStartedAt: 1, controlVictory: null };
   const client = { player, knownShipPowerRevisions: new Map() };
 
-  const full = snapshotRoom(room, 0, player, true, null, client);
+  ensureEffectiveWeaponProfileCache(ship);
+  const powerRevision = ship.powerRevision;
+  let powerRevisionReads = 0;
+  Object.defineProperty(ship, "powerRevision", {
+    configurable: true,
+    get() {
+      powerRevisionReads += 1;
+      return powerRevision;
+    }
+  });
+  buildSharedSnapshot(room, 0, false, true);
+  assert.equal(powerRevisionReads, 1, "shared snapshot evaluates the effective-weapon cache signature once per ship");
+  Object.defineProperty(ship, "powerRevision", { configurable: true, writable: true, value: powerRevision });
+
+  const fullShared = buildSharedSnapshot(room, 0, false, true);
+  componentPowerMapCalls = 0;
+  const full = snapshotRoom(room, 0, player, true, fullShared, client);
   const fullShip = full.ships[0];
+  assert.equal(componentPowerMapCalls, 1, "full telemetry baseline builds componentPower once");
   assert(fullShip.powerThermal, "initial full snapshot includes powerThermal");
   close(fullShip.powerThermal.componentHeatRate, 1.2, "initial component Heat rate converts amount to rate");
   close(fullShip.powerThermal.components[1].componentHeatRate, 0.8, "per-component Heat rate is exposed");

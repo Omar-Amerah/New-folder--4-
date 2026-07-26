@@ -101,6 +101,103 @@
 .drone-bay-type-badge.drone-repair { background: #14532d; color: #dcfce7; }
 .drone-bay-type-badge.drone-unconfigured { border-color: #fda4af; background: #4c0519; color: #fecdd3; }
 
+.build-grid.drone-launch-inspecting .build-cell {
+  transition: opacity 150ms ease, filter 150ms ease, border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.build-grid.drone-launch-inspecting .build-cell.drone-launch-unrelated {
+  opacity: .3;
+  filter: saturate(.5) brightness(.78);
+}
+
+.build-cell.drone-launch-focus {
+  z-index: 12;
+  overflow: visible;
+  border-color: rgba(103, 232, 249, .8);
+  box-shadow: inset 0 0 0 2px rgba(103, 232, 249, .28), 0 0 15px rgba(34, 211, 238, .24);
+}
+
+.build-cell.drone-launch-clearance {
+  z-index: 7;
+  opacity: 1;
+  border-color: rgba(74, 222, 128, .48);
+  background: rgba(20, 83, 45, .32);
+  box-shadow: inset 0 0 10px rgba(74, 222, 128, .13);
+}
+
+.build-cell.drone-launch-blocker {
+  z-index: 8;
+  opacity: 1;
+  filter: none;
+  border-color: rgba(251, 191, 36, .86);
+  box-shadow: inset 0 0 0 2px rgba(245, 158, 11, .34), 0 0 11px rgba(245, 158, 11, .25);
+}
+
+.drone-launch-edge-overlay {
+  position: absolute;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  pointer-events: none;
+  color: #bbf7d0;
+  font-size: clamp(12px, 2vw, 20px);
+  font-weight: 950;
+  line-height: 1;
+  text-shadow: 0 0 6px currentColor;
+}
+
+.drone-launch-edge-overlay.is-clear {
+  border-color: #4ade80;
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, .34);
+  box-shadow: 0 0 9px rgba(74, 222, 128, .48);
+}
+
+.drone-launch-edge-overlay.is-blocked {
+  border-color: #fbbf24;
+  color: #fde68a;
+  background: rgba(146, 64, 14, .45);
+  box-shadow: 0 0 9px rgba(245, 158, 11, .52);
+}
+
+.drone-launch-edge-overlay[data-side="top"],
+.drone-launch-edge-overlay[data-side="bottom"] {
+  left: 4%;
+  right: 4%;
+  height: 9px;
+  border-top: 3px solid;
+}
+
+.drone-launch-edge-overlay[data-side="top"] {
+  top: -6px;
+}
+
+.drone-launch-edge-overlay[data-side="bottom"] {
+  bottom: -6px;
+  border-top: 0;
+  border-bottom: 3px solid;
+}
+
+.drone-launch-edge-overlay[data-side="left"],
+.drone-launch-edge-overlay[data-side="right"] {
+  top: 4%;
+  bottom: 4%;
+  width: 9px;
+  flex-direction: column;
+  border-left: 3px solid;
+}
+
+.drone-launch-edge-overlay[data-side="left"] {
+  left: -6px;
+}
+
+.drone-launch-edge-overlay[data-side="right"] {
+  right: -6px;
+  border-left: 0;
+  border-right: 3px solid;
+}
+
 .build-cell.core {
   cursor: default;
 }

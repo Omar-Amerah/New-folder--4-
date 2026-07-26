@@ -173,6 +173,8 @@ function executePurchase(room, player, request, now) {
     for (const ship of player.ships.slice(original.shipsLength)) {
       ship.removed = true;
       ship.alive = false;
+      require("./componentGeometry").invalidateShipCollisionGeometry(ship);
+      room.spatialIndex?.remove?.("ships", ship);
       room.ships.delete(ship.id);
     }
     player.ships.length = original.shipsLength;

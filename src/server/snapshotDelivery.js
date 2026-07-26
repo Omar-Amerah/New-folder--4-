@@ -75,6 +75,45 @@ function canSendCompact(room, b, broadcastSeq, forceStatic) {
     && !b.queuedSnapshotKind
     && b.staticRevisionKnown === revision;
 }
+function stableRevisionMap(map) {
+  if (!(map instanceof Map) || map.size === 0) return "";
+  return [...map.entries()]
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    .map(([id, revision]) => `${String(id)}:${Number(revision) || 0}`)
+    .join(",");
+}
+function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId }) {
+  const player = client?.player;
+  if (!player?.id) return null;
+  // Deliberately strict. Player identity is included because own-ship/private
+  // visibility and player-specific economy fields can differ even on one team.
+  return JSON.stringify([
+    player.id,
+    player.team ?? null,
+    room.rules?.gameMode || "teams",
+    full ? "full" : "compact",
+    base,
+    seq,
+    revision,
+    epoch,
+    telemetryFocusShipId,
+    stableRevisionMap(client.knownShipDesignRevisions),
+    stableRevisionMap(client.knownShipPowerRevisions),
+    stableRevisionMap(client.knownShipPowerProtectionRevisions),
+    stableRevisionMap(client.knownShipWiringLayoutRevisions)
+  ]);
+}
+function duplicateSnapshotPlayerIds(clients) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const client of clients || []) {
+    const playerId = client?.player?.id;
+    if (!playerId) continue;
+    if (seen.has(playerId)) duplicates.add(playerId);
+    else seen.add(playerId);
+  }
+  return duplicates;
+}
 function broadcastSnapshot(room, now, forceStatic = false) {
   if (room.clients.size === 0) return;
   const startedAt = performanceNow();
@@ -90,6 +129,10 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   let encodingMs = 0;
   let payloadBytes = 0;
   let maxClientBytes = 0;
+  const groups = new Map();
+  const duplicatePlayerIds = room.disableSnapshotGrouping
+    ? null
+    : duplicateSnapshotPlayerIds(room.clients);
   for (const client of room.clients) {
     const b = ensureSnapshotBaseline(client, room);
     const existing = getOutbound(client).snapshot;
@@ -97,16 +140,49 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     if (existing?.meta?.snapshotKind && full) diag(client).promotions += 1;
     const base = full ? null : b.lastWrittenSeq;
     const meta = { stateEpoch: epoch, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', staticRevision: revision, completeStatic: full };
-    const built = buildPayload(room, client, now, full, seq, base, shared);
+    const telemetryFocusShipId = telemetryFocusForPayload(client, now, full);
+    const key = duplicatePlayerIds?.has(client?.player?.id)
+      ? snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId })
+      : null;
+    // A null key is intentionally unique: when identity/visibility cannot be
+    // proven, fall back to per-client construction.
+    const groupKey = key === null ? Symbol("per-client-snapshot") : key;
+    let group = groups.get(groupKey);
+    if (!group) {
+      group = { client, full, base, meta, recipients: [] };
+      groups.set(groupKey, group);
+    }
+    group.recipients.push({ client, meta });
+  }
+  for (const group of groups.values()) {
+    const built = buildPayload(room, group.client, now, group.full, seq, group.base, shared);
     constructionMs += built.constructionMs;
     encodingMs += built.encodingMs;
-    meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
-    meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions;
-    diag(client)[full ? 'fullBuilt' : 'compactBuilt'] += 1;
-    enqueueSnapshot(client, built.payload, meta);
-    payloadBytes += built.payload.length;
+    for (const recipient of group.recipients) {
+      const { client, meta } = recipient;
+      meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
+      meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions;
+      diag(client)[group.full ? 'fullBuilt' : 'compactBuilt'] += 1;
+      enqueueSnapshot(client, built.payload, meta);
+      payloadBytes += built.payload.length;
+    }
     maxClientBytes = Math.max(maxClientBytes, built.payload.length);
   }
+  room._lastSnapshotDeliveryMetrics = {
+    groups: groups.size,
+    recipients: room.clients.size,
+    constructionMs,
+    encodingMs,
+    aggregatePayloadBytes: payloadBytes,
+    maxClientBytes
+  };
   recordSnapshot({ durationMs: performanceNow() - startedAt, constructionMs, encodingMs, payloadBytes, maxClientBytes, clients: room.clients.size });
 }
-module.exports = { ensureSnapshotBaseline, sendFullSnapshot, broadcastSnapshot, onSnapshotLifecycle, constants: { TELEMETRY_INTERVAL_MS } };
+module.exports = {
+  ensureSnapshotBaseline,
+  sendFullSnapshot,
+  broadcastSnapshot,
+  onSnapshotLifecycle,
+  _test: { stableRevisionMap, snapshotGroupingKey, duplicateSnapshotPlayerIds, telemetryFocusForPayload },
+  constants: { TELEMETRY_INTERVAL_MS }
+};

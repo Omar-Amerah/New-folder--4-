@@ -41,6 +41,7 @@ export const PART_DEFS = {
   heavyShield: { name: "Heavy Shield", color: "#4ade80", glyph: "radial-gradient(circle, #bbf7d0 0 18%, #16a34a 32% 60%, #052e16 66%)" },
   regenShield: { name: "Regen Shield", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 16%, #14b8a6 28% 58%, #134e4a 64%)" },
   pointDefense: { name: "Laser Point Defence", color: "#fda4af", glyph: "radial-gradient(circle, #fff1f2 0 18%, #fb7185 30% 56%, #881337 62%)" },
+  decoyLauncher: { name: "Decoy Launcher", color: "#93c5fd", glyph: "radial-gradient(circle, #eff6ff 0 12%, #60a5fa 16% 28%, #7c3aed 32% 45%, #172554 50%)" },
 
   flakCannon: { name: "Flak Cannon", color: "#fda4af", glyph: "radial-gradient(circle, #fecdd3 0 25%, #f43f5e 35% 56%, #881337 62%)" },
   interceptorPod: { name: "Interceptor Pod", color: "#c084fc", glyph: "radial-gradient(circle, #f3e8ff 0 22%, #a855f7 30% 60%, #3b0764 65%)" },
@@ -98,6 +99,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   maneuverThruster: "Side-control engine that improves turning more than straight-line speed.",
   gyroscope: "Stabilization module that improves turn rate without adding thrust.",
   pointDefense: "High-Power defensive laser designed to destroy hostile drones and light incoming ordnance. Its hitscan beam cannot miss once aligned, but it deals negligible damage to ships.",
+  decoyLauncher: "Defensive support launcher with a limited, slowly rebuilt decoy supply. Its visible false targets may pull guided missiles away but cannot affect unguided fire.",
 
   flakCannon: "Short-range anti-missile and anti-swarm defence. Poor range and weak direct damage.",
   interceptorPod: "Longer-range missile interception. Expensive and weak against ships.",
@@ -358,6 +360,7 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     // mitigation and per-ship placement limits from the authoritative balance
     // file instead of restating those constants in UI code.
     armorFlatReduction: numberOr(component.armorFlatReduction, 0),
+    decoyConfig: component.decoy && typeof component.decoy === "object" ? { ...component.decoy } : null,
     maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };

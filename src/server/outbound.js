@@ -13,12 +13,16 @@ let writeFrame = defaultWriteFrame;
 let closeClient = null;
 function defaultWriteFrame(socket, payload, opcode = 0x2) {
   if (typeof payload === "string") payload = Buffer.from(payload, "utf8");
+  else if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
   const length = payload.length;
-  let header;
-  if (length < 126) { header = Buffer.alloc(2); header[0] = 0x80 | opcode; header[1] = length; }
-  else if (length <= 65535) { header = Buffer.alloc(4); header[0] = 0x80 | opcode; header[1] = 126; header.writeUInt16BE(length, 2); }
-  else { header = Buffer.alloc(10); header[0] = 0x80 | opcode; header[1] = 127; header.writeUInt32BE(0, 2); header.writeUInt32BE(length, 6); }
-  return socket.write(Buffer.concat([header, payload]));
+  const headerLength = length < 126 ? 2 : length <= 65535 ? 4 : 10;
+  const frame = Buffer.allocUnsafe(headerLength + length);
+  frame[0] = 0x80 | opcode;
+  if (headerLength === 2) frame[1] = length;
+  else if (headerLength === 4) { frame[1] = 126; frame.writeUInt16BE(length, 2); }
+  else { frame[1] = 127; frame.writeUInt32BE(0, 2); frame.writeUInt32BE(length, 6); }
+  payload.copy(frame, headerLength);
+  return socket.write(frame);
 }
 function configureOutbound(deps = {}) { writeFrame = deps.writeFrame || writeFrame; closeClient = deps.closeClient || closeClient; }
 function safeClose(client, code, reason) { if (closeClient) closeClient(client, code, reason); else { client.isClosed = true; client.socket?.destroy?.(); } }

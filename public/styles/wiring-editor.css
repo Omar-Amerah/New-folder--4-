@@ -1553,6 +1553,19 @@
   border-color: rgba(92, 122, 160, .36);
 }
 .wiring-toolbar .wiring-utility-labeled { width: 58px; }
+.wiring-toolbar #wiringAutoWireButton {
+  flex: 0 0 78px;
+  width: 78px;
+  min-width: 78px;
+  gap: 3px;
+  padding-inline: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.wiring-toolbar #wiringAutoWireButton .wiring-control-label-text {
+  white-space: nowrap;
+  font-size: 10.5px;
+}
 .wiring-toolbar .wiring-help-action {
   width: 36px;
   min-width: 36px;
@@ -1646,8 +1659,25 @@
   .wiring-toolbar .wiring-tool { width: 88px; }
   .wiring-toolbar .wiring-tier { width: 88px; min-width: 88px; height: 44px; min-height: 44px; padding-inline: 7px; }
   .wiring-toolbar .wiring-action-row { align-items: center; }
-  .wiring-toolbar .wiring-action-row .wiring-utility-labeled { flex: 0 0 88px; width: 88px; }
-  .wiring-toolbar .wiring-action-row .wiring-help-action { flex: 0 0 40px; width: 40px; min-width: 40px; }
+  .wiring-toolbar .wiring-action-row .wiring-utility-labeled {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: 88px;
+  }
+  .wiring-toolbar .wiring-action-row #wiringAutoWireButton {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: 88px;
+  }
+  .wiring-toolbar .wiring-action-row .wiring-help-action {
+    flex: 0 0 40px;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
   .wiring-help-panel {
     position: fixed;
     inset: 12px;
@@ -1662,7 +1692,8 @@
   .wiring-toolbar .wiring-tier { width: 84px; min-width: 84px; }
   .wiring-toolbar .wiring-tier-name { font-size: 12px; }
   .wiring-toolbar .wiring-tier-capacity { font-size: 10.5px; }
-  .wiring-toolbar .wiring-action-row .wiring-utility-labeled { flex-basis: 84px; width: 84px; }
+  .wiring-toolbar .wiring-action-row .wiring-utility-labeled,
+  .wiring-toolbar .wiring-action-row #wiringAutoWireButton { max-width: 84px; }
 }
 
 /* ---------------------------------------------------------------------------

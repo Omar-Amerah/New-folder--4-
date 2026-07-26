@@ -24,6 +24,12 @@ const GRID_SIZE = 15;
 // a hit enters through. 0.4 guarantees no tile along the ray is skipped.
 const RAY_STEP = 0.4;
 
+function bumpComponentAliveRevision(ship) {
+  if (!ship) return 0;
+  ship.componentAliveRevision = (Number(ship.componentAliveRevision) || 0) + 1;
+  return ship.componentAliveRevision;
+}
+
 function initComponentState(ship) {
   const design = ship.design || [];
   const rawHp = design.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
@@ -36,6 +42,7 @@ function initComponentState(ship) {
 
   ship.componentMaxHp = rawHp.map((hp, i) => (design[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale));
   ship.componentHp = ship.componentMaxHp.slice();
+  bumpComponentAliveRevision(ship);
   ship.maxHp = ship.stats?.maxHp || rawSum;
   ship.hp = ship.maxHp;
   ship.coreDestroyed = false;
@@ -222,6 +229,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
 
 function onComponentDestroyed(room, ship, index, now) {
   markShipRepairCacheDirty(ship);
+  bumpComponentAliveRevision(ship);
   const module = ship.design[index];
   if (ship.componentMeltdown && (PARTS[module.type]?.powerGeneration || 0) > 0) ship.componentMeltdown[index] = 0;
   if (room) {
@@ -433,6 +441,7 @@ function repairShipComponents(room, ship, amount, now) {
     remaining -= heal;
     healed += heal;
     if (wasDestroyed && ship.componentHp[idx] > 0) {
+      bumpComponentAliveRevision(ship);
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       const heat = require("./heat");
       requestComponentLifecycleRefresh(ship, { thermalCapacity: true,
@@ -449,12 +458,15 @@ function repairShipComponents(room, ship, amount, now) {
 function zeroAllComponents(ship) {
   if (!ship.componentHp) return;
   beginComponentLifecycleBatch(ship);
+  let changedAliveState = false;
   for (let i = 0; i < ship.componentHp.length; i += 1) {
     if (ship.componentHp[i] !== 0) {
       ship.componentHp[i] = 0;
       ship.dirtyComponents.add(i);
+      changedAliveState = true;
     }
   }
+  if (changedAliveState) bumpComponentAliveRevision(ship);
   if (ship.componentMeltdown) ship.componentMeltdown.fill(0);
   ship.hp = 0;
   markShipRepairCacheDirty(ship);
@@ -487,6 +499,7 @@ module.exports = {
   recalcEffectiveStats,
   updateEngineExhaustState,
   repairShipComponents,
+  bumpComponentAliveRevision,
   assertComponentHpConsistency
   ,beginComponentLifecycleBatch, requestComponentLifecycleRefresh, endComponentLifecycleBatch, flushComponentLifecycleRefresh
 };

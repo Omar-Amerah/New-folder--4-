@@ -6,6 +6,8 @@ const { PARTS } = require("./components");
 const { leaveRoom } = require("./players");
 const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 const { protocolInfo } = require("./protocol");
+const { BALANCE_REVISION } = require("./balanceConfig");
+const { decodeBinary } = require("./wsCodec");
 
 const sockets = new Set();
 let nextClientId = 1;
@@ -65,7 +67,7 @@ function createClient(socket) {
     protocolVersion: PROTOCOL_VERSION,
     serverBuildSha: SERVER_BUILD_SHA,
     backendBuildSha: SERVER_BUILD_SHA,
-    balanceRevision: require("./balanceConfig").BALANCE_REVISION,
+    balanceRevision: BALANCE_REVISION,
     world: WORLD,
     parts: PARTS,
     economy: {
@@ -89,7 +91,6 @@ function handleSocketData(client, chunk) {
     if (event.type === "pong") { client.heartbeat.lastPongAt = Date.now(); continue; }
     if (event.type === "ping") { client.heartbeat.lastInboundAt = Date.now(); writeFrame(client.socket, event.payload, 0xA); continue; }
     if (event.type === "message") {
-      const { decodeBinary } = require("./wsCodec");
       let message;
       try {
         message = decodeBinary(event.payload);
@@ -123,27 +124,16 @@ function handleSocketData(client, chunk) {
 
 function writeFrame(socket, payload, opcode = 0x1) {
   if (typeof payload === "string") payload = Buffer.from(payload, "utf8");
+  else if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
   const length = payload.length;
-  let header;
-
-  if (length < 126) {
-    header = Buffer.alloc(2);
-    header[0] = 0x80 | opcode;
-    header[1] = length;
-  } else if (length <= 65535) {
-    header = Buffer.alloc(4);
-    header[0] = 0x80 | opcode;
-    header[1] = 126;
-    header.writeUInt16BE(length, 2);
-  } else {
-    header = Buffer.alloc(10);
-    header[0] = 0x80 | opcode;
-    header[1] = 127;
-    header.writeUInt32BE(0, 2);
-    header.writeUInt32BE(length, 6);
-  }
-
-  return socket.write(Buffer.concat([header, payload]));
+  const headerLength = length < 126 ? 2 : length <= 65535 ? 4 : 10;
+  const frame = Buffer.allocUnsafe(headerLength + length);
+  frame[0] = 0x80 | opcode;
+  if (headerLength === 2) frame[1] = length;
+  else if (headerLength === 4) { frame[1] = 126; frame.writeUInt16BE(length, 2); }
+  else { frame[1] = 127; frame.writeUInt32BE(0, 2); frame.writeUInt32BE(length, 6); }
+  payload.copy(frame, headerLength);
+  return socket.write(frame);
 }
 
 function startHeartbeat(client) {

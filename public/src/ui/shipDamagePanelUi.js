@@ -328,7 +328,7 @@ function renderComponentPowerReadout(ship, index) {
   const alive = (Number(ship.chp?.[index]) || 0) > 0;
   const power = ship.componentPower?.[index]; // [state, networkId, multiplier]
   const diag = ship.powerThermal?.components?.[index];
-  const isGenerator = ["core", "reactor", "auxGenerator"].includes(part.type) || (power && power[0] === "source");
+  const isGenerator = ["core", "reactor", "nuclearReactor", "auxGenerator"].includes(part.type) || (power && power[0] === "source");
   if (isGenerator) {
     const genPart = PART_STATS[part.type] || {};
     const ratedGen = diag?.ratedGenerationMw ?? genPart.powerGeneration ?? null;

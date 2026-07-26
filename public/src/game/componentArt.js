@@ -292,12 +292,16 @@ export function drawStaticComponentBase({ type, unit, tilesLong = 1, tilesCross 
   } else {
     const hl = (tilesLong * unit) / 2;
     const hc = (tilesCross * unit) / 2;
+    // Keep the outside half of the outline inside the occupied footprint.
+    // Arena textures are not cell-clipped, so this prevents a multi-cell body
+    // from bleeding a dark stroke into an adjacent component at any zoom.
+    const edgeInset = ctx.lineWidth * 0.5;
     ctx.fillStyle = getModuleGradient(Math.max(hl, hc) * 2, bodyColor);
     roundRect(ctx, {
-      x: -hl,
-      y: -hc,
-      width: hl * 2,
-      height: hc * 2,
+      x: -hl + edgeInset,
+      y: -hc + edgeInset,
+      width: hl * 2 - edgeInset * 2,
+      height: hc * 2 - edgeInset * 2,
       radius: Math.min(unit * 0.1, hc * 0.22)
     });
     ctx.fill();
@@ -722,7 +726,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
 
 // --- Professional single-cell detail ------------------------------------------
 
-function drawProfessionalModuleDetail(type, size, color) {
+function drawProfessionalModuleDetail(type, size, color, visualState = "active") {
   type = componentArtType(type);
   const line = Math.max(0.8, size * 0.065);
   const fine = Math.max(0.7, size * 0.045);
@@ -921,6 +925,87 @@ function drawProfessionalModuleDetail(type, size, color) {
     ctx.beginPath(); ctx.arc(0, 0, size * 0.2, Math.PI * 0.12, Math.PI * 1.88); ctx.stroke();
     return true;
   }
+  if (type === "decoyLauncher") {
+    const inactive = visualState === "inactive" || visualState === "disabled";
+    const damaged = visualState === "damaged";
+    const signal = damaged ? "#fb7185" : inactive ? "#64748b" : "#7dd3fc";
+    const falseLock = damaged ? "#fda4af" : inactive ? "#94a3b8" : "#c4b5fd";
+
+    // The housing is the cell: chamfered emitter wings, radial signal traces,
+    // and corner projector nodes all converge on the false-lock beacon.
+    ctx.save();
+    ctx.fillStyle = "rgba(5,11,24,0.72)";
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.22);
+    ctx.lineWidth = Math.max(0.8, size * 0.055);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.46, -size * 0.25);
+    ctx.lineTo(-size * 0.25, -size * 0.46);
+    ctx.lineTo(size * 0.25, -size * 0.46);
+    ctx.lineTo(size * 0.46, -size * 0.25);
+    ctx.lineTo(size * 0.46, size * 0.25);
+    ctx.lineTo(size * 0.25, size * 0.46);
+    ctx.lineTo(-size * 0.25, size * 0.46);
+    ctx.lineTo(-size * 0.46, size * 0.25);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Four projector vanes make the role legible even when the glow is absent.
+    ctx.fillStyle = mixColor(color, "#071426", 0.5);
+    for (let i = 0; i < 4; i += 1) {
+      ctx.save();
+      ctx.rotate(i * Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.12, -size * 0.16);
+      ctx.lineTo(size * 0.38, -size * 0.29);
+      ctx.lineTo(size * 0.43, -size * 0.1);
+      ctx.lineTo(size * 0.15, -size * 0.03);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.shadowColor = signal;
+    ctx.shadowBlur = qualityShadowBlur(inactive ? 0 : 7);
+    ctx.strokeStyle = signal;
+    ctx.lineWidth = Math.max(0.8, size * 0.055);
+    for (const radius of [0.18, 0.31]) {
+      ctx.beginPath();
+      ctx.arc(0, 0, size * radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Offset diamond is a projected false target, not a generic badge.
+    ctx.strokeStyle = falseLock;
+    ctx.lineWidth = Math.max(1, size * 0.075);
+    ctx.beginPath();
+    ctx.moveTo(0, -size * 0.16);
+    ctx.lineTo(size * 0.16, 0);
+    ctx.lineTo(0, size * 0.16);
+    ctx.lineTo(-size * 0.16, 0);
+    ctx.closePath();
+    ctx.stroke();
+    drawComponentPort(size, 0, 0, 0.09, inactive ? "#64748b" : "#eff6ff", 0.58);
+
+    for (const [x, y] of [[-0.35, -0.35], [0.35, -0.35], [-0.35, 0.35], [0.35, 0.35]]) {
+      drawComponentPort(size, x, y, 0.07, signal, inactive ? 0.32 : 0.58);
+    }
+
+    if (damaged) {
+      ctx.strokeStyle = "#fecaca";
+      ctx.lineWidth = Math.max(0.8, size * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.28, -size * 0.08);
+      ctx.lineTo(-size * 0.08, size * 0.02);
+      ctx.lineTo(size * 0.02, size * 0.24);
+      ctx.lineTo(size * 0.24, size * 0.32);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return true;
+  }
   if (type === "repair") {
     drawRecessedPanel(size, 0.74, 0.74, 0.16);
     ctx.fillStyle = "#bbf7d0";
@@ -1001,6 +1086,33 @@ function drawProfessionalModuleDetail(type, size, color) {
     }
     return true;
   }
+  if (type === "heatPipe") {
+    // Cell-wide thermal manifold: insulated edge couplings joined by a broad
+    // serpentine coolant route, with no separate icon plate.
+    ctx.save();
+    ctx.fillStyle = "rgba(5,16,27,0.54)";
+    ctx.strokeStyle = "rgba(186,230,253,0.34)";
+    ctx.lineWidth = fine;
+    roundRect(ctx, { x: -size * 0.45, y: -size * 0.34, width: size * 0.9, height: size * 0.68, radius: size * 0.15 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#0c4a6e";
+    ctx.lineWidth = Math.max(2, size * 0.17);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.48, -size * 0.2);
+    ctx.lineTo(-size * 0.18, -size * 0.2);
+    ctx.quadraticCurveTo(0, -size * 0.2, 0, 0);
+    ctx.quadraticCurveTo(0, size * 0.2, size * 0.18, size * 0.2);
+    ctx.lineTo(size * 0.48, size * 0.2);
+    ctx.stroke();
+    ctx.strokeStyle = "#7dd3fc";
+    ctx.lineWidth = Math.max(1, size * 0.07);
+    ctx.stroke();
+    drawComponentPort(size, -0.4, -0.2, 0.1, "#e0f2fe", 0.5);
+    drawComponentPort(size, 0.4, 0.2, 0.1, "#e0f2fe", 0.5);
+    ctx.restore();
+    return true;
+  }
   if (type === "radiator") {
     // Active cooling fan: visually distinct from the heat sink's passive fin
     // stack. The blueprint overlay separately highlights the actual exposed edge.
@@ -1050,7 +1162,7 @@ function drawProfessionalModuleDetail(type, size, color) {
 
 // --- Single-cell module composition --------------------------------------------
 
-export function drawModule({ x, y, size, color, type, trim, drawBase = true, drawDetail = true }) {
+export function drawModule({ x, y, size, color, type, trim, drawBase = true, drawDetail = true, visualState = "active" }) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineJoin = "round";
@@ -1089,7 +1201,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
   // All currently selectable parts use the unified professional detail set.
   // Legacy branches remain below as compatibility art for any old/custom part
   // ids loaded from storage.
-  if (drawProfessionalModuleDetail(type, size, bodyColor)) {
+  if (drawProfessionalModuleDetail(type, size, bodyColor, visualState)) {
     ctx.restore();
     return;
   }
@@ -1439,7 +1551,271 @@ function drawFootprintPort(unit, x, y, radius, accent) {
   ctx.restore();
 }
 
-function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, color, hl, hc) {
+function drawFootprintMachineFrame(unit, hl, hc, accent, options = {}) {
+  const insetX = options.insetX ?? unit * 0.12;
+  const insetY = options.insetY ?? unit * 0.12;
+  const fine = Math.max(0.7, unit * 0.045);
+  ctx.save();
+  ctx.fillStyle = "rgba(4,9,16,0.68)";
+  ctx.strokeStyle = "rgba(226,237,250,0.28)";
+  ctx.lineWidth = fine;
+  roundRect(ctx, {
+    x: -hl + insetX,
+    y: -hc + insetY,
+    width: hl * 2 - insetX * 2,
+    height: hc * 2 - insetY * 2,
+    radius: Math.min(unit * 0.16, hc * 0.22)
+  });
+  ctx.fill();
+  ctx.stroke();
+
+  // Long structural rails visually bind every occupied cell into one machine.
+  ctx.strokeStyle = mixColor(accent, "#ffffff", 0.2);
+  ctx.lineWidth = Math.max(1, unit * 0.08);
+  ctx.beginPath();
+  ctx.moveTo(-hl + unit * 0.2, -hc + unit * 0.22);
+  ctx.lineTo(hl - unit * 0.2, -hc + unit * 0.22);
+  ctx.moveTo(-hl + unit * 0.2, hc - unit * 0.22);
+  ctx.lineTo(hl - unit * 0.2, hc - unit * 0.22);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(3,7,13,0.88)";
+  ctx.lineWidth = Math.max(1.2, unit * 0.11);
+  for (const x of [-hl + unit * 0.2, hl - unit * 0.2]) {
+    ctx.beginPath();
+    ctx.moveTo(x, -hc + unit * 0.16);
+    ctx.lineTo(x, hc - unit * 0.16);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawHazardStripes(unit, x, y, width, height, angle = -0.72) {
+  ctx.save();
+  roundRect(ctx, { x, y, width, height, radius: unit * 0.035 });
+  ctx.clip();
+  ctx.fillStyle = "#f6c945";
+  ctx.fillRect(x, y, width, height);
+  ctx.translate(x + width / 2, y + height / 2);
+  ctx.rotate(angle);
+  ctx.fillStyle = "rgba(18,15,12,0.92)";
+  const stripe = Math.max(unit * 0.12, height * 0.72);
+  for (let sx = -width * 1.2; sx < width * 1.2; sx += stripe * 2) {
+    ctx.fillRect(sx, -height * 2, stripe, height * 4);
+  }
+  ctx.restore();
+}
+
+function drawDemolitionChargeAssembly(unit, hl, hc, color, visualState = "safed") {
+  const armed = visualState === "armed" || visualState === "active";
+  const glow = armed ? "#ff3b30" : "#f59e0b";
+  const hot = armed ? "#fff1e6" : "#fde68a";
+  const fine = Math.max(0.7, unit * 0.045);
+  const chamberRadius = Math.min(hc * 0.58, unit * 0.74);
+
+  drawFootprintMachineFrame(unit, hl, hc, color);
+
+  // Reinforced compression bed and conduits span the complete long axis.
+  ctx.strokeStyle = "rgba(15,20,27,0.96)";
+  ctx.lineWidth = Math.max(2, unit * 0.18);
+  ctx.beginPath();
+  ctx.moveTo(-hl + unit * 0.34, 0);
+  ctx.lineTo(hl - unit * 0.34, 0);
+  ctx.stroke();
+  ctx.strokeStyle = mixColor(color, "#ff6b35", 0.45);
+  ctx.lineWidth = Math.max(1, unit * 0.075);
+  ctx.beginPath();
+  ctx.moveTo(-hl + unit * 0.38, 0);
+  ctx.lineTo(hl - unit * 0.38, 0);
+  ctx.stroke();
+
+  for (const side of [-1, 1]) {
+    const nodeX = side * (hl - unit * 0.45);
+    drawFootprintPort(unit, nodeX, -hc * 0.36, unit * 0.13, armed ? "#ff665c" : "#718096");
+    drawFootprintPort(unit, nodeX, hc * 0.36, unit * 0.13, armed ? "#ff665c" : "#718096");
+    ctx.strokeStyle = "rgba(156,174,195,0.58)";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.moveTo(nodeX, -hc * 0.23);
+    ctx.lineTo(side * chamberRadius * 0.88, -chamberRadius * 0.62);
+    ctx.moveTo(nodeX, hc * 0.23);
+    ctx.lineTo(side * chamberRadius * 0.88, chamberRadius * 0.62);
+    ctx.stroke();
+  }
+
+  // One integrated circular danger silhouette: chamber, containment rings,
+  // compression spokes, and detonator core all share the same centre.
+  ctx.save();
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = qualityShadowBlur(armed ? 11 : 3);
+  ctx.fillStyle = "rgba(18,8,8,0.96)";
+  ctx.strokeStyle = mixColor(color, "#2a0a08", 0.52);
+  ctx.lineWidth = Math.max(1.2, unit * 0.1);
+  ctx.beginPath();
+  ctx.arc(0, 0, chamberRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = glow;
+  ctx.lineWidth = Math.max(1, unit * (armed ? 0.105 : 0.075));
+  for (const radius of [0.76, 0.52]) {
+    ctx.beginPath();
+    ctx.arc(0, 0, chamberRadius * radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(242,211,170,0.72)";
+  ctx.lineWidth = fine;
+  for (let i = 0; i < 8; i += 1) {
+    const a = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * chamberRadius * 0.54, Math.sin(a) * chamberRadius * 0.54);
+    ctx.lineTo(Math.cos(a) * chamberRadius * 0.9, Math.sin(a) * chamberRadius * 0.9);
+    ctx.stroke();
+  }
+  drawFootprintPort(unit, 0, 0, unit * 0.22, hot);
+
+  const stripeW = Math.min(unit * 0.52, hl * 0.32);
+  drawHazardStripes(unit, -hl + unit * 0.16, -hc * 0.18, stripeW, hc * 0.36);
+  drawHazardStripes(unit, hl - unit * 0.16 - stripeW, -hc * 0.18, stripeW, hc * 0.36);
+
+  // Safed has cold grey telltales; armed energises every node and coil.
+  ctx.fillStyle = armed ? "#ff3b30" : "#64748b";
+  for (const y of [-hc + unit * 0.23, hc - unit * 0.23]) {
+    for (const x of [-unit * 0.22, unit * 0.22]) {
+      ctx.beginPath();
+      ctx.arc(x, y, unit * 0.055, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawNuclearReactorAssembly(unit, hl, hc, color) {
+  const fine = Math.max(0.7, unit * 0.045);
+  const coreRadius = Math.min(hc * 0.52, unit * 0.7);
+  drawFootprintMachineFrame(unit, hl, hc, color);
+
+  // Paired coolant trunks and cross-cell containment ribs.
+  for (const y of [-hc * 0.48, hc * 0.48]) {
+    ctx.strokeStyle = "#d9a514";
+    ctx.lineWidth = Math.max(1.4, unit * 0.11);
+    ctx.beginPath();
+    ctx.moveTo(-hl + unit * 0.3, y);
+    ctx.lineTo(hl - unit * 0.3, y);
+    ctx.stroke();
+    ctx.strokeStyle = "#fff0a6";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.moveTo(-hl + unit * 0.34, y - unit * 0.025);
+    ctx.lineTo(hl - unit * 0.34, y - unit * 0.025);
+    ctx.stroke();
+  }
+
+  const podX = Math.max(unit * 0.72, hl * 0.55);
+  for (const x of [-podX, podX]) {
+    ctx.fillStyle = mixColor(color, "#3a2404", 0.42);
+    roundRect(ctx, { x: x - unit * 0.3, y: -hc * 0.34, width: unit * 0.6, height: hc * 0.68, radius: unit * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+    drawFootprintPort(unit, x, 0, unit * 0.13, "#fde68a");
+  }
+
+  ctx.save();
+  ctx.shadowColor = "#fbbf24";
+  ctx.shadowBlur = qualityShadowBlur(8);
+  ctx.fillStyle = "rgba(36,22,3,0.96)";
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth = Math.max(1.2, unit * 0.1);
+  ctx.beginPath();
+  ctx.arc(0, 0, coreRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = "#fde68a";
+  ctx.lineWidth = Math.max(1, unit * 0.065);
+  for (const r of [0.78, 0.54]) {
+    ctx.beginPath();
+    ctx.arc(0, 0, coreRadius * r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  drawFootprintPort(unit, 0, 0, unit * 0.2, "#fffde7");
+
+  // Four restraint brackets make the circular core part of the chassis.
+  ctx.strokeStyle = "rgba(228,236,245,0.65)";
+  ctx.lineWidth = Math.max(1, unit * 0.085);
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sx * coreRadius * 0.62, sy * coreRadius * 0.62);
+      ctx.lineTo(sx * Math.min(hl - unit * 0.34, coreRadius * 1.45), sy * (hc - unit * 0.28));
+      ctx.stroke();
+    }
+  }
+}
+
+function drawBackupCoreAssembly(unit, hl, hc, color) {
+  drawFootprintMachineFrame(unit, hl, hc, color);
+  const fine = Math.max(0.7, unit * 0.045);
+  const centreR = Math.min(hc * 0.46, unit * 0.38);
+  ctx.strokeStyle = "#c4b5fd";
+  ctx.lineWidth = Math.max(1.1, unit * 0.085);
+  ctx.beginPath();
+  ctx.moveTo(-hl + unit * 0.34, 0);
+  ctx.lineTo(hl - unit * 0.34, 0);
+  ctx.stroke();
+  for (const x of [-hl * 0.52, 0, hl * 0.52]) {
+    ctx.fillStyle = "rgba(18,15,38,0.94)";
+    ctx.strokeStyle = x === 0 ? "#ddd6fe" : "#8b5cf6";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.arc(x, 0, x === 0 ? centreR : centreR * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawFootprintPort(unit, x, 0, unit * (x === 0 ? 0.12 : 0.085), x === 0 ? "#f5f3ff" : "#a78bfa");
+  }
+  ctx.strokeStyle = "rgba(216,180,254,0.68)";
+  ctx.beginPath();
+  ctx.moveTo(0, -hc + unit * 0.24);
+  ctx.lineTo(0, hc - unit * 0.24);
+  ctx.stroke();
+}
+
+function drawGenericFootprintMachine(type, unit, tilesLong, color, hl, hc) {
+  const category = PART_STATS[type]?.category || "Support";
+  const fine = Math.max(0.7, unit * 0.045);
+  drawFootprintMachineFrame(unit, hl, hc, color);
+  drawFootprintSeams(unit, hl, hc, tilesLong);
+
+  if (category === "Structure") {
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.34);
+    ctx.lineWidth = Math.max(1.2, unit * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(-hl + unit * 0.28, -hc + unit * 0.28);
+    ctx.lineTo(hl - unit * 0.28, hc - unit * 0.28);
+    ctx.moveTo(hl - unit * 0.28, -hc + unit * 0.28);
+    ctx.lineTo(-hl + unit * 0.28, hc - unit * 0.28);
+    ctx.stroke();
+  } else {
+    // Unknown future modules still receive a connected relay/conduit machine,
+    // never a scaled single-cell badge floating in the centre.
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.24);
+    ctx.lineWidth = Math.max(1, unit * 0.085);
+    ctx.beginPath();
+    ctx.moveTo(-hl + unit * 0.3, 0);
+    ctx.lineTo(hl - unit * 0.3, 0);
+    ctx.stroke();
+    const nodes = Math.max(2, tilesLong);
+    for (let i = 0; i < nodes; i += 1) {
+      const x = -hl + unit * 0.5 + (hl * 2 - unit) * (i / Math.max(1, nodes - 1));
+      drawFootprintPort(unit, x, 0, unit * 0.12, mixColor(color, "#ffffff", 0.52));
+    }
+    ctx.strokeStyle = "rgba(226,237,250,0.34)";
+    ctx.lineWidth = fine;
+  }
+  return true;
+}
+
+function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, color, hl, hc, visualState) {
   type = componentArtType(type);
   const line = Math.max(1, unit * 0.075);
   const fine = Math.max(0.7, unit * 0.045);
@@ -1582,7 +1958,22 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     return true;
   }
 
-  return false;
+  if (type === "nuclearReactor") {
+    drawNuclearReactorAssembly(unit, hl, hc, color);
+    return true;
+  }
+
+  if (type === "backupCore") {
+    drawBackupCoreAssembly(unit, hl, hc, color);
+    return true;
+  }
+
+  if (type === "proximityDemolitionCharge" || type === "demolitionCharge") {
+    drawDemolitionChargeAssembly(unit, hl, hc, color, visualState);
+    return true;
+  }
+
+  return drawGenericFootprintMachine(type, unit, tilesLong, color, hl, hc);
 }
 
 // Draws a multi-tile component as one purpose-built object spanning its whole
@@ -1590,7 +1981,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
 // and the body is centred on the origin. Shared by the arena ship renderer and
 // the designer icon baker so blueprint and in-game visuals match. 1x1 parts
 // keep using drawModule(); this only handles the elongated/multi-cell types.
-export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, color, trim, drawBase = true, drawDetail = true }) {
+export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, color, trim, drawBase = true, drawDetail = true, visualState = "safed" }) {
   const hl = (tilesLong * unit) / 2; // half length along +x
   const hc = (tilesCross * unit) / 2; // half width along y
   const edge = "rgba(3,6,12,0.72)";
@@ -1619,7 +2010,7 @@ export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, colo
     return;
   }
 
-  if (drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, bodyColor, hl, hc)) {
+  if (drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, bodyColor, hl, hc, visualState)) {
     ctx.restore();
     return;
   }

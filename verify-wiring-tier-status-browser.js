@@ -524,8 +524,9 @@ async function inspectCircleSafety(page) {
       const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
       return computeStats(state.design, { wiring: state.wiring }).unitCost;
     });
-    await page.locator('[data-wiring-tool="erase"]').click();
+    await page.locator('[data-wiring-tool="inspect"]').click();
     await page.locator('.wire-hit[data-section-id="0,4:1,4"]').dispatchEvent("click");
+    await page.locator('[data-wiring-action="remove-section"]').click();
     await page.waitForTimeout(40);
     const costSync = await page.evaluate(async () => {
       const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
