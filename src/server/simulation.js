@@ -2,7 +2,7 @@
 const { updateBots, getLiveShips } = require("./ships");
 const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
-const { updateFormationPlans, updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
+const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
 const { updateBullets } = require("./projectiles");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
 const { updateShipHeat } = require("./heat");

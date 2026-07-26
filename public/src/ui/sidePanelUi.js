@@ -141,7 +141,6 @@ function renderShipGroups() {
     if (countEl) countEl.textContent = `${shipIds.length} ship${shipIds.length === 1 ? "" : "s"}`;
     const assignDisabled = group.id === "unassigned" || selectedCount === 0;
     if (actionButton) actionButton.disabled = group.id === "unassigned" ? false : assignDisabled;
-    if (formationSelect) formationSelect.value = normalizeFormation(state.shipGroupSettings[group.id]?.formation);
     if (stanceSelect) stanceSelect.value = normalizeGroupCombatStyle(state.shipGroupSettings[group.id]?.combatStyle);
     // Stance controls only make sense once a group has ships in it.
     const controls = dom.shipGroupList.querySelector?.(`[data-ship-group-controls="${group.id}"]`) || null;

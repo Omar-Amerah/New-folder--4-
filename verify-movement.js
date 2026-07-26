@@ -278,16 +278,19 @@ function run() {
   assert(Math.hypot(overlapA.x - overlapB.x, overlapA.y - overlapB.y) > 0, "overlapped ships should separate deterministically");
 
   // 13. Nearest-clear-point reports metadata and clears all asteroid constraints when possible.
+  room.map.asteroids = [{ x: 1000, y: 800, radius: 100 }];
   const clear = nearestClearPoint(room, 1000, 800, 48);
   assert(clear.adjusted && clear.clear && clear.reason === "adjusted", "clear-point helper should expose successful adjustment metadata");
 
   // 14. Hostile-target commands set attack mode without suppressing the combat target.
-  const attackRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map(), players: new Map() };
+  const attackRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map(), players: new Map(), rules: { gameMode: "solo" } };
   const attackPlayer = { id: "p1", team: "blue", ships: [] };
+  const enemyPlayer = { id: "p2", team: "red", ships: [] };
   const attacker = { id: "a1", ownerId: "p1", alive: true, x: 100, y: 100, radius: 40, stats: { maxWeaponRange: 100 }, design: [{ type: "blaster" }], combatStyle: "charge" };
   const enemyShip2 = { id: "e2", ownerId: "p2", alive: true, x: 500, y: 100, radius: 40, stats: {} };
   attackPlayer.ships.push(attacker);
   attackRoom.players.set(attackPlayer.id, attackPlayer);
+  attackRoom.players.set(enemyPlayer.id, enemyPlayer);
   attackRoom.ships.set(attacker.id, attacker);
   attackRoom.ships.set(enemyShip2.id, enemyShip2);
   commandShips(attackRoom, attackPlayer, 500, 100, { targetId: "e2", shipIds: ["a1"] });
