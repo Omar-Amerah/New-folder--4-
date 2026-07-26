@@ -135,9 +135,11 @@ function requirementsMarkup(model) {
   if (!model.requirements.length) return "";
   const chips = model.requirements.map((requirement) => {
     const tipId = `partRequirementTip-${requirement.id}`;
-    const ariaLabel = `${requirement.label} requirement: ${requirement.summary}. Show details.`;
+    const unmet = requirement.status === "unmet";
+    const stateText = unmet ? "not met" : "met";
+    const ariaLabel = `${requirement.label} requirement ${stateText}: ${requirement.summary}. ${requirement.failureText || ""}`.trim();
     return `
-      <button type="button" class="part-requirement"
+      <button type="button" class="part-requirement${unmet ? " is-unmet" : ""}"
               data-requirement="${escapeHtml(requirement.id)}"
               aria-expanded="false" aria-controls="${tipId}"
               aria-label="${escapeHtml(ariaLabel)}">
@@ -145,6 +147,9 @@ function requirementsMarkup(model) {
         <span class="part-requirement-label">${escapeHtml(requirement.label)}</span>
       </button>`;
   }).join("");
+
+  const failures = model.requirements.filter((r) => r.status === "unmet").map((requirement) => `
+    <span class="part-requirement-failure">${escapeHtml(requirement.label)} unmet${requirement.failureText ? `: ${escapeHtml(requirement.failureText)}` : ""}</span>`).join("");
 
   const tips = model.requirements.map((requirement) => `
     <div class="part-requirement-tip" id="partRequirementTip-${escapeHtml(requirement.id)}" role="region"
@@ -158,6 +163,7 @@ function requirementsMarkup(model) {
       <div class="part-requirements-row">
         <h4 class="part-section-heading part-requirements-heading">Requirements</h4>
         <div class="part-requirement-chips">${chips}</div>
+        ${failures ? `<div class="part-requirement-failures">${failures}</div>` : ""}
       </div>
       ${tips}
     </section>`;

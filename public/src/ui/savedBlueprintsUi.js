@@ -40,7 +40,7 @@ export function previewColor() {
 
 export function refreshLoadedBlueprintPresentation() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
-  if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved Design";
+  if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved design";
   if (dom.saveDesignButton) dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
   if (dom.loadedBlueprintState) {
     const unchanged = existing

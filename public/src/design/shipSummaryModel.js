@@ -164,7 +164,7 @@ function overviewRows(stats, power, ledger) {
   // Power is one consolidated item: generation, demand, spare/shortfall and the
   // resulting state, never separate generation / efficiency / penalty cards.
   const powerRow = power.shortfall
-    ? statRow("power", "Power", power.generationDeficit ? `${mw(power.unmet)} generation deficit` : `${mw(power.unmet)} short`, { tone: "bad" })
+    ? statRow("power", "Power", `${mw(power.unmet)} short`, { tone: "bad" })
     : statRow("power", "Power", `${mw(power.spare)} spare`, { tone: power.requested > 0 ? "good" : "neutral" });
   if (powerRow) {
     rows.push(powerRow);
@@ -190,9 +190,7 @@ function statusMessages(stats, power, context) {
   }
   if (power.shortfall) {
     const affected = affectedSystems(stats, power);
-    add("power-short", "bad", power.generationDeficit
-      ? (power.loadShedActive || !affected.length ? `${mw(power.unmet)} generation deficit` : `${mw(power.unmet)} generation deficit · ${joinList(affected)} reduced`)
-      : (affected.length ? `${mw(power.unmet)} short · ${joinList(affected)} reduced` : `${mw(power.unmet)} short of demand`));
+    add("power-short", "bad", affected.length ? `${mw(power.unmet)} short · ${joinList(affected)} reduced` : `${mw(power.unmet)} short of demand`);
   } else if (power.requested > 0) {
     add("power-ok", "good", "Fully powered");
   }
@@ -338,7 +336,7 @@ function supportSection(stats, ledger) {
     statRow("cooling", "Cooling Bonus", Number(stats.coolingBonus || 0) > 0 ? `+${formatPercent(stats.coolingBonus)}` : null)
   ];
   const kept = ledger.take(rows);
-  return kept.length ? { id: "support", title: "Support Details", rows: kept } : null;
+  return kept.length ? { id: "support", title: "Support details", rows: kept } : null;
 }
 
 function droneSquadText(stats) {

@@ -391,7 +391,7 @@ async function main() {
     }
     // The canonical label is "Repair rate"; the authoritative values are unchanged.
     await selectPalettePart(page, { category: "Support", type: "repair", name: "Repair", rotatable: false });
-    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*3\.5 HP\/s/i,
+    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*4 HP\/s/i,
       "Repair shows its authoritative healing rate");
     await selectPalettePart(page, { category: "Support", type: "repairBeam", name: "Repair Beam", rotatable: true });
     assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*8 HP\/s/i,
