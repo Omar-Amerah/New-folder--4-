@@ -196,7 +196,7 @@
       "category": "Structure",
       "cost": 1,
       "mass": 5,
-      "hull": 340,
+      "hull": 260,
       "powerGeneration": 4,
       "powerUse": 0,
       "shield": 0,
@@ -1384,9 +1384,11 @@
       "proximityCharge": {
         "triggerRadius": 100,
         "triggerConfirmationSeconds": 0.2,
-        "blastRadius": 350,
-        "centreDamage": 600,
-        "falloffExponent": 1
+        "blastRadius": 280,
+        "centreDamage": 800,
+        "falloffExponent": 2,
+        "maxAffectedComponents": 6,
+        "internalDamageReduction": 0.7
       },
       "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team."
     },

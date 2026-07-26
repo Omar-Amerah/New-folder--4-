@@ -50,6 +50,7 @@ window.addEventListener("resize", resizeArenaRenderer);
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     if (dom.confirmModal && !dom.confirmModal.hidden) { closeConfirmModal(); return; }
+    if (dom.keybindsModal && !dom.keybindsModal.hidden) { dom.keybindsModal.hidden = true; return; }
     if (dom.mainMenuScreen && !dom.mainMenuScreen.hidden) { if (!dom.mainMenuCloseButton?.disabled) hideMenuScreens(); return; }
     if (dom.lobbyManagementScreen && !dom.lobbyManagementScreen.hidden) { hideMenuScreens(); return; }
     if (dom.settingsScreen && !dom.settingsScreen.hidden) { closeSettings(); return; }
@@ -99,6 +100,16 @@ dom.copyCodeButton?.addEventListener("click", () => {
   import("./ui/toastUi.js").then((toastMod) => {
     toastMod.showToast("Room code copied", "good");
   });
+});
+
+dom.keybindsButton?.addEventListener("click", () => {
+  if (dom.keybindsModal) dom.keybindsModal.hidden = false;
+});
+dom.keybindsCloseButton?.addEventListener("click", () => {
+  if (dom.keybindsModal) dom.keybindsModal.hidden = true;
+});
+dom.keybindsModal?.addEventListener("click", (event) => {
+  if (event.target === dom.keybindsModal) dom.keybindsModal.hidden = true;
 });
 
 dom.copyButton.addEventListener("click", () => {
@@ -264,7 +275,7 @@ async function loadComponentBalance() {
   const { acceptDownloadedBalance, recordBalanceFetchFailure } = await import("./balanceStatus.js");
   let balance;
   try {
-    const response = await fetch("/component-balance.json", { cache: "no-store" });
+    const response = await fetch("/component-balance.generated.json", { cache: "no-store" });
     if (!response.ok) {
       // Fetch failed: keep the packaged copy and surface a restrained warning.
       recordBalanceFetchFailure(`HTTP ${response.status}`);

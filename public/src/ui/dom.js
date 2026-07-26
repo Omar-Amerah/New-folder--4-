@@ -224,7 +224,10 @@ export const dom = {
   confirmModalTitle: document.getElementById("confirmModalTitle"),
   confirmModalMessage: document.getElementById("confirmModalMessage"),
   confirmCancelButton: document.getElementById("confirmCancelButton"),
-  confirmAcceptButton: document.getElementById("confirmAcceptButton")
+  confirmAcceptButton: document.getElementById("confirmAcceptButton"),
+  keybindsButton: document.getElementById("keybindsButton"),
+  keybindsModal: document.getElementById("keybindsModal"),
+  keybindsCloseButton: document.getElementById("keybindsCloseButton")
 };
 
 // Shared "current 2D target" for offscreen Canvas artwork. The arena is rendered

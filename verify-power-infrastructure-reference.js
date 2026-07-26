@@ -86,8 +86,8 @@ check("2. balance blocks pass schema validation and invalid values are rejected"
 });
 check("3. generated/public balance mirrors match the authoritative source", () => {
   const authoritative = JSON.parse(fs.readFileSync("component-balance.json", "utf8"));
-  const publicCopy = JSON.parse(fs.readFileSync("public/component-balance.json", "utf8"));
-  assert.deepStrictEqual(publicCopy, authoritative, "public/component-balance.json mirrors the source");
+  const publicCopy = JSON.parse(fs.readFileSync("public/component-balance.generated.json", "utf8"));
+  assert.deepStrictEqual(publicCopy, authoritative, "public/component-balance.generated.json mirrors the source");
   const generated = fs.readFileSync("public/src/generatedBalance.js", "utf8");
   const embedded = JSON.parse(generated.slice(generated.indexOf("{"), generated.lastIndexOf("}") + 1));
   assert.deepStrictEqual(embedded, authoritative, "generatedBalance.js embeds the same balance");

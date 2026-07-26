@@ -178,7 +178,8 @@ const GROUPS = {
     "verify-browser-sequential-rooms.js",
     "verify-pixi-lifecycle.js",
     "verify-renderer-performance-browser.js",
-    "verify-webgl-context-browser.js"
+    "verify-webgl-context-browser.js",
+    "verify-purchase-bar-layout-browser.js"
   ],
 
   // Deterministic server/simulation soaks only. This group is browser-free.

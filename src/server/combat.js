@@ -2147,53 +2147,123 @@ function updateProximityCharges(room, ships, dt, now) {
 
 function blastDamageFor(edge, blastR, centre, exp) {
   if (edge >= blastR) return 0;
-  const ratio = edge / blastR;
-  return centre * Math.max(0, 1 - Math.pow(ratio, exp));
+  const ratio = Math.max(0, 1 - edge / blastR);
+  return centre * Math.pow(ratio, exp);
 }
 
-function applyBlastDamageToShip(room, target, origin, blastR, centre, exp, attackerId, now) {
+function applyBlastDamageToShip(room, target, origin, blastR, centre, exp, attackerId, now, cfg, damageMultiplier) {
   if (!target || !target.alive) return;
+  if (damageMultiplier === undefined) damageMultiplier = 1;
+
+  // 1. Find the nearest alive component distance to the blast origin.
+  //    This determines whether the ship is caught in the blast and the
+  //    single distance-scaled blast value for the entire ship.
   const worldCells = getShipComponentCellWorldCoords(target);
-  const componentDamage = {};
-  let shield = target.shield || 0;
+  let nearestDist = Infinity;
   for (let i = 0; i < (target.design || []).length; i += 1) {
+    if ((target.componentHp?.[i] ?? 1) <= 0) continue;
     const cells = worldCells[i];
     if (!cells || !cells.length) continue;
-    if ((target.componentHp?.[i] ?? 1) <= 0) continue;
     for (const cell of cells) {
       const dx = cell.x - origin.x;
       const dy = cell.y - origin.y;
       const distSq = dx * dx + dy * dy;
-      if (distSq >= blastR * blastR) continue;
-      const raw = blastDamageFor(Math.sqrt(distSq), blastR, centre, exp);
-      if (raw <= 1e-9) continue;
-      let hullDamage = raw;
-      let absorbed = 0;
-      if (shield > 0) {
-        const blocked = Math.min(shield, raw);
-        shield -= blocked;
-        const absorbedRatio = raw > 0 ? blocked / raw : 0;
-        const absorbedHull = hullDamage * absorbedRatio;
-        const overflowHull = hullDamage - absorbedHull;
-        const bleedThrough = absorbedHull * 0.05;
-        hullDamage = overflowHull + bleedThrough;
-        absorbed = blocked;
-      }
-      if (absorbed > 0) {
-        distributeComponentHeatByWeight(target, effectiveShieldCapacityContributions(target), absorbed * SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE);
-      }
-      if (hullDamage > 0) {
-        componentDamage[i] = (componentDamage[i] || 0) + hullDamage;
-      }
+      if (distSq < nearestDist) nearestDist = distSq;
     }
   }
-  target.shield = Math.max(0, shield);
-  for (const idx of Object.keys(componentDamage)) {
-    const index = Number(idx);
-    applyDirectComponentDamage(room, target, index, componentDamage[index], attackerId, now, {});
+  if (nearestDist >= blastR * blastR) return;
+  const distance = Math.sqrt(nearestDist);
+
+  // 2. Calculate one distance-scaled blast value (quadratic falloff).
+  const ratio = Math.max(0, 1 - distance / blastR);
+  const blastDamage = centre * Math.pow(ratio, exp) * damageMultiplier;
+  if (blastDamage <= 0) return;
+
+  // 3. Apply shields first (5% bleed-through, matching damageShip).
+  const SHIELD_ABSORPTION = 0.95;
+  let shield = target.shield || 0;
+  let hullBudget = blastDamage;
+  let shieldAbsorbed = 0;
+  if (shield > 0) {
+    const blocked = Math.min(shield, blastDamage);
+    shield -= blocked;
+    shieldAbsorbed = blocked;
+    const absorbedRatio = blastDamage > 0 ? blocked / blastDamage : 0;
+    const absorbedHull = hullBudget * absorbedRatio;
+    const overflowHull = hullBudget - absorbedHull;
+    const bleedThrough = absorbedHull * (1 - SHIELD_ABSORPTION);
+    hullBudget = overflowHull + bleedThrough;
   }
+  target.shield = Math.max(0, shield);
+
+  if (shieldAbsorbed > 0) {
+    distributeComponentHeatByWeight(target, effectiveShieldCapacityContributions(target), shieldAbsorbed * SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE);
+    pushDamageEffect(room, target, now, shieldAbsorbed, true);
+  }
+
+  if (hullBudget <= 0) return;
+
+  // 4. Select and sort alive components by distance to blast origin.
+  const maxComponents = Math.max(1, Math.round(cfg?.maxAffectedComponents || 6));
+  const internalReduction = Math.max(0, Math.min(1, cfg?.internalDamageReduction ?? 0.7));
+
+  const candidates = [];
+  for (let i = 0; i < (target.design || []).length; i += 1) {
+    if (!isComponentAlive(target, i)) continue;
+    const pos = componentAimWorldPosition(target, i);
+    if (!pos) continue;
+    const cdx = pos.x - origin.x;
+    const cdy = pos.y - origin.y;
+    const cdist = Math.sqrt(cdx * cdx + cdy * cdy);
+    const exposed = isComponentExposed(target, i);
+    const part = PARTS[target.design[i].type] || PARTS.frame;
+    const isArmour = (part.armorFlatReduction || 0) > 0 || STRUCTURAL_COMPONENT_TYPES.has(target.design[i].type);
+    candidates.push({ index: i, distance: cdist, exposed, isArmour });
+  }
+  if (!candidates.length) return;
+  candidates.sort((a, b) => a.distance - b.distance);
+
+  // Take only the nearest maxComponents.
+  const affected = candidates.slice(0, maxComponents);
+
+  // 5. Distribute hull budget: 55% nearest, 25% split between next two,
+  //    20% spread as fragmentation among remaining components.
+  const allocations = [];
+  if (affected.length === 1) {
+    allocations.push({ ...affected[0], fraction: 1.0 });
+  } else if (affected.length === 2) {
+    allocations.push({ ...affected[0], fraction: 0.55 });
+    allocations.push({ ...affected[1], fraction: 0.45 });
+  } else {
+    allocations.push({ ...affected[0], fraction: 0.55 });
+    allocations.push({ ...affected[1], fraction: 0.125 });
+    allocations.push({ ...affected[2], fraction: 0.125 });
+    const rest = affected.slice(3);
+    if (rest.length > 0) {
+      const restFraction = 0.20 / rest.length;
+      for (const c of rest) allocations.push({ ...c, fraction: restFraction });
+    } else {
+      allocations[0].fraction += 0.20;
+    }
+  }
+
+  // 6. Apply damage, reducing internal (non-exposed, non-armour) components.
+  //    The sum of all component damage is guaranteed <= hullBudget.
+  for (const alloc of allocations) {
+    let dmg = hullBudget * alloc.fraction;
+    if (!alloc.exposed && !alloc.isArmour) {
+      dmg *= (1 - internalReduction);
+    }
+    if (dmg > 0) {
+      applyDirectComponentDamage(room, target, alloc.index, dmg, attackerId, now, {});
+    }
+  }
+
   if (target.hp <= 0.001) destroyShip(room, target, attackerId, now);
 }
+
+const CHARGE_DIMINISHING_RETURNS = [1.0, 0.5, 0.25, 0.1, 0.1, 0.1, 0.1];
+const CHARGE_DIMINISHING_RESET_MS = 500;
 
 function detonateProximityCharge(room, ship, index, now, markDetonated = true) {
   if (!room || !ship || ship.alive === false) return;
@@ -2207,6 +2277,16 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true) {
   const blastR = cfg.blastRadius;
   const centre = cfg.centreDamage;
   const exp = Math.max(0.1, cfg.falloffExponent);
+
+  // Diminishing returns: each successive charge detonation from the same
+  // ship within a short window contributes less damage.
+  if (now >= (ship.proximityChargeDetonationResetAt || 0)) {
+    ship.proximityChargeDetonationCount = 0;
+  }
+  const detonationCount = ship.proximityChargeDetonationCount || 0;
+  const damageMultiplier = CHARGE_DIMINISHING_RETURNS[Math.min(detonationCount, CHARGE_DIMINISHING_RETURNS.length - 1)];
+  ship.proximityChargeDetonationCount = detonationCount + 1;
+  ship.proximityChargeDetonationResetAt = now + CHARGE_DIMINISHING_RESET_MS;
 
   room.effects.push({ type: "text", text: "PROXIMITY CHARGE DETONATED", x: origin.x, y: origin.y - 18, at: now });
   room.effects.push({ type: "boom", x: origin.x, y: origin.y, at: now });
@@ -2231,14 +2311,14 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true) {
     for (const entity of out) {
       if (kind === "ships") {
         if (!entity.alive) continue;
-        applyBlastDamageToShip(room, entity, origin, blastR, centre, exp, ship.ownerId, now);
+        applyBlastDamageToShip(room, entity, origin, blastR, centre, exp, ship.ownerId, now, cfg, damageMultiplier);
       } else if (kind === "drones") {
         if (entity.destroyed || entity.removed) continue;
         const dx = entity.x - origin.x;
         const dy = entity.y - origin.y;
         const edge = Math.max(0, fastHypot(dx, dy) - (entity.radius || 6));
         if (edge >= blastR) continue;
-        const damage = blastDamageFor(edge, blastR, centre, exp);
+        const damage = blastDamageFor(edge, blastR, centre, exp) * damageMultiplier;
         if (damage > 0) require("./drones").damageDrone(room, entity, damage, ship.ownerId, now);
       } else if (kind === "projectiles") {
         if (entity.life <= 0 || !entity.interceptable) continue;
@@ -2246,7 +2326,7 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true) {
         const dy = entity.y - origin.y;
         const edge = Math.max(0, fastHypot(dx, dy) - 2);
         if (edge >= blastR) continue;
-        const damage = blastDamageFor(edge, blastR, centre, exp);
+        const damage = blastDamageFor(edge, blastR, centre, exp) * damageMultiplier;
         if (damage <= 0.001) continue;
         entity.hp = (entity.hp ?? (entity.damage || 20)) - damage;
         if (entity.hp <= 0.001) {

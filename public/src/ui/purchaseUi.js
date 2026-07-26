@@ -191,12 +191,9 @@ export function updateEconomyUi() {
   const mine = state.mine;
   const localStats = computeStats(state.design, { wiring: state.wiring });
   const localStatus = getShipStatus(localStats);
-  const money = currentMatchMoney(mine);
   const income = mine?.income ?? 0;
   const myTeam = mine?.team;
   const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
-  const unitCost = localStats.unitCost;
-  const canAfford = money >= unitCost;
   const canReady = state.phase === "design" && !mine?.ready && localStatus.blockers.length === 0;
   const canSaveActiveDesign = state.phase === "active" && Boolean(mine?.ready);
 
@@ -204,7 +201,7 @@ export function updateEconomyUi() {
     dom.incomeHud.textContent = `+$${Math.round(income)}/s`;
     dom.incomeHud.title = mine?.ready
       ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
-      : "Ready with an affordable starting design to begin earning money.";
+      : "Ready with a valid starting design to begin earning money.";
   }
   dom.deployButton.hidden = state.phase !== "design";
   dom.deployButton.disabled = !canReady;
@@ -220,7 +217,7 @@ export function updateEconomyUi() {
     const status = state.phase === "design"
       ? mine.ready ? "Ready. Waiting for the rest of the room." : "Design your starting ship, then ready with this design."
       : mine.ready
-        ? economyStatusText({ income, relays, canAfford, unitCost, money })
+        ? economyStatusText({ income, relays })
         : "Waiting for ship design";
     if (dom.buildStatus && !dom.buildStatus.className.includes("warning")) {
       dom.buildStatus.textContent = status;
@@ -231,15 +228,13 @@ export function updateEconomyUi() {
 }
 
 function readyBlockerButtonText(reason) {
-  if (/Need \$(\d+)/.test(reason)) return `Cannot Ready - Need $${reason.match(/Need \$(\d+)/)[1]}`;
   if (reason.includes("missing core")) return "Cannot Ready - Missing Core";
   if (reason.includes("disconnected")) return "Cannot Ready - Disconnected";
   if (reason.includes("blueprint is empty")) return "Cannot Ready - Empty Design";
   return "Cannot Ready";
 }
 
-function economyStatusText({ income, relays, canAfford, unitCost, money }) {
-  if (!canAfford) return `Current editor design needs $${Math.ceil(unitCost - money)} more. Buy affordable ships from the bottom bar.`;
+function economyStatusText({ income, relays }) {
   return `Buy ships from the bottom bar. Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`;
 }
 
@@ -724,10 +719,7 @@ function currentMatchMoney(mine) {
 }
 
 function getShipStatus(stats) {
-  const mine = state.mine;
   const blockers = [];
-  const money = currentMatchMoney(mine);
-  const isActiveBuild = state.phase === "active";
   const hasCore = state.design.filter((part) => part.type === "core").length === 1;
 
   if (state.designNeedsAttention) blockers.push("Invalid design: review and save the repaired blueprint before deployment.");
@@ -735,10 +727,7 @@ function getShipStatus(stats) {
   if (!hasCore) blockers.push("Invalid design: missing core.");
   if (!isConnected(state.design)) blockers.push("Invalid design: disconnected parts.");
   if (stats.thrust <= 0) blockers.push("Invalid design: add at least one engine.");
-  if (money < stats.unitCost) blockers.push(`${isActiveBuild ? "Cannot afford ship" : "Cannot ready design"}. Need $${Math.ceil(stats.unitCost - money)} more.`);
-
   const warnings = [...stats.warnings];
-  if (money > 0 && stats.unitCost > money * 0.75) warnings.push("High cost for current money.");
   if (stats.maxShield < 35 && stats.maxHp < 210) warnings.push("Weak defence: low combined hull and shield.");
 
   return { blockers, warnings };

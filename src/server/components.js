@@ -151,9 +151,11 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
       ? Object.freeze({
           triggerRadius: toNumber(component.proximityCharge.triggerRadius, 100),
           triggerConfirmationSeconds: toNumber(component.proximityCharge.triggerConfirmationSeconds, 0.2),
-          blastRadius: toNumber(component.proximityCharge.blastRadius, 350),
-          centreDamage: toNumber(component.proximityCharge.centreDamage, 1700),
-          falloffExponent: toNumber(component.proximityCharge.falloffExponent, 1)
+          blastRadius: toNumber(component.proximityCharge.blastRadius, 280),
+          centreDamage: toNumber(component.proximityCharge.centreDamage, 800),
+          falloffExponent: toNumber(component.proximityCharge.falloffExponent, 2),
+          maxAffectedComponents: toNumber(component.proximityCharge.maxAffectedComponents, 6),
+          internalDamageReduction: toNumber(component.proximityCharge.internalDamageReduction, 0.7)
         })
       : null,
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }

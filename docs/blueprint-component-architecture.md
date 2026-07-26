@@ -4,7 +4,7 @@ Section 3 establishes the ship-design contract used by the catalogue, designer, 
 
 ## Component data flow
 
-`component-balance.json` is the balance input. The production server validates it with `src/server/componentSchema.js`, normalizes it in `src/server/components.js`, and sends the normalized catalogue in the WebSocket `hello.parts` message. The client may load `/component-balance.json` early for offline/menu rendering, but after `hello.parts` arrives the server catalogue is authoritative and later HTTP responses are ignored. The flow is:
+`component-balance.json` is the balance input. The production server validates it with `src/server/componentSchema.js`, normalizes it in `src/server/components.js`, and sends the normalized catalogue in the WebSocket `hello.parts` message. The client may load `/component-balance.generated.json` early for offline/menu rendering, but after `hello.parts` arrives the server catalogue is authoritative and later HTTP responses are ignored. The flow is:
 
 ```text
 component-balance.json

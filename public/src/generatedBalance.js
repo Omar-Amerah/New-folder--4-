@@ -197,7 +197,7 @@ export const GENERATED_BALANCE = {
       "category": "Structure",
       "cost": 1,
       "mass": 5,
-      "hull": 340,
+      "hull": 260,
       "powerGeneration": 4,
       "powerUse": 0,
       "shield": 0,
@@ -793,7 +793,7 @@ export const GENERATED_BALANCE = {
         "accuracy": 0.96,
         "tracking": 0,
         "arc": 42,
-        "shieldDamageMultiplier": 0.75,
+        "shieldDamageMultiplier": 0.55,
         "hullDamageMultiplier": 1.55
       },
       "rotatable": true,
@@ -1385,11 +1385,13 @@ export const GENERATED_BALANCE = {
       "proximityCharge": {
         "triggerRadius": 100,
         "triggerConfirmationSeconds": 0.2,
-        "blastRadius": 350,
-        "centreDamage": 1700,
-        "falloffExponent": 1
+        "blastRadius": 280,
+        "centreDamage": 800,
+        "falloffExponent": 2,
+        "maxAffectedComponents": 6,
+        "internalDamageReduction": 0.7
       },
-      "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team and can be set Safe to prevent accidental detonation."
+      "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team."
     },
     {
       "id": "electronicWarfareCommandCentre",

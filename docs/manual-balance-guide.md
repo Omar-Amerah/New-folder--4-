@@ -1,6 +1,6 @@
 # Manual balance guide
 
-`component-balance.json` at the repository root is the only authoritative gameplay balance source. The Netlify build validates it and copies it to `public/component-balance.json`; do not manually edit the generated public copy.
+`component-balance.json` at the repository root is the only authoritative gameplay balance source. The Netlify build validates it and copies it to `public/component-balance.generated.json`; do not manually edit the generated public copy.
 
 ## Sections
 

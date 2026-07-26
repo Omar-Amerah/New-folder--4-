@@ -4,11 +4,11 @@ const path = require('path');
 const { loadBalance } = require('../src/server/balanceConfig');
 const root = path.join(__dirname, '..');
 const balancePath = path.join(root, 'component-balance.json');
-const publicPath = path.join(root, 'public', 'component-balance.json');
+const publicPath = path.join(root, 'public', 'component-balance.generated.json');
 const required = ['metadata','components','shipPricing','economy','rewards','drones','movement','projectiles','missileGuidance','fleetLimits','capture','repair'];
 const balance = loadBalance(balancePath);
 for (const key of required) if (balance[key] === undefined) throw new Error(`Missing required balance section: ${key}`);
-if (fs.existsSync(publicPath) && fs.readFileSync(publicPath,'utf8') !== fs.readFileSync(balancePath,'utf8')) throw new Error('public/component-balance.json does not match root component-balance.json; run npm run build.');
+if (fs.existsSync(publicPath) && fs.readFileSync(publicPath,'utf8') !== fs.readFileSync(balancePath,'utf8')) throw new Error('public/component-balance.generated.json does not match root component-balance.json; run npm run build.');
 const forbidden = [];
 for (const file of ['src/server/components.js','public/src/design/parts.js','public/src/constants.js']) {
   const text = fs.readFileSync(path.join(root,file),'utf8');

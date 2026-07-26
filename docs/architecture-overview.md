@@ -42,7 +42,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 
 | Module | Responsibility |
 |---|---|
-| `server.js` (root) | HTTP static serving with in-memory gzip cache, `/component-balance.json`, `/debug/turrets` (dev-only diagnostics), WebSocket upgrade handshake, tick + snapshot + room-cleanup loops, per-room `tickRoom` orchestration |
+| `server.js` (root) | HTTP static serving with in-memory gzip cache, `/component-balance.generated.json`, `/debug/turrets` (dev-only diagnostics), WebSocket upgrade handshake, tick + snapshot + room-cleanup loops, per-room `tickRoom` orchestration |
 | `config.js` | Ports, world sizes, tick rates, economy constants, default rules, default design, shared generated default Wiring v2 Power topology, MIME map |
 | `websocketServer.js` | RFC 6455 frame parse/serialize (masked client frames, 16/64-bit lengths), client registry, heartbeat pong, close frames, 64 KiB message cap |
 | `wsCodec.js` | MessagePack encode/decode for the wire (binary opcode 0x2; JSON text frames tolerated inbound) |
@@ -67,7 +67,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 
 ## C. Client modules (`public/src/`)
 
-- **Bootstrap** — `main.js`: binds DOM listeners, loads `component-balance.json`,
+- **Bootstrap** — `main.js`: binds DOM listeners, loads `component-balance.generated.json`,
   initialises renderer, auto-rejoins room from URL/localStorage, 3 s ping loop.
   Exposes `window.__mfaState` / `window.__mfaNetSend` **for tests only**.
 - **Global state** — `state.js`: one big mutable `state` object (socket, snapshot,
@@ -116,7 +116,7 @@ server (`require`) consume the same logic:
 - `engineExhaust.js` — exhaust geometry/state shared by stats and rendering.
 - `math.js`, `movementStats.js`, `formatting.js`, `ids.js`, `heatDisplay.js`.
 - `component-balance.json` (repo root) — the component stat source of truth;
-  served by the backend at `/component-balance.json`, loaded by the server via
+  served by the backend at `/component-balance.generated.json`, loaded by the server via
   `components.js` and by the client at boot (silent fallback to built-in defaults
   if unreachable).
 - **Duplicated (not shared) geometry**: blueprint footprint/rotation logic exists

@@ -8,7 +8,7 @@
     <script src="/vendor/msgpack.min.js"></script>
     <link rel="stylesheet" href="/styles.css?v=drone-command-1">
     <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-15">
-    <link rel="stylesheet" href="/hud.css?v=matte-match-hud-2">
+    <link rel="stylesheet" href="/hud.css?v=purchase-bar-fix-1">
   </head>
   <body>
   <div id="debugOverlay" style="position: fixed; top: 10px; left: 10px; pointer-events: none; z-index: 10000; background: rgba(0,0,0,0.7); color: #00ff00; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 4px; display: none;"></div>
@@ -52,6 +52,13 @@
             <button id="rallyPointButton" type="button">Rally Point</button>
             <button id="resetRallyButton" type="button" class="secondary">Reset</button>
           </div>
+        </div>
+
+        <div class="side-panel-bottom">
+          <button id="keybindsButton" type="button" class="keybinds-button secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
+            <span>Keybinds</span>
+          </button>
         </div>
       </section>
 
@@ -111,6 +118,25 @@
         </div>
         <div id="commandMarker" class="command-marker" hidden></div>
         <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+        <section id="purchaseBar" class="purchase-bar" aria-label="Ship purchase bar">
+          <div class="purchase-meta">
+            <div class="purchase-quantity" aria-label="Purchase quantity">
+              <span>Quantity</span>
+              <div>
+                <button id="purchaseQuantityOne" type="button" class="active">1</button>
+                <button id="purchaseQuantityFive" type="button">5</button>
+              </div>
+            </div>
+          </div>
+          <div class="purchase-main">
+            <div class="purchase-main-head">
+              <span>Buy Ships</span>
+              <div id="loadoutTabs" class="loadout-tabs" role="tablist" aria-label="Ship loadouts"></div>
+            </div>
+            <div id="purchaseOptions" class="purchase-options"></div>
+          </div>
+        </section>
       </section>
 
       <aside class="match-panel" aria-label="Match status">
@@ -341,24 +367,6 @@
       </div>
     </section>
 
-    <section id="purchaseBar" class="purchase-bar" aria-label="Ship purchase bar">
-      <div class="purchase-meta">
-        <div class="purchase-quantity" aria-label="Purchase quantity">
-          <span>Quantity</span>
-          <div>
-            <button id="purchaseQuantityOne" type="button" class="active">1</button>
-            <button id="purchaseQuantityFive" type="button">5</button>
-          </div>
-        </div>
-      </div>
-      <div class="purchase-main">
-        <div class="purchase-main-head">
-          <span>Buy Ships</span>
-          <div id="loadoutTabs" class="loadout-tabs" role="tablist" aria-label="Ship loadouts"></div>
-        </div>
-        <div id="purchaseOptions" class="purchase-options"></div>
-      </div>
-    </section>
     <div id="purchaseTooltip" class="purchase-tooltip" hidden></div>
     <div id="statTooltip" class="purchase-tooltip" hidden></div>
     <section id="confirmModal" class="confirm-modal" hidden role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
@@ -368,6 +376,49 @@
         <div class="confirm-actions">
           <button id="confirmCancelButton" type="button" class="secondary">Cancel</button>
           <button id="confirmAcceptButton" type="button">Delete</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="keybindsModal" class="keybinds-modal" hidden role="dialog" aria-modal="true" aria-labelledby="keybindsModalTitle">
+      <div class="keybinds-panel">
+        <div class="keybinds-head">
+          <div>
+            <span>Controls</span>
+            <h2 id="keybindsModalTitle">Keybinds</h2>
+          </div>
+          <button id="keybindsCloseButton" type="button" class="secondary" aria-label="Close keybinds">Close</button>
+        </div>
+        <div class="keybinds-body">
+          <div class="keybinds-section">
+            <h3>Selection &amp; Commands</h3>
+            <div class="keybinds-grid">
+              <div class="keybind-row"><kbd class="keycap">Q</kbd><span>Select all own ships</span></div>
+              <div class="keybind-row"><kbd class="keycap">B</kbd><span>Stop selected ships</span></div>
+              <div class="keybind-row"><kbd class="keycap">Del</kbd><span>Self-destruct selected ships</span></div>
+              <div class="keybind-row"><kbd class="keycap">Esc</kbd><span>Deselect &amp; cancel</span></div>
+              <div class="keybind-row"><kbd class="keycap">R-Click</kbd><span>Issue move / attack command</span></div>
+            </div>
+          </div>
+          <div class="keybinds-section">
+            <h3>Camera</h3>
+            <div class="keybinds-grid">
+              <div class="keybind-row"><kbd class="keycap">W</kbd><kbd class="keycap">A</kbd><kbd class="keycap">S</kbd><kbd class="keycap">D</kbd><span>Pan camera</span></div>
+              <div class="keybind-row"><kbd class="keycap">F</kbd><span>Follow selected ships</span></div>
+              <div class="keybind-row"><kbd class="keycap">C</kbd><span>Center on selected ships</span></div>
+              <div class="keybind-row"><kbd class="keycap">0</kbd><span>Reset zoom to fit</span></div>
+              <div class="keybind-row"><kbd class="keycap">Space</kbd><span>+ drag to pan</span></div>
+              <div class="keybind-row"><kbd class="keycap">Wheel</kbd><span>Zoom in / out</span></div>
+            </div>
+          </div>
+          <div class="keybinds-section">
+            <h3>Overlays &amp; Designer</h3>
+            <div class="keybinds-grid">
+              <div class="keybind-row"><kbd class="keycap">V</kbd><span>Toggle component damage view</span></div>
+              <div class="keybind-row"><kbd class="keycap">R</kbd><span>Rotate focused part (designer)</span></div>
+              <div class="keybind-row"><kbd class="keycap">Ctrl</kbd><span>+</span><kbd class="keycap">Z</kbd><span>Undo blueprint edit (designer)</span></div>
+            </div>
+          </div>
         </div>
       </div>
     </section>

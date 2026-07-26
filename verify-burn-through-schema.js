@@ -56,7 +56,7 @@ assert.deepStrictEqual(burnThroughErrors(0.4, "beam"), [], "0.4 on a beam is acc
 console.log("PASS: burn-through is only valid on supported (beam) weapons");
 
 // The live component balance keeps a valid Beam Emitter value of 0.4.
-for (const file of ["component-balance.json", "public/component-balance.json"]) {
+for (const file of ["component-balance.json", "public/component-balance.generated.json"]) {
   const balance = JSON.parse(fs.readFileSync(file, "utf8"));
   const result = validateComponentBalance(balance, { filePath: file });
   assert.strictEqual(result.ok, true, `${file} must validate:\n${result.errors.join("\n")}`);

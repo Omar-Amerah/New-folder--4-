@@ -22,5 +22,6 @@ state.selectedShipIds=new Set(['selected']); let event=keyEvent('Delete'); input
 state.selectedShipIds=new Set(['selected']); event=keyEvent('Backspace'); input.handleKeyDown(event); assert.equal(event.prevented,true); assert.deepEqual(sent.pop(),{type:'destruct',shipIds:['selected']},'Backspace invokes explicit-selection self-destruct');
 state.selectedShipIds=new Set(['selected']); event=keyEvent('Delete',{repeat:true}); input.handleKeyDown(event); assert.equal(event.prevented,false); assert.equal(sent.length,0,'held keys do not repeat requests');
 for (const [key,editable] of [['Delete',control('input')],['Backspace',control('textarea')],['Delete',control('div',{editable:true})]]) { state.selectedShipIds=new Set(['selected']); event=keyEvent(key,{target:editable}); input.handleKeyDown(event); assert.equal(event.prevented,false); assert.equal(sent.length,0,`${key} editing remains native`); }
-state.selectedShipIds=new Set(['selected']); event=keyEvent('f'); state.camera.follow=false; input.handleKeyDown(event); assert.equal(state.camera.follow,true,'other gameplay shortcuts remain intact');
+state.selectedShipIds=new Set(['selected']); event=keyEvent('f'); state.camera.follow=false; input.handleKeyDown(event); assert.equal(state.camera.follow,true,'F toggles camera follow');
+state.selectedShipIds=new Set(['selected']); event=keyEvent('b'); input.handleKeyDown(event); assert.equal(event.prevented,true); assert.deepEqual(sent.pop(),{type:'stop',shipIds:['selected']},'B stops selected ships');
 console.log('Input lifecycle verification passed');

@@ -1,7 +1,7 @@
 // Client-side authoritative-balance compatibility tracking.
 //
 // The client is built with a packaged balance (GENERATED_BALANCE). At runtime it
-// may also download the live /component-balance.json and it learns the server's
+// may also download the live /component-balance.generated.json and it learns the server's
 // balance revision from the hello/state messages. This module keeps those three
 // facts reconciled and exposes whether it is safe to enter combat (deploy ships
 // / purchase). It never silently proceeds on a mismatch or a malformed download.

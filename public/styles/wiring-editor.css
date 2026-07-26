@@ -719,8 +719,8 @@
 .wiring-stat-card {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 5px 7px;
+  justify-content: space-between;
+  padding: 11px 14px 10px;
   background: rgba(18, 26, 38, 0.6);
   border: 1px solid rgba(126, 160, 210, 0.18);
   border-radius: 6px;
@@ -728,6 +728,8 @@
   min-height: 44px;
 }
 .wiring-stat-label {
+  margin: 0;
+  position: static;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -736,9 +738,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-bottom: 2px;
 }
 .wiring-stat-value {
+  align-self: flex-end;
   font-size: 12px;
   font-weight: 700;
   color: #e5edf8;

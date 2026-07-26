@@ -231,7 +231,7 @@ function handleHttpRequest(req, res) {
     return;
   }
 
-  if (pathname === "/component-balance.json") {
+  if (pathname === "/component-balance.generated.json") {
     serveBuffer(req, res, {
       data: componentBalanceJson,
       gzip: componentBalanceGzip,

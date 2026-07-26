@@ -196,6 +196,8 @@ label {
 
 .side-panel {
   order: 1;
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--line);
   padding: 14px 10px 14px;
 }
@@ -1600,7 +1602,8 @@ h2 {
   --interface-scale: 1;
   --ux-density: .95;
 }
-.side-panel, .match-panel, .menu-panel, .top-hud, .purchase-bar { font-size: calc(1rem * var(--interface-scale)); }
+.side-panel, .match-panel, .menu-panel, .top-hud { font-size: calc(1rem * var(--interface-scale)); }
+.purchase-bar { font-size: calc(1rem * var(--interface-scale) * var(--ux-density)); }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #38d5ff; outline-offset: 2px; }
 .settings-group { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; }
 .settings-group legend { color: var(--text); font-weight: 800; padding: 0 6px; }
@@ -1619,7 +1622,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .match-panel,
 .menu-screen:not(.blueprint-designer-screen) > .menu-panel,
 .confirm-panel,
-.purchase-bar,
+.keybinds-panel,
 .purchase-tooltip,
 .toast-stack {
   zoom: var(--ux-density);
@@ -1630,3 +1633,131 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .cost-breakdown-total { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid rgba(148, 163, 184, 0.35); display: grid; gap: 0.15rem; }
 .cost-breakdown-total > div { display: flex; justify-content: space-between; gap: 0.75rem; }
 .cost-breakdown-total > div:last-child strong { color: #86ddff; }
+
+/* ── Keybinds button (side-panel bottom) ── */
+.side-panel-bottom {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.keybinds-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  font-size: 13px;
+}
+
+.keybinds-button svg {
+  opacity: 0.8;
+}
+
+/* ── Keybinds modal ── */
+.keybinds-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 5, 11, 0.62);
+  backdrop-filter: blur(10px);
+}
+
+.keybinds-panel {
+  width: min(520px, 100%);
+  max-height: min(640px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(56, 213, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(9, 15, 25, 0.96);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.52);
+}
+
+.keybinds-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.keybinds-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.keybinds-head h2 {
+  margin: 2px 0 0;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.keybinds-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 14px;
+}
+
+.keybinds-section h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+}
+
+.keybinds-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keybind-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(15, 22, 35, 0.6);
+  border: 1px solid rgba(174, 199, 231, 0.08);
+}
+
+.keybind-row span {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+/* Keyboard keycap styling */
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid rgba(174, 199, 231, 0.28);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(30, 40, 58, 0.9), rgba(18, 26, 40, 0.9));
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cyan);
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
