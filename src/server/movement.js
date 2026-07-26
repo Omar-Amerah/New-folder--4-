@@ -657,45 +657,64 @@ function regenerateShield(ship, stats, dt) {
   }
 }
 
+function resolveSeparationPair(room, a, b, safeDt) {
+  let dx = b.x - a.x;
+  let dy = b.y - a.y;
+  const distSq = dx * dx + dy * dy;
+
+  const minimum = shipCollisionRadius(a) + shipCollisionRadius(b);
+  if (distSq >= minimum * minimum) return;
+
+  let distance = Math.sqrt(distSq);
+  if (distance < 0.001) {
+    const hash = String(a.id).localeCompare(String(b.id), undefined, { numeric: true }) <= 0 ? 1 : -1;
+    const angle = hash > 0 ? 0 : Math.PI;
+    dx = Math.cos(angle);
+    dy = Math.sin(angle);
+    distance = 1;
+  }
+  const push = (minimum - distance) * 0.5;
+
+  const nx = dx / distance;
+  const ny = dy / distance;
+
+  a.x = clampNumber(a.x - nx * push, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
+  a.y = clampNumber(a.y - ny * push, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
+  b.x = clampNumber(b.x + nx * push, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
+  b.y = clampNumber(b.y + ny * push, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
+
+  const impulse = push * safeDt * 9;
+
+  a.vx -= nx * impulse;
+  a.vy -= ny * impulse;
+  b.vx += nx * impulse;
+  b.vy += ny * impulse;
+}
+
 function updateShipSeparation(room, ships, dt) {
   const safeDt = Number.isFinite(Number(dt)) && Number(dt) > 0 ? Math.min(Number(dt), MAX_MOVEMENT_DT) : 0;
   const ordered = ships.filter((ship) => ship.alive).slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const index = room.spatialIndex;
+  const useIndex = index?.dynamicValid && typeof index.queryRangeUnordered === "function";
+  const orderedIds = useIndex ? ordered.map((ship) => String(ship.id)) : null;
+  const scratch = room._separationScratch || (room._separationScratch = []);
+  const maxShipRadius = 48;
+
   for (let i = 0; i < ordered.length; i += 1) {
-    for (let j = i + 1; j < ordered.length; j += 1) {
-      const a = ordered[i];
-      const b = ordered[j];
-
-      let dx = b.x - a.x;
-      let dy = b.y - a.y;
-      const distSq = dx * dx + dy * dy;
-
-      const minimum = shipCollisionRadius(a) + shipCollisionRadius(b);
-      if (distSq >= minimum * minimum) continue;
-
-      let distance = Math.sqrt(distSq);
-      if (distance < 0.001) {
-        const hash = String(a.id).localeCompare(String(b.id), undefined, { numeric: true }) <= 0 ? 1 : -1;
-        const angle = hash > 0 ? 0 : Math.PI;
-        dx = Math.cos(angle);
-        dy = Math.sin(angle);
-        distance = 1;
+    const a = ordered[i];
+    if (useIndex) {
+      const aId = orderedIds[i];
+      const candidates = index.queryRangeUnordered("ships", a.x, a.y, shipCollisionRadius(a) + maxShipRadius, scratch);
+      for (const b of candidates) {
+        if (!b || !b.alive || b === a) continue;
+        const bId = String(b.id);
+        if (bId.localeCompare(aId, undefined, { numeric: true }) <= 0) continue;
+        resolveSeparationPair(room, a, b, safeDt);
       }
-      const push = (minimum - distance) * 0.5;
-
-      const nx = dx / distance;
-      const ny = dy / distance;
-
-      a.x = clampNumber(a.x - nx * push, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
-      a.y = clampNumber(a.y - ny * push, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
-      b.x = clampNumber(b.x + nx * push, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
-      b.y = clampNumber(b.y + ny * push, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
-
-      const impulse = push * safeDt * 9;
-
-      a.vx -= nx * impulse;
-      a.vy -= ny * impulse;
-      b.vx += nx * impulse;
-      b.vy += ny * impulse;
+    } else {
+      for (let j = i + 1; j < ordered.length; j += 1) {
+        resolveSeparationPair(room, a, ordered[j], safeDt);
+      }
     }
   }
 }
