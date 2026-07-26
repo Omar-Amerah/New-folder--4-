@@ -116,6 +116,15 @@ function duplicateSnapshotPlayerIds(clients) {
 }
 function broadcastSnapshot(room, now, forceStatic = false) {
   if (room.clients.size === 0) return;
+  // Any delivered snapshot satisfies a pending purchase snapshot and cancels
+  // the fallback coalesce timer so the regular scheduler and the fallback
+  // cannot both emit.
+  if (room._snapshotCoalesceTimer) {
+    clearTimeout(room._snapshotCoalesceTimer);
+    room._snapshotCoalesceTimer = null;
+  }
+  room._pendingSnapshot = false;
+  room._pendingSnapshotAt = 0;
   const startedAt = performanceNow();
   const seq = nextSeq(room);
   const revision = room.staticRevision || 1;

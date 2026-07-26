@@ -345,7 +345,11 @@ function createGameServer(options = {}) {
           }
           tickCount += 1;
           if (tickCount % ticksPerSnapshot === 0) {
-            for (const room of rooms.values()) if (room.phase === "active") broadcastSnapshot(room, now);
+            for (const room of rooms.values()) {
+              if (room.phase !== "active") continue;
+              room._nextScheduledSnapshotAt = now + ticksPerSnapshot * tickIntervalMs;
+              broadcastSnapshot(room, now);
+            }
           }
           recordTick({
             simulationMs,

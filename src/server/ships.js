@@ -5,6 +5,7 @@ const { performanceNow, seededRandom, rngRange, hashString } = require("./utils"
 const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
+const { recordPurchaseStage } = require("./performanceTelemetry");
 
 function spawnShip(room, player, now, index = 0, options = {}) {
   const { nearestClearPoint } = require("./movement");

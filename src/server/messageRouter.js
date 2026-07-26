@@ -1,4 +1,5 @@
 const { clampNumber, performanceNow } = require("./utils");
+const { SNAPSHOT_HZ } = require("./config");
 const { validateClientMessage } = require("./clientSchemas");
 const { negotiate, ERROR_CODES } = require("./protocol");
 const { send, sendPlayer, broadcastRoom } = require("./outbound");
@@ -190,23 +191,30 @@ function handleMessage(client, message) {
       message: `${client.player.name} built ${result.count} ship${result.count === 1 ? "" : "s"}`
     });
     
-    // Coalesce snapshot: mark room for snapshot instead of broadcasting immediately
-    // The regular snapshot timer will pick this up, or we use a deferred broadcast
+    // Coalesce snapshot: mark room for snapshot and let the regular scheduler
+    // deliver it. If the next scheduled snapshot is too far away, arm a fallback
+    // timer; any delivered snapshot clears this timer to prevent duplicates.
     client.room._pendingSnapshot = true;
     client.room._pendingSnapshotAt = now;
-    
-    // Use a small timeout to coalesce multiple purchases in the same interval
-    if (!client.room._snapshotCoalesceTimer) {
+
+    const SNAPSHOT_INTERVAL_MS = 1000 / Math.max(1, SNAPSHOT_HZ);
+    const FALLBACK_THRESHOLD_MS = 50;
+    const timeToNext = client.room._nextScheduledSnapshotAt
+      ? Math.max(0, client.room._nextScheduledSnapshotAt - now)
+      : SNAPSHOT_INTERVAL_MS;
+
+    if (!client.room._snapshotCoalesceTimer && timeToNext > FALLBACK_THRESHOLD_MS) {
+      // Fire just before the next regular snapshot would arrive so the fallback
+      // bridges the latency gap without racing the scheduler.
+      const fallbackDelay = Math.min(FALLBACK_THRESHOLD_MS, timeToNext);
       client.room._snapshotCoalesceTimer = setTimeout(() => {
+        client.room._snapshotCoalesceTimer = null;
         if (client.room._pendingSnapshot) {
           const snapshotStart = performance.now();
           broadcastSnapshot(client.room, client.room._pendingSnapshotAt);
           recordPurchaseStage("postPurchaseSnapshotConstruction", performance.now() - snapshotStart);
-          client.room._pendingSnapshot = false;
-          client.room._pendingSnapshotAt = 0;
         }
-        client.room._snapshotCoalesceTimer = null;
-      }, 50); // Coalesce up to 50ms of purchases
+      }, fallbackDelay);
       client.room._snapshotCoalesceTimer.unref?.();
     }
     

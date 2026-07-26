@@ -17,6 +17,42 @@ const { BALANCE } = require("./balanceConfig");
 // Template cache keyed by player ID and design revision
 const templateCache = new Map();
 
+// Deterministic canonical serialization: recursively sort object keys so that
+// reordering keys in the wire payload cannot change the signature, while any
+// meaningful value change does. Arrays keep their order (wiring section/
+// connection arrays are explicitly sorted below before canonicalization).
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = canonicalize(value[key]);
+    return out;
+  }
+  return value;
+}
+
+function canonicalBlueprintSignature(design, wiring) {
+  const blueprint = createShipBlueprintSnapshot(design, wiring);
+  const canonicalKind = (kind) => ({
+    sections: kind.sections.map((section) => canonicalize(section)).sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    connections: kind.connections.map((connection) => canonicalize({ ...connection, sectionIds: [...connection.sectionIds] }))
+      .sort((a, b) => `${a.sourceIndex}>${a.targetIndex}:${a.sectionIds.join(";")}`.localeCompare(`${b.sourceIndex}>${b.targetIndex}:${b.sectionIds.join(";")}`))
+  });
+  return canonicalize({
+    // Full normalized design parts — every field the normalizer preserves,
+    // including droneType, switchgearMode, switchgearRatingTier, and any
+    // future component-specific configuration.
+    design: blueprint.design.map((part) => canonicalize(part)),
+    wiring: {
+      version: blueprint.wiring.version,
+      power: canonicalKind(blueprint.wiring.power),
+      data: canonicalKind(blueprint.wiring.data),
+      // Power priority preset + custom priority order (and any future policy).
+      powerPolicy: blueprint.wiring.powerPolicy || null
+    }
+  });
+}
+
 function deepFreeze(obj) {
   if (obj === null || typeof obj !== "object") return obj;
   if (Object.isFrozen(obj)) return obj;
@@ -31,25 +67,10 @@ function deepFreeze(obj) {
   return Object.freeze(obj);
 }
 
-function getTemplateKey(playerId, design, wiring) {
-  // Create a stable key from the normalized design and wiring
-  const blueprint = createShipBlueprintSnapshot(design, wiring);
-  const signature = JSON.stringify({
-    design: blueprint.design.map((part) => ({
-      x: part.x,
-      y: part.y,
-      type: part.type,
-      rotation: part.rotation,
-      droneType: part.droneType
-    })),
-    wiring: {
-      version: blueprint.wiring.version,
-      power: blueprint.wiring.power.sections.map((s) => ({ id: s.id })),
-      data: blueprint.wiring.data.sections.map((s) => ({ id: s.id })),
-      powerPolicy: blueprint.wiring.powerPolicy
-    }
-  });
-  return `${playerId}:${signature}`;
+function getTemplateKey(playerId, design, wiring, blueprintSignature) {
+  // Create a stable key from the complete canonical normalized design and wiring.
+  const signature = blueprintSignature || canonicalBlueprintSignature(design, wiring);
+  return `${playerId}:${JSON.stringify(signature)}`;
 }
 
 function invalidatePlayerTemplates(playerId) {
@@ -206,10 +227,10 @@ function createImmutableShipTemplate(design, wiring, stats) {
   return template;
 }
 
-function getOrCreateTemplate(playerId, design, wiring, stats) {
-  const key = getTemplateKey(playerId, design, wiring);
+function getOrCreateTemplate(playerId, design, wiring, stats, blueprintSignature) {
+  const key = getTemplateKey(playerId, design, wiring, blueprintSignature);
   let template = templateCache.get(key);
-  
+
   if (!template) {
     template = createImmutableShipTemplate(design, wiring, stats);
     templateCache.set(key, template);
@@ -232,5 +253,7 @@ module.exports = {
   getOrCreateTemplate,
   invalidatePlayerTemplates,
   clearTemplateCache,
-  createImmutableShipTemplate
+  createImmutableShipTemplate,
+  canonicalBlueprintSignature,
+  canonicalize
 };

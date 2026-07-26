@@ -6,7 +6,7 @@ const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
 const { spawnShip } = require("./ships");
 const { validateBuildShip } = require("./validation");
-const { getOrCreateTemplate } = require("./shipTemplates");
+const { getOrCreateTemplate, canonicalBlueprintSignature } = require("./shipTemplates");
 const { recordPurchaseStage } = require("./performanceTelemetry");
 
 const PURCHASE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
@@ -67,48 +67,17 @@ function prunePurchaseRequestCache(player, now) {
   }
 }
 
-// Deterministic canonical serialization: recursively sort object keys so that
-// reordering keys in the wire payload cannot change the signature, while any
-// meaningful value change does. Arrays keep their order (wiring section/
-// connection arrays are explicitly sorted below before canonicalization).
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    const out = {};
-    for (const key of Object.keys(value).sort()) out[key] = canonicalize(value[key]);
-    return out;
-  }
-  return value;
-}
-
 // The purchase idempotency signature is derived from the COMPLETE authoritative
-// normalized blueprint + wiring, so retries with a genuinely different payload
-// are detected as conflicts even when only component-specific configuration
-// differs (Drone Bay drone type, Switchgear mode/tier, cable tiers, Power
-// priority preset/custom order, ...). We serialize the normalized parts directly
-// rather than maintaining a hand-picked field list, so future part-specific
-// configuration is covered automatically.
+// normalized blueprint + wiring. The canonical blueprint signature is computed
+// once and shared with the template cache so both systems key off the exact
+// same normalized representation.
 function stablePayloadSignature(payload) {
-  const blueprint = createShipBlueprintSnapshot(payload.design, payload.wiring);
-  const canonicalKind = (kind) => ({
-    sections: kind.sections.map((section) => canonicalize(section)).sort((a, b) => String(a.id).localeCompare(String(b.id))),
-    connections: kind.connections.map((connection) => canonicalize({ ...connection, sectionIds: [...connection.sectionIds] }))
-      .sort((a, b) => `${a.sourceIndex}>${a.targetIndex}:${a.sectionIds.join(";")}`.localeCompare(`${b.sourceIndex}>${b.targetIndex}:${b.sectionIds.join(";")}`))
-  });
-  return JSON.stringify(canonicalize({
+  const blueprint = canonicalBlueprintSignature(payload.design, payload.wiring);
+  return JSON.stringify({
     count: payload.count,
     combatStyle: payload.combatStyle || "",
-    // Full normalized design parts — every field the normalizer preserves,
-    // including droneType, switchgearMode and switchgearRatingTier.
-    design: blueprint.design.map((part) => canonicalize(part)),
-    wiring: {
-      version: blueprint.wiring.version,
-      power: canonicalKind(blueprint.wiring.power),
-      data: canonicalKind(blueprint.wiring.data),
-      // Power priority preset + custom priority order (and any future policy).
-      powerPolicy: blueprint.wiring.powerPolicy || null
-    }
-  }));
+    blueprint
+  });
 }
 
 function makePurchaseFailure(requestId, code, message) {
@@ -148,9 +117,13 @@ function executePurchase(room, player, request, now) {
   }
   recordPurchaseStage("designValidation", performance.now() - designValidationStart);
 
+  // Compute one authoritative blueprint signature for both idempotency and
+  // template caching, then share it with the template system.
+  const blueprintSignature = canonicalBlueprintSignature(request.design, request.wiring);
+
   // Use template system to avoid repeated blueprint work
   const templateStart = performance.now();
-  const template = getOrCreateTemplate(player.id, request.design, request.wiring, validation.shipStats);
+  const template = getOrCreateTemplate(player.id, request.design, request.wiring, validation.shipStats, blueprintSignature);
   const combatStyle = request.combatStyle || player.combatStyle || "hold";
   recordPurchaseStage("statCalculation", performance.now() - templateStart);
 
