@@ -1117,6 +1117,21 @@ h2 {
   margin-top: 12px;
 }
 
+.team-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.team-color-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
 .player-row {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) auto;

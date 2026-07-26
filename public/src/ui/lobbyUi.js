@@ -378,7 +378,7 @@ export function renderPlayerList() {
 
     const blueHeader = document.createElement("div");
     blueHeader.className = "section-heading compact";
-    blueHeader.innerHTML = "<h2>Blue wing</h2>";
+    blueHeader.innerHTML = '<h2><span class="team-color-swatch" style="background:var(--cyan)"></span>Blue wing</h2>';
     dom.playerList.appendChild(blueHeader);
 
     const blueGroup = document.createElement("div");
@@ -399,7 +399,7 @@ export function renderPlayerList() {
     const redHeader = document.createElement("div");
     redHeader.className = "section-heading compact";
     redHeader.style.marginTop = "0.5rem";
-    redHeader.innerHTML = "<h2>Red wing</h2>";
+    redHeader.innerHTML = '<h2><span class="team-color-swatch" style="background:var(--red)"></span>Red wing</h2>';
     dom.playerList.appendChild(redHeader);
 
     const redGroup = document.createElement("div");
