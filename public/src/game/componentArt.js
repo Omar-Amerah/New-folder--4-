@@ -947,13 +947,29 @@ function drawProfessionalModuleDetail(type, size, color) {
     drawComponentPort(size, -0.3, 0, 0.14, "#bdefff", 0.4);
     return true;
   }
-  if (type === "sensorArray") {
-    drawRecessedPanel(size, 0.76, 0.76, 0.16);
-    ctx.strokeStyle = "#a7f3d0"; ctx.lineWidth = line;
-    ctx.beginPath(); ctx.arc(-size * 0.12, 0, size * 0.31, -Math.PI * 0.32, Math.PI * 0.32); ctx.stroke();
-    ctx.strokeStyle = "#d1fae5"; ctx.lineWidth = fine;
-    ctx.beginPath(); ctx.moveTo(-size * 0.12, 0); ctx.lineTo(size * 0.34, 0); ctx.stroke();
-    drawComponentPort(size, -0.12, 0, 0.085, "#ecfdf5", 0.5);
+  if (type === "backupCore") {
+    drawRecessedPanel(size, 0.8, 0.76, 0.14);
+    ctx.strokeStyle = "#c4b5fd";
+    ctx.lineWidth = line;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.27, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#8b5cf6";
+    ctx.fillRect(-size * 0.06, -size * 0.3, size * 0.12, size * 0.6);
+    ctx.fillRect(-size * 0.3, -size * 0.06, size * 0.6, size * 0.12);
+    drawComponentPort(size, 0, 0, 0.09, "#f5f3ff", 0.55);
+    return true;
+  }
+  if (type === "nuclearReactor") {
+    drawRecessedPanel(size, 0.82, 0.78, 0.16);
+    ctx.strokeStyle = "#fb923c";
+    ctx.lineWidth = line;
+    for (const radius of [0.16, 0.3]) {
+      ctx.beginPath();
+      ctx.arc(0, 0, size * radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    drawComponentPort(size, 0, 0, 0.12, "#fef08a", 0.65);
     return true;
   }
   if (type === "targetingComputer") {
@@ -1008,14 +1024,6 @@ function drawProfessionalModuleDetail(type, size, color) {
     ctx.moveTo(-size * 0.36, -size * 0.28); ctx.lineTo(-size * 0.36, size * 0.28);
     ctx.moveTo(size * 0.36, -size * 0.28); ctx.lineTo(size * 0.36, size * 0.28);
     ctx.stroke();
-    return true;
-  }
-  if (type === "captureModule") {
-    drawRecessedPanel(size, 0.76, 0.76, 0.16);
-    ctx.fillStyle = "#f9a8d4";
-    ctx.beginPath(); ctx.moveTo(0, -size * 0.32); ctx.lineTo(size * 0.25, 0); ctx.lineTo(0, size * 0.32); ctx.lineTo(-size * 0.25, 0); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = "#831843"; ctx.lineWidth = fine;
-    ctx.beginPath(); ctx.arc(0, 0, size * 0.13, 0, Math.PI * 2); ctx.stroke();
     return true;
   }
   if (type === "signalAmplifier") {
@@ -1235,13 +1243,25 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.closePath();
     ctx.fill();
     ctx.restore();
-  } else if (type === "reactor") {
+  } else if (type === "backupCore") {
     drawRoundSystem(size);
-    ctx.fillStyle = "#fff7b3";
+    ctx.strokeStyle = "#c4b5fd";
+    ctx.lineWidth = Math.max(1, size * 0.08);
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.2, 0, Math.PI * 2);
+    ctx.moveTo(-size * 0.28, 0); ctx.lineTo(size * 0.28, 0);
+    ctx.moveTo(0, -size * 0.28); ctx.lineTo(0, size * 0.28);
+    ctx.stroke();
+    ctx.fillStyle = "#ede9fe";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.1, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#6b4b12";
+  } else if (type === "reactor" || type === "nuclearReactor") {
+    drawRoundSystem(size);
+    ctx.fillStyle = type === "nuclearReactor" ? "#fef08a" : "#fff7b3";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * (type === "nuclearReactor" ? 0.24 : 0.2), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = type === "nuclearReactor" ? "#c2410c" : "#6b4b12";
     ctx.beginPath();
     ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
     ctx.stroke();
@@ -1305,15 +1325,6 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     ctx.stroke();
     ctx.fillStyle = "#60a5fa";
     ctx.fillRect(-size * 0.48, -size * 0.12, size * 0.15, size * 0.24);
-  } else if (type === "sensorArray") {
-    drawRoundSystem(size);
-    ctx.strokeStyle = "#60a5fa";
-    ctx.lineWidth = Math.max(1, size * 0.08);
-    ctx.beginPath();
-    ctx.arc(-size * 0.12, 0, size * 0.32, -Math.PI * 0.3, Math.PI * 0.3);
-    ctx.stroke();
-    ctx.fillStyle = "#bfdbfe";
-    ctx.fillRect(-size * 0.16, -size * 0.04, size * 0.48, size * 0.08);
   } else if (type === "targetingComputer") {
     roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.12 });
     ctx.fill();
@@ -1348,17 +1359,6 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     for (let i = 0; i < 4; i += 1) {
       ctx.fillRect(-size * 0.28 + i * size * 0.16, -size * 0.26, size * 0.08, size * 0.52);
     }
-  } else if (type === "captureModule") {
-    drawRoundSystem(size);
-    ctx.fillStyle = "#f59e0b";
-    ctx.beginPath();
-    ctx.moveTo(0, -size * 0.32);
-    ctx.lineTo(size * 0.24, 0);
-    ctx.lineTo(0, size * 0.32);
-    ctx.lineTo(-size * 0.24, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
   } else if (type === "signalAmplifier") {
     roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
     ctx.fill();

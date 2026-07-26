@@ -68,9 +68,9 @@ close(getWeaponDataSupport(s, 1).fireRateBonus, budget("fireControl"), "railgun 
 close(getEffectiveWeaponStats(s, 1).fireRate, PARTS.railgun.weapon.fireRate * (1 + budget("fireControl")), "effective fire rate");
 close(getWeaponDataSupport(s, 2).fireRateBonus, 0, "disconnected blaster has no support");
 
-design = [mod("sensorArray", 0, 0), mod("railgun", 1, 0), mod("fireControl", 4, 0), mod("blaster", 5, 0)];
+design = [mod("signalAmplifier", 0, 0), mod("railgun", 1, 0), mod("fireControl", 4, 0), mod("blaster", 5, 0)];
 s = ship(design, [[{ x: 0, y: 0 }, { x: 1, y: 0 }], [{ x: 4, y: 0 }, { x: 5, y: 0 }]]);
-close(getWeaponDataSupport(s, 1).rangeBonus, budget("sensorArray"), "railgun range only");
+close(getWeaponDataSupport(s, 1).rangeBonus, budget("signalAmplifier"), "railgun range only");
 close(getWeaponDataSupport(s, 1).fireRateBonus, 0, "railgun no fire-rate leak");
 close(getWeaponDataSupport(s, 3).fireRateBonus, budget("fireControl"), "blaster fire rate only");
 
@@ -79,15 +79,15 @@ s = ship(design, [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 
 [1, 2, 3].forEach((i) => close(getWeaponDataSupport(s, i).fireRateBonus, budget("fireControl") / 3, "three-way split"));
 close(getSourceDataAllocation(s, 0).bonusPerWeapon, budget("fireControl") / 3, "source allocation lookup");
 
-design = [mod("fireControl", 0, 0), mod("sensorArray", 1, 0), mod("targetingComputer", 2, 0), mod("railgun", 3, 0)];
+design = [mod("fireControl", 0, 0), mod("signalAmplifier", 1, 0), mod("targetingComputer", 2, 0), mod("railgun", 3, 0)];
 s = ship(design, [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]]);
 close(getWeaponDataSupport(s, 3).fireRateBonus, budget("fireControl"), "stack fire");
-close(getWeaponDataSupport(s, 3).rangeBonus, budget("sensorArray"), "stack range");
+close(getWeaponDataSupport(s, 3).rangeBonus, budget("signalAmplifier"), "stack range");
 close(getWeaponDataSupport(s, 3).accuracyBonus, budget("targetingComputer"), "stack accuracy");
 
 // Existing non-PD projectile path still consumes effective range, accuracy and cooldown exactly once.
 let r = room();
-design = [mod("sensorArray", 7, 6), mod("railgun", 7, 7)];
+design = [mod("signalAmplifier", 7, 6), mod("railgun", 7, 7)];
 s = ship(design, [[{ x: 7, y: 6 }, { x: 7, y: 7 }]], { x: 0, y: 0 });
 let e = enemyAt(PARTS.railgun.weapon.range + 25, 0); r.ships.set(s.id, s); r.ships.set(e.id, e);
 updateShipWeapons(r, s, [s, e], 10, 1000);
@@ -185,7 +185,7 @@ close(getEffectiveWeaponStats(s, 2).fireRate / PARTS.pointDefense.weapon.fireRat
 close(getEffectiveWeaponStats(s, 3).fireRate / PARTS.missile.weapon.fireRate, 1 + budget("fireControl") / 3, "missile allocated share");
 
 // Test 9: Supported missile actual combat path uses effective range, lifetime, cooldown and spread with isolation.
-design = [mod("sensorArray", 7, 5), mod("fireControl", 7, 6), mod("targetingComputer", 7, 7), mod("missile", 7, 8), mod("fireControl", 0, 0), mod("blaster", 0, 1)];
+design = [mod("signalAmplifier", 7, 5), mod("fireControl", 7, 6), mod("targetingComputer", 7, 7), mod("missile", 7, 8), mod("fireControl", 0, 0), mod("blaster", 0, 1)];
 paths = [[{ x: 7, y: 5 }, { x: 7, y: 6 }, { x: 7, y: 7 }, { x: 7, y: 8 }], [{ x: 0, y: 0 }, { x: 0, y: 1 }]];
 s = ship(design, paths); e = enemyAt(PARTS.missile.weapon.range + 10, 0); r = room(0); r.ships.set(s.id, s); r.ships.set(e.id, e);
 updateShipWeapons(r, s, [s, e], 10, 1000);
@@ -202,7 +202,7 @@ close(pdASupportedReload, Math.max(0.05, 1 / (PARTS.pointDefense.weapon.fireRate
 close(getEffectiveWeaponStats(s, 3).fireRate, PARTS.missile.weapon.fireRate * (1 + fc), "missile exactly once fire rate");
 
 // PD effective range still used for acquisition.
-design = [mod("sensorArray", 7, 6), mod("pointDefense", 7, 7), mod("fireControl", 0, 0)];
+design = [mod("signalAmplifier", 7, 6), mod("pointDefense", 7, 7), mod("fireControl", 0, 0)];
 s = ship(design, [[{ x: 7, y: 6 }, { x: 7, y: 7 }]], { x: 0, y: 0 });
 r = room(); r.bullets.push({ id: "far", type: "missile", interceptable: true, life: 5, ownerId: "p2", x: PARTS.pointDefense.weapon.range + 20, y: 0 });
 assert(findPointDefenseTarget(r, 0, 0, "p1", getEffectiveWeaponStats(s, 1), [s], s.id), "PD effective acquisition range");
@@ -220,7 +220,7 @@ assertSnapshot(snap, design, wire(design, paths), "runtime rebuild");
 // Combat snapshots expose the same live per-component and family range used by
 // firing. Destroying a range source or a cable host immediately removes its
 // bonus without changing the saved wiring.
-design = [mod("sensorArray", 0, 0), mod("frame", 1, 0), mod("railgun", 2, 0)];
+design = [mod("signalAmplifier", 0, 0), mod("frame", 1, 0), mod("railgun", 2, 0)];
 paths = [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]];
 s = ship(design, paths);
 r = room();

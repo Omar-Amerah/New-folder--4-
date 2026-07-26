@@ -11,7 +11,7 @@ const analyze = (types, networks, options) => Rules.analyzeDataSupport(types.map
 const budget = (type) => Rules.nominalSupportBudget(type, PARTS);
 const close = (actual, expected, message) => assert(Math.abs(actual - expected) < 1e-12, `${message}: ${actual} !== ${expected}`);
 
-for (const [source, field, count] of [["fireControl", "fireRateBonus", 1], ["fireControl", "fireRateBonus", 3], ["sensorArray", "rangeBonus", 2], ["targetingComputer", "accuracyBonus", 4], ["signalAmplifier", "rangeBonus", 1], ["stabilizerNode", "accuracyBonus", 1]]) {
+for (const [source, field, count] of [["fireControl", "fireRateBonus", 1], ["fireControl", "fireRateBonus", 3], ["signalAmplifier", "rangeBonus", 2], ["targetingComputer", "accuracyBonus", 4], ["signalAmplifier", "rangeBonus", 1], ["stabilizerNode", "accuracyBonus", 1]]) {
   const types = [source, ...Array(count).fill("railgun")];
   const result = analyze(types, [network([0], Array.from({ length: count }, (_, i) => i + 1))]);
   result.weaponBonuses.forEach((weapon) => close(weapon[field], budget(source) / count, `${source} equal split`));
@@ -31,8 +31,8 @@ assert.deepEqual([result.weapons[0].rangeBonus, result.weapons[0].accuracyBonus,
 result = analyze(["targetingComputer", "targetingComputer", "railgun", "railgun"], [network([1, 0], [3, 2])]);
 result.weapons.forEach((weapon) => close(weapon.accuracyBonus, budget("targetingComputer"), "identical sources stack independently"));
 assert(result.weapons.every((weapon) => weapon.contributions.length === 2 && weapon.contributions.every((item) => Number.isInteger(item.sourceIndex))));
-result = analyze(["sensorArray", "signalAmplifier", "targetingComputer", "fireControl", "railgun"], [network([3, 1, 2, 0], [4])]);
-close(result.weapons[0].rangeBonus, budget("sensorArray") + budget("signalAmplifier"), "range sources stack");
+result = analyze(["signalAmplifier", "signalAmplifier", "targetingComputer", "fireControl", "railgun"], [network([3, 1, 2, 0], [4])]);
+close(result.weapons[0].rangeBonus, budget("signalAmplifier") + budget("signalAmplifier"), "range sources stack");
 close(result.weapons[0].accuracyBonus, budget("targetingComputer"), "accuracy remains independent");
 close(result.weapons[0].fireRateBonus, budget("fireControl"), "fire rate remains independent");
 
@@ -47,7 +47,7 @@ assert.equal(duplicated.sourceAllocations.length, 1);
 close(duplicated.sources[0].bonusPerWeapon, budget("fireControl"), "duplicate source gets one budget");
 assert.equal(duplicated.networkCount, 1);
 assert.equal(duplicated.warnings[0].code, "merged-overlapping-data-domains");
-const passive = analyze(["fireControl", "railgun", "frame", "sensorArray", "beam"], [network([0], [1], "a"), network([3], [4], "b")]);
+const passive = analyze(["fireControl", "railgun", "frame", "signalAmplifier", "beam"], [network([0], [1], "a"), network([3], [4], "b")]);
 assert.equal(passive.networkCount, 2, "passive hosts do not merge allocation domains");
 
 const base = { type: "railgun", range: 100, accuracy: 0.98, fireRate: 2, damage: 10 };
@@ -83,7 +83,7 @@ assert.equal(malformed.networkCount, 0, "malformed indexes cannot coerce into co
 assert.equal(malformed.sources[0].status, "idle-no-weapons");
 assert.equal(malformed.weapons[0].status, "disconnected");
 
-const idlessTypes = ["fireControl", "railgun", "sensorArray", "beam"];
+const idlessTypes = ["fireControl", "railgun", "signalAmplifier", "beam"];
 const idlessA = [network([2], [3], undefined, ["c", "b"]), network([0], [1], undefined, ["a"])]
   .map(({ label, ...item }) => item);
 const idlessB = [...idlessA].reverse();
@@ -110,7 +110,7 @@ Object.values({ range: zeroProfile.range, accuracy: zeroProfile.accuracy, fireRa
 const unsupportedProfile = Rules.effectiveWeaponProfile({ type: "frame", custom: 7 }, { fireRateBonus: 1 });
 assert.equal(unsupportedProfile.custom, 7, "unsupported profiles retain original effective values");
 
-const shuffledTypes = ["railgun", "fireControl", "beamEmitter", "sensorArray", "missile", "targetingComputer"];
+const shuffledTypes = ["railgun", "fireControl", "beamEmitter", "signalAmplifier", "missile", "targetingComputer"];
 const shuffledNetworks = [
   { id: "z", sourceIndices: [5, 3], weaponIndices: [4, 2], sectionIds: ["z2", "z1"] },
   { id: "a", sourceIndices: [1], weaponIndices: [0], sectionIds: ["a2", "a1"] }
@@ -119,7 +119,7 @@ const stableA = analyze(shuffledTypes, shuffledNetworks);
 const stableB = analyze(shuffledTypes, shuffledNetworks.map((n) => ({ ...n, sourceIndices: [...n.sourceIndices].reverse(), weaponIndices: [...n.weaponIndices].reverse(), sectionIds: [...n.sectionIds].reverse() })).reverse());
 assert.deepEqual(stableA, stableB, "stable ordering survives shuffled network, source, weapon, contribution, and warning inputs");
 
-const overlap = analyze(["fireControl", "railgun", "beamEmitter", "frame", "sensorArray", "missile"], [
+const overlap = analyze(["fireControl", "railgun", "beamEmitter", "frame", "signalAmplifier", "missile"], [
   { id: "b", sourceIndices: [0], weaponIndices: [1], sectionIds: ["b"] },
   { id: "a", sourceIndices: [0], weaponIndices: [2], sectionIds: ["a"] },
   { id: "c", sourceIndices: [4], weaponIndices: [5], sectionIds: ["c"] }

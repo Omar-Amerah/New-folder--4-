@@ -2,7 +2,7 @@
 
 const assert = require("assert");
 const { rooms } = require("./src/server/rooms");
-const { joinRoom, findReservedNameOwner } = require("./src/server/players");
+const { joinRoom, findReservedNameOwner, maybeStartMatch } = require("./src/server/players");
 
 function makeSocket() { return { destroyed: false, write() {}, destroy() { this.destroyed = true; } }; }
 function makeClient(id) { return { id, socket: makeSocket(), room: null, player: null, isClosed: false }; }
@@ -53,5 +53,29 @@ joinRoom(freshJoiner, { type: "join", room: ghostCode, name: "Ghost" });
 assert(freshJoiner.player, "the same code stays joinable for a fresh join");
 assert.strictEqual(freshJoiner.room.code, ghostCode, "fresh join creates the room on demand");
 rooms.delete(ghostCode);
+
+// Everyone becoming ready starts the match, but readiness must not spend the
+// starting budget or automatically deploy the editor design.
+const readyCode = "READY1";
+rooms.delete(readyCode);
+const readyA = makeClient("c7");
+const readyB = makeClient("c8");
+joinRoom(readyA, { type: "join", room: readyCode, name: "Ready Ace", team: "blue" });
+joinRoom(readyB, { type: "join", room: readyCode, name: "Ready Bee", team: "red" });
+const readyRoom = readyA.room;
+readyRoom.phase = "design";
+readyA.player.ready = true;
+readyB.player.ready = true;
+const startingMoney = readyRoom.rules.startingMoney;
+maybeStartMatch(readyRoom, 1000);
+assert.strictEqual(readyRoom.phase, "active", "all ready players still start the match");
+assert.strictEqual(readyRoom.ships.size, 0, "match start does not auto-deploy current designs");
+for (const player of readyRoom.players.values()) {
+  assert.strictEqual(player.ships.length, 0, "ready player starts without a deployed ship");
+  assert.strictEqual(player.money, startingMoney, "ready player keeps the full starting budget");
+  assert.strictEqual(player.spent, 0, "readiness does not count as a purchase");
+  assert.strictEqual(player.shipsBuilt || 0, 0, "readiness does not increment ships built");
+}
+rooms.delete(readyCode);
 
 console.log("Lifecycle verification passed");

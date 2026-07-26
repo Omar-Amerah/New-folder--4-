@@ -7,7 +7,7 @@
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
     <link rel="stylesheet" href="/styles.css?v=drone-command-1">
-    <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-13">
+    <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-14">
     <link rel="stylesheet" href="/hud.css?v=matte-match-hud-2">
   </head>
   <body>
@@ -29,7 +29,7 @@
           <div class="deployment-actions">
             <button id="deployButton" type="button" class="ready-button">
               <span class="deploy-action-label">Ready with current design</span>
-              <span class="deploy-cost">Deploy cost: $0</span>
+              <span class="deploy-cost">Ship cost: $0</span>
             </button>
             <button id="openBlueprintDesignerButton" type="button" class="designer-button">Open Blueprint Designer</button>
           </div>
@@ -207,7 +207,10 @@
             <span id="roomStateText">Not joined</span>
             <h2>Modular Fleet Arena</h2>
           </div>
-          <button id="mainMenuCloseButton" type="button" class="secondary">Close</button>
+          <div class="menu-head-actions">
+            <button id="mainMenuSettingsButton" type="button" class="secondary">Settings</button>
+            <button id="mainMenuCloseButton" type="button" class="secondary">Close</button>
+          </div>
         </div>
 
         <label for="pilotName">Callsign</label>
@@ -438,7 +441,7 @@
                   <button id="resetButton" type="button" class="icon-button" title="Reset to starter ship and default Wiring" aria-label="Reset to starter ship and default Wiring">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                   </button>
-                  <button id="clearGridButton" type="button" class="icon-button" title="Clear all components and Wiring" aria-label="Clear all components and Wiring">
+                  <button id="clearGridButton" type="button" class="icon-button" title="Remove all components except the core and clear Wiring" aria-label="Remove all components except the core and clear Wiring">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                   </button>
                 </div>
@@ -486,6 +489,10 @@
                   <button type="button" class="wiring-tier" data-wiring-tier="heavy" aria-pressed="false"><span class="wiring-tier-name">Heavy Bus</span><span class="wiring-tier-capacity" data-tier-capacity-compact="heavy">— / — MW</span></button>
                 </div>
                 <div class="wiring-control-row wiring-action-row" role="group" aria-label="Wiring actions">
+                  <button type="button" id="wiringAutoWireButton" class="wiring-control wiring-utility wiring-utility-labeled" aria-label="Auto-wire Power with Standard cable" title="Replace Power wiring with a simple Standard-cable route that connects every powered component">
+                    <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m13 2-2 7h5l-7 13 2-9H6l7-11Z"/><path d="M4 4h4M16 20h4"/></svg></span>
+                    <span class="wiring-control-label-text">Auto-wire</span>
+                  </button>
                   <button type="button" id="wiringUndoButton" class="wiring-control wiring-utility wiring-utility-labeled" title="Undo last wiring change">
                     <span class="wiring-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 14-5-5 5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></span>
                     <span class="wiring-control-label-text">Undo</span>
@@ -501,7 +508,8 @@
                     <p><strong>Erase:</strong> removes the selected physical section. <strong>Inspect:</strong> hover for live Power flow and watch energy pulse outward from its source; click only to open the detailed analysis.</p>
                     <p><strong>Capacity:</strong> sustained is safe continuous load; peak is the delivery ceiling. Power cable above sustained generates extra Heat and overload stress.</p>
                      <p><strong>Display:</strong> Light is pale yellow, Standard vivid orange, and Heavy deep copper-red; they also use increasing thickness. Green is working, yellow loaded, orange above sustained, red at peak, red dashed disconnected, and blue selected.</p>
-                    <p><strong>Power vs Data:</strong> Power carries energy and uses tiers. Data is a separate single-tier network with no capacity or overload mechanics; overlap never silently deletes the other network.</p>
+                    <p><strong>Auto-wire:</strong> replaces the Power network with a simple deterministic Standard-cable route connecting every powered component. It preserves Data wiring and can be undone.</p>
+                     <p><strong>Power vs Data:</strong> Power carries energy and uses tiers. Data is a separate single-tier network with no capacity or overload mechanics; overlap never silently deletes the other network.</p>
                   </div>
                 </div>
                 </div>
@@ -655,6 +663,6 @@
     <script src="/src/shared/powerProtectionRules.js?v=power-protection-1"></script>
     <script src="/src/shared/wiringClarityRules.js?v=wiring-clarity-1"></script>
     <script src="/src/shared/wiringEditRules.js?v=wiring-edit-1"></script>
-    <script type="module" src="/src/main.js?v=local-heat-4"></script>
+    <script type="module" src="/src/main.js?v=auto-wire-1"></script>
   </body>
 </html>

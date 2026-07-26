@@ -338,10 +338,14 @@ function updateCombatMoveTarget(room, ship, target, style) {
   }
 
   if (maxRange <= 0) {
+    // A disarmed ship has no valid engagement distance. Chasing the target here
+    // made it charge directly into the enemy after its final gun was destroyed.
+    // Hold the range it currently has instead; if another gun survives,
+    // getMaxWeaponRange above already returns that weapon's real range.
     clearOrbitState(ship);
-    ship.targetX = target.x;
-    ship.targetY = target.y;
-    ship.arrived = distanceToTarget <= ARRIVE_DISTANCE;
+    ship.targetX = ship.x;
+    ship.targetY = ship.y;
+    ship.arrived = true;
     return;
   }
 

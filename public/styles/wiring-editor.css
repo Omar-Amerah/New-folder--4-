@@ -333,17 +333,16 @@
 .wiring-overlay .wire-power.wire-tier-heavy { stroke: #c43c2f; }    /* deep copper-red */
 
 /* Delivered-supply states are independent of installed tier and cable load.
-   Full keeps the tier treatment, partial is interrupted amber, and zero
-   delivery stays physically visible as a quiet dashed route. */
+   Keep the installed tier colour in every state; status uses dash/opacity plus
+   the separate halo underneath. Recolouring a short network here made every
+   tier look yellow and hid the Inspect flow animation. */
 .wiring-overlay .wire-power.wire-supply-partial {
-  stroke: #ffd166;
   stroke-dasharray: .13 .085;
   opacity: .9;
 }
 .wiring-overlay .wire-power.wire-supply-none {
-  stroke: #768397;
   stroke-dasharray: .055 .1;
-  opacity: .34;
+  opacity: .42;
   filter: none;
 }
 
@@ -393,10 +392,10 @@
   pointer-events: none;
 }
 .wiring-overlay .wire-energy-pulse {
-  stroke: #fff8c5;
+  stroke: #7de9ff;
   stroke-width: .055px !important;
   stroke-dasharray: .025 .16;
-  filter: drop-shadow(0 0 .08px #ffffff) drop-shadow(0 0 .13px #ffb84d);
+  filter: drop-shadow(0 0 .08px #ffffff) drop-shadow(0 0 .13px #38d9ff);
 }
 .wiring-overlay .wire-energy-pulse.active.wire-energy-forward {
   opacity: 1;
@@ -407,7 +406,6 @@
   animation: wiring-energy-reverse .58s linear infinite;
 }
 .wiring-overlay .wire-energy-pulse.wire-energy-partial {
-  stroke: #ffd166;
   stroke-dasharray: .025 .24;
 }
 .wiring-overlay .wire-energy-pulse.wire-energy-partial.active {

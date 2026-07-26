@@ -182,7 +182,9 @@
     "test:drone-production": "node verify-drone-production.js",
     "test:drone-combat": "node verify-drone-combat.js",
     "test:drone-networking": "node verify-drone-networking.js",
-    "test:drone-bay-browser": "npm run build && node verify-drone-bay-browser.js"
+    "test:drone-bay-browser": "npm run build && node verify-drone-bay-browser.js",
+    "test:server-spatial": "node verify-server-spatial-regression.js && node verify-performance-health.js",
+    "test:server-spatial-performance": "node verify-server-spatial-performance.js"
   },
   "keywords": [
     "browser-game",

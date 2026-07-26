@@ -331,7 +331,7 @@ function summarizeWeaponTotals(totals) {
 function shipWarnings(stats) {
   const warnings = [];
   const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.pointDefense || 0);
-  const hasReactor = stats.modules.some((module) => module.type === "reactor");
+  const hasReactor = stats.modules.some((module) => module.type === "reactor" || module.type === "nuclearReactor");
   if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
   if (!hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
   if (stats.effectiveThrust <= 0) warnings.push("No engines: this ship cannot move");

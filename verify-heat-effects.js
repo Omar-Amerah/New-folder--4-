@@ -36,7 +36,7 @@ assert(Math.abs(halfPower.weaponCooldowns[1] / fullPower.weaponCooldowns[1] - 2)
 let shieldShip=shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"shieldGenerator"}],"sg","a"); shieldShip.shield=shieldShip.maxShield-0.05; movement.updateShipMovement(roomFor([shieldShip]), shieldShip, [], 1); assert(shieldShip.componentHeatInput[1] <= 0.05*0.7 + 1e-9, "shield heat corresponds to actual regeneration");
 
 // Utility bonuses use active output.
-let utility={ design:[{type:"targetingComputer"},{type:"fireControl"},{type:"sensorArray"},{type:"captureModule"}], componentHp:[1,1,1,1], componentHeatState:[S.OVERHEATED,S.HOT,S.CRITICAL,S.NORMAL] };
+let utility={ design:[{type:"targetingComputer"},{type:"fireControl"},{type:"signalAmplifier"},{type:"repair"}], componentHp:[1,1,1,1], componentHeatState:[S.OVERHEATED,S.HOT,S.CRITICAL,S.NORMAL] };
 assert.strictEqual(heat.effectiveComponentBonus(utility,"accuracyBonus"),0,"overheated targeting module removes its utility bonus");
 assert(heat.effectiveComponentBonus(utility,"fireRateBonus") > 0, "hot fire-control utility bonus is partially active");
 

@@ -15,6 +15,7 @@ const { getOccupiedCells } = require("./footprint");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const HeatRules = require("../../public/src/shared/heatRules");
 const { calculateCenterOfMass } = require("../../public/src/shared/movementStats.js");
+const { markShipRepairCacheDirty } = require("./repairCache");
 
 const MODULE_SCALE = 13;
 const GRID_CENTER = 7;
@@ -154,8 +155,10 @@ function normalizedArmorInteractionSeconds(value) {
 
 function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}) {
   if (!ship.componentHp || damage <= 0) {
-    ship.hp -= Math.max(0, damage);
-    return Math.max(0, damage);
+    const applied = Math.max(0, damage);
+    ship.hp -= applied;
+    if (applied > 0) markShipRepairCacheDirty(ship);
+    return applied;
   }
 
   const chain = componentsAlongImpactRay(ship, sourceX, sourceY);
@@ -213,10 +216,12 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
   }
 
   if (ship.hp < 0) ship.hp = 0;
+  if (applied > 0) markShipRepairCacheDirty(ship);
   return applied;
 }
 
 function onComponentDestroyed(room, ship, index, now) {
+  markShipRepairCacheDirty(ship);
   const module = ship.design[index];
   if (ship.componentMeltdown && (PARTS[module.type]?.powerGeneration || 0) > 0) ship.componentMeltdown[index] = 0;
   if (room) {
@@ -343,6 +348,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
   }
 
   if (ship.hp < 0) ship.hp = 0;
+  markShipRepairCacheDirty(ship);
   endComponentLifecycleBatch(ship);
   if (room) {
     const cos = Math.cos(ship.angle);
@@ -395,6 +401,7 @@ function repairShipComponents(room, ship, amount, now) {
   if (!ship.componentHp) {
     const healed = Math.min(ship.maxHp - ship.hp, amount);
     ship.hp += healed;
+    if (healed > 0) markShipRepairCacheDirty(ship);
     return healed;
   }
 
@@ -433,6 +440,7 @@ function repairShipComponents(room, ship, amount, now) {
     }
   }
   endComponentLifecycleBatch(ship);
+  if (healed > 0) markShipRepairCacheDirty(ship);
   return healed;
 }
 
@@ -449,6 +457,7 @@ function zeroAllComponents(ship) {
   }
   if (ship.componentMeltdown) ship.componentMeltdown.fill(0);
   ship.hp = 0;
+  markShipRepairCacheDirty(ship);
   requestComponentLifecycleRefresh(ship, { thermalCapacity: true, exposure: true, thermalRoutes: true, wiringTopology: true });
   endComponentLifecycleBatch(ship);
 }

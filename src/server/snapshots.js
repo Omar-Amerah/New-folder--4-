@@ -27,6 +27,18 @@ function buildComponentHeatTuple(ship, index) {
   return [heat, ship.componentHeatState[index] || 0, ratio, capacity];
 }
 
+// Public, deliberately low-precision component condition used only to draw
+// persistent damage. Exact component HP remains private to owners/allies.
+function buildComponentDamageVisual(ship) {
+  if (!Array.isArray(ship.componentHp)) return undefined;
+  return ship.componentHp.map((hp, index) => {
+    if (ship.design?.[index]?.type === "core") return 10;
+    const max = Number(ship.componentMaxHp?.[index]) || 0;
+    if (!(max > 0)) return 10;
+    return Math.max(0, Math.min(10, Math.round((Number(hp) || 0) / max * 10)));
+  });
+}
+
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
 function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false) {
@@ -73,6 +85,9 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     };
     if (ship.droneBays?.length) entry.droneBays = buildBaySnapshots(ship);
     if (ship.blockedEngineIndices?.size) entry.engBlocked = [...ship.blockedEngineIndices];
+    // Refresh on the full baseline and whenever component condition changes.
+    // Compact snapshots omit it otherwise; the client carries the last value.
+    if (sendStatic || ship.dirtyComponents?.size) entry.chpVisual = buildComponentDamageVisual(ship);
     // One decimal place so ships below 0.5% pressure don't flatten to 0%.
     const heatPercent = Math.max(0, (ship.heatPressure || 0) * 100);
     entry.heat = Math.round(heatPercent * 10) / 10;
@@ -421,6 +436,7 @@ function appendPublicShipVisual(entry, ship, includeDesign) {
   entry.detail = "public";
   entry.design = includeDesign ? (ship.design || []) : undefined;
   if (entry.design === undefined) delete entry.design;
+  if (includeDesign) entry.chpVisual = buildComponentDamageVisual(ship);
   for (const key of PRIVATE_SHIP_FIELDS) delete entry[key];
 }
 

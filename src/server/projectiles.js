@@ -6,9 +6,36 @@ const { BALANCE } = require("./balanceConfig");
 const PROJECTILES = BALANCE.projectiles;
 const MISSILE_GUIDANCE = BALANCE.missileGuidance;
 
+function ensureProjectileLookup(room) {
+  if (!room.projectileById) {
+    room.projectileById = new Map();
+    for (const projectile of room.bullets || []) if (projectile?.id) room.projectileById.set(projectile.id, projectile);
+  }
+  return room.projectileById;
+}
+
+function rebuildProjectileLookup(room) {
+  const lookup = room.projectileById || new Map();
+  lookup.clear();
+  for (const projectile of room.bullets || []) if (projectile?.id) lookup.set(projectile.id, projectile);
+  room.projectileById = lookup;
+  return lookup;
+}
+
+function resetProjectileRuntime(room) {
+  room.bullets = [];
+  room.projectileById = new Map();
+}
+
+function removeProjectilesByOwner(room, ownerId) {
+  room.bullets = (room.bullets || []).filter((projectile) => projectile.ownerId !== ownerId);
+  rebuildProjectileLookup(room);
+}
+
 function addBullet(room, bullet) {
   bullet.id = `b${room.nextEntityId++}`;
   room.bullets.push(bullet);
+  ensureProjectileLookup(room).set(bullet.id, bullet);
 }
 
 // Below this shield charge the shield is treated as "down" for hit visuals only:
@@ -25,10 +52,13 @@ function shieldCollisionRadius(ship) {
   return Math.max(PROJECTILES.shieldCollision.minimumRadius, radius + Math.max(PROJECTILES.shieldCollision.flatPadding, radius * PROJECTILES.shieldCollision.radiusMultiplier));
 }
 
-function projectileMapImpact(room, x1, y1, bullet) {
+function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIndex, scratch = []) {
   const margin = bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
   let hit = null;
-  for (const asteroid of room.map?.asteroids || []) {
+  const asteroids = spatialIndex
+    ? spatialIndex.querySweptAabb("asteroids", x1, y1, bullet.x, bullet.y, margin, scratch)
+    : (room.map?.asteroids || []);
+  for (const asteroid of asteroids) {
     const impact = segmentCircleHit(x1, y1, bullet.x, bullet.y, asteroid.x, asteroid.y, asteroid.radius + margin);
     if (!impact) continue;
     if (!hit || impact.t < hit.t) hit = impact;
@@ -41,13 +71,17 @@ function segmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
   const dy = y2 - y1;
   const lengthSq = dx * dx + dy * dy;
   if (lengthSq <= 0.0001) {
-    return Math.hypot(x1 - cx, y1 - cy) <= radius ? { x: x1, y: y1, t: 0 } : null;
+    const ox = x1 - cx;
+    const oy = y1 - cy;
+    return ox * ox + oy * oy <= radius * radius ? { x: x1, y: y1, t: 0 } : null;
   }
 
   const t = clampNumber(((cx - x1) * dx + (cy - y1) * dy) / lengthSq, 0, 1);
   const px = x1 + dx * t;
   const py = y1 + dy * t;
-  if (Math.hypot(px - cx, py - cy) > radius) return null;
+  const ox = px - cx;
+  const oy = py - cy;
+  if (ox * ox + oy * oy > radius * radius) return null;
   return { x: px, y: py, t };
 }
 
@@ -56,11 +90,16 @@ function updateBullets(room, dt, now) {
   const { areEnemies, damageShip } = require("./combat");
 
   const liveShips = getLiveShips(room);
-  const byId = new Map(liveShips.map((ship) => [ship.id, ship]));
-  const liveDrones = [...(room.drones?.values?.() || [])].filter((drone) => !drone.destroyed);
-  const targetById = new Map([...byId, ...liveDrones.map((drone) => [drone.id, drone])]);
-  let bulletsById = null;
+  const spatialIndex = room.disableSpatialIndex
+    ? null
+    : (room.spatialIndex || require("./spatialIndex").buildRoomSpatialIndex(room, liveShips, now));
+  const bulletsById = ensureProjectileLookup(room);
   const kept = [];
+  const asteroidCandidates = [];
+  const shipCandidates = [];
+  const droneCandidates = [];
+  const maximumDroneSpeed = Math.max(0, ...Object.values(BALANCE.drones?.types || {}).map((entry) => Number(entry?.speed) || 0));
+  const droneMovementPadding = maximumDroneSpeed * Math.max(0, Number(dt) || 0) * 1.75 + 2;
 
   // ECM strength scans the target's whole design; cache it per target for the
   // duration of this tick so a missile swarm doesn't recompute it per missile.
@@ -97,7 +136,7 @@ function updateBullets(room, dt, now) {
       if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
         bullet.trackingDisabledFor -= dt;
       }
-      const target = targetById.get(bullet.targetId);
+      const target = room.ships.get(bullet.targetId) || room.drones?.get?.(bullet.targetId);
       const canTrack = (bullet.trackRemaining === undefined || bullet.trackRemaining > 0) && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
         const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
@@ -145,10 +184,6 @@ function updateBullets(room, dt, now) {
 
     if (bullet.type === "pdShot") {
        if (bullet.pdTargetType === "projectile") {
-          if (!bulletsById) {
-            bulletsById = new Map();
-            for (const other of room.bullets) bulletsById.set(other.id, other);
-          }
           const target = bulletsById.get(bullet.pdTargetId);
           if (target && target.interceptable && target.life > 0) {
              const dx = target.x - bullet.x;
@@ -180,7 +215,7 @@ function updateBullets(room, dt, now) {
        }
     }
 
-    const rockHit = projectileMapImpact(room, previousX, previousY, bullet);
+    const rockHit = projectileMapImpact(room, previousX, previousY, bullet, spatialIndex, asteroidCandidates);
 
     let earliest = null;
     const recordHit = (candidate) => {
@@ -194,7 +229,10 @@ function updateBullets(room, dt, now) {
       recordHit({ kind: "asteroid", t: rockHit.t, x: rockHit.x, y: rockHit.y, entityId: "asteroid" });
     }
 
-    for (const ship of liveShips) {
+    const possibleShips = spatialIndex
+      ? spatialIndex.querySweptAabb("ships", previousX, previousY, bullet.x, bullet.y, 0, shipCandidates)
+      : liveShips;
+    for (const ship of possibleShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? PROJECTILES.hitRadius.missile : bullet.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
 
@@ -239,8 +277,11 @@ function updateBullets(room, dt, now) {
       }
     }
 
-    for (const drone of liveDrones) {
-      if (drone.destroyed || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
+    const possibleDrones = spatialIndex
+      ? spatialIndex.querySweptAabb("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
+      : (room.drones?.values?.() || []);
+    for (const drone of possibleDrones) {
+      if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
       const hitRadius = bullet.type === "missile"
         ? PROJECTILES.hitRadius.missile
         : bullet.type === "rail"
@@ -303,14 +344,23 @@ function updateBullets(room, dt, now) {
   }
 
   room.bullets = kept;
+  rebuildProjectileLookup(room);
   room.effects = room.effects.filter((effect) => {
     const life = effect.type === "beam" ? 140 : effect.type === "shieldhit" ? 340 : 900;
     return now - effect.at < life;
   });
+  // Projectile positions and membership have now advanced beyond the index's
+  // build epoch. No later subsystem in this tick consumes it; clearing prevents
+  // accidental stale queries and the next authoritative tick rebuilds once.
+  room.spatialIndex = null;
 }
 
 module.exports = {
   addBullet,
+  ensureProjectileLookup,
+  rebuildProjectileLookup,
+  resetProjectileRuntime,
+  removeProjectilesByOwner,
   projectileMapImpact,
   segmentCircleHit,
   updateBullets,

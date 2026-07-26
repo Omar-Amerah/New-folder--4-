@@ -39,18 +39,18 @@ const TEST_CATALOGUE = {
   reactor: { name: "Reactor", powerGeneration: 10, mass: 10, cost: 100, footprint: { width: 1, height: 1 } },
   auxGenerator: { name: "Aux Generator", powerGeneration: 2.5, mass: 5, cost: 50, footprint: { width: 1, height: 1 } },
   shield: { name: "Shield Generator", powerUse: 5.0, powerCategory: "shields", mass: 10, cost: 100, footprint: { width: 1, height: 1 } },
-  sensorArray: { name: "Sensor Array", powerUse: 1.2, powerCategory: "coolingSupport", mass: 2, cost: 30, footprint: { width: 1, height: 1 } },
+  signalAmplifier: { name: "Signal Amplifier", powerUse: 1.2, powerCategory: "coolingSupport", mass: 2, cost: 30, footprint: { width: 1, height: 1 } },
   heavyLaser: { name: "Heavy Laser", powerUse: 4.0, powerCategory: "weapons", mass: 8, cost: 80, footprint: { width: 1, height: 1 } }
 };
 
 // ---------------------------------------------------------------------------
-// Test 1: Connected low-priority Sensor Array load-shed while shields remain powered
+// Test 1: Connected low-priority Signal Amplifier load-shed while shields remain powered
 // ---------------------------------------------------------------------------
 {
   const design = [
     { type: "auxGenerator", x: 1, y: 1 },       // 2.5 MW gen (Aux Generator)
     { type: "shield", x: 1, y: 2 },       // 5.0 MW demand (shields)
-    { type: "sensorArray", x: 1, y: 3 }   // 1.2 MW demand (cooling & support)
+    { type: "signalAmplifier", x: 1, y: 3 }   // 1.2 MW demand (cooling & support)
   ];
   let wiring = WiringRules.emptyWiring();
   // Route connecting all 3 components with Heavy Bus cable (no bottleneck)
@@ -66,12 +66,12 @@ const TEST_CATALOGUE = {
   const sensorDiag = PowerDiagnostics.classifyPowerDeliveryIssue({ componentEntry: sensorEntry, network: net, flow });
 
   assert.strictEqual(shieldEntry.allocatedMw, 2.5, "Shield receives remaining 2.5 MW");
-  assert.strictEqual(sensorEntry.allocatedMw, 0, "Sensor Array shed due to priority policy");
+  assert.strictEqual(sensorEntry.allocatedMw, 0, "Signal Amplifier shed due to priority policy");
 
-  assert.strictEqual(sensorDiag.consequence, "priority-load-shed", "Sensor Array consequence is priority load shed");
+  assert.strictEqual(sensorDiag.consequence, "priority-load-shed", "Signal Amplifier consequence is priority load shed");
   assert(sensorDiag.consequenceMessage.includes("shed by the Balanced Power policy"), "Consequence message mentions Balanced policy");
 
-  console.log("✓ Test 1 Passed: Connected low-priority Sensor Array load-shed while shields remain powered");
+  console.log("✓ Test 1 Passed: Connected low-priority Signal Amplifier load-shed while shields remain powered");
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ const TEST_CATALOGUE = {
     { type: "heavyLaser", x: 5, y: 4 }   // 4.0 MW demand (isolated on net 2)
   ];
   let wiringIso = WiringRules.emptyWiring();
-  // Connect auxGenerator (0.5 MW) to sensorArray (1.2 MW)
+  // Connect auxGenerator (0.5 MW) to signalAmplifier (1.2 MW)
   wiringIso = WiringRules.addPathWithTier(wiringIso, "power", [{ x: 5, y: 1 }, { x: 5, y: 2 }, { x: 5, y: 3 }, { x: 5, y: 4 }], designIso, TEST_CATALOGUE, "heavy");
 
   const flowIso = solveBlueprintPower(designIso, wiringIso, TEST_CATALOGUE, WIRING_INFRASTRUCTURE);

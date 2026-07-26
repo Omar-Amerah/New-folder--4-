@@ -46,7 +46,7 @@ export const DIAGNOSTICS_ENABLED = (() => {
 })();
 
 export const WORLD_FALLBACK = { width: 3200, height: 1900 };
-export const PART_CATEGORIES = ["Structure", "Power", "Engines", "Defence", "Weapons", "Support"];
+export const PART_CATEGORIES = ["Structure", "Power", "Heat Components", "Engines", "Defence", "Weapons", "Support", "Command"];
 
 export const HIDDEN_PARTS = new Set([
   "lightFrame",

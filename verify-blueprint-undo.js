@@ -168,7 +168,7 @@ before = snap();
 clearDesign();
 assert.equal(blueprintEditHistorySize(), 1, "clear creates one history entry");
 assert.equal(canUndoWiring(), false, "genuine clear clears stale wiring undo history");
-assert.equal(state.design.length, 0, "clear empties design");
+assert.deepEqual(state.design, [{ x: 7, y: 7, type: "core" }], "clear preserves only the core");
 assertUndoRestores("clear", before);
 
 reset();
@@ -204,7 +204,7 @@ assert.equal(undoWiring(), true, "preserved wiring undo still works after no-op 
 assert.equal(JSON.stringify(state.wiring), JSON.stringify(normalizeWiring(resetUndoStack[0], state.design)), "wiring undo restores preserved previous snapshot after no-op reset");
 
 reset();
-state.design = [];
+state.design = [{ x: 7, y: 7, type: "core" }];
 state.wiring = globalThis.WiringRules.emptyWiring();
 state.loadedEditorBlueprintId = null;
 const clearUndoStack = [globalThis.WiringRules.cloneWiring(state.wiring)];

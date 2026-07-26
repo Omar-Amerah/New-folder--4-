@@ -102,7 +102,7 @@ async function panelGeometry(page) {
 
     assert.equal(await page.locator(".control-group h2").textContent(), "Deployment");
     assert.equal(await page.locator(".deploy-action-label").textContent(), "Ready with current design");
-    assert.equal(await page.locator(".deploy-cost").textContent(), `Deploy cost: $${expectedCost}`);
+    assert.equal(await page.locator(".deploy-cost").textContent(), `Ship cost: $${expectedCost}`);
     assert.equal(await page.locator("#openBlueprintDesignerButton").textContent(), "Open Blueprint Designer");
     assert.equal(await page.locator("#shipGroupTotal").textContent(), "1 / 30 assigned");
 

@@ -15,6 +15,9 @@ const designComponentHpCache = new WeakMap();
 // scaling: the indestructible core is excluded from the damageable sum.
 export function componentHealthRatio(ship, index) {
   const chp = ship?.chp;
+  if ((!chp || chp[index] === undefined) && Array.isArray(ship?.chpVisual) && ship.chpVisual[index] !== undefined) {
+    return clamp(Number(ship.chpVisual[index]) / 10, 0, 1);
+  }
   if (!chp || chp[index] === undefined || !ship.design) return null;
   if (ship.design[index]?.type === "core") return 1;
   let raw = designComponentHpCache.get(ship.design);

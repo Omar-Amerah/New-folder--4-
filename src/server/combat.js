@@ -12,6 +12,7 @@ const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance 
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
 const { getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange } = require("./componentData");
+const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty } = require("./repairCache");
 
 const MODULE_SCALE = 13;
 
@@ -20,7 +21,6 @@ const COMPONENT_RETARGET_MIN_MS = 2500;
 const COMPONENT_RETARGET_SPAN_MS = 1500;
 const STRUCTURAL_COMPONENT_TYPES = new Set(["armor", "compositeArmor", "bulkhead", "frame", "weaponMount"]);
 const SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE = 0.12;
-const PRIORITY_COMPONENT_TYPES = new Set(["engine", "maneuverThruster", "reactor", "auxGenerator", "battery", "capacitor", "shield", "aegisProjector", "repair", "repairBeam", "fireControl"]);
 
 function componentAimLocalPosition(ship, index) {
   const module = ship?.design?.[index];
@@ -215,14 +215,7 @@ function weaponComponentAimPoint(room, ship, weaponIndex, target, now) {
 }
 
 function shipRepairNeed(ship) {
-  if (!ship || !ship.alive) return 0;
-  let need = Math.max(0, (ship.maxHp || 0) - (ship.hp || 0));
-  const hp = ship.componentHp || [];
-  const max = ship.componentMaxHp || [];
-  for (let i = 0; i < hp.length; i += 1) {
-    need += Math.max(0, (max[i] || 0) - (hp[i] || 0));
-  }
-  return need;
+  return getShipRepairCache(ship).need;
 }
 
 // Charge emitters only for repair work the target actually accepted.  Using
@@ -289,19 +282,32 @@ function updateShipSupport(room, ships, dt, now) {
         ship.repairTargetId = null;
       } else if (areAllies(room, ship.ownerId, assigned.ownerId)
         && shipRepairNeed(assigned) > 0
-        && Math.hypot(assigned.x - ship.x, assigned.y - ship.y) <= ship.stats.repairRange) {
+        && (assigned.x - ship.x) ** 2 + (assigned.y - ship.y) ** 2 <= ship.stats.repairRange ** 2) {
         target = assigned;
       }
     }
 
     if (!target) {
-      for (const other of ships) {
+      const candidates = room.spatialIndex
+        ? room.spatialIndex.queryRange(
+          "ships",
+          ship.x,
+          ship.y,
+          ship.stats.repairRange,
+          room._supportSpatialScratch || (room._supportSpatialScratch = [])
+        )
+        : ships;
+      const repairRangeSq = ship.stats.repairRange * ship.stats.repairRange;
+      for (const other of candidates) {
         if (other.id === ship.id) continue;
         if (!areAllies(room, ship.ownerId, other.ownerId)) continue;
         const missing = shipRepairNeed(other);
         if (missing <= 0) continue;
-        const distance = Math.hypot(other.x - ship.x, other.y - ship.y);
-        if (distance > ship.stats.repairRange) continue;
+        const dx = other.x - ship.x;
+        const dy = other.y - ship.y;
+        const distanceSq = dx * dx + dy * dy;
+        if (distanceSq > repairRangeSq) continue;
+        const distance = Math.sqrt(distanceSq);
         const urgency = missing / Math.max(1, distance * 0.08);
         if (urgency > worst) {
           target = other;
@@ -413,11 +419,17 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
 
 function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null) {
   const rangeSq = weapon.range * weapon.range;
-  const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "ship"];
+  const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
   let best = null;
   let bestDistSq = Infinity;
+  const scratch = room._pointDefenseSpatialScratch || (room._pointDefenseSpatialScratch = {
+    projectiles: [], drones: [], ships: []
+  });
+  const projectileCandidates = room.spatialIndex
+    ? room.spatialIndex.queryRange("interceptableProjectiles", worldX, worldY, weapon.range, scratch.projectiles)
+    : (room.bullets || []);
 
-  for (const bullet of room.bullets || []) {
+  for (const bullet of projectileCandidates) {
     if (!bullet.interceptable || bullet.life <= 0 || !areEnemies(room, shipOwnerId, bullet.ownerId)) continue;
     const dx = bullet.x - worldX;
     const dy = bullet.y - worldY;
@@ -434,8 +446,11 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     }
   }
 
-  for (const drone of room.drones?.values?.() || []) {
-    if (drone.destroyed || !areEnemies(room, shipOwnerId, drone.ownerId)) continue;
+  const droneCandidates = room.spatialIndex
+    ? room.spatialIndex.queryRange("drones", worldX, worldY, weapon.range + (Number(room.droneSpatialPadding) || 0), scratch.drones)
+    : (room.drones?.values?.() || []);
+  for (const drone of droneCandidates) {
+    if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, shipOwnerId, drone.ownerId)) continue;
     const dx = drone.x - worldX;
     const dy = drone.y - worldY;
     const distSq = dx * dx + dy * dy;
@@ -451,7 +466,10 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     }
   }
 
-  for (const other of ships || []) {
+  const shipCandidates = room.spatialIndex
+    ? room.spatialIndex.queryRange("ships", worldX, worldY, weapon.range, scratch.ships)
+    : (ships || []);
+  for (const other of shipCandidates) {
     if (!other.alive || !areEnemies(room, shipOwnerId, other.ownerId)) continue;
     const dx = other.x - worldX;
     const dy = other.y - worldY;
@@ -575,19 +593,33 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       let repairTarget = null;
       if (ship.repairTargetId) {
         const assigned = room.ships.get(ship.repairTargetId);
-        if (assigned && assigned.alive && assigned.id !== ship.id && areAllies(room, ship.ownerId, assigned.ownerId) && Math.hypot(assigned.x - worldX, assigned.y - worldY) <= range) {
+        if (assigned && assigned.alive && assigned.id !== ship.id && areAllies(room, ship.ownerId, assigned.ownerId)
+          && (assigned.x - worldX) ** 2 + (assigned.y - worldY) ** 2 <= range * range) {
           repairTarget = assigned;
         }
       }
       if (!repairTarget) {
         let worst = 0;
-        for (const other of ships) {
+        const candidates = room.spatialIndex
+          ? room.spatialIndex.queryRange(
+            "ships",
+            worldX,
+            worldY,
+            range,
+            room._weaponSupportSpatialScratch || (room._weaponSupportSpatialScratch = [])
+          )
+          : ships;
+        const rangeSq = range * range;
+        for (const other of candidates) {
           if (other.id === ship.id || !other.alive) continue;
           if (!areAllies(room, ship.ownerId, other.ownerId)) continue;
           const missing = shipRepairNeed(other);
           if (missing <= 0) continue;
-          const distance = Math.hypot(other.x - worldX, other.y - worldY);
-          if (distance > range) continue;
+          const dx = other.x - worldX;
+          const dy = other.y - worldY;
+          const distanceSq = dx * dx + dy * dy;
+          if (distanceSq > rangeSq) continue;
+          const distance = Math.sqrt(distanceSq);
           const urgency = missing / Math.max(1, distance * 0.08);
           if (urgency > worst) {
             repairTarget = other;
@@ -784,22 +816,31 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       // Continuous beams do not spend cooldowns; Fire Control's per-weapon
       // fire-rate allocation is interpreted exactly once as sustained output.
       const dataFireRateFactor = baseFireRate > 0 ? effectiveFireRate / baseFireRate : 1;
-      const beamResult = damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * dt, now, {
+      const prevContact = ship.weaponBeamContacts[i];
+      const charge = beamContactCharge(prevContact, weaponTarget?.id, worldWeaponAngle, effectiveWeapon);
+      const beamResult = damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * charge.multiplier * dt, now, {
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
         hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
         burnThroughCarryMultiplier: effectiveWeapon.burnThroughCarryMultiplier,
+        impactHeatPerDamage: effectiveWeapon.impactHeatPerDamage,
         armorInteractionSeconds: dt,
         weaponIndex: i
       });
 
       const firstHitIndex = beamResult?.firstHitIndex ?? -1;
-      const prevContact = ship.weaponBeamContacts[i];
-      const targetChanged = !weaponTarget || (prevContact && prevContact.targetShipId !== weaponTarget.id);
-      const componentChanged = prevContact && prevContact.firstHitComponentIndex !== firstHitIndex;
+      // A physical component contact sustains the weapon's aimed-target lock.
+      // In tightly overlapping formations the nearest-entity resolver may name
+      // a neighbouring blocker, but resetting the aimed beam here makes charge
+      // flicker and breaks the established targeting contract.
+      const hitIntendedTarget = Boolean(
+        weaponTarget
+        && (beamResult?.hitTargetShipId === weaponTarget.id || firstHitIndex >= 0)
+      );
+      const targetChanged = !hitIntendedTarget || (prevContact && prevContact.targetShipId !== weaponTarget.id);
       const angleShifted = prevContact && Math.abs(angleDifference(prevContact.contactAngle, worldWeaponAngle)) > 0.05;
 
-      if (!prevContact || targetChanged || componentChanged || angleShifted || firstHitIndex < 0) {
-        ship.weaponBeamContacts[i] = weaponTarget && firstHitIndex >= 0 ? {
+      if (!prevContact || targetChanged || angleShifted) {
+        ship.weaponBeamContacts[i] = hitIntendedTarget ? {
           targetShipId: weaponTarget.id,
           firstHitComponentIndex: firstHitIndex,
           contactAngle: worldWeaponAngle,
@@ -808,6 +849,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       } else if (prevContact) {
         prevContact.contactDuration += dt;
         prevContact.contactAngle = worldWeaponAngle;
+        prevContact.firstHitComponentIndex = firstHitIndex;
       }
 
       const effectX2 = beamResult?.hitX ?? beamEnd.x;
@@ -824,6 +866,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           x2: effectX2,
           y2: effectY2,
           radius: beamRadius,
+          charge: charge.progress,
           at: now
         });
       }
@@ -1029,10 +1072,26 @@ function normalizedArmorInteractionSeconds(value) {
   return Math.max(0, Math.min(1, parsed));
 }
 
+function beamContactCharge(contact, targetShipId, contactAngle, weapon = {}) {
+  const rampSeconds = Math.max(0, Number(weapon.chargeRampSeconds) || 0);
+  const maxBonus = clampNumber(Number(weapon.maxChargeDamageBonus) || 0, 0, 1);
+  const continuous = Boolean(
+    contact
+    && targetShipId
+    && contact.targetShipId === targetShipId
+    && Math.abs(angleDifference(contact.contactAngle, contactAngle)) <= 0.05
+  );
+  const duration = continuous ? Math.max(0, Number(contact.contactDuration) || 0) : 0;
+  const progress = rampSeconds > 0 ? clampNumber(duration / rampSeconds, 0, 1) : 0;
+  return { duration, progress, multiplier: 1 + maxBonus * progress };
+}
+
 function applyBeamHullDamage(room, ship, damage, now, intersections, options = {}) {
   if (!ship.componentHp || damage <= 0 || !intersections || !intersections.length) {
-    ship.hp -= Math.max(0, damage);
-    return Math.max(0, damage);
+    const applied = Math.max(0, damage);
+    ship.hp -= applied;
+    if (applied > 0) markShipRepairCacheDirty(ship);
+    return applied;
   }
 
   const burnThroughMultiplier = Number(options.burnThroughCarryMultiplier) || 0;
@@ -1062,6 +1121,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
         onComponentDestroyed(room, ship, idx1, now);
       }
     }
+    if (applied > 0) markShipRepairCacheDirty(ship);
     return applied;
   }
 
@@ -1076,6 +1136,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
     ship.hp -= incomingToHp1;
     applied += incomingToHp1;
     ship.dirtyComponents.add(idx1);
+    if (applied > 0) markShipRepairCacheDirty(ship);
     return applied;
   }
 
@@ -1137,6 +1198,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
   }
 
   if (ship.hp < 0) ship.hp = 0;
+  if (applied > 0) markShipRepairCacheDirty(ship);
   return applied;
 }
 
@@ -1211,7 +1273,7 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     const shieldHitY = target.y + Math.sin(ang) * surfaceR;
     damageShip(room, target, damage, ship.ownerId, now, shieldHitX, shieldHitY, options);
     room.effects.push({ type: "shieldhit", x: shieldHitX, y: shieldHitY, nx: Math.cos(ang), ny: Math.sin(ang), at: now });
-    return { hitX: shieldHitX, hitY: shieldHitY, t: nearest.t, firstHitIndex: -1 };
+    return { hitX: shieldHitX, hitY: shieldHitY, t: nearest.t, firstHitIndex: -1, hitTargetShipId: target.id };
   }
 
   if (nearest.kind === "drone") {
@@ -1227,6 +1289,12 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
   const comp1 = intersections[0];
   const hitPoint1 = comp1.hit;
   const burnThroughMult = Number(options.burnThroughCarryMultiplier) || 0;
+  const impactHeatPerDamage = Math.max(0, Number(options.impactHeatPerDamage) || 0);
+  const canApplyImpactHeat = impactHeatPerDamage > 0 && !isInSafeZone(room, target.x, target.y, target);
+
+  if (canApplyImpactHeat && isComponentAlive(target, comp1.index)) {
+    addComponentHeat(target, comp1.index, damage * impactHeatPerDamage);
+  }
 
   damageShip(room, target, damage, ship.ownerId, now, hitPoint1.x, hitPoint1.y, {
     ...options,
@@ -1237,12 +1305,15 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
   let contactHitY = hitPoint1.y;
   if (burnThroughMult > 0 && intersections.length > 1 && !isComponentAlive(target, comp1.index)) {
     const comp2 = intersections[1];
+    if (canApplyImpactHeat && isComponentAlive(target, comp2.index)) {
+      addComponentHeat(target, comp2.index, damage * burnThroughMult * impactHeatPerDamage);
+    }
     contactHitX = comp2.hit.x;
     contactHitY = comp2.hit.y;
     room.effects.push({ type: "burst", x: hitPoint1.x, y: hitPoint1.y, at: now });
   }
 
-  return { hitX: contactHitX, hitY: contactHitY, t: hitPoint1.t, firstHitIndex: comp1.index };
+  return { hitX: contactHitX, hitY: contactHitY, t: hitPoint1.t, firstHitIndex: comp1.index, hitTargetShipId: target.id };
 }
 
 function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, options = {}) {
@@ -1273,6 +1344,7 @@ function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, 
     }
     if (ship.hp <= 0.001) destroyShip(room, ship, attackerId, now);
     else evaluateShipCommandState(room, ship, now, attackerId);
+    if (dealt > 0) markShipRepairCacheDirty(ship);
     return dealt;
   }
 
@@ -1299,6 +1371,7 @@ function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, 
     evaluateShipCommandState(room, ship, now, attackerId);
   }
 
+  if (dealt > 0) markShipRepairCacheDirty(ship);
   return dealt;
 }
 
@@ -1373,7 +1446,10 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
         armorInteractionSeconds: options.armorInteractionSeconds
       });
     }
-    if (applied > 0) pushDamageEffect(room, ship, now, applied, false);
+    if (applied > 0) {
+      pushDamageEffect(room, ship, now, applied, false);
+      markShipRepairCacheDirty(ship);
+    }
   }
 
   if (ship.hp <= 0.001) {
@@ -1868,6 +1944,7 @@ module.exports = {
   shipRepairNeed,
   updateShipWeapons,
   weaponReloadSeconds,
+  beamContactCharge,
   damageBeamTargets,
   moduleRotationToRadians,
   moduleLocalPosition,

@@ -5,11 +5,13 @@ const {
   targetCoreAimWorldPosition,
   findBeamRayIntersections,
   damageBeamTargets,
+  beamContactCharge,
   updateShipWeapons,
   isComponentAlive
 } = require("./src/server/combat");
 const { PARTS } = require("./src/server/components");
 const { initComponentState } = require("./src/server/componentHealth");
+const { initShipHeat } = require("./src/server/heat");
 
 function createMockRoom() {
   return {
@@ -74,6 +76,35 @@ function createBeamShip(id, ownerId, x, y, angle = 0) {
 
 function runTests() {
   console.log("Starting Beam Emitter verification tests...");
+
+  // -------------------------------------------------------------
+  // Charge ramp: continuous contact reaches exactly +50% at 15s.
+  // -------------------------------------------------------------
+  {
+    const weapon = { chargeRampSeconds: 15, maxChargeDamageBonus: 0.5 };
+    assert.strictEqual(beamContactCharge(null, "target", 0, weapon).multiplier, 1);
+    assert.strictEqual(beamContactCharge({ targetShipId: "target", contactAngle: 0, contactDuration: 7.5 }, "target", 0, weapon).multiplier, 1.25);
+    assert.strictEqual(beamContactCharge({ targetShipId: "target", contactAngle: 0, contactDuration: 15 }, "target", 0, weapon).multiplier, 1.5);
+    assert.strictEqual(beamContactCharge({ targetShipId: "other", contactAngle: 0, contactDuration: 15 }, "target", 0, weapon).multiplier, 1, "target switch resets charge");
+    assert.strictEqual(beamContactCharge({ targetShipId: "target", contactAngle: 0, contactDuration: 15 }, "target", 0.2, weapon).multiplier, 1, "losing contact angle resets charge");
+    console.log("PASS: Continuous-contact damage charge reaches +50% after 15 seconds");
+  }
+
+  // -------------------------------------------------------------
+  // Beam impact deposits Heat into the physical component struck.
+  // -------------------------------------------------------------
+  {
+    const room = createMockRoom();
+    const shooter = createBeamShip("heatBeam", "p1", 350, 0, Math.PI);
+    const target = createMockShip("heatTarget", "p2", 200, 0, 0);
+    initShipHeat(target);
+    const result = damageBeamTargets(room, shooter, [target], 350, 0, 100, 0, 0, 10, 1000, {
+      impactHeatPerDamage: 0.35
+    });
+    assert.ok(result && result.firstHitIndex >= 0, "beam should strike a physical component");
+    assert.ok(Math.abs(target.componentHeatInput[result.firstHitIndex] - 3.5) < 1e-9, "struck component receives configured beam impact Heat");
+    console.log("PASS: Beam hits add Heat to the struck component");
+  }
 
   // -------------------------------------------------------------
   // Test 1: Core-directed targeting

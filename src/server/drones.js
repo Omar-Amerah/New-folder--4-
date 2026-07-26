@@ -4,6 +4,8 @@ const { BALANCE } = require("./balanceConfig");
 const { PARTS } = require("./components");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const HeatRules = require("../../public/src/shared/heatRules");
+const { getShipRepairCache } = require("./repairCache");
+const { ensureProjectileLookup } = require("./projectiles");
 
 const CONFIG = BALANCE.drones;
 const MODULE_SCALE = 13;
@@ -13,12 +15,84 @@ const GRID_CENTER = 7;
 // (drones fall back / stop launching); above it, partial power just means a
 // slower launch cadence rather than a hard stop.
 const MIN_BAY_OPERATING_POWER = 0.05;
+const DRONE_DECISION_INTERVAL_MS = 120;
+const BACKUP_CORE_CONFIGS = Object.freeze(Object.fromEntries(
+  Object.entries(CONFIG.types || {}).map(([type, config]) => [type, Object.freeze({
+    ...config,
+    commandRange: (Number(config.commandRange) || 0) * 0.80
+  })])
+));
+
+function ensureDroneRuntime(room) {
+  if (!room.drones) room.drones = new Map();
+  if (room._droneCountSource !== room.drones || !room.droneCounts) {
+    const byOwner = new Map();
+    const byParent = new Map();
+    for (const drone of room.drones.values()) {
+      if (!drone || drone.destroyed) continue;
+      byOwner.set(drone.ownerId, (byOwner.get(drone.ownerId) || 0) + 1);
+      byParent.set(drone.parentShipId, (byParent.get(drone.parentShipId) || 0) + 1);
+    }
+    room.droneCounts = { byOwner, byParent };
+    room._droneCountSource = room.drones;
+  }
+  return room.droneCounts;
+}
+
+function resetDroneRuntime(room) {
+  room.drones = new Map();
+  room.droneCounts = { byOwner: new Map(), byParent: new Map() };
+  room._droneCountSource = room.drones;
+}
+
+function adjustDroneCount(room, drone, delta) {
+  const counts = ensureDroneRuntime(room);
+  for (const [map, key] of [[counts.byOwner, drone.ownerId], [counts.byParent, drone.parentShipId]]) {
+    const next = Math.max(0, (map.get(key) || 0) + delta);
+    if (next > 0) map.set(key, next);
+    else map.delete(key);
+  }
+}
+
+function removeActiveDrone(room, drone) {
+  if (!drone || room.drones?.get?.(drone.id) !== drone) return false;
+  ensureDroneRuntime(room);
+  room.drones.delete(drone.id);
+  room.spatialIndex?.remove?.("drones", drone);
+  adjustDroneCount(room, drone, -1);
+  drone.removed = true;
+  return true;
+}
+
+function indexDroneBays(ship) {
+  if (!ship) return;
+  const bays = ship.droneBays || [];
+  if (ship._droneBayIndexSource === bays && ship.droneBayByComponentId && ship.droneBayByComponentIndex) return;
+  ship.droneBayByComponentId = new Map();
+  ship.droneBayByComponentIndex = new Map();
+  for (const bay of bays) {
+    ship.droneBayByComponentId.set(bay.componentId, bay);
+    ship.droneBayByComponentIndex.set(bay.componentIndex, bay);
+  }
+  ship._droneBayIndexSource = bays;
+}
+
+function droneBayById(ship, componentId) {
+  indexDroneBays(ship);
+  return ship?.droneBayByComponentId?.get(componentId) || null;
+}
+
+function droneBayByIndex(ship, componentIndex) {
+  indexDroneBays(ship);
+  return ship?.droneBayByComponentIndex?.get(componentIndex) || null;
+}
 
 function initializeDroneBays(room, ship, now) {
   const validation = DroneBayRules.validateDroneBays(ship.design || [], PARTS, { maximum: CONFIG.maxBaysPerShip });
   ship.droneBays = validation.bays.map((source) => ({
     ...source,
     mode: "deployed",
+    launchBlockedBySpawn: false,
     nextLaunchAt: now,
     slots: Array.from({ length: CONFIG.squadSize }, (_, slot) => ({
       slot,
@@ -28,15 +102,16 @@ function initializeDroneBays(room, ship, now) {
       pauseReason: null
     }))
   }));
-  if (!room.drones) room.drones = new Map();
+  indexDroneBays(ship);
+  ensureDroneRuntime(room);
   return ship.droneBays;
 }
 
 function bayPowerRequest(ship, componentIndex) {
-  const bay = ship?.droneBays?.find((entry) => entry.componentIndex === componentIndex);
+  const bay = droneBayByIndex(ship, componentIndex);
   if (!bay || (ship.componentHp?.[componentIndex] ?? 0) <= 0) return 0;
   if (bay.slots.some((slot) => slot.state === "producing" || slot.state === "destroyed")) return CONFIG.productionPowerMw;
-  if (bay.slots.some((slot) => ["launching", "active", "returning"].includes(slot.state))) return CONFIG.activePowerMw;
+  if (bay.slots.some((slot) => ["launching", "active", "returning", "docking", "refueling"].includes(slot.state))) return CONFIG.activePowerMw;
   // A deployed Ready slot is an imminent launch request. Reserve the active
   // load before spawning so a bay cannot launch on standby-only allocation.
   if (bay.mode === "deployed" && bay.slots.some((slot) => slot.state === "ready")) return CONFIG.activePowerMw;
@@ -64,15 +139,25 @@ function bayWorldPose(ship, bay) {
 }
 
 function ownerActiveCount(room, ownerId) {
-  let count = 0;
-  for (const drone of room.drones?.values?.() || []) if (drone.ownerId === ownerId && !drone.destroyed) count += 1;
-  return count;
+  return ensureDroneRuntime(room).byOwner.get(ownerId) || 0;
 }
 
 function shipActiveCount(room, shipId) {
-  let count = 0;
-  for (const drone of room.drones?.values?.() || []) if (drone.parentShipId === shipId && !drone.destroyed) count += 1;
-  return count;
+  return ensureDroneRuntime(room).byParent.get(shipId) || 0;
+}
+
+function isInOwnSpawnZone(room, ship) {
+  const player = room.players?.get?.(ship?.ownerId);
+  for (const zone of room.map?.safeZones || []) {
+    const dx = ship.x - zone.x;
+    const dy = ship.y - zone.y;
+    if (!zone?.isSpawn || dx * dx + dy * dy > zone.radius * zone.radius) continue;
+    if (zone.ownerId) return Boolean(player && player.id === zone.ownerId);
+    if (zone.team) return Boolean(player && player.team === zone.team);
+    if (Array.isArray(zone.spawnPlayerIds)) return zone.spawnPlayerIds.includes(player?.id);
+    return true;
+  }
+  return false;
 }
 
 function spawnDrone(room, ship, bay, slot, now) {
@@ -105,12 +190,19 @@ function spawnDrone(room, ship, bay, slot, now) {
     launchedAt: now,
     stateUntil: now + CONFIG.launchDurationSeconds * 1000,
     commandState: bay.mode,
-    nextThinkAt: now + (slot.slot * 37),
+    nextThinkAt: now + ((slot.slot * 37) % DRONE_DECISION_INTERVAL_MS),
+    nextDecisionAt: now + ((slot.slot * 37) % DRONE_DECISION_INTERVAL_MS),
     nextActionAt: now + 350,
     targetId: null,
-    orphanedAt: null
+    fuelRemainingSeconds: CONFIG.fuelSeconds,
+    returnReason: null,
+    refuelStartedAt: null,
+    refuelUntil: null,
+    orphanedAt: null,
+    removed: false
   };
   room.drones.set(drone.id, drone);
+  adjustDroneCount(room, drone, 1);
   slot.droneId = drone.id;
   slot.state = "launching";
   slot.productionProgress = 1;
@@ -121,11 +213,11 @@ function spawnDrone(room, ship, bay, slot, now) {
 
 function setDroneDestroyed(room, drone, now, reason = "destroyed") {
   if (!drone || drone.destroyed) return false;
+  removeActiveDrone(room, drone);
   drone.destroyed = true;
   drone.destroyedAt = now;
-  room.drones.delete(drone.id);
   const parent = room.ships.get(drone.parentShipId);
-  const bay = parent?.droneBays?.find((entry) => entry.componentId === drone.bayComponentId);
+  const bay = droneBayById(parent, drone.bayComponentId);
   const slot = bay?.slots?.[drone.slot];
   if (slot && slot.droneId === drone.id) {
     slot.droneId = null;
@@ -147,16 +239,40 @@ function damageDrone(room, drone, amount, attackerId, now) {
   return applied;
 }
 
+function decisionScratch(drone, kind) {
+  const scratch = drone._decisionScratch || (drone._decisionScratch = {
+    ships: [], drones: [], projectiles: [], interceptableProjectiles: []
+  });
+  return scratch[kind];
+}
+
+function nearbyCandidates(room, drone, kind, x, y, range, fallback) {
+  if (!room.spatialIndex) return fallback;
+  const movementPadding = kind === "drones" ? (Number(room.droneSpatialPadding) || 0) : 0;
+  return room.spatialIndex.queryRange(kind, x, y, range + movementPadding, decisionScratch(drone, kind));
+}
+
+function resolveDroneTarget(room, targetId) {
+  if (!targetId) return null;
+  return room.drones?.get?.(targetId)
+    || room.ships?.get?.(targetId)
+    || ensureProjectileLookup(room).get(targetId)
+    || null;
+}
+
 function nearestEnemyDrone(room, drone, maximumRange) {
   const { areEnemies } = require("./combat");
   let best = null;
-  let bestDistance = maximumRange;
-  for (const other of room.drones.values()) {
-    if (other.id === drone.id || other.destroyed || !areEnemies(room, drone.ownerId, other.ownerId)) continue;
-    const distance = Math.hypot(other.x - drone.x, other.y - drone.y);
-    if (distance < bestDistance || (distance === bestDistance && String(other.id) < String(best?.id))) {
+  let bestDistanceSq = maximumRange * maximumRange;
+  const candidates = nearbyCandidates(room, drone, "drones", drone.x, drone.y, maximumRange, room.drones.values());
+  for (const other of candidates) {
+    if (other.id === drone.id || other.destroyed || other.removed || room.drones.get(other.id) !== other || !areEnemies(room, drone.ownerId, other.ownerId)) continue;
+    const dx = other.x - drone.x;
+    const dy = other.y - drone.y;
+    const distanceSq = dx * dx + dy * dy;
+    if (distanceSq < bestDistanceSq || (distanceSq === bestDistanceSq && String(other.id) < String(best?.id))) {
       best = other;
-      bestDistance = distance;
+      bestDistanceSq = distanceSq;
     }
   }
   return best;
@@ -165,13 +281,16 @@ function nearestEnemyDrone(room, drone, maximumRange) {
 function nearestHostileMissile(room, drone, maximumRange) {
   const { areEnemies } = require("./combat");
   let best = null;
-  let bestDistance = maximumRange;
-  for (const projectile of room.bullets || []) {
+  let bestDistanceSq = maximumRange * maximumRange;
+  const candidates = nearbyCandidates(room, drone, "interceptableProjectiles", drone.x, drone.y, maximumRange, room.bullets || []);
+  for (const projectile of candidates) {
     if (!projectile.interceptable || projectile.life <= 0 || !areEnemies(room, drone.ownerId, projectile.ownerId)) continue;
-    const distance = Math.hypot(projectile.x - drone.x, projectile.y - drone.y);
-    if (distance < bestDistance || (distance === bestDistance && String(projectile.id) < String(best?.id))) {
+    const dx = projectile.x - drone.x;
+    const dy = projectile.y - drone.y;
+    const distanceSq = dx * dx + dy * dy;
+    if (distanceSq < bestDistanceSq || (distanceSq === bestDistanceSq && String(projectile.id) < String(best?.id))) {
       best = projectile;
-      bestDistance = distance;
+      bestDistanceSq = distanceSq;
     }
   }
   return best;
@@ -180,13 +299,16 @@ function nearestHostileMissile(room, drone, maximumRange) {
 function nearestEnemyShip(room, drone, maximumRange) {
   const { areEnemies } = require("./combat");
   let best = null;
-  let bestDistance = maximumRange;
-  for (const ship of room.ships.values()) {
+  let bestDistanceSq = maximumRange * maximumRange;
+  const candidates = nearbyCandidates(room, drone, "ships", drone.x, drone.y, maximumRange, room.ships.values());
+  for (const ship of candidates) {
     if (!ship.alive || !areEnemies(room, drone.ownerId, ship.ownerId)) continue;
-    const distance = Math.hypot(ship.x - drone.x, ship.y - drone.y);
-    if (distance < bestDistance || (distance === bestDistance && String(ship.id) < String(best?.id))) {
+    const dx = ship.x - drone.x;
+    const dy = ship.y - drone.y;
+    const distanceSq = dx * dx + dy * dy;
+    if (distanceSq < bestDistanceSq || (distanceSq === bestDistanceSq && String(ship.id) < String(best?.id))) {
       best = ship;
-      bestDistance = distance;
+      bestDistanceSq = distanceSq;
     }
   }
   return best;
@@ -196,20 +318,7 @@ function nearestEnemyShip(room, drone, maximumRange) {
 // are below full health. Aggregate ship.hp misses Core-only or isolated
 // component damage, so repair targeting must look at component health.
 function importantComponentDamageFraction(ship) {
-  const { PRIORITY_COMPONENT_TYPES } = require("./combat");
-  const design = ship.design || [];
-  let important = 0;
-  let damaged = 0;
-  for (let i = 0; i < design.length; i += 1) {
-    const type = design[i].type;
-    const isImportant = type === "core" || PRIORITY_COMPONENT_TYPES.has(type) || PARTS[type]?.weapon;
-    if (!isImportant) continue;
-    important += 1;
-    const hp = Number(ship.componentHp?.[i]) || 0;
-    const max = Number(ship.componentMaxHp?.[i]) || 0;
-    if (max > 0 && hp < max - 0.01) damaged += 1;
-  }
-  return important > 0 ? damaged / important : 0;
+  return getShipRepairCache(ship).importantDamageFraction;
 }
 
 function repairTargetScore(ship, need, distance, config) {
@@ -229,13 +338,19 @@ function chooseTarget(room, drone, parent, config) {
     if (shipRepairNeed(parent) > 0) return parent;
     let best = null;
     let bestScore = -Infinity;
-    for (const ship of room.ships.values()) {
+    const candidates = nearbyCandidates(room, drone, "ships", parent.x, parent.y, config.commandRange, room.ships.values());
+    const rangeSq = config.commandRange * config.commandRange;
+    for (const ship of candidates) {
       if (ship === parent || !ship?.alive) continue;
       if (!areAllies(room, drone.ownerId, ship.ownerId)) continue;
-      const distance = Math.hypot(ship.x - parent.x, ship.y - parent.y);
-      if (distance > config.commandRange) continue;
-      const need = shipRepairNeed(ship);
+      const dx = ship.x - parent.x;
+      const dy = ship.y - parent.y;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > rangeSq) continue;
+      const cache = getShipRepairCache(ship);
+      const need = cache.need;
       if (need <= 0) continue;
+      const distance = Math.sqrt(distanceSq);
       const score = repairTargetScore(ship, need, distance, config);
       if (score > bestScore || (score === bestScore && (!best || String(ship.id).localeCompare(String(best.id)) < 0))) {
         best = ship;
@@ -301,7 +416,18 @@ function fighterProjectileEvasion(room, drone, config) {
   let mostUrgentDodgeX = 0;
   let mostUrgentDodgeY = 0;
 
-  for (const projectile of room.bullets || []) {
+  const maximumThreatRange = ((room.spatialIndex?.maxProjectileSpeed || 0) + (Number(config.speed) || 0)) * lookahead + clearance;
+  const projectiles = nearbyCandidates(
+    room,
+    drone,
+    "projectiles",
+    drone.x,
+    drone.y,
+    maximumThreatRange,
+    room.bullets || []
+  );
+  const clearanceSq = clearance * clearance;
+  for (const projectile of projectiles) {
     if (!projectile || projectile.life <= 0 || !areEnemies(room, drone.ownerId, projectile.ownerId)) continue;
     if (![projectile.x, projectile.y, projectile.vx, projectile.vy].every(Number.isFinite)) continue;
 
@@ -317,12 +443,14 @@ function fighterProjectileEvasion(room, drone, config) {
     const closestTime = Math.max(0, Math.min(maximumTime, rawClosestTime));
     const closestX = rx + rvx * closestTime;
     const closestY = ry + rvy * closestTime;
-    const closestDistance = Math.hypot(closestX, closestY);
-    const currentDistance = Math.hypot(rx, ry);
-    if (closestDistance >= clearance) continue;
+    const closestDistanceSq = closestX * closestX + closestY * closestY;
+    const currentDistanceSq = rx * rx + ry * ry;
+    if (closestDistanceSq >= clearanceSq) continue;
     // A receding projectile only matters while it is already inside the
     // clearance envelope; otherwise drones should not weave needlessly.
-    if (rawClosestTime < 0 && currentDistance >= clearance) continue;
+    if (rawClosestTime < 0 && currentDistanceSq >= clearanceSq) continue;
+    const closestDistance = Math.sqrt(closestDistanceSq);
+    const currentDistance = Math.sqrt(currentDistanceSq);
 
     const relativeSpeed = Math.sqrt(relativeSpeedSq);
     const perpendicularX = -rvy / relativeSpeed;
@@ -388,8 +516,8 @@ function fighterProjectileEvasion(room, drone, config) {
   };
 }
 
-function steerFighterDrone(room, drone, targetX, targetY, config, dt, now) {
-  const evasion = fighterProjectileEvasion(room, drone, config);
+function steerFighterDrone(room, drone, targetX, targetY, config, dt, now, cachedEvasion = undefined) {
+  const evasion = cachedEvasion === undefined ? fighterProjectileEvasion(room, drone, config) : cachedEvasion;
   if (!evasion) {
     drone.evasionProjectileId = null;
     steerDrone(drone, targetX, targetY, config.speed, config.turnRate, dt);
@@ -423,7 +551,7 @@ function updateDroneEntity(room, drone, dt, now) {
   const parent = room.ships.get(drone.parentShipId);
   const baseConfig = CONFIG.types[drone.type];
   const config = parent?.commandState === "backupCore"
-    ? { ...baseConfig, commandRange: (baseConfig?.commandRange || 0) * 0.80 }
+    ? BACKUP_CORE_CONFIGS[drone.type]
     : baseConfig;
   if (!parent?.alive) {
     drone.orphanedAt ||= now;
@@ -435,12 +563,24 @@ function updateDroneEntity(room, drone, dt, now) {
     if (now - drone.orphanedAt >= CONFIG.orphanLifetimeSeconds * 1000) setDroneDestroyed(room, drone, now, "orphaned");
     return;
   }
-  const bay = parent.droneBays?.find((entry) => entry.componentId === drone.bayComponentId);
+  if (isInOwnSpawnZone(room, parent)) {
+    setDroneDestroyed(room, drone, now, "spawn-zone");
+    return;
+  }
+  const bay = droneBayById(parent, drone.bayComponentId);
   const bayOperational = bay && (parent.componentHp?.[bay.componentIndex] ?? 0) > 0;
   const bayPowered = bayOperational && require("./componentPower").getComponentPowerMultiplier(parent, bay.componentIndex) > MIN_BAY_OPERATING_POWER;
   const fallback = !bayOperational || !bayPowered;
+  const enteredFallback = fallback && drone.commandState !== "fallback";
   drone.commandState = fallback ? "fallback" : bay.mode;
-  if (fallback) drone.state = "fallback";
+  if (fallback) {
+    drone.state = "fallback";
+    if (enteredFallback) {
+      drone.targetId = null;
+      drone.nextDecisionAt = now;
+      drone.nextThinkAt = now;
+    }
+  }
   else if (drone.state === "fallback") drone.state = "active";
   if (drone.state === "launching" && now >= drone.stateUntil) {
     drone.state = "active";
@@ -448,8 +588,10 @@ function updateDroneEntity(room, drone, dt, now) {
     if (slot) slot.state = "active";
   }
   const pose = bay ? bayWorldPose(parent, bay) : { x: parent.x, y: parent.y };
-  if (bayOperational && bay.mode === "recalled") drone.state = "returning";
-  else if (bayOperational && bay.mode === "deployed" && ["returning", "docking"].includes(drone.state)) {
+  if (bayOperational && bay.mode === "recalled") {
+    drone.state = "returning";
+    drone.returnReason = "recall";
+  } else if (bayOperational && bay.mode === "deployed" && ["returning", "docking"].includes(drone.state) && drone.returnReason !== "fuel") {
     // Deploy is also the authoritative cancellation path for an in-progress
     // recall. Previously these drones continued docking while the bay already
     // reported "deployed".
@@ -457,32 +599,99 @@ function updateDroneEntity(room, drone, dt, now) {
     const returningSlot = bay.slots[drone.slot];
     if (returningSlot) returningSlot.state = drone.state;
   }
+  if (drone.state === "refueling") {
+    drone.x = pose.x;
+    drone.y = pose.y;
+    drone.vx = 0;
+    drone.vy = 0;
+    if (now >= drone.refuelUntil) {
+      drone.state = "launching";
+      drone.returnReason = null;
+      drone.refuelStartedAt = null;
+      drone.refuelUntil = null;
+      drone.fuelRemainingSeconds = CONFIG.fuelSeconds;
+      drone.launchedAt = now;
+      drone.stateUntil = now + CONFIG.launchDurationSeconds * 1000;
+      drone.vx = pose.nx * config.speed * 0.35;
+      drone.vy = pose.ny * config.speed * 0.35;
+      drone.angle = Math.atan2(pose.ny, pose.nx);
+      const refueledSlot = bay.slots[drone.slot];
+      if (refueledSlot) refueledSlot.state = "launching";
+      room.effects.push({ type: "dronelaunch", subtype: drone.type, ownerId: drone.ownerId, x: drone.x, y: drone.y, at: now });
+    }
+    return;
+  }
+  if (!["returning", "docking"].includes(drone.state)) {
+    if (!Number.isFinite(drone.fuelRemainingSeconds)) drone.fuelRemainingSeconds = CONFIG.fuelSeconds;
+    drone.fuelRemainingSeconds = Math.max(0, drone.fuelRemainingSeconds - dt);
+    if (drone.fuelRemainingSeconds <= 0) {
+      drone.state = "returning";
+      drone.returnReason = "fuel";
+      drone.targetId = null;
+      const fuelSlot = bay?.slots?.[drone.slot];
+      if (fuelSlot) fuelSlot.state = "returning";
+    }
+  }
   if (drone.state === "returning" || drone.state === "docking") {
     steerDrone(drone, pose.x, pose.y, config.speed, config.turnRate, dt);
-    if (Math.hypot(drone.x - pose.x, drone.y - pose.y) < 30) {
+    const dockDx = drone.x - pose.x;
+    const dockDy = drone.y - pose.y;
+    const dockDistanceSq = dockDx * dockDx + dockDy * dockDy;
+    if (dockDistanceSq < 30 * 30) {
       drone.state = "docking";
       const dockingSlot = bay.slots[drone.slot];
       if (dockingSlot) dockingSlot.state = "docking";
     }
-    if (Math.hypot(drone.x - pose.x, drone.y - pose.y) < 12) {
-      room.drones.delete(drone.id);
+    if (dockDistanceSq < 12 * 12) {
       const slot = bay.slots[drone.slot];
-      slot.droneId = null;
-      slot.state = "stored";
+      if (drone.returnReason === "fuel" && bay.mode === "deployed") {
+        drone.state = "refueling";
+        drone.refuelStartedAt = now;
+        drone.refuelUntil = now + CONFIG.refuelSeconds * 1000;
+        drone.x = pose.x;
+        drone.y = pose.y;
+        drone.vx = 0;
+        drone.vy = 0;
+        slot.state = "refueling";
+      } else {
+        removeActiveDrone(room, drone);
+        slot.droneId = null;
+        slot.state = "stored";
+      }
     }
     return;
   }
-  if (now >= drone.nextThinkAt) {
-    const target = fallback
-      ? chooseFallbackTarget(room, drone, parent, config)
-      : chooseTarget(room, drone, parent, config);
-    drone.targetId = target?.id || null;
-    drone.nextThinkAt = now + (drone.type === "repair" ? config.targetCommitSeconds * 1000 : 220 + drone.slot * 23);
+  let target = resolveDroneTarget(room, drone.targetId);
+  const targetInvalid = !target
+    || target.destroyed
+    || target.alive === false
+    || (target.life !== undefined && target.life <= 0);
+  const parentDx = drone.x - parent.x;
+  const parentDy = drone.y - parent.y;
+  const outsideCommandRange = parentDx * parentDx + parentDy * parentDy > config.commandRange * config.commandRange;
+  if (targetInvalid || outsideCommandRange) {
+    drone.targetId = null;
+    target = null;
+    drone.nextDecisionAt = now;
+    drone.nextThinkAt = now;
   }
-  const target = room.drones.get(drone.targetId)
-    || room.ships.get(drone.targetId)
-    || (room.bullets || []).find((projectile) => projectile.id === drone.targetId && projectile.life > 0);
-  if (Math.hypot(drone.x - parent.x, drone.y - parent.y) > config.commandRange) drone.targetId = null;
+  const nextDecisionAt = Number.isFinite(drone.nextDecisionAt)
+    ? drone.nextDecisionAt
+    : (Number.isFinite(drone.nextThinkAt) ? drone.nextThinkAt : now);
+  if (now >= nextDecisionAt) {
+    const selectedTarget = outsideCommandRange
+      ? null
+      : fallback
+        ? chooseFallbackTarget(room, drone, parent, config)
+        : chooseTarget(room, drone, parent, config);
+    drone.targetId = selectedTarget?.id || null;
+    drone.cachedEvasion = ((Number(config.evasionLookaheadSeconds) || 0) > 0 && (Number(config.evasionClearance) || 0) > 0)
+      ? fighterProjectileEvasion(room, drone, config)
+      : null;
+    drone.nextDecisionAt = now + DRONE_DECISION_INTERVAL_MS;
+    drone.nextThinkAt = drone.nextDecisionAt;
+  }
+  target = resolveDroneTarget(room, drone.targetId);
   const effectiveTarget = drone.targetId ? target : null;
   const anchor = effectiveTarget || parent;
   const orbit = config.orbitDistance || 80;
@@ -492,16 +701,21 @@ function updateDroneEntity(room, drone, dt, now) {
   // Evasion-capable drones (Fighter, Defence) use predictive projectile-dodging
   // steering; others (Repair) simply hold their orbit path.
   const canEvade = (Number(config.evasionLookaheadSeconds) || 0) > 0 && (Number(config.evasionClearance) || 0) > 0;
-  if (canEvade) steerFighterDrone(room, drone, pathX, pathY, config, dt, now);
+  if (canEvade && drone.cachedEvasion === undefined) {
+    drone.cachedEvasion = fighterProjectileEvasion(room, drone, config);
+  }
+  if (canEvade) steerFighterDrone(room, drone, pathX, pathY, config, dt, now, drone.cachedEvasion || null);
   else steerDrone(drone, pathX, pathY, config.speed, config.turnRate, dt);
-  const distance = effectiveTarget ? Math.hypot(effectiveTarget.x - drone.x, effectiveTarget.y - drone.y) : Infinity;
+  const targetDx = effectiveTarget ? effectiveTarget.x - drone.x : Infinity;
+  const targetDy = effectiveTarget ? effectiveTarget.y - drone.y : Infinity;
+  const distanceSq = effectiveTarget ? targetDx * targetDx + targetDy * targetDy : Infinity;
   if (now < drone.nextActionAt) return;
-  if (drone.type === "repair" && effectiveTarget?.componentHp && distance <= config.repairRange) {
+  if (drone.type === "repair" && effectiveTarget?.componentHp && distanceSq <= config.repairRange * config.repairRange) {
     const amount = config.repairPerSecond / 5;
     require("./componentHealth").repairShipComponents(room, effectiveTarget, amount, now);
     drone.nextActionAt = now + 200;
     room.effects.push({ type: "dronerepair", ownerId: drone.ownerId, x: drone.x, y: drone.y, x2: effectiveTarget.x, y2: effectiveTarget.y, at: now });
-  } else if (drone.type !== "repair" && effectiveTarget && distance <= config.weaponRange) {
+  } else if (drone.type !== "repair" && effectiveTarget && distanceSq <= config.weaponRange * config.weaponRange) {
     if (room.drones.get(effectiveTarget.id) === effectiveTarget) {
       damageDrone(room, effectiveTarget, config.damage, drone.ownerId, now);
     } else if (room.ships.get(effectiveTarget.id) === effectiveTarget) {
@@ -553,12 +767,19 @@ function advanceBayProduction(bay, dt, power, overheated, operational = true) {
 }
 
 function updateDroneBays(room, ships, dt, now) {
-  if (!room.drones) room.drones = new Map();
+  ensureDroneRuntime(room);
+  room.droneSpatialPadding = Math.max(
+    0,
+    ...Object.values(CONFIG.types || {}).map((entry) => Number(entry?.speed) || 0)
+  ) * Math.max(0, Number(dt) || 0) * 1.75 + 2;
   const { getComponentPowerMultiplier } = require("./componentPower");
   const { addComponentHeat } = require("./heat");
   for (const ship of ships) {
     if (!ship.droneBays) initializeDroneBays(room, ship, now);
+    else indexDroneBays(ship);
+    const inSpawnZone = isInOwnSpawnZone(room, ship);
     for (const bay of ship.droneBays) {
+      bay.launchBlockedBySpawn = inSpawnZone;
       const operational = (ship.componentHp?.[bay.componentIndex] ?? 0) > 0;
       if (!operational) {
         advanceBayProduction(bay, dt, 0, false, false);
@@ -568,10 +789,10 @@ function updateDroneBays(room, ships, dt, now) {
       const overheated = (ship.componentHeatState?.[bay.componentIndex] || HeatRules.STATE.NORMAL) >= HeatRules.STATE.OVERHEATED;
       advanceBayProduction(bay, dt, power, overheated, true);
       const producing = bay.slots.some((slot) => slot.state === "producing");
-      const active = bay.slots.some((slot) => ["launching", "active", "returning"].includes(slot.state));
+      const active = bay.slots.some((slot) => ["launching", "active", "returning", "docking", "refueling"].includes(slot.state));
       const heatPerSecond = producing ? CONFIG.productionHeatPerSecond : active ? CONFIG.activeHeatPerSecond : CONFIG.standbyHeatPerSecond;
       addComponentHeat(ship, bay.componentIndex, heatPerSecond * power * dt);
-      if (bay.mode !== "deployed" || now < bay.nextLaunchAt || power <= MIN_BAY_OPERATING_POWER || overheated) continue;
+      if (inSpawnZone || bay.mode !== "deployed" || now < bay.nextLaunchAt || power <= MIN_BAY_OPERATING_POWER || overheated) continue;
       const ready = bay.slots.find((slot) => slot.state === "ready" || slot.state === "stored");
       if (ready) {
         spawnDrone(room, ship, bay, ready, now);
@@ -582,25 +803,32 @@ function updateDroneBays(room, ships, dt, now) {
       }
     }
   }
-  for (const drone of [...room.drones.values()]) updateDroneEntity(room, drone, dt, now);
+  for (const drone of room.drones.values()) {
+    const previousX = drone.x;
+    const previousY = drone.y;
+    updateDroneEntity(room, drone, dt, now);
+    const dx = drone.x - previousX;
+    const dy = drone.y - previousY;
+    const displacement = Math.sqrt(dx * dx + dy * dy) + 2;
+    if (displacement > room.droneSpatialPadding) room.droneSpatialPadding = displacement;
+  }
 }
 
 function setDroneBayMode(room, player, shipId, componentId, mode, now = Date.now()) {
   const ship = room.ships.get(String(shipId || ""));
   if (!ship?.alive || ship.ownerId !== player?.id) return false;
-  const bay = ship.droneBays?.find((entry) => entry.componentId === componentId);
+  const bay = droneBayById(ship, componentId);
   if (!bay || !["deployed", "recalled"].includes(mode)) return false;
   bay.mode = mode;
   const operational = (ship.componentHp?.[bay.componentIndex] ?? 0) > 0;
   const powered = operational && require("./componentPower").getComponentPowerMultiplier(ship, bay.componentIndex) > MIN_BAY_OPERATING_POWER;
-  const drones = [...(room.drones?.values?.() || [])]
-    .filter((drone) => !drone.destroyed && drone.parentShipId === ship.id && drone.bayComponentId === bay.componentId);
-
   if (mode === "recalled") {
     for (const slot of bay.slots) if (slot.state === "ready") slot.state = "stored";
-    for (const drone of drones) {
+    for (const drone of room.drones?.values?.() || []) {
+      if (drone.destroyed || drone.parentShipId !== ship.id || drone.bayComponentId !== bay.componentId) continue;
       drone.commandState = "recalled";
       drone.targetId = null;
+      drone.returnReason = "recall";
       if (operational) drone.state = "returning";
       const slot = bay.slots[drone.slot];
       if (slot && operational) slot.state = "returning";
@@ -610,13 +838,18 @@ function setDroneBayMode(room, player, shipId, componentId, mode, now = Date.now
     // resume immediately; already stored drones enter the launch queue.
     bay.nextLaunchAt = Math.min(Number(bay.nextLaunchAt) || now, now);
     for (const slot of bay.slots) if (slot.state === "stored") slot.state = "ready";
-    for (const drone of drones) {
+    for (const drone of room.drones?.values?.() || []) {
+      if (drone.destroyed || drone.parentShipId !== ship.id || drone.bayComponentId !== bay.componentId) continue;
       drone.commandState = powered ? "deployed" : "fallback";
       drone.targetId = null;
-      if (["returning", "docking"].includes(drone.state)) drone.state = powered ? "active" : "fallback";
+      if (["returning", "docking"].includes(drone.state) && drone.returnReason !== "fuel") {
+        drone.state = powered ? "active" : "fallback";
+        drone.returnReason = null;
+      }
       const slot = bay.slots[drone.slot];
       if (slot && ["returning", "docking"].includes(slot.state)) slot.state = drone.state;
       drone.nextThinkAt = Math.min(Number(drone.nextThinkAt) || now, now);
+      drone.nextDecisionAt = Math.min(Number(drone.nextDecisionAt) || now, now);
     }
   }
   return true;
@@ -639,7 +872,13 @@ function buildDroneSnapshots(room, now) {
     hull: Math.max(0, Math.round(drone.hull * 10) / 10),
       maxHull: drone.maxHull,
       targetId: drone.targetId,
-      stateProgress: drone.state === "launching" ? Math.max(0, Math.min(1, 1 - (drone.stateUntil - now) / (CONFIG.launchDurationSeconds * 1000))) : 1
+      fuelRemainingSeconds: Math.round(Math.max(0, Number(drone.fuelRemainingSeconds) || 0) * 100) / 100,
+      fuelCapacitySeconds: CONFIG.fuelSeconds,
+      stateProgress: drone.state === "launching"
+        ? Math.max(0, Math.min(1, 1 - (drone.stateUntil - now) / (CONFIG.launchDurationSeconds * 1000)))
+        : drone.state === "refueling"
+          ? Math.max(0, Math.min(1, (now - drone.refuelStartedAt) / (CONFIG.refuelSeconds * 1000)))
+          : 1
   }));
 }
 
@@ -657,9 +896,11 @@ function buildBaySnapshots(ship) {
       droneType: bay.droneType,
       commandRange: Number(CONFIG.types[bay.droneType]?.commandRange) || 0,
       squadSize: CONFIG.squadSize,
-      activeCount: bay.slots.filter((slot) => ["launching", "active", "returning", "docking"].includes(slot.state)).length,
+      activeCount: bay.slots.filter((slot) => ["launching", "active", "returning", "docking", "refueling"].includes(slot.state)).length,
+      refuelingCount: bay.slots.filter((slot) => slot.state === "refueling").length,
       storedCount: bay.slots.filter((slot) => ["stored", "ready"].includes(slot.state)).length,
       mode: bay.mode,
+      launchBlockedBySpawn: Boolean(bay.launchBlockedBySpawn),
       operational,
       powerFraction: Math.round(Math.max(0, Number(powerFraction) || 0) * 1000) / 1000,
       overheated,
@@ -683,6 +924,10 @@ function buildBaySnapshots(ship) {
 module.exports = {
   CONFIG,
   initializeDroneBays,
+  ensureDroneRuntime,
+  resetDroneRuntime,
+  ownerActiveCount,
+  shipActiveCount,
   bayPowerRequest,
   bayWorldPose,
   updateDroneBays,
@@ -699,6 +944,7 @@ module.exports = {
     fighterProjectileEvasion,
     steerFighterDrone,
     updateDroneEntity,
-    advanceBayProduction
+    advanceBayProduction,
+    isInOwnSpawnZone
   }
 };

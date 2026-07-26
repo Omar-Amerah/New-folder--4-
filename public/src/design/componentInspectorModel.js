@@ -78,8 +78,8 @@ export const FAMILIES = ["structure", "power", "propulsion", "weapon", "defence"
 export function componentFamily(type, stat = {}) {
   if (type === "core" || type === "backupCore" || stat.category === "Command") return "command";
   // Palette placement and capability family are related but not identical:
-  // Drone Bays live under Weapons for discoverability, while their capability
-  // is squad control rather than a direct-fire weapon profile.
+  // Drone Bays live under Command because their capability is squad control,
+  // rather than a direct-fire weapon profile.
   if (stat.category === "Weapons" && stat.weapon) return "weapon";
   if (stat.category === "Defence") return "defence";
   if (stat.category === "Power" || (stat.powerGeneration || 0) > 0) return "power";
@@ -95,6 +95,7 @@ const CATEGORY_BADGES = {
   Structure: "STRUCTURE",
   Power: "POWER",
   Command: "COMMAND",
+  "Heat Components": "HEAT",
   Support: "SUPPORT",
   "Power Infrastructure": "POWER INFRA"
 };
@@ -456,6 +457,8 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.targeting", "Targeting", "Core-directed"));
     rows.push(statRow("weapon.burnThrough", "Burn-through", `${Math.round((weapon.burnThroughCarryMultiplier || 0.4) * 100)}% of excess damage`));
     rows.push(statRow("weapon.penetration", "Maximum penetration", "1 additional component"));
+    rows.push(statRow("weapon.charge", "Sustained charge", `+${Math.round((weapon.maxChargeDamageBonus || 0) * 100)}% damage after ${weapon.chargeRampSeconds || 0}s`));
+    rows.push(statRow("weapon.impactHeat", "Impact heating", `${Number(weapon.impactHeatPerDamage || 0).toFixed(2)} Heat per damage`));
   }
   if (weapon.antiMissile) {
     rows.push(statRow("weapon.antiMissile", "Anti-missile", "Yes"));

@@ -133,6 +133,28 @@ function testIncomePrecisionAndPrivacy() {
   assert.strictEqual(ownRow.money, 123, "own snapshot floors display money without exceeding authority");
 }
 
+function testTeamRelayIncome() {
+  assert.strictEqual(ECONOMY.baseIncome, 20, "base income is $20/s");
+  assert.strictEqual(ECONOMY.relayIncome, 5, "each captured relay is worth $5/s");
+  const { room, p1, p2 } = makeActiveRoom();
+  const ally = makePlayer("ally", "blue");
+  room.players.set(ally.id, ally);
+  room.points = [{ id: "relay", ownerTeam: "blue", progress: 1 }];
+  for (const player of [p1, p2, ally]) {
+    player.money = 0;
+    player.earned = 0;
+  }
+
+  updateEconomy(room, 1);
+
+  assert.strictEqual(p1.income, 25, "capturing player receives base plus relay income");
+  assert.strictEqual(ally.income, 25, "every teammate receives the relay income");
+  assert.strictEqual(p2.income, 20, "opposing team receives base income only");
+  assert.strictEqual(p1.money, 25);
+  assert.strictEqual(ally.money, 25);
+  assert.strictEqual(p2.money, 20);
+}
+
 function testCacheBoundedAndTtlDocumented() {
   const { room, p1 } = makeActiveRoom();
   p1.money = 9999;
@@ -147,5 +169,6 @@ function testCacheBoundedAndTtlDocumented() {
 testIdempotentPurchase();
 testAtomicFleetAndFunds();
 testIncomePrecisionAndPrivacy();
+testTeamRelayIncome();
 testCacheBoundedAndTtlDocumented();
 console.log("Economy, purchase, precision, and privacy checks passed");

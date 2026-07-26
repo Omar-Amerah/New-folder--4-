@@ -8,6 +8,7 @@ const {
   CONFIG,
   initializeDroneBays,
   bayPowerRequest,
+  bayWorldPose,
   updateDroneBays,
   _test: { advanceBayProduction }
 } = require("./src/server/drones");
@@ -48,6 +49,46 @@ updateDroneBays(room, [ship], 0.70, 1400);
 assert.equal(room.drones.size, 3, "third drone launches sequentially");
 updateDroneBays(room, [ship], 0.70, 2200);
 assert.equal(room.drones.size, 3, "a bay never exceeds three drones");
+
+const spawnCase = makeRoomAndShip();
+spawnCase.room.map.safeZones = [{
+  id: "spawn-blue",
+  x: spawnCase.ship.x,
+  y: spawnCase.ship.y,
+  radius: 100,
+  isSpawn: true,
+  team: "blue"
+}];
+updateDroneBays(spawnCase.room, [spawnCase.ship], 0.05, 0);
+assert.equal(spawnCase.room.drones.size, 0, "drones do not launch while their carrier is in its spawn zone");
+spawnCase.ship.x += 200;
+updateDroneBays(spawnCase.room, [spawnCase.ship], 0.05, 100);
+assert.equal(spawnCase.room.drones.size, 1, "drones can launch after their carrier leaves spawn");
+spawnCase.ship.x -= 200;
+updateDroneBays(spawnCase.room, [spawnCase.ship], 0.05, 200);
+assert.equal(spawnCase.room.drones.size, 0, "deployed drones are destroyed when their carrier re-enters spawn");
+assert.equal(spawnCase.bay.slots[0].state, "destroyed", "spawn-zone destruction opens the bay slot for rebuilding");
+
+const fuelCase = makeRoomAndShip();
+updateDroneBays(fuelCase.room, [fuelCase.ship], 0.05, 0);
+const fueledDrone = [...fuelCase.room.drones.values()][0];
+fuelCase.bay.nextLaunchAt = Infinity;
+fueledDrone.state = "active";
+fuelCase.bay.slots[0].state = "active";
+fueledDrone.fuelRemainingSeconds = 0.05;
+updateDroneBays(fuelCase.room, [fuelCase.ship], 0.10, 100);
+assert.equal(fueledDrone.state, "returning", "a drone returns to its carrier when its 15-second fuel supply expires");
+assert.equal(fueledDrone.returnReason, "fuel");
+const fuelPose = bayWorldPose(fuelCase.ship, fuelCase.bay);
+fueledDrone.x = fuelPose.x;
+fueledDrone.y = fuelPose.y;
+updateDroneBays(fuelCase.room, [fuelCase.ship], 0.01, 200);
+assert.equal(fueledDrone.state, "refueling", "a returned drone docks to refuel");
+updateDroneBays(fuelCase.room, [fuelCase.ship], 1.99, 2199);
+assert.equal(fueledDrone.state, "refueling", "the drone remains docked for the full two seconds");
+updateDroneBays(fuelCase.room, [fuelCase.ship], 0.01, 2200);
+assert.equal(fueledDrone.state, "launching", "the drone relaunches after two seconds of refueling");
+assert.equal(fueledDrone.fuelRemainingSeconds, CONFIG.fuelSeconds, "refueling restores the full 15-second fuel supply");
 
 const queue = makeRoomAndShip("fighter").bay;
 queue.slots[0] = { slot: 0, state: "destroyed", droneId: null, productionProgress: 0, pauseReason: null };
@@ -91,6 +132,8 @@ assert.equal(PARTS.droneBay.activityHeat, CONFIG.activeHeatPerSecond);
 assert.equal(CONFIG.standbyHeatPerSecond, 0.5);
 assert.equal(CONFIG.activeHeatPerSecond, 1.2);
 assert.equal(CONFIG.productionHeatPerSecond, 3);
+assert.equal(CONFIG.fuelSeconds, 15);
+assert.equal(CONFIG.refuelSeconds, 2);
 assert.equal(CONFIG.standbyPowerMw, 3);
 assert.equal(CONFIG.activePowerMw, 7);
 assert.equal(CONFIG.productionPowerMw, 11);

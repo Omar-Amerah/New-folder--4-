@@ -873,6 +873,11 @@ h2 {
   box-shadow: none;
 }
 
+.menu-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .button-row,
 .utility-row {
   margin-top: 12px;
@@ -1256,7 +1261,8 @@ h2 {
 .ship-drone-pip.is-active,
 .ship-drone-pip.is-launching,
 .ship-drone-pip.is-returning,
-.ship-drone-pip.is-docking {
+.ship-drone-pip.is-docking,
+.ship-drone-pip.is-refueling {
   background: #67e8f9;
   box-shadow: 0 0 5px rgba(103, 232, 249, .55);
 }

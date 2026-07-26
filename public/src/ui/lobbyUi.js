@@ -212,7 +212,7 @@ function createPlayerRow(player) {
 }
 
 export function renderPlayerList() {
-  if (!dom.playerList || dom.lobbyManagementScreen?.hidden) return;
+  if (!dom.playerList) return;
   const players = state.snapshot?.players || [];
   dom.playerList.textContent = "";
   if (!players.length) return;
@@ -454,6 +454,7 @@ export function clearMenuNotice() {
 
 export function openLobbyManagement() {
   showMenuScreen(dom.lobbyManagementScreen);
+  updateLobbyState();
 }
 
 export function openSettings() {
@@ -479,6 +480,14 @@ export function openSettings() {
   if (dom.mobileTestingToggle) {
     dom.mobileTestingToggle.checked = getMobileTestingModeEnabled();
   }
+}
+
+export function closeSettings() {
+  if (state.room) {
+    hideMenuScreens();
+    return;
+  }
+  openMainMenu();
 }
 
 export function saveServerSetting() {

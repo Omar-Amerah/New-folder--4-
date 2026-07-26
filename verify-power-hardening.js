@@ -38,7 +38,7 @@ assert.notEqual(directional.clockwiseManeuverTurn, directional.anticlockwiseMane
 // not participate in canonical derived identities.
 const design = [{ type: "fireControl", x: 0, y: 0 }, { type: "frame", x: 1, y: 0 }, { type: "blaster", x: 2, y: 0 },
   { type: "frame", x: 0, y: 1 }, { type: "blaster", x: 0, y: 2 },
-  { type: "sensorArray", x: 5, y: 5 }, { type: "frame", x: 6, y: 5 }, { type: "beamEmitter", x: 7, y: 5 }];
+  { type: "signalAmplifier", x: 5, y: 5 }, { type: "frame", x: 6, y: 5 }, { type: "beamEmitter", x: 7, y: 5 }];
 let wiring = WiringRules.emptyWiring();
 wiring = WiringRules.addConnection(wiring, "data", 0, 2, [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], design, PARTS);
 wiring = WiringRules.addConnection(wiring, "data", 0, 4, [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }], design, PARTS);

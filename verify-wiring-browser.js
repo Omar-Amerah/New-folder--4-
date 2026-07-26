@@ -340,7 +340,7 @@ async function assertSectionHit(page, locator, expectedSectionId, fraction = 0.5
         { x: 6, y: 7, type: "engine", rotation: 0 }
       ];
       state.design.push(
-        { x: 9, y: 5, type: "sensorArray", rotation: 0 },
+        { x: 9, y: 5, type: "signalAmplifier", rotation: 0 },
         { x: 10, y: 5, type: "frame", rotation: 0 }
       );
       state.wiring = WiringRules.addPath(WiringRules.emptyWiring(), "power", [

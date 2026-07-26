@@ -30,10 +30,10 @@ function wire(design, powerPaths = [], dataPaths = []) {
 
 console.log("Running Data Wiring UI regression tests...");
 
-// Test Fixture 1: Sensor Array + 2 Blasters (Fully Powered & Operational)
+// Test Fixture 1: Signal Amplifier + 2 Blasters (Fully Powered & Operational)
 const design1 = [
   mod("reactor", 6, 6),
-  mod("sensorArray", 7, 6),
+  mod("signalAmplifier", 7, 6),
   mod("blaster", 7, 7),
   mod("blaster", 8, 7)
 ];
@@ -45,8 +45,8 @@ const analysis1 = analyzeDesignDataSupport(design1, wiring1, PARTS, { thermalLoa
 
 // 1. Source Inspection Data
 const source1 = analysis1.sourceAllocationByIndex[1];
-assert.ok(source1, "Source allocation exists for Sensor Array at index 1");
-assert.strictEqual(source1.sourceType, "sensorArray");
+assert.ok(source1, "Source allocation exists for Signal Amplifier at index 1");
+assert.strictEqual(source1.sourceType, "signalAmplifier");
 assert.strictEqual(source1.nominalBudget, 40);
 assert.strictEqual(source1.effectiveBudget, 40);
 assert.strictEqual(source1.recipientCount, 2);
@@ -63,7 +63,7 @@ assert.strictEqual(weapon1.effectiveProfile.range, 580);
 assert.strictEqual(weapon1.contributions.length, 1);
 assert.strictEqual(weapon1.contributions[0].amount, 20);
 
-// Check that accuracy and fire rate are UNCHANGED for weapon1 (only range is boosted by Sensor Array)
+// Check that accuracy and fire rate are UNCHANGED for weapon1 (only range is boosted by Signal Amplifier)
 assert.strictEqual(weapon1.baseProfile.accuracy, weapon1.effectiveProfile.accuracy);
 assert.strictEqual(weapon1.baseProfile.fireRate, weapon1.effectiveProfile.fireRate);
 
@@ -78,10 +78,10 @@ assert.ok(sectionVuln.losses.length > 0, "Section failure has concrete loss reco
 const lossItem = sectionVuln.losses[0];
 assert.strictEqual(lossItem.lostRangeBonus, 20, "Vulnerability captures lost range bonus");
 
-// Test Fixture 2: Multiple Data Sources (Sensor Array + Targeting Computer)
+// Test Fixture 2: Multiple Data Sources (Signal Amplifier + Targeting Computer)
 const design2 = [
   mod("reactor", 6, 6),
-  mod("sensorArray", 7, 6),
+  mod("signalAmplifier", 7, 6),
   mod("targetingComputer", 7, 5),
   mod("blaster", 7, 7)
 ];
@@ -102,7 +102,7 @@ assert.ok(accContrib && accContrib.amount > 0, "Accuracy contribution present");
 
 // Test Fixture 3: Unpowered Data Source
 const design3 = [
-  mod("sensorArray", 7, 6),
+  mod("signalAmplifier", 7, 6),
   mod("blaster", 7, 7)
 ];
 const dataPaths3 = [[{ x: 7, y: 6 }, { x: 7, y: 7 }]];
@@ -111,7 +111,7 @@ const wiring3 = wire(design3, [], dataPaths3);
 // Power is 0 because there is no reactor or power network
 const analysis3 = analyzeDesignDataSupport(design3, wiring3, PARTS, { thermalLoadMode: "idle" });
 const source3 = analysis3.sourceAllocationByIndex[0];
-assert.strictEqual(source3.status, "unpowered", "Unpowered Sensor Array flagged as unpowered");
+assert.strictEqual(source3.status, "unpowered", "Unpowered Signal Amplifier flagged as unpowered");
 assert.strictEqual(source3.effectiveBudget, 0, "Unpowered source delivers 0 effective budget");
 
 const weapon3 = analysis3.weaponBonusByIndex[1];

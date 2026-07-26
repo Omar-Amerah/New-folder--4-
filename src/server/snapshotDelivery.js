@@ -36,12 +36,17 @@ function telemetryFocusForPayload(client, now, full) {
   return null;
 }
 function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
+  const constructionStartedAt = performanceNow();
   room._buildingSnapshotSeq = seq; room._buildingBaseSnapshotSeq = baseSeq;
   if (!shared) shared = buildSharedSnapshot(room, now, false, true);
   const telemetryFocusShipId = telemetryFocusForPayload(client, now, full);
   const snap = snapshotRoom(room, now, client.player, full, shared, client, { telemetryFocusShipId });
   delete room._buildingSnapshotSeq; delete room._buildingBaseSnapshotSeq;
-  return { payload: encodeMessage(snap), telemetryFocusShipId, designRevisions: collectSnapshotDesignRevisions(snap), powerRevisions: collectSnapshotPowerRevisions(snap), powerProtectionRevisions: collectSnapshotPowerProtectionRevisions(snap), wiringLayoutRevisions: collectSnapshotWiringLayoutRevisions(snap) };
+  const constructionMs = performanceNow() - constructionStartedAt;
+  const encodingStartedAt = performanceNow();
+  const payload = encodeMessage(snap);
+  const encodingMs = performanceNow() - encodingStartedAt;
+  return { payload, constructionMs, encodingMs, telemetryFocusShipId, designRevisions: collectSnapshotDesignRevisions(snap), powerRevisions: collectSnapshotPowerRevisions(snap), powerProtectionRevisions: collectSnapshotPowerProtectionRevisions(snap), wiringLayoutRevisions: collectSnapshotWiringLayoutRevisions(snap) };
 }
 function enqueueSnapshot(client, payload, meta) { sendRaw(client, payload, { kind: meta.snapshotKind === 'full' ? 'snapshot-full' : 'snapshot-compact', snapshotMeta: meta, onSnapshotLifecycle: (outcome, itemMeta) => onSnapshotLifecycle(client, outcome, itemMeta) }); }
 function nextSeq(room) { return (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1); }
@@ -58,7 +63,7 @@ function sendFullSnapshot(client, now = performanceNow(), reason = 'client-reque
   diag(client).fullBuilt += 1;
   if (reason) diag(client).recoveryRequests += 1;
   enqueueSnapshot(client, built.payload, meta);
-  recordSnapshot({ durationMs: performanceNow() - startedAt, payloadBytes: built.payload.length, maxClientBytes: built.payload.length, clients: 1 });
+  recordSnapshot({ durationMs: performanceNow() - startedAt, constructionMs: built.constructionMs, encodingMs: built.encodingMs, payloadBytes: built.payload.length, maxClientBytes: built.payload.length, clients: 1 });
 }
 function canSendCompact(room, b, broadcastSeq, forceStatic) {
   const revision = room.staticRevision || 1;
@@ -79,7 +84,10 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   // Built once per broadcast and reused for every client — previously this
   // was rebuilt inside buildPayload per client, making broadcast cost scale
   // as O(clients x ships) on the viewer-independent work too.
+  const sharedStartedAt = performanceNow();
   const shared = buildSharedSnapshot(room, now, false, true);
+  let constructionMs = performanceNow() - sharedStartedAt;
+  let encodingMs = 0;
   let payloadBytes = 0;
   let maxClientBytes = 0;
   for (const client of room.clients) {
@@ -90,6 +98,8 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     const base = full ? null : b.lastWrittenSeq;
     const meta = { stateEpoch: epoch, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', staticRevision: revision, completeStatic: full };
     const built = buildPayload(room, client, now, full, seq, base, shared);
+    constructionMs += built.constructionMs;
+    encodingMs += built.encodingMs;
     meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
     meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions;
     diag(client)[full ? 'fullBuilt' : 'compactBuilt'] += 1;
@@ -97,6 +107,6 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     payloadBytes += built.payload.length;
     maxClientBytes = Math.max(maxClientBytes, built.payload.length);
   }
-  recordSnapshot({ durationMs: performanceNow() - startedAt, payloadBytes, maxClientBytes, clients: room.clients.size });
+  recordSnapshot({ durationMs: performanceNow() - startedAt, constructionMs, encodingMs, payloadBytes, maxClientBytes, clients: room.clients.size });
 }
 module.exports = { ensureSnapshotBaseline, sendFullSnapshot, broadcastSnapshot, onSnapshotLifecycle, constants: { TELEMETRY_INTERVAL_MS } };

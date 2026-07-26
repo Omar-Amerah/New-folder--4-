@@ -55,7 +55,7 @@ function despawnPlayerShips(room, player) {
     room.ships.delete(ship.id);
   }
   player.ships = [];
-  room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
+  require("./projectiles").removeProjectilesByOwner(room, player.id);
 }
 
 function joinRoom(client, message) {
@@ -350,7 +350,7 @@ function removePlayerFromRoom(room, player, reason) {
   player.removed = true;
   if (player.disconnectTimeout) clearTimeout(player.disconnectTimeout);
   room.players.delete(player.id);
-  room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
+  require("./projectiles").removeProjectilesByOwner(room, player.id);
   for (const point of room.points) {
     if (point.ownerId === player.id) {
       if (room.rules?.gameMode === "solo") {
@@ -415,8 +415,7 @@ function teamLabel(room, team, fallback) {
   return owner?.name || fallback || "Solo";
 }
 
-function resetPlayerForMatch(room, player, now, options = {}) {
-  const { buyShip } = require("./economy");
+function resetPlayerForMatch(room, player, now) {
   for (const oldShip of player.ships) {
     oldShip.removed = true;
     room.ships.delete(oldShip.id);
@@ -434,10 +433,7 @@ function resetPlayerForMatch(room, player, now, options = {}) {
   player.lastBuildError = "";
   if (player.purchaseRequests) player.purchaseRequests.clear();
   player.rallyPoint = null;
-  room.bullets = room.bullets.filter((bullet) => bullet.ownerId !== player.id);
-  if (options.spawn && player.ready) {
-    buyShip(room, player, now, { starter: true });
-  }
+  require("./projectiles").removeProjectilesByOwner(room, player.id);
 }
 
 function resetRoundPlayerStats(player) {
@@ -457,6 +453,9 @@ function maybeStartMatch(room, now) {
   const { broadcastRoom, broadcastSnapshot } = require("./messages");
   const players = [...room.players.values()].filter((player) => !player.removed && !player.isBot ? (player.connected !== false || player.disconnectTimeout) : !player.removed);
   if (!players.length || players.some((player) => !player.ready)) return;
+  // Finalize each player's base while the complete ready roster is still
+  // present. Departures during combat must not reshuffle surviving teammates.
+  require("./spawnPlanner").freezeSpawnPlan(room);
   room.phase = "active";
   room.winner = null;
   room.rewardsFinalizedForWinner = null;
@@ -470,9 +469,12 @@ function maybeStartMatch(room, now) {
     requiredSeconds: 20
   };
   for (const player of players) {
-    resetPlayerForMatch(room, player, now, { spawn: true });
+    // Readiness starts the match but does not buy or deploy a ship. Players keep
+    // their full starting budget and explicitly choose what to build once the
+    // purchase bar becomes active.
+    resetPlayerForMatch(room, player, now);
   }
-  broadcastRoom(room, { type: "notice", message: "All pilots ready. Match started." });
+  broadcastRoom(room, { type: "notice", message: "All pilots ready. Match started — buy ships from the bottom bar." });
   broadcastSnapshot(room, now, true);
 }
 
@@ -508,7 +510,7 @@ function startDesignPhase(room, requester) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;
     player.lastReadyAt = 0;
-    resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
+    resetPlayerForMatch(room, player, performanceNow());
   }
   broadcastRoom(room, { type: "notice", message: `Ship design started on ${room.mapSizeLabel} map` });
   broadcastSnapshot(room, performanceNow(), true);
@@ -541,7 +543,7 @@ function restartFromEnd(room, requester) {
   for (const player of room.players.values()) {
     resetRoundPlayerStats(player);
     player.ready = player.isBot;
-    resetPlayerForMatch(room, player, performanceNow(), { spawn: false });
+    resetPlayerForMatch(room, player, performanceNow());
   }
   broadcastRoom(room, { type: "notice", message: "New ship design phase started" });
   broadcastSnapshot(room, performanceNow(), true);
@@ -570,8 +572,9 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
     ship.removed = true;
   }
   room.ships.clear();
-  room.drones = new Map();
-  room.bullets = [];
+  require("./drones").resetDroneRuntime(room);
+  require("./projectiles").resetProjectileRuntime(room);
+  require("./spatialIndex").clearRoomSpatialIndex(room);
   room.effects = [];
   room.controlVictory = {
     team: null,
@@ -639,7 +642,7 @@ function closeLobby(room, requester) {
   }
   room.clients.clear();
   room.players.clear();
-  room.bullets = [];
+  require("./projectiles").resetProjectileRuntime(room);
   room.effects = [];
   rooms.delete(code);
 }

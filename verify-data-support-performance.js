@@ -18,7 +18,7 @@ const ARTIFACT = "test-artifacts/performance/wiring-runtime-performance.json";
 const mod = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
 function wire(design, paths) { let wiring = WiringRules.emptyWiring(); for (const p of paths) wiring = WiringRules.addPath(wiring, "data", p, design, PARTS); for (const p of paths) wiring = WiringRules.addPath(wiring, "power", p, design, PARTS); return wiring; }
 function makeShip(id, ownerId, x, y) {
-  const design = [mod("reactor", 6, 6), mod("fireControl", 7, 6), mod("sensorArray", 8, 6), mod("targetingComputer", 6, 7), mod("railgun", 7, 7), mod("blaster", 8, 7), mod("pointDefense", 7, 8), mod("beamEmitter", 8, 8), mod("frame", 6, 8)];
+  const design = [mod("reactor", 6, 6), mod("fireControl", 7, 6), mod("signalAmplifier", 8, 6), mod("targetingComputer", 6, 7), mod("railgun", 7, 7), mod("blaster", 8, 7), mod("pointDefense", 7, 8), mod("beamEmitter", 8, 8), mod("frame", 6, 8)];
   const paths = [[{x:6,y:6},{x:7,y:6},{x:8,y:6},{x:8,y:7},{x:8,y:8}], [{x:6,y:7},{x:7,y:7},{x:7,y:8}]];
   const ship = { id, ownerId, alive: true, x, y, vx: 0, vy: 0, angle: ownerId === "p1" ? 0 : Math.PI, targetX: x, targetY: y, radius: 36, shield: 0, maxShield: 0, design, wiring: wire(design, paths), stats: computeStats(design), designRevision: 1 };
   initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "perf-spawn", { skipRuntimeStats: true });

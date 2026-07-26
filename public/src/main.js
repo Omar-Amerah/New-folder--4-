@@ -13,7 +13,7 @@ import { initializeDesignerInspector } from "./ui/designerInspectorUi.js";
 import { bindPowerPriorityControls } from "./ui/wiringUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
 import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
-import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
+import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, closeSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
 import { handleKeyDown, bindArenaPointerListeners } from "./game/input.js";
 import { LOCAL_ACTIVE_ROOM_KEY, syncUrlParams, DIAGNOSTICS_ENABLED } from "./constants.js";
@@ -53,7 +53,7 @@ window.addEventListener("keydown", (event) => {
     if (dom.confirmModal && !dom.confirmModal.hidden) { closeConfirmModal(); return; }
     if (dom.mainMenuScreen && !dom.mainMenuScreen.hidden) { if (!dom.mainMenuCloseButton?.disabled) hideMenuScreens(); return; }
     if (dom.lobbyManagementScreen && !dom.lobbyManagementScreen.hidden) { hideMenuScreens(); return; }
-    if (dom.settingsScreen && !dom.settingsScreen.hidden) { hideMenuScreens(); return; }
+    if (dom.settingsScreen && !dom.settingsScreen.hidden) { closeSettings(); return; }
   }
   handleKeyDown(event);
 });
@@ -153,9 +153,10 @@ dom.showEndGameButton?.addEventListener("click", () => {
 dom.mainMenuButton?.addEventListener("click", openMainMenu);
 dom.lobbyManagementButton?.addEventListener("click", openLobbyManagement);
 dom.settingsButton?.addEventListener("click", openSettings);
+dom.mainMenuSettingsButton?.addEventListener("click", openSettings);
 dom.mainMenuCloseButton?.addEventListener("click", hideMenuScreens);
 dom.lobbyCloseButton?.addEventListener("click", hideMenuScreens);
-dom.settingsCloseButton?.addEventListener("click", hideMenuScreens);
+dom.settingsCloseButton?.addEventListener("click", closeSettings);
 dom.saveServerButton?.addEventListener("click", saveServerSetting);
 dom.clearServerButton?.addEventListener("click", clearServerSetting);
 dom.confirmCancelButton?.addEventListener("click", closeConfirmModal);

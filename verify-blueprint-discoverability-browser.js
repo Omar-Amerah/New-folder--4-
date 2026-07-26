@@ -350,15 +350,32 @@ async function main() {
     const paletteCategories = await page.locator("#partPalette .part-category-tabs button").allTextContents();
     assert.equal(paletteCategories.includes("Utility"), false, "Utility is removed as a palette category");
     assert.equal(paletteCategories.includes("Support"), true, "Support remains available");
+    assert.equal(paletteCategories.includes("Heat Components"), true, "Heat Components has its own palette category");
+    assert.equal(paletteCategories.includes("Command"), true, "Command has its own palette category");
+    await page.locator("#partPalette .part-category-tabs button").filter({ hasText: "Heat Components" }).click();
+    for (const name of ["Heat Pipe", "Heat Sink", "Radiator"]) {
+      assert.equal(await page.locator("#partPalette").getByRole("button", { name, exact: true }).isVisible(), true,
+        `${name} is available under Heat Components`);
+    }
+    await page.locator("#partPalette .part-category-tabs button").filter({ hasText: "Command" }).click();
+    for (const name of ["Backup Command Core", "Drone Bay"]) {
+      assert.equal(await page.locator("#partPalette").getByRole("button", { name, exact: true }).isVisible(), true,
+        `${name} is available under Command`);
+    }
+    await page.locator("#partPalette .part-category-tabs button").filter({ hasText: "Power" }).click();
+    assert.equal(await page.locator("#partPalette").getByRole("button", { name: "Nuclear Reactor", exact: true }).isVisible(), true,
+      "Nuclear Reactor is available under Power");
     await page.locator("#partPalette .part-category-tabs button").filter({ hasText: "Support" }).click();
-    for (const name of ["Capture Module", "Signal Amplifier", "Stabilizer Node"]) {
+    for (const name of ["Signal Amplifier", "Stabilizer Node"]) {
       assert.equal(await page.locator("#partPalette").getByRole("button", { name, exact: true }).isVisible(), true,
         `${name} is available under Support`);
     }
-    await selectPalettePart(page, { category: "Support", type: "captureModule", name: "Capture Module", rotatable: false });
+    assert.equal(await page.locator("#partPalette").getByRole("button", { name: "Capture Module", exact: true }).count(), 0);
+    assert.equal(await page.locator("#partPalette").getByRole("button", { name: "Sensor Array", exact: true }).count(), 0);
+    await selectPalettePart(page, { category: "Command", type: "backupCore", name: "Backup Command Core", rotatable: true });
     const captureInspectorText = await page.locator("#partInspector").textContent();
-    assert.match(captureInspectorText, /Capture pressure\s*\+18%/i,
-      "non-zero support output is promoted to the primary capability");
+    assert.match(captureInspectorText, /Secondary command/i,
+      "Backup Core exposes its command capability");
     assert.doesNotMatch(captureInspectorText, /Power and support details/i);
     // Advanced sections are accordions with context-specific headings; Thermal
     // details is always the last of them.
@@ -388,7 +405,7 @@ async function main() {
     assert.match(buildGuide, /Rotate/i);
     assert.match(buildGuide, /right-click/i);
     await assert.equal(await page.locator("#resetButton").getAttribute("aria-label"), "Reset to starter ship and default Wiring", "Reset has an accessible label");
-    await assert.equal(await page.locator("#clearGridButton").getAttribute("aria-label"), "Clear all components and Wiring", "Clear has an accessible label");
+    await assert.equal(await page.locator("#clearGridButton").getAttribute("aria-label"), "Remove all components except the core and clear Wiring", "Clear has an accessible label");
 
     const indicator = page.locator("#rotationIndicator");
     const beforeRotation = await indicator.textContent();
@@ -406,14 +423,20 @@ async function main() {
     await page.click("#resetButton");
     assert.match(await page.locator("#confirmModalTitle").textContent(), /Reset/i, "Reset click opens Reset confirmation, not Clear");
     await page.click("#confirmCancelButton");
+    const beforeClear = await snapshot(page);
     await page.click("#clearGridButton");
-    assert.match(await page.locator("#confirmModalTitle").textContent(), /Clear/i, "Clear click opens Clear confirmation, not Reset");
-    await page.click("#confirmCancelButton");
+    assert.equal(await page.locator("#confirmModal").isVisible(), false, "Clear applies without a confirmation message");
+    assert.deepEqual(await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      return state.design.map((part) => part.type);
+    }), ["core"], "Clear removes every component except the core");
     for (const id of ["#undoBlueprintEditButton", "#resetButton", "#clearGridButton"]) await page.focus(id);
     const gridStableAfter = await page.locator("#buildGrid").boundingBox();
     const cellStableAfter = await page.locator('.build-cell[data-x="7"][data-y="7"]').boundingBox();
     assert.ok(Math.abs(gridStableBefore.x - gridStableAfter.x) < 1 && Math.abs(gridStableBefore.y - gridStableAfter.y) < 1, "toolbar focus/confirmation does not move grid");
     assert.ok(Math.abs(cellStableBefore.x - cellStableAfter.x) < 1 && Math.abs(cellStableBefore.y - cellStableAfter.y) < 1, "toolbar focus/confirmation does not move cells");
+    await page.click("#undoBlueprintEditButton");
+    assert.equal(await snapshot(page), beforeClear, "Undo restores the design cleared without confirmation");
     await page.click("#undoBlueprintEditButton");
     assert.equal(await page.locator("#confirmModal").isVisible(), false, "Undo click does not open Reset/Clear confirmation");
     assert.equal(await snapshot(page), beforeBuildPlace, "Undo click routes to Undo after toolbar hit-test checks");
@@ -465,20 +488,11 @@ async function main() {
     await page.click("#confirmCancelButton");
     assert.equal(await snapshot(page), genuine, "Reset cancel changes nothing");
     await page.click("#clearGridButton");
-    assert.equal(await page.locator("#confirmModal").isVisible(), true, "genuine Clear opens confirmation");
-    await page.click("#confirmCancelButton");
-    assert.equal(await snapshot(page), genuine, "Clear cancel changes nothing");
-    await page.click("#clearGridButton");
-    await page.click("#confirmAcceptButton");
-    assert.equal(await designLength(page), 0, "accepted Clear empties design");
-    assert.equal(await page.locator("#emptyGridInstruction").isVisible(), true, "empty instruction visible after Clear in Build");
-    await setMode(page, "heat");
-    assert.match(await page.locator("#emptyGridInstruction").textContent(), /predicted Heat/i, "Heat empty instruction is mode-appropriate");
-    await setMode(page, "wiring");
-    assert.equal(await page.locator("#emptyGridInstruction").isVisible(), false, "empty instruction hidden in Wiring");
+    assert.equal(await page.locator("#confirmModal").isVisible(), false, "genuine Clear applies without confirmation");
+    assert.equal(await designLength(page), 1, "Clear preserves the core");
+    assert.equal(await page.locator("#emptyGridInstruction").isVisible(), false, "core-only design is not presented as empty");
     await page.click("#undoBlueprintEditButton");
     assert.equal(await snapshot(page), genuine, "Undo restores full ship and Wiring after Clear");
-    await setMode(page, "build");
     assert.equal(await page.locator("#emptyGridInstruction").isVisible(), false, "empty instruction disappears after Undo");
 
     await page.evaluate(async () => {

@@ -7,7 +7,7 @@ const { DEFAULT_WIRING } = require("./src/server/config");
 const ship = [
   { x: 5, y: 5, type: "reactor" }, { x: 6, y: 5, type: "frame" }, { x: 7, y: 5, type: "armor" }, { x: 8, y: 5, type: "shield" },
   { x: 5, y: 6, type: "fireControl" }, { x: 6, y: 6, type: "beamEmitter" }, { x: 7, y: 6, type: "frame" }, { x: 8, y: 6, type: "railgun" },
-  { x: 5, y: 7, type: "sensorArray" }
+  { x: 5, y: 7, type: "signalAmplifier" }
 ];
 let wiring = W.emptyWiring();
 wiring = W.addConnection(wiring, "power", 0, 3, [{x:5,y:5},{x:6,y:5},{x:7,y:5},{x:8,y:5}], ship, PARTS);

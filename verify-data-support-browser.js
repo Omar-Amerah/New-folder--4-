@@ -211,10 +211,10 @@ async function collectVulnerabilityDiagnostics(page) {
       ]);
       const m = (type,x,y) => ({ type,x,y,rotation:0 });
       const R = globalThis.WiringRules;
-      // Network A: Fire Control + Sensor Array share one upstream trunk before branching to two weapons.
+      // Network A: Fire Control + Signal Amplifier share one upstream trunk before branching to two weapons.
       // Network B: Targeting Computer reaches Point Defence through a deterministic two-route loop.
       state.design = [
-        m("auxGenerator",0,2),m("fireControl",0,0),m("sensorArray",0,1),m("frame",1,0),m("frame",1,1),
+        m("auxGenerator",0,2),m("fireControl",0,0),m("signalAmplifier",0,1),m("frame",1,0),m("frame",1,1),
         m("frame",4,1),m("railgun",2,0),m("missile",3,1),m("auxGenerator",6,2),m("targetingComputer",6,0),
         m("frame",6,1),m("frame",7,0),m("frame",7,1),m("frame",8,0),m("frame",8,1),m("pointDefense",9,0)
       ];

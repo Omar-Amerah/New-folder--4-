@@ -215,8 +215,8 @@ export function updateEconomyUi() {
   const deployLabel = dom.deployButton.querySelector(".deploy-action-label");
   const deployCost = dom.deployButton.querySelector(".deploy-cost");
   if (deployLabel) deployLabel.textContent = "Ready with current design";
-  if (deployCost) deployCost.textContent = `Deploy cost: $${unitCost}`;
-  dom.deployButton.setAttribute("aria-label", `Ready with current design. Deploy cost: $${unitCost}`);
+  if (deployCost) deployCost.textContent = `Ship cost: $${unitCost}`;
+  dom.deployButton.setAttribute("aria-label", `Ready with current design. Ship cost: $${unitCost}. The ship is not bought until the match starts.`);
 
   if (mine) {
     const status = state.phase === "design"

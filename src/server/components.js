@@ -53,7 +53,10 @@ function makeWeapon(type, stats) {
     targetPriority: stats.targetPriority || [],
     shieldDamageMultiplier: Number(stats.shieldDamageMultiplier ?? 1),
     hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1),
-    burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined
+    burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined,
+    chargeRampSeconds: stats.chargeRampSeconds !== undefined ? Number(stats.chargeRampSeconds) : undefined,
+    maxChargeDamageBonus: stats.maxChargeDamageBonus !== undefined ? Number(stats.maxChargeDamageBonus) : undefined,
+    impactHeatPerDamage: stats.impactHeatPerDamage !== undefined ? Number(stats.impactHeatPerDamage) : undefined
   };
 }
 

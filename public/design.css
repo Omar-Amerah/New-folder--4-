@@ -12,7 +12,7 @@
 @import url(./styles/blueprint-layout.css);
 @import url(./styles/build-preview.css);
 @import url(./styles/component-shapes.css);
-@import url(./styles/wiring-editor.css?v=wiring-analysis-redesign-13);
+@import url(./styles/wiring-editor.css?v=wiring-analysis-redesign-14);
 
 /* Scale Blueprint interface chrome independently; the grid stage and all
    geometry used for placement, Heat and Wiring remain at 100%. */

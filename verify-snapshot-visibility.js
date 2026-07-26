@@ -9,7 +9,7 @@
 // from an earlier full-detail snapshot.
 
 const assert = require("assert");
-const { snapshotRoom } = require("./src/server/snapshots");
+const { snapshotRoom, buildSharedSnapshot } = require("./src/server/snapshots");
 
 const PRIVATE_FIELDS = [
   "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
@@ -99,6 +99,7 @@ function shipEntry(snapshot, id) {
   const entry = shipEntry(snap, "shipA");
   assert.strictEqual(entry.detail, "public", "enemy ship marked public detail");
   assert.ok(entry.design, "enemy keeps a public visual design for rendering");
+  assert.deepStrictEqual(entry.chpVisual, [10, 10], "enemy receives only quantized visual component condition");
   assert.ok(entry.hp !== undefined && entry.shield !== undefined && entry.radius !== undefined, "enemy keeps observable combat fields");
   assertNoPrivateFields(entry, "enemy full snapshot");
   console.log("PASS: enemy receives no private component/Heat/Power/wiring fields in a full snapshot");
@@ -115,11 +116,12 @@ function shipEntry(snapshot, id) {
   client.knownShipDesignRevisions.set("shipA", 1);
   // Mutate internal component state and mark dirty, then request a compact.
   const ship = room.ships.get("shipA");
-  ship.componentHp[0] = 5; ship.dirtyComponents.add(0);
+  ship.componentHp[1] = 5; ship.dirtyComponents.add(1);
   ship.componentHeat[1] = 9; ship.dirtyHeat.add(1);
   const compact = snapshotRoom(room, 16, enemy, false, null, client);
   const entry = shipEntry(compact, "shipA");
   assert.strictEqual(entry.detail, "public", "enemy compact ship marked public");
+  assert.deepStrictEqual(entry.chpVisual, [10, 3], "enemy receives updated visual damage without exact HP");
   assertNoPrivateFields(entry, "enemy compact snapshot");
   console.log("PASS: enemy compact snapshots omit all private fields including dirty deltas");
 })();
@@ -129,8 +131,11 @@ function shipEntry(snapshot, id) {
   const room = makeRoom("teams");
   const enemy = room.players.get("pe");
   const client = { player: enemy, knownShipDesignRevisions: new Map(), knownShipPowerRevisions: new Map() };
-  const full = snapshotRoom(room, 0, enemy, true, null, client); // forced full resync
-  assertNoPrivateFields(shipEntry(full, "shipA"), "enemy forced resync");
+  const shared = buildSharedSnapshot(room, 0, false, true);
+  const full = snapshotRoom(room, 0, enemy, true, shared, client); // forced full resync
+  const entry = shipEntry(full, "shipA");
+  assertNoPrivateFields(entry, "enemy forced resync");
+  assert.deepStrictEqual(entry.chpVisual, [10, 10], "forced full resync restores current visual damage");
   console.log("PASS: reconnect and forced resync remain redacted");
 })();
 
@@ -143,6 +148,7 @@ function shipEntry(snapshot, id) {
     ships: [{
       id: "shipA", detail: "full",
       design: [{ type: "core" }], chp: [10, 20], componentHeat: [[1, 0, 0, 10], [2, 0, 0, 20]],
+      chpVisual: [10, 4],
       componentPower: [["ok", 1, 1]], powerStatus: {}, switchgear: [], powerProtection: {}
     }]
   };
@@ -152,6 +158,7 @@ function shipEntry(snapshot, id) {
   const entry = merged.find((s) => s.id === "shipA");
   assertNoPrivateFields(entry, "client merge of public over cached full");
   assert.ok(entry.design, "public visual design still present after merge");
+  assert.deepStrictEqual(entry.chpVisual, [10, 4], "public visual damage survives compact snapshot merging");
   console.log("PASS: client merge cannot restore private fields from an earlier cached snapshot");
 })();
 

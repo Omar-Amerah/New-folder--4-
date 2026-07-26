@@ -631,8 +631,20 @@ async function inspectCircleSafety(page) {
     assert.strictEqual(await page.locator(".wire-terminal-supply-full").count(), 3, "higher-priority healthy consumers retain full terminal rings");
     assert.strictEqual(await page.locator(".wire-terminal-supply-partial").count(), 1, "throttled consumer gets one half-ring terminal");
     assert.strictEqual(await page.locator(".wire-terminal-supply-none").count(), 1, "shed consumer gets one crossed terminal");
-    assert.ok(await page.locator(".wire-visible-layer .wire-supply-partial").count() >= 1, "carrying sections in the short network use interrupted amber");
+    const partialCable = page.locator(".wire-visible-layer .wire-supply-partial").first();
+    assert.ok(await partialCable.count() >= 1, "carrying sections in the short network use an interrupted tier-coloured line");
+    assert.match(await partialCable.evaluate((line) => getComputedStyle(line).stroke), /rgb\(\s*255,\s*152,\s*0\s*\)/i,
+      "a partially supplied Standard cable remains Standard orange instead of turning yellow");
     assert.ok(await page.locator(".wire-visible-layer .wire-supply-none").count() >= 1, "zero-delivery section stays visible in the no-Power state");
+    const partialSectionId = await partialCable.getAttribute("data-section-id");
+    await page.locator('[data-wiring-tool="inspect"]').click();
+    await page.locator(`.wire-hit[data-section-id="${partialSectionId}"]`).dispatchEvent("mouseover");
+    const activePartialPulse = page.locator(`.wire-energy-pulse.active[data-section-id="${partialSectionId}"]`);
+    assert.strictEqual(await activePartialPulse.count(), 1, "Inspect activates a movement pulse on a partially supplied cable");
+    assert.match(await activePartialPulse.evaluate((line) => getComputedStyle(line).stroke), /rgb\(\s*125,\s*233,\s*255\s*\)/i,
+      "Inspect movement uses a contrasting cyan pulse that stays visible over every warm tier colour");
+    await page.locator(`.wire-hit[data-section-id="${partialSectionId}"]`).dispatchEvent("mouseout");
+    await page.locator('[data-wiring-tool="draw"]').click();
     assert.strictEqual(await page.evaluate(async () => {
       const [{ state }, { computeStats }] = await Promise.all([import("/src/state.js"), import("/src/design/componentStats.js")]);
       return computeStats(state.design, { wiring: state.wiring }).maxShield;

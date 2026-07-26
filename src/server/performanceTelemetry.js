@@ -5,13 +5,32 @@
 // the profiler does not become part of the hot-path problem it is measuring.
 const WINDOW_MS = 60_000;
 const MAX_SAMPLES = 2048;
+const SUBSYSTEM_NAMES = Object.freeze([
+  "botsEconomyLifecycle",
+  "powerDemandProtection",
+  "movementSeparationMap",
+  "spatialIndex",
+  "support",
+  "drones",
+  "weapons",
+  "projectiles",
+  "heat",
+  "objectives"
+]);
 const series = {
   simulationMs: [],
   cycleMs: [],
   eventLoopLagMs: [],
   snapshotBuildMs: [],
+  snapshotConstructionMs: [],
+  snapshotEncodingMs: [],
   snapshotPayloadBytes: [],
-  snapshotMaxClientBytes: []
+  snapshotMaxClientBytes: [],
+  entityShips: [],
+  entityDrones: [],
+  entityBullets: [],
+  entityEffects: [],
+  ...Object.fromEntries(SUBSYSTEM_NAMES.map((name) => [`subsystem:${name}`, []]))
 };
 const totals = {
   ticks: 0,
@@ -34,18 +53,29 @@ function boundedSample(name, value, at = Date.now()) {
   if (values.length > MAX_SAMPLES) values.splice(0, Math.floor(MAX_SAMPLES / 4));
 }
 
-function recordTick({ simulationMs = 0, cycleMs = 0, eventLoopLagMs = 0, budgetMs = 0 } = {}) {
+function recordTick({ simulationMs = 0, cycleMs = 0, eventLoopLagMs = 0, budgetMs = 0, counts = {} } = {}) {
   const at = Date.now();
   boundedSample("simulationMs", simulationMs, at);
   boundedSample("cycleMs", cycleMs, at);
   boundedSample("eventLoopLagMs", Math.max(0, eventLoopLagMs), at);
+  boundedSample("entityShips", Math.max(0, Number(counts.ships) || 0), at);
+  boundedSample("entityDrones", Math.max(0, Number(counts.drones) || 0), at);
+  boundedSample("entityBullets", Math.max(0, Number(counts.bullets) || 0), at);
+  boundedSample("entityEffects", Math.max(0, Number(counts.effects) || 0), at);
   totals.ticks += 1;
   if (budgetMs > 0 && cycleMs > budgetMs) totals.tickBudgetOverruns += 1;
 }
 
-function recordSnapshot({ durationMs = 0, payloadBytes = 0, maxClientBytes = 0, clients = 0 } = {}) {
+function recordRoomTick({ durations = {} } = {}) {
+  const at = Date.now();
+  for (const name of SUBSYSTEM_NAMES) boundedSample(`subsystem:${name}`, Math.max(0, Number(durations[name]) || 0), at);
+}
+
+function recordSnapshot({ durationMs = 0, constructionMs = 0, encodingMs = 0, payloadBytes = 0, maxClientBytes = 0, clients = 0 } = {}) {
   const at = Date.now();
   boundedSample("snapshotBuildMs", durationMs, at);
+  boundedSample("snapshotConstructionMs", constructionMs, at);
+  boundedSample("snapshotEncodingMs", encodingMs, at);
   boundedSample("snapshotPayloadBytes", payloadBytes, at);
   boundedSample("snapshotMaxClientBytes", maxClientBytes, at);
   totals.snapshots += 1;
@@ -82,7 +112,7 @@ function percentile(sorted, p) {
 
 function summarize(name, now) {
   const values = currentValues(name, now);
-  if (!values.length) return { samples: 0, average: 0, p50: 0, p95: 0, p99: 0, max: 0 };
+  if (!values.length) return { samples: 0, average: 0, p50: 0, p95: 0, p99: 0, max: 0, latest: 0 };
   const sorted = values.slice().sort((a, b) => a - b);
   const round = (value) => Math.round(value * 1000) / 1000;
   return {
@@ -91,7 +121,8 @@ function summarize(name, now) {
     p50: round(percentile(sorted, 0.5)),
     p95: round(percentile(sorted, 0.95)),
     p99: round(percentile(sorted, 0.99)),
-    max: round(sorted[sorted.length - 1])
+    max: round(sorted[sorted.length - 1]),
+    latest: round(values[values.length - 1])
   };
 }
 
@@ -128,8 +159,17 @@ function performanceSnapshot(tickHz = 30) {
       total: totals.ticks,
       budgetOverruns: totals.tickBudgetOverruns
     },
+    subsystems: Object.fromEntries(SUBSYSTEM_NAMES.map((name) => [name, summarize(`subsystem:${name}`, now)])),
+    entities: {
+      ships: summarize("entityShips", now),
+      drones: summarize("entityDrones", now),
+      bullets: summarize("entityBullets", now),
+      effects: summarize("entityEffects", now)
+    },
     snapshot: {
       buildMs: summarize("snapshotBuildMs", now),
+      constructionMs: summarize("snapshotConstructionMs", now),
+      encodingMs: summarize("snapshotEncodingMs", now),
       aggregatePayloadBytes: summarize("snapshotPayloadBytes", now),
       maxClientPayloadBytes: summarize("snapshotMaxClientBytes", now),
       total: totals.snapshots,
@@ -145,4 +185,4 @@ function performanceSnapshot(tickHz = 30) {
   };
 }
 
-module.exports = { recordTick, recordSnapshot, recordOutbound, performanceSnapshot };
+module.exports = { SUBSYSTEM_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, performanceSnapshot };

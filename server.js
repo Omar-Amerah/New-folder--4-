@@ -329,6 +329,13 @@ function createGameServer(options = {}) {
           const cycleStartedAt = performanceNow();
           for (const room of rooms.values()) tickRoom(room, dt, now);
           const simulationMs = performanceNow() - cycleStartedAt;
+          const counts = { ships: 0, drones: 0, bullets: 0, effects: 0 };
+          for (const room of rooms.values()) {
+            counts.ships += room.ships?.size || 0;
+            counts.drones += room.drones?.size || 0;
+            counts.bullets += room.bullets?.length || 0;
+            counts.effects += room.effects?.length || 0;
+          }
           tickCount += 1;
           if (tickCount % ticksPerSnapshot === 0) {
             for (const room of rooms.values()) if (room.phase === "active") broadcastSnapshot(room, now);
@@ -337,7 +344,8 @@ function createGameServer(options = {}) {
             simulationMs,
             cycleMs: performanceNow() - cycleStartedAt,
             eventLoopLagMs: Math.max(0, elapsedSinceTick - tickIntervalMs),
-            budgetMs: tickIntervalMs
+            budgetMs: tickIntervalMs,
+            counts
           });
         }, tickIntervalMs));
         for (const t of timers.values()) t.unref?.();

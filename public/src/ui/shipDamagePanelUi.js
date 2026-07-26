@@ -714,7 +714,8 @@ function renderDroneSummary(ship) {
       const slots = bay.slots || [];
       const active = slots.filter((slot) => ["launching", "active"].includes(slot.state)).length;
       const returning = slots.filter((slot) => ["returning", "docking"].includes(slot.state)).length;
-      const inSpace = active + returning;
+      const refueling = slots.filter((slot) => slot.state === "refueling").length;
+      const inSpace = active + returning + refueling;
       const producing = slots.find((slot) => slot.state === "producing");
       const ready = slots.filter((slot) => slot.state === "ready").length;
       const stored = slots.filter((slot) => slot.state === "stored").length;
@@ -735,7 +736,7 @@ function renderDroneSummary(ship) {
         pending = null;
       }
       const powerFraction = Number.isFinite(Number(bay.powerFraction)) ? Number(bay.powerFraction) : (bay.operational ? 1 : 0);
-      const command = droneCommandPresentation(bay, { active, returning, ready, stored, producing, powerFraction });
+      const command = droneCommandPresentation(bay, { active, returning, refueling, ready, stored, producing, powerFraction });
       const squadPips = slots.map((slot, index) => {
         const stateName = String(slot.state || "unavailable");
         const title = `Drone ${index + 1}: ${stateName}${stateName === "producing" ? ` ${Math.round((Number(slot.progress) || 0) * 100)}%` : ""}`;
@@ -752,7 +753,7 @@ function renderDroneSummary(ship) {
         : command.action;
       const disabled = Boolean(pending) || !bay.operational;
       return `<div class="ship-drone-bay-row" data-drone-command-state="${escapeHtml(command.tone)}">
-        <div class="ship-drone-bay-info"><div class="ship-drone-bay-heading"><b>${escapeHtml(label)}</b><span class="ship-drone-command-state is-${escapeHtml(command.tone)}">${escapeHtml(command.status)}</span></div>${commandRange ? `<small class="ship-drone-range">360° drone range · ${commandRange} m</small>` : ""}<div class="ship-drone-squad-pips" aria-label="${active} active, ${returning} returning, ${stored} stored out of ${slots.length} drones">${squadPips}</div><small>${active} active${returning ? ` · ${returning} returning` : ""} · ${ready} ready · ${stored} stored · ${Number(bay.runtimePowerMw) || 0} MW${producing ? ` · ${progressPercent}% rebuilding` : squadComplete ? " · squad accounted for" : " · replacement pending"}${problem ? ` · ${escapeHtml(problem)}` : ""}</small>${progressBar}</div>
+        <div class="ship-drone-bay-info"><div class="ship-drone-bay-heading"><b>${escapeHtml(label)}</b><span class="ship-drone-command-state is-${escapeHtml(command.tone)}">${escapeHtml(command.status)}</span></div>${commandRange ? `<small class="ship-drone-range">360° drone range · ${commandRange} m</small>` : ""}<div class="ship-drone-squad-pips" aria-label="${active} active, ${returning} returning, ${refueling} refueling, ${stored} stored out of ${slots.length} drones">${squadPips}</div><small>${active} active${returning ? ` · ${returning} returning` : ""}${refueling ? ` · ${refueling} refueling` : ""} · ${ready} ready · ${stored} stored · ${Number(bay.runtimePowerMw) || 0} MW${producing ? ` · ${progressPercent}% rebuilding` : squadComplete ? " · squad accounted for" : " · replacement pending"}${problem ? ` · ${escapeHtml(problem)}` : ""}</small>${progressBar}</div>
         <button type="button" class="ship-drone-command-button is-${escapeHtml(command.tone)}" data-drone-bay-id="${escapeHtml(bay.componentId)}" data-drone-bay-mode="${targetMode}" aria-label="${escapeHtml(`${actionLabel} for ${label} Drone Bay`)}"${pending ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${escapeHtml(actionLabel)}</button>
       </div>`;
     }).join("")}
@@ -787,12 +788,14 @@ function droneCommandPresentation(bay, counts) {
     return { tone: "recalled", status: `Recalled · ${counts.stored + counts.ready} stored`, action: "Deploy squad" };
   }
   if (counts.returning > 0) return { tone: "recalling", status: `Recall cancelling · ${counts.returning} in transit`, action: "Recall squad" };
+  if (counts.refueling > 0) return { tone: "refueling", status: `Refueling · ${counts.refueling} docked`, action: "Recall squad" };
   if (counts.active > 0) {
     const launching = (bay.slots || []).filter((slot) => slot.state === "launching").length;
     return launching > 0
       ? { tone: "deploying", status: `Deploying · ${launching} launching`, action: "Recall squad" }
       : { tone: "deployed", status: `Deployed · ${counts.active} active`, action: "Recall squad" };
   }
+  if (bay.launchBlockedBySpawn) return { tone: "paused", status: "Launch paused · leave spawn", action: "Recall squad" };
   if (bay.overheated) return { tone: "paused", status: "Launch paused · overheated", action: "Recall squad" };
   if (counts.powerFraction <= MIN_DRONE_UI_POWER) return { tone: "paused", status: "Launch paused · no power", action: "Recall squad" };
   if (counts.producing) return { tone: "queued", status: "Rebuilding replacement", action: "Recall squad" };

@@ -46,7 +46,7 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     ...model.sections.flatMap((section) => section.rows.map((row) => ({ ...row, region: section.id })))
   ];
 
-  const REPRESENTATIVE = ["frame", "reactor", "blaster", "sensorArray", "shield", "droneBay", "heatSink", "core", "backupCore",
+  const REPRESENTATIVE = ["frame", "reactor", "blaster", "signalAmplifier", "shield", "droneBay", "heatSink", "core", "backupCore",
     "armor", "pointDefense", "radiator", "engine", "heatPipe", "capacitor", "repair", "missile", "railgun", "beamEmitter", "battery"];
 
   // -- 1. No statistic ever appears twice in one inspector --------------------
@@ -85,11 +85,11 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     }
   });
 
-  check("Sensor Array never shows an empty Accuracy bonus", () => {
-    const rows = allRows(build("sensorArray"));
+  check("Signal Amplifier never shows an empty Accuracy bonus", () => {
+    const rows = allRows(build("signalAmplifier"));
     const accuracy = rows.find((row) => row.id === "bonus.accuracy");
     assert.equal(accuracy, undefined, "no Accuracy bonus row when the catalogue value is zero");
-    assert.equal(PART_STATS.sensorArray.accuracyBonus, 0, "fixture assumption: Sensor Array has no accuracy bonus");
+    assert.equal(PART_STATS.signalAmplifier.accuracyBonus, 0, "fixture assumption: Signal Amplifier has no accuracy bonus");
     for (const row of rows) assert.doesNotMatch(row.value, /\bnone\b/i, `no "None" value survives: ${row.label}`);
   });
 
@@ -247,7 +247,7 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
   });
 
   check("Power and Data dependencies are requirements, not warning callouts", () => {
-    for (const type of ["blaster", "shield", "engine", "radiator", "sensorArray"]) {
+    for (const type of ["blaster", "shield", "engine", "radiator", "signalAmplifier"]) {
       const ids = build(type).warnings.map((warning) => warning.id);
       assert.ok(!ids.includes("power-dependency"), `${type} raises no Power warning callout`);
       assert.ok(!ids.includes("data-dependency"), `${type} raises no Data warning callout`);
@@ -261,12 +261,12 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
   check("requirements cover Power only, Data only, both, and neither", () => {
     const ids = (type, context) => build(type, context).requirements.map((requirement) => requirement.id);
     assert.deepEqual(ids("blaster"), ["power"], "a powered weapon requires Power only");
-    assert.deepEqual(ids("sensorArray"), ["power", "data"], "a powered Data source requires both");
+    assert.deepEqual(ids("signalAmplifier"), ["power", "data"], "a powered Data source requires both");
     assert.deepEqual(ids("frame"), [], "a passive Frame requires neither");
     assert.deepEqual(ids("heatSink"), [], "an unpowered utility requires neither");
     // A Data source with no power draw requires Data only.
-    const dataOnly = buildComponentInspectorModel("sensorArray", { ...PART_STATS.sensorArray, powerUse: 0 }, {
-      name: "Sensor Array", description: "", category: "Support", effectiveCost: "$10"
+    const dataOnly = buildComponentInspectorModel("signalAmplifier", { ...PART_STATS.signalAmplifier, powerUse: 0 }, {
+      name: "Signal Amplifier", description: "", category: "Support", effectiveCost: "$10"
     });
     assert.deepEqual(dataOnly.requirements.map((r) => r.id), ["data"], "a Data source without a draw requires Data only");
   });
@@ -319,7 +319,7 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     assert.ok(titles("shield").includes("Shield details"));
     assert.ok(titles("droneBay").includes("Drone details"));
     assert.ok(titles("repair").includes("Repair details"));
-    assert.ok(titles("sensorArray").includes("Sensor details"));
+    assert.ok(titles("signalAmplifier").includes("Sensor details"));
     assert.ok(titles("backupCore").includes("Command details"));
     assert.ok(titles("reactor").includes("Thermal details"));
     for (const type of REPRESENTATIVE) {
@@ -349,7 +349,7 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     assert.equal(componentFamily("shield", PART_STATS.shield), "defence");
     assert.equal(componentFamily("core", PART_STATS.core), "command");
     assert.equal(componentFamily("backupCore", PART_STATS.backupCore), "command");
-    assert.equal(componentFamily("sensorArray", PART_STATS.sensorArray), "utility");
+    assert.equal(componentFamily("signalAmplifier", PART_STATS.signalAmplifier), "utility");
     for (const type of Object.keys(PART_STATS)) {
       assert.ok(Model.FAMILIES.includes(componentFamily(type, PART_STATS[type])), `${type} has a known family`);
     }

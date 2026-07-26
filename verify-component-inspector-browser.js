@@ -13,7 +13,7 @@ const { chromium } = require("playwright");
 const { uniquePort, startServer, waitForServer, launchChromium } = require("./verify-pixi-browser-support.js");
 
 const artifactDir = path.join("test-artifacts", "component-inspector");
-const REPRESENTATIVE = ["frame", "reactor", "blaster", "sensorArray", "shield", "droneBay", "heatSink", "core", "backupCore"];
+const REPRESENTATIVE = ["frame", "reactor", "blaster", "signalAmplifier", "shield", "droneBay", "heatSink", "core", "backupCore"];
 
 // Select a component by type through the same path the palette uses.
 async function selectComponent(page, type) {
@@ -217,8 +217,8 @@ async function readInspector(page) {
       assert.equal(damage.length, 1, "damage appears once");
     });
 
-    check("Sensor Array uses Sensor details and hides its zero Accuracy bonus", () => {
-      const sensor = snapshots.sensorArray;
+    check("Signal Amplifier uses Sensor details and hides its zero Accuracy bonus", () => {
+      const sensor = snapshots.signalAmplifier;
       assert.ok(sensor.sections.some((section) => /sensor details/i.test(section.title)), "context-specific heading");
       assert.equal(sensor.sections.some((section) => /combat details/i.test(section.title)), false);
       assert.ok(sensor.capability.some((cell) => /range bonus/i.test(cell.label)), "range bonus is the primary capability");
@@ -241,7 +241,7 @@ async function readInspector(page) {
     // -- Requirements row ------------------------------------------------------
     check("Power and Data dependencies render as compact chips, not callout boxes", () => {
       assert.deepEqual(snapshots.blaster.requirements.map((chip) => chip.id), ["power"], "Blaster requires Power only");
-      assert.deepEqual(snapshots.sensorArray.requirements.map((chip) => chip.id), ["power", "data"], "Sensor Array requires both");
+      assert.deepEqual(snapshots.signalAmplifier.requirements.map((chip) => chip.id), ["power", "data"], "Signal Amplifier requires both");
       assert.deepEqual(snapshots.frame.requirements, [], "Frame requires neither");
       assert.deepEqual(snapshots.heatSink.requirements, [], "Heat Sink requires neither");
       for (const type of REPRESENTATIVE) {
@@ -253,7 +253,7 @@ async function readInspector(page) {
     });
 
     check("each requirement is a real button with a visible label and full ARIA wiring", () => {
-      for (const type of ["blaster", "sensorArray", "shield", "reactor"]) {
+      for (const type of ["blaster", "signalAmplifier", "shield", "reactor"]) {
         for (const chip of snapshots[type].requirements) {
           assert.equal(chip.tag, "BUTTON", `${type}/${chip.id} is a real button`);
           assert.equal(chip.type, "button", `${type}/${chip.id} has type=button`);
@@ -264,12 +264,12 @@ async function readInspector(page) {
           assert.equal(chip.tipHidden, true, `${type}/${chip.id} tooltip starts hidden`);
         }
       }
-      assert.deepEqual(snapshots.sensorArray.requirements.map((chip) => chip.label), ["Power", "Data"]);
+      assert.deepEqual(snapshots.signalAmplifier.requirements.map((chip) => chip.label), ["Power", "Data"]);
     });
 
     check("requirement chips sit together in one area, never beside individual stat values", async () => {
       const grouping = await (async () => {
-        await selectComponent(page, "sensorArray");
+        await selectComponent(page, "signalAmplifier");
         return page.evaluate(() => {
           const root = document.querySelector("#partInspector");
           const chips = Array.from(root.querySelectorAll("[data-requirement]"));
@@ -286,7 +286,7 @@ async function readInspector(page) {
       assert.equal(grouping.areaCount, 1, "there is exactly one requirements area");
     });
 
-    await selectComponent(page, "sensorArray");
+    await selectComponent(page, "signalAmplifier");
     const tooltipBehaviour = await (async () => {
       const chip = page.locator('#partInspector [data-requirement="power"]');
       const tipId = await chip.getAttribute("aria-controls");
@@ -431,7 +431,7 @@ async function readInspector(page) {
       const uniqueMarkers = {
         reactor: /meltdown risk/i,
         droneBay: /drone details/i,
-        sensorArray: /sensor details/i,
+        signalAmplifier: /sensor details/i,
         shield: /shield details/i
       };
       for (const [owner, marker] of Object.entries(uniqueMarkers)) {
@@ -462,7 +462,7 @@ async function readInspector(page) {
     });
 
     // -- Failing dependencies stay visible -------------------------------------
-    // Place a Sensor Array with no Power or Data cable, then select it: the
+    // Place a Signal Amplifier with no Power or Data cable, then select it: the
     // requirement must turn red and state the failure visibly, not only on hover.
     const failureState = await (async () => {
       await page.evaluate(async () => {
@@ -473,7 +473,7 @@ async function readInspector(page) {
         ]);
         const free = { x: 2, y: 2 };
         state.design = [...state.design.filter((part) => !(part.x === free.x && part.y === free.y)),
-          { type: "sensorArray", x: free.x, y: free.y, rotation: 0 }];
+          { type: "signalAmplifier", x: free.x, y: free.y, rotation: 0 }];
         state.selectedPart = null;
         state.selectedCell = { ...free };
         designerUi.renderBuildGrid();
@@ -488,7 +488,7 @@ async function readInspector(page) {
 
     check("an unpowered, unconnected placed component shows red requirements with visible failure text", () => {
       const { view } = failureState;
-      assert.match(view.name, /sensor array/i, "the placed Sensor Array is selected");
+      assert.match(view.name, /signal amplifier/i, "the placed Signal Amplifier is selected");
       assert.ok(view.requirements.length >= 1, "the placed component shows its requirements");
       const power = view.requirements.find((chip) => chip.id === "power");
       const data = view.requirements.find((chip) => chip.id === "data");
@@ -560,7 +560,7 @@ async function readInspector(page) {
     for (const viewport of widths) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       // Power only, Power+Data, neither, and a large multi-cell component.
-      for (const type of ["blaster", "sensorArray", "frame", "heatSink", "reactor", "droneBay"]) {
+      for (const type of ["blaster", "signalAmplifier", "frame", "heatSink", "reactor", "droneBay"]) {
         await selectComponent(page, type);
         const layout = await page.evaluate(() => {
           const root = document.querySelector("#partInspector");

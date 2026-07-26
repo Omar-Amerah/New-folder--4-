@@ -16,6 +16,8 @@ export const PART_DEFS = {
   wingCompositeArmor: { name: "Wing Composite Armor", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
   engine: { name: "Engine", color: "#54d7ff", glyph: "linear-gradient(180deg, #68efff, #225ed8 52%, #111827)" },
   reactor: { name: "Reactor", color: "#ffdc5e", glyph: "radial-gradient(circle, #fff7b3 0 20%, #f4c145 26% 55%, #6b4b12 60%)" },
+  nuclearReactor: { name: "Nuclear Reactor", color: "#facc15", glyph: "radial-gradient(circle, #fffde7 0 12%, #fde047 14% 30%, #f97316 34% 48%, #7c2d12 54%)" },
+  backupCore: { name: "Backup Command Core", color: "#c4b5fd", glyph: "radial-gradient(circle, #f5f3ff 0 18%, #8b5cf6 22% 48%, #312e81 54%)" },
   battery: { name: "Battery", color: "#7ee0ff", glyph: "linear-gradient(180deg, #d5fbff 0 20%, #47caee 22% 50%, #14536f 52%)" },
   shield: { name: "Shield", color: "#7cffa0", glyph: "radial-gradient(circle, #b9ffd0 0 18%, #39cc75 28% 54%, #114027 58%)" },
   blaster: { name: "Blaster", color: "#ff5f7e", glyph: "linear-gradient(90deg, #31131d 0 18%, #ff5f7e 20% 72%, #ffd1dc 73%)" },
@@ -52,13 +54,11 @@ export const PART_DEFS = {
   heavyRailgun: { name: "Heavy Railgun", color: "#f8fafc", glyph: "linear-gradient(90deg, #020617 0 14%, #f8fafc 16% 70%, #3b82f6 74%)" },
   beamEmitter: { name: "Beam Emitter", color: "#bae6fd", glyph: "linear-gradient(90deg, #082f49 0 18%, #7dd3fc 20% 76%, #eff6ff 78%)" },
   aegisProjector: { name: "Aegis Projector", color: "#6ee7b7", glyph: "radial-gradient(circle, #ecfdf5 0 18%, #34d399 30% 56%, #064e3b 64%)" },
-  sensorArray: { name: "Sensor Array", color: "#a7f3d0", glyph: "radial-gradient(circle, #ecfdf5 0 15%, #10b981 25% 45%, #064e3b 55%)" },
   targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
   fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
   heatPipe: { name: "Heat Pipe", color: "#38bdf8", glyph: "linear-gradient(90deg, #082f49 0 18%, #38bdf8 20% 36%, #e0f2fe 38% 50%, #38bdf8 52% 68%, #082f49 70%)" },
   heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
   radiator: { name: "Radiator", color: "#7dd3fc", glyph: "repeating-linear-gradient(90deg, #0c4a6e 0 12%, #bae6fd 13% 22%)" },
-  captureModule: { name: "Capture Module", color: "#f9a8d4", glyph: "radial-gradient(circle, #fdf2f8 0 20%, #ec4899 30% 55%, #831843 62%)" },
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
@@ -84,6 +84,8 @@ export const PART_DESCRIPTIONS = Object.freeze({
   armor: "Heavy passive protection. Adds strong hull but increases mass and slows turning.",
   engine: "Main propulsion module. Adds thrust for speed and acceleration.",
   reactor: "Primary power source for weapons, shields, engines, and support systems. Generates heat with load and melts down (explodes) if kept overheated.",
+  nuclearReactor: "Six-tile capital reactor with enormous Power output and extreme Heat generation. It needs a dedicated Heat network and can melt down if left overheated.",
+  backupCore: "Secondary command centre that automatically takes over if the main Core is destroyed. Requires Power and runs the ship at reduced effectiveness.",
   battery: "Energy reserve with a small shield buffer. Helps survivability without generating power.",
   shield: "Active defensive barrier. Adds shield capacity and recharge at a power cost.",
   blaster: "General-purpose gun with medium range, steady damage, and a forward firing arc.",
@@ -104,17 +106,15 @@ export const PART_DESCRIPTIONS = Object.freeze({
   swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
   beamEmitter: "Sustained shield-breaking beam that aims towards the enemy Core. It strikes the first obstruction and can carry part of its excess damage into one component directly behind a destroyed module.",
   aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
-  sensorArray: "Support electronics that extend weapon range for long-distance ships.",
   targetingComputer: "Support computer that improves weapon accuracy.",
   fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
   heatPipe: "Specialised high-conductivity thermal conduit that transfers heat to a connected heat sink or radiator route. It does not remove heat, stores very little heat, and is structurally weak, so it cannot replace frames for hull support.",
   heatSink: "High-capacity thermal buffer that soaks heat from connected frames and boosts adjacent components' heat capacity. Pair with radiators to shed the stored heat.",
   radiator: "Continuous heat removal that works best with an exposed exterior edge; only 25% effective when fully enclosed.",
-  captureModule: "Objective module that helps dedicated capture ships contest relays.",
   signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
-  droneBay: "Launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed."
+  droneBay: "Command module that launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed."
 });
 
 export const FALLBACK_PART_STATS = {};
@@ -232,7 +232,11 @@ export function makeWeapon(type, stats) {
     shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
     targetPriority: stats.targetPriority || [],
     shieldDamageMultiplier: Number(stats.shieldDamageMultiplier ?? 1),
-    hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1)
+    hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1),
+    burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined,
+    chargeRampSeconds: stats.chargeRampSeconds !== undefined ? Number(stats.chargeRampSeconds) : undefined,
+    maxChargeDamageBonus: stats.maxChargeDamageBonus !== undefined ? Number(stats.maxChargeDamageBonus) : undefined,
+    impactHeatPerDamage: stats.impactHeatPerDamage !== undefined ? Number(stats.impactHeatPerDamage) : undefined
   };
 }
 

@@ -17,7 +17,7 @@ const mod = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
 const design = [
   mod("reactor", 0, 2),
   mod("fireControl", 0, 1),
-  mod("sensorArray", 0, 0),
+  mod("signalAmplifier", 0, 0),
   mod("frame", 1, 0),
   mod("frame", 1, 1),
   mod("frame", 2, 1),

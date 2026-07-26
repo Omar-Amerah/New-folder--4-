@@ -9,7 +9,6 @@
   // authority for every numerical budget.
   const DATA_SOURCE_INFO = Object.freeze({
     fireControl: Object.freeze({ bonusField: "fireRateBonus", effect: "fire rate", unit: "percent" }),
-    sensorArray: Object.freeze({ bonusField: "rangeBonus", effect: "range", unit: "m" }),
     signalAmplifier: Object.freeze({ bonusField: "rangeBonus", effect: "range", unit: "m" }),
     targetingComputer: Object.freeze({ bonusField: "accuracyBonus", effect: "accuracy", unit: "percent" }),
     stabilizerNode: Object.freeze({ bonusField: "accuracyBonus", effect: "accuracy", unit: "percent" })

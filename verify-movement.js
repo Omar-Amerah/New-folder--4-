@@ -247,13 +247,36 @@ function run() {
   updateShipMovement(room, moving, 1 / 30);
   assert(Number.isFinite(moving.x) && Number.isFinite(moving.vx), "movement state should be sanitized to finite values");
 
-  // 11. Exact-overlap separation uses a deterministic direction and converges.
+  // 11. Losing the final gun must not turn a ranged combat order into a charge.
+  const armedDesign = [
+    { x: 7, y: 7, type: "core" },
+    { x: 8, y: 7, type: "reactor" },
+    { x: 7, y: 8, type: "engine" },
+    { x: 6, y: 7, type: "blaster" }
+  ];
+  const disarmed = runtimeShip(armedDesign, {
+    id: "disarmed",
+    combatStyle: "charge",
+    combatTargetId: "enemy",
+    isManualMove: false,
+    targetX: 900,
+    targetY: 300
+  });
+  const disarmedTarget = { id: "enemy", ownerId: "p2", alive: true, x: 900, y: 300, radius: 30 };
+  const combatRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map([[disarmedTarget.id, disarmedTarget]]) };
+  disarmed.componentHp[3] = 0;
+  updateShipMovement(combatRoom, disarmed, 1 / 30);
+  assert.strictEqual(disarmed.targetX, disarmed.x, "ship with no surviving gun holds its current range");
+  assert.strictEqual(disarmed.targetY, disarmed.y, "disarmed ship does not target the enemy position");
+  assert.strictEqual(disarmed.arrived, true, "disarmed ship stops its automatic combat advance");
+
+  // 12. Exact-overlap separation uses a deterministic direction and converges.
   const overlapA = { id: "a", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
   const overlapB = { id: "b", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
   updateShipSeparation(room, [overlapB, overlapA], 1 / 30);
   assert(Math.hypot(overlapA.x - overlapB.x, overlapA.y - overlapB.y) > 0, "overlapped ships should separate deterministically");
 
-  // 12. Nearest-clear-point reports metadata and clears all asteroid constraints when possible.
+  // 13. Nearest-clear-point reports metadata and clears all asteroid constraints when possible.
   const clear = nearestClearPoint(room, 1000, 800, 48);
   assert(clear.adjusted && clear.clear && clear.reason === "adjusted", "clear-point helper should expose successful adjustment metadata");
 

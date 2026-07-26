@@ -19,7 +19,8 @@ const NUMERIC_FIELDS = [
 const WEAPON_NUMERIC_FIELDS = [
   "damage", "fireRate", "range", "radius", "projectileSpeed", "accuracy", "tracking",
   "trackTime", "trackingDelay", "aimSpeed", "arc", "missileHp", "shipDamageMultiplier",
-  "shieldDamageMultiplier", "hullDamageMultiplier"
+  "shieldDamageMultiplier", "hullDamageMultiplier", "chargeRampSeconds",
+  "maxChargeDamageBonus", "impactHeatPerDamage"
 ];
 
 function isFiniteNumber(value) {
@@ -185,7 +186,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   }
   for (const key of ["metadata","shipPricing","economy","rewards","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
   if (balance.drones) {
-    const required = ["squadSize", "maxBaysPerShip", "maxActivePerShip", "maxActivePerPlayer", "launchIntervalSeconds", "launchDurationSeconds", "orphanLifetimeSeconds", "standbyPowerMw", "activePowerMw", "productionPowerMw", "standbyHeatPerSecond", "activeHeatPerSecond", "productionHeatPerSecond"];
+    const required = ["squadSize", "maxBaysPerShip", "maxActivePerShip", "maxActivePerPlayer", "launchIntervalSeconds", "launchDurationSeconds", "fuelSeconds", "refuelSeconds", "orphanLifetimeSeconds", "standbyPowerMw", "activePowerMw", "productionPowerMw", "standbyHeatPerSecond", "activeHeatPerSecond", "productionHeatPerSecond"];
     for (const field of required) if (!isFiniteNonNegative(balance.drones[field])) errors.push(`${filePath}.drones.${field} must be a finite non-negative number.`);
     if (!balance.drones.types || typeof balance.drones.types !== "object") errors.push(`${filePath}.drones.types must be an object.`);
     for (const type of ["fighter", "defence", "repair"]) {
@@ -267,6 +268,20 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
           } else if (typeof family === "string" && !BURN_THROUGH_WEAPON_FAMILIES.has(family)) {
             errors.push(`${path}.weapon.burnThroughCarryMultiplier is only supported for ${[...BURN_THROUGH_WEAPON_FAMILIES].join(", ")} weapons.`);
           }
+        }
+        for (const field of ["chargeRampSeconds", "maxChargeDamageBonus", "impactHeatPerDamage"]) {
+          if (component.weapon[field] !== undefined && family !== "beam") {
+            errors.push(`${path}.weapon.${field} is only supported for beam weapons.`);
+          }
+        }
+        if (component.weapon.chargeRampSeconds !== undefined && component.weapon.chargeRampSeconds <= 0) {
+          errors.push(`${path}.weapon.chargeRampSeconds must be greater than zero.`);
+        }
+        if (component.weapon.maxChargeDamageBonus !== undefined && (component.weapon.maxChargeDamageBonus < 0 || component.weapon.maxChargeDamageBonus > 1)) {
+          errors.push(`${path}.weapon.maxChargeDamageBonus must be between 0 and 1 (inclusive).`);
+        }
+        if (component.weapon.impactHeatPerDamage !== undefined && component.weapon.impactHeatPerDamage < 0) {
+          errors.push(`${path}.weapon.impactHeatPerDamage must be zero or greater.`);
         }
         if (component.weapon.targetPriority !== undefined) {
           if (!Array.isArray(component.weapon.targetPriority)) errors.push(`${path}.weapon.targetPriority must be an array when present.`);

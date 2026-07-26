@@ -40,7 +40,10 @@ function createRoom(code, options = {}) {
     players: new Map(),
     ships: new Map(),
     drones: new Map(),
+    droneCounts: { byOwner: new Map(), byParent: new Map() },
     bullets: [],
+    projectileById: new Map(),
+    spatialIndex: null,
     effects: [],
     map,
     mapSeed,
@@ -514,8 +517,9 @@ function prepareArenaForCurrentPlayers(room) {
   invalidateSpawnPlan(room);
   room.map = generateMapWithAuthoritativeSafeZones(room);
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
-  room.bullets = [];
-  room.drones = new Map();
+  require("./projectiles").resetProjectileRuntime(room);
+  require("./drones").resetDroneRuntime(room);
+  require("./spatialIndex").clearRoomSpatialIndex(room);
   room.effects = [];
   room.nextEntityId = 1;
 }
@@ -583,7 +587,9 @@ function resetMatch(room, now) {
   room.winner = null;
   room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
-  room.drones = new Map();
+  require("./drones").resetDroneRuntime(room);
+  require("./projectiles").resetProjectileRuntime(room);
+  require("./spatialIndex").clearRoomSpatialIndex(room);
   applyAuthoritativeSafeZones(room);
   for (const point of room.points) {
     point.ownerId = null;

@@ -18,5 +18,7 @@ const assert = require("assert");
   assert.deepStrictEqual(ships[0].design, [{ type: "core" }]);
   assert.deepStrictEqual(ships[0].chp, [2]);
   assert.deepStrictEqual(ships[0].componentHeat[0], [3,1,0.3,10]);
+  const visual = m.mergeCachedShipFields([{ id: "v", detail: "public", design: [{ type: "frame" }], chpVisual: [4] }], [{ id: "v", detail: "public" }]);
+  assert.deepStrictEqual(visual[0].chpVisual, [4], "off-screen visual damage persists across compact snapshots");
   console.log("Snapshot merge verification passed");
 })().catch((err) => { console.error(err); process.exit(1); });

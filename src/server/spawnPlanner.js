@@ -76,12 +76,25 @@ function planSpawnRegions(room, options = {}) {
 }
 
 function getSpawnRegionPlan(room) {
+  // Once combat starts, roster changes must not move the surviving players'
+  // bases. The frozen plan may retain an unused entry for a departed player;
+  // that is intentional and keeps every other assignment stable.
+  if (room.__spawnPlanFrozen && room.__spawnRegionPlan) return room.__spawnRegionPlan;
   if (!room.__spawnRegionPlan || room.__spawnPlanKey !== planKey(room)) {
     room.__spawnRegionPlan = planSpawnRegions(room);
     room.__spawnPlan = room.__spawnRegionPlan.spawns;
     room.__spawnPlanKey = room.__spawnRegionPlan.key;
   }
   return room.__spawnRegionPlan;
+}
+
+function freezeSpawnPlan(room) {
+  if (!room) return null;
+  // Resolve once against the complete finalized roster before enabling the
+  // freeze. getSpawnRegionPlan can therefore still refresh a stale design plan.
+  const plan = getSpawnRegionPlan(room);
+  room.__spawnPlanFrozen = true;
+  return plan;
 }
 
 function getPlannedSpawn(room, playerId) {
@@ -97,6 +110,7 @@ function invalidateSpawnPlan(room) {
   delete room.__spawnPlan;
   delete room.__spawnRegionPlan;
   delete room.__spawnPlanKey;
+  delete room.__spawnPlanFrozen;
 }
 
 function reservationRadius(player, options = {}) {
@@ -185,4 +199,4 @@ function normalizeTeam(team) { if (team === "blue" || team === 0 || team === "0"
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function round(v) { return Math.round(v * 100) / 100; }
 function zoneInsideWorld(zone, world) { return zone.x - zone.radius >= 0 && zone.x + zone.radius <= world.width && zone.y - zone.radius >= 0 && zone.y + zone.radius <= world.height; }
-module.exports = { planSpawns, planSpawnRegions, getSpawnRegionPlan, getPlannedSpawn, reservationRadius, invalidateSpawnPlan };
+module.exports = { planSpawns, planSpawnRegions, getSpawnRegionPlan, freezeSpawnPlan, getPlannedSpawn, reservationRadius, invalidateSpawnPlan };

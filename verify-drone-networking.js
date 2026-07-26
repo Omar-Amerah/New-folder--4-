@@ -30,7 +30,7 @@ const ship = {
 const drone = {
   id: "d1", ownerId: "owner", parentShipId: "carrier", bayComponentId: "drone-bay:5,6",
   slot: 0, type: "fighter", state: "active", x: 50.123, y: 60.456, vx: 1.2, vy: -3.4,
-  angle: 0.5, hull: 41.2, maxHull: 45, targetId: "enemy"
+  angle: 0.5, hull: 41.2, maxHull: 45, targetId: "enemy", fuelRemainingSeconds: 8.25
 };
 const room = { ships: new Map([[ship.id, ship]]), drones: new Map([[drone.id, drone]]) };
 
@@ -43,6 +43,8 @@ const decoded = decodeBinary(encodeMessage(first));
 assert.deepEqual(decoded, first, "Drone and bay state is MessagePack compatible");
 assert.equal(decoded.drones[0].parentShipId, ship.id);
 assert.equal(decoded.drones[0].bayComponentId, ship.droneBays[0].componentId);
+assert.equal(decoded.drones[0].fuelRemainingSeconds, 8.25);
+assert.equal(decoded.drones[0].fuelCapacitySeconds, 15);
 assert.equal(decoded.ships[0].droneBays[0].productionProgress, 0.46);
 assert.equal(decoded.ships[0].droneBays[0].productionPausedReason, "insufficient-power");
 assert.equal(decoded.ships[0].droneBays[0].powerFraction, 1);

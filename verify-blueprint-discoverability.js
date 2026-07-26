@@ -109,7 +109,31 @@ function clickCell(grid, x, y, button = 0) { const cell = grid.querySelector(`.b
   designer.setBlueprintView("heat"); clickPaletteCategory("Weapons"); assert.equal(elements.get("buildInteractionGuide").hidden, false, "Heat guide visible"); assert.match(elements.get("buildInteractionGuide").textContent, /Hover to inspect Heat/i); assert.equal(elements.get("rotationIndicator").hidden, false, "Heat rotatable palette selection shows indicator"); assert.equal(elements.get("emptyGridInstruction").hidden, false, "Heat empty instruction visible");
   designer.setBlueprintView("wiring"); clickPaletteCategory("Weapons"); assert.equal(elements.get("buildInteractionGuide").hidden, true, "Wiring guide hidden"); assert.equal(elements.get("rotationIndicator").hidden, true, "Wiring rotation hidden despite selected rotatable part"); assert.equal(elements.get("emptyGridInstruction").hidden, true, "Wiring empty instruction hidden");
 
-  state.design = storage.defaultDesign(); state.wiring = storage.normalizeWiring(storage.defaultWiring(), state.design); state.loadedEditorBlueprintId = null; history.clearBlueprintEditHistory(); designer.renderBuildGrid(); assert.equal(designer.requestResetDesign(), false, "no-op Reset does not open modal"); state.design = []; state.wiring = globalThis.WiringRules.emptyWiring(); designer.renderBuildGrid(); assert.equal(designer.requestClearDesign(), false, "no-op Clear does not open modal"); state.design = [{ type:"core", x:7, y:7, rotation:0 }]; const beforeConfirm = JSON.stringify(history.captureBlueprintEditSnapshot(state)); assert.equal(designer.requestResetDesign(), true, "genuine Reset opens modal"); assert.equal(elements.get("confirmModal").hidden, false); assert.equal(designer.closeBlueprintConfirmModalIfPending(), true, "Cancel closes modal"); assert.equal(JSON.stringify(history.captureBlueprintEditSnapshot(state)), beforeConfirm, "Cancel changes nothing"); persistCalls = 0; assert.equal(designer.requestClearDesign(), true, "genuine Clear opens modal"); assert.equal(designer.handleBlueprintConfirmModalAction(), true, "acceptance handled"); assert.equal(state.design.length, 0, "accepted Clear changes design"); assert.equal(history.blueprintEditHistorySize(), 1, "accepted Clear creates one history entry"); assert.equal(persistCalls, 1, "accepted Clear persists once");
+  state.design = storage.defaultDesign();
+  state.wiring = storage.normalizeWiring(storage.defaultWiring(), state.design);
+  state.loadedEditorBlueprintId = null;
+  history.clearBlueprintEditHistory();
+  designer.renderBuildGrid();
+  assert.equal(designer.requestResetDesign(), false, "no-op Reset does not open modal");
+
+  state.design = [{ type: "core", x: 7, y: 7, rotation: 0 }];
+  state.wiring = globalThis.WiringRules.emptyWiring();
+  designer.renderBuildGrid();
+  assert.equal(designer.requestClearDesign(), false, "core-only Clear is a no-op");
+
+  const beforeConfirm = JSON.stringify(history.captureBlueprintEditSnapshot(state));
+  assert.equal(designer.requestResetDesign(), true, "genuine Reset opens modal");
+  assert.equal(elements.get("confirmModal").hidden, false);
+  assert.equal(designer.closeBlueprintConfirmModalIfPending(), true, "Cancel closes modal");
+  assert.equal(JSON.stringify(history.captureBlueprintEditSnapshot(state)), beforeConfirm, "Cancel changes nothing");
+
+  state.design.push({ type: "frame", x: 7, y: 8, rotation: 0 });
+  persistCalls = 0;
+  assert.equal(designer.requestClearDesign(), true, "genuine Clear applies immediately");
+  assert.equal(elements.get("confirmModal").hidden, true, "Clear does not open a message");
+  assert.deepEqual(state.design, [{ type: "core", x: 7, y: 7, rotation: 0 }], "Clear preserves only the core");
+  assert.equal(history.blueprintEditHistorySize(), 1, "Clear creates one history entry");
+  assert.equal(persistCalls, 1, "Clear persists once");
 
   const source = fs.readFileSync("public/src/ui/designerUi.js", "utf8");
   assert(!source.includes('if (state.blueprintView === "heat") return;\n      editCell'), "Heat click path is not blocked before editCell");

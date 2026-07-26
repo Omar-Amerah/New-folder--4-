@@ -1189,17 +1189,15 @@ export function resetDesign() {
 
 export function clearDesign() {
   const before = captureBlueprintEditSnapshot(state);
-  commitPhysicalEdit(before, () => {
-    state.design = [];
+  return commitPhysicalEdit(before, () => {
+    const existingCore = state.design.find((part) => part.type === "core");
+    const fallbackCore = defaultDesign().find((part) => part.type === "core");
+    state.design = [{ ...(existingCore || fallbackCore) }];
     clearHeatInspectionState();
     state.loadedEditorBlueprintId = null;
     refreshLoadedBlueprintPresentation();
     clearAllWiring({ resetEditorHistory: false });
   });
-}
-
-function wiringHasSections(wiring = state.wiring) {
-  return Boolean(wiring?.power?.sections?.length || wiring?.data?.sections?.length);
 }
 
 export function requestResetDesign() {
@@ -1211,9 +1209,7 @@ export function requestResetDesign() {
 }
 
 export function requestClearDesign() {
-  if (state.design.length === 0 && !wiringHasSections() && state.loadedEditorBlueprintId == null) return false;
-  openBlueprintDestructiveConfirm("clear");
-  return true;
+  return clearDesign();
 }
 
 function openBlueprintDestructiveConfirm(action) {
