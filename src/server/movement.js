@@ -19,6 +19,10 @@ const ARRIVE_DISTANCE = 16;
 const MAX_MOVEMENT_DT = 0.25;
 const MOVEMENT_SUBSTEP = 1 / 30;
 
+// Math.hypot is robust but slow; all callers here use finite 2-D deltas well
+// inside the double range, so sqrt(x*x + y*y) is equivalent and cheaper.
+function fastHypot(dx, dy) { return Math.sqrt(dx * dx + dy * dy); }
+
 function heatAdjustedMovementStats(ship, stats) {
   const design = ship.design || [];
   const multiplier = (i) => (ship.componentHp?.[i] ?? 1) > 0
@@ -269,7 +273,7 @@ function updateShipMovementStep(room, ship, dt) {
 
   const dx = ship.targetX - ship.x;
   const dy = ship.targetY - ship.y;
-  const distance = Math.hypot(dx, dy);
+  const distance = fastHypot(dx, dy);
 
   if (ship.arrived === undefined) {
     ship.arrived = distance <= ARRIVE_DISTANCE;
@@ -340,7 +344,7 @@ function getActiveCombatTarget(room, ship) {
 
 function updateCombatMoveTarget(room, ship, target, style) {
   const maxRange = getMaxWeaponRange(ship);
-  const distanceToTarget = Math.hypot(target.x - ship.x, target.y - ship.y);
+  const distanceToTarget = fastHypot(target.x - ship.x, target.y - ship.y);
 
   if (style === "sentry") {
     clearOrbitState(ship);
@@ -471,7 +475,7 @@ function getDesiredMoveAngle(room, ship) {
 
   const dx = ship.targetX - ship.x;
   const dy = ship.targetY - ship.y;
-  const targetDistance = Math.hypot(dx, dy);
+  const targetDistance = fastHypot(dx, dy);
   const pathX = targetDistance > 0.001 ? dx / targetDistance : Math.cos(ship.angle);
   const pathY = targetDistance > 0.001 ? dy / targetDistance : Math.sin(ship.angle);
 
@@ -509,7 +513,7 @@ function getDesiredMoveAngle(room, ship) {
     return Math.atan2(sideY - ship.y, sideX - ship.x);
   }
 
-  const speed = Math.hypot(ship.vx || 0, ship.vy || 0);
+  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
   const lookahead = Math.max(120, speed * 0.8 + 60);
   const forwardX = Math.cos(ship.angle);
   const forwardY = Math.sin(ship.angle);
@@ -556,9 +560,9 @@ function getDesiredMoveAngle(room, ship) {
 function segmentCircleClearance(x1, y1, x2, y2, cx, cy, radius) {
   const dx = x2 - x1;
   const dy = y2 - y1;
-  const len = Math.hypot(dx, dy);
+  const len = fastHypot(dx, dy);
   if (len < 0.001) {
-    return { blocked: Math.hypot(cx - x1, cy - y1) < radius, along: 0, lateral: 0 };
+    return { blocked: fastHypot(cx - x1, cy - y1) < radius, along: 0, lateral: 0 };
   }
   const ux = dx / len;
   const uy = dy / len;
@@ -569,7 +573,7 @@ function segmentCircleClearance(x1, y1, x2, y2, cx, cy, radius) {
   const closestX = x1 + ux * clampedAlong;
   const closestY = y1 + uy * clampedAlong;
   const lateral = relX * (-uy) + relY * ux;
-  return { blocked: Math.hypot(cx - closestX, cy - closestY) < radius, along, lateral };
+  return { blocked: fastHypot(cx - closestX, cy - closestY) < radius, along, lateral };
 }
 
 function rotateHullForCombat(room, ship, stats, target, dt) {
@@ -605,7 +609,7 @@ function applySpeedLimit(ship, stats) {
   // operational engine, damping/collisions/boundaries remain the only brakes.
   if (maxSpeed <= 0) return;
 
-  const speed = Math.hypot(ship.vx, ship.vy);
+  const speed = fastHypot(ship.vx, ship.vy);
   if (speed <= maxSpeed) return;
 
   const scale = maxSpeed / speed;
@@ -756,7 +760,7 @@ function resolveMapCollision(room, ship) {
     if (!asteroid) continue;
     let dx = ship.x - asteroid.x;
     let dy = ship.y - asteroid.y;
-    let distance = Math.hypot(dx, dy);
+    let distance = fastHypot(dx, dy);
 
     if (distance < 0.001) {
       dx = Math.cos(ship.angle || 0);
@@ -803,7 +807,7 @@ function nearestClearPoint(room, x, y, clearance) {
     for (const asteroid of asteroids) {
       const dx = px - asteroid.x;
       const dy = py - asteroid.y;
-      const distance = Math.hypot(dx, dy);
+      const distance = fastHypot(dx, dy);
       const minimum = asteroid.radius + clearance;
 
       if (distance >= minimum) continue;
@@ -827,7 +831,7 @@ function nearestClearPoint(room, x, y, clearance) {
 
   let clear = true;
   for (const asteroid of asteroids) {
-    if (Math.hypot(px - asteroid.x, py - asteroid.y) < asteroid.radius + clearance - 0.001) {
+    if (fastHypot(px - asteroid.x, py - asteroid.y) < asteroid.radius + clearance - 0.001) {
       clear = false;
       break;
     }
@@ -885,7 +889,7 @@ function findOptimalHullAngle(ship, target) {
 
       const dx = target.x - worldX;
       const dy = target.y - worldY;
-      const distance = Math.hypot(dx, dy);
+      const distance = fastHypot(dx, dy);
 
       if (distance > weapon.range) continue;
 
