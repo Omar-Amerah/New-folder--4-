@@ -42,7 +42,7 @@ export function updateLobbyState() {
   const playerCount = state.snapshot?.players?.length || 0;
   const phase = state.snapshot?.phase || state.phase;
   const admin = isAdmin();
-  dom.roomState.textContent = connected ? `${phaseLabel(phase)} | ${playerCount} in room` : connecting ? "Connecting" : "Not joined";
+  dom.roomState.textContent = connected ? `${phaseLabel(phase)} | ${playerCount} in Room` : connecting ? "Connecting" : "Not Joined";
   // Show a spinner from the create/join click until the room is joined (or the
   // attempt fails), so the wait on lobby creation has visible feedback.
   const joining = Boolean(state.joiningLobby) && !connected;
@@ -91,58 +91,46 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
   state.rules = { ...state.rules, ...rules };
   if (dom.rulesStatus) {
     if (editable) {
-      dom.rulesStatus.textContent = "Host controls";
+      dom.rulesStatus.textContent = "Host Controls";
     } else {
-      dom.rulesStatus.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked after lobby';
+      dom.rulesStatus.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked After Lobby';
     }
   }
 
   if (dom.rulesGrid && dom.rulesReadOnly) {
+    dom.rulesGrid.hidden = !editable;
+    dom.rulesReadOnly.hidden = editable;
     if (editable) {
-      dom.rulesGrid.hidden = false;
-      dom.rulesReadOnly.hidden = true;
+      setRuleControlValue(dom.gameModeSelect, rules.gameMode);
+      setRuleControlValue(dom.startingMoneyInput, rules.startingMoney);
+      setRuleControlValue(dom.maxPlayersInput, rules.maxPlayers);
+      setRuleControlValue(dom.mapSizeSelect, rules.mapSize);
+      setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity);
     } else {
-      dom.rulesGrid.hidden = true;
-      dom.rulesReadOnly.hidden = false;
-      const gameMode = rules.gameMode === "solo" ? "Solo" : "Teams";
-      const startMoney = rules.startingMoney ?? state.rules.startingMoney;
-      const maxP = rules.maxPlayers ?? 12;
-      const mapSize = rules.mapSize || "Auto";
-      const asteroidDensity = ASTEROID_DENSITY_LABELS[rules.asteroidDensity] || "Medium";
-      dom.rulesReadOnly.textContent = `Game mode: ${gameMode} | Starting money: ${startMoney} | Max players: ${maxP} | Map size: ${mapSize} | Asteroids: ${asteroidDensity}`;
+      dom.rulesReadOnly.innerHTML = `
+        <div><span>Mode</span><strong>${rules.gameMode === "solo" ? "Solo" : "Teams"}</strong></div>
+        <div><span>Starting Money</span><strong>$${rules.startingMoney}</strong></div>
+        <div><span>Max Players</span><strong>${rules.maxPlayers}</strong></div>
+        <div><span>Map Size</span><strong>${rules.mapSize === "auto" ? "Auto by Players" : escapeHtml(rules.mapSize)}</strong></div>
+        <div><span>Asteroid Density</span><strong>${escapeHtml(ASTEROID_DENSITY_LABELS[rules.asteroidDensity] || rules.asteroidDensity)}</strong></div>
+      `;
     }
   }
-
-  setRuleControlValue(dom.gameModeSelect, rules.gameMode || state.rules.gameMode || "teams");
-  setRuleControlValue(dom.startingMoneyInput, rules.startingMoney ?? state.rules.startingMoney);
-  setRuleControlValue(dom.maxPlayersInput, rules.maxPlayers ?? state.rules.maxPlayers);
-  setRuleControlValue(dom.mapSizeSelect, rules.mapSize || state.rules.mapSize || "auto");
-  setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity || state.rules.asteroidDensity || "medium");
-  for (const element of [dom.gameModeSelect, dom.startingMoneyInput, dom.maxPlayersInput, dom.mapSizeSelect, dom.asteroidDensitySelect]) {
-    if (element) element.disabled = !editable;
-  }
+  
   if (dom.maxPlayersInput) {
     dom.maxPlayersInput.min = String(Math.max(2, playerCount || 1));
   }
 }
 
 export function updateTeamChoiceControls(connected, phase) {
-  const mode = state.rules?.gameMode || "teams";
-  const inLobby = connected && phase === "lobby";
-  const canChoose = inLobby && mode === "teams";
-  const mine = state.mine;
-  if (dom.teamChoiceCard) {
-    dom.teamChoiceCard.hidden = !connected || mode === "solo";
-    dom.teamChoiceCard.classList?.toggle?.("solo", mode === "solo");
-  }
-  if (dom.teamSelect) {
-    if (mine?.team === "blue" || mine?.team === "red") dom.teamSelect.value = mine.team;
-    dom.teamSelect.disabled = !canChoose;
-  }
+  if (!dom.teamChoiceCard) return;
+  const canChoose = connected && phase === "lobby";
+  dom.teamSelect.disabled = !canChoose;
+  setRuleControlValue(dom.teamSelect, state.myTeam);
   if (dom.teamChoiceStatus) {
-    dom.teamChoiceStatus.textContent = mode === "solo"
-      ? "Solo mode: every player is an opponent"
-      : canChoose ? "Choose before ship design" : "Locked after ship design starts";
+    dom.teamChoiceStatus.textContent = state.myTeam
+      ? `${state.myTeam === "blue" ? "Blue Wing" : "Red Wing"}${canChoose ? "" : " (Locked)"}`
+      : canChoose ? "Choose Before Ship Design" : "Locked After Ship Design Starts";
   }
 }
 
@@ -153,7 +141,7 @@ function setRuleControlValue(element, value) {
 
 export function phaseLabel(phase) {
   if (phase === "lobby") return "Lobby";
-  if (phase === "design") return "Ship design";
+  if (phase === "design") return "Ship Design";
   if (phase === "active") return "Battle";
   if (phase === "ended") return "Ended";
   return "Offline";
@@ -185,14 +173,14 @@ export function updatePhaseDetail(phase) {
       ? state.rules.mapSize
       : `${players.length || 1} player${players.length === 1 ? "" : "s"}`;
     dom.phaseDetail.textContent = isAdmin()
-      ? `Waiting room. Map: ${mapRule}.`
-      : "Waiting for admin to start design.";
+      ? `Waiting Room. Map: ${mapRule}.`
+      : "Waiting for Admin to Start Design.";
   } else if (phase === "design") {
-    dom.phaseDetail.textContent = "Ship design phase.";
+    dom.phaseDetail.textContent = "Ship Design Phase.";
   } else if (phase === "active") {
-    dom.phaseDetail.textContent = "Match in progress.";
+    dom.phaseDetail.textContent = "Match in Progress.";
   } else if (phase === "ended") {
-    dom.phaseDetail.textContent = "Match ended.";
+    dom.phaseDetail.textContent = "Match Ended.";
   }
 }
 

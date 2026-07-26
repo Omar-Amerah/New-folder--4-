@@ -427,7 +427,7 @@ function droneBayControlsMarkup(type) {
   };
   const selectedConfig = selected ? types[selected] : null;
   const squadStatus = !selectedConfig
-    ? `<div class="drone-config-warning" role="note"><span class="drone-config-warning-icon" aria-hidden="true">!</span><span><strong>Squad type required</strong>Choose Fighter, Defence or Repair before saving or deploying.</span></div>`
+    ? `<div class="drone-config-warning" role="note"><span class="drone-config-warning-icon" aria-hidden="true">!</span><span><strong>Squad Type Required: </strong>Choose Fighter, Defence or Repair before saving or deploying.</span></div>`
     : "";
   return `<section class="part-inspector-config drone-bay-config" aria-label="Drone Bay configuration">
     <h4 class="part-section-heading">Drone squad</h4>

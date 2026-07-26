@@ -33,7 +33,7 @@ const SELECTED_COMBAT_STYLES = [
 ];
 
 const GROUP_COMBAT_STYLES = [
-  { id: "ship", label: "Use ship stance" },
+  { id: "ship", label: "Use Ship Stance" },
   ...SELECTED_COMBAT_STYLES
 ];
 

@@ -315,17 +315,17 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
   // -- 9. Context-specific accordion headings ---------------------------------
   check("advanced sections use context-specific headings, never generic Combat details", () => {
     const titles = (type) => build(type, { droneType: "fighter" }).sections.map((section) => section.title);
-    assert.ok(titles("blaster").includes("Weapon details"));
-    assert.ok(titles("shield").includes("Shield details"));
-    assert.ok(titles("droneBay").includes("Drone details"));
-    assert.ok(titles("repair").includes("Repair details"));
-    assert.ok(titles("signalAmplifier").includes("Sensor details"));
-    assert.ok(titles("backupCore").includes("Command details"));
-    assert.ok(titles("reactor").includes("Thermal details"));
+    assert.ok(titles("blaster").includes("Weapon Details"));
+    assert.ok(titles("shield").includes("Shield Details"));
+    assert.ok(titles("droneBay").includes("Drone Details"));
+    assert.ok(titles("repair").includes("Repair Details"));
+    assert.ok(titles("signalAmplifier").includes("Sensor Details"));
+    assert.ok(titles("backupCore").includes("Command Details"));
+    assert.ok(titles("reactor").includes("Thermal Details"));
     for (const type of REPRESENTATIVE) {
       for (const title of titles(type)) {
-        assert.notEqual(title, "Combat details", `${type} uses no generic Combat details heading`);
-        assert.notEqual(title, "Heat details", `${type} uses the Thermal details heading`);
+        assert.notEqual(title, "Combat Details", `${type} uses no generic Combat details heading`);
+        assert.notEqual(title, "Heat Details", `${type} uses the Thermal details heading`);
         assert.notEqual(title, "Key stats", `${type} replaces the Key stats card grid`);
       }
     }

@@ -250,14 +250,14 @@ function mobilitySection(stats, ledger) {
   const turns = Math.max(left, right) > 0;
   const rows = [
     statRow("accel", "Acceleration", Number(stats.accel || 0) > 0 ? `${Math.round(stats.accel)} m/s²` : null),
-    statRow("thrust", "Effective thrust", hasThrust ? formatThrust(stats.effectiveThrust) : null),
-    statRow("thrustRatio", "Thrust-to-mass", hasThrust ? `${round2(stats.thrustRatio)} kN/T` : null),
-    statRow("engineEfficiency", "Engine efficiency", hasThrust ? formatPercent(stats.engineEfficiency) : null),
-    statRow("speedCap", "Mass drag limit", formatSpeed(stats.speedCap)),
-    statRow("turnLeft", "Left turn", turns ? `${degreesPerSecond(left)}°/s` : null),
-    statRow("turnRight", "Right turn", turns ? `${degreesPerSecond(right)}°/s` : null),
-    statRow("turnCap", "Turn limit", Number(stats.turnCap || 0) > 0 ? `${degreesPerSecond(stats.turnCap)}°/s` : null),
-    statRow("blockedEngines", "Blocked engines", Number(stats.blockedEngines || 0) > 0 ? `${stats.blockedEngines}` : null, { tone: "warning" })
+    statRow("thrust", "Effective Thrust", hasThrust ? formatThrust(stats.effectiveThrust) : null),
+    statRow("thrustRatio", "Thrust-to-Mass", hasThrust ? `${round2(stats.thrustRatio)} kN/T` : null),
+    statRow("engineEfficiency", "Engine Efficiency", hasThrust ? formatPercent(stats.engineEfficiency) : null),
+    statRow("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
+    statRow("turnLeft", "Left Turn", turns ? `${degreesPerSecond(left)}°/s` : null),
+    statRow("turnRight", "Right Turn", turns ? `${degreesPerSecond(right)}°/s` : null),
+    statRow("turnCap", "Turn Limit", Number(stats.turnCap || 0) > 0 ? `${degreesPerSecond(stats.turnCap)}°/s` : null),
+    statRow("blockedEngines", "Blocked Engines", Number(stats.blockedEngines || 0) > 0 ? `${stats.blockedEngines}` : null, { tone: "warning" })
   ];
 
   // Explain the relationship between top speed and the drag limit so the two
@@ -277,27 +277,27 @@ function mobilitySection(stats, ledger) {
   }
 
   const kept = ledger.take(rows);
-  return kept.length ? { id: "mobility", title: "Mobility details", rows: kept, note } : null;
+  return kept.length ? { id: "mobility", title: "Mobility Details", rows: kept, note } : null;
 }
 
 function powerSection(stats, power, ledger) {
   const rows = [
-    statRow("power.basis", "Analysis basis", !power.authoritative ? "Nominal component totals" : null),
+    statRow("power.basis", "Analysis Basis", !power.authoritative ? "Nominal component totals" : null),
     statRow("power.generation", "Generation", mw(power.generation)),
     statRow("power.demand", "Demand", mw(power.requested)),
     statRow("power.delivered", "Delivered", mw(power.delivered)),
     statRow("power.spare", "Spare", power.spare > 0 ? mw(power.spare) : null, { tone: "good" }),
-    statRow("power.stranded", "Stranded generation", power.stranded > 0 ? mw(power.stranded) : null, { tone: "warning" }),
+    statRow("power.stranded", "Stranded Generation", power.stranded > 0 ? mw(power.stranded) : null, { tone: "warning" }),
     statRow("power.unmet", "Unmet", power.unmet > 0 ? mw(power.unmet) : null, { tone: "bad" }),
     statRow("power.efficiency", "Efficiency", formatPercent(power.efficiency)),
     // A zero penalty is not rendered at all — no "Power Penalty: None".
-    statRow("power.penalty", "Power penalty", power.penalty > 0 ? `-${formatPercent(power.penalty)}` : null, { tone: "bad" }),
-    statRow("power.shed", "Load shed", power.loadShedActive ? (power.shedDetail || (power.loadShedCategories.length ? power.loadShedCategories.map(c => globalThis.PowerDiagnostics ? globalThis.PowerDiagnostics.categoryLabel(c) : c).join(", ") : null)) : null, { tone: "warning" }),
-    statRow("power.overloaded", "Overloaded sections", power.overloadedSections > 0 ? `${power.overloadedSections}` : null, { tone: "warning" }),
-    statRow("power.storage", "Energy storage", Number(stats.energyStorage || 0) > 0 ? `${round2(stats.energyStorage)} MJ` : null)
+    statRow("power.penalty", "Power Penalty", power.penalty > 0 ? `-${formatPercent(power.penalty)}` : null, { tone: "bad" }),
+    statRow("power.shed", "Load Shed", power.loadShedActive ? (power.shedDetail || (power.loadShedCategories.length ? power.loadShedCategories.map(c => globalThis.PowerDiagnostics ? globalThis.PowerDiagnostics.categoryLabel(c) : c).join(", ") : null)) : null, { tone: "warning" }),
+    statRow("power.overloaded", "Overloaded Sections", power.overloadedSections > 0 ? `${power.overloadedSections}` : null, { tone: "warning" }),
+    statRow("power.storage", "Energy Storage", Number(stats.energyStorage || 0) > 0 ? `${round2(stats.energyStorage)} MJ` : null)
   ];
   const kept = ledger.take(rows);
-  return kept.length ? { id: "power", title: "Power details", rows: kept } : null;
+  return kept.length ? { id: "power", title: "Power Details", rows: kept } : null;
 }
 
 const WEAPON_FAMILY_LABELS = { blaster: "Blaster", missile: "Missile", railgun: "Railgun", beam: "Beam" };
@@ -313,28 +313,28 @@ function combatSection(stats, ledger) {
       `${total.count}× · ${total.dps} DPS · ${Math.round(total.range)} m`));
   }
   const pointDefense = Number(stats.pointDefense || 0);
-  rows.push(statRow("weapons.pointDefense", "Point defence",
+  rows.push(statRow("weapons.pointDefense", "Point Defence",
     pointDefense > 0 ? `${pointDefense} mount${pointDefense === 1 ? "" : "s"}` : null));
-  rows.push(statRow("weapons.beamRadius", "Beam radius",
+  rows.push(statRow("weapons.beamRadius", "Beam Radius",
     Number(stats.beamRadius || 0) > 0 ? `${round2(stats.beamRadius)} m` : null));
-  rows.push(statRow("shieldRegen", "Shield recharge",
+  rows.push(statRow("shieldRegen", "Shield Recharge",
     Number(stats.shieldRegen || 0) > 0 ? `${round2(stats.shieldRegen)} SP/s` : null));
 
   const kept = ledger.take(rows);
-  return kept.length ? { id: "combat", title: "Combat details", rows: kept } : null;
+  return kept.length ? { id: "combat", title: "Combat Details", rows: kept } : null;
 }
 
 function supportSection(stats, ledger) {
   const rows = [
     // Zero-value capabilities are omitted entirely — never "Repair: 0 HP/s".
-    statRow("repair", "Repair rate", Number(stats.repairRate || 0) > 0 ? formatRepair(stats.repairRate) : null),
-    statRow("drones", "Drone capacity", Number(stats.droneCapacity || 0) > 0 ? `${stats.droneCapacity}` : null),
-    statRow("dronesByType", "Drone squads", droneSquadText(stats)),
-    statRow("capture", "Capture pressure", Number(stats.captureBonus || 0) > 0 ? `+${formatPercent(stats.captureBonus)}` : null),
-    statRow("cooling", "Cooling bonus", Number(stats.coolingBonus || 0) > 0 ? `+${formatPercent(stats.coolingBonus)}` : null)
+    statRow("repair", "Repair Rate", Number(stats.repairRate || 0) > 0 ? formatRepair(stats.repairRate) : null),
+    statRow("drones", "Drone Capacity", Number(stats.droneCapacity || 0) > 0 ? `${stats.droneCapacity}` : null),
+    statRow("dronesByType", "Drone Squads", droneSquadText(stats)),
+    statRow("capture", "Capture Pressure", Number(stats.captureBonus || 0) > 0 ? `+${formatPercent(stats.captureBonus)}` : null),
+    statRow("cooling", "Cooling Bonus", Number(stats.coolingBonus || 0) > 0 ? `+${formatPercent(stats.coolingBonus)}` : null)
   ];
   const kept = ledger.take(rows);
-  return kept.length ? { id: "support", title: "Support details", rows: kept } : null;
+  return kept.length ? { id: "support", title: "Support Details", rows: kept } : null;
 }
 
 function droneSquadText(stats) {

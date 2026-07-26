@@ -18,7 +18,7 @@
           <span class="brand-mark"></span>
           <div class="brand-copy">
             <h1>Fleet Arena</h1>
-            <p><span id="connectionStatus" class="connection-status offline">Offline dock</span></p>
+            <p><span id="connectionStatus" class="connection-status offline">Offline Dock</span></p>
           </div>
         </div>
 
@@ -28,8 +28,8 @@
           </div>
           <div class="deployment-actions">
             <button id="deployButton" type="button" class="ready-button">
-              <span class="deploy-action-label">Ready with current design</span>
-              <span class="deploy-cost">Ship cost: $0</span>
+              <span class="deploy-action-label">Ready with Current Design</span>
+              <span class="deploy-cost">Ship Cost: $0</span>
             </button>
             <button id="openBlueprintDesignerButton" type="button" class="designer-button">Open Blueprint Designer</button>
           </div>
@@ -46,7 +46,7 @@
         <div class="panel-section ship-groups-panel">
           <div class="section-heading compact">
             <h2>Ship Groups</h2>
-            <span id="shipGroupTotal">0 ships assigned</span>
+            <span id="shipGroupTotal">0 Ships Assigned</span>
           </div>
           <div id="shipGroupList" class="ship-group-list" aria-label="Ship groups"></div>
         </div>
@@ -106,14 +106,14 @@
             <button id="minimizeEndGameButton" type="button" class="icon-button minimize-button" title="Minimize" aria-label="Minimize">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
-            <span>Match complete</span>
+            <span>Match Complete</span>
             <strong id="endGameTitle">Victory</strong>
-            <div id="endGameSummary">Waiting for admin.</div>
+            <div id="endGameSummary">Waiting for Admin.</div>
             <div id="endGameActions" class="end-game-actions">
               <button id="restartButton" type="button">Rematch</button>
-              <button id="returnToLobbyButton" type="button" class="secondary">Return to lobby</button>
-              <button id="endCloseButton" type="button" class="secondary">Close lobby</button>
-              <button id="endLeaveButton" type="button" class="secondary">Main menu</button>
+              <button id="returnToLobbyButton" type="button" class="secondary">Return to Lobby</button>
+              <button id="endCloseButton" type="button" class="secondary">Close Lobby</button>
+              <button id="endLeaveButton" type="button" class="secondary">Main Menu</button>
             </div>
           </div>
         </div>
@@ -130,12 +130,12 @@
           <div class="match-meter-track">
             <span id="matchProgressFill"></span>
           </div>
-          <div id="matchSummary" class="match-summary">No active match</div>
+          <div id="matchSummary" class="match-summary">No Active Match</div>
         </div>
         <div id="selectionPanel" class="selection-panel" aria-label="Selected ship controls">
           <div class="section-heading compact">
             <h2>Selection</h2>
-            <span id="selectionPanelCount">0 ships</span>
+            <span id="selectionPanelCount">0 Ships</span>
           </div>
           <div id="combatStyleControls" class="combat-style-controls" role="group" aria-label="Combat style">
             <button type="button" data-combat-style="charge">Charge</button>
@@ -148,7 +148,7 @@
           </div>
           <div id="shipDamagePanel" class="ship-damage-panel" hidden>
             <div class="ship-damage-head">
-              <span>Ship status</span>
+              <span>Ship Status</span>
               <div class="status-view-tabs" role="tablist" aria-label="Ship status view">
                 <button id="shipDamageTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="shipStatusPanelBody">Damage</button>
                 <button id="shipHeatTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="shipStatusPanelBody">Heat</button>
@@ -160,7 +160,7 @@
             <div id="shipHeatSummary" class="ship-heat-summary" hidden></div>
             <div id="shipPowerSummary" class="ship-power-summary" hidden></div>
             <canvas id="shipDamageCanvas" width="360" height="360" aria-label="Selected ship component damage diagram"></canvas>
-            <div id="shipDamageHover" class="ship-damage-hover">Hover a component</div>
+            <div id="shipDamageHover" class="ship-damage-hover">Hover a Component</div>
             <div id="damageLegend" class="damage-legend" aria-hidden="true">
               <span><i class="legend-dot legend-damaged"></i>Damaged</span>
               <span><i class="legend-dot legend-critical"></i>Critical</span>
@@ -171,20 +171,20 @@
               <span><i class="legend-dot legend-hot"></i>Hot ≥68%</span>
               <span><i class="legend-dot legend-critical-heat"></i>Critical ≥86%</span>
               <span><i class="legend-dot legend-overheated"></i>Overheated ≥100%</span>
-              <span class="heat-legend-note">Tint/bar = stored heat</span>
+              <span class="heat-legend-note">Tint/Bar = Stored Heat</span>
               <span><i class="trend-up">▲</i> Warming</span>
               <span><i class="trend-down">▼</i> Cooling</span>
             </div>
             <div id="powerLegend" class="damage-legend power-legend" aria-hidden="true" hidden>
               <span><i class="legend-line legend-tier-light"></i>Light</span>
               <span><i class="legend-line legend-tier-standard"></i>Standard</span>
-              <span><i class="legend-line legend-tier-heavy"></i>Heavy bus</span>
+              <span><i class="legend-line legend-tier-heavy"></i>Heavy Bus</span>
               <span><i class="legend-dot legend-working"></i>Working</span>
-              <span><i class="legend-dot legend-near-sustained"></i>Near sustained</span>
+              <span><i class="legend-dot legend-near-sustained"></i>Near Sustained</span>
               <span><i class="legend-dot legend-above-sustained"></i>Overloaded</span>
-              <span><i class="legend-dot legend-at-peak"></i>At peak</span>
-              <span><i class="legend-line legend-disabled"></i>Disabled/broken</span>
-              <span class="heat-legend-note">Line thickness = cable tier</span>
+              <span><i class="legend-dot legend-at-peak"></i>At Peak</span>
+              <span><i class="legend-line legend-disabled"></i>Disabled / Broken</span>
+              <span class="heat-legend-note">Line Thickness = Cable Tier</span>
             </div>
             <div id="coreStatusLabel" class="core-status" hidden></div>
             <ul id="damageFeed" class="damage-feed" aria-live="polite"></ul>
@@ -204,7 +204,7 @@
       <div class="menu-panel">
         <div class="menu-head">
           <div>
-            <span id="roomStateText">Not joined</span>
+            <span id="roomStateText">Not Joined</span>
             <h2>Modular Fleet Arena</h2>
           </div>
           <div class="menu-head-actions">
@@ -226,13 +226,13 @@
 
         <label for="roomCode">Join Existing Game</label>
         <div class="join-row">
-          <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter code">
+          <input id="roomCode" maxlength="8" autocomplete="off" placeholder="Enter Code">
           <button id="joinButton" type="button">Join</button>
         </div>
         <div id="roomRecoveryCard" class="recovery-card" hidden>
           <strong>Recover room <span id="roomRecoveryCode">----</span></strong>
-          <span id="roomRecoveryStatus">Saved room can be resumed.</span>
-          <div class="utility-row"><button id="resumeRoomButton" type="button">Resume</button><button id="forgetRoomButton" type="button" class="secondary">Forget room</button></div>
+          <span id="roomRecoveryStatus">Saved Room Can Be Resumed.</span>
+          <div class="utility-row"><button id="resumeRoomButton" type="button">Resume</button><button id="forgetRoomButton" type="button" class="secondary">Forget Room</button></div>
         </div>
         <div id="mainMenuNotice" class="menu-notice" aria-live="polite" hidden></div>
       </div>
@@ -242,7 +242,7 @@
       <div class="menu-panel">
         <div class="menu-head">
           <div>
-            <span>Lobby management</span>
+            <span>Lobby Management</span>
             <h2>Room</h2>
           </div>
           <button id="lobbyCloseButton" type="button" class="secondary">Close</button>
@@ -251,12 +251,12 @@
         <div id="currentRoomCard" class="room-code-card" hidden>
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 10px;">
-              <span>Game code</span>
+              <span>Game Code</span>
               <strong id="currentRoomCode">----</strong>
             </div>
             <div style="display: flex; gap: 8px;">
-              <button id="copyCodeButton" type="button" class="secondary">Copy code</button>
-              <button id="copyButton" type="button" class="secondary">Copy invite</button>
+              <button id="copyCodeButton" type="button" class="secondary">Copy Code</button>
+              <button id="copyButton" type="button" class="secondary">Copy Invite</button>
             </div>
           </div>
         </div>
@@ -274,37 +274,37 @@
         <div class="rules-card">
           <div class="section-heading compact">
             <h2>Game Rules</h2>
-            <span id="rulesStatus">Host only</span>
+            <span id="rulesStatus">Host Only</span>
           </div>
           <div id="rulesGrid" class="rules-grid">
             <label for="gameModeSelect">
-              Game mode
+              Game Mode
               <select id="gameModeSelect">
                 <option value="teams">Teams</option>
                 <option value="solo">Solo</option>
               </select>
             </label>
             <label for="startingMoneyInput">
-              Starting money
+              Starting Money
               <input id="startingMoneyInput" type="number" min="100" max="9999" step="50" value="1000">
             </label>
             <label for="maxPlayersInput">
-              Max players
+              Max Players
               <input id="maxPlayersInput" type="number" min="2" max="12" step="1" value="12">
             </label>
             <label for="mapSizeSelect">
-              Map size
+              Map Size
               <select id="mapSizeSelect">
-                <option value="auto">Auto by players</option>
+                <option value="auto">Auto by Players</option>
                 <option value="Testing">Testing</option>
                 <option value="Duel">Duel</option>
                 <option value="Skirmish">Skirmish</option>
                 <option value="Battle">Battle</option>
-                <option value="Grand battle">Grand battle</option>
+                <option value="Grand battle">Grand Battle</option>
               </select>
             </label>
             <label for="asteroidDensitySelect">
-              Asteroid density
+              Asteroid Density
               <select id="asteroidDensitySelect">
                 <option value="none">None</option>
                 <option value="low">Low</option>
@@ -319,21 +319,21 @@
 
         <div id="teamChoiceCard" class="team-choice-card">
           <div>
-            <span>Lobby team</span>
-            <strong id="teamChoiceStatus">Choose before ship design</strong>
+            <span>Lobby Team</span>
+            <strong id="teamChoiceStatus">Choose Before Ship Design</strong>
           </div>
           <select id="teamSelect" aria-label="Choose team">
-            <option value="blue">Blue wing</option>
-            <option value="red">Red wing</option>
+            <option value="blue">Blue Wing</option>
+            <option value="red">Red Wing</option>
           </select>
         </div>
 
         <div id="hostActions" class="host-actions">
-          <button id="botButton" type="button" class="secondary">Add bot</button>
-          <button id="leaveLobbyButton" type="button" class="secondary">Leave lobby</button>
-          <button id="startDesignButton" type="button">Start ship design</button>
-          <button id="restartLobbyButton" type="button" class="secondary">Restart lobby</button>
-          <button id="closeLobbyButton" type="button" class="secondary">Close lobby</button>
+          <button id="botButton" type="button" class="secondary">Add Bot</button>
+          <button id="leaveLobbyButton" type="button" class="secondary">Leave Lobby</button>
+          <button id="startDesignButton" type="button">Start Ship Design</button>
+          <button id="restartLobbyButton" type="button" class="secondary">Restart Lobby</button>
+          <button id="closeLobbyButton" type="button" class="secondary">Close Lobby</button>
         </div>
         <div id="playerList" class="player-list" aria-label="Players"></div>
       </div>
@@ -342,11 +342,11 @@
     <section id="settingsScreen" class="menu-screen" hidden aria-label="Settings">
       <div class="menu-panel">
         <div class="menu-head"><div><span>Settings</span><h2>Preferences</h2></div><button id="settingsCloseButton" type="button" class="secondary">Close</button></div>
-        <fieldset class="settings-group"><legend>Multiplayer server</legend><label for="serverUrlInput">Server address</label><input id="serverUrlInput" autocomplete="off" placeholder="https://your-render-service.onrender.com"><div class="utility-row"><button id="saveServerButton" type="button">Save server</button><button id="clearServerButton" type="button" class="secondary">Use current host</button></div></fieldset>
-        <fieldset class="settings-group"><legend>Graphics</legend><label for="renderQualitySelect">Render quality</label><select id="renderQualitySelect"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><label class="checkbox-label" for="combatEffectsToggle"><input type="checkbox" id="combatEffectsToggle"> Show combat effects</label><label class="checkbox-label" for="debugOverlayToggle"><input type="checkbox" id="debugOverlayToggle"> Show debug overlay (F3)</label></fieldset>
-        <fieldset class="settings-group"><legend>Gameplay preferences</legend><label for="settingsTeamSelect">Preferred team</label><select id="settingsTeamSelect"><option value="blue">Blue wing</option><option value="red">Red wing</option></select><label for="settingsFormationSelect">Formation</label><select id="settingsFormationSelect"><option value="line">Line</option><option value="wedge">Wedge</option><option value="clump">Clump</option></select><label class="checkbox-label" for="mobileTestingToggle"><input type="checkbox" id="mobileTestingToggle"> Mobile testing mode</label></fieldset>
-        <fieldset class="settings-group"><legend>Accessibility</legend><label class="checkbox-label" for="reducedMotionToggle"><input type="checkbox" id="reducedMotionToggle"> Reduce motion</label><label for="interfaceScaleSelect">Interface scale</label><select id="interfaceScaleSelect"><option value="0.9">Compact 90%</option><option value="1">Default 100%</option><option value="1.1">Large 110%</option><option value="1.2">Extra large 120%</option></select></fieldset>
-        <fieldset class="settings-group"><legend>Storage and recovery</legend><div id="storageStatus" class="storage-status" aria-live="polite"></div><div class="utility-row wrap"><button id="resetSettingsButton" type="button" class="secondary">Reset settings</button><button id="clearCurrentBlueprintButton" type="button" class="secondary">Clear current blueprint</button><button id="clearSavedBlueprintsButton" type="button" class="secondary">Clear saved blueprints and loadouts</button><button id="forgetRecoverableRoomButton" type="button" class="secondary">Forget recoverable room</button></div><div class="utility-row wrap"><button id="exportBlueprintsButton" type="button">Export blueprints</button><button id="importBlueprintsButton" type="button" class="secondary">Import blueprints</button><input id="importBlueprintsInput" type="file" accept="application/json,.json" hidden></div></fieldset>
+        <fieldset class="settings-group"><legend>Multiplayer Server</legend><label for="serverUrlInput">Server Address</label><input id="serverUrlInput" autocomplete="off" placeholder="https://your-render-service.onrender.com"><div class="utility-row"><button id="saveServerButton" type="button">Save Server</button><button id="clearServerButton" type="button" class="secondary">Use Current Host</button></div></fieldset>
+        <fieldset class="settings-group"><legend>Graphics</legend><label for="renderQualitySelect">Render Quality</label><select id="renderQualitySelect"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><label class="checkbox-label" for="combatEffectsToggle"><input type="checkbox" id="combatEffectsToggle"> Show Combat Effects</label><label class="checkbox-label" for="debugOverlayToggle"><input type="checkbox" id="debugOverlayToggle"> Show Debug Overlay (F3)</label></fieldset>
+        <fieldset class="settings-group"><legend>Gameplay Preferences</legend><label for="settingsTeamSelect">Preferred Team</label><select id="settingsTeamSelect"><option value="blue">Blue Wing</option><option value="red">Red Wing</option></select><label for="settingsFormationSelect">Formation</label><select id="settingsFormationSelect"><option value="line">Line</option><option value="wedge">Wedge</option><option value="clump">Clump</option></select><label class="checkbox-label" for="mobileTestingToggle"><input type="checkbox" id="mobileTestingToggle"> Mobile Testing Mode</label></fieldset>
+        <fieldset class="settings-group"><legend>Accessibility</legend><label class="checkbox-label" for="reducedMotionToggle"><input type="checkbox" id="reducedMotionToggle"> Reduce Motion</label><label for="interfaceScaleSelect">Interface Scale</label><select id="interfaceScaleSelect"><option value="0.9">Compact 90%</option><option value="1">Default 100%</option><option value="1.1">Large 110%</option><option value="1.2">Extra Large 120%</option></select></fieldset>
+        <fieldset class="settings-group"><legend>Storage and Recovery</legend><div id="storageStatus" class="storage-status" aria-live="polite"></div><div class="utility-row wrap"><button id="resetSettingsButton" type="button" class="secondary">Reset Settings</button><button id="clearCurrentBlueprintButton" type="button" class="secondary">Clear Current Blueprint</button><button id="clearSavedBlueprintsButton" type="button" class="secondary">Clear Saved Blueprints and Loadouts</button><button id="forgetRecoverableRoomButton" type="button" class="secondary">Forget Recoverable Room</button></div><div class="utility-row wrap"><button id="exportBlueprintsButton" type="button">Export Blueprints</button><button id="importBlueprintsButton" type="button" class="secondary">Import Blueprints</button><input id="importBlueprintsInput" type="file" accept="application/json,.json" hidden></div></fieldset>
       </div>
     </section>
 
@@ -416,7 +416,7 @@
             </div>
             <div class="blueprint-cost-wrap">
               <div id="blueprintCostBanner" class="blueprint-cost-banner" aria-live="polite" aria-haspopup="true" aria-expanded="false">
-                <span>Build cost</span>
+                <span>Build Cost</span>
                 <strong id="blueprintCostLabel">$0</strong>
                 <em id="blueprintCostStatus">Ready</em>
               </div>
@@ -499,7 +499,7 @@
                   </button>
                   <button type="button" id="wiringHelpButton" class="wiring-control wiring-utility wiring-help-action" aria-label="Open Wiring help" aria-expanded="false" aria-controls="wiringHelpPanel" title="Help"><span aria-hidden="true">?</span></button>
                   <div id="wiringHelpPanel" class="wiring-help-panel" role="dialog" aria-label="Wiring help" hidden>
-                    <div class="wiring-help-head"><strong>Wiring help</strong><button id="wiringHelpCloseButton" type="button" aria-label="Close Wiring help">×</button></div>
+                    <div class="wiring-help-head"><strong>Wiring Help</strong><button id="wiringHelpCloseButton" type="button" aria-label="Close Wiring help">×</button></div>
                     <p><strong>Draw:</strong> drag through occupied ship cells. Drawing Power over existing cable changes traversed sections to the selected tier; same-tier cable is reused.</p>
                     <p><strong>Inspect:</strong> hover for live Power flow and watch energy pulse outward from its source; click to open the detailed analysis. Use Clear to remove a selected network.</p>
                     <p><strong>Capacity:</strong> sustained is safe continuous load; peak is the delivery ceiling. Power cable above sustained generates extra Heat and overload stress.</p>
@@ -538,18 +538,18 @@
             <div id="designerDesignPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerDesignTab">
               <div class="designer-right-actions">
                 <div class="designer-save-context">
-                  <span>Current design</span>
-                  <strong id="loadedBlueprintName">Unsaved design</strong>
-                  <small id="loadedBlueprintState">Unsaved changes</small>
+                  <span>Current Design</span>
+                  <strong id="loadedBlueprintName">Unsaved Design</strong>
+                  <small id="loadedBlueprintState">Unsaved Changes</small>
                 </div>
                 <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
               </div>
               <section class="inspector-section" aria-labelledby="selectedComponentHeading">
-                <div class="section-heading compact"><h2 id="selectedComponentHeading">Selected component</h2></div>
+                <div class="section-heading compact"><h2 id="selectedComponentHeading">Selected Component</h2></div>
                 <div id="partInspector" class="part-inspector"></div>
               </section>
               <section class="inspector-section" aria-labelledby="shipSummaryHeading">
-                <div class="section-heading compact"><h2 id="shipSummaryHeading">Ship summary</h2></div>
+                <div class="section-heading compact"><h2 id="shipSummaryHeading">Ship Summary</h2></div>
                 <div id="statsGrid" class="stats-grid"></div>
               </section>
             </div>
@@ -577,20 +577,20 @@
                       <small id="heatFlowHint">All heat flows shown · hover a component for its H/s values.</small>
                     </div>
                     <details id="blueprintHeatLegend" class="blueprint-heat-legend">
-                      <summary>Overlay legend</summary>
+                      <summary>Overlay Legend</summary>
                       <div class="heat-legend-content">
                         <section>
-                          <h4>Heat states</h4>
+                          <h4>Heat States</h4>
                           <div class="heat-state-list"><span>Cool 0–25%</span><span>Warm 26–50%</span><span>Hot 51–75%</span><span>Critical 76–99%</span><span>Overheated 100%</span></div>
                         </section>
                         <section>
-                          <h4>Overlay meaning</h4>
+                          <h4>Overlay Meaning</h4>
                           <ul>
-                            <li>arrow direction = heat movement</li>
-                            <li>thickness = transfer amount</li>
-                            <li>dashed = Frame or Heat Pipe route</li>
-                            <li>cyan outward arrow = exterior cooling</li>
-                            <li>percentage = heat-capacity usage</li>
+                            <li>Arrow Direction = Heat Movement</li>
+                            <li>Thickness = Transfer Amount</li>
+                            <li>Dashed = Frame or Heat Pipe Route</li>
+                            <li>Cyan Outward Arrow = Exterior Cooling</li>
+                            <li>Percentage = Heat-Capacity Usage</li>
                           </ul>
                         </section>
                       </div>
@@ -619,9 +619,9 @@
                   <input id="savedBlueprintSearch" type="search" placeholder="Search" autocomplete="off">
                   <label class="sr-only" for="savedBlueprintSort">Sort blueprints</label>
                   <select id="savedBlueprintSort" aria-label="Sort blueprints">
-                    <option value="manual">Manual order</option>
+                    <option value="manual">Manual Order</option>
                     <option value="name">Name</option>
-                    <option value="updated">Recently updated</option>
+                    <option value="updated">Recently Updated</option>
                   </select>
                   <button id="newBlueprintButton" type="button" class="secondary">+ New</button>
                 </div>

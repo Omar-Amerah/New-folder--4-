@@ -214,7 +214,7 @@ const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
     const { model } = build("medium");
     const mobility = model.sections.find((section) => section.id === "mobility");
     assert.ok(mobility, "Mobility details exists");
-    assert.equal(mobility.title, "Mobility details");
+    assert.equal(mobility.title, "Mobility Details");
     const ids = mobility.rows.map((row) => row.id);
     for (const expected of ["thrust", "thrustRatio", "engineEfficiency", "speedCap", "turnLeft", "turnRight"]) {
       assert.ok(ids.includes(expected), `Mobility details carries ${expected}`);

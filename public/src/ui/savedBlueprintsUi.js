@@ -40,13 +40,13 @@ export function previewColor() {
 
 export function refreshLoadedBlueprintPresentation() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
-  if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved design";
+  if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved Design";
   if (dom.saveDesignButton) dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
   if (dom.loadedBlueprintState) {
     const unchanged = existing
       && JSON.stringify(existing.blueprint || []) === JSON.stringify(state.design || [])
       && JSON.stringify(normalizeWiring(existing.wiring, existing.blueprint)) === JSON.stringify(normalizeWiring(state.wiring, state.design));
-    dom.loadedBlueprintState.textContent = unchanged ? "Saved" : "Unsaved changes";
+    dom.loadedBlueprintState.textContent = unchanged ? "Saved" : "Unsaved Changes";
     dom.loadedBlueprintState.classList.toggle("saved", Boolean(unchanged));
   }
 }
