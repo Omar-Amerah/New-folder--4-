@@ -591,7 +591,7 @@
     const newTier = normalizeTier(tier, kind);
     const newSectionIds = []; const retieredSectionIds = [];
     for (let i = 1; i < cells.length; i += 1) {
-      if (kind !== "power" && isInternalTerminalEdge(cells[i - 1], cells[i], kind, occupiedMap, modules, catalogue)) continue;
+      if (isInternalTerminalEdge(cells[i - 1], cells[i], kind, occupiedMap, modules, catalogue)) continue;
       const id = sectionIdFromCells(cells[i - 1], cells[i]);
       const existing = bucket.sections.find((section) => segmentKey(section) === id);
       if (!existing) {

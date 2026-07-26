@@ -39,7 +39,7 @@ function accumulateSectionStress(ship, state, deltaSeconds, config) {
   const flows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows : [];
   const seen = new Set();
   for (const flow of flows) {
-    if (!flow) continue;
+    if (!flow || flow.internal) continue;
     const id = String(flow.sectionId);
     seen.add(id);
     let record = state.sections.get(id);

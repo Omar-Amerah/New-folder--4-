@@ -512,7 +512,7 @@ function weaponDetailRows(type, stat) {
   }
   rows.push(statRow("weapon.traverse", "Turret Traverse", aimSpeedText(turretRules().turnRateFor(weapon))));
   rows.push(statRow("weapon.vsShields", "Vs Shields", formatMultiplierPercent(weapon.shieldDamageMultiplier)));
-  rows.push(statRow("weapon.vsHull", "Vs Hull", formatMultiplierPercent(weapon.hullDamageMultiplier)));
+  rows.push(statRow("weapon.vsHull", "Vs Hull", formatMultiplierPercent(weapon.hullDamageMultiplier), ));
 
   if (weapon.type === "missile") {
     rows.push(statRow("weapon.tracking", "Tracking", formatPercent(weapon.tracking)));

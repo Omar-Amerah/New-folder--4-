@@ -95,7 +95,39 @@
   function buildTopology(design, wiring, catalogue, infrastructure, sectionOperationalById, options = {}) {
     const modules = Array.isArray(design) ? design : [];
     const normalized = normalizeWiring(wiring, modules, catalogue).wiring;
-    const rawSections = (normalized.power.sections || []).concat(Array.isArray(options.internalPowerEdges) ? options.internalPowerEdges : []).slice()
+
+    // Multi-cell Power sources may have cells that are not endpoints of any
+    // saved cable. Add a synthetic internal bus only from those dangling cells
+    // to an adjacent cell that already has a cable terminal, and only within
+    // the same component. This preserves truly separate source-island networks
+    // (Section 7D-2) while making the first/last internal segment carry flow.
+    const realSectionIds = new Set((normalized.power.sections || []).map((section) => section.id));
+    const realCellKeys = new Set();
+    for (const section of normalized.power.sections || []) for (const cell of sectionCells(section)) realCellKeys.add(cellKey(cell.x, cell.y));
+    const internalPowerEdges = [];
+    for (const moduleValue of modules) {
+      if (!isPowerSourceType(moduleValue && moduleValue.type, catalogue)) continue;
+      const cells = moduleCells(moduleValue, catalogue);
+      const keyed = cells.map((cell) => ({ cell, key: cellKey(cell.x, cell.y) }));
+      const dangling = keyed.filter(({ key }) => !realCellKeys.has(key));
+      const anchored = keyed.filter(({ key }) => realCellKeys.has(key));
+      for (const { cell: a, key: keyA } of dangling) {
+        const target = anchored
+          .filter(({ cell: b }) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1)
+          .sort((x, y) => compareCanonicalIds(x.key, y.key))[0];
+        if (!target) continue;
+        const b = target.cell;
+        const [first, second] = compareCanonicalIds(keyA, target.key) < 0 ? [a, b] : [b, a];
+        const id = `${cellKey(first.x, first.y)}:${cellKey(second.x, second.y)}`;
+        if (realSectionIds.has(id)) continue;
+        internalPowerEdges.push({
+          id, x1: first.x, y1: first.y, x2: second.x, y2: second.y,
+          tier: "standard", internal: true
+        });
+      }
+    }
+
+    const rawSections = (normalized.power.sections || []).concat(internalPowerEdges, Array.isArray(options.internalPowerEdges) ? options.internalPowerEdges : []).slice()
       .sort((a, b) => compareCanonicalIds(a.id, b.id));
 
     // Operational section list (canonical id order).
@@ -264,7 +296,9 @@
     for (const section of sections) {
       const [a, b] = sectionCells(section);
       const tier = section.tier;
-      const config = tierConfig(infrastructure, tier);
+      const config = { ...tierConfig(infrastructure, tier) };
+      if (Number.isFinite(section.peakCapacityMw)) config.peakCapacityMw = section.peakCapacityMw;
+      if (Number.isFinite(section.sustainedCapacityMw)) config.sustainedCapacityMw = section.sustainedCapacityMw;
       const peakUnits = mwToPowerUnits(config.peakCapacityMw);
       const fwd = net.addEdge(cellNode.get(cellKey(a.x, a.y)), cellNode.get(cellKey(b.x, b.y)), peakUnits, true);
       sectionFwdEdge.set(section.id, fwd);
@@ -553,7 +587,8 @@
         peakUtilisation: peakUnits > 0 ? absUnits / peakUnits : 0,
         aboveSustained: sustainedUnits > 0 && absUnits > sustainedUnits,
         atPeak: peakUnits > 0 && absUnits === peakUnits,
-        operational: true
+        operational: true,
+        internal: !!section.internal
       };
     }).sort((a, b) => compareCanonicalIds(a.sectionId, b.sectionId));
 

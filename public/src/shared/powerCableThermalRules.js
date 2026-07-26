@@ -108,7 +108,13 @@
         throw new Error(`Power-cable Heat: section ${sectionId} has non-finite flow`);
       }
       const hostEntry = bySectionId.get(sectionId);
-      if (!hostEntry) throw new Error(`Power-cable Heat: no host entry for section ${sectionId}`);
+      if (!hostEntry) {
+        // Synthetic internal source-bus edges are not persisted in wiring, so callers
+        // that supply a plain hostMap will simply skip their Heat; callers that
+        // augment the hostMap (runtime) include it.
+        if (flow.internal) continue;
+        throw new Error(`Power-cable Heat: no host entry for section ${sectionId}`);
+      }
       const rawCells = Array.isArray(hostEntry.hostCells) ? hostEntry.hostCells : [];
       const seenCells = new Set();
       const hostedCells = [];

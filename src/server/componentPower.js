@@ -398,7 +398,27 @@ function ensureShipCableThermalAnalysis(ship) {
   const flowRevision = ship.powerFlowRevision || 0;
   if (ship.powerCableThermalAnalysis && ship._powerCableThermalFlowRevision === flowRevision) return ship.powerCableThermalAnalysis;
   const sectionFlows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows : [];
-  const hostMap = shipHostMaps(ship).power;
+  const baseHostMap = shipHostMaps(ship).power;
+  const bySectionId = new Map(baseHostMap.bySectionId);
+  const occupant = new Map();
+  (Array.isArray(ship.design) ? ship.design : []).forEach((moduleValue, index) => {
+    WiringRules.moduleCells(moduleValue, PARTS).forEach((cell) => occupant.set(WiringRules.cellKey(cell.x, cell.y), index));
+  });
+  for (const flow of sectionFlows) {
+    if (!flow.internal || bySectionId.has(flow.sectionId)) continue;
+    const [a, b] = String(flow.sectionId).split(":");
+    if (!a || !b) continue;
+    const [x1, y1] = a.split(",").map(Number);
+    const [x2, y2] = b.split(",").map(Number);
+    const cells = [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+    const hostCells = cells.map((cell) => ({ x: cell.x, y: cell.y, componentIndex: occupant.get(WiringRules.cellKey(cell.x, cell.y)) ?? null }));
+    if (hostCells.some((c) => c.componentIndex == null)) continue;
+    bySectionId.set(flow.sectionId, {
+      sectionId: flow.sectionId, kind: "power", tier: flow.tier,
+      hostCells, uniqueComponentIndices: [...new Set(hostCells.map((c) => c.componentIndex))].sort((u, v) => u - v), valid: true
+    });
+  }
+  const hostMap = { ...baseHostMap, bySectionId };
   const analysis = PowerCableThermalRules.analyzePowerCableHeat({
     sectionFlows,
     powerTiers: BALANCE.wiringInfrastructure.powerTiers,
