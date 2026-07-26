@@ -28,7 +28,8 @@ function initializeDecoyLaunchers(room, ship, now) {
       stock,
       capacity,
       productionProgress: stock < capacity ? 0 : 1,
-      nextLaunchAt: now
+      nextLaunchAt: now,
+      nextThreatCheckAt: now
     });
   }
   ensureDecoyRuntime(room);
@@ -46,15 +47,27 @@ function stableThreatFor(room, ship, range) {
   const rangeSq = range * range;
   let best = null;
   let bestDistanceSq = Infinity;
-  for (const projectile of room.bullets || []) {
+  // Use spatial index for guided missile queries instead of full projectile scan
+  const candidates = room.spatialIndex
+    ? room.spatialIndex.queryRangeUnordered(
+        "interceptableProjectiles",
+        ship.x,
+        ship.y,
+        range,
+        ship._decoyThreatScratch || (ship._decoyThreatScratch = [])
+      )
+    : (room.bullets || []);
+  for (const projectile of candidates) {
     if (!isGuidedProjectile(projectile) || projectile.targetId !== ship.id) continue;
     if (!areEnemies(room, projectile.ownerId, ship.ownerId)) continue;
     const dx = projectile.x - ship.x;
     const dy = projectile.y - ship.y;
     const distanceSq = dx * dx + dy * dy;
     if (distanceSq > rangeSq) continue;
-    if (distanceSq < bestDistanceSq
-      || (distanceSq === bestDistanceSq && String(projectile.id || "").localeCompare(String(best?.id || "")) < 0)) {
+    // Use numeric entity sequence for stable tie-breaking instead of localeCompare
+    const seqA = Number.isFinite(projectile.authoritativeSequence) ? projectile.authoritativeSequence : 0;
+    const seqB = Number.isFinite(best?.authoritativeSequence) ? best.authoritativeSequence : 0;
+    if (distanceSq < bestDistanceSq || (distanceSq === bestDistanceSq && (seqA < seqB || String(projectile.id || "") < String(best?.id || "")))) {
       best = projectile;
       bestDistanceSq = distanceSq;
     }
@@ -65,20 +78,32 @@ function stableThreatFor(room, ship, range) {
 function collectStableThreats(room, ship, range, output) {
   output.length = 0;
   const rangeSq = range * range;
-  for (const projectile of room.bullets || []) {
+  // Use spatial index for guided missile queries instead of full projectile scan
+  const candidates = room.spatialIndex
+    ? room.spatialIndex.queryRangeUnordered(
+        "interceptableProjectiles",
+        ship.x,
+        ship.y,
+        range,
+        ship._decoyThreatScratch || (ship._decoyThreatScratch = [])
+      )
+    : (room.bullets || []);
+  for (const projectile of candidates) {
     if (!isGuidedProjectile(projectile) || projectile.targetId !== ship.id) continue;
     if (!areEnemies(room, projectile.ownerId, ship.ownerId)) continue;
     const dx = projectile.x - ship.x;
     const dy = projectile.y - ship.y;
     if (dx * dx + dy * dy <= rangeSq) output.push(projectile);
   }
+  // Sort by distance with stable tie-breaking using authoritative sequence
   output.sort((a, b) => {
-    const adx = a.x - ship.x;
-    const ady = a.y - ship.y;
-    const bdx = b.x - ship.x;
-    const bdy = b.y - ship.y;
-    return (adx * adx + ady * ady) - (bdx * bdx + bdy * bdy)
-      || String(a.id || "").localeCompare(String(b.id || ""));
+    const da = (a.x - ship.x) ** 2 + (a.y - ship.y) ** 2;
+    const db = (b.x - ship.x) ** 2 + (b.y - ship.y) ** 2;
+    if (da !== db) return da - db;
+    const seqA = Number.isFinite(a.authoritativeSequence) ? a.authoritativeSequence : 0;
+    const seqB = Number.isFinite(b.authoritativeSequence) ? b.authoritativeSequence : 0;
+    if (seqA !== seqB) return seqA - seqB;
+    return String(a.id || "").localeCompare(String(b.id || ""));
   });
   return output;
 }
@@ -130,7 +155,17 @@ function launchDecoy(room, ship, launcher, config, threat, now) {
 function tryAttractProjectiles(room, decoy, now) {
   const rangeSq = decoy.attractionRange * decoy.attractionRange;
   const random = typeof room.combatRandom === "function" ? room.combatRandom : Math.random;
-  for (const projectile of room.bullets || []) {
+  // Use spatial index for guided missile queries instead of full projectile scan
+  const candidates = room.spatialIndex
+    ? room.spatialIndex.queryRangeUnordered(
+        "interceptableProjectiles",
+        decoy.x,
+        decoy.y,
+        decoy.attractionRange,
+        decoy._attractionScratch || (decoy._attractionScratch = [])
+      )
+    : (room.bullets || []);
+  for (const projectile of candidates) {
     if (!isGuidedProjectile(projectile) || projectile.targetId !== decoy.parentShipId) continue;
     if (!areEnemies(room, projectile.ownerId, decoy.ownerId)) continue;
     const tested = projectile.decoyTests || (projectile.decoyTests = new Set());

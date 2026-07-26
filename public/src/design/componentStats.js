@@ -246,7 +246,8 @@ export function computeStats(modules, options = {}) {
         weaponTotals.blaster.dps +
         weaponTotals.missile.dps +
         weaponTotals.railgun.dps +
-        weaponTotals.beam.dps
+        weaponTotals.beam.dps +
+        (weaponTotals.pointDefense.dps * 0.04)
       ).toFixed(1)
     ),
     weapons: summarizeWeaponTotals(weaponTotals),
@@ -595,3 +596,5 @@ export function estimateFormulaPartCost(type) {
     )
   );
 }
+
+

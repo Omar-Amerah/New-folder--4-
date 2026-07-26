@@ -17,6 +17,25 @@ const SUBSYSTEM_NAMES = Object.freeze([
   "heat",
   "objectives"
 ]);
+
+const PURCHASE_STAGE_NAMES = Object.freeze([
+  "requestValidation",
+  "designValidation",
+  "wiringNormalization",
+  "statCalculation",
+  "purchaseSignatureGeneration",
+  "spawnPositionResolution",
+  "componentHealthInitialization",
+  "powerInitialization",
+  "heatInitialization",
+  "droneBayInitialization",
+  "decoyLauncherInitialization",
+  "perShipSpawnTime",
+  "totalPurchaseTime",
+  "purchaseResultSendTime",
+  "postPurchaseSnapshotConstruction",
+  "postPurchaseSnapshotEncoding"
+]);
 function createSampleRing() {
   return {
     times: new Float64Array(MAX_SAMPLES),
@@ -39,7 +58,8 @@ const seriesNames = [
   "entityDrones",
   "entityBullets",
   "entityEffects",
-  ...SUBSYSTEM_NAMES.map((name) => `subsystem:${name}`)
+  ...SUBSYSTEM_NAMES.map((name) => `subsystem:${name}`),
+  ...PURCHASE_STAGE_NAMES.map((name) => `purchase:${name}`)
 ];
 const series = Object.fromEntries(seriesNames.map((name) => [name, createSampleRing()]));
 const totals = {
@@ -116,6 +136,11 @@ function recordOutbound(bytes, kind = "control") {
     lastPrunedOutboundSecond = second;
     for (const key of outboundBuckets.keys()) if (key < second - 120) outboundBuckets.delete(key);
   }
+}
+
+function recordPurchaseStage(stageName, durationMs) {
+  if (!PURCHASE_STAGE_NAMES.includes(stageName)) return;
+  boundedSample(`purchase:${stageName}`, durationMs, Date.now());
 }
 
 function currentValues(name, now) {
@@ -206,8 +231,9 @@ function performanceSnapshot(tickHz = 30) {
       totalBytes: totals.outboundBytes,
       totalSnapshotBytes: totals.outboundSnapshotBytes,
       totalControlBytes: totals.outboundControlBytes
-    }
+    },
+    purchase: Object.fromEntries(PURCHASE_STAGE_NAMES.map((name) => [name, summarize(`purchase:${name}`, now)]))
   };
 }
 
-module.exports = { SUBSYSTEM_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, performanceSnapshot };
+module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, recordPurchaseStage, performanceSnapshot };

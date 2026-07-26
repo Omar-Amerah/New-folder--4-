@@ -384,6 +384,11 @@ function getCandidatePriorityIndex(candidate, priorityList) {
     return idx;
   }
   if (type === "projectile") {
+    // For missiles, check subtype first (torpedo, swarmMissile), then fall back to type
+    if (candidate.entity.type === "missile" && candidate.entity.subtype) {
+      let idx = priorityList.indexOf(candidate.entity.subtype);
+      if (idx !== -1) return idx;
+    }
     let idx = priorityList.indexOf(candidate.entity.type);
     if (idx === -1) idx = priorityList.indexOf("projectile");
     return idx;
@@ -1961,7 +1966,7 @@ module.exports = {
   pickWeaponFireTarget,
   droneThreatScore,
   canWeaponDefensivelyTargetDrones,
-  enemyShipThreatScore,
+  enemyShipThreatScore,  getCandidatePriorityIndex,
   componentAimWorldPosition,
   targetCoreAimWorldPosition,
   findBeamRayIntersections,
@@ -1975,3 +1980,10 @@ module.exports = {
   areEnemies,
   PRIORITY_COMPONENT_TYPES
 };
+
+
+
+
+
+
+

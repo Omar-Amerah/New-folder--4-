@@ -9,6 +9,10 @@ const { getPlayerRallyPoint } = require("./ships");
 const { ensureEffectiveWeaponProfileCache } = require("./componentData");
 const { buildDroneSnapshots, buildBaySnapshots } = require("./drones");
 const { buildDecoySnapshots, buildLauncherSnapshots } = require("./decoys");
+const { buildPowerProtectionSnapshot } = require("./powerProtection");
+const { buildPowerWiringLayout, buildPowerWiringRuntime } = require("./powerWiringSnapshot");
+const { PARTS } = require("./components");
+const { BALANCE_REVISION } = require("./balanceConfig");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -178,14 +182,14 @@ function finiteOrNull(value) { const number = Number(value); return Number.isFin
 function buildSwitchgearSnapshot(_ship) { return []; }
 
 function buildProtectionSnapshot(ship) {
-  return require("./powerProtection").buildPowerProtectionSnapshot(ship);
+  return buildPowerProtectionSnapshot(ship);
 }
 
 function buildPowerWiringLayoutSnapshot(ship) {
-  return require("./powerWiringSnapshot").buildPowerWiringLayout(ship);
+  return buildPowerWiringLayout(ship);
 }
 function buildPowerWiringRuntimeSnapshot(ship) {
-  return require("./powerWiringSnapshot").buildPowerWiringRuntime(ship);
+  return buildPowerWiringRuntime(ship);
 }
 
 function appendComponentPowerState(entry, ship) {
@@ -309,7 +313,7 @@ function buildRuntimePowerThermalSnapshot(ship) {
   const powerCableHeatRate = Number(ship.powerCableHeatRate) || 0;
   const components = (ship.design || []).map((part, i) => {
     const cp = ship.componentPower?.byComponentIndex?.[i] || {};
-    const rated = Number(require("./components").PARTS[part?.type]?.powerGeneration) || 0;
+    const rated = Number(PARTS[part?.type]?.powerGeneration) || 0;
     const available = finiteOrNull(cp.generationAvailableMw);
     const used = finiteOrNull(cp.generationUsedMw);
     const reasons = Array.isArray(cp.generationReductionReasons) ? cp.generationReductionReasons.slice() : [];
@@ -573,7 +577,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     // its own protocol support to detect a stale separately-deployed backend.
     protocolVersion: PROTOCOL_VERSION,
     serverBuildSha: SERVER_BUILD_SHA,
-    balanceRevision: require("./balanceConfig").BALANCE_REVISION,
+    balanceRevision: BALANCE_REVISION,
     stateEpoch: room.stateEpoch || 1,
     snapshotSeq: room._buildingSnapshotSeq || room.snapshotSeq || 0,
     snapshotKind: sendStatic ? "full" : "compact",

@@ -465,7 +465,21 @@ function getDesiredMoveAngle(room, ship) {
   let closestAsteroid = null;
   let closestDist = Infinity;
 
-  for (const asteroid of room.map?.asteroids || []) {
+  // Use spatial index for asteroid queries instead of full array scan
+  const asteroidCandidates = room.spatialIndex
+    ? room.spatialIndex.querySweptAabbUnordered(
+        "asteroids",
+        ship.x,
+        ship.y,
+        ship.targetX,
+        ship.targetY,
+        ship.radius + 38,
+        ship._asteroidAvoidanceScratch || (ship._asteroidAvoidanceScratch = [])
+      )
+    : (room.map?.asteroids || []);
+
+  for (const asteroid of asteroidCandidates) {
+    if (!asteroid) continue;
     const avoidRadius = asteroid.radius + ship.radius + 38;
     const hit = segmentCircleClearance(ship.x, ship.y, ship.targetX, ship.targetY, asteroid.x, asteroid.y, avoidRadius);
     if (!hit.blocked || hit.along < 0 || hit.along > targetDistance || hit.along >= closestDist) continue;
@@ -487,7 +501,19 @@ function getDesiredMoveAngle(room, ship) {
   const forwardX = Math.cos(ship.angle);
   const forwardY = Math.sin(ship.angle);
 
-  for (const asteroid of room.map?.asteroids || []) {
+  // Use spatial index for local forward avoidance query instead of full asteroid loop
+  const localCandidates = room.spatialIndex
+    ? room.spatialIndex.queryRangeUnordered(
+        "asteroids",
+        ship.x,
+        ship.y,
+        lookahead + ship.radius + 32,
+        ship._asteroidAvoidanceScratch || (ship._asteroidAvoidanceScratch = [])
+      )
+    : (room.map?.asteroids || []);
+
+  for (const asteroid of localCandidates) {
+    if (!asteroid) continue;
     const ax = asteroid.x - ship.x;
     const ay = asteroid.y - ship.y;
     const forwardDistance = ax * forwardX + ay * forwardY;

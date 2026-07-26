@@ -346,5 +346,30 @@ const assert = require("assert");
     console.log("✔ Test 17 passed: Save/load, snapshots and reconnect preserve component correctly.");
   }
 
-  console.log("\nAll 17 Laser Point Defence Verification Tests Passed Successfully!");
+  // 18. Flak Cannon targets hostile drones with correct priority order
+  {
+    const flakShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "flakCannon" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
+    const enemyShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    enemyShip.x = 200; enemyShip.y = 100;
+    const room = makeRoom([flakShip, enemyShip]);
+
+    // Add a fighter drone at closer range
+    const fighterDrone = { id: "d1", type: "drone", droneType: "fighter", ownerId: "p2", targetId: flakShip.id, x: 150, y: 100, destroyed: false, removed: false };
+    room.drones = new Map([["d1", fighterDrone]]);
+
+    // Add a missile at farther range
+    const missile = { id: "m1", type: "missile", ownerId: "p2", targetId: flakShip.id, x: 200, y: 100, life: 5, interceptable: true, hp: 20 };
+    room.bullets.push(missile);
+
+    flakShip.weaponAngles[1] = 0;
+
+    updateShipWeapons(room, flakShip, [flakShip, enemyShip], 0.1, 1000);
+    const pdShot = room.bullets.find(b => b.type === "pdShot" && b.subtype === "flakCannon");
+    assert.ok(pdShot, "Flak Cannon fires at drone");
+    // Missile should be prioritized over drone (missile is higher priority in targetPriority list)
+    assert.strictEqual(pdShot.targetId, "m1", "Flak Cannon prioritizes missile over drone");
+    console.log("✔ Test 18 passed: Flak Cannon targets hostile drones with correct priority order.");
+  }
+
+  console.log("\nAll 18 Laser Point Defence Verification Tests Passed Successfully!");
 })();

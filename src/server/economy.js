@@ -6,6 +6,8 @@ const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
 const { spawnShip } = require("./ships");
 const { validateBuildShip } = require("./validation");
+const { getOrCreateTemplate } = require("./shipTemplates");
+const { recordPurchaseStage } = require("./performanceTelemetry");
 
 const PURCHASE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 const MAX_PURCHASE_REQUESTS = 64;
@@ -114,6 +116,7 @@ function makePurchaseFailure(requestId, code, message) {
 }
 
 function executePurchase(room, player, request, now) {
+  const purchaseStart = performance.now();
   prunePurchaseRequestCache(player, now);
   const requestId = String(request.requestId || "");
   if (!requestId) {
@@ -123,6 +126,7 @@ function executePurchase(room, player, request, now) {
     return makePurchaseFailure(requestId, "stale-connection", "This connection is no longer active for that player");
   }
 
+  const validationStart = performance.now();
   const signature = stablePayloadSignature(request);
   const cache = getPurchaseRequestCache(player);
   const previous = cache.get(requestId);
@@ -130,19 +134,30 @@ function executePurchase(room, player, request, now) {
     if (previous.signature === signature) return { ...previous.result, duplicate: true };
     return makePurchaseFailure(requestId, "duplicate-request-conflict", "Purchase request ID was already used");
   }
+  recordPurchaseStage("requestValidation", performance.now() - validationStart);
 
+  const designValidationStart = performance.now();
   const validation = validateBuyShip(room, player, request.count, request.stats);
   if (!validation.ok) {
     player.lastBuildError = validation.reason;
     const result = makePurchaseFailure(requestId, validation.code || "invalid-request", validation.reason);
     cache.set(requestId, { at: now, signature, result });
     prunePurchaseRequestCache(player, now);
+    recordPurchaseStage("designValidation", performance.now() - designValidationStart);
     return result;
   }
+  recordPurchaseStage("designValidation", performance.now() - designValidationStart);
 
-  const blueprint = createShipBlueprintSnapshot(request.design, request.wiring);
-  const { design, wiring } = blueprint;
+  // Use template system to avoid repeated blueprint work
+  const templateStart = performance.now();
+  const template = getOrCreateTemplate(player.id, request.design, request.wiring, validation.shipStats);
   const combatStyle = request.combatStyle || player.combatStyle || "hold";
+  recordPurchaseStage("statCalculation", performance.now() - templateStart);
+
+  const signatureStart = performance.now();
+  // Signature already computed above
+  recordPurchaseStage("purchaseSignatureGeneration", performance.now() - signatureStart);
+
   const createdShips = [];
   const original = {
     money: player.money,
@@ -161,15 +176,26 @@ function executePurchase(room, player, request, now) {
     // spawn indexes (0, 2, 4) instead of consecutive ones (0, 1, 2).
     const initialActiveCount = activeFleetCount(player);
     for (let i = 0; i < validation.count; i += 1) {
+      const shipStart = performance.now();
       const index = initialActiveCount + i;
       createdShips.push(spawnShip(room, player, now, index, {
-        stats: validation.shipStats,
-        design,
-        wiring,
+        template,
         combatStyle
       }));
+      recordPurchaseStage("perShipSpawnTime", performance.now() - shipStart);
     }
-  } catch {
+  } catch (error) {
+    // Structured error logging
+    console.error(`[Purchase] Spawn failed for request ${requestId}, player ${player.id}, room ${room.code}:`, {
+      requestId,
+      playerId: player.id,
+      roomCode: room.code,
+      requestedCount: validation.count,
+      completedCount: createdShips.length,
+      error: error.message,
+      stack: error.stack
+    });
+    
     for (const ship of player.ships.slice(original.shipsLength)) {
       ship.removed = true;
       ship.alive = false;
@@ -185,6 +211,17 @@ function executePurchase(room, player, request, now) {
     player.deployedFleetCost = original.deployedFleetCost;
     player.shipsBuilt = original.shipsBuilt;
     player.lastBuildError = original.lastBuildError;
+    
+    // Assert rollback consistency
+    if (process.env.NODE_ENV !== "production") {
+      if (player.money !== original.money || 
+          player.spent !== original.spent || 
+          player.deployedFleetCost !== original.deployedFleetCost ||
+          player.ships.length !== original.shipsLength) {
+        console.error("[Purchase] Rollback inconsistency detected after spawn failure");
+      }
+    }
+    
     return makePurchaseFailure(requestId, "spawn-failed", "Could not spawn ship");
   }
 
@@ -209,6 +246,9 @@ function executePurchase(room, player, request, now) {
   };
   cache.set(requestId, { at: now, signature, result });
   prunePurchaseRequestCache(player, now);
+  
+  recordPurchaseStage("totalPurchaseTime", performance.now() - purchaseStart);
+  
   return result;
 }
 

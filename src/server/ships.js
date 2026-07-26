@@ -10,14 +10,13 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const { nearestClearPoint } = require("./movement");
   const { initComponentState } = require("./componentHealth");
   const { initShipHeat } = require("./heat");
-  // Shallow-clone: destroyed components mutate top-level stat fields per ship,
-  // and the source stats object is shared by every ship of the player.
-  const stats = { ...(options.stats || player.stats || computeStats(player.design, player.wiring)) };
-  const blueprint = createShipBlueprintSnapshot(
-    options.design || player.design,
-    options.wiring !== undefined ? options.wiring : player.wiring
-  );
-  const { design, wiring } = blueprint;
+  
+  // Use template if provided, otherwise fall back to legacy path
+  const template = options.template;
+  const stats = template ? template.stats : { ...(options.stats || player.stats || computeStats(player.design, player.wiring)) };
+  const design = template ? template.design : (options.design || player.design);
+  const wiring = template ? template.wiring : (options.wiring !== undefined ? options.wiring : player.wiring);
+  
   const spawn = getPlayerSpawn(room, player.id);
   const spawnRng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:${index}:${room.nextEntityId}`)) >>> 0);
   const offset = index - Math.floor(player.shipCap / 2);
@@ -59,18 +58,164 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     railgunCooldown: rngRange(spawnRng, 0.45, 1.4),
     repairPulseAt: 0,
     focusTargetId: null,
-    lastDamagedBy: null
+    lastDamagedBy: null,
+    weaponAngles: [],
+    weaponCooldowns: [],
+    desiredAngles: [],
+    aimTargetIds: [],
+    componentTargetIds: [],
+    beamContacts: []
   };
+  
+  // Initialize design-index-aligned weapon runtime arrays before ship is placed in room.ships
+  const { moduleRotationToRadians } = require("./combat");
+  const { normalizeRotation } = require("./shipDesign");
+  for (let i = 0; i < design.length; i += 1) {
+    const module = design[i];
+    const part = require("./components").PARTS[module?.type];
+    if (part?.weapon) {
+      ship.weaponAngles[i] = moduleRotationToRadians(normalizeRotation(module.rotation));
+      ship.weaponCooldowns[i] = 0;
+      ship.desiredAngles[i] = 0;
+      ship.aimTargetIds[i] = null;
+      ship.componentTargetIds[i] = null;
+      ship.beamContacts[i] = null;
+    } else {
+      ship.weaponAngles[i] = 0;
+      ship.weaponCooldowns[i] = 0;
+      ship.desiredAngles[i] = 0;
+      ship.aimTargetIds[i] = null;
+      ship.componentTargetIds[i] = null;
+      ship.beamContacts[i] = null;
+    }
+  }
+  
   // Per-component health pools; also sets ship.hp/maxHp to the component sum.
-  initComponentState(ship);
+  const healthStart = performance.now();
+  if (template) {
+    // Use precomputed component max HP from template
+    ship.componentMaxHp = template.componentMaxHp.slice();
+    ship.componentHp = ship.componentMaxHp.slice();
+    ship.componentCellIndex = new Map(template.componentCellIndex);
+    ship.hp = template.maxHp;
+    ship.maxHp = template.maxHp;
+    ship.coreDestroyed = false;
+    ship.dirtyComponents = new Set();
+    ship.componentAliveRevision = 1;
+    
+    // Use precomputed exhaust analysis
+    ship.validEngineIndices = template.exhaustAnalysis.validEngineIndices;
+    ship.blockedEngineIndices = template.exhaustAnalysis.blockedEngineIndices;
+    ship.engineExhaustAnalysis = template.exhaustAnalysis;
+    ship.engineExhaustRevision = 1;
+  } else {
+    initComponentState(ship);
+  }
+  if (typeof recordPurchaseStage === 'function') {
+    recordPurchaseStage("componentHealthInitialization", performance.now() - healthStart);
+  }
+  
+  // Power initialization
+  const powerStart = performance.now();
   const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
-  initializeComponentPower(ship);
+  if (template) {
+    // Use precomputed infrastructure host maps
+    ship._infrastructureHostMaps = template.infrastructureHostMaps;
+    ship.componentStorageCharge = design.map((module) => {
+      const part = require("./components").PARTS[module?.type] || {};
+      return Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0;
+    });
+    require("./powerProtection").resetShipPowerProtection(ship);
+    // Rebuild wiring state using precomputed host maps
+    require("./componentPower").rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true });
+    require("./powerProtection").refreshShipPowerProtectionDiagnostics(ship);
+  } else {
+    initializeComponentPower(ship);
+  }
   const shield = effectiveShieldStats(ship);
   ship.maxShield = Math.max(0, shield.capacity);
   ship.shield = ship.maxShield;
-  initShipHeat(ship);
+  if (typeof recordPurchaseStage === 'function') {
+    recordPurchaseStage("powerInitialization", performance.now() - powerStart);
+  }
+  
+  // Heat initialization
+  const heatStart = performance.now();
+  if (template) {
+    // Use precomputed heat data from template
+    ship.componentBaseHeatCapacity = template.componentBaseHeatCapacity.slice();
+    ship.wiringMinimumHeatCapacity = template.wiringMinimumHeatCapacity;
+    ship.componentWiringDisplacement = template.componentWiringDisplacement.slice();
+    ship.componentAdjacency = template.componentAdjacency.map(adj => 
+      adj.map(edge => ({ ...edge }))
+    );
+    
+    // Initialize heat arrays
+    ship.componentThermals = design.map((module, i) => ({ 
+      ...require("../../public/src/shared/heatRules.js").profile(module.type, require("./components").PARTS[module.type] || {}), 
+      exposedEdges: 0 
+    }));
+    
+    // Build exposure and adjacency
+    require("./heat").rebuildRuntimeExposure(ship);
+    ship.componentHeat = design.map(() => 0);
+    ship.componentHeatCapacity = ship.componentThermals.map(item => item.capacity);
+    ship.componentHeatState = design.map(() => require("../../public/src/shared/heatRules").STATE.NORMAL);
+    ship._heatPowerSourceStates = ship.componentHeatState.slice();
+    ship._heatDataSourceStates = ship.componentHeatState.slice();
+    ship.componentHeatGenerated = design.map(() => 0);
+    ship.componentHeatReceived = design.map(() => 0);
+    ship.componentHeatRemoved = design.map(() => 0);
+    ship.componentHeatTransferredOut = design.map(() => 0);
+    ship.componentHeatCooled = design.map(() => 0);
+    ship.componentHeatSentThroughFrame = design.map(() => 0);
+    ship.componentHeatRadiated = design.map(() => 0);
+    ship.componentVentedOverflowHeatThisTick = design.map(() => 0);
+    ship.componentVentedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
+    ship.componentTotalVentedOverflowHeat = design.map(() => 0);
+    ship.ventedOverflowHeatThisTick = 0;
+    ship.ventedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
+    ship.totalVentedOverflowHeat = 0;
+    ship.componentHeatInput = design.map(() => 0);
+    ship.componentPowerCableHeatRate = design.map(() => 0);
+    ship.componentPowerCableHeatGenerated = design.map(() => 0);
+    ship.powerCableHeatRate = 0;
+    ship.powerCableHeatGenerated = 0;
+    ship.powerCableThermalAnalysis = null;
+    ship._powerCableThermalFlowRevision = -1;
+    ship.heatAccumulator = 0;
+    ship.currentHeat = 0;
+    require("./heat").recalculateEffectiveThermalCapacities(ship);
+    require("./heat").refreshHeatSourceSignatures(ship);
+    ship.heatPressure = 0;
+    ship.hotComponentCount = 0;
+    ship.overheatedComponentCount = 0;
+    ship.hasPassiveHeatSource = design.some(module => (require("./components").PARTS[module.type]?.powerGeneration || 0) > 0);
+    ship.hasActiveHeat = ship.hasPassiveHeatSource;
+    ship.heatAdjacencyBuilds = (ship.heatAdjacencyBuilds || 0) + 1;
+    ship.dirtyHeat = new Set(design.map((_, i) => i));
+    require("./heat").rebuildThermalNetworks(ship);
+  } else {
+    initShipHeat(ship);
+  }
+  if (typeof recordPurchaseStage === 'function') {
+    recordPurchaseStage("heatInitialization", performance.now() - heatStart);
+  }
+  
+  // Drone Bay initialization
+  const droneStart = performance.now();
   require("./drones").initializeDroneBays(room, ship, now);
+  if (typeof recordPurchaseStage === 'function') {
+    recordPurchaseStage("droneBayInitialization", performance.now() - droneStart);
+  }
+  
+  // Decoy Launcher initialization
+  const decoyStart = performance.now();
   require("./decoys").initializeDecoyLaunchers(room, ship, now);
+  if (typeof recordPurchaseStage === 'function') {
+    recordPurchaseStage("decoyLauncherInitialization", performance.now() - decoyStart);
+  }
+  
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });

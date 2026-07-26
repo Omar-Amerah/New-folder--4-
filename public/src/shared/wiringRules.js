@@ -28,7 +28,6 @@
   // Null means unlimited.  Balance can opt in without teaching the editor a
   // second, hidden limit.
   const DEFAULT_CABLE_LIMITS = Object.freeze({ power: null, data: null });
-  const POWER_SOURCE_TYPES = Object.freeze(["core", "reactor", "nuclearReactor", "auxGenerator", "battery", "capacitor"]);
   if (!DataSupportRules) throw new Error("DataSupportRules must load before WiringRules");
   if (!PowerPolicyRules) throw new Error("PowerPolicyRules must load before WiringRules");
   const { DATA_SOURCE_INFO, DATA_SOURCE_TYPES } = DataSupportRules;
@@ -39,8 +38,12 @@
   }
 
   function partStat(catalogue, type) { return (catalogue && (catalogue[type] || catalogue.frame)) || {}; }
-  function isPowerSourceType(type) { return POWER_SOURCE_TYPES.includes(type); }
-  function isPowerConsumer(type, catalogue) { const p = partStat(catalogue, type); return !isPowerSourceType(type) && ((Number(p.powerUse) || 0) > 0 || (p.energyCapacity || p.energyStorage || p.maxDischargeRate || 0) > 0); }
+  function isPowerSourceType(type, catalogue) {
+    const p = partStat(catalogue, type);
+    // Derive source eligibility from positive powerGeneration, while preserving batteries/capacitors as storage sources
+    return (Number(p.powerGeneration) || 0) > 0 || (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0);
+  }
+  function isPowerConsumer(type, catalogue) { const p = partStat(catalogue, type); return !isPowerSourceType(type, catalogue) && ((Number(p.powerUse) || 0) > 0); }
   function isDataSourceType(type) { return DataSupportRules.isDataSupportSource(type); }
   function isDataTarget(type, catalogue) { return Boolean(partStat(catalogue, type).weapon); }
   function isCompatibleWeapon(sourceType, weaponType, catalogue) { return isDataSourceType(sourceType) && isDataTarget(weaponType, catalogue); }
@@ -76,7 +79,7 @@
     const type = modules?.[index]?.type;
     if (!type) return false;
     return kind === "power"
-      ? isPowerSourceType(type) || isPowerConsumer(type, catalogue)
+      ? isPowerSourceType(type, catalogue) || isPowerConsumer(type, catalogue)
       : isDataSourceType(type) || isDataTarget(type, catalogue);
   }
   function isInternalTerminalEdge(a, b, kind, occupiedMap, modules, catalogue) {
@@ -150,7 +153,7 @@
     for (const value of Array.isArray(raw.connections) ? raw.connections.slice(0, MAX_CONNECTIONS_PER_KIND) : []) {
       const sourceIndex = Number(value?.sourceIndex); const targetIndex = Number(value?.targetIndex);
       if (!Number.isInteger(sourceIndex) || !Number.isInteger(targetIndex) || sourceIndex === targetIndex || !modules[sourceIndex] || !modules[targetIndex]) { dropped += 1; continue; }
-      if (kind === "power" && (!isPowerSourceType(modules[sourceIndex].type) || !isPowerConsumer(modules[targetIndex].type, catalogue))) { dropped += 1; continue; }
+      if (kind === "power" && (!isPowerSourceType(modules[sourceIndex].type, catalogue) || !isPowerConsumer(modules[targetIndex].type, catalogue))) { dropped += 1; continue; }
       if (kind === "data" && (!isDataSourceType(modules[sourceIndex].type) || !isCompatibleWeapon(modules[sourceIndex].type, modules[targetIndex].type, catalogue))) { dropped += 1; continue; }
       const sectionIds = Array.isArray(value?.sectionIds) ? value.sectionIds.filter((id) => typeof id === "string").slice(0, MAX_PATH_CELLS - 1) : [];
       const sourceCells = new Set(moduleCells(modules[sourceIndex], catalogue).map((cell) => cellKey(cell.x, cell.y)));
@@ -292,7 +295,7 @@
       const touched = new Set(); group.forEach((section) => sectionCells(section).forEach((cell) => { const index = occupied.get(cellKey(cell.x, cell.y)); if (index !== undefined) touched.add(index); }));
       const sectionIds = group.map((s) => s.id).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       const isStorage = (t) => { const p = partStat(catalogue, t); return (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0) && (p.powerGeneration || 0) === 0; };
-      const sourceIndices = [...touched].filter((i) => kind === "power" ? (isPowerSourceType(modules[i].type) || isStorage(modules[i].type)) : isDataSourceType(modules[i].type)).sort((a, b) => a - b);
+      const sourceIndices = [...touched].filter((i) => kind === "power" ? (isPowerSourceType(modules[i].type, catalogue) || isStorage(modules[i].type)) : isDataSourceType(modules[i].type)).sort((a, b) => a - b);
       const consumerIndices = kind === "power" ? [...touched].filter((i) => isPowerConsumer(modules[i].type, catalogue) && !isStorage(modules[i].type)).sort((a, b) => a - b) : [];
       const weaponIndices = kind === "data" ? [...touched].filter((i) => isDataTarget(modules[i].type, catalogue)).sort((a, b) => a - b) : [];
       const componentIndices = [...new Set([...sourceIndices, ...consumerIndices, ...weaponIndices])].sort((a, b) => a - b);
@@ -330,7 +333,7 @@
       const sectionIds = [...new Set(group.flatMap((connection) => connection.sectionIds))];
       const componentIndices = [...new Set(group.flatMap((connection) => [connection.sourceIndex, connection.targetIndex]))];
       const network = { kind, index, id: `${kind}-${index + 1}`, label: kind === "data" ? `Weapon Network ${String.fromCharCode(65 + index)}` : `Power Network ${index + 1}`, connections: group, routes: group, sectionIds, sections: sectionIds.map((id) => sectionMap.get(id)), segments: sectionIds.map((id) => sectionLine(sectionMap.get(id))), componentIndices };
-      network.sourceIndices = componentIndices.filter((i) => kind === "power" ? isPowerSourceType(modules[i].type) : isDataSourceType(modules[i].type));
+      network.sourceIndices = componentIndices.filter((i) => kind === "power" ? isPowerSourceType(modules[i].type, catalogue) : isDataSourceType(modules[i].type));
       network.consumerIndices = kind === "power" ? componentIndices.filter((i) => isPowerConsumer(modules[i].type, catalogue)) : [];
       network.weaponIndices = kind === "data" ? componentIndices.filter((i) => isDataTarget(modules[i].type, catalogue)) : [];
       if (kind === "power") {
@@ -410,7 +413,7 @@
       };
     });
     const consumerIndices = []; const sourceIndices = [];
-    modules.forEach((module, index) => { if (isPowerSourceType(module.type)) sourceIndices.push(index); if (isPowerConsumer(module.type, componentCatalog)) consumerIndices.push(index); });
+    modules.forEach((module, index) => { if (isPowerSourceType(module.type, componentCatalog)) sourceIndices.push(index); if (isPowerConsumer(module.type, componentCatalog)) consumerIndices.push(index); });
     const networkByComponent = new Map(); networks.forEach((network) => network.componentIndices.forEach((index) => networkByComponent.set(index, network)));
     const rawTargets = new Set(rawConnections.map((connection) => Number(connection?.targetIndex)).filter(Number.isInteger));
     const invalidTargets = new Set(invalidConnections.map((connection) => connection.targetIndex).filter(Number.isInteger));
@@ -441,7 +444,7 @@
     powerNetworks.forEach((network) => network.componentIndices.forEach((index) => powerMap.set(index, network)));
     dataNetworks.forEach((network) => network.componentIndices.forEach((index) => dataMap.set(index, network)));
     const powerSources = []; const consumers = []; const dataSources = []; const weapons = [];
-    list.forEach((module, index) => { if (isPowerSourceType(module.type)) powerSources.push(index); else if (isPowerConsumer(module.type, catalogue)) consumers.push(index); if (isDataSourceType(module.type)) dataSources.push(index); if (isDataTarget(module.type, catalogue)) weapons.push(index); });
+    list.forEach((module, index) => { if (isPowerSourceType(module.type, catalogue)) powerSources.push(index); else if (isPowerConsumer(module.type, catalogue)) consumers.push(index); if (isDataSourceType(module.type)) dataSources.push(index); if (isDataTarget(module.type, catalogue)) weapons.push(index); });
     const connected = consumers.filter((index) => powerMap.get(index)?.powered); const disconnected = consumers.filter((index) => !powerMap.get(index)?.powered); const warnings = [];
     const supports = dataSources.map((index) => {
       const module = list[index]; const info = DATA_SOURCE_INFO[module.type]; const network = dataMap.get(index) || null;
@@ -479,7 +482,7 @@
       return { ...network, label: `Power Network ${String.fromCharCode(65 + index)}`, status, generationMw, demandMw, surplusMw, deficitMw: Math.max(0, -surplusMw), generation: generationMw, demand: demandMw, loadRatio: generationMw > 0 ? demandMw / generationMw : demandMw ? null : 0, availableEfficiency: demandMw ? Math.max(0, Math.min(1, generationMw / demandMw)) : 1, powered: generationMw > 0 };
     });
     const isStorage = (t) => { const p = partStat(catalogue, t); return (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0) && (p.powerGeneration || 0) === 0; };
-    const sourceIndices = [], consumerIndices = []; modules.forEach((m, i) => { if (isPowerSourceType(m.type) || isStorage(m.type)) sourceIndices.push(i); else if (isPowerConsumer(m.type, catalogue)) consumerIndices.push(i); });
+    const sourceIndices = [], consumerIndices = []; modules.forEach((m, i) => { if (isPowerSourceType(m.type, catalogue) || isStorage(m.type)) sourceIndices.push(i); else if (isPowerConsumer(m.type, catalogue)) consumerIndices.push(i); });
     const networkByComponent = new Map(); networks.forEach((n) => n.componentIndices.forEach((i) => networkByComponent.set(i, n)));
     const disconnectedConsumerIndices = consumerIndices.filter((i) => !networkByComponent.get(i)?.sourceIndices.length); const underpoweredConsumerIndices = networks.filter((n) => n.status === "underpowered").flatMap((n) => n.consumerIndices);
     const totalGenerationMw = networks.reduce((s, n) => s + n.generationMw, 0), totalDemandMw = networks.reduce((s, n) => s + n.demandMw, 0);
@@ -640,5 +643,5 @@
   }
   function removePhysicalNetwork(wiring, kind, network, modules, catalogue) { const ids = new Set(network.sectionIds); const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((s) => !ids.has(segmentKey(s))); next[kind].connections = next[kind].connections.filter((c) => !c.sectionIds.some((id) => ids.has(id))); return normalizeWiring(next, modules, catalogue).wiring; }
 
-  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, POWER_TIERS, POWER_TIER_PRECEDENCE, higherPowerTier, migrateWiringToCurrentVersion, PowerPolicyRules, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, POWER_SOURCE_TYPES, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, addPathWithTier, applyPathWithTier, setSectionTier, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
+  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, POWER_TIERS, POWER_TIER_PRECEDENCE, higherPowerTier, migrateWiringToCurrentVersion, PowerPolicyRules, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, addPathWithTier, applyPathWithTier, setSectionTier, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
 }));

@@ -232,7 +232,7 @@ function computeStats(modules, wiring = null) {
     beamAccuracy: weapons.beam.accuracy,
     missileTracking: weapons.missile.tracking,
     beamTracking: weapons.beam.tracking,
-    weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps + weapons.beam.dps + weapons.pointDefense.dps),
+    weaponDps: round(weapons.blaster.dps + weapons.missile.dps + weapons.railgun.dps + weapons.beam.dps + (weapons.pointDefense.dps * (PARTS.pointDefense.weapon.shipDamageMultiplier || 0.04))),
     blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     weapons,
     warnings,

@@ -650,6 +650,8 @@ function closeLobby(room, requester) {
     player.removed = true;
     player.client = null;
     player.ships = [];
+    // Clear template cache for this player to ensure clean state
+    require("./shipTemplates").invalidatePlayerTemplates(player.id);
   }
   for (const client of [...room.clients]) {
     send(client, { type: "closed", message: requester === null ? "Lobby closed due to inactivity" : "The room admin closed this lobby" });

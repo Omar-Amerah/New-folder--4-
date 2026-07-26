@@ -44,13 +44,14 @@ function tickRoom(room, dt, now) {
   // section flows; only trip/retry connectivity transitions re-solve Power.
   for (const ship of ships) updateShipPowerProtection(ship, dt);
   durations.powerDemandProtection = performanceNow() - startedAt;
+  // Build spatial index before movement and drone updates to ensure static asteroid data is available
+  startedAt = performanceNow();
+  buildRoomSpatialIndex(room, ships, now);
+  durations.spatialIndex = performanceNow() - startedAt;
   startedAt = performanceNow();
   for (const ship of ships) updateShipMovement(room, ship, dt);
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships);
   durations.movementSeparationMap = performanceNow() - startedAt;
-  startedAt = performanceNow();
-  buildRoomSpatialIndex(room, ships, now);
-  durations.spatialIndex = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateShipSupport(room, ships, dt, now);
   updateDecoyLaunchers(room, ships, dt, now);

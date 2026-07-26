@@ -53,6 +53,7 @@ function handleMessage(client, message) {
 
   const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase, isCurrentAttachment, findReservedNameOwner } = require("./players");
   const { validateDesign, validateWiring } = require("./shipDesign");
+  const { recordPurchaseStage } = require("./performanceTelemetry");
   const { computeStats } = require("./shipStats");
   const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
@@ -180,13 +181,35 @@ function handleMessage(client, message) {
       wiring: purchaseWiring,
       combatStyle
     }, now);
+    const sendStart = performance.now();
     send(client, result);
+    recordPurchaseStage("purchaseResultSendTime", performance.now() - sendStart);
     if (!result.ok || result.duplicate) return;
     broadcastRoom(client.room, {
       type: "notice",
       message: `${client.player.name} built ${result.count} ship${result.count === 1 ? "" : "s"}`
     });
-    broadcastSnapshot(client.room, now);
+    
+    // Coalesce snapshot: mark room for snapshot instead of broadcasting immediately
+    // The regular snapshot timer will pick this up, or we use a deferred broadcast
+    client.room._pendingSnapshot = true;
+    client.room._pendingSnapshotAt = now;
+    
+    // Use a small timeout to coalesce multiple purchases in the same interval
+    if (!client.room._snapshotCoalesceTimer) {
+      client.room._snapshotCoalesceTimer = setTimeout(() => {
+        if (client.room._pendingSnapshot) {
+          const snapshotStart = performance.now();
+          broadcastSnapshot(client.room, client.room._pendingSnapshotAt);
+          recordPurchaseStage("postPurchaseSnapshotConstruction", performance.now() - snapshotStart);
+          client.room._pendingSnapshot = false;
+          client.room._pendingSnapshotAt = 0;
+        }
+        client.room._snapshotCoalesceTimer = null;
+      }, 50); // Coalesce up to 50ms of purchases
+      client.room._snapshotCoalesceTimer.unref?.();
+    }
+    
     return;
   }
 
