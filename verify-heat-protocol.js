@@ -126,14 +126,15 @@ async function until(read, label, timeoutMs = 15000) {
     await until(() => a.latest.joined, "join a");
     b.send({ type: "join", room: ROOM, name: "B", team: "red", ...protocol });
     await until(() => b.latest.joined, "join b");
-    a.send({ type: "setTeam", team: "blue" });
-    b.send({ type: "setTeam", team: "red" });
-    a.send({ type: "setRules", rules: { asteroidDensity: "none" } });
+    a.send({ type: "setRules", rules: { asteroidDensity: "none", startingMoney: 100000 } });
     a.send({ type: "startDesign" });
     await until(() => a.latest.state?.phase === "design", "design");
     a.send({ type: "deploy", design: DESIGN, combatStyle: "sentry" });
     b.send({ type: "deploy", design: DESIGN, combatStyle: "sentry" });
-    await until(() => a.latest.state?.phase === "active" && a.latest.state.ships?.length >= 2, "active");
+    await until(() => a.latest.state?.phase === "active", "active");
+    a.send({ type: "buyShip", requestId: "buyA1", design: DESIGN });
+    b.send({ type: "buyShip", requestId: "buyB1", design: DESIGN });
+    await until(() => a.latest.state?.phase === "active" && a.latest.state.ships?.length >= 2, "ships");
 
     const active = a.latest.state;
     let mine = active.ships.find((ship) => ship.ownerId === a.latest.joined.id);

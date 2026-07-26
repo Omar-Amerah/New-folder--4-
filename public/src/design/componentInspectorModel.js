@@ -184,6 +184,7 @@ function buildCore(type, stat, ledger, effectiveCost) {
 
 function weaponCapability(stat) {
   const weapon = stat.weapon;
+  if (!weapon) return [];
   const rows = [statRow("weapon.dps", "DPS", weapon.dps.toFixed(1))];
   rows.push(statRow("weapon.range", "Range", formatDistance(weapon.range)));
   // A "cannot miss" weapon states its guarantee instead of a redundant 100%.

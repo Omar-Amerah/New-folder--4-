@@ -51,7 +51,7 @@ export function updateDebugOverlay(now, force = false) {
   }
 }
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("keydown", (e) => {
     if (e.key === "F3") {
       e.preventDefault();

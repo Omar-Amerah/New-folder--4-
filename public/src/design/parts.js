@@ -130,6 +130,10 @@ export const PART_DESCRIPTIONS = Object.freeze({
 export const FALLBACK_PART_STATS = {};
 
 export let PART_STATS = buildPartStatsFromBalance(GENERATED_BALANCE, FALLBACK_PART_STATS);
+if (typeof globalThis !== "undefined") {
+  globalThis.PART_STATS = PART_STATS;
+  globalThis.PART_DEFS = PART_DEFS;
+}
 let componentCatalogueAuthority = "generated";
 
 export function componentCatalogueSource() {
@@ -142,6 +146,7 @@ export function applyComponentBalance(balance) {
   // race in late and overwrite authoritative gameplay preview data.
   if (componentCatalogueAuthority === "server") return false;
   PART_STATS = buildPartStatsFromBalance(balance, FALLBACK_PART_STATS);
+  if (typeof globalThis !== "undefined") globalThis.PART_STATS = PART_STATS;
   componentCatalogueAuthority = "http";
   clearComponentIconCache(); // footprints may have changed, rebake icons
   return true;
@@ -150,6 +155,7 @@ export function applyComponentBalance(balance) {
 export function applyServerParts(parts) {
   const normalized = normalizeRuntimeParts(parts);
   PART_STATS = normalized;
+  if (typeof globalThis !== "undefined") globalThis.PART_STATS = PART_STATS;
   componentCatalogueAuthority = "server";
   clearComponentIconCache();
   return true;

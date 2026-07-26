@@ -37,7 +37,7 @@
     return (POWER_TIER_PRECEDENCE[b] || 0) > (POWER_TIER_PRECEDENCE[a] || 0) ? b : a;
   }
 
-  function partStat(catalogue, type) { return (catalogue && (catalogue[type] || catalogue.frame)) || {}; }
+  function partStat(catalogue, type) { const c = catalogue || (typeof globalThis !== "undefined" && globalThis.PART_STATS); return (c && (c[type] || c.frame)) || {}; }
   function isPowerSourceType(type, catalogue) {
     const p = partStat(catalogue, type);
     // Derive source eligibility from positive powerGeneration, while preserving batteries/capacitors as storage sources
@@ -115,7 +115,7 @@
     // Every Power/Data terminal belonging to one functional component is already
     // joined inside that component. Persisting a cable between two such cells
     // adds cost and clutter without carrying any additional flow.
-    if (isInternalTerminalEdge(a, b, kind, occupiedMap, modules, catalogue)) return null;
+    if (kind !== "power" && isInternalTerminalEdge(a, b, kind, occupiedMap, modules, catalogue)) return null;
     return section;
   }
   function sectionCells(section) { return [{ x: section.x1, y: section.y1 }, { x: section.x2, y: section.y2 }]; }
@@ -591,7 +591,7 @@
     const newTier = normalizeTier(tier, kind);
     const newSectionIds = []; const retieredSectionIds = [];
     for (let i = 1; i < cells.length; i += 1) {
-      if (isInternalTerminalEdge(cells[i - 1], cells[i], kind, occupiedMap, modules, catalogue)) continue;
+      if (kind !== "power" && isInternalTerminalEdge(cells[i - 1], cells[i], kind, occupiedMap, modules, catalogue)) continue;
       const id = sectionIdFromCells(cells[i - 1], cells[i]);
       const existing = bucket.sections.find((section) => segmentKey(section) === id);
       if (!existing) {

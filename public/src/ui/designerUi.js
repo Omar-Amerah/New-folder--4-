@@ -2042,7 +2042,7 @@ function currentMatchMoney(mine) {
 }
 
 // Toggle/Show tooltip on click
-if (dom.stats) {
+if (dom.stats && typeof dom.stats.addEventListener === "function") {
   dom.stats.addEventListener("click", (e) => {
     const card = e.target.closest(".stat");
     if (card) {

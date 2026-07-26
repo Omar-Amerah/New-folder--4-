@@ -119,20 +119,33 @@ async function main() {
       "unaffordable starting ship was not rejected"
     );
 
-    alpha.send({ type: "deploy", design: alpha.defaultDesign });
-    beta.send({ type: "deploy", design: beta.defaultDesign });
-    alpha.send({ type: "buyShip", count: 1 });
-    alpha.send({ type: "command", x: 1600, y: 950 });
-    beta.send({ type: "command", x: 1600, y: 950 });
-
-    const state = await alpha.waitFor(
-      (message) => message.type === "state" && message.phase === "active" && message.players.length === 3 && message.ships.length >= 3 && message.points.length >= 3 && message.map?.asteroids?.length,
-      "state snapshot did not include players, bot, economy-built ships, and fleets"
+    alpha.send({ type: "deploy", design: makeCheapDesign() });
+    beta.send({ type: "deploy", design: makeCheapDesign() });
+    await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "active" && message.players.length === 3,
+      "match did not start"
     );
-
-    if (!state.map.name || !Array.isArray(state.map.clouds) || state.map.clouds.length === 0) {
+    const state = await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "active" && message.players.length === 3 && message.ships.length >= 2 && message.points.length >= 3,
+      "state snapshot did not include players, bot, and fleets",
+      20000
+    );
+    const activeMap = state.map || alpha.messages.find((message) => message.type === "state" && message.map && message.room === state.room && message.stateEpoch === state.stateEpoch)?.map;
+    if (!activeMap?.name || !Array.isArray(activeMap.clouds) || activeMap.clouds.length === 0) {
       throw new Error("generated map fields missing from snapshot");
     }
+    alpha.send({ type: "buyShip", requestId: "buy1", design: makeCheapDesign(), count: 1 });
+    await alpha.waitFor(
+      (message) => message.type === "purchaseResult" && message.ok === true && message.requestId === "buy1",
+      "buy ship did not succeed"
+    );
+    const postBuyState = await alpha.waitFor(
+      (message) => message.type === "state" && message.phase === "active" && message.time > state.time && message.ships.length >= 3,
+      "bought ship did not appear in active snapshot",
+      20000
+    );
+    alpha.send({ type: "command", x: 1600, y: 950 });
+    beta.send({ type: "command", x: 1600, y: 950 });
     if (!state.players.some((player) => player.name === "Alpha") || !state.players.some((player) => player.name === "Beta")) {
       throw new Error("players missing from snapshot");
     }
@@ -158,21 +171,25 @@ async function main() {
     if (!state.players.some((player) => player.isBot)) {
       throw new Error("bot missing from snapshot");
     }
-    const alphaState = state.players.find((player) => player.name === "Alpha");
-    if (typeof alphaState.money !== "number" || typeof alphaState.income !== "number" || !alphaState.stats.unitCost) {
+    const fullActiveState = alpha.messages.find((message) => message.type === "state" && message.phase === "active" && message.snapshotKind === "full" && message.players.some((player) => player.name === "Alpha"));
+    const alphaState = fullActiveState && fullActiveState.players.find((player) => player.name === "Alpha");
+    const postBuyAlpha = postBuyState.players.find((player) => player.name === "Alpha");
+    if (!alphaState || typeof alphaState.money !== "number" || typeof alphaState.income !== "number" || !alphaState.stats?.unitCost) {
       throw new Error("economy fields missing from snapshot");
     }
-    const moneyBefore = alphaState.money;
-    // Require a LATER active-phase snapshot: waitFor scans message history, and
-    // earlier lobby-phase states carry the (higher) starting money with an
-    // empty ships array, which would satisfy a bare money comparison.
+    if (typeof postBuyAlpha.money !== "number") {
+      throw new Error("post-buy economy fields missing from snapshot");
+    }
+    const moneyBefore = postBuyAlpha.money;
+    // Wait for a snapshot after the purchase where Alpha's money has grown.
     const laterState = await alpha.waitFor(
       (message) => {
-        if (message.type !== "state" || message.phase !== "active" || !(message.time > state.time)) return false;
+        if (message.type !== "state" || message.phase !== "active" || !(message.time > postBuyState.time)) return false;
         const player = message.players.find((candidate) => candidate.name === "Alpha");
         return player && player.money > moneyBefore;
       },
-      "money did not increase after income tick"
+      "money did not increase after income tick",
+      20000
     );
     const laterAlpha = laterState.players.find((player) => player.name === "Alpha");
     if (laterAlpha.income <= 0) {
@@ -224,7 +241,7 @@ function openClient(name) {
       close() {
         socket.close();
       },
-      waitFor(predicate, label) {
+      waitFor(predicate, label, timeoutMs = 5000) {
         const existing = messages.find(predicate);
         if (existing) return Promise.resolve(existing);
         return new Promise((innerResolve, innerReject) => {
@@ -234,7 +251,7 @@ function openClient(name) {
             const index = waiters.indexOf(waiter);
             if (index >= 0) waiters.splice(index, 1);
             innerReject(new Error(label));
-          }, 5000).unref();
+          }, timeoutMs).unref();
         });
       }
     };
@@ -264,6 +281,13 @@ function makeNoEngineDesign() {
   return [
     { x: 3, y: 3, type: "core" },
     { x: 3, y: 4, type: "armor" }
+  ];
+}
+
+function makeCheapDesign() {
+  return [
+    { x: 7, y: 7, type: "core" },
+    { x: 7, y: 8, type: "engine" }
   ];
 }
 

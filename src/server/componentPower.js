@@ -465,7 +465,7 @@ function shieldRechargeTarget(ship) {
   }).reduce((sum, contribution) => sum + contribution.capacity, 0);
 }
 function shieldActivity(ship) {
-  const maxShield = shieldRechargeTarget(ship);
+  const maxShield = Number(ship.maxShield) || shieldRechargeTarget(ship);
   const current = Number(ship.shield) || 0;
   const tolerance = Math.max(0.01, maxShield * 0.0001);
   return maxShield > 0 && current < maxShield - tolerance ? 1 : 0;
@@ -592,7 +592,7 @@ function updateShipPowerDemand(ship, room, now) {
   ship._powerDemandLastSolvedAt = Number(now);
   ship.powerDemandRevision = (ship.powerDemandRevision || 0) + 1;
   bump("powerDemandSolveCount");
-  reallocateShipPower(ship, "activity-demand");
+  reallocateShipPower(ship, "activity-demand", { skipRuntimeStats: true });
 }
 
 function initializeComponentPower(ship) {
@@ -608,11 +608,11 @@ function initializeComponentPower(ship) {
   require("./powerProtection").refreshShipPowerProtectionDiagnostics(ship);
   return ship.componentPower;
 }
-function reallocateShipPower(ship, reason = "source-availability") {
+function reallocateShipPower(ship, reason = "source-availability", options = {}) {
   // Source generation changed (destruction/overheat/recovery) but topology did
   // not — re-solve on the cached runtime wiring without re-deriving sections.
-  if (!ship._runtimePowerWiring) return rebuildShipWiringState(ship, reason);
-  return applyShipPowerAllocation(ship);
+  if (!ship._runtimePowerWiring) return rebuildShipWiringState(ship, reason, options);
+  return applyShipPowerAllocation(ship, options);
 }
 
 function getComponentPowerMultiplier(ship, componentIndex) {

@@ -436,7 +436,7 @@ export function destroyPixiRenderer() {
   state.contextLossDiagnostics = null;
 }
 
-if (typeof document !== "undefined") {
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
   document.addEventListener("visibilitychange", () => {
     pixiLastVisibilityChangeAt = performance.now();
     state.lastFrameAt = pixiLastVisibilityChangeAt;

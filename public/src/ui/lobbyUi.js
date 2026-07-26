@@ -802,7 +802,7 @@ export function setConnectionStatus(status, text) {
 }
 
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("DOMContentLoaded", () => {
     if (dom.renderQualitySelect) {
       dom.renderQualitySelect.addEventListener("change", (e) => {
