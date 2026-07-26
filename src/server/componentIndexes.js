@@ -13,6 +13,13 @@ function getShipComponentIndexes(ship) {
       weaponIndices: [],
       pointDefenseIndices: [],
       repairIndices: [],
+      // Movement and thermal ticks previously re-scanned the whole design every
+      // tick to find these; a design is immutable after spawn, so the lists are
+      // derived once alongside the existing ones.
+      thrustIndices: [],
+      maneuverThrusterIndices: [],
+      gyroscopeIndices: [],
+      shieldRegenIndices: [],
       mainCoreIndex: -1,
       backupCoreIndex: -1
     };
@@ -26,6 +33,10 @@ function getShipComponentIndexes(ship) {
       if ((Number(part.repairRate) || 0) > 0) {
         cache.repairIndices.push(i);
       }
+      if ((Number(part.thrust) || 0) > 0) cache.thrustIndices.push(i);
+      if (module.type === "maneuverThruster") cache.maneuverThrusterIndices.push(i);
+      if (module.type === "gyroscope") cache.gyroscopeIndices.push(i);
+      if ((Number(part.shieldRegen) || 0) > 0) cache.shieldRegenIndices.push(i);
     }
     ship._derivedComponentIndexes = cache;
   }

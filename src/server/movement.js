@@ -84,10 +84,10 @@ function heatActiveManeuverThrusters(ship, turnActivity, dt) {
   const exhaustAnalysis = ship.engineExhaustAnalysis;
   if (!exhaustAnalysis) return;
   const centerOfMass = exhaustAnalysis.centerOfMass;
-  for (let i = 0; i < (ship.design || []).length; i += 1) {
+  for (const i of getShipComponentIndexes(ship).maneuverThrusterIndices) {
     const module = ship.design[i];
     const part = PARTS[module.type];
-    if (module.type !== "maneuverThruster" || !part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+    if (!part || (ship.componentHp?.[i] ?? 1) <= 0) continue;
     if (!exhaustAnalysis.validEngineIndices.has(i)) continue;
     if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
     const perf = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
@@ -97,10 +97,9 @@ function heatActiveManeuverThrusters(ship, turnActivity, dt) {
 
 function heatActiveGyroscopes(ship, turnActivity, dt) {
   if (!turnActivity || !Number.isFinite(turnActivity)) return;
-  for (let i = 0; i < (ship.design || []).length; i += 1) {
-    const module = ship.design[i];
-    const part = PARTS[module.type] || {};
-    if (module.type !== "gyroscope" || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+  for (const i of getShipComponentIndexes(ship).gyroscopeIndices) {
+    const part = PARTS[ship.design[i].type] || {};
+    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
     const activityMultiplier = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
     const rate = activityHeatRate("gyroscope", part);
     if (activityMultiplier > 0 && rate > 0) {
@@ -109,9 +108,13 @@ function heatActiveGyroscopes(ship, turnActivity, dt) {
   }
 }
 
+// Memoised: this is called per gyroscope and per shield-regen part every tick,
+// and re-entering the module cache on each call is pure overhead. Resolved
+// lazily to keep the existing import order.
+let _heatRules = null;
+function heatRules() { return _heatRules || (_heatRules = require("../../public/src/shared/heatRules.js")); }
 function activityHeatRate(type, part) {
-  const rules = require("../../public/src/shared/heatRules.js");
-  return Math.max(0, Number(rules.activityHeat(type, part)) || 0);
+  return Math.max(0, Number(heatRules().activityHeat(type, part)) || 0);
 }
 
 const HOLD_RANGE_RATIO = 0.9;
