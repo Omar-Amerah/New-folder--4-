@@ -149,11 +149,11 @@ function createImmutableShipTemplate(design, wiring, stats) {
     entry => entry.powerDisplacement + entry.dataDisplacement
   );
   
-  // Precompute base heat capacity
-  const componentBaseHeatCapacity = normalizedDesign.map((module) => {
-    const thermal = HeatRules.profile(module.type, PARTS[module.type] || {});
-    return thermal.capacity;
-  });
+  // Precompute base thermal profiles and capacities
+  const componentBaseThermals = normalizedDesign.map((module) =>
+    HeatRules.profile(module.type, PARTS[module.type] || {})
+  );
+  const componentBaseHeatCapacity = componentBaseThermals.map((thermal) => thermal.capacity);
   
   // Precompute component adjacency for thermal networks
   const edgeCounts = normalizedDesign.map(() => new Map());
@@ -180,8 +180,8 @@ function createImmutableShipTemplate(design, wiring, stats) {
       index,
       sharedEdges,
       conductivity: HeatRules.edgeConductivity(
-        { capacity: componentBaseHeatCapacity[i] },
-        { capacity: componentBaseHeatCapacity[index] }
+        componentBaseThermals[i],
+        componentBaseThermals[index]
       )
     }))
   );
