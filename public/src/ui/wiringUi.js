@@ -25,7 +25,7 @@ let suppressNextClick = false;
 let locatedSectionId = null;
 let locatedComponentIndex = null;
 let locateHighlightTimer = null;
-const analysisDetailsState = { healthy: false, advanced: true, tier: false };
+const analysisDetailsState = { healthy: false, advanced: false, tier: false };
 function rules() { return globalThis.WiringRules; }
 function editRules() { return globalThis.WiringEditRules; }
 function infraRules() { return globalThis.WiringInfrastructureRules; }
@@ -198,7 +198,7 @@ function eraseSectionById(id) {
 }
 function releasePointerCapture() { if (!pointerDrag) return; const { target, pointerId } = pointerDrag; if (target?.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId); pointerDrag = null; }
 function resetInteraction(clearSelection = true) { releasePointerCapture(); suppressNextClick = false; const view = ui(); view.sourceIndex = null; view.path = []; view.hoverCell = null; view.livePointer = null; view.dragging = false; view.activeOrigin = null; view.hoveredPowerShortageNetworkId = null; if (clearSelection) { view.selectedIndex = null; view.selectedConnectionKey = null; view.selectedSectionId = null; view.selectedDataNetworkId = null; view.selectedPowerShortageNetworkId = null; } }
-export function resetWiringTransientState({ clearSelection = true } = {}) { resetInteraction(clearSelection); analysisDetailsState.advanced = true; }
+export function resetWiringTransientState({ clearSelection = true } = {}) { resetInteraction(clearSelection); analysisDetailsState.advanced = false; }
 export function syncWiringWithDesign() { state.wiring = normalizeWiring(state.wiring, state.design); resetInteraction(); }
 export function resetWiringToDefault(options = {}) { state.wiring = normalizeWiring(defaultWiring(), state.design); if (options.resetEditorHistory !== false) resetWiringEditorState(); }
 export function clearAllWiring(options = {}) { state.wiring = rules().emptyWiring(); if (options.resetEditorHistory !== false) resetWiringEditorState(); }
@@ -802,7 +802,7 @@ function renderStaticClarity() {
   const cards = clarity.tierCards(WIRING_INFRASTRUCTURE);
   document.querySelectorAll("[data-tier-capacity-compact]").forEach((element) => {
     const card = cards.find((item) => item.key === element.dataset.tierCapacityCompact);
-    if (card) element.textContent = `${card.sustainedMw} / ${card.peakMw} MW`;
+    if (card && card.kind === "power") element.textContent = `${card.sustainedMw} / ${card.peakMw} MW\n$${card.costPerCell} · \u2212${card.displacementPerCell} Heat`;
   });
   document.querySelectorAll("[data-wiring-tier]").forEach((button) => {
     const card = cards.find((item) => item.key === button.dataset.wiringTier);
@@ -1136,6 +1136,7 @@ function renderWiringHoverCard(sectionId, hitTarget) {
       <div class="wiring-hover-card-grid">
         <span>Sources</span><strong>${network?.sourceIndices?.length || 0}</strong>
         <span>Supported weapons</span><strong>${supportedCount}</strong>
+        <span>Signal link</span><strong>${network?.sourceIndices?.length ? "Active" : "None"}</strong>
         <span>Effects</span><strong>${escapeHtml(effectsText)}</strong>
         <span>Failure impact</span><strong>${escapeHtml(vulnerability?.severity || "redundant")}</strong>
       </div>
@@ -2235,6 +2236,7 @@ function selectedTierSummaryHtml() {
     : "Data cable";
 
   return `<section class="wiring-analysis-section selected-tier-summary" data-wiring-panel="selected-tier">
+    <h4>Selected tier</h4>
     <div class="wiring-tier-card tier-${escapeHtml(tierKey)}">
       <div class="wiring-tier-card-header">
         <h5 class="wiring-tier-title">${escapeHtml(title)}</h5>
@@ -2428,7 +2430,7 @@ function compactSummaryHtml(accounting, presentation, analysis, flow) {
 
   return `<section class="wiring-analysis-section wiring-summary-block" data-wiring-panel="compact-summary">
     <h4>Summary</h4>
-    <div class="wiring-stat-grid">
+    <div class="wiring-stat-grid wiring-compact-stats">
       <div class="wiring-stat-card">
         <span class="wiring-stat-label">Cost</span>
         <strong class="wiring-stat-value">${escapeHtml(formatWiringMoney(presentation.totalInfrastructure))}</strong>

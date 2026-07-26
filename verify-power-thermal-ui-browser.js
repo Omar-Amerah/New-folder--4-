@@ -36,5 +36,5 @@ has(damage, /Component Heat rate[\s\S]*Total \/ net Heat rate[\s\S]*Cooling/, "H
 has(damage, /Generation[\s\S]*Requested[\s\S]*Delivered[\s\S]*Spare[\s\S]*Unmet[\s\S]*Cable Heat/, "Power tab renders runtime supply/distribution Power values");
 has(damage, /hostedActiveSectionIds[\s\S]*join\(", "\)[\s\S]*\|\| "None"/, "Power component readout degrades missing hosted-section diagnostics safely");
 has(runner, /verify-power-thermal-ui-browser\.js/, "New verifier is registered in the browser group");
-assert(!/NaN|undefined/.test(designer.match(/blueprintHeatSummaryMarkup[\s\S]*?}\n/)?.[0] || ""), "Blueprint summary avoids literal NaN/undefined fallbacks");
+assert(!/NaN|undefined/.test(designer.match(/blueprintHeatSummaryMarkup[\s\S]*?}\r?\n/)?.[0] || ""), "Blueprint summary avoids literal NaN/undefined fallbacks");
 console.log("Section 7D-4 Power thermal UI browser contract passed.");

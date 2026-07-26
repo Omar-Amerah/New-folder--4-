@@ -1126,8 +1126,8 @@
       "repair": 0,
       "weapon": {
         "family": "pointDefense",
-        "damage": 4,
-        "fireRate": 4.5,
+        "damage": 3,
+        "fireRate": 3.5,
         "range": 450,
         "projectileSpeed": 0,
         "accuracy": 1,
@@ -1226,7 +1226,8 @@
           "torpedo",
           "missile",
           "projectile",
-          "ship"
+          "ship",
+          "decoy"
         ],
         "shipDamageMultiplier": 0.05
       },
@@ -1357,6 +1358,37 @@
         "formationResponseMultiplier": 1.12
       },
       "description": "Improves nearby allied acceleration, turning and formation response without raising top speed enough to invalidate engine balance."
+    },
+    {
+      "id": "proximityDemolitionCharge",
+      "name": "Proximity Demolition Charge",
+      "category": "Weapons",
+      "cost": 55,
+      "mass": 16,
+      "hull": 70,
+      "powerGeneration": 0,
+      "powerUse": 1.8,
+      "powerCategory": "weapons",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.03,
+      "energy": 0,
+      "repair": 0,
+      "maxPerShip": 4,
+      "rotatable": true,
+      "footprint": {
+        "width": 2,
+        "height": 3
+      },
+      "proximityCharge": {
+        "triggerRadius": 100,
+        "triggerConfirmationSeconds": 0.2,
+        "blastRadius": 350,
+        "centreDamage": 1700,
+        "falloffExponent": 1
+      },
+      "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team and can be set Safe to prevent accidental detonation."
     },
     {
       "id": "electronicWarfareCommandCentre",

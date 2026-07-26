@@ -283,6 +283,7 @@ function renderPowerSummary(ship) {
         ${powerDiagnosticRow("broken/disabled", broken)}
         ${powerDiagnosticRow("overloaded", overloaded)}
       </div>
+      <h4>Issues</h4>
       <div class="power-issues-section">
         ${issueMarkup}
         ${moreIssuesMarkup}

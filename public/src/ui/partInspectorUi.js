@@ -66,6 +66,7 @@ export function renderPartInspector() {
     ${operationalOverviewMarkup(type, model)}
     ${warningsMarkup(model)}
     ${droneBayControlsMarkup(type)}
+    ${placed ? switchgearConfigMarkup(type) : ""}
     ${componentActions}
     ${model.sections.map((section) => accordionMarkup(section, openState)).join("")}
     ${isRotatablePart(type) ? `<p class="part-inspector-tip">Hover a placed matching part and press R to rotate.</p>` : ""}
@@ -164,6 +165,15 @@ function requirementsMarkup(model) {
 
 function operationalOverviewMarkup(type, model) {
   return `${requirementsMarkup(model)}${thermalSummaryMarkup(model)}`;
+}
+
+function switchgearConfigMarkup() {
+  return `<div class="part-switchgear-config" data-switchgear-config>
+    <label>Switchgear</label>
+    <select aria-label="Switchgear mode">
+      <option>Default mode</option>
+    </select>
+  </div>`;
 }
 
 // Resolve whether the selected *placed* component currently meets its Power and
