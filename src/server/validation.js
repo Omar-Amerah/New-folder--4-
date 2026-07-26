@@ -11,11 +11,6 @@ function sanitizeTeam(team, fallbackId) {
   return fallbackId;
 }
 
-function sanitizeFormation(formation) {
-  const clean = String(formation || "").toLowerCase();
-  if (clean === "wedge" || clean === "clump") return clean;
-  return "line";
-}
 
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
@@ -50,7 +45,6 @@ module.exports = {
   sanitizeName,
   sanitizeTeam,
   sanitizeCombatStyle,
-  sanitizeFormation,
   sanitizeRoomCode,
   sanitizeRequestId,
   validateBuildShip

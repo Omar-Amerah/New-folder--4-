@@ -6,7 +6,6 @@ import { send } from "../network.js";
 import { minimapWorldAt, screenToWorld } from "./camera.js";
 import { findShipAt, pruneSelection, ownLiveShips } from "./selection.js";
 import { playerMap } from "../ui/matchStatusUi.js";
-import { formationForCommand } from "../ui/sidePanelUi.js";
 import { showToast } from "../ui/toastUi.js";
 
 export function issueCommand(event) {
@@ -44,7 +43,6 @@ export function issueCommand(event) {
     y: targetShip?.y || world.y,
     targetId: targetShip?.id || null,
     shipIds,
-    formation: formationForCommand()
   });
   showCommandMarker(event.clientX, event.clientY, targetKind);
 }
@@ -59,6 +57,16 @@ export function destructSelectedShips() {
   if (shipIds.length === 0) return false;
   if (!send({ type: "destruct", shipIds })) return false;
   showToast(`Self-destruct initiated for ${shipIds.length} ship${shipIds.length === 1 ? "" : "s"}.`, "warning");
+  return true;
+}
+
+export function stopSelectedShips() {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return false;
+  if (state.phase !== "active") return false;
+  pruneSelection();
+  const shipIds = [...state.selectedShipIds];
+  if (shipIds.length === 0) return false;
+  if (!send({ type: "stop", shipIds })) return false;
   return true;
 }
 

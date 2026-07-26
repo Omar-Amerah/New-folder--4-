@@ -1370,13 +1370,13 @@ export function renderLocalStats() {
   if (dom.blueprintCostStatus) {
     if (state.phase === "active") {
       dom.blueprintCostStatus.textContent = canAfford
-        ? `Funds after one purchase: $${Math.floor(money - stats.unitCost).toLocaleString()}`
-        : `Need $${Math.ceil(stats.unitCost - money).toLocaleString()} more`;
+        ? "Funds after one purchase"
+        : "Need more funds";
       dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     } else {
       dom.blueprintCostStatus.textContent = canAfford
-        ? `Starting funds remaining: $${Math.floor(money - stats.unitCost).toLocaleString()}`
-        : `Need $${Math.ceil(stats.unitCost - money).toLocaleString()} more for starting ship`;
+        ? "Starting funds remaining"
+        : "Need more for starting ship";
       dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     }
   }

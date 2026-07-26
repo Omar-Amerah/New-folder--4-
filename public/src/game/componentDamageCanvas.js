@@ -19,8 +19,9 @@ export function drawModuleDamage(drawCtx, ratio, halfW, halfH, now = 0) {
   const w = halfW * 2;
   const h = halfH * 2;
   if (ratio <= 0) {
-    // Destroyed: near-black slab with jagged crack lines.
-    drawCtx.fillStyle = overlay ? "rgba(52, 58, 66, 0.85)" : "rgba(7, 9, 13, 0.78)";
+    // Destroyed: lowered opacity so the component art stays readable, with
+    // jagged crack lines for the wreckage.
+    drawCtx.fillStyle = overlay ? "rgba(100, 116, 139, 0.5)" : "rgba(30, 41, 59, 0.5)";
     drawCtx.fillRect(-halfW, -halfH, w, h);
     drawCtx.strokeStyle = "rgba(0, 0, 0, 0.85)";
     drawCtx.lineWidth = Math.max(1, halfW * 0.16);

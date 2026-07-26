@@ -1,9 +1,8 @@
 const { sanitizeRoomCode } = require('./validation');
 const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
 const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_COMBAT_SHIP_IDS = 360, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
-const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','destruct','setTeam','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
+const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','destruct','setTeam','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
 const COMBAT = new Set(['sentry','charge','circle','hold']);
-const FORMATIONS = new Set(['line','wedge','clump']);
 const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
 const SCHEMAS = Object.freeze(Object.fromEntries(TYPES.map((t)=>[t, Object.freeze({ type:t })])));
 function isPlainObject(v){return !!v && typeof v==='object' && !Array.isArray(v) && (Object.getPrototypeOf(v)===Object.prototype || Object.getPrototypeOf(v)===null);}
@@ -42,9 +41,10 @@ function validateSpecific(m){
     case 'setDroneBayMode': { const miss=checkRequired(m,['shipId','componentId','mode']); if(miss)return miss; return id(m.shipId)&&id(m.componentId)&&['deployed','recalled'].includes(m.mode)?null:fail('invalid-drone-command','Invalid Drone Bay command'); }
     case 'setTelemetryFocus': { const miss=checkRequired(m,['shipId']); if(miss)return miss; return m.shipId===null||id(m.shipId)?null:fail('invalid-selection','Invalid telemetry focus'); }
     case 'setRallyPoint': { const miss=checkRequired(m,['x','y']); if(miss)return miss; return num(m.x)&&num(m.y)?null:fail('invalid-rally','Invalid rally point'); }
-    case 'command': { const miss=checkRequired(m,['x','y']); if(miss)return miss; if(!num(m.x)||!num(m.y))return fail('invalid-command','Invalid command coordinates'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(m.targetId!==undefined&&m.targetId!==null&&!id(m.targetId))return fail('invalid-target','Invalid target'); if(m.formation!==undefined&&!FORMATIONS.has(m.formation))return fail('invalid-command','Invalid formation'); return null; }
+    // legacy formation field is accepted but ignored for compatibility; no formation plan is built
     case 'resetRallyPoint': return null;
     case 'destruct': { const miss=checkRequired(m,['shipIds']); if(miss)return miss; if(!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null; }
+    case 'stop': if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null;
     case 'setTeam': return (m.team===undefined||str(String(m.team),32))?null:fail('invalid-team','Invalid team');
     case 'setRules': return (m.rules===undefined||validRules(m.rules))?null:fail('invalid-rules','Invalid rules');
     case 'setName': { const miss=checkRequired(m,['name']); if(miss)return miss; return str(m.name,32)?null:fail('invalid-payload','Invalid name'); }

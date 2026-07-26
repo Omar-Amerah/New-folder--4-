@@ -245,9 +245,9 @@ function updatePixiComponentDamage(view, ship, design) {
     tracePoly(gfx, corners);
 
     if (ratio <= 0) {
-      // Opaque dark fill hides the healthy static component art, then the
-      // jagged strokes draw the wreckage on top of an empty socket.
-      gfx.fill({ color: overlay ? 0x343a42 : 0x07090d, alpha: 1 });
+      // Lower-opacity dark wash keeps the component art visible while the
+      // jagged strokes mark the wreckage.
+      gfx.fill({ color: overlay ? 0x475569 : 0x1e293b, alpha: 0.5 });
       const k0 = pt(-halfW * 0.8, -halfH * 0.7);
       const k1 = pt(-halfW * 0.1, -halfH * 0.05);
       const k2 = pt(halfW * 0.35, halfH * 0.25);

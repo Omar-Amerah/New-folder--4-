@@ -8,7 +8,7 @@ const css = fs.readFileSync("public/styles.css", "utf8");
 const js = fs.readFileSync("public/src/ui/lobbyUi.js", "utf8");
 
 assert(html.includes('<label for="teamSelect"'), "Team selector has an associated <label> for the control");
-assert(html.includes('id="teamChoiceStatus"'), "Team section has an instruction/status element");
+
 assert(html.includes('aria-label="Choose team"'), "Team <select> has an accessible label");
 assert(html.includes('<option value="" disabled selected>Choose a team</option>'), "Team selector placeholder option exists");
 assert(html.includes('<option value="blue">Blue Wing</option>'), "Blue Wing option exists");

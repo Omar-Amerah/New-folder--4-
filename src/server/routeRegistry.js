@@ -15,6 +15,7 @@ const ROUTES = [
   { type: "setRallyPoint", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: true },
   { type: "resetRallyPoint", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: true },
   { type: "command", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: { bucket: "command", limit: 30, windowMs: 1000 }, mayTriggerStaticSnapshot: false, mayBroadcast: false },
+  { type: "stop", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: { bucket: "command", limit: 30, windowMs: 1000 }, mayTriggerStaticSnapshot: false, mayBroadcast: false },
   { type: "destruct", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: false },
   { type: "setTeam", handler: placeholderHandler, ...joined, phases: ["lobby"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: true, mayBroadcast: true },
   { type: "addBot", handler: placeholderHandler, ...joined, phases: ["lobby"], admin: true, requestId: "optional", rateLimit: { bucket: "addBot", limit: 6, windowMs: 5000 }, mayTriggerStaticSnapshot: true, mayBroadcast: true },

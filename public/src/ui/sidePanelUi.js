@@ -19,11 +19,6 @@ const SHIP_GROUP_DEFS = [
 ];
 
 const ASSIGNABLE_GROUP_IDS = ["group1", "group2", "group3", "group4", "group5"];
-const FORMATION_OPTIONS = [
-  { id: "line", label: "Line" },
-  { id: "wedge", label: "Wedge" },
-  { id: "clump", label: "Clump" }
-];
 
 const SELECTED_COMBAT_STYLES = [
   { id: "charge", label: "Charge", description: STYLE_DESCRIPTIONS.charge },

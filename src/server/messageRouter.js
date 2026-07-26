@@ -8,7 +8,7 @@ const { getRoute } = require("./routeRegistry");
 const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemetryFocusForRoom } = require("./relationships");
 
 const RATE_LIMITS = {
-  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
+  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
   management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
 };
 function bucketForType(type) {
@@ -56,9 +56,9 @@ function handleMessage(client, message) {
   const { validateDesign, validateWiring } = require("./shipDesign");
   const { recordPurchaseStage } = require("./performanceTelemetry");
   const { computeStats } = require("./shipStats");
-  const { validateBuildShip, sanitizeRequestId, sanitizeFormation, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
+  const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
-  const { commandShips } = require("./movement");
+  const { commandShips, stopShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
   const { MAX_COMBAT_SELECTED_SHIP_IDS, selectOwnedLivingShips } = require("./selection");
   const { addBot } = require("./ships");
@@ -241,6 +241,19 @@ function handleMessage(client, message) {
       ship.combatStyle = combatStyle;
       ship.orbitDir = undefined;
       ship.lastOrbitTargetId = null;
+      if (combatStyle === 'sentry') {
+        if (ship.commandMode !== 'move' || ship.arrived) {
+          ship.sentryX = ship.x;
+          ship.sentryY = ship.y;
+          ship.arrived = true;
+        }
+      } else {
+        ship.sentryX = null;
+        ship.sentryY = null;
+        if (ship.commandMode !== 'move' || ship.arrived) {
+          ship.arrived = false;
+        }
+      }
       updatedCount++;
       updatedShipIds.push(ship.id);
     }
@@ -297,7 +310,7 @@ function handleMessage(client, message) {
     commandShips(client.room, client.player, x, y, {
       shipIds: Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined,
       targetId: typeof message.targetId === "string" ? message.targetId : null,
-      formation: sanitizeFormation(message.formation)
+      formation: (message.formation)
     });
     return;
   }
@@ -306,6 +319,13 @@ function handleMessage(client, message) {
     if (client.room.phase !== "active") return;
     const shipIds = Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined;
     requestSelfDestruct(client.room, client.player, shipIds, performanceNow());
+    return;
+  }
+
+  if (message.type === "stop") {
+    if (client.room.phase !== "active") return;
+    const shipIds = Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined;
+    stopShips(client.room, client.player, shipIds);
     return;
   }
 

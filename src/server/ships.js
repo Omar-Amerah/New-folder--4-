@@ -235,6 +235,9 @@ function spawnShip(room, player, now, index = 0, options = {}) {
       ship.targetY = rallyTarget.y;
       ship.arrived = false;
       ship.isManualMove = true;
+      ship.commandMode = 'move';
+      ship.focusTargetId = null;
+      ship.repairTargetId = null;
     }
   }
 

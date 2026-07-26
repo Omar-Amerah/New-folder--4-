@@ -148,8 +148,7 @@ function requirementsMarkup(model) {
       </button>`;
   }).join("");
 
-  const failures = model.requirements.filter((r) => r.status === "unmet").map((requirement) => `
-    <span class="part-requirement-failure">${escapeHtml(requirement.label)} unmet${requirement.failureText ? `: ${escapeHtml(requirement.failureText)}` : ""}</span>`).join("");
+
 
   const tips = model.requirements.map((requirement) => `
     <div class="part-requirement-tip" id="partRequirementTip-${escapeHtml(requirement.id)}" role="region"
@@ -163,7 +162,6 @@ function requirementsMarkup(model) {
       <div class="part-requirements-row">
         <h4 class="part-section-heading part-requirements-heading">Requirements</h4>
         <div class="part-requirement-chips">${chips}</div>
-        ${failures ? `<div class="part-requirement-failures">${failures}</div>` : ""}
       </div>
       ${tips}
     </section>`;
