@@ -42,6 +42,7 @@ export async function setupActiveMatch(page,{baseUrl,room=uniqueRoom('act'),bots
   await page.evaluate((d)=>window.__mfaNetSend({type:'deploy',design:d,combatStyle:'sentry'}),design);
   await waitOutcome(page,s=>s.players.some(p=>p.id===s.myId&&p.ready) || s.phase==='active',10000,`${scenario}: deploy accepted`);
   const active=await waitOutcome(page,s=>s.phase==='active'&&s.shipCount>0,20000,`${scenario}: active ships`);
+  await page.evaluate(({design,scenario})=>window.__mfaNetSend({type:'buyShip',design,count:1,requestId:`${scenario}-starter-${Date.now()}`,combatStyle:'sentry'}),{design,scenario});
   await waitOutcome(page,s=>normalizeRendererDiagnostics(s.renderer).contextState==='active'&&normalizeRendererDiagnostics(s.renderer).activeShipViews>0&&normalizeRendererDiagnostics(s.renderer).textureEntries>0,15000,`${scenario}: pixi ship views`);
   const renderer=await page.evaluate(()=>window.__mfaRenderer.diagnostics());
   return {room,playerId:active.myId,botIds:active.players.filter(p=>p.bot).map(p=>p.id),shipIds:(await page.evaluate(()=>window.__mfaState.snapshot.ships.map(s=>s.id))),world:await page.evaluate(()=>window.__mfaState.world),stateEpoch:active.stateEpoch,snapshotSequence:active.snapshotSequence,rendererDiagnostics:normalizeRendererDiagnostics(renderer),designValidation,joined};
