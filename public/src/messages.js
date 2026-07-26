@@ -21,6 +21,7 @@ import { recordServerBalanceRevision } from "./balanceStatus.js";
 import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
+import { synchronizeTelemetryFocus } from "./telemetryFocus.js";
 import { mergeSnapshotTransaction } from "./snapshotMerge.js";
 import { mapSnapshotRejectionToResyncReason } from "./snapshotResync.js";
 import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterpolation.js";
@@ -141,9 +142,11 @@ export function handleServerMessage(message) {
     state.rules = { ...state.rules, ...(message.rules || {}) };
     if (message.resumeToken) saveResumeCredential(message.room, message.resumeToken);
     state.selectedShipIds.clear();
+    state.joinedConnectionGeneration = state.connectionGeneration;
     state.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 };
     resetRenderHistory();
     state.activeShipGroup = null;
+    synchronizeTelemetryFocus();
     dom.roomCode.value = message.room;
     dom.currentRoomCode.textContent = message.room;
     dom.currentRoomCard.hidden = false;
@@ -194,6 +197,7 @@ export function handleServerMessage(message) {
     dom.roomLabel.textContent = accepted.room;
     purchaseUi.reconcilePendingPurchasesWithSnapshot();
     pruneSelection();
+    synchronizeTelemetryFocus();
     updateHud();
     renderSideControls();
     renderMatchStatus();
@@ -249,6 +253,7 @@ function requestFullState(reason) {
 
   if (message.type === "error") {
     state.joiningLobby = false;
+    lobbyUi.onServerError(message);
     if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
     recordNetworkEvent("error", { code: message.code || null, message: message.message || "Server error", requestId: message.requestId || null, retryable: Boolean(message.retryable) });
     if (message.code === "credential-expired" || message.code === "credential-invalid") { const staleRoom = state.room || dom.roomCode?.value; clearResumeCredential(staleRoom); disableReconnect(message.code); forgetActiveRoom(); lobbyUi.returnToMainMenu(message.message || "Room resume expired", "error"); return; }

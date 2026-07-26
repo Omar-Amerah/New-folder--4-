@@ -2,7 +2,6 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { synchronizeTelemetryFocus } from "../network.js";
 import { showToast } from "./toastUi.js";
 import { updateHud } from "./hudUi.js";
 import { ownLiveShips, pruneSelection } from "../game/selection.js";
@@ -41,7 +40,6 @@ export function renderSideControls() {
   renderShipGroups();
   renderRallyControls();
   renderSelectionControls();
-  synchronizeTelemetryFocus();
 }
 
 export function handleShipGroupListClick(event) {

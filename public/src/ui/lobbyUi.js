@@ -5,6 +5,7 @@ import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatE
 import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { send, getSocketUrl, getConfiguredServerUrl, connect, disableReconnect, withClientProtocol } from "../network.js";
+import { synchronizeTelemetryFocus } from "../telemetryFocus.js";
 import { showToast } from "./toastUi.js";
 import { isBalanceIncompatible, balanceBlockMessage } from "../balanceStatus.js";
 import { renderSavedDesigns } from "./savedBlueprintsUi.js";
@@ -13,7 +14,7 @@ import { renderPalette } from "./partPaletteUi.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats } from "./designerUi.js";
 import { closeBlueprintDesigner } from "./designerScreenUi.js";
-import { escapeHtml } from "../shared/formatting.js";
+import { escapeHtml, formatMoney } from "../shared/formatting.js";
 import { normalizeDesign } from "../design/blueprintStorage.js";
 import { computeStats } from "../design/componentStats.js";
 import { LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "../constants.js";
@@ -30,6 +31,14 @@ const ASTEROID_DENSITY_LABELS = {
   high: "High",
   veryHigh: "Very High"
 };
+
+const TEAM_LOADING_VALUE = "__loading__";
+const TEAM_NONE_VALUE = "__none__";
+const TEAM_PLACEHOLDER_VALUE = "";
+const AUTHORITATIVE_TEAM_IDS = ["blue", "red"];
+let pendingTeamChange = null;
+let lastTeamOptionsSignature = "";
+let lastRulesReadOnlySignature = "";
 
 
 export function isAdmin() {
@@ -85,6 +94,24 @@ export function updateLobbyState() {
   renderRecoveryCard();
 }
 
+function renderRulesReadOnly(rules) {
+  const missing = `<span class="rule-missing">Not set</span>`;
+  const modeValue = rules.gameMode === "solo" ? "Solo" : "Teams";
+  const moneyValue = typeof rules.startingMoney === "number" ? formatMoney(rules.startingMoney) : missing;
+  const maxValue = typeof rules.maxPlayers === "number" ? String(rules.maxPlayers) : (rules.maxPlayers || missing);
+  const mapValue = rules.mapSize === "auto" ? "Automatic by player count" : (escapeHtml(rules.mapSize) || missing);
+  const densityValue = escapeHtml(ASTEROID_DENSITY_LABELS[rules.asteroidDensity] || rules.asteroidDensity || "Not set");
+  return `
+    <dl class="game-rules-grid">
+      <div class="game-rule"><dt>Mode</dt><dd>${modeValue}</dd></div>
+      <div class="game-rule"><dt>Starting money</dt><dd>${moneyValue}</dd></div>
+      <div class="game-rule"><dt>Maximum players</dt><dd>${maxValue}</dd></div>
+      <div class="game-rule"><dt>Map size</dt><dd>${mapValue}</dd></div>
+      <div class="game-rule"><dt>Asteroid density</dt><dd>${densityValue}</dd></div>
+    </dl>
+  `;
+}
+
 export function updateRulesControls(connected, admin, phase, playerCount) {
   const editable = connected && admin && phase === "lobby";
   const rules = state.snapshot?.rules || state.rules || {};
@@ -93,7 +120,7 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
     if (editable) {
       dom.rulesStatus.textContent = "Host Controls";
     } else {
-      dom.rulesStatus.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked After Lobby';
+      dom.rulesStatus.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked after lobby';
     }
   }
 
@@ -107,16 +134,14 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
       setRuleControlValue(dom.mapSizeSelect, rules.mapSize);
       setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity);
     } else {
-      dom.rulesReadOnly.innerHTML = `
-        <div><span>Mode</span><strong>${rules.gameMode === "solo" ? "Solo" : "Teams"}</strong></div>
-        <div><span>Starting Money</span><strong>$${rules.startingMoney}</strong></div>
-        <div><span>Max Players</span><strong>${rules.maxPlayers}</strong></div>
-        <div><span>Map Size</span><strong>${rules.mapSize === "auto" ? "Auto by Players" : escapeHtml(rules.mapSize)}</strong></div>
-        <div><span>Asteroid Density</span><strong>${escapeHtml(ASTEROID_DENSITY_LABELS[rules.asteroidDensity] || rules.asteroidDensity)}</strong></div>
-      `;
+      const nextSignature = `${rules.gameMode}|${rules.startingMoney}|${rules.maxPlayers}|${rules.mapSize}|${rules.asteroidDensity}|${phase}`;
+      if (nextSignature !== lastRulesReadOnlySignature) {
+        lastRulesReadOnlySignature = nextSignature;
+        dom.rulesReadOnly.innerHTML = renderRulesReadOnly(rules);
+      }
     }
   }
-  
+
   if (dom.maxPlayersInput) {
     dom.maxPlayersInput.min = String(Math.max(2, playerCount || 1));
   }
@@ -124,19 +149,139 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
 
 export function updateTeamChoiceControls(connected, phase) {
   if (!dom.teamChoiceCard) return;
+  const gameMode = state.snapshot?.rules?.gameMode || state.rules?.gameMode || "teams";
+  const isTeamMode = gameMode !== "solo";
+  dom.teamChoiceCard.hidden = !isTeamMode;
+  if (!isTeamMode) return;
+
   const canChoose = connected && phase === "lobby";
-  dom.teamSelect.disabled = !canChoose;
-  setRuleControlValue(dom.teamSelect, state.myTeam);
-  if (dom.teamChoiceStatus) {
-    dom.teamChoiceStatus.textContent = state.myTeam
-      ? `${state.myTeam === "blue" ? "Blue Wing" : "Red Wing"}${canChoose ? "" : " (Locked)"}`
-      : canChoose ? "Choose Before Ship Design" : "Locked After Ship Design Starts";
-  }
+  const loading = !state.snapshot || !Array.isArray(state.snapshot.players);
+  const teams = loading ? [] : getAuthoritativeTeams();
+  buildTeamSelectOptions(loading, teams);
+  const myTeam = state.mine?.team || (state.snapshot?.players?.find((p) => p.id === state.myId)?.team) || "";
+  setTeamSelectValue(myTeam);
+  dom.teamSelect.disabled = loading || teams.length === 0 || !canChoose;
+  updateTeamChoiceStatus(myTeam, canChoose);
+  if (pendingTeamChange && myTeam === pendingTeamChange) pendingTeamChange = null;
 }
 
 function setRuleControlValue(element, value) {
   if (!element || document.activeElement === element) return;
   element.value = String(value);
+}
+
+function getTeamFallbackName(id) {
+  return { blue: "Blue Wing", red: "Red Wing" }[id] || `${String(id).charAt(0).toUpperCase()}${String(id).slice(1)}`;
+}
+
+function getAuthoritativeTeams() {
+  const players = state.snapshot?.players || [];
+  const labels = new Map();
+  for (const player of players) {
+    if (player.team && typeof player.teamName === "string" && !labels.has(player.team)) {
+      labels.set(player.team, player.teamName);
+    }
+  }
+  const teams = [];
+  for (const id of AUTHORITATIVE_TEAM_IDS) {
+    teams.push({ id, name: labels.get(id) || getTeamFallbackName(id) });
+  }
+  return teams;
+}
+
+function buildTeamSelectOptions(loading, teams) {
+  if (!dom.teamSelect) return;
+  const ids = loading ? [TEAM_LOADING_VALUE] : (teams.length === 0 ? [TEAM_NONE_VALUE] : teams.map((t) => t.id));
+  const signature = JSON.stringify([loading, ids, state.rules?.gameMode]);
+  if (signature === lastTeamOptionsSignature) return;
+  lastTeamOptionsSignature = signature;
+  const previousValue = dom.teamSelect.value;
+  dom.teamSelect.innerHTML = "";
+  if (loading) {
+    const option = document.createElement("option");
+    option.value = TEAM_LOADING_VALUE;
+    option.textContent = "Loading teams…";
+    option.disabled = true;
+    option.selected = true;
+    dom.teamSelect.appendChild(option);
+    return;
+  }
+  if (teams.length === 0) {
+    const option = document.createElement("option");
+    option.value = TEAM_NONE_VALUE;
+    option.textContent = "No teams available";
+    option.disabled = true;
+    option.selected = true;
+    dom.teamSelect.appendChild(option);
+    return;
+  }
+  const placeholder = document.createElement("option");
+  placeholder.value = TEAM_PLACEHOLDER_VALUE;
+  placeholder.textContent = "Choose a team";
+  placeholder.disabled = true;
+  dom.teamSelect.appendChild(placeholder);
+  for (const team of teams) {
+    const option = document.createElement("option");
+    option.value = team.id;
+    option.textContent = team.name;
+    dom.teamSelect.appendChild(option);
+  }
+  const stillValid = previousValue && ids.includes(previousValue);
+  if (stillValid) dom.teamSelect.value = previousValue;
+}
+
+function setTeamSelectValue(value) {
+  if (!dom.teamSelect || document.activeElement === dom.teamSelect) return;
+  const exists = Array.from(dom.teamSelect.options).some((o) => o.value === value && !o.disabled);
+  const placeholder = Array.from(dom.teamSelect.options).find((o) => o.value === TEAM_PLACEHOLDER_VALUE);
+  if (exists) {
+    dom.teamSelect.value = value;
+  } else if (placeholder) {
+    dom.teamSelect.value = placeholder.value;
+  } else if (dom.teamSelect.options[0]) {
+    dom.teamSelect.value = dom.teamSelect.options[0].value;
+  }
+}
+
+function getTeamDisplayName(team) {
+  const label = (state.snapshot?.players || []).find((p) => p.team === team && p.teamName)?.teamName;
+  return label || getTeamFallbackName(team);
+}
+
+function updateTeamChoiceStatus(myTeam, canChoose) {
+  if (!dom.teamChoiceStatus) return;
+  if (myTeam) {
+    dom.teamChoiceStatus.textContent = `${getTeamDisplayName(myTeam)}${canChoose ? "" : " (Locked)"}`;
+  } else {
+    dom.teamChoiceStatus.textContent = canChoose ? "Choose your team before ship design" : "Locked after ship design starts";
+  }
+}
+
+function handleTeamSelectChange() {
+  if (!dom.teamSelect) return;
+  const value = dom.teamSelect.value;
+  if (!value || value === TEAM_LOADING_VALUE || value === TEAM_NONE_VALUE) return;
+  const myTeam = state.mine?.team || (state.snapshot?.players?.find((p) => p.id === state.myId)?.team) || "";
+  if (value === myTeam) return;
+  pendingTeamChange = value;
+  persistPreferences({ ...loadPreferences().preferences, preferredTeam: value });
+  if (state.room && state.socket?.readyState === WebSocket.OPEN) {
+    const sent = send({ type: "setTeam", team: value });
+    if (!sent) {
+      pendingTeamChange = null;
+      setTeamSelectValue(myTeam);
+      showToast("Team change could not be sent. Please check your connection.", "error");
+    }
+  }
+}
+
+export function onServerError() {
+  if (pendingTeamChange) {
+    pendingTeamChange = null;
+    const phase = state.snapshot?.phase || state.phase;
+    const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
+    updateTeamChoiceControls(connected, phase);
+  }
 }
 
 export function phaseLabel(phase) {
@@ -236,18 +381,20 @@ export function renderPlayerList() {
     blueHeader.innerHTML = "<h2>Blue wing</h2>";
     dom.playerList.appendChild(blueHeader);
 
+    const blueGroup = document.createElement("div");
+    blueGroup.className = "team-group blue-team";
     if (blueTeam.length === 0) {
       const empty = document.createElement("div");
       empty.textContent = "No players";
       empty.style.opacity = "0.5";
-      empty.style.marginBottom = "1rem";
       empty.style.fontSize = "0.85rem";
-      dom.playerList.appendChild(empty);
+      blueGroup.appendChild(empty);
     } else {
       for (const player of blueTeam) {
-        dom.playerList.appendChild(createPlayerRow(player));
+        blueGroup.appendChild(createPlayerRow(player));
       }
     }
+    dom.playerList.appendChild(blueGroup);
 
     const redHeader = document.createElement("div");
     redHeader.className = "section-heading compact";
@@ -255,17 +402,20 @@ export function renderPlayerList() {
     redHeader.innerHTML = "<h2>Red wing</h2>";
     dom.playerList.appendChild(redHeader);
 
+    const redGroup = document.createElement("div");
+    redGroup.className = "team-group red-team";
     if (redTeam.length === 0) {
       const empty = document.createElement("div");
       empty.textContent = "No players";
       empty.style.opacity = "0.5";
       empty.style.fontSize = "0.85rem";
-      dom.playerList.appendChild(empty);
+      redGroup.appendChild(empty);
     } else {
       for (const player of redTeam) {
-        dom.playerList.appendChild(createPlayerRow(player));
+        redGroup.appendChild(createPlayerRow(player));
       }
     }
+    dom.playerList.appendChild(redGroup);
   }
 }
 
@@ -431,6 +581,8 @@ export function clearRoomState() {
   state.phase = "offline";
   state.adminId = null;
   state.selectedShipIds.clear();
+  state.joinedConnectionGeneration = null;
+  synchronizeTelemetryFocus();
   dom.roomCode.value = "";
   dom.currentRoomCode.textContent = "----";
   dom.currentRoomCard.hidden = true;
@@ -637,7 +789,10 @@ export function addBot() {
 }
 
 function teamValue() {
-  return dom.teamSelect?.value === "red" ? "red" : "blue";
+  const value = dom.teamSelect?.value || "";
+  const known = new Set(AUTHORITATIVE_TEAM_IDS);
+  if (known.has(value)) return value;
+  return loadPreferences().preferences.preferredTeam || "blue";
 }
 
 export function setConnectionStatus(status, text) {
@@ -671,6 +826,9 @@ if (typeof window !== "undefined") {
         setMobileTestingModeEnabled(e.target.checked);
         showToast(`Mobile testing mode ${e.target.checked ? "on" : "off"}`, e.target.checked ? "good" : "warning");
       });
+    }
+    if (dom.teamSelect) {
+      dom.teamSelect.addEventListener("change", handleTeamSelectChange);
     }
   });
 }
