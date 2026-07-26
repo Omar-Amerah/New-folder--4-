@@ -27,6 +27,15 @@ export function renderPartInspector() {
   const def = PART_DEFS[type] || PART_DEFS.frame;
   const stat = PART_STATS[type] || PART_STATS.frame;
   const placed = selectedPlacedPartOfType(type);
+  let launchEdge = null;
+  let preferredLaunchEdge = null;
+  if (placed && placed.type === "droneBay") {
+    const componentIndex = state.design.indexOf(placed);
+    const droneConfig = PART_STATS.droneBay?.droneConfig || {};
+    const validation = globalThis.DroneBayRules?.validateDroneBays(state.design, PART_STATS, { maximum: droneConfig.maxBaysPerShip });
+    launchEdge = validation?.bays?.find((bay) => bay.componentIndex === componentIndex)?.launchEdge || null;
+    preferredLaunchEdge = globalThis.DroneBayRules?.preferredLaunchEdgeStatus?.(state.design, componentIndex, PART_STATS) || null;
+  }
   const model = buildComponentInspectorModel(type, stat, {
     name: def.name,
     description: enrichDescription(type, partDescription(type, stat)),
@@ -35,7 +44,9 @@ export function renderPartInspector() {
     prediction: thermalPredictionFor(type),
     droneType: placed?.droneType || globalThis.DroneBayRules?.normalizeDroneType?.(placed?.droneType) || null,
     thermalNote: thermalNoteFor(type),
-    requirementStatus: requirementStatusFor(placed)
+    requirementStatus: requirementStatusFor(placed),
+    launchEdge,
+    preferredLaunchEdge
   });
 
   // Expanded accordions persist while the same component stays selected and
@@ -119,22 +130,18 @@ function capabilityMarkup(model) {
 // values, and every chip is a real button that discloses a compact explanation.
 // A currently-failing dependency is stated visibly on the row itself — never
 // hidden behind the tooltip.
-function requirementsMarkup(model, embedded = false) {
+function requirementsMarkup(model) {
   if (!model.requirements.length) return "";
   const chips = model.requirements.map((requirement) => {
-    const unmet = requirement.status === "unmet";
     const tipId = `partRequirementTip-${requirement.id}`;
-    const ariaLabel = unmet
-      ? `${requirement.label} requirement not met: ${requirement.failureText || "dependency unmet"}. Show details.`
-      : `${requirement.label} requirement: ${requirement.summary}. Show details.`;
+    const ariaLabel = `${requirement.label} requirement: ${requirement.summary}. Show details.`;
     return `
-      <button type="button" class="part-requirement${unmet ? " is-unmet" : ""}"
+      <button type="button" class="part-requirement"
               data-requirement="${escapeHtml(requirement.id)}"
               aria-expanded="false" aria-controls="${tipId}"
               aria-label="${escapeHtml(ariaLabel)}">
         <span class="part-requirement-icon" aria-hidden="true">${escapeHtml(requirement.icon)}</span>
         <span class="part-requirement-label">${escapeHtml(requirement.label)}</span>
-        ${unmet ? `<span class="part-requirement-flag">Unmet</span>` : ""}
       </button>`;
   }).join("");
 
@@ -145,40 +152,18 @@ function requirementsMarkup(model, embedded = false) {
       <span>${escapeHtml(requirement.detail)}</span>
     </div>`).join("");
 
-  // Visible, non-tooltip statement of any active failure.
-  const failures = model.requirements.filter((requirement) => requirement.status === "unmet" && requirement.failureText);
-  const failureMarkup = failures.map((requirement) => `
-    <p class="part-requirement-failure">
-      <span class="part-requirement-failure-label">${escapeHtml(requirement.label)} unmet</span>
-      <span>${escapeHtml(requirement.failureText)}</span>
-    </p>`).join("");
-
-  if (embedded) {
-    return `<div class="part-requirements-embedded">
-      <div class="part-requirement-chips">${chips}</div>
-      ${failureMarkup}
-      ${tips}
-    </div>`;
-  }
-
   return `
     <section class="part-requirements" aria-label="Requirements">
       <div class="part-requirements-row">
         <h4 class="part-section-heading part-requirements-heading">Requirements</h4>
         <div class="part-requirement-chips">${chips}</div>
       </div>
-      ${failureMarkup}
       ${tips}
     </section>`;
 }
 
 function operationalOverviewMarkup(type, model) {
-  if (type !== "droneBay") return `${requirementsMarkup(model)}${thermalSummaryMarkup(model)}`;
-  return `<section class="drone-operational-requirements" aria-label="Operational requirements">
-    <h4 class="part-section-heading">Operational requirements</h4>
-    ${requirementsMarkup(model, true)}
-    ${thermalSummaryMarkup(model)}
-  </section>`;
+  return `${requirementsMarkup(model)}${thermalSummaryMarkup(model)}`;
 }
 
 // Resolve whether the selected *placed* component currently meets its Power and
@@ -417,45 +402,37 @@ function droneBayControlsMarkup(type) {
     const config = types[value] || {};
     const label = config.label || value;
     const isSelected = selected === value;
-    return `<button type="button" role="radio" class="drone-type-choice drone-type-${value}${isSelected ? " is-selected" : ""}" data-drone-type="${value}" aria-checked="${String(isSelected)}">
+    const statsList = [];
+    const squadSize = config.squadSize ?? droneConfig.squadSize;
+    const fuelSeconds = config.fuelSeconds ?? droneConfig.fuelSeconds;
+    if (squadSize) statsList.push(`${squadSize} drones`);
+    if (fuelSeconds) statsList.push(`${fuelSeconds}s fuel`);
+    if (config.hull) statsList.push(`${config.hull} HP`);
+    if (config.speed) statsList.push(`${config.speed} m/s`);
+    if (config.productionSeconds) statsList.push(`${config.productionSeconds}s rebuild`);
+    if (config.damage) statsList.push(`${config.damage} dmg`);
+    if (config.repairPerSecond) statsList.push(`${config.repairPerSecond} HP/s rep`);
+
+    const statChipsMarkup = statsList.map((stat) => `<span class="drone-stat-tag">${escapeHtml(stat)}</span>`).join("");
+
+    return `<button type="button" role="radio" class="drone-type-choice drone-type-${value}${isSelected ? " is-selected" : ""}" data-drone-type="${value}" aria-checked="${String(isSelected)}" aria-pressed="${String(isSelected)}">
       <span class="drone-choice-topline">
         <span class="drone-choice-icon">${icons[value]}</span>
         ${isSelected ? `<span class="drone-choice-selected"><span aria-hidden="true">&#10003;</span> Selected</span>` : ""}
       </span>
       <strong class="drone-choice-name">${escapeHtml(label)}</strong>
-      <span class="drone-choice-meta">${Number(config.productionSeconds) || 0}s rebuild</span>
+      <div class="drone-choice-stats">${statChipsMarkup}</div>
       <small class="drone-choice-role">${escapeHtml(roles[value])}</small>
     </button>`;
   };
-  const componentIndex = state.design.indexOf(placed);
-  const validation = globalThis.DroneBayRules?.validateDroneBays(state.design, PART_STATS, {
-    maximum: droneConfig.maxBaysPerShip
-  });
-  const launch = validation?.bays?.find((bay) => bay.componentIndex === componentIndex)?.launchEdge || null;
-  const preferred = globalThis.DroneBayRules?.preferredLaunchEdgeStatus?.(state.design, componentIndex, PART_STATS) || null;
-  const direction = launch?.side || (preferred?.openCellCount > 0 ? preferred.side : null);
-  const directionLabel = direction ? direction.charAt(0).toUpperCase() + direction.slice(1) : null;
-  const launchLabel = launch
-    ? `Launch edge: ${directionLabel} \u00b7 Clear`
-    : directionLabel
-      ? `Launch edge: ${directionLabel} \u00b7 Blocked`
-      : "No valid launch edge";
   const selectedConfig = selected ? types[selected] : null;
-  const squadStatus = selectedConfig
-    ? `<p class="drone-squad-summary is-configured"><span aria-hidden="true">&#10003;</span> ${droneConfig.squadSize} ${escapeHtml(selectedConfig.label || selected)} drones &middot; ${Number(selectedConfig.productionSeconds) || 0}s rebuild &middot; ${Number(droneConfig.fuelSeconds) || 0}s fuel</p>`
-    : `<div class="drone-config-warning" role="note"><span class="drone-config-warning-icon" aria-hidden="true">!</span><span><strong>Squad type required</strong>Choose Fighter, Defence or Repair before saving or deploying.</span></div>`;
+  const squadStatus = !selectedConfig
+    ? `<div class="drone-config-warning" role="note"><span class="drone-config-warning-icon" aria-hidden="true">!</span><span><strong>Squad type required</strong>Choose Fighter, Defence or Repair before saving or deploying.</span></div>`
+    : "";
   return `<section class="part-inspector-config drone-bay-config" aria-label="Drone Bay configuration">
     <h4 class="part-section-heading">Drone squad</h4>
     ${squadStatus}
     <div class="drone-type-choices" role="radiogroup" aria-label="Drone type">${["fighter", "defence", "repair"].map(button).join("")}</div>
-    <section class="drone-placement-requirement" aria-label="Placement requirement">
-      <h4 class="part-section-heading">Placement requirement</h4>
-      <div class="drone-launch-status ${launch ? "is-valid" : "is-blocked"}"
-           data-launch-edge-side="${escapeHtml(direction || "none")}" data-launch-edge-validity="${launch ? "clear" : "blocked"}">
-        <span class="drone-launch-status-icon" aria-hidden="true">${launch ? "&#8599;" : "!"}</span>
-        <span><strong>${escapeHtml(launchLabel)}</strong><small>One complete two-cell edge must face open space.</small></span>
-      </div>
-    </section>
   </section>`;
 }
 

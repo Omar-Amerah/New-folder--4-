@@ -138,6 +138,8 @@ export const GENERATED_BALANCE = {
       "fighter": {
         "label": "Fighter",
         "intendedUse": "Attacks the parent ship's target and nearby hostile drones.",
+        "squadSize": 3,
+        "fuelSeconds": 20,
         "productionSeconds": 12,
         "hull": 45,
         "speed": 450,
@@ -155,6 +157,8 @@ export const GENERATED_BALANCE = {
       "defence": {
         "label": "Defence",
         "intendedUse": "Guards the parent ship and prioritises hostile drones.",
+        "squadSize": 4,
+        "fuelSeconds": 15,
         "productionSeconds": 14,
         "hull": 60,
         "speed": 340,
@@ -172,6 +176,8 @@ export const GENERATED_BALANCE = {
       "repair": {
         "label": "Repair",
         "intendedUse": "Repairs the parent ship, then nearby friendly ships.",
+        "squadSize": 2,
+        "fuelSeconds": 10,
         "productionSeconds": 16,
         "hull": 40,
         "speed": 230,
@@ -179,7 +185,7 @@ export const GENERATED_BALANCE = {
         "commandRange": 500,
         "orbitDistance": 90,
         "repairRange": 85,
-        "repairPerSecond": 4.2,
+        "repairPerSecond": 8.2,
         "targetCommitSeconds": 1.5
       }
     }

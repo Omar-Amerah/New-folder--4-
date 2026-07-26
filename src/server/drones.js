@@ -90,19 +90,22 @@ function droneBayByIndex(ship, componentIndex) {
 
 function initializeDroneBays(room, ship, now) {
   const validation = DroneBayRules.validateDroneBays(ship.design || [], PARTS, { maximum: CONFIG.maxBaysPerShip });
-  ship.droneBays = validation.bays.map((source) => ({
-    ...source,
-    mode: "deployed",
-    launchBlockedBySpawn: false,
-    nextLaunchAt: now,
-    slots: Array.from({ length: CONFIG.squadSize }, (_, slot) => ({
-      slot,
-      state: "ready",
-      droneId: null,
-      productionProgress: 1,
-      pauseReason: null
-    }))
-  }));
+  ship.droneBays = validation.bays.map((source) => {
+    const squadSize = CONFIG.types[source.droneType]?.squadSize || CONFIG.squadSize;
+    return {
+      ...source,
+      mode: "deployed",
+      launchBlockedBySpawn: false,
+      nextLaunchAt: now,
+      slots: Array.from({ length: squadSize }, (_, slot) => ({
+        slot,
+        state: "ready",
+        droneId: null,
+        productionProgress: 1,
+        pauseReason: null
+      }))
+    };
+  });
   indexDroneBays(ship);
   ensureDroneRuntime(room);
   return ship.droneBays;
@@ -195,7 +198,7 @@ function spawnDrone(room, ship, bay, slot, now) {
     nextDecisionAt: now + ((slot.slot * 37) % DRONE_DECISION_INTERVAL_MS),
     nextActionAt: now + 350,
     targetId: null,
-    fuelRemainingSeconds: CONFIG.fuelSeconds,
+    fuelRemainingSeconds: (CONFIG.types[drone.type]?.fuelSeconds || CONFIG.fuelSeconds),
     returnReason: null,
     refuelStartedAt: null,
     refuelUntil: null,
@@ -759,7 +762,8 @@ function updateDroneEntity(room, drone, dt, now) {
       drone.returnReason = null;
       drone.refuelStartedAt = null;
       drone.refuelUntil = null;
-      drone.fuelRemainingSeconds = CONFIG.fuelSeconds;
+      const fuelCapacity = CONFIG.types[drone.type]?.fuelSeconds || CONFIG.fuelSeconds;
+      drone.fuelRemainingSeconds = fuelCapacity;
       drone.launchedAt = now;
       drone.stateUntil = now + CONFIG.launchDurationSeconds * 1000;
       drone.vx = pose.nx * config.speed * 0.35;
@@ -772,7 +776,8 @@ function updateDroneEntity(room, drone, dt, now) {
     return;
   }
   if (!["returning", "docking"].includes(drone.state)) {
-    if (!Number.isFinite(drone.fuelRemainingSeconds)) drone.fuelRemainingSeconds = CONFIG.fuelSeconds;
+    const fuelCapacity = CONFIG.types[drone.type]?.fuelSeconds || CONFIG.fuelSeconds;
+    if (!Number.isFinite(drone.fuelRemainingSeconds)) drone.fuelRemainingSeconds = fuelCapacity;
     drone.fuelRemainingSeconds = Math.max(0, drone.fuelRemainingSeconds - dt);
     if (drone.fuelRemainingSeconds <= 0) {
       drone.state = "returning";
@@ -1043,7 +1048,7 @@ function buildDroneSnapshots(room, now) {
       maxHull: drone.maxHull,
       targetId: drone.targetId,
       fuelRemainingSeconds: Math.round(Math.max(0, Number(drone.fuelRemainingSeconds) || 0) * 100) / 100,
-      fuelCapacitySeconds: CONFIG.fuelSeconds,
+      fuelCapacitySeconds: (CONFIG.types[drone.type]?.fuelSeconds || CONFIG.fuelSeconds),
       stateProgress: drone.state === "launching"
         ? Math.max(0, Math.min(1, 1 - (drone.stateUntil - now) / (CONFIG.launchDurationSeconds * 1000)))
         : drone.state === "refueling"

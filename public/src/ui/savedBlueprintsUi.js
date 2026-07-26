@@ -361,6 +361,7 @@ export function closeConfirmModal() {
   pendingUnwiredSave = false;
   state.pendingDeleteDesignId = null;
   state.pendingKickTargetId = null;
+  state.pendingServerLeaveAction = null;
   if (dom.confirmModal) {
     delete dom.confirmModal.dataset.intent;
     dom.confirmModal.hidden = true;
@@ -382,6 +383,12 @@ export function confirmModalAction() {
     return;
   }
   if (handleBlueprintConfirmModalAction()) return;
+  if (state.pendingServerLeaveAction) {
+    const action = state.pendingServerLeaveAction;
+    closeConfirmModal();
+    action();
+    return;
+  }
   if (state.pendingKickTargetId) {
     const targetId = state.pendingKickTargetId;
     closeConfirmModal();

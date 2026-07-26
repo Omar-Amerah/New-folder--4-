@@ -82,6 +82,7 @@ export function updateLobbyState() {
   updatePhaseSteps(phase);
   updatePhaseDetail(phase);
   renderPlayerList();
+  renderRecoveryCard();
 }
 
 export function updateRulesControls(connected, admin, phase, playerCount) {
@@ -280,10 +281,33 @@ export function renderPlayerList() {
   }
 }
 
+export function openServerLeaveConfirmModal(onConfirmAction, messageTitle = "Leave server?", messageBody = "", acceptText = "Leave & Create") {
+  state.pendingServerLeaveAction = onConfirmAction;
+  state.pendingDeleteDesignId = null;
+  state.pendingKickTargetId = null;
+  if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = messageTitle;
+  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = messageBody || `You are currently connected to server ${state.room}. Continue and leave the server?`;
+  if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = acceptText;
+  if (dom.confirmModal) dom.confirmModal.hidden = false;
+  dom.confirmCancelButton?.focus?.();
+}
+
 export function createGame() {
   const name = String(dom.pilotName.value || "").trim().slice(0, 18);
   if (!name) {
     showMenuNotice("Name required to host", "error");
+    return;
+  }
+  const inServer = Boolean(state.room) && (state.socket?.readyState === WebSocket.OPEN || state.socket?.readyState === WebSocket.CONNECTING || state.phase !== "offline");
+  if (inServer) {
+    openServerLeaveConfirmModal(() => {
+      leaveLobby();
+      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
+      state.joiningLobby = true;
+      const joinPayload = { type: "join", name, room: "", team: teamValue() };
+      connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
+      updateLobbyState();
+    }, "Leave server to create game?", `You are currently connected to server ${state.room}. Creating a new game will leave this server.`, "Leave & Create");
     return;
   }
   persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
@@ -308,9 +332,22 @@ export function joinRoom(roomCode = "") {
     showMenuNotice("Name required to join", "error");
     return;
   }
+  const targetRoom = String(roomCode || "").trim().toUpperCase().slice(0, 8);
+  const inServer = Boolean(state.room) && (state.socket?.readyState === WebSocket.OPEN || state.socket?.readyState === WebSocket.CONNECTING || state.phase !== "offline");
+  if (inServer && state.room !== targetRoom) {
+    openServerLeaveConfirmModal(() => {
+      leaveLobby();
+      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
+      state.joiningLobby = true;
+      const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), resumeToken: getResumeCredential(targetRoom) };
+      connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
+      updateLobbyState();
+    }, "Leave server to join game?", `You are currently connected to server ${state.room}. Joining room ${targetRoom} will leave this server.`, "Leave & Join");
+    return;
+  }
   persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
   state.joiningLobby = true;
-  const joinPayload = { type: "join", name, room: roomCode, team: teamValue(), resumeToken: getResumeCredential(roomCode) };
+  const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), resumeToken: getResumeCredential(targetRoom) };
   connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
   updateLobbyState();
 }
@@ -651,10 +688,11 @@ export function renderStorageStatus() {
 }
 
 function confirmAction(message, action) {
-  if (!confirm(message)) return;
-  action();
-  renderStorageStatus();
-  renderRecoveryCard();
+  openServerLeaveConfirmModal(() => {
+    action();
+    renderStorageStatus();
+    renderRecoveryCard();
+  }, "Confirm action", message, "Confirm");
 }
 
 export function bindSettingsRecoveryControls() {

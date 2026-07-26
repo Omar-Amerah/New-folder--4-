@@ -381,6 +381,23 @@
   line-height: 1.4;
 }
 
+.part-warning.is-ok {
+  border-color: rgba(74, 222, 128, 0.3);
+  background: rgba(20, 83, 45, 0.16);
+}
+
+.part-warning.is-ok .part-warning-icon {
+  background: rgba(74, 222, 128, 0.9);
+}
+
+.part-warning.is-ok .part-warning-title {
+  color: #86efac;
+}
+
+.part-warning.is-ok .part-warning-text {
+  color: #c9f7d4;
+}
+
 /* --- Accordions ---------------------------------------------------------- */
 
 .part-accordion {
@@ -608,10 +625,24 @@
 }
 
 .drone-choice-name,
-.drone-choice-meta,
 .drone-choice-role { display: block; }
 .drone-choice-name { margin-top: 7px; color: var(--text); font-size: 12px; line-height: 1.15; }
-.drone-choice-meta { margin-top: 3px; color: var(--drone-accent); font-size: 9.5px; font-weight: 800; }
+.drone-choice-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.drone-stat-tag {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--drone-accent) 12%, rgba(4, 12, 23, .6));
+  border: 1px solid color-mix(in srgb, var(--drone-accent) 25%, transparent);
+  color: var(--drone-accent);
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 1.2;
+}
 .drone-choice-role { margin-top: 6px; color: #aebdd0; font-size: 9.5px; line-height: 1.35; }
 
 .drone-type-choice.is-selected,
@@ -668,63 +699,8 @@
   font-weight: 950;
 }
 
-.drone-placement-requirement,
-.drone-operational-requirements {
-  display: grid;
-  gap: 7px;
-}
 
-.drone-placement-requirement {
-  margin-top: 2px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(139, 160, 190, .14);
-}
 
-.drone-launch-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 9px;
-  border: 1px solid;
-  border-radius: 7px;
-  font-size: 10px;
-  line-height: 1.3;
-}
-
-.drone-launch-status > span:last-child,
-.drone-launch-status strong,
-.drone-launch-status small { display: block; }
-.drone-launch-status small { margin-top: 2px; color: #9fb0c3; font-size: 9px; }
-.drone-launch-status.is-valid { border-color: rgba(74, 222, 128, .34); background: rgba(20, 83, 45, .18); color: #bbf7d0; }
-.drone-launch-status.is-blocked { border-color: rgba(251, 191, 36, .34); background: rgba(120, 53, 15, .17); color: #fde68a; }
-
-.drone-launch-status-icon {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 25px;
-  height: 25px;
-  border: 1px solid currentColor;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 950;
-}
-
-.drone-operational-requirements {
-  padding: 8px;
-  border: 1px solid rgba(139, 160, 190, .14);
-  border-radius: 7px;
-  background: rgba(8, 18, 32, .48);
-}
-
-.drone-operational-requirements .part-thermal-summary {
-  margin-top: 0;
-}
-
-.part-requirements-embedded {
-  display: grid;
-  gap: 6px;
-}
 
 .part-inspector-tip {
   margin: 0;

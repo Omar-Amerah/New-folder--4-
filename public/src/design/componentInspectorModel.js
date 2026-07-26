@@ -193,12 +193,15 @@ function weaponCapability(stat) {
   return rows;
 }
 
-function capabilityRows(type, stat, family) {
+function capabilityRows(type, stat, family, context = {}) {
   if (type === "droneBay" && stat.droneConfig) {
     const config = stat.droneConfig;
+    const selected = context.droneType && config.types?.[context.droneType];
+    const squadSize = selected?.squadSize ?? config.squadSize;
+    const fuelSeconds = selected?.fuelSeconds ?? config.fuelSeconds;
     return [
-      statRow("drone.squad", "Squad capacity", `${config.squadSize} drones`),
-      statRow("drone.fuel", "Fuel duration", `${config.fuelSeconds}s`),
+      statRow("drone.squad", "Squad capacity", `${squadSize} drones`),
+      statRow("drone.fuel", "Fuel duration", `${fuelSeconds}s`),
       statRow("drone.refuel", "Dock / refuel", `${config.refuelSeconds}s`),
       statRow("drone.maxActive", "Ship limit", `${config.maxActivePerShip} active`),
       statRow("drone.bays", "Bay limit", `${config.maxBaysPerShip} per ship`)
@@ -310,7 +313,7 @@ function thermalSummaryRows(type, stat, ledger) {
 // Warnings — risks and restrictions never live in ordinary stat cards
 // ---------------------------------------------------------------------------
 
-function warningsFor(type, stat, family) {
+function warningsFor(type, stat, family, context = {}) {
   const rules = heatRules();
   const warnings = [];
 
@@ -347,6 +350,30 @@ function warningsFor(type, stat, family) {
       id: "exposure",
       title: "Needs an exposed edge",
       body: "Cooling drops to a fraction of its rated output when the radiator is fully enclosed by other components."
+    });
+  }
+
+  if (type === "droneBay") {
+    const launch = context.launchEdge || null;
+    const preferred = context.preferredLaunchEdge || null;
+    const direction = launch?.side || (preferred?.openCellCount > 0 ? preferred.side : null);
+    const directionLabel = direction ? direction.charAt(0).toUpperCase() + direction.slice(1) : null;
+    const launchLabel = launch
+      ? `Launch edge: ${directionLabel} \u00b7 Clear`
+      : directionLabel
+        ? `Launch edge: ${directionLabel} \u00b7 Blocked`
+        : "Needs an exposed launch edge";
+    const launchBody = launch
+      ? `Launching from the ${directionLabel} edge. One complete two-cell edge must face open space.`
+      : directionLabel
+        ? `${directionLabel} edge is blocked. One complete two-cell edge must face open space.`
+        : "One complete two-cell edge must face open space to launch and recover drones.";
+
+    warnings.push({
+      id: "launch-edge",
+      title: launchLabel,
+      body: launchBody,
+      tone: launch ? "ok" : "warning"
     });
   }
 
@@ -647,8 +674,8 @@ export function buildComponentInspectorModel(type, stat, context = {}) {
   // The compact thermal summary is claimed before the capability grid so a
   // thermal component states its heat role once, in the summary.
   const thermalSummary = thermalSummaryRows(type, stat, ledger);
-  const capability = ledger.take(capabilityRows(type, stat, family));
-  const warnings = warningsFor(type, stat, family);
+  const capability = ledger.take(capabilityRows(type, stat, family, context));
+  const warnings = warningsFor(type, stat, family, context);
   const requirements = requirementsFor(type, stat, context);
   const sections = advancedSections(type, stat, family, ledger, context);
   const thermal = thermalSection(type, stat, ledger, context);

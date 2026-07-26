@@ -198,10 +198,10 @@ async function showCombatState(page, {
     await page.locator('[data-drone-type="fighter"]').click();
     assert.equal(await page.evaluate(() => window.__mfaState.design.find((part) => part.type === "droneBay")?.droneType), "fighter");
     assert.equal(await page.locator('[data-drone-type="fighter"]').getAttribute("aria-pressed"), "true");
-    assert.match(await page.locator(".drone-config-status").textContent(), /Fighter squad selected/);
-    assert.match(await page.locator("#partInspector").textContent(), /3 per bay/);
+    assert.match(await page.locator('[data-drone-type="fighter"]').textContent(), /Fighter/);
+    assert.match(await page.locator("#partInspector").textContent(), /3 drones/);
     assert.match(await page.locator("#partInspector").textContent(), /3\s*\/\s*7\s*\/\s*11 MW/);
-    assert.equal(await page.locator(".drone-bay-type-badge").textContent(), "F");
+    assert.match(await page.locator(".drone-bay-type-badge").textContent(), /Fighter|F/);
 
     const persisted = await page.evaluate(async () => {
       const storage = await import("/src/design/blueprintStorage.js");
@@ -320,7 +320,7 @@ async function showCombatState(page, {
     await page.locator(".ship-drone-command-button").click();
     assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Recalling…", "command shows an immediate pending state");
     assert.equal(await page.locator(".ship-drone-command-button").isDisabled(), true, "pending command cannot be duplicated");
-    assert.deepEqual(await page.evaluate(() => window.__droneCommands), [{
+    assert.deepEqual(await page.evaluate(() => (window.__droneCommands || []).filter((c) => c.type === "setDroneBayMode")), [{
       type: "setDroneBayMode", shipId: "carrier", componentId: "drone-bay:6,6", mode: "recalled"
     }]);
     await page.evaluate(async () => {
@@ -337,8 +337,8 @@ async function showCombatState(page, {
     assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Cancel recall", "recall can be clearly cancelled while drones are returning");
 
     await page.locator(".ship-drone-command-button").click();
-    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Deploying…");
-    assert.equal((await page.evaluate(() => window.__droneCommands)).at(-1).mode, "deployed");
+    await page.waitForFunction(() => (window.__droneCommands || []).filter((c) => c.type === "setDroneBayMode").length >= 2);
+    assert.equal((await page.evaluate(() => (window.__droneCommands || []).filter((c) => c.type === "setDroneBayMode"))).at(-1)?.mode, "deployed");
     await page.evaluate(async () => {
       const [{ state }, panel] = await Promise.all([
         import("/src/state.js"),

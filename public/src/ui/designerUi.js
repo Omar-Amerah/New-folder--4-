@@ -299,9 +299,6 @@ function refreshBlueprintControls() {
 
 export function renderBaseBlueprintGrid() {
   dom.grid.textContent = "";
-  dom.grid.classList.remove("drone-launch-inspecting");
-  delete dom.grid.dataset.droneLaunchEdgeSide;
-  delete dom.grid.dataset.droneLaunchEdgeValidity;
   clearHeatInspectionState();
   const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(state.design, PART_STATS);
 
@@ -324,22 +321,6 @@ export function renderBaseBlueprintGrid() {
   }
 
   const selectedPart = state.selectedCell ? findPartAt(state.selectedCell.x, state.selectedCell.y) : null;
-  const selectedDroneBayIndex = selectedPart?.type === "droneBay" ? state.design.indexOf(selectedPart) : -1;
-  const launchEdgeStatus = selectedDroneBayIndex >= 0
-    ? globalThis.DroneBayRules?.preferredLaunchEdgeStatus?.(state.design, selectedDroneBayIndex, PART_STATS) || null
-    : null;
-  const launchClearanceCells = new Set((launchEdgeStatus?.adjacentCells || []).map((cell) => `${cell.x},${cell.y}`));
-  const launchBlockingPartIndexes = new Set();
-  for (const blockedCell of launchEdgeStatus?.blockedCells || []) {
-    const owner = ownerByCell.get(`${blockedCell.x},${blockedCell.y}`);
-    if (owner) launchBlockingPartIndexes.add(owner.partIndex);
-  }
-  if (selectedDroneBayIndex >= 0) {
-    dom.grid.classList.add("drone-launch-inspecting");
-    dom.grid.dataset.droneLaunchEdgeSide = launchEdgeStatus?.side || "none";
-    dom.grid.dataset.droneLaunchEdgeValidity = launchEdgeStatus?.clear ? "clear" : "blocked";
-  }
-
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
       const isCovered = coveredCells.has(`${x},${y}`);
@@ -350,13 +331,6 @@ export function renderBaseBlueprintGrid() {
       cell.type = "button";
       cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
       const partIndex = part ? state.design.indexOf(part) : -1;
-      if (selectedDroneBayIndex >= 0) {
-        const key = `${x},${y}`;
-        if (partIndex === selectedDroneBayIndex) cell.classList.add("drone-launch-focus");
-        else if (launchBlockingPartIndexes.has(partIndex)) cell.classList.add("drone-launch-blocker");
-        else if (launchClearanceCells.has(key)) cell.classList.add("drone-launch-clearance");
-        else cell.classList.add("drone-launch-unrelated");
-      }
 
       // Anchor stays at (x,y); the visual box is drawn from the rotated
       // footprint's top-left bound so rotated multi-tile parts extend correctly.
@@ -384,16 +358,9 @@ export function renderBaseBlueprintGrid() {
         const blockedExhaust = exhaustAnalysis.blockedEngineIndices.has(partIndex);
         const rotation = normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x);
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
-        const droneBadge = part.type === "droneBay" ? `<span class="drone-bay-type-badge drone-${part.droneType || "unconfigured"}" aria-label="${part.droneType ? `${part.droneType} drones` : "Drone type not configured"}">${part.droneType ? part.droneType.slice(0, 1).toUpperCase() : "!"}</span>` : "";
-        const launchOverlay = partIndex === selectedDroneBayIndex && launchEdgeStatus
-          ? droneLaunchEdgeOverlayMarkup(launchEdgeStatus)
-          : "";
-        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${droneBadge}${exhaustWarning}${launchOverlay}`;
+        const droneBadge = part.type === "droneBay" ? `<span class="drone-bay-type-badge drone-${part.droneType || "unconfigured"}" aria-label="${part.droneType ? `${part.droneType} drones` : "Drone type not configured"}">${part.droneType ? part.droneType.charAt(0).toUpperCase() + part.droneType.slice(1) : "!"}</span>` : "";
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${droneBadge}${exhaustWarning}`;
         cell.dataset.partIndex = String(partIndex);
-        if (partIndex === selectedDroneBayIndex) {
-          cell.dataset.launchEdgeSide = launchEdgeStatus?.side || "none";
-          cell.dataset.launchEdgeValidity = launchEdgeStatus?.clear ? "clear" : "blocked";
-        }
       }
       cell.dataset.x = String(x);
       cell.dataset.y = String(y);
@@ -404,13 +371,6 @@ export function renderBaseBlueprintGrid() {
   ensureBlueprintGridEventHandlers();
 }
 
-function droneLaunchEdgeOverlayMarkup(status) {
-  const arrows = { top: "&#8593;", right: "&#8594;", bottom: "&#8595;", left: "&#8592;" };
-  const tone = status.clear ? "clear" : "blocked";
-  return `<span class="drone-launch-edge-overlay is-${tone}" data-side="${escapeHtml(status.side)}" aria-hidden="true">
-    <span>${arrows[status.side] || "&#8594;"}</span><span>${arrows[status.side] || "&#8594;"}</span>
-  </span>`;
-}
 
 function applyBlueprintPresentation() {
   clearHeatPresentation();
