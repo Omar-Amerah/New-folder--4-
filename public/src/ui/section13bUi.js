@@ -98,5 +98,5 @@ function isPowerStarved(s) {
 }
 function distribution(values) { const counts = new Map(); values.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1)); return [...counts].map(([k, v]) => `${STYLE_LABELS[k] || k} ${v}`).join(", "); }
 function commonText(values) { const clean = values.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim()); if (!clean.length) return ""; return clean.every((v) => v === clean[0]) ? clean[0] : clean[0]?.includes("target") ? "Mixed targets" : "Mixed orders"; }
-export function normalizeStyle(style) { return STYLE_LABELS[style] ? style : "charge"; }
+export function normalizeStyle(style) { return STYLE_LABELS[style] ? style : "hold"; }
 export function commonStyle(ships) { if (!ships.length) return null; const first = normalizeStyle(ships[0].combatStyle); return ships.every((s) => normalizeStyle(s.combatStyle) === first) ? first : null; }

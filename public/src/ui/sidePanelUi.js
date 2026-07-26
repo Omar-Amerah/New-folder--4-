@@ -417,7 +417,7 @@ function restoreGroupCombatStyles(groupId) {
   const shipIds = shipIdsForGroup(groupId, liveIds);
   const byStyle = new Map();
   for (const id of shipIds) {
-    const style = normalizeCombatStyle(state.shipGroupBaseCombatStyles.get(id) || state.combatStyle || "charge");
+    const style = normalizeCombatStyle(state.shipGroupBaseCombatStyles.get(id) || state.combatStyle || "hold");
     if (!byStyle.has(style)) byStyle.set(style, []);
     byStyle.get(style).push(id);
   }
@@ -436,7 +436,7 @@ function rememberBaseCombatStyles(shipIds) {
   const byId = new Map((state.snapshot?.ships || []).map((ship) => [ship.id, ship]));
   for (const id of shipIds) {
     if (!state.shipGroupBaseCombatStyles.has(id)) {
-      state.shipGroupBaseCombatStyles.set(id, normalizeCombatStyle(byId.get(id)?.combatStyle || state.combatStyle || "charge"));
+      state.shipGroupBaseCombatStyles.set(id, normalizeCombatStyle(byId.get(id)?.combatStyle || state.combatStyle || "hold"));
     }
   }
 }
@@ -511,7 +511,7 @@ function combatStyleLabel(style) {
 }
 
 function normalizeCombatStyle(style) {
-  return SELECTED_COMBAT_STYLES.some((item) => item.id === style) ? style : "charge";
+  return SELECTED_COMBAT_STYLES.some((item) => item.id === style) ? style : "hold";
 }
 
 function normalizeGroupCombatStyle(style) {

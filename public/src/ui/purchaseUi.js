@@ -128,7 +128,7 @@ export function buyPurchaseOption(optionId) {
     type: "buyShip",
     design: option.blueprint,
     wiring: option.wiring,
-    combatStyle: option.combatStyle || state.combatStyle || "charge",
+    combatStyle: option.combatStyle || state.combatStyle || "hold",
     count: state.purchaseQuantity,
     requestId
   });
@@ -252,7 +252,7 @@ export function getPurchaseOptions() {
     source: "editor",
     blueprint: state.design.map((part) => ({ ...part })),
     wiring: normalizeWiring(state.wiring, state.design),
-    combatStyle: state.combatStyle || "charge",
+    combatStyle: state.combatStyle || "hold",
     stats: computeStats(state.design, { wiring: normalizeWiring(state.wiring, state.design) })
   };
 
@@ -277,7 +277,7 @@ export function getPurchaseOptions() {
         source: "saved",
         blueprint: modules.map((part) => ({ ...part })),
         wiring: normalizeWiring(saved.wiring, modules),
-        combatStyle: saved.combatStyle || "charge",
+        combatStyle: saved.combatStyle || "hold",
         stats: computeStats(modules, { wiring: normalizeWiring(saved.wiring, modules) })
       };
     })
@@ -656,7 +656,7 @@ export function showPurchaseTooltip(optionId, event) {
   if (!option || !dom.purchaseTooltip) return;
   const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
   const stats = option.stats;
-  const displayStyle = (option.combatStyle || "charge").charAt(0).toUpperCase() + (option.combatStyle || "charge").slice(1);
+  const displayStyle = (option.combatStyle || "hold").charAt(0).toUpperCase() + (option.combatStyle || "hold").slice(1);
   dom.purchaseTooltip.innerHTML = `
     <div class="purchase-tooltip-head">
       <strong>${escapeHtml(option.name)}</strong>
