@@ -24,14 +24,15 @@ function heatAdjustedMovementStats(ship, stats) {
   const multiplier = (i) => (ship.componentHp?.[i] ?? 1) > 0
     ? componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i) : 0;
   const engineThrustValues = [], engineMassValues = [];
-  design.forEach((module, i) => {
+  for (const i of getShipComponentIndexes(ship).thrustIndices) {
+    const module = design[i];
     const part = PARTS[module.type] || {};
     const output = multiplier(i);
-    if ((part.thrust || 0) > 0 && output > 0 && (!ship.validEngineIndices || ship.validEngineIndices.has(i))) {
+    if (output > 0 && (!ship.validEngineIndices || ship.validEngineIndices.has(i))) {
       engineThrustValues.push(part.thrust * output);
       engineMassValues.push(part.mass || 0);
     }
-  });
+  }
   const directionalTurnInputs = calculateDirectionalTurnInputs(design, PARTS, {
     componentMultiplier: multiplier,
     isBlockedEngine: (i, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && ship.validEngineIndices && !ship.validEngineIndices.has(i)
@@ -705,10 +706,35 @@ function resolveFleetMapCollisions(room, ships) {
   }
 }
 
+function roomMaxAsteroidRadius(room) {
+  const map = room?.map || null;
+  const source = map?.asteroids || [];
+  const revision = room?.asteroidRevision ?? map?.asteroidRevision ?? map?.revision ?? room?.mapRevision ?? 0;
+  const cache = room?._maxAsteroidCache;
+  if (cache && cache.source === source && cache.revision === revision) return cache.radius;
+  let radius = 0;
+  for (const asteroid of source) {
+    const r = Number(asteroid?.radius) || 0;
+    if (r > radius) radius = r;
+  }
+  room._maxAsteroidCache = { source, revision, radius };
+  return radius;
+}
+
 function resolveMapCollision(room, ship) {
-  const asteroids = room.map?.asteroids || [];
+  const index = room.spatialIndex;
+  let asteroids;
+  if (index?.dynamicValid && typeof index.queryRangeUnordered === "function") {
+    const maxAsteroidRadius = roomMaxAsteroidRadius(room);
+    const searchRadius = maxAsteroidRadius + Math.max(24, ship.radius * 0.62);
+    const scratch = ship._mapCollisionScratch || (ship._mapCollisionScratch = []);
+    asteroids = index.queryRangeUnordered("asteroids", ship.x, ship.y, searchRadius, scratch);
+  } else {
+    asteroids = room.map?.asteroids || [];
+  }
 
   for (const asteroid of asteroids) {
+    if (!asteroid) continue;
     let dx = ship.x - asteroid.x;
     let dy = ship.y - asteroid.y;
     let distance = Math.hypot(dx, dy);

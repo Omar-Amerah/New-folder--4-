@@ -11,6 +11,7 @@
 // aims.
 
 import { state } from "../../state.js";
+import { GENERATED_BALANCE } from "../../generatedBalance.js";
 import { clamp, approachAngle } from "../../shared/math.js";
 import { PART_STATS } from "../../design/parts.js";
 import { normalizeRotation } from "../../design/rotation.js";
@@ -49,6 +50,7 @@ const pixiDesignSignatures = new WeakMap();
 const renderShipCache = new WeakMap();
 let pixiShipPool = null;
 let pixiGradientCache = new Map();
+const COMMAND_AURA_RANGE = Number(GENERATED_BALANCE?.commandAura?.range) || 500;
 
 const TEAM_STATUS_BORDER_COLORS = {
   friendly: "#38d5ff",

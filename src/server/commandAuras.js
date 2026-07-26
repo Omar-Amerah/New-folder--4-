@@ -200,8 +200,9 @@ function recalculateAuras(room, ships) {
   const candidateBuffer = room._commandAuraCandidateBuffer || (room._commandAuraCandidateBuffer = []);
 
   for (const source of ships) {
-    if (!source.alive) continue;
+    if (!source.alive) { source.commandAuraActive = false; continue; }
     const sources = collectAuraSources(source);
+    source.commandAuraActive = sources.length > 0;
     if (!sources.length) continue;
     t.activeSources += sources.length;
 
@@ -261,7 +262,8 @@ function recalculateAuras(room, ships) {
       t.additions += 1;
     }
     ship.commandAuraMultipliers = finalMultipliers;
-    if (Object.keys(finalMultipliers).length) t.receivingShips += 1;
+    ship.commandAuraReceived = Object.keys(finalMultipliers).length > 0;
+    if (ship.commandAuraReceived) t.receivingShips += 1;
   }
 
   t.lastUpdateUs = Math.max(0, (performanceNow() - startedAt) * 1000);
@@ -304,6 +306,8 @@ function clearCommandAuras(room, ships) {
     for (const ship of ships) {
       ship.commandAurasReceived = {};
       ship.commandAuraMultipliers = {};
+      ship.commandAuraActive = false;
+      ship.commandAuraReceived = false;
     }
   }
 }
