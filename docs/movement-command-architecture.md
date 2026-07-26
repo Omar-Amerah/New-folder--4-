@@ -1,4 +1,4 @@
-# Section 6 — Movement, commands, formations, collisions, rally and bots
+# Section 6 — Movement, commands, collisions, rally and bots
 
 This document records the authoritative movement contract after the Section 6 review. It is intentionally an as-built contract, not a pathfinding or combat-AI redesign.
 
@@ -16,10 +16,10 @@ This document records the authoritative movement contract after the Section 6 re
 | Field | Owner and lifecycle |
 |---|---|
 | `x`, `y`, `vx`, `vy`, `angle` | Server movement owns authoritative pose. Spawn initializes them; movement, asteroid collision and separation mutate them; snapshots expose pose/velocity/angle to clients for interpolation. |
-| `targetX`, `targetY`, `arrived`, `isManualMove` | Server command and movement own destination state. Commands and rally-spawn movement set targets and clear stale arrival; arrival/braking and combat-style movement update them. |
+| `targetX`, `targetY`, `arrived`, `isManualMove`, `commandMode` | Server command and movement own destination state. Commands and rally-spawn movement set targets, `commandMode` and clear stale arrival; arrival/braking and combat-style movement update them. |
 | `combatStyle`, `focusTargetId`, `combatTargetId`, `repairTargetId` | Server command/combat own intent. Commands set focus/repair targets; combat may set `combatTargetId`; movement clears dead target/orbit state. |
 | `orbitDir`, `lastOrbitTargetId` | Movement-only cache for circle style; reset when target/style changes or target dies. |
-| `formationX`, `formationY` | Command-owned metadata describing the assigned formation-relative slot offset. |
+| `sentryX`, `sentryY` | Sentry-style anchor; captured when Sentry is selected or when a manual ground move completes with Sentry style. |
 | `rallyPoint` | Player-owned authoritative rally target. It is validated and adjusted server-side; new purchased ships spawn-to-rally without commanding existing ships. |
 | `validEngineIndices`, `blockedEngineIndices`, component Power state | Component-health/heat/power derived state consumed by movement stats. Destroyed, blocked, overheated or underpowered propulsion contributes reduced or zero movement. |
 | `hullAngleWeapons` | Movement/combat-facing cache for hull-rotation candidate ranking; derived from immutable spawned design and not client-authored. |
@@ -35,11 +35,9 @@ The active server connection for the stable player identity is the only connecti
 - Duplicate IDs: collapsed to one command target.
 - Malformed ID arrays or more than 64 IDs: rejected safely and never interpreted as "all ships".
 
-## Formation planner
+## Ground move destination
 
-The pure server planner supports the existing `line`, `wedge` and `clump` shapes. It sorts ships by stable ship ID before assigning slots, so repeated identical commands and reversed client selection order produce stable assignments. Slot spacing is based on the largest selected radius with a per-ship minimum, keeping mixed-size fleets from overlapping. Formation direction currently defaults to fixed world axes to preserve existing controls; callers may pass a direction for future oriented commands.
-
-The planner first adjusts the destination to a nearest clear point, then adjusts each slot independently with the same bounded clear-point helper. This keeps slots inside world bounds, clears asteroid constraints when possible, and avoids collapsing the whole fleet to an identical target when the requested destination is near an obstacle.
+A plain right-click sends each selected owned ship to a destination computed from the click plus the ship's offset from the fleet centre. Relative offsets are preserved so the fleet stays arranged, each destination is clamped to world bounds and adjusted for obstacles with `nearestClearPoint`, and heavily overlapped ships fall back to a deterministic ring spread. No formation plan is built.
 
 ## Integration and collision order
 
@@ -64,7 +62,7 @@ Movement uses the spawned design's maximum ship-level weapon range (`blaster`, `
 
 ## Rally and bot movement
 
-Rally points are clamped to the world and adjusted away from asteroids on the server. Setting a rally point does not command existing ships; newly purchased ships receive the current authoritative rally target. Bots use the same `commandShips` path as players, so bot target validation, formation planning and obstacle adjustment remain server-authoritative and deterministic.
+Rally points are clamped to the world and adjusted away from asteroids on the server. Setting a rally point does not command existing ships; newly purchased ships receive the current authoritative rally target. Bots use the same `commandShips` path as players, so bot target validation and obstacle adjustment remain server-authoritative and deterministic.
 
 ## Catch-up Part 2 selection attachment rules
 

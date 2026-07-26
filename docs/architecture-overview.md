@@ -202,7 +202,7 @@ what test determinism strictly required.
 
 ## Section 6: movement and commands
 
-Movement commands now have an explicit server contract in [movement-command-architecture.md](movement-command-architecture.md). The server preserves omitted-`shipIds` all-owned command behaviour, treats an explicit empty selection as no-op, rejects malformed/oversized selections safely, and plans deterministic line/wedge/clump formation slots before authoritative movement integration. Movement ticks ignore invalid `dt`, clamp/subdivide unusually large `dt`, sanitize finite pose/target state, and run stable living-ship separation after per-ship integration.
+Movement commands now have an explicit server contract in [movement-command-architecture.md](movement-command-architecture.md). The server preserves omitted-`shipIds` all-owned command behaviour, treats an explicit empty selection as no-op, rejects malformed/oversized selections safely, and computes simple relative-offset ground-move destinations for selected ships. Movement ticks ignore invalid `dt`, clamp/subdivide unusually large `dt`, sanitize finite pose/target state, and run stable living-ship separation after per-ship integration.
 
 ## Section 4: maps and active-match progression
 

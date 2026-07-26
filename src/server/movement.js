@@ -206,6 +206,27 @@ function setGroundMoveTarget(room, ship, tx, ty) {
   ship.sentryX = null;
   ship.sentryY = null;
 }
+
+function stopShips(room, player, shipIds) {
+  const selection = selectOwnedLivingShips(player, shipIds);
+  if (!selection.ok) return { ok: false, code: selection.code, stopped: 0 };
+  if (selection.explicit && selection.ids.size === 0) return { ok: true, code: 'empty-selection', stopped: 0 };
+  const ships = selection.ships;
+  if (ships.length === 0) return { ok: true, code: 'no-authorized-ships', stopped: 0 };
+
+  for (const ship of ships) {
+    ensureMoveTarget(ship);
+    ship.targetX = ship.x;
+    ship.targetY = ship.y;
+    ship.commandMode = 'stop';
+    ship.arrived = true;
+    ship.formationPlan = null;
+    ship.formationSlotIndex = null;
+    clearOrbitState(ship);
+  }
+  return { ok: true, code: 'stopped', stopped: ships.length };
+}
+
 function updateShipMovement(room, ship, dt) {
   const safeDt = Number(dt);
   if (!Number.isFinite(safeDt) || safeDt <= 0) return;
@@ -307,6 +328,7 @@ function sanitizeMovementState(room, ship) {
 }
 
 function getActiveCombatTarget(room, ship) {
+  if (ship.commandMode === 'stop') return null;
   if (ship.commandMode === 'move' && !ship.arrived) return null;
   if (ship.commandMode === 'repair') return null;
   const activeTargetId = ship.focusTargetId || ship.combatTargetId || null;
@@ -957,6 +979,7 @@ function findOptimalHullAngle(ship, target) {
 
 module.exports = {
   commandShips,
+  stopShips,
   updateShipMovement,
   updateShipSeparation,
   resolveFleetMapCollisions,

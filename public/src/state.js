@@ -92,11 +92,11 @@ export const state = {
   shipGroups: { group1: new Set(), group2: new Set(), group3: new Set(), group4: new Set(), group5: new Set() },
   shipGroupBaseCombatStyles: new Map(),
   shipGroupSettings: {
-    group1: { formation: "line", combatStyle: "ship" },
-    group2: { formation: "line", combatStyle: "ship" },
-    group3: { formation: "line", combatStyle: "ship" },
-    group4: { formation: "line", combatStyle: "ship" },
-    group5: { formation: "line", combatStyle: "ship" }
+    group1: { combatStyle: "ship" },
+    group2: { combatStyle: "ship" },
+    group3: { combatStyle: "ship" },
+    group4: { combatStyle: "ship" },
+    group5: { combatStyle: "ship" }
   },
   settingRallyPoint: false,
   snapshot: null,

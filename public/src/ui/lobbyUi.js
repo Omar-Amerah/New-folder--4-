@@ -441,7 +441,7 @@ export function createGame() {
   if (inServer) {
     openServerLeaveConfirmModal(() => {
       leaveLobby();
-      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
+      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
       state.joiningLobby = true;
       const joinPayload = { type: "join", name, room: "", team: teamValue() };
       connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
@@ -449,7 +449,7 @@ export function createGame() {
     }, "Leave server to create game?", `You are currently connected to server ${state.room}. Creating a new game will leave this server.`, "Leave & Create");
     return;
   }
-  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
+  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
   state.joiningLobby = true;
   const joinPayload = { type: "join", name, room: "", team: teamValue() };
   connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
@@ -476,7 +476,7 @@ export function joinRoom(roomCode = "") {
   if (inServer && state.room !== targetRoom) {
     openServerLeaveConfirmModal(() => {
       leaveLobby();
-      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
+      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
       state.joiningLobby = true;
       const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), resumeToken: getResumeCredential(targetRoom) };
       connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
@@ -484,7 +484,7 @@ export function joinRoom(roomCode = "") {
     }, "Leave server to join game?", `You are currently connected to server ${state.room}. Joining room ${targetRoom} will leave this server.`, "Leave & Join");
     return;
   }
-  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), formation: dom.formationSelect.value });
+  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
   state.joiningLobby = true;
   const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), resumeToken: getResumeCredential(targetRoom) };
   connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
@@ -642,7 +642,6 @@ export function openSettings() {
     dom.serverUrlInput.value = getConfiguredServerUrl() || prefs.serverUrl;
   }
   if (dom.settingsTeamSelect) dom.settingsTeamSelect.value = prefs.preferredTeam;
-  if (dom.settingsFormationSelect) dom.settingsFormationSelect.value = prefs.formation;
   if (dom.reducedMotionToggle) dom.reducedMotionToggle.checked = prefs.reducedMotion;
   if (dom.interfaceScaleSelect) dom.interfaceScaleSelect.value = String(prefs.interfaceScale);
   renderStorageStatus();
@@ -851,7 +850,6 @@ function confirmAction(message, action) {
 
 export function bindSettingsRecoveryControls() {
   dom.settingsTeamSelect?.addEventListener("change", (e) => { persistPreferences({ ...loadPreferences().preferences, preferredTeam: e.target.value }); dom.teamSelect.value = e.target.value; });
-  dom.settingsFormationSelect?.addEventListener("change", (e) => { persistPreferences({ ...loadPreferences().preferences, formation: e.target.value }); dom.formationSelect.value = e.target.value; });
   dom.reducedMotionToggle?.addEventListener("change", (e) => { const prefs = { ...loadPreferences().preferences, reducedMotion: e.target.checked }; persistPreferences(prefs); applyInterfacePreferences(prefs); });
   dom.interfaceScaleSelect?.addEventListener("change", (e) => { const prefs = { ...loadPreferences().preferences, interfaceScale: Number(e.target.value) }; persistPreferences(prefs); applyInterfacePreferences(prefs); });
   dom.resetSettingsButton?.addEventListener("click", () => confirmAction("Reset settings? Saved blueprints will be kept.", () => { resetPreferences(); applyInterfacePreferences(loadPreferences().preferences); openSettings(); }));

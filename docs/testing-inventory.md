@@ -145,7 +145,7 @@ Key observations:
 
 ## Section 6 movement additions
 
-`node verify-movement.js` now covers command selection semantics, enemy-ID rejection, deterministic formation planning, obstacle-adjusted slots, movement `dt` safety/sanitization, exact-overlap ship separation, and clear-point metadata in addition to the pre-existing engine/stat and route-clearance checks.
+`node verify-movement.js` now covers command selection semantics, enemy-ID rejection, simple relative-offset ground moves, movement `dt` safety/sanitization, exact-overlap ship separation, clear-point metadata and attack-command mode in addition to the pre-existing engine/stat and route-clearance checks.
 
 ## Section 7 combat tests
 

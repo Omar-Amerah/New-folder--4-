@@ -218,7 +218,6 @@ const ids = [
   "playerList",
   "deployButton",
   "resetButton",
-  "formationSelect",
   "partPalette",
   "partInspector",
   "buildGrid",
@@ -264,7 +263,6 @@ const ids = [
 
 const elements = new Map(ids.map((id) => [id, new FakeElement(id)]));
 elements.get("teamSelect").value = "blue";
-elements.get("formationSelect").value = "line";
 
 const localStore = new Map();
 const document = {

@@ -27,7 +27,6 @@ if (!loadedPreferences.pilotName) loadedPreferences.pilotName = `Pilot-${Math.fl
 applyInterfacePreferences(loadedPreferences);
 dom.pilotName.value = loadedPreferences.pilotName;
 dom.teamSelect.value = loadedPreferences.preferredTeam;
-dom.formationSelect.value = loadedPreferences.formation;
 if (dom.combatStyleSelect) {
   dom.combatStyleSelect.value = state.combatStyle || "hold";
 }
@@ -189,11 +188,6 @@ dom.pilotName?.addEventListener("change", () => {
       send({ type: "setName", name });
     }
   }
-});
-
-// Formation updates
-dom.formationSelect?.addEventListener("change", () => {
-  persistPreferences({ ...loadPreferences().preferences, formation: dom.formationSelect.value });
 });
 
 // Purchase quantity updates

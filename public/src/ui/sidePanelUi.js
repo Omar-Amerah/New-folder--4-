@@ -59,12 +59,6 @@ export function handleShipGroupListClick(event) {
 }
 
 export function handleShipGroupListChange(event) {
-  const formationSelect = event.target?.closest?.("[data-ship-group-formation]");
-  if (formationSelect) {
-    setGroupFormation(formationSelect.dataset.shipGroupFormation, formationSelect.value);
-    return;
-  }
-
   const stanceSelect = event.target?.closest?.("[data-ship-group-stance]");
   if (stanceSelect) {
     setGroupCombatStyle(stanceSelect.dataset.shipGroupStance, stanceSelect.value);
@@ -108,15 +102,6 @@ export function getRallyPoint() {
   return rally;
 }
 
-export function formationForCommand() {
-  ensureShipGroups();
-  ensureShipGroupSettings();
-  if (state.activeShipGroup && ASSIGNABLE_GROUP_IDS.includes(state.activeShipGroup)) {
-    return normalizeFormation(state.shipGroupSettings[state.activeShipGroup]?.formation);
-  }
-  return normalizeFormation(dom.formationSelect?.value);
-}
-
 function renderShipGroups() {
   if (!dom.shipGroupList) return;
   const ships = ownLiveShips();
@@ -140,7 +125,6 @@ function renderShipGroups() {
     const shipIds = shipIdsForGroup(group.id, liveIds);
     const groupButton = dom.shipGroupList.querySelector?.(`[data-ship-group="${group.id}"]`) || null;
     const actionButton = dom.shipGroupList.querySelector?.(`[data-ship-group-action="${group.id}"]`) || null;
-    const formationSelect = dom.shipGroupList.querySelector?.(`[data-ship-group-formation="${group.id}"]`) || null;
     const stanceSelect = dom.shipGroupList.querySelector?.(`[data-ship-group-stance="${group.id}"]`) || null;
     const countEl = groupButton?.querySelector?.(".ship-group-count");
     const row = groupButton?.closest?.(".ship-group-row") || null;
@@ -159,7 +143,7 @@ function renderShipGroups() {
     if (actionButton) actionButton.disabled = group.id === "unassigned" ? false : assignDisabled;
     if (formationSelect) formationSelect.value = normalizeFormation(state.shipGroupSettings[group.id]?.formation);
     if (stanceSelect) stanceSelect.value = normalizeGroupCombatStyle(state.shipGroupSettings[group.id]?.combatStyle);
-    // Formation/stance controls only make sense once a group has ships in it.
+    // Stance controls only make sense once a group has ships in it.
     const controls = dom.shipGroupList.querySelector?.(`[data-ship-group-controls="${group.id}"]`) || null;
     if (controls) controls.hidden = shipIds.length === 0;
   }
@@ -220,18 +204,6 @@ function ensureShipGroupRows() {
       controls.className = "ship-group-controls";
       controls.dataset.shipGroupControls = group.id;
 
-      const formationSelect = document.createElement("select");
-      formationSelect.className = "ship-group-select";
-      formationSelect.dataset.shipGroupFormation = group.id;
-      formationSelect.title = "Formation for next move";
-      formationSelect.setAttribute("aria-label", `${group.label} formation`);
-      for (const option of FORMATION_OPTIONS) {
-        const optionEl = document.createElement("option");
-        optionEl.value = option.id;
-        optionEl.textContent = option.label;
-        formationSelect.appendChild(optionEl);
-      }
-
       const stanceSelect = document.createElement("select");
       stanceSelect.className = "ship-group-select";
       stanceSelect.dataset.shipGroupStance = group.id;
@@ -244,7 +216,6 @@ function ensureShipGroupRows() {
         stanceSelect.appendChild(optionEl);
       }
 
-      controls.appendChild(formationSelect);
       controls.appendChild(stanceSelect);
       row.appendChild(controls);
     }
@@ -368,13 +339,6 @@ function setSelectedCombatStyle(style) {
     warned: false
   };
   renderSelectionControls();
-}
-
-function setGroupFormation(groupId, formation) {
-  if (!ASSIGNABLE_GROUP_IDS.includes(groupId)) return;
-  ensureShipGroupSettings();
-  state.shipGroupSettings[groupId].formation = normalizeFormation(formation);
-  renderShipGroups();
 }
 
 function setGroupCombatStyle(groupId, style) {
@@ -513,10 +477,6 @@ function normalizeGroupCombatStyle(style) {
   return GROUP_COMBAT_STYLES.some((item) => item.id === style) ? style : "ship";
 }
 
-function normalizeFormation(formation) {
-  return FORMATION_OPTIONS.some((item) => item.id === formation) ? formation : "line";
-}
-
 function shipIdsForGroup(groupId, liveIds) {
   ensureShipGroups();
   if (groupId === "unassigned") {
@@ -569,7 +529,6 @@ function ensureShipGroupSettings() {
   for (const key of ASSIGNABLE_GROUP_IDS) {
     const current = state.shipGroupSettings[key] || {};
     state.shipGroupSettings[key] = {
-      formation: normalizeFormation(current.formation),
       combatStyle: normalizeGroupCombatStyle(current.combatStyle)
     };
   }

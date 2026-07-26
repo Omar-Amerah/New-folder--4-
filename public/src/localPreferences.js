@@ -1,4 +1,4 @@
-import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_SERVER_KEY } from "./constants.js";
+import { LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY } from "./constants.js";
 
 export const LOCAL_PREFERENCES_KEY = "modular-fleet-preferences-v1";
 export const PREFERENCES_SCHEMA_VERSION = 1;
@@ -6,7 +6,6 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   schemaVersion: PREFERENCES_SCHEMA_VERSION,
   pilotName: "",
   preferredTeam: "blue",
-  formation: "line",
   renderQuality: "high",
   combatEffectsEnabled: true,
   serverUrl: "",
@@ -15,7 +14,6 @@ export const DEFAULT_PREFERENCES = Object.freeze({
 });
 
 const teams = new Set(["blue", "red"]);
-const formations = new Set(["line", "wedge", "clump"]);
 const qualities = new Set(["low", "medium", "high"]);
 const scales = new Set([0.9, 1, 1.1, 1.2]);
 
@@ -44,7 +42,6 @@ export function validatePreferences(input = {}, storage = getStorage()) {
   if (input && typeof input === "object" && !Array.isArray(input)) {
     p.pilotName = cleanName(input.pilotName);
     p.preferredTeam = teams.has(input.preferredTeam) ? input.preferredTeam : DEFAULT_PREFERENCES.preferredTeam;
-    p.formation = formations.has(input.formation) ? input.formation : DEFAULT_PREFERENCES.formation;
     p.renderQuality = qualities.has(input.renderQuality) ? input.renderQuality : DEFAULT_PREFERENCES.renderQuality;
     p.combatEffectsEnabled = bool(input.combatEffectsEnabled, DEFAULT_PREFERENCES.combatEffectsEnabled);
     p.serverUrl = cleanServer(input.serverUrl);
@@ -66,7 +63,6 @@ export function migratePreferences(raw, storage = getStorage()) {
   const legacy = {
     pilotName: safeGet(storage, LOCAL_NAME_KEY),
     preferredTeam: safeGet(storage, LOCAL_TEAM_KEY),
-    formation: safeGet(storage, LOCAL_FORMATION_KEY),
     renderQuality: safeGet(storage, "mfa.renderQuality"),
     combatEffectsEnabled: safeGet(storage, "mfa.combatEffects"),
     serverUrl: safeGet(storage, LOCAL_SERVER_KEY)
@@ -88,7 +84,6 @@ export function persistPreferences(preferences, storage = getStorage()) {
   const ok = safeSet(storage, LOCAL_PREFERENCES_KEY, JSON.stringify(p));
   safeSet(storage, LOCAL_NAME_KEY, p.pilotName);
   safeSet(storage, LOCAL_TEAM_KEY, p.preferredTeam);
-  safeSet(storage, LOCAL_FORMATION_KEY, p.formation);
   safeSet(storage, "mfa.renderQuality", p.renderQuality);
   safeSet(storage, "mfa.combatEffects", String(p.combatEffectsEnabled));
   if (p.serverUrl) safeSet(storage, LOCAL_SERVER_KEY, p.serverUrl); else { try { storage.removeItem(LOCAL_SERVER_KEY); } catch {} }

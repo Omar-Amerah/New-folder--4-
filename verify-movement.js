@@ -4,7 +4,7 @@
 // engine, while independent turning systems can rotate a drifting hull.
 const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
-const { segmentCircleClearance, commandShips, planFormation, updateShipMovement, updateShipSeparation, nearestClearPoint } = require("./src/server/movement");
+const { segmentCircleClearance, commandShips, updateShipMovement, updateShipSeparation, nearestClearPoint } = require("./src/server/movement");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
@@ -221,19 +221,20 @@ function run() {
   assert.strictEqual(commandShips(room, player, 700, 700, {}).commanded, 3, "omitted selection intentionally commands all owned live ships");
   assert.strictEqual(commandShips(room, player, 900, 900, { shipIds: Array.from({ length: 65 }, (_, i) => `s${i}`) }).ok, false, "oversized command arrays should be rejected");
 
-  // 9. Formation planning is deterministic, stable under reversed selection order,
-  // size-aware, centered, in bounds, and obstacle-adjusted without collapsing all slots.
-  room.map.asteroids = [{ x: 1000, y: 800, radius: 100 }];
-  player.ships[2].radius = 90;
-  const planA = planFormation(room, player.ships, { x: 1000, y: 800, formation: "line" });
-  const planB = planFormation(room, player.ships.slice().reverse(), { x: 1000, y: 800, formation: "line" });
-  assert.deepStrictEqual(planA.slots.map((slot) => slot.shipId), planB.slots.map((slot) => slot.shipId), "formation assignment should not depend on selection order");
-  assert(planA.slots.every((slot) => Number.isFinite(slot.x) && Number.isFinite(slot.y)), "formation slots must stay finite");
-  assert(planA.slots.every((slot) => slot.x >= 42 && slot.x <= room.world.width - 42 && slot.y >= 42 && slot.y <= room.world.height - 42), "formation slots must stay in bounds");
-  const uniqueSlotPositions = new Set(planA.slots.map((slot) => `${Math.round(slot.x)},${Math.round(slot.y)}`));
-  assert(uniqueSlotPositions.size > 1, "obstacle adjustment must not collapse all slots to one point");
-  const oneShip = planFormation(room, [player.ships[0]], { x: 300, y: 300, formation: "wedge" });
-  assert(Math.hypot(oneShip.slots[0].x - 300, oneShip.slots[0].y - 300) < 1e-6, "one-ship formation targets requested clear location");
+  // 9. Ground moves preserve relative offsets and are bounded/clear.
+  const groundRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map(), players: new Map() };
+  const groundPlayer = { id: "p1", team: "blue", ships: [] };
+  const g1 = { id: "g1", ownerId: "p1", alive: true, x: 100, y: 100, radius: 40, stats: {}, design: [] };
+  const g2 = { id: "g2", ownerId: "p1", alive: true, x: 200, y: 200, radius: 40, stats: {}, design: [] };
+  groundPlayer.ships.push(g1, g2);
+  groundRoom.players.set(groundPlayer.id, groundPlayer);
+  groundRoom.ships.set(g1.id, g1);
+  groundRoom.ships.set(g2.id, g2);
+  commandShips(groundRoom, groundPlayer, 500, 500, { shipIds: ["g1", "g2"] });
+  assert.strictEqual(g1.commandMode, "move", "ground move sets commandMode to move");
+  assert.strictEqual(g2.commandMode, "move", "ground move sets commandMode to move");
+  assert(Math.hypot((g2.targetX - g1.targetX) - (g2.x - g1.x), (g2.targetY - g1.targetY) - (g2.y - g1.y)) < 1e-6, "ground move preserves relative offset between selected ships");
+  assert(g1.targetX >= 40 && g1.targetX <= groundRoom.world.width - 40, "ground move target stays in bounds");
 
   // 10. Movement dt safety: non-positive/non-finite dt is ignored, large dt is
   // clamped/subdivided, and invalid state is sanitized back to finite values.
@@ -280,26 +281,19 @@ function run() {
   const clear = nearestClearPoint(room, 1000, 800, 48);
   assert(clear.adjusted && clear.clear && clear.reason === "adjusted", "clear-point helper should expose successful adjustment metadata");
 
-  // 14. Formation geometry: local-coordinate slots, deterministic assignment, no duplicates.
-  const linePlan = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 3), { x: 1500, y: 1000, formation: "line" });
-  assert.strictEqual(linePlan.slots.length, 3, "line plan returns a slot per ship");
-  const lineForwards = new Set(linePlan.slots.map((s) => s.offsetX));
-  assert.strictEqual(lineForwards.size, 1, "line forward offsets are identical");
-  assert.strictEqual(linePlan.slots[1].offsetY, 0, "odd line count has a central slot");
-  assert.strictEqual([...new Set(linePlan.slots.map((s) => `${s.offsetX},${s.offsetY}`))].length, 3, "line slot offsets are unique");
-
-  const wedgePlan = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 5), { x: 1500, y: 1100, formation: "wedge" });
-  assert.strictEqual(wedgePlan.slots[0].offsetX, 0, "wedge leader is at forward zero");
-  assert.strictEqual(wedgePlan.slots[0].offsetY, 0, "wedge leader is at lateral zero");
-  assert(wedgePlan.slots.slice(1).every((s) => s.offsetX < 0), "wedge non-leader slots are behind the leader");
-
-  const clumpPlan = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 7), { x: 1500, y: 1200, formation: "clump" });
-  assert(clumpPlan.slots[0].offsetX === 0 && clumpPlan.slots[0].offsetY === 0, "clump first slot is central");
-  assert.strictEqual([...new Set(clumpPlan.slots.map((s) => `${s.offsetX},${s.offsetY}`))].length, clumpPlan.slots.length, "clump offsets are unique");
-
-  const orderA = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 3), { x: 1500, y: 1300, formation: "line" });
-  const orderB = planFormation({ world: room.world, map: { asteroids: [] } }, player.ships.slice(0, 3).reverse(), { x: 1500, y: 1300, formation: "line" });
-  assert.deepStrictEqual(orderA.slots.map((s) => s.shipId), orderB.slots.map((s) => s.shipId), "assignment should be deterministic regardless of input order");
+  // 14. Hostile-target commands set attack mode without suppressing the combat target.
+  const attackRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map(), players: new Map() };
+  const attackPlayer = { id: "p1", team: "blue", ships: [] };
+  const attacker = { id: "a1", ownerId: "p1", alive: true, x: 100, y: 100, radius: 40, stats: { maxWeaponRange: 100 }, design: [{ type: "blaster" }], combatStyle: "charge" };
+  const enemyShip2 = { id: "e2", ownerId: "p2", alive: true, x: 500, y: 100, radius: 40, stats: {} };
+  attackPlayer.ships.push(attacker);
+  attackRoom.players.set(attackPlayer.id, attackPlayer);
+  attackRoom.ships.set(attacker.id, attacker);
+  attackRoom.ships.set(enemyShip2.id, enemyShip2);
+  commandShips(attackRoom, attackPlayer, 500, 100, { targetId: "e2", shipIds: ["a1"] });
+  assert.strictEqual(attacker.commandMode, "attack", "hostile command sets commandMode to attack");
+  assert.strictEqual(attacker.focusTargetId, "e2", "hostile command sets focus target");
+  assert.strictEqual(attacker.isManualMove, false, "hostile command does not set manual move");
 
   console.log("Movement verification passed");
   console.log(`  speeds 1..8 engines: ${[1,2,3,4,5,6,7,8].map((n) => computeStats(buildShip(n)).maxSpeed).join(", ")}`);

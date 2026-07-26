@@ -9,7 +9,6 @@ import { GENERATED_BALANCE } from "./generatedBalance.js";
 export const LOCAL_DESIGN_KEY = "modular-fleet-design-v3";
 export const LOCAL_NAME_KEY = "modular-fleet-name-v1";
 export const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
-export const LOCAL_FORMATION_KEY = "modular-fleet-formation-v1";
 export const LOCAL_SERVER_KEY = "modular-fleet-server-url-v1";
 export const LOCAL_SAVED_DESIGNS_KEY = "modular-fleet-saved-designs-v2";
 export const LOCAL_LOADOUTS_KEY = "modular-fleet-loadouts-v2";
