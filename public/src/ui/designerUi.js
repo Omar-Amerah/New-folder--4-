@@ -803,7 +803,7 @@ function renderManeuverThrusterPreview(part, placementValid, design) {
   if (Math.abs((Number(part.y) || 0) - centerOfMass.y) < 0.75) {
     const weak = document.createElement("div");
     weak.className = `maneuver-preview-weak ${placementValid ? "valid" : "invalid"}`;
-    weak.textContent = "weak";
+    weak.textContent = "Weak";
     weak.title = "Weak torque near the centre of mass";
     positionPreviewOverlay(weak, part.x + 0.06, part.y + 0.02, 0.88, 0.28);
     dom.grid.appendChild(weak);

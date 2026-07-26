@@ -14,7 +14,7 @@ export function renderRecoveryCard() {
   const inServer = Boolean(state.room) && (state.socket?.readyState === WebSocket.OPEN || state.socket?.readyState === WebSocket.CONNECTING || state.phase !== "offline");
   dom.roomRecoveryCard.hidden = !room || inServer;
   if (dom.roomRecoveryCode) dom.roomRecoveryCode.textContent = room || "----";
-  if (dom.roomRecoveryStatus) dom.roomRecoveryStatus.textContent = room ? "Saved room can be resumed." : "";
+  if (dom.roomRecoveryStatus) dom.roomRecoveryStatus.textContent = room ? "Saved Room Can Be Resumed." : "";
 }
 export function bindRoomRecoveryCard() {
   dom.resumeRoomButton?.addEventListener("click", async () => { const room = getRecoverableRoom(); if (room) (await import("./lobbyUi.js")).joinRoom(room); });
@@ -24,7 +24,7 @@ export function bindRoomRecoveryCard() {
     openServerLeaveConfirmModal(() => {
       forgetRecoverableRoom();
       renderRecoveryCard();
-    }, "Forget room?", `Remove saved recoverable room ${room || ""}?`, "Forget Room");
+    }, "Forget Room?", `Remove saved recoverable room ${room || ""}?`, "Forget Room");
   });
   renderRecoveryCard();
 }

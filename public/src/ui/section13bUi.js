@@ -10,13 +10,13 @@ export const STYLE_DESCRIPTIONS = {
 };
 
 const COMPARE_STATS = [
-  ["unitCost", "Unit cost", "$"], ["mass", "Mass", "t"], ["maxHp", "Hull", "HP"],
-  ["frontDamageReduction", "Armour / DR", "%"], ["maxShield", "Shield", "SP"], ["shieldRegen", "Shield regen", "SP/s"],
-  ["powerGeneration", "Power generated", "MW"], ["powerUse", "Power required", "MW"], ["energyStorage", "Energy storage", "MJ"],
-  ["effectiveThrust", "Thrust", "kN"], ["maxSpeed", "Est. max speed", "u/s"], ["turnRate", "Est. turning", "°/s"],
-  ["repairRate", "Repair rate", "HP/s"], ["coolingBonus", "Cooling", ""], ["weaponDps", "Weapon DPS", "DPS"],
+  ["unitCost", "Unit Cost", "$"], ["mass", "Mass", "t"], ["maxHp", "Hull", "HP"],
+  ["frontDamageReduction", "Armour / DR", "%"], ["maxShield", "Shield", "SP"], ["shieldRegen", "Shield Recharge", "SP/s"],
+  ["powerGeneration", "Power Generated", "MW"], ["powerUse", "Power Required", "MW"], ["energyStorage", "Energy Storage", "MJ"],
+  ["effectiveThrust", "Thrust", "kN"], ["maxSpeed", "Est. Max Speed", "u/s"], ["turnRate", "Est. Turning", "°/s"],
+  ["repairRate", "Repair Rate", "HP/s"], ["coolingBonus", "Cooling", ""], ["weaponDps", "Weapon DPS", "DPS"],
   ["blasterDps", "Blaster DPS", "DPS"], ["missileDps", "Missile DPS", "DPS"], ["railgunDps", "Railgun DPS", "DPS"], ["beamDps", "Beam DPS", "DPS"],
-  ["maxWeaponRange", "Weapon range", "m"]
+  ["maxWeaponRange", "Weapon Range", "m"]
 ];
 
 function enrich(stats) {

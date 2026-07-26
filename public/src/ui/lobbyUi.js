@@ -523,8 +523,12 @@ export function saveServerSetting() {
     showToast("Server URL saved", "good");
   } else {
     clearServerSetting();
+    return;
   }
   syncUrlParams();
+  if (typeof window !== "undefined" && typeof window.location?.reload === "function") {
+    window.location.reload();
+  }
 }
 
 export function clearServerSetting() {
@@ -533,6 +537,9 @@ export function clearServerSetting() {
   if (dom.serverUrlInput) dom.serverUrlInput.value = "";
   showToast("Using default server URL", "warning");
   syncUrlParams();
+  if (typeof window !== "undefined" && typeof window.location?.reload === "function") {
+    window.location.reload();
+  }
 }
 
 export function sendRulesUpdate() {
