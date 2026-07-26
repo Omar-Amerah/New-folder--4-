@@ -520,7 +520,7 @@
     const occupiedKeys = new Set();
     const isStorage = (t) => { const p = partStat(componentCatalog, t); return (p.energyCapacity > 0 || p.energyStorage > 0 || p.maxDischargeRate > 0) && (p.powerGeneration || 0) === 0; };
     modules.forEach((module) => moduleCells(module, componentCatalog).forEach((cell) => occupiedKeys.add(cellKey(cell.x, cell.y))));
-    const sourceIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerSourceType(module.type) || isStorage(module.type)).map(({ index }) => index);
+    const sourceIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerSourceType(module.type, componentCatalog) || isStorage(module.type)).map(({ index }) => index);
     const consumerIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isPowerConsumer(module.type, componentCatalog) && !isStorage(module.type)).map(({ index }) => index);
     if (!sourceIndices.length) return emptyWiring();
     let wiring = emptyWiring();

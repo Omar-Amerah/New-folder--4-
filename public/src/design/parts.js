@@ -69,7 +69,8 @@ export const PART_DEFS = {
   shieldCommandRelay: { name: "Shield Command Relay", color: "#86efac", glyph: "radial-gradient(circle, #dcfce7 0 18%, #22c55e 28% 55%, #14532d 60%)" },
   engineeringCommandCentre: { name: "Engineering Command Centre", color: "#93c5fd", glyph: "radial-gradient(circle, #eff6ff 0 18%, #3b82f6 28% 55%, #172554 60%)" },
   propulsionCommandRelay: { name: "Propulsion Command Relay", color: "#67e8f9", glyph: "radial-gradient(circle, #ecfeff 0 18%, #06b6d4 28% 55%, #164e63 60%)" },
-  electronicWarfareCommandCentre: { name: "Electronic Warfare Command Centre", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 18%, #a855f7 28% 55%, #3b0764 60%)" }
+  electronicWarfareCommandCentre: { name: "Electronic Warfare Command Centre", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 18%, #a855f7 28% 55%, #3b0764 60%)" },
+  proximityDemolitionCharge: { name: "Proximity Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" }
 };
 
 // These structural silhouettes show their direction through their geometry, so
@@ -122,7 +123,8 @@ export const PART_DESCRIPTIONS = Object.freeze({
   signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
-  droneBay: "Command module that launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed."
+  droneBay: "Command module that launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed.",
+  proximityDemolitionCharge: "Armed by default, this charge detonates when an enemy ship enters its trigger radius. The blast damages all nearby entities regardless of team and can be set Safe to prevent accidental detonation."
 });
 
 export const FALLBACK_PART_STATS = {};

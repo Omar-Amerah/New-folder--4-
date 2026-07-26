@@ -302,9 +302,13 @@ function powerSection(stats, power, ledger) {
 
 const WEAPON_FAMILY_LABELS = { blaster: "Blaster", missile: "Missile", railgun: "Railgun", beam: "Beam" };
 
-function combatSection(stats, ledger) {
+function combatSection(stats, ledger, context = {}) {
   const rows = [];
   const weapons = stats.weapons || {};
+  const proximityChargeCount = (context?.design || []).filter((m) => m.type === "proximityDemolitionCharge").length;
+  if (proximityChargeCount > 0) {
+    rows.push(statRow("weapons.proximityCharge", "Proximity Charges", `${proximityChargeCount}×`));
+  }
   // Per-family output and reach come straight from the computed weapon totals.
   for (const [family, label] of Object.entries(WEAPON_FAMILY_LABELS)) {
     const total = weapons[family];
@@ -366,7 +370,7 @@ export function buildShipSummaryModel(stats, context = {}) {
   for (const section of [
     mobilitySection(stats, ledger),
     powerSection(stats, power, ledger),
-    combatSection(stats, ledger),
+    combatSection(stats, ledger, context),
     supportSection(stats, ledger)
   ]) {
     if (section) sections.push(section);

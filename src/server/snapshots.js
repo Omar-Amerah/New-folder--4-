@@ -79,6 +79,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       alive: ship.alive,
       commandAuraActive: Boolean(ship.commandAuraActive),
       commandAuraReceived: Boolean(ship.commandAuraReceived),
+      proximityChargeDetonated: ship.proximityChargeDetonated || [],
       blasterRange: Number(effectiveRanges.blaster) || 0,
       missileRange: Number(effectiveRanges.missile) || 0,
       railgunRange: Number(effectiveRanges.railgun) || 0,

@@ -2077,36 +2077,19 @@ function getProximityChargeConfig(ship, index) {
   return part?.proximityCharge || null;
 }
 
-function isChargeArmed(ship, index) {
-  return (ship.proximityChargeArmed?.[index] ?? 1) && !(ship.proximityChargeDetonated?.[index] ?? 0);
-}
-
 function armedProximityChargeRanges(ship) {
   let minTrigger = Infinity;
   let armed = false;
   const indexes = getShipComponentIndexes(ship).proximityChargeIndices;
   for (const i of indexes) {
     if (!isComponentAlive(ship, i)) continue;
-    if (!isChargeArmed(ship, i)) continue;
+    if (ship.proximityChargeDetonated?.[i]) continue;
     const cfg = getProximityChargeConfig(ship, i);
     if (!cfg) continue;
     armed = true;
     if (cfg.triggerRadius < minTrigger) minTrigger = cfg.triggerRadius;
   }
   return { armed, minTrigger: armed ? minTrigger : 0 };
-}
-
-function setProximityChargeArmed(ship, index, armed) {
-  if (!ship || !ship.design || !Number.isInteger(index)) return false;
-  if (ship.design[index]?.type !== "proximityDemolitionCharge") return false;
-  if (ship.proximityChargeArmed?.[index] === undefined) return false;
-  const next = armed ? 1 : 0;
-  if (ship.proximityChargeArmed[index] === next) return false;
-  ship.proximityChargeArmed[index] = next;
-  ship.proximityChargeTriggerAccumulator[index] = 0;
-  ship.proximityChargeTriggerTarget[index] = null;
-  ship.proximityChargeRevision = (ship.proximityChargeRevision || 0) + 1;
-  return true;
 }
 
 function proximityChargeWorldPosition(ship, index) {
@@ -2138,7 +2121,6 @@ function updateProximityCharges(room, ships, dt, now) {
     for (const i of indexes) {
       if (!isComponentAlive(ship, i)) continue;
       if (ship.proximityChargeDetonated?.[i]) continue;
-      if (!isChargeArmed(ship, i)) continue;
       if ((now - (ship.proximityChargeLastCheckAt?.[i] || 0)) < PROXIMITY_CHARGE_UPDATE_MS) continue;
       ship.proximityChargeLastCheckAt[i] = now;
       const cfg = getProximityChargeConfig(ship, i);
@@ -2283,7 +2265,6 @@ function proximityChargeDestroyedShip(room, ship, now) {
   const indexes = getShipComponentIndexes(ship).proximityChargeIndices;
   for (const i of indexes) {
     if (!isComponentAlive(ship, i)) continue;
-    if (!isChargeArmed(ship, i)) continue;
     if (ship.proximityChargeDetonated?.[i]) continue;
     detonateProximityCharge(room, ship, i, now, true);
   }
@@ -2328,7 +2309,6 @@ module.exports = {
   areAllies,
   areEnemies,
   armedProximityChargeRanges,
-  setProximityChargeArmed,
   updateProximityCharges,
   detonateProximityCharge,
   proximityChargeDestroyedShip,

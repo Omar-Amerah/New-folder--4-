@@ -161,6 +161,15 @@ function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
       }
     }
   }
+  for (let i = 0; i < design.length; i += 1) {
+    if (design[i]?.type !== "proximityDemolitionCharge") continue;
+    const cfg = PARTS[design[i].type]?.proximityCharge;
+    if (!cfg) continue;
+    profiles[i] = { type: "charge", range: Number(cfg.triggerRadius) || 0, dps: 0, accuracy: 1, arc: 360 };
+    if (isAlive(ship, i)) {
+      maxRange = Math.max(maxRange, Number(cfg.triggerRadius) || 0);
+    }
+  }
   bump("profileBuildCount");
   const prev = ship.effectiveWeaponProfileCache || {};
   ship.effectiveWeaponProfileCache = { version: 1, signature: cacheSignature(ship), revision: (prev.revision || 0) + 1, reason, profiles, familyRanges, maxRange };

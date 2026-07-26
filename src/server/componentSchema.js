@@ -4,7 +4,7 @@
 const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", "pointDefense", "flak"]);
 // Weapon families for which Beam burn-through carry-over is meaningful.
 const BURN_THROUGH_WEAPON_FAMILIES = new Set(["beam"]);
-const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "swarmMissile", "projectile", "drone", "droneFighter", "droneOther"]);
+const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "swarmMissile", "projectile", "drone", "droneFighter", "droneOther", "decoy"]);
 const VALID_POWER_CATEGORIES = new Set(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]);
 const POWER_SOURCE_IDS = new Set(["core", "reactor", "nuclearReactor", "auxGenerator"]);
 const POWER_TIER_NAMES = ["light", "standard", "heavy"];

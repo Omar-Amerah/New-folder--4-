@@ -9,7 +9,7 @@ const { recordPurchaseStage } = require("./performanceTelemetry");
 
 function spawnShip(room, player, now, index = 0, options = {}) {
   const { nearestClearPoint } = require("./movement");
-  const { initComponentState } = require("./componentHealth");
+  const { initComponentState, initProximityChargeState } = require("./componentHealth");
   const { initShipHeat } = require("./heat");
   
   // Use template if provided, otherwise fall back to legacy path
@@ -103,6 +103,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     ship.coreDestroyed = false;
     ship.dirtyComponents = new Set();
     ship.componentAliveRevision = 1;
+    initProximityChargeState(ship);
     
     // Use precomputed exhaust analysis
     ship.validEngineIndices = template.exhaustAnalysis.validEngineIndices;

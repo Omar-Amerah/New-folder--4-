@@ -3,7 +3,7 @@
 const { clampNumber, rotateToward, angleDifference, fastHypot } = require("./utils");
 const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
-const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = require("./combat");
+const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition, armedProximityChargeRanges } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
 const { getCommandAuraMultiplier } = require("./commandAuras");
@@ -341,6 +341,24 @@ function getActiveCombatTarget(room, ship) {
 function updateCombatMoveTarget(room, ship, target, style) {
   const maxRange = getMaxWeaponRange(ship);
   const distanceToTarget = fastHypot(target.x - ship.x, target.y - ship.y);
+
+  const chargeInfo = armedProximityChargeRanges(ship);
+  if (chargeInfo.armed && style === "charge") {
+    const triggerR = chargeInfo.minTrigger;
+    const hysteresis = Math.max(18, ship.radius * 0.35);
+    if (distanceToTarget > triggerR + hysteresis) {
+      clearOrbitState(ship);
+      ship.targetX = target.x;
+      ship.targetY = target.y;
+      ship.arrived = false;
+    } else {
+      clearOrbitState(ship);
+      ship.targetX = ship.x;
+      ship.targetY = ship.y;
+      ship.arrived = true;
+    }
+    return;
+  }
 
   if (style === "sentry") {
     clearOrbitState(ship);

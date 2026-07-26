@@ -56,7 +56,17 @@ function initComponentState(ship) {
     for (const cell of cells) cellIndex.set(cell.x * GRID_SIZE + cell.y, i);
   });
   ship.componentCellIndex = cellIndex;
+  initProximityChargeState(ship);
   updateEngineExhaustState(ship);
+}
+
+function initProximityChargeState(ship) {
+  const design = ship.design || [];
+  ship.proximityChargeDetonated = design.map(() => 0);
+  ship.proximityChargeTriggerTarget = design.map(() => null);
+  ship.proximityChargeTriggerAccumulator = design.map(() => 0);
+  ship.proximityChargeLastCheckAt = design.map(() => 0);
+  ship.proximityChargeRevision = (ship.proximityChargeRevision || 0) + 1;
 }
 
 function updateEngineExhaustState(ship) {
@@ -233,6 +243,13 @@ function onComponentDestroyed(room, ship, index, now) {
   bumpComponentAliveRevision(ship);
   const module = ship.design[index];
   if (ship.componentMeltdown && (PARTS[module.type]?.powerGeneration || 0) > 0) ship.componentMeltdown[index] = 0;
+  if (module.type === "proximityDemolitionCharge" && !(ship.proximityChargeDetonated?.[index] ?? 0)) {
+    const { detonateProximityCharge } = require("./combat");
+    if (detonateProximityCharge) {
+      detonateProximityCharge(room, ship, index, now, true);
+      return;
+    }
+  }
   if (room) {
     const cos = Math.cos(ship.angle);
     const sin = Math.sin(ship.angle);
@@ -490,6 +507,7 @@ function assertComponentHpConsistency(ship) {
 
 module.exports = {
   initComponentState,
+  initProximityChargeState,
   isComponentAlive,
   onComponentDestroyed,
   worldToGrid,

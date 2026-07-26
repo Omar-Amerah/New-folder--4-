@@ -207,7 +207,8 @@ function tracePoly(gfx, corners) {
 // layer (a child of HullContainer), i.e. in hull-rotated ship-local space.
 function updatePixiComponentDamage(view, ship, design) {
   const gfx = view.damageOverlay;
-  if (!ship.chp) {
+  const hasCompData = Array.isArray(ship.chp) || Array.isArray(ship.chpVisual);
+  if (!hasCompData) {
     if (view.damageSig !== null) {
       gfx.clear();
       view.damageSig = null;
@@ -218,15 +219,19 @@ function updatePixiComponentDamage(view, ship, design) {
   const overlay = Boolean(state.componentDamageView);
   const shows = (ratio) => ratio !== null && (ratio < DAMAGED_RATIO || (overlay && ratio < 0.999));
   let sig = overlay ? "V|" : "";
+  let chargeSig = "P";
   for (let i = 0; i < design.length; i += 1) {
     const ratio = componentHealthRatio(ship, i);
-    if (!shows(ratio)) continue;
-    sig += `${i}:${ratio <= 0 ? "x" : Math.round(ratio * 10)};`;
+    if (shows(ratio)) sig += `${i}:${ratio <= 0 ? "x" : Math.round(ratio * 10)};`;
+    if (design[i].type === "proximityDemolitionCharge") {
+      const detonated = ship.proximityChargeDetonated?.[i] ?? 0;
+      chargeSig += `${i}:${detonated ? "x" : Math.round(ratio * 10)};`;
+    }
   }
+  sig += "|" + chargeSig;
   if (sig === view.damageSig) return;
   view.damageSig = sig;
   gfx.clear();
-  if (!sig || sig === "V|") return;
 
   for (let i = 0; i < design.length; i += 1) {
     const ratio = componentHealthRatio(ship, i);
@@ -240,7 +245,9 @@ function updatePixiComponentDamage(view, ship, design) {
     tracePoly(gfx, corners);
 
     if (ratio <= 0) {
-      gfx.fill({ color: overlay ? 0x343a42 : 0x07090d, alpha: overlay ? 0.85 : 0.78 });
+      // Opaque dark fill hides the healthy static component art, then the
+      // jagged strokes draw the wreckage on top of an empty socket.
+      gfx.fill({ color: overlay ? 0x343a42 : 0x07090d, alpha: 1 });
       const k0 = pt(-halfW * 0.8, -halfH * 0.7);
       const k1 = pt(-halfW * 0.1, -halfH * 0.05);
       const k2 = pt(halfW * 0.35, halfH * 0.25);
@@ -259,6 +266,24 @@ function updatePixiComponentDamage(view, ship, design) {
       const depth = clamp((DAMAGED_RATIO - ratio) / DAMAGED_RATIO, 0, 1);
       gfx.fill({ color: 0xfbb040, alpha: (overlay ? 0.2 : 0.12) + depth * (overlay ? 0.35 : 0.3) });
     }
+  }
+
+  for (let i = 0; i < design.length; i += 1) {
+    if (design[i].type !== "proximityDemolitionCharge") continue;
+    const ratio = componentHealthRatio(ship, i);
+    if (ratio <= 1e-9) continue;
+    if (ship.proximityChargeDetonated?.[i]) continue;
+    const part = design[i];
+    const place = footprintLocalPlacement(part, SHIP_SCALE);
+    const s = Math.min((place.tilesLong * SHIP_SCALE) * 0.22, 5);
+    const cx = place.cx;
+    const cy = place.cy;
+    gfx.moveTo(cx, cy - s);
+    gfx.lineTo(cx + s, cy + s * 0.5);
+    gfx.lineTo(cx - s, cy + s * 0.5);
+    gfx.closePath();
+    gfx.fill({ color: 0xfacc15, alpha: 0.95 });
+    gfx.stroke({ width: Math.max(0.8, s * 0.2), color: 0x7f1d1d, alpha: 0.95 });
   }
 }
 
@@ -522,8 +547,10 @@ function updatePixiTurrets(env, view, ship, design) {
     if (!Number.isFinite(visual)) visual = target;
 
     if (destroyed) {
+      sprite.visible = false;
       sprite.alpha = 0.3; // knocked out: freeze in place
     } else {
+      sprite.visible = true;
       sprite.alpha = 1;
       if (instant || isNewBinding) {
         visual = target;

@@ -80,7 +80,7 @@ export function componentFamily(type, stat = {}) {
   // Palette placement and capability family are related but not identical:
   // Drone Bays live under Command because their capability is squad control,
   // rather than a direct-fire weapon profile.
-  if (stat.category === "Weapons" && stat.weapon) return "weapon";
+  if (stat.category === "Weapons") return "weapon";
   if (stat.category === "Defence") return "defence";
   if (stat.category === "Power" || (stat.powerGeneration || 0) > 0) return "power";
   if (stat.category === "Engines") return "propulsion";
@@ -202,6 +202,16 @@ function weaponCapability(stat) {
 }
 
 function capabilityRows(type, stat, family, context = {}) {
+  if (type === "proximityDemolitionCharge" && stat.proximityCharge) {
+    const cfg = stat.proximityCharge;
+    return [
+      statRow("proximityCharge.triggerRadius", "Trigger Radius", formatDistance(cfg.triggerRadius)),
+      statRow("proximityCharge.confirmation", "Trigger Time", `${Number(cfg.triggerConfirmationSeconds).toFixed(1)} s`),
+      statRow("proximityCharge.blastRadius", "Blast Radius", formatDistance(cfg.blastRadius)),
+      statRow("proximityCharge.centreDamage", "Centre Damage", formatDamage(cfg.centreDamage))
+    ];
+  }
+
   if (type === "droneBay" && stat.droneConfig) {
     const config = stat.droneConfig;
     const selected = context.droneType && config.types?.[context.droneType];
@@ -525,7 +535,7 @@ function weaponDetailRows(type, stat) {
       const formattedPriority = weapon.targetPriority.map(formatTargetPriority).join(", ");
       rows.push(statRow("weapon.targetPriority", "Target Priority", formattedPriority));
     }
-    rows.push(statRow("weapon.vsShips", "Ship Damage", `${Math.round((weapon.shipDamageMultiplier ?? 0.04) * 100)}% — negligible against ships`));
+    rows.push(statRow("weapon.vsShips", "Ship Damage", `${Math.round((weapon.shipDamageMultiplier ?? 0.04) * 100)}% — Negligible against ships`));
   }
   return rows;
 }
@@ -554,7 +564,7 @@ function advancedSections(type, stat, family, ledger, context) {
     ]);
   }
 
-  if (family === "defence" && !stat.weapon) {
+  if (family === "defence" && !stat.weapon && type !== "decoyLauncher") {
     push("shield", "Shield Details", [
       statRow("shield.capacity", "Shield Capacity", (stat.shield || 0) > 0 ? formatShield(stat.shield) : null),
       statRow("shield.regen", "Regeneration", (stat.shieldRegen || 0) > 0 ? `${stat.shieldRegen} SP/s` : null),

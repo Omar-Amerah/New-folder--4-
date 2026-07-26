@@ -1,7 +1,7 @@
 "use strict";
 const { updateBots, getLiveShips } = require("./ships");
 const { updateEconomy } = require("./economy");
-const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips } = require("./combat");
+const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
 const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
 const { updateBullets } = require("./projectiles");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
@@ -58,6 +58,9 @@ function tickRoom(room, dt, now) {
   for (const ship of ships) updateShipMovement(room, ship, dt);
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships);
   durations.movementSeparationMap = performanceNow() - startedAt;
+  startedAt = performanceNow();
+  updateProximityCharges(room, ships, dt, now);
+  durations.proximityCharges = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateShipSupport(room, ships, dt, now);
   updateDecoyLaunchers(room, ships, dt, now);

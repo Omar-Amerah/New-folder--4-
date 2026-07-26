@@ -147,6 +147,15 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     decoyConfig: component.decoy && typeof component.decoy === "object"
       ? Object.freeze({ ...component.decoy })
       : null,
+    proximityCharge: component.proximityCharge && typeof component.proximityCharge === "object"
+      ? Object.freeze({
+          triggerRadius: toNumber(component.proximityCharge.triggerRadius, 100),
+          triggerConfirmationSeconds: toNumber(component.proximityCharge.triggerConfirmationSeconds, 0.2),
+          blastRadius: toNumber(component.proximityCharge.blastRadius, 350),
+          centreDamage: toNumber(component.proximityCharge.centreDamage, 1700),
+          falloffExponent: toNumber(component.proximityCharge.falloffExponent, 1)
+        })
+      : null,
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {

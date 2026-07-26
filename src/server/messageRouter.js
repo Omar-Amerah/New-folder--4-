@@ -246,18 +246,6 @@ function handleMessage(client, message) {
     return;
   }
 
-  if (message.type === "setProximityChargeArm") {
-    if (client.room.phase !== "active") return;
-    const now = performanceNow();
-    const ship = client.room.ships.get(String(message.shipId || ""));
-    if (ship && ship.ownerId === client.player.id) {
-      const { setProximityChargeArmed } = require("./combat");
-      const changed = setProximityChargeArmed(ship, message.componentIndex, Boolean(message.armed));
-      if (changed) broadcastSnapshot(client.room, now);
-    }
-    return;
-  }
-
   if (message.type === "setTelemetryFocus") {
     let shipId = typeof message.shipId === "string" ? message.shipId : null;
     if (shipId && !isTelemetryFocusEligible(client, shipId, client.room)) shipId = null;

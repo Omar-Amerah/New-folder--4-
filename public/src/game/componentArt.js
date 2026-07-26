@@ -930,6 +930,34 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     ctx.beginPath(); ctx.arc(0, 0, size * 0.2, Math.PI * 0.12, Math.PI * 1.88); ctx.stroke();
     return true;
   }
+
+  if (type === "proximityDemolitionCharge") {
+    const body = mixColor(color, "#000000", 0.25);
+    // Dark spherical bomb body.
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.arc(0, size * 0.08, size * 0.34, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.25);
+    ctx.lineWidth = line;
+    ctx.stroke();
+    // Short fuse with a glowing ember tip.
+    ctx.strokeStyle = "#57534e";
+    ctx.lineWidth = Math.max(1, size * 0.055);
+    ctx.beginPath(); ctx.moveTo(0, -size * 0.25); ctx.lineTo(0, -size * 0.36); ctx.stroke();
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath(); ctx.arc(0, -size * 0.40, size * 0.06, 0, Math.PI * 2); ctx.fill();
+    // Diagonal hazard-tape band across the body.
+    ctx.save();
+    ctx.beginPath(); ctx.arc(0, size * 0.08, size * 0.34, 0, Math.PI * 2); ctx.clip();
+    ctx.rotate(Math.PI / 4);
+    const band = size * 0.12;
+    for (let i = -3; i <= 3; i += 1) {
+      ctx.fillStyle = (i % 2 === 0) ? "#facc15" : "#0f0f0f";
+      ctx.fillRect(-size, size * (0.12 * i - band * 0.5), size * 2, band);
+    }
+    ctx.restore();
+    return true;
+  }
+
   if (type === "decoyLauncher") {
     const inactive = visualState === "inactive" || visualState === "disabled";
     const damaged = visualState === "damaged";

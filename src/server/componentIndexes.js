@@ -12,6 +12,7 @@ function getShipComponentIndexes(ship) {
       designRevision,
       weaponIndices: [],
       pointDefenseIndices: [],
+      proximityChargeIndices: [],
       repairIndices: [],
       // Movement and thermal ticks previously re-scanned the whole design every
       // tick to find these; a design is immutable after spawn, so the lists are
@@ -30,6 +31,7 @@ function getShipComponentIndexes(ship) {
       if (module.type === "backupCore" && cache.backupCoreIndex < 0) cache.backupCoreIndex = i;
       if (part.weapon || module.type === "repairBeam") cache.weaponIndices.push(i);
       if (part.weapon?.type === "pointDefense") cache.pointDefenseIndices.push(i);
+      if (module.type === "proximityDemolitionCharge") cache.proximityChargeIndices.push(i);
       if ((Number(part.repairRate) || 0) > 0) {
         cache.repairIndices.push(i);
       }

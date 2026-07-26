@@ -403,18 +403,17 @@ function updateBullets(room, dt, now) {
        if (bullet.pdTargetType === "projectile") {
           const target = bulletsById.get(bullet.pdTargetId);
           if (target && target.interceptable && target.life > 0) {
-             const dx = target.x - bullet.x;
-             const dy = target.y - bullet.y;
-             if (dx * dx + dy * dy <= PROJECTILES.interceptRadius * PROJECTILES.interceptRadius) {
+             const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, target.x, target.y, PROJECTILES.interceptRadius);
+             if (hit) {
                 target.hp -= bullet.damage;
                 bullet.life = 0;
-                room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
+                room.effects.push({ type: "spark", x: hit.x, y: hit.y, at: now });
                 if (target.hp <= 0) {
                    target.life = 0;
                    discardBullet(room, bulletsById, target);
                    interceptedPreviouslyKept = true;
-                   room.effects.push({ type: "burst", x: target.x, y: target.y, at: now });
-                   room.effects.push({ type: "text", text: "INTERCEPTED", x: target.x, y: target.y, at: now });
+                   room.effects.push({ type: "burst", x: hit.x, y: hit.y, at: now });
+                   room.effects.push({ type: "text", text: "INTERCEPTED", x: hit.x, y: hit.y, at: now });
                 }
                 discardBullet(room, bulletsById, bullet);
                 continue;
@@ -424,11 +423,22 @@ function updateBullets(room, dt, now) {
        if (bullet.pdTargetType === "drone") {
           const target = room.drones?.get?.(bullet.pdTargetId);
           if (target && !target.destroyed) {
-             const dx = target.x - bullet.x;
-             const dy = target.y - bullet.y;
-             if (dx * dx + dy * dy <= PROJECTILES.interceptRadius * PROJECTILES.interceptRadius) {
+             const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, target.x, target.y, PROJECTILES.interceptRadius);
+             if (hit) {
                 require("./drones").damageDrone(room, target, bullet.damage, bullet.ownerId, now);
-                room.effects.push({ type: "spark", x: bullet.x, y: bullet.y, at: now });
+                room.effects.push({ type: "spark", x: hit.x, y: hit.y, at: now });
+                discardBullet(room, bulletsById, bullet);
+                continue;
+             }
+          }
+       }
+       if (bullet.pdTargetType === "decoy") {
+          const target = room.decoys?.get?.(bullet.pdTargetId);
+          if (target && now < target.expiresAt) {
+             const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, target.x, target.y, PROJECTILES.interceptRadius);
+             if (hit) {
+                require("./decoys").removeDecoy(room, target, now, "hit");
+                room.effects.push({ type: "spark", x: hit.x, y: hit.y, at: now });
                 discardBullet(room, bulletsById, bullet);
                 continue;
              }
