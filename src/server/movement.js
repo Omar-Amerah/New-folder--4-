@@ -11,6 +11,7 @@ const { calculateDirectionalTurnInputs, calculateMovementPowerMultiplier, calcul
 const { selectOwnedLivingShips } = require("./selection");
 const { getComponentPowerMultiplier, effectiveShieldStats } = require("./componentPower");
 const { getEffectiveWeaponStatsInternal, getEffectiveWeaponRanges } = require("./componentData");
+const { getShipComponentIndexes } = require("./componentIndexes");
 
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
@@ -451,7 +452,7 @@ function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
   rotateShipToward(ship, desired, stats, dt);
 
   const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
-  for (let i = 0; i < (ship.design || []).length; i += 1) {
+  for (const i of getShipComponentIndexes(ship).thrustIndices) {
     const part = PARTS[ship.design[i].type];
     if (!part?.thrust || (ship.componentHp?.[i] ?? 1) <= 0) continue;
     if (ship.validEngineIndices && !ship.validEngineIndices.has(i)) continue;
@@ -634,7 +635,7 @@ function regenerateShield(ship, stats, dt) {
     const missingShield = Math.max(0, ship.maxShield - ship.shield);
     const recharge = effective.recharge;
     const heatEntries = [];
-    for (let i = 0; i < (ship.design || []).length; i += 1) {
+    for (const i of getShipComponentIndexes(ship).shieldRegenIndices) {
       const part = PARTS[ship.design[i].type];
       // Only parts the shared heat rules classify as heat-producing (excludes
       // battery/capacitor and any future zero-heat regen part) emit regen heat.

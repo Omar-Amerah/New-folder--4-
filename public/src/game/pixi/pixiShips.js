@@ -46,6 +46,7 @@ import { getEffectDensity } from "../renderSettings.js";
 import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
 
 const pixiDesignSignatures = new WeakMap();
+const renderShipCache = new WeakMap();
 let pixiShipPool = null;
 let pixiGradientCache = new Map();
 
@@ -986,13 +987,17 @@ export function updatePixiShips(env, now, players, bounds) {
       let renderShip = ship;
       const vis = state.visualShips ? state.visualShips.get(ship.id) : null;
       if (vis) {
-        // Prototype-chain override: the visual x/y/angle shadow the
-        // authoritative ship without copying its ~40 fields into a fresh
-        // object per ship per frame (formerly a spread — pure GC churn).
-        renderShip = Object.create(ship);
-        renderShip.x = vis.x;
-        renderShip.y = vis.y;
-        renderShip.angle = vis.angle;
+        // Reuse a pooled override object so we only recreate it when the
+        // authoritative ship object itself changes, not every single frame.
+        let renderShipObj = renderShipCache.get(ship);
+        if (!renderShipObj) {
+          renderShipObj = Object.create(ship);
+          renderShipCache.set(ship, renderShipObj);
+        }
+        renderShipObj.x = vis.x;
+        renderShipObj.y = vis.y;
+        renderShipObj.angle = vis.angle;
+        renderShip = renderShipObj;
       }
       if (bounds && !isCircleVisible(renderShip.x, renderShip.y, renderShip.radius || 60, bounds)) continue;
       const player = players.get(ship.ownerId);
