@@ -351,7 +351,7 @@ export function renderPlayerList() {
   dom.playerList.textContent = "";
   if (!players.length) return;
 
-  const max = state.rules?.maxPlayers || 12;
+  const max = state.rules?.maxPlayers || 8;
   const total = players.length;
   const ready = players.filter((p) => p.ready).length;
 
@@ -697,7 +697,7 @@ export function clearServerSetting() {
 export function sendRulesUpdate() {
   if (!state.room || !isAdmin() || state.phase !== "lobby") return;
   const startingMoney = Number(dom.startingMoneyInput?.value) || state.rules.startingMoney;
-  const maxPlayers = Number(dom.maxPlayersInput?.value) || 12;
+  const maxPlayers = Number(dom.maxPlayersInput?.value) || 8;
   const mapSize = dom.mapSizeSelect?.value || "auto";
   const gameMode = dom.gameModeSelect?.value || "teams";
   const asteroidDensity = dom.asteroidDensitySelect?.value || "medium";

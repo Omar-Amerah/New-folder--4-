@@ -13,7 +13,7 @@ import * as lobbyUi from "./ui/lobbyUi.js";
 import * as purchaseUi from "./ui/purchaseUi.js";
 import { pruneSelection } from "./game/selection.js";
 import { updateHud } from "./ui/hudUi.js";
-import { renderSideControls } from "./ui/sidePanelUi.js";
+import { renderSideControls, onCombatStyleResult } from "./ui/sidePanelUi.js";
 import { renderMatchStatus } from "./ui/matchStatusUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { showToast, addNotice } from "./ui/toastUi.js";
@@ -142,6 +142,7 @@ export function handleServerMessage(message) {
     state.rules = { ...state.rules, ...(message.rules || {}) };
     if (message.resumeToken) saveResumeCredential(message.room, message.resumeToken);
     state.selectedShipIds.clear();
+    state.pendingCombatStyle = null;
     state.joinedConnectionGeneration = state.connectionGeneration;
     state.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 };
     resetRenderHistory();
@@ -236,6 +237,11 @@ function requestFullState(reason) {
     return;
   }
 
+  if (message.type === "combatStyleResult") {
+    onCombatStyleResult(message);
+    return;
+  }
+
   if (message.type === "pong") {
     if (message.at) {
       state.latency = performance.now() - message.at;
@@ -272,6 +278,7 @@ function requestFullState(reason) {
 
   if (message.type === "kicked" || message.type === "closed" || message.type === "leftLobby") {
     const tone = message.type === "kicked" ? "error" : "warning";
+    state.pendingCombatStyle = null;
     disableReconnect(message.type);
     clearResumeCredential(state.room || dom.roomCode?.value);
     forgetActiveRoom();

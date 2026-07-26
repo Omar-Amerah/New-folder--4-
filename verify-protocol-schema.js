@@ -18,6 +18,13 @@ assert.equal(validateClientMessage({type:'deploy',design:[{part:'x'.repeat(300)}
 assert.equal(validateClientMessage({type:'command',x:Infinity,y:0}).ok,false);
 assert.equal(validateClientMessage({type:'requestFullState',epoch:1.2}).code,'invalid-resync-request');
 assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'bogus'}).code,'invalid-combat-style');
+assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'sentry',shipIds:[],requestId:'r1'}).ok,true,'setCombatStyle accepts requestId and empty shipIds');
+assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'sentry',scope:'all-owned'}).ok,true,'setCombatStyle accepts all-owned scope');
+assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'sentry'}).code,'invalid-selection','setCombatStyle requires a target mode');
+assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'sentry',scope:'all-owned',shipIds:['s1']}).code,'invalid-selection','setCombatStyle rejects scope and shipIds together');
+assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'sentry',scope:'bad'}).code,'invalid-selection','setCombatStyle rejects unknown scope');
+assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'sentry',shipIds:Array.from({length:65},(_,i)=>String(i))}).ok,true,'setCombatStyle accepts 65 explicit shipIds');
+assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'sentry',shipIds:Array.from({length:361},(_,i)=>String(i))}).code,'invalid-selection','setCombatStyle rejects 361 explicit shipIds');
 let deep={type:'ping'}; let cur=deep; for(let i=0;i<12;i++){cur.next={}; cur=cur.next;} assert.equal(validateClientMessage(deep).ok,false);
 
 // Wiring v2 physical sections and logical connections.

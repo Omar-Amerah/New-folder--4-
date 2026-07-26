@@ -28,6 +28,13 @@ function setup() {
   assert.strictEqual(selectOwnedLivingShips(p1, []).ships.length, 0, "explicit empty selects no ships");
   assert.strictEqual(selectOwnedLivingShips(p1, "bad").ok, false, "malformed selection rejected");
   assert.strictEqual(selectOwnedLivingShips(p1, [p1.ships[0].id, p1.ships[0].id]).ships.length, 1, "duplicates collapse");
+  assert.strictEqual(selectOwnedLivingShips(p1, undefined, { scope: "all-owned" }).ships.length, 2, "all-owned scope selects all living ships");
+  assert.strictEqual(selectOwnedLivingShips(p1, undefined, { scope: "bad" }).ok, false, "invalid scope rejected");
+  const many = selectOwnedLivingShips(p1, Array.from({ length: 65 }, (_, i) => `x${i}`), { max: 360 });
+  assert.strictEqual(many.ok, true, "max 360 accepts 65 explicit ids");
+  assert.strictEqual(many.ships.length, 0, "max 360 accepts 65 ids and finds none");
+  const tooMany = selectOwnedLivingShips(p1, Array.from({ length: 361 }, (_, i) => `x${i}`), { max: 360 });
+  assert.strictEqual(tooMany.ok, false, "max 360 rejects 361 ids");
 }
 {
   const { room, p1, a } = setup();

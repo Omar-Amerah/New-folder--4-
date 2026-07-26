@@ -60,7 +60,7 @@ function handleMessage(client, message) {
   const { buyShip, executePurchase } = require("./economy");
   const { commandShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
-  const { selectOwnedLivingShips } = require("./selection");
+  const { MAX_COMBAT_SELECTED_SHIP_IDS, selectOwnedLivingShips } = require("./selection");
   const { addBot } = require("./ships");
   const { setRoomRules } = require("./rooms");
 
@@ -222,19 +222,35 @@ function handleMessage(client, message) {
   }
 
   if (message.type === "setCombatStyle") {
-    if (client.room.phase !== "active") return;
+    const requestId = message.requestId || null;
+    if (client.room.phase !== "active") {
+      send(client, { type: "combatStyleResult", requestId, ok: false, code: "wrong-phase", message: "Combat style can only be changed during an active match." });
+      return;
+    }
     const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "hold");
-    const selected = selectOwnedLivingShips(client.player, Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined);
-    if (!selected.ok) return;
+    const scope = message.scope || null;
+    const selectedOptions = scope ? { scope } : { max: MAX_COMBAT_SELECTED_SHIP_IDS };
+    const selected = selectOwnedLivingShips(client.player, scope ? undefined : message.shipIds, selectedOptions);
+    if (!selected.ok) {
+      send(client, { type: "combatStyleResult", requestId, ok: false, code: selected.code || "invalid-selection", message: "Invalid ship selection for combat style." });
+      return;
+    }
     let updatedCount = 0;
+    const updatedShipIds = [];
     for (const ship of selected.ships) {
       ship.combatStyle = combatStyle;
       ship.orbitDir = undefined;
       ship.lastOrbitTargetId = null;
       updatedCount++;
+      updatedShipIds.push(ship.id);
+    }
+    if (updatedCount === 0) {
+      send(client, { type: "combatStyleResult", requestId, ok: false, code: "no-authorized-ships", message: "No owned living ships matched the style request." });
+      return;
     }
     if (!selected.explicit) client.player.combatStyle = combatStyle;
-    if (updatedCount > 0) broadcastSnapshot(client.room, performanceNow());
+    broadcastSnapshot(client.room, performanceNow());
+    send(client, { type: "combatStyleResult", requestId, ok: true, combatStyle, updatedCount, updatedShipIds });
     return;
   }
 

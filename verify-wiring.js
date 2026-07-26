@@ -74,22 +74,21 @@ const loopDesign = [{x:1,y:1,type:"frame"},{x:2,y:1,type:"frame"},{x:2,y:2,type:
 let loop = W.emptyWiring(); loop = W.addPath(loop, "power", [{x:1,y:1},{x:2,y:1},{x:2,y:2},{x:1,y:2},{x:1,y:1}], loopDesign, PARTS);
 assert.equal(W.findLeafBranchSections(loop.power, "1,1:2,1").reason, "not-leaf-branch", "closed loops are never guessed destructively");
 assert.deepEqual(W.findLeafBranchSections(loop.power, "1,1:2,1").sectionIds, ["1,1:2,1"], "ambiguous removal falls back to the selected section");
-// Intra-component (internal) cable rejection. A component's compatible terminals
-// are already connected inside it, so a cable drawn between two cells of the same
-// component instance is refused instead of adding a meaningless route. A route
-// that also reaches another component is a real connection, but its internal
-// transit leg remains a zero-length component bus rather than stored cable.
+// Intra-component (internal) cable handling. A cable drawn between two cells of
+// the same component instance is refused because it adds no external connection.
+// A route that also reaches another component is a real connection and its
+// transit leg through a multi-tile component is now stored as physical cable.
 const internalShip = [{ x: 5, y: 5, type: "reactor" }, { x: 7, y: 5, type: "shield" }]; // reactor occupies (5,5)&(6,5)
 const selfCable = W.applyPathWithTier(W.emptyWiring(), "power", [{ x: 5, y: 5 }, { x: 6, y: 5 }], internalShip, PARTS, "standard");
 assert.equal(selfCable.changed, false, "a cable between one component's own terminals is rejected");
 assert.equal(selfCable.reason, "internal-terminal", "rejection identifies the internal-terminal case");
-assert.equal(selfCable.wiring.power.sections.length, 0, "no meaningless internal section is stored");
+assert.equal(selfCable.wiring.power.sections.length, 0, "no self-only internal section is stored");
 const realCable = W.applyPathWithTier(W.emptyWiring(), "power", [{ x: 6, y: 5 }, { x: 7, y: 5 }], internalShip, PARTS, "standard");
 assert.equal(realCable.changed, true, "a cable from a terminal to another component is accepted");
 assert.equal(realCable.wiring.power.sections.length, 1, "the external section is stored");
 const throughCable = W.applyPathWithTier(W.emptyWiring(), "power", [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }], internalShip, PARTS, "standard");
 assert.equal(throughCable.changed, true, "a route crossing a component to reach another is accepted");
-assert.equal(throughCable.wiring.power.sections.length, 1, "an internal transit segment is not stored as meaningless cable");
+assert.equal(throughCable.wiring.power.sections.length, 2, "transit cables through multi-tile components are stored");
 assert.deepEqual(W.analyzePowerNetworks(internalShip, throughCable.wiring, PARTS).disconnectedConsumerIndices, [], "the component's internal terminal bus still carries Power");
 
 const nuclearShip = [{ x: 5, y: 5, type: "nuclearReactor" }, { x: 8, y: 5, type: "gyroscope" }];
@@ -98,6 +97,6 @@ const nuclearAnalysis = W.analyzePowerNetworks(nuclearShip, nuclearWiring, PARTS
 assert.deepEqual(nuclearAnalysis.sourceIndices, [0], "Nuclear Reactor is classified as a Power source");
 assert.deepEqual(nuclearAnalysis.consumerIndices, [1], "Nuclear Reactor is never classified as a Power consumer");
 assert.deepEqual(nuclearAnalysis.disconnectedConsumerIndices, [], "auto-wire powers a consumer from the Nuclear Reactor");
-assert.equal(nuclearWiring.power.sections.length, 1, "auto-wire stores only the external cable from a multi-tile Nuclear Reactor");
+assert.equal(nuclearWiring.power.sections.length, 1, "auto-wire connects the Nuclear Reactor from the nearest cell");
 
 console.log("Wiring v2 physical-section verification passed");

@@ -114,7 +114,7 @@ export const state = {
   drag: null,
   keys: new Set(),
   stars: makeStars(260),
-  rules: { startingMoney: GENERATED_BALANCE.economy.startingMoney, shipCap: 30, maxPlayers: 12, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium" },
+  rules: { startingMoney: GENERATED_BALANCE.economy.startingMoney, shipCap: 30, maxPlayers: 8, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium" },
   minimap: null,
   shipHud: new Map(),
   engineSmoke: [],
