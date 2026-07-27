@@ -55,7 +55,6 @@ function makeWeapon(type, stats) {
     shieldDamageMultiplier: Number(stats.shieldDamageMultiplier ?? 1),
     hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1),
     directDamage: Number(stats.directDamage ?? stats.damage ?? 0),
-    directImpactBonus: Number(stats.directImpactBonus ?? 0),
     blastDamage: Number(stats.blastDamage ?? 0),
     blastRadius: Number(stats.blastRadius ?? 0),
     proximityFuseRadius: Number(stats.proximityFuseRadius ?? 0),

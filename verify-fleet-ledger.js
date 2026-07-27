@@ -67,7 +67,7 @@ global.window = { devicePixelRatio: 1 };
   ok("validateArticles clean");
 
   // --- 5. Manual articles exist for each category ---
-  const expectedManual = ["overview", "ship-construction", "power", "heat", "movement", "combat-styles", "defence", "drones", "support", "command", "economy", "multiplayer", "controls"];
+  const expectedManual = ["overview", "blueprint-designer", "power", "heat", "movement", "combat-styles", "defence", "drones", "support", "command", "economy", "multiplayer", "controls"];
   for (const id of expectedManual) {
     const article = getArticleById(id);
     assert.ok(article, `Missing manual article: ${id}`);

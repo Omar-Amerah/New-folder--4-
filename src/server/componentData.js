@@ -7,6 +7,7 @@ const { getCommandAuraMultiplier } = require("./commandAuras");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 const HeatRules = require("../../public/src/shared/heatRules");
+const TurretRules = require("../../public/src/shared/turretRules");
 
 const ZERO_SUPPORT = Object.freeze({ rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0, sourceIndices: Object.freeze([]), contributions: Object.freeze([]), status: "disconnected" });
 const numericSort = (a, b) => a - b;
@@ -183,6 +184,11 @@ function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
   if (!profile) return null;
   bump("profileCacheHitCount");
   const modified = { ...profile };
+  // If no explicit aimSpeed is configured, fall back to the shared turret
+  // default for this weapon family so command auras can scale turret traverse.
+  if (!Number.isFinite(modified.aimSpeed)) {
+    modified.aimSpeed = TurretRules.turnRateFor({ type: modified.type });
+  }
   if (ship?.commandState === "backupCore") {
     modified.accuracy = Number.isFinite(profile.accuracy) ? profile.accuracy * 0.85 : 0.85;
   }

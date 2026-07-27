@@ -1193,7 +1193,6 @@ export const GENERATED_BALANCE = {
         "innerFullDamageRadius": 10,
         "falloffExponent": 1.7,
         "armourPenetration": 1,
-        "directImpactBonus": 0,
         "shipDamageMultiplier": 1
       },
       "rotatable": true,

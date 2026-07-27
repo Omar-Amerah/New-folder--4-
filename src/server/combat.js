@@ -937,6 +937,18 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
   const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
 
+  // Per-tick reservation map: multiple defensive weapons on the same ship can
+  // see what damage has already been committed to each fragile target so they
+  // avoid overkilling the same projectile/drone/decoy.
+  const reservations = room._pdReservations || new Map();
+  function isReserved(entity, type) {
+    const reserved = reservations.get(entity.id) || 0;
+    if (type === "projectile") return (entity.hp !== undefined ? entity.hp : (entity.damage || 20)) - reserved <= 0.001;
+    if (type === "drone") return (entity.hull || 0) - reserved <= 0.001;
+    if (type === "decoy") return 1 - reserved <= 0.001;
+    return false;
+  }
+
   let best = null;
 
   let bestDistSq = Infinity;
@@ -974,6 +986,8 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     const pIdx = getCandidatePriorityIndex(cand, priorityList);
 
     if (pIdx === -1) continue;
+
+    if (isReserved(bullet, "projectile")) continue;
 
 
 
@@ -1015,6 +1029,8 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
     if (pIdx === -1) continue;
 
+    if (isReserved(drone, "drone")) continue;
+
 
 
     if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
@@ -1055,6 +1071,8 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
     if (pIdx === -1) continue;
 
+    if (isReserved(other, "ship")) continue;
+
 
 
     if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
@@ -1090,6 +1108,8 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     const pIdx = getCandidatePriorityIndex(cand, priorityList);
 
     if (pIdx === -1) continue;
+
+    if (isReserved(decoy, "decoy")) continue;
 
 
 
@@ -1200,6 +1220,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   }
 
 
+
+  // Per-tick map of how much damage has already been committed to each fragile
+  // target by point-defense weapons on this ship. It resets every tick so
+  // multiple defensive weapons can coordinate without overkilling the same
+  // missile. Stored on the room because it is shared across ships in the room.
+  if (!room._pdReservations) room._pdReservations = new Map();
+  room._pdReservations.clear();
 
   const weaponIndices = getShipComponentIndexes(ship).weaponIndices;
 
@@ -1662,9 +1689,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const worldAngleToTarget = Math.atan2(targetAimY - worldY, targetAimX - worldX);
 
+    // Alignment tolerance is tighter for Laser PD than for ballistic
+    // interceptor pods; flak keeps the legacy wider cone.
+    const alignmentThreshold = module.type === "pointDefense" ? 0.035 : (module.type === "interceptorPod" ? 0.2 : 0.26);
+
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
 
-    if (family !== "beam" && angleErr > 0.26) return;
+    if (family !== "beam" && angleErr > alignmentThreshold) return;
 
 
 
@@ -1960,8 +1991,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
           falloffExponent: effectiveWeapon.falloffExponent ?? 1,
 
-          directImpactBonus: effectiveWeapon.directImpactBonus ?? 0,
-
           shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
 
           hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
@@ -1996,7 +2025,17 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                const damage = effectiveWeapon.damage;
 
-
+               const targetType = currentPdTarget.type;
+               const reserved = room._pdReservations.get(targetEnt.id) || 0;
+               const baseHp = targetType === "projectile" ? (targetEnt.hp !== undefined ? targetEnt.hp : (targetEnt.damage || 20))
+                              : targetType === "drone" ? (targetEnt.hull || 0)
+                              : targetType === "decoy" ? 1
+                              : Infinity;
+               if (baseHp - reserved <= 0.001) {
+                  currentPdTarget = null;
+                  return;
+               }
+               room._pdReservations.set(targetEnt.id, reserved + damage);
 
                if (currentPdTarget.type === "drone") {
 
@@ -2040,24 +2079,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                addComponentHeat(ship, i, 4);
 
-
-
-               const pointDefenseIndices = getShipComponentIndexes(ship).pointDefenseIndices;
-
-               const pdCount = pointDefenseIndices.length || 1;
-
-               if (pdCount > 1) {
-
-                 const stagger = reload / pdCount;
-
-                 for (const j of pointDefenseIndices) {
-
-                   if (i !== j) ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
-
-                 }
-
-               }
-
             }
 
          } else {
@@ -2067,6 +2088,19 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             const life = (effectiveWeapon.range || 0) / speed;
 
             const targetEnt = currentPdTarget.entity;
+
+            const targetType = currentPdTarget.type;
+            const reserved = room._pdReservations.get(targetEnt.id) || 0;
+            const baseHp = targetType === "projectile" ? (targetEnt.hp !== undefined ? targetEnt.hp : (targetEnt.damage || 20))
+                           : targetType === "drone" ? (targetEnt.hull || 0)
+                           : targetType === "decoy" ? 1
+                           : Infinity;
+            if (baseHp - reserved <= 0.001) {
+               currentPdTarget = null;
+               return;
+            }
+            const pdDamage = effectiveWeapon.damage;
+            room._pdReservations.set(targetEnt.id, reserved + pdDamage);
 
             const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
@@ -2106,7 +2140,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
 
-               damage: effectiveWeapon.damage * (currentPdTarget.type === "ship" ? (effectiveWeapon.shipDamageMultiplier || 0.1) : 1),
+               damage: pdDamage,
+
+               shipDamageMultiplier: currentPdTarget.type === "ship" ? (effectiveWeapon.shipDamageMultiplier || 0.1) : 1,
 
                shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
 
@@ -2127,24 +2163,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
             ship.weaponCooldowns[i] = reload;
 
             addComponentHeat(ship, i, 4);
-
-
-
-            const pointDefenseIndices = getShipComponentIndexes(ship).pointDefenseIndices;
-
-            const pdCount = pointDefenseIndices.length || 1;
-
-            if (pdCount > 1) {
-
-              const stagger = reload / pdCount;
-
-              for (const j of pointDefenseIndices) {
-
-                if (i !== j) ship.weaponCooldowns[j] = Math.max(ship.weaponCooldowns[j], stagger);
-
-              }
-
-            }
 
          }
 

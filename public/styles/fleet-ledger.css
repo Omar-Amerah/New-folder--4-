@@ -112,6 +112,14 @@
   cursor: pointer;
   box-shadow: none;
   transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+  overflow: hidden;
+}
+
+.ledger-cat-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .ledger-cat-item:hover {
@@ -167,6 +175,9 @@
   cursor: pointer;
   box-shadow: none;
   transition: background 80ms ease, color 80ms ease, transform 80ms ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ledger-cat-article:hover {
@@ -194,11 +205,13 @@
 }
 
 .ledger-article-title {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 900;
-  line-height: 1.2;
+  line-height: 1.25;
   margin-bottom: 4px;
   letter-spacing: -0.01em;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ledger-article-category {
@@ -252,6 +265,10 @@
   cursor: pointer;
   box-shadow: none;
   transition: background 80ms ease, color 80ms ease, border-color 80ms ease;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ledger-toc-link:hover {
@@ -302,7 +319,7 @@
 
 .ledger-stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 8px;
 }
 
@@ -310,12 +327,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: rgba(12, 17, 27, 0.6);
   transition: border-color 100ms ease, background 100ms ease;
+  min-width: 0;
 }
 
 .ledger-stat-row:hover {
@@ -328,14 +346,22 @@
   font-weight: 700;
   color: var(--muted);
   text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .ledger-stat-value {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   color: var(--text);
   text-align: right;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  flex-shrink: 0;
+  max-width: 60%;
 }
 
 .ledger-problems {
@@ -414,6 +440,9 @@
   cursor: pointer;
   box-shadow: none;
   transition: border-color 100ms ease, background 100ms ease, transform 80ms ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ledger-related-item:hover {
@@ -451,6 +480,14 @@
   cursor: pointer;
   box-shadow: none;
   transition: border-color 100ms ease, background 100ms ease, transform 80ms ease;
+  min-width: 0;
+}
+
+.ledger-search-result-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .ledger-search-result:hover {
@@ -540,6 +577,21 @@
 
   .ledger-stat-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ledger-stat-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .ledger-stat-value {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .ledger-stat-label {
+    white-space: normal;
   }
 }
 

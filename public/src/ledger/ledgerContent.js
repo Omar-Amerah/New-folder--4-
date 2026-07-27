@@ -43,27 +43,180 @@ const MANUAL_ARTICLES_PART_1 = [
     howItWorks: "The Fleet Ledger is an in-game encyclopaedia that explains game systems, components, weapons, and rules. It is available from the main menu and the blueprint designer. Opening the ledger pauses nothing — your game state is preserved behind the overlay. Use the category list to browse, or type in the search bar to find any article by title, keyword, or component name.",
     practicalUse: "New players should start with Ship Construction and Power to understand the core build loop. Experienced players can jump to specific weapon or defence articles for exact stats.",
     commonProblems: [],
-    related: ["ship-construction", "power", "heat", "movement", "combat-styles"]
+    related: ["blueprint-designer", "power", "heat", "movement", "combat-styles"]
   },
   {
-    id: "ship-construction",
+    id: "blueprint-designer",
     category: "ship-construction",
-    title: "Ship Construction",
-    summary: "How to build a ship from components in the blueprint designer.",
-    keywords: ["build", "design", "blueprint", "grid", "components", "modules", "parts"],
-    howItWorks: "Open the Blueprint Designer from the side panel or main menu. Select a component from the palette on the left, then click a grid cell to place it. Right-click a placed part to remove it. Press R to rotate rotatable components. Every ship requires a Core — if it is destroyed, the ship is lost unless a Backup Command Core is installed. Ships must have at least one engine to move. The total cost of all components plus wiring must be within the ship cost limits.",
+    title: "Blueprint Designer Interface",
+    summary: "The Designer Interface, Component Palette, Build Grid, Placement, Removal, Undo, And Reset.",
+    keywords: ["blueprint", "designer", "interface", "palette", "grid", "place", "remove", "undo", "reset", "clear"],
+    howItWorks: "Open The Blueprint Designer From The Side Panel Or Main Menu. The Build Grid Is 15×15 Cells (Coordinates 0–14 On Each Axis). Select A Component From The Palette On The Left, Then Click A Grid Cell To Place It. Right-Click A Placed Part To Remove It — The Core Cannot Be Removed. Press R To Rotate Rotatable Components. Undo (Ctrl+Z) Reverses The Last Physical Edit. Reset Design Restores The Starter Ship; Clear All Removes Everything Except The Core. The Ship Summary Panel Updates Live As You Build. The Wiring Tab Lets You Draw Power And Data Cable Networks.",
     importantStats: [
-      { label: "Minimum Ship Cost", value: `$${GENERATED_BALANCE.shipCostLimits?.minimum ?? 300}` },
-      { label: "Maximum Ship Cost", value: `$${GENERATED_BALANCE.shipCostLimits?.maximum ?? 2000}` }
+      { label: "Grid Size", value: "15×15" },
+      { label: "Grid Coordinate Range", value: "0–14" },
+      { label: "Undo Support", value: "Full Edit History" },
+      { label: "Core Removal", value: "Not Allowed" },
+      { label: "Reset Design", value: "Restores Starter Ship" },
+      { label: "Clear All", value: "Removes All Except Core" }
     ],
-    practicalUse: "Start with a Core, add armor around it for protection, place a reactor for power, add engines for movement, and then fill in weapons and defence. Use the Ship Summary panel to check cost, mass, hull, and power balance as you build.",
+    practicalUse: "Start With The Default Design And Modify It. Use Clear All For A Blank Slate. Keep The Ship Summary Panel Visible To Catch Issues Early. Use The Wiring Tab To Route Power And Data Cables After Placing Components.",
     commonProblems: [
-      "Ship won't move? You need at least one engine component.",
-      "Power deficit? Add reactors or reduce power-hungry components.",
-      "Overheating? Add radiators with exposed exterior edges or heat sinks.",
-      "Can't place a part? Some components have multi-cell footprints — check the preview."
+      "Can't Place A Part? Check For Overlap Or Out-Of-Bounds Footprint Cells.",
+      "Can't Remove The Core? The Core Is Permanent — Use Clear All To Reset To A Bare Core.",
+      "Changes Not Saving? Use The Save Button To Persist The Blueprint."
     ],
-    related: ["power", "heat", "movement", "weapons", "defence"]
+    related: ["placement-rules", "structural-connectivity", "ship-validation", "ship-cost-formula", "ship-summary", "wiring-infrastructure", "power", "heat"]
+  },
+  {
+    id: "placement-rules",
+    category: "ship-construction",
+    title: "Component Placement & Rotation",
+    summary: "How Footprints Work, Rotation Rules, And Which Components Can Be Rotated.",
+    keywords: ["placement", "footprint", "rotation", "rotate", "maneuver thruster", "orientation", "anchor", "multi-cell"],
+    howItWorks: "Every Component Has A Footprint (Width × Height In Grid Cells). Multi-Cell Footprints Expand From The Anchor Cell (Part.X, Part.Y). Rotation Pivots Around The Anchor Cell: 0° = Default, 90° = Clockwise, 180° = Flipped, 270° = Counter-Clockwise. Rotatable Components Include Weapons, Defence Components With Weapons, And Any Part With Rotatable Set To True Or Allowed Rotations Defined. Non-Rotatable Components Include Engines, Maneuver Thrusters, And Drone Bays. Maneuver Thrusters Auto-Rotate Based On Position: Left Of Centre → 90°, Right Of Centre → 270°. Components With A Two-Rotation Limit (90°/270°) Auto-Pick Side-Facing Based On X Position Relative To Grid Centre (7). Placement Is Blocked If Any Footprint Cell Is Out Of Bounds (0–14), Overlaps Another Part, Or Would Be Disconnected From The Core.",
+    importantStats: [
+      { label: "Grid Bounds", value: "0–14 (15×15)" },
+      { label: "Rotation Steps", value: "0°, 90°, 180°, 270°" },
+      { label: "Maneuver Thruster Auto-Rotation", value: "Based On X vs Centre (7)" },
+      { label: "Default Rotation", value: "0°" },
+      { label: "Non-Rotatable Types", value: "Engine, Maneuver Thruster, Drone Bay" }
+    ],
+    practicalUse: "Weapons On The Ship's Edges Can Be Rotated To Face Forward, Sideways, Or Backward. Maneuver Thrusters Auto-Face Outward — Place Them On The Correct Side. Drone Bays Cannot Be Rotated — Their Launch Edge Depends On Placement.",
+    commonProblems: [
+      "Part Facing The Wrong Way? Press R To Cycle Rotations.",
+      "Maneuver Thruster Won't Rotate? It Auto-Rotates Based On Position.",
+      "Footprint Hanging Off The Grid? Move The Anchor Cell So All Footprint Cells Fit Within 0–14."
+    ],
+    related: ["blueprint-designer", "structural-connectivity", "engine-exhaust", "ship-validation"]
+  },
+  {
+    id: "structural-connectivity",
+    category: "ship-construction",
+    title: "Structural Connectivity",
+    summary: "All Parts Must Connect To The Core Through Side-Adjacent Cells.",
+    keywords: ["connectivity", "connected", "disconnected", "adjacent", "core", "heat pipe", "structure", "BFS"],
+    howItWorks: "A Blueprint Is Valid Only If Every Part Is Structurally Connected To The Core. Connectivity Is Checked Via Breadth-First Search From The Core Through Side-Adjacent (4-Neighbour) Cells. Two Passes Are Performed: Physical Connectivity (All Parts Reachable) And Structural Connectivity (Non-Heat-Pipe Parts Must Not Rely On Heat Pipe Chains As Their Only Path). Heat Pipes Can Be Reached Through Other Heat Pipes, But A Non-Heat-Pipe Part Cannot Use A Heat-Pipe Chain As Its Only Path Back To The Core. Diagonal Adjacency Does NOT Count — Only Up, Down, Left, And Right. Overlapping Parts Are Filtered Before The Connectivity Check.",
+    importantStats: [
+      { label: "Adjacency Type", value: "4-Neighbour (Orthogonal)" },
+      { label: "Heat Pipe Rule", value: "Non-Heat-Pipe Parts Cannot Depend On Heat Pipe Chains" },
+      { label: "Core Required", value: "Exactly 1" },
+      { label: "Diagonal Counts", value: "No" }
+    ],
+    practicalUse: "Build Outward From The Core In A Connected Shape. Avoid Diagonal Gaps — Parts Touching Only At Corners Are Disconnected. Heat Pipes Can Bridge To Radiators But Cannot Be The Structural Spine Of The Ship.",
+    commonProblems: [
+      "Disconnected Parts Error? Check For Diagonal-Only Connections Or Gaps.",
+      "Heat Pipe Causing Issues? A Non-Heat-Pipe Part Behind A Heat Pipe Chain Is Structurally Invalid — Add A Frame Or Armor Path."
+    ],
+    related: ["blueprint-designer", "placement-rules", "ship-validation", "heat"]
+  },
+  {
+    id: "engine-exhaust",
+    category: "ship-construction",
+    title: "Engine Exhaust Clearance",
+    summary: "Engines Need Clear Exhaust Channels Behind Them Or They Provide No Thrust.",
+    keywords: ["engine", "exhaust", "blocked", "thrust", "nozzle", "channel", "clearance", "maneuver thruster"],
+    howItWorks: "Every Engine And Maneuver Thruster Has An Exhaust Direction Opposite To Its Thrust Direction. The Exhaust Channel Extends From The Nozzle Cells Outward In The Exhaust Direction To The Grid Edge. If Any Other Component Blocks The Exhaust Channel, The Engine Is Blocked And Contributes Zero Thrust. Blocked Engines Still Consume Mass And Cost But Provide No Movement. The Ship Summary Shows A Warning For Blocked Engines. Exhaust Direction Depends On Rotation: 0° = Downward, 90° = Left, 180° = Upward, 270° = Right.",
+    importantStats: [
+      { label: "Exhaust Grid Size", value: "15" },
+      { label: "Blocked Engine Effect", value: "Zero Thrust (Mass And Cost Still Count)" },
+      { label: "Exhaust Check Range", value: "Full Channel To Grid Edge" },
+      { label: "0° Exhaust Direction", value: "Downward" },
+      { label: "90° Exhaust Direction", value: "Left" },
+      { label: "180° Exhaust Direction", value: "Upward" },
+      { label: "270° Exhaust Direction", value: "Right" }
+    ],
+    practicalUse: "Place Engines On The Ship's Rear Edge (Bottom Row) Facing Backward (0° Rotation). Ensure No Components Are Behind The Engine Within Its Exhaust Channel. Maneuver Thrusters On The Side Edges Auto-Rotate Outward.",
+    commonProblems: [
+      "Engine Not Providing Thrust? Check If Another Part Blocks The Exhaust Channel.",
+      "Ship Slow Despite Many Engines? Some Engines May Be Blocked — Check The Ship Summary For Blocked Engine Count.",
+      "Maneuver Thruster Blocked? Ensure The Outward-Facing Channel Is Clear."
+    ],
+    related: ["placement-rules", "movement", "ship-validation", "ship-summary"]
+  },
+  {
+    id: "ship-validation",
+    category: "ship-construction",
+    title: "Ship Validation Rules",
+    summary: "All Rules A Blueprint Must Pass Before It Can Be Deployed.",
+    keywords: ["validation", "rules", "core", "backup core", "overlap", "bounds", "drone bay", "max per ship", "engine requirement"],
+    howItWorks: "Exactly One Core Is Required (Zero = Invalid, Two = Invalid). Maximum One Backup Command Core Is Allowed. All Parts Must Be Within The 15×15 Grid (Coordinates 0–14). No Overlapping Parts. All Parts Must Be Structurally Connected To The Core. Each Component Type Has A Max-Per-Ship Limit. Drone Bays Require A Configured Drone Type (Fighter, Defence, Or Repair) And An Exposed Two-Cell Launch Edge. Maximum Drone Bays Per Ship Is 4. At Least One Engine With Effective Thrust Is Required To Build (Validated At Build Time, Not Design Time). Ship Cost Must Be Within Min/Max Limits. The Player Must Have Enough Money To Build The Ship.",
+    importantStats: [
+      { label: "Core Count Required", value: "Exactly 1" },
+      { label: "Backup Core Max", value: "1" },
+      { label: "Grid Bounds", value: "0–14" },
+      { label: "Min Ship Cost", value: `$${GENERATED_BALANCE.shipCostLimits?.minimum ?? 300}` },
+      { label: "Max Ship Cost", value: `$${GENERATED_BALANCE.shipCostLimits?.maximum ?? 2000}` },
+      { label: "Max Drone Bays", value: `${GENERATED_BALANCE.drones?.maxBaysPerShip ?? 4}` },
+      { label: "Engine Requirement", value: "At Least 1 With Effective Thrust (Build Time)" }
+    ],
+    practicalUse: "The Designer Warns About Most Issues Live. Drone Bay Configuration (Drone Type) Must Be Set Before Deployment. The Thrust Requirement Is Only Enforced When Building — You Can Save A Design Without Engines But Cannot Deploy It.",
+    commonProblems: [
+      "Missing Core Error? Every Ship Needs Exactly One Core.",
+      "Disconnected Parts Error? See The Structural Connectivity Article.",
+      "Drone Bay Error? Set A Drone Type And Ensure An Exposed Two-Cell Edge.",
+      "Add At Least One Engine Error? Place An Engine With Clear Exhaust."
+    ],
+    related: ["blueprint-designer", "structural-connectivity", "engine-exhaust", "ship-cost-formula", "ship-pricing"]
+  },
+  {
+    id: "ship-cost-formula",
+    category: "ship-construction",
+    title: "Ship Cost & Fleet Count",
+    summary: "How Ship Cost Is Calculated From Components, Mass, Weapons, And Wiring.",
+    keywords: ["cost", "price", "formula", "fleet count", "weapon premium", "size tax", "wiring cost", "infrastructure"],
+    howItWorks: "Ship Cost = Base Cost + (Component Cost × Part Multiplier) + (Mass × Mass Multiplier) + (Hull × Hull Multiplier) + (Shield × Shield Multiplier) + (Repair Rate × Repair Multiplier) + Weapon Premiums. Weapon Premiums: Blaster $18, Missile $32, Railgun $48, Beam $42 Per Weapon. Ships Above $400 Pay A 15% Large-Ship Tax On The Excess. Ships Above $700 Pay An Additional 25% Huge-Ship Tax On The Excess. Wiring Infrastructure Cost (Power + Data Cable) Is Added On Top, Not Multiplied By Hull/Mass/Weapon Premiums. Final Cost Is Clamped To $300–$2000. Fleet Count = Floor(Base / Max(MinDivisor, UnitCost × UnitCostMult + Mass × MassMult)), Clamped To 1–5.",
+    importantStats: [
+      { label: "Base Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.baseShipCost ?? 48}` },
+      { label: "Part Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.partCostMultiplier ?? 1.32}×` },
+      { label: "Mass Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.massCostMultiplier ?? 0.9}×` },
+      { label: "Hull Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.hullCostMultiplier ?? 0.012}×` },
+      { label: "Shield Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.shieldCostMultiplier ?? 0.05}×` },
+      { label: "Repair Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.repairCostMultiplier ?? 0.8}×` },
+      { label: "Blaster Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.blaster ?? 18}/Weapon` },
+      { label: "Missile Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.missile ?? 32}/Weapon` },
+      { label: "Railgun Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.railgun ?? 48}/Weapon` },
+      { label: "Beam Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.beam ?? 42}/Weapon` },
+      { label: "Large Ship Threshold", value: `$${GENERATED_BALANCE.shipPricing?.largeShipThreshold ?? 400}` },
+      { label: "Large Ship Tax", value: `+${Math.round((GENERATED_BALANCE.shipPricing?.largeShipCostTax ?? 0.15) * 100)}% On Excess` },
+      { label: "Huge Ship Threshold", value: `$${GENERATED_BALANCE.shipPricing?.hugeShipThreshold ?? 700}` },
+      { label: "Huge Ship Tax", value: `+${Math.round((GENERATED_BALANCE.shipPricing?.hugeShipCostTax ?? 0.25) * 100)}% On Excess` },
+      { label: "Min Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.minimum ?? 300}` },
+      { label: "Max Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.maximum ?? 2000}` },
+      { label: "Wiring Cost", value: "Added On Top (Not Multiplied)" },
+      { label: "Fleet Count Base", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.base ?? 260}` },
+      { label: "Fleet Count Min Divisor", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimumDivisor ?? 58}` },
+      { label: "Fleet Count Range", value: "1–5 Ships" }
+    ],
+    practicalUse: "Cheaper Ships Mean More Ships In Your Fleet. Weapon Premiums And Size Taxes Make Expensive Ships Cost-Inefficient. Wiring Cost Is Additive — Long Cable Runs Increase Cost Without Being Subject To Multipliers.",
+    commonProblems: [
+      "Ship Too Expensive? Reduce Weapon Count, Use Cheaper Weapons, Or Shrink The Design.",
+      "Fleet Count Too Low? Lower The Unit Cost — The Formula Divides A Base Value By Cost.",
+      "Wiring Cost Too High? Shorten Cable Runs And Use Light Cable For Low-Power Branches."
+    ],
+    related: ["ship-pricing", "economy", "blueprint-designer", "wiring-infrastructure", "ship-validation"]
+  },
+  {
+    id: "ship-summary",
+    category: "ship-construction",
+    title: "Ship Summary Panel",
+    summary: "The Live Overview Of Build Cost, Mass, Hull, Shield, Weapons, Speed, Turn, Power, And Status Warnings.",
+    keywords: ["ship summary", "overview", "stats", "status", "warnings", "mobility", "power details", "combat details", "support details"],
+    howItWorks: "The Ship Summary Shows 9 Headline Values: Build Cost, Class, Mass, Hull, Shield, Weapon DPS, Max Speed, Turn Rate, And Power. Below The Overview, Status Messages Appear Based On Real Conditions: Power Shortfall, Load Shedding, Stranded Generation, No Effective Thrust, Mass Drag Limiting Speed, Asymmetric Turning, No Shield Coverage, No Weapons, Backup Command Available, Insufficient Cooling, Overheating Components, And Cable Overload. Four Collapsible Detail Sections Provide Engineering Numbers: Mobility Details (Acceleration, Thrust-To-Mass, Engine Efficiency, Turn Rates, Blocked Engines), Power Details (Generation, Demand, Delivered, Spare, Stranded, Unmet, Efficiency, Penalty, Load Shed, Energy Storage), Combat Details (Per-Weapon-Family DPS, Range, Point Defence, Beam Radius, Shield Recharge), And Support Details (Repair Rate, Drone Capacity, Drone Squads, Capture Pressure, Cooling Bonus).",
+    importantStats: [
+      { label: "Overview Fields", value: "9 (Cost, Class, Mass, Hull, Shield, DPS, Speed, Turn, Power)" },
+      { label: "Detail Sections", value: "4 (Mobility, Power, Combat, Support)" },
+      { label: "Status Levels", value: "Good, Warning, Bad, Neutral" },
+      { label: "Live Updates", value: "Yes — Updates As You Build" }
+    ],
+    practicalUse: "Watch The Power Field — Spare Means Healthy, Short Means Problems. Check Status Messages For Specific Issues. Expand Detail Sections For Engineering Numbers. The Summary Updates Live As You Build.",
+    commonProblems: [
+      "Power Showing Short? Add Reactors Or Reduce Power-Hungry Components.",
+      "No Effective Thrust? Add Engines With Clear Exhaust Or Restore Power.",
+      "Asymmetric Turning? Add Maneuver Thrusters Or Gyroscopes On The Weak Side.",
+      "Insufficient Cooling? Add Radiators With Exposed Edges Or Heat Sinks."
+    ],
+    related: ["blueprint-designer", "power", "heat", "movement", "ship-cost-formula", "engine-exhaust"]
   },
   {
     id: "power",
@@ -94,7 +247,7 @@ const MANUAL_ARTICLES_PART_1 = [
       "Shields weak? Power deficit reduces shield efficiency by pow(ratio, 1.35).",
       "Cable overheating? Upgrade to a higher tier or split the load across multiple networks."
     ],
-    related: ["ship-construction", "heat", "wiring-infrastructure"]
+    related: ["blueprint-designer", "heat", "wiring-infrastructure"]
   },
   {
     id: "wiring-infrastructure",
@@ -124,7 +277,7 @@ const MANUAL_ARTICLES_PART_1 = [
       "Cable too expensive? Use Light cable for low-power branches and Standard for main trunks.",
       "Disconnected sections? Check that cable routes pass through occupied cells only."
     ],
-    related: ["power", "heat", "ship-construction"]
+    related: ["power", "heat", "blueprint-designer"]
   },
   {
     id: "heat",
@@ -142,7 +295,7 @@ const MANUAL_ARTICLES_PART_1 = [
       "Weapons stopping mid-fight? They likely overheated. Add heat sinks near weapon clusters.",
       "Radiators not cooling? Check if they have an exposed exterior edge — enclosed radiators are only 25% effective."
     ],
-    related: ["power", "ship-construction", "wiring-infrastructure"]
+    related: ["power", "blueprint-designer", "wiring-infrastructure"]
   },
   {
     id: "movement",
@@ -175,7 +328,7 @@ const MANUAL_ARTICLES_PART_1 = [
       "Turning too slowly? Add gyroscopes or maneuver thrusters.",
       "Ship slow despite engines? High mass reduces speed — check the Ship Summary for your mass class."
     ],
-    related: ["combat-styles", "ship-construction", "power", "economy"]
+    related: ["combat-styles", "blueprint-designer", "power", "economy"]
   }
 ];
 
@@ -197,7 +350,7 @@ const MANUAL_ARTICLES_PART_2 = [
       "Missiles intercepted? Consider overwhelming enemy point defense with swarm missiles.",
       "Rails missing? They have narrow arcs — position ships carefully."
     ],
-    related: ["combat-styles", "defence", "power", "heat", "ship-construction"]
+    related: ["combat-styles", "defence", "power", "heat", "blueprint-designer"]
   },
   {
     id: "combat-styles",
@@ -233,7 +386,7 @@ const MANUAL_ARTICLES_PART_2 = [
       "Missiles getting through? Add point defense or flak cannons.",
       "Armor not helping enough? Composite armor is lighter but gives less protection per cell than standard armor."
     ],
-    related: ["weapons", "ship-construction", "power", "heat"]
+    related: ["weapons", "blueprint-designer", "power", "heat"]
   },
   {
     id: "drones",
@@ -265,7 +418,7 @@ const MANUAL_ARTICLES_PART_2 = [
       "Drones disappearing? They run out of fuel and must return to refuel.",
       "Too many drones? The 12-active-per-ship limit prevents excessive swarms."
     ],
-    related: ["weapons", "defence", "support", "ship-construction"]
+    related: ["weapons", "defence", "support", "blueprint-designer"]
   },
   {
     id: "support",
@@ -299,7 +452,7 @@ const MANUAL_ARTICLES_PART_2 = [
       "Aura not helping? Check that friendly ships are within the aura range.",
       "Core too exposed? Surround it with armor and keep it away from the ship edges."
     ],
-    related: ["ship-construction", "defence", "support", "economy"]
+    related: ["blueprint-designer", "defence", "support", "economy"]
   }
 ];
 
@@ -330,7 +483,7 @@ const MANUAL_ARTICLES_PART_3 = [
       "Losing income? Enemy may control more relays — recapture them.",
       "Fleet cap reached? Destroyed ships free up cap space."
     ],
-    related: ["movement", "combat-styles", "multiplayer", "ship-construction", "ship-pricing", "rewards", "capture-mechanics"]
+    related: ["movement", "combat-styles", "multiplayer", "blueprint-designer", "ship-pricing", "rewards", "capture-mechanics"]
   },
   {
     id: "ship-pricing",
@@ -368,7 +521,7 @@ const MANUAL_ARTICLES_PART_3 = [
       "Ship too expensive? Reduce weapon count or use cheaper weapon types.",
       "Not enough ships? Lower the ship cost to increase fleet count."
     ],
-    related: ["economy", "ship-construction", "rewards"]
+    related: ["economy", "ship-cost-formula", "rewards"]
   },
   {
     id: "rewards",
@@ -436,7 +589,7 @@ const MANUAL_ARTICLES_PART_3 = [
       "Disconnected? The game saves your room code for recovery — use the Resume button on the main menu.",
       "Can't start? Only the host can start the design phase."
     ],
-    related: ["economy", "ship-construction", "controls"]
+    related: ["economy", "blueprint-designer", "controls"]
   },
   {
     id: "controls",
@@ -462,7 +615,7 @@ const MANUAL_ARTICLES_PART_3 = [
       "Can't pan camera? Use WASD or hold Space + drag.",
       "Rotate not working? R only works in the designer when a part is focused."
     ],
-    related: ["movement", "combat-styles", "ship-construction"]
+    related: ["movement", "combat-styles", "blueprint-designer"]
   },
   {
     id: "power-protection",
@@ -489,7 +642,7 @@ const MANUAL_ARTICLES_PART_3 = [
       "Power tripping repeatedly? The load is above sustained capacity — upgrade cable or reduce consumers.",
       "Not recovering? Load must drop below 95% of sustained for recovery to begin."
     ],
-    related: ["power", "wiring-infrastructure", "ship-construction"]
+    related: ["power", "wiring-infrastructure", "blueprint-designer"]
   },
   {
     id: "power-demand",
@@ -579,7 +732,7 @@ const MANUAL_ARTICLES_PART_3 = [
       "Repair not stacking well? Each additional source contributes 62% of the previous.",
       "Repair beam not hitting? It's directional — ensure the emitter faces the target."
     ],
-    related: ["support", "defence", "drones", "ship-construction"]
+    related: ["support", "defence", "drones", "blueprint-designer"]
   }
 ];
 
@@ -655,16 +808,17 @@ function formatStat(key, value) {
 
 function relatedForPart(partId) {
   const cat = categoryForPart(partId);
-  const related = [cat];
+  const catArticleMap = { "ship-construction": "blueprint-designer" };
+  const related = [catArticleMap[cat] || cat];
   if (cat === "weapons") related.push("defence", "power", "heat", "projectile-mechanics", "missile-guidance");
   else if (cat === "defence") related.push("weapons", "power", "projectile-mechanics");
   else if (cat === "support") related.push("defence", "command", "repair-mechanics");
-  else if (cat === "command") related.push("ship-construction", "defence", "support");
+  else if (cat === "command") related.push("blueprint-designer", "defence", "support");
   else if (cat === "drones") related.push("weapons", "defence", "repair-mechanics");
   else if (cat === "movement") related.push("combat-styles", "power");
   else if (cat === "power") related.push("heat", "wiring-infrastructure", "power-protection", "power-demand");
   else if (cat === "heat") related.push("power", "wiring-infrastructure");
-  else related.push("power", "heat");
+  else related.push("blueprint-designer", "power", "heat");
   return [...new Set(related.filter((r) => r !== partId))];
 }
 

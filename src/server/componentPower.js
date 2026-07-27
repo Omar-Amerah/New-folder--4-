@@ -459,6 +459,14 @@ function weaponActivity(ship, index, now) {
   const last = ship._weaponIntentAt[index];
   return Number.isFinite(last) && (now - last) < WEAPON_INTENT_HOLD_MS ? 1 : 0;
 }
+function decoyLauncherActivity(ship, index, now) {
+  const launchers = ship.decoyLaunchers || [];
+  const launcher = launchers.find((l) => l.componentIndex === index);
+  if (!launcher) return 1; // pre-initialisation: request power so production can start
+  if (launcher.stock < launcher.capacity) return 1; // producing
+  if (ship._decoyThreatActive) return 0.3; // monitoring
+  return 0; // idle standby
+}
 function propulsionActivity(ship, part) {
   // Gyroscopes and lateral thrusters do no linear work: they request active
   // Power only while turning. Main engines also vector some thrust for turning,
@@ -504,6 +512,7 @@ function coolingActivity(ship) { return clamp01(Number(ship.heatPressure) || 0);
 // pass is equivalent.
 function componentActivityLevel(ship, index, module, part, now, cache = null) {
   if (part.weapon) return weaponActivity(ship, index, now);
+  if (module.type === "decoyLauncher") return decoyLauncherActivity(ship, index, now);
   switch (part.powerCategory) {
     case "propulsion": return propulsionActivity(ship, part);
     case "shields": {

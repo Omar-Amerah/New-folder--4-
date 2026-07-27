@@ -4,8 +4,6 @@ const { PARTS } = require("./components");
 const { getShipComponentCellWorldCoords } = require("./componentGeometry");
 const HeatRules = require("../../public/src/shared/heatRules");
 
-const MIN_OPERATING_POWER = 0.05;
-
 function ensureDecoyRuntime(room) {
   if (!room.decoys) room.decoys = new Map();
   return room.decoys;
@@ -43,11 +41,48 @@ function isGuidedProjectile(projectile) {
     && projectile.life > 0;
 }
 
+function evaluateThreatMetrics(ship, projectile, dangerRadius) {
+  const result = { credible: false, tca: Infinity, currentDistSq: Infinity, predictedDistSq: Infinity };
+  if (!isGuidedProjectile(projectile) || projectile.targetId !== ship.id) return result;
+  const dx = projectile.x - ship.x;
+  const dy = projectile.y - ship.y;
+  const dvx = (projectile.vx || 0) - (ship.vx || 0);
+  const dvy = (projectile.vy || 0) - (ship.vy || 0);
+  result.currentDistSq = dx * dx + dy * dy;
+  const rangeSq = dangerRadius * dangerRadius;
+  // Fast rejection for threats well outside the configured danger radius.
+  if (result.currentDistSq > rangeSq * 4) return result;
+  const dot = dx * dvx + dy * dvy;
+  const vSq = dvx * dvx + dvy * dvy;
+  if (vSq > 0.0001) {
+    result.tca = -dot / vSq;
+  } else {
+    result.tca = Infinity;
+  }
+  if (Number.isFinite(result.tca) && result.tca >= 0) {
+    const cap = Math.min(
+      Number.isFinite(projectile.life) ? projectile.life : Infinity,
+      Number.isFinite(projectile.trackRemaining) ? projectile.trackRemaining : Infinity,
+      6
+    );
+    const t = Math.min(result.tca, cap);
+    result.predictedDistSq = (dx + dvx * t) ** 2 + (dy + dvy * t) ** 2;
+    result.credible = dot < 0 && result.currentDistSq <= rangeSq && result.predictedDistSq <= rangeSq && result.tca <= cap;
+  }
+  return result;
+}
+
+function isCredibleThreat(room, ship, projectile, dangerRadius) {
+  if (!isGuidedProjectile(projectile) || projectile.targetId !== ship.id) return false;
+  if (!areEnemies(room, projectile.ownerId, ship.ownerId)) return false;
+  const decoy = room.decoys?.get?.(projectile.targetId);
+  if (decoy && decoy.parentShipId === ship.id) return false;
+  return evaluateThreatMetrics(ship, projectile, dangerRadius).credible;
+}
+
 function stableThreatFor(room, ship, range) {
-  const rangeSq = range * range;
   let best = null;
-  let bestDistanceSq = Infinity;
-  // Use spatial index for guided missile queries instead of full projectile scan
+  let bestMetrics = null;
   const candidates = room.spatialIndex
     ? room.spatialIndex.queryRangeUnordered(
         "interceptableProjectiles",
@@ -58,18 +93,11 @@ function stableThreatFor(room, ship, range) {
       )
     : (room.bullets || []);
   for (const projectile of candidates) {
-    if (!isGuidedProjectile(projectile) || projectile.targetId !== ship.id) continue;
-    if (!areEnemies(room, projectile.ownerId, ship.ownerId)) continue;
-    const dx = projectile.x - ship.x;
-    const dy = projectile.y - ship.y;
-    const distanceSq = dx * dx + dy * dy;
-    if (distanceSq > rangeSq) continue;
-    // Use numeric entity sequence for stable tie-breaking instead of localeCompare
-    const seqA = Number.isFinite(projectile.authoritativeSequence) ? projectile.authoritativeSequence : 0;
-    const seqB = Number.isFinite(best?.authoritativeSequence) ? best.authoritativeSequence : 0;
-    if (distanceSq < bestDistanceSq || (distanceSq === bestDistanceSq && (seqA < seqB || String(projectile.id || "") < String(best?.id || "")))) {
+    if (!isCredibleThreat(room, ship, projectile, range)) continue;
+    const metrics = evaluateThreatMetrics(ship, projectile, range);
+    if (!bestMetrics || metrics.tca < bestMetrics.tca || (metrics.tca === bestMetrics.tca && metrics.currentDistSq < bestMetrics.currentDistSq)) {
       best = projectile;
-      bestDistanceSq = distanceSq;
+      bestMetrics = metrics;
     }
   }
   return best;
@@ -77,8 +105,6 @@ function stableThreatFor(room, ship, range) {
 
 function collectStableThreats(room, ship, range, output) {
   output.length = 0;
-  const rangeSq = range * range;
-  // Use spatial index for guided missile queries instead of full projectile scan
   const candidates = room.spatialIndex
     ? room.spatialIndex.queryRangeUnordered(
         "interceptableProjectiles",
@@ -89,17 +115,17 @@ function collectStableThreats(room, ship, range, output) {
       )
     : (room.bullets || []);
   for (const projectile of candidates) {
-    if (!isGuidedProjectile(projectile) || projectile.targetId !== ship.id) continue;
-    if (!areEnemies(room, projectile.ownerId, ship.ownerId)) continue;
-    const dx = projectile.x - ship.x;
-    const dy = projectile.y - ship.y;
-    if (dx * dx + dy * dy <= rangeSq) output.push(projectile);
+    if (!isCredibleThreat(room, ship, projectile, range)) continue;
+    output.push(projectile);
   }
-  // Sort by distance with stable tie-breaking using authoritative sequence
+  // Sort by time-to-closest-approach (most imminent first), then predicted distance
+  // at closest approach, then current distance, then authoritative sequence.
   output.sort((a, b) => {
-    const da = (a.x - ship.x) ** 2 + (a.y - ship.y) ** 2;
-    const db = (b.x - ship.x) ** 2 + (b.y - ship.y) ** 2;
-    if (da !== db) return da - db;
+    const ma = evaluateThreatMetrics(ship, a, range);
+    const mb = evaluateThreatMetrics(ship, b, range);
+    if (ma.tca !== mb.tca) return ma.tca - mb.tca;
+    if (ma.predictedDistSq !== mb.predictedDistSq) return ma.predictedDistSq - mb.predictedDistSq;
+    if (ma.currentDistSq !== mb.currentDistSq) return ma.currentDistSq - mb.currentDistSq;
     const seqA = Number.isFinite(a.authoritativeSequence) ? a.authoritativeSequence : 0;
     const seqB = Number.isFinite(b.authoritativeSequence) ? b.authoritativeSequence : 0;
     if (seqA !== seqB) return seqA - seqB;
@@ -245,7 +271,7 @@ function updateDecoyLaunchers(room, ships, dt, now) {
       const alive = (ship.componentHp?.[launcher.componentIndex] ?? 0) > 0;
       const power = alive ? getComponentPowerMultiplier(ship, launcher.componentIndex) : 0;
       const overheated = (ship.componentHeatState?.[launcher.componentIndex] || HeatRules.STATE.NORMAL) >= HeatRules.STATE.OVERHEATED;
-      const operational = alive && power > MIN_OPERATING_POWER && !overheated;
+      const operational = alive && power > 0 && !overheated;
       if (operational && launcher.stock < launcher.capacity) {
         const productionSeconds = Math.max(0.001, Number(config.productionSeconds) || 1);
         launcher.productionProgress = Math.min(1, launcher.productionProgress + dt * power / productionSeconds);
@@ -266,6 +292,7 @@ function updateDecoyLaunchers(room, ships, dt, now) {
       maximumTriggerRange,
       ship._decoyThreatScratch || (ship._decoyThreatScratch = [])
     );
+    ship._decoyThreatActive = threats.length > 0;
     let cursor = Math.max(0, Math.floor(Number(ship._nextDecoyLauncherIndex) || 0)) % Math.max(1, launchers.length);
     for (const threat of threats) {
       let selected = -1;

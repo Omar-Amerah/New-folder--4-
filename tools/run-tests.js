@@ -87,6 +87,7 @@ const GROUPS = {
     "verify-combat-review.js",
     "verify-combat-determinism.js",
     "verify-combat-catchup.js",
+    "verify-defence-weapons.js",
     "verify-repair-target.js",
     "verify-repair-drone-targeting.js",
     "verify-engine-exhaust.js",

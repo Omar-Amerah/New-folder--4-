@@ -149,7 +149,7 @@ const assert = require("assert");
     pdShip.weaponAngles[1] = 0;
     updateShipWeapons(room, pdShip, [pdShip, enemyShip], 0.1, 1000);
 
-    assert.strictEqual(fighterDrone.hull, 6, "Fighter drone takes full 4 HP laser damage");
+    assert.strictEqual(fighterDrone.hull, 7, "Fighter drone takes full 3 HP laser damage");
     console.log("✔ Test 4 passed: Fast and evasive Fighter Drones are hit once aligned.");
   }
 
@@ -277,7 +277,7 @@ const assert = require("assert");
     const enemyShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
     const room = makeRoom([pdShip, enemyShip]);
 
-    const weakMissile = { id: "m1", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 200, y: 100, life: 5, interceptable: true, hp: 4 };
+    const weakMissile = { id: "m1", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 200, y: 100, life: 5, interceptable: true, hp: 3 };
     room.bullets.push(weakMissile);
     pdShip.weaponAngles[1] = 0;
 
@@ -297,7 +297,7 @@ const assert = require("assert");
     pdShip.weaponAngles[1] = 0;
     updateShipWeapons(room, pdShip, [pdShip, enemyShip], 0.1, 1000);
 
-    const expectedShieldDmg = 4 * 0.04; // 0.16
+    const expectedShieldDmg = 3 * 0.04; // 0.12
     assert.ok(Math.abs((50 - enemyShip.shield) - expectedShieldDmg) < 0.01, "Ship damage uses 0.04 multiplier and applies to shield first");
     console.log("✔ Test 14 passed: Ship damage uses 0.04 multiplier and remains shield-first.");
   }

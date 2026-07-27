@@ -9,7 +9,7 @@ const TurretRules = require("./public/src/shared/turretRules");
 const { updateBullets } = require("./src/server/projectiles");
 const { findPointDefenseTarget } = require("./src/server/combat");
 const { initComponentState } = require("./src/server/componentHealth");
-const publicBalance = JSON.parse(fs.readFileSync(path.join(__dirname, "public", "component-balance.json"), "utf8"));
+const publicBalance = JSON.parse(fs.readFileSync(path.join(__dirname, "public", "component-balance.generated.json"), "utf8"));
 
 const SCALE = 13;
 

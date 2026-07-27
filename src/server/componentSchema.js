@@ -20,7 +20,7 @@ const NUMERIC_FIELDS = [
 const WEAPON_NUMERIC_FIELDS = [
   "damage", "fireRate", "range", "radius", "projectileSpeed", "projectileLifetime", "accuracy", "tracking",
   "trackTime", "trackingDelay", "aimSpeed", "arc", "missileHp", "shipDamageMultiplier",
-  "shieldDamageMultiplier", "hullDamageMultiplier", "directDamage", "directImpactBonus",
+  "shieldDamageMultiplier", "hullDamageMultiplier", "directDamage",
   "blastDamage", "blastRadius", "proximityFuseRadius", "innerFullDamageRadius",
   "falloffExponent", "armourPenetration", "cooldown", "maximumExplosionTargets",
   "chargeRampSeconds", "maxChargeDamageBonus", "impactHeatPerDamage"
