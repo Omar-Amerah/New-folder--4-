@@ -495,6 +495,31 @@
 .part-detail-row.is-hot .part-detail-value { color: #fdba74; }
 .part-detail-row.is-cool .part-detail-value { color: #86efac; }
 
+/* --- Command Aura / Fleet Buffs section --------------------------------- */
+
+.part-command-aura {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, .08);
+  border: 1px solid rgba(139, 92, 246, .22);
+}
+
+.part-command-aura.is-inactive {
+  opacity: .55;
+  background: rgba(100, 116, 139, .08);
+  border-color: rgba(100, 116, 139, .22);
+}
+
+.part-command-aura .part-section-heading {
+  margin: 0 0 6px;
+  color: #c4b5fd;
+}
+
+.part-command-aura.is-inactive .part-section-heading {
+  color: #94a3b8;
+}
+
 /* --- Interactive configuration blocks ------------------------------------ */
 
 .part-inspector-config {

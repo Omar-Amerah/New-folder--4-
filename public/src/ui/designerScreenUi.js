@@ -16,6 +16,27 @@ export function closeBlueprintDesigner() {
 }
 
 export async function requestCloseBlueprintDesigner() {
+  const { isEditorDirty } = await import("./savedBlueprintsUi.js");
+  if (isEditorDirty()) {
+    const { state } = await import("../state.js");
+    closeReturnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : dom.closeBlueprintDesignerButton;
+    state.pendingDirtyAction = closeBlueprintDesigner;
+    state.pendingDeleteDesignId = null;
+    state.pendingKickTargetId = null;
+    state.pendingBlueprintDestructiveAction = null;
+    state.pendingServerLeaveAction = null;
+    if (dom.confirmModal) dom.confirmModal.dataset.intent = "dirty-editor";
+    if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Unsaved Changes";
+    if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = "Your current design has unsaved changes. What would you like to do?";
+    if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Save Changes";
+    if (dom.confirmDiscardButton) dom.confirmDiscardButton.hidden = false;
+    if (dom.confirmModal) dom.confirmModal.hidden = false;
+    dom.confirmCancelButton?.focus?.();
+    return false;
+  }
+
   const { wiringReadinessWarning } = await import("./wiringUi.js");
   const warning = wiringReadinessWarning();
   if (!warning) {

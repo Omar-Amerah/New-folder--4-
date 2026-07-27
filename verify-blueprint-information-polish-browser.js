@@ -168,10 +168,10 @@ const artifactDir = path.join("test-artifacts", "blueprint-information-polish");
       const afterDelete = [state.loadedEditorBlueprintId, document.querySelector("#loadedBlueprintName")?.textContent, document.querySelector("#saveDesignButton")?.textContent];
       return { before, afterRename, afterOtherRename, afterDelete };
     });
-    assert.deepEqual(stickyChecks.before, ["Alpha", 'Update "Alpha"']);
-    assert.deepEqual(stickyChecks.afterRename, ["Alpha Prime", 'Update "Alpha Prime"']);
+    assert.deepEqual(stickyChecks.before, ["Alpha", 'Save Changes']);
+    assert.deepEqual(stickyChecks.afterRename, ["Alpha Prime", 'Save Changes']);
     assert.deepEqual(stickyChecks.afterOtherRename, stickyChecks.afterRename);
-    assert.deepEqual(stickyChecks.afterDelete, [null, "Unsaved design", "Save Blueprint"]);
+    assert.deepEqual(stickyChecks.afterDelete, [null, "Unsaved design", "Save Changes"]);
     assert.deepEqual(errors, [], "no unexpected console or page errors");
   } finally {
     if (browser) await browser.close().catch(() => {});

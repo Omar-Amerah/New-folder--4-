@@ -14,7 +14,7 @@ const baseDesign = (droneType = "fighter") => [
 ];
 
 assert.deepEqual(PARTS.droneBay.footprint, { width: 2, height: 2 }, "Drone Bay occupies four cells");
-assert.equal(PARTS.droneBay.category, "Command", "Drone Bay is grouped with command systems");
+assert.equal(PARTS.droneBay.category, "Weapons", "Drone Bay is grouped with weapons systems");
 assert.equal(PARTS.droneBay.rotatable, false, "Drone Bay is non-rotatable");
 assert.equal(PARTS.droneBay.cost, 150);
 assert.equal(PARTS.droneBay.mass, 32);

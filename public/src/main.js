@@ -7,11 +7,11 @@ import { state } from "./state.js";
 import { renderPalette, setPartPaletteSelectionPresentationRefresh } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats, requestResetDesign, requestClearDesign, undoBlueprintEdit, refreshBlueprintSelectionPresentation } from "./ui/designerUi.js";
-import { renderSavedDesigns, initializeSavedBlueprintLibraryControls, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal } from "./ui/savedBlueprintsUi.js";
+import { renderSavedDesigns, initializeSavedBlueprintLibraryControls, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal, confirmDiscardAction, saveCurrentDesignAsCopy, refreshLoadedBlueprintPresentation } from "./ui/savedBlueprintsUi.js";
 import { openBlueprintDesigner, closeBlueprintDesigner, requestCloseBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { initializeDesignerInspector } from "./ui/designerInspectorUi.js";
 import { bindPowerPriorityControls } from "./ui/wiringUi.js";
-import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick } from "./ui/purchaseUi.js";
+import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick, restoreActiveLoadout } from "./ui/purchaseUi.js";
 import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, closeSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
@@ -82,6 +82,7 @@ dom.combatStyleSelect?.addEventListener("change", (e) => {
   import("./design/blueprintStorage.js").then((mod) => {
     mod.persistDesign(state.design, state.wiring, state.combatStyle);
   });
+  refreshLoadedBlueprintPresentation();
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
     send({ type: "deploy", design: state.design, wiring: state.wiring, combatStyle: state.combatStyle });
   }
@@ -90,6 +91,12 @@ dom.saveDesignButton?.addEventListener("click", () => {
   import("./ui/savedBlueprintsUi.js").then((mod) => {
     mod.saveCurrentDesign();
   });
+});
+dom.saveAsCopyButton?.addEventListener("click", () => {
+  saveCurrentDesignAsCopy();
+});
+dom.confirmDiscardButton?.addEventListener("click", () => {
+  confirmDiscardAction();
 });
 dom.resetButton.addEventListener("click", requestResetDesign);
 dom.clearGridButton.addEventListener("click", requestClearDesign);
@@ -233,6 +240,7 @@ async function initializeClient() {
   initializeDesignerInspector();
   bindPowerPriorityControls();
   initializeSavedBlueprintLibraryControls();
+  restoreActiveLoadout();
   renderPartInspector();
   renderBuildGrid();
   renderLocalStats();

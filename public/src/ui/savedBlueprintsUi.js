@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { computeStats } from "../design/componentStats.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
-import { normalizeDesign, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts } from "../design/blueprintStorage.js";
+import { normalizeDesign, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
 import { validateBlueprint } from "../design/blueprintValidation.js";
 import { showToast } from "./toastUi.js";
 import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
@@ -13,7 +13,6 @@ import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./matchStatusUi.js";
-import { blueprintComparisonRows, formatDelta, formatNumber } from "./section13bUi.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory, handleBlueprintConfirmModalAction, closeBlueprintConfirmModalIfPending } from "./designerUi.js";
 import { confirmPendingDesignerClose, cancelPendingDesignerClose } from "./designerScreenUi.js";
 import { resetWiringEditorState, wiringReadinessWarning } from "./wiringUi.js";
@@ -38,16 +37,31 @@ export function previewColor() {
   return (me && me.color) || "#8fb4ff";
 }
 
+export function isEditorDirty() {
+  const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
+  if (!existing) return true;
+  const modulesSame = JSON.stringify(existing.blueprint || []) === JSON.stringify(state.design || []);
+  const wiringSame = JSON.stringify(normalizeWiring(existing.wiring, existing.blueprint)) === JSON.stringify(normalizeWiring(state.wiring, state.design));
+  const styleSame = (existing.combatStyle || "hold") === (state.combatStyle || "hold");
+  return !(modulesSame && wiringSame && styleSame);
+}
+
 export function refreshLoadedBlueprintPresentation() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
   if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved design";
-  if (dom.saveDesignButton) dom.saveDesignButton.textContent = existing ? `Update "${existing.name}"` : "Save Blueprint";
   if (dom.loadedBlueprintState) {
-    const unchanged = existing
-      && JSON.stringify(existing.blueprint || []) === JSON.stringify(state.design || [])
-      && JSON.stringify(normalizeWiring(existing.wiring, existing.blueprint)) === JSON.stringify(normalizeWiring(state.wiring, state.design));
-    dom.loadedBlueprintState.textContent = unchanged ? "Saved" : "Unsaved Changes";
-    dom.loadedBlueprintState.classList.toggle("saved", Boolean(unchanged));
+    const dirty = isEditorDirty();
+    dom.loadedBlueprintState.textContent = dirty ? "Unsaved changes" : "Saved";
+    dom.loadedBlueprintState.classList.toggle("saved", !dirty);
+    dom.loadedBlueprintState.classList.toggle("unsaved", dirty);
+  }
+  if (dom.saveDesignButton) {
+    const dirty = isEditorDirty();
+    const hasExisting = Boolean(existing);
+    dom.saveDesignButton.disabled = !dirty && hasExisting;
+    dom.saveDesignButton.title = (!dirty && hasExisting) ? "No unsaved changes" : "";
+    dom.saveDesignButton.classList.toggle("is-primary", dirty);
+    dom.saveDesignButton.classList.toggle("secondary", !dirty);
   }
 }
 
@@ -58,6 +72,9 @@ function styleLabel(style) {
 
 export function renderSavedDesigns() {
   if (!dom.savedDesignList) return;
+  if (dom.savedBlueprintCount) {
+    dom.savedBlueprintCount.textContent = `${state.savedDesigns.length} / ${MAX_SAVED_DESIGNS}`;
+  }
   if (isSavedDesignNameFocused()) return;
   dom.savedDesignList.textContent = "";
   if (!state.savedDesigns.length) {
@@ -71,8 +88,6 @@ export function renderSavedDesigns() {
   }
 
   const color = previewColor();
-  const comparison = buildComparison();
-  if (comparison) dom.savedDesignList.appendChild(comparison);
 
   const query = String(state.savedBlueprintSearch || "").trim().toLowerCase();
   let designs = state.savedDesigns.filter(saved => !query || saved.name.toLowerCase().includes(query));
@@ -124,13 +139,11 @@ function buildCard(saved, color) {
       <div class="bp-chips">${isInvalid ? escapeHtml(saved.invalidReason || "Invalid blueprint") : statChips(stats)}</div>
     </div>
     <div class="bp-actions saved-design-actions">
-      <button type="button" class="primary" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Load</button>
-      <button type="button" data-saved-action="edit" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit</button>
-      <button type="button" data-saved-action="compare" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""} title="Compare with current editor design">Compare</button>
+      <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Load Copy</button>
+      <button type="button" class="primary" data-saved-action="edit" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit Original</button>
       <details class="bp-overflow">
         <summary aria-label="More actions for ${escapeHtml(saved.name)}" title="More actions">⋯</summary>
         <div class="bp-overflow-menu">
-          <button type="button" class="bp-mobile-only" data-saved-action="compare" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Compare</button>
           <button type="button" data-saved-action="duplicate" data-saved-id="${escapeHtml(saved.id)}">Duplicate</button>
           <button type="button" class="danger" data-saved-action="delete" data-saved-id="${escapeHtml(saved.id)}">Delete</button>
         </div>
@@ -281,9 +294,7 @@ export function handleSavedDesignKeyboardClick(event) {
 }
 
 export function runSavedDesignAction(action, id) {
-  if (action === "compare") compareSavedDesign(id);
-  else if (action === "clearCompare") { state.compareSavedBlueprintId = null; renderSavedDesigns(); }
-  else if (action === "load") loadSavedDesign(id, false);
+  if (action === "load") loadSavedDesign(id, false);
   else if (action === "edit") loadSavedDesign(id, true);
   else if (action === "duplicate") duplicateSavedDesign(id);
   else if (action === "delete") deleteSavedDesign(id);
@@ -344,6 +355,7 @@ export function deleteSavedDesign(id) {
 
 export function openDeleteDesignModal(saved) {
   pendingUnwiredSave = false;
+  state.pendingDirtyAction = null;
   modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.pendingDeleteDesignId = saved.id;
   state.pendingKickTargetId = null;
@@ -362,6 +374,8 @@ export function closeConfirmModal() {
   state.pendingDeleteDesignId = null;
   state.pendingKickTargetId = null;
   state.pendingServerLeaveAction = null;
+  state.pendingDirtyAction = null;
+  if (dom.confirmDiscardButton) dom.confirmDiscardButton.hidden = true;
   if (dom.confirmModal) {
     delete dom.confirmModal.dataset.intent;
     dom.confirmModal.hidden = true;
@@ -372,6 +386,20 @@ export function closeConfirmModal() {
 
 export function confirmModalAction() {
   if (confirmPendingDesignerClose()) return;
+  if (state.pendingDirtyAction) {
+    const action = state.pendingDirtyAction;
+    state.pendingDirtyAction = null;
+    if (dom.confirmDiscardButton) dom.confirmDiscardButton.hidden = true;
+    if (dom.confirmModal) {
+      delete dom.confirmModal.dataset.intent;
+      dom.confirmModal.hidden = true;
+    }
+    modalReturnFocus = null;
+    void saveCurrentDesign({ skipWiringWarning: true }).then((saved) => {
+      if (saved) action();
+    });
+    return;
+  }
   if (pendingUnwiredSave) {
     pendingUnwiredSave = false;
     if (dom.confirmModal) {
@@ -425,6 +453,16 @@ function loadSavedDesign(id, editSource = true) {
     showToast(saved.invalidReason || "That blueprint is invalid.", "warning");
     return;
   }
+  if (isEditorDirty()) {
+    openDirtyEditorModal(() => doLoadSavedDesign(id, editSource));
+    return;
+  }
+  doLoadSavedDesign(id, editSource);
+}
+
+function doLoadSavedDesign(id, editSource = true) {
+  const saved = state.savedDesigns.find((design) => design.id === id);
+  if (!saved) return;
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
   // Load an independent copy of the saved wiring alongside the modules, and
@@ -459,6 +497,37 @@ function loadSavedDesign(id, editSource = true) {
   showToast(editSource ? `Editing ${saved.name}` : `Loaded ${saved.name} as a new design`, "good");
 }
 
+function openDirtyEditorModal(pendingAction) {
+  state.pendingDirtyAction = pendingAction;
+  state.pendingDeleteDesignId = null;
+  state.pendingKickTargetId = null;
+  state.pendingBlueprintDestructiveAction = null;
+  state.pendingServerLeaveAction = null;
+  pendingUnwiredSave = false;
+  modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (dom.confirmModal) dom.confirmModal.dataset.intent = "dirty-editor";
+  if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Unsaved Changes";
+  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = "Your current design has unsaved changes. What would you like to do?";
+  if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Save Changes";
+  if (dom.confirmDiscardButton) dom.confirmDiscardButton.hidden = false;
+  if (dom.confirmModal) dom.confirmModal.hidden = false;
+  dom.confirmCancelButton?.focus?.();
+}
+
+export function confirmDiscardAction() {
+  if (!state.pendingDirtyAction) return false;
+  const action = state.pendingDirtyAction;
+  state.pendingDirtyAction = null;
+  if (dom.confirmDiscardButton) dom.confirmDiscardButton.hidden = true;
+  if (dom.confirmModal) {
+    delete dom.confirmModal.dataset.intent;
+    dom.confirmModal.hidden = true;
+  }
+  modalReturnFocus = null;
+  action();
+  return true;
+}
+
 export function initializeSavedBlueprintLibraryControls() {
   if (dom.savedBlueprintSearch && dom.savedBlueprintSearch.dataset.bound !== "true") {
     dom.savedBlueprintSearch.value = state.savedBlueprintSearch || "";
@@ -476,15 +545,11 @@ export function initializeSavedBlueprintLibraryControls() {
     });
     dom.savedBlueprintSort.dataset.bound = "true";
   }
-  if (dom.newBlueprintButton && dom.newBlueprintButton.dataset.bound !== "true") {
-    dom.newBlueprintButton.addEventListener("click", () => {
-      state.loadedEditorBlueprintId = null;
-      refreshLoadedBlueprintPresentation();
-      document.dispatchEvent(new CustomEvent("designer-inspector-activate", { detail: { tab: "design" } }));
-      showToast("Current ship will save as a new blueprint", "good");
-    });
-    dom.newBlueprintButton.dataset.bound = "true";
-  }
+}
+
+export async function saveCurrentDesignAsCopy({ skipWiringWarning = false } = {}) {
+  state.loadedEditorBlueprintId = null;
+  return saveCurrentDesign({ skipWiringWarning });
 }
 
 export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
@@ -589,25 +654,3 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
 }
 
 
-function compareSavedDesign(id) {
-  const saved = state.savedDesigns.find((design) => design.id === id);
-  if (!saved || saved.invalid) return;
-  state.compareSavedBlueprintId = id;
-  renderSavedDesigns();
-}
-
-function buildComparison() {
-  const saved = state.savedDesigns.find((design) => design.id === state.compareSavedBlueprintId);
-  if (!saved) return null;
-  const panel = document.createElement("section");
-  panel.className = "blueprint-comparison";
-  panel.setAttribute("aria-label", `Comparing current design with ${saved.name}`);
-  const rows = blueprintComparisonRows(state.design, saved.blueprint, state.wiring, saved.wiring);
-  panel.innerHTML = `
-    <div class="section-heading compact"><h3>Comparison: ${escapeHtml(saved.name)}</h3><button type="button" class="secondary" data-saved-action="clearCompare" data-saved-id="${escapeHtml(saved.id)}">Clear</button></div>
-    <div class="comparison-grid" role="table" aria-label="Current design versus saved blueprint statistics">
-      <div role="row" class="comparison-row comparison-head"><span>Stat</span><span>Current</span><span>Saved</span><span>Difference</span></div>
-      ${rows.map((row) => `<div role="row" class="comparison-row"><span>${escapeHtml(row.label)}</span><span>${formatNumber(row.current)} ${escapeHtml(row.unit)}</span><span>${formatNumber(row.saved)} ${escapeHtml(row.unit)}</span><span aria-label="Difference ${formatDelta(row.delta, row.unit)}">${formatDelta(row.delta, row.unit)}</span></div>`).join("")}
-    </div>`;
-  return panel;
-}

@@ -19,6 +19,7 @@
 // constant is restated here.
 
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatDistance, formatSpeed, formatDamage, formatPercent } from "./statFormatting.js";
+import { GENERATED_BALANCE } from "../generatedBalance.js";
 
 // ---------------------------------------------------------------------------
 // Value hygiene
@@ -77,9 +78,6 @@ export const FAMILIES = ["structure", "power", "propulsion", "weapon", "defence"
 /** Map a component onto the presentation family whose rules describe it best. */
 export function componentFamily(type, stat = {}) {
   if (type === "core" || type === "backupCore" || stat.category === "Command") return "command";
-  // Palette placement and capability family are related but not identical:
-  // Drone Bays live under Command because their capability is squad control,
-  // rather than a direct-fire weapon profile.
   if (stat.category === "Weapons") return "weapon";
   if (stat.category === "Defence") return "defence";
   if (stat.category === "Power" || (stat.powerGeneration || 0) > 0) return "power";
@@ -634,6 +632,127 @@ function advancedSections(type, stat, family, ledger, context) {
   return sections;
 }
 
+// ---------------------------------------------------------------------------
+// Command Aura / Fleet Buffs section
+// ---------------------------------------------------------------------------
+
+/**
+ * Central mapping from aura stat key to human-readable label and formatting.
+ * Each entry describes how to render one multiplier:
+ *   - label: display name for the stat
+ *   - format: function(raw) → display string, or null to hide
+ *   - reduction: true when a value below 1 is a beneficial reduction
+ *     (e.g. 0.9 = "10% shorter delay") rather than a penalty.
+ */
+const AURA_STAT_META = {
+  weaponAccuracyMultiplier:        { label: "Weapon Accuracy",        reduction: false },
+  weaponTrackingMultiplier:        { label: "Weapon Tracking",        reduction: false },
+  turretAimSpeedMultiplier:        { label: "Turret Traverse Speed",  reduction: false },
+  targetAcquisitionMultiplier:     { label: "Target Acquisition",     reduction: false },
+  pointDefenceTrackingMultiplier:  { label: "Point-Defence Tracking", reduction: false },
+  flakTrackingMultiplier:          { label: "Flak Tracking",          reduction: false },
+  interceptionReactionMultiplier:  { label: "Interception Reaction",  reduction: false },
+  shieldRegenMultiplier:           { label: "Shield Regeneration",    reduction: false },
+  shieldRestartDelayMultiplier:    { label: "Shield Restart Delay",   reduction: true  },
+  repairRateMultiplier:            { label: "Repair Rate",            reduction: false },
+  heatDissipationMultiplier:       { label: "Heat Dissipation",       reduction: false },
+  overheatRecoveryMultiplier:      { label: "Overheat Recovery",      reduction: false },
+  accelerationMultiplier:          { label: "Acceleration",          reduction: false },
+  turnRateMultiplier:              { label: "Turn Rate",              reduction: false },
+  sensorRangeMultiplier:           { label: "Sensor Range",           reduction: false },
+  missileTrackingResistanceMultiplier: { label: "Missile Tracking Resistance", reduction: false },
+  targetRetentionMultiplier:       { label: "Target Retention",       reduction: false }
+};
+
+/**
+ * Format an aura multiplier for display.
+ * - Multipliers > 1 are shown as positive percentages (e.g. 1.08 → "+8%").
+ * - Reduction multipliers < 1 with reduction:true are shown as meaningful
+ *   reductions (e.g. 0.9 → "10% shorter").
+ * - Neutral values (1.0) are hidden (return null).
+ */
+export function formatAuraModifier(key, raw) {
+  const meta = AURA_STAT_META[key];
+  if (!meta) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || Math.abs(value - 1) < 1e-9) return null;
+  if (value > 1) {
+    const pct = Math.round((value - 1) * 100);
+    return `+${pct}%`;
+  }
+  if (meta.reduction) {
+    const pct = Math.round((1 - value) * 100);
+    return `${pct}% shorter`;
+  }
+  // Non-reduction multipliers below 1 are penalties; show as reduction
+  const pct = Math.round((1 - value) * 100);
+  return `-${pct}%`;
+}
+
+const AURA_TYPE_LABELS = {
+  command: "Command",
+  fireControl: "Fire Control",
+  fleetDefence: "Fleet Defence",
+  shield: "Shield",
+  engineering: "Engineering",
+  propulsion: "Propulsion",
+  ewar: "Electronic Warfare"
+};
+
+/**
+ * Context rows for the aura section: aura range, read from the authoritative
+ * balance data.
+ */
+export function commandAuraContextRows() {
+  const cfg = GENERATED_BALANCE?.commandAura || {};
+  const range = Number(cfg.range) || 800;
+  return [
+    statRow("aura.range", "Aura Range", formatDistance(range))
+  ];
+}
+
+/**
+ * Buff rows for the aura section: one row per meaningful multiplier emitted
+ * by this component's aura. Neutral (1.0) values are hidden.
+ */
+export function commandAuraBuffRows(stat) {
+  const aura = stat?.aura;
+  if (!aura) return [];
+  const rows = [];
+  for (const [key, raw] of Object.entries(aura)) {
+    if (key === "type") continue;
+    const meta = AURA_STAT_META[key];
+    if (!meta) continue;
+    const formatted = formatAuraModifier(key, raw);
+    if (!formatted) continue;
+    rows.push(statRow(`aura.${key}`, meta.label, formatted, { kind: "modifier", raw }));
+  }
+  return rows;
+}
+
+/**
+ * Build the complete Command Aura / Fleet Buffs section for the inspector.
+ * Returns null when the component has no aura.
+ */
+export function commandAuraSection(stat, ledger, context = {}) {
+  const aura = stat?.aura;
+  if (!aura) return null;
+  const typeLabel = AURA_TYPE_LABELS[aura.type] || aura.type;
+  const contextRows = commandAuraContextRows();
+  const buffRows = commandAuraBuffRows(stat);
+  const allRows = [...contextRows, ...buffRows];
+  const kept = ledger.take(allRows);
+  if (!kept.length) return null;
+  const inactive = context.auraInactive === true;
+  return {
+    id: "commandAura",
+    title: `${typeLabel} Aura`,
+    rows: kept,
+    inactive,
+    note: inactive ? "Aura is inactive — component is unpowered, disconnected, or overheated." : null
+  };
+}
+
 function powerBandLabel(powerCategory) {
   const labels = {
     propulsion: "Propulsion",
@@ -714,6 +833,7 @@ export function buildComponentInspectorModel(type, stat, context = {}) {
   // thermal component states its heat role once, in the summary.
   const thermalSummary = thermalSummaryRows(type, stat, ledger);
   const capability = ledger.take(capabilityRows(type, stat, family, context));
+  const commandAura = commandAuraSection(stat, ledger, context);
   const warnings = warningsFor(type, stat, family, context);
   const requirements = requirementsFor(type, stat, context);
   const sections = advancedSections(type, stat, family, ledger, context);
@@ -732,6 +852,7 @@ export function buildComponentInspectorModel(type, stat, context = {}) {
     },
     core,
     capability,
+    commandAura,
     requirements,
     thermalSummary,
     warnings,

@@ -595,7 +595,7 @@ async function inspectCircleSafety(page) {
           panelHidden: panel.hidden,
           issueRect: issueRect ? { top: issueRect.top, bottom: issueRect.bottom, width: issueRect.width, height: issueRect.height } : null,
           inspectorRect: inspectorRect ? { top: inspectorRect.top, bottom: inspectorRect.bottom, width: inspectorRect.width, height: inspectorRect.height } : null,
-          summaryColumns: getComputedStyle(document.querySelector(".wiring-compact-stats")).gridTemplateColumns.split(" ").length
+          summaryColumns: getComputedStyle(document.querySelector(".wiring-stat-grid")).gridTemplateColumns.split(" ").length
         };
       });
       assert.ok(metrics.panelOverflow <= 1 && metrics.inspectorOverflow <= 1, `${width}x${height}: no horizontal inspector overflow (${JSON.stringify(metrics)})`);

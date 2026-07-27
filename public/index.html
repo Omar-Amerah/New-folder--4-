@@ -375,6 +375,7 @@
         <p id="confirmModalMessage">This cannot be undone.</p>
         <div class="confirm-actions">
           <button id="confirmCancelButton" type="button" class="secondary">Cancel</button>
+          <button id="confirmDiscardButton" type="button" class="secondary" hidden>Discard Changes</button>
           <button id="confirmAcceptButton" type="button">Delete</button>
         </div>
       </div>
@@ -580,11 +581,14 @@
             <div id="designerDesignPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerDesignTab">
               <div class="designer-right-actions">
                 <div class="designer-save-context">
-                  <span>Current Design</span>
-                  <strong id="loadedBlueprintName">Unsaved design</strong>
-                  <small id="loadedBlueprintState">Unsaved Changes</small>
+                  <span class="designer-save-label">Current Design</span>
+                  <strong id="loadedBlueprintName" class="designer-save-name">Unsaved design</strong>
+                  <span id="loadedBlueprintState" class="designer-save-status">Unsaved changes</span>
                 </div>
-                <button id="saveDesignButton" type="button" class="secondary">Save Blueprint</button>
+                <div class="current-design-actions">
+                  <button id="saveDesignButton" type="button" class="is-primary">Save Changes</button>
+                  <button id="saveAsCopyButton" type="button" class="secondary">Save as Copy</button>
+                </div>
               </div>
               <section class="inspector-section" aria-labelledby="selectedComponentHeading">
                 <div class="section-heading compact"><h2 id="selectedComponentHeading">Selected Component</h2></div>
@@ -652,9 +656,18 @@
             </div>
 
             <div id="designerBlueprintsPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerBlueprintsTab" hidden>
+              <div class="loadout-strip-section">
+                <div class="loadout-strip-header">
+                  <span class="loadout-strip-label">Purchase Loadout</span>
+                </div>
+                <div id="loadoutManagerTabs" class="loadout-tabs loadout-strip-tabs" role="tablist" aria-label="Manage ship loadouts"></div>
+                <div id="loadoutManagerEditor" class="loadout-editor loadout-manager-editor" hidden></div>
+              </div>
+
               <div class="saved-designs">
                 <div class="section-heading compact">
                   <h2>Saved Blueprints</h2>
+                  <span id="savedBlueprintCount" class="library-capacity"></span>
                 </div>
                 <div class="blueprint-library-tools">
                   <label class="sr-only" for="savedBlueprintSearch">Search blueprints</label>
@@ -665,18 +678,8 @@
                     <option value="name">Name</option>
                     <option value="updated">Recently Updated</option>
                   </select>
-                  <button id="newBlueprintButton" type="button" class="secondary">+ New</button>
                 </div>
                 <div id="savedDesignList" class="saved-design-list"></div>
-              </div>
-
-              <div class="saved-designs loadout-manager">
-                <div class="section-heading compact">
-                  <h2>Loadouts</h2>
-                </div>
-                <p class="loadout-manager-hint">Group saved blueprints into loadouts. The purchase bar shows the loadout you pick here.</p>
-                <div id="loadoutManagerTabs" class="loadout-tabs" role="tablist" aria-label="Manage ship loadouts"></div>
-                <div id="loadoutManagerEditor" class="loadout-editor loadout-manager-editor" hidden></div>
               </div>
             </div>
           </div>

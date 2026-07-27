@@ -63,6 +63,7 @@ export function renderPartInspector() {
     ${headerMarkup(type, model)}
     ${coreSpecMarkup(model)}
     ${capabilityMarkup(model)}
+    ${commandAuraMarkup(model)}
     ${operationalOverviewMarkup(type, model)}
     ${warningsMarkup(model)}
     ${droneBayControlsMarkup(type)}
@@ -295,6 +296,23 @@ function warningsMarkup(model) {
         <span class="part-warning-text">${escapeHtml(warning.body)}</span>
       </div>
     </div>`).join("");
+}
+
+function commandAuraMarkup(model) {
+  const section = model.commandAura;
+  if (!section) return "";
+  return `
+    <section class="part-command-aura${section.inactive ? " is-inactive" : ""}" aria-label="${escapeHtml(section.title)}">
+      <h4 class="part-section-heading">${escapeHtml(section.title)}</h4>
+      <div class="part-detail-list">
+        ${section.rows.map((row) => `
+          <div class="part-detail-row${row.tone ? ` is-${row.tone}` : ""}">
+            <span class="part-spec-label">${escapeHtml(row.label)}</span>
+            <strong class="part-detail-value">${escapeHtml(row.value)}</strong>
+          </div>`).join("")}
+      </div>
+      ${section.note ? `<p class="part-accordion-note">${escapeHtml(section.note)}</p>` : ""}
+    </section>`;
 }
 
 function accordionMarkup(section, openState) {

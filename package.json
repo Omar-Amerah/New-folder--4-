@@ -64,6 +64,7 @@
     "test:wiring-tier-status-browser": "npm run build && node verify-wiring-tier-status-browser.js",
     "test:auto-wire-browser": "npm run build && node verify-auto-wire-browser.js",
     "test:wiring-inspect-focus-browser": "npm run build && node verify-wiring-inspect-focus-browser.js",
+    "test:wiring-summary-cards-browser": "npm run build && node verify-wiring-summary-cards-browser.js",
     "test:power-allocation-foundation": "node verify-power-allocation-foundation.js",
     "test:power-flow": "node verify-power-flow.js",
     "test:power-policy": "node verify-power-allocation-foundation.js",

@@ -103,6 +103,9 @@
 
 .loadout-tab {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 22px;
   padding: 2px 10px;
   border: 1px solid rgba(174, 199, 231, 0.2);
@@ -129,7 +132,7 @@
 .loadout-tab-add,
 .loadout-tab-del {
   padding: 2px 8px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -207,6 +210,91 @@
   gap: 2px;
 }
 
+/* ---- Loadout strip (Blueprint screen, above saved list) ---- */
+
+.loadout-strip-section {
+  padding: 8px 9px 12px;
+  border: 1px solid rgba(174, 199, 231, 0.14);
+  border-radius: 9px;
+  background: rgba(7, 12, 20, 0.82);
+  margin-bottom: 8px;
+}
+
+.loadout-strip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.loadout-strip-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.loadout-strip-tabs {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+.loadout-tab-menu {
+  position: relative;
+  z-index: 30;
+}
+
+.loadout-tab-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.loadout-tab-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.loadout-menu-dropdown {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  padding: 4px;
+  border: 1px solid rgba(174, 199, 231, 0.22);
+  border-radius: 7px;
+  background: rgba(7, 12, 20, 0.98);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+}
+
+.loadout-menu-dropdown button {
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.loadout-menu-dropdown button:hover {
+  border-color: rgba(56, 213, 255, 0.3);
+  background: rgba(56, 213, 255, 0.08);
+}
+
+.loadout-menu-dropdown button.danger {
+  color: #ffb4b4;
+}
+
+.loadout-menu-dropdown button.danger:hover {
+  border-color: rgba(255, 107, 129, 0.35);
+  background: rgba(255, 107, 129, 0.1);
+}
+
 /* ---- Loadout maker (Blueprint screen) ---- */
 
 .loadout-manager-hint {
@@ -214,12 +302,6 @@
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
-}
-
-.loadout-manager .loadout-tabs {
-  flex-wrap: wrap;
-  overflow-x: visible;
-  margin-bottom: 6px;
 }
 
 .loadout-manager-editor {

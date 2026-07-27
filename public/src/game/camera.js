@@ -94,6 +94,11 @@ export function centerCameraOnShips(ships) {
   state.camera.x = live.reduce((sum, s) => sum + finite(s.x), 0) / live.length; state.camera.y = live.reduce((sum, s) => sum + finite(s.y), 0) / live.length;
   Object.assign(state.camera, clampCameraToWorld(state.camera)); return true;
 }
+export function centerCameraOnPoint(point, zoom) {
+  if (!point || !Number.isFinite(Number(point?.x)) || !Number.isFinite(Number(point?.y))) return false;
+  state.camera.panTarget = { x: Number(point.x), y: Number(point.y), zoom: Number.isFinite(Number(zoom)) ? clamp(Number(zoom), CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM) : null };
+  return true;
+}
 export function resetCameraZoomToFit() { const rect = canvasCssRect(); const fitZoom = clamp(Math.min(rect.width / 1300 || 0, rect.height / 820 || 0), 0.42, 0.82); state.camera.manualZoom = null; state.camera.zoom = fitZoom; Object.assign(state.camera, clampCameraToWorld(state.camera)); }
 
 export function updateCamera(dt) {
@@ -104,8 +109,21 @@ export function updateCamera(dt) {
   if (state.keys.has("arrowright") || state.keys.has("d")) { state.camera.x += panSpeed; moved = true; }
   if (state.keys.has("arrowup") || state.keys.has("w")) { state.camera.y -= panSpeed; moved = true; }
   if (state.keys.has("arrowdown") || state.keys.has("s")) { state.camera.y += panSpeed; moved = true; }
-  if (moved) state.camera.follow = false;
-  if (state.camera.follow) {
+  if (moved) { state.camera.follow = false; state.camera.panTarget = null; }
+  if (state.camera.panTarget) {
+    const target = state.camera.panTarget;
+    const alpha = 1 - Math.pow(0.5, Math.min(250, dt * 1000) / CAMERA_FOLLOW_HALF_LIFE_MS);
+    state.camera.x += (target.x - state.camera.x) * alpha;
+    state.camera.y += (target.y - state.camera.y) * alpha;
+    if (target.zoom != null) {
+      state.camera.zoom += (target.zoom - state.camera.zoom) * alpha;
+      state.camera.manualZoom = state.camera.zoom;
+    }
+    if (Math.abs(target.x - state.camera.x) < 1 && Math.abs(target.y - state.camera.y) < 1 && (target.zoom == null || Math.abs(target.zoom - state.camera.zoom) < 0.01)) {
+      state.camera.panTarget = null;
+      state.camera.follow = true;
+    }
+  } else if (state.camera.follow) {
     const selected = [...state.selectedShipIds];
     const focusShips = selected.length ? (state.snapshot?.ships || []).filter((ship) => state.selectedShipIds.has(ship.id) && ship.alive) : ownLiveShips();
     if (focusShips.length) {

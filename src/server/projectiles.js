@@ -159,7 +159,10 @@ function missileEcmModifier(room, target, cache) {
   let mod = cache.get(target.id);
   if (mod === undefined) {
     const { effectiveComponentBonus } = require("./heat");
-    mod = Math.max(0, 1 - Math.min(MISSILE_GUIDANCE.ecmCap, effectiveComponentBonus(target, "ecmStrength")));
+    const ecm = Math.max(0, 1 - Math.min(MISSILE_GUIDANCE.ecmCap, effectiveComponentBonus(target, "ecmStrength")));
+    const { getCommandAuraMultiplier } = require("./commandAuras");
+    const resistance = getCommandAuraMultiplier(target, "missileTrackingResistanceMultiplier");
+    mod = Math.max(0, ecm / resistance);
     cache.set(target.id, mod);
   }
   return mod;

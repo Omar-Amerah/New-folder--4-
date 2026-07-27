@@ -45,7 +45,6 @@ const AURA_STAT_KEYS = new Set([
   "overheatRecoveryMultiplier",
   "accelerationMultiplier",
   "turnRateMultiplier",
-  "formationResponseMultiplier",
   "sensorRangeMultiplier",
   "missileTrackingResistanceMultiplier",
   "targetRetentionMultiplier"

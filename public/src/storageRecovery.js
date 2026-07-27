@@ -14,7 +14,7 @@ export function categoryPresence(storage = getStorage()) {
 }
 export function removeKey(key, storage = getStorage()) { try { storage?.removeItem(key); return true; } catch { return false; } }
 export function clearCurrentBlueprint() { return removeKey(LOCAL_DESIGN_KEY) && removeKey(LOCAL_DESIGN_BACKUP_KEY); }
-export function clearSavedBlueprintsAndLoadouts() { return removeKey(LOCAL_SAVED_DESIGNS_KEY) && removeKey(LOCAL_LOADOUTS_KEY); }
+export function clearSavedBlueprintsAndLoadouts() { return removeKey(LOCAL_SAVED_DESIGNS_KEY) && removeKey(LOCAL_LOADOUTS_KEY) && removeKey("modular-fleet-active-loadout-v1"); }
 export function forgetRecoverableRoom(storage = getStorage()) {
   const room = normalizeRoomCode(storage?.getItem?.(LOCAL_ACTIVE_ROOM_KEY));
   if (room) clearResumeCredential(room);

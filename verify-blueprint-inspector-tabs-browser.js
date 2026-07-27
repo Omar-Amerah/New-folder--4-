@@ -8,6 +8,17 @@ const { chromium } = require("playwright");
 const { uniquePort, startServer, waitForServer, launchChromium } = require("./verify-pixi-browser-support.js");
 
 const artifactDir = path.join("test-artifacts", "blueprint-inspector-tabs");
+
+async function discardDirtyModalIfPresent(page) {
+  const discardButton = page.locator("#confirmDiscardButton");
+  try {
+    await discardButton.waitFor({ state: "visible", timeout: 500 });
+    await discardButton.click();
+  } catch {
+    // Modal did not appear; continue.
+  }
+}
+
 const viewports = [
   { width: 1920, height: 1080 },
   { width: 1440, height: 900 },
@@ -148,7 +159,7 @@ const viewports = [
     assert.equal(await page.locator("#designerBlueprintsPanel .saved-designs").first().isVisible(), true);
     assert.equal(await page.locator("#loadoutManagerTabs").isVisible(), true);
     assert.equal(await page.locator(".bp-card").count(), 2);
-    for (const action of ["load", "edit", "compare"]) {
+    for (const action of ["load", "edit"]) {
       assert.equal(await page.locator(`.bp-card[data-saved-id='alpha'] [data-saved-action='${action}']`).first().isVisible(), true);
     }
     const overflow = page.locator(".bp-card[data-saved-id='alpha'] .bp-overflow");
@@ -161,14 +172,14 @@ const viewports = [
     await overflow.locator("[data-saved-action='duplicate']").click();
     assert.equal(await page.locator(".bp-card").count(), 3, "Duplicate creates an independent blueprint card");
 
-    await page.locator(".bp-card[data-saved-id='alpha'] [data-saved-action='compare']").first().click();
-    assert.equal(await page.locator(".blueprint-comparison").isVisible(), true);
     await page.locator(".bp-card[data-saved-id='alpha'] [data-saved-action='edit']").first().click();
+    await discardDirtyModalIfPresent(page);
     await page.waitForFunction(() => window.__mfaState.designerInspectorTab === "design");
     await assertTopTab(page, "design", "designerDesignPanel");
     assert.equal(await page.evaluate(() => window.__mfaState.loadedEditorBlueprintId), "alpha");
     await page.locator("#designerBlueprintsTab").click();
     await page.locator(".bp-card[data-saved-id='beta'] [data-saved-action='load']").click();
+    await discardDirtyModalIfPresent(page);
     await page.waitForFunction(() => window.__mfaState.designerInspectorTab === "design");
     await assertTopTab(page, "design", "designerDesignPanel");
     assert.equal(await page.evaluate(() => window.__mfaState.loadedEditorBlueprintId), null);
@@ -253,7 +264,6 @@ const viewports = [
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(async () => {
       document.querySelector("#toastStack")?.replaceChildren();
-      window.__mfaState.compareSavedBlueprintId = null;
       (await import("/src/ui/savedBlueprintsUi.js")).renderSavedDesigns();
       document.querySelectorAll(".designer-inspector-panel").forEach(panel => { panel.scrollTop = 0; });
     });

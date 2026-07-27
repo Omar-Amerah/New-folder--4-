@@ -161,6 +161,7 @@ const GROUPS = {
     "verify-power-overload-ui-browser.js",
     "verify-power-infrastructure-ui-browser.js",
     "verify-wiring-cost-benefit-ui-browser.js",
+    "verify-wiring-summary-cards-browser.js",
     "verify-combat-power-tab-browser.js",
     "verify-blueprint-undo-browser.js",
     "verify-blueprint-discoverability-browser.js",

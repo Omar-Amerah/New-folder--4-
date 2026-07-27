@@ -293,6 +293,7 @@ export function getActiveLoadout() {
 export function setActiveLoadout(id) {
   state.activeLoadoutId = id;
   state.loadoutEditMode = false;
+  persistActiveLoadoutId(id);
   renderLoadouts();
 }
 
@@ -306,14 +307,36 @@ export function addLoadout() {
   state.loadouts.push(loadout);
   persistLoadouts(state.loadouts);
   state.activeLoadoutId = loadout.id;
-  state.loadoutEditMode = true; // jump straight to picking ships
+  state.loadoutEditMode = true;
+  state.pendingNewLoadoutName = loadout.id;
+  persistActiveLoadoutId(loadout.id);
   renderLoadouts();
+}
+
+export function duplicateLoadout(id) {
+  const source = (state.loadouts || []).find((lo) => lo.id === id);
+  if (!source) return;
+  if (state.loadouts.length >= 8) {
+    showToast("Loadout limit reached (8).", "warning");
+    return;
+  }
+  const copy = { id: makeDesignId(), name: `${source.name} Copy`.slice(0, 20), designIds: [...source.designIds] };
+  state.loadouts.push(copy);
+  persistLoadouts(state.loadouts);
+  state.activeLoadoutId = copy.id;
+  state.loadoutEditMode = false;
+  persistActiveLoadoutId(copy.id);
+  renderLoadouts();
+  showToast(`Duplicated "${source.name}"`, "good");
 }
 
 export function deleteLoadout(id) {
   state.loadouts = (state.loadouts || []).filter((lo) => lo.id !== id);
   persistLoadouts(state.loadouts);
-  if (state.activeLoadoutId === id) state.activeLoadoutId = "all";
+  if (state.activeLoadoutId === id) {
+    state.activeLoadoutId = "all";
+    persistActiveLoadoutId("all");
+  }
   state.loadoutEditMode = false;
   renderLoadouts();
 }
@@ -324,6 +347,22 @@ export function renameLoadout(id, name) {
   state.loadouts = (state.loadouts || []).map((lo) => (lo.id === id ? { ...lo, name: clean } : lo));
   persistLoadouts(state.loadouts);
   renderLoadouts();
+}
+
+function persistActiveLoadoutId(id) {
+  try {
+    localStorage.setItem("modular-fleet-active-loadout-v1", String(id));
+  } catch {}
+}
+
+export function restoreActiveLoadout() {
+  try {
+    const saved = localStorage.getItem("modular-fleet-active-loadout-v1");
+    if (!saved) return;
+    if (saved === "all") { state.activeLoadoutId = "all"; return; }
+    const exists = (state.loadouts || []).some((lo) => lo.id === saved);
+    state.activeLoadoutId = exists ? saved : "all";
+  } catch {}
 }
 
 export function toggleDesignInLoadout(designId) {
@@ -503,19 +542,21 @@ function setCardText(card, selector, text) {
 // Renders the loadout tab strip into `strip`. With `manage` (the Blueprint-screen
 // loadout maker) it also shows create/rename/edit/delete controls; without it
 // (the purchase bar) the tabs only *select* a saved loadout.
+function loadoutShipCount(tab) {
+  if (tab.id === "all") return state.savedDesigns.length;
+  return (tab.designIds || []).filter((id) => state.savedDesigns.some((s) => s.id === id)).length;
+}
+
 function renderLoadoutTabs(strip = dom.loadoutTabs, manage = false) {
   if (!strip) return;
   const active = getActiveLoadout();
 
-  // These strips re-render on every snapshot. Only rebuild (which recreates the
-  // buttons + their click listeners) when something actually changed, so a click
-  // between two redraws can't target a button that gets replaced before it fires
-  // — and an in-progress rename input isn't destroyed mid-edit.
   const signature = JSON.stringify({
-    tabs: loadoutTabs().map((tab) => [tab.id, tab.name]),
+    tabs: loadoutTabs().map((tab) => [tab.id, tab.name, loadoutShipCount(tab)]),
     active: state.activeLoadoutId,
     edit: state.loadoutEditMode,
-    manage
+    manage,
+    pendingNew: state.pendingNewLoadoutName || null
   });
   if (strip.dataset.sig === signature) return;
   strip.dataset.sig = signature;
@@ -523,17 +564,40 @@ function renderLoadoutTabs(strip = dom.loadoutTabs, manage = false) {
 
   for (const tab of loadoutTabs()) {
     const isActive = tab.id === state.activeLoadoutId;
+    const count = loadoutShipCount(tab);
+
+    if (manage && state.pendingNewLoadoutName === tab.id) {
+      const input = document.createElement("input");
+      input.className = "loadout-tab-rename";
+      input.value = tab.name;
+      input.maxLength = 20;
+      input.setAttribute("role", "tab");
+      input.setAttribute("aria-label", "Name new loadout");
+      input.addEventListener("blur", () => {
+        state.pendingNewLoadoutName = null;
+        renameLoadout(tab.id, input.value);
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") input.blur();
+        else if (event.key === "Escape") {
+          state.pendingNewLoadoutName = null;
+          deleteLoadout(tab.id);
+        }
+        event.stopPropagation();
+      });
+      strip.appendChild(input);
+      input.focus();
+      input.select();
+      continue;
+    }
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `loadout-tab${isActive ? " active" : ""}`;
-    btn.textContent = tab.name;
+    btn.textContent = `${tab.name} · ${count}`;
     btn.setAttribute("role", "tab");
     btn.setAttribute("aria-selected", String(isActive));
     btn.addEventListener("click", () => setActiveLoadout(tab.id));
-    if (manage && tab.id !== "all") {
-      btn.title = "Double-click to rename";
-      btn.addEventListener("dblclick", (event) => { event.preventDefault(); beginRenameLoadout(btn, tab); });
-    }
     strip.appendChild(btn);
   }
 
@@ -548,25 +612,94 @@ function renderLoadoutTabs(strip = dom.loadoutTabs, manage = false) {
   add.addEventListener("click", addLoadout);
   strip.appendChild(add);
 
-  // Manage controls for a custom loadout.
-  if (active.id !== "all") {
+  if (active.id !== "all" && state.pendingNewLoadoutName !== active.id) {
     const edit = document.createElement("button");
     edit.type = "button";
     edit.className = `loadout-tab loadout-tab-manage${state.loadoutEditMode ? " active" : ""}`;
-    edit.textContent = state.loadoutEditMode ? "✓ Done" : "✎ Edit";
+    edit.textContent = state.loadoutEditMode ? "✓ Done" : "✎ Edit Ships";
     edit.title = "Choose which ships are in this loadout";
     edit.addEventListener("click", toggleLoadoutEditMode);
     strip.appendChild(edit);
 
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "loadout-tab loadout-tab-del";
-    del.textContent = "🗑";
-    del.title = "Delete this loadout";
-    del.setAttribute("aria-label", "Delete loadout");
-    del.addEventListener("click", () => deleteLoadout(active.id));
-    strip.appendChild(del);
+    const menu = document.createElement("details");
+    menu.className = "loadout-tab loadout-tab-menu";
+    const summary = document.createElement("summary");
+    summary.textContent = "⋯";
+    summary.title = "Loadout options";
+    summary.setAttribute("aria-label", "Loadout options");
+    menu.appendChild(summary);
+    const menuList = document.createElement("div");
+    menuList.className = "loadout-menu-dropdown";
+
+    const renameBtn = document.createElement("button");
+    renameBtn.type = "button";
+    renameBtn.textContent = "Rename";
+    renameBtn.addEventListener("click", () => { menu.open = false; beginRenameLoadoutInline(active); });
+    menuList.appendChild(renameBtn);
+
+    const dupBtn = document.createElement("button");
+    dupBtn.type = "button";
+    dupBtn.textContent = "Duplicate";
+    dupBtn.addEventListener("click", () => { menu.open = false; duplicateLoadout(active.id); });
+    menuList.appendChild(dupBtn);
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "danger";
+    delBtn.textContent = "Delete";
+    delBtn.addEventListener("click", () => { menu.open = false; deleteLoadout(active.id); });
+    menuList.appendChild(delBtn);
+
+    menu.appendChild(menuList);
+    bindLoadoutMenuDropdown(menu);
+    strip.appendChild(menu);
   }
+}
+
+function bindLoadoutMenuDropdown(menu) {
+  const summary = menu.querySelector("summary");
+  const dropdown = menu.querySelector(".loadout-menu-dropdown");
+  if (!summary || !dropdown) return;
+
+  const scrollContainer = menu.closest(".designer-inspector-panel, .designer-right-col, .menu-panel");
+
+  const removeListeners = () => {
+    document.removeEventListener("pointerdown", closeOnOutside);
+    scrollContainer?.removeEventListener("scroll", closeMenu);
+  };
+
+  const closeMenu = () => {
+    if (!menu.open) return;
+    menu.open = false;
+    removeListeners();
+  };
+
+  const closeOnOutside = (event) => {
+    if (!menu.open || menu.contains(event.target)) return;
+    menu.open = false;
+    removeListeners();
+  };
+
+  const positionDropdown = () => {
+    if (!menu.open) return;
+    const rect = summary.getBoundingClientRect();
+    const width = dropdown.offsetWidth || 120;
+    let left = rect.right - width;
+    let top = rect.bottom + 2;
+    // Keep inside viewport.
+    if (left < 4) left = 4;
+    if (left + width > window.innerWidth - 4) left = window.innerWidth - width - 4;
+    dropdown.style.left = `${left}px`;
+    dropdown.style.top = `${top}px`;
+    document.addEventListener("pointerdown", closeOnOutside);
+    scrollContainer?.addEventListener("scroll", closeMenu, { passive: true });
+  };
+
+  summary.addEventListener("click", () => {
+    if (!menu.open) {
+      requestAnimationFrame(() => requestAnimationFrame(positionDropdown));
+    }
+  });
 }
 
 // The loadout maker, rendered inside the Blueprint screen: full management tabs
@@ -589,11 +722,18 @@ function renderLoadouts() {
   renderLoadoutManager();
 }
 
-function beginRenameLoadout(btn, tab) {
+function beginRenameLoadoutInline(tab) {
+  state.pendingNewLoadoutName = null;
+  const strip = dom.loadoutManagerTabs || dom.loadoutTabs;
+  if (!strip) return;
+  const btn = strip.querySelector(`.loadout-tab.active`);
+  if (!btn) { renderLoadoutManager(); return; }
   const input = document.createElement("input");
   input.className = "loadout-tab-rename";
   input.value = tab.name;
   input.maxLength = 20;
+  input.setAttribute("role", "tab");
+  input.setAttribute("aria-label", `Rename ${tab.name}`);
   btn.replaceWith(input);
   input.focus();
   input.select();

@@ -651,6 +651,7 @@
   border-radius: 0;
   background: transparent;
   line-height: 1.28;
+  container-type: inline-size;
 }
 
 .wiring-analysis-status {
@@ -688,65 +689,48 @@
   border-bottom: 1px solid rgba(126, 160, 210, .15);
 }
 .wiring-analysis-section h4 { margin-bottom: 5px; }
-.wiring-compact-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px 14px;
-}
-.wiring-compact-stats > div {
-  display: flex;
-  min-width: 0;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 3px 0;
-}
-.wiring-compact-stats span {
-  overflow: hidden;
-  color: #8298b8;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wiring-compact-stats strong { color: #e5edf8; text-align: right; }
-
-/* Summary Stat Grid & Conditions Strip */
+/* Summary Stat Grid & Conditions Strip — single authoritative definitions */
 .wiring-stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 4px;
-  margin-bottom: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 6px 0 8px;
 }
 .wiring-stat-card {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 11px 14px 10px;
-  background: rgba(18, 26, 38, 0.6);
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  min-height: 62px;
+  padding: 10px 12px;
   border: 1px solid rgba(126, 160, 210, 0.18);
-  border-radius: 6px;
+  border-radius: 7px;
+  background: rgba(18, 26, 38, 0.6);
   box-sizing: border-box;
-  min-height: 44px;
 }
 .wiring-stat-label {
   margin: 0;
-  position: static;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #7e9ac0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .wiring-stat-value {
-  align-self: flex-end;
-  font-size: 12px;
-  font-weight: 700;
+  display: block;
+  min-width: 0;
   color: #e5edf8;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.wiring-stat-value-number {
   white-space: nowrap;
 }
 
@@ -1062,21 +1046,19 @@
 @media (max-width: 500px) {
   .wiring-analysis-status { padding-bottom: 5px; }
   .wiring-analysis-section { padding-block: 5px; }
-  .wiring-compact-stats > div { padding-block: 2px; }
   .wiring-analysis-expander > summary {
     gap: 4px;
   }
   .wiring-issue-actions button { flex: 1 1 120px; }
 }
 
-@media (max-width: 480px) {
+@container (max-width: 520px) {
   .wiring-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .wiring-tier-specs { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 280px) {
+@container (max-width: 320px) {
   .wiring-stat-grid { grid-template-columns: 1fr; }
-  .wiring-compact-stats { grid-template-columns: 1fr; }
+  .wiring-tier-specs { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {

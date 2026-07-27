@@ -694,6 +694,8 @@ function applyPosition(room, ship, dt) {
   }
 }
 
+const SHIELD_RESTART_DELAY_MS = 3000;
+
 function regenerateShield(ship, stats, dt) {
   const effective = effectiveShieldStats(ship);
   ship.maxShield = Math.max(0, effective.capacity);
@@ -712,6 +714,19 @@ function regenerateShield(ship, stats, dt) {
       if (contribution > 0) heatEntries.push({ index: i, contribution, baseRegen: part.shieldRegen });
     }
     const totalHeatWeight = heatEntries.reduce((sum, entry) => sum + entry.contribution, 0);
+
+    // Shield restart delay: when the shield is fully depleted, regen is paused
+    // for a base delay. The command-aura shieldRestartDelayMultiplier (a value
+    // below 1) shortens this delay.
+    if (ship.shield <= 0 && !ship._shieldRestartAt) {
+      const restartMult = getCommandAuraMultiplier(ship, "shieldRestartDelayMultiplier");
+      ship._shieldRestartAt = performanceNow() + Math.round(SHIELD_RESTART_DELAY_MS * restartMult);
+    }
+    if (ship._shieldRestartAt && performanceNow() < ship._shieldRestartAt) {
+      return;
+    }
+    ship._shieldRestartAt = null;
+
     const actualRecharge = Math.min(missingShield, recharge * dt);
     if (actualRecharge > 0 && totalHeatWeight > 0) {
       for (const entry of heatEntries) {

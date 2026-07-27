@@ -33,7 +33,7 @@ class FakeElement {
 }
 
 const elements = new Map([
-  "saveDesignButton", "loadedBlueprintName", "confirmModal", "confirmModalTitle", "confirmModalMessage", "confirmAcceptButton", "confirmCancelButton", "combatStyleSelect", "blueprintCostLabel", "blueprintCostStatus", "statsGrid", "partInspector", "buildGrid", "deployButton", "openBlueprintDesignerButton", "moneyHudLabel", "incomeHudLabel", "phaseDetail"
+  "saveDesignButton", "saveAsCopyButton", "loadedBlueprintName", "loadedBlueprintState", "savedBlueprintCount", "savedDesignList", "confirmModal", "confirmModalTitle", "confirmModalMessage", "confirmAcceptButton", "confirmCancelButton", "confirmDiscardButton", "combatStyleSelect", "blueprintCostLabel", "blueprintCostStatus", "statsGrid", "partInspector", "buildGrid", "deployButton", "openBlueprintDesignerButton", "moneyHudLabel", "incomeHudLabel", "phaseDetail"
 ].map((id) => [id, new FakeElement(id.endsWith("Button") ? "button" : "div", id)]));
 
 globalThis.document = {
@@ -62,6 +62,8 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
 
   const saveButton = elements.get("saveDesignButton");
   const loadedName = elements.get("loadedBlueprintName");
+  const loadedState = elements.get("loadedBlueprintState");
+  const capacityEl = elements.get("savedBlueprintCount");
   const baseDesign = storage.defaultDesign();
   const baseWiring = storage.normalizeWiring(storage.defaultWiring(), baseDesign);
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -69,17 +71,23 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
 
   state.design = clone(baseDesign);
   state.wiring = clone(baseWiring);
+  state.combatStyle = "sentry";
   state.savedDesigns = [];
   state.loadedEditorBlueprintId = null;
   savedUi.refreshLoadedBlueprintPresentation();
+  savedUi.renderSavedDesigns();
+  assert.equal(capacityEl.textContent, "0 / 12", "capacity counter shows 0 / 12 when empty");
   assert.equal(loadedName.textContent, "Unsaved design", "unsaved context names the current design");
-  assert.equal(saveButton.textContent, "Save Blueprint", "unsaved context shows Save Blueprint");
+  assert.equal(saveButton.disabled, false, "unsaved context enables Save Changes button");
 
   state.savedDesigns = [saved("loaded", "Alpha"), saved("other", "Beta")];
   state.loadedEditorBlueprintId = "loaded";
   savedUi.refreshLoadedBlueprintPresentation();
+  savedUi.renderSavedDesigns();
+  assert.equal(capacityEl.textContent, "2 / 12", "capacity counter shows 2 / 12 with two designs");
   assert.equal(loadedName.textContent, "Alpha");
-  assert.equal(saveButton.textContent, 'Update "Alpha"');
+  assert.equal(saveButton.disabled, true, "saved design disables Save Changes button");
+  assert.equal(loadedState.textContent, "Saved");
 
   const beforeDesign = clone(state.design);
   const beforeWiring = clone(state.wiring);
@@ -88,7 +96,7 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   savedUi.renameSavedDesign("loaded", "Alpha Prime");
   assert.equal(state.savedDesigns.find(d => d.id === "loaded").name, "Alpha Prime");
   assert.equal(loadedName.textContent, "Alpha Prime");
-  assert.equal(saveButton.textContent, 'Update "Alpha Prime"');
+  assert.equal(saveButton.disabled, true, "saved design after rename disables Save Changes button");
   assert.deepEqual(state.design, beforeDesign, "rename loaded design does not change physical design");
   assert.deepEqual(state.wiring, beforeWiring, "rename loaded design does not change Wiring");
   assert.equal(history.blueprintEditHistorySize(), beforePhysicalUndo, "rename loaded design does not touch physical Undo");
@@ -97,15 +105,28 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   savedUi.renameSavedDesign("other", "Gamma");
   assert.equal(state.savedDesigns.find(d => d.id === "other").name, "Gamma");
   assert.equal(loadedName.textContent, "Alpha Prime", "unrelated rename leaves loaded context unchanged");
-  assert.equal(saveButton.textContent, 'Update "Alpha Prime"');
+  assert.equal(saveButton.disabled, true, "unrelated rename keeps Save Changes button disabled");
 
   savedUi.openDeleteDesignModal(state.savedDesigns.find(d => d.id === "loaded"));
   savedUi.confirmModalAction();
   assert.equal(state.loadedEditorBlueprintId, null, "delete loaded design clears loaded identity");
   assert.equal(loadedName.textContent, "Unsaved design");
-  assert.equal(saveButton.textContent, "Save Blueprint");
+  assert.equal(saveButton.disabled, false, "delete loaded design enables Save Changes button");
   assert.deepEqual(state.design, beforeDesign, "delete loaded design preserves editor design");
   assert.deepEqual(state.wiring, beforeWiring, "delete loaded design preserves editor Wiring");
+
+  state.design = clone(baseDesign);
+  state.wiring = clone(baseWiring);
+  state.combatStyle = "sentry";
+  state.savedDesigns = [saved("style-test", "Style Test")];
+  state.loadedEditorBlueprintId = "style-test";
+  savedUi.refreshLoadedBlueprintPresentation();
+  assert.equal(saveButton.disabled, true, "matching combatStyle is not dirty");
+  assert.equal(loadedState.textContent, "Saved", "matching combatStyle shows Saved");
+  state.combatStyle = "hold";
+  savedUi.refreshLoadedBlueprintPresentation();
+  assert.equal(saveButton.disabled, false, "changed combatStyle is dirty");
+  assert.equal(loadedState.textContent, "Unsaved changes", "changed combatStyle shows Unsaved changes");
 
   state.design = clone(baseDesign);
   state.wiring = clone(baseWiring);

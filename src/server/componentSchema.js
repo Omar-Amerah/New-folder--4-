@@ -184,7 +184,7 @@ const AURA_STAT_KEYS = [
   "pointDefenceTrackingMultiplier", "flakTrackingMultiplier", "interceptionReactionMultiplier",
   "shieldRegenMultiplier", "shieldRestartDelayMultiplier",
   "repairRateMultiplier", "heatDissipationMultiplier", "overheatRecoveryMultiplier",
-  "accelerationMultiplier", "turnRateMultiplier", "formationResponseMultiplier",
+  "accelerationMultiplier", "turnRateMultiplier",
   "sensorRangeMultiplier", "missileTrackingResistanceMultiplier", "targetRetentionMultiplier"
 ];
 

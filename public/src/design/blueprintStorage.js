@@ -156,6 +156,93 @@ export function makeDesignPart(x, y, type, previousRotation = 0) {
     : { x, y, type, rotation };
 }
 
+const COMMAND_COMPONENT_TYPES = new Set([
+  "backupCore", "fireControlCommandCentre", "fleetDefenceCoordinator",
+  "shieldCommandRelay", "engineeringCommandCentre", "propulsionCommandRelay",
+  "electronicWarfareCommandCentre"
+]);
+
+/**
+ * Migrate saved designs where command components had 1x1 footprints but now
+ * occupy multi-cell spaces.  For each command component whose new footprint
+ * would go out-of-bounds or overlap another part, attempt to shift it to the
+ * nearest valid position.  Components that cannot be relocated are left in
+ * place so normalizeDesignDetailed can report them as issues rather than
+ * silently dropping them.
+ */
+export function migrateCommandFootprints(input) {
+  if (!Array.isArray(input)) return input;
+  const commandTypes = new Set();
+  for (const part of input) {
+    if (part && COMMAND_COMPONENT_TYPES.has(String(part.type))) commandTypes.add(String(part.type));
+  }
+  if (!commandTypes.size) return input;
+
+  const occupied = new Set();
+  for (const part of input) {
+    if (!part) continue;
+    const type = String(part.type);
+    if (COMMAND_COMPONENT_TYPES.has(type)) continue;
+    const fp = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
+    for (const cell of getOccupiedCells(Math.trunc(Number(part.x)), Math.trunc(Number(part.y)), fp, part.rotation || 0)) {
+      occupied.add(`${cell.x},${cell.y}`);
+    }
+  }
+
+  const result = input.map((part) => {
+    if (!part) return part;
+    const type = String(part.type);
+    if (!COMMAND_COMPONENT_TYPES.has(type)) return part;
+    const fp = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
+    const rot = part.rotation || 0;
+    const origX = Math.trunc(Number(part.x));
+    const origY = Math.trunc(Number(part.y));
+    const cells = getOccupiedCells(origX, origY, fp, rot);
+    const fits = cells.every((c) => c.x >= 0 && c.x <= 14 && c.y >= 0 && c.y <= 14 && !occupied.has(`${c.x},${c.y}`));
+    if (fits) {
+      for (const c of cells) occupied.add(`${c.x},${c.y}`);
+      return part;
+    }
+    // Search outward from the original position for the nearest valid spot.
+    let best = null;
+    let bestDist = Infinity;
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dy = -3; dy <= 3; dy++) {
+        const nx = origX + dx;
+        const ny = origY + dy;
+        const tryCells = getOccupiedCells(nx, ny, fp, rot);
+        const tryFits = tryCells.every((c) => c.x >= 0 && c.x <= 14 && c.y >= 0 && c.y <= 14 && !occupied.has(`${c.x},${c.y}`));
+        if (tryFits) {
+          const dist = dx * dx + dy * dy;
+          if (dist < bestDist) { bestDist = dist; best = { x: nx, y: ny }; }
+        }
+      }
+    }
+    if (best) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = best.x + dx;
+          const ny = best.y + dy;
+          const tryCells = getOccupiedCells(nx, ny, fp, rot);
+          const tryFits = tryCells.every((c) => c.x >= 0 && c.x <= 14 && c.y >= 0 && c.y <= 14 && !occupied.has(`${c.x},${c.y}`));
+          if (tryFits) {
+            const dist = (nx - origX) ** 2 + (ny - origY) ** 2;
+            if (dist < bestDist) { bestDist = dist; best = { x: nx, y: ny }; }
+          }
+        }
+      }
+      const newCells = getOccupiedCells(best.x, best.y, fp, rot);
+      for (const c of newCells) occupied.add(`${c.x},${c.y}`);
+      return { ...part, x: best.x, y: best.y };
+    }
+    // Could not relocate — leave in place; normalizeDesignDetailed will report it.
+    for (const c of cells) occupied.add(`${c.x},${c.y}`);
+    return part;
+  });
+  return result;
+}
+
 function normalizationIssue(code, inputIndex) {
   const messages = {
     "invalid-blueprint-shape": "Invalid design: blueprint modules must be an array.",
@@ -175,7 +262,7 @@ export function normalizeDesignDetailed(input, options = {}) {
     }
     input = defaultDesign();
   }
-  const source = input;
+  const source = migrateCommandFootprints(input);
   const occupied = new Set();
   const modules = [];
   const issues = [];

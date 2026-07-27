@@ -2418,7 +2418,7 @@ function issueActionHtml(issue, index) {
   </article>`;
 }
 
-function compactSummaryHtml(accounting, presentation, analysis, flow) {
+function compactSummaryHtml(accounting, presentation, analysis, flow, overallStatus) {
   const broken = [...bucket("power").sections, ...bucket("data").sections].filter((section) => section.disabled || section.broken).length;
   const alternate = clarityRules()?.alternatePathCount?.(bucket("power").sections);
   const overloaded = (flow?.sectionFlows || []).filter((section) => section.aboveSustained || section.atPeak).length;
@@ -2428,20 +2428,30 @@ function compactSummaryHtml(accounting, presentation, analysis, flow) {
   const networkCountStr = `${analysis.power.networks.length} Power · ${analysis.data.networks.length} Data`;
   const alternateStr = alternate == null ? "Unavailable" : String(alternate);
 
+  const conditionsHtml = overallStatus === "healthy"
+    ? `<div class="wiring-condition-item is-good">Power capacity healthy</div>
+      <div class="wiring-condition-item is-good">Data connectivity healthy</div>`
+    : `<div class="wiring-condition-item ${overloaded > 0 ? "is-warning" : "is-good"}">
+        ${overloaded > 0 ? `⚠ ${overloaded} overloaded section${overloaded === 1 ? "" : "s"}` : `✓ No overloaded sections`}
+      </div>
+      <div class="wiring-condition-item ${broken > 0 ? "is-bad" : "is-good"}">
+        ${broken > 0 ? `✕ ${broken} broken or disabled section${broken === 1 ? "" : "s"}` : `✓ No broken or disabled sections`}
+      </div>`;
+
   return `<section class="wiring-analysis-section wiring-summary-block" data-wiring-panel="compact-summary">
     <h4>Summary</h4>
-    <div class="wiring-stat-grid wiring-compact-stats">
+    <div class="wiring-stat-grid">
       <div class="wiring-stat-card">
         <span class="wiring-stat-label">Cost</span>
-        <strong class="wiring-stat-value">${escapeHtml(formatWiringMoney(presentation.totalInfrastructure))}</strong>
+        <strong class="wiring-stat-value wiring-stat-value-number">${escapeHtml(formatWiringMoney(presentation.totalInfrastructure))}</strong>
       </div>
       <div class="wiring-stat-card">
         <span class="wiring-stat-label">Ship share</span>
-        <strong class="wiring-stat-value">${Math.round(presentation.infrastructurePercentage * 1000) / 10}%</strong>
+        <strong class="wiring-stat-value wiring-stat-value-number">${Math.round(presentation.infrastructurePercentage * 1000) / 10}%</strong>
       </div>
       <div class="wiring-stat-card">
         <span class="wiring-stat-label">Heat displacement</span>
-        <strong class="wiring-stat-value">${totalHeatDisplacement}</strong>
+        <strong class="wiring-stat-value wiring-stat-value-number">${totalHeatDisplacement}</strong>
       </div>
       <div class="wiring-stat-card">
         <span class="wiring-stat-label">Power / Data cells</span>
@@ -2457,12 +2467,7 @@ function compactSummaryHtml(accounting, presentation, analysis, flow) {
       </div>
     </div>
     <div class="wiring-conditions-strip">
-      <div class="wiring-condition-item ${overloaded > 0 ? "is-warning" : "is-good"}">
-        ${overloaded > 0 ? `⚠ ${overloaded} overloaded section${overloaded === 1 ? "" : "s"}` : `✓ No overloaded sections`}
-      </div>
-      <div class="wiring-condition-item ${broken > 0 ? "is-bad" : "is-good"}">
-        ${broken > 0 ? `✕ ${broken} broken or disabled section${broken === 1 ? "" : "s"}` : `✓ No broken or disabled sections`}
-      </div>
+      ${conditionsHtml}
     </div>
   </section>`;
 }
@@ -2609,7 +2614,7 @@ function renderStatusPanel() {
     </div>
   </details>`;
   panel.innerHTML = `${wiringStatusHeaderHtml(overallStatus, overallMessage)}
-    ${compactSummaryHtml(accounting, presentation, analysis, flow)}
+    ${compactSummaryHtml(accounting, presentation, analysis, flow, overallStatus)}
     ${selectedTierSummaryHtml()}
     ${issuesHtml}
     ${healthyHtml}

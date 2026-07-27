@@ -26,6 +26,7 @@ import { mergeSnapshotTransaction } from "./snapshotMerge.js";
 import { mapSnapshotRejectionToResyncReason } from "./snapshotResync.js";
 import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterpolation.js";
 import { disableReconnect, send, recordNetworkEvent } from "./network.js";
+import { centerCameraOnPoint } from "./game/camera.js";
 
 // Records the backend's protocol/build identification and reports skew. The
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
@@ -206,6 +207,9 @@ export function handleServerMessage(message) {
     lobbyUi.updateLobbyState();
     updateWinnerBanner();
     if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) lobbyUi.hideMenuScreens();
+    if (previousPhase !== "active" && state.phase === "active" && state.mine?.rallyPoint) {
+      centerCameraOnPoint(state.mine.rallyPoint, 0.35);
+    }
     return;
   }
 

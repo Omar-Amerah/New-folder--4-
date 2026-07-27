@@ -975,7 +975,7 @@ export const GENERATED_BALANCE = {
     {
       "id": "droneBay",
       "name": "Drone Bay",
-      "category": "Command",
+      "category": "Weapons",
       "cost": 150,
       "mass": 32,
       "hull": 130,
@@ -1251,7 +1251,11 @@ export const GENERATED_BALANCE = {
       "turn": -0.02,
       "energy": 0,
       "repair": 0,
-      "rotatable": true,
+      "rotatable": false,
+      "footprint": {
+        "width": 2,
+        "height": 2
+      },
       "aura": {
         "type": "fireControl",
         "weaponAccuracyMultiplier": 1.08,
@@ -1277,7 +1281,11 @@ export const GENERATED_BALANCE = {
       "turn": -0.02,
       "energy": 0,
       "repair": 0,
-      "rotatable": true,
+      "rotatable": false,
+      "footprint": {
+        "width": 2,
+        "height": 2
+      },
       "aura": {
         "type": "fleetDefence",
         "pointDefenceTrackingMultiplier": 1.1,
@@ -1303,6 +1311,10 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "rotatable": true,
+      "footprint": {
+        "width": 2,
+        "height": 1
+      },
       "aura": {
         "type": "shield",
         "shieldRegenMultiplier": 1.1,
@@ -1326,7 +1338,11 @@ export const GENERATED_BALANCE = {
       "turn": -0.02,
       "energy": 0,
       "repair": 0,
-      "rotatable": true,
+      "rotatable": false,
+      "footprint": {
+        "width": 2,
+        "height": 2
+      },
       "aura": {
         "type": "engineering",
         "repairRateMultiplier": 1.1,
@@ -1352,13 +1368,16 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "rotatable": true,
+      "footprint": {
+        "width": 2,
+        "height": 1
+      },
       "aura": {
         "type": "propulsion",
         "accelerationMultiplier": 1.08,
-        "turnRateMultiplier": 1.08,
-        "formationResponseMultiplier": 1.12
+        "turnRateMultiplier": 1.08
       },
-      "description": "Improves nearby allied acceleration, turning and formation response without raising top speed enough to invalidate engine balance."
+      "description": "Improves nearby allied acceleration and turning without raising top speed enough to invalidate engine balance."
     },
     {
       "id": "proximityDemolitionCharge",
@@ -1409,7 +1428,11 @@ export const GENERATED_BALANCE = {
       "turn": -0.01,
       "energy": 0,
       "repair": 0,
-      "rotatable": true,
+      "rotatable": false,
+      "footprint": {
+        "width": 2,
+        "height": 2
+      },
       "aura": {
         "type": "ewar",
         "sensorRangeMultiplier": 1.1,
@@ -1521,7 +1544,7 @@ export const GENERATED_BALANCE = {
     "stackingMultiplier": 0.62
   },
   "commandAura": {
-    "range": 500,
+    "range": 800,
     "selfAura": false,
     "notes": "Shared command aura radius for all command components. All command circles use this range so players can judge range at a glance."
   }

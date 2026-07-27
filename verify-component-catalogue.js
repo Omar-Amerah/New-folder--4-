@@ -17,7 +17,7 @@ global.window = { devicePixelRatio: 1 };
   assert.strictEqual(parts.PART_STATS.sensorArray, undefined, 'Sensor Array is removed from the catalogue');
   assert.strictEqual(parts.PART_STATS.captureModule, undefined, 'Capture Module is removed from the catalogue');
   assert.strictEqual(parts.PART_STATS.backupCore.category, 'Command');
-  assert.strictEqual(parts.PART_STATS.droneBay.category, 'Command');
+  assert.strictEqual(parts.PART_STATS.droneBay.category, 'Weapons');
   assert.strictEqual(parts.PART_STATS.heatPipe.category, 'Heat Components');
   assert.deepStrictEqual(parts.PART_STATS.nuclearReactor.footprint, { width: 3, height: 2 });
   assert.strictEqual(parts.PART_STATS.nuclearReactor.powerGeneration, 42);

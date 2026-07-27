@@ -88,11 +88,21 @@
 .saved-designs {
   display: grid;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 16px;
 }
 
-.section-heading.compact {
-  margin-bottom: 0;
+.designer-inspector-panel .section-heading.compact {
+  margin-bottom: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.library-capacity {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
 }
 
 .section-heading.compact button {
@@ -325,7 +335,6 @@
 }
 
 .bp-overflow:not([open]) .bp-overflow-menu { display: none; }
-.bp-mobile-only { display: none; }
 
 .blueprint-library-tools {
   display: grid;
@@ -365,14 +374,6 @@
 
   .saved-design-actions button {
     min-height: 38px;
-  }
-
-  .saved-design-actions button[data-saved-action="compare"] {
-    display: none;
-  }
-
-  .bp-overflow-menu .bp-mobile-only {
-    display: block;
   }
 
   .bp-overflow summary {

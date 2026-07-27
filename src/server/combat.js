@@ -17,6 +17,7 @@ const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance 
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
 const { getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange } = require("./componentData");
+const { getCommandAuraMultiplier } = require("./commandAuras");
 const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty } = require("./repairCache");
 const Relationships = require("./relationships");
 const { getShipComponentIndexes } = require("./componentIndexes");
@@ -187,8 +188,10 @@ function selectComponentAimIndex(room, target, previousIndex = null) {
   return weighted[weighted.length - 1].idx;
 }
 
-function nextComponentRetargetAt(room, now) {
-  return now + COMPONENT_RETARGET_MIN_MS + Math.floor(roomCombatRandom(room)() * COMPONENT_RETARGET_SPAN_MS);
+function nextComponentRetargetAt(room, ship, now) {
+  const retentionMult = getCommandAuraMultiplier(ship, "targetRetentionMultiplier");
+  const base = COMPONENT_RETARGET_MIN_MS + Math.floor(roomCombatRandom(room)() * COMPONENT_RETARGET_SPAN_MS);
+  return now + (retentionMult !== 1 ? Math.round(base * retentionMult) : base);
 }
 
 function clearWeaponComponentAim(ship, weaponIndex) {
@@ -216,7 +219,7 @@ function weaponComponentAimPoint(room, ship, weaponIndex, target, now) {
     currentIndex = selectComponentAimIndex(room, target, previous);
     ship.weaponComponentTargetIds[weaponIndex] = target.id;
     ship.weaponComponentTargetIndices[weaponIndex] = currentIndex;
-    ship.weaponComponentRetargetAt[weaponIndex] = nextComponentRetargetAt(room, now);
+    ship.weaponComponentRetargetAt[weaponIndex] = nextComponentRetargetAt(room, ship, now);
   }
   const point = currentIndex >= 0 ? componentAimWorldPosition(target, currentIndex) : null;
   return point ? { ...point, componentIndex: currentIndex } : { x: target.x, y: target.y, componentIndex: -1 };
@@ -1793,7 +1796,9 @@ function updateDestroyedShips(room, now) {
 }
 
 function maxShipWeaponAcquisitionRange(ship) {
-  return getMaxEffectiveWeaponRange(ship);
+  const base = getMaxEffectiveWeaponRange(ship);
+  const sensorMult = getCommandAuraMultiplier(ship, "sensorRangeMultiplier");
+  return sensorMult !== 1 ? base * sensorMult : base;
 }
 
 function enemyShipThreatScore(defendedShip, enemy, distance, acquisitionRange) {
