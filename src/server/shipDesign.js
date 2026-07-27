@@ -25,6 +25,7 @@ function validateDesign(input) {
   const clean = [];
   const occupied = new Set();
   const issues = [];
+  const counts = {};
   let coreCount = 0;
   let backupCoreCount = 0;
 
@@ -50,6 +51,7 @@ function validateDesign(input) {
     if (overlap) { issues.push(designIssue("overlap", inputIndex)); continue; }
     if (type === "core") coreCount += 1;
     if (type === "backupCore") backupCoreCount += 1;
+    counts[type] = (counts[type] || 0) + 1;
     for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
     if (type === "droneBay") clean.push({ x, y, type, rotation: 0, droneType: DroneBayRules.normalizeDroneType(raw?.droneType) });
     else clean.push({ x, y, type, rotation });
@@ -60,6 +62,12 @@ function validateDesign(input) {
   if (coreCount === 0) return { ok: false, reason: "Invalid design: missing core." };
   if (coreCount > 1) return { ok: false, reason: "Invalid design: exactly one core is required." };
   if (backupCoreCount > 1) return { ok: false, reason: "Invalid design: maximum one Backup Command Core is allowed." };
+  for (const type of Object.keys(counts)) {
+    const limit = PARTS[type]?.maxPerShip;
+    if (Number.isFinite(limit) && counts[type] > limit) {
+      return { ok: false, reason: `Invalid design: at most ${limit} ${PARTS[type].name || type} per ship.` };
+    }
+  }
   if (!isConnected(clean)) return { ok: false, reason: "Invalid design: disconnected parts." };
   const droneValidation = DroneBayRules.validateDroneBays(clean, PARTS, { maximum: BALANCE.drones.maxBaysPerShip });
   if (!droneValidation.ok) return { ok: false, reason: `Invalid design: ${droneValidation.errors[0].message}`, issue: droneValidation.errors[0], issues: droneValidation.errors, modules: clean };

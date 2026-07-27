@@ -257,9 +257,9 @@ function multiChargeDesign() {
   const balance = require('./public/component-balance.generated.json');
   const part = balance.components.find((c) => c.id === 'proximityDemolitionCharge');
   assert.ok(part, 'demolition charge exists in balance');
-  assert.equal(part.proximityCharge.splashCentreDamage, 1500, 'splash centre damage');
-  assert.equal(part.proximityCharge.directContactHullDamage, 2250, 'direct contact hull damage');
-  assert.equal(part.proximityCharge.blastRadius, 280, 'blast radius');
+  assert.equal(part.proximityCharge.centreDamage, 960, 'centre damage');
+  assert.equal(part.proximityCharge.maxAffectedComponents, 8, 'max affected components');
+  assert.equal(part.proximityCharge.blastRadius, 380, 'blast radius');
 }
 
 console.log('Demolition charge verification passed');

@@ -147,7 +147,7 @@
         "evasionClearance": 65,
         "evasionStrength": 3,
         "evasionSpeedBoost": 0.3,
-        "commandRange": 1450,
+        "commandRange": 1850,
         "orbitDistance": 300,
         "weaponRange": 300,
         "damage": 12,
@@ -519,6 +519,8 @@
       "energy": 120,
       "repair": 0,
       "rotatable": true,
+      "meltdownDamage": 1500,
+      "meltdownRadius": 2.5,
       "description": "Six-tile capital reactor with enormous Power output and extreme Heat generation under load. It requires a dedicated Heat network and causes a reactor meltdown if left overheated.",
       "footprint": {
         "width": 3,
@@ -1401,17 +1403,15 @@
         "height": 3
       },
       "proximityCharge": {
-        "blastRadius": 280,
-        "splashCentreDamage": 1500,
+        "triggerRadius": 100,
+        "triggerConfirmationSeconds": 0.2,
+        "blastRadius": 380,
+        "centreDamage": 960,
         "falloffExponent": 2,
-        "directContactMultiplier": 1.5,
-        "directContactHullDamage": 2250,
-        "contactMaxAffectedComponents": 10,
-        "splashMaxAffectedComponents": 6,
-        "contactInternalDamageReduction": 0.35,
-        "splashInternalDamageReduction": 0.7
+        "maxAffectedComponents": 8,
+        "internalDamageReduction": 0.7
       },
-      "description": "Contact-triggered kamikaze charge. Armed by default, it detonates the instant the carrier's hull touches an enemy ship. The shaped blast bypasses shields, destroys the carrier, and damages all nearby entities regardless of team."
+      "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team."
     },
     {
       "id": "electronicWarfareCommandCentre",

@@ -339,10 +339,12 @@ function warningsFor(type, stat, family, context = {}) {
   const warnings = [];
 
   if (family === "power" && (stat.powerGeneration || 0) > 0) {
+    const meltdownDamage = stat.meltdownDamage ?? rules.REACTOR_EXPLOSION_DAMAGE;
+    const meltdownRadius = stat.meltdownRadius ?? rules.REACTOR_EXPLOSION_RADIUS;
     warnings.push({
       id: "meltdown",
       title: "Meltdown risk",
-      body: `Explodes after ${rules.REACTOR_MELTDOWN_SECONDS} seconds continuously overheated, dealing ${rules.REACTOR_EXPLOSION_DAMAGE} damage within ${rules.REACTOR_EXPLOSION_RADIUS} tiles.`
+      body: `Explodes after ${rules.REACTOR_MELTDOWN_SECONDS} seconds continuously overheated, dealing ${meltdownDamage} damage within ${meltdownRadius} tiles.`
     });
   }
 

@@ -376,6 +376,8 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     armorFlatReduction: numberOr(component.armorFlatReduction, 0),
     decoyConfig: component.decoy && typeof component.decoy === "object" ? { ...component.decoy } : null,
     maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
+    meltdownDamage: Number.isFinite(Number(component.meltdownDamage)) ? Number(component.meltdownDamage) : null,
+    meltdownRadius: Number.isFinite(Number(component.meltdownRadius)) ? Number(component.meltdownRadius) : null,
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {

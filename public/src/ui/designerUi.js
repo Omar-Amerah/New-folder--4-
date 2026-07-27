@@ -1369,15 +1369,8 @@ export function renderLocalStats() {
   refreshLoadedBlueprintPresentation();
   if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost.toLocaleString()}`;
   if (dom.blueprintCostStatus) {
-    if (state.phase === "active") {
-      dom.blueprintCostStatus.textContent = canAfford
-        ? "Funds after one purchase"
-        : "Need more funds";
-      dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
-    } else {
-      dom.blueprintCostStatus.textContent = "";
-      dom.blueprintCostStatus.className = "";
-    }
+    dom.blueprintCostStatus.textContent = "";
+    dom.blueprintCostStatus.className = "";
   }
   if (state.designNeedsAttention) setBuildStatus(designRepairWarningMessage(), "warning");
   renderShipSummary(stats, heat);

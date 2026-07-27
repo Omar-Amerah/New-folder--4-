@@ -595,7 +595,10 @@ function updateShipHeat(ship, dt, room, now) {
     for (const index of meltdowns) {
       if (ship.componentHp[index] <= 0) continue;
       ship.componentMeltdown[index] = 0;
-      detonateComponent(room, ship, index, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, now);
+      const part = PARTS[ship.design[index].type] || {};
+      const radius = part.meltdownRadius ?? REACTOR_EXPLOSION_RADIUS;
+      const damage = part.meltdownDamage ?? REACTOR_EXPLOSION_DAMAGE;
+      detonateComponent(room, ship, index, radius, damage, now);
     }
     if (ship.alive && (ship.hp <= 0.001 || ship.coreDestroyed)) {
       require("./combat").destroyShip(room, ship, ship.lastDamagedBy || null, now);

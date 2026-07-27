@@ -441,6 +441,7 @@ function droneBayControlsMarkup(type) {
     if (fuelSeconds) statsList.push(`${fuelSeconds}s fuel`);
     if (config.hull) statsList.push(`${config.hull} HP`);
     if (config.speed) statsList.push(`${config.speed} m/s`);
+    if (config.commandRange) statsList.push(`${config.commandRange} m`);
     if (config.productionSeconds) statsList.push(`${config.productionSeconds}s rebuild`);
     if (config.damage) statsList.push(`${config.damage} dmg`);
     if (config.repairPerSecond) statsList.push(`${config.repairPerSecond} HP/s rep`);
@@ -450,7 +451,7 @@ function droneBayControlsMarkup(type) {
     return `<button type="button" role="radio" class="drone-type-choice drone-type-${value}${isSelected ? " is-selected" : ""}" data-drone-type="${value}" aria-checked="${String(isSelected)}" aria-pressed="${String(isSelected)}">
       <span class="drone-choice-topline">
         <span class="drone-choice-icon">${icons[value]}</span>
-        ${isSelected ? `<span class="drone-choice-selected"><span aria-hidden="true">&#10003;</span> Selected</span>` : ""}
+        ${isSelected ? `<span class="drone-choice-selected">Selected</span>` : ""}
       </span>
       <strong class="drone-choice-name">${escapeHtml(label)}</strong>
       <div class="drone-choice-stats">${statChipsMarkup}</div>

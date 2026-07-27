@@ -56,22 +56,25 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
   } else if (overlaps.length || isOverlapping(nextDesign)) {
     reasonCode = "overlap";
     message = "Overlaps another component";
-  } else if (Number.isFinite(catalogue[type]?.maxPerShip)) {
-    const maxPerShip = catalogue[type].maxPerShip;
-    const count = nextDesign.filter((candidate) => candidate.type === type).length;
-    if (count > maxPerShip) {
+  } else {
+    const shipCap = Number.isFinite(catalogue[type]?.maxPerShip)
+      ? catalogue[type].maxPerShip
+      : (type === "droneBay" && Number.isFinite(catalogue[type]?.droneConfig?.maxBaysPerShip)
+        ? catalogue[type].droneConfig.maxBaysPerShip
+        : null);
+    if (Number.isFinite(shipCap) && nextDesign.filter((candidate) => candidate.type === type).length > shipCap) {
       reasonCode = "max-per-ship";
-      message = `Max ${maxPerShip} ${catalogue[type]?.name || type} per ship`;
-    }
-  } else if (!isConnected(nextDesign)) {
-    reasonCode = "disconnected";
-    message = explainConnectionProblem(baseDesign, type, targetX, targetY, part.rotation);
-  } else if (type === "maneuverThruster") {
-    const idx = nextDesign.indexOf(part);
-    const exhaust = globalThis.EngineExhaustRules?.analyze?.(nextDesign, catalogue);
-    if (exhaust && !exhaust.validEngineIndices.has(idx)) {
-      reasonCode = "blocked-exhaust";
-      message = "Lateral exhaust path blocked";
+      message = `Max ${shipCap} ${catalogue[type]?.name || type} per ship`;
+    } else if (!isConnected(nextDesign)) {
+      reasonCode = "disconnected";
+      message = explainConnectionProblem(baseDesign, type, targetX, targetY, part.rotation);
+    } else if (type === "maneuverThruster") {
+      const idx = nextDesign.indexOf(part);
+      const exhaust = globalThis.EngineExhaustRules?.analyze?.(nextDesign, catalogue);
+      if (exhaust && !exhaust.validEngineIndices.has(idx)) {
+        reasonCode = "blocked-exhaust";
+        message = "Lateral exhaust path blocked";
+      }
     }
   }
 

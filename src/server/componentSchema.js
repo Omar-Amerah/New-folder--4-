@@ -15,7 +15,7 @@ const NUMERIC_FIELDS = [
   "thrust", "turn", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
   "chargeEfficiency", "dischargeEfficiency", "dischargeHeatAtMax", "dischargeHeat", "repair", "repairRate",
   "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength",
-  "frontDamageReduction", "frontArc", "maxPerShip"
+  "frontDamageReduction", "frontArc", "maxPerShip", "meltdownDamage", "meltdownRadius"
 ];
 const WEAPON_NUMERIC_FIELDS = [
   "damage", "fireRate", "range", "radius", "projectileSpeed", "projectileLifetime", "accuracy", "tracking",

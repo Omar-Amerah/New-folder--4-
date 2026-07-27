@@ -139,6 +139,9 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     aura: normalizeAura(component.aura),
     frontDamageReduction: toNumber(component.frontDamageReduction, 0),
     frontArc: toNumber(component.frontArc, 0),
+    maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
+    meltdownDamage: Number.isFinite(Number(component.meltdownDamage)) ? Number(component.meltdownDamage) : null,
+    meltdownRadius: Number.isFinite(Number(component.meltdownRadius)) ? Number(component.meltdownRadius) : null,
     // Directional armour: maximum damage removed from a single attack event.
     // Rapid or continuous sources with sub-second delivery intervals scale this
     // value by the interval, making it approximately sustained DPS absorbed per
