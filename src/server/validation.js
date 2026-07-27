@@ -16,7 +16,8 @@ function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
   if (clean === "circle") return "orbit";
   if (clean === "direct" || clean === "hold" || clean === "maintain" || clean === "orbit" || clean === "kite" ||
-      clean === "charge" || clean === "sentry") return clean;
+      clean === "charge" || clean === "sentry" || clean === "interceptor" || clean === "evasive" ||
+      clean === "brawler" || clean === "heavy") return clean;
   return fallback;
 }
 

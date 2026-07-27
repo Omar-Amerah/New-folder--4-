@@ -1577,7 +1577,7 @@ export const GENERATED_BALANCE = {
   },
   "economy": {
     "startingMoney": 1000,
-    "maxMoney": 9999,
+    "maxMoney": 99999,
     "baseIncome": 20,
     "relayIncome": 5,
     "killBountyRatio": 0.28,

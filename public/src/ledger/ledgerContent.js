@@ -466,7 +466,7 @@ const MANUAL_ARTICLES_PART_3 = [
     howItWorks: "Players earn money passively through base income and relay control. Relays are capturable points on the map — controlling them provides additional income. Ships cost money to build, up to a fleet cap. Destroying enemy ships awards kill bounties (28% of the destroyed ship's cost, minimum $24). Capturing a relay awards a $70 bonus. Victory is achieved by controlling a majority of relays for a sustained period or by eliminating all enemy ships.",
     importantStats: [
       { label: "Starting Money", value: `$${ECON.startingMoney ?? 1000}` },
-      { label: "Maximum Money", value: `$${ECON.maxMoney ?? 9999}` },
+      { label: "Maximum Money", value: `$${ECON.maxMoney ?? 99999}` },
       { label: "Base Income", value: `+$${ECON.baseIncome ?? 20}/s` },
       { label: "Relay Income", value: `+$${ECON.relayIncome ?? 5}/s Per Relay` },
       { label: "Kill Bounty", value: `${Math.round((ECON.killBountyRatio ?? 0.28) * 100)}% Of Ship Cost (Min $${ECON.killBountyMin ?? 24})` },

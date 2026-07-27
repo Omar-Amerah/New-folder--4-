@@ -10,6 +10,7 @@ import { solveBlueprintPower } from "./powerAllocationAnalysis.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
+import { GENERATED_BALANCE } from "../generatedBalance.js";
 
 const WiringRules = globalThis.WiringRules;
 if (!WiringRules) {
@@ -64,7 +65,7 @@ export function computeStats(modules, options = {}) {
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
     const part = PART_STATS[module.type] || PART_STATS.frame;
-    const blockedEngine = (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
+    const blockedEngine = (part.thrust > 0 || module.type === "maneuverThruster" || module.type === "vectorThruster") && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
 
     cost += part.cost;
     mass += part.mass;
@@ -73,7 +74,7 @@ export function computeStats(modules, options = {}) {
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
-    if (module.type !== "maneuverThruster" && module.type !== "gyroscope") turnBonus += blockedEngine ? 0 : part.turn;
+    if (module.type !== "maneuverThruster" && module.type !== "gyroscope" && module.type !== "vectorThruster") turnBonus += blockedEngine ? 0 : part.turn;
 
     if (part.thrust > 0 && !blockedEngine) {
       engineThrustValues.push(part.thrust);
@@ -135,7 +136,7 @@ export function computeStats(modules, options = {}) {
 
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PART_STATS, {
     centerOfMass,
-    isBlockedEngine: (index, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index)
+    isBlockedEngine: (index, module, part) => (part.thrust > 0 || module.type === "maneuverThruster" || module.type === "vectorThruster") && !exhaustAnalysis.validEngineIndices.has(index)
   });
   const movement = calculateMovementStats({
     mass,
@@ -146,7 +147,8 @@ export function computeStats(modules, options = {}) {
     engineThrustValues,
     engineMassValues,
     turnModuleValues,
-    directionalTurnInputs
+    directionalTurnInputs,
+    hullControlThrust: GENERATED_BALANCE?.movement?.hullControlThrust
   });
 
   ecmStrength = Math.min(ecmStrength, 0.55);
@@ -220,6 +222,9 @@ export function computeStats(modules, options = {}) {
     turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
     turnRateRight: movement.turnRateRight,
+    lateralAccel: Math.round(movement.lateralAccel || 0),
+    brakingAccel: Math.round(movement.brakingAccel || 0),
+    reverseAccel: Math.round(movement.reverseAccel || 0),
     massClass: movement.massClass,
     speedCap: movement.speedCap,
     // Presentation-only passthrough of the movement solver's own flag so the

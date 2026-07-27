@@ -234,7 +234,7 @@ loadedSaved[0].wiring.power.sections.push({ id: "7,7:8,7", x1: 7, y1: 7, x2: 8, 
 assert.equal(loadSavedDesigns()[0].wiring.power.sections.length, wiring.power.sections.length, "loaded wiring copies are independent");
 assert.equal(migrateSavedDesignsStorage(savedList).length, 0, "raw (pre-envelope) saved lists are discarded");
 assert.equal(migrateSavedDesignsStorage({ schemaVersion: 1, kind: "saved-designs", payload: savedList }).length, 0, "v1 saved-design envelopes are discarded");
-assert.equal(migrateSavedDesignsStorage(savedDesignsEnvelope(Array.from({ length: 20 }, (_, i) => ({ id: `d${i}`, blueprint: current })))).length, MAX_SAVED_DESIGNS, "saved designs are capped consistently");
+assert.equal(migrateSavedDesignsStorage(savedDesignsEnvelope(Array.from({ length: 30 }, (_, i) => ({ id: `d${i}`, blueprint: current })))).length, MAX_SAVED_DESIGNS, "saved designs are capped consistently");
 
 const loadouts = Array.from({ length: 12 }, (_, i) => ({ id: `l${i}`, name: `Loadout ${i}`, designIds: ["a", 2, 3] }));
 assert.equal(migrateLoadoutsStorage(loadoutsEnvelope(loadouts)).length, MAX_LOADOUTS, "loadouts are capped consistently");
@@ -306,7 +306,7 @@ assert.equal(Object.hasOwn(missingDataImport.designIdMap, "broken"), false, "mal
 assert.ok(missingDataImport.warnings.some((w) => w.includes("Invalid design: blueprint modules must be an array.")), "malformed import warning explains invalid shape");
 assert.equal(importBlueprints({ schemaVersion: 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).incompatibleVersion, true, "pre-wiring export schema is rejected");
 assert.equal(importBlueprints({ schemaVersion: BLUEPRINT_STORAGE_VERSION + 1, kind: "blueprint-export", payload: { designs: [{ blueprint: current }] } }, [], []).incompatibleVersion, true, "future import schema is rejected");
-assert.equal(importBlueprints({ designs: Array.from({ length: 20 }, (_, i) => ({ id: `i${i}`, blueprint: current })) }, [], []).designs.length, MAX_SAVED_DESIGNS, "import enforces saved-design limit");
+assert.equal(importBlueprints({ designs: Array.from({ length: 30 }, (_, i) => ({ id: `i${i}`, blueprint: current })) }, [], []).designs.length, MAX_SAVED_DESIGNS, "import enforces saved-design limit");
 
 
 // ---- Repaired current-design save ordering regressions ----

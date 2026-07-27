@@ -468,11 +468,17 @@ function decoyLauncherActivity(ship, index, now) {
   if (ship._decoyThreatActive) return 0.3; // monitoring
   return 0; // idle standby
 }
-function propulsionActivity(ship, part) {
-  // Gyroscopes and lateral thrusters do no linear work: they request active
-  // Power only while turning. Main engines also vector some thrust for turning,
-  // so either linear movement or turn effort activates them.
+function propulsionActivity(ship, part, index, module) {
+  if (part?.propulsionCapacitor) {
+    const state = ship._propulsionCapacitorState?.get(index);
+    return state?.active ? 1 : 0.1;
+  }
   const turn = clamp01(Math.abs(Number(ship.turnActivity) || 0));
+  if (module && module.type === "vectorThruster") {
+    const moving = ship.arrived === false ? 1 : 0;
+    const dodging = ship._evasiveDodgeDir !== undefined && ship.combatStyle === "evasive" ? 1 : 0;
+    return Math.max(turn, moving, dodging * 0.8);
+  }
   if (!(Number(part?.thrust) > 0)) return turn;
   const moving = ship.arrived === false ? 1 : 0;
   return Math.max(turn, moving);
@@ -515,7 +521,7 @@ function componentActivityLevel(ship, index, module, part, now, cache = null) {
   if (part.weapon) return weaponActivity(ship, index, now);
   if (module.type === "decoyLauncher") return decoyLauncherActivity(ship, index, now);
   switch (part.powerCategory) {
-    case "propulsion": return propulsionActivity(ship, part);
+    case "propulsion": return propulsionActivity(ship, part, index, module);
     case "shields": {
       if (!cache) return shieldActivity(ship);
       if (cache.shieldActivity === undefined) cache.shieldActivity = shieldActivity(ship);

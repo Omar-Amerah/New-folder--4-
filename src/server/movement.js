@@ -12,6 +12,7 @@ const { selectOwnedLivingShips } = require("./selection");
 const { getComponentPowerMultiplier, effectiveShieldStats } = require("./componentPower");
 const { getEffectiveWeaponStatsInternal, getEffectiveWeaponRanges } = require("./componentData");
 const { getShipComponentIndexes } = require("./componentIndexes");
+const { BALANCE } = require("./balanceConfig");
 
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
@@ -36,13 +37,12 @@ function heatAdjustedMovementStats(ship, stats) {
   }
   const directionalTurnInputs = calculateDirectionalTurnInputs(design, PARTS, {
     componentMultiplier: multiplier,
-    isBlockedEngine: (i, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && ship.validEngineIndices && !ship.validEngineIndices.has(i)
+    isBlockedEngine: (i, module, part) => (part.thrust > 0 || module.type === "maneuverThruster" || module.type === "vectorThruster") && ship.validEngineIndices && !ship.validEngineIndices.has(i)
   });
   const movement = calculateMovementStats({ mass: stats.mass, thrust: stats.thrust, turnBonus: 0,
     powerGeneration: stats.powerGeneration, powerUse: stats.powerUse, engineThrustValues, engineMassValues,
-    // Preserve the established surplus-Power bonus, but never reapply a
-    // ship-wide deficit after consumers have been scaled individually.
-    directionalTurnInputs, movementPowerMultiplier: Math.max(1,
+    directionalTurnInputs, hullControlThrust: BALANCE.movement?.hullControlThrust,
+    movementPowerMultiplier: Math.max(1,
       calculateMovementPowerMultiplier(stats.powerGeneration || 0, stats.powerUse || 0)) });
   const accelMult = getCommandAuraMultiplier(ship, "accelerationMultiplier");
   const turnMult = getCommandAuraMultiplier(ship, "turnRateMultiplier");
@@ -128,6 +128,10 @@ const MAINTAIN_RANGE_RATIO = 0.9;
 const MAINTAIN_TOLERANCE = 0.05;
 const KITE_RANGE_RATIO = 0.9;
 const KITE_TOLERANCE = 0.05;
+const INTERCEPTOR_RANGE_RATIO = 0.35;
+const EVASIVE_RANGE_RATIO = 0.75;
+const BRAWLER_RANGE_RATIO = 0.5;
+const HEAVY_RANGE_RATIO = 0.85;
 
 function shipCollisionRadius(ship) {
   return clampNumber((ship.radius || 0) * 0.56, 18, 48);
@@ -286,6 +290,7 @@ function updateShipMovement(room, ship, dt, now) {
 
 function updateShipMovementStep(room, ship, dt, now) {
   ensureMoveTarget(ship);
+  ship._simNow = Number(now) || ship._simNow || 0;
 
   const stats = heatAdjustedMovementStats(ship, ship.stats || {});
   const style = getCombatStyle(ship);
@@ -320,7 +325,7 @@ function updateShipMovementStep(room, ship, dt, now) {
     }
   }
 
-  const isPersistentMove = Boolean(target && (style === 'orbit' || style === 'maintain' || style === 'kite' || style === 'direct'));
+  const isPersistentMove = Boolean(target && (style === 'orbit' || style === 'maintain' || style === 'kite' || style === 'direct' || style === 'interceptor' || style === 'evasive' || style === 'brawler' || style === 'heavy'));
 
   if (!ship.arrived || isPersistentMove) {
     driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt);
@@ -341,6 +346,10 @@ function getCombatStyle(ship) {
   if (ship.combatStyle === "maintain") return "maintain";
   if (ship.combatStyle === "kite") return "kite";
   if (ship.combatStyle === "direct") return "direct";
+  if (ship.combatStyle === "interceptor") return "interceptor";
+  if (ship.combatStyle === "evasive") return "evasive";
+  if (ship.combatStyle === "brawler") return "brawler";
+  if (ship.combatStyle === "heavy") return "heavy";
   return "hold";
 }
 
@@ -496,6 +505,26 @@ function updateCombatMoveTarget(room, ship, target, style) {
     }
     return;
   }
+
+  if (style === 'interceptor') {
+    setStandoffTarget(ship, target, maxRange * INTERCEPTOR_RANGE_RATIO);
+    return;
+  }
+
+  if (style === 'evasive') {
+    updateEvasiveMoveTarget(ship, target, maxRange);
+    return;
+  }
+
+  if (style === 'brawler') {
+    setStandoffTarget(ship, target, maxRange * BRAWLER_RANGE_RATIO);
+    return;
+  }
+
+  if (style === 'heavy') {
+    setStandoffTarget(ship, target, maxRange * HEAVY_RANGE_RATIO);
+    return;
+  }
 }
 
 function setStandoffTarget(ship, target, desiredRange) {
@@ -603,6 +632,85 @@ function updateKiteMoveTarget(ship, target, maxRange) {
   }
 }
 
+function updateEvasiveMoveTarget(ship, target, maxRange) {
+  const desiredRange = maxRange * EVASIVE_RANGE_RATIO;
+  const dx = ship.x - target.x;
+  const dy = ship.y - target.y;
+  const dist = fastHypot(dx, dy);
+  let dirX = 0, dirY = 0;
+  if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
+  else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
+
+  const styleConfig = BALANCE.movement?.movementStyles?.evasive;
+  const dodgeInterval = (styleConfig?.dodgeIntervalSeconds || 2.5) * 1000;
+  const dodgeMagnitude = styleConfig?.dodgeMagnitude || 120;
+  const now = ship._simNow || 0;
+
+  if (!Number.isFinite(ship._evasiveNextDodge) || now >= ship._evasiveNextDodge) {
+    ship._evasiveDodgeDir = (ship._evasiveDodgeDir || 1) * -1;
+    ship._evasiveNextDodge = now + dodgeInterval;
+  }
+  const dodgeDir = ship._evasiveDodgeDir || 1;
+  const perpX = -dirY * dodgeDir;
+  const perpY = dirX * dodgeDir;
+
+  if (dist > desiredRange + maxRange * 0.05) {
+    ship.targetX = target.x + dirX * desiredRange + perpX * dodgeMagnitude;
+    ship.targetY = target.y + dirY * desiredRange + perpY * dodgeMagnitude;
+    ship.arrived = false;
+  } else if (dist < desiredRange - maxRange * 0.05) {
+    ship.targetX = ship.x + dirX * 100 + perpX * dodgeMagnitude;
+    ship.targetY = ship.y + dirY * 100 + perpY * dodgeMagnitude;
+    ship.arrived = false;
+  } else {
+    ship.targetX = ship.x + perpX * dodgeMagnitude;
+    ship.targetY = ship.y + perpY * dodgeMagnitude;
+    ship.arrived = false;
+  }
+}
+
+function updatePropulsionCapacitors(ship, stats, dt, now) {
+  const indexes = getShipComponentIndexes(ship).propulsionCapacitorIndices;
+  if (!indexes.length) return 1;
+  const styleConfig = BALANCE.movement?.movementStyles?.[getCombatStyle(ship)];
+  const aggression = styleConfig?.capacitorAggression ?? 0.5;
+  const movementDemand = Math.min(1, Math.abs(ship.turnActivity || 0) + (ship.arrived === false ? 0.5 : 0));
+  const demand = movementDemand * aggression;
+
+  if (!ship._propulsionCapacitorState) ship._propulsionCapacitorState = new Map();
+
+  let activeBoost = 1;
+  for (const i of indexes) {
+    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
+    const part = PARTS[ship.design[i].type];
+    const config = part?.propulsionCapacitor;
+    if (!config) continue;
+
+    let state = ship._propulsionCapacitorState.get(i);
+    if (!state) {
+      state = { charge: config.capacity, active: false };
+      ship._propulsionCapacitorState.set(i, state);
+    }
+
+    if (!state.active && demand >= config.activationThreshold && state.charge > config.capacity * config.minReserveFraction) {
+      state.active = true;
+    }
+    if (state.active && (demand < config.deactivationThreshold || state.charge <= config.capacity * config.minReserveFraction)) {
+      state.active = false;
+    }
+
+    if (state.active) {
+      const discharge = Math.min(state.charge, config.maxDischargeRate * dt);
+      state.charge -= discharge;
+      activeBoost = Math.max(activeBoost, config.boostMultiplier);
+    } else {
+      const charge = Math.min(config.capacity - state.charge, config.maxChargeRate * dt);
+      state.charge += charge;
+    }
+  }
+  return activeBoost;
+}
+
 function updateHoldMoveTarget(ship, target, desiredRange) {
   if (!ship.holdPhase || ship.holdPhase === 'positioning') {
     ship.holdPhase = 'positioning';
@@ -660,10 +768,62 @@ function driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt
     const activity = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
     if (activity > 0) addComponentHeat(ship, i, (2 + part.thrust * 0.018) * activity * dt);
   }
-  const thrust = (stats.accel || 0) * alignment;
+
+  const capacitorBoost = updatePropulsionCapacitors(ship, stats, dt, ship._simNow);
+  const thrust = (stats.accel || 0) * alignment * capacitorBoost;
 
   ship.vx += Math.cos(ship.angle) * thrust * dt;
   ship.vy += Math.sin(ship.angle) * thrust * dt;
+
+  applyVectorThrusterForces(ship, stats, desired, dt);
+}
+
+function applyVectorThrusterForces(ship, stats, desiredAngle, dt) {
+  const indexes = getShipComponentIndexes(ship).vectorThrusterIndices;
+  if (!indexes.length) return;
+  const lateralAccel = stats.lateralAccel || 0;
+  const brakingAccel = stats.brakingAccel || 0;
+  const reverseAccel = stats.reverseAccel || 0;
+  if (lateralAccel <= 0 && brakingAccel <= 0 && reverseAccel <= 0) return;
+
+  const style = getCombatStyle(ship);
+  const combatTarget = getActiveCombatTarget({ ships: new Map() }, ship);
+  let lateralInput = 0, brakingInput = 0, reverseInput = 0;
+
+  if (style === 'evasive') {
+    const dodgeDir = ship._evasiveDodgeDir || 1;
+    lateralInput = dodgeDir;
+  } else if (style === 'interceptor' || style === 'brawler') {
+    const speed = fastHypot(ship.vx, ship.vy);
+    if (speed > (stats.maxSpeed || 0) * 0.8) brakingInput = 0.5;
+  }
+
+  if (lateralInput !== 0 && lateralAccel > 0) {
+    const perpAngle = desiredAngle + Math.PI / 2;
+    ship.vx += Math.cos(perpAngle) * lateralAccel * lateralInput * dt;
+    ship.vy += Math.sin(perpAngle) * lateralAccel * lateralInput * dt;
+  }
+  if (brakingInput > 0 && brakingAccel > 0) {
+    const speed = fastHypot(ship.vx, ship.vy);
+    if (speed > 1) {
+      ship.vx -= (ship.vx / speed) * brakingAccel * brakingInput * dt;
+      ship.vy -= (ship.vy / speed) * brakingAccel * brakingInput * dt;
+    }
+  }
+  if (reverseInput > 0 && reverseAccel > 0) {
+    ship.vx -= Math.cos(ship.angle) * reverseAccel * reverseInput * dt;
+    ship.vy -= Math.sin(ship.angle) * reverseAccel * reverseInput * dt;
+  }
+
+  for (const i of indexes) {
+    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
+    const activity = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
+    if (activity > 0) {
+      const part = PARTS[ship.design[i].type];
+      const heatRate = (2 + (part.lateralThrust || 0) * 0.01) * activity * dt;
+      addComponentHeat(ship, i, heatRate);
+    }
+  }
 }
 
 function getDesiredMoveAngle(room, ship) {

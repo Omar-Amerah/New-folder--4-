@@ -305,8 +305,8 @@ export function runSavedDesignAction(action, id) {
 export function duplicateSavedDesign(id) {
   const index = state.savedDesigns.findIndex((design) => design.id === id);
   if (index < 0) return;
-  if (state.savedDesigns.length >= 12) {
-    notify.warning("Design library is full (max 12 slots). Delete some before duplicating.");
+  if (state.savedDesigns.length >= MAX_SAVED_DESIGNS) {
+    notify.warning(`Design library is full (max ${MAX_SAVED_DESIGNS} slots). Delete some before duplicating.`);
     return;
   }
   const source = state.savedDesigns[index];
@@ -593,8 +593,8 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
       updatedAt: Date.now()
     } : design);
   } else {
-    if (state.savedDesigns.length >= 12) {
-      notify.warning("Design library is full (max 12 slots). Delete some before saving.");
+    if (state.savedDesigns.length >= MAX_SAVED_DESIGNS) {
+      notify.warning(`Design library is full (max ${MAX_SAVED_DESIGNS} slots). Delete some before saving.`);
       return false;
     }
     const name = `Design ${state.savedDesigns.length + 1}`;

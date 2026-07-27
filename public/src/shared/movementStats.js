@@ -103,7 +103,8 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const accel=hasEngineThrust?Math.max(18,maxSpeed*0.26):0;
   const directional = directionalTurnInputs || { mainEngineVectorTurn: effectiveStackedValue(engines.map(e=>e.thrust*ENGINE_TURN_PER_THRUST),0.85), gyroscopeTurn: effectiveStackedValue(turnModuleValues||[],0.92), clockwiseManeuverTurn:0, anticlockwiseManeuverTurn:0, vectorThrusterTurn:0, vectorLateralThrust:0, vectorBrakingThrust:0, vectorReverseThrust:0 };
   const mc = massClassForMass(safeMass);
-  const hullControl = hullControlThrust || DEFAULT_HULL_CONTROL[mc] || { turn: 0, lateral: 0, braking: 0 };
+  const hullControlRaw = hullControlThrust || DEFAULT_HULL_CONTROL;
+  const hullControl = (hullControlRaw && hullControlRaw[mc]) || DEFAULT_HULL_CONTROL[mc] || { turn: 0, lateral: 0, braking: 0 };
   const hullTurn = Number(hullControl.turn) || 0;
   const hullLateral = Number(hullControl.lateral) || 0;
   const hullBraking = Number(hullControl.braking) || 0;

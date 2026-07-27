@@ -295,6 +295,8 @@ export function normalizeRuntimePart(part = {}) {
     shieldRegen: numberOr(part.shieldRegen, 0),
     thrust: numberOr(part.thrust, 0),
     lateralThrust: numberOr(part.lateralThrust, 0),
+    brakingThrust: numberOr(part.brakingThrust, 0),
+    reverseThrust: numberOr(part.reverseThrust, 0),
     turn: numberOr(part.turn, 0),
     energyStorage: numberOr(part.energyStorage ?? part.energyCapacity ?? part.energy, 0),
     energyCapacity: numberOr(part.energyCapacity ?? part.energyStorage ?? part.energy, 0),
@@ -347,6 +349,8 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     shieldRegen: numberOr(component.shieldRegen, 0),
     thrust: numberOr(component.thrust, 0),
     lateralThrust: numberOr(component.lateralThrust, 0),
+    brakingThrust: numberOr(component.brakingThrust, 0),
+    reverseThrust: numberOr(component.reverseThrust, 0),
     turn: numberOr(component.turn, 0),
     energyStorage: numberOr(component.energyStorage ?? component.energyCapacity ?? component.energy, 0),
     energyCapacity: numberOr(component.energyCapacity ?? component.energyStorage ?? component.energy, 0),
@@ -375,6 +379,15 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     // file instead of restating those constants in UI code.
     armorFlatReduction: numberOr(component.armorFlatReduction, 0),
     decoyConfig: component.decoy && typeof component.decoy === "object" ? { ...component.decoy } : null,
+    propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object" ? Object.freeze({
+      capacity: numberOr(component.propulsionCapacitor.capacity, 100),
+      maxDischargeRate: numberOr(component.propulsionCapacitor.maxDischargeRate, 40),
+      maxChargeRate: numberOr(component.propulsionCapacitor.maxChargeRate, 15),
+      boostMultiplier: numberOr(component.propulsionCapacitor.boostMultiplier, 1.8),
+      activationThreshold: numberOr(component.propulsionCapacitor.activationThreshold, 0.6),
+      deactivationThreshold: numberOr(component.propulsionCapacitor.deactivationThreshold, 0.15),
+      minReserveFraction: numberOr(component.propulsionCapacitor.minReserveFraction, 0.05)
+    }) : null,
     maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
     meltdownDamage: Number.isFinite(Number(component.meltdownDamage)) ? Number(component.meltdownDamage) : null,
     meltdownRadius: Number.isFinite(Number(component.meltdownRadius)) ? Number(component.meltdownRadius) : null,

@@ -801,14 +801,42 @@ function roomScratch(room, key) {
 
 
 
-function weaponSpreadRadians(weapon, family) {
+function weaponSpreadRadians(weapon, family, targetEvasionFactor) {
 
   const accuracy = clampNumber(Number(weapon?.accuracy) || 0.8, 0.1, 0.99);
 
   const scale = family === "missile" ? 0.35 : (family === "pointDefense" ? 0.05 : (family === "flak" ? 0.16 : 0.22));
 
-  return (1 - accuracy) * scale;
+  let spread = (1 - accuracy) * scale;
 
+  const evasion = Number(targetEvasionFactor) || 0;
+  if (evasion > 0) {
+    const evasionConfig = BALANCE?.movement?.evasion;
+    const maxPenalty = evasionConfig?.maxAccuracyPenalty ?? 0.75;
+    const exponent = evasionConfig?.evasionExponent ?? 1.4;
+    const trackingBase = evasionConfig?.trackingBase ?? 200;
+    const evasionPenalty = Math.min(maxPenalty, Math.pow(evasion / trackingBase, exponent));
+    spread += evasionPenalty * scale;
+  }
+
+  return spread;
+
+}
+
+function computeTransversalVelocity(ship, target) {
+  if (!target || !ship) return 0;
+  const dx = (target.x || 0) - (ship.x || 0);
+  const dy = (target.y || 0) - (ship.y || 0);
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 0.001) return 0;
+  const dirX = dx / dist;
+  const dirY = dy / dist;
+  const relVx = (target.vx || 0) - (ship.vx || 0);
+  const relVy = (target.vy || 0) - (ship.vy || 0);
+  const radial = relVx * dirX + relVy * dirY;
+  const transverseX = relVx - radial * dirX;
+  const transverseY = relVy - radial * dirY;
+  return Math.sqrt(transverseX * transverseX + transverseY * transverseY);
 }
 
 
@@ -1791,7 +1819,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-    const spreadScale = weaponSpreadRadians(effectiveWeapon, family);
+    const targetEvasion = (family !== "pointDefense" && family !== "flak") ? computeTransversalVelocity(ship, targetEntity) : 0;
+
+    const spreadScale = weaponSpreadRadians(effectiveWeapon, family, targetEvasion);
 
     const spread = rngRange(roomCombatRandom(room), -spreadScale, spreadScale);
 
@@ -5217,7 +5247,11 @@ module.exports = {
 
   shipHasOperationalDemolitionCharge,
 
-  PRIORITY_COMPONENT_TYPES
+  PRIORITY_COMPONENT_TYPES,
+
+  computeTransversalVelocity,
+
+  weaponSpreadRadians
 
 };
 

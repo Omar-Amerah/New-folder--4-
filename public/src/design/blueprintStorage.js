@@ -13,7 +13,7 @@ import { getOccupiedCells } from "./footprint.js";
 import { computeStats } from "./componentStats.js";
 
 export const BLUEPRINT_STORAGE_VERSION = 2;
-export const MAX_SAVED_DESIGNS = 12;
+export const MAX_SAVED_DESIGNS = 24;
 export const MAX_LOADOUTS = 8;
 
 function wiringRules() {
