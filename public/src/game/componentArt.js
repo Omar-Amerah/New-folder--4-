@@ -931,7 +931,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     return true;
   }
 
-  if (type === "proximityDemolitionCharge") {
+  if (type === "proximityDemolitionCharge" || type === "demolitionCharge") {
     const body = mixColor(color, "#000000", 0.25);
     // Dark spherical bomb body.
     ctx.fillStyle = body;

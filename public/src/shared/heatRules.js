@@ -19,6 +19,22 @@
   const BASE_TRANSFER = 18;
   const NETWORK_FRAME_BOOST = 1.7;
   const NETWORK_ATTACHMENT_BOOST = 1.25;
+  // Edge-type transfer multipliers: replace the old two-tier frame/attachment
+  // boost with granular per-edge-type factors. Heat Pipe edges transfer heat
+  // significantly faster than Frame edges, but the product is never compounded
+  // more than once — routeTypeMultiplier returns a single value for the edge.
+  const HEAT_PIPE_TRANSFER = Object.freeze({
+    frameToFrame: 1.7,
+    frameToComponent: 1.25,
+    frameToHeatPipe: 1.7,
+    heatPipeToComponent: 2.0,
+    heatPipeToHeatPipe: 2.5,
+    heatPipeToHeatSink: 2.25,
+    heatPipeToRadiator: 2.5
+  });
+  // Soft cap on shared-edge count so a large multi-cell component does not get
+  // an unreasonable multiplier from many shared edges.
+  const MAX_SHARED_EDGE_MULTIPLIER = 3;
   // A power generator pinned at the overheat failure state for this long melts
   // down and explodes (server: componentHealth.detonateComponent). Shared so
   // the designer's thermal prediction and part inspector stay in sync.
@@ -100,10 +116,35 @@
   // Compatibility alias while older call sites migrate to effect-specific rules.
   function performanceForState(state) { return activeOutputForState(state); }
 
+  function effectiveSharedEdges(sharedEdges) {
+    return Math.min(sharedEdges, MAX_SHARED_EDGE_MULTIPLIER);
+  }
+
+  // Returns the edge-type transfer multiplier for a pair of component types.
+  // Only one multiplier is applied per edge — never compounded.
+  function routeTypeMultiplier(typeA, typeB) {
+    const aIsPipe = String(typeA || "") === "heatPipe";
+    const bIsPipe = String(typeB || "") === "heatPipe";
+    const aIsFrame = /frame/i.test(String(typeA || ""));
+    const bIsFrame = /frame/i.test(String(typeB || ""));
+    if (aIsPipe && bIsPipe) return HEAT_PIPE_TRANSFER.heatPipeToHeatPipe;
+    if (aIsPipe || bIsPipe) {
+      const other = aIsPipe ? typeB : typeA;
+      if (String(other || "") === "heatSink") return HEAT_PIPE_TRANSFER.heatPipeToHeatSink;
+      if (String(other || "") === "radiator") return HEAT_PIPE_TRANSFER.heatPipeToRadiator;
+      if (/frame/i.test(String(other || ""))) return HEAT_PIPE_TRANSFER.frameToHeatPipe;
+      return HEAT_PIPE_TRANSFER.heatPipeToComponent;
+    }
+    if (aIsFrame && bIsFrame) return HEAT_PIPE_TRANSFER.frameToFrame;
+    if (aIsFrame || bIsFrame) return HEAT_PIPE_TRANSFER.frameToComponent;
+    return 1.0;
+  }
+
   function edgeTransfer(aHeat, aCapacity, bHeat, bCapacity, conductivity, sharedEdges, dt) {
     const aRatio = aHeat / Math.max(1, aCapacity);
     const bRatio = bHeat / Math.max(1, bCapacity);
-    const raw = (aRatio - bRatio) * BASE_TRANSFER * conductivity * sharedEdges * dt;
+    const edgeCount = effectiveSharedEdges(sharedEdges);
+    const raw = (aRatio - bRatio) * BASE_TRANSFER * conductivity * edgeCount * dt;
     if (raw > 0) return Math.min(raw, aHeat);
     return -Math.min(-raw, bHeat);
   }
@@ -113,5 +154,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, HEAT_PIPE_TRANSFER, MAX_SHARED_EDGE_MULTIPLIER, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, routeTypeMultiplier, effectiveSharedEdges });
 }));

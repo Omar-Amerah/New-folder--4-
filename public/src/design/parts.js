@@ -70,7 +70,8 @@ export const PART_DEFS = {
   engineeringCommandCentre: { name: "Engineering Command Centre", color: "#93c5fd", glyph: "radial-gradient(circle, #eff6ff 0 18%, #3b82f6 28% 55%, #172554 60%)" },
   propulsionCommandRelay: { name: "Propulsion Command Relay", color: "#67e8f9", glyph: "radial-gradient(circle, #ecfeff 0 18%, #06b6d4 28% 55%, #164e63 60%)" },
   electronicWarfareCommandCentre: { name: "Electronic Warfare Command Centre", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 18%, #a855f7 28% 55%, #3b0764 60%)" },
-  proximityDemolitionCharge: { name: "Proximity Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" }
+  proximityDemolitionCharge: { name: "Proximity Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" },
+  demolitionCharge: { name: "Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" }
 };
 
 // These structural silhouettes show their direction through their geometry, so
@@ -117,14 +118,15 @@ export const PART_DESCRIPTIONS = Object.freeze({
   aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
   targetingComputer: "Support computer that improves weapon accuracy.",
   fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
-  heatPipe: "Specialised high-conductivity thermal conduit that transfers heat to a connected heat sink or radiator route. It does not remove heat, stores very little heat, and is structurally weak, so it cannot replace frames for hull support.",
+  heatPipe: "Dedicated high-conductivity thermal conduit. Components can connect directly along its sides, allowing heat to move rapidly toward Heat Sinks and Radiators. It stores little heat, removes no heat by itself and stops routing when destroyed.",
   heatSink: "High-capacity thermal buffer that soaks heat from connected frames and boosts adjacent components' heat capacity. Pair with radiators to shed the stored heat.",
   radiator: "Continuous heat removal that works best with an exposed exterior edge; only 25% effective when fully enclosed.",
   signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
   droneBay: "Weapon module that launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed.",
-  proximityDemolitionCharge: "Armed by default, this charge detonates when an enemy ship comes within 50 m. The blast bypasses shields, destroys the carrier, and damages all nearby entities regardless of team. Safe mode can prevent accidental detonation."
+  proximityDemolitionCharge: "Armed by default, this charge detonates when an enemy ship comes within 50 m. The blast bypasses shields, destroys the carrier, and damages all nearby entities regardless of team. Safe mode can prevent accidental detonation.",
+  demolitionCharge: "A compact 1×1 kamikaze charge. Armed by default, it detonates when an enemy ship comes within 50 m, bypassing shields, destroying the carrier, and damaging all nearby entities regardless of team."
 });
 
 export const FALLBACK_PART_STATS = {};

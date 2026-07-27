@@ -201,7 +201,7 @@ export function computeStats(modules, options = {}) {
   return {
     cost,
     unitCost,
-    mass: Math.round(mass),
+    mass: Math.round(mass * 100) / 100,
     maxHp: Math.max(140, Math.round(maxHp * 1.15)),
     maxShield: Math.round(shieldStats.capacity),
     shieldRegen: Number(shieldStats.recharge.toFixed(2)),

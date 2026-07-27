@@ -15,21 +15,22 @@ const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) { let wiring = WiringRules.emptyWiring(); for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS); return wiring; }
 function shipFor(design, paths = []) { const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true }; initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "test"); return ship; }
 function close(a, b, msg) { assert(Math.abs(a - b) < 0.011, `${msg}: ${a} !== ${b}`); }
+function shieldScale(design) { return ShieldRules.shipMassShieldScale(design, PARTS); }
 
 const one = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
-close(effectiveShieldStats(one).capacity, PARTS.shield.shield, "one shield capacity");
+close(effectiveShieldStats(one).capacity, PARTS.shield.shield * shieldScale(one.design), "one shield capacity");
 close(effectiveShieldStats(one).recharge, PARTS.shield.shieldRegen, "one shield regen");
 const fourDesign = [at("reactor",0,0), at("reactor",0,1), at("shield",1,0), at("shield",2,0), at("shield",3,0), at("shield",4,0)];
 const four = shipFor(fourDesign, [[0,2,[{x:0,y:0},{x:1,y:0},{x:2,y:0},{x:3,y:0},{x:4,y:0}]], [1,2,[{x:0,y:1},{x:1,y:0},{x:2,y:0},{x:3,y:0},{x:4,y:0}]]]);
 close(effectiveShieldStats(four).recharge, ShieldRules.effectiveStackedValue([2,3,4,5].map(i => PARTS.shield.shieldRegen * four.componentPower.byComponentIndex[i].operationalMultiplier)), "four module diminishing regen");
 const weak = shipFor([at("auxGenerator",0,0), at("shield",1,0), at("shield",2,0)], [[0,1,[{x:0,y:0},{x:1,y:0},{x:2,y:0}]]]);
 const mult = PARTS.auxGenerator.powerGeneration / (PARTS.shield.powerUse * 2);
-close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * 2, "standby allocation maintains full shield capacity");
+close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * 2 * shieldScale(weak.design), "standby allocation maintains full shield capacity");
 weak.componentHeatState[1] = HeatRules.STATE.HOT;
-close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * 2, "capacity ignores Heat state");
+close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * 2 * shieldScale(weak.design), "capacity ignores Heat state");
 close(effectiveShieldStats(weak).recharge, ShieldRules.effectiveStackedValue([PARTS.shield.shieldRegen * mult * HeatRules.activeOutputForState(HeatRules.STATE.HOT), PARTS.shield.shieldRegen * mult]), "regen responds to Heat state");
 weak.componentHp[2] = 0;
-close(effectiveShieldStats(weak).capacity, PARTS.shield.shield, "destroyed capacity removed");
+close(effectiveShieldStats(weak).capacity, PARTS.shield.shield * shieldScale(weak.design), "destroyed capacity removed");
 const designer = ShieldRules.calculateShieldStats(weak.design, PARTS, { isLive: i => (weak.componentHp[i] ?? 1) > 0, powerMultiplier: i => weak.componentPower.byComponentIndex[i].operationalMultiplier, capacityPowerMultiplier: i => i === 1 ? 1 : 0, heatMultiplier: i => HeatRules.activeOutputForState(weak.componentHeatState[i] || 0) });
 close(designer.capacity, effectiveShieldStats(weak).capacity, "designer/runtime capacity parity");
 close(designer.recharge, effectiveShieldStats(weak).recharge, "designer/runtime regen parity");
@@ -100,7 +101,7 @@ async function verifyBlueprintRuntimeShieldParity() {
   for (const heatState of [HeatRules.STATE.HOT, HeatRules.STATE.OVERHEATED]) {
     const heated = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
     heated.componentHeatState[1] = heatState;
-    close(effectiveShieldStats(heated).capacity, PARTS.shield.shield, "runtime shield capacity is Heat-independent");
+    close(effectiveShieldStats(heated).capacity, PARTS.shield.shield * shieldScale(heated.design), "runtime shield capacity is Heat-independent");
     close(effectiveShieldStats(heated).recharge, PARTS.shield.shieldRegen * HeatRules.activeOutputForState(heatState), "runtime shield regen uses shared Heat multiplier");
   }
 }

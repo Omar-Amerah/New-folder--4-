@@ -1451,7 +1451,7 @@ function thermalRoleMarkup(part, prediction, result, index) {
     const exposed = result.exteriorDirections?.[index]?.size > 0;
     pieces.push(`<span class="thermal-role-indicator radiator-role" title="Removing ${prediction.cooling.toFixed(1)} H/s; exterior exposure: ${exposed ? "yes" : "no"}" aria-label="Radiator removing ${prediction.cooling.toFixed(1)} H/s">⇱</span>`);
   }
-  if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Heat Pipe conduit" aria-label="Heat Pipe conduit">┄</span>`);
+  if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Heat Pipe conduit — components attach directly to transfer heat rapidly" aria-label="Heat Pipe conduit, components attach directly">┄</span>`);
   return pieces.join("");
 }
 
@@ -1477,6 +1477,27 @@ function renderHeatContextCard(result) {
   if (result.problemIndices?.unroutedHot?.has?.(index)) {
     routeProblemRows.push(row("Heat routing", "No cooling route", "Hot component cannot reach enough cooling", "heat-card-warning"));
   }
+  // Thermal connection label: shows how this component joins its thermal network.
+  const connectedNetwork = result.networks?.find(network =>
+    network.attached?.includes(index) || network.frameIndices?.includes(index)
+  );
+  let connectionLabel = "Disconnected";
+  if (connectedNetwork) {
+    const isRoute = connectedNetwork.frameIndices?.includes(index);
+    const hasHeatPipe = (connectedNetwork.heatPipeIndices || []).length > 0;
+    if (isRoute && part.type === "heatPipe") connectionLabel = "Heat Pipe network";
+    else if (hasHeatPipe) connectionLabel = "Heat Pipe network";
+    else connectionLabel = "Frame network";
+  } else if (part.type === "heatPipe") {
+    connectionLabel = "Disconnected";
+  } else {
+    const hasFrameNeighbor = state.design.some((other, oi) =>
+      oi !== index && /frame/i.test(other.type) &&
+      Math.abs(other.x - part.x) + Math.abs(other.y - part.y) === 1
+    );
+    connectionLabel = hasFrameNeighbor ? "Direct only" : "Disconnected";
+  }
+  routeProblemRows.unshift(row("Thermal connection", connectionLabel, `Component thermal connection: ${connectionLabel}`));
   const overloadedNetwork = result.networks?.some(network =>
     result.overloadedNetworkIds?.has?.(network.id) && (network.attached?.includes(index) || network.frameIndices?.includes(index))
   );

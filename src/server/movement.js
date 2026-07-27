@@ -161,6 +161,7 @@ function commandShips(room, player, x, y, options = {}) {
       ship.commandMode = 'attack';
       ship.isManualMove = false;
       ship.arrived = false;
+      ship.holdState = null;
       if (ship.focusTargetId !== ship.lastOrbitTargetId) {
         ship.orbitDir = undefined;
         ship.lastOrbitTargetId = null;
@@ -216,6 +217,7 @@ function setGroundMoveTarget(room, ship, tx, ty) {
   ship.arrived = false;
   ship.sentryX = null;
   ship.sentryY = null;
+  ship.holdState = null;
 }
 
 function stopShips(room, player, shipIds) {
@@ -234,6 +236,7 @@ function stopShips(room, player, shipIds) {
     ship.formationPlan = null;
     ship.formationSlotIndex = null;
     ship.rotationInput = null;
+    ship.holdState = null;
     clearOrbitState(ship);
   }
   return { ok: true, code: 'stopped', stopped: ships.length };
@@ -257,6 +260,7 @@ function rotateShips(room, player, direction, shipIds, active = true) {
       ship.repairTargetId = null;
       ship.formationPlan = null;
       ship.formationSlotIndex = null;
+      ship.holdState = null;
       clearOrbitState(ship);
       ship.rotationInput = direction;
     } else {
@@ -302,7 +306,7 @@ function updateShipMovementStep(room, ship, dt, now) {
   const target = getActiveCombatTarget(room, ship);
 
   if (target) {
-    updateCombatMoveTarget(room, ship, target, style);
+    updateCombatMoveTarget(room, ship, target, style, stats);
   } else {
     clearOrbitState(ship);
   }
@@ -363,6 +367,7 @@ function ensureMoveTarget(ship) {
   if (ship.sentryX === undefined) ship.sentryX = null;
   if (ship.sentryY === undefined) ship.sentryY = null;
   if (ship.isManualMove === undefined) ship.isManualMove = false;
+  if (ship.holdState === undefined) ship.holdState = null;
   if (!Number.isFinite(ship.turnActivity)) ship.turnActivity = 0;
   else ship.turnActivity = clampNumber(ship.turnActivity, -1, 1);
   if (!Number.isFinite(ship.targetX)) ship.targetX = ship.x;
@@ -419,7 +424,7 @@ function updateRepairMoveTarget(room, ship) {
     ship.arrived = true;
   }
 }
-function updateCombatMoveTarget(room, ship, target, style) {
+function updateCombatMoveTarget(room, ship, target, style, stats) {
   const maxRange = getMaxWeaponRange(ship);
   const distanceToTarget = fastHypot(target.x - ship.x, target.y - ship.y);
 
@@ -467,7 +472,7 @@ function updateCombatMoveTarget(room, ship, target, style) {
   }
 
   if (style === 'maintain') {
-    updateMaintainRangeTarget(ship, target, maxRange);
+    updateMaintainRangeTarget(ship, target, maxRange, stats);
     return;
   }
 
@@ -528,18 +533,11 @@ function updateCombatMoveTarget(room, ship, target, style) {
 }
 
 function setStandoffTarget(ship, target, desiredRange) {
-  const dx = ship.x - target.x;
-  const dy = ship.y - target.y;
-  const dist = fastHypot(dx, dy);
+  const standoff = computeStandoffPosition(ship, target, desiredRange);
   const hysteresis = Math.max(18, ship.radius * 0.35);
-  let dirX = 0, dirY = 0;
-  if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
-  else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
-  const desiredX = target.x + dirX * desiredRange;
-  const desiredY = target.y + dirY * desiredRange;
-  if (Math.abs(dist - desiredRange) > hysteresis) {
-    ship.targetX = desiredX;
-    ship.targetY = desiredY;
+  if (Math.abs(standoff.dist - desiredRange) > hysteresis) {
+    ship.targetX = standoff.x;
+    ship.targetY = standoff.y;
     ship.arrived = false;
   } else {
     ship.targetX = ship.x;
@@ -584,22 +582,15 @@ function updateOrbitMoveTarget(ship, target, maxRange) {
   ship.lastOrbitTargetId = target.id;
 }
 
-function updateMaintainRangeTarget(ship, target, maxRange) {
+function updateMaintainRangeTarget(ship, target, maxRange, stats) {
   const desiredRange = maxRange * MAINTAIN_RANGE_RATIO;
   const tolerance = maxRange * MAINTAIN_TOLERANCE;
-  const dx = ship.x - target.x;
-  const dy = ship.y - target.y;
-  const dist = fastHypot(dx, dy);
-  let dirX = 0, dirY = 0;
-  if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
-  else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
-  if (dist > desiredRange + tolerance) {
-    ship.targetX = target.x + dirX * desiredRange;
-    ship.targetY = target.y + dirY * desiredRange;
-    ship.arrived = false;
-  } else if (dist < desiredRange - tolerance) {
-    ship.targetX = target.x + dirX * desiredRange;
-    ship.targetY = target.y + dirY * desiredRange;
+  const standoff = computeStandoffPosition(ship, target, desiredRange);
+  const stoppingDist = computeStoppingDistance(ship, stats || ship.stats || {});
+  const effectiveTolerance = tolerance + stoppingDist;
+  if (standoff.dist > desiredRange + effectiveTolerance || standoff.dist < desiredRange - effectiveTolerance) {
+    ship.targetX = standoff.x;
+    ship.targetY = standoff.y;
     ship.arrived = false;
   } else {
     ship.targetX = ship.x;
@@ -711,38 +702,54 @@ function updatePropulsionCapacitors(ship, stats, dt, now) {
   return activeBoost;
 }
 
+function computeStoppingDistance(ship, stats) {
+  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
+  const accel = stats.accel || 0;
+  if (speed <= 0 || accel <= 0) return 0;
+  const effectiveDecel = Math.max(accel * 0.5, speed * 0.06 + 1);
+  return (speed * speed) / (2 * effectiveDecel);
+}
+
+function computeStandoffPosition(ship, target, desiredRange) {
+  const dx = ship.x - target.x;
+  const dy = ship.y - target.y;
+  const dist = fastHypot(dx, dy);
+  let dirX = 0, dirY = 0;
+  if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
+  else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
+  return {
+    dist,
+    dirX,
+    dirY,
+    x: target.x + dirX * desiredRange,
+    y: target.y + dirY * desiredRange
+  };
+}
+
 function updateHoldMoveTarget(ship, target, desiredRange) {
-  if (!ship.holdPhase || ship.holdPhase === 'positioning') {
-    ship.holdPhase = 'positioning';
-    const dx = ship.x - target.x;
-    const dy = ship.y - target.y;
-    const dist = fastHypot(dx, dy);
+  if (!ship.holdState || ship.holdState.phase === 'positioning') {
+    ship.holdState = { phase: 'positioning', x: null, y: null };
+    const standoff = computeStandoffPosition(ship, target, desiredRange);
     const hysteresis = Math.max(18, ship.radius * 0.35);
-    let dirX = 0, dirY = 0;
-    if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
-    else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
-    const desiredX = target.x + dirX * desiredRange;
-    const desiredY = target.y + dirY * desiredRange;
-    if (Math.abs(dist - desiredRange) > hysteresis) {
-      ship.targetX = desiredX;
-      ship.targetY = desiredY;
+    if (Math.abs(standoff.dist - desiredRange) > hysteresis) {
+      ship.targetX = standoff.x;
+      ship.targetY = standoff.y;
       ship.arrived = false;
     } else {
-      ship.holdPhase = 'holding';
-      ship.holdX = ship.x;
-      ship.holdY = ship.y;
+      ship.holdState = { phase: 'holding', x: ship.x, y: ship.y };
       ship.targetX = ship.x;
       ship.targetY = ship.y;
       ship.arrived = true;
     }
   } else {
-    if (!Number.isFinite(ship.holdX) || !Number.isFinite(ship.holdY)) {
-      ship.holdX = ship.x;
-      ship.holdY = ship.y;
+    const hx = ship.holdState.x, hy = ship.holdState.y;
+    if (!Number.isFinite(hx) || !Number.isFinite(hy)) {
+      ship.holdState.x = ship.x;
+      ship.holdState.y = ship.y;
     }
-    ship.targetX = ship.holdX;
-    ship.targetY = ship.holdY;
-    const dist = fastHypot(ship.x - ship.holdX, ship.y - ship.holdY);
+    ship.targetX = ship.holdState.x;
+    ship.targetY = ship.holdState.y;
+    const dist = fastHypot(ship.x - ship.holdState.x, ship.y - ship.holdState.y);
     ship.arrived = dist <= ARRIVE_DISTANCE;
   }
 }

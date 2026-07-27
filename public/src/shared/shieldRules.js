@@ -6,8 +6,16 @@
   "use strict";
 
   const STACKING_FACTOR = 0.72;
+  const SHIELD_MASS_SCALE_FACTOR = 0.004;
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
   function number(value, fallback = 0) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
+  function shipMassShieldScale(modules, parts) {
+    let mass = 0;
+    for (let i = 0; i < (modules || []).length; i += 1) {
+      mass += Number(parts?.[modules[i]?.type]?.mass) || 0;
+    }
+    return 1 + mass * SHIELD_MASS_SCALE_FACTOR;
+  }
   function stacked(values, falloff = STACKING_FACTOR) {
     return [...values].filter(v => v > 0).sort((a, b) => b - a).reduce((sum, value, index) => sum + value * Math.pow(falloff, index), 0);
   }
@@ -27,9 +35,10 @@
     }
   }
   function calculateShieldCapacityContributions(modules, parts, options = {}) {
+    const scale = shipMassShieldScale(modules, parts);
     const contributions = [];
     iterateLiveShieldComponents(modules, parts, options, (index, module, part, power, capacity) => {
-      contributions.push({ index, capacity });
+      contributions.push({ index, capacity: capacity * scale });
     });
     return contributions;
   }
@@ -55,9 +64,11 @@
     }
     return { capacity: Number.isFinite(capacity) ? capacity : 0, recharge: stacked(regen), regeneration: stacked(regen), capacityContributions };
   }
-  return Object.freeze({ STACKING_FACTOR, calculateShieldStats, calculateShieldCapacityContributions, effectiveStackedValue: stacked });
+  return Object.freeze({ STACKING_FACTOR, SHIELD_MASS_SCALE_FACTOR, shipMassShieldScale, calculateShieldStats, calculateShieldCapacityContributions, effectiveStackedValue: stacked });
 }));
 export const STACKING_FACTOR = globalThis.ShieldRules.STACKING_FACTOR;
+export const SHIELD_MASS_SCALE_FACTOR = globalThis.ShieldRules.SHIELD_MASS_SCALE_FACTOR;
+export const shipMassShieldScale = globalThis.ShieldRules.shipMassShieldScale;
 export const calculateShieldStats = globalThis.ShieldRules.calculateShieldStats;
 export const calculateShieldCapacityContributions = globalThis.ShieldRules.calculateShieldCapacityContributions;
 export const effectiveStackedValue = globalThis.ShieldRules.effectiveStackedValue;

@@ -4797,7 +4797,7 @@ function applyBlastDamageToShip(room, target, origin, cfg, damageMultiplier, con
   if (!target || !target.alive) return 0;
   const isContact = contactTargetShip && target.id === contactTargetShip.id;
   const blastR = cfg.blastRadius;
-  const exp = Math.max(0.1, cfg.falloffExponent);
+  const exp = Math.max(0, cfg.falloffExponent);
   const worldCells = getShipComponentCellWorldCoords(target);
   let nearestDist = Infinity;
   for (let i = 0; i < (target.design || []).length; i += 1) {
@@ -4951,7 +4951,7 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true, c
 
   const blastR = cfg.blastRadius;
 
-  const exp = Math.max(0.1, cfg.falloffExponent);
+  const exp = Math.max(0, cfg.falloffExponent);
 
   const damageMultiplier = calculateCombinedChargeMultiplier(armedIndexes.length);
 

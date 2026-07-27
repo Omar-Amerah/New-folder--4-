@@ -38,6 +38,7 @@ const GROUPS = {
     "verify-spawn-planner.js",
     "verify-component-indexes.js",
     "verify-movement.js",
+    "verify-movement-styles.js",
     "verify-targeting.js",
     "verify-turrets.js",
     "verify-beam-emitter.js",

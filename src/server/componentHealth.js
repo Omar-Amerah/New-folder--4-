@@ -240,7 +240,7 @@ function onComponentDestroyed(room, ship, index, now) {
   bumpComponentAliveRevision(ship);
   const module = ship.design[index];
   if (ship.componentMeltdown && (PARTS[module.type]?.powerGeneration || 0) > 0) ship.componentMeltdown[index] = 0;
-  if (module.type === "proximityDemolitionCharge" && !(ship.proximityChargeDetonated?.[index] ?? 0)) {
+  if (PARTS[module.type]?.proximityCharge && !(ship.proximityChargeDetonated?.[index] ?? 0)) {
     const { detonateProximityCharge } = require("./combat");
     if (detonateProximityCharge) {
       detonateProximityCharge(room, ship, index, now, true);

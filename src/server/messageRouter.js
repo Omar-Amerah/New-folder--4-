@@ -241,9 +241,7 @@ function handleMessage(client, message) {
       ship.combatStyle = combatStyle;
       ship.orbitDir = undefined;
       ship.lastOrbitTargetId = null;
-      ship.holdPhase = null;
-      ship.holdX = null;
-      ship.holdY = null;
+      ship.holdState = null;
       if (combatStyle === 'sentry') {
         if (ship.commandMode !== 'move' || ship.arrived) {
           ship.sentryX = ship.x;

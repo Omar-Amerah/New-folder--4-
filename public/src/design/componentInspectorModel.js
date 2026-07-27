@@ -201,7 +201,7 @@ function weaponCapability(stat) {
 }
 
 function capabilityRows(type, stat, family, context = {}) {
-  if (type === "proximityDemolitionCharge" && stat.proximityCharge) {
+  if (stat.proximityCharge) {
     const cfg = stat.proximityCharge;
     return [
       statRow("proximityCharge.trigger", "Trigger", "Enemy within 50 m"),
@@ -309,7 +309,7 @@ function capabilityRows(type, stat, family, context = {}) {
 function thermalRoleText(type) {
   if (type === "radiator") return "Removes heat from the ship";
   if (type === "heatSink") return "Stores heat for adjacent components";
-  if (type === "heatPipe") return "Transfers heat to sinks and radiators";
+  if (type === "heatPipe") return "High-conductivity conduit — components attach directly to transfer heat toward sinks and radiators";
   return "Thermal support";
 }
 

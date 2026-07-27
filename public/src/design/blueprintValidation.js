@@ -105,6 +105,6 @@ export function explainConnectionProblem(existingParts, partType, x, y, rotation
   }
 
   return partType === "heatPipe"
-    ? "Not connected: heat pipes must mount to the ship and connect to a sink or radiator route; they do not provide structural support"
+    ? "Not connected: heat pipes must mount to the ship structurally; they do not provide structural support but components can attach directly for thermal transfer"
     : "Not connected: every non-heat-pipe module needs a structural side-connected path back to the core";
 }

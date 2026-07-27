@@ -163,7 +163,7 @@ function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
     }
   }
   for (let i = 0; i < design.length; i += 1) {
-    if (design[i]?.type !== "proximityDemolitionCharge") continue;
+    if (!PARTS[design[i]?.type]?.proximityCharge) continue;
     profiles[i] = { type: "charge", range: 0, dps: 0, accuracy: 1, arc: 360 };
   }
   bump("profileBuildCount");

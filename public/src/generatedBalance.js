@@ -232,7 +232,7 @@ export const GENERATED_BALANCE = {
         "commandRange": 500,
         "orbitDistance": 90,
         "repairRange": 85,
-        "repairPerSecond": 8.2,
+        "repairPerSecond": 25,
         "targetCommitSeconds": 1.5
       }
     }
@@ -1489,7 +1489,7 @@ export const GENERATED_BALANCE = {
       "name": "Proximity Demolition Charge",
       "category": "Weapons",
       "cost": 55,
-      "mass": 16,
+      "mass": 64,
       "hull": 70,
       "powerGeneration": 0,
       "powerUse": 1.8,
@@ -1505,6 +1505,39 @@ export const GENERATED_BALANCE = {
       "footprint": {
         "width": 2,
         "height": 3
+      },
+      "proximityCharge": {
+        "triggerRadius": 50,
+        "triggerConfirmationSeconds": 0.2,
+        "blastRadius": 300,
+        "centreDamage": 4000,
+        "falloffExponent": 0,
+        "maxAffectedComponents": 8,
+        "internalDamageReduction": 0.7
+      },
+      "description": "Heavy kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius, destroying everything within 300 m."
+    },
+    {
+      "id": "demolitionCharge",
+      "name": "Demolition Charge",
+      "category": "Weapons",
+      "cost": 55,
+      "mass": 16,
+      "hull": 70,
+      "powerGeneration": 0,
+      "powerUse": 1.8,
+      "powerCategory": "weapons",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.03,
+      "energy": 0,
+      "repair": 0,
+      "maxPerShip": 4,
+      "rotatable": true,
+      "footprint": {
+        "width": 1,
+        "height": 1
       },
       "proximityCharge": {
         "triggerRadius": 50,

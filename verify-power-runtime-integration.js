@@ -15,6 +15,7 @@ const fs = require("fs");
 const path = require("path");
 const WiringRules = require("./public/src/shared/wiringRules");
 const PowerFlowRules = require("./public/src/shared/powerFlowRules");
+const ShieldRules = require("./public/src/shared/shieldRules");
 const { PARTS } = require("./src/server/components");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState } = require("./src/server/componentHealth");
@@ -119,7 +120,7 @@ check("runtime power policy is a clone of the immutable Blueprint policy",
 const defShieldMult = getComponentPowerMultiplier(defensive, 1);
 const defensiveShieldStats = effectiveShieldStats(defensive);
 check("effective shield recharge reflects the fresh solver multiplier while standby maintains capacity",
-  Math.abs(defensiveShieldStats.capacity - PARTS.shield.shield) < 1e-6
+  Math.abs(defensiveShieldStats.capacity - PARTS.shield.shield * ShieldRules.shipMassShieldScale(c1Design, PARTS)) < 1e-6
     && Math.abs(defensiveShieldStats.recharge - PARTS.shield.shieldRegen * defShieldMult) < 1e-6);
 
 // Ship C2 — Balanced keeps Shields above Point Defence while the two remain

@@ -1,4 +1,4 @@
-import { isConnected, isOutOfBounds, isOverlapping, explainConnectionProblem } from "./blueprintValidation.js";
+import { isOutOfBounds, isOverlapping } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import { isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
@@ -65,9 +65,6 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
     if (Number.isFinite(shipCap) && nextDesign.filter((candidate) => candidate.type === type).length > shipCap) {
       reasonCode = "max-per-ship";
       message = `Max ${shipCap} ${catalogue[type]?.name || type} per ship`;
-    } else if (!isConnected(nextDesign)) {
-      reasonCode = "disconnected";
-      message = explainConnectionProblem(baseDesign, type, targetX, targetY, part.rotation);
     } else if (type === "maneuverThruster") {
       const idx = nextDesign.indexOf(part);
       const exhaust = globalThis.EngineExhaustRules?.analyze?.(nextDesign, catalogue);

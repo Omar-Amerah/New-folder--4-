@@ -274,8 +274,7 @@ export function simulateThermalLoad(model, load, options = {}) {
       const frameI = isFrame(design[edge.i].type), frameJ = isFrame(design[edge.j].type);
       const routedI = Number.isFinite(frameCoolingDistance[edge.i]), routedJ = Number.isFinite(frameCoolingDistance[edge.j]);
       let conductivity = edge.conductivity;
-      if (frameI && frameJ && (routedI || routedJ)) conductivity *= rules.NETWORK_FRAME_BOOST;
-      else if ((frameI && routedI) || (frameJ && routedJ)) conductivity *= rules.NETWORK_ATTACHMENT_BOOST;
+      if ((routedI || routedJ)) conductivity *= rules.routeTypeMultiplier(design[edge.i].type, design[edge.j].type);
       const amount = rules.edgeTransfer(workingHeat[edge.i], profiles[edge.i].capacity, workingHeat[edge.j], profiles[edge.j].capacity, conductivity, edge.sharedEdges, dt);
       if (amount === 0) continue;
       pendingTransfers.push({ i: edge.i, j: edge.j, amount });
@@ -792,7 +791,9 @@ function buildThermalNetworks(model, generationRates) {
     const coolers = [...attached].filter(i => design[i].type === "heatSink" || design[i].type === "radiator");
     const networkGeneration = generators.reduce((sum, i) => sum + generationRates[i], 0);
     const networkCooling = coolers.reduce((sum, i) => sum + profiles[i].cooling * (design[i].type === "radiator" && !exposed[i] ? .25 : 1), 0);
-    networks.push({ id: networks.length, frameIndices, attached: [...attached], generators, coolers, generation: networkGeneration, cooling: networkCooling, overloaded: networkGeneration > networkCooling, isolated: generators.length > 0 && coolers.length === 0 });
+    const heatPipeIndices = frameIndices.filter(i => design[i].type === "heatPipe");
+    const frameOnlyIndices = frameIndices.filter(i => design[i].type !== "heatPipe");
+    networks.push({ id: networks.length, frameIndices, heatPipeIndices, frameOnlyIndices, attached: [...attached], generators, coolers, generation: networkGeneration, cooling: networkCooling, overloaded: networkGeneration > networkCooling, isolated: generators.length > 0 && coolers.length === 0 });
   }
   return networks;
 }

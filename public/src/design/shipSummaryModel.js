@@ -16,6 +16,7 @@
 
 import { statRow, StatLedger, isMeaningfulValue } from "./componentInspectorModel.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatRepair, formatSpeed, formatPercent, round2 } from "./statFormatting.js";
+import { PART_STATS } from "./parts.js";
 
 export { statRow, StatLedger, isMeaningfulValue };
 
@@ -303,7 +304,7 @@ const WEAPON_FAMILY_LABELS = { blaster: "Blaster", missile: "Missile", railgun: 
 function combatSection(stats, ledger, context = {}) {
   const rows = [];
   const weapons = stats.weapons || {};
-  const proximityChargeCount = (context?.design || []).filter((m) => m.type === "proximityDemolitionCharge").length;
+  const proximityChargeCount = (context?.design || []).filter((m) => PART_STATS[m.type]?.proximityCharge).length;
   if (proximityChargeCount > 0) {
     rows.push(statRow("weapons.proximityCharge", "Proximity Charges", `${proximityChargeCount}×`));
   }

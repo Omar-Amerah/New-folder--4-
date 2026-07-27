@@ -24,6 +24,7 @@
     "test:heat": "node verify-heat.js",
     "test:engine-exhaust": "node verify-engine-exhaust.js",
     "test:movement": "node verify-movement.js",
+    "test:movement-styles": "node verify-movement-styles.js",
     "test:targeting": "node verify-targeting.js",
     "test:reconnect": "node verify-reconnect.js && node verify-lobby-refresh-reconnect.js",
     "test:core-reactor": "node verify-core-reactor.js",

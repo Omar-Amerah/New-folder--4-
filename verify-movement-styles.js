@@ -144,12 +144,11 @@ function run() {
       focusTargetId: "enemy",
       x: 200, y: 300,  // far from target, needs positioning
       targetX: 200, targetY: 300,
-      holdPhase: null,
-      holdX: null,
-      holdY: null
+      holdState: null
     });
     updateShipMovement(room, ship, 1 / 30);
-    assert.strictEqual(ship.holdPhase, "positioning", "hold ship should start in positioning phase");
+    assert(ship.holdState, "hold ship should have holdState object");
+    assert.strictEqual(ship.holdState.phase, "positioning", "hold ship should start in positioning phase");
     assert(!ship.arrived, "hold ship in positioning should not have arrived");
 
     // Manually advance to holding phase by placing ship near desired range.
@@ -162,14 +161,14 @@ function run() {
     ship.targetX = ship.x;
     ship.targetY = ship.y;
     updateShipMovement(room, ship, 1 / 30);
-    assert.strictEqual(ship.holdPhase, "holding", "hold ship should transition to holding when in range");
-    assert(Number.isFinite(ship.holdX) && Number.isFinite(ship.holdY), "hold ship should record fixed position");
+    assert.strictEqual(ship.holdState.phase, "holding", "hold ship should transition to holding when in range");
+    assert(Number.isFinite(ship.holdState.x) && Number.isFinite(ship.holdState.y), "hold ship should record fixed position");
 
     // Now move the enemy — the hold ship should NOT follow.
-    const holdX = ship.holdX, holdY = ship.holdY;
+    const holdX = ship.holdState.x, holdY = ship.holdState.y;
     target.x = 1200; // enemy moves away
     updateShipMovement(room, ship, 1 / 30);
-    assert.strictEqual(ship.holdPhase, "holding", "hold ship should remain in holding phase");
+    assert.strictEqual(ship.holdState.phase, "holding", "hold ship should remain in holding phase");
     assert.strictEqual(ship.targetX, holdX, "hold ship should target fixed world position, not enemy");
     assert.strictEqual(ship.targetY, holdY, "hold ship should target fixed world position, not enemy");
   }
@@ -270,8 +269,72 @@ function run() {
     assert.strictEqual(ship.arrived, true, "disarmed ship should be arrived");
   }
 
+  // 10. Maintain Range with stopping-distance: ship at high speed approaching
+  //     the tolerance band should arrive earlier due to predicted overshoot.
+  {
+    const { getEffectiveWeaponRanges } = require("./src/server/componentData");
+    const tmpShip = runtimeShip(armedDesign, { id: "tmp-stop" });
+    const ranges = getEffectiveWeaponRanges(tmpShip);
+    const maxRange = Math.max(120, ranges.blaster, ranges.missile, ranges.railgun, ranges.beam);
+    const desiredRange = maxRange * 0.9;
+    const tolerance = maxRange * 0.05;
+    // Place ship just inside the outer tolerance edge but moving toward target at speed.
+    const shipX = target.x + (desiredRange + tolerance * 0.5);
+    const shipY = target.y;
+    const ship = runtimeShip(armedDesign, {
+      id: "stop-test",
+      combatStyle: "maintain",
+      combatTargetId: "enemy",
+      focusTargetId: "enemy",
+      x: shipX, y: shipY,
+      vx: -200, vy: 0,  // moving fast toward target
+      targetX: shipX, targetY: shipY
+    });
+    updateShipMovement(room, ship, 1 / 30);
+    // With stopping-distance prediction, the effective tolerance is wider,
+    // so the ship should arrive even though it's within the static tolerance.
+    assert(ship.arrived, "maintain ship with high inbound speed should arrive early due to stopping-distance prediction");
+  }
+
+  // 11. Hold state resets on new attack command.
+  {
+    const ship = runtimeShip(armedDesign, {
+      id: "reset-test",
+      combatStyle: "hold",
+      combatTargetId: "enemy",
+      focusTargetId: "enemy",
+      x: 200, y: 300,
+      targetX: 200, targetY: 300,
+      holdState: null
+    });
+    // Run until holding phase.
+    const { getEffectiveWeaponRanges } = require("./src/server/componentData");
+    const ranges = getEffectiveWeaponRanges(ship);
+    const maxRange = Math.max(120, ranges.blaster, ranges.missile, ranges.railgun, ranges.beam);
+    const desiredRange = maxRange * 0.9;
+    ship.x = target.x + desiredRange;
+    ship.y = target.y;
+    ship.targetX = ship.x;
+    ship.targetY = ship.y;
+    updateShipMovement(room, ship, 1 / 30);
+    assert.strictEqual(ship.holdState.phase, "holding", "hold ship should be in holding phase");
+    // Simulate a new attack command resetting holdState.
+    ship.holdState = null;
+    ship.focusTargetId = "enemy";
+    ship.commandMode = 'attack';
+    ship.arrived = false;
+    // Move ship away from target so it needs to re-position.
+    ship.x = 200;
+    ship.y = 300;
+    ship.targetX = 200;
+    ship.targetY = 300;
+    updateShipMovement(room, ship, 1 / 30);
+    assert(ship.holdState, "hold ship should have new holdState after reset");
+    assert.strictEqual(ship.holdState.phase, "positioning", "hold ship should re-enter positioning after reset");
+  }
+
   console.log("Movement styles verification passed");
-  console.log("  tested: circle→orbit compat, orbit, maintain, hold two-phase, kite, direct, determinism, disarmed");
+  console.log("  tested: circle->orbit compat, orbit, maintain, hold two-phase, kite, direct, determinism, disarmed, stopping-distance, hold-reset");
 }
 
 run();

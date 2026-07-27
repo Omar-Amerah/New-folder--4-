@@ -223,7 +223,7 @@ function updatePixiComponentDamage(view, ship, design) {
   for (let i = 0; i < design.length; i += 1) {
     const ratio = componentHealthRatio(ship, i);
     if (shows(ratio)) sig += `${i}:${ratio <= 0 ? "x" : Math.round(ratio * 10)};`;
-    if (design[i].type === "proximityDemolitionCharge") {
+    if (PART_STATS[design[i].type]?.proximityCharge) {
       const detonated = ship.proximityChargeDetonated?.[i] ?? 0;
       chargeSig += `${i}:${detonated ? "x" : Math.round(ratio * 10)};`;
     }
