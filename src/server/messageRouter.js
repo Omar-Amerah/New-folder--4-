@@ -359,6 +359,25 @@ function handleMessage(client, message) {
     return;
   }
 
+  if (message.type === "setColor") {
+    if (client.room.phase !== "lobby") {
+      send(client, { type: "error", message: "Colour can only be changed in the lobby before ship design" });
+      return;
+    }
+    const color = String(message.color || "").trim();
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      send(client, { type: "error", message: "Invalid colour" });
+      return;
+    }
+    client.player.color = color.toLowerCase();
+    if (client.room.playerColors && client.player.name) {
+      client.room.playerColors.set(client.player.name.toLowerCase(), client.player.color);
+    }
+    broadcastRoom(client.room, { type: "notice", message: `${client.player.name} changed colour` });
+    broadcastSnapshot(client.room, performanceNow(), true);
+    return;
+  }
+
   if (message.type === "addBot") {
     if (!isAdmin(client.room, client.player)) {
       send(client, { type: "error", message: "Only the room admin can add bots" });

@@ -6,6 +6,7 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   schemaVersion: PREFERENCES_SCHEMA_VERSION,
   pilotName: "",
   preferredTeam: "blue",
+  preferredColor: "#8fb4ff",
   renderQuality: "high",
   combatEffectsEnabled: true,
   serverUrl: "",
@@ -36,12 +37,17 @@ function cleanServer(value) {
   if (!raw) return "";
   try { const url = new URL(raw); if (!["ws:", "wss:", "http:", "https:"].includes(url.protocol)) return ""; url.username = ""; url.password = ""; url.search = ""; url.hash = ""; return url.toString().replace(/\/$/, ""); } catch { return ""; }
 }
+function cleanColor(value) {
+  const raw = String(value || "").trim();
+  return /^#[0-9A-Fa-f]{6}$/.test(raw) ? raw.toLowerCase() : DEFAULT_PREFERENCES.preferredColor;
+}
 
 export function validatePreferences(input = {}, storage = getStorage()) {
   const p = { ...DEFAULT_PREFERENCES };
   if (input && typeof input === "object" && !Array.isArray(input)) {
     p.pilotName = cleanName(input.pilotName);
     p.preferredTeam = teams.has(input.preferredTeam) ? input.preferredTeam : DEFAULT_PREFERENCES.preferredTeam;
+    p.preferredColor = cleanColor(input.preferredColor);
     p.renderQuality = qualities.has(input.renderQuality) ? input.renderQuality : DEFAULT_PREFERENCES.renderQuality;
     p.combatEffectsEnabled = bool(input.combatEffectsEnabled, DEFAULT_PREFERENCES.combatEffectsEnabled);
     p.serverUrl = cleanServer(input.serverUrl);
@@ -63,6 +69,7 @@ export function migratePreferences(raw, storage = getStorage()) {
   const legacy = {
     pilotName: safeGet(storage, LOCAL_NAME_KEY),
     preferredTeam: safeGet(storage, LOCAL_TEAM_KEY),
+    preferredColor: safeGet(storage, "mfa.preferredColor"),
     renderQuality: safeGet(storage, "mfa.renderQuality"),
     combatEffectsEnabled: safeGet(storage, "mfa.combatEffects"),
     serverUrl: safeGet(storage, LOCAL_SERVER_KEY)
@@ -84,6 +91,7 @@ export function persistPreferences(preferences, storage = getStorage()) {
   const ok = safeSet(storage, LOCAL_PREFERENCES_KEY, JSON.stringify(p));
   safeSet(storage, LOCAL_NAME_KEY, p.pilotName);
   safeSet(storage, LOCAL_TEAM_KEY, p.preferredTeam);
+  safeSet(storage, "mfa.preferredColor", p.preferredColor);
   safeSet(storage, "mfa.renderQuality", p.renderQuality);
   safeSet(storage, "mfa.combatEffects", String(p.combatEffectsEnabled));
   if (p.serverUrl) safeSet(storage, LOCAL_SERVER_KEY, p.serverUrl); else { try { storage.removeItem(LOCAL_SERVER_KEY); } catch {} }

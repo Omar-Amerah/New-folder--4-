@@ -296,27 +296,27 @@ function updateShipMovement(room, ship, dt, now) {
   ship._prevAngle = ship.angle;
   ship.turnActivity = 0;
   const total = Math.min(safeDt, MAX_MOVEMENT_DT);
+  const stats = heatAdjustedMovementStats(ship, ship.stats || {});
   if (total > MOVEMENT_SUBSTEP * 1.01) {
     let remaining = total;
     while (remaining > 0) {
       const step = Math.min(MOVEMENT_SUBSTEP, remaining);
       moveBump("movementSubsteps");
-      updateShipMovementStep(room, ship, step, now);
+      updateShipMovementStep(room, ship, step, now, stats);
       remaining -= step;
     }
     sanitizeMovementState(room, ship);
     return;
   }
   moveBump("movementSubsteps");
-  updateShipMovementStep(room, ship, total, now);
+  updateShipMovementStep(room, ship, total, now, stats);
   sanitizeMovementState(room, ship);
 }
 
-function updateShipMovementStep(room, ship, dt, now) {
+function updateShipMovementStep(room, ship, dt, now, stats) {
   ensureMoveTarget(ship);
   ship._simNow = Number(now) || ship._simNow || 0;
 
-  const stats = heatAdjustedMovementStats(ship, ship.stats || {});
   const style = getCombatStyle(ship);
 
   if (ship.commandMode === 'repair') {
@@ -917,8 +917,9 @@ function getDesiredMoveAngle(room, ship) {
   let closestDist = Infinity;
 
   // Use spatial index for asteroid queries instead of full array scan
-  const asteroidCandidates = room.spatialIndex
-    ? room.spatialIndex.querySweptAabbUnordered(
+  const asteroidIndex = room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
+  const asteroidCandidates = asteroidIndex
+    ? asteroidIndex.querySweptAabbUnordered(
         "asteroids",
         ship.x,
         ship.y,
@@ -953,8 +954,8 @@ function getDesiredMoveAngle(room, ship) {
   const forwardY = Math.sin(ship.angle);
 
   // Use spatial index for local forward avoidance query instead of full asteroid loop
-  const localCandidates = room.spatialIndex
-    ? room.spatialIndex.queryRangeUnordered(
+  const localCandidates = asteroidIndex
+    ? asteroidIndex.queryRangeUnordered(
         "asteroids",
         ship.x,
         ship.y,
@@ -1289,21 +1290,23 @@ function updateShipSeparation(room, ships, dt, now = 0) {
   resolveDemolitionContacts(room, ships, now);
   const safeDt = Number.isFinite(Number(dt)) && Number(dt) > 0 ? Math.min(Number(dt), MAX_MOVEMENT_DT) : 0;
   const ordered = ships.filter((ship) => ship.alive).slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const orderIndex = new Map();
+  for (let i = 0; i < ordered.length; i += 1) orderIndex.set(String(ordered[i].id), i);
   const index = room.spatialIndex;
   const useIndex = index?.dynamicValid && typeof index.queryRangeUnordered === "function";
-  const orderedIds = useIndex ? ordered.map((ship) => String(ship.id)) : null;
   const scratch = room._separationScratch || (room._separationScratch = []);
   const maxShipRadius = 48;
 
   for (let i = 0; i < ordered.length; i += 1) {
     const a = ordered[i];
+    const aId = String(a.id);
     if (useIndex) {
-      const aId = orderedIds[i];
+      const aOrder = orderIndex.get(aId);
       const candidates = index.queryRangeUnordered("ships", a.x, a.y, shipCollisionRadius(a) + maxShipRadius, scratch);
       for (const b of candidates) {
         if (!b || !b.alive || b === a) continue;
-        const bId = String(b.id);
-        if (bId.localeCompare(aId, undefined, { numeric: true }) <= 0) continue;
+        const bOrder = orderIndex.get(String(b.id));
+        if (bOrder <= aOrder) continue;
         resolveSeparationPair(room, a, b, safeDt);
       }
     } else {
@@ -1456,12 +1459,25 @@ function findOptimalHullAngle(ship, target) {
   if (weapons.length === 0) {
     return angleToTarget;
   }
-  const operationalWeapons = weapons.map((weapon) => ({
-    ...weapon,
-    range: (ship.componentHp?.[weapon.componentIndex] ?? 1) > 0
-      ? Number(getEffectiveWeaponStatsInternal(ship, weapon.componentIndex)?.range) || 0
-      : 0
-  })).filter((weapon) => weapon.range > 0);
+
+  let weaponHpSig = "";
+  for (let i = 0; i < weapons.length; i += 1) {
+    weaponHpSig += (ship.componentHp?.[weapons[i].componentIndex] ?? 1) > 0 ? "1" : "0";
+  }
+  const opCache = ship._hullOpWeaponsCache;
+  let operationalWeapons;
+  if (opCache && opCache.sig === weaponHpSig) {
+    operationalWeapons = opCache.weapons;
+  } else {
+    operationalWeapons = [];
+    for (const weapon of weapons) {
+      const range = (ship.componentHp?.[weapon.componentIndex] ?? 1) > 0
+        ? Number(getEffectiveWeaponStatsInternal(ship, weapon.componentIndex)?.range) || 0
+        : 0;
+      if (range > 0) operationalWeapons.push({ ...weapon, range });
+    }
+    ship._hullOpWeaponsCache = { sig: weaponHpSig, weapons: operationalWeapons };
+  }
   if (operationalWeapons.length === 0) return angleToTarget;
 
   let bestAngle = angleToTarget;

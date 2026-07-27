@@ -1,7 +1,7 @@
 const { sanitizeRoomCode } = require('./validation');
 const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
 const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_COMBAT_SHIP_IDS = 360, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
-const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','rotate','destruct','setTeam','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
+const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','rotate','destruct','setTeam','setColor','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
 const COMBAT = new Set(['sentry','charge','circle','hold','orbit','maintain','kite','direct']);
 const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
 const SCHEMAS = Object.freeze(Object.fromEntries(TYPES.map((t)=>[t, Object.freeze({ type:t })])));
@@ -48,6 +48,7 @@ return null; }
     case 'stop': if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null;
     case 'rotate': { const miss=checkRequired(m,['direction','active']); if(miss)return miss; if(m.direction!==1&&m.direction!==-1)return fail('invalid-direction','Invalid rotation direction'); if(typeof m.active!=='boolean')return fail('invalid-direction','Invalid rotation state'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null; }
     case 'setTeam': return (m.team===undefined||str(String(m.team),32))?null:fail('invalid-team','Invalid team');
+    case 'setColor': { const miss=checkRequired(m,['color']); if(miss)return miss; const c=String(m.color); return /^#[0-9A-Fa-f]{6}$/.test(c)?null:fail('invalid-color','Invalid colour'); }
     case 'setRules': return (m.rules===undefined||validRules(m.rules))?null:fail('invalid-rules','Invalid rules');
     case 'setName': { const miss=checkRequired(m,['name']); if(miss)return miss; return str(m.name,32)?null:fail('invalid-payload','Invalid name'); }
     case 'kick': { const miss=checkRequired(m,['targetId']); if(miss)return miss; return id(m.targetId)?null:fail('player-not-found','Invalid target'); }

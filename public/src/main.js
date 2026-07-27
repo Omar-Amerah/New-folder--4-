@@ -27,6 +27,7 @@ const loadedPreferences = loadPreferences().preferences;
 if (!loadedPreferences.pilotName) loadedPreferences.pilotName = `Pilot-${Math.floor(100 + Math.random() * 900)}`;
 applyInterfacePreferences(loadedPreferences);
 dom.pilotName.value = loadedPreferences.pilotName;
+dom.pilotColor.value = loadedPreferences.preferredColor;
 dom.teamSelect.value = loadedPreferences.preferredTeam;
 if (dom.combatStyleSelect) {
   dom.combatStyleSelect.value = state.combatStyle || "hold";
@@ -201,6 +202,17 @@ dom.pilotName?.addEventListener("change", () => {
     persistPreferences({ ...loadPreferences().preferences, pilotName: name });
     if (state.room && state.socket && state.socket.readyState === WebSocket.OPEN) {
       send({ type: "setName", name });
+    }
+  }
+});
+
+// Personal colour input updates
+dom.pilotColor?.addEventListener("change", () => {
+  const color = String(dom.pilotColor.value || "").trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+    persistPreferences({ ...loadPreferences().preferences, preferredColor: color });
+    if (state.room && state.socket && state.socket.readyState === WebSocket.OPEN) {
+      send({ type: "setColor", color });
     }
   }
 });

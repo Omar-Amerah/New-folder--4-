@@ -20,6 +20,12 @@ export function isConnected(parts) {
   return globalThis.StructuralConnectivity.isConnected(parts, PART_STATS, getOccupiedCells);
 }
 
+// Connectivity check that assumes the caller has already verified there are no
+// overlaps. Used by validateBlueprint to avoid scanning overlaps twice.
+function isConnectedAssumingNoOverlap(parts) {
+  return globalThis.StructuralConnectivity.isConnected(parts, PART_STATS, getOccupiedCells);
+}
+
 export function validateBlueprint(parts, { requireThrust = true, stats = null, normalizationIssues = [] } = {}) {
   const errors = [];
   const firstIssue = normalizationIssues[0];
@@ -30,9 +36,11 @@ export function validateBlueprint(parts, { requireThrust = true, stats = null, n
   if (cores === 0) errors.push("Invalid design: missing core.");
   else if (cores > 1) errors.push("Invalid design: exactly one core is required.");
   if (backupCores > 1) errors.push("Invalid design: maximum one Backup Command Core is allowed.");
-  if (Array.isArray(parts) && isOutOfBounds(parts)) errors.push("Invalid design: modules outside build grid.");
-  if (Array.isArray(parts) && isOverlapping(parts)) errors.push("Invalid design: overlapping modules.");
-  if (Array.isArray(parts) && cores === 1 && !isOverlapping(parts) && !isConnected(parts)) errors.push("Invalid design: disconnected parts.");
+  const outOfBounds = Array.isArray(parts) && isOutOfBounds(parts);
+  const overlapping = Array.isArray(parts) && isOverlapping(parts);
+  if (outOfBounds) errors.push("Invalid design: modules outside build grid.");
+  if (overlapping) errors.push("Invalid design: overlapping modules.");
+  if (Array.isArray(parts) && cores === 1 && !overlapping && !isConnectedAssumingNoOverlap(parts)) errors.push("Invalid design: disconnected parts.");
   if (Array.isArray(parts)) {
     const droneValidation = globalThis.DroneBayRules?.validateDroneBays(parts, PART_STATS, { maximum: PART_STATS.droneBay?.droneConfig?.maxBaysPerShip });
     if (droneValidation && !droneValidation.ok) errors.push(...droneValidation.errors.map((error) => error.message));

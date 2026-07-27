@@ -2,20 +2,20 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { computeStats } from "../design/componentStats.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
 import { normalizeDesign, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
-import { validateBlueprint } from "../design/blueprintValidation.js";
 import { notify } from "./toastUi.js";
 import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
 import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { playerMap } from "./matchStatusUi.js";
+import { loadPreferences } from "../localPreferences.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory, handleBlueprintConfirmModalAction, closeBlueprintConfirmModalIfPending } from "./designerUi.js";
 import { confirmPendingDesignerClose, cancelPendingDesignerClose } from "./designerScreenUi.js";
 import { resetWiringEditorState, wiringReadinessWarning } from "./wiringUi.js";
+import { analyseBlueprintOnce, analyseSavedBlueprintOnce } from "../design/blueprintAnalysisCache.js";
 let modalReturnFocus = null;
 let pendingUnwiredSave = false;
 let persistSavedDesignsImpl = persistSavedDesigns;
@@ -31,10 +31,10 @@ export function weaponAbbrevText(stats) {
   return `${stats.weaponDps} DPS`;
 }
 
-// Preview tint: use the player's own team colour when known, else a neutral blue.
+// Preview tint: use the player's own colour when known, else the saved preference, else a neutral blue.
 export function previewColor() {
   const me = state.myId ? playerMap().get(state.myId) : null;
-  return (me && me.color) || "#8fb4ff";
+  return (me && me.color) || loadPreferences().preferences.preferredColor || "#8fb4ff";
 }
 
 export function isEditorDirty() {
@@ -116,7 +116,8 @@ function statChips(stats) {
 }
 
 function buildCard(saved, color) {
-  const stats = computeStats(saved.blueprint, { wiring: saved.wiring });
+  const analysis = analyseSavedBlueprintOnce(saved);
+  const stats = analysis.stats;
   const isEditing = saved.id === state.loadedEditorBlueprintId;
   const isInvalid = Boolean(saved.invalid);
   const thumb = shipThumbnailDataUrl(saved.blueprint, color, 84);
@@ -166,7 +167,8 @@ function buildCard(saved, color) {
 }
 
 function buildInspector(saved, color) {
-  const stats = computeStats(saved.blueprint, { wiring: saved.wiring });
+  const analysis = analyseSavedBlueprintOnce(saved);
+  const stats = analysis.stats;
   const thumb = shipThumbnailDataUrl(saved.blueprint, color, 160);
   const inspector = document.createElement("div");
   inspector.className = "bp-inspector";
@@ -506,7 +508,10 @@ function openDirtyEditorModal(pendingAction) {
   if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Unsaved Changes";
   if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = "Your current design has unsaved changes. What would you like to do?";
   if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Save Changes";
-  if (dom.confirmDiscardButton) dom.confirmDiscardButton.hidden = false;
+  if (dom.confirmDiscardButton) {
+    dom.confirmDiscardButton.hidden = false;
+    dom.confirmDiscardButton.textContent = "Continue Anyway";
+  }
   if (dom.confirmModal) dom.confirmModal.hidden = false;
   dom.confirmCancelButton?.focus?.();
 }
@@ -553,8 +558,9 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   const blueprint = state.design.map((part) => ({ ...part }));
   // Saved designs keep an independent copy of the wiring arrays.
   const wiring = normalizeWiring(state.wiring, blueprint);
-  const stats = computeStats(blueprint, { wiring });
-  const validation = validateBlueprint(blueprint, { requireThrust: true, stats });
+  const analysis = analyseBlueprintOnce({ blueprint, wiring, combatStyle: state.combatStyle || "hold" });
+  const stats = analysis.stats;
+  const validation = analysis.validation;
   if (!validation.ok) {
     notify.warning(validation.errors[0] || "Cannot save invalid blueprint.");
     return false;

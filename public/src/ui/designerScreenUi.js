@@ -31,7 +31,10 @@ export async function requestCloseBlueprintDesigner() {
     if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Unsaved Changes";
     if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = "Your current design has unsaved changes. What would you like to do?";
     if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = "Save Changes";
-    if (dom.confirmDiscardButton) dom.confirmDiscardButton.hidden = false;
+    if (dom.confirmDiscardButton) {
+      dom.confirmDiscardButton.hidden = false;
+      dom.confirmDiscardButton.textContent = "Continue Anyway";
+    }
     if (dom.confirmModal) dom.confirmModal.hidden = false;
     dom.confirmCancelButton?.focus?.();
     return false;

@@ -242,7 +242,7 @@ export function handleServerMessage(message) {
     updateHud();
     renderSideControls();
     renderMatchStatus();
-    purchaseUi.updateEconomyUi();
+    purchaseUi.updateEconomyUi({ refreshCatalogue: false });
     lobbyUi.updateLobbyState();
     updateWinnerBanner();
     if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) lobbyUi.hideMenuScreens();

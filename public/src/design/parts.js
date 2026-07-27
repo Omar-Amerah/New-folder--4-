@@ -72,8 +72,6 @@ export const PART_DEFS = {
   electronicWarfareCommandCentre: { name: "Electronic Warfare Command Centre", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 18%, #a855f7 28% 55%, #3b0764 60%)" },
   proximityDemolitionCharge: { name: "Proximity Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" },
   demolitionCharge: { name: "Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" },
-  propulsionCapacitor: { name: "Propulsion Capacitor", color: "#67e8f9", glyph: "linear-gradient(180deg, #cffafe, #0891b2 55%, #164e63)" },
-  vectorThruster: { name: "Vector Thruster", color: "#22d3ee", glyph: "linear-gradient(135deg, #a5f3fc, #0284c7 50%, #082f49)" }
 };
 
 // These structural silhouettes show their direction through their geometry, so
@@ -412,3 +410,4 @@ function numberOr(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
+

@@ -4,17 +4,16 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { notify } from "./toastUi.js";
 import { send } from "../network.js";
-import { computeStats } from "../design/componentStats.js";
-import { validateBlueprint, isConnected } from "../design/blueprintValidation.js";
-import { normalizeDesign, normalizeWiring, persistLoadouts } from "../design/blueprintStorage.js";
+import { persistLoadouts } from "../design/blueprintStorage.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
 import { makePurchaseRequestId, makeDesignId } from "../shared/ids.js";
-import { isBalanceIncompatible, balanceBlockMessage } from "../balanceStatus.js";
+import { isBalanceIncompatible, balanceBlockMessage, getBalanceStatus } from "../balanceStatus.js";
 import { formatHull, formatShield, formatSpeed, formatMass, formatEnergy, formatRepair, formatPercent } from "../design/statFormatting.js";
 import { weaponAbbrevText, previewColor } from "./savedBlueprintsUi.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { isAdmin } from "./lobbyUi.js";
+import { analyseBlueprintOnce, analyseSavedBlueprintOnce, counters, resetBlueprintAnalysisCounters } from "../design/blueprintAnalysisCache.js";
 
 export function handlePurchasePointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return;
@@ -197,8 +196,7 @@ export function handlePurchaseResult(message) {
     if (pending?.optionId) setPurchaseError(pending.optionId, reason);
     notify.error(reason);
   }
-  renderPurchaseBar();
-  updateEconomyUi();
+  updateEconomyUi({ refreshCatalogue: false });
 }
 
 export function setPurchaseError(optionId, message) {
@@ -213,15 +211,16 @@ export function setPurchaseError(optionId, message) {
   renderPurchaseBar();
 }
 
-export function updateEconomyUi() {
+export function updateEconomySnapshotUi() {
+  updateEconomyUi({ refreshCatalogue: false });
+}
+
+export function updateEconomyUi({ refreshCatalogue = true } = {}) {
   const mine = state.mine;
-  const localStats = computeStats(state.design, { wiring: state.wiring });
-  const localStatus = getShipStatus(localStats);
   const income = mine?.income ?? 0;
   const myTeam = mine?.team;
   const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
   const canReady = state.phase === "design" && !mine?.ready;
-  const canSaveActiveDesign = state.phase === "active" && Boolean(mine?.ready);
 
   if (dom.incomeHud) {
     dom.incomeHud.textContent = `+$${Math.round(income)}/s`;
@@ -235,9 +234,9 @@ export function updateEconomyUi() {
   if (dom.openBlueprintDesignerButton) {
     dom.openBlueprintDesignerButton.textContent = "Open Blueprint Designer";
   }
-  const deployLabel = dom.deployButton.querySelector(".deploy-action-label");
+  const deployLabel = dom.deployButton?.querySelector(".deploy-action-label");
   if (deployLabel) deployLabel.textContent = "Ready Up";
-  dom.deployButton.setAttribute("aria-label", "Ready Up. The ship is not bought until the match starts.");
+  dom.deployButton?.setAttribute?.("aria-label", "Ready Up. The ship is not bought until the match starts.");
 
   if (mine) {
     const status = state.phase === "design"
@@ -250,7 +249,12 @@ export function updateEconomyUi() {
       dom.buildStatus.className = "build-status good";
     }
   }
-  renderPurchaseBar();
+
+  if (refreshCatalogue) {
+    rebuildPurchaseCatalogue();
+  } else {
+    updatePurchaseAvailability();
+  }
 }
 
 function readyBlockerButtonText(reason) {
@@ -264,43 +268,124 @@ function economyStatusText({ income, relays }) {
   return `Buy ships from the bottom bar. Earning +$${Math.round(income)}/s: base income${relays ? ` + ${relays} relay bonus` : ""}`;
 }
 
-export function getPurchaseOptions() {
+let purchaseOptions = null;
+let purchaseOptionsKey = null;
+
+function visibleSavedDesigns() {
+  const active = getActiveLoadout();
+  if (!active || active.id === "all") return state.savedDesigns;
+  const byId = new Map(state.savedDesigns.map((saved) => [saved.id, saved]));
+  return active.designIds.map((id) => byId.get(id)).filter(Boolean);
+}
+
+function makePurchaseOptionKey() {
+  const visible = visibleSavedDesigns();
+  const balanceRevision = getBalanceStatus().serverRevision || getBalanceStatus().clientRevision || null;
+  return {
+    design: state.design,
+    wiring: state.wiring,
+    combatStyle: state.combatStyle || "hold",
+    activeLoadoutId: state.activeLoadoutId,
+    balanceRevision,
+    // Capture saved design object references so mutations / replacements are detected.
+    savedRefs: visible.map((saved) => [
+      saved.id,
+      saved.blueprint,
+      saved.wiring,
+      saved.updatedAt,
+      saved.combatStyle || "hold"
+    ])
+  };
+}
+
+function sameOptionKey(a, b) {
+  if (!a || !b) return false;
+  if (a.design !== b.design || a.wiring !== b.wiring || a.combatStyle !== b.combatStyle || a.activeLoadoutId !== b.activeLoadoutId || a.balanceRevision !== b.balanceRevision) return false;
+  if (a.savedRefs.length !== b.savedRefs.length) return false;
+  for (let i = 0; i < a.savedRefs.length; i += 1) {
+    const ar = a.savedRefs[i];
+    const br = b.savedRefs[i];
+    for (let j = 0; j < ar.length; j += 1) {
+      if (ar[j] !== br[j]) return false;
+    }
+  }
+  return true;
+}
+
+function buildPurchaseOptions() {
+  const currentAnalysis = analyseBlueprintOnce({
+    blueprint: state.design,
+    wiring: state.wiring,
+    combatStyle: state.combatStyle || "hold"
+  });
+
   const current = {
     id: "current",
     name: "Current Design",
     source: "editor",
-    blueprint: state.design.map((part) => ({ ...part })),
-    wiring: normalizeWiring(state.wiring, state.design),
-    combatStyle: state.combatStyle || "hold",
-    stats: computeStats(state.design, { wiring: normalizeWiring(state.wiring, state.design) })
+    blueprint: currentAnalysis.normalizedBlueprint,
+    wiring: currentAnalysis.normalizedWiring,
+    combatStyle: currentAnalysis.combatStyle,
+    stats: currentAnalysis.stats,
+    validation: { ok: currentAnalysis.validation.ok, reason: currentAnalysis.validation.errors[0] || "" },
+    weaponSummary: currentAnalysis.weaponSummary,
+    thumbnailKey: currentAnalysis.thumbnailKey
   };
 
-  // The active loadout tab decides which saved designs are buyable. The implicit
-  // "All" tab shows every saved design; a custom loadout shows only its members.
-  const active = getActiveLoadout();
-  let designs;
-  if (!active || active.id === "all") {
-    designs = state.savedDesigns;
-  } else {
-    const byId = new Map(state.savedDesigns.map((saved) => [saved.id, saved]));
-    designs = active.designIds.map((id) => byId.get(id)).filter(Boolean);
+  if (state.designNeedsAttention) {
+    current.validation = {
+      ok: false,
+      reason: "Invalid design: review and save the repaired blueprint before deployment."
+    };
   }
 
   return [
     current,
-    ...designs.map((saved) => {
-      const modules = normalizeDesign(saved.blueprint);
+    ...visibleSavedDesigns().map((saved) => {
+      const analysis = analyseSavedBlueprintOnce(saved);
       return {
         id: saved.id,
         name: saved.name,
         source: "saved",
-        blueprint: modules.map((part) => ({ ...part })),
-        wiring: normalizeWiring(saved.wiring, modules),
+        blueprint: analysis.normalizedBlueprint,
+        wiring: analysis.normalizedWiring,
         combatStyle: saved.combatStyle || "hold",
-        stats: computeStats(modules, { wiring: normalizeWiring(saved.wiring, modules) })
+        stats: analysis.stats,
+        validation: { ok: analysis.validation.ok, reason: analysis.validation.errors[0] || "" },
+        weaponSummary: analysis.weaponSummary,
+        thumbnailKey: analysis.thumbnailKey
       };
     })
   ];
+}
+
+export function rebuildPurchaseCatalogue() {
+  counters.catalogueRebuild++;
+  const startMark = typeof performance !== "undefined" ? `bp-catalogue-rebuild-${Date.now()}` : null;
+  if (startMark && typeof performance.mark === "function") performance.mark(startMark);
+
+  purchaseOptions = buildPurchaseOptions();
+  purchaseOptionsKey = makePurchaseOptionKey();
+
+  if (typeof document !== "undefined") {
+    renderPurchaseCards(purchaseOptions);
+    updatePurchaseAvailability();
+  }
+
+  if (startMark && typeof performance.measure === "function") {
+    try { performance.measure("blueprint-catalogue-rebuild", startMark); } catch {}
+  }
+}
+
+function ensurePurchaseCatalogue() {
+  if (!purchaseOptions || !sameOptionKey(purchaseOptionsKey, makePurchaseOptionKey())) {
+    rebuildPurchaseCatalogue();
+  }
+}
+
+export function getPurchaseOptions() {
+  ensurePurchaseCatalogue();
+  return purchaseOptions;
 }
 
 // ---- Loadout tabs -------------------------------------------------------------
@@ -414,7 +499,7 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
   const shipCap = mine?.shipCap ?? state.rules.shipCap ?? 20;
   const remainingSlots = Math.max(0, shipCap - activeShips);
   const totalCost = option.stats.unitCost * quantity;
-  const validity = validateBlueprintForPurchase(option.blueprint, option);
+  const validity = option.validation || { ok: false, reason: "Design unavailable" };
   const pending = getPendingPurchaseForOption(option.id);
   const error = state.purchaseErrors.get(option.id);
   let reason = "";
@@ -447,16 +532,8 @@ export function getPendingPurchaseForOption(optionId) {
   return null;
 }
 
-export function validateBlueprintForPurchase(blueprint, option = null) {
-  if (option?.source === "editor" && state.designNeedsAttention) return { ok: false, reason: "Invalid design: review and save the repaired blueprint before deployment." };
-  const validation = validateBlueprint(blueprint, {
-    requireThrust: true,
-    stats: Array.isArray(blueprint) ? (option?.stats || computeStats(blueprint, { wiring: option?.wiring })) : null
-  });
-  return { ok: validation.ok, reason: validation.errors[0] || "" };
-}
-
-export function renderPurchaseBar() {
+export function updatePurchaseAvailability() {
+  counters.availabilityUpdate++;
   if (!dom.purchaseBar || !dom.purchaseOptions) return;
   dom.purchaseQuantityOne?.classList?.toggle("active", state.purchaseQuantity === 1);
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
@@ -467,7 +544,48 @@ export function renderPurchaseBar() {
   // lives in the Blueprint screen's loadout manager.
   renderLoadoutTabs(dom.loadoutTabs, false);
 
-  const options = getPurchaseOptions();
+  ensurePurchaseCatalogue();
+  const options = purchaseOptions || [];
+  const color = previewColor();
+
+  const cards = Array.from(dom.purchaseOptions.children);
+  options.forEach((option, i) => {
+    const card = cards[i];
+    if (!card) return;
+    const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
+    const className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
+    if (card.className !== className) card.className = className;
+    const ariaDisabled = String(!optionState.canBuy);
+    if (card.getAttribute?.("aria-disabled") !== ariaDisabled) card.setAttribute?.("aria-disabled", ariaDisabled);
+    const descriptionId = `purchase-status-${option.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    if (card.getAttribute?.("aria-describedby") !== descriptionId) card.setAttribute?.("aria-describedby", descriptionId);
+
+    setCardText(card, "strong", option.name);
+    setCardText(card, ".purchase-cost", purchaseCostText(option, optionState));
+    setCardText(card, ".purchase-weapons", option.weaponSummary || weaponSummaryText(option.stats));
+    const statusText = purchaseStatusText(optionState);
+    setCardText(card, ".purchase-status", statusText);
+    const statusDescription = card.querySelector(".purchase-status-description");
+    if (statusDescription) statusDescription.id = descriptionId;
+    setCardText(card, ".purchase-status-description", statusText);
+    if (card.title !== statusText) card.title = statusText;
+
+    // Thumbnails are static and are only baked when the option is created or the
+    // Blueprint/colour changes; availability-only updates do not touch them.
+    const thumbSpan = card.querySelector(".purchase-thumb");
+    if (thumbSpan && option.thumbnailKey) {
+      const thumbCacheKey = `${color}|96|${option.thumbnailKey}`;
+      if (thumbSpan.dataset.thumbKey !== thumbCacheKey) {
+        thumbSpan.dataset.thumbKey = thumbCacheKey;
+        const thumb = shipThumbnailDataUrl(option.blueprint, color, 96);
+        thumbSpan.innerHTML = thumb ? `<img src="${thumb}" alt="" draggable="false">` : "";
+      }
+    }
+  });
+}
+
+function renderPurchaseCards(options) {
+  if (!dom.purchaseBar || !dom.purchaseOptions) return;
   const color = previewColor();
   const modeChanged = dom.purchaseOptions.dataset.mode !== "buy";
   const existingCards = modeChanged ? [] : Array.from(dom.purchaseOptions.children);
@@ -477,7 +595,7 @@ export function renderPurchaseBar() {
   }
 
   const optionsMatch = existingCards.length === options.length &&
-    options.every((opt, i) => existingCards[i].dataset?.optionId === opt.id);
+    options.every((opt, i) => existingCards[i]?.dataset?.optionId === opt.id);
 
   if (!optionsMatch) {
     dom.purchaseOptions.textContent = "";
@@ -485,7 +603,6 @@ export function renderPurchaseBar() {
   }
 
   options.forEach((option, i) => {
-    const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
     let card = existingCards[i];
     const isNew = !card;
 
@@ -493,9 +610,6 @@ export function renderPurchaseBar() {
       card = document.createElement("button");
       card.type = "button";
       if (card.dataset) card.dataset.optionId = option.id;
-      // Build the persistent sub-structure once. Subsequent renders update only
-      // the text/thumbnail that changed, so hover/focus/press state and the
-      // thumbnail <img> element survive the per-snapshot re-render.
       card.innerHTML = `
         <span class="purchase-thumb"></span>
         <span class="purchase-info">
@@ -513,35 +627,33 @@ export function renderPurchaseBar() {
       card.addEventListener?.("blur", hidePurchaseTooltip);
     }
 
-    const className = `purchase-option ${optionState.pending ? "pending" : optionState.error ? "error" : optionState.canBuy ? "ready" : "disabled"}`;
-    if (card.className !== className) card.className = className;
-    const ariaDisabled = String(!optionState.canBuy);
-    if (card.getAttribute?.("aria-disabled") !== ariaDisabled) card.setAttribute?.("aria-disabled", ariaDisabled);
-    const descriptionId = `purchase-status-${option.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-    if (card.getAttribute?.("aria-describedby") !== descriptionId) card.setAttribute?.("aria-describedby", descriptionId);
-
-    // Regenerate the (canvas-rendered) thumbnail only when the blueprint or team
-    // colour changes, not every snapshot.
-    const thumbSig = `${color}|${option.blueprint.length}|${JSON.stringify(option.blueprint)}`;
     const thumbSpan = card.querySelector(".purchase-thumb");
-    if (thumbSpan && thumbSpan.dataset.sig !== thumbSig) {
-      thumbSpan.dataset.sig = thumbSig;
-      const thumb = shipThumbnailDataUrl(option.blueprint, color, 96);
-      thumbSpan.innerHTML = thumb ? `<img src="${thumb}" alt="" draggable="false">` : "";
+    if (thumbSpan && option.thumbnailKey) {
+      const thumbCacheKey = `${color}|96|${option.thumbnailKey}`;
+      if (thumbSpan.dataset.thumbKey !== thumbCacheKey) {
+        thumbSpan.dataset.thumbKey = thumbCacheKey;
+        const thumb = shipThumbnailDataUrl(option.blueprint, color, 96);
+        thumbSpan.innerHTML = thumb ? `<img src="${thumb}" alt="" draggable="false">` : "";
+      }
     }
 
     setCardText(card, "strong", option.name);
-    setCardText(card, ".purchase-cost", purchaseCostText(option, optionState));
-    setCardText(card, ".purchase-weapons", weaponSummaryText(option.stats));
-    const statusText = purchaseStatusText(optionState);
+    setCardText(card, ".purchase-cost", `$${option.stats.unitCost}`);
+    setCardText(card, ".purchase-weapons", option.weaponSummary || weaponSummaryText(option.stats));
+    const statusText = "Available to build";
     setCardText(card, ".purchase-status", statusText);
     const statusDescription = card.querySelector(".purchase-status-description");
-    if (statusDescription) statusDescription.id = descriptionId;
+    if (statusDescription) statusDescription.id = `purchase-status-${option.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
     setCardText(card, ".purchase-status-description", statusText);
     if (card.title !== statusText) card.title = statusText;
 
     if (isNew) dom.purchaseOptions.appendChild(card);
   });
+}
+
+export function renderPurchaseBar() {
+  ensurePurchaseCatalogue();
+  updatePurchaseAvailability();
 }
 
 export function purchaseStatusText(optionState) {
@@ -880,19 +992,4 @@ export function inferShipRole(stats) {
 
 function currentMatchMoney(mine) {
   return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
-}
-
-function getShipStatus(stats) {
-  const blockers = [];
-  const hasCore = state.design.filter((part) => part.type === "core").length === 1;
-
-  if (state.designNeedsAttention) blockers.push("Invalid design: review and save the repaired blueprint before deployment.");
-  if (!state.design.length) blockers.push("Invalid design: blueprint is empty.");
-  if (!hasCore) blockers.push("Invalid design: missing core.");
-  if (!isConnected(state.design)) blockers.push("Invalid design: disconnected parts.");
-  if (stats.thrust <= 0) blockers.push("Invalid design: add at least one engine.");
-  const warnings = [...stats.warnings];
-  if (stats.maxShield < 35 && stats.maxHp < 210) warnings.push("Weak defence: low combined hull and shield.");
-
-  return { blockers, warnings };
 }

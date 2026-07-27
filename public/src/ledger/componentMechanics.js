@@ -79,8 +79,6 @@ export const SPECIAL_MECHANICS_COMPONENTS = [
   "heavyBlaster",
   "proximityDemolitionCharge",
   "demolitionCharge",
-  "propulsionCapacitor",
-  "vectorThruster"
 ];
 
 // ---------------------------------------------------------------------------
@@ -697,34 +695,6 @@ export const COMPONENT_MECHANICS = {
     ]
   },
 
-  propulsionCapacitor: {
-    specialMechanics: [
-      { label: "Discharge", value: "1.8× thrust multiplier during high-demand manoeuvres", detail: "Automatically discharges during acceleration, turning, braking, lateral or reverse thrust to multiply effective thrust.", sourceKey: "generatedBalance.propulsionCapacitor.boostMultiplier" },
-      { label: "Activation Threshold", value: "60% of demand", detail: "Activates when thrust demand exceeds 60% of maximum.", sourceKey: "generatedBalance.propulsionCapacitor.activationThreshold" },
-      { label: "Deactivation Threshold", value: "15% of demand", detail: "Stops discharging when demand drops below 15%.", sourceKey: "generatedBalance.propulsionCapacitor.deactivationThreshold" },
-      { label: "Min Reserve", value: "5% of capacity", detail: "Always retains a minimum reserve fraction.", sourceKey: "generatedBalance.propulsionCapacitor.minReserveFraction" },
-      { label: "Recharge", value: "15 MW from spare reactor output", detail: "Recharges from spare reactor output when demand is low.", sourceKey: "generatedBalance.propulsionCapacitor.maxChargeRate" }
-    ],
-    interactions: [
-      { label: "Engines", value: "Boosts effective thrust during high-demand manoeuvres" },
-      { label: "Reactor", value: "Recharges from spare reactor output when demand is low" }
-    ]
-  },
-
-  vectorThruster: {
-    requirements: [
-      { label: "Exhaust Clearance", value: "Requires clear exhaust channels", warning: true }
-    ],
-    specialMechanics: [
-      { label: "Stacking Falloff", value: "90% per additional engine" },
-      { label: "Heat-State Scaling", value: "Active output follows the shared active-output table" },
-      { label: "Activity Heat", value: "Generates heat proportional to thrust" }
-    ],
-    interactions: [
-      { label: "Propulsion Capacitor", value: "Can boost acceleration when activated" },
-      { label: "Power", value: "Power deficit reduces thrust" }
-    ]
-  }
 };
 
 // ---------------------------------------------------------------------------
@@ -771,3 +741,4 @@ export function getMechanicsSearchText(partId) {
   }
   return parts.join(" ");
 }
+

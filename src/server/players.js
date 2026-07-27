@@ -149,8 +149,13 @@ function joinRoom(client, message) {
   if (!room.playerColors) room.playerColors = new Map();
   let color = room.playerColors.get(requestedName.toLowerCase());
   if (!color) {
-    color = COLORS[room.colorCursor % COLORS.length];
-    room.colorCursor += 1;
+    const requestedColor = String(message.color || "").trim();
+    if (/^#[0-9A-Fa-f]{6}$/.test(requestedColor)) {
+      color = requestedColor.toLowerCase();
+    } else {
+      color = COLORS[room.colorCursor % COLORS.length];
+      room.colorCursor += 1;
+    }
     room.playerColors.set(requestedName.toLowerCase(), color);
   }
 

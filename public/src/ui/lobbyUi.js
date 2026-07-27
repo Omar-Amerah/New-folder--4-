@@ -441,17 +441,17 @@ export function createGame() {
   if (inServer) {
     openServerLeaveConfirmModal(() => {
       leaveLobby();
-      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
+      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), preferredColor: colorValue() });
       state.joiningLobby = true;
-      const joinPayload = { type: "join", name, room: "", team: teamValue() };
+      const joinPayload = { type: "join", name, room: "", team: teamValue(), color: colorValue() };
       connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
       updateLobbyState();
     }, "Leave server to create game?", `You are currently connected to server ${state.room}. Creating a new game will leave this server.`, "Leave & Create");
     return;
   }
-  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
+  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), preferredColor: colorValue() });
   state.joiningLobby = true;
-  const joinPayload = { type: "join", name, room: "", team: teamValue() };
+  const joinPayload = { type: "join", name, room: "", team: teamValue(), color: colorValue() };
   connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
   updateLobbyState();
 }
@@ -476,17 +476,17 @@ export function joinRoom(roomCode = "") {
   if (inServer && state.room !== targetRoom) {
     openServerLeaveConfirmModal(() => {
       leaveLobby();
-      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
+      persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), preferredColor: colorValue() });
       state.joiningLobby = true;
-      const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), resumeToken: getResumeCredential(targetRoom) };
+      const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), color: colorValue(), resumeToken: getResumeCredential(targetRoom) };
       connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
       updateLobbyState();
     }, "Leave server to join game?", `You are currently connected to server ${state.room}. Joining room ${targetRoom} will leave this server.`, "Leave & Join");
     return;
   }
-  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue() });
+  persistPreferences({ ...loadPreferences().preferences, pilotName: name, preferredTeam: teamValue(), preferredColor: colorValue() });
   state.joiningLobby = true;
-  const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), resumeToken: getResumeCredential(targetRoom) };
+  const joinPayload = { type: "join", name, room: targetRoom, team: teamValue(), color: colorValue(), resumeToken: getResumeCredential(targetRoom) };
   connect(getSocketUrl(), () => { send(withClientProtocol(joinPayload)); }, { joinPayload });
   updateLobbyState();
 }
@@ -632,6 +632,7 @@ export function openSettings() {
     dom.serverUrlInput.value = getConfiguredServerUrl() || prefs.serverUrl;
   }
   if (dom.settingsTeamSelect) dom.settingsTeamSelect.value = prefs.preferredTeam;
+  if (dom.settingsColorSelect) dom.settingsColorSelect.value = prefs.preferredColor;
   if (dom.reducedMotionToggle) dom.reducedMotionToggle.checked = prefs.reducedMotion;
   if (dom.interfaceScaleSelect) dom.interfaceScaleSelect.value = String(prefs.interfaceScale);
   renderStorageStatus();
@@ -783,6 +784,11 @@ function teamValue() {
   return loadPreferences().preferences.preferredTeam || "blue";
 }
 
+function colorValue() {
+  const raw = String(dom.pilotColor?.value || loadPreferences().preferences.preferredColor || "").trim();
+  return /^#[0-9A-Fa-f]{6}$/.test(raw) ? raw.toLowerCase() : loadPreferences().preferences.preferredColor;
+}
+
 export function setConnectionStatus(status, text) {
   if (!dom.status) return;
   dom.status.textContent = text;
@@ -837,6 +843,16 @@ function confirmAction(message, action) {
 
 export function bindSettingsRecoveryControls() {
   dom.settingsTeamSelect?.addEventListener("change", (e) => { persistPreferences({ ...loadPreferences().preferences, preferredTeam: e.target.value }); dom.teamSelect.value = e.target.value; });
+  dom.settingsColorSelect?.addEventListener("change", (e) => {
+    const color = String(e.target.value || "").trim();
+    if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      persistPreferences({ ...loadPreferences().preferences, preferredColor: color });
+      if (dom.pilotColor) dom.pilotColor.value = color;
+      if (state.room && state.socket?.readyState === WebSocket.OPEN) {
+        send({ type: "setColor", color });
+      }
+    }
+  });
   dom.reducedMotionToggle?.addEventListener("change", (e) => { const prefs = { ...loadPreferences().preferences, reducedMotion: e.target.checked }; persistPreferences(prefs); applyInterfacePreferences(prefs); });
   dom.interfaceScaleSelect?.addEventListener("change", (e) => { const prefs = { ...loadPreferences().preferences, interfaceScale: Number(e.target.value) }; persistPreferences(prefs); applyInterfacePreferences(prefs); });
   dom.resetSettingsButton?.addEventListener("click", () => confirmAction("Reset settings? Saved blueprints will be kept.", () => { resetPreferences(); applyInterfacePreferences(loadPreferences().preferences); openSettings(); }));

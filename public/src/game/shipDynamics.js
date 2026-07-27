@@ -22,6 +22,7 @@ const MANEUVER_JET_RISE_SECONDS = 0.09;
 const MANEUVER_JET_MIN_ACTIVITY = 0.01;
 const MANEUVER_JET_ACTIVITY_THRESHOLD = 0.02;
 const MANEUVER_JET_VISUAL_LIMIT = 512;
+const MAX_SMOKE_PARTICLES = 560;
 
 export function maxSpeedForRenderedShip(ship) {
   if (ship?.stats?.maxSpeed) return ship.stats.maxSpeed;
@@ -124,9 +125,6 @@ export function emitEngineSmoke(ship, nozzles, scale = 13, now = performance.now
     });
   }
 
-  if (state.engineSmoke.length > 560) {
-    state.engineSmoke.splice(0, state.engineSmoke.length - 560);
-  }
 }
 
 export function activeEngineSmoke(now = performance.now()) {
@@ -149,6 +147,11 @@ export function activeEngineSmoke(now = performance.now()) {
     visibleSmoke.push(smoke);
   }
   state.engineSmoke.length = write;
+  if (write > MAX_SMOKE_PARTICLES) {
+    const remove = write - MAX_SMOKE_PARTICLES;
+    state.engineSmoke.splice(0, remove);
+    visibleSmoke.splice(0, remove);
+  }
   return visibleSmoke;
 }
 
