@@ -290,8 +290,8 @@ function generateSafeZones(world, gameMode) {
   const spawnRadius = 275;
   const sideInset = spawnRadius;
   if (gameMode === "teams") {
-    zones.push({ x: sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(63,214,255,0.06)", isSpawn: true, team: "blue" });
-    zones.push({ x: world.width - sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(255,95,126,0.06)", isSpawn: true, team: "red" });
+    zones.push({ x: sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(63,214,255,0.06)", borderColor: "#38d5ff", isSpawn: true, team: "blue" });
+    zones.push({ x: world.width - sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(255,95,126,0.06)", borderColor: "#ff5f7e", isSpawn: true, team: "red" });
   } else {
     // Solo zones
     zones.push({ x: sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(255,255,255,0.06)", isSpawn: true });

@@ -199,12 +199,14 @@ function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
     const pdTrack = getCommandAuraMultiplier(ship, "pointDefenceTrackingMultiplier");
     const react = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
     if (pdTrack !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * pdTrack;
+    if (pdTrack !== 1 && Number.isFinite(modified.aimSpeed) && modified.aimSpeed > 0) modified.aimSpeed = modified.aimSpeed * pdTrack;
     if (react !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / react;
   }
   if (family === "flak") {
     const flakTrack = getCommandAuraMultiplier(ship, "flakTrackingMultiplier");
     const react = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
     if (flakTrack !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * flakTrack;
+    if (flakTrack !== 1 && Number.isFinite(modified.aimSpeed) && modified.aimSpeed > 0) modified.aimSpeed = modified.aimSpeed * flakTrack;
     if (react !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / react;
   }
   return modified;

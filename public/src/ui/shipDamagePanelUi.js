@@ -255,7 +255,6 @@ function renderPowerSummary(ship) {
   const networks = finitePowerValue(ws.powerNetworks);
   const broken = countOrZero(ws.brokenPowerConnections) + countOrZero(ws.disabledPowerSections);
   const overloaded = countOrZero(pp.aboveSustainedSectionCount) + countOrZero(pp.atPeakSectionCount);
-  const cableHeat = finitePowerValue(pt.powerCableHeatRate);
   const issueMarkup = visibleIssues.length
     ? visibleIssues.map(powerIssueHtml).join("")
     : `<p class="power-healthy-line"><span aria-hidden="true">OK</span> No Power issues detected</p>`;
@@ -288,9 +287,7 @@ function renderPowerSummary(ship) {
         ${issueMarkup}
         ${moreIssuesMarkup}
       </div>
-      <p>Cable Heat: <strong>${cableHeat === null ? "Unavailable" : `${formatHeatAmount(cableHeat)} H/s`}</strong></p>
       ${pp.mostStressedSectionId ? `<p class="power-secondary-detail">Most stressed: ${escapeHtml(mostStressedSectionText(pp))}</p>` : ""}
-      ${pt.hottestSectionId && cableHeat !== null && cableHeat > 0 ? `<p class="power-secondary-detail">Hottest cable: ${escapeHtml(pt.hottestSectionId)}</p>` : ""}
     </section>
   `;
   const announcement = `${overall.label}. ${overall.explanation}`;

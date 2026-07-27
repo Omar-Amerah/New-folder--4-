@@ -1464,11 +1464,11 @@ h2 {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 7px 8px;
-  border: 1px solid rgba(103, 217, 255, .24);
-  border-left-width: 3px;
-  border-radius: 7px;
+  padding: 7px 9px;
+  border: 1px solid rgba(103, 217, 255, .22);
+  border-radius: 8px;
   background: rgba(8, 15, 27, .76);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .03);
 }
 .power-overall-icon {
   display: grid;
@@ -1484,19 +1484,21 @@ h2 {
 }
 .power-overall strong { display:block; color:#edf6ff; font-size:12px; line-height:1.15; }
 .power-overall p { margin:2px 0 0; color:#9fb4d2; line-height:1.25; }
-.power-overall-powered { border-left-color:#59d894; }
+.power-overall-powered { background: linear-gradient(180deg, rgba(124, 255, 138, .08), rgba(124, 255, 138, .03)), rgba(10, 20, 15, .74); }
+.power-overall-powered .power-overall-icon { background: rgba(89, 216, 148, .16); color: #79e5ae; }
 .power-overall-partial,
-.power-overall-underpowered { border-left-color:#ffb84d; }
+.power-overall-underpowered { background: linear-gradient(180deg, rgba(255, 202, 87, .08), rgba(255, 202, 87, .03)), rgba(28, 22, 10, .76); }
+.power-overall-partial .power-overall-icon,
+.power-overall-underpowered .power-overall-icon { background:rgba(255,184,77,.16); color:#ffd27a; }
 .power-overall-critical,
 .power-overall-offline,
-.power-overall-disconnected { border-left-color:#ff607d; }
-.power-overall-unavailable { border-left-color:#8294af; }
-.power-overall-partial .power-overall-icon,
-.power-overall-underpowered .power-overall-icon { background:rgba(255,184,77,.13); color:#ffd27a; }
+.power-overall-disconnected { background: linear-gradient(180deg, rgba(255, 95, 126, .08), rgba(255, 95, 126, .03)), rgba(28, 12, 16, .78); }
 .power-overall-critical .power-overall-icon,
 .power-overall-offline .power-overall-icon,
-.power-overall-disconnected .power-overall-icon { background:rgba(255,96,125,.13); color:#ff91a5; }
-.power-overall-unavailable .power-overall-icon { background:rgba(130,148,175,.13); color:#aebcd0; }
+.power-overall-disconnected .power-overall-icon { background:rgba(255,96,125,.16); color:#ff91a5; }
+.power-overall-unavailable { background: linear-gradient(180deg, rgba(130, 148, 175, .06), rgba(130, 148, 175, .03)), rgba(8, 15, 27, .76); }
+.power-overall-unavailable .power-overall-icon { background:rgba(130,148,175,.16); color:#aebcd0; }
+.ship-power-summary h4 { margin: 8px 0 5px; color: #9fdfff; font-size: 9px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
 .power-compact-section {
   min-width: 0;
   padding: 5px 1px 6px;
@@ -1657,6 +1659,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .keybinds-button {
@@ -1664,13 +1669,22 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   align-items: center;
   justify-content: center;
   gap: 8px;
-  width: 100%;
+  flex: 1;
   min-height: 38px;
   font-size: 13px;
 }
 
 .keybinds-button svg {
   opacity: 0.8;
+}
+
+#sidePanelFleetLedgerButton {
+  flex: 0 0 auto;
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  font-size: 16px;
+  font-weight: 900;
 }
 
 /* ── Keybinds modal ── */

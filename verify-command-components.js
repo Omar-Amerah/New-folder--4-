@@ -164,7 +164,7 @@ test("propulsionCommandRelay aura does not have formationResponseMultiplier", ()
 // ===========================================================================
 console.log("\n--- Aura multiplier gameplay integration ---");
 
-// Build a ship with an electronicWarfareCommandCentre to test sensorRange, missileTrackingResistance, targetRetention
+// Build a ship with an electronicWarfareCommandCentre to test sensorRange, missileTrackingResistance, componentAimRetention
 function makeShip(id, ownerId, x, y, design, componentPower = null, componentHp = null, componentHeatState = null) {
   return {
     id,
@@ -201,9 +201,9 @@ test("missileTrackingResistanceMultiplier is applied in projectiles.js", () => {
   assert(projSrc.includes("missileTrackingResistanceMultiplier"), "projectiles.js should consume missileTrackingResistanceMultiplier");
 });
 
-test("targetRetentionMultiplier is applied in combat.js", () => {
+test("componentAimRetentionMultiplier is applied in combat.js", () => {
   const combatSrc = require("fs").readFileSync("./src/server/combat.js", "utf8");
-  assert(combatSrc.includes("targetRetentionMultiplier"), "combat.js should consume targetRetentionMultiplier");
+  assert(combatSrc.includes("componentAimRetentionMultiplier"), "combat.js should consume componentAimRetentionMultiplier");
 });
 
 test("shieldRestartDelayMultiplier is applied in movement.js", () => {
@@ -286,14 +286,14 @@ test("all command components emit aura sources", () => {
   }
 });
 
-test("ewar aura provides sensorRange, missileTrackingResistance, and targetRetention buffs", () => {
+test("ewar aura provides sensorRange, missileTrackingResistance, and componentAimRetention buffs", () => {
   const ship = makeShip("ewar", "p1", 0, 0, [{ type: "electronicWarfareCommandCentre" }]);
   const recipient = makeShip("recip", "p1", 100, 0, [{ type: "frame" }]);
   const room = makeRoom([ship, recipient]);
   updateCommandAuras(room, [ship, recipient], 0);
   assert(getCommandAuraMultiplier(recipient, "sensorRangeMultiplier") > 1, "recipient should get sensorRange buff");
   assert(getCommandAuraMultiplier(recipient, "missileTrackingResistanceMultiplier") > 1, "recipient should get missileTrackingResistance buff");
-  assert(getCommandAuraMultiplier(recipient, "targetRetentionMultiplier") > 1, "recipient should get targetRetention buff");
+  assert(getCommandAuraMultiplier(recipient, "componentAimRetentionMultiplier") > 1, "recipient should get componentAimRetention buff");
 });
 
 test("unpowered command component does not emit aura", () => {

@@ -84,11 +84,30 @@ The game remembers that server URL locally and includes it when you copy invites
 - At match end, an end screen appears. The admin can restart into a fresh ship design phase or close the lobby.
 - Left-click or drag-select your ships.
 - Right-click the arena to move selected ships. Right-click an enemy to focus fire.
-- Use the formation selector before issuing an order.
 - Use the minimap to jump the camera. Mouse wheel zooms; WASD or arrow keys pan; `F` follows your fleet; `Q` selects all live ships.
 - Add bots from the lobby controls for practice or fuller team matches.
 - Capture every relay and hold full control continuously for 20 seconds to win. Destroying ships and capturing relays still pays economy rewards.
 
+
+## Fleet Ledger
+
+The Fleet Ledger is an in-game encyclopaedia accessible from the main menu and the blueprint designer top bar. It provides searchable, data-driven articles covering every game system: ship construction, power, heat, movement, combat styles, weapons, defence, drones, support, command, economy, multiplayer, and controls.
+
+- **Open from:** Main menu "Fleet Ledger" button or Blueprint Designer "Fleet Ledger" button.
+- **Close:** Close button, Escape key, or clicking outside the panel.
+- **Navigation:** Category list on the left, article content in the centre, related entries on the right. Back/Forward/Home buttons provide history navigation.
+- **Search:** Type in the search bar to find articles by title, summary, keyword, or component name.
+- **Data-driven:** Component articles are auto-generated from the authoritative `component-balance.generated.json` via `PART_STATS`. Manual articles pull live values for economy, wiring, movement, and drone constants.
+- **Deep links:** The blueprint component inspector has a "View in Fleet Ledger" button that opens the ledger directly to the selected component's article.
+- **Responsive:** Three-column layout on wide screens, adaptive single-column on narrow screens.
+- **Accessibility:** Keyboard navigable, ARIA roles, focus management, reduced-motion support.
+
+### Fleet Ledger architecture
+
+- `public/src/ledger/ledgerContent.js` — Pure data module: categories, manual articles, data-driven component article generation, search index, validation helpers.
+- `public/src/ledger/fleetLedgerUi.js` — UI module: overlay open/close, navigation history, search, article rendering, related entries, keyboard handling.
+- `public/styles/fleet-ledger.css` — Styling matching the game's CSS variables and button styles.
+- `verify-fleet-ledger.js` — Unit test covering article uniqueness, category validity, related references, data parity, search, HTML structure, CSS, and DOM wiring.
 
 ## Frontend build path
 

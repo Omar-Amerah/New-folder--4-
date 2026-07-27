@@ -117,7 +117,8 @@ const GROUPS = {
     "verify-ship-summary.js",
     "verify-section13b-ui.js",
     "verify-section14-security.js",
-    "verify-diagnostics-gating.js"
+    "verify-diagnostics-gating.js",
+    "verify-fleet-ledger.js"
   ],
 
   // Browser-free module/room/input lifecycle integration. These may use fake

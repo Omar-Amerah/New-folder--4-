@@ -159,7 +159,7 @@ function commandShips(room, player, x, y, options = {}) {
       continue;
     }
 
-    if (isAlly && hasRepairBeam(ship)) {
+    if (isAlly && hasRepairBeam(ship) && target.id !== ship.id) {
       ship.repairTargetId = target.id;
       ship.focusTargetId = null;
       ship.commandMode = 'repair';
@@ -257,7 +257,7 @@ function rotateShips(room, player, direction, shipIds, active = true) {
   return { ok: true, code: 'rotated', rotated: ships.length };
 }
 
-function updateShipMovement(room, ship, dt) {
+function updateShipMovement(room, ship, dt, now) {
   const safeDt = Number(dt);
   if (!Number.isFinite(safeDt) || safeDt <= 0) return;
   ship._prevX = ship.x;
@@ -269,17 +269,17 @@ function updateShipMovement(room, ship, dt) {
     let remaining = total;
     while (remaining > 0) {
       const step = Math.min(MOVEMENT_SUBSTEP, remaining);
-      updateShipMovementStep(room, ship, step);
+      updateShipMovementStep(room, ship, step, now);
       remaining -= step;
     }
     sanitizeMovementState(room, ship);
     return;
   }
-  updateShipMovementStep(room, ship, total);
+  updateShipMovementStep(room, ship, total, now);
   sanitizeMovementState(room, ship);
 }
 
-function updateShipMovementStep(room, ship, dt) {
+function updateShipMovementStep(room, ship, dt, now) {
   ensureMoveTarget(ship);
 
   const stats = heatAdjustedMovementStats(ship, ship.stats || {});
@@ -326,7 +326,7 @@ function updateShipMovementStep(room, ship, dt) {
   applyDamping(ship, distance, isCircleOrbit, dt);
   applySpeedLimit(ship, stats);
   applyPosition(room, ship, dt);
-  regenerateShield(ship, stats, dt);
+  regenerateShield(ship, stats, dt, now);
 }
 function getCombatStyle(ship) {
   if (ship.combatStyle === "hold") return "hold";
@@ -692,9 +692,9 @@ function applyDamping(ship, distance, isCircleOrbit, dt) {
   let damping = 0.985;
 
   if (ship.arrived && !isCircleOrbit) {
-    damping = 0.78;
+    damping = 0.97;
   } else if (distance < 85 && !isCircleOrbit) {
-    damping = 0.9;
+    damping = 0.975;
   }
 
   ship.vx *= Math.pow(damping, dt * 60);
@@ -732,7 +732,7 @@ function applyPosition(room, ship, dt) {
 
 const SHIELD_RESTART_DELAY_MS = 3000;
 
-function regenerateShield(ship, stats, dt) {
+function regenerateShield(ship, stats, dt, now) {
   const effective = effectiveShieldStats(ship);
   ship.maxShield = Math.max(0, effective.capacity);
   ship.shield = Math.max(0, Math.min(Number(ship.shield) || 0, ship.maxShield));
@@ -753,15 +753,22 @@ function regenerateShield(ship, stats, dt) {
 
     // Shield restart delay: when the shield is fully depleted, regen is paused
     // for a base delay. The command-aura shieldRestartDelayMultiplier (a value
-    // below 1) shortens this delay.
-    if (ship.shield <= 0 && !ship._shieldRestartAt) {
+    // below 1) shortens this delay. Uses authoritative simulation time (now)
+    // instead of wall-clock time so the delay is deterministic and consistent
+    // with the simulation tick rate. The delay is recalculated each tick from
+    // the depletion timestamp so aura changes during the countdown take effect
+    // immediately rather than being locked in at depletion time.
+    if (ship.shield <= 0 && !ship._shieldDepletedAt) {
+      ship._shieldDepletedAt = now;
+    }
+    if (ship._shieldDepletedAt !== undefined && ship._shieldDepletedAt !== null) {
       const restartMult = getCommandAuraMultiplier(ship, "shieldRestartDelayMultiplier");
-      ship._shieldRestartAt = performanceNow() + Math.round(SHIELD_RESTART_DELAY_MS * restartMult);
+      const delayMs = Math.round(SHIELD_RESTART_DELAY_MS * restartMult);
+      if (now - ship._shieldDepletedAt < delayMs) {
+        return;
+      }
+      ship._shieldDepletedAt = null;
     }
-    if (ship._shieldRestartAt && performanceNow() < ship._shieldRestartAt) {
-      return;
-    }
-    ship._shieldRestartAt = null;
 
     const actualRecharge = Math.min(missingShield, recharge * dt);
     if (actualRecharge > 0 && totalHeatWeight > 0) {

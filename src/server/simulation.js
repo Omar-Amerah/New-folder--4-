@@ -55,7 +55,7 @@ function tickRoom(room, dt, now) {
   updateCommandAuras(room, ships, now);
   durations.commandAuras = performanceNow() - startedAt;
   startedAt = performanceNow();
-  for (const ship of ships) updateShipMovement(room, ship, dt);
+  for (const ship of ships) updateShipMovement(room, ship, dt, now);
   buildRoomSpatialIndex(room, ships, now);
   updateShipSeparation(room, ships, dt, now); resolveFleetMapCollisions(room, ships);
   durations.movementSeparationMap = performanceNow() - startedAt;

@@ -8,6 +8,7 @@ import { rotateFocusedPart, undoBlueprintEdit } from "../ui/designerUi.js";
 import { canUndoBlueprintEdit } from "../design/blueprintEditHistory.js";
 import { canUndoWiring, undoWiring } from "../ui/wiringUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
+import { closeLedger } from "../ledger/fleetLedgerUi.js";
 import { updateHud } from "../ui/hudUi.js";
 import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
 import { issueCommand, destructSelectedShips, stopSelectedShips, rotateSelectedShips } from "./commands.js";
@@ -60,6 +61,7 @@ export function eventComesFromEditableControl(event) {
 }
 export function handleKeyDown(event) {
   if (event.key === "Escape" && dom.confirmModal && !dom.confirmModal.hidden) { event.preventDefault(); closeConfirmModal(); return; }
+  if (event.key === "Escape" && dom.ledgerOverlay && !dom.ledgerOverlay.hidden) { event.preventDefault(); closeLedger(); return; }
   if (event.repeat) return;
   const key = event.key.toLowerCase();
   const designerOpen = dom.blueprintDesignerScreen && !dom.blueprintDesignerScreen.hidden;

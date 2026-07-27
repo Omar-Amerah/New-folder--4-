@@ -105,4 +105,166 @@ assert.strictEqual(sources.length, 1, "fireControlCommandCentre should emit one 
 assert.strictEqual(sources[0].type, "fireControl", "aura type should be fireControl");
 assert.strictEqual(sources[0].multipliers.weaponAccuracyMultiplier, 1.08, "aura multiplier should match balance");
 
+// ---------------------------------------------------------------------------
+// Task 1: Operational effectiveness scaling
+// ---------------------------------------------------------------------------
+const { auraComponentEffectiveness, scaleAuraMultiplier } = require("./src/server/commandAuras");
+const { BALANCE } = require("./src/server/balanceConfig");
+
+{
+  const s = makeShip("eff1", "p1", 0, 0, [{ type: "fireControlCommandCentre" }]);
+  assert.strictEqual(auraComponentEffectiveness(s, 0), 1, "full power normal heat = effectiveness 1");
+}
+{
+  const s = makeShip("eff2", "p1", 0, 0, [{ type: "fireControlCommandCentre" }]);
+  s.componentPower.byComponentIndex[0].operationalMultiplier = 0.5;
+  assert.strictEqual(auraComponentEffectiveness(s, 0), 0.5, "half power = effectiveness 0.5");
+  assert.ok(Math.abs(scaleAuraMultiplier(1.08, 0.5) - 1.04) < 1e-9, "1.08 at 0.5 eff = 1.04");
+}
+{
+  const s = makeShip("eff3", "p1", 0, 0, [{ type: "fireControlCommandCentre" }]);
+  s.componentHeatState[0] = HeatRules.STATE.OVERHEATED;
+  assert.strictEqual(auraComponentEffectiveness(s, 0), 0, "overheated = effectiveness 0");
+  const r = makeShip("eff3r", "p1", 50, 0, [{ type: "frame" }]);
+  const rm = makeRoom([s, r]);
+  updateCommandAuras(rm, [s, r], 0);
+  assert.strictEqual(getCommandAuraMultiplier(r, "weaponAccuracyMultiplier"), 1, "overheated component no aura");
+}
+{
+  assert.strictEqual(scaleAuraMultiplier(0.8, 0.5), 0.9, "reduction 0.8 at 0.5 eff = 0.9");
+  assert.strictEqual(scaleAuraMultiplier(1.08, 0), 1, "0 eff = neutral");
+}
+
+// ---------------------------------------------------------------------------
+// Task 2: Fleet Defence Coordinator
+// ---------------------------------------------------------------------------
+{
+  const s = makeShip("fd1", "p1", 0, 0, [{ type: "fleetDefenceCoordinator" }]);
+  const r = makeShip("fd1r", "p1", 50, 0, [{ type: "frame" }]);
+  updateCommandAuras(makeRoom([s, r]), [s, r], 0);
+  assert(getCommandAuraMultiplier(r, "pointDefenceTrackingMultiplier") > 1, "PD tracking buff");
+  assert(getCommandAuraMultiplier(r, "flakTrackingMultiplier") > 1, "flak tracking buff");
+  assert(getCommandAuraMultiplier(r, "interceptionReactionMultiplier") > 1, "interception reaction buff");
+}
+{
+  assert(BALANCE.fleetDefence, "BALANCE.fleetDefence exists");
+  assert(BALANCE.fleetDefence.baseReacquisitionDelayMs > 0, "fleetDefence baseReacquisitionDelayMs positive");
+  const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
+  assert(cs.includes("_pdReacquireAt"), "combat.js has PD reacquisition delay");
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Fire-Control target acquisition
+// ---------------------------------------------------------------------------
+{
+  const s = makeShip("fc1", "p1", 0, 0, [{ type: "fireControlCommandCentre" }]);
+  const r = makeShip("fc1r", "p1", 50, 0, [{ type: "frame" }]);
+  updateCommandAuras(makeRoom([s, r]), [s, r], 0);
+  assert(getCommandAuraMultiplier(r, "targetAcquisitionMultiplier") > 1, "target acquisition buff");
+  assert(getCommandAuraMultiplier(r, "turretAimSpeedMultiplier") > 1, "turret aim speed buff");
+}
+{
+  assert(BALANCE.fireControl, "BALANCE.fireControl exists");
+  assert(BALANCE.fireControl.baseReacquisitionDelayMs > 0, "fireControl baseReacquisitionDelayMs positive");
+  const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
+  assert(cs.includes("_offensiveReacquireAt"), "combat.js has offensive reacquisition delay");
+}
+{
+  const cd = require("fs").readFileSync("./src/server/componentData.js", "utf8");
+  assert(cd.includes("pointDefenceTrackingMultiplier") && cd.includes("aimSpeed"), "PD tracking applies to aimSpeed");
+  assert(cd.includes("flakTrackingMultiplier") && cd.includes("aimSpeed"), "flak tracking applies to aimSpeed");
+}
+
+// ---------------------------------------------------------------------------
+// Task 4: Engineering repair - emitter's aura
+// ---------------------------------------------------------------------------
+{
+  const s = makeShip("eng1", "p1", 0, 0, [{ type: "engineeringCommandCentre" }]);
+  const r = makeShip("eng1r", "p1", 50, 0, [{ type: "frame" }]);
+  updateCommandAuras(makeRoom([s, r]), [s, r], 0);
+  assert(getCommandAuraMultiplier(r, "repairRateMultiplier") > 1, "repair rate buff");
+  assert(getCommandAuraMultiplier(r, "heatDissipationMultiplier") > 1, "heat dissipation buff");
+  assert(getCommandAuraMultiplier(r, "overheatRecoveryMultiplier") > 1, "overheat recovery buff");
+}
+{
+  const ch = require("fs").readFileSync("./src/server/componentHealth.js", "utf8");
+  assert(ch.includes("emitterShip"), "componentHealth.js accepts emitterShip");
+  const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
+  assert(cs.includes("repairShipComponents(room, target, beamRepairRate * dt, now, ship)"), "combat.js passes emitter to repair");
+}
+
+// ---------------------------------------------------------------------------
+// Task 5: Engineering heat dissipation - radiators
+// ---------------------------------------------------------------------------
+{
+  const hs = require("fs").readFileSync("./src/server/heat.js", "utf8");
+  assert(hs.includes("exposure * thermal.retention * heatDissipationMult"), "radiator cooling includes heatDissipationMult");
+}
+
+// ---------------------------------------------------------------------------
+// Task 6: Overheat recovery - general
+// ---------------------------------------------------------------------------
+{
+  const hs = require("fs").readFileSync("./src/server/heat.js", "utf8");
+  assert(hs.includes("STATE.CRITICAL") && hs.includes("overheatRecoveryMult"), "heat.js boosts cooling for CRITICAL/OVERHEATED with overheatRecoveryMult");
+}
+
+// ---------------------------------------------------------------------------
+// Task 7: Shield Command Relay - simulation time
+// ---------------------------------------------------------------------------
+{
+  const s = makeShip("sh1", "p1", 0, 0, [{ type: "shieldCommandRelay" }]);
+  const r = makeShip("sh1r", "p1", 50, 0, [{ type: "frame" }]);
+  updateCommandAuras(makeRoom([s, r]), [s, r], 0);
+  assert(getCommandAuraMultiplier(r, "shieldRegenMultiplier") > 1, "shield regen buff");
+  assert(getCommandAuraMultiplier(r, "shieldRestartDelayMultiplier") < 1, "shield restart delay reduction");
+}
+{
+  const ms = require("fs").readFileSync("./src/server/movement.js", "utf8");
+  assert(ms.includes("_shieldDepletedAt"), "movement.js uses _shieldDepletedAt (sim time)");
+  assert(!ms.includes("_shieldRestartAt"), "movement.js no longer uses _shieldRestartAt (wall-clock)");
+}
+
+// ---------------------------------------------------------------------------
+// Task 8: Propulsion Command Relay
+// ---------------------------------------------------------------------------
+{
+  const s = makeShip("pr1", "p1", 0, 0, [{ type: "propulsionCommandRelay" }]);
+  const r = makeShip("pr1r", "p1", 50, 0, [{ type: "frame" }]);
+  updateCommandAuras(makeRoom([s, r]), [s, r], 0);
+  assert(getCommandAuraMultiplier(r, "accelerationMultiplier") > 1, "acceleration buff");
+  assert(getCommandAuraMultiplier(r, "turnRateMultiplier") > 1, "turn rate buff");
+}
+
+// ---------------------------------------------------------------------------
+// Task 9: Electronic Warfare - componentAimRetentionMultiplier
+// ---------------------------------------------------------------------------
+{
+  const s = makeShip("ew1", "p1", 0, 0, [{ type: "electronicWarfareCommandCentre" }]);
+  const r = makeShip("ew1r", "p1", 50, 0, [{ type: "frame" }]);
+  updateCommandAuras(makeRoom([s, r]), [s, r], 0);
+  assert(getCommandAuraMultiplier(r, "sensorRangeMultiplier") > 1, "sensor range buff");
+  assert(getCommandAuraMultiplier(r, "missileTrackingResistanceMultiplier") > 1, "missile tracking resistance buff");
+  assert(getCommandAuraMultiplier(r, "componentAimRetentionMultiplier") > 1, "componentAimRetention buff");
+  assert.strictEqual(getCommandAuraMultiplier(r, "targetRetentionMultiplier"), 1, "old key neutral");
+}
+{
+  const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
+  assert(cs.includes("componentAimRetentionMultiplier"), "combat.js uses renamed key");
+  assert(!cs.includes("targetRetentionMultiplier"), "combat.js no old key");
+}
+
+// ---------------------------------------------------------------------------
+// Task 10: Backup Command Core
+// ---------------------------------------------------------------------------
+{
+  const s = makeShip("bc1", "p1", 0, 0, [{ type: "backupCore" }]);
+  const r = makeShip("bc1r", "p1", 50, 0, [{ type: "frame" }]);
+  updateCommandAuras(makeRoom([s, r]), [s, r], 0);
+  assert(getCommandAuraMultiplier(r, "weaponAccuracyMultiplier") > 1, "backup core accuracy buff");
+  assert(getCommandAuraMultiplier(r, "weaponTrackingMultiplier") > 1, "backup core tracking buff");
+  assert(getCommandAuraMultiplier(r, "targetAcquisitionMultiplier") > 1, "backup core acquisition buff");
+  assert.strictEqual(PARTS["backupCore"].aura.type, "command", "backupCore aura type is command");
+}
+
 console.log(`verify-command-auras passed (range=${range}, components=${commandIds.length})`);

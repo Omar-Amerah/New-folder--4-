@@ -1,6 +1,7 @@
 "use strict";
 
 const { hashString } = require("./utils");
+const { TEAM_COLORS } = require("./config");
 const DEFAULT_SHIP_RADIUS = 46;
 const STARTER_SPACING = 96;
 const MAX_FALLBACK_ATTEMPTS = 72;
@@ -54,12 +55,18 @@ function planSpawnRegions(room, options = {}) {
     let radius = 0;
     for (const s of group.spawns) radius = Math.max(radius, Math.hypot(s.x - cx, s.y - cy) + s.reservedRadius);
     radius = Math.ceil(radius);
+    const ownerPlayer = group.ownerId ? players.get(group.ownerId) : players.get(group.spawns[0].playerId);
+    const borderColor = solo
+      ? (ownerPlayer?.color || "#ffffff")
+      : (TEAM_COLORS[group.team] || "#ffffff");
+    const fillColor = ownerPlayer?.color || borderColor;
     const zone = {
       id: group.ownerId ? `spawn-player-${group.ownerId}` : `spawn-team-${group.team}-${group.spawns[0].playerId}`,
       x: round(cx),
       y: round(cy),
       radius,
-      color: group.team === "blue" ? "rgba(63,214,255,0.06)" : group.team === "red" ? "rgba(255,95,126,0.06)" : "rgba(255,255,255,0.06)",
+      color: hexToRgba(fillColor, 0.06),
+      borderColor,
       isSpawn: true,
       spawnPlayerIds: group.spawns.map((s) => s.playerId).sort()
     };
@@ -196,6 +203,7 @@ function isLegal(c, radius, world, map, reservations) {
 }
 function summarizeTeams(players) { return players.map((p) => ({ id: p.id, team: p.team, bot: !!p.isBot })); }
 function normalizeTeam(team) { if (team === "blue" || team === 0 || team === "0") return "blue"; if (team === "red" || team === 1 || team === "1") return "red"; return null; }
+function hexToRgba(hex, alpha) { const h = hex.replace("#", ""); const r = parseInt(h.substring(0, 2), 16); const g = parseInt(h.substring(2, 4), 16); const b = parseInt(h.substring(4, 6), 16); return `rgba(${r},${g},${b},${alpha})`; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function round(v) { return Math.round(v * 100) / 100; }
 function zoneInsideWorld(zone, world) { return zone.x - zone.radius >= 0 && zone.x + zone.radius <= world.width && zone.y - zone.radius >= 0 && zone.y + zone.radius <= world.height; }

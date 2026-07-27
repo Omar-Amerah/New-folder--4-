@@ -309,6 +309,13 @@ export function getMinimapStaticLayer(map, w, h, sx, sy) {
     mini.beginPath();
     mini.arc(zone.x * sx, zone.y * sy, zone.radius * sx, 0, Math.PI * 2);
     mini.fill();
+    if (zone.borderColor) {
+      mini.strokeStyle = zone.borderColor;
+      mini.lineWidth = 1.5;
+      mini.beginPath();
+      mini.arc(zone.x * sx, zone.y * sy, zone.radius * sx, 0, Math.PI * 2);
+      mini.stroke();
+    }
   }
   for (const cloud of map.clouds || []) {
     mini.fillStyle = `rgba(${cloud.color || "56,213,255"}, 0.12)`;

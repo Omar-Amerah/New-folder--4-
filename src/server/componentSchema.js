@@ -185,7 +185,7 @@ const AURA_STAT_KEYS = [
   "shieldRegenMultiplier", "shieldRestartDelayMultiplier",
   "repairRateMultiplier", "heatDissipationMultiplier", "overheatRecoveryMultiplier",
   "accelerationMultiplier", "turnRateMultiplier",
-  "sensorRangeMultiplier", "missileTrackingResistanceMultiplier", "targetRetentionMultiplier"
+  "sensorRangeMultiplier", "missileTrackingResistanceMultiplier", "componentAimRetentionMultiplier"
 ];
 
 function validateCommandAura(commandAura, filePath, errors) {

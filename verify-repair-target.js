@@ -32,6 +32,14 @@ function makeRoom() {
   assert(!me.focusTargetId, "clicking an ally should not set an attack focus");
 }
 
+// 1b. Clicking itself must not set a repair target — repair beams cannot self-target.
+{
+  const { room, player, me } = makeRoom();
+  commandShips(room, player, 500, 500, { targetId: "s1", shipIds: ["s1"] });
+  assert(!me.repairTargetId, "clicking itself should not set a repair target");
+  assert.strictEqual(me.commandMode, "move", "clicking itself should fall through to a move command");
+}
+
 // 2. Clicking an enemy sets an attack focus and no repair target.
 {
   const { room, player, me } = makeRoom();

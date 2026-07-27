@@ -232,7 +232,19 @@ export const dom = {
   confirmDiscardButton: document.getElementById("confirmDiscardButton"),
   keybindsButton: document.getElementById("keybindsButton"),
   keybindsModal: document.getElementById("keybindsModal"),
-  keybindsCloseButton: document.getElementById("keybindsCloseButton")
+  keybindsCloseButton: document.getElementById("keybindsCloseButton"),
+  fleetLedgerButton: document.getElementById("fleetLedgerButton"),
+  sidePanelFleetLedgerButton: document.getElementById("sidePanelFleetLedgerButton"),
+  designerFleetLedgerButton: document.getElementById("designerFleetLedgerButton"),
+  ledgerOverlay: document.getElementById("fleetLedgerOverlay"),
+  ledgerSearchInput: document.getElementById("ledgerSearchInput"),
+  ledgerBackButton: document.getElementById("ledgerBackButton"),
+  ledgerForwardButton: document.getElementById("ledgerForwardButton"),
+  ledgerHomeButton: document.getElementById("ledgerHomeButton"),
+  ledgerCloseButton: document.getElementById("ledgerCloseButton"),
+  ledgerCategoryNav: document.getElementById("ledgerCategoryNav"),
+  ledgerContent: document.getElementById("ledgerContent"),
+  ledgerRelated: document.getElementById("ledgerRelated")
 };
 
 // Shared "current 2D target" for offscreen Canvas artwork. The arena is rendered

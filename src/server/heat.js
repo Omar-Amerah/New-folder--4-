@@ -487,7 +487,7 @@ function updateShipHeat(ship, dt, room, now) {
       const power = require("./componentPower").getComponentPowerMultiplier(ship, i);
       const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[i] || STATE.NORMAL) * power : 0;
       const passiveFloor = thermal.cooling * 0.12;
-      coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention;
+      coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention * heatDissipationMult;
     }
     else if (thermal.exposedEdges > 0) coolingRate *= 1.12;
     // Thermodynamics: a hotter body sheds heat faster. Passive dissipation scales
@@ -497,6 +497,13 @@ function updateShipHeat(ship, dt, room, now) {
     const ratio = Math.max(0, (heat[i] + delta[i]) / Math.max(1, thermal.capacity));
     const tempFactor = 0.7 + 0.9 * ratio * ratio;
     coolingRate *= tempFactor;
+    // Overheat recovery: components in CRITICAL or OVERHEATED state get
+    // additional cooling proportional to overheatRecoveryMultiplier so they
+    // shed heat faster and return to operational temperature sooner.
+    const currentState = ship.componentHeatState?.[i];
+    if (currentState >= STATE.CRITICAL && overheatRecoveryMult > 1) {
+      coolingRate *= overheatRecoveryMult;
+    }
     const removed = Math.min(Math.max(0, heat[i] + delta[i]), coolingRate * elapsed);
     ship.componentHeatRemoved[i] += removed;
     ship.componentHeatCooled[i] += removed;

@@ -5,6 +5,7 @@
 const { PARTS } = require("./components");
 
 const { ECONOMY } = require("./config");
+const { BALANCE } = require("./balanceConfig");
 
 const { rngRange, clampNumber, angleDifference, rotateToward, fastHypot } = require("./utils");
 
@@ -380,7 +381,7 @@ function selectComponentAimIndex(room, target, previousIndex = null) {
 
 function nextComponentRetargetAt(room, ship, now) {
 
-  const retentionMult = getCommandAuraMultiplier(ship, "targetRetentionMultiplier");
+  const retentionMult = getCommandAuraMultiplier(ship, "componentAimRetentionMultiplier");
 
   const base = COMPONENT_RETARGET_MIN_MS + Math.floor(roomCombatRandom(room)() * COMPONENT_RETARGET_SPAN_MS);
 
@@ -658,7 +659,7 @@ function updateShipSupport(room, ships, dt, now) {
 
     if (!target) continue;
 
-    const delivered = repairShipComponents(room, target, beamRepairRate * dt, now);
+    const delivered = repairShipComponents(room, target, beamRepairRate * dt, now, ship);
 
     allocateRepairHeat(ship, activeRepairBeams, delivered);
 
@@ -1396,11 +1397,31 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     } else if (family === "flak" || family === "pointDefense") {
 
-      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
+      // Fleet Defence Coordinator: interception reacquisition delay. When a
+      // defensive weapon loses its target, it must wait a base simulation-time
+      // delay before acquiring a new one. The interceptionReactionMultiplier
+      // (above 1) shortens this delay so coordinated defences reacquire faster.
+      if (!ship._pdReacquireAt) ship._pdReacquireAt = new Array(ship.design ? ship.design.length : 0).fill(0);
 
-      aimEntity = currentPdTarget ? currentPdTarget.entity : null;
+      if (now < (ship._pdReacquireAt[i] || 0)) {
+        currentPdTarget = null;
+        aimEntity = null;
+        clearWeaponComponentAim(ship, i);
+      } else {
+        currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
 
-      clearWeaponComponentAim(ship, i);
+        if (currentPdTarget) {
+          aimEntity = currentPdTarget.entity;
+        } else {
+          // Target lost: start reacquisition countdown.
+          const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
+          const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
+          ship._pdReacquireAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
+          aimEntity = null;
+        }
+
+        clearWeaponComponentAim(ship, i);
+      }
 
     } else {
 
@@ -1412,6 +1433,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       // itself is retained at the ship level and resumed once it is attackable.
 
+      // Fire-Control Command Centre: offensive reacquisition delay. When an
+      // offensive weapon switches to a new target, it must wait a base
+      // simulation-time delay before firing. The targetAcquisitionMultiplier
+      // (above 1) shortens this delay so coordinated ships acquire targets faster.
+      if (!ship._offensiveReacquireAt) ship._offensiveReacquireAt = new Array(ship.design ? ship.design.length : 0).fill(0);
+
       weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range, {
 
         weapon: effectiveWeapon,
@@ -1419,6 +1446,19 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         module
 
       });
+
+      const prevTargetId = ship.weaponFireTargetIds?.[i] ?? null;
+      const newTargetId = weaponTarget ? weaponTarget.id ?? null : null;
+
+      if (newTargetId && prevTargetId && newTargetId !== prevTargetId) {
+        const acqMult = getCommandAuraMultiplier(ship, "targetAcquisitionMultiplier");
+        const baseDelay = Number(BALANCE?.fireControl?.baseReacquisitionDelayMs) || 400;
+        ship._offensiveReacquireAt[i] = now + Math.round(baseDelay / Math.max(0.01, acqMult));
+      }
+
+      if (now < (ship._offensiveReacquireAt[i] || 0)) {
+        weaponTarget = null;
+      }
 
       aimEntity = weaponTarget || (target && target.alive !== false && !target.destroyed ? target : null);
 
@@ -3336,6 +3376,10 @@ function destroyShip(room, ship, attackerId, now) {
 
   ship.weaponComponentRetargetAt = null;
 
+  ship._pdReacquireAt = null;
+
+  ship._offensiveReacquireAt = null;
+
   ship.vx *= 0.25;
 
   ship.vy *= 0.25;
@@ -3514,6 +3558,10 @@ function detonateSelfDestruct(room, ship, now) {
 
   ship.weaponComponentRetargetAt = null;
 
+  ship._pdReacquireAt = null;
+
+  ship._offensiveReacquireAt = null;
+
   ship.vx *= 0.2;
 
   ship.vy *= 0.2;
@@ -3565,6 +3613,10 @@ function updateDestroyedShips(room, now) {
         ship.weaponComponentTargetIndices = null;
 
         ship.weaponComponentRetargetAt = null;
+
+        ship._pdReacquireAt = null;
+
+        ship._offensiveReacquireAt = null;
 
         invalidateShipCollisionGeometry(ship);
 

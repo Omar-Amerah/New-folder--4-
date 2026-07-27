@@ -47,7 +47,7 @@ const AURA_STAT_KEYS = new Set([
   "turnRateMultiplier",
   "sensorRangeMultiplier",
   "missileTrackingResistanceMultiplier",
-  "targetRetentionMultiplier"
+  "componentAimRetentionMultiplier"
 ]);
 
 // Shared authoritative aura range.  All command components use this exact value.
@@ -97,14 +97,17 @@ function collectAuraSources(ship) {
     const aura = part?.aura;
     if (!aura || !AURA_TYPES.has(aura.type)) continue;
     if (!isAuraComponentOperational(ship, i)) continue;
-    const multipliers = auraMultipliersFrom(aura);
+    const effectiveness = auraComponentEffectiveness(ship, i);
+    if (effectiveness <= 0) continue;
+    const multipliers = auraMultipliersScaled(aura, effectiveness);
     const strength = auraStrength(aura.type, multipliers);
     sources.push({
       ship,
       componentIndex: i,
       type: aura.type,
       multipliers,
-      strength
+      strength,
+      effectiveness
     });
   }
   return sources;
@@ -123,11 +126,58 @@ function isAuraComponentOperational(ship, index) {
   return true;
 }
 
+// Operational effectiveness of a command component, clamped to [0, 1].
+// Combines the component's power allocation multiplier and thermal output
+// multiplier so that partial power or elevated heat proportionally reduces
+// aura strength.  Destroyed, unpowered or fully overheated components yield 0.
+function auraComponentEffectiveness(ship, index) {
+  if (!ship.alive) return 0;
+  if ((ship.componentHp?.[index] ?? 1) <= 0) return 0;
+  const powerRecord = ship.componentPower?.byComponentIndex?.[index];
+  const powerMult = Number(powerRecord?.operationalMultiplier) || 0;
+  if (powerMult <= 0) return 0;
+  const heatState = ship.componentHeatState?.[index];
+  const heatOutput = heatState !== undefined && heatState !== null
+    ? HeatRules.activeOutputForState(heatState)
+    : 1;
+  const effectiveness = powerMult * heatOutput;
+  if (effectiveness <= 0) return 0;
+  return Math.max(0, Math.min(1, effectiveness));
+}
+
+// Scale a configured multiplier by effectiveness.
+// For beneficial multipliers above 1 (buffs): blend from neutral.
+//   scaledMultiplier = 1 + (configuredMultiplier - 1) * effectiveness
+// For beneficial reduction multipliers below 1 (debuffs):
+//   scaledMultiplier = 1 - (1 - configuredMultiplier) * effectiveness
+// At zero effectiveness every multiplier is neutral (1).
+// At full effectiveness the configured balance value is used.
+function scaleAuraMultiplier(configuredValue, effectiveness) {
+  if (!Number.isFinite(configuredValue)) return 1;
+  if (configuredValue === 1) return 1;
+  const eff = Math.max(0, Math.min(1, effectiveness));
+  if (configuredValue > 1) {
+    return 1 + (configuredValue - 1) * eff;
+  }
+  return 1 - (1 - configuredValue) * eff;
+}
+
 function auraMultipliersFrom(aura) {
   const multipliers = {};
   for (const key of AURA_STAT_KEYS) {
     const value = Number(aura[key]);
     if (Number.isFinite(value)) multipliers[key] = value;
+  }
+  return multipliers;
+}
+
+// Returns aura multipliers scaled by the source component's operational
+// effectiveness.  At zero effectiveness all multipliers are 1 (neutral).
+function auraMultipliersScaled(aura, effectiveness) {
+  const multipliers = {};
+  for (const key of AURA_STAT_KEYS) {
+    const value = Number(aura[key]);
+    if (Number.isFinite(value)) multipliers[key] = scaleAuraMultiplier(value, effectiveness);
   }
   return multipliers;
 }
@@ -330,5 +380,7 @@ module.exports = {
   getCommandAuraMultiplier,
   telemetry,
   collectAuraSources,
-  isAuraComponentOperational
+  isAuraComponentOperational,
+  auraComponentEffectiveness,
+  scaleAuraMultiplier
 };

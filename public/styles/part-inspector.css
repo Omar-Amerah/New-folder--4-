@@ -84,6 +84,13 @@
   line-height: 1.4;
 }
 
+.part-inspector-ledger-link {
+  justify-self: start;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
 /* --- Core specification row --------------------------------------------- */
 
 .part-core-specs {

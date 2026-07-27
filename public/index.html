@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/styles.css?v=drone-command-1">
     <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-15">
     <link rel="stylesheet" href="/hud.css?v=purchase-bar-fix-1">
+    <link rel="stylesheet" href="/styles/fleet-ledger.css?v=fleet-ledger-1">
   </head>
   <body>
   <div id="debugOverlay" style="position: fixed; top: 10px; left: 10px; pointer-events: none; z-index: 10000; background: rgba(0,0,0,0.7); color: #00ff00; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 4px; display: none;"></div>
@@ -59,6 +60,7 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
             <span>Keybinds</span>
           </button>
+          <button id="sidePanelFleetLedgerButton" type="button" class="keybinds-button secondary" aria-label="Fleet Ledger">?</button>
         </div>
       </section>
 
@@ -235,6 +237,7 @@
             <h2>Modular Fleet Arena</h2>
           </div>
           <div class="menu-head-actions">
+            <button id="fleetLedgerButton" type="button" class="secondary" aria-label="Fleet Ledger">?</button>
             <button id="mainMenuSettingsButton" type="button" class="secondary">Settings</button>
             <button id="mainMenuCloseButton" type="button" class="secondary">Close</button>
           </div>
@@ -435,6 +438,29 @@
       </div>
     </section>
 
+    <section id="fleetLedgerOverlay" class="ledger-overlay" hidden role="dialog" aria-modal="true" aria-label="Fleet Ledger">
+      <div class="ledger-header">
+        <div class="ledger-header-title">
+          <span>Reference</span>
+          <h2>Fleet Ledger</h2>
+        </div>
+        <div class="ledger-header-actions">
+          <div class="ledger-search-wrap">
+            <input id="ledgerSearchInput" type="search" class="ledger-search-input" placeholder="Search articles…" aria-label="Search Fleet Ledger">
+          </div>
+          <button id="ledgerBackButton" type="button" class="secondary" disabled>Back</button>
+          <button id="ledgerForwardButton" type="button" class="secondary" disabled>Forward</button>
+          <button id="ledgerHomeButton" type="button" class="secondary">Home</button>
+          <button id="ledgerCloseButton" type="button" class="secondary">Close</button>
+        </div>
+      </div>
+      <div class="ledger-body">
+        <nav id="ledgerCategoryNav" class="ledger-category-nav" aria-label="Article categories"></nav>
+        <main id="ledgerContent" class="ledger-content" aria-live="polite"></main>
+        <aside id="ledgerRelated" class="ledger-related" aria-label="Related articles"></aside>
+      </div>
+    </section>
+
     <section id="blueprintDesignerScreen" class="menu-screen blueprint-designer-screen" hidden aria-label="Blueprint Designer">
       <div class="menu-panel blueprint-designer-panel">
         <div class="menu-head">
@@ -442,7 +468,10 @@
             <span>Ship Design</span>
             <h2>Blueprint Designer</h2>
           </div>
-          <button id="closeBlueprintDesignerButton" type="button" class="secondary">Close</button>
+          <div class="menu-head-actions">
+            <button id="designerFleetLedgerButton" type="button" class="secondary" aria-label="Fleet Ledger">?</button>
+            <button id="closeBlueprintDesignerButton" type="button" class="secondary">Close</button>
+          </div>
         </div>
 
         <div class="blueprint-designer-layout">

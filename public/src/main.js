@@ -21,6 +21,7 @@ import { loadPreferences, persistPreferences, applyInterfacePreferences } from "
 import { bindRoomRecoveryCard, renderRecoveryCard } from "./ui/roomRecoveryUi.js";
 import { send, getConfiguredServerUrl, persistServerQueryParam } from "./network.js";
 import { applyComponentBalance } from "./design/parts.js";
+import { initLedger, openLedger, closeLedger } from "./ledger/fleetLedgerUi.js";
 
 const loadedPreferences = loadPreferences().preferences;
 if (!loadedPreferences.pilotName) loadedPreferences.pilotName = `Pilot-${Math.floor(100 + Math.random() * 900)}`;
@@ -162,6 +163,14 @@ dom.mainMenuSettingsButton?.addEventListener("click", openSettings);
 dom.mainMenuCloseButton?.addEventListener("click", hideMenuScreens);
 dom.lobbyCloseButton?.addEventListener("click", hideMenuScreens);
 dom.settingsCloseButton?.addEventListener("click", closeSettings);
+dom.fleetLedgerButton?.addEventListener("click", () => openLedger("overview"));
+dom.sidePanelFleetLedgerButton?.addEventListener("click", () => openLedger("overview"));
+dom.designerFleetLedgerButton?.addEventListener("click", () => openLedger("overview"));
+dom.ledgerCloseButton?.addEventListener("click", closeLedger);
+dom.ledgerOverlay?.addEventListener("pointerdown", (event) => {
+  if (event.target === dom.ledgerOverlay) closeLedger();
+});
+initLedger();
 dom.saveServerButton?.addEventListener("click", saveServerSetting);
 dom.clearServerButton?.addEventListener("click", clearServerSetting);
 dom.confirmCancelButton?.addEventListener("click", closeConfirmModal);

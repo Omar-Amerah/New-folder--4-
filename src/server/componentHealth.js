@@ -419,8 +419,11 @@ function recalcEffectiveStats(ship) {
 // Repairs component hp directly (most damaged first), keeping ship.hp in sync.
 // Restoring a destroyed component above zero re-enables it and recalculates the
 // affected ship systems. Returns the amount actually restored.
-function repairShipComponents(room, ship, amount, now) {
-  amount *= getCommandAuraMultiplier(ship, "repairRateMultiplier");
+// The optional emitterShip is the ship whose Engineering Command Centre aura
+// provides the repairRateMultiplier; for self-repair it is the same as ship.
+function repairShipComponents(room, ship, amount, now, emitterShip) {
+  const auraSource = emitterShip || ship;
+  amount *= getCommandAuraMultiplier(auraSource, "repairRateMultiplier");
   if (amount <= 0) return 0;
   if (!ship.componentHp) {
     const healed = Math.min(ship.maxHp - ship.hp, amount);

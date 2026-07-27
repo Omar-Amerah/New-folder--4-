@@ -9,6 +9,7 @@ import { dom } from "./dom.js";
 import { state, DEFAULT_THERMAL_LOAD_MODE } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partCategory, partDescription, partIconMarkup } from "../design/parts.js";
 import { escapeHtml } from "../shared/formatting.js";
+import { openArticle } from "../ledger/fleetLedgerUi.js";
 import { estimatePartEffectiveCost } from "../design/componentStats.js";
 import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
 import { getOccupiedCells } from "../design/footprint.js";
@@ -81,6 +82,9 @@ export function renderPartInspector() {
     });
   });
   attachAccordionHandlers(type);
+  dom.partInspector.querySelectorAll("[data-ledger-link]").forEach((button) => {
+    button.addEventListener("click", () => openArticle(button.dataset.ledgerLink));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +102,7 @@ function headerMarkup(type, model) {
         </div>
       </div>
       <p class="part-description">${escapeHtml(model.header.description)}</p>
+      <button type="button" class="part-inspector-ledger-link secondary" data-ledger-link="${escapeHtml(type)}">View in Fleet Ledger</button>
     </header>`;
 }
 

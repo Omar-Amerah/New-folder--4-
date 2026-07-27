@@ -651,8 +651,8 @@
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 4.2,
-        "fireRate": 4.3,
+        "damage": 4,
+        "fireRate": 6,
         "range": 390,
         "projectileSpeed": 760,
         "accuracy": 0.62,
@@ -1438,9 +1438,9 @@
         "type": "ewar",
         "sensorRangeMultiplier": 1.1,
         "missileTrackingResistanceMultiplier": 1.12,
-        "targetRetentionMultiplier": 1.1
+        "componentAimRetentionMultiplier": 1.1
       },
-      "description": "Improves nearby allied sensor range, missile tracking resistance and target-retention quality."
+      "description": "Improves nearby allied sensor range, missile tracking resistance and component-aim retention quality."
     }
   ],
   "metadata": {
@@ -1548,5 +1548,13 @@
     "range": 800,
     "selfAura": false,
     "notes": "Shared command aura radius for all command components. All command circles use this range so players can judge range at a glance."
+  },
+  "fleetDefence": {
+    "baseReacquisitionDelayMs": 600,
+    "notes": "Base simulation-time delay before a defensive weapon (Point Defence, Flak, Interceptor Pod) can acquire a new target after losing its previous one. Reduced by interceptionReactionMultiplier from the Fleet Defence Coordinator aura."
+  },
+  "fireControl": {
+    "baseReacquisitionDelayMs": 400,
+    "notes": "Base simulation-time delay before an offensive weapon can fire at a new target after switching targets. Reduced by targetAcquisitionMultiplier from the Fire-Control Command Centre aura."
   }
 }

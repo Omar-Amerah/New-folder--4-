@@ -667,7 +667,7 @@ const AURA_STAT_META = {
   turnRateMultiplier:              { label: "Turn Rate",              reduction: false },
   sensorRangeMultiplier:           { label: "Sensor Range",           reduction: false },
   missileTrackingResistanceMultiplier: { label: "Missile Tracking Resistance", reduction: false },
-  targetRetentionMultiplier:       { label: "Target Retention",       reduction: false }
+  componentAimRetentionMultiplier:  { label: "Component-Aim Retention", reduction: false }
 };
 
 /**

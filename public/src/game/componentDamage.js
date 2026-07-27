@@ -139,6 +139,9 @@ export function recordComponentHpChanges(ship, oldChp, newChp) {
 export function componentMaxFromShip(ship, index) {
   const design = ship.design;
   if (!design) return 0;
+  // The core has its own unscaled HP pool that is not part of the hull sum,
+  // mirroring the server's initComponentState logic.
+  if (design[index]?.type === "core") return Math.max(1, Number(PART_STATS.core?.hp) || 340);
   let sum = 0;
   for (const part of design) {
     if (part.type === "core") continue;

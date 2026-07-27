@@ -115,7 +115,7 @@ function buildPixiSafeZones(env, gfx, zones) {
       gfx.moveTo(zone.x + Math.cos(start) * zone.radius, zone.y + Math.sin(start) * zone.radius);
       gfx.arc(zone.x, zone.y, zone.radius, start, start + dashAngle * 0.5);
     }
-    gfx.stroke({ width: 4, color: zone.color || "rgba(255,255,255,0.1)" });
+    gfx.stroke({ width: 4, color: zone.borderColor || zone.color || "rgba(255,255,255,0.1)" });
   }
 }
 
