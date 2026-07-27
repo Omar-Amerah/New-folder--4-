@@ -28,6 +28,43 @@ import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterp
 import { disableReconnect, send, recordNetworkEvent } from "./network.js";
 import { centerCameraOnPoint } from "./game/camera.js";
 
+// The purchase catalogue performs authoritative Blueprint analysis (Power max-flow,
+// engine exhaust, shields, movement, validation and thumbnails). None of that
+// depends on ship interpolation or most state snapshots, so only refresh it when
+// an input that can change purchase availability or economy presentation changes.
+let lastPurchaseEconomySignature = null;
+function purchaseEconomySignature() {
+  const mine = state.mine || {};
+  const team = mine.team;
+  const ownedRelays = (state.snapshot?.points || []).reduce(
+    (count, point) => count + (point.ownerTeam === team && point.progress > 0.98 ? 1 : 0),
+    0
+  );
+  return [
+    state.phase,
+    mine.ready ? 1 : 0,
+    Math.floor(Number(mine.money) || 0),
+    Math.round((Number(mine.income) || 0) * 100) / 100,
+    Number(mine.activeShips) || 0,
+    Number(mine.shipCap ?? state.rules?.shipCap) || 0,
+    team || "",
+    ownedRelays,
+    state.purchaseQuantity,
+    state.pendingPurchases?.size || 0,
+    state.purchaseErrors?.size || 0
+  ].join("|");
+}
+function refreshPurchaseEconomyIfChanged({ force = false } = {}) {
+  const signature = purchaseEconomySignature();
+  if (!force && signature === lastPurchaseEconomySignature) return false;
+  lastPurchaseEconomySignature = signature;
+  purchaseUi.updateEconomyUi();
+  return true;
+}
+function resetPurchaseEconomySignature() {
+  lastPurchaseEconomySignature = null;
+}
+
 // Records the backend's protocol/build identification and reports skew. The
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
 // stale backend is a real failure mode: it must be called out instead of being
@@ -140,6 +177,7 @@ function routeServerNotice(message) {
 export function handleServerMessage(message) {
   if (message.type === "hello") {
     recordServerBuild(message);
+    resetPurchaseEconomySignature();
     if (state.server?.compatibility === "incompatible") {
       notify.error("Server protocol is newer than this client build — refresh the page.", { key: "protocol-mismatch", keyTtl: 15000 });
     }
@@ -186,6 +224,7 @@ export function handleServerMessage(message) {
     state.joinedConnectionGeneration = state.connectionGeneration;
     state.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 };
     resetRenderHistory();
+    resetPurchaseEconomySignature();
     state.activeShipGroup = null;
     synchronizeTelemetryFocus();
     dom.roomCode.value = message.room;
@@ -242,7 +281,7 @@ export function handleServerMessage(message) {
     updateHud();
     renderSideControls();
     renderMatchStatus();
-    purchaseUi.updateEconomyUi();
+    refreshPurchaseEconomyIfChanged();
     lobbyUi.updateLobbyState();
     updateWinnerBanner();
     if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) lobbyUi.hideMenuScreens();
@@ -266,6 +305,7 @@ function requestFullState(reason) {
 
   if (message.type === "purchaseResult") {
     purchaseUi.handlePurchaseResult(message);
+    lastPurchaseEconomySignature = purchaseEconomySignature();
     renderSideControls();
     return;
   }
