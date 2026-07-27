@@ -117,12 +117,164 @@ let previewCache = { signature: null, preview: null };
 let transientReason = null;
 function invalidatePreviewCache() { previewCache = { signature: null, preview: null }; }
 function cachedPreview(signature, compute) {
-  if (previewCache.signature === signature) return previewCache.preview;
+  if (previewCache.signature === signature) { bump("previewCacheHitCount"); return previewCache.preview; }
+  bump("previewCacheMissCount");
   const preview = compute();
   previewCache = { signature, preview };
   return preview;
 }
 function setTransientReason(reason) { transientReason = reason || null; }
+
+let lastStatusMarkup = "";
+let lastPreviewMarkup = "";
+function setStatusMarkup(panel, markup) {
+  if (markup === lastStatusMarkup) return;
+  lastStatusMarkup = markup;
+  bump("statusPanelDomWriteCount");
+  panel.innerHTML = markup;
+}
+function setPreviewMarkup(panel, markup) {
+  if (markup === lastPreviewMarkup) return;
+  lastPreviewMarkup = markup;
+  panel.innerHTML = markup;
+}
+function resetWiringMarkupCaches() { lastStatusMarkup = ""; lastPreviewMarkup = ""; }
+
+const WIRING_COUNTERS = {
+  wiringPointerMoveCount: 0,
+  semanticHoverChangeCount: 0,
+  wiringAnalysisCount: 0,
+  dataSupportAnalysisCount: 0,
+  dataVulnerabilityAnalysisCount: 0,
+  statusPanelRenderCount: 0,
+  statusPanelDomWriteCount: 0,
+  overlayGeometryRebuildCount: 0,
+  previewCacheHitCount: 0,
+  previewCacheMissCount: 0
+};
+function bump(name) { WIRING_COUNTERS[name] = (WIRING_COUNTERS[name] || 0) + 1; }
+
+// Semantic hover deduplication: pointer motion within the same cell/section does
+// not trigger a panel refresh.  rAF coalescing limits visual updates to one per frame.
+let lastHoverKey = null;
+function wiringHitTest(event) {
+  const shortage = event.target?.closest?.("[data-power-shortage-network-id]")?.dataset?.powerShortageNetworkId || null;
+  const section = event.target?.closest?.("[data-section-id]")?.dataset?.sectionId || null;
+  const componentEl = event.target?.closest?.("[data-power-component-index], [data-data-component-index], [data-wiring-component-index]");
+  const componentIndex = componentEl ? Number(componentEl.dataset.powerComponentIndex ?? componentEl.dataset.dataComponentIndex ?? componentEl.dataset.wiringComponentIndex) : null;
+  const cell = cellFromPointer(event.clientX, event.clientY);
+  return { powerShortageNetworkId: shortage, sectionId: section, componentIndex: Number.isFinite(componentIndex) ? componentIndex : null, cell };
+}
+function semanticHoverKey(hit) {
+  if (hit?.powerShortageNetworkId) return `shortage:${hit.powerShortageNetworkId}`;
+  if (hit?.sectionId) return `section:${hit.sectionId}`;
+  if (hit?.componentIndex != null) return `component:${hit.componentIndex}`;
+  if (hit?.cell) return `cell:${hit.cell.x},${hit.cell.y}`;
+  return "none";
+}
+function updateHoverState(hit) {
+  if (hit?.sectionId != null) ui().hoveredSectionId = hit.sectionId;
+  else ui().hoveredSectionId = null;
+}
+
+let wiringRenderScheduled = false;
+function scheduleWiringOverlayRender() {
+  if (wiringRenderScheduled) return;
+  wiringRenderScheduled = true;
+  requestAnimationFrame(() => {
+    wiringRenderScheduled = false;
+    renderWiringOverlay();
+  });
+}
+
+let hoverRenderScheduled = false;
+let pendingHoverTarget = null;
+function scheduleWiringHoverRender(target = null) {
+  pendingHoverTarget = target;
+  if (hoverRenderScheduled) return;
+  hoverRenderScheduled = true;
+  requestAnimationFrame(() => {
+    hoverRenderScheduled = false;
+    const t = pendingHoverTarget;
+    pendingHoverTarget = null;
+    renderWiringHoverOnly(t);
+  });
+}
+function renderWiringHoverOnly(target = null) {
+  applyHoverHighlight();
+  renderPreviewPanel();
+  if (currentTool() !== "inspect") { clearWiringHoverCard(); return; }
+  if (ui().hoveredSectionId && target) {
+    const el = target.closest?.("[data-section-id]") || dom.wiringOverlayHost?.querySelector(`[data-section-id="${ui().hoveredSectionId}"]`);
+    renderWiringHoverCard(ui().hoveredSectionId, el);
+  } else {
+    clearWiringHoverCard();
+  }
+}
+function handleWiringPointerMove(event) {
+  if (ui().sourceIndex != null || state.blueprintView !== "wiring") return;
+  bump("wiringPointerMoveCount");
+  const hit = wiringHitTest(event);
+  const key = semanticHoverKey(hit);
+  if (key === lastHoverKey) return;
+  bump("semanticHoverChangeCount");
+  lastHoverKey = key;
+  updateHoverState(hit);
+  scheduleWiringHoverRender(event.target);
+}
+
+// Unified, revision-driven wiring analysis cache.  The key is object identity
+// of the authoritative design/wiring plus the active thermal scenario; these are
+// replaced on every committed edit, so the cache never recomputes for pointer
+// motion, hover or preview-panel refreshes.
+let wiringAnalysisCache = { design: null, wiring: null, scenario: null, result: null };
+function buildCompleteWiringAnalysis() {
+  bump("wiringAnalysisCount");
+  const wiringAnalysis = rules().analyzeWiring(state.design, state.wiring, PART_STATS);
+  bump("dataSupportAnalysisCount");
+  const dataSupportAnalysis = getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode || "full" });
+  bump("dataVulnerabilityAnalysisCount");
+  const dataVulnerabilityReport = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, dataSupportAnalysis);
+  const networkById = new Map();
+  for (const network of wiringAnalysis.power?.networks || []) networkById.set(`power:${network.id}`, network);
+  for (const network of wiringAnalysis.data?.networks || []) networkById.set(`data:${network.id}`, network);
+  const dataNetworkById = new Map();
+  for (const network of dataSupportAnalysis.networks || []) dataNetworkById.set(network.id, network);
+  const dataSectionById = new Map();
+  for (const section of wiringAnalysis.data?.sections || []) dataSectionById.set(section.id, section);
+  const vulnerabilityBySectionId = new Map();
+  const vulnerabilityByHostIndex = new Map();
+  for (const item of dataVulnerabilityReport) {
+    if (item.kind === "section") vulnerabilityBySectionId.set(item.id, item);
+    else if (item.kind === "host") vulnerabilityByHostIndex.set(item.componentIndex, item);
+  }
+  const sourceByIndex = new Map();
+  for (const source of dataSupportAnalysis.sources || []) sourceByIndex.set(source.sourceIndex, source);
+  const weaponByIndex = new Map();
+  for (const weapon of dataSupportAnalysis.weapons || []) weaponByIndex.set(weapon.weaponIndex, weapon);
+  return Object.freeze({
+    wiringAnalysis,
+    dataSupportAnalysis,
+    dataVulnerabilityReport,
+    networkById,
+    dataNetworkById,
+    dataSectionById,
+    vulnerabilityBySectionId,
+    vulnerabilityByHostIndex,
+    sourceByIndex,
+    weaponByIndex
+  });
+}
+function getCachedWiringAnalysis() {
+  const scenario = state.thermalLoadMode || "full";
+  const valid = wiringAnalysisCache && wiringAnalysisCache.design === state.design && wiringAnalysisCache.wiring === state.wiring && wiringAnalysisCache.scenario === scenario;
+  if (valid) return wiringAnalysisCache.result;
+  const result = buildCompleteWiringAnalysis();
+  wiringAnalysisCache = { design: state.design, wiring: state.wiring, scenario, result };
+  return result;
+}
+function currentAnalysis() { return getCachedWiringAnalysis().wiringAnalysis; }
+function currentDataInspection() { return getCachedWiringAnalysis().dataSupportAnalysis; }
 
 const REASON_TEXT = Object.freeze({
   "data-has-no-tiers": "Data wiring has no cable tiers.",
@@ -331,8 +483,8 @@ function commitActivePath() {
   ui().activeOrigin = null;
   commitWiring(result.wiring);
 }
-export function handleWiringCellHover(x, y) { if (ui().sourceIndex == null) return; const last = ui().path.at(-1); ui().hoverCell = { x, y, valid: partIndexAt(x, y) >= 0 && Math.abs(last.x - x) + Math.abs(last.y - y) === 1 && !ui().path.some((cell) => cell.x === x && cell.y === y) }; renderWiringOverlay(); }
-export function handleWiringGridLeave() { ui().hoverCell = null; if (state.blueprintView === "wiring") renderWiringOverlay(); }
+export function handleWiringCellHover(x, y) { if (ui().sourceIndex == null) return; const last = ui().path.at(-1); ui().hoverCell = { x, y, valid: partIndexAt(x, y) >= 0 && Math.abs(last.x - x) + Math.abs(last.y - y) === 1 && !ui().path.some((cell) => cell.x === x && cell.y === y) }; scheduleWiringOverlayRender(); }
+export function handleWiringGridLeave() { ui().hoverCell = null; if (state.blueprintView === "wiring") scheduleWiringOverlayRender(); }
 
 function pointerGridPoint(clientX, clientY) {
   const rect = dom.grid?.getBoundingClientRect(); if (!rect || !rect.width || !rect.height) return null;
@@ -448,14 +600,15 @@ function bindPointerDrawing() {
     pointerDrag = { pointerId: event.pointerId, target: pointerSurface, startX: event.clientX, startY: event.clientY, sourceIndex: index, startCell: cell, lastPoint: point, active: false };
   });
   pointerSurface.addEventListener("pointermove", (event) => {
-    if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return; const point = pointerGridPoint(event.clientX, event.clientY); if (!point) return;
+    if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) { handleWiringPointerMove(event); return; }
+    const point = pointerGridPoint(event.clientX, event.clientY); if (!point) return;
     if (!pointerDrag.active) {
       if (Math.hypot(event.clientX - pointerDrag.startX, event.clientY - pointerDrag.startY) < DRAG_THRESHOLD_PX) return;
       const pending = pointerDrag; pointerDrag = null; resetInteraction();
       pointerDrag = { ...pending, active: true }; suppressNextClick = true; pointerSurface.setPointerCapture(event.pointerId);
       const index = partIndexAt(pointerDrag.startCell.x, pointerDrag.startCell.y); ui().sourceIndex = index; ui().selectedIndex = index; ui().path = [pointerDrag.startCell]; ui().activeOrigin = { ...pointerDrag.startCell }; ui().dragging = true;
     }
-    extendDraggedPath(interpolatedWiringCells(pointerDrag.lastPoint, point)); pointerDrag.lastPoint = point; ui().livePointer = point; renderWiringOverlay();
+    extendDraggedPath(interpolatedWiringCells(pointerDrag.lastPoint, point)); pointerDrag.lastPoint = point; ui().livePointer = point; scheduleWiringOverlayRender();
   });
   pointerSurface.addEventListener("pointerup", (event) => { if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return; const active = pointerDrag.active; const point = pointerGridPoint(event.clientX, event.clientY); if (active && point) extendDraggedPath(interpolatedWiringCells(pointerDrag.lastPoint, point)); const cell = cellFromPointer(event.clientX, event.clientY); if (active) finishDraggedConnection(cell); else releasePointerCapture(); });
   pointerSurface.addEventListener("pointercancel", () => { if (pointerDrag?.active) cancelDrawing(); else releasePointerCapture(); });
@@ -465,8 +618,8 @@ function bindPointerDrawing() {
 function removeSelectedSection() { const id = ui().selectedSectionId; if (!id) return; pushUndo(); resetInteraction(); commitWiring(rules().removeSection(state.wiring, ui().mode, id, state.design, PART_STATS)); }
 function removeSelectedBranch(endpoint = null) { const id = ui().selectedSectionId; if (!id) return; pushUndo(); const result = rules().removeBranch(state.wiring, ui().mode, id, endpoint, state.design, PART_STATS); resetInteraction(); commitWiring(result.wiring); }
 function branchFrom(endpoint) { const section = bucket().sections.find((item) => item.id === ui().selectedSectionId); if (!section) return; const ends = rules().sectionCells(section); const cell = endpoint === "b" ? ends[1] : ends[0]; beginPath(partIndexAt(cell.x, cell.y), cell); ui().selectedSectionId = section.id; }
-function selectedNetwork() {
-  const analysis = currentAnalysis(); const view = ui();
+function selectedNetwork(analysis = currentAnalysis()) {
+  const view = ui();
   if (view.selectedSectionId) return rules().networkForSection(analysis, view.mode, view.selectedSectionId);
   if (view.mode === "data" && view.selectedDataNetworkId) return analysis.data.networks.find((network) => network.id === view.selectedDataNetworkId) || null;
   return view.selectedIndex == null ? null : rules().networkForComponent(analysis, view.mode, view.selectedIndex);
@@ -549,6 +702,10 @@ export function bindWiringControls() {
   // full overlay rebuild — so pointer movement does not re-run infrastructure
   // analysis for every frame.
   dom.wiringOverlayHost?.addEventListener("mouseover", (event) => {
+    const hit = wiringHitTest(event);
+    const key = semanticHoverKey(hit);
+    if (key === lastHoverKey) return;
+    lastHoverKey = key;
     const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
     if (shortage) {
       ui().hoveredPowerShortageNetworkId = shortage.dataset.powerShortageNetworkId;
@@ -567,12 +724,13 @@ export function bindWiringControls() {
       return;
     }
     const id = event.target?.dataset?.sectionId; if (!id || ui().sourceIndex != null) return;
-    ui().hoveredSectionId = id; applyHoverHighlight(); renderWiringHoverCard(id, event.target); renderPreviewPanel();
+    ui().hoveredSectionId = id; scheduleWiringHoverRender(event.target);
   });
   dom.wiringOverlayHost?.addEventListener("mouseout", (event) => {
     const shortage = event.target?.closest?.("[data-power-shortage-network-id]");
     if (shortage) {
       if (shortage.contains?.(event.relatedTarget)) return;
+      lastHoverKey = null;
       ui().hoveredPowerShortageNetworkId = null;
       applyHoverHighlight();
       if (ui().selectedPowerShortageNetworkId) {
@@ -584,16 +742,19 @@ export function bindWiringControls() {
     const terminalHit = powerHoverTargetFrom(event.target);
     if (terminalHit) {
       if (terminalHit.contains?.(event.relatedTarget)) return;
+      lastHoverKey = null;
       clearWiringHoverCard();
       return;
     }
     const dataHit = event.target?.closest?.("[data-data-component-index]");
     if (dataHit) {
       if (dataHit.contains?.(event.relatedTarget)) return;
+      lastHoverKey = null;
       clearWiringHoverCard();
       return;
     }
     if (!event.target?.dataset?.sectionId) return;
+    lastHoverKey = null;
     ui().hoveredSectionId = null; clearWiringHoverCard(); applyHoverHighlight(); renderPreviewPanel();
   });
   dom.wiringOverlayHost?.addEventListener("focusin", (event) => {
@@ -800,6 +961,7 @@ export function clearWiringPresentation() {
   ui().hoveredSectionId = null;
   clearWiringHoverCard();
   invalidatePreviewCache();
+  resetWiringMarkupCaches();
   setWiringHelpOpen(false);
   dom.wiringOverlayHost?.replaceChildren();
   dom.grid?.classList.remove("wiring-overlay-active");
@@ -1106,7 +1268,7 @@ function renderPowerComponentHoverCard(componentIndex, target) {
 // same authoritative analyses used by the detailed inspector.
 function renderDataComponentHoverCard(componentIndex, target) {
   if (state.blueprintView !== "wiring" || ui().mode !== "data") return clearWiringHoverCard();
-  const analysis = currentDataInspection();
+  const analysis = getCachedWiringAnalysis().dataSupportAnalysis;
   const source = analysis?.sourceAllocationByIndex?.[componentIndex];
   const weapon = analysis?.weaponBonusByIndex?.[componentIndex];
   if (!source && !weapon) return clearWiringHoverCard();
@@ -1157,10 +1319,10 @@ function renderWiringHoverCard(sectionId, hitTarget) {
         <span>Cable capacity</span><strong>${escapeHtml(capacity)}</strong>
       </div>`;
   } else {
-    const analysis = currentDataInspection();
-    const network = rules().networkForSection(currentAnalysis(), "data", section.id);
-    const vulnerability = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis)
-      .find((item) => item.kind === "section" && item.id === section.id);
+    const full = getCachedWiringAnalysis();
+    const analysis = full.dataSupportAnalysis;
+    const network = selectedNetwork(full.wiringAnalysis) || rules().networkForSection(full.wiringAnalysis, "data", section.id);
+    const vulnerability = full.vulnerabilityBySectionId.get(section.id);
     const supportedCount = network ? analysis.weapons.filter(w => w.networkId === network.id && w.status === "supported").length : 0;
     const effectsText = effectsCarriedOnNetwork(network, analysis);
     const concreteLosses = formatConcreteLosses(vulnerability);
@@ -1354,17 +1516,17 @@ function signedMoney(value) { const n = Math.round((Number(value) || 0) * 100) /
 // reserved for committed actions elsewhere. This keeps hover feedback quiet.
 function renderPreviewPanel() {
   const panel = dom.wiringPreviewPanel; if (!panel) return;
-  if (state.blueprintView !== "wiring") { panel.hidden = true; panel.innerHTML = ""; return; }
+  if (state.blueprintView !== "wiring") { panel.hidden = true; setPreviewMarkup(panel, ""); return; }
   const preview = hoverPreview();
   if (transientReason) {
     panel.hidden = false;
-    panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(transientReason))}</div>`;
+    setPreviewMarkup(panel, `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(transientReason))}</div>`);
     return;
   }
-  if (!preview) { panel.hidden = true; panel.innerHTML = ""; return; }
+  if (!preview) { panel.hidden = true; setPreviewMarkup(panel, ""); return; }
   if (!preview.valid) {
     panel.hidden = false;
-    panel.innerHTML = `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(preview.reason))}</div>`;
+    setPreviewMarkup(panel, `<div class="wiring-preview-reason" role="status">${escapeHtml(reasonText(preview.reason))}</div>`);
     return;
   }
   const capacityLine = `Heat capacity: ${signed(preview.delta.actualHeatCapacity)}`;
@@ -1419,7 +1581,7 @@ function renderPreviewPanel() {
   const warnings = previewWarnings(preview);
   for (const warning of warnings) rows.push(`<div class="wiring-preview-warning">⚠ ${escapeHtml(warning)}</div>`);
   panel.hidden = false;
-  panel.innerHTML = rows.join("");
+  setPreviewMarkup(panel, rows.join(""));
 }
 
 // Warn when an erase would leave a Power consumer without a connected source.
@@ -1518,16 +1680,17 @@ const DATA_SECTION_SEVERITY_CLASS = Object.freeze({ critical: "data-critical-sec
 function positiveContributionIndices(weapon) { return new Set((weapon?.contributions || []).filter((item) => Number(item.amount) > 0).map((item) => item.sourceIndex)); }
 
 function renderWiringOverlay() {
+  bump("overlayGeometryRebuildCount");
   const host = dom.wiringOverlayHost; if (!host || state.blueprintView !== "wiring") return; const view = ui(); clearWiringHoverCard(); host.replaceChildren(); dom.grid?.classList.add("wiring-overlay-active");
   host.classList.toggle("wiring-inspect-hover-active", Boolean(view.hoveredSectionId && view.sourceIndex == null && currentTool() === "inspect"));
-  const svg = svgEl("svg", { viewBox: `0 0 ${GRID_SIZE} ${GRID_SIZE}` }, "wiring-overlay"); const selectedNet = selectedNetwork(); const analysis = currentAnalysis(); const dataAnalysis = view.mode === "data" ? currentDataInspection() : null; const dataSource = dataAnalysis?.sourceAllocationByIndex?.[view.selectedIndex]; const dataWeapon = dataAnalysis?.weaponBonusByIndex?.[view.selectedIndex]; const selectedDataNetworkId = selectedNet?.id || dataSource?.networkId || dataWeapon?.networkId || view.selectedDataNetworkId;
+  const full = getCachedWiringAnalysis();
+  const svg = svgEl("svg", { viewBox: `0 0 ${GRID_SIZE} ${GRID_SIZE}` }, "wiring-overlay"); const selectedNet = selectedNetwork(full.wiringAnalysis); const analysis = full.wiringAnalysis; const dataAnalysis = view.mode === "data" ? full.dataSupportAnalysis : null; const dataSource = dataAnalysis?.sourceAllocationByIndex?.[view.selectedIndex]; const dataWeapon = dataAnalysis?.weaponBonusByIndex?.[view.selectedIndex]; const selectedDataNetworkId = selectedNet?.id || dataSource?.networkId || dataWeapon?.networkId || view.selectedDataNetworkId;
   const powerFlow = view.mode === "power" ? designerPowerFlow() : null;
   const powerComponentByIndex = new Map((powerFlow?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
   const powerFlowNetworkBySection = new Map();
   for (const network of powerFlow?.networks || []) for (const sectionId of network.sectionIds || []) powerFlowNetworkBySection.set(sectionId, network);
-  const vulnerabilities = view.mode === "data" && dataAnalysis ? getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, dataAnalysis) : [];
-  const sectionVulnerabilityById = new Map(vulnerabilities.filter((item) => item.kind === "section").map((item) => [item.id, item]));
-  const hostVulnerabilityByIndex = new Map(vulnerabilities.filter((item) => item.kind === "host").map((item) => [item.componentIndex, item]));
+  const sectionVulnerabilityById = view.mode === "data" ? full.vulnerabilityBySectionId : new Map();
+  const hostVulnerabilityByIndex = view.mode === "data" ? full.vulnerabilityByHostIndex : new Map();
   const selectedSourceActiveRecipients = new Set(dataSource && Number(dataSource.effectiveBudget) > 0 ? dataSource.eligibleWeaponIndices || [] : []);
   const selectedSourceZeroRecipients = new Set(dataSource && Number(dataSource.effectiveBudget) <= 0 ? dataSource.connectedWeaponIndices || [] : []);
   const selectedWeaponActiveContributors = positiveContributionIndices(dataWeapon);
@@ -1836,17 +1999,16 @@ function weaponStatComparisonHtml(baseProfile, effectiveProfile) {
   return rows.join("");
 }
 
-function renderDataInspectionPanel(panel, section) {
+function renderDataInspectionPanel(panel, section, fullAnalysis) {
   let analysis;
-  try { analysis = currentDataInspection(); } catch (error) { console.error("Data-support inspection failed", error); panel.hidden = false; panel.innerHTML = `<div role="status" class="wiring-summary-line">Data-inspection error. Switch views or edit wiring to retry.</div>`; return true; }
+  try { analysis = fullAnalysis.dataSupportAnalysis; } catch (error) { console.error("Data-support inspection failed", error); panel.hidden = false; setStatusMarkup(panel, `<div role="status" class="wiring-summary-line">Data-inspection error. Switch views or edit wiring to retry.</div>`); return true; }
   let body = "";
   try {
     const selectedIndex = ui().selectedIndex;
     const source = analysis.sourceAllocationByIndex[selectedIndex];
     const weapon = analysis.weaponBonusByIndex[selectedIndex];
-    const vuln = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, analysis);
-    const network = selectedNetwork() || (source?.networkId ? analysis.networks.find(n => n.id === source.networkId) : null) || (weapon?.networkId ? analysis.networks.find(n => n.id === weapon.networkId) : null) || (section ? rules().networkForSection(analysis, "data", section.id) : null) || (analysis.networks.length > 0 ? analysis.networks[0] : null);
-    const selectedHost = selectedIndex != null && !source && !weapon ? vuln.find(v => v.kind === "host" && v.componentIndex === selectedIndex) : null;
+    const network = selectedNetwork(fullAnalysis.wiringAnalysis) || (source?.networkId ? fullAnalysis.dataNetworkById.get(source.networkId) || null : null) || (weapon?.networkId ? fullAnalysis.dataNetworkById.get(weapon.networkId) || null : null) || (section ? rules().networkForSection(fullAnalysis.wiringAnalysis, "data", section.id) : null) || (analysis.networks.length > 0 ? analysis.networks[0] : null);
+    const selectedHost = selectedIndex != null && !source && !weapon ? fullAnalysis.vulnerabilityByHostIndex.get(selectedIndex) || null : null;
 
     body = `<div id="data-support-live" aria-live="polite" class="sr-only">Data support prediction refreshed.</div>`;
 
@@ -1869,7 +2031,7 @@ function renderDataInspectionPanel(panel, section) {
       </section>`;
       panel.hidden = false;
       panel.tabIndex = -1;
-      panel.innerHTML = body;
+      setStatusMarkup(panel, body);
       return true;
     }
 
@@ -2570,15 +2732,17 @@ function upgradeIssue(issue) {
 }
 
 function renderStatusPanel() {
+  bump("statusPanelRenderCount");
   const panel = dom.wiringStatusPanel;
   if (!panel) return;
-  let analysis;
-  try { analysis = currentAnalysis(); } catch (_) {
+  let full;
+  try { full = getCachedWiringAnalysis(); } catch (_) {
     panel.hidden = false;
-    panel.innerHTML = `${wiringStatusHeaderHtml("unavailable", "The wiring solver could not produce a result.")}<button type="button" data-wiring-action="retry-analysis">Retry</button>`;
+    setStatusMarkup(panel, `${wiringStatusHeaderHtml("unavailable", "The wiring solver could not produce a result.")}<button type="button" data-wiring-action="retry-analysis">Retry</button>`);
     return;
   }
-  const network = selectedNetwork();
+  const analysis = full.wiringAnalysis;
+  const network = selectedNetwork(analysis);
   const secId = ui().selectedSectionId;
   const section = secId ? bucket().sections.find((item) => item.id === secId || (rules() && rules().segmentKey(item) === secId)) : null;
   const current = rules().countUniqueSections(state.wiring, ui().mode); const additional = rules().additionalLengthForPath(state.wiring, ui().mode, ui().path); const limit = CABLE_LIMITS[ui().mode];
@@ -2588,17 +2752,17 @@ function renderStatusPanel() {
   const hasWiring = bucket("power").sections.length + bucket("data").sections.length > 0;
   panel.hidden = false; panel.tabIndex = -1;
   if (ui().mode === "data") {
-    renderDataInspectionPanel(panel, section);
+    renderDataInspectionPanel(panel, section, full);
     return;
   }
   if (!hasWiring) {
-    panel.innerHTML = `${wiringStatusHeaderHtml("no-wiring", "Draw Power or Data cable to begin analysis.")}${selectedTierSummaryHtml()}
-      ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}`;
+    setStatusMarkup(panel, `${wiringStatusHeaderHtml("no-wiring", "Draw Power or Data cable to begin analysis.")}${selectedTierSummaryHtml()}
+      ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}`);
     return;
   }
   const flow = designerPowerFlow();
   if (bucket("power").sections.length && !flow) {
-    panel.innerHTML = `${wiringStatusHeaderHtml("unavailable", "The wiring solver could not produce a result.")}<button type="button" data-wiring-action="retry-analysis">Retry</button>`;
+    setStatusMarkup(panel, `${wiringStatusHeaderHtml("unavailable", "The wiring solver could not produce a result.")}<button type="button" data-wiring-action="retry-analysis">Retry</button>`);
     return;
   }
   const accounting = infraRules().accountInfrastructure(state.design, state.wiring, PART_STATS, WIRING_INFRASTRUCTURE);
@@ -2647,12 +2811,16 @@ function renderStatusPanel() {
       <section class="wiring-summary-section"><h4>Physical wiring</h4><div class="wiring-summary-line">${current} unique ${escapeHtml(ui().mode)} cable sections${ui().path.length > 1 ? ` · +${additional} new in preview` : ""}${Number.isFinite(limit) ? ` · ${Math.max(0, limit - current - additional)} remaining` : ""}</div></section>
     </div>
   </details>`;
-  panel.innerHTML = `${wiringStatusHeaderHtml(overallStatus, overallMessage)}
+  setStatusMarkup(panel, `${wiringStatusHeaderHtml(overallStatus, overallMessage)}
     ${compactSummaryHtml(accounting, presentation, analysis, flow, overallStatus)}
     ${selectedTierSummaryHtml()}
     ${issuesHtml}
     ${healthyHtml}
     ${advancedHtml}
     ${ui().sourceIndex != null ? `<div class="wiring-drawing-actions"><button type="button" data-wiring-action="finish" ${ui().path.length < 2 || pathOverLimit() ? "disabled" : ""}>Finish cable</button><button type="button" data-wiring-action="cancel-drawing">Cancel drawing</button></div>` : ""}
-    `;
+    `);
 }
+
+export function getWiringPerformanceCounters() { return { ...WIRING_COUNTERS }; }
+export function resetWiringPerformanceCounters() { for (const key of Object.keys(WIRING_COUNTERS)) WIRING_COUNTERS[key] = 0; }
+globalThis.WiringPerformanceCounters = { getWiringPerformanceCounters, resetWiringPerformanceCounters };
