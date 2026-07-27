@@ -289,8 +289,6 @@ const REASON_TEXT = Object.freeze({
   "auto-wire-no-change": "Every component is already connected by this auto-wire route."
 });
 function reasonText(reason) { return REASON_TEXT[reason] || "That action is not valid here."; }
-function currentAnalysis() { return rules().analyzeWiring(state.design, state.wiring, PART_STATS); }
-function currentDataInspection() { return getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode || "full" }); }
 function partName(type) { return PART_DEFS[type]?.name || PART_STATS[type]?.name || type; }
 function moduleLabel(index) { const module = state.design[index]; return module ? `${partName(module.type)} (${module.x},${module.y})` : "Unknown"; }
 function bucket(kind = ui().mode) { return state.wiring?.[kind] || { sections: [], connections: [] }; }
