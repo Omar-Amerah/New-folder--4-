@@ -92,19 +92,30 @@ function makeRoom(ships) {
   ok("T3: Same target re-acquired without new timer.");
 }
 
-// T4: PD reaction delay blocks firing.
+// T4: PD reaction delay blocks firing after target switch.
 {
   const pd = makeShip("pd4", "p1", 100, 100, [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense", rotation: 0 }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
   const en = makeShip("e4", "p2", 300, 100, [{ x: 7, y: 7, type: "core" }]);
   const room = makeRoom([pd, en]); const ships = [pd, en];
   updateCommandAuras(room, ships, 0); pd.weaponAngles[1] = 0;
-  const ms = { id: "m4", type: "missile", ownerId: "p2", targetId: pd.id, x: 200, y: 100, vx: -100, vy: 0, life: 50, interceptable: true, hp: 20 };
-  room.bullets.push(ms);
+  // First threat: acquire immediately (first-ever target, no delay).
+  const ms1 = { id: "m4a", type: "missile", ownerId: "p2", targetId: pd.id, x: 200, y: 100, vx: -100, vy: 0, life: 200, interceptable: true, hp: 100 };
+  room.bullets.push(ms1);
+  updateShipWeapons(room, pd, ships, DT, 0);
+  assert.strictEqual(pd.pdAcquiredTargetIds[1], ms1.id, "first PD target acquired immediately");
+  // Remove first threat, add a new one.
+  ms1.life = 0; room.bullets.length = 0;
+  pd.weaponCooldowns[1] = 0;
+  const ms2 = { id: "m4b", type: "missile", ownerId: "p2", targetId: pd.id, x: 200, y: 100, vx: -100, vy: 0, life: 200, interceptable: true, hp: 100 };
+  room.bullets.push(ms2);
   const tn = Math.ceil(BALANCE.fleetDefence.baseReacquisitionDelayMs / MS);
   let fired = false;
-  for (let t = 0; t < tn + 10; t++) { updateShipWeapons(room, pd, ships, DT, t * MS); if (ms.hp < 20) { fired = true; assert(t >= tn - 1); break; } }
-  assert(fired);
-  ok("T4: Fleet Defence reaction delay blocks PD firing until timer completes.");
+  for (let t = 1; t < tn + 10; t++) {
+    updateShipWeapons(room, pd, ships, DT, t * MS);
+    if (ms2.hp < 100) { fired = true; assert(t >= tn - 1, "PD fired too early after switch"); break; }
+  }
+  assert(fired, "PD should fire after reacquisition delay");
+  ok("T4: Fleet Defence reacquisition delay blocks PD firing after target switch.");
 }
 
 // T5: PD no timers when no threats.
@@ -137,7 +148,7 @@ function makeRoom(ships) {
 
 // T7: Fire-Control aura shortens offensive delay.
 {
-  const fc = makeShip("fc7", "p1", 0, 0, [{ x: 7, y: 7, type: "fireControlCommandCentre" }]);
+  const fc = makeShip("fc7", "p1", 0, 0, [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "fireControlCommandCentre" }, { x: 7, y: 6, type: "reactor" }]);
   const sh = makeShip("s7", "p1", AURA_RANGE * 0.3, 0, [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "blaster", rotation: 0 }, { x: 7, y: 6, type: "reactor" }]);
   const en = makeShip("e7", "p2", 300, 0, [{ x: 7, y: 7, type: "core" }]); en.shield = 0;
   const room = makeRoom([fc, sh, en]); const ships = [fc, sh, en];
@@ -152,23 +163,30 @@ function makeRoom(ships) {
   ok("T7: Fire-Control aura shortens offensive acquisition delay.");
 }
 
-// T8: Fleet Defence aura shortens PD reaction delay.
+// T8: Fleet Defence aura shortens PD reacquisition delay.
 {
-  const fd = makeShip("fd8", "p1", 0, 0, [{ x: 7, y: 7, type: "fleetDefenceCoordinator" }]);
+  const fd = makeShip("fd8", "p1", 0, 0, [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "fleetDefenceCoordinator" }, { x: 7, y: 6, type: "reactor" }]);
   const pd = makeShip("pd8", "p1", AURA_RANGE * 0.3, 100, [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense", rotation: 0 }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
   const en = makeShip("e8", "p2", 300, 100, [{ x: 7, y: 7, type: "core" }]);
   const room = makeRoom([fd, pd, en]); const ships = [fd, pd, en];
   updateCommandAuras(room, ships, 0);
   const mult = getCommandAuraMultiplier(pd, "interceptionReactionMultiplier");
   assert(mult > 1); pd.weaponAngles[1] = 0;
-  const ms = { id: "m8", type: "missile", ownerId: "p2", targetId: pd.id, x: 200, y: 100, vx: -100, vy: 0, life: 100, interceptable: true, hp: 100 };
-  room.bullets.push(ms);
+  // First threat: acquire immediately (first-ever, no delay).
+  const ms1 = { id: "m8a", type: "missile", ownerId: "p2", targetId: pd.id, x: 200, y: 100, vx: -100, vy: 0, life: 200, interceptable: true, hp: 100 };
+  room.bullets.push(ms1);
+  updateShipWeapons(room, pd, ships, DT, 0);
+  assert.strictEqual(pd.pdAcquiredTargetIds[1], ms1.id, "first PD target acquired immediately");
+  // Switch to new threat.
+  ms1.life = 0; room.bullets.length = 0; pd.weaponCooldowns[1] = 0;
+  const ms2 = { id: "m8b", type: "missile", ownerId: "p2", targetId: pd.id, x: 200, y: 100, vx: -100, vy: 0, life: 200, interceptable: true, hp: 100 };
+  room.bullets.push(ms2);
   const st = Math.ceil(Math.round(BALANCE.fleetDefence.baseReacquisitionDelayMs / mult) / MS);
   const ut = Math.ceil(BALANCE.fleetDefence.baseReacquisitionDelayMs / MS);
   let fa = -1;
-  for (let t = 0; t < ut + 10; t++) { updateShipWeapons(room, pd, ships, DT, t * MS); if (ms.hp < 100) { fa = t; break; } }
-  assert(fa >= 0); assert(fa <= st + 1, "aura shortens PD delay"); assert(fa < ut - 1, "fires sooner than unscaled");
-  ok("T8: Fleet Defence aura shortens PD reaction delay.");
+  for (let t = 1; t < ut + 10; t++) { updateShipWeapons(room, pd, ships, DT, t * MS); if (ms2.hp < 100) { fa = t; break; } }
+  assert(fa >= 0, "PD should fire with aura"); assert(fa <= st + 1, "aura shortens PD delay"); assert(fa < ut - 1, "fires sooner than unscaled");
+  ok("T8: Fleet Defence aura shortens PD reacquisition delay.");
 }
 
 // T9: Turret tracks pending target but does not fire.
@@ -209,7 +227,7 @@ function makeRoom(ships) {
 
 // T12: Backup Core aura applies to allies.
 {
-  const bc = makeShip("bc12", "p1", 0, 0, [{ x: 7, y: 7, type: "backupCore" }]);
+  const bc = makeShip("bc12", "p1", 0, 0, [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "backupCore" }, { x: 7, y: 6, type: "reactor" }]);
   const al = makeShip("al12", "p1", AURA_RANGE * 0.3, 0, [{ x: 7, y: 7, type: "frame" }]);
   const room = makeRoom([bc, al]);
   updateCommandAuras(room, [bc, al], 0);

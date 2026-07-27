@@ -152,14 +152,14 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     proximityCharge: component.proximityCharge && typeof component.proximityCharge === "object"
       ? Object.freeze({
           blastRadius: toNumber(component.proximityCharge.blastRadius, 280),
-          splashCentreDamage: toNumber(component.proximityCharge.splashCentreDamage, 1000),
+          splashCentreDamage: toNumber(component.proximityCharge.centreDamage ?? component.proximityCharge.splashCentreDamage, 1000),
           falloffExponent: toNumber(component.proximityCharge.falloffExponent, 2),
           directContactMultiplier: toNumber(component.proximityCharge.directContactMultiplier, 1.5),
-          directContactHullDamage: toNumber(component.proximityCharge.directContactHullDamage, 1500),
-          contactMaxAffectedComponents: toNumber(component.proximityCharge.contactMaxAffectedComponents, 10),
-          splashMaxAffectedComponents: toNumber(component.proximityCharge.splashMaxAffectedComponents, 6),
-          contactInternalDamageReduction: toNumber(component.proximityCharge.contactInternalDamageReduction, 0.35),
-          splashInternalDamageReduction: toNumber(component.proximityCharge.splashInternalDamageReduction, 0.7)
+          directContactHullDamage: toNumber(component.proximityCharge.directContactHullDamage, undefined),
+          contactMaxAffectedComponents: toNumber(component.proximityCharge.contactMaxAffectedComponents ?? component.proximityCharge.maxAffectedComponents, 10),
+          splashMaxAffectedComponents: toNumber(component.proximityCharge.splashMaxAffectedComponents ?? component.proximityCharge.maxAffectedComponents, 6),
+          contactInternalDamageReduction: toNumber(component.proximityCharge.contactInternalDamageReduction ?? component.proximityCharge.internalDamageReduction, 0.35),
+          splashInternalDamageReduction: toNumber(component.proximityCharge.splashInternalDamageReduction ?? component.proximityCharge.internalDamageReduction, 0.7)
         })
       : null,
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
