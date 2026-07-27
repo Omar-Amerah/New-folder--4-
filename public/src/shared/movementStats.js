@@ -50,8 +50,9 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
       maneuverThrusters.push(record);
       if (sign > 0) clockwiseThrusterValues.push(value); else if (sign < 0) anticlockwiseThrusterValues.push(value);
     }
-    if (module.type === 'vectorThruster' && !blocked && multiplier > 0) {
-      if ((part.turn || 0) > 0) vectorThrusterTurnValues.push((part.turn || 0) * multiplier);
+    const isVectorType = module.type === 'vectorThruster' || module.type === 'maneuverThruster';
+    if (isVectorType && !blocked && multiplier > 0) {
+      if ((part.turn || 0) > 0 && module.type === 'vectorThruster') vectorThrusterTurnValues.push((part.turn || 0) * multiplier);
       if ((part.lateralThrust || 0) > 0) vectorLateralValues.push((part.lateralThrust || 0) * multiplier);
       if ((part.brakingThrust || 0) > 0) vectorBrakingValues.push((part.brakingThrust || 0) * multiplier);
       if ((part.reverseThrust || 0) > 0) vectorReverseValues.push((part.reverseThrust || 0) * multiplier);

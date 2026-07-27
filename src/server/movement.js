@@ -1,6 +1,5 @@
-// Handles ship velocities, turning, path alignment, separation forces, map collision avoidance, and movement commands.
-
 const { clampNumber, rotateToward, angleDifference, fastHypot, performanceNow } = require("./utils");
+const { computePathDesiredAngle } = require("./navigation");
 const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
 const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition, armedProximityChargeRanges, resolveDemolitionContacts, nearestDemolitionTargetPoint, shipHasOperationalDemolitionCharge } = require("./combat");
@@ -17,6 +16,7 @@ const { BALANCE } = require("./balanceConfig");
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
 const ARRIVE_DISTANCE = 16;
+const ARRIVE_SPEED = 6;
 const MAX_MOVEMENT_DT = 0.25;
 const MOVEMENT_SUBSTEP = 1 / 30;
 
@@ -28,9 +28,87 @@ const MIN_CORRECTION_ACCEL = 12;
 const HULL_ANGLE_BEARING_THRESHOLD = 4 * Math.PI / 180;
 const HULL_ANGLE_REFRESH_INTERVAL = 250;
 
+const NAV_SAFETY_MARGIN = 8;
+const LOCAL_AVOID_LIFETIME_MS = 1200;
+const STUCK_DISTANCE = 3;
+const STUCK_DURATION_MS = 750;
+const WAYPOINT_CAPTURE = 24;
+const WAYPOINT_LOOKAHEAD = 1.25;
+const MAX_PATH_CANDIDATES = 96;
+const OBSTACLE_PERIMETER_SAMPLES = 12;
+
 function movePerf() { return global.__mfaMovePerf || null; }
 function moveBump(name) { const p = movePerf(); if (p) p[name] = (p[name] || 0) + 1; }
 
+function movementCounters(ship) {
+  ship._movementCounters = ship._movementCounters || {
+    movementDecisionCount: 0, pathPlanCount: 0, pathCacheHitCount: 0,
+    pathReplanCount: 0, waypointAdvanceCount: 0, localAvoidanceQueryCount: 0,
+    obstacleSideFlipCount: 0, stuckRecoveryCount: 0, collisionCount: 0,
+    wrongWayAccelerationCount: 0
+  };
+  return ship._movementCounters;
+}
+
+function physicalCollisionRadius(ship) {
+  return clampNumber((ship.radius || 0) * 0.56, 18, 48);
+}
+
+function navigationClearanceRadius(ship) {
+  return physicalCollisionRadius(ship) + NAV_SAFETY_MARGIN;
+}
+
+function separationRadius(ship) {
+  return physicalCollisionRadius(ship) + 6;
+}
+
+function commandSlotRadius(ship) {
+  return navigationClearanceRadius(ship) + 4;
+}
+
+function isPointClear(room, x, y, clearance) {
+  if (x < WORLD_MARGIN + clearance || x > room.world.width - WORLD_MARGIN - clearance) return false;
+  if (y < WORLD_MARGIN + clearance || y > room.world.height - WORLD_MARGIN - clearance) return false;
+  const index = room.spatialIndex;
+  if (index?.dynamicValid) {
+    const maxR = roomMaxAsteroidRadius(room);
+    const scratch = [];
+    const candidates = index.queryRangeUnordered("asteroids", x, y, clearance + maxR, scratch);
+    for (const a of candidates) {
+      if (a && fastHypot(x - a.x, y - a.y) < a.radius + clearance) return false;
+    }
+  } else {
+    for (const a of room.map?.asteroids || []) {
+      if (a && fastHypot(x - a.x, y - a.y) < a.radius + clearance) return false;
+    }
+  }
+  return true;
+}
+
+function isSegmentClear(room, x1, y1, x2, y2, clearance) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = fastHypot(dx, dy);
+  if (len < 0.001) return isPointClear(room, x1, y1, clearance);
+  const ux = dx / len;
+  const uy = dy / len;
+  const index = room.spatialIndex;
+  const candidates = index?.dynamicValid
+    ? index.querySweptAabbUnordered("asteroids", x1, y1, x2, y2, clearance + roomMaxAsteroidRadius(room), [])
+    : (room.map?.asteroids || []);
+  for (const a of candidates) {
+    if (!a) continue;
+    const relX = a.x - x1;
+    const relY = a.y - y1;
+    const along = relX * ux + relY * uy;
+    const clampedAlong = clampNumber(along, 0, len);
+    const closestX = x1 + ux * clampedAlong;
+    const closestY = y1 + uy * clampedAlong;
+    const d = fastHypot(a.x - closestX, a.y - closestY);
+    if (d < a.radius + clearance) return false;
+  }
+  return true;
+}
 
 function heatAdjustedMovementStats(ship, stats) {
   const design = ship.design || [];
@@ -167,6 +245,7 @@ function commandShips(room, player, x, y, options = {}) {
   const hasRepairBeam = (ship) => (ship.design || []).some((module) => module.type === 'repairBeam');
 
   const center = computeFleetCenter(ships);
+  const commandSlots = assignCommandSlots(room, ships, center, x, y);
 
   for (const ship of ships) {
     ship.facingTarget = null;
@@ -195,22 +274,8 @@ function commandShips(room, player, x, y, options = {}) {
       continue;
     }
 
-    const ox = ship.x - center.x;
-    const oy = ship.y - center.y;
-    let tx = x + ox;
-    let ty = y + oy;
-
-    if (Math.hypot(ox, oy) < 0.001 && ships.length > 1) {
-      const sorted = ships.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
-      const idx = sorted.indexOf(ship);
-      const fallbackRadius = shipCollisionRadius(ship) * 2;
-      const turn = (idx % 6) * (Math.PI / 3);
-      const ring = 1 + Math.floor(idx / 6);
-      tx = x + Math.cos(turn) * fallbackRadius * ring;
-      ty = y + Math.sin(turn) * fallbackRadius * ring;
-    }
-
-    setGroundMoveTarget(room, ship, tx, ty);
+    const slot = commandSlots.get(ship.id);
+    setGroundMoveTarget(room, ship, slot.x, slot.y);
   }
 
   return { ok: true, code: 'commanded', commanded: ships.length };
@@ -223,7 +288,7 @@ function computeFleetCenter(ships) {
 }
 
 function setGroundMoveTarget(room, ship, tx, ty) {
-  const clearance = shipCollisionRadius(ship);
+  const clearance = navigationClearanceRadius(ship);
   const cleared = nearestClearPoint(room, tx, ty, clearance);
   ship.targetX = cleared.x;
   ship.targetY = cleared.y;
@@ -235,6 +300,8 @@ function setGroundMoveTarget(room, ship, tx, ty) {
   ship.sentryX = null;
   ship.sentryY = null;
   ship.holdState = null;
+  ship._movementPath = null;
+  ship._movementDebug = { pathReason: 'new-command' };
 }
 
 function stopShips(room, player, shipIds) {
@@ -824,172 +891,118 @@ function driveTowardMoveTarget(room, ship, stats, movementIntent, dt, resolvedFa
     : Math.atan2(movementIntent.targetY - ship.y, movementIntent.targetX - ship.x);
   rotateShipToward(ship, resolvedFacing, stats, dt);
 
-  const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
-  for (const i of getShipComponentIndexes(ship).thrustIndices) {
-    const part = PARTS[ship.design[i].type];
-    if (!part?.thrust || (ship.componentHp?.[i] ?? 1) <= 0) continue;
-    if (ship.validEngineIndices && !ship.validEngineIndices.has(i)) continue;
-    const activity = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
-    if (activity > 0) addComponentHeat(ship, i, (2 + part.thrust * 0.018) * activity * dt);
-  }
-
-  const capacitorBoost = updatePropulsionCapacitors(ship, stats, dt, ship._simNow);
-  const thrust = (stats.accel || 0) * alignment * capacitorBoost;
-
-  ship.vx += Math.cos(ship.angle) * thrust * dt;
-  ship.vy += Math.sin(ship.angle) * thrust * dt;
-
-  applyVectorThrusterForces(ship, stats, desired, dt);
+  applyHullLocalPropulsion(ship, stats, desired, movementIntent.distance, dt);
 }
 
-function applyVectorThrusterForces(ship, stats, desiredAngle, dt) {
-  const indexes = getShipComponentIndexes(ship).vectorThrusterIndices;
-  if (!indexes.length) return;
-  moveBump("vectorThrusterForceCalls");
+function computeApproachSpeed(distance, maxSpeed, accel, braking) {
+  const a = Math.max(accel + braking, 1e-9);
+  const stoppingDist = (maxSpeed * maxSpeed) / (2 * a);
+  if (distance >= stoppingDist) return maxSpeed;
+  return Math.min(maxSpeed, Math.sqrt(2 * a * Math.max(0, distance)));
+}
+
+function applyHullLocalPropulsion(ship, stats, desiredAngle, distance, dt) {
+  const indexes = getShipComponentIndexes(ship);
+  const mainAccel = stats.accel || 0;
   const lateralAccel = stats.lateralAccel || 0;
-  const brakingAccel = stats.brakingAccel || 0;
   const reverseAccel = stats.reverseAccel || 0;
-  if (lateralAccel <= 0 && brakingAccel <= 0 && reverseAccel <= 0) return;
+  const brakingAccel = stats.brakingAccel || 0;
+  if (mainAccel <= 0 && lateralAccel <= 0 && reverseAccel <= 0 && brakingAccel <= 0) return;
 
-  const style = getCombatStyle(ship);
-  let lateralInput = 0, brakingInput = 0, reverseInput = 0;
+  const forwardX = Math.cos(ship.angle);
+  const forwardY = Math.sin(ship.angle);
+  const rightX = -Math.sin(ship.angle);
+  const rightY = Math.cos(ship.angle);
 
-  if (style === 'evasive') {
-    const dodgeDir = ship._evasiveDodgeDir || 1;
-    lateralInput = dodgeDir;
-  } else if (style === 'interceptor' || style === 'brawler') {
-    const speed = fastHypot(ship.vx, ship.vy);
-    if (speed > (stats.maxSpeed || 0) * 0.8) brakingInput = 0.5;
-  } else if (style === 'hold' || style === 'maintain' || style === 'sentry' || style === 'kite') {
-    const speed = fastHypot(ship.vx, ship.vy);
-    if (speed > 2) brakingInput = 1;
-    const lateralDiff = angleDifference(ship.angle, desiredAngle);
-    if (Math.abs(lateralDiff) > 0.3 && Math.abs(lateralDiff) < Math.PI - 0.3 && lateralAccel > 0) {
-      lateralInput = lateralDiff > 0 ? 1 : -1;
-    }
-    if (Math.abs(lateralDiff) > Math.PI * 0.65 && reverseAccel > 0) {
-      reverseInput = 1;
-    }
+  const moveX = Math.cos(desiredAngle);
+  const moveY = Math.sin(desiredAngle);
+
+  const maxSpeed = stats.maxSpeed || 0;
+  const desiredSpeed = computeApproachSpeed(distance, maxSpeed, mainAccel, brakingAccel);
+
+  const desiredVX = moveX * desiredSpeed;
+  const desiredVY = moveY * desiredSpeed;
+
+  const errX = desiredVX - ship.vx;
+  const errY = desiredVY - ship.vy;
+  let desiredAX = errX / dt;
+  let desiredAY = errY / dt;
+
+  const maxAuthority = Math.max(mainAccel + reverseAccel + lateralAccel + brakingAccel, 1e-9);
+  const desiredMag = fastHypot(desiredAX, desiredAY);
+  if (desiredMag > maxAuthority * 2) {
+    desiredAX *= (maxAuthority * 2) / desiredMag;
+    desiredAY *= (maxAuthority * 2) / desiredMag;
   }
 
-  if (lateralInput === 0 && brakingInput === 0 && reverseInput === 0) {
-    return;
+  const forwardDemand = desiredAX * forwardX + desiredAY * forwardY;
+  const rightDemand = desiredAX * rightX + desiredAY * rightY;
+
+  const capacitorBoost = updatePropulsionCapacitors(ship, stats, dt, ship._simNow);
+  const mainThrust = Math.max(0, forwardDemand) * capacitorBoost;
+  const appliedMain = Math.min(mainThrust, mainAccel);
+  if (appliedMain > 0) {
+    ship.vx += forwardX * appliedMain * dt;
+    ship.vy += forwardY * appliedMain * dt;
+    if (ship._movementCounters) ship._movementCounters.wrongWayAccelerationCount += (forwardDemand < -0.01 ? 1 : 0);
   }
 
-  if (lateralInput !== 0 && lateralAccel > 0) {
-    const perpAngle = desiredAngle + Math.PI / 2;
-    ship.vx += Math.cos(perpAngle) * lateralAccel * lateralInput * dt;
-    ship.vy += Math.sin(perpAngle) * lateralAccel * lateralInput * dt;
-  }
-  if (brakingInput > 0 && brakingAccel > 0) {
-    const speed = fastHypot(ship.vx, ship.vy);
-    if (speed > 1) {
-      ship.vx -= (ship.vx / speed) * brakingAccel * brakingInput * dt;
-      ship.vy -= (ship.vy / speed) * brakingAccel * brakingInput * dt;
-    }
-  }
-  if (reverseInput > 0 && reverseAccel > 0) {
-    ship.vx -= Math.cos(ship.angle) * reverseAccel * reverseInput * dt;
-    ship.vy -= Math.sin(ship.angle) * reverseAccel * reverseInput * dt;
+  const reverseThrust = Math.max(0, -forwardDemand);
+  const appliedReverse = Math.min(reverseThrust, reverseAccel);
+  if (appliedReverse > 0) {
+    ship.vx -= forwardX * appliedReverse * dt;
+    ship.vy -= forwardY * appliedReverse * dt;
   }
 
-  for (const i of indexes) {
-    if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
-    const activity = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
-    if (activity > 0) {
+  const appliedLateral = clampNumber(rightDemand, -lateralAccel, lateralAccel);
+  if (Math.abs(appliedLateral) > 0) {
+    ship.vx += rightX * appliedLateral * dt;
+    ship.vy += rightY * appliedLateral * dt;
+  }
+
+  const speed = fastHypot(ship.vx, ship.vy);
+  if (speed > desiredSpeed && brakingAccel > 0) {
+    const velocityErrorMag = speed - desiredSpeed;
+    const brake = Math.min(velocityErrorMag / dt, brakingAccel);
+    ship.vx -= (ship.vx / speed) * brake * dt;
+    ship.vy -= (ship.vy / speed) * brake * dt;
+  }
+
+  if (appliedMain > 0) {
+    for (const i of indexes.thrustIndices) {
       const part = PARTS[ship.design[i].type];
-      const heatRate = (2 + (part.lateralThrust || 0) * 0.01) * activity * dt;
-      addComponentHeat(ship, i, heatRate);
+      if (!part?.thrust || (ship.componentHp?.[i] ?? 1) <= 0) continue;
+      if (ship.validEngineIndices && !ship.validEngineIndices.has(i)) continue;
+      const activity = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
+      if (activity > 0) {
+        const thrustFraction = mainAccel > 0 ? appliedMain / mainAccel : 1;
+        addComponentHeat(ship, i, (2 + part.thrust * 0.018) * activity * thrustFraction * dt);
+      }
+    }
+  }
+
+  if (lateralAccel > 0 || reverseAccel > 0 || brakingAccel > 0) {
+    let thrusterActivity = 0;
+    if (lateralAccel > 0) thrusterActivity += Math.abs(appliedLateral) / Math.max(lateralAccel, 1e-9);
+    if (reverseAccel > 0) thrusterActivity += appliedReverse / Math.max(reverseAccel, 1e-9);
+    if (brakingAccel > 0 && speed > desiredSpeed) {
+      thrusterActivity += Math.min((speed - desiredSpeed) / Math.max(brakingAccel * dt, 1e-9), 1);
+    }
+    if (thrusterActivity > 0) {
+      for (const i of indexes.vectorThrusterIndices) {
+        if ((ship.componentHp?.[i] ?? 1) <= 0) continue;
+        const activity = componentPerformance(ship, i) * getComponentPowerMultiplier(ship, i);
+        if (activity > 0) {
+          const part = PARTS[ship.design[i].type];
+          addComponentHeat(ship, i, (2 + (part.lateralThrust || 0) * 0.01) * activity * Math.min(thrusterActivity, 1) * dt);
+        }
+      }
     }
   }
 }
 
 function getDesiredMoveAngle(room, ship) {
-  let desired = Math.atan2(ship.targetY - ship.y, ship.targetX - ship.x);
-
-  const dx = ship.targetX - ship.x;
-  const dy = ship.targetY - ship.y;
-  const targetDistance = fastHypot(dx, dy);
-  const pathX = targetDistance > 0.001 ? dx / targetDistance : Math.cos(ship.angle);
-  const pathY = targetDistance > 0.001 ? dy / targetDistance : Math.sin(ship.angle);
-
-  let closestAsteroid = null;
-  let closestDist = Infinity;
-
-  // Use spatial index for asteroid queries instead of full array scan
-  const asteroidIndex = room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
-  const asteroidCandidates = asteroidIndex
-    ? asteroidIndex.querySweptAabbUnordered(
-        "asteroids",
-        ship.x,
-        ship.y,
-        ship.targetX,
-        ship.targetY,
-        ship.radius + 38,
-        ship._asteroidAvoidanceScratch || (ship._asteroidAvoidanceScratch = [])
-      )
-    : (room.map?.asteroids || []);
-
-  for (const asteroid of asteroidCandidates) {
-    if (!asteroid) continue;
-    const avoidRadius = asteroid.radius + ship.radius + 38;
-    const hit = segmentCircleClearance(ship.x, ship.y, ship.targetX, ship.targetY, asteroid.x, asteroid.y, avoidRadius);
-    if (!hit.blocked || hit.along < 0 || hit.along > targetDistance || hit.along >= closestDist) continue;
-
-    closestDist = hit.along;
-    closestAsteroid = { asteroid, lateralDistance: hit.lateral, avoidRadius };
-  }
-
-  if (closestAsteroid) {
-    const { asteroid, lateralDistance, avoidRadius } = closestAsteroid;
-    const steerDir = lateralDistance >= 0 ? -1 : 1;
-    const sideX = asteroid.x + (-pathY) * avoidRadius * steerDir;
-    const sideY = asteroid.y + pathX * avoidRadius * steerDir;
-    return Math.atan2(sideY - ship.y, sideX - ship.x);
-  }
-
-  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
-  const lookahead = Math.max(120, speed * 0.8 + 60);
-  const forwardX = Math.cos(ship.angle);
-  const forwardY = Math.sin(ship.angle);
-
-  // Use spatial index for local forward avoidance query instead of full asteroid loop
-  const localCandidates = asteroidIndex
-    ? asteroidIndex.queryRangeUnordered(
-        "asteroids",
-        ship.x,
-        ship.y,
-        lookahead + ship.radius + 32,
-        ship._asteroidAvoidanceScratch || (ship._asteroidAvoidanceScratch = [])
-      )
-    : (room.map?.asteroids || []);
-
-  for (const asteroid of localCandidates) {
-    if (!asteroid) continue;
-    const ax = asteroid.x - ship.x;
-    const ay = asteroid.y - ship.y;
-    const forwardDistance = ax * forwardX + ay * forwardY;
-
-    if (forwardDistance < 0 || forwardDistance > lookahead) continue;
-
-    const lateralDistance = ax * (-forwardY) + ay * forwardX;
-    const avoidRadius = asteroid.radius + ship.radius + 32;
-
-    if (Math.abs(lateralDistance) < avoidRadius && forwardDistance < closestDist) {
-      closestDist = forwardDistance;
-      closestAsteroid = { asteroid, lateralDistance, avoidRadius };
-    }
-  }
-
-  if (closestAsteroid) {
-    const { asteroid, lateralDistance, avoidRadius } = closestAsteroid;
-    const steerDir = lateralDistance >= 0 ? -1 : 1;
-    const sideX = asteroid.x + (-forwardY) * avoidRadius * steerDir;
-    const sideY = asteroid.y + forwardX * avoidRadius * steerDir;
-    desired = Math.atan2(sideY - ship.y, sideX - ship.x);
-  }
-
-  return desired;
+  return computePathDesiredAngle(room, ship);
 }
 
 function segmentCircleClearance(x1, y1, x2, y2, cx, cy, radius) {
@@ -1257,7 +1270,7 @@ function resolveSeparationPair(room, a, b, safeDt) {
   let dy = b.y - a.y;
   const distSq = dx * dx + dy * dy;
 
-  const minimum = shipCollisionRadius(a) + shipCollisionRadius(b);
+  const minimum = separationRadius(a) + separationRadius(b);
   if (distSq >= minimum * minimum) return;
 
   let distance = Math.sqrt(distSq);
@@ -1343,7 +1356,7 @@ function resolveMapCollision(room, ship) {
   let asteroids;
   if (index?.dynamicValid && typeof index.queryRangeUnordered === "function") {
     const maxAsteroidRadius = roomMaxAsteroidRadius(room);
-    const searchRadius = maxAsteroidRadius + Math.max(24, ship.radius * 0.62);
+    const searchRadius = maxAsteroidRadius + shipCollisionRadius(ship);
     const scratch = ship._mapCollisionScratch || (ship._mapCollisionScratch = []);
     asteroids = index.queryRangeUnordered("asteroids", ship.x, ship.y, searchRadius, scratch);
   } else {
@@ -1362,7 +1375,7 @@ function resolveMapCollision(room, ship) {
       distance = 1;
     }
 
-    const minimum = asteroid.radius + Math.max(24, ship.radius * 0.62);
+    const minimum = asteroid.radius + shipCollisionRadius(ship);
     if (distance >= minimum) continue;
 
     const nx = dx / distance;
@@ -1387,51 +1400,42 @@ function resolveMapCollision(room, ship) {
 function nearestClearPoint(room, x, y, clearance) {
   const startX = Number.isFinite(Number(x)) ? Number(x) : room.world.width * 0.5;
   const startY = Number.isFinite(Number(y)) ? Number(y) : room.world.height * 0.5;
-  let px = clampNumber(startX, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
-  let py = clampNumber(startY, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
-  let adjusted = px !== startX || py !== startY;
-  let passes = 0;
+  const minBound = WORLD_MARGIN + clearance;
+  const maxX = room.world.width - minBound;
+  const maxY = room.world.height - minBound;
+  const px = clampNumber(startX, minBound, maxX);
+  const py = clampNumber(startY, minBound, maxY);
+  const adjusted = px !== startX || py !== startY;
 
-  const asteroids = room.map?.asteroids || [];
-
-  for (let pass = 0; pass < 8; pass += 1) {
-    passes = pass + 1;
-    let passAdjusted = false;
-
-    for (const asteroid of asteroids) {
-      const dx = px - asteroid.x;
-      const dy = py - asteroid.y;
-      const distance = fastHypot(dx, dy);
-      const minimum = asteroid.radius + clearance;
-
-      if (distance >= minimum) continue;
-
-      const angle = distance > 0.001
-        ? Math.atan2(dy, dx)
-        : Math.atan2(py - room.world.height * 0.5, px - room.world.width * 0.5);
-
-      px = asteroid.x + Math.cos(angle) * minimum;
-      py = asteroid.y + Math.sin(angle) * minimum;
-
-      px = clampNumber(px, WORLD_MARGIN, room.world.width - WORLD_MARGIN);
-      py = clampNumber(py, WORLD_MARGIN, room.world.height - WORLD_MARGIN);
-
-      adjusted = true;
-      passAdjusted = true;
-    }
-
-    if (!passAdjusted) break;
+  if (isPointClear(room, px, py, clearance)) {
+    return { x: px, y: py, adjusted, passes: 0, clear: true, reason: adjusted ? "adjusted" : "clear" };
   }
 
-  let clear = true;
-  for (const asteroid of asteroids) {
-    if (fastHypot(px - asteroid.x, py - asteroid.y) < asteroid.radius + clearance - 0.001) {
-      clear = false;
-      break;
+  const ANGLES = 16;
+  const RINGS = 8;
+  const step = Math.max(clearance, 24);
+  let best = null;
+  let bestDist = Infinity;
+  let considered = 0;
+
+  for (let ring = 1; ring <= RINGS; ring += 1) {
+    const radius = ring * step;
+    for (let i = 0; i < ANGLES; i += 1) {
+      const angle = (i * 2 * Math.PI) / ANGLES;
+      const cx = clampNumber(px + Math.cos(angle) * radius, minBound, maxX);
+      const cy = clampNumber(py + Math.sin(angle) * radius, minBound, maxY);
+      considered += 1;
+      if (!isPointClear(room, cx, cy, clearance)) continue;
+      const d = (cx - startX) * (cx - startX) + (cy - startY) * (cy - startY);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { x: cx, y: cy, adjusted: true, passes: ring, clear: true, reason: "adjusted" };
+      }
     }
   }
 
-  return { x: px, y: py, adjusted, passes, clear, reason: clear ? (adjusted ? "adjusted" : "clear") : "blocked" };
+  if (best) return best;
+  return { x: px, y: py, adjusted: true, passes: considered, clear: false, reason: "blocked" };
 }
 
 function findOptimalHullAngle(ship, target) {
@@ -1521,6 +1525,65 @@ function findOptimalHullAngle(ship, target) {
      }
 
   return bestAngle;
+}
+
+function isCommandSlotFree(room, ship, px, py, clearance, assigned) {
+  if (!isPointClear(room, px, py, clearance)) return false;
+  for (const a of assigned) {
+    const r = commandSlotRadius(ship) + a.r;
+    if ((px - a.x) * (px - a.x) + (py - a.y) * (py - a.y) < r * r) return false;
+  }
+  return true;
+}
+
+function findCommandSlot(room, ship, desiredX, desiredY, assigned) {
+  const clearance = commandSlotRadius(ship);
+  const minBound = WORLD_MARGIN + clearance;
+  const maxX = room.world.width - minBound;
+  const maxY = room.world.height - minBound;
+  const px = clampNumber(desiredX, minBound, maxX);
+  const py = clampNumber(desiredY, minBound, maxY);
+
+  if (isCommandSlotFree(room, ship, px, py, clearance, assigned)) return { x: px, y: py };
+
+  const ANGLES = 16;
+  const RINGS = 8;
+  const step = Math.max(clearance, 24);
+  let best = null;
+  let bestDist = Infinity;
+  for (let ring = 1; ring <= RINGS; ring += 1) {
+    const radius = ring * step;
+    for (let i = 0; i < ANGLES; i += 1) {
+      const angle = (i * 2 * Math.PI) / ANGLES;
+      const cx = clampNumber(px + Math.cos(angle) * radius, minBound, maxX);
+      const cy = clampNumber(py + Math.sin(angle) * radius, minBound, maxY);
+      if (!isCommandSlotFree(room, ship, cx, cy, clearance, assigned)) continue;
+      const d = (cx - desiredX) * (cx - desiredX) + (cy - desiredY) * (cy - desiredY);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { x: cx, y: cy };
+      }
+    }
+  }
+
+  if (best) return best;
+  return { x: px, y: py, blocked: true };
+}
+
+function assignCommandSlots(room, ships, center, destX, destY) {
+  const sorted = ships.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const assigned = [];
+  const slots = new Map();
+  for (const ship of sorted) {
+    const ox = ship.x - center.x;
+    const oy = ship.y - center.y;
+    const desiredX = destX + ox;
+    const desiredY = destY + oy;
+    const slot = findCommandSlot(room, ship, desiredX, desiredY, assigned);
+    slots.set(ship.id, slot);
+    assigned.push({ x: slot.x, y: slot.y, r: commandSlotRadius(ship), id: ship.id });
+  }
+  return slots;
 }
 
 module.exports = {

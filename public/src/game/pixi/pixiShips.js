@@ -1075,12 +1075,15 @@ function snapshotShipById(id) {
 }
 
 function drawPixiFocusLine(gfx, ship, zoom, players) {
+  const player = players?.get?.(ship.ownerId) || null;
+  const mine = state.mine || players?.get?.(state.myId) || null;
+  const shipIsFriendly = ship.ownerId === state.myId || Boolean(mine?.team && player?.team && mine.team === player.team);
+  if (!shipIsFriendly) return;
   const target = snapshotShipById(ship.focusTargetId);
   if (!target) return;
-  const player = players?.get?.(target.ownerId) || null;
-  const mine = state.mine || players?.get?.(state.myId) || null;
-  const friendly = target.ownerId === state.myId || Boolean(mine?.team && player?.team && mine.team === player.team);
-  const color = friendly ? "rgba(124,255,138,0.5)" : "rgba(255,95,126,0.36)";
+  const targetPlayer = players?.get?.(target.ownerId) || null;
+  const targetIsFriendly = target.ownerId === state.myId || Boolean(mine?.team && targetPlayer?.team && mine.team === targetPlayer.team);
+  const color = targetIsFriendly ? "rgba(124,255,138,0.5)" : "rgba(255,95,126,0.36)";
   gfx.moveTo(ship.x, ship.y);
   gfx.lineTo(target.x, target.y);
   gfx.stroke({ width: 1.5 / zoom, color });

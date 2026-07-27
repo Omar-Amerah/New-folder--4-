@@ -153,6 +153,46 @@ input[type="checkbox"] {
   box-shadow: none;
 }
 
+input[type="color"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 44px;
+  height: 44px;
+  min-height: auto;
+  padding: 3px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+input[type="color"]:hover {
+  border-color: rgba(56, 213, 255, 0.5);
+  transform: scale(1.05);
+}
+
+input[type="color"]:focus {
+  border-color: rgba(56, 213, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(56, 213, 255, 0.12);
+}
+
 .checkbox-label {
   display: flex;
   align-items: center;
