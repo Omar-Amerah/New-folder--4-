@@ -37,6 +37,7 @@ export function updateHud() {
   setText(dom.selectionLabel, `${state.selectedShipIds.size}`);
   setText(dom.objectiveLabel, target ? target.label : "None");
   const selected = myShips.filter(ship => state.selectedShipIds.has(ship.id));
+  if (dom.heatHud) dom.heatHud.hidden = selected.length === 0;
   const heatShips = selected.length ? selected : myShips;
   // Derived from the same heatNow/heatMax stored values the detail panel
   // shows, so the HUD percentage can never disagree with the stored readout.

@@ -63,9 +63,6 @@ function initComponentState(ship) {
 function initProximityChargeState(ship) {
   const design = ship.design || [];
   ship.proximityChargeDetonated = design.map(() => 0);
-  ship.proximityChargeTriggerTarget = design.map(() => null);
-  ship.proximityChargeTriggerAccumulator = design.map(() => 0);
-  ship.proximityChargeLastCheckAt = design.map(() => 0);
   ship.proximityChargeRevision = (ship.proximityChargeRevision || 0) + 1;
 }
 

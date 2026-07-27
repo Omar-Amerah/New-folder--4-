@@ -243,12 +243,30 @@
 .loadout-tab-menu {
   position: relative;
   z-index: 30;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .loadout-tab-menu > summary {
   list-style: none;
   cursor: pointer;
   user-select: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 22px;
+  border: 1px solid rgba(174, 199, 231, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #c7d3e6;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.loadout-tab-menu > summary:hover {
+  border-color: rgba(56, 213, 255, 0.4);
+  color: #eaf4ff;
 }
 
 .loadout-tab-menu > summary::-webkit-details-marker {
@@ -257,11 +275,11 @@
 
 .loadout-menu-dropdown {
   position: fixed;
-  z-index: 100;
+  z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 120px;
+  min-width: 150px;
   padding: 4px;
   border: 1px solid rgba(174, 199, 231, 0.22);
   border-radius: 7px;
@@ -270,7 +288,9 @@
 }
 
 .loadout-menu-dropdown button {
-  padding: 4px 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
   border: 1px solid transparent;
   border-radius: 5px;
   background: transparent;

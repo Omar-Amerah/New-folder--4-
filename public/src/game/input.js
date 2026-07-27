@@ -10,7 +10,6 @@ import { canUndoWiring, undoWiring } from "../ui/wiringUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { updateHud } from "../ui/hudUi.js";
 import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
-import { showToast } from "../ui/toastUi.js";
 import { issueCommand, destructSelectedShips, stopSelectedShips } from "./commands.js";
 import { getMobileTestingModeEnabled } from "./renderSettings.js";
 
@@ -77,7 +76,7 @@ export function handleKeyDown(event) {
   if (key === "r") { event.preventDefault(); rotateFocusedPart(); return; }
   state.keys.add(key);
   if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) event.preventDefault();
-  if (key === "q") { event.preventDefault(); selectAllOwnShips(); renderSideControls(); } else if (key === "f") { event.preventDefault(); state.camera.follow = true; } else if (key === "escape") { state.selectedShipIds.clear(); state.activeShipGroup = null; cancelArenaPointerState("escape"); updateHud(); renderSideControls(); } else if (key === "0") { event.preventDefault(); resetCameraZoomToFit(); } else if (key === "c") { event.preventDefault(); const ships = [...state.selectedShipIds].length ? (state.snapshot?.ships || []).filter(s => state.selectedShipIds.has(s.id)) : ownLiveShips(); centerCameraOnShips(ships); } else if (key === "v") { event.preventDefault(); state.componentDamageView = !state.componentDamageView; showToast(`Component damage view ${state.componentDamageView ? "on" : "off"}`, "good"); renderSideControls(); } else if (key === "delete" || key === "backspace") { event.preventDefault(); destructSelectedShips(); } else if (key === "b") { event.preventDefault(); stopSelectedShips(); }
+  if (key === "q") { event.preventDefault(); selectAllOwnShips(); renderSideControls(); } else if (key === "f") { event.preventDefault(); state.camera.follow = true; } else if (key === "escape") { state.selectedShipIds.clear(); state.activeShipGroup = null; cancelArenaPointerState("escape"); updateHud(); renderSideControls(); } else if (key === "0") { event.preventDefault(); resetCameraZoomToFit(); } else if (key === "c") { event.preventDefault(); const ships = [...state.selectedShipIds].length ? (state.snapshot?.ships || []).filter(s => state.selectedShipIds.has(s.id)) : ownLiveShips(); centerCameraOnShips(ships); } else if (key === "v") { event.preventDefault(); state.componentDamageView = !state.componentDamageView; renderSideControls(); } else if (key === "delete" || key === "backspace") { event.preventDefault(); destructSelectedShips(); } else if (key === "b") { event.preventDefault(); stopSelectedShips(); }
 }
 export function bindArenaPointerListeners(canvasEl) {
   if (!canvasEl) return () => {}; if (binding?.canvas === canvasEl) return binding.unbind; if (binding) binding.unbind(); const canvas = canvasEl; bindingGeneration += 1;

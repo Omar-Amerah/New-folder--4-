@@ -123,6 +123,7 @@ export const state = {
   engineSmokeEmitters: new Map(),
   pendingPurchases: new Map(),
   purchaseErrors: new Map(),
+  purchaseResults: new Map(),
   purchasePointer: null,
   savedDesignPointer: null,
   pendingCombatStyle: null,

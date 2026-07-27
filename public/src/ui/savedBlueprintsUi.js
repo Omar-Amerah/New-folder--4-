@@ -7,7 +7,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
 import { normalizeDesign, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
 import { validateBlueprint } from "../design/blueprintValidation.js";
-import { showToast } from "./toastUi.js";
+import { notify } from "./toastUi.js";
 import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
 import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
@@ -306,7 +306,7 @@ export function duplicateSavedDesign(id) {
   const index = state.savedDesigns.findIndex((design) => design.id === id);
   if (index < 0) return;
   if (state.savedDesigns.length >= 12) {
-    showToast("Design library is full (max 12 slots). Delete some before duplicating.", "warning");
+    notify.warning("Design library is full (max 12 slots). Delete some before duplicating.");
     return;
   }
   const source = state.savedDesigns[index];
@@ -327,7 +327,6 @@ export function duplicateSavedDesign(id) {
   persistSavedDesigns(state.savedDesigns);
   renderSavedDesigns();
   updateEconomyUi();
-  showToast(`Duplicated "${source.name}"`, "good");
 }
 
 export function isSavedDesignNameFocused() {
@@ -443,14 +442,13 @@ export function confirmModalAction() {
   closeConfirmModal();
   renderSavedDesigns();
   updateEconomyUi();
-  showToast(`Deleted ${saved.name}`, "warning");
 }
 
 function loadSavedDesign(id, editSource = true) {
   const saved = state.savedDesigns.find((design) => design.id === id);
   if (!saved) return;
   if (saved.invalid) {
-    showToast(saved.invalidReason || "That blueprint is invalid.", "warning");
+    notify.warning(saved.invalidReason || "That blueprint is invalid.");
     return;
   }
   if (isEditorDirty()) {
@@ -494,7 +492,6 @@ function doLoadSavedDesign(id, editSource = true) {
   renderSavedDesigns();
   updateEconomyUi();
   document.dispatchEvent(new CustomEvent("designer-inspector-activate", { detail: { tab: "design" } }));
-  showToast(editSource ? `Editing ${saved.name}` : `Loaded ${saved.name} as a new design`, "good");
 }
 
 function openDirtyEditorModal(pendingAction) {
@@ -559,7 +556,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   const stats = computeStats(blueprint, { wiring });
   const validation = validateBlueprint(blueprint, { requireThrust: true, stats });
   if (!validation.ok) {
-    showToast(validation.errors[0] || "Cannot save invalid blueprint.", "warning");
+    notify.warning(validation.errors[0] || "Cannot save invalid blueprint.");
     return false;
   }
   const wiringWarning = wiringReadinessWarning();
@@ -595,10 +592,9 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
       speed: Math.round(stats.maxSpeed),
       updatedAt: Date.now()
     } : design);
-    showToast(`Updated blueprint "${existing.name}"`, "good");
   } else {
     if (state.savedDesigns.length >= 12) {
-      showToast("Design library is full (max 12 slots). Delete some before saving.", "warning");
+      notify.warning("Design library is full (max 12 slots). Delete some before saving.");
       return false;
     }
     const name = `Design ${state.savedDesigns.length + 1}`;
@@ -617,26 +613,24 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
     });
     state.loadedEditorBlueprintId = id;
     refreshLoadedBlueprintPresentation();
-    showToast(`Saved blueprint as "${name}"`, "good");
   }
 
   const savedOk = persistSavedDesignsImpl(state.savedDesigns);
   if (!savedOk) {
-    showToast("Could not save blueprint. Please try again.", "warning");
+    notify.warning("Could not save blueprint. Please try again.");
     return false;
   }
   const repaired = state.designNeedsAttention;
   if (repaired) {
     const repairedOk = persistDesignImpl(state.design, state.wiring, state.combatStyle);
     if (!repairedOk) {
-      showToast("Could not save repaired blueprint. Please try again.", "warning");
+      notify.warning("Could not save repaired blueprint. Please try again.");
       return false;
     }
     state.designNeedsAttention = false;
     state.designNormalizationIssues = [];
     renderLocalStats();
     renderBuildGrid();
-    showToast("Repaired blueprint saved. It can now be deployed.", "good");
   }
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {

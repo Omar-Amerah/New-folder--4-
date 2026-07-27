@@ -3,7 +3,7 @@
 const { clampNumber, rotateToward, angleDifference, fastHypot, performanceNow } = require("./utils");
 const { PARTS } = require("./components");
 const { findShipById } = require("./ships");
-const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition, armedProximityChargeRanges } = require("./combat");
+const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition, armedProximityChargeRanges, resolveDemolitionContacts, nearestDemolitionTargetPoint, shipHasOperationalDemolitionCharge } = require("./combat");
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
 const { getCommandAuraMultiplier } = require("./commandAuras");
@@ -230,6 +230,9 @@ function stopShips(room, player, shipIds) {
 function updateShipMovement(room, ship, dt) {
   const safeDt = Number(dt);
   if (!Number.isFinite(safeDt) || safeDt <= 0) return;
+  ship._prevX = ship.x;
+  ship._prevY = ship.y;
+  ship._prevAngle = ship.angle;
   ship.turnActivity = 0;
   const total = Math.min(safeDt, MAX_MOVEMENT_DT);
   if (total > MOVEMENT_SUBSTEP * 1.01) {
@@ -375,19 +378,11 @@ function updateCombatMoveTarget(room, ship, target, style) {
 
   const chargeInfo = armedProximityChargeRanges(ship);
   if (chargeInfo.armed && style === 'charge') {
-    const triggerR = chargeInfo.minTrigger;
-    const hysteresis = Math.max(18, ship.radius * 0.35);
-    if (distanceToTarget > triggerR + hysteresis) {
-      clearOrbitState(ship);
-      ship.targetX = target.x;
-      ship.targetY = target.y;
-      ship.arrived = false;
-    } else {
-      clearOrbitState(ship);
-      ship.targetX = ship.x;
-      ship.targetY = ship.y;
-      ship.arrived = true;
-    }
+    clearOrbitState(ship);
+    const nearest = nearestDemolitionTargetPoint(ship, target);
+    ship.targetX = nearest.x;
+    ship.targetY = nearest.y;
+    ship.arrived = false;
     return;
   }
 
@@ -510,7 +505,7 @@ function clearOrbitState(ship) {
 }
 
 function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
-  if (distance <= ARRIVE_DISTANCE && !isCircleOrbit) {
+  if (distance <= ARRIVE_DISTANCE && !isCircleOrbit && !shipHasOperationalDemolitionCharge(ship)) {
     ship.arrived = true;
     return;
   }
@@ -739,6 +734,7 @@ function regenerateShield(ship, stats, dt) {
 }
 
 function resolveSeparationPair(room, a, b, safeDt) {
+  if (!a.alive || !b.alive) return;
   let dx = b.x - a.x;
   let dy = b.y - a.y;
   const distSq = dx * dx + dy * dy;
@@ -772,7 +768,8 @@ function resolveSeparationPair(room, a, b, safeDt) {
   b.vy += ny * impulse;
 }
 
-function updateShipSeparation(room, ships, dt) {
+function updateShipSeparation(room, ships, dt, now = 0) {
+  resolveDemolitionContacts(room, ships, now);
   const safeDt = Number.isFinite(Number(dt)) && Number(dt) > 0 ? Math.min(Number(dt), MAX_MOVEMENT_DT) : 0;
   const ordered = ships.filter((ship) => ship.alive).slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
   const index = room.spatialIndex;

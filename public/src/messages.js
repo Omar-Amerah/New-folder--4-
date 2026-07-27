@@ -16,7 +16,7 @@ import { updateHud } from "./ui/hudUi.js";
 import { renderSideControls, onCombatStyleResult } from "./ui/sidePanelUi.js";
 import { renderMatchStatus } from "./ui/matchStatusUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
-import { showToast, addNotice } from "./ui/toastUi.js";
+import { notify, addLog } from "./ui/toastUi.js";
 import { recordServerBalanceRevision } from "./balanceStatus.js";
 import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
@@ -83,7 +83,7 @@ function recordServerBuild(message) {
   info.balanceCompatibility = balanceCompatibility;
   if (balanceCompatibility === "mismatch" && !balanceMismatchReported) {
     balanceMismatchReported = true;
-    showToast("Game balance is out of date — refresh the page (or redeploy the server) before playing.", "error");
+    notify.error("Game balance is out of date — refresh the page (or redeploy the server) before playing.", { key: "balance-mismatch", keyTtl: 15000 });
   } else if (balanceCompatibility === "ok") {
     balanceMismatchReported = false;
   }
@@ -98,11 +98,50 @@ function recordServerBuild(message) {
   return info.compatibility;
 }
 
+function noticeTone(text, team) {
+  if (team === "blue") return "blue";
+  if (team === "red") return "red";
+  if (/Red wing/i.test(text)) return "red";
+  if (/Blue wing/i.test(text)) return "blue";
+  return "";
+}
+
+function isInlineOnlyNotice(text) {
+  // These are reflected directly by the deploy button, blueprint status, or lobby UI.
+  return /^(Design saved — you are ready|Editor blueprint saved\.)/i.test(text);
+}
+
+function isUrgentNotice(text) {
+  return /(victory countdown started|countdown interrupted|wins!?$|victory|defeat|match ended|lobby closed|room closed)/i.test(text);
+}
+
+function urgentNoticeKey(text) {
+  if (/victory countdown started/i.test(text)) return "victory-countdown";
+  if (/countdown interrupted/i.test(text)) return "countdown-interrupted";
+  if (/wins!?$|victory|defeat|match ended/i.test(text)) return "match-ended";
+  if (/lobby closed|room closed/i.test(text)) return "room-closed";
+  return null;
+}
+
+function routeServerNotice(message) {
+  const text = message.message || "";
+  if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
+  recordNetworkEvent("notice", { message: text });
+  if (isInlineOnlyNotice(text)) return;
+  const tone = noticeTone(text, message.team);
+  const key = urgentNoticeKey(text);
+  if (key) {
+    notify.urgent(text, { key });
+    return;
+  }
+  addLog(text, tone);
+}
+
 export function handleServerMessage(message) {
   if (message.type === "hello") {
     recordServerBuild(message);
     if (state.server?.compatibility === "incompatible") {
-      showToast("Server protocol is newer than this client build — refresh the page.", "error");
+      notify.error("Server protocol is newer than this client build — refresh the page.", { key: "protocol-mismatch", keyTtl: 15000 });
     }
     state.connectionId = message.connectionId || message.id;
     applyServerParts(message.parts || {});
@@ -226,17 +265,7 @@ function requestFullState(reason) {
 }
 
   if (message.type === "purchaseResult") {
-    const pending = message.requestId ? purchaseUi.clearPendingPurchase(message.requestId) : null;
-    if (message.ok) {
-      const count = Number(message.count) || pending?.count || 1;
-      const totalCost = Number(message.totalCost) || 0;
-      showToast(`Built ${count} ship${count === 1 ? "" : "s"}${totalCost ? ` for $${totalCost}` : ""}`, "good");
-    } else {
-      const reason = message.message || "Purchase failed";
-      if (pending?.optionId) purchaseUi.setPurchaseError(pending.optionId, reason);
-      showToast(reason, "error");
-    }
-    purchaseUi.renderPurchaseBar();
+    purchaseUi.handlePurchaseResult(message);
     renderSideControls();
     return;
   }
@@ -255,9 +284,7 @@ function requestFullState(reason) {
   }
 
   if (message.type === "notice") {
-    if (message.requestId) purchaseUi.clearPendingPurchase(message.requestId);
-    recordNetworkEvent("notice", { message: message.message });
-    addNotice(message.message, "good");
+    routeServerNotice(message);
     return;
   }
 
@@ -276,7 +303,7 @@ function requestFullState(reason) {
       });
       return;
     }
-    addNotice(message.message || "Server error", "error");
+    notify.error(message.message || "Server error", { key: message.code ? `server-error:${message.code}` : undefined });
     return;
   }
 

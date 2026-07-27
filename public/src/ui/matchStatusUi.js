@@ -7,6 +7,7 @@ import { isAdmin } from "./lobbyUi.js";
 
 // Snapshots arrive frequently, so steady-state updates are diffed before DOM writes.
 let lastPlayerStatusHtml = null;
+let lastRelayChipsHtml = null;
 
 export function renderMatchStatus() {
   if (!state.snapshot) return;
@@ -22,21 +23,16 @@ export function renderMatchStatus() {
   }
 
   updateRelayControlMeter(players);
+
+  const relayChipsHtml = generateRelayChipsHTML(players);
+  if (dom.relayChips && relayChipsHtml !== lastRelayChipsHtml) {
+    lastRelayChipsHtml = relayChipsHtml;
+    dom.relayChips.innerHTML = relayChipsHtml;
+  }
 }
 
 export function generateMatchStatusHTML(players) {
   let html = "";
-  const pMap = playerMap();
-  const lines = state.snapshot.points.map((point) => {
-    const owner = point.ownerId ? pMap.get(point.ownerId) : null;
-    const ownerName = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
-    return `${point.id}: ${ownerName} ${Math.round(point.progress * 100)}%`;
-  });
-
-  if (lines.length) {
-    html += `<div class="objective-summary">${escapeHtml(lines.join(" | "))}</div>`;
-  }
-
   const soloMode = state.rules?.gameMode === "solo";
   const teams = soloMode ? players.map((player) => player.team) : ["blue", "red"];
   for (const team of teams) {
@@ -53,11 +49,13 @@ export function generateMatchStatusHTML(players) {
       <div class="team-objectives">Relays: ${objectives.length ? escapeHtml(objectives.map((point) => point.id).join(", ")) : "None"}</div>`;
 
     if (!soloMode && !teamPlayers.length) {
-      html += `<div class="team-player empty">Empty slot</div>`;
+      html += `<div class="team-empty">Empty slot</div>`;
     }
 
     for (const player of teamPlayers) {
-      const status = player.ready ? "Ready" : state.phase === "design" ? "Building" : player.connected === false ? "Disconnected" : "In match";
+      const showReady = player.ready && state.phase !== "active";
+      const status = showReady ? "Ready" : state.phase === "design" ? "Building" : player.connected === false ? "Disconnected" : "In match";
+      const statusClass = showReady ? "ready" : state.phase === "design" ? "building" : player.connected === false ? "disconnected" : "in-match";
       const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin && (state.phase === "lobby" || state.phase === "design");
       const infoItems = [];
       if (player.money != null) infoItems.push(`$${player.money}`);
@@ -68,10 +66,8 @@ export function generateMatchStatusHTML(players) {
         <div class="team-player${player.id === state.myId ? " mine" : ""}">
           <span class="player-color" style="background:${player.color}"></span>
           <div class="team-player-body">
-            <div class="team-player-main">
-              <strong>${escapeHtml(player.name)}${player.isAdmin ? " [Host]" : ""}${player.isBot ? " CPU" : ""}</strong>
-              <span class="team-player-status">${status}</span>
-            </div>
+            <strong>${escapeHtml(player.name)}${player.isAdmin ? " [Host]" : ""}${player.isBot ? " CPU" : ""}</strong>
+            <span class="team-player-status ${statusClass}">${status}</span>
             <div class="team-player-metrics">
               ${infoItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
               <span>K ${player.kills} / L ${player.losses}</span>
@@ -84,6 +80,33 @@ export function generateMatchStatusHTML(players) {
     html += `</div>`;
   }
   return html;
+}
+
+function generateRelayChipsHTML(players) {
+  if (!state.snapshot?.points?.length) return "";
+  const pMap = playerMap();
+  const chips = state.snapshot.points.map((point) => {
+    const owner = point.ownerId ? pMap.get(point.ownerId) : null;
+    let ownerClass = "neutral";
+    let color = "var(--faint)";
+    let label = "Neutral";
+    if (point.contested) {
+      ownerClass = "contested";
+      color = "var(--amber)";
+      label = "Contested";
+    } else if (owner) {
+      ownerClass = owner.team || "neutral";
+      color = owner.team === "blue" ? "var(--cyan)" : owner.team === "red" ? "var(--red)" : (owner.color || "var(--faint)");
+      label = owner.teamName || owner.name;
+    }
+    const pct = Math.round(point.progress * 100);
+    return `<div class="relay-chip ${escapeHtml(ownerClass)}" title="${escapeHtml(point.id)}: ${escapeHtml(label)} ${pct}%">
+      <span class="relay-letter">${escapeHtml(point.id)}</span>
+      <span class="relay-fill" style="width:${pct}%; background:${escapeHtml(color)}"></span>
+      <span class="relay-pct">${pct}%</span>
+    </div>`;
+  });
+  return `<div class="relay-chips-row" aria-label="Relay capture status">${chips.join("")}</div>`;
 }
 
 let relayControlMeterView = null;
@@ -145,16 +168,34 @@ export function updateRelayControlMeter(players) {
     leftColor = me ? me.color || "#00f0ff" : "#00f0ff";
     leftCount = objectiveControl.players[state.myId] || 0;
     rightName = "Others";
-    rightColor = "#ff5555";
     for (const [playerId, count] of Object.entries(objectiveControl.players)) {
       if (playerId !== state.myId) rightCount += count;
+    }
+    if (rightCount > 0) {
+      const pMap = playerMap();
+      const others = Object.entries(objectiveControl.players)
+        .filter(([playerId]) => playerId !== state.myId)
+        .filter(([, count]) => count > 0)
+        .sort((a, b) => b[1] - a[1]);
+      let acc = 0;
+      const stops = [];
+      for (const [playerId, count] of others) {
+        const start = acc;
+        acc += (count / rightCount) * 100;
+        const color = pMap.get(playerId)?.color || "#ff5555";
+        stops.push(`${color} ${start.toFixed(2)}%`);
+        stops.push(`${color} ${acc.toFixed(2)}%`);
+      }
+      rightColor = stops.length ? `linear-gradient(90deg, ${stops.join(", ")})` : "#ff5555";
+    } else {
+      rightColor = "#ff5555";
     }
   } else {
     leftName = "Wing Blue";
     leftColor = "var(--cyan)";
     leftCount = objectiveControl.teams.blue || 0;
     rightName = "Wing Red";
-    rightColor = "var(--amber)";
+    rightColor = "var(--red)";
     rightCount = objectiveControl.teams.red || 0;
   }
 

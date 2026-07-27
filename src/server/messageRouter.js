@@ -119,7 +119,7 @@ function handleMessage(client, message) {
     const deployWiring = validateWiring(design.modules, message.wiring !== undefined ? message.wiring : client.player.wiring).wiring;
     const deployStats = computeStats(design.modules, deployWiring);
     const validation = validateBuildShip(client.room, client.player, deployStats);
-    if (client.room.phase === "design" && !validation.ok) {
+    if (client.room.phase === "active" && !validation.ok) {
       send(client, { type: "error", message: validation.reason });
       return;
     }

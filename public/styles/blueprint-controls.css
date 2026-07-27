@@ -75,10 +75,11 @@
 }
 
 .blueprint-cost-banner {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 8px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 4px;
   margin: 0;
   padding: 8px 10px;
   border: 1px solid rgba(255, 202, 87, 0.38);
@@ -157,16 +158,17 @@
 
 .blueprint-cost-banner span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 950;
   text-transform: uppercase;
+  text-align: center;
 }
 
 .blueprint-cost-banner strong {
-  grid-row: span 2;
   color: #fff2c4;
-  font-size: 24px;
+  font-size: 28px;
   line-height: 1;
+  text-align: center;
 }
 
 .blueprint-cost-banner em {
@@ -174,6 +176,7 @@
   font-size: 12px;
   font-style: normal;
   font-weight: 850;
+  text-align: center;
 }
 
 .blueprint-cost-banner em.expensive {
@@ -246,19 +249,6 @@
   padding: 4px 12px;
   max-width: min(46vw, 560px);
   font-size: 11px;
-}
-
-.blueprint-cost-banner {
-  grid-template-columns: minmax(0, 1fr) max-content;
-  min-width: 0;
-}
-
-.blueprint-cost-banner span,
-.blueprint-cost-banner em {
-  min-width: 0;
-  overflow: visible;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 .blueprint-cost-banner strong {

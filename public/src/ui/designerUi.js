@@ -14,7 +14,7 @@ import { computeStats } from "../design/componentStats.js";
 import { buildShipSummaryModel, turnText, resolvePowerSummary } from "../design/shipSummaryModel.js";
 import { defaultDesign, defaultWiring, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, blueprintSnapshotsEqual, canUndoBlueprintEdit, undoBlueprintEdit as popBlueprintEditUndo, clearBlueprintEditHistory } from "../design/blueprintEditHistory.js";
-import { showToast } from "./toastUi.js";
+import { notify } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedBlueprintPresentation } from "./savedBlueprintsUi.js";
 import { updateEconomyUi } from "./purchaseUi.js";
 import { formatThrust, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
@@ -1094,7 +1094,8 @@ export function editCell(x, y) {
   if (!candidate.ok) {
     const level = candidate.reasonCode === "disconnected" ? "warning" : "error";
     setBuildStatus(candidate.message, level);
-    showToast(candidate.message, level);
+    if (level === "error") notify.error(candidate.message);
+    else notify.warning(candidate.message);
     return;
   }
 
@@ -1116,17 +1117,17 @@ export function rotateCell(x, y) {
 
   if (isOutOfBounds(next)) {
     setBuildStatus("Rotation goes outside build grid", "error");
-    showToast("Rotation goes outside build grid", "error");
+    notify.error("Rotation goes outside build grid");
     return false;
   }
   if (isOverlapping(next)) {
     setBuildStatus("Rotation overlaps another component", "error");
-    showToast("Rotation overlaps another component", "error");
+    notify.error("Rotation overlaps another component");
     return false;
   }
   if (!isConnected(next)) {
     setBuildStatus("Rotation breaks connection to core", "error");
-    showToast("Rotation breaks connection to core", "error");
+    notify.error("Rotation breaks connection to core");
     return false;
   }
 
@@ -1169,7 +1170,7 @@ export function removeCell(x, y) {
   if (introduced.length) {
     const message = introduced[0] || "Removing that part would make the blueprint invalid";
     setBuildStatus(message, "warning");
-    showToast(message, "warning");
+    notify.warning(message);
     return;
   }
   const snapshot = captureBlueprintEditSnapshot(state);
@@ -1374,10 +1375,8 @@ export function renderLocalStats() {
         : "Need more funds";
       dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
     } else {
-      dom.blueprintCostStatus.textContent = canAfford
-        ? "Starting funds remaining"
-        : "Need more for starting ship";
-      dom.blueprintCostStatus.className = canAfford ? "affordable" : "expensive";
+      dom.blueprintCostStatus.textContent = "";
+      dom.blueprintCostStatus.className = "";
     }
   }
   if (state.designNeedsAttention) setBuildStatus(designRepairWarningMessage(), "warning");

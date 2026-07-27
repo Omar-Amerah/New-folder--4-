@@ -1032,3 +1032,254 @@
     border-top: 1px solid rgba(139, 160, 190, 0.09);
   }
 }
+
+/* Match sidebar redesign overrides */
+.match-card {
+  padding: 12px;
+  border: 1px solid rgba(174, 199, 231, 0.22);
+  border-radius: 8px;
+  background: rgba(7, 12, 20, 0.62);
+}
+
+.latency-badge {
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgba(8, 14, 23, 0.7);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.match-meter {
+  gap: 8px;
+  margin-bottom: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.match-meter-track {
+  height: 10px;
+}
+
+.relay-chips {
+  margin-top: 10px;
+}
+
+.relay-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.relay-chip {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 52px;
+  padding: 3px 6px;
+  border: 1px solid rgba(174, 199, 231, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 10px;
+  font-weight: 850;
+  overflow: hidden;
+}
+
+.relay-chip.blue {
+  border-color: rgba(56, 213, 255, 0.35);
+}
+
+.relay-chip.red {
+  border-color: rgba(255, 95, 126, 0.35);
+}
+
+.relay-chip.contested {
+  border-color: rgba(255, 202, 87, 0.5);
+}
+
+.relay-letter {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  text-align: center;
+  color: var(--text);
+}
+
+.relay-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  opacity: 0.35;
+  border-radius: inherit;
+}
+
+.relay-pct {
+  position: relative;
+  z-index: 1;
+  color: var(--muted);
+}
+
+.player-status-list {
+  gap: 12px;
+}
+
+.team-card {
+  gap: 8px;
+  padding: 10px;
+}
+
+.team-empty {
+  padding: 6px 8px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.team-player {
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.team-player-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.team-player-body strong {
+  font-size: 12px;
+}
+
+.team-player-status {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(174, 199, 231, 0.12);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.team-player-status.ready {
+  background: rgba(103, 224, 138, 0.18);
+  color: var(--green);
+}
+
+.team-player-status.building {
+  background: rgba(255, 202, 87, 0.18);
+  color: var(--amber);
+}
+
+.team-player-status.disconnected {
+  background: rgba(255, 95, 126, 0.18);
+  color: var(--red);
+}
+
+.team-player-status.in-match {
+  background: rgba(56, 213, 255, 0.18);
+  color: var(--cyan);
+}
+
+.team-player-metrics {
+  gap: 4px;
+}
+
+.team-player-metrics span {
+  padding: 2px 5px;
+  border: 1px solid rgba(174, 199, 231, 0.1);
+  border-radius: 4px;
+  background: rgba(7, 12, 20, 0.4);
+  color: #aebbd0;
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.player-color {
+  width: 8px;
+  height: 32px;
+}
+
+.combat-log {
+  border: 1px solid rgba(174, 199, 231, 0.14);
+  border-radius: 8px;
+  background: rgba(10, 15, 25, 0.5);
+}
+
+.combat-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.combat-log-head h2 {
+  font-size: 13px;
+}
+
+#combatLogToggle {
+  min-height: 26px;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+
+.event-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 10px 8px;
+  margin-top: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.event-log .log-entry {
+  padding: 4px 6px;
+  border-left: 2px solid rgba(56, 213, 255, 0.35);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.event-log .log-entry.warning {
+  border-left-color: var(--amber);
+}
+
+.event-log .log-entry.error {
+  border-left-color: var(--red);
+}
+
+.event-log .log-entry.good {
+  border-left-color: var(--green);
+}
+
+.combat-log[data-expanded="false"] .event-log {
+  max-height: 28px;
+  overflow: hidden;
+}
+
+.event-log .log-entry.red {
+  border-left-color: var(--red);
+}
+
+.event-log .log-entry.blue {
+  border-left-color: var(--cyan);
+}
+
+.toast.red {
+  border-left-color: var(--red);
+}
+
+.toast.blue {
+  border-left-color: var(--cyan);
+}

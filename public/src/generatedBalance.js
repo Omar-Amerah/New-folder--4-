@@ -1402,15 +1402,17 @@ export const GENERATED_BALANCE = {
         "height": 3
       },
       "proximityCharge": {
-        "triggerRadius": 100,
-        "triggerConfirmationSeconds": 0.2,
         "blastRadius": 280,
-        "centreDamage": 800,
+        "splashCentreDamage": 1000,
         "falloffExponent": 2,
-        "maxAffectedComponents": 6,
-        "internalDamageReduction": 0.7
+        "directContactMultiplier": 1.5,
+        "directContactHullDamage": 1500,
+        "contactMaxAffectedComponents": 10,
+        "splashMaxAffectedComponents": 6,
+        "contactInternalDamageReduction": 0.35,
+        "splashInternalDamageReduction": 0.7
       },
-      "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team."
+      "description": "Contact-triggered kamikaze charge. Armed by default, it detonates the instant the carrier's hull touches an enemy ship. The shaped blast bypasses shields, destroys the carrier, and damages all nearby entities regardless of team."
     },
     {
       "id": "electronicWarfareCommandCentre",

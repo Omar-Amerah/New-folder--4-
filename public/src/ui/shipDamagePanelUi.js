@@ -20,7 +20,7 @@ import { shipHeatPercent, formatHeatPercent, checkShipHeatConsistency } from "..
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { send } from "../network.js";
-import { showToast } from "./toastUi.js";
+import { notify } from "./toastUi.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -693,19 +693,18 @@ function bindOnce() {
     const key = droneCommandKey(ship.id, componentId);
     if (pendingDroneBayCommands.has(key)) return;
     if (!send({ type: "setDroneBayMode", shipId: ship.id, componentId, mode })) {
-      showToast("Drone command not sent: connection unavailable.", "warning");
+      notify.warning("Drone command not sent: connection unavailable.", { key: `drone-send:${key}` });
       return;
     }
     const pending = { mode, at: performance.now() };
     pendingDroneBayCommands.set(key, pending);
-    showToast(`${droneTypeLabel(bay)} drones ${mode === "recalled" ? "recalling" : "deploying"}.`, "good");
     renderDroneSummary(ship);
     setTimeout(() => {
       if (pendingDroneBayCommands.get(key) !== pending) return;
       pendingDroneBayCommands.delete(key);
       const current = selectedSingleShip();
       if (current?.id === ship.id) renderDroneSummary(current);
-      showToast("Drone command was not confirmed. Check the connection and try again.", "warning");
+      notify.warning("Drone command was not confirmed. Check the connection and try again.", { key: `drone-timeout:${key}` });
     }, DRONE_COMMAND_TIMEOUT_MS);
   });
   for (const tab of statusTabs()) tab?.addEventListener("keydown", handleStatusTabKeydown);

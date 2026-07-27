@@ -162,8 +162,8 @@ function updatePixiShieldRing(view, ship, zoom, displayedShield = ship?.shield) 
 
   const color = pixiShieldColorForRatio(ratio);
   const highlightColor = brightenPixiShieldColor(color);
-  const baseLineWidth = Math.max(1.7, ringRadius * 0.04) / zoom;
-  const lineWidth = baseLineWidth * (0.72 + ratio * 0.28);
+  const lineWidth = Math.max(1.7, ringRadius * 0.04);
+  const fieldRadius = ringRadius + Math.max(2.5, ringRadius * 0.06);
   const ringAlpha = 0.24 + ratio * 0.46;
   const fieldAlpha = 0.018 + ratio * 0.055;
   const phase = pixiShieldIdPhase(ship.id);
@@ -172,7 +172,7 @@ function updatePixiShieldRing(view, ship, zoom, displayedShield = ship?.shield) 
 
   // Faint transparent shield field: one persistent Graphics object is redrawn in
   // place, with no filters/textures or per-frame display object allocation.
-  gfx.circle(0, 0, ringRadius + lineWidth * 2.2);
+  gfx.circle(0, 0, fieldRadius);
   gfx.fill({ color, alpha: fieldAlpha });
 
   // Continuous main ring; shield strength is represented by opacity/thickness

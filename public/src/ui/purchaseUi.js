@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { showToast } from "./toastUi.js";
+import { addLog, notify } from "./toastUi.js";
 import { send } from "../network.js";
 import { computeStats } from "../design/componentStats.js";
 import { validateBlueprint, isConnected } from "../design/blueprintValidation.js";
@@ -98,7 +98,7 @@ export function buyPurchaseOption(optionId) {
   // Never buy while the client and server disagree on gameplay balance.
   if (isBalanceIncompatible()) {
     setPurchaseError(optionId, "Balance out of date — refresh");
-    showToast(balanceBlockMessage(), "error");
+    notify.error(balanceBlockMessage(), { key: "balance-mismatch", keyTtl: 15000 });
     return;
   }
   if (!purchase.canBuy) {
@@ -108,9 +108,17 @@ export function buyPurchaseOption(optionId) {
 
   const requestId = makePurchaseRequestId();
   const timeoutId = setTimeout(() => {
-    state.pendingPurchases.delete(requestId);
+    const pending = state.pendingPurchases.get(requestId);
+    if (!pending || pending.settled) return;
+    pending.timedOut = true;
+    pending.timeoutId = setTimeout(() => {
+      if (!pending.settled) {
+        state.pendingPurchases.delete(requestId);
+        renderPurchaseBar();
+      }
+    }, 10000);
+    notify.warning("Request timeout");
     renderPurchaseBar();
-    showToast("Request timeout", "warning");
   }, 4500);
 
   state.pendingPurchases.set(requestId, {
@@ -165,14 +173,43 @@ export function reconcilePendingPurchasesWithSnapshot() {
   const money = currentMatchMoney(mine);
   const activeShips = mine.activeShips ?? 0;
   for (const [requestId, pending] of [...state.pendingPurchases]) {
+    if (pending.settled) continue;
     const age = performance.now() - pending.startedAt;
     const shipCountChanged = activeShips >= pending.activeShipsBefore + 1;
     const moneySpent = money <= pending.moneyBefore - Math.max(1, Math.floor((pending.totalCost || 0) * 0.5));
     if (age > 120 && (shipCountChanged || moneySpent)) {
+      pending.settled = true;
       clearPendingPurchase(requestId);
-      showToast(`Built ${pending.count} ship${pending.count === 1 ? "" : "s"}`, "good");
+      const text = `Built ${pending.count} ship${pending.count === 1 ? "" : "s"}${pending.totalCost ? ` for $${pending.totalCost}` : ""}`;
+      addLog(text, "good");
+      state.purchaseResults.set(pending.optionId, { text: "Built", until: performance.now() + 3000 });
     }
   }
+}
+
+export function handlePurchaseResult(message) {
+  const requestId = message.requestId;
+  const pending = requestId ? state.pendingPurchases.get(requestId) : null;
+  if (pending) {
+    pending.settled = true;
+    clearTimeout(pending.timeoutId);
+    state.pendingPurchases.delete(requestId);
+  }
+  if (message.ok) {
+    const count = Number(message.count) || pending?.count || 1;
+    const totalCost = Number(message.totalCost) || pending?.totalCost || 0;
+    const text = `Built ${count} ship${count === 1 ? "" : "s"}${totalCost ? ` for $${totalCost}` : ""}`;
+    addLog(text, "good");
+    if (pending?.optionId) {
+      state.purchaseResults.set(pending.optionId, { text: "Built", until: performance.now() + 3000 });
+    }
+  } else {
+    const reason = message.message || "Purchase failed";
+    if (pending?.optionId) setPurchaseError(pending.optionId, reason);
+    notify.error(reason);
+  }
+  renderPurchaseBar();
+  updateEconomyUi();
 }
 
 export function setPurchaseError(optionId, message) {
@@ -194,14 +231,14 @@ export function updateEconomyUi() {
   const income = mine?.income ?? 0;
   const myTeam = mine?.team;
   const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
-  const canReady = state.phase === "design" && !mine?.ready && localStatus.blockers.length === 0;
+  const canReady = state.phase === "design" && !mine?.ready;
   const canSaveActiveDesign = state.phase === "active" && Boolean(mine?.ready);
 
   if (dom.incomeHud) {
     dom.incomeHud.textContent = `+$${Math.round(income)}/s`;
     dom.incomeHud.title = mine?.ready
       ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
-      : "Ready with a valid starting design to begin earning money.";
+      : "Ready up to begin earning money.";
   }
   dom.deployButton.hidden = state.phase !== "design";
   dom.deployButton.disabled = !canReady;
@@ -300,7 +337,7 @@ export function setActiveLoadout(id) {
 export function addLoadout() {
   if (!state.loadouts) state.loadouts = [];
   if (state.loadouts.length >= 8) {
-    showToast("Loadout limit reached (8).", "warning");
+    notify.warning("Loadout limit reached (8).");
     return;
   }
   const loadout = { id: makeDesignId(), name: `Loadout ${state.loadouts.length + 1}`, designIds: [] };
@@ -317,7 +354,7 @@ export function duplicateLoadout(id) {
   const source = (state.loadouts || []).find((lo) => lo.id === id);
   if (!source) return;
   if (state.loadouts.length >= 8) {
-    showToast("Loadout limit reached (8).", "warning");
+    notify.warning("Loadout limit reached (8).");
     return;
   }
   const copy = { id: makeDesignId(), name: `${source.name} Copy`.slice(0, 20), designIds: [...source.designIds] };
@@ -327,7 +364,6 @@ export function duplicateLoadout(id) {
   state.loadoutEditMode = false;
   persistActiveLoadoutId(copy.id);
   renderLoadouts();
-  showToast(`Duplicated "${source.name}"`, "good");
 }
 
 export function deleteLoadout(id) {
@@ -392,10 +428,17 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
   const validity = validateBlueprintForPurchase(option.blueprint, option);
   const pending = getPendingPurchaseForOption(option.id);
   const error = state.purchaseErrors.get(option.id);
+  const completed = state.purchaseResults.get(option.id);
+  let completedText = "";
+  if (completed) {
+    if (completed.until > performance.now()) completedText = completed.text;
+    else state.purchaseResults.delete(option.id);
+  }
   let reason = "";
 
-  if (pending) reason = "Building...";
+  if (pending) reason = pending.timedOut ? "Request timeout" : "Building...";
   else if (error) reason = error.message || "Purchase failed";
+  else if (completedText) reason = "";
   else if (state.phase !== "active") reason = "Match not active";
   else if (!mine?.ready) reason = "Complete your starting ship first";
   else if (!validity.ok) reason = validity.reason;
@@ -410,7 +453,8 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
     totalCost,
     pending,
     error,
-    canBuy: reason === "",
+    completedText,
+    canBuy: reason === "" && !completedText,
     reason
   };
 }
@@ -521,6 +565,7 @@ export function renderPurchaseBar() {
 
 export function purchaseStatusText(optionState) {
   if (optionState.pending) return "Building…";
+  if (optionState.completedText) return optionState.completedText;
   if (optionState.error) return `Purchase failed — ${optionState.reason || "Server rejected request"}`;
   if (optionState.canBuy) return "Available to build";
   const reason = optionState.reason || "Not available";
@@ -683,10 +728,9 @@ function bindLoadoutMenuDropdown(menu) {
   const positionDropdown = () => {
     if (!menu.open) return;
     const rect = summary.getBoundingClientRect();
-    const width = dropdown.offsetWidth || 120;
-    let left = rect.right - width;
-    let top = rect.bottom + 2;
-    // Keep inside viewport.
+    const width = dropdown.offsetWidth || 150;
+    let left = rect.right - width + 55;
+    let top = rect.bottom + 4;
     if (left < 4) left = 4;
     if (left + width > window.innerWidth - 4) left = window.innerWidth - width - 4;
     dropdown.style.left = `${left}px`;

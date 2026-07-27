@@ -1,7 +1,7 @@
 // Bootstraps the browser client by wiring state, networking, UI, input, and rendering.
 
 import { applyShipEconomy, applyWiringInfrastructure } from "./constants.js";
-import { showToast } from "./ui/toastUi.js";
+import { notify } from "./ui/toastUi.js";
 import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
 import { renderPalette, setPartPaletteSelectionPresentationRefresh } from "./ui/partPaletteUi.js";
@@ -104,9 +104,7 @@ dom.undoBlueprintEditButton?.addEventListener("click", undoBlueprintEdit);
 dom.copyCodeButton?.addEventListener("click", () => {
   if (!navigator.clipboard?.writeText) return;
   navigator.clipboard.writeText(state.room);
-  import("./ui/toastUi.js").then((toastMod) => {
-    toastMod.showToast("Room code copied", "good");
-  });
+  notify.clipboard("Room code copied");
 });
 
 dom.keybindsButton?.addEventListener("click", () => {
@@ -127,22 +125,12 @@ dom.copyButton.addEventListener("click", () => {
   if (configuredServer) url.searchParams.set("server", configuredServer);
   const text = state.room ? `${url.toString()}  Room: ${state.room}` : url.toString();
   if (!navigator.clipboard?.writeText) {
-    import("./ui/toastUi.js").then((toastMod) => {
-      toastMod.addNotice("Clipboard unavailable", "warning");
-    });
+    notify.clipboard("Clipboard unavailable", false);
     return;
   }
   navigator.clipboard.writeText(text).then(
-    () => {
-      import("./ui/toastUi.js").then((toastMod) => {
-        toastMod.addNotice("Invite copied", "good");
-      });
-    },
-    () => {
-      import("./ui/toastUi.js").then((toastMod) => {
-        toastMod.addNotice("Clipboard unavailable", "warning");
-      });
-    }
+    () => notify.clipboard("Invite copied"),
+    () => notify.clipboard("Clipboard unavailable", false)
   );
 });
 
@@ -287,13 +275,13 @@ async function loadComponentBalance() {
     if (!response.ok) {
       // Fetch failed: keep the packaged copy and surface a restrained warning.
       recordBalanceFetchFailure(`HTTP ${response.status}`);
-      showToast("Live game balance could not be confirmed; using the built-in copy.", "warning");
+      notify.warning("Live game balance could not be confirmed; using the built-in copy.", { key: "balance-fetch" });
       return;
     }
     balance = await response.json();
   } catch (error) {
     recordBalanceFetchFailure(String(error?.message || error));
-    showToast("Live game balance could not be confirmed; using the built-in copy.", "warning");
+    notify.warning("Live game balance could not be confirmed; using the built-in copy.", { key: "balance-fetch" });
     return;
   }
 
@@ -303,7 +291,7 @@ async function loadComponentBalance() {
   const result = acceptDownloadedBalance(balance);
   if (!result.ok) {
     console.error("[mfa] Rejected live component balance:", result.errors.join("; "));
-    showToast("Live game balance was invalid; using the built-in copy.", "warning");
+    notify.warning("Live game balance was invalid; using the built-in copy.", { key: "balance-fetch" });
     return;
   }
 

@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { showToast } from "./toastUi.js";
+import { notify } from "./toastUi.js";
 import { updateHud } from "./hudUi.js";
 import { send, recordNetworkEvent } from "../network.js";
 import { ownLiveShips, pruneSelection } from "../game/selection.js";
@@ -67,7 +67,7 @@ export function handleShipGroupListChange(event) {
 
 export function beginRallyPointPlacement() {
   if (state.phase !== "active") {
-    showToast("Rally point is available during the match.", "warning");
+    notify.warning("Rally point is available during the match.");
     return;
   }
   state.settingRallyPoint = !state.settingRallyPoint;
@@ -295,7 +295,7 @@ const MAX_COMBAT_STYLE_EXPLICIT_IDS = 360;
 function setSelectedCombatStyle(style) {
   if (!SELECTED_COMBAT_STYLES.some((item) => item.id === style)) return;
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN || state.phase !== "active") {
-    showToast("Style commands are only available during an active match.", "warning");
+    notify.warning("Style commands are only available during an active match.");
     return;
   }
   pruneSelection();
@@ -303,7 +303,7 @@ function setSelectedCombatStyle(style) {
   const ownIds = new Set(ownShips.map((ship) => ship.id));
   const shipIds = ownShips.filter((ship) => state.selectedShipIds.has(ship.id)).map((ship) => ship.id);
   if (shipIds.length === 0) {
-    showToast("Select ships before changing combat style.", "warning");
+    notify.warning("Select ships before changing combat style.");
     renderSelectionControls();
     return;
   }
@@ -321,7 +321,7 @@ function setSelectedCombatStyle(style) {
   }
   const sent = send(payload);
   if (!sent) {
-    showToast("Unable to send style command — connection is offline.", "warning");
+    notify.warning("Unable to send style command — connection is offline.", { key: `style-send:${requestId}` });
     recordNetworkEvent("notice", { message: "Style command failed to send (offline)", requestId, style });
     return;
   }
@@ -416,7 +416,7 @@ function reconcilePendingCombatStyle() {
   if (stale) {
     if (!pending.warned) {
       pending.warned = true;
-      showToast(pending.acknowledged ? "Style change acknowledged, but snapshot confirmation timed out." : "Style change request timed out without confirmation.", "warning");
+      notify.warning(pending.acknowledged ? "Style change acknowledged, but snapshot confirmation timed out." : "Style change request timed out without confirmation.", { key: `style-timeout:${pending.requestId}` });
       recordNetworkEvent("notice", { message: "Combat style request timed out", requestId: pending.requestId, style: pending.style });
     }
     state.pendingCombatStyle = null;
@@ -438,14 +438,9 @@ function renderSelectedSummary(selectedShips) {
   if (!dom.selectionPanelCount) return;
   reconcilePendingCombatStyle();
   const summary = selectedShipSummary(selectedShips);
-  let suffix = "";
-  const pending = state.pendingCombatStyle;
-  if (pending) {
-    suffix = ` · ${combatStyleLabel(pending.style)} Applying…`;
-  }
-  dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${combatStyleLabel(summary.style)}` : ""}${suffix}`;
+  dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${combatStyleLabel(summary.style)}` : ""}`;
   dom.selectionPanelCount.title = summary.text;
-  dom.selectionPanelCount.setAttribute("aria-label", summary.text + suffix);
+  dom.selectionPanelCount.setAttribute("aria-label", summary.text);
 }
 
 export function onCombatStyleResult(message) {
@@ -457,7 +452,7 @@ export function onCombatStyleResult(message) {
     renderSelectionControls();
   } else {
     state.pendingCombatStyle = null;
-    showToast(message.message || "Style change failed.", "error");
+    notify.error(message.message || "Style change failed.", { key: `style-failed:${message.requestId || "unknown"}` });
     recordNetworkEvent("error", { code: message.code || "style-failed", message: message.message || "Style change failed", requestId: message.requestId });
     renderSelectionControls();
   }

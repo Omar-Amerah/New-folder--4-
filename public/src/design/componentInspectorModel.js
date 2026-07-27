@@ -204,10 +204,14 @@ function capabilityRows(type, stat, family, context = {}) {
   if (type === "proximityDemolitionCharge" && stat.proximityCharge) {
     const cfg = stat.proximityCharge;
     return [
-      statRow("proximityCharge.triggerRadius", "Trigger Radius", formatDistance(cfg.triggerRadius)),
-      statRow("proximityCharge.confirmation", "Trigger Time", `${Number(cfg.triggerConfirmationSeconds).toFixed(1)} s`),
-      statRow("proximityCharge.blastRadius", "Blast Radius", formatDistance(cfg.blastRadius)),
-      statRow("proximityCharge.centreDamage", "Centre Damage", formatDamage(cfg.centreDamage))
+      statRow("proximityCharge.trigger", "Trigger", "Enemy hull contact"),
+      statRow("proximityCharge.directDamage", "Direct contact damage", formatDamage(cfg.directContactHullDamage)),
+      statRow("proximityCharge.splashDamage", "Splash centre damage", formatDamage(cfg.splashCentreDamage)),
+      statRow("proximityCharge.blastRadius", "Blast radius", formatDistance(cfg.blastRadius)),
+      statRow("proximityCharge.shieldBypass", "Shield interaction", "Bypasses shields"),
+      statRow("proximityCharge.carrierEffect", "Carrier effect", "Destroys entire ship"),
+      statRow("proximityCharge.friendlyFire", "Friendly fire", "Yes"),
+      statRow("proximityCharge.multiCharge", "Multiple charges", "100% / +50% / +25% / +10%")
     ];
   }
 

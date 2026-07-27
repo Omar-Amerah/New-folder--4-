@@ -140,15 +140,18 @@
       </section>
 
       <aside class="match-panel" aria-label="Match status">
-        <div class="section-heading">
-          <h2>Match</h2>
-          <span id="latencyText">-- ms</span>
-        </div>
-        <div class="match-meter" aria-label="Relay control">
-          <div class="match-meter-track">
-            <span id="matchProgressFill"></span>
+        <div class="match-card">
+          <div class="section-heading">
+            <h2>Match</h2>
+            <span id="latencyText" class="latency-badge">-- ms</span>
           </div>
-          <div id="matchSummary" class="match-summary">No Active Match</div>
+          <div class="match-meter" aria-label="Relay control">
+            <div class="match-meter-track">
+              <span id="matchProgressFill"></span>
+            </div>
+            <div id="matchSummary" class="match-summary">No Active Match</div>
+          </div>
+          <div id="relayChips" class="relay-chips"></div>
         </div>
         <div id="selectionPanel" class="selection-panel" aria-label="Selected ship controls">
           <div class="section-heading compact">
@@ -210,7 +213,13 @@
           </div>
         </div>
         <div id="playerStatusList" class="player-status-list"></div>
-        <div id="eventLog" class="event-log"></div>
+        <div class="combat-log" id="combatLog" data-expanded="true">
+          <div class="combat-log-head">
+            <h2>Combat Log</h2>
+            <button id="combatLogToggle" type="button" class="secondary" aria-expanded="true">Collapse</button>
+          </div>
+          <div id="eventLog" class="event-log"></div>
+        </div>
         <div class="screen-buttons" aria-label="Game screens">
           <button id="mainMenuButton" type="button" class="secondary">Menu</button>
           <button id="lobbyManagementButton" type="button" class="secondary">Lobby</button>
@@ -361,9 +370,9 @@
         <div class="menu-head"><div><span>Settings</span><h2>Preferences</h2></div><button id="settingsCloseButton" type="button" class="secondary">Close</button></div>
         <fieldset class="settings-group"><legend>Multiplayer Server</legend><label for="serverUrlInput">Server Address</label><input id="serverUrlInput" autocomplete="off" placeholder="https://your-render-service.onrender.com"><div class="utility-row"><button id="saveServerButton" type="button">Save Server</button><button id="clearServerButton" type="button" class="secondary">Use Current Host</button></div></fieldset>
         <fieldset class="settings-group"><legend>Graphics</legend><label for="renderQualitySelect">Render Quality</label><select id="renderQualitySelect"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><label class="checkbox-label" for="combatEffectsToggle"><input type="checkbox" id="combatEffectsToggle"> Show Combat Effects</label><label class="checkbox-label" for="debugOverlayToggle"><input type="checkbox" id="debugOverlayToggle"> Show Debug Overlay (F3)</label></fieldset>
-        <fieldset class="settings-group"><legend>Gameplay Preferences</legend><label for="settingsTeamSelect">Preferred Team</label><select id="settingsTeamSelect"><option value="blue">Blue Wing</option><option value="red">Red Wing</option></select><label class="checkbox-label" for="mobileTestingToggle"><input type="checkbox" id="mobileTestingToggle"> Mobile Testing Mode</label></fieldset>
+        <fieldset class="settings-group"><legend>Gameplay Preferences</legend><label for="settingsTeamSelect">Preferred Team</label><select id="settingsTeamSelect"><option value="blue">Blue Wing</option><option value="red">Red Wing</option></select></fieldset>
         <fieldset class="settings-group"><legend>Accessibility</legend><label class="checkbox-label" for="reducedMotionToggle"><input type="checkbox" id="reducedMotionToggle"> Reduce Motion</label><label for="interfaceScaleSelect">Interface Scale</label><select id="interfaceScaleSelect"><option value="0.9">Compact 90%</option><option value="1">Default 100%</option><option value="1.1">Large 110%</option><option value="1.2">Extra Large 120%</option></select></fieldset>
-        <fieldset class="settings-group"><legend>Storage and Recovery</legend><div id="storageStatus" class="storage-status" aria-live="polite"></div><div class="utility-row wrap"><button id="resetSettingsButton" type="button" class="secondary">Reset Settings</button><button id="clearCurrentBlueprintButton" type="button" class="secondary">Clear Current Blueprint</button><button id="clearSavedBlueprintsButton" type="button" class="secondary">Clear Saved Blueprints and Loadouts</button><button id="forgetRecoverableRoomButton" type="button" class="secondary">Forget Recoverable Room</button></div><div class="utility-row wrap"><button id="exportBlueprintsButton" type="button">Export Blueprints</button><button id="importBlueprintsButton" type="button" class="secondary">Import Blueprints</button><input id="importBlueprintsInput" type="file" accept="application/json,.json" hidden></div></fieldset>
+        <fieldset class="settings-group"><legend>Storage and Recovery</legend><div class="utility-row wrap"><button id="resetSettingsButton" type="button" class="secondary">Reset Settings</button><button id="clearCurrentBlueprintButton" type="button" class="secondary">Clear Current Blueprint</button><button id="clearSavedBlueprintsButton" type="button" class="secondary">Clear Saved Blueprints and Loadouts</button><button id="forgetRecoverableRoomButton" type="button" class="secondary">Forget Recoverable Room</button></div><div class="utility-row wrap"><button id="exportBlueprintsButton" type="button">Export Blueprints</button><button id="importBlueprintsButton" type="button" class="secondary">Import Blueprints</button><input id="importBlueprintsInput" type="file" accept="application/json,.json" hidden></div></fieldset>
       </div>
     </section>
 

@@ -6,7 +6,7 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { send, getSocketUrl, getConfiguredServerUrl, connect, disableReconnect, withClientProtocol } from "../network.js";
 import { synchronizeTelemetryFocus } from "../telemetryFocus.js";
-import { showToast } from "./toastUi.js";
+import { notify } from "./toastUi.js";
 import { isBalanceIncompatible, balanceBlockMessage } from "../balanceStatus.js";
 import { renderSavedDesigns } from "./savedBlueprintsUi.js";
 import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
@@ -271,7 +271,7 @@ function handleTeamSelectChange() {
     if (!sent) {
       pendingTeamChange = null;
       setTeamSelectValue(myTeam);
-      showToast("Team change could not be sent. Please check your connection.", "error");
+      notify.error("Team change could not be sent. Please check your connection.");
     }
   }
 }
@@ -505,16 +505,6 @@ export function deployDesign() {
   const ready = mine?.ready;
 
   if (isDesignStage && !ready) {
-    if (isBalanceIncompatible()) {
-      showToast(balanceBlockMessage(), "error");
-      return;
-    }
-    if (state.designNeedsAttention) {
-      showToast("Invalid design: review and save the repaired blueprint before deployment.", "warning");
-      renderBuildGrid();
-      renderLocalStats();
-      return;
-    }
     // Deploying during the design phase marks the player ready server-side;
     // there is no separate "ready" message in the protocol.
     send({
@@ -672,7 +662,6 @@ export function saveServerSetting() {
   if (value) {
     persistPreferences({ ...loadPreferences().preferences, serverUrl: value });
     localStorage.setItem(LOCAL_SERVER_KEY, value);
-    showToast("Server URL saved", "good");
   } else {
     clearServerSetting();
     return;
@@ -687,7 +676,6 @@ export function clearServerSetting() {
   persistPreferences({ ...loadPreferences().preferences, serverUrl: "" });
   localStorage.removeItem(LOCAL_SERVER_KEY);
   if (dom.serverUrlInput) dom.serverUrlInput.value = "";
-  showToast("Using default server URL", "warning");
   syncUrlParams();
   if (typeof window !== "undefined" && typeof window.location?.reload === "function") {
     window.location.reload();
@@ -824,7 +812,6 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
     if (dom.mobileTestingToggle) {
       dom.mobileTestingToggle.addEventListener("change", (e) => {
         setMobileTestingModeEnabled(e.target.checked);
-        showToast(`Mobile testing mode ${e.target.checked ? "on" : "off"}`, e.target.checked ? "good" : "warning");
       });
     }
     if (dom.teamSelect) {
@@ -866,13 +853,14 @@ export function bindSettingsRecoveryControls() {
     try {
       const result = importBlueprints(JSON.parse(await file.text()), state.savedDesigns, state.loadouts);
       if (result.incompatibleVersion) {
-        showToast("This export file uses an old blueprint format without wiring and cannot be imported.", "error");
+        notify.error("This export file uses an old blueprint format without wiring and cannot be imported.");
         event.target.value = "";
         return;
       }
       state.savedDesigns = result.designs; state.loadouts = result.loadouts;
-      persistSavedDesigns(state.savedDesigns); persistLoadouts(state.loadouts); renderSavedDesigns(); renderPurchaseBar(); showToast(`Imported ${result.acceptedDesigns ?? result.accepted} blueprints and ${result.acceptedLoadouts ?? 0} loadouts. Skipped ${result.rejectedDesigns ?? result.rejected} blueprint${(result.rejectedDesigns ?? result.rejected) === 1 ? "" : "s"} and ${result.rejectedLoadouts ?? 0} loadout${(result.rejectedLoadouts ?? 0) === 1 ? "" : "s"}.`, (result.rejectedDesigns || result.rejectedLoadouts || result.rejected) ? "warning" : "good");
-    } catch { showToast("Blueprint import file was not valid JSON", "error"); }
+      persistSavedDesigns(state.savedDesigns); persistLoadouts(state.loadouts); renderSavedDesigns(); renderPurchaseBar();
+      notify.log(`Imported ${result.acceptedDesigns ?? result.accepted} blueprints and ${result.acceptedLoadouts ?? 0} loadouts. Skipped ${result.rejectedDesigns ?? result.rejected} blueprint${(result.rejectedDesigns ?? result.rejected) === 1 ? "" : "s"} and ${result.rejectedLoadouts ?? 0} loadout${(result.rejectedLoadouts ?? 0) === 1 ? "" : "s"}.`, (result.rejectedDesigns || result.rejectedLoadouts || result.rejected) ? "warning" : "good");
+    } catch { notify.error("Blueprint import file was not valid JSON"); }
     event.target.value = "";
   });
 }

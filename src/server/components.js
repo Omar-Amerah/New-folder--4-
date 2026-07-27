@@ -149,13 +149,15 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
       : null,
     proximityCharge: component.proximityCharge && typeof component.proximityCharge === "object"
       ? Object.freeze({
-          triggerRadius: toNumber(component.proximityCharge.triggerRadius, 100),
-          triggerConfirmationSeconds: toNumber(component.proximityCharge.triggerConfirmationSeconds, 0.2),
           blastRadius: toNumber(component.proximityCharge.blastRadius, 280),
-          centreDamage: toNumber(component.proximityCharge.centreDamage, 800),
+          splashCentreDamage: toNumber(component.proximityCharge.splashCentreDamage, 1000),
           falloffExponent: toNumber(component.proximityCharge.falloffExponent, 2),
-          maxAffectedComponents: toNumber(component.proximityCharge.maxAffectedComponents, 6),
-          internalDamageReduction: toNumber(component.proximityCharge.internalDamageReduction, 0.7)
+          directContactMultiplier: toNumber(component.proximityCharge.directContactMultiplier, 1.5),
+          directContactHullDamage: toNumber(component.proximityCharge.directContactHullDamage, 1500),
+          contactMaxAffectedComponents: toNumber(component.proximityCharge.contactMaxAffectedComponents, 10),
+          splashMaxAffectedComponents: toNumber(component.proximityCharge.splashMaxAffectedComponents, 6),
+          contactInternalDamageReduction: toNumber(component.proximityCharge.contactInternalDamageReduction, 0.35),
+          splashInternalDamageReduction: toNumber(component.proximityCharge.splashInternalDamageReduction, 0.7)
         })
       : null,
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }

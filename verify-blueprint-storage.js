@@ -366,7 +366,7 @@ function resetSaveOrderingHarness() {
   await saveCurrentDesign();
   assert.equal(state.designNeedsAttention, false, "successful repaired save clears repair warning");
   assert.deepEqual(state.designNormalizationIssues, [], "successful repaired save clears diagnostics");
-  assert.ok(toasts.some((toast) => toast.textContent === "Repaired blueprint saved. It can now be deployed."), "successful repaired save shows success toast");
+  assert.ok(!toasts.some((toast) => toast.textContent === "Repaired blueprint saved. It can now be deployed."), "successful repaired save does not show success toast");
   assert.equal(sent.length, 1, "successful repaired save may deploy in an active game");
 }
 
