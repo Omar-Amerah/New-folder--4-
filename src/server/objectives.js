@@ -1,6 +1,6 @@
 // Controls relay capture progress, capture rewards, and full-control victory.
 
-const { ECONOMY } = require("./config");
+const { ECONOMY, TEAM_COLORS } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 const { effectiveComponentBonus } = require("./heat");
 
@@ -149,7 +149,8 @@ function updateControlVictory(room, now) {
     }
 
     if (room.controlVictory?.playerId !== controllingPlayerId) {
-      const playerName = room.players.get(controllingPlayerId)?.name || "A player";
+      const player = room.players.get(controllingPlayerId);
+      const playerName = player?.name || "A player";
       room.controlVictory = {
         team: null,
         playerId: controllingPlayerId,
@@ -159,7 +160,8 @@ function updateControlVictory(room, now) {
       };
       broadcastRoom(room, {
         type: "notice",
-        message: `${playerName} controls all relays. Victory countdown started.`
+        message: `${playerName} controls all relays. Victory countdown started.`,
+        color: player?.color || null
       });
       return;
     }
@@ -189,7 +191,8 @@ function updateControlVictory(room, now) {
     const teamName = teamLabel(room, controllingTeam, `Wing ${controllingTeam}`);
     broadcastRoom(room, {
       type: "notice",
-      message: `${teamName} controls all relays. Victory countdown started.`
+      message: `${teamName} controls all relays. Victory countdown started.`,
+      color: TEAM_COLORS[controllingTeam] || null
     });
     return;
   }

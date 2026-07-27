@@ -8,7 +8,7 @@ const { getRoute } = require("./routeRegistry");
 const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemetryFocusForRoom } = require("./relationships");
 
 const RATE_LIMITS = {
-  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
+  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "rotate", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
   management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
 };
 function bucketForType(type) {
@@ -58,7 +58,7 @@ function handleMessage(client, message) {
   const { computeStats } = require("./shipStats");
   const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
-  const { commandShips, stopShips } = require("./movement");
+  const { commandShips, stopShips, rotateShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
   const { MAX_COMBAT_SELECTED_SHIP_IDS, selectOwnedLivingShips } = require("./selection");
   const { addBot } = require("./ships");
@@ -325,6 +325,13 @@ function handleMessage(client, message) {
     if (client.room.phase !== "active") return;
     const shipIds = Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined;
     stopShips(client.room, client.player, shipIds);
+    return;
+  }
+
+  if (message.type === "rotate") {
+    if (client.room.phase !== "active") return;
+    const shipIds = Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined;
+    rotateShips(client.room, client.player, message.direction, shipIds, message.active !== false);
     return;
   }
 

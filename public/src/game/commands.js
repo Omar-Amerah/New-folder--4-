@@ -74,6 +74,18 @@ export function selectedShipIdsForCommand() {
   return ownLiveShips().map((ship) => ship.id);
 }
 
+export function rotateSelectedShips(direction, active = true) {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return false;
+  if (state.phase !== "active") return false;
+  if (direction !== 1 && direction !== -1) return false;
+  pruneSelection();
+  const shipIds = [...state.selectedShipIds];
+  if (active && shipIds.length === 0) return false;
+  if (shipIds.length === 0 && !active) return false;
+  if (!send({ type: "rotate", direction, active, shipIds })) return false;
+  return true;
+}
+
 export function showCommandMarker(clientX, clientY, kind = "move") {
   const rect = dom.canvas.getBoundingClientRect();
   dom.marker.hidden = false;

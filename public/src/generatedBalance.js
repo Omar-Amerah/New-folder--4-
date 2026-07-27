@@ -1403,10 +1403,10 @@ export const GENERATED_BALANCE = {
       },
       "proximityCharge": {
         "blastRadius": 280,
-        "splashCentreDamage": 1000,
+        "splashCentreDamage": 1500,
         "falloffExponent": 2,
         "directContactMultiplier": 1.5,
-        "directContactHullDamage": 1500,
+        "directContactHullDamage": 2250,
         "contactMaxAffectedComponents": 10,
         "splashMaxAffectedComponents": 6,
         "contactInternalDamageReduction": 0.35,

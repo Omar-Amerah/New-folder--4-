@@ -29,8 +29,22 @@ function blockToastKey(key, ttl = 5000) {
   }, ttl + 100);
 }
 
+function syncToastModalClass() {
+  if (!dom.toastStack) return;
+  const modalOpen = (dom.confirmModal && !dom.confirmModal.hidden) ||
+                    (dom.keybindsModal && !dom.keybindsModal.hidden);
+  dom.toastStack.classList.toggle("modal-open", modalOpen);
+}
+
+if (typeof MutationObserver !== "undefined") {
+  const toastModalObserver = new MutationObserver(syncToastModalClass);
+  if (dom.confirmModal) toastModalObserver.observe(dom.confirmModal, { attributes: true, attributeFilter: ["hidden"] });
+  if (dom.keybindsModal) toastModalObserver.observe(dom.keybindsModal, { attributes: true, attributeFilter: ["hidden"] });
+}
+
 export function showToast(text, toneOrOptions = "") {
   if (!dom.toastStack || !text) return;
+  syncToastModalClass();
   const options = typeof toneOrOptions === "string" ? { tone: toneOrOptions } : toneOrOptions || {};
   const tone = options.tone || "";
   const key = options.key;
@@ -39,6 +53,7 @@ export function showToast(text, toneOrOptions = "") {
   const duration = options.duration ?? DURATIONS[tone] ?? DURATIONS.routine;
   const toast = document.createElement("div");
   toast.className = `toast ${tone}`.trim();
+  if (options.color) toast.style.borderLeftColor = options.color;
   toast.textContent = text;
   if (options.role) toast.setAttribute("role", options.role);
   dom.toastStack.prepend(toast);

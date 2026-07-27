@@ -163,6 +163,7 @@ function computeStats(modules, wiring = null) {
   return {
     cost,
     unitCost,
+    radius: round(radius),
     mass: round(mass),
     maxHp: Math.max(140, Math.round(maxHp * 1.15)),
     maxShield: Math.round(shieldStats.capacity),

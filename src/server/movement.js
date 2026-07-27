@@ -144,6 +144,8 @@ function commandShips(room, player, x, y, options = {}) {
   const center = computeFleetCenter(ships);
 
   for (const ship of ships) {
+    ship.facingTarget = null;
+    ship.rotationInput = null;
     if (isEnemy) {
       ship.focusTargetId = target.id;
       ship.repairTargetId = null;
@@ -222,9 +224,37 @@ function stopShips(room, player, shipIds) {
     ship.arrived = true;
     ship.formationPlan = null;
     ship.formationSlotIndex = null;
+    ship.rotationInput = null;
     clearOrbitState(ship);
   }
   return { ok: true, code: 'stopped', stopped: ships.length };
+}
+
+function rotateShips(room, player, direction, shipIds, active = true) {
+  const selection = selectOwnedLivingShips(player, shipIds);
+  if (!selection.ok) return { ok: false, code: selection.code, rotated: 0 };
+  if (selection.explicit && selection.ids.size === 0) return { ok: true, code: 'empty-selection', rotated: 0 };
+  const ships = selection.ships;
+  if (ships.length === 0) return { ok: true, code: 'no-authorized-ships', rotated: 0 };
+
+  for (const ship of ships) {
+    if (active) {
+      ensureMoveTarget(ship);
+      ship.targetX = ship.x;
+      ship.targetY = ship.y;
+      ship.commandMode = 'stop';
+      ship.arrived = true;
+      ship.focusTargetId = null;
+      ship.repairTargetId = null;
+      ship.formationPlan = null;
+      ship.formationSlotIndex = null;
+      clearOrbitState(ship);
+      ship.rotationInput = direction;
+    } else {
+      ship.rotationInput = null;
+    }
+  }
+  return { ok: true, code: 'rotated', rotated: ships.length };
 }
 
 function updateShipMovement(room, ship, dt) {
@@ -634,6 +664,17 @@ function segmentCircleClearance(x1, y1, x2, y2, cx, cy, radius) {
 }
 
 function rotateHullForCombat(room, ship, stats, target, dt) {
+  if (Number.isFinite(ship.rotationInput)) {
+    const desired = ship.angle + ship.rotationInput * (Math.PI - 1e-9);
+    rotateShipToward(ship, desired, stats, dt);
+    return;
+  }
+
+  if (Number.isFinite(ship.facingTarget)) {
+    rotateShipToward(ship, ship.facingTarget, stats, dt);
+    return;
+  }
+
   let combatTarget = target;
 
   if (!combatTarget) {
@@ -992,6 +1033,7 @@ function findOptimalHullAngle(ship, target) {
 module.exports = {
   commandShips,
   stopShips,
+  rotateShips,
   updateShipMovement,
   updateShipSeparation,
   resolveFleetMapCollisions,

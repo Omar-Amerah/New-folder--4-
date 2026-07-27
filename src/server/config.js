@@ -75,6 +75,11 @@ const TEAM_NAMES = Object.freeze({
   red: "Red wing"
 });
 
+const TEAM_COLORS = Object.freeze({
+  blue: "#38d5ff",
+  red: "#ff5f7e"
+});
+
 const BOT_NAMES = [
   "Vector",
   "Kepler",
@@ -160,6 +165,7 @@ module.exports = {
   MIME,
   COLORS,
   TEAM_NAMES,
+  TEAM_COLORS,
   BOT_NAMES,
   MAP_NAMES,
   MAP_CLOUD_COLORS,

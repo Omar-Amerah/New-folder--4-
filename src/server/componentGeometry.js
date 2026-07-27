@@ -112,7 +112,9 @@ function getShipCollisionGeometry(ship) {
     cache.y = y;
   }
 
-  const radius = Number(ship.radius) || 0;
+  const radius = Number.isFinite(Number(ship.radius))
+    ? Number(ship.radius)
+    : (Number(ship.stats?.radius) || 0);
   if (cache.radius !== radius || cache.x !== x || cache.y !== y) {
     cache.radius = radius;
     cache.shieldRadius = shieldRadiusForShip(ship);

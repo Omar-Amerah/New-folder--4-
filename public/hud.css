@@ -16,6 +16,7 @@
   min-width: 0;
   overflow: hidden;
   background: #02050b;
+  --minimap-bottom: 220px;
 }
 
 #arenaCanvas {
@@ -554,14 +555,19 @@
 }
 
 .toast-stack {
-  position: fixed;
+  position: absolute;
   right: 14px;
-  top: 76px;
+  top: calc(var(--minimap-bottom, 220px) + 10px);
   z-index: 90;
   display: grid;
   gap: 8px;
   width: min(320px, calc(100% - 28px));
   pointer-events: none;
+}
+
+.toast-stack.modal-open {
+  position: fixed;
+  top: 76px;
 }
 
 .toast {
@@ -860,7 +866,8 @@
     box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
   }
 
-  .toast-stack {
+  .toast-stack,
+  .toast-stack.modal-open {
     top: auto;
     bottom: 112px;
   }

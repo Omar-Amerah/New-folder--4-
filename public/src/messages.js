@@ -131,7 +131,7 @@ function routeServerNotice(message) {
   const tone = noticeTone(text, message.team);
   const key = urgentNoticeKey(text);
   if (key) {
-    notify.urgent(text, { key });
+    notify.urgent(text, { key, color: message.color || undefined });
     return;
   }
   addLog(text, tone);

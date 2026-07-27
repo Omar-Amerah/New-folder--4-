@@ -2,7 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { addLog, notify } from "./toastUi.js";
+import { notify } from "./toastUi.js";
 import { send } from "../network.js";
 import { computeStats } from "../design/componentStats.js";
 import { validateBlueprint, isConnected } from "../design/blueprintValidation.js";
@@ -180,9 +180,6 @@ export function reconcilePendingPurchasesWithSnapshot() {
     if (age > 120 && (shipCountChanged || moneySpent)) {
       pending.settled = true;
       clearPendingPurchase(requestId);
-      const text = `Built ${pending.count} ship${pending.count === 1 ? "" : "s"}${pending.totalCost ? ` for $${pending.totalCost}` : ""}`;
-      addLog(text, "good");
-      state.purchaseResults.set(pending.optionId, { text: "Built", until: performance.now() + 3000 });
     }
   }
 }
@@ -195,15 +192,7 @@ export function handlePurchaseResult(message) {
     clearTimeout(pending.timeoutId);
     state.pendingPurchases.delete(requestId);
   }
-  if (message.ok) {
-    const count = Number(message.count) || pending?.count || 1;
-    const totalCost = Number(message.totalCost) || pending?.totalCost || 0;
-    const text = `Built ${count} ship${count === 1 ? "" : "s"}${totalCost ? ` for $${totalCost}` : ""}`;
-    addLog(text, "good");
-    if (pending?.optionId) {
-      state.purchaseResults.set(pending.optionId, { text: "Built", until: performance.now() + 3000 });
-    }
-  } else {
+  if (!message.ok) {
     const reason = message.message || "Purchase failed";
     if (pending?.optionId) setPurchaseError(pending.optionId, reason);
     notify.error(reason);
@@ -428,17 +417,10 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
   const validity = validateBlueprintForPurchase(option.blueprint, option);
   const pending = getPendingPurchaseForOption(option.id);
   const error = state.purchaseErrors.get(option.id);
-  const completed = state.purchaseResults.get(option.id);
-  let completedText = "";
-  if (completed) {
-    if (completed.until > performance.now()) completedText = completed.text;
-    else state.purchaseResults.delete(option.id);
-  }
   let reason = "";
 
   if (pending) reason = pending.timedOut ? "Request timeout" : "Building...";
   else if (error) reason = error.message || "Purchase failed";
-  else if (completedText) reason = "";
   else if (state.phase !== "active") reason = "Match not active";
   else if (!mine?.ready) reason = "Complete your starting ship first";
   else if (!validity.ok) reason = validity.reason;
@@ -453,8 +435,7 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
     totalCost,
     pending,
     error,
-    completedText,
-    canBuy: reason === "" && !completedText,
+    canBuy: reason === "",
     reason
   };
 }
@@ -565,7 +546,6 @@ export function renderPurchaseBar() {
 
 export function purchaseStatusText(optionState) {
   if (optionState.pending) return "Building…";
-  if (optionState.completedText) return optionState.completedText;
   if (optionState.error) return `Purchase failed — ${optionState.reason || "Server rejected request"}`;
   if (optionState.canBuy) return "Available to build";
   const reason = optionState.reason || "Not available";

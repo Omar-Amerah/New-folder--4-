@@ -15,7 +15,7 @@ import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, hand
 import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, closeSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
-import { handleKeyDown, bindArenaPointerListeners } from "./game/input.js";
+import { handleKeyDown, handleKeyUp, bindArenaPointerListeners } from "./game/input.js";
 import { LOCAL_ACTIVE_ROOM_KEY, syncUrlParams, DIAGNOSTICS_ENABLED } from "./constants.js";
 import { loadPreferences, persistPreferences, applyInterfacePreferences } from "./localPreferences.js";
 import { bindRoomRecoveryCard, renderRecoveryCard } from "./ui/roomRecoveryUi.js";
@@ -57,7 +57,7 @@ window.addEventListener("keydown", (event) => {
   }
   handleKeyDown(event);
 });
-window.addEventListener("keyup", (event) => state.keys.delete(event.key.toLowerCase()));
+window.addEventListener("keyup", (event) => handleKeyUp(event));
 
 // Register main DOM actions
 dom.createButton.addEventListener("click", createGame);

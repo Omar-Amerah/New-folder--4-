@@ -112,6 +112,9 @@ function updatePixiMinimap(env, players, rect) {
   state.minimap = { x, y, w, h };
   view.root.position.set(x, y);
 
+  const arenaWrap = dom.canvas?.parentElement;
+  if (arenaWrap) arenaWrap.style.setProperty('--minimap-bottom', `${Math.round(y + h)}px`);
+
   if (view.w !== w || view.h !== h) {
     view.w = w;
     view.h = h;

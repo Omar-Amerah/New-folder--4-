@@ -2075,7 +2075,7 @@ function buildShipTurretDiagnostics(room, ship) {
 // Proximity demolition charges
 // ---------------------------------------------------------------------------
 
-const DEMOLITION_CONTACT_TOLERANCE = 0.1;
+const DEMOLITION_TRIGGER_RANGE = 100;
 const DEMOLITION_DIAGNOSTICS = Boolean(process.env.MFA_DEMOLITION_DIAGNOSTICS);
 
 function getProximityChargeConfig(ship, index) {
@@ -2171,7 +2171,7 @@ function shipsDemolitionContact(a, b) {
     if (c.x > bMaxX) bMaxX = c.x;
     if (c.y > bMaxY) bMaxY = c.y;
   }
-  const threshold = COMPONENT_CELL_COLLISION_RADIUS * 2 + DEMOLITION_CONTACT_TOLERANCE;
+  const threshold = COMPONENT_CELL_COLLISION_RADIUS * 2 + DEMOLITION_TRIGGER_RANGE;
   if (!aabbOverlap(aMinX - threshold, aMinY - threshold, aMaxX + threshold, aMaxY + threshold,
                    bMinX - threshold, bMinY - threshold, bMaxX + threshold, bMaxY + threshold)) {
     return null;
@@ -2246,6 +2246,22 @@ function nearestDemolitionTargetPoint(ship, target) {
   return { x: target.x, y: target.y };
 }
 
+function shipCoarseRadius(ship) {
+  const geom = getShipCollisionGeometry(ship);
+  let maxR = 0;
+  for (const i of geom.liveComponentIndices) {
+    const cells = geom.worldCells[i];
+    if (!cells) continue;
+    for (const c of cells) {
+      const dx = Math.abs(c.x - ship.x);
+      const dy = Math.abs(c.y - ship.y);
+      const r = Math.max(dx, dy);
+      if (r > maxR) maxR = r;
+    }
+  }
+  return maxR;
+}
+
 function resolveDemolitionContacts(room, ships, now) {
   if (!room || !Array.isArray(ships)) return;
   const spatial = room.disableSpatialIndex ? null : (room.spatialIndex?.dynamicValid ? room.spatialIndex : null);
@@ -2253,16 +2269,16 @@ function resolveDemolitionContacts(room, ships, now) {
   let maxShipRadius = 0;
   for (const ship of ships) {
     if (!ship.alive) continue;
-    const r = Number(ship.radius) || 0;
+    const r = shipCoarseRadius(ship);
     if (r > maxShipRadius) maxShipRadius = r;
   }
   for (let i = 0; i < ships.length; i += 1) {
     const a = ships[i];
     if (!a.alive || !canDetonateDemolitionCharge(a)) continue;
     const aId = String(a.id);
-    const aRadius = Number(a.radius) || 0;
+    const aRadius = shipCoarseRadius(a);
     const aMovement = fastHypot((a.x - (a._prevX || a.x)), (a.y - (a._prevY || a.y)));
-    const searchR = aRadius + maxShipRadius + aMovement + COMPONENT_CELL_COLLISION_RADIUS * 2 + 8;
+    const searchR = aRadius + maxShipRadius + aMovement + COMPONENT_CELL_COLLISION_RADIUS * 2 + DEMOLITION_TRIGGER_RANGE;
     let candidates;
     if (spatial) {
       spatial.queryRangeUnordered("ships", a.x, a.y, searchR, scratch);

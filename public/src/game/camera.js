@@ -130,6 +130,9 @@ export function updateCamera(dt) {
       const targetX = focusShips.reduce((sum, s) => sum + finite(s.x), 0) / focusShips.length; const targetY = focusShips.reduce((sum, s) => sum + finite(s.y), 0) / focusShips.length;
       const alpha = 1 - Math.pow(0.5, Math.min(250, dt * 1000) / CAMERA_FOLLOW_HALF_LIFE_MS);
       state.camera.x += (targetX - state.camera.x) * alpha; state.camera.y += (targetY - state.camera.y) * alpha;
+    } else {
+      state.camera.follow = false;
+      state.camera.panTarget = null;
     }
   }
   Object.assign(state.camera, clampCameraToWorld(state.camera, rect, state.world));
