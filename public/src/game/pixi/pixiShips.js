@@ -43,7 +43,7 @@ import {
   pixiStaticSignature,
   acquireTurretArrowLease
 } from "./pixiShipView.js";
-import { getEffectDensity } from "../renderSettings.js";
+import { getEffectDensity, getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
 import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
 
 const pixiDesignSignatures = new WeakMap();
@@ -380,21 +380,72 @@ function pixiEngineIdPhase(id) {
 }
 
 // Animated exhaust plume behind each engine, drawn in the EffectsBelow layer.
+// Engine topology is cached by revision keys; plume geometry is redrawn at most
+// ~30 Hz and skipped entirely when hidden.
 function updatePixiEngineExhaust(view, ship, now) {
   const gfx = view.engineGfx;
-  gfx.clear();
+
   if (!ship.alive || !view.engines || view.engines.length === 0) {
-    gfx.visible = false;
+    if (view._engineGfxVisible) {
+      gfx.clear();
+      gfx.visible = false;
+      view._engineGfxVisible = false;
+    }
     return;
   }
+
+  // Throttle plume geometry updates to ~30 Hz; the container still rotates
+  // with the hull so the exhaust orientation stays correct between draws.
+  if (now - (view._engineGfxLastAt || 0) < 33) return;
+  view._engineGfxLastAt = now;
+
+  const combatEffects = getCombatEffectsEnabled();
+  const lowQuality = getRenderQuality() === 'low';
+  const effectDensity = getEffectDensity();
+
+  const exhaustKey = [
+    ship.designRevision ?? 0,
+    ship.componentDamageRevision ?? 0,
+    ship.powerRevision ?? 0,
+    ship.engBlockedRevision ?? 0
+  ].join(':');
+  if (view.exhaustKey !== exhaustKey) {
+    view.exhaustKey = exhaustKey;
+    view.cachedLiveEngines = null;
+  }
+  let liveEngines = view.cachedLiveEngines;
+  if (!liveEngines) {
+    liveEngines = aliveEngineNozzles(ship, view.engines);
+    view.cachedLiveEngines = liveEngines;
+  }
+
   const speed = Math.hypot(ship.vx || 0, ship.vy || 0);
   const maxSpeed = Math.max(90, maxSpeedForRenderedShip(ship));
   const speedRatio = clamp(speed / maxSpeed, 0, 1);
   const intensity = engineThrustRatio(ship);
-  const liveEngines = aliveEngineNozzles(ship, view.engines);
-  emitEngineSmoke(ship, liveEngines, SHIP_SCALE, now, intensity);
 
-  const jets = computeManeuverJets(ship, ship.design || [], SHIP_SCALE, now);
+  let jets = null;
+  if (combatEffects) {
+    jets = computeManeuverJets(ship, ship.design || [], SHIP_SCALE, now);
+  }
+  if (combatEffects && intensity >= 0.18 && liveEngines.length > 0) {
+    emitEngineSmoke(ship, liveEngines, SHIP_SCALE, now, intensity);
+  }
+
+  const hasMainPlume = intensity > 0.03 && liveEngines.length > 0;
+  const visible = Boolean(jets) || hasMainPlume;
+
+  if (!visible) {
+    if (view._engineGfxVisible) {
+      gfx.clear();
+      gfx.visible = false;
+      view._engineGfxVisible = false;
+    }
+    return;
+  }
+
+  gfx.clear();
+
   if (jets) {
     for (const jet of jets) {
       const dx = Number.isFinite(jet.directionX) ? jet.directionX : 0;
@@ -418,56 +469,63 @@ function updatePixiEngineExhaust(view, ship, now) {
         gfx.closePath();
         gfx.fill({ color, alpha });
       };
-      drawPlume(1, 1.15, "#163f9f", jet.plumeAlpha);
-      drawPlume(0.72, 0.72, "#63e6ff", jet.innerAlpha);
-      drawPlume(0.36, 0.38, "#eafcff", jet.coreAlpha, 0.4);
+      if (lowQuality) {
+        drawPlume(1, 1.15, "#163f9f", jet.plumeAlpha);
+      } else {
+        drawPlume(1, 1.15, "#163f9f", jet.plumeAlpha);
+        drawPlume(0.72, 0.72, "#63e6ff", jet.innerAlpha);
+        drawPlume(0.36, 0.38, "#eafcff", jet.coreAlpha, 0.4);
+      }
     }
   }
 
-  if (intensity <= 0.03 || liveEngines.length === 0) {
-    gfx.visible = Boolean(jets);
-    return;
+  if (hasMainPlume) {
+    const t = now * 0.001;
+    const phase = pixiEngineIdPhase(ship.id);
+    const PLUME_SIZE = 0.8;
+    const glow = 0.55 + 0.45 * effectDensity;
+    for (let e = 0; e < liveEngines.length; e += 1) {
+      const nz = liveEngines[e];
+      const flicker = 0.78 + 0.22 * Math.sin(t * 34 + phase + e * 1.7) + 0.08 * Math.sin(t * 61 + e);
+      const halfW = nz.halfW * (0.8 + intensity * 0.65) * PLUME_SIZE;
+      const len = halfW * (1.2 + intensity * 9.4 + speedRatio * 2.4) * flicker;
+      const ox = nz.x;
+      const oy = nz.y;
+      const angle = nz.angle || 0;
+      const ca = Math.cos(angle), sa = Math.sin(angle);
+      const pt = (x, y) => ({ x: ox + x * ca - y * sa, y: oy + x * sa + y * ca });
+
+      let p0 = pt(0, -halfW * 1.15), p1 = pt(-len * .55, -halfW * .7), p2 = pt(-len, 0), p3 = pt(-len * .55, halfW * .7), p4 = pt(0, halfW * 1.15);
+      gfx.moveTo(p0.x, p0.y);
+      gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+      gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
+      gfx.closePath();
+      if (lowQuality) {
+        gfx.fill({ color: "#2b7bff", alpha: (0.3 + intensity * 0.4) * glow });
+      } else {
+        gfx.fill({ color: "#2b7bff", alpha: (0.18 + intensity * 0.22) * glow });
+
+        const innerLen = len * 0.72;
+        p0 = pt(0, -halfW * .72); p1 = pt(-innerLen * .5, -halfW * .42); p2 = pt(-innerLen, 0); p3 = pt(-innerLen * .5, halfW * .42); p4 = pt(0, halfW * .72);
+        gfx.moveTo(p0.x, p0.y);
+        gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+        gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
+        gfx.closePath();
+        gfx.fill({ color: "#63e6ff", alpha: 0.5 + intensity * 0.4 });
+
+        const coreLen = len * 0.4;
+        p0 = pt(.5, -halfW * .42); p1 = pt(-coreLen * .5, -halfW * .24); p2 = pt(-coreLen, 0); p3 = pt(-coreLen * .5, halfW * .24); p4 = pt(.5, halfW * .42);
+        gfx.moveTo(p0.x, p0.y);
+        gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+        gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
+        gfx.closePath();
+        gfx.fill({ color: "#eafcff", alpha: 0.72 + intensity * 0.28 });
+      }
+    }
   }
+
   gfx.visible = true;
-
-  const t = now * 0.001;
-  const phase = pixiEngineIdPhase(ship.id);
-  const PLUME_SIZE = 0.8;
-  const glow = 0.55 + 0.45 * getEffectDensity();
-  for (let e = 0; e < liveEngines.length; e += 1) {
-    const nz = liveEngines[e];
-    const flicker = 0.78 + 0.22 * Math.sin(t * 34 + phase + e * 1.7) + 0.08 * Math.sin(t * 61 + e);
-    const halfW = nz.halfW * (0.8 + intensity * 0.65) * PLUME_SIZE;
-    const len = halfW * (1.2 + intensity * 9.4 + speedRatio * 2.4) * flicker;
-    const ox = nz.x;
-    const oy = nz.y;
-    const angle = nz.angle || 0;
-    const ca = Math.cos(angle), sa = Math.sin(angle);
-    const pt = (x, y) => ({ x: ox + x * ca - y * sa, y: oy + x * sa + y * ca });
-
-    let p0 = pt(0, -halfW * 1.15), p1 = pt(-len * .55, -halfW * .7), p2 = pt(-len, 0), p3 = pt(-len * .55, halfW * .7), p4 = pt(0, halfW * 1.15);
-    gfx.moveTo(p0.x, p0.y);
-    gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
-    gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
-    gfx.closePath();
-    gfx.fill({ color: "#2b7bff", alpha: (0.18 + intensity * 0.22) * glow });
-
-    const innerLen = len * 0.72;
-    p0 = pt(0, -halfW * .72); p1 = pt(-innerLen * .5, -halfW * .42); p2 = pt(-innerLen, 0); p3 = pt(-innerLen * .5, halfW * .42); p4 = pt(0, halfW * .72);
-    gfx.moveTo(p0.x, p0.y);
-    gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
-    gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
-    gfx.closePath();
-    gfx.fill({ color: "#63e6ff", alpha: 0.5 + intensity * 0.4 });
-
-    const coreLen = len * 0.4;
-    p0 = pt(.5, -halfW * .42); p1 = pt(-coreLen * .5, -halfW * .24); p2 = pt(-coreLen, 0); p3 = pt(-coreLen * .5, halfW * .24); p4 = pt(.5, halfW * .42);
-    gfx.moveTo(p0.x, p0.y);
-    gfx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
-    gfx.quadraticCurveTo(p3.x, p3.y, p4.x, p4.y);
-    gfx.closePath();
-    gfx.fill({ color: "#eafcff", alpha: 0.72 + intensity * 0.28 });
-  }
+  view._engineGfxVisible = true;
 }
 
 // Drives the persistent turret sprites toward the authoritative ship-relative
@@ -1037,6 +1095,8 @@ export function updatePixiShips(env, now, players, bounds) {
   const overlay = env.layers.overlay;
   const debug = turretDebugEnabled();
   const visibleShipIds = new Set();
+  let tExhaust = 0, tTurrets = 0, tHud = 0, tEffects = 0;
+  const tShipsStart = performance.now();
 
   if (snap && snap.ships) {
     for (const ship of snap.ships) {
@@ -1076,14 +1136,25 @@ export function updatePixiShips(env, now, players, bounds) {
       setHullFrameRotation(view, renderShip.angle);
       view.hullContainer.alpha = ship.alive ? 1 : 0.32;
       const shipHud = updateShipHud(ship, now);
+
+      let _t = performance.now();
+      updatePixiEngineExhaust(view, renderShip, now);
+      tExhaust += performance.now() - _t;
+
+      _t = performance.now();
+      updatePixiTurrets(env, view, ship, design);
+      tTurrets += performance.now() - _t;
+
+      _t = performance.now();
+      updatePixiHealthBars(env, view, ship, player, zoom, shipHud, now);
+      tHud += performance.now() - _t;
+
+      _t = performance.now();
       updatePixiShieldRing(view, ship, zoom, shipHud.shield);
       updatePixiPlayerHullOutline(view, ship, player, design, zoom);
-      updatePixiEngineExhaust(view, renderShip, now);
-      updatePixiTurrets(env, view, ship, design);
       updatePixiComponentDamage(view, ship, design);
       updatePixiDamageFlashes(view, ship, design, now);
       updatePixiCoreWarning(view, ship, zoom, now);
-      updatePixiHealthBars(env, view, ship, player, zoom, shipHud, now);
       updatePixiShipLabels(view, renderShip, player, zoom);
 
       if (debug) {
@@ -1098,6 +1169,7 @@ export function updatePixiShips(env, now, players, bounds) {
       if (ship.destructProgress != null && ship.alive) {
         drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
       }
+      tEffects += performance.now() - _t;
     }
   }
 
@@ -1108,6 +1180,14 @@ export function updatePixiShips(env, now, players, bounds) {
   }
 
   pruneComponentDamage(visibleShipIds, now);
+
+  state.rendererTimings = {
+    ships: performance.now() - tShipsStart,
+    exhaust: tExhaust,
+    turrets: tTurrets,
+    hud: tHud,
+    effects: tEffects
+  };
 }
 
 // Tears down the ship pool (releasing every texture lease and destroying display

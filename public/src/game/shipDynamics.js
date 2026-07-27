@@ -15,10 +15,12 @@ import { componentHealthRatio } from "./shipVitals.js";
 
 const renderedDesignStatsCache = new WeakMap();
 const centerOfMassCache = new WeakMap();
+const maneuverJetTopologyCache = new WeakMap();
 let visibleSmoke = [];
 const MANEUVER_JET_FADE_SECONDS = 0.16;
 const MANEUVER_JET_RISE_SECONDS = 0.09;
 const MANEUVER_JET_MIN_ACTIVITY = 0.01;
+const MANEUVER_JET_ACTIVITY_THRESHOLD = 0.02;
 const MANEUVER_JET_VISUAL_LIMIT = 512;
 
 export function maxSpeedForRenderedShip(ship) {
@@ -201,46 +203,63 @@ function smoothedManeuverActivity(ship, rawActivity, now) {
 // nozzle to match the turn direction, so only the thrusters "being used" animate.
 // Shared by both renderers. Returns null when nothing should draw.
 export function computeManeuverJets(ship, design, scale, now) {
+  if (!ship.alive || !Array.isArray(design) || design.length === 0) return null;
   let activity = Number.isFinite(ship.turnActivity) ? clamp(ship.turnActivity, -1, 1) : null;
   if (activity === null) {
     const angularVelocity = shipAngularVelocity(ship, now);
     activity = Math.abs(angularVelocity) > 0.01 ? clamp(angularVelocity / 2, -1, 1) : 0;
   }
+  if (Math.abs(activity) < MANEUVER_JET_ACTIVITY_THRESHOLD) return null;
   const visual = smoothedManeuverActivity(ship, activity, now);
   const speed = visual.intensity;
-  if (speed < 0.01 || !ship.alive || !visual.direction) return null;
+  if (speed < 0.01 || !visual.direction) return null;
   const desiredSign = visual.direction;
   const density = getEffectDensity();
-  let centerOfMass = centerOfMassCache.get(design);
-  if (!centerOfMass) {
-    centerOfMass = calculateCenterOfMass(design, PART_STATS);
-    centerOfMassCache.set(design, centerOfMass);
+  const cacheKey = [
+    ship.designRevision ?? 0,
+    ship.componentDamageRevision ?? 0,
+    ship.powerRevision ?? 0,
+    ship.engBlockedRevision ?? 0
+  ].join(":");
+  let cached = maneuverJetTopologyCache.get(ship);
+  if (!cached || cached.key !== cacheKey) {
+    let centerOfMass = centerOfMassCache.get(design);
+    if (!centerOfMass) {
+      centerOfMass = calculateCenterOfMass(design, PART_STATS);
+      centerOfMassCache.set(design, centerOfMass);
+    }
+    const alive = design.map((_, i) => (componentHealthRatio(ship, i) ?? 1) > 0);
+    const exhaustAnalysis = globalThis.EngineExhaustRules?.analyze?.(design, PART_STATS, { alive });
+    const contributors = [];
+    let total = 0;
+    for (let i = 0; i < design.length; i += 1) {
+      const module = design[i];
+      if (module.type !== "maneuverThruster") continue;
+      if (!alive[i]) continue;
+      if (exhaustAnalysis && !exhaustAnalysis.validEngineIndices.has(i)) continue;
+      const power = clamp(Number(ship.componentPower?.[i]?.[2] ?? 1), 0, 1);
+      if (power <= 0) continue;
+      const sign = maneuverThrusterTorqueSign(module, centerOfMass);
+      const localY = Math.abs((Number(module.y) || 0) - centerOfMass.y);
+      const value = Math.max(0.001, localY) * power;
+      contributors.push({ module, value, index: i, positive: sign >= 0, negative: sign < 0 });
+      total += value;
+    }
+    cached = { key: cacheKey, contributors, total, centerOfMass };
+    maneuverJetTopologyCache.set(ship, cached);
   }
-  const alive = design.map((_, i) => (componentHealthRatio(ship, i) ?? 1) > 0);
-  const exhaustAnalysis = globalThis.EngineExhaustRules?.analyze?.(design, PART_STATS, { alive });
-  const contributors = [];
-  let total = 0;
-  for (let i = 0; i < design.length; i += 1) {
-    const module = design[i];
-    if (module.type !== "maneuverThruster") continue;
-    if (!alive[i]) continue;
-    if (exhaustAnalysis && !exhaustAnalysis.validEngineIndices.has(i)) continue;
-    const power = clamp(Number(ship.componentPower?.[i]?.[2] ?? 1), 0, 1);
-    if (power <= 0) continue;
-    if (maneuverThrusterTorqueSign(module, centerOfMass) !== desiredSign) continue;
-    const localY = Math.abs((Number(module.y) || 0) - centerOfMass.y);
-    const value = Math.max(0.001, localY) * power;
-    contributors.push({ index: i, module, value });
-    total += value;
-  }
+  const contributors = cached.contributors;
+  const total = cached.total;
+  if (contributors.length === 0) return null;
   const jets = [];
   for (const contributor of contributors) {
+    if ((desiredSign > 0 && !contributor.positive) || (desiredSign < 0 && !contributor.negative)) continue;
     const place = footprintLocalPlacement(contributor.module, scale);
     const rotation = Number(contributor.module.rotation) === 270 ? 270 : 90;
     const nozzleSide = rotation === 90 ? -1 : 1;
     const share = total > 0 ? contributor.value / total : 1 / contributors.length;
     const intensity = speed * Math.min(1, share * contributors.length);
-    const pulse = 0.975 + 0.025 * Math.sin(now * 0.006 + stableManeuverPhase(ship.id, contributor.index));
+    const pulse = 0.975 + 0.025 * Math.sin(now * 0.006 + stableManeuverPhase(ship.id, contributor.index || 0));
     jets.push({
       x: place.cx,
       y: place.cy + nozzleSide * scale * 0.5,

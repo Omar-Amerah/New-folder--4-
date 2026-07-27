@@ -331,6 +331,22 @@ function updateShipMovementStep(room, ship, dt, now) {
     clearOrbitState(ship);
   }
 
+  const isPersistentMove = Boolean(target && (style === 'orbit' || style === 'maintain' || style === 'sentry' || style === 'kite' || style === 'direct' || style === 'interceptor' || style === 'evasive' || style === 'brawler' || style === 'heavy'));
+  const movementIntent = calculateMovementIntent(room, ship, target, style, stats);
+  const resolvedFacing = resolveHullFacing(room, ship, stats, target, movementIntent);
+
+  if (movementIntent.needsPropulsion) {
+    driveTowardMoveTarget(room, ship, stats, movementIntent, dt, resolvedFacing);
+  } else {
+    rotateShipToward(ship, resolvedFacing, stats, dt);
+  }
+
+  applyDamping(ship, movementIntent.distance, isPersistentMove, dt);
+  applySpeedLimit(ship, stats);
+  applyPosition(room, ship, dt);
+  regenerateShield(ship, stats, dt, now);
+}
+function calculateMovementIntent(room, ship, target, style, stats) {
   const dx = ship.targetX - ship.x;
   const dy = ship.targetY - ship.y;
   const distance = fastHypot(dx, dy);
@@ -349,21 +365,37 @@ function updateShipMovementStep(room, ship, dt, now) {
     }
   }
 
-  const isPersistentMove = Boolean(target && (style === 'orbit' || style === 'maintain' || style === 'kite' || style === 'direct' || style === 'interceptor' || style === 'evasive' || style === 'brawler' || style === 'heavy'));
+  let needsPropulsion = distance > ARRIVE_DISTANCE;
 
-  const resolvedFacing = resolveHullFacing(room, ship, stats, target, distance, isPersistentMove);
-
-  if (!ship.arrived || isPersistentMove) {
-    driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt, resolvedFacing);
-  } else {
-    rotateShipToward(ship, resolvedFacing, stats, dt);
+  // Maintain: if we are inside the desired band but drifting through it
+  // quickly, we still need to brake rather than coast.
+  if (style === 'maintain' && target?.alive && !needsPropulsion) {
+    const dtx = ship.x - target.x;
+    const dty = ship.y - target.y;
+    const distToTarget = fastHypot(dtx, dty);
+    if (distToTarget > 0.001) {
+      const radialSpeed = (ship.vx * dtx + ship.vy * dty) / distToTarget;
+      if (Math.abs(radialSpeed) > 12) needsPropulsion = true;
+    }
   }
 
-  applyDamping(ship, distance, isPersistentMove, dt);
-  applySpeedLimit(ship, stats);
-  applyPosition(room, ship, dt);
-  regenerateShield(ship, stats, dt, now);
+  let desiredMoveAngle = null;
+  let obstacleAvoidanceActive = false;
+  if (needsPropulsion) {
+    desiredMoveAngle = getDesiredMoveAngle(room, ship);
+    obstacleAvoidanceActive = true;
+  }
+
+  return {
+    distance,
+    desiredMoveAngle,
+    obstacleAvoidanceActive,
+    targetX: ship.targetX,
+    targetY: ship.targetY,
+    needsPropulsion
+  };
 }
+
 function getCombatStyle(ship) {
   if (ship.combatStyle === "hold") return "hold";
   if (ship.combatStyle === "sentry") return "sentry";
@@ -781,13 +813,15 @@ function clearOrbitState(ship) {
   ship.lastOrbitTargetId = null;
 }
 
-function driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt, resolvedFacing) {
-  if (distance <= ARRIVE_DISTANCE && !isPersistentMove && !shipHasOperationalDemolitionCharge(ship)) {
+function driveTowardMoveTarget(room, ship, stats, movementIntent, dt, resolvedFacing) {
+  if (!movementIntent.needsPropulsion && !shipHasOperationalDemolitionCharge(ship)) {
     ship.arrived = true;
     return;
   }
 
-  const desired = getDesiredMoveAngle(room, ship);
+  const desired = movementIntent.desiredMoveAngle != null
+    ? movementIntent.desiredMoveAngle
+    : Math.atan2(movementIntent.targetY - ship.y, movementIntent.targetX - ship.x);
   rotateShipToward(ship, resolvedFacing, stats, dt);
 
   const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
@@ -829,8 +863,7 @@ function applyVectorThrusterForces(ship, stats, desiredAngle, dt) {
   } else if (style === 'hold' || style === 'maintain' || style === 'sentry' || style === 'kite') {
     const speed = fastHypot(ship.vx, ship.vy);
     if (speed > 2) brakingInput = 1;
-    const moveAngle = Math.atan2(ship.targetY - ship.y, ship.targetX - ship.x);
-    const lateralDiff = angleDifference(ship.angle, moveAngle);
+    const lateralDiff = angleDifference(ship.angle, desiredAngle);
     if (Math.abs(lateralDiff) > 0.3 && Math.abs(lateralDiff) < Math.PI - 0.3 && lateralAccel > 0) {
       lateralInput = lateralDiff > 0 ? 1 : -1;
     }
@@ -977,7 +1010,7 @@ function segmentCircleClearance(x1, y1, x2, y2, cx, cy, radius) {
   return { blocked: fastHypot(cx - closestX, cy - closestY) < radius, along, lateral };
 }
 
-function resolveHullFacing(room, ship, stats, target, moveDistance, isPersistentMove) {
+function resolveHullFacing(room, ship, stats, target, movementIntent) {
   if (Number.isFinite(ship.rotationInput)) {
     return ship.angle + ship.rotationInput * (Math.PI - 1e-9);
   }
@@ -986,7 +1019,6 @@ function resolveHullFacing(room, ship, stats, target, moveDistance, isPersistent
     return ship.facingTarget;
   }
 
-  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
   const style = getCombatStyle(ship);
 
   let combatTarget = target;
@@ -996,24 +1028,26 @@ function resolveHullFacing(room, ship, stats, target, moveDistance, isPersistent
   }
 
   if (!combatTarget || !combatTarget.alive) {
-    if (moveDistance > ARRIVE_DISTANCE) {
-      return getDesiredMoveAngle(room, ship);
+    if (movementIntent.needsPropulsion && movementIntent.desiredMoveAngle != null) {
+      return applyFacingHysteresis(ship, movementIntent.desiredMoveAngle);
     }
     return ship.angle;
   }
 
   if (style === 'orbit') {
-    if (moveDistance > ARRIVE_DISTANCE) return getDesiredMoveAngle(room, ship);
+    if (movementIntent.needsPropulsion && movementIntent.desiredMoveAngle != null) {
+      return applyFacingHysteresis(ship, movementIntent.desiredMoveAngle);
+    }
     return applyFacingHysteresis(ship, getCachedOptimalHullAngle(ship, combatTarget));
   }
 
   const combatAngle = getCachedOptimalHullAngle(ship, combatTarget);
-  const moveAngle = getDesiredMoveAngle(room, ship);
+  const moveAngle = movementIntent.desiredMoveAngle != null ? movementIntent.desiredMoveAngle : ship.angle;
 
   const isHoldLike = (style === 'hold' || style === 'maintain' || style === 'sentry' || style === 'kite');
-  const correctionIsTiny = isHoldLike && (moveDistance <= 60 || (stats.accel || 0) < MIN_CORRECTION_ACCEL);
+  const correctionIsTiny = isHoldLike && (movementIntent.distance <= 60 || (stats.accel || 0) < MIN_CORRECTION_ACCEL);
 
-  if (correctionIsTiny || ship.arrived) {
+  if (correctionIsTiny || ship.arrived || !movementIntent.needsPropulsion) {
     return applyFacingHysteresis(ship, combatAngle);
   }
 

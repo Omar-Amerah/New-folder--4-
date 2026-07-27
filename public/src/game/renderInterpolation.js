@@ -54,28 +54,46 @@ export function acceptSnapshotForRender(snapshot, receiveTime = performance.now(
   }
   for (const id of [...hh.droneSamples.keys()]) if (!liveDroneIds.has(id)) hh.droneSamples.delete(id);
 }
-function lerpSample(a, b, t) { return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, angle: a.angle + angleDifference(a.angle, b.angle) * t }; }
-function sampleVisual(samples, renderTimeMs) {
+function lerpSample(a, b, t, out) {
+  out.x = a.x + (b.x - a.x) * t;
+  out.y = a.y + (b.y - a.y) * t;
+  out.angle = a.angle + angleDifference(a.angle, b.angle) * t;
+  return out;
+}
+function sampleVisual(samples, renderTimeMs, out) {
   if (!samples?.length) return null;
-  if (samples.length === 1) return { x: samples[0].x, y: samples[0].y, angle: samples[0].angle };
+  if (samples.length === 1) {
+    out.x = samples[0].x; out.y = samples[0].y; out.angle = samples[0].angle;
+    return out;
+  }
   for (let i = 1; i < samples.length; i++) {
     const a = samples[i - 1], b = samples[i];
     if (renderTimeMs <= b.simulationTimeMs) {
-      if (Math.hypot(b.x - a.x, b.y - a.y) > TELEPORT_DISTANCE) return renderTimeMs < b.simulationTimeMs ? { x: a.x, y: a.y, angle: a.angle } : { x: b.x, y: b.y, angle: b.angle };
+      if (Math.hypot(b.x - a.x, b.y - a.y) > TELEPORT_DISTANCE) {
+        if (renderTimeMs < b.simulationTimeMs) {
+          out.x = a.x; out.y = a.y; out.angle = a.angle;
+        } else {
+          out.x = b.x; out.y = b.y; out.angle = b.angle;
+        }
+        return out;
+      }
       const span = Math.max(1, b.simulationTimeMs - a.simulationTimeMs);
-      return lerpSample(a, b, Math.max(0, Math.min(1, (renderTimeMs - a.simulationTimeMs) / span)));
+      return lerpSample(a, b, Math.max(0, Math.min(1, (renderTimeMs - a.simulationTimeMs) / span)), out);
     }
   }
   const latest = samples[samples.length - 1];
   const extra = Math.max(0, Math.min(EXTRAPOLATION_CAP_MS, renderTimeMs - latest.simulationTimeMs));
-  return { x: latest.x + latest.vx * extra / 1000, y: latest.y + latest.vy * extra / 1000, angle: latest.angle };
+  out.x = latest.x + latest.vx * extra / 1000;
+  out.y = latest.y + latest.vy * extra / 1000;
+  out.angle = latest.angle;
+  return out;
 }
-export function visualForShip(ship, renderTimeMs) {
+export function visualForShip(ship, renderTimeMs, out) {
   if (ship.alive === false) return null;
-  return sampleVisual(history().samples.get(ship.id), renderTimeMs);
+  return sampleVisual(history().samples.get(ship.id), renderTimeMs, out || {});
 }
-export function visualForDrone(droneId, renderTimeMs) {
-  return sampleVisual(history().droneSamples?.get(droneId), renderTimeMs);
+export function visualForDrone(droneId, renderTimeMs, out) {
+  return sampleVisual(history().droneSamples?.get(droneId), renderTimeMs, out || {});
 }
 export function interpolateShips(dt, now) {
   const snap = state.snapshot; if (!snap) return;
@@ -88,10 +106,28 @@ export function interpolateShips(dt, now) {
   const wallSimTime = h.clockOffsetMs != null ? now + h.clockOffsetMs : latest;
   const renderTime = Math.min(wallSimTime - (h.delayMs ?? INTERPOLATION_DELAY_MS), latest + EXTRAPOLATION_CAP_MS);
   h.renderSimulationTimeMs = renderTime;
-  const visual = new Map();
-  for (const ship of snap.ships || []) { const v = visualForShip(ship, renderTime); if (v) visual.set(ship.id, v); }
+
+  const visual = (state.visualShips || (h._visualShips = new Map())); if (visual !== h._visualShips) h._visualShips = visual;
+  visual.clear();
+  const drones = (state.visualDrones || (h._visualDrones = new Map())); if (drones !== h._visualDrones) h._visualDrones = drones;
+  drones.clear();
+  const outPool = h._visualOutPool || (h._visualOutPool = []);
+  let outIdx = 0;
+
+  for (const ship of snap.ships || []) {
+    let out = outPool[outIdx];
+    if (!out) { out = {}; outPool[outIdx] = out; }
+    outIdx++;
+    const v = visualForShip(ship, renderTime, out);
+    if (v) visual.set(ship.id, v);
+  }
+  for (const drone of snap.drones || []) {
+    let out = outPool[outIdx];
+    if (!out) { out = {}; outPool[outIdx] = out; }
+    outIdx++;
+    const v = visualForDrone(drone.id, renderTime, out);
+    if (v) drones.set(drone.id, v);
+  }
   state.visualShips = visual;
-  const visualDrones = new Map();
-  for (const drone of snap.drones || []) { const v = visualForDrone(drone.id, renderTime); if (v) visualDrones.set(drone.id, v); }
-  state.visualDrones = visualDrones;
+  state.visualDrones = drones;
 }

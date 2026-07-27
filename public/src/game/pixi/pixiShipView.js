@@ -295,6 +295,10 @@ export function createPixiShipView(env) {
     cachedStatusBorderOwnerId: null,
     cachedStatusBorderColor: null,
     turretDebugLastAt: 0,
+    exhaustKey: null,
+    cachedLiveEngines: null,
+    _engineGfxVisible: false,
+    _engineGfxLastAt: 0,
     // Pool reset: wipe every scrap of per-ship visual state.
     release() {
       resetPixiShipView(this);
@@ -353,6 +357,10 @@ export function resetPixiShipView(view) {
   view.cachedStatusBorderColor = null;
   view.turretDebugLastAt = 0;
   view.forcedArrowActive = false;
+  view.exhaustKey = null;
+  view.cachedLiveEngines = null;
+  view._engineGfxVisible = false;
+  view._engineGfxLastAt = 0;
   releaseShipViewLeases(view);
   view.visualTurretAngles.clear();
   view.otherAnimated.removeChildren();
@@ -429,6 +437,8 @@ export function rebuildPixiShipStatic(env, view, design, color, radius, staticKe
   });
 
   view.engines = shipEngineNozzles(design, SHIP_SCALE);
+  view.exhaustKey = null;
+  view.cachedLiveEngines = null;
   view.damageSig = null;
   view.staticKey = staticKey;
 }
