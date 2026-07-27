@@ -133,8 +133,8 @@ const REASON_TEXT = Object.freeze({
   "internal-terminal": "These terminals are on the same component and are already connected internally.",
   "no-change": "No change to apply.",
   "over-cable-limit": "This route exceeds the cable length limit.",
-  "auto-wire-incomplete": "Auto-wire could not connect every powered component. Make sure the ship is one connected shape with a Power source.",
-  "auto-wire-no-change": "Every powered component is already connected by this Standard auto-wire route."
+  "auto-wire-incomplete": "Auto-wire could not connect every component. Make sure the ship is one connected shape with an appropriate source.",
+  "auto-wire-no-change": "Every component is already connected by this auto-wire route."
 });
 function reasonText(reason) { return REASON_TEXT[reason] || "That action is not valid here."; }
 function currentAnalysis() { return rules().analyzeWiring(state.design, state.wiring, PART_STATS); }
@@ -232,6 +232,32 @@ export function autoWirePower() {
     refreshWiringPresentation();
     return false;
   }
+}
+export function autoWireData() {
+  if (ui().sourceIndex != null) return false;
+  try {
+    const current = normalizeWiring(state.wiring, state.design);
+    const generated = rules().createGeneratedDataWiring(state.design, PART_STATS);
+    const next = rules().cloneWiring(current);
+    next.data = generated.data;
+    if (JSON.stringify(next.data) === JSON.stringify(current.data)) {
+      setTransientReason("auto-wire-no-change");
+      refreshWiringPresentation();
+      return false;
+    }
+    pushUndo();
+    resetInteraction();
+    commitWiring(normalizeWiring(next, state.design));
+    return true;
+  } catch (_) {
+    setTransientReason("auto-wire-incomplete");
+    refreshWiringPresentation();
+    return false;
+  }
+}
+export function autoWire() {
+  if (ui().mode === "data") return autoWireData();
+  return autoWirePower();
 }
 
 function connectionsAtTerminal(index, kind = ui().mode) { return bucket(kind).connections.filter((connection) => connection.sourceIndex === index || connection.targetIndex === index); }
@@ -508,7 +534,7 @@ export function bindWiringControls() {
   bindPointerDrawing();
   dom.wiringModePower?.addEventListener("click", () => setMode("power"));
   dom.wiringModeData?.addEventListener("click", () => setMode("data"));
-  dom.wiringAutoWireButton?.addEventListener("click", autoWirePower);
+  dom.wiringAutoWireButton?.addEventListener("click", autoWire);
   dom.wiringUndoButton?.addEventListener("click", undoWiring);
   dom.wiringClearNetworkButton?.addEventListener("click", clearSelectedNetwork);
   dom.wiringHelpButton?.addEventListener("click", () => setWiringHelpOpen(dom.wiringHelpPanel?.hidden !== false));
@@ -877,7 +903,15 @@ function refreshToolbar() {
     button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active));
   });
   if (dom.wiringUndoButton) dom.wiringUndoButton.disabled = !ui().undoStack.length;
-  if (dom.wiringAutoWireButton) dom.wiringAutoWireButton.disabled = !power || ui().sourceIndex != null || !state.design.length;
+  if (dom.wiringAutoWireButton) {
+    dom.wiringAutoWireButton.disabled = ui().sourceIndex != null || !state.design.length;
+    dom.wiringAutoWireButton.title = power
+      ? "Replace Power wiring with a simple Standard-cable route that connects every powered component"
+      : "Replace Data wiring with a simple route that connects every data source to every weapon";
+    dom.wiringAutoWireButton.setAttribute("aria-label", power
+      ? "Auto-wire Power with Standard cable"
+      : "Auto-wire Data with Standard cable");
+  }
   if (dom.undoBlueprintEditButton && state.blueprintView === "wiring") {
     const wiringUndoAvailable = ui().undoStack.length > 0;
     dom.undoBlueprintEditButton.disabled = !(wiringUndoAvailable || canUndoBlueprintEdit());

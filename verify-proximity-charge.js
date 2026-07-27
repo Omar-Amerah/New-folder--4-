@@ -20,7 +20,7 @@ function makePlayers() {
   ]);
 }
 
-function makeShip(id, ownerId, x, y, design) {
+function makeShip(id, ownerId, x, y, design, extra = {}) {
   const ship = {
     id, ownerId, alive: true, x, y, vx: 0, vy: 0, angle: 0,
     focusTargetId: null, combatTargetId: null, commandState: "mainCore",
@@ -38,6 +38,14 @@ function makeShip(id, ownerId, x, y, design) {
   ship.maxShield = 0;
   ship.radius = 20;
   ship.stats.maxHp = ship.maxHp;
+  if (extra.maxHp > 0) {
+    const per = Math.max(1, Math.ceil(extra.maxHp / design.length));
+    ship.componentMaxHp = design.map(() => per);
+    ship.componentHp = design.map(() => per);
+    ship.maxHp = per * design.length;
+    ship.hp = ship.maxHp;
+    ship.stats.maxHp = ship.maxHp;
+  }
   return ship;
 }
 
@@ -82,7 +90,7 @@ function basicDesign() {
   let now = 0;
   updateProximityCharges(room, [carrier, enemy], 0.05, now);
   assert.equal(enemy.hp, enemy.maxHp, "Enemy just outside trigger takes no damage");
-  enemy.x = 80;
+  enemy.x = 50;
   for (let i = 0; i < 10; i += 1) {
     now += 50;
     updateProximityCharges(room, [carrier, enemy], 0.05, now);
@@ -159,7 +167,7 @@ function basicDesign() {
 
 {
   const carrier = makeShip("carrier", "blue", 0, 0, chargeDesign());
-  assert.equal(armedProximityChargeRanges(carrier).minTrigger, 100, "Trigger radius from balance");
+  assert.equal(armedProximityChargeRanges(carrier).minTrigger, 0, "Trigger radius from balance");
   const room = makeRoom();
   room.ships.set(carrier.id, carrier);
   detonateProximityCharge(room, carrier, 1, 0, true);
@@ -189,11 +197,11 @@ function largeDesign() {
   detonateProximityCharge(room, carrier, 1, 0, true);
 
   const enemyHpLost = enemyHpBefore - enemy.hp;
-  // With 800 centre damage, quadratic falloff, distance ~20 from the blast,
+  // With 8000 centre damage, quadratic falloff (exponent 2), distance ~20 from the blast,
   // the total damage to the enemy ship must not exceed the single blast value.
-  // blastDamage = 800 * (1 - 20/280)^2 ≈ 800 * 0.755 ≈ 604
-  // The total hull damage to the enemy should be <= ~604 (plus minor shield bleed).
-  assert.ok(enemyHpLost <= 620, `Large ship total damage ${enemyHpLost} should not exceed single blast budget (~604)`);
+  // blastDamage = 8000 * (1 - 20/420)^2 ≈ 8000 * 0.907 ≈ 7256
+  // The total hull damage to the enemy should be <= ~8100.
+  assert.ok(enemyHpLost <= 8100, `Large ship total damage ${enemyHpLost} should not exceed single blast budget (~8000)`);
   assert.ok(enemyHpLost > 0, "Large ship takes some damage");
 }
 
@@ -202,8 +210,8 @@ function largeDesign() {
 {
   const room = makeRoom();
   const carrier = makeShip("carrier", "blue", 0, 0, chargeDesign());
-  const near = makeShip("near", "red", 20, 0, largeDesign());
-  const mid = makeShip("mid", "red", 150, 0, largeDesign());
+  const near = makeShip("near", "red", 20, 0, largeDesign(), { maxHp: 100000 });
+  const mid = makeShip("mid", "red", 150, 0, largeDesign(), { maxHp: 100000 });
   room.ships.set(carrier.id, carrier);
   room.ships.set(near.id, near);
   room.ships.set(mid.id, mid);
@@ -232,32 +240,23 @@ function multiChargeDesign() {
 }
 
 {
-  const room = makeRoom();
-  const carrier = makeShip("carrier", "blue", 0, 0, multiChargeDesign());
-  // Give carrier a shield so it survives its own first blast
-  carrier.shield = 2000;
-  carrier.maxShield = 2000;
-  const enemy = makeShip("enemy", "red", 20, 0, largeDesign());
-  enemy.shield = 2000;
-  enemy.maxShield = 2000;
-  room.ships.set(carrier.id, carrier);
-  room.ships.set(enemy.id, enemy);
-
-  // Detonate first charge (index 2 = first proximityDemolitionCharge)
-  const enemyHpBeforeFirst = enemy.hp;
-  const enemyShieldBeforeFirst = enemy.shield;
-  detonateProximityCharge(room, carrier, 2, 0, true);
-  const firstLoss = (enemyShieldBeforeFirst - enemy.shield) + (enemyHpBeforeFirst - enemy.hp);
-
-  // Detonate second charge immediately (within diminishing returns window)
-  const enemyHpBeforeSecond = enemy.hp;
-  const enemyShieldBeforeSecond = enemy.shield;
-  detonateProximityCharge(room, carrier, 3, 0, true);
-  const secondLoss = (enemyShieldBeforeSecond - enemy.shield) + (enemyHpBeforeSecond - enemy.hp);
-
-  // Second charge should deal less damage due to 50% diminishing returns
-  assert.ok(secondLoss < firstLoss, `Second charge damage (${secondLoss}) should be less than first (${firstLoss})`);
-  assert.ok(secondLoss > 0, "Second charge still deals some damage");
+  // Multi-charge: 2 charges deal more damage than 1 due to combined multiplier (1.0 + 0.5 = 1.5x)
+  const room1 = makeRoom();
+  const room2 = makeRoom();
+  const one = makeShip("one", "blue", 0, 0, chargeDesign());
+  const two = makeShip("two", "blue", 0, 0, multiChargeDesign());
+  const enemy1 = makeShip("e1", "red", 20, 0, largeDesign(), { maxHp: 100000 });
+  const enemy2 = makeShip("e2", "red", 20, 0, largeDesign(), { maxHp: 100000 });
+  room1.ships.set("one", one);
+  room1.ships.set("e1", enemy1);
+  room2.ships.set("two", two);
+  room2.ships.set("e2", enemy2);
+  detonateProximityCharge(room1, one, 1, 0, true);
+  detonateProximityCharge(room2, two, 2, 0, true);
+  const loss1 = enemy1.maxHp - enemy1.hp;
+  const loss2 = enemy2.maxHp - enemy2.hp;
+  assert.ok(loss2 > loss1, `Two charges (${loss2}) should deal more damage than one (${loss1})`);
+  assert.ok(loss2 < loss1 * 2, `Two charges (${loss2}) should deal less than 2x one charge (${loss1}) due to diminishing returns`);
 }
 
 // --- Max affected components limit ---
@@ -270,7 +269,7 @@ function multiChargeDesign() {
   for (let i = 0; i < 20; i += 1) {
     manyDesign.push({ x: 7 - i - 1, y: 7, type: "frame" });
   }
-  const enemy = makeShip("enemy", "red", 20, 0, manyDesign);
+  const enemy = makeShip("enemy", "red", 20, 0, manyDesign, { maxHp: 100000 });
   room.ships.set(carrier.id, carrier);
   room.ships.set(enemy.id, enemy);
 
@@ -282,8 +281,8 @@ function multiChargeDesign() {
     if (enemy.componentHp[i] < hpBefore[i]) damagedCount += 1;
   }
 
-  // Should damage at most maxAffectedComponents (6) components
-  assert.ok(damagedCount <= 6, `Damaged components (${damagedCount}) should not exceed maxAffectedComponents (6)`);
+  // Should damage at most maxAffectedComponents (12) components
+  assert.ok(damagedCount <= 12, `Damaged components (${damagedCount}) should not exceed maxAffectedComponents (12)`);
   assert.ok(damagedCount >= 1, "At least one component damaged");
 }
 

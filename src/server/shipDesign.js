@@ -111,6 +111,9 @@ function createShipBlueprintSnapshot(design, wiring) {
 function createGeneratedPowerWiring(design) {
   return WiringRules.createGeneratedPowerWiring(normalizeShipDesignSnapshot(design), PARTS);
 }
+function createGeneratedDataWiring(design) {
+  return WiringRules.createGeneratedDataWiring(normalizeShipDesignSnapshot(design), PARTS);
+}
 
 // Shared with the browser designer (public/src/shared/structuralConnectivity.js)
 // so client-valid designs can never be rejected by the server. validateDesign
@@ -184,6 +187,7 @@ module.exports = {
   analyzeShipPower,
   createShipBlueprintSnapshot,
   createGeneratedPowerWiring,
+  createGeneratedDataWiring,
   isConnected,
   normalizeShipDesignSnapshot,
   migrateLegacy11DesignSnapshot,

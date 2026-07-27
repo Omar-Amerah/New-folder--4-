@@ -97,6 +97,20 @@
   const PASSIVE_PROTECTION = Object.freeze([1, 1, 0.85, 0.65, 0.40]);
   const ACTIVE_COOLING = Object.freeze([1, 1, 0.75, 0.50, 0]);
 
+  // Radiator-specific exposure and passive-floor rules.  These are the single
+  // authoritative source for both the server runtime (heat.js) and the Fleet
+  // Ledger article generation.  Do not duplicate these literals elsewhere.
+  const RADIATOR_EXPOSED_MULTIPLIER = 1;
+  const RADIATOR_ENCLOSED_MULTIPLIER = 0.25;
+  const RADIATOR_PASSIVE_COOLING_FRACTION = 0.12;
+  const RADIATOR_ACTIVE_COOLING_BY_STATE = Object.freeze({
+    normal: ACTIVE_COOLING[0],
+    warm: ACTIVE_COOLING[1],
+    hot: ACTIVE_COOLING[2],
+    critical: ACTIVE_COOLING[3],
+    overheated: ACTIVE_COOLING[4]
+  });
+
   function multiplierFromTable(table, state) {
     return table[clamp(Number(state) || 0, STATE.NORMAL, STATE.OVERHEATED)] ?? 1;
   }
@@ -154,5 +168,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, HEAT_PIPE_TRANSFER, MAX_SHARED_EDGE_MULTIPLIER, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, routeTypeMultiplier, effectiveSharedEdges });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, HEAT_PIPE_TRANSFER, MAX_SHARED_EDGE_MULTIPLIER, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, RADIATOR_ACTIVE_COOLING_BY_STATE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, routeTypeMultiplier, effectiveSharedEdges });
 }));

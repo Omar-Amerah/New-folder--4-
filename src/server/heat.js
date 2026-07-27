@@ -6,7 +6,7 @@ const HeatRules = require("../../public/src/shared/heatRules");
 const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
 const { BALANCE } = require("./balanceConfig");
 
-const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, edgeConductivity } = HeatRules;
+const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, edgeConductivity, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION } = HeatRules;
 function isThermalRouteType(type) {
   const normalized = String(type || "");
   return normalized === "heatPipe" || /frame/i.test(normalized);
@@ -102,6 +102,7 @@ function initShipHeat(ship) {
   ship.componentHeat = design.map(() => 0);
   ship.componentHeatCapacity = ship.componentThermals.map(item => item.capacity);
   ship.componentHeatState = design.map(() => STATE.NORMAL);
+  ship.heatStateRevision = 1;
   ship._heatPowerSourceStates = ship.componentHeatState.slice();
   ship._heatDataSourceStates = ship.componentHeatState.slice();
   ship.componentHeatGenerated = design.map(() => 0);
@@ -175,7 +176,9 @@ function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
     if (ship.componentHeat && Number.isFinite(ship.componentHeat[i])) {
       const alive = (ship.componentHp?.[i] ?? 1) > 0;
       const physicalState = stateFor(capacity > 0 ? ship.componentHeat[i] / capacity : (ship.componentHeat[i] > 0 ? Infinity : 0), ship.componentHeatState[i]);
-      ship.componentHeatState[i] = alive ? physicalState : STATE.NORMAL;
+      const nextState = alive ? physicalState : STATE.NORMAL;
+      if (nextState !== ship.componentHeatState[i]) ship.heatStateRevision = (ship.heatStateRevision || 0) + 1;
+      ship.componentHeatState[i] = nextState;
     }
     ship.dirtyHeat?.add?.(i);
   }
@@ -489,12 +492,12 @@ function updateShipHeat(ship, dt, room, now) {
     let coolingRate = thermal.cooling * thermal.retention * heatDissipationMult;
     if (ship.design[i].type === "radiator") {
       const alive = (ship.componentHp?.[i] ?? 1) > 0;
-      const exposure = thermal.exposedEdges > 0 ? 1 : 0.25;
-      // Twelve percent is passive radiative loss. The remaining active output
-      // requires live component Power and scales independently per network.
+      const exposure = thermal.exposedEdges > 0 ? RADIATOR_EXPOSED_MULTIPLIER : RADIATOR_ENCLOSED_MULTIPLIER;
+      // Passive radiative loss floor — a destroyed radiator still radiates
+      // heat passively but provides no active cooling.
       const power = require("./componentPower").getComponentPowerMultiplier(ship, i);
       const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[i] || STATE.NORMAL) * power : 0;
-      const passiveFloor = thermal.cooling * 0.12;
+      const passiveFloor = thermal.cooling * RADIATOR_PASSIVE_COOLING_FRACTION;
       coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention * heatDissipationMult;
     }
     else if (thermal.exposedEdges > 0) coolingRate *= 1.12;
@@ -548,6 +551,7 @@ function updateShipHeat(ship, dt, room, now) {
     const oldState = ship.componentHeatState[i];
     const physicalState = stateFor(capacity > 0 ? next / capacity : (next > 0 ? Infinity : 0), oldState);
     const nextState = alive ? physicalState : STATE.NORMAL;
+    if (nextState !== oldState) ship.heatStateRevision = (ship.heatStateRevision || 0) + 1;
     if (nextState !== oldState || Math.abs(next - heat[i]) >= 0.5) ship.dirtyHeat.add(i);
     heat[i] = next;
     ship.componentHeatState[i] = nextState;

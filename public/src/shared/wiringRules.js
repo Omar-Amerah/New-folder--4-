@@ -551,6 +551,39 @@
     return { version: WIRING_VERSION, power: cloneKind(normalized.power), data: emptyKind(), powerPolicy: PowerPolicyRules.defaultPolicy() };
   }
 
+  function createGeneratedDataWiring(design, componentCatalog) {
+    const modules = Array.isArray(design) ? design.map((module) => ({ ...module })) : [];
+    const occupiedKeys = new Set();
+    modules.forEach((module) => moduleCells(module, componentCatalog).forEach((cell) => occupiedKeys.add(cellKey(cell.x, cell.y))));
+    const sourceIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isDataSourceType(module.type)).map(({ index }) => index);
+    const weaponIndices = modules.map((module, index) => ({ module, index })).filter(({ module }) => isDataTarget(module.type, componentCatalog)).map(({ index }) => index);
+    if (!sourceIndices.length || !weaponIndices.length) return emptyWiring();
+    let wiring = emptyWiring();
+    const networkCells = new Set(moduleCells(modules[sourceIndices[0]], componentCatalog).map((cell) => cellKey(cell.x, cell.y)));
+    const terminals = [...sourceIndices.slice(1), ...weaponIndices].sort((a, b) => a - b);
+    const unreachable = [];
+    for (const targetIndex of terminals) {
+      const targetCells = moduleCells(modules[targetIndex], componentCatalog).sort(deterministicCellSort);
+      if (targetCells.some((cell) => networkCells.has(cellKey(cell.x, cell.y)))) { moduleCells(modules[targetIndex], componentCatalog).forEach((cell) => networkCells.add(cellKey(cell.x, cell.y))); continue; }
+      const starts = [...networkCells].map((key) => { const [x, y] = key.split(",").map(Number); return { x, y }; }).sort(deterministicCellSort);
+      const route = routeBetweenCellSets(starts, targetCells, occupiedKeys);
+      if (!route || route.length < 2) { unreachable.push({ index: targetIndex, type: modules[targetIndex]?.type, cells: targetCells }); continue; }
+      wiring = addPath(wiring, "data", route, modules, componentCatalog);
+      route.forEach((cell) => networkCells.add(cellKey(cell.x, cell.y)));
+      moduleCells(modules[targetIndex], componentCatalog).forEach((cell) => networkCells.add(cellKey(cell.x, cell.y)));
+    }
+    const normalized = normalizeWiring(wiring, modules, componentCatalog).wiring;
+    normalized.data.sections.forEach((section) => { section.tier = STANDARD_TIER; });
+    const analysis = analyzePhysicalWiring(modules, normalized, componentCatalog);
+    const missingWeapons = weaponIndices.filter((index) => !analysis.data.networkByComponent.get(index)?.sourceIndices.length);
+    const unusedSources = sourceIndices.filter((index) => !analysis.data.networkByComponent.get(index));
+    if (unreachable.length || missingWeapons.length || unusedSources.length) {
+      const details = [...unreachable, ...missingWeapons.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog) })), ...unusedSources.map((index) => ({ index, type: modules[index]?.type, cells: moduleCells(modules[index], componentCatalog), reason: "source-not-connected" }))];
+      throw new Error(`Generated default Data wiring is incomplete: ${JSON.stringify(details)}`);
+    }
+    return { version: WIRING_VERSION, power: emptyKind(), data: cloneKind(normalized.data), powerPolicy: PowerPolicyRules.defaultPolicy() };
+  }
+
   function addPath(wiring, kind, cells, modules, catalogue) {
     return addPathWithTier(wiring, kind, cells, modules, catalogue, STANDARD_TIER);
   }
@@ -642,5 +675,5 @@
   }
   function removePhysicalNetwork(wiring, kind, network, modules, catalogue) { const ids = new Set(network.sectionIds); const next = cloneWiring(wiring); next[kind].sections = next[kind].sections.filter((s) => !ids.has(segmentKey(s))); next[kind].connections = next[kind].connections.filter((c) => !c.sectionIds.some((id) => ids.has(id))); return normalizeWiring(next, modules, catalogue).wiring; }
 
-  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, POWER_TIERS, POWER_TIER_PRECEDENCE, higherPowerTier, migrateWiringToCurrentVersion, PowerPolicyRules, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, addPathWithTier, applyPathWithTier, setSectionTier, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
+  return { GRID_SIZE, POINT_MAX, WIRING_VERSION, STANDARD_TIER, ACCEPTED_TIERS, POWER_TIERS, POWER_TIER_PRECEDENCE, higherPowerTier, migrateWiringToCurrentVersion, PowerPolicyRules, MAX_SECTIONS_PER_KIND, MAX_CONNECTIONS_PER_KIND, MAX_SEGMENTS_PER_KIND, MAX_PATH_CELLS, NETWORK_KINDS, DEFAULT_CABLE_LIMITS, DATA_SOURCE_INFO, DATA_SOURCE_TYPES, getOccupiedCells, moduleCells, componentPorts, componentCenter, cellKey, sectionIdFromCells, normalizeTier, normalizeSection, sectionCells, sectionLine, segmentKey, connectionKey, connectionCells, normalizeWiring, emptyWiring, cloneWiring, analyzePowerNetworks: analyzePhysicalPower, analyzeWiring: analyzePhysicalWiring, networkSummaries, networkForComponent, networkForSection, componentReachesPowerSource, isPowerSourceType, isPowerConsumer, isDataSourceType, isDataTarget, isCompatibleWeapon, sourceBonusAmount, addConnection, addPath, addPathWithTier, applyPathWithTier, setSectionTier, removeConnection, removeNetwork: removePhysicalNetwork, removeSection, removeBranch, createGeneratedPowerWiring, createDefaultPowerWiring: createGeneratedPowerWiring, createGeneratedDataWiring, createDefaultDataWiring: createGeneratedDataWiring, buildSectionGraph, sectionEndpointDegrees, junctionCells, findLeafBranchSections, nearestSectionEndpoint, countUniqueSections, remainingCableLength, additionalLengthForPath };
 }));

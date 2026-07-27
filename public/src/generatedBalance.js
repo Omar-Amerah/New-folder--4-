@@ -1509,13 +1509,14 @@ export const GENERATED_BALANCE = {
       "proximityCharge": {
         "triggerRadius": 50,
         "triggerConfirmationSeconds": 0.2,
-        "blastRadius": 300,
-        "centreDamage": 4000,
-        "falloffExponent": 0,
-        "maxAffectedComponents": 8,
-        "internalDamageReduction": 0.7
+        "blastRadius": 420,
+        "centreDamage": 8000,
+        "falloffExponent": 2,
+        "maxAffectedComponents": 12,
+        "internalDamageReduction": 0.5,
+        "directContactMultiplier": 2.5
       },
-      "description": "Heavy kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius, destroying everything within 300 m."
+      "description": "Heavy kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius, destroying everything within 420 m."
     },
     {
       "id": "demolitionCharge",
@@ -1542,11 +1543,12 @@ export const GENERATED_BALANCE = {
       "proximityCharge": {
         "triggerRadius": 50,
         "triggerConfirmationSeconds": 0.2,
-        "blastRadius": 380,
-        "centreDamage": 960,
+        "blastRadius": 460,
+        "centreDamage": 1800,
         "falloffExponent": 2,
-        "maxAffectedComponents": 8,
-        "internalDamageReduction": 0.7
+        "maxAffectedComponents": 12,
+        "internalDamageReduction": 0.5,
+        "directContactMultiplier": 2.5
       },
       "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team."
     },

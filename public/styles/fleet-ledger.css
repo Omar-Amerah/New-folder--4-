@@ -603,3 +603,105 @@
     transition: none;
   }
 }
+
+/* Special Mechanics & Requirements sections */
+.ledger-mechanics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.ledger-mechanics-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(12, 17, 27, 0.6);
+  transition: border-color 100ms ease, background 100ms ease;
+  min-width: 0;
+}
+
+.ledger-mechanics-row:hover {
+  border-color: rgba(56, 213, 255, 0.2);
+  background: rgba(12, 17, 27, 0.8);
+}
+
+.ledger-mechanics-row-warning {
+  border-color: rgba(255, 170, 68, 0.28);
+  background: rgba(62, 40, 14, 0.22);
+}
+
+.ledger-mechanics-row-warning:hover {
+  border-color: rgba(255, 170, 68, 0.45);
+  background: rgba(62, 40, 14, 0.35);
+}
+
+.ledger-mechanics-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.ledger-mechanics-value {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--cyan);
+}
+
+.ledger-mechanics-row-warning .ledger-mechanics-value {
+  color: #ffaa44;
+}
+
+.ledger-mechanics-detail {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.ledger-mechanics-condition {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--faint);
+  font-style: italic;
+}
+
+.ledger-stat-row-warning {
+  border-color: rgba(255, 170, 68, 0.28);
+  background: rgba(62, 40, 14, 0.22);
+}
+
+.ledger-stat-row-warning .ledger-stat-value {
+  color: #ffaa44;
+}
+
+.ledger-stat-detail {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--muted);
+  margin-top: 2px;
+  width: 100%;
+}
+
+.ledger-section-note {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--faint);
+  font-style: italic;
+  margin-top: 8px;
+}
+
+@media (max-width: 600px) {
+  .ledger-mechanics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ledger-stat-row-warning {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -333,8 +333,116 @@ function run() {
     assert.strictEqual(ship.holdState.phase, "positioning", "hold ship should re-enter positioning after reset");
   }
 
+  // 12. Facing stability: Hold ship near desired location with stationary enemy
+  //     should not accumulate excessive rotation or alternate facings over 10s.
+  {
+    const { getEffectiveWeaponRanges } = require("./src/server/componentData");
+    const tmpShip = runtimeShip(armedDesign, { id: "tmp-facing" });
+    const ranges = getEffectiveWeaponRanges(tmpShip);
+    const maxRange = Math.max(120, ranges.blaster, ranges.missile, ranges.railgun, ranges.beam);
+    const desiredRange = maxRange * 0.9;
+    const ship = runtimeShip(armedDesign, {
+      id: "facing-stability",
+      combatStyle: "hold",
+      combatTargetId: "enemy",
+      focusTargetId: "enemy",
+      x: target.x + desiredRange, y: target.y,
+      targetX: target.x + desiredRange, targetY: target.y,
+      holdState: null
+    });
+    // Run one tick to enter holding phase.
+    updateShipMovement(room, ship, 1 / 30);
+    assert.strictEqual(ship.holdState.phase, "holding", "facing stability: hold ship should be in holding phase");
+
+    // Record initial state.
+    const startX = ship.x, startY = ship.y;
+    const startAngle = ship.angle;
+    let accumulatedRotation = 0;
+    let prevAngle = ship.angle;
+    let facingDirectionChanges = 0;
+    let prevTurnDir = 0;
+
+    // Run for 10 seconds (300 ticks at 30fps).
+    for (let i = 0; i < 300; i++) {
+      updateShipMovement(room, ship, 1 / 30);
+      const delta = ship.angle - prevAngle;
+      // Normalize delta to [-PI, PI].
+      let normDelta = delta;
+      while (normDelta > Math.PI) normDelta -= Math.PI * 2;
+      while (normDelta < -Math.PI) normDelta += Math.PI * 2;
+      accumulatedRotation += Math.abs(normDelta);
+
+      const turnDir = Math.sign(normDelta);
+      if (turnDir !== 0 && prevTurnDir !== 0 && turnDir !== prevTurnDir) {
+        facingDirectionChanges++;
+      }
+      if (turnDir !== 0) prevTurnDir = turnDir;
+      prevAngle = ship.angle;
+    }
+
+    // Positional stability: ship should not have drifted far.
+    const positionalDrift = Math.hypot(ship.x - startX, ship.y - startY);
+    assert(positionalDrift < 50, `facing stability: ship should remain positionally stable (drifted ${positionalDrift.toFixed(1)}px)`);
+
+    // Facing stability: should not accumulate more than ~2 full rotations (12.57 rad).
+    // A stable ship might make small adjustments but should not spin.
+    assert(accumulatedRotation < 12.57,
+      `facing stability: accumulated rotation should be < 2 full rotations (got ${accumulatedRotation.toFixed(2)} rad)`);
+
+    // Should not alternate turn direction frequently.
+    // Allow some direction changes for minor adjustments, but not oscillation.
+    assert(facingDirectionChanges < 20,
+      `facing stability: should not alternate turn direction frequently (got ${facingDirectionChanges} changes)`);
+
+    // Should not end up facing opposite to start.
+    const totalAngleChange = Math.abs(Math.atan2(Math.sin(ship.angle - startAngle), Math.cos(ship.angle - startAngle)));
+    assert(totalAngleChange < Math.PI * 0.75,
+      `facing stability: should not end facing opposite to start (total change ${totalAngleChange.toFixed(2)} rad)`);
+  }
+
+  // 13. Facing stability for Maintain style.
+  {
+    const { getEffectiveWeaponRanges } = require("./src/server/componentData");
+    const tmpShip = runtimeShip(armedDesign, { id: "tmp-maintain-facing" });
+    const ranges = getEffectiveWeaponRanges(tmpShip);
+    const maxRange = Math.max(120, ranges.blaster, ranges.missile, ranges.railgun, ranges.beam);
+    const desiredRange = maxRange * 0.9;
+    const tolerance = maxRange * 0.05;
+    const shipX = target.x + desiredRange + tolerance * 0.5;
+    const shipY = target.y;
+    const ship = runtimeShip(armedDesign, {
+      id: "maintain-facing-stability",
+      combatStyle: "maintain",
+      combatTargetId: "enemy",
+      focusTargetId: "enemy",
+      x: shipX, y: shipY,
+      targetX: shipX, targetY: shipY
+    });
+    // Run a few ticks to settle.
+    for (let i = 0; i < 5; i++) updateShipMovement(room, ship, 1 / 30);
+
+    const startX = ship.x, startY = ship.y;
+    let accumulatedRotation = 0;
+    let prevAngle = ship.angle;
+
+    for (let i = 0; i < 300; i++) {
+      updateShipMovement(room, ship, 1 / 30);
+      const delta = ship.angle - prevAngle;
+      let normDelta = delta;
+      while (normDelta > Math.PI) normDelta -= Math.PI * 2;
+      while (normDelta < -Math.PI) normDelta += Math.PI * 2;
+      accumulatedRotation += Math.abs(normDelta);
+      prevAngle = ship.angle;
+    }
+
+    const positionalDrift = Math.hypot(ship.x - startX, ship.y - startY);
+    assert(positionalDrift < 150, `maintain facing stability: ship should remain positionally stable (drifted ${positionalDrift.toFixed(1)}px)`);
+    assert(accumulatedRotation < 12.57,
+      `maintain facing stability: accumulated rotation should be < 2 full rotations (got ${accumulatedRotation.toFixed(2)} rad)`);
+  }
+
   console.log("Movement styles verification passed");
-  console.log("  tested: circle->orbit compat, orbit, maintain, hold two-phase, kite, direct, determinism, disarmed, stopping-distance, hold-reset");
+  console.log("  tested: circle->orbit compat, orbit, maintain, hold two-phase, kite, direct, determinism, disarmed, stopping-distance, hold-reset, facing-stability");
 }
 
 run();

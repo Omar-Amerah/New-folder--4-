@@ -5,6 +5,10 @@
 import { PART_STATS, PART_DEFS, partCategory, partDescription } from "../design/parts.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
+import { getMechanics, getMechanicsSearchText, SPECIAL_MECHANICS_COMPONENTS, LEDGER_RULE_CONTRACTS } from "./componentMechanics.js";
+
+// Re-export for test access
+export { SPECIAL_MECHANICS_COMPONENTS, LEDGER_RULE_CONTRACTS };
 
 export const CATEGORIES = [
   { id: "overview", label: "Overview" },
@@ -145,8 +149,8 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Core Count Required", value: "Exactly 1" },
       { label: "Backup Core Max", value: "1" },
       { label: "Grid Bounds", value: "0–14" },
-      { label: "Min Ship Cost", value: `$${GENERATED_BALANCE.shipCostLimits?.minimum ?? 300}` },
-      { label: "Max Ship Cost", value: `$${GENERATED_BALANCE.shipCostLimits?.maximum ?? 2000}` },
+      { label: "Min Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipCostLimits?.minimum ?? 300}` },
+      { label: "Max Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipCostLimits?.maximum ?? 2000}` },
       { label: "Max Drone Bays", value: `${GENERATED_BALANCE.drones?.maxBaysPerShip ?? 4}` },
       { label: "Engine Requirement", value: "At Least 1 With Effective Thrust (Build Time)" }
     ],
@@ -165,20 +169,20 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Ship Cost & Fleet Count",
     summary: "How Ship Cost Is Calculated From Components, Mass, Weapons, And Wiring.",
     keywords: ["cost", "price", "formula", "fleet count", "weapon premium", "wiring cost", "infrastructure"],
-    howItWorks: "Ship Cost = Base Cost + (Component Cost × Part Multiplier) + (Mass × Mass Multiplier) + (Hull × Hull Multiplier) + (Shield × Shield Multiplier) + (Repair Rate × Repair Multiplier) + Weapon Premiums. Weapon Premiums: Blaster $18, Missile $32, Railgun $48, Beam $42 Per Weapon. Wiring Infrastructure Cost (Power + Data Cable) Is Added On Top, Not Multiplied By Hull/Mass/Weapon Premiums. Final Cost Is Clamped To $300–$2000. Fleet Count = Floor(Base / Max(MinDivisor, UnitCost × UnitCostMult + Mass × MassMult)), Clamped To 1–5.",
+    howItWorks: "Ship Cost = Base Cost + (Component Cost × Part Multiplier) + (Mass × Mass Multiplier) + (Hull × Hull Multiplier) + (Shield × Shield Multiplier) + (Repair Rate × Repair Multiplier) + Weapon Premiums. Weapon Premiums: Blaster £18, Missile £32, Railgun £48, Beam £42 Per Weapon. Wiring Infrastructure Cost (Power + Data Cable) Is Added On Top, Not Multiplied By Hull/Mass/Weapon Premiums. Final Cost Is Clamped To £300–£2000. Fleet Count = Floor(Base / Max(MinDivisor, UnitCost × UnitCostMult + Mass × MassMult)), Clamped To 1–5.",
     importantStats: [
-      { label: "Base Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.baseShipCost ?? 48}` },
+      { label: "Base Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipPricing?.baseShipCost ?? 48}` },
       { label: "Part Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.partCostMultiplier ?? 1.32}×` },
       { label: "Mass Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.massCostMultiplier ?? 0.9}×` },
       { label: "Hull Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.hullCostMultiplier ?? 0.012}×` },
       { label: "Shield Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.shieldCostMultiplier ?? 0.05}×` },
       { label: "Repair Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.repairCostMultiplier ?? 0.8}×` },
-      { label: "Blaster Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.blaster ?? 18}/Weapon` },
-      { label: "Missile Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.missile ?? 32}/Weapon` },
-      { label: "Railgun Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.railgun ?? 48}/Weapon` },
-      { label: "Beam Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.beam ?? 42}/Weapon` },
-      { label: "Min Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.minimum ?? 300}` },
-      { label: "Max Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.maximum ?? 2000}` },
+      { label: "Blaster Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.blaster ?? 18}/Weapon` },
+      { label: "Missile Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.missile ?? 32}/Weapon` },
+      { label: "Railgun Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.railgun ?? 48}/Weapon` },
+      { label: "Beam Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.beam ?? 42}/Weapon` },
+      { label: "Min Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipPricing?.minimum ?? 300}` },
+      { label: "Max Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipPricing?.maximum ?? 2000}` },
       { label: "Wiring Cost", value: "Added On Top (Not Multiplied)" },
       { label: "Fleet Count Base", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.base ?? 260}` },
       { label: "Fleet Count Min Divisor", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimumDivisor ?? 58}` },
@@ -253,10 +257,10 @@ const MANUAL_ARTICLES_PART_1 = [
     keywords: ["wiring", "cable", "power", "data", "network", "tier", "light", "standard", "heavy", "auto-wire"],
     howItWorks: "Wiring physically connects power sources to consumers through cable networks routed through occupied ship cells. Power cable comes in three tiers: Light, Standard, and Heavy. Data cable is a single tier and carries data support signals — it has no capacity or overload mechanics. Cables displace heat capacity from the cells they pass through. Use the Wiring tab in the designer to draw, inspect, and clear networks. Auto-wire creates a simple deterministic Standard-cable route connecting every powered component.",
     importantStats: [
-      { label: "Light Cable Cost", value: `$${WIRING.powerTiers?.light?.costPerHostedCell ?? 1}/Cell` },
-      { label: "Standard Cable Cost", value: `$${WIRING.powerTiers?.standard?.costPerHostedCell ?? 2}/Cell` },
-      { label: "Heavy Cable Cost", value: `$${WIRING.powerTiers?.heavy?.costPerHostedCell ?? 5}/Cell` },
-      { label: "Data Cable Cost", value: `$${WIRING.data?.costPerHostedCell ?? 0.25}/Cell` },
+      { label: "Light Cable Cost", value: `\u00a3${WIRING.powerTiers?.light?.costPerHostedCell ?? 1}/Cell` },
+      { label: "Standard Cable Cost", value: `\u00a3${WIRING.powerTiers?.standard?.costPerHostedCell ?? 2}/Cell` },
+      { label: "Heavy Cable Cost", value: `\u00a3${WIRING.powerTiers?.heavy?.costPerHostedCell ?? 5}/Cell` },
+      { label: "Data Cable Cost", value: `\u00a3${WIRING.data?.costPerHostedCell ?? 0.25}/Cell` },
       { label: "Light Cable Heat At Sustained", value: `${WIRING.powerTiers?.light?.cableHeatAtSustainedPerHostedCell ?? 0.35}/Cell` },
       { label: "Standard Cable Heat At Sustained", value: `${WIRING.powerTiers?.standard?.cableHeatAtSustainedPerHostedCell ?? 0.55}/Cell` },
       { label: "Heavy Cable Heat At Sustained", value: `${WIRING.powerTiers?.heavy?.cableHeatAtSustainedPerHostedCell ?? 0.9}/Cell` },
@@ -352,16 +356,19 @@ const MANUAL_ARTICLES_PART_2 = [
     id: "combat-styles",
     category: "combat-styles",
     title: "Combat Styles",
-    summary: "Hold, Charge, Sentry, and Circle — how ships behave in combat.",
-    keywords: ["combat", "style", "hold", "charge", "sentry", "circle", "behavior", "ai", "stance"],
-    howItWorks: "Each ship follows a combat style that controls its movement during engagements. Hold keeps the ship at 90% of max weapon range. Charge closes to 30% of max range for aggressive pressure. Sentry holds position and fires from a fixed location. Circle orbits the target at 80% of max weapon range. Combat style can be set in the blueprint designer or changed mid-match using the combat style controls in the selection panel.",
+    summary: "Hold, Charge, Sentry, Orbit, Maintain Range, Kite, and Direct — how ships behave in combat.",
+    keywords: ["combat", "style", "hold", "charge", "sentry", "orbit", "maintain", "kite", "direct", "behavior", "ai", "stance"],
+    howItWorks: "Each ship follows a combat style that controls its movement during engagements. Hold moves to weapon range then holds a fixed world position. Charge closes to 30% of max range for aggressive pressure. Sentry guards the current area and engages nearby threats. Orbit continuously orbits the target at ~75% of max weapon range. Maintain Range keeps the enemy at 90% of max weapon range. Kite keeps distance at max weapon range, retreating if the enemy approaches. Direct moves straight toward the target. Combat style can be set in the blueprint designer or changed mid-match using the combat style controls in the selection panel.",
     importantStats: [
       { label: "Hold Range Ratio", value: "90% Of Max Weapon Range" },
       { label: "Charge Range Ratio", value: "30% Of Max Weapon Range" },
       { label: "Sentry", value: "Stays At Current Position" },
-      { label: "Circle Range Ratio", value: "80% Of Max Weapon Range" }
+      { label: "Orbit Range Ratio", value: "75% Of Max Weapon Range" },
+      { label: "Maintain Range Ratio", value: "90% Of Max Weapon Range" },
+      { label: "Kite Range Ratio", value: "Max Weapon Range" },
+      { label: "Direct", value: "Moves Straight Toward Target" }
     ],
-    practicalUse: "Hold is the safest default for ranged ships. Charge suits tanky ships with short-range weapons. Sentry is ideal for defensive positions or sniper builds. Circle works well for agile ships that want to dodge while firing.",
+    practicalUse: "Hold is the safest default for ranged ships. Charge suits tanky ships with short-range weapons. Sentry is ideal for defensive positions or sniper builds. Orbit works well for agile ships that want to dodge while firing. Maintain Range keeps a consistent distance. Kite is ideal for long-range ships that want to avoid closing.",
     commonProblems: [
       "Ship not engaging? It may have no weapons with range, or the target is out of range.",
       "Ship moving away? Sentry ships return to their assigned position.",
@@ -463,14 +470,14 @@ const MANUAL_ARTICLES_PART_3 = [
     title: "Economy & Objectives",
     summary: "Money, income, ship purchases, relays, and victory conditions.",
     keywords: ["economy", "money", "income", "ship cap", "relay", "capture", "bounty", "victory", "win", "objective"],
-    howItWorks: "Players earn money passively through base income and relay control. Relays are capturable points on the map — controlling them provides additional income. Ships cost money to build, up to a fleet cap. Destroying enemy ships awards kill bounties (28% of the destroyed ship's cost, minimum $24). Capturing a relay awards a $70 bonus. Victory is achieved by controlling a majority of relays for a sustained period or by eliminating all enemy ships.",
+    howItWorks: "Players earn money passively through base income and relay control. Relays are capturable points on the map — controlling them provides additional income. Ships cost money to build, up to a fleet cap. Destroying enemy ships awards kill bounties (28% of the destroyed ship's cost, minimum £24). Capturing a relay awards a £70 bonus. Victory is achieved by controlling a majority of relays for a sustained period or by eliminating all enemy ships.",
     importantStats: [
-      { label: "Starting Money", value: `$${ECON.startingMoney ?? 1000}` },
-      { label: "Maximum Money", value: `$${ECON.maxMoney ?? 99999}` },
-      { label: "Base Income", value: `+$${ECON.baseIncome ?? 20}/s` },
-      { label: "Relay Income", value: `+$${ECON.relayIncome ?? 5}/s Per Relay` },
-      { label: "Kill Bounty", value: `${Math.round((ECON.killBountyRatio ?? 0.28) * 100)}% Of Ship Cost (Min $${ECON.killBountyMin ?? 24})` },
-      { label: "Capture Bonus", value: `$${ECON.captureBonus ?? 70}` },
+      { label: "Starting Money", value: `\u00a3${ECON.startingMoney ?? 1000}` },
+      { label: "Maximum Money", value: `\u00a3${ECON.maxMoney ?? 99999}` },
+      { label: "Base Income", value: `+\u00a3${ECON.baseIncome ?? 20}/s` },
+      { label: "Relay Income", value: `+\u00a3${ECON.relayIncome ?? 5}/s Per Relay` },
+      { label: "Kill Bounty", value: `${Math.round((ECON.killBountyRatio ?? 0.28) * 100)}% Of Ship Cost (Min \u00a3${ECON.killBountyMin ?? 24})` },
+      { label: "Capture Bonus", value: `\u00a3${ECON.captureBonus ?? 70}` },
       { label: "Ship Cap", value: `${ECON.shipCap ?? 30} Ships` }
     ],
     practicalUse: "Balance economy and military: capturing relays early provides income advantage. Don't float money — spend it on ships to project force. Cheap ships are cost-effective for relay capture; expensive ships win fleet engagements.",
@@ -489,18 +496,18 @@ const MANUAL_ARTICLES_PART_3 = [
     keywords: ["ship pricing", "cost", "formula", "weapon premium", "mass cost", "hull cost", "fleet count"],
     howItWorks: "Ship cost is calculated from a base cost plus component costs, mass, hull, shield, and repair contributions, multiplied by a part cost multiplier. Weapons add additional premiums based on family. The number of ships you can field is derived from the fleet count formula, which divides a base value by the ship's unit cost and mass.",
     importantStats: [
-      { label: "Base Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.baseShipCost ?? 48}` },
+      { label: "Base Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipPricing?.baseShipCost ?? 48}` },
       { label: "Part Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.partCostMultiplier ?? 1.32}×` },
       { label: "Mass Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.massCostMultiplier ?? 0.9}×` },
       { label: "Hull Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.hullCostMultiplier ?? 0.012}×` },
       { label: "Shield Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.shieldCostMultiplier ?? 0.05}×` },
       { label: "Repair Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.repairCostMultiplier ?? 0.8}×` },
-      { label: "Blaster Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.blaster ?? 18}` },
-      { label: "Missile Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.missile ?? 32}` },
-      { label: "Railgun Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.railgun ?? 48}` },
-      { label: "Beam Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.beam ?? 42}` },
-      { label: "Min Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.minimum ?? 300}` },
-      { label: "Max Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.maximum ?? 2000}` },
+      { label: "Blaster Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.blaster ?? 18}` },
+      { label: "Missile Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.missile ?? 32}` },
+      { label: "Railgun Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.railgun ?? 48}` },
+      { label: "Beam Premium", value: `\u00a3${GENERATED_BALANCE.shipPricing?.weaponPremiums?.beam ?? 42}` },
+      { label: "Min Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipPricing?.minimum ?? 300}` },
+      { label: "Max Ship Cost", value: `\u00a3${GENERATED_BALANCE.shipPricing?.maximum ?? 2000}` },
       { label: "Fleet Count Base", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.base ?? 260}` },
       { label: "Fleet Count Min Divisor", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimumDivisor ?? 58}` },
       { label: "Fleet Count Unit Cost Mult", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.unitCostMultiplier ?? 0.72}×` },
@@ -523,17 +530,17 @@ const MANUAL_ARTICLES_PART_3 = [
     keywords: ["rewards", "victory", "bonus", "survival", "efficiency", "loss support", "end of match", "payout"],
     howItWorks: "At the end of a match, players receive rewards based on performance. Winners get a base reward plus a victory bonus, with a minimum win reward. Losers get loss support with a minimum loss reward. Destroying enemy ships grants additional rewards proportional to the destroyed ship's cost. Surviving ships grant a per-ship survival bonus. An efficiency bonus rewards cost-effective play.",
     importantStats: [
-      { label: "Base Reward", value: `$${GENERATED_BALANCE.rewards?.baseReward ?? 30}` },
-      { label: "Victory Bonus", value: `$${GENERATED_BALANCE.rewards?.victoryBonus ?? 80}` },
-      { label: "Loss Support", value: `$${GENERATED_BALANCE.rewards?.lossSupport ?? 35}` },
-      { label: "Minimum Win Reward", value: `$${GENERATED_BALANCE.rewards?.minimumWinReward ?? 90}` },
-      { label: "Minimum Loss Reward", value: `$${GENERATED_BALANCE.rewards?.minimumLossReward ?? 35}` },
+      { label: "Base Reward", value: `\u00a3${GENERATED_BALANCE.rewards?.baseReward ?? 30}` },
+      { label: "Victory Bonus", value: `\u00a3${GENERATED_BALANCE.rewards?.victoryBonus ?? 80}` },
+      { label: "Loss Support", value: `\u00a3${GENERATED_BALANCE.rewards?.lossSupport ?? 35}` },
+      { label: "Minimum Win Reward", value: `\u00a3${GENERATED_BALANCE.rewards?.minimumWinReward ?? 90}` },
+      { label: "Minimum Loss Reward", value: `\u00a3${GENERATED_BALANCE.rewards?.minimumLossReward ?? 35}` },
       { label: "Destroyed Enemy Cost Mult", value: `${GENERATED_BALANCE.rewards?.destroyedEnemyCostMultiplier ?? 0.35}×` },
-      { label: "Max Destroyed Reward", value: `$${GENERATED_BALANCE.rewards?.maxDestroyedReward ?? 250}` },
+      { label: "Max Destroyed Reward", value: `\u00a3${GENERATED_BALANCE.rewards?.maxDestroyedReward ?? 250}` },
       { label: "Loss Destroyed Multiplier", value: `${GENERATED_BALANCE.rewards?.lossDestroyedMultiplier ?? 0.18}×` },
-      { label: "Survival Bonus Per Ship", value: `$${GENERATED_BALANCE.rewards?.survivalBonusPerShip ?? 15}` },
-      { label: "Efficiency Bonus Scale", value: `$${GENERATED_BALANCE.rewards?.efficiencyBonusScale ?? 45}` },
-      { label: "Max Efficiency Bonus", value: `$${GENERATED_BALANCE.rewards?.maxEfficiencyBonus ?? 80}` },
+      { label: "Survival Bonus Per Ship", value: `\u00a3${GENERATED_BALANCE.rewards?.survivalBonusPerShip ?? 15}` },
+      { label: "Efficiency Bonus Scale", value: `\u00a3${GENERATED_BALANCE.rewards?.efficiencyBonusScale ?? 45}` },
+      { label: "Max Efficiency Bonus", value: `\u00a3${GENERATED_BALANCE.rewards?.maxEfficiencyBonus ?? 80}` },
       { label: "Min Overpower Reward Mult", value: `${GENERATED_BALANCE.rewards?.minimumOverpowerRewardMultiplier ?? 0.65}×` }
     ],
     practicalUse: "Winning is the biggest payout, but destroying enemy ships and keeping yours alive adds significantly. Efficient fleets (low cost, high performance) earn extra bonuses.",
@@ -791,7 +798,7 @@ function formatStat(key, value) {
     case "damage": return formatDamage(value);
     case "powerGeneration": return `+${value} MW`;
     case "powerUse": return `${value} MW`;
-    case "cost": return `$${value}`;
+    case "cost": return `\u00a3${value}`;
     case "fireRate": return `${value}/s`;
     case "tracking": return formatPercent(value);
     default: return String(value);
@@ -1030,6 +1037,19 @@ function generateComponentArticle(partId) {
     commonProblems.push("Reactor will melt down if overheated — ensure adequate cooling.");
   }
 
+  // Merge structured mechanics from the registry
+  const mechanics = getMechanics(partId);
+  const conditionalPerformance = mechanics?.conditionalPerformance || null;
+  const requirementsLimitations = mechanics?.requirements || null;
+  const specialMechanics = mechanics?.specialMechanics || null;
+  const interactions = mechanics?.interactions || null;
+
+  // Add mechanics text to keywords for search
+  if (mechanics) {
+    const mechText = getMechanicsSearchText(partId);
+    if (mechText) keywords.push(mechText);
+  }
+
   return {
     id: `component:${partId}`,
     category: cat,
@@ -1038,6 +1058,10 @@ function generateComponentArticle(partId) {
     keywords,
     howItWorks: desc,
     importantStats,
+    conditionalPerformance,
+    requirementsLimitations,
+    specialMechanics,
+    interactions,
     practicalUse: practicalUse || "See the category overview article for general guidance.",
     commonProblems: commonProblems.length ? commonProblems : ["See the category overview article for common issues."],
     related: relatedForPart(partId),
@@ -1099,7 +1123,12 @@ export function searchArticles(query) {
       article.title,
       article.summary,
       article.category,
-      ...(article.keywords || [])
+      ...(article.keywords || []),
+      // Index mechanics sections for search
+      ...((article.specialMechanics || []).flatMap((m) => [m.label, m.value, m.detail, m.condition].filter(Boolean))),
+      ...((article.requirementsLimitations || []).flatMap((m) => [m.label, m.value, m.detail].filter(Boolean))),
+      ...((article.interactions || []).flatMap((m) => [m.label, m.value, m.detail].filter(Boolean))),
+      ...((article.conditionalPerformance || []).flatMap((m) => [m.label, m.value, m.detail].filter(Boolean)))
     ].join(" ").toLowerCase();
 
     let score = 0;

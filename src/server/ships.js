@@ -164,6 +164,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     ship.componentHeat = design.map(() => 0);
     ship.componentHeatCapacity = ship.componentThermals.map(item => item.capacity);
     ship.componentHeatState = design.map(() => require("../../public/src/shared/heatRules").STATE.NORMAL);
+    ship.heatStateRevision = 1;
     ship._heatPowerSourceStates = ship.componentHeatState.slice();
     ship._heatDataSourceStates = ship.componentHeatState.slice();
     ship.componentHeatGenerated = design.map(() => 0);

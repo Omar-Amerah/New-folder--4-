@@ -139,9 +139,9 @@ function dataRelevantHeatSignature(ship) {
 function cacheSignature(ship) {
   const state = ship?.runtimeDataSupport;
   const power = ship?.powerRevision || 0;
-  const heat = dataRelevantHeatSignature(ship);
-  const hp = (ship?.componentHp || []).map((v) => v > 0 ? 1 : 0).join("");
-  return `${state?.topologyRevision || 0}:${state?.allocationRevision || 0}:${power}:${heat}:${hp}:${ship?.designRevision || 1}`;
+  const heatRevision = ship?.heatStateRevision || 0;
+  const hpRevision = ship?.componentAliveRevision || 1;
+  return `${state?.topologyRevision || 0}:${state?.allocationRevision || 0}:${power}:${heatRevision}:${hpRevision}:${ship?.designRevision || 1}`;
 }
 function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
   ensureShipDataSupport(ship);
@@ -173,6 +173,7 @@ function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
 }
 function ensureEffectiveWeaponProfileCache(ship) {
   if (!ship || typeof ship !== "object") return null;
+  bump("effectiveWeaponSignatureCalculations");
   const sig = cacheSignature(ship);
   if (!ship.effectiveWeaponProfileCache || ship.effectiveWeaponProfileCache.signature !== sig) return rebuildEffectiveWeaponProfileCache(ship);
   return ship.effectiveWeaponProfileCache;

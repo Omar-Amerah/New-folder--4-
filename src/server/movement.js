@@ -20,6 +20,17 @@ const ARRIVE_DISTANCE = 16;
 const MAX_MOVEMENT_DT = 0.25;
 const MOVEMENT_SUBSTEP = 1 / 30;
 
+const FACING_DEAD_ZONE = 0.035;
+const FACING_HYSTERESIS = 0.15;
+const BROADSIDE_COMMIT_THRESHOLD = 0.5;
+const MIN_CORRECTION_ACCEL = 12;
+
+const HULL_ANGLE_BEARING_THRESHOLD = 4 * Math.PI / 180;
+const HULL_ANGLE_REFRESH_INTERVAL = 250;
+
+function movePerf() { return global.__mfaMovePerf || null; }
+function moveBump(name) { const p = movePerf(); if (p) p[name] = (p[name] || 0) + 1; }
+
 
 function heatAdjustedMovementStats(ship, stats) {
   const design = ship.design || [];
@@ -63,6 +74,11 @@ function directionalTurnRate(stats, current, desired, ship = null) {
 
 function rotateShipToward(ship, desired, stats, dt) {
   const before = ship.angle || 0;
+  const diff = angleDifference(before, desired);
+  if (Math.abs(diff) < FACING_DEAD_ZONE) {
+    ship.turnActivity = 0;
+    return;
+  }
   const rate = directionalTurnRate(stats, before, desired, ship);
   const next = rotateToward(before, desired, rate * dt);
   const applied = Math.abs(angleDifference(before, next));
@@ -155,6 +171,7 @@ function commandShips(room, player, x, y, options = {}) {
   for (const ship of ships) {
     ship.facingTarget = null;
     ship.rotationInput = null;
+    ship._facingState = null;
     if (isEnemy) {
       ship.focusTargetId = target.id;
       ship.repairTargetId = null;
@@ -237,6 +254,7 @@ function stopShips(room, player, shipIds) {
     ship.formationSlotIndex = null;
     ship.rotationInput = null;
     ship.holdState = null;
+    ship._facingState = null;
     clearOrbitState(ship);
   }
   return { ok: true, code: 'stopped', stopped: ships.length };
@@ -282,12 +300,14 @@ function updateShipMovement(room, ship, dt, now) {
     let remaining = total;
     while (remaining > 0) {
       const step = Math.min(MOVEMENT_SUBSTEP, remaining);
+      moveBump("movementSubsteps");
       updateShipMovementStep(room, ship, step, now);
       remaining -= step;
     }
     sanitizeMovementState(room, ship);
     return;
   }
+  moveBump("movementSubsteps");
   updateShipMovementStep(room, ship, total, now);
   sanitizeMovementState(room, ship);
 }
@@ -331,10 +351,12 @@ function updateShipMovementStep(room, ship, dt, now) {
 
   const isPersistentMove = Boolean(target && (style === 'orbit' || style === 'maintain' || style === 'kite' || style === 'direct' || style === 'interceptor' || style === 'evasive' || style === 'brawler' || style === 'heavy'));
 
+  const resolvedFacing = resolveHullFacing(room, ship, stats, target, distance, isPersistentMove);
+
   if (!ship.arrived || isPersistentMove) {
-    driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt);
+    driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt, resolvedFacing);
   } else {
-    rotateHullForCombat(room, ship, stats, target, dt);
+    rotateShipToward(ship, resolvedFacing, stats, dt);
   }
 
   applyDamping(ship, distance, isPersistentMove, dt);
@@ -396,6 +418,7 @@ function getActiveCombatTarget(room, ship) {
     if (ship.combatTargetId === activeTargetId) ship.combatTargetId = null;
     if (ship.commandMode === 'attack') ship.commandMode = null;
     clearOrbitState(ship);
+    moveBump("targetAcquisitionChanges");
     return null;
   }
 
@@ -758,14 +781,14 @@ function clearOrbitState(ship) {
   ship.lastOrbitTargetId = null;
 }
 
-function driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt) {
+function driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt, resolvedFacing) {
   if (distance <= ARRIVE_DISTANCE && !isPersistentMove && !shipHasOperationalDemolitionCharge(ship)) {
     ship.arrived = true;
     return;
   }
 
   const desired = getDesiredMoveAngle(room, ship);
-  rotateShipToward(ship, desired, stats, dt);
+  rotateShipToward(ship, resolvedFacing, stats, dt);
 
   const alignment = Math.max(0.12, Math.cos(angleDifference(ship.angle, desired)));
   for (const i of getShipComponentIndexes(ship).thrustIndices) {
@@ -788,13 +811,13 @@ function driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt
 function applyVectorThrusterForces(ship, stats, desiredAngle, dt) {
   const indexes = getShipComponentIndexes(ship).vectorThrusterIndices;
   if (!indexes.length) return;
+  moveBump("vectorThrusterForceCalls");
   const lateralAccel = stats.lateralAccel || 0;
   const brakingAccel = stats.brakingAccel || 0;
   const reverseAccel = stats.reverseAccel || 0;
   if (lateralAccel <= 0 && brakingAccel <= 0 && reverseAccel <= 0) return;
 
   const style = getCombatStyle(ship);
-  const combatTarget = getActiveCombatTarget({ ships: new Map() }, ship);
   let lateralInput = 0, brakingInput = 0, reverseInput = 0;
 
   if (style === 'evasive') {
@@ -803,6 +826,21 @@ function applyVectorThrusterForces(ship, stats, desiredAngle, dt) {
   } else if (style === 'interceptor' || style === 'brawler') {
     const speed = fastHypot(ship.vx, ship.vy);
     if (speed > (stats.maxSpeed || 0) * 0.8) brakingInput = 0.5;
+  } else if (style === 'hold' || style === 'maintain' || style === 'sentry' || style === 'kite') {
+    const speed = fastHypot(ship.vx, ship.vy);
+    if (speed > 2) brakingInput = 1;
+    const moveAngle = Math.atan2(ship.targetY - ship.y, ship.targetX - ship.x);
+    const lateralDiff = angleDifference(ship.angle, moveAngle);
+    if (Math.abs(lateralDiff) > 0.3 && Math.abs(lateralDiff) < Math.PI - 0.3 && lateralAccel > 0) {
+      lateralInput = lateralDiff > 0 ? 1 : -1;
+    }
+    if (Math.abs(lateralDiff) > Math.PI * 0.65 && reverseAccel > 0) {
+      reverseInput = 1;
+    }
+  }
+
+  if (lateralInput === 0 && brakingInput === 0 && reverseInput === 0) {
+    return;
   }
 
   if (lateralInput !== 0 && lateralAccel > 0) {
@@ -939,6 +977,89 @@ function segmentCircleClearance(x1, y1, x2, y2, cx, cy, radius) {
   return { blocked: fastHypot(cx - closestX, cy - closestY) < radius, along, lateral };
 }
 
+function resolveHullFacing(room, ship, stats, target, moveDistance, isPersistentMove) {
+  if (Number.isFinite(ship.rotationInput)) {
+    return ship.angle + ship.rotationInput * (Math.PI - 1e-9);
+  }
+
+  if (Number.isFinite(ship.facingTarget)) {
+    return ship.facingTarget;
+  }
+
+  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
+  const style = getCombatStyle(ship);
+
+  let combatTarget = target;
+  if (!combatTarget) {
+    const targetId = ship.focusTargetId || ship.combatTargetId;
+    combatTarget = targetId ? room.ships.get(targetId) : null;
+  }
+
+  if (!combatTarget || !combatTarget.alive) {
+    if (moveDistance > ARRIVE_DISTANCE) {
+      return getDesiredMoveAngle(room, ship);
+    }
+    return ship.angle;
+  }
+
+  if (style === 'orbit') {
+    if (moveDistance > ARRIVE_DISTANCE) return getDesiredMoveAngle(room, ship);
+    return applyFacingHysteresis(ship, getCachedOptimalHullAngle(ship, combatTarget));
+  }
+
+  const combatAngle = getCachedOptimalHullAngle(ship, combatTarget);
+  const moveAngle = getDesiredMoveAngle(room, ship);
+
+  const isHoldLike = (style === 'hold' || style === 'maintain' || style === 'sentry' || style === 'kite');
+  const correctionIsTiny = isHoldLike && (moveDistance <= 60 || (stats.accel || 0) < MIN_CORRECTION_ACCEL);
+
+  if (correctionIsTiny || ship.arrived) {
+    return applyFacingHysteresis(ship, combatAngle);
+  }
+
+  const moveTurnDiff = Math.abs(angleDifference(ship.angle, moveAngle));
+  const combatTurnDiff = Math.abs(angleDifference(ship.angle, combatAngle));
+
+  if (moveTurnDiff > Math.PI * 0.5 && combatTurnDiff < Math.PI * 0.3) {
+    return applyFacingHysteresis(ship, combatAngle);
+  }
+
+  return applyFacingHysteresis(ship, moveAngle);
+}
+
+function applyFacingHysteresis(ship, desiredFacing) {
+  const diffToCurrent = Math.abs(angleDifference(ship.angle, desiredFacing));
+  if (diffToCurrent < FACING_DEAD_ZONE) {
+    return ship.angle;
+  }
+
+  const state = ship._facingState;
+  if (state && Number.isFinite(state.committedAngle)) {
+    const committedDiff = Math.abs(angleDifference(ship.angle, state.committedAngle));
+    const newDiff = Math.abs(angleDifference(ship.angle, desiredFacing));
+
+    if (committedDiff < FACING_HYSTERESIS && newDiff > committedDiff + FACING_HYSTERESIS * 0.5) {
+      return state.committedAngle;
+    }
+
+    if (state.broadsideSign !== 0) {
+      const newSign = angleDifference(ship.angle, desiredFacing) >= 0 ? 1 : -1;
+      if (newSign !== state.broadsideSign && committedDiff < BROADSIDE_COMMIT_THRESHOLD) {
+        return state.committedAngle;
+      }
+      ship._facingState = { committedAngle: desiredFacing, broadsideSign: newSign };
+    } else {
+      const newSign = angleDifference(ship.angle, desiredFacing) >= 0 ? 1 : -1;
+      ship._facingState = { committedAngle: desiredFacing, broadsideSign: newSign };
+    }
+  } else {
+    const newSign = angleDifference(ship.angle, desiredFacing) >= 0 ? 1 : -1;
+    ship._facingState = { committedAngle: desiredFacing, broadsideSign: newSign };
+  }
+
+  return desiredFacing;
+}
+
 function rotateHullForCombat(room, ship, stats, target, dt) {
   if (Number.isFinite(ship.rotationInput)) {
     const desired = ship.angle + ship.rotationInput * (Math.PI - 1e-9);
@@ -960,8 +1081,46 @@ function rotateHullForCombat(room, ship, stats, target, dt) {
 
   if (!combatTarget || !combatTarget.alive) return;
 
-  const desired = findOptimalHullAngle(ship, combatTarget);
+  const desired = getCachedOptimalHullAngle(ship, combatTarget);
   rotateShipToward(ship, desired, stats, dt);
+}
+
+function getCachedOptimalHullAngle(ship, target) {
+  const now = ship._simNow || 0;
+  const targetId = target.id;
+  const targetBearing = Math.atan2(target.y - ship.y, target.x - ship.x);
+  const profileRevision = ship.effectiveWeaponProfileCache?.revision || 0;
+
+  let weaponHpSig = "";
+  const weapons = ship.hullAngleWeapons;
+  if (weapons) {
+    for (let i = 0; i < weapons.length; i += 1) {
+      weaponHpSig += (ship.componentHp?.[weapons[i].componentIndex] ?? 1) > 0 ? "1" : "0";
+    }
+  }
+
+  const cache = ship._hullAngleCache;
+  if (cache &&
+      cache.targetId === targetId &&
+      cache.profileRevision === profileRevision &&
+      cache.weaponHpSig === weaponHpSig &&
+      (now - cache.computedAt) < HULL_ANGLE_REFRESH_INTERVAL &&
+      Math.abs(angleDifference(targetBearing, cache.targetBearing)) < HULL_ANGLE_BEARING_THRESHOLD) {
+    moveBump("hullAngleCacheHits");
+    return cache.angle;
+  }
+
+  moveBump("hullAngleSearches");
+  const angle = findOptimalHullAngle(ship, target);
+  ship._hullAngleCache = {
+    targetId,
+    targetBearing,
+    weaponHpSig,
+    profileRevision,
+    angle,
+    computedAt: now
+  };
+  return angle;
 }
 
 function applyDamping(ship, distance, isPersistentMove, dt) {
@@ -1282,6 +1441,7 @@ function findOptimalHullAngle(ship, target) {
     const sin = Math.sin(candidateAngle);
 
     for (const weapon of operationalWeapons) {
+      moveBump("candidateAngleEvaluations");
       const worldX = ship.x + weapon.local.x * cos - weapon.local.y * sin;
       const worldY = ship.y + weapon.local.x * sin + weapon.local.y * cos;
 

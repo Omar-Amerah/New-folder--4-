@@ -57,6 +57,54 @@ function renderArticleContent(article) {
     parts.push(`<section class="ledger-section" id="ledger-sec-key-stats"><h3 class="ledger-section-heading">Key Stats</h3><div class="ledger-stat-grid">${rows}</div></section>`);
   }
 
+  if (article.conditionalPerformance && article.conditionalPerformance.length) {
+    tocItems.push({ id: "conditional-performance", label: "Conditional Performance" });
+    const rows = article.conditionalPerformance
+      .map((s) => {
+        const cls = s.warning ? " ledger-stat-row-warning" : "";
+        const detail = s.detail ? `<div class="ledger-stat-detail">${escapeHtml(s.detail)}</div>` : "";
+        return `<div class="ledger-stat-row${cls}"><span class="ledger-stat-label">${escapeHtml(s.label)}</span><span class="ledger-stat-value">${escapeHtml(s.value)}</span>${detail}</div>`;
+      })
+      .join("");
+    parts.push(`<section class="ledger-section" id="ledger-sec-conditional-performance"><h3 class="ledger-section-heading">Conditional Performance</h3><div class="ledger-stat-grid">${rows}</div><p class="ledger-section-note">Values vary by condition — these are not base stats.</p></section>`);
+  }
+
+  if (article.specialMechanics && article.specialMechanics.length) {
+    tocItems.push({ id: "special-mechanics", label: "Special Mechanics" });
+    const rows = article.specialMechanics
+      .map((m) => {
+        const cls = m.warning ? " ledger-mechanics-row-warning" : "";
+        const detail = m.detail ? `<div class="ledger-mechanics-detail">${escapeHtml(m.detail)}</div>` : "";
+        const condition = m.condition ? `<div class="ledger-mechanics-condition">Condition: ${escapeHtml(m.condition)}</div>` : "";
+        return `<div class="ledger-mechanics-row${cls}"><span class="ledger-mechanics-label">${escapeHtml(m.label)}</span><span class="ledger-mechanics-value">${escapeHtml(m.value)}</span>${detail}${condition}</div>`;
+      })
+      .join("");
+    parts.push(`<section class="ledger-section" id="ledger-sec-special-mechanics"><h3 class="ledger-section-heading">Special Mechanics</h3><div class="ledger-mechanics-grid">${rows}</div></section>`);
+  }
+
+  if (article.requirementsLimitations && article.requirementsLimitations.length) {
+    tocItems.push({ id: "requirements", label: "Requirements & Limitations" });
+    const rows = article.requirementsLimitations
+      .map((r) => {
+        const cls = r.warning ? " ledger-mechanics-row-warning" : "";
+        const detail = r.detail ? `<div class="ledger-mechanics-detail">${escapeHtml(r.detail)}</div>` : "";
+        return `<div class="ledger-mechanics-row${cls}"><span class="ledger-mechanics-label">${escapeHtml(r.label)}</span><span class="ledger-mechanics-value">${escapeHtml(r.value)}</span>${detail}</div>`;
+      })
+      .join("");
+    parts.push(`<section class="ledger-section" id="ledger-sec-requirements"><h3 class="ledger-section-heading">Requirements & Limitations</h3><div class="ledger-mechanics-grid">${rows}</div></section>`);
+  }
+
+  if (article.interactions && article.interactions.length) {
+    tocItems.push({ id: "interactions", label: "Interactions" });
+    const rows = article.interactions
+      .map((i) => {
+        const detail = i.detail ? `<div class="ledger-mechanics-detail">${escapeHtml(i.detail)}</div>` : "";
+        return `<div class="ledger-mechanics-row"><span class="ledger-mechanics-label">${escapeHtml(i.label)}</span><span class="ledger-mechanics-value">${escapeHtml(i.value)}</span>${detail}</div>`;
+      })
+      .join("");
+    parts.push(`<section class="ledger-section" id="ledger-sec-interactions"><h3 class="ledger-section-heading">Interactions</h3><div class="ledger-mechanics-grid">${rows}</div></section>`);
+  }
+
   if (article.practicalUse) {
     tocItems.push({ id: "practical-use", label: "Practical Use" });
     parts.push(`<section class="ledger-section" id="ledger-sec-practical-use"><h3 class="ledger-section-heading">Practical Use</h3><p>${escapeHtml(article.practicalUse)}</p></section>`);

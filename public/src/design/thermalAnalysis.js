@@ -292,9 +292,9 @@ export function simulateThermalLoad(model, load, options = {}) {
     for (let i = 0; i < design.length; i += 1) {
       let coolingRate = profiles[i].cooling * profiles[i].retention;
       if (design[i].type === "radiator") {
-        const exposure = exposed[i] > 0 ? 1 : 0.25;
+        const exposure = exposed[i] > 0 ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER;
         const activeCooling = profiles[i].cooling * rules.activeCoolingForState(states[i]) * (powerMultiplier[i] ?? 1);
-        const passiveFloor = profiles[i].cooling * 0.12;
+        const passiveFloor = profiles[i].cooling * rules.RADIATOR_PASSIVE_COOLING_FRACTION;
         coolingRate = Math.max(passiveFloor, activeCooling) * exposure * profiles[i].retention;
       }
       else if (exposed[i] > 0) coolingRate *= 1.12;
@@ -375,7 +375,7 @@ export function summariseThermalResult(model, load, simulation) {
       meltdownTime: meltdownTime[i],
       exposedEdges: exposed[i],
       exteriorDirections: [...exteriorDirections[i]],
-      exposureCoolingMultiplier: isRadiator ? (isExposed ? 1 : 0.25) : (isExposed ? 1.12 : 1),
+      exposureCoolingMultiplier: isRadiator ? (isExposed ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER) : (isExposed ? 1.12 : 1),
       powerMultiplier: simulation.finalPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       initialPowerMultiplier: simulation.initialPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       minimumPowerMultiplier: simulation.minimumPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
@@ -410,7 +410,7 @@ export function summariseThermalResult(model, load, simulation) {
   }));
   const componentHeat = new Map(design.map((module, i) => [module, Math.round(peakRatios[i] * 100)]));
   const generation = generationRates.reduce((sum, value) => sum + value, 0);
-  const nominalCoolingRate = profiles.reduce((sum, item, i) => sum + (design[i].type === "radiator" ? item.cooling * (exposed[i] ? 1 : 0.25) : item.cooling * (exposed[i] ? 1.12 : 1)), 0);
+  const nominalCoolingRate = profiles.reduce((sum, item, i) => sum + (design[i].type === "radiator" ? item.cooling * (exposed[i] ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER) : item.cooling * (exposed[i] ? 1.12 : 1)), 0);
   const totalCoolingRemoved = simulation.totalCoolingRemoved ?? 0;
   const coolingRate = simulation.averageAvailableCoolingRate ?? (simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0);
   const averageActualCoolingRate = simulation.averageActualCoolingRate ?? (simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0);
@@ -425,7 +425,7 @@ export function summariseThermalResult(model, load, simulation) {
     const score = members.length ? Math.max(...members.map(i => peakRatios[i] || 0)) : 0;
     return !best || score > best.score ? { network, score } : best;
   }, null) : null;
-  const radiatorCapacitySeconds = design.reduce((sum, module, i) => module.type === "radiator" ? sum + profiles[i].cooling * (exposed[i] ? 1 : .25) * simulatedSeconds : sum, 0);
+  const radiatorCapacitySeconds = design.reduce((sum, module, i) => module.type === "radiator" ? sum + profiles[i].cooling * (exposed[i] ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER) * simulatedSeconds : sum, 0);
   const actualCooling = design.reduce((sum, _module, i) => sum + cooling[i] / dt, 0);
   return {
     componentClasses, componentHeat, predictions, powerThermal, heatDiagnostics: model.heatDiagnostics || [], flows: finalFlows, networks, criticalFrames: problems.criticalFrames, problemIndices: problems.problemIndices, overloadedNetworkIds: problems.overloadedNetworkIds, exteriorDirections, actionItems,
