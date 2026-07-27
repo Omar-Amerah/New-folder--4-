@@ -758,7 +758,7 @@ function regenerateShield(ship, stats, dt, now) {
     // with the simulation tick rate. The delay is recalculated each tick from
     // the depletion timestamp so aura changes during the countdown take effect
     // immediately rather than being locked in at depletion time.
-    if (ship.shield <= 0 && !ship._shieldDepletedAt) {
+    if (ship.shield <= 0 && (ship._shieldDepletedAt === undefined || ship._shieldDepletedAt === null)) {
       ship._shieldDepletedAt = now;
     }
     if (ship._shieldDepletedAt !== undefined && ship._shieldDepletedAt !== null) {

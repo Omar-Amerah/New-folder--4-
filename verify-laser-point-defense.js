@@ -314,8 +314,8 @@ const assert = require("assert");
     flakShip.weaponAngles[1] = 0;
 
     updateShipWeapons(room, flakShip, [flakShip, enemyShip], 0.1, 1000);
-    assert.ok(room.bullets.some(b => b.type === "pdShot" && b.subtype === "flakCannon"), "Flak Cannon spawns pdShot projectile entity");
-    console.log("✔ Test 15 passed: Flak Cannon and Interceptor Pod retain projectile behavior.");
+    assert.ok(room.bullets.some(b => b.type === "flak" && b.subtype === "flakCannon"), "Flak Cannon spawns a flak shell projectile entity");
+    console.log("✔ Test 15 passed: Flak Cannon spawns a flak shell projectile entity.");
   }
 
   // 16. Laser visuals end at the authoritative target impact point
@@ -364,10 +364,10 @@ const assert = require("assert");
     flakShip.weaponAngles[1] = 0;
 
     updateShipWeapons(room, flakShip, [flakShip, enemyShip], 0.1, 1000);
-    const pdShot = room.bullets.find(b => b.type === "pdShot" && b.subtype === "flakCannon");
-    assert.ok(pdShot, "Flak Cannon fires at drone");
+    const flakShell = room.bullets.find(b => b.type === "flak" && b.subtype === "flakCannon");
+    assert.ok(flakShell, "Flak Cannon fires at drone");
     // Missile should be prioritized over drone (missile is higher priority in targetPriority list)
-    assert.strictEqual(pdShot.targetId, "m1", "Flak Cannon prioritizes missile over drone");
+    assert.strictEqual(flakShell.targetId, "m1", "Flak Cannon prioritizes missile over drone");
     console.log("✔ Test 18 passed: Flak Cannon targets hostile drones with correct priority order.");
   }
 

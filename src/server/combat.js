@@ -1271,6 +1271,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       ship.weaponAimTargetIds[i] = null;
 
       ship.weaponFireTargetIds[i] = null;
+      if (ship.weaponAcquiredTargetIds) ship.weaponAcquiredTargetIds[i] = null;
+      if (ship.weaponPendingTargetIds) ship.weaponPendingTargetIds[i] = null;
+      if (ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt[i] = 0;
+      if (ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds[i] = null;
+      if (ship.pdPendingTargetIds) ship.pdPendingTargetIds[i] = null;
+      if (ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt[i] = 0;
 
       clearWeaponComponentAim(ship, i);
 
@@ -1291,6 +1297,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       ship.weaponAimTargetIds[i] = null;
 
       ship.weaponFireTargetIds[i] = null;
+      if (ship.weaponAcquiredTargetIds) ship.weaponAcquiredTargetIds[i] = null;
+      if (ship.weaponPendingTargetIds) ship.weaponPendingTargetIds[i] = null;
+      if (ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt[i] = 0;
+      if (ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds[i] = null;
+      if (ship.pdPendingTargetIds) ship.pdPendingTargetIds[i] = null;
+      if (ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt[i] = 0;
 
       clearWeaponComponentAim(ship, i);
 
@@ -1424,29 +1436,64 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     } else if (family === "flak" || family === "pointDefense") {
 
-      // Fleet Defence Coordinator: interception reacquisition delay. When a
-      // defensive weapon loses its target, it must wait a base simulation-time
-      // delay before acquiring a new one. The interceptionReactionMultiplier
-      // (above 1) shortens this delay so coordinated defences reacquire faster.
-      if (!ship._pdReacquireAt) ship._pdReacquireAt = new Array(ship.design ? ship.design.length : 0).fill(0);
+      // Fleet Defence Coordinator: interception reacquisition delay.
+      // Each defensive weapon separately tracks its acquired target, pending
+      // target, and the simulation timestamp when the pending acquisition
+      // completes. When no threats exist, no timer is scheduled — the weapon
+      // simply scans each tick. A new threat can never inherit a previous
+      // threat's timer.
+      const pdLen = ship.design ? ship.design.length : 0;
+      if (!ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds = new Array(pdLen).fill(null);
+      if (!ship.pdPendingTargetIds) ship.pdPendingTargetIds = new Array(pdLen).fill(null);
+      if (!ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt = new Array(pdLen).fill(0);
 
-      if (now < (ship._pdReacquireAt[i] || 0)) {
+      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
+
+      const newPdId = currentPdTarget ? (currentPdTarget.entity.id ?? null) : null;
+      const pdAcquiredId = ship.pdAcquiredTargetIds[i] ?? null;
+      const pdPendingId = ship.pdPendingTargetIds[i] ?? null;
+
+      if (!newPdId) {
+        // No threat: clear all PD acquisition state. Do NOT schedule a
+        // future scan — the weapon simply checks again next tick.
+        ship.pdPendingTargetIds[i] = null;
+        ship.pdAcquireCompleteAt[i] = 0;
+        ship.pdAcquiredTargetIds[i] = null;
         currentPdTarget = null;
         aimEntity = null;
         clearWeaponComponentAim(ship, i);
+      } else if (newPdId === pdAcquiredId) {
+        // Threat matches acquired target: fire normally, no timer.
+        ship.pdPendingTargetIds[i] = null;
+        ship.pdAcquireCompleteAt[i] = 0;
+        aimEntity = currentPdTarget.entity;
       } else {
-        currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
-
-        if (currentPdTarget) {
-          aimEntity = currentPdTarget.entity;
-        } else {
-          // Target lost: start reacquisition countdown.
+        // Threat differs from acquired target.
+        if (newPdId !== pdPendingId) {
+          // Fresh threat: start a new reaction delay timer.
           const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
           const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
-          ship._pdReacquireAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
-          aimEntity = null;
+          ship.pdPendingTargetIds[i] = newPdId;
+          ship.pdAcquireCompleteAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
         }
-
+        // While reaction delay is pending, the turret may track the threat
+        // visually but must not fire. Check if timer has completed.
+        // First-ever target on this weapon fires immediately (no previous
+        // acquisition to hand off from).
+        if (!pdAcquiredId || now >= ship.pdAcquireCompleteAt[i]) {
+          // Reaction complete: promote pending to acquired.
+          ship.pdAcquiredTargetIds[i] = newPdId;
+          ship.pdPendingTargetIds[i] = null;
+          ship.pdAcquireCompleteAt[i] = 0;
+          // currentPdTarget stays as-is; aimEntity set below.
+          aimEntity = currentPdTarget.entity;
+        } else {
+          // Still reacting: turret may track but not fire.
+          // Set aimEntity so the turret rotates toward the threat.
+          aimEntity = currentPdTarget.entity;
+          // Null currentPdTarget so the firing check at line ~1664 fails.
+          currentPdTarget = null;
+        }
         clearWeaponComponentAim(ship, i);
       }
 
@@ -1460,11 +1507,14 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       // itself is retained at the ship level and resumed once it is attackable.
 
-      // Fire-Control Command Centre: offensive reacquisition delay. When an
-      // offensive weapon switches to a new target, it must wait a base
-      // simulation-time delay before firing. The targetAcquisitionMultiplier
-      // (above 1) shortens this delay so coordinated ships acquire targets faster.
-      if (!ship._offensiveReacquireAt) ship._offensiveReacquireAt = new Array(ship.design ? ship.design.length : 0).fill(0);
+      // Fire-Control Command Centre: offensive reacquisition delay.
+      // Each weapon separately tracks its acquired target, pending target,
+      // and the simulation timestamp when the pending acquisition completes.
+      // A new target can never inherit a previous target's timer.
+      const wLen = ship.design ? ship.design.length : 0;
+      if (!ship.weaponAcquiredTargetIds) ship.weaponAcquiredTargetIds = new Array(wLen).fill(null);
+      if (!ship.weaponPendingTargetIds) ship.weaponPendingTargetIds = new Array(wLen).fill(null);
+      if (!ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt = new Array(wLen).fill(0);
 
       weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range, {
 
@@ -1474,20 +1524,47 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       });
 
-      const prevTargetId = ship.weaponFireTargetIds?.[i] ?? null;
-      const newTargetId = weaponTarget ? weaponTarget.id ?? null : null;
+      const newTargetId = weaponTarget ? (weaponTarget.id ?? null) : null;
+      const acquiredId = ship.weaponAcquiredTargetIds[i] ?? null;
+      const pendingId = ship.weaponPendingTargetIds[i] ?? null;
+      let pendingAimEntity = null;
 
-      if (newTargetId && prevTargetId && newTargetId !== prevTargetId) {
-        const acqMult = getCommandAuraMultiplier(ship, "targetAcquisitionMultiplier");
-        const baseDelay = Number(BALANCE?.fireControl?.baseReacquisitionDelayMs) || 400;
-        ship._offensiveReacquireAt[i] = now + Math.round(baseDelay / Math.max(0.01, acqMult));
+      if (!newTargetId) {
+        // No target available: clear pending state. Clear acquired if it
+        // is no longer the selected target (it may still be valid and
+        // will be resumed without a new timer if reselected).
+        ship.weaponPendingTargetIds[i] = null;
+        ship.weaponAcquireCompleteAt[i] = 0;
+        // Do not clear acquiredId here — if the same target reappears
+        // next tick we want to resume firing immediately.
+      } else if (newTargetId === acquiredId) {
+        // Target matches acquired target: fire normally, no timer.
+        ship.weaponPendingTargetIds[i] = null;
+        ship.weaponAcquireCompleteAt[i] = 0;
+      } else {
+        // Target differs from acquired target.
+        if (newTargetId !== pendingId) {
+          // Fresh target: start a new acquisition timer.
+          const acqMult = getCommandAuraMultiplier(ship, "targetAcquisitionMultiplier");
+          const baseDelay = Number(BALANCE?.fireControl?.baseReacquisitionDelayMs) || 400;
+          ship.weaponPendingTargetIds[i] = newTargetId;
+          ship.weaponAcquireCompleteAt[i] = now + Math.round(baseDelay / Math.max(0.01, acqMult));
+        }
+        // While acquisition is pending, the weapon may track (aimEntity
+        // is set below) but must not fire. Check if timer has completed.
+        if (now >= ship.weaponAcquireCompleteAt[i]) {
+          // Acquisition complete: promote pending to acquired.
+          ship.weaponAcquiredTargetIds[i] = newTargetId;
+          ship.weaponPendingTargetIds[i] = null;
+          ship.weaponAcquireCompleteAt[i] = 0;
+        } else {
+          // Still acquiring: weapon may aim but not fire.
+          pendingAimEntity = weaponTarget;
+          weaponTarget = null;
+        }
       }
 
-      if (now < (ship._offensiveReacquireAt[i] || 0)) {
-        weaponTarget = null;
-      }
-
-      aimEntity = weaponTarget || (target && target.alive !== false && !target.destroyed ? target : null);
+      aimEntity = weaponTarget || pendingAimEntity || (target && target.alive !== false && !target.destroyed ? target : null);
 
       if (aimEntity) {
 
@@ -1962,6 +2039,19 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
         const targetEnt = currentPdTarget.entity;
+        const targetType = currentPdTarget.type;
+        const reserved = room._pdReservations.get(targetEnt.id) || 0;
+        const baseHp = targetType === "projectile" ? (targetEnt.hp !== undefined ? targetEnt.hp : (targetEnt.damage || 20))
+                       : targetType === "drone" ? (targetEnt.hull || 0)
+                       : targetType === "decoy" ? 1
+                       : Infinity;
+        if (baseHp - reserved <= 0.001) {
+          currentPdTarget = null;
+          return;
+        }
+        const blastDamage = effectiveWeapon.blastDamage ?? effectiveWeapon.damage ?? 0;
+        const expectedDamage = Number.isFinite(baseHp) ? Math.min(blastDamage, Math.max(0, baseHp - reserved)) : 0;
+        if (expectedDamage > 0) room._pdReservations.set(targetEnt.id, reserved + expectedDamage);
 
         addBullet(room, {
 
@@ -1970,6 +2060,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           subtype: module.type,
 
           ownerId: ship.ownerId,
+
+          targetId: targetEnt.id,
 
           x: muzzle.x,
 
@@ -2142,7 +2234,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                damage: pdDamage,
 
-               shipDamageMultiplier: currentPdTarget.type === "ship" ? (effectiveWeapon.shipDamageMultiplier || 0.1) : 1,
+               shipDamageMultiplier: effectiveWeapon.shipDamageMultiplier ?? 0.05,
 
                shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
 
@@ -3394,9 +3486,12 @@ function destroyShip(room, ship, attackerId, now) {
 
   ship.weaponComponentRetargetAt = null;
 
-  ship._pdReacquireAt = null;
-
-  ship._offensiveReacquireAt = null;
+  ship.pdAcquiredTargetIds = null;
+  ship.pdPendingTargetIds = null;
+  ship.pdAcquireCompleteAt = null;
+  ship.weaponAcquiredTargetIds = null;
+  ship.weaponPendingTargetIds = null;
+  ship.weaponAcquireCompleteAt = null;
 
   ship.vx *= 0.25;
 
@@ -3576,9 +3671,12 @@ function detonateSelfDestruct(room, ship, now) {
 
   ship.weaponComponentRetargetAt = null;
 
-  ship._pdReacquireAt = null;
-
-  ship._offensiveReacquireAt = null;
+  ship.pdAcquiredTargetIds = null;
+  ship.pdPendingTargetIds = null;
+  ship.pdAcquireCompleteAt = null;
+  ship.weaponAcquiredTargetIds = null;
+  ship.weaponPendingTargetIds = null;
+  ship.weaponAcquireCompleteAt = null;
 
   ship.vx *= 0.2;
 
@@ -3632,9 +3730,12 @@ function updateDestroyedShips(room, now) {
 
         ship.weaponComponentRetargetAt = null;
 
-        ship._pdReacquireAt = null;
-
-        ship._offensiveReacquireAt = null;
+        ship.pdAcquiredTargetIds = null;
+        ship.pdPendingTargetIds = null;
+        ship.pdAcquireCompleteAt = null;
+        ship.weaponAcquiredTargetIds = null;
+        ship.weaponPendingTargetIds = null;
+        ship.weaponAcquireCompleteAt = null;
 
         invalidateShipCollisionGeometry(ship);
 

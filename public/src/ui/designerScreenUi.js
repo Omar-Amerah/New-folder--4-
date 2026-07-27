@@ -37,6 +37,12 @@ export async function requestCloseBlueprintDesigner() {
     return false;
   }
 
+  const { state } = await import("../state.js");
+  if (state.loadedEditorBlueprintId) {
+    closeBlueprintDesigner();
+    return true;
+  }
+
   const { wiringReadinessWarning } = await import("./wiringUi.js");
   const warning = wiringReadinessWarning();
   if (!warning) {

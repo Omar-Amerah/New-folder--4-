@@ -164,8 +164,8 @@ const MANUAL_ARTICLES_PART_1 = [
     category: "ship-construction",
     title: "Ship Cost & Fleet Count",
     summary: "How Ship Cost Is Calculated From Components, Mass, Weapons, And Wiring.",
-    keywords: ["cost", "price", "formula", "fleet count", "weapon premium", "size tax", "wiring cost", "infrastructure"],
-    howItWorks: "Ship Cost = Base Cost + (Component Cost × Part Multiplier) + (Mass × Mass Multiplier) + (Hull × Hull Multiplier) + (Shield × Shield Multiplier) + (Repair Rate × Repair Multiplier) + Weapon Premiums. Weapon Premiums: Blaster $18, Missile $32, Railgun $48, Beam $42 Per Weapon. Ships Above $400 Pay A 15% Large-Ship Tax On The Excess. Ships Above $700 Pay An Additional 25% Huge-Ship Tax On The Excess. Wiring Infrastructure Cost (Power + Data Cable) Is Added On Top, Not Multiplied By Hull/Mass/Weapon Premiums. Final Cost Is Clamped To $300–$2000. Fleet Count = Floor(Base / Max(MinDivisor, UnitCost × UnitCostMult + Mass × MassMult)), Clamped To 1–5.",
+    keywords: ["cost", "price", "formula", "fleet count", "weapon premium", "wiring cost", "infrastructure"],
+    howItWorks: "Ship Cost = Base Cost + (Component Cost × Part Multiplier) + (Mass × Mass Multiplier) + (Hull × Hull Multiplier) + (Shield × Shield Multiplier) + (Repair Rate × Repair Multiplier) + Weapon Premiums. Weapon Premiums: Blaster $18, Missile $32, Railgun $48, Beam $42 Per Weapon. Wiring Infrastructure Cost (Power + Data Cable) Is Added On Top, Not Multiplied By Hull/Mass/Weapon Premiums. Final Cost Is Clamped To $300–$2000. Fleet Count = Floor(Base / Max(MinDivisor, UnitCost × UnitCostMult + Mass × MassMult)), Clamped To 1–5.",
     importantStats: [
       { label: "Base Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.baseShipCost ?? 48}` },
       { label: "Part Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.partCostMultiplier ?? 1.32}×` },
@@ -177,10 +177,6 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Missile Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.missile ?? 32}/Weapon` },
       { label: "Railgun Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.railgun ?? 48}/Weapon` },
       { label: "Beam Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.beam ?? 42}/Weapon` },
-      { label: "Large Ship Threshold", value: `$${GENERATED_BALANCE.shipPricing?.largeShipThreshold ?? 400}` },
-      { label: "Large Ship Tax", value: `+${Math.round((GENERATED_BALANCE.shipPricing?.largeShipCostTax ?? 0.15) * 100)}% On Excess` },
-      { label: "Huge Ship Threshold", value: `$${GENERATED_BALANCE.shipPricing?.hugeShipThreshold ?? 700}` },
-      { label: "Huge Ship Tax", value: `+${Math.round((GENERATED_BALANCE.shipPricing?.hugeShipCostTax ?? 0.25) * 100)}% On Excess` },
       { label: "Min Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.minimum ?? 300}` },
       { label: "Max Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.maximum ?? 2000}` },
       { label: "Wiring Cost", value: "Added On Top (Not Multiplied)" },
@@ -188,7 +184,7 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Fleet Count Min Divisor", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimumDivisor ?? 58}` },
       { label: "Fleet Count Range", value: "1–5 Ships" }
     ],
-    practicalUse: "Cheaper Ships Mean More Ships In Your Fleet. Weapon Premiums And Size Taxes Make Expensive Ships Cost-Inefficient. Wiring Cost Is Additive — Long Cable Runs Increase Cost Without Being Subject To Multipliers.",
+    practicalUse: "Cheaper Ships Mean More Ships In Your Fleet. Weapon Premiums Make Expensive Ships Cost-Inefficient. Wiring Cost Is Additive — Long Cable Runs Increase Cost Without Being Subject To Multipliers.",
     commonProblems: [
       "Ship Too Expensive? Reduce Weapon Count, Use Cheaper Weapons, Or Shrink The Design.",
       "Fleet Count Too Low? Lower The Unit Cost — The Formula Divides A Base Value By Cost.",
@@ -490,8 +486,8 @@ const MANUAL_ARTICLES_PART_3 = [
     category: "economy",
     title: "Ship Pricing Formula",
     summary: "How ship costs are calculated from components, mass, and weapon premiums.",
-    keywords: ["ship pricing", "cost", "formula", "weapon premium", "mass cost", "hull cost", "large ship tax", "fleet count"],
-    howItWorks: "Ship cost is calculated from a base cost plus component costs, mass, hull, shield, and repair contributions, multiplied by a part cost multiplier. Weapons add additional premiums based on family. Ships above a cost threshold pay a large-ship tax, and even costlier ships pay a huge-ship tax. The number of ships you can field is derived from the fleet count formula, which divides a base value by the ship's unit cost and mass.",
+    keywords: ["ship pricing", "cost", "formula", "weapon premium", "mass cost", "hull cost", "fleet count"],
+    howItWorks: "Ship cost is calculated from a base cost plus component costs, mass, hull, shield, and repair contributions, multiplied by a part cost multiplier. Weapons add additional premiums based on family. The number of ships you can field is derived from the fleet count formula, which divides a base value by the ship's unit cost and mass.",
     importantStats: [
       { label: "Base Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.baseShipCost ?? 48}` },
       { label: "Part Cost Multiplier", value: `${GENERATED_BALANCE.shipPricing?.partCostMultiplier ?? 1.32}×` },
@@ -503,10 +499,6 @@ const MANUAL_ARTICLES_PART_3 = [
       { label: "Missile Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.missile ?? 32}` },
       { label: "Railgun Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.railgun ?? 48}` },
       { label: "Beam Premium", value: `$${GENERATED_BALANCE.shipPricing?.weaponPremiums?.beam ?? 42}` },
-      { label: "Large Ship Threshold", value: `$${GENERATED_BALANCE.shipPricing?.largeShipThreshold ?? 400}` },
-      { label: "Large Ship Tax", value: `+${Math.round((GENERATED_BALANCE.shipPricing?.largeShipCostTax ?? 0.15) * 100)}%` },
-      { label: "Huge Ship Threshold", value: `$${GENERATED_BALANCE.shipPricing?.hugeShipThreshold ?? 700}` },
-      { label: "Huge Ship Tax", value: `+${Math.round((GENERATED_BALANCE.shipPricing?.hugeShipCostTax ?? 0.25) * 100)}%` },
       { label: "Min Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.minimum ?? 300}` },
       { label: "Max Ship Cost", value: `$${GENERATED_BALANCE.shipPricing?.maximum ?? 2000}` },
       { label: "Fleet Count Base", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.base ?? 260}` },
@@ -516,7 +508,7 @@ const MANUAL_ARTICLES_PART_3 = [
       { label: "Fleet Count Min", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimum ?? 1}` },
       { label: "Fleet Count Max", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.maximum ?? 5}` }
     ],
-    practicalUse: "Weapon premiums make weapon-heavy ships more expensive. The large/huge ship taxes discourage putting all components into one ship. Cheaper ships mean more ships in your fleet — consider mass-producing cost-effective designs.",
+    practicalUse: "Weapon premiums make weapon-heavy ships more expensive. Cheaper ships mean more ships in your fleet — consider mass-producing cost-effective designs.",
     commonProblems: [
       "Ship too expensive? Reduce weapon count or use cheaper weapon types.",
       "Not enough ships? Lower the ship cost to increase fleet count."

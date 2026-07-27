@@ -67,9 +67,11 @@ function validateClientMessage(message){
     if(message.type!=='deploy'&&message.type!=='buyShip')return fail('invalid-payload','Wiring is only accepted on blueprint messages');
     if(!validWiring(message.wiring))return fail('invalid-wiring','Invalid wiring payload');
   }
-  // Wiring segment lists and combat-style ship lists may legitimately exceed the
-  // generic MAX_ARRAY bound; they are validated by type-specific checks below.
+  // Design, wiring segment lists and combat-style ship lists may legitimately
+  // exceed the generic MAX_ARRAY bound; they are validated by type-specific
+  // checks above.
   const generic=message.wiring===undefined?{...message}:{...message,wiring:0};
+  if(message.design!==undefined)generic.design=0;
   if(message.type==='setCombatStyle'&&message.shipIds!==undefined)generic.shipIds=0;
   if(!finiteNumbers(generic)||tooLongStrings(generic))return fail('invalid-payload','Message fields exceed protocol limits');
   const specific=validateSpecific(message); if(specific)return specific;

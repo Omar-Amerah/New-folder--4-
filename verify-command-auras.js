@@ -150,7 +150,8 @@ const { BALANCE } = require("./src/server/balanceConfig");
   assert(BALANCE.fleetDefence, "BALANCE.fleetDefence exists");
   assert(BALANCE.fleetDefence.baseReacquisitionDelayMs > 0, "fleetDefence baseReacquisitionDelayMs positive");
   const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
-  assert(cs.includes("_pdReacquireAt"), "combat.js has PD reacquisition delay");
+  assert(cs.includes("pdAcquiredTargetIds"), "combat.js has PD acquired target tracking");
+  assert(cs.includes("pdPendingTargetIds"), "combat.js has PD pending target tracking");
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +168,8 @@ const { BALANCE } = require("./src/server/balanceConfig");
   assert(BALANCE.fireControl, "BALANCE.fireControl exists");
   assert(BALANCE.fireControl.baseReacquisitionDelayMs > 0, "fireControl baseReacquisitionDelayMs positive");
   const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
-  assert(cs.includes("_offensiveReacquireAt"), "combat.js has offensive reacquisition delay");
+  assert(cs.includes("weaponAcquiredTargetIds"), "combat.js has offensive acquired target tracking");
+  assert(cs.includes("weaponPendingTargetIds"), "combat.js has offensive pending target tracking");
 }
 {
   const cd = require("fs").readFileSync("./src/server/componentData.js", "utf8");

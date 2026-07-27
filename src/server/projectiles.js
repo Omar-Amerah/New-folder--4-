@@ -266,6 +266,7 @@ function updateBullets(room, dt, now) {
     const blastDamage = Number(bullet.blastDamage) || 0;
     const innerR = Math.max(0, Number(bullet.innerFullDamageRadius) || 0);
     const exp = Math.max(0.1, Number(bullet.falloffExponent) || 1);
+    const directDamage = isDirect && triggerEntity ? (Number(bullet.directDamage) || Number(bullet.damage) || 0) : 0;
     const maxTargets = Number(bullet.maximumExplosionTargets) || 0;
     let processed = 0;
 
@@ -289,7 +290,8 @@ function updateBullets(room, dt, now) {
       if (edge > blastR) return;
       processed += 1;
       if (maxTargets > 0 && processed > maxTargets) return;
-      const damage = damageFor(edge);
+      let damage = damageFor(edge);
+      if (isDirect && triggerEntity && entity === triggerEntity) damage += directDamage;
       if (damage <= 0.001) return;
 
       if (kind === "ship") {
@@ -400,53 +402,54 @@ function updateBullets(room, dt, now) {
     bullet.x += bullet.vx * dt;
     bullet.y += bullet.vy * dt;
 
-    if (bullet.x < -PROJECTILES.worldPadding || bullet.x > room.world.width + PROJECTILES.worldPadding || bullet.y < -PROJECTILES.worldPadding || bullet.y > room.world.height + PROJECTILES.worldPadding) {
+    if (bullet.type !== "flak" && (bullet.x < -PROJECTILES.worldPadding || bullet.x > room.world.width + PROJECTILES.worldPadding || bullet.y < -PROJECTILES.worldPadding || bullet.y > room.world.height + PROJECTILES.worldPadding)) {
       discardBullet(room, bulletsById, bullet);
       continue;
     }
 
-
-    if (bullet.type === "pdShot") {
-      const pList = spatialIndex
-        ? spatialIndex.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, PROJECTILES.interceptRadius, scratch.interceptableProjectiles)
-        : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
-      let bestHit = null;
-      for (const p of pList) {
-        if (p === bullet) continue;
-        if (!areEnemies(room, bullet.ownerId, p.ownerId)) continue;
-        const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, p.x, p.y, PROJECTILES.interceptRadius);
-        if (!hit) continue;
-        if (!bestHit || hit.t < bestHit.t || (hit.t === bestHit.t && String(p.id).localeCompare(String(bestHit.target.id)) < 0)) {
-          bestHit = { target: p, t: hit.t, x: hit.x, y: hit.y };
-        }
-      }
-      if (bestHit) {
-        const target = bestHit.target;
-        const targetHp = target.hp !== undefined ? target.hp : (target.damage || 20);
-        target.hp = targetHp - bullet.damage;
-        bullet.life = 0;
-        room.effects.push({ type: "spark", x: bestHit.x, y: bestHit.y, at: now });
-        if (target.hp <= 0.001) {
-          target.life = 0;
-          discardBullet(room, bulletsById, target);
-          interceptedPreviouslyKept = true;
-          room.effects.push({ type: "burst", x: bestHit.x, y: bestHit.y, at: now });
-          room.effects.push({ type: "text", text: "INTERCEPTED", x: bestHit.x, y: bestHit.y, at: now });
-        }
-        discardBullet(room, bulletsById, bullet);
-        continue;
-      }
-      // No projectile intercept: fall through to generic ship/drone/asteroid handling
-      // using the stored shipDamageMultiplier for hull hits.
-    }
 
     if (bullet.type === "flak") {
       flakMetrics.active += 1;
       const eventScratch = room._flakEventScratch || (room._flakEventScratch = { interceptableProjectiles: scratch.interceptableProjectiles, drones: scratch.drones, ships: scratch.ships, asteroids: asteroidCandidates });
       const event = findFlakEvent(bullet, previousX, previousY, spatialIndex, eventScratch);
       flakMetrics.proximityCandidates += event.candidates || 0;
-      if (event.kind || flakExpired) {
-        detonateFlakShell(bullet, event.x, event.y, event.kind, event.entity || null, now, event.direct);
+
+      const dx = bullet.x - previousX;
+      const dy = bullet.y - previousY;
+      const expiryT = 1 + bullet.life / dt;
+      let boundaryT = Infinity;
+      const padding = PROJECTILES.worldPadding;
+      if (dx > 0) boundaryT = Math.min(boundaryT, (room.world.width + padding - previousX) / dx);
+      else if (dx < 0) boundaryT = Math.min(boundaryT, (-padding - previousX) / dx);
+      if (dy > 0) boundaryT = Math.min(boundaryT, (room.world.height + padding - previousY) / dy);
+      else if (dy < 0) boundaryT = Math.min(boundaryT, (-padding - previousY) / dy);
+
+      let detonateT = event.t;
+      let detonateX = event.x;
+      let detonateY = event.y;
+      let detonateKind = event.kind;
+      let detonateEntity = event.entity || null;
+      let detonateDirect = event.direct;
+
+      if (expiryT < detonateT && expiryT < 1) {
+        detonateT = expiryT;
+        detonateX = previousX + dx * expiryT;
+        detonateY = previousY + dy * expiryT;
+        detonateKind = null;
+        detonateEntity = null;
+        detonateDirect = false;
+      }
+      if (boundaryT < detonateT && boundaryT < 1) {
+        detonateT = boundaryT;
+        detonateX = previousX + dx * boundaryT;
+        detonateY = previousY + dy * boundaryT;
+        detonateKind = "boundary";
+        detonateEntity = null;
+        detonateDirect = false;
+      }
+
+      if (detonateT < 1 || detonateKind) {
+        detonateFlakShell(bullet, detonateX, detonateY, detonateKind, detonateEntity || null, now, detonateDirect);
         discardBullet(room, bulletsById, bullet);
         continue;
       }
@@ -468,9 +471,22 @@ function updateBullets(room, dt, now) {
       recordHit({ kind: "asteroid", t: rockHit.t, x: rockHit.x, y: rockHit.y, entityId: "asteroid" });
     }
 
+    // pdShot: hostile interceptable projectiles along the swept segment.
+    if (bullet.type === "pdShot") {
+      const pList = spatialIndex
+        ? spatialIndex.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, PROJECTILES.interceptRadius, scratch.interceptableProjectiles)
+        : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
+      for (const p of pList) {
+        if (p === bullet) continue;
+        if (!areEnemies(room, bullet.ownerId, p.ownerId)) continue;
+        const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, p.x, p.y, PROJECTILES.interceptRadius);
+        if (hit) recordHit({ kind: "projectile", t: hit.t, x: hit.x, y: hit.y, target: p, entityId: p.id });
+      }
+    }
+
     // Decoys are false targets only for guided missiles. Unguided bolts, rails
     // and other projectiles neither acquire nor collide with them.
-    if (bullet.type === "missile" && bullet.decoyTargetId && bullet.targetId === bullet.decoyTargetId) {
+    if (bullet.type === "pdShot" || (bullet.type === "missile" && bullet.decoyTargetId && bullet.targetId === bullet.decoyTargetId)) {
       const decoy = room.decoys?.get?.(bullet.decoyTargetId);
       if (decoy) {
         const decoyHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, decoy.x, decoy.y, (Number(decoy.radius) || 12) + PROJECTILES.hitRadius.missile);
@@ -558,6 +574,23 @@ function updateBullets(room, dt, now) {
     if (earliest?.kind === "decoy") {
       require("./decoys").removeDecoy(room, earliest.decoy, now, "hit");
       room.effects.push({ type: "burst", subtype: "decoy", x: earliest.x, y: earliest.y, at: now });
+      discardBullet(room, bulletsById, bullet);
+      continue;
+    }
+
+    if (earliest?.kind === "projectile") {
+      const target = earliest.target;
+      const targetHp = target.hp !== undefined ? target.hp : (target.damage || 20);
+      target.hp = targetHp - bullet.damage;
+      bullet.life = 0;
+      room.effects.push({ type: "spark", x: earliest.x, y: earliest.y, at: now });
+      if (target.hp <= 0.001) {
+        target.life = 0;
+        discardBullet(room, bulletsById, target);
+        interceptedPreviouslyKept = true;
+        room.effects.push({ type: "burst", x: earliest.x, y: earliest.y, at: now });
+        room.effects.push({ type: "text", text: "INTERCEPTED", x: earliest.x, y: earliest.y, at: now });
+      }
       discardBullet(room, bulletsById, bullet);
       continue;
     }

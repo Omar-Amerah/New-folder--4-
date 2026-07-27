@@ -27,7 +27,8 @@ function initializeDecoyLaunchers(room, ship, now) {
       capacity,
       productionProgress: stock < capacity ? 0 : 1,
       nextLaunchAt: now,
-      nextThreatCheckAt: now
+      nextThreatCheckAt: now,
+      pendingLaunch: false
     });
   }
   ensureDecoyRuntime(room);
@@ -262,11 +263,13 @@ function updateDecoyLaunchers(room, ships, dt, now) {
     const ready = ship._decoyLauncherReady || (ship._decoyLauncherReady = []);
     ready.length = launchers.length;
     ready.fill(false);
+    const powerRatios = new Array(launchers.length).fill(1);
     let maximumTriggerRange = 0;
 
     for (let launcherIndex = 0; launcherIndex < launchers.length; launcherIndex += 1) {
       const launcher = launchers[launcherIndex];
-      const config = PARTS[ship.design?.[launcher.componentIndex]?.type]?.decoyConfig;
+      const part = PARTS[ship.design?.[launcher.componentIndex]?.type];
+      const config = part?.decoyConfig;
       if (!config) continue;
       const alive = (ship.componentHp?.[launcher.componentIndex] ?? 0) > 0;
       const power = alive ? getComponentPowerMultiplier(ship, launcher.componentIndex) : 0;
@@ -280,12 +283,35 @@ function updateDecoyLaunchers(room, ships, dt, now) {
           launcher.productionProgress = launcher.stock < launcher.capacity ? 0 : 1;
         }
       }
-      if (!operational || launcher.stock <= 0 || now < launcher.nextLaunchAt) continue;
-      ready[launcherIndex] = true;
-      maximumTriggerRange = Math.max(maximumTriggerRange, Math.max(0, Number(config.triggerRange) || 0));
+
+      const launchReady = alive && !overheated && launcher.stock > 0 && now >= launcher.nextLaunchAt;
+      const powerEntry = ship?.componentPower?.byComponentIndex?.[launcher.componentIndex];
+      const nominalPower = part?.powerUse || 0;
+      const allocatedMw = powerEntry && Number.isFinite(powerEntry.allocatedMw) ? powerEntry.allocatedMw : nominalPower;
+      const powerRatio = nominalPower > 0 ? allocatedMw / nominalPower : 1;
+      powerRatios[launcherIndex] = powerRatio;
+
+      if (launcher.pendingLaunch) {
+        if (launchReady && powerRatio >= 0.95) {
+          const triggerRange = Math.max(0, Number(config.triggerRange) || 0);
+          const threat = triggerRange > 0 ? stableThreatFor(room, ship, triggerRange) : null;
+          if (threat) launchDecoy(room, ship, launcher, config, threat, now);
+          launcher.pendingLaunch = false;
+        }
+        // If not powered or not cooled yet, keep the intent for a future tick.
+        continue;
+      }
+
+      if (launchReady) {
+        ready[launcherIndex] = true;
+        maximumTriggerRange = Math.max(maximumTriggerRange, Math.max(0, Number(config.triggerRange) || 0));
+      }
     }
 
-    if (maximumTriggerRange <= 0) continue;
+    if (maximumTriggerRange <= 0) {
+      ship._decoyThreatActive = false;
+      continue;
+    }
     const threats = collectStableThreats(
       room,
       ship,
@@ -311,7 +337,13 @@ function updateDecoyLaunchers(room, ships, dt, now) {
       if (selected < 0) continue;
       const launcher = launchers[selected];
       const config = PARTS[ship.design?.[launcher.componentIndex]?.type]?.decoyConfig;
-      launchDecoy(room, ship, launcher, config, threat, now);
+      // If the launcher already has enough power allocated, fire now; otherwise
+      // queue a pending intent so power demand can rise before launch.
+      if (powerRatios[selected] >= 0.95) {
+        launchDecoy(room, ship, launcher, config, threat, now);
+      } else {
+        launcher.pendingLaunch = true;
+      }
       ready[selected] = false;
       cursor = (selected + 1) % launchers.length;
     }

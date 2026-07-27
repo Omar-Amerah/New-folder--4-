@@ -16,6 +16,7 @@ for(const type of ['buyShip','deploy']) assert.equal(validateClientMessage({type
 assert.equal(validateClientMessage({type:'command'}).ok,false);
 assert.equal(validateClientMessage({type:'buyShip',requestId:'bad space',design}).code,'invalid-request');
 assert.equal(validateClientMessage({type:'deploy',design:[{part:'x'.repeat(300)}]}).ok,false);
+{ const bigDesign=Array.from({length:100},(_,i)=>({part:'hull',x:i,y:0})); assert.equal(validateClientMessage({type:'buyShip',requestId:'r1',design:bigDesign,count:1}).ok,true,'buyShip accepts 100-part design'); }
 assert.equal(validateClientMessage({type:'command',x:Infinity,y:0}).ok,false);
 assert.equal(validateClientMessage({type:'requestFullState',epoch:1.2}).code,'invalid-resync-request');
 assert.equal(validateClientMessage({type:'setCombatStyle',combatStyle:'bogus'}).code,'invalid-combat-style');

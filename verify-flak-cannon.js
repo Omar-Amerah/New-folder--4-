@@ -233,7 +233,8 @@ function runUpdate(room, dt = 1 / 30, now = 0) {
   runUpdate(room);
   const damage = 100 - drone.hull;
   const weapon = PARTS.flakCannon.weapon;
-  assert(damage <= weapon.blastDamage + 0.1, "each entity must only be damaged once per shell");
+  const expectedMax = (weapon.blastDamage || 0) + (weapon.directDamage ?? weapon.damage ?? 1) + 0.1;
+  assert(damage <= expectedMax, "directly hit entity receives blast plus direct damage, all others blast only");
 }
 
 console.log("Flak Cannon verification passed");

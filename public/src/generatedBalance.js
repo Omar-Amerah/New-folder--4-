@@ -226,7 +226,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "rotatable": true,
       "maxPerShip": 1,
-      "description": "Redundant command centre that automatically takes control if the main Core is destroyed. Keeps the ship operational, but with reduced combat efficiency.",
+      "description": "Redundant command centre that automatically takes control if the main Core is destroyed, keeping the ship operational with reduced combat efficiency. Also projects a command aura that improves weapon accuracy, turret tracking, and target acquisition for allied ships within range.",
       "footprint": {
         "width": 2,
         "height": 1
@@ -1456,10 +1456,6 @@ export const GENERATED_BALANCE = {
     "hullCostMultiplier": 0.012,
     "shieldCostMultiplier": 0.05,
     "repairCostMultiplier": 0.8,
-    "largeShipThreshold": 400,
-    "largeShipCostTax": 0.15,
-    "hugeShipThreshold": 700,
-    "hugeShipCostTax": 0.25,
     "weaponPremiums": {
       "blaster": 18,
       "missile": 32,

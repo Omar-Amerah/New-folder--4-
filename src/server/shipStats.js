@@ -256,10 +256,7 @@ function calculateCostBreakdown(stats) {
     stats.missile * ECONOMY.weaponPremiums.missile +
     stats.railgun * ECONOMY.weaponPremiums.railgun +
     (stats.beam || 0) * (ECONOMY.weaponPremiums.beam || ECONOMY.weaponPremiums.railgun);
-  const preTaxTotal = base + parts + mass + hull + shield + repair + weaponPremium;
-  const largeTax = Math.max(0, preTaxTotal - ECONOMY.largeShipThreshold) * ECONOMY.largeShipCostTax;
-  const hugeTax = Math.max(0, preTaxTotal - ECONOMY.hugeShipThreshold) * ECONOMY.hugeShipCostTax;
-  const sizeTax = largeTax + hugeTax;
+  const total = base + parts + mass + hull + shield + repair + weaponPremium;
   return {
     base: Math.round(base),
     parts: Math.round(parts),
@@ -268,8 +265,7 @@ function calculateCostBreakdown(stats) {
     shield: Math.round(shield),
     repair: Math.round(repair),
     weaponPremium: Math.round(weaponPremium),
-    sizeTax: Math.round(sizeTax),
-    total: Math.round(preTaxTotal + sizeTax)
+    total: Math.round(total)
   };
 }
 

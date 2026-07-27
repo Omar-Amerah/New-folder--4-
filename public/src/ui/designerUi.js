@@ -2406,8 +2406,7 @@ function costBreakdownInnerMarkup(breakdown) {
     ["Hull", breakdown.hull],
     ["Shield", breakdown.shield],
     ["Repair", breakdown.repair],
-    ["Weapons", breakdown.weaponPremium],
-    ["Size tax", breakdown.sizeTax]
+    ["Weapons", breakdown.weaponPremium]
   ];
   const formatMoney = (value) => {
     const number = Number(value) || 0;

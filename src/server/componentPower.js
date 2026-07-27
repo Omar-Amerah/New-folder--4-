@@ -463,6 +463,7 @@ function decoyLauncherActivity(ship, index, now) {
   const launchers = ship.decoyLaunchers || [];
   const launcher = launchers.find((l) => l.componentIndex === index);
   if (!launcher) return 1; // pre-initialisation: request power so production can start
+  if (launcher.pendingLaunch) return 1; // launch intent: need full nominal power
   if (launcher.stock < launcher.capacity) return 1; // producing
   if (ship._decoyThreatActive) return 0.3; // monitoring
   return 0; // idle standby
