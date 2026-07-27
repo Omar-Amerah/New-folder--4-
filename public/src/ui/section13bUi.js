@@ -1,12 +1,15 @@
 import { computeStats } from "../design/componentStats.js";
 import { shipHeatPercent, formatHeatPercent } from "../shared/heatDisplay.js";
 
-const STYLE_LABELS = { charge: "Charge", hold: "Hold", sentry: "Sentry", circle: "Circle" };
+const STYLE_LABELS = { charge: "Charge", hold: "Hold", sentry: "Sentry", orbit: "Orbit", maintain: "Maintain", kite: "Kite", direct: "Direct" };
 export const STYLE_DESCRIPTIONS = {
   charge: "Move aggressively toward the current command or target.",
-  hold: "Hold the ordered position while weapons engage in range.",
+  hold: "Move to weapon range then hold a fixed world position.",
   sentry: "Guard the current area and engage nearby threats.",
-  circle: "Orbit a selected target when possible while firing."
+  orbit: "Continuously orbit the target at ~75% of max weapon range.",
+  maintain: "Continuously keep the enemy at 90% of max weapon range.",
+  kite: "Keep distance at max weapon range, retreating if the enemy approaches.",
+  direct: "Move directly toward the target."
 };
 
 const COMPARE_STATS = [

@@ -41,7 +41,7 @@ export function shieldRatioForShip(ship) {
 
 export function shieldRingRadius(ship) {
   const radius = Number(ship?.radius) || 0;
-  return Math.max(30, radius + Math.max(8, radius * 0.18));
+  return Math.max(30, radius + Math.max(12, radius * 0.35));
 }
 
 export function hullColorForRatio(ratio) {

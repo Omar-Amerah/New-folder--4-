@@ -123,6 +123,11 @@ function activityHeatRate(type, part) {
 const HOLD_RANGE_RATIO = 0.9;
 const CHARGE_RANGE_RATIO = 0.3;
 const CIRCLE_RANGE_RATIO = 0.8;
+const ORBIT_RANGE_RATIO = 0.75;
+const MAINTAIN_RANGE_RATIO = 0.9;
+const MAINTAIN_TOLERANCE = 0.05;
+const KITE_RANGE_RATIO = 0.9;
+const KITE_TOLERANCE = 0.05;
 
 function shipCollisionRadius(ship) {
   return clampNumber((ship.radius || 0) * 0.56, 18, 48);
@@ -315,15 +320,15 @@ function updateShipMovementStep(room, ship, dt, now) {
     }
   }
 
-  const isCircleOrbit = Boolean(target && style === 'circle');
+  const isPersistentMove = Boolean(target && (style === 'orbit' || style === 'maintain' || style === 'kite' || style === 'direct'));
 
-  if (!ship.arrived || isCircleOrbit) {
-    driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt);
+  if (!ship.arrived || isPersistentMove) {
+    driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt);
   } else {
     rotateHullForCombat(room, ship, stats, target, dt);
   }
 
-  applyDamping(ship, distance, isCircleOrbit, dt);
+  applyDamping(ship, distance, isPersistentMove, dt);
   applySpeedLimit(ship, stats);
   applyPosition(room, ship, dt);
   regenerateShield(ship, stats, dt, now);
@@ -331,8 +336,11 @@ function updateShipMovementStep(room, ship, dt, now) {
 function getCombatStyle(ship) {
   if (ship.combatStyle === "hold") return "hold";
   if (ship.combatStyle === "sentry") return "sentry";
-  if (ship.combatStyle === "circle") return "circle";
+  if (ship.combatStyle === "circle" || ship.combatStyle === "orbit") return "orbit";
   if (ship.combatStyle === "charge") return "charge";
+  if (ship.combatStyle === "maintain") return "maintain";
+  if (ship.combatStyle === "kite") return "kite";
+  if (ship.combatStyle === "direct") return "direct";
   return "hold";
 }
 
@@ -437,15 +445,32 @@ function updateCombatMoveTarget(room, ship, target, style) {
     return;
   }
 
-  if (style === 'circle') {
-    updateCircleMoveTarget(ship, target, maxRange);
+  if (style === 'orbit') {
+    updateOrbitMoveTarget(ship, target, maxRange);
     return;
   }
 
   clearOrbitState(ship);
 
   if (style === 'hold') {
-    setStandoffTarget(ship, target, maxRange * HOLD_RANGE_RATIO);
+    updateHoldMoveTarget(ship, target, maxRange * HOLD_RANGE_RATIO);
+    return;
+  }
+
+  if (style === 'maintain') {
+    updateMaintainRangeTarget(ship, target, maxRange);
+    return;
+  }
+
+  if (style === 'kite') {
+    updateKiteMoveTarget(ship, target, maxRange);
+    return;
+  }
+
+  if (style === 'direct') {
+    ship.targetX = target.x;
+    ship.targetY = target.y;
+    ship.arrived = false;
     return;
   }
 
@@ -499,13 +524,13 @@ function getMaxWeaponRange(ship) {
   return rawMaxRange > 0 ? Math.max(120, rawMaxRange) : 0;
 }
 
-function updateCircleMoveTarget(ship, target, maxRange) {
+function updateOrbitMoveTarget(ship, target, maxRange) {
   if (ship.lastOrbitTargetId !== target.id) {
     ship.orbitDir = undefined;
     ship.lastOrbitTargetId = null;
   }
 
-  const orbitRadius = Math.max(80, maxRange * CIRCLE_RANGE_RATIO);
+  const orbitRadius = Math.max(80, maxRange * ORBIT_RANGE_RATIO);
   const angleToShip = Math.atan2(ship.y - target.y, ship.x - target.x);
 
   if (ship.orbitDir === undefined) {
@@ -529,13 +554,97 @@ function updateCircleMoveTarget(ship, target, maxRange) {
   ship.arrived = false;
   ship.lastOrbitTargetId = target.id;
 }
+
+function updateMaintainRangeTarget(ship, target, maxRange) {
+  const desiredRange = maxRange * MAINTAIN_RANGE_RATIO;
+  const tolerance = maxRange * MAINTAIN_TOLERANCE;
+  const dx = ship.x - target.x;
+  const dy = ship.y - target.y;
+  const dist = fastHypot(dx, dy);
+  let dirX = 0, dirY = 0;
+  if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
+  else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
+  if (dist > desiredRange + tolerance) {
+    ship.targetX = target.x + dirX * desiredRange;
+    ship.targetY = target.y + dirY * desiredRange;
+    ship.arrived = false;
+  } else if (dist < desiredRange - tolerance) {
+    ship.targetX = target.x + dirX * desiredRange;
+    ship.targetY = target.y + dirY * desiredRange;
+    ship.arrived = false;
+  } else {
+    ship.targetX = ship.x;
+    ship.targetY = ship.y;
+    ship.arrived = true;
+  }
+}
+
+function updateKiteMoveTarget(ship, target, maxRange) {
+  const desiredRange = maxRange * KITE_RANGE_RATIO;
+  const tolerance = maxRange * KITE_TOLERANCE;
+  const dx = ship.x - target.x;
+  const dy = ship.y - target.y;
+  const dist = fastHypot(dx, dy);
+  let dirX = 0, dirY = 0;
+  if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
+  else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
+  if (dist < desiredRange - tolerance) {
+    ship.targetX = ship.x + dirX * 100;
+    ship.targetY = ship.y + dirY * 100;
+    ship.arrived = false;
+  } else if (dist > desiredRange + tolerance) {
+    ship.targetX = target.x + dirX * desiredRange;
+    ship.targetY = target.y + dirY * desiredRange;
+    ship.arrived = false;
+  } else {
+    ship.targetX = ship.x;
+    ship.targetY = ship.y;
+    ship.arrived = true;
+  }
+}
+
+function updateHoldMoveTarget(ship, target, desiredRange) {
+  if (!ship.holdPhase || ship.holdPhase === 'positioning') {
+    ship.holdPhase = 'positioning';
+    const dx = ship.x - target.x;
+    const dy = ship.y - target.y;
+    const dist = fastHypot(dx, dy);
+    const hysteresis = Math.max(18, ship.radius * 0.35);
+    let dirX = 0, dirY = 0;
+    if (dist > 0.001) { dirX = dx / dist; dirY = dy / dist; }
+    else { dirX = Math.cos(ship.angle || 0); dirY = Math.sin(ship.angle || 0); }
+    const desiredX = target.x + dirX * desiredRange;
+    const desiredY = target.y + dirY * desiredRange;
+    if (Math.abs(dist - desiredRange) > hysteresis) {
+      ship.targetX = desiredX;
+      ship.targetY = desiredY;
+      ship.arrived = false;
+    } else {
+      ship.holdPhase = 'holding';
+      ship.holdX = ship.x;
+      ship.holdY = ship.y;
+      ship.targetX = ship.x;
+      ship.targetY = ship.y;
+      ship.arrived = true;
+    }
+  } else {
+    if (!Number.isFinite(ship.holdX) || !Number.isFinite(ship.holdY)) {
+      ship.holdX = ship.x;
+      ship.holdY = ship.y;
+    }
+    ship.targetX = ship.holdX;
+    ship.targetY = ship.holdY;
+    const dist = fastHypot(ship.x - ship.holdX, ship.y - ship.holdY);
+    ship.arrived = dist <= ARRIVE_DISTANCE;
+  }
+}
 function clearOrbitState(ship) {
   ship.orbitDir = undefined;
   ship.lastOrbitTargetId = null;
 }
 
-function driveTowardMoveTarget(room, ship, stats, distance, isCircleOrbit, dt) {
-  if (distance <= ARRIVE_DISTANCE && !isCircleOrbit && !shipHasOperationalDemolitionCharge(ship)) {
+function driveTowardMoveTarget(room, ship, stats, distance, isPersistentMove, dt) {
+  if (distance <= ARRIVE_DISTANCE && !isPersistentMove && !shipHasOperationalDemolitionCharge(ship)) {
     ship.arrived = true;
     return;
   }
@@ -688,12 +797,12 @@ function rotateHullForCombat(room, ship, stats, target, dt) {
   rotateShipToward(ship, desired, stats, dt);
 }
 
-function applyDamping(ship, distance, isCircleOrbit, dt) {
+function applyDamping(ship, distance, isPersistentMove, dt) {
   let damping = 0.985;
 
-  if (ship.arrived && !isCircleOrbit) {
+  if (ship.arrived && !isPersistentMove) {
     damping = 0.97;
-  } else if (distance < 85 && !isCircleOrbit) {
+  } else if (distance < 85 && !isPersistentMove) {
     damping = 0.975;
   }
 

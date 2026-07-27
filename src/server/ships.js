@@ -346,6 +346,12 @@ function updateBots(room, now) {
     const nearestEnemy = enemies[0];
 
     if (nearestEnemy && distanceToFleet(ships, nearestEnemy) < 760) {
+      const botStyles = ['charge', 'orbit', 'maintain', 'hold'];
+      for (const ship of ships) {
+        if (!ship.combatStyle || ship.combatStyle === 'hold') {
+          ship.combatStyle = botStyles[seq % botStyles.length];
+        }
+      }
       commandShips(room, player, nearestEnemy.x, nearestEnemy.y, {
         targetId: nearestEnemy.id,
         formation: ships.length > 2 ? "wedge" : "line"

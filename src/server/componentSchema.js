@@ -12,7 +12,7 @@ const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "cos
 const VALID_AURA_TYPES = new Set(["command", "fireControl", "fleetDefence", "shield", "engineering", "propulsion", "ewar"]);
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
-  "thrust", "turn", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
+  "thrust", "turn", "lateralThrust", "brakingThrust", "reverseThrust", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
   "chargeEfficiency", "dischargeEfficiency", "dischargeHeatAtMax", "dischargeHeat", "repair", "repairRate",
   "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength",
   "frontDamageReduction", "frontArc", "maxPerShip", "meltdownDamage", "meltdownRadius"
@@ -277,6 +277,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     if (Object.prototype.hasOwnProperty.call(component, "heat")) errors.push(`${path}.heat is unsupported; use explicit Heat profile rules instead.`);
     validateNumberObject(component, NUMERIC_FIELDS, path, errors);
     validateComponentAura(component.aura, path, errors);
+    validatePropulsionCapacitor(component.propulsionCapacitor, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
     validateBoolean(component.rotationRequired, `${path}.rotationRequired`, errors);
     if (component.footprint !== undefined) {
@@ -350,6 +351,26 @@ function assertValidComponentBalance(balance, options = {}) {
   const result = validateComponentBalance(balance, options);
   if (!result.ok) throw new Error(`Invalid component balance data:\n${result.errors.map(e => ` - ${e}`).join("\n")}`);
   return balance;
+}
+
+const PROPULSION_CAPACITOR_FIELDS = ["capacity", "maxDischargeRate", "maxChargeRate", "boostMultiplier", "activationThreshold", "deactivationThreshold", "minReserveFraction"];
+
+function validatePropulsionCapacitor(config, path, errors) {
+  if (config === undefined || config === null) return;
+  if (typeof config !== "object" || Array.isArray(config)) {
+    errors.push(`${path}.propulsionCapacitor must be an object when present.`);
+    return;
+  }
+  for (const field of PROPULSION_CAPACITOR_FIELDS) {
+    if (!isFiniteNonNegative(config[field])) errors.push(`${path}.propulsionCapacitor.${field} must be a finite non-negative number.`);
+  }
+  if (isFiniteNonNegative(config.activationThreshold) && isFiniteNonNegative(config.deactivationThreshold)
+    && config.deactivationThreshold >= config.activationThreshold) {
+    errors.push(`${path}.propulsionCapacitor.deactivationThreshold must be less than activationThreshold.`);
+  }
+  if (isFiniteNonNegative(config.minReserveFraction) && config.minReserveFraction > 1) {
+    errors.push(`${path}.propulsionCapacitor.minReserveFraction must be from 0 to 1.`);
+  }
 }
 
 module.exports = { validateComponentBalance, assertValidComponentBalance, validateWiringInfrastructure, validatePowerProtection, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };

@@ -64,7 +64,7 @@ export function engineThrustRatio(ship) {
 // Destroyed engines are dead metal: no plume, no smoke. Filters a nozzle list
 // against the ship's live component hp.
 export function aliveEngineNozzles(ship, nozzles) {
-  if (!Array.isArray(nozzles) || nozzles.length === 0 || !ship?.chp) return nozzles || [];
+  if (!Array.isArray(nozzles) || nozzles.length === 0 || (!ship?.chp && !Array.isArray(ship?.chpVisual))) return nozzles || [];
   const blocked = new Set(ship.engBlocked || []);
   return nozzles.filter((nozzle) => {
     if (blocked.has(nozzle.index)) return false;

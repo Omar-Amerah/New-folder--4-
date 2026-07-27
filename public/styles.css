@@ -614,7 +614,7 @@ h2 {
   border-right: 1px solid transparent;
 }
 
-.combat-style-controls button:nth-child(n+3) {
+.combat-style-controls button:nth-child(n+5) {
   border-bottom: 1px solid transparent;
 }
 
@@ -627,7 +627,7 @@ h2 {
 
 .combat-style-controls button:first-child { border-top-left-radius: 6px; }
 .combat-style-controls button:nth-child(2) { border-top-right-radius: 6px; }
-.combat-style-controls button:nth-child(3) { border-bottom-left-radius: 6px; }
+.combat-style-controls button:nth-child(5) { border-bottom-left-radius: 6px; }
 .combat-style-controls button:last-child { border-bottom-right-radius: 6px; }
 
 .ship-damage-panel {

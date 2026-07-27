@@ -487,7 +487,8 @@ function updateBullets(room, dt, now) {
     // Decoys are false targets only for guided missiles. Unguided bolts, rails
     // and other projectiles neither acquire nor collide with them.
     if (bullet.type === "pdShot" || (bullet.type === "missile" && bullet.decoyTargetId && bullet.targetId === bullet.decoyTargetId)) {
-      const decoy = room.decoys?.get?.(bullet.decoyTargetId);
+      const decoyId = bullet.pdTargetType === "decoy" ? bullet.pdTargetId : bullet.decoyTargetId;
+      const decoy = room.decoys?.get?.(decoyId);
       if (decoy) {
         const decoyHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, decoy.x, decoy.y, (Number(decoy.radius) || 12) + PROJECTILES.hitRadius.missile);
         if (decoyHit) recordHit({ kind: "decoy", t: decoyHit.t, x: decoyHit.x, y: decoyHit.y, decoy, entityId: decoy.id });

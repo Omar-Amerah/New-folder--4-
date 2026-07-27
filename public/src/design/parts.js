@@ -124,7 +124,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
   droneBay: "Weapon module that launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed.",
-  proximityDemolitionCharge: "Armed by default, this charge detonates when an enemy ship comes within 100 m. The blast bypasses shields, destroys the carrier, and damages all nearby entities regardless of team. Safe mode can prevent accidental detonation."
+  proximityDemolitionCharge: "Armed by default, this charge detonates when an enemy ship comes within 50 m. The blast bypasses shields, destroys the carrier, and damages all nearby entities regardless of team. Safe mode can prevent accidental detonation."
 });
 
 export const FALLBACK_PART_STATS = {};

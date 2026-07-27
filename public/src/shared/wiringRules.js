@@ -528,7 +528,7 @@
     const unreachable = [];
     for (const targetIndex of terminals) {
       const targetCells = moduleCells(modules[targetIndex], componentCatalog).sort(deterministicCellSort);
-      if (targetCells.some((cell) => networkCells.has(cellKey(cell.x, cell.y)))) continue;
+      if (targetCells.some((cell) => networkCells.has(cellKey(cell.x, cell.y)))) { moduleCells(modules[targetIndex], componentCatalog).forEach((cell) => networkCells.add(cellKey(cell.x, cell.y))); continue; }
       const starts = [...networkCells].map((key) => { const [x, y] = key.split(",").map(Number); return { x, y }; }).sort(deterministicCellSort);
       const route = routeBetweenCellSets(starts, targetCells, occupiedKeys);
       if (!route || route.length < 2) { unreachable.push({ index: targetIndex, type: modules[targetIndex]?.type, cells: targetCells }); continue; }
@@ -537,6 +537,7 @@
       moduleCells(modules[targetIndex], componentCatalog).forEach((cell) => networkCells.add(cellKey(cell.x, cell.y)));
     }
     const normalized = normalizeWiring(wiring, modules, componentCatalog).wiring;
+    normalized.power.sections.forEach((section) => { section.tier = STANDARD_TIER; });
     const analysis = analyzePhysicalPower(modules, normalized, componentCatalog);
     const missing = consumerIndices.filter((index) => analysis.disconnectedConsumerIndices.includes(index));
     const unusedSources = sourceIndices.filter((index) => !analysis.networkByComponent.get(index));

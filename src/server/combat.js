@@ -1277,6 +1277,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       if (ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds[i] = null;
       if (ship.pdPendingTargetIds) ship.pdPendingTargetIds[i] = null;
       if (ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt[i] = 0;
+      if (ship.pdReactionReadyAt) ship.pdReactionReadyAt[i] = 0;
 
       clearWeaponComponentAim(ship, i);
 
@@ -1303,6 +1304,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       if (ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds[i] = null;
       if (ship.pdPendingTargetIds) ship.pdPendingTargetIds[i] = null;
       if (ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt[i] = 0;
+      if (ship.pdReactionReadyAt) ship.pdReactionReadyAt[i] = 0;
 
       clearWeaponComponentAim(ship, i);
 
@@ -1446,16 +1448,23 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       if (!ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds = new Array(pdLen).fill(null);
       if (!ship.pdPendingTargetIds) ship.pdPendingTargetIds = new Array(pdLen).fill(null);
       if (!ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt = new Array(pdLen).fill(0);
+      if (!ship.pdReactionReadyAt) ship.pdReactionReadyAt = new Array(pdLen).fill(0);
 
       currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
 
       const newPdId = currentPdTarget ? (currentPdTarget.entity.id ?? null) : null;
       const pdAcquiredId = ship.pdAcquiredTargetIds[i] ?? null;
       const pdPendingId = ship.pdPendingTargetIds[i] ?? null;
+      const pdReactionReady = ship.pdReactionReadyAt[i] || 0;
 
       if (!newPdId) {
-        // No threat: clear all PD acquisition state. Do NOT schedule a
-        // future scan — the weapon simply checks again next tick.
+        // No threat: if we had an acquired target, start a reaction period
+        // so a new threat arriving after a gap still respects the delay.
+        if (pdAcquiredId) {
+          const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
+          const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
+          ship.pdReactionReadyAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
+        }
         ship.pdPendingTargetIds[i] = null;
         ship.pdAcquireCompleteAt[i] = 0;
         ship.pdAcquiredTargetIds[i] = null;
@@ -1466,6 +1475,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         // Threat matches acquired target: fire normally, no timer.
         ship.pdPendingTargetIds[i] = null;
         ship.pdAcquireCompleteAt[i] = 0;
+        ship.pdReactionReadyAt[i] = 0;
         aimEntity = currentPdTarget.entity;
       } else {
         // Threat differs from acquired target.
@@ -1473,18 +1483,23 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           // Fresh threat: start a new reaction delay timer.
           const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
           const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
+          const delay = Math.round(baseDelay / Math.max(0.01, reactMult));
           ship.pdPendingTargetIds[i] = newPdId;
-          ship.pdAcquireCompleteAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
+          // Use the later of now+delay or the existing reaction ready time
+          // (from a previous target loss) to prevent gap bypass.
+          ship.pdAcquireCompleteAt[i] = Math.max(now + delay, pdReactionReady);
         }
         // While reaction delay is pending, the turret may track the threat
         // visually but must not fire. Check if timer has completed.
         // First-ever target on this weapon fires immediately (no previous
-        // acquisition to hand off from).
-        if (!pdAcquiredId || now >= ship.pdAcquireCompleteAt[i]) {
+        // acquisition and no reaction ready time from a prior loss).
+        const isFirstEver = !pdAcquiredId && pdReactionReady <= 0;
+        if (isFirstEver || now >= ship.pdAcquireCompleteAt[i]) {
           // Reaction complete: promote pending to acquired.
           ship.pdAcquiredTargetIds[i] = newPdId;
           ship.pdPendingTargetIds[i] = null;
           ship.pdAcquireCompleteAt[i] = 0;
+          ship.pdReactionReadyAt[i] = 0;
           // currentPdTarget stays as-is; aimEntity set below.
           aimEntity = currentPdTarget.entity;
         } else {
@@ -3489,6 +3504,7 @@ function destroyShip(room, ship, attackerId, now) {
   ship.pdAcquiredTargetIds = null;
   ship.pdPendingTargetIds = null;
   ship.pdAcquireCompleteAt = null;
+  ship.pdReactionReadyAt = null;
   ship.weaponAcquiredTargetIds = null;
   ship.weaponPendingTargetIds = null;
   ship.weaponAcquireCompleteAt = null;
@@ -3674,6 +3690,7 @@ function detonateSelfDestruct(room, ship, now) {
   ship.pdAcquiredTargetIds = null;
   ship.pdPendingTargetIds = null;
   ship.pdAcquireCompleteAt = null;
+  ship.pdReactionReadyAt = null;
   ship.weaponAcquiredTargetIds = null;
   ship.weaponPendingTargetIds = null;
   ship.weaponAcquireCompleteAt = null;
@@ -3733,6 +3750,7 @@ function updateDestroyedShips(room, now) {
         ship.pdAcquiredTargetIds = null;
         ship.pdPendingTargetIds = null;
         ship.pdAcquireCompleteAt = null;
+        ship.pdReactionReadyAt = null;
         ship.weaponAcquiredTargetIds = null;
         ship.weaponPendingTargetIds = null;
         ship.weaponAcquireCompleteAt = null;
@@ -4323,7 +4341,7 @@ function buildShipTurretDiagnostics(room, ship) {
 
 
 
-const DEMOLITION_TRIGGER_RANGE = 100;
+const DEMOLITION_TRIGGER_RANGE = 50;
 
 const DEMOLITION_DIAGNOSTICS = Boolean(process.env.MFA_DEMOLITION_DIAGNOSTICS);
 

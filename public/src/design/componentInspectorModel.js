@@ -204,7 +204,7 @@ function capabilityRows(type, stat, family, context = {}) {
   if (type === "proximityDemolitionCharge" && stat.proximityCharge) {
     const cfg = stat.proximityCharge;
     return [
-      statRow("proximityCharge.trigger", "Trigger", "Enemy within 100 m"),
+      statRow("proximityCharge.trigger", "Trigger", "Enemy within 50 m"),
       statRow("proximityCharge.directDamage", "Direct contact damage", formatDamage(cfg.directContactHullDamage)),
       statRow("proximityCharge.splashDamage", "Splash centre damage", formatDamage(cfg.splashCentreDamage)),
       statRow("proximityCharge.blastRadius", "Blast radius", formatDistance(cfg.blastRadius)),

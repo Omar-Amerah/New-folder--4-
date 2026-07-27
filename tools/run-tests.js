@@ -88,6 +88,7 @@ const GROUPS = {
     "verify-combat-determinism.js",
     "verify-combat-catchup.js",
     "verify-defence-weapons.js",
+    "verify-command-runtime.js",
     "verify-repair-target.js",
     "verify-repair-drone-targeting.js",
     "verify-engine-exhaust.js",
@@ -119,7 +120,9 @@ const GROUPS = {
     "verify-section13b-ui.js",
     "verify-section14-security.js",
     "verify-diagnostics-gating.js",
-    "verify-fleet-ledger.js"
+    "verify-fleet-ledger.js",
+    "verify-command-auras.js",
+    "verify-command-runtime.js"
   ],
 
   // Browser-free module/room/input lifecycle integration. These may use fake

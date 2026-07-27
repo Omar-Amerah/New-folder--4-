@@ -116,6 +116,53 @@ export const GENERATED_BALANCE = {
       "minimumLever": 0.35,
       "leverPerCell": 0.35,
       "maximumLever": 1.75
+    },
+    "hullControlThrust": {
+      "Light": { "turn": 0.15, "lateral": 20, "braking": 15 },
+      "Medium": { "turn": 0.10, "lateral": 15, "braking": 12 },
+      "Heavy": { "turn": 0.06, "lateral": 10, "braking": 8 },
+      "Capital": { "turn": 0.03, "lateral": 5, "braking": 5 }
+    },
+    "propulsionCapacitor": {
+      "rechargeRate": 15,
+      "dischargeRate": 40,
+      "boostMultiplier": 1.8,
+      "activationThreshold": 0.6,
+      "deactivationThreshold": 0.15,
+      "minReserveFraction": 0.05
+    },
+    "evasion": {
+      "trackingBase": 200,
+      "evasionExponent": 1.4,
+      "maxAccuracyPenalty": 0.75
+    },
+    "movementStyles": {
+      "interceptor": {
+        "description": "Fast aggressive style that uses capacitor boosts to close distance quickly.",
+        "capacitorAggression": 0.8,
+        "desiredRangeRatio": 0.35,
+        "lateralDodging": false
+      },
+      "evasive": {
+        "description": "Erratic lateral movement that maximises transversal velocity to dodge fire.",
+        "capacitorAggression": 0.6,
+        "desiredRangeRatio": 0.75,
+        "lateralDodging": true,
+        "dodgeIntervalSeconds": 2.5,
+        "dodgeMagnitude": 120
+      },
+      "brawler": {
+        "description": "Close-range fighter that uses capacitor for braking and turning, not speed.",
+        "capacitorAggression": 0.5,
+        "desiredRangeRatio": 0.5,
+        "lateralDodging": false
+      },
+      "heavy": {
+        "description": "Slow tank that rarely activates capacitors, relying on sustained thrust.",
+        "capacitorAggression": 0.2,
+        "desiredRangeRatio": 0.85,
+        "lateralDodging": false
+      }
     }
   },
   "drones": {
@@ -279,7 +326,7 @@ export const GENERATED_BALANCE = {
       "name": "Frame",
       "category": "Structure",
       "cost": 3,
-      "mass": 4,
+      "mass": 3.6,
       "hull": 40,
       "powerGeneration": 0,
       "powerUse": 0,
@@ -476,6 +523,7 @@ export const GENERATED_BALANCE = {
       "dischargeEfficiency": 0.8,
       "dischargeHeatAtMax": 2.5,
       "repair": 0,
+      "rotatable": true,
       "description": "High-output combat reserve. Delivers large bursts of Power for a short duration, but charges less efficiently and produces substantial Heat.",
       "footprint": {
         "width": 2,
@@ -489,7 +537,7 @@ export const GENERATED_BALANCE = {
       "cost": 20,
       "mass": 7,
       "hull": 62,
-      "powerGeneration": 10,
+      "powerGeneration": 11.5,
       "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
@@ -511,7 +559,7 @@ export const GENERATED_BALANCE = {
       "cost": 110,
       "mass": 28,
       "hull": 190,
-      "powerGeneration": 42,
+      "powerGeneration": 60,
       "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
@@ -533,14 +581,14 @@ export const GENERATED_BALANCE = {
       "name": "Engine",
       "category": "Engines",
       "cost": 10,
-      "mass": 5,
+      "mass": 4,
       "hull": 48,
       "powerGeneration": 0,
-      "powerUse": 1.2,
+      "powerUse": 1.02,
       "powerCategory": "propulsion",
       "shield": 0,
       "shieldRegen": 0,
-      "thrust": 189,
+      "thrust": 227,
       "turn": 0,
       "energy": 0,
       "repair": 0,
@@ -574,24 +622,80 @@ export const GENERATED_BALANCE = {
       "name": "Maneuver Thruster",
       "category": "Engines",
       "cost": 15,
-      "mass": 4,
+      "mass": 2.8,
       "hull": 40,
       "powerGeneration": 0,
-      "powerUse": 1.8,
+      "powerUse": 1.44,
       "powerCategory": "propulsion",
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
-      "turn": 1.5,
+      "turn": 2.25,
       "energy": 0,
       "repair": 0,
       "rotatable": true,
       "description": "Powerful lateral thruster that provides directional torque. A correctly positioned pair turns substantially faster than a Gyroscope, but costs more space, Power and money.",
-      "lateralThrust": 120,
+      "lateralThrust": 162,
+      "brakingThrust": 0,
+      "reverseThrust": 0,
       "allowedRotations": [
         90,
         270
       ]
+    },
+    {
+      "id": "propulsionCapacitor",
+      "name": "Propulsion Capacitor",
+      "category": "Engines",
+      "cost": 25,
+      "mass": 3,
+      "hull": 35,
+      "powerGeneration": 0,
+      "powerUse": 1.5,
+      "powerCategory": "propulsion",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "description": "Stores energy to temporarily boost propulsion output. Discharges automatically during high-demand manoeuvres (acceleration, turning, braking, lateral or reverse thrust) to multiply effective thrust for a short burst. Recharges from spare reactor output when demand is low.",
+      "propulsionCapacitor": {
+        "capacity": 100,
+        "maxDischargeRate": 40,
+        "maxChargeRate": 15,
+        "boostMultiplier": 1.8,
+        "activationThreshold": 0.6,
+        "deactivationThreshold": 0.15,
+        "minReserveFraction": 0.05
+      }
+    },
+    {
+      "id": "vectorThruster",
+      "name": "Vector Thruster",
+      "category": "Engines",
+      "cost": 18,
+      "mass": 3,
+      "hull": 38,
+      "powerGeneration": 0,
+      "powerUse": 1.4,
+      "powerCategory": "propulsion",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 25,
+      "turn": 0.8,
+      "lateralThrust": 140,
+      "brakingThrust": 110,
+      "reverseThrust": 80,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "allowedRotations": [90, 270],
+      "description": "Specialised thruster for evasive movement. Provides strong lateral, braking, reverse thrust and turning torque, but minimal forward thrust. Ideal for Evasive and Interceptor ship styles that need to dodge and strafe rather than charge forward.",
+      "footprint": {
+        "width": 1,
+        "height": 1
+      }
     },
     {
       "id": "aegisProjector",
@@ -639,7 +743,7 @@ export const GENERATED_BALANCE = {
       "name": "Autocannon",
       "category": "Weapons",
       "cost": 20,
-      "mass": 6,
+      "mass": 5.4,
       "hull": 44,
       "powerGeneration": 0,
       "powerUse": 1.8,
@@ -710,7 +814,7 @@ export const GENERATED_BALANCE = {
       "name": "Blaster",
       "category": "Weapons",
       "cost": 20,
-      "mass": 6,
+      "mass": 5.4,
       "hull": 47,
       "powerGeneration": 0,
       "powerUse": 2.4,
@@ -1403,7 +1507,7 @@ export const GENERATED_BALANCE = {
         "height": 3
       },
       "proximityCharge": {
-        "triggerRadius": 100,
+        "triggerRadius": 50,
         "triggerConfirmationSeconds": 0.2,
         "blastRadius": 380,
         "centreDamage": 960,

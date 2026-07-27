@@ -14,7 +14,9 @@ function sanitizeTeam(team, fallbackId) {
 
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
-  if (clean === "charge" || clean === "hold" || clean === "sentry" || clean === "circle") return clean;
+  if (clean === "circle") return "orbit";
+  if (clean === "direct" || clean === "hold" || clean === "maintain" || clean === "orbit" || clean === "kite" ||
+      clean === "charge" || clean === "sentry") return clean;
   return fallback;
 }
 

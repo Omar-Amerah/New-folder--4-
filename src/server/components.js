@@ -114,6 +114,8 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     shieldRegen: toNumber(component.shieldRegen, 0),
     thrust: toNumber(component.thrust, 0),
     lateralThrust: toNumber(component.lateralThrust, 0),
+    brakingThrust: toNumber(component.brakingThrust, 0),
+    reverseThrust: toNumber(component.reverseThrust, 0),
     turn: toNumber(component.turn, 0),
     energyStorage: toNumber(component.energyStorage ?? component.energyCapacity ?? component.energy, 0),
     energyCapacity: toNumber(component.energyCapacity ?? component.energyStorage ?? component.energy, 0),
@@ -155,11 +157,22 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
           splashCentreDamage: toNumber(component.proximityCharge.centreDamage ?? component.proximityCharge.splashCentreDamage, 1000),
           falloffExponent: toNumber(component.proximityCharge.falloffExponent, 2),
           directContactMultiplier: toNumber(component.proximityCharge.directContactMultiplier, 1.5),
-          directContactHullDamage: toNumber(component.proximityCharge.directContactHullDamage, undefined),
+          directContactHullDamage: toNumber(component.proximityCharge.directContactHullDamage, null),
           contactMaxAffectedComponents: toNumber(component.proximityCharge.contactMaxAffectedComponents ?? component.proximityCharge.maxAffectedComponents, 10),
           splashMaxAffectedComponents: toNumber(component.proximityCharge.splashMaxAffectedComponents ?? component.proximityCharge.maxAffectedComponents, 6),
           contactInternalDamageReduction: toNumber(component.proximityCharge.contactInternalDamageReduction ?? component.proximityCharge.internalDamageReduction, 0.35),
           splashInternalDamageReduction: toNumber(component.proximityCharge.splashInternalDamageReduction ?? component.proximityCharge.internalDamageReduction, 0.7)
+        })
+      : null,
+    propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object"
+      ? Object.freeze({
+          capacity: toNumber(component.propulsionCapacitor.capacity, 100),
+          maxDischargeRate: toNumber(component.propulsionCapacitor.maxDischargeRate, 40),
+          maxChargeRate: toNumber(component.propulsionCapacitor.maxChargeRate, 15),
+          boostMultiplier: toNumber(component.propulsionCapacitor.boostMultiplier, 1.8),
+          activationThreshold: toNumber(component.propulsionCapacitor.activationThreshold, 0.6),
+          deactivationThreshold: toNumber(component.propulsionCapacitor.deactivationThreshold, 0.15),
+          minReserveFraction: toNumber(component.propulsionCapacitor.minReserveFraction, 0.05)
         })
       : null,
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
