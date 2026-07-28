@@ -212,6 +212,11 @@ export function setPurchaseError(optionId, message) {
   invalidatePresentation("purchase-errors");
 }
 
+// The designer is a local editor over localStorage blueprints -- it needs no
+// match, so it opens from the lobby onward. Waiting in the lobby is exactly when
+// a player wants to be building the ship they will ready with.
+export const DESIGNER_PHASES = ["lobby", "design", "active"];
+
 export function updateEconomySnapshotUi() {
   updatePurchaseAffordability();
 }
@@ -245,7 +250,9 @@ export function updateDeploymentControls() {
   }
   if (dom.openBlueprintDesignerButton) {
     dom.openBlueprintDesignerButton.textContent = "Open Blueprint Designer";
-    dom.openBlueprintDesignerButton.disabled = !connected || !["design", "active"].includes(state.phase) || !balanceCompatible;
+    dom.openBlueprintDesignerButton.disabled = !connected
+      || !DESIGNER_PHASES.includes(state.phase)
+      || !balanceCompatible;
     dom.openBlueprintDesignerButton.title = balanceCompatible ? "" : balanceBlockMessage();
   }
   const diagnostics = state.presentationDiagnostics;

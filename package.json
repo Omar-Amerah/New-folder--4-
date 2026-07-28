@@ -191,6 +191,7 @@
     "test:combat-power-tab-browser": "npm run build && node verify-combat-power-tab-browser.js",
     "test:power-review-regressions": "node verify-power-review-regressions.js",
     "test:command-panel-browser": "npm run build && node verify-command-panel-browser.js",
+    "test:lobby-designer-browser": "npm run build && node verify-lobby-designer-browser.js",
     "test:command": "node verify-command-auras.js && node verify-command-runtime.js",
     "test:drone-bay": "node verify-drone-bay.js",
     "test:drone-production": "node verify-drone-production.js",

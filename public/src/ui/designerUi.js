@@ -45,6 +45,7 @@ import {
 
 import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
+import { phaseLockOverlayAnimations } from "./overlayAnimation.js";
 
 export { analyzeDesignHeat };
 
@@ -506,6 +507,11 @@ function applyHeatPresentation(heatAnalysis) {
     update.cell.removeAttribute("title");
     update.cell.setAttribute("aria-label", update.ariaLabel);
   }
+  // The badges above are new elements every refresh, so their pulse would
+  // otherwise drift out of phase with the cell shell they sit on and with each
+  // other. Anchoring to the document timeline keeps every layer of the
+  // overheated presentation, on every cell, pulsing as one.
+  phaseLockOverlayAnimations(dom.grid);
   renderFullLoadThermalPanel(currentHeatAnalysis("full"), heatAnalysis);
 }
 
@@ -1858,7 +1864,12 @@ function renderHeatFlows(analysis) {
     if (drewFlow) continue;
   }
   renderHeatFlowLabels(svg, labelRequests, focus, occupiedByIndex[focus] || []);
-  if (svg.children.length > 1) (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
+  if (svg.children.length > 1) {
+    (dom.heatFlowOverlayHost || dom.grid).appendChild(svg);
+    // Hovering a different component tears this overlay down and rebuilds it, so
+    // the marching frame-route dashes would restart on every hover step.
+    phaseLockOverlayAnimations(dom.heatFlowOverlayHost || dom.grid);
+  }
 }
 
 const MAX_LABEL_ALONG_DISPLACEMENT = 0.20;

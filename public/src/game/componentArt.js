@@ -391,6 +391,41 @@ function drawTurretCap(size, color, r = 0.16) {
   ctx.restore();
 }
 
+// Aegis projector head: a continuous emitter ring instead of a barrel, so the
+// module never reads as a turret. Deliberately rotationally symmetric — the
+// projector puts out a field in every direction, it does not aim.
+function drawAegisEmitterRing(unit, radius) {
+  ctx.save();
+  ctx.shadowColor = "#34d399";
+  ctx.shadowBlur = qualityShadowBlur(6);
+  ctx.strokeStyle = "#6ee7b7";
+  ctx.lineWidth = Math.max(1.4, unit * 0.085);
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(110,231,183,0.45)";
+  ctx.lineWidth = Math.max(0.8, unit * 0.05);
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 0.6, 0, Math.PI * 2);
+  ctx.stroke();
+  // Emitter nodes on the ring keep the field legible when the glow is off.
+  ctx.fillStyle = "#a7f3d0";
+  for (let i = 0; i < 4; i += 1) {
+    const a = Math.PI * (0.25 + i * 0.5);
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * radius, Math.sin(a) * radius, Math.max(1, unit * 0.06), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#ecfdf5";
+  ctx.beginPath();
+  ctx.arc(0, 0, Math.max(1, unit * 0.09), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 // ONLY the rotating weapon top: barrels, rails, launcher heads, emitter heads.
 // Drawn around the pivot (origin) with local +x as weapon-forward, on a
 // transparent background. Barrel tips line up with TurretRules.MUZZLE_TIP_TILES
@@ -539,16 +574,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     }
     drawTurretCap(size, color, 0.13);
   } else if (artType === "aegisProjector") {
-    ctx.strokeStyle = "#34d399";
-    ctx.lineWidth = Math.max(1.4, size * 0.1);
-    ctx.beginPath();
-    ctx.arc(size * 0.06, 0, size * 0.34, -Math.PI * 0.4, Math.PI * 0.4);
-    ctx.stroke();
-    ctx.fillStyle = "#a7f3d0";
-    ctx.beginPath();
-    ctx.arc(size * 0.16, 0, size * 0.11, 0, Math.PI * 2);
-    ctx.fill();
-    drawTurretCap(size, color, 0.13);
+    drawAegisEmitterRing(size, size * 0.32);
   } else if (artType === "interceptorPod") {
     ctx.fillStyle = "#a855f7";
     roundRect(ctx, { x: -size * 0.3, y: -size * 0.3, width: size * 0.62, height: size * 0.12, radius: size * 0.03 });
@@ -719,6 +745,10 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
       ctx.arc(cx, hc * 0.32, unit * 0.045, 0, Math.PI * 2);
       ctx.fill();
     }
+  } else if (artType === "aegisProjector") {
+    // Same emitter ring as the single-cell head, scaled to the footprint: no
+    // barrel, so a multi-cell projector never reads as a gun.
+    drawAegisEmitterRing(unit, Math.min(hl, hc) * 0.82);
   } else {
     // Generic elongated barrel out to the forward footprint edge.
     ctx.fillStyle = "#e2e8f0";
@@ -932,29 +962,18 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
   }
 
   if (type === "proximityDemolitionCharge" || type === "demolitionCharge") {
-    const body = mixColor(color, "#000000", 0.25);
-    // Dark spherical bomb body.
-    ctx.fillStyle = body;
-    ctx.beginPath(); ctx.arc(0, size * 0.08, size * 0.34, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = mixColor(color, "#ffffff", 0.25);
-    ctx.lineWidth = line;
-    ctx.stroke();
-    // Short fuse with a glowing ember tip.
-    ctx.strokeStyle = "#57534e";
-    ctx.lineWidth = Math.max(1, size * 0.055);
-    ctx.beginPath(); ctx.moveTo(0, -size * 0.25); ctx.lineTo(0, -size * 0.36); ctx.stroke();
-    ctx.fillStyle = "#ef4444";
-    ctx.beginPath(); ctx.arc(0, -size * 0.40, size * 0.06, 0, Math.PI * 2); ctx.fill();
-    // Diagonal hazard-tape band across the body.
-    ctx.save();
-    ctx.beginPath(); ctx.arc(0, size * 0.08, size * 0.34, 0, Math.PI * 2); ctx.clip();
-    ctx.rotate(Math.PI / 4);
-    const band = size * 0.12;
-    for (let i = -3; i <= 3; i += 1) {
-      ctx.fillStyle = (i % 2 === 0) ? "#facc15" : "#0f0f0f";
-      ctx.fillRect(-size, size * (0.12 * i - band * 0.5), size * 2, band);
+    // Same housing language as every other system module — recessed panel,
+    // centred assembly, corner telltales — with the shared warhead face at
+    // its centre so it matches the multi-cell charge instead of reading as a
+    // cartoon bomb.
+    const armed = visualState === "armed" || visualState === "active";
+    const accent = armed ? "#ff5a4d" : "#f59e0b";
+    const hot = armed ? "#fff1e6" : "#fde68a";
+    drawRecessedPanel(size, 0.8, 0.8, 0.16);
+    drawChargeWarhead(size, size * 0.3, accent, hot, armed);
+    for (const [px, py] of [[-0.37, -0.37], [0.37, -0.37], [-0.37, 0.37], [0.37, 0.37]]) {
+      drawComponentPort(size, px, py, 0.06, armed ? "#ff6b5c" : "#64748b", 0.5);
     }
-    ctx.restore();
     return true;
   }
 
@@ -1623,150 +1642,200 @@ function drawFootprintMachineFrame(unit, hl, hc, accent, options = {}) {
   ctx.restore();
 }
 
-function drawHazardStripes(unit, x, y, width, height, angle = -0.72) {
+// Shared warhead face for both demolition charges: a dark containment well,
+// accent containment rings, diagonal compression bolts and a lit detonator
+// core. The 1x1 and the multi-cell charge draw the same face at different
+// radii, so the pair reads as one family instead of two unrelated props.
+export function drawChargeWarhead(unit, radius, accent, hot, armed) {
   ctx.save();
-  roundRect(ctx, { x, y, width, height, radius: unit * 0.035 });
-  ctx.clip();
-  ctx.fillStyle = "#f6c945";
-  ctx.fillRect(x, y, width, height);
-  ctx.translate(x + width / 2, y + height / 2);
-  ctx.rotate(angle);
-  ctx.fillStyle = "rgba(18,15,12,0.92)";
-  const stripe = Math.max(unit * 0.12, height * 0.72);
-  for (let sx = -width * 1.2; sx < width * 1.2; sx += stripe * 2) {
-    ctx.fillRect(sx, -height * 2, stripe, height * 4);
-  }
-  ctx.restore();
-}
-
-function drawDemolitionChargeAssembly(unit, hl, hc, color, visualState = "safed") {
-  const armed = visualState === "armed" || visualState === "active";
-  const glow = armed ? "#ff3b30" : "#f59e0b";
-  const hot = armed ? "#fff1e6" : "#fde68a";
-  const fine = Math.max(0.7, unit * 0.045);
-  const chamberRadius = Math.min(hc * 0.58, unit * 0.74);
-
-  drawFootprintMachineFrame(unit, hl, hc, color);
-
-  // Reinforced compression bed and conduits span the complete long axis.
-  ctx.strokeStyle = "rgba(15,20,27,0.96)";
-  ctx.lineWidth = Math.max(2, unit * 0.18);
-  ctx.beginPath();
-  ctx.moveTo(-hl + unit * 0.34, 0);
-  ctx.lineTo(hl - unit * 0.34, 0);
-  ctx.stroke();
-  ctx.strokeStyle = mixColor(color, "#ff6b35", 0.45);
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = qualityShadowBlur(armed ? 9 : 3);
+  ctx.fillStyle = "rgba(8,12,20,0.86)";
+  ctx.strokeStyle = mixColor(accent, "#05070c", 0.38);
   ctx.lineWidth = Math.max(1, unit * 0.075);
   ctx.beginPath();
-  ctx.moveTo(-hl + unit * 0.38, 0);
-  ctx.lineTo(hl - unit * 0.38, 0);
-  ctx.stroke();
-
-  for (const side of [-1, 1]) {
-    const nodeX = side * (hl - unit * 0.45);
-    drawFootprintPort(unit, nodeX, -hc * 0.36, unit * 0.13, armed ? "#ff665c" : "#718096");
-    drawFootprintPort(unit, nodeX, hc * 0.36, unit * 0.13, armed ? "#ff665c" : "#718096");
-    ctx.strokeStyle = "rgba(156,174,195,0.58)";
-    ctx.lineWidth = fine;
-    ctx.beginPath();
-    ctx.moveTo(nodeX, -hc * 0.23);
-    ctx.lineTo(side * chamberRadius * 0.88, -chamberRadius * 0.62);
-    ctx.moveTo(nodeX, hc * 0.23);
-    ctx.lineTo(side * chamberRadius * 0.88, chamberRadius * 0.62);
-    ctx.stroke();
-  }
-
-  // One integrated circular danger silhouette: chamber, containment rings,
-  // compression spokes, and detonator core all share the same centre.
-  ctx.save();
-  ctx.shadowColor = glow;
-  ctx.shadowBlur = qualityShadowBlur(armed ? 11 : 3);
-  ctx.fillStyle = "rgba(18,8,8,0.96)";
-  ctx.strokeStyle = mixColor(color, "#2a0a08", 0.52);
-  ctx.lineWidth = Math.max(1.2, unit * 0.1);
-  ctx.beginPath();
-  ctx.arc(0, 0, chamberRadius, 0, Math.PI * 2);
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.strokeStyle = glow;
-  ctx.lineWidth = Math.max(1, unit * (armed ? 0.105 : 0.075));
-  for (const radius of [0.76, 0.52]) {
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = Math.max(0.9, unit * (armed ? 0.07 : 0.05));
+  for (const scale of [0.74, 0.46]) {
     ctx.beginPath();
-    ctx.arc(0, 0, chamberRadius * radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius * scale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = mixColor(accent, "#ffffff", 0.45);
+  ctx.lineWidth = Math.max(0.7, unit * 0.04);
+  for (let i = 0; i < 4; i += 1) {
+    const a = Math.PI * (0.25 + i * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * radius * 0.5, Math.sin(a) * radius * 0.5);
+    ctx.lineTo(Math.cos(a) * radius * 0.92, Math.sin(a) * radius * 0.92);
+    ctx.stroke();
+  }
+  ctx.restore();
+  drawFootprintPort(unit, 0, 0, Math.max(1, radius * 0.3), hot);
+}
+
+function drawDemolitionChargeAssembly(unit, tilesLong, hl, hc, color, visualState = "safed") {
+  const armed = visualState === "armed" || visualState === "active";
+  const accent = armed ? "#ff5a4d" : "#f59e0b";
+  const hot = armed ? "#fff1e6" : "#fde68a";
+  const fine = Math.max(0.7, unit * 0.045);
+  const warheadRadius = Math.min(hc * 0.6, hl * 0.36);
+
+  drawFootprintPanel(unit, hl, hc, 0.9, 0.86, 0.14);
+
+  // Firing bus down the long axis, ending at the two trigger heads, with the
+  // charge racks along both flanks — the same deck layout the other multi-cell
+  // machines use, rather than a bomb sitting in the middle of a frame.
+  const headX = hl - unit * 0.32;
+  ctx.save();
+  ctx.strokeStyle = "rgba(226,237,250,0.3)";
+  ctx.lineWidth = fine;
+  ctx.beginPath();
+  ctx.moveTo(-headX, 0);
+  ctx.lineTo(headX, 0);
+  ctx.stroke();
+  ctx.strokeStyle = mixColor(accent, "#05070c", 0.42);
+  ctx.lineWidth = Math.max(1, unit * 0.07);
+  for (const sy of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(-hl * 0.6, sy * hc * 0.62);
+    ctx.lineTo(hl * 0.6, sy * hc * 0.62);
     ctx.stroke();
   }
   ctx.restore();
 
-  ctx.strokeStyle = "rgba(242,211,170,0.72)";
-  ctx.lineWidth = fine;
-  for (let i = 0; i < 8; i += 1) {
-    const a = (i / 8) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * chamberRadius * 0.54, Math.sin(a) * chamberRadius * 0.54);
-    ctx.lineTo(Math.cos(a) * chamberRadius * 0.9, Math.sin(a) * chamberRadius * 0.9);
-    ctx.stroke();
-  }
-  drawFootprintPort(unit, 0, 0, unit * 0.22, hot);
+  drawChargeWarhead(unit, warheadRadius, accent, hot, armed);
 
-  const stripeW = Math.min(unit * 0.52, hl * 0.32);
-  drawHazardStripes(unit, -hl + unit * 0.16, -hc * 0.18, stripeW, hc * 0.36);
-  drawHazardStripes(unit, hl - unit * 0.16 - stripeW, -hc * 0.18, stripeW, hc * 0.36);
-
-  // Safed has cold grey telltales; armed energises every node and coil.
-  ctx.fillStyle = armed ? "#ff3b30" : "#64748b";
-  for (const y of [-hc + unit * 0.23, hc - unit * 0.23]) {
-    for (const x of [-unit * 0.22, unit * 0.22]) {
-      ctx.beginPath();
-      ctx.arc(x, y, unit * 0.055, 0, Math.PI * 2);
-      ctx.fill();
+  // Safed keeps cold grey telltales; armed energises every trigger head.
+  for (const sx of [-1, 1]) {
+    drawFootprintPort(unit, sx * headX, 0, unit * 0.13, armed ? "#ff6b5c" : "#94a3b8");
+    for (const sy of [-1, 1]) {
+      drawFootprintPort(unit, sx * hl * 0.6, sy * hc * 0.62, unit * 0.075, armed ? "#ff5a4d" : "#64748b");
     }
   }
+
+  drawFootprintSeams(unit, hl, hc, tilesLong);
 }
 
 function drawNuclearReactorAssembly(unit, tilesLong, hl, hc, color) {
-  // Reads as the capital-scale sibling of the standard `reactor`: same
-  // translucent panel, coolant band and containment rings, just larger and
-  // with a hot core disc at the centre.
+  // The capital-scale sibling of `reactor`: same panel, containment ring and
+  // lit core, built out into an actual plant — a shielded core well feeding a
+  // coolant loop that runs out to a heat-exchanger drum at each end. The plain
+  // reactor's flat coolant bar disappeared against the bright gold body, so the
+  // detail here is dark-on-gold machinery instead of yellow-on-yellow.
   const fine = Math.max(0.7, unit * 0.045);
   const line = Math.max(1, unit * 0.075);
-  const coreRadius = Math.min(hc * 0.52, hl * 0.3);
+  const coreRadius = Math.min(hc * 0.58, hl * 0.34);
+  const drumX = hl - unit * 0.42;
+  const loopY = hc * 0.64;
 
-  drawFootprintPanel(unit, hl, hc, 0.9, 0.82, 0.16);
+  drawFootprintPanel(unit, hl, hc, 0.92, 0.88, 0.14);
 
-  // Coolant band down the long axis, matching the reactor's glowing bar.
-  ctx.fillStyle = "#fff1a6";
-  roundRect(ctx, { x: -hl * 0.62, y: -hc * 0.16, width: hl * 1.24, height: hc * 0.32, radius: hc * 0.16 });
-  ctx.fill();
+  // Coolant loop: hot feed out along one flank, return along the other.
+  for (const sy of [-1, 1]) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(10,15,23,0.78)";
+    ctx.lineWidth = Math.max(1.4, unit * 0.115);
+    ctx.beginPath();
+    ctx.moveTo(-drumX, sy * loopY);
+    ctx.lineTo(drumX, sy * loopY);
+    ctx.stroke();
+    ctx.strokeStyle = "#f6b93b";
+    ctx.lineWidth = Math.max(0.9, unit * 0.055);
+    ctx.stroke();
+    ctx.restore();
+  }
 
-  // Containment rings on the long axis, as on the reactor.
-  ctx.strokeStyle = "#c28b16";
-  ctx.lineWidth = line;
-  ctx.beginPath();
-  ctx.arc(-hl * 0.58, 0, hc * 0.3, 0, Math.PI * 2);
-  ctx.arc(hl * 0.58, 0, hc * 0.3, 0, Math.PI * 2);
-  ctx.stroke();
-  drawFootprintPort(unit, -hl * 0.58, 0, unit * 0.1, "#fde68a");
-  drawFootprintPort(unit, hl * 0.58, 0, unit * 0.1, "#fde68a");
+  // Risers tying the loop into the core well.
+  ctx.save();
+  ctx.strokeStyle = "rgba(246,185,59,0.55)";
+  ctx.lineWidth = fine;
+  for (const sy of [-1, 1]) {
+    for (const sx of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sx * coreRadius * 0.74, sy * coreRadius * 0.74);
+      ctx.lineTo(sx * coreRadius * 1.3, sy * loopY);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 
-  // Hot core with a restrained glow and concentric shielding rings.
+  // Heat-exchanger drums at both ends of the long axis, where the plain
+  // reactor carries its two containment rings.
+  for (const sx of [-1, 1]) {
+    ctx.save();
+    ctx.fillStyle = "rgba(6,11,19,0.82)";
+    ctx.strokeStyle = mixColor(color, "#2a1803", 0.55);
+    ctx.lineWidth = fine;
+    roundRect(ctx, {
+      x: sx * drumX - unit * 0.19,
+      y: -hc * 0.74,
+      width: unit * 0.38,
+      height: hc * 1.48,
+      radius: unit * 0.1
+    });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(194,139,22,0.85)";
+    for (const t of [-0.42, 0.42]) {
+      ctx.beginPath();
+      ctx.moveTo(sx * drumX - unit * 0.15, hc * t);
+      ctx.lineTo(sx * drumX + unit * 0.15, hc * t);
+      ctx.stroke();
+    }
+    ctx.restore();
+    drawFootprintPort(unit, sx * drumX, 0, unit * 0.12, "#fde68a");
+  }
+
+  // Shielded core well: containment rings plus three shield blocks, which is
+  // what separates it from the plain reactor's single ring at a glance.
   ctx.save();
   ctx.shadowColor = "#fbbf24";
-  ctx.shadowBlur = qualityShadowBlur(6);
-  ctx.fillStyle = "rgba(36,22,3,0.82)";
-  ctx.strokeStyle = "#f59e0b";
-  ctx.lineWidth = line;
+  ctx.shadowBlur = qualityShadowBlur(7);
+  ctx.fillStyle = "rgba(26,15,3,0.9)";
+  ctx.strokeStyle = mixColor(color, "#2a1803", 0.45);
+  ctx.lineWidth = Math.max(1.2, unit * 0.1);
   ctx.beginPath();
   ctx.arc(0, 0, coreRadius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
   ctx.restore();
-  ctx.strokeStyle = "#fde68a";
+
+  ctx.save();
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth = line;
+  ctx.beginPath();
+  ctx.arc(0, 0, coreRadius * 0.74, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(253,230,138,0.5)";
   ctx.lineWidth = fine;
   ctx.beginPath();
-  ctx.arc(0, 0, coreRadius * 0.66, 0, Math.PI * 2);
+  ctx.arc(0, 0, coreRadius * 0.48, 0, Math.PI * 2);
   ctx.stroke();
-  drawFootprintPort(unit, 0, 0, unit * 0.14, "#fffde7");
+  ctx.fillStyle = mixColor(color, "#150e02", 0.62);
+  ctx.strokeStyle = "rgba(253,230,138,0.45)";
+  for (let i = 0; i < 3; i += 1) {
+    ctx.save();
+    ctx.rotate(i * (Math.PI * 2 / 3) - Math.PI / 2);
+    ctx.beginPath();
+    ctx.moveTo(-coreRadius * 0.3, -coreRadius * 0.99);
+    ctx.lineTo(coreRadius * 0.3, -coreRadius * 0.99);
+    ctx.lineTo(coreRadius * 0.2, -coreRadius * 0.58);
+    ctx.lineTo(-coreRadius * 0.2, -coreRadius * 0.58);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
 
+  drawFootprintPort(unit, 0, 0, Math.max(1, coreRadius * 0.3), "#fffbe6");
   drawFootprintSeams(unit, hl, hc, tilesLong);
 }
 
@@ -1801,6 +1870,166 @@ function drawBackupCoreAssembly(unit, tilesLong, hl, hc, color) {
   drawFootprintPort(unit, 0, 0, unit * 0.12, "#f5f3ff");
   drawFootprintPort(unit, -hl * 0.72, 0, unit * 0.09, "#a78bfa");
   drawFootprintPort(unit, hl * 0.72, 0, unit * 0.09, "#a78bfa");
+
+  drawFootprintSeams(unit, hl, hc, tilesLong);
+}
+
+// --- Command deck family ------------------------------------------------------
+
+// Every Command-category module is the same machine with a different job: a
+// recessed console deck, a data bus down the long axis ending in the uplink
+// nodes the aura is broadcast from, flanking workstations, and one command
+// ring carrying a single role glyph. Only the accent colour and the glyph
+// differ, so a command block reads as command at a glance and as its specific
+// role on inspection — the same way the backup core badge is built.
+const COMMAND_ROLE_ART = Object.freeze({
+  fireControlCommandCentre: { accent: "#fdba74", glyph: "targetLock" },
+  fleetDefenceCoordinator: { accent: "#fca5a5", glyph: "escort" },
+  shieldCommandRelay: { accent: "#86efac", glyph: "shieldArcs" },
+  engineeringCommandCentre: { accent: "#93c5fd", glyph: "damageControl" },
+  propulsionCommandRelay: { accent: "#67e8f9", glyph: "vector" },
+  electronicWarfareCommandCentre: { accent: "#d8b4fe", glyph: "jammer" }
+});
+
+function drawCommandRoleGlyph(glyph, unit, r, accent) {
+  ctx.save();
+  ctx.strokeStyle = accent;
+  ctx.fillStyle = accent;
+  ctx.lineWidth = Math.max(0.9, unit * 0.06);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  if (glyph === "targetLock") {
+    // Fire control: a lock box drawn as four corner brackets around a pip.
+    const g = r * 0.62;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      ctx.beginPath();
+      ctx.moveTo(sx * g, sy * g * 0.36);
+      ctx.lineTo(sx * g, sy * g);
+      ctx.lineTo(sx * g * 0.36, sy * g);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (glyph === "escort") {
+    // Fleet defence: an escort wedge sheltering two flanking hulls.
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.62);
+    ctx.lineTo(r * 0.5, r * 0.16);
+    ctx.lineTo(0, r * 0.4);
+    ctx.lineTo(-r * 0.5, r * 0.16);
+    ctx.closePath();
+    ctx.stroke();
+    for (const sx of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(sx * r * 0.66, r * 0.5, r * 0.13, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (glyph === "shieldArcs") {
+    // Shield relay: the shield module's open-bottom arcs, doubled.
+    for (const scale of [0.72, 0.44]) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r * scale, Math.PI * 0.18, Math.PI * 1.82);
+      ctx.stroke();
+    }
+  } else if (glyph === "damageControl") {
+    // Engineering: a hex service plate around a repair cross.
+    ctx.beginPath();
+    for (let i = 0; i < 6; i += 1) {
+      const a = i * (Math.PI / 3) + Math.PI / 6;
+      const x = Math.cos(a) * r * 0.66;
+      const y = Math.sin(a) * r * 0.66;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.3, 0); ctx.lineTo(r * 0.3, 0);
+    ctx.moveTo(0, -r * 0.3); ctx.lineTo(0, r * 0.3);
+    ctx.stroke();
+  } else if (glyph === "vector") {
+    // Propulsion relay: stacked thrust chevrons along the long axis.
+    for (const dx of [-0.4, 0.06]) {
+      ctx.beginPath();
+      ctx.moveTo(r * dx, -r * 0.5);
+      ctx.lineTo(r * (dx + 0.42), 0);
+      ctx.lineTo(r * dx, r * 0.5);
+      ctx.stroke();
+    }
+  } else if (glyph === "jammer") {
+    // Electronic warfare: mirrored emission fans instead of one aimed beam.
+    for (const sx of [-1, 1]) {
+      for (const scale of [0.38, 0.68]) {
+        const from = sx > 0 ? -Math.PI * 0.3 : Math.PI * 0.7;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * scale, from, from + Math.PI * 0.6);
+        ctx.stroke();
+      }
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCommandDeckAssembly(type, unit, tilesLong, tilesCross, hl, hc, color) {
+  const role = COMMAND_ROLE_ART[type];
+  const accent = role ? role.accent : mixColor(color, "#ffffff", 0.5);
+  const fine = Math.max(0.7, unit * 0.045);
+  const line = Math.max(1, unit * 0.075);
+  const ringR = Math.min(hc * 0.62, hl * 0.46);
+  const nodeX = hl - unit * 0.3;
+
+  drawFootprintPanel(unit, hl, hc, 0.9, 0.84, 0.14);
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(226,237,250,0.3)";
+  ctx.lineWidth = fine;
+  ctx.beginPath();
+  ctx.moveTo(-nodeX, 0);
+  ctx.lineTo(nodeX, 0);
+  ctx.stroke();
+
+  // Flanking workstations; only decks two cells across have room for them.
+  if (tilesCross > 1) {
+    ctx.strokeStyle = mixColor(accent, "#05070c", 0.42);
+    ctx.lineWidth = Math.max(1, unit * 0.07);
+    for (const sy of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.58, sy * hc * 0.62);
+      ctx.lineTo(hl * 0.58, sy * hc * 0.62);
+      ctx.stroke();
+    }
+    for (const sy of [-1, 1]) {
+      for (const sx of [-1, 1]) {
+        drawFootprintPort(unit, sx * hl * 0.58, sy * hc * 0.62, unit * 0.075, accent);
+      }
+    }
+  }
+  ctx.restore();
+
+  // Command ring: dark instrument well with a lit accent rim.
+  ctx.save();
+  ctx.fillStyle = "rgba(4,9,17,0.8)";
+  ctx.beginPath();
+  ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = line;
+  ctx.stroke();
+  ctx.strokeStyle = mixColor(accent, "#05070c", 0.5);
+  ctx.lineWidth = fine;
+  ctx.beginPath();
+  ctx.arc(0, 0, ringR * 0.86, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  drawCommandRoleGlyph(role ? role.glyph : "targetLock", unit, ringR, accent);
+
+  drawFootprintPort(unit, -nodeX, 0, unit * 0.11, mixColor(accent, "#ffffff", 0.45));
+  drawFootprintPort(unit, nodeX, 0, unit * 0.11, mixColor(accent, "#ffffff", 0.45));
 
   drawFootprintSeams(unit, hl, hc, tilesLong);
 }
@@ -1901,19 +2130,6 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     return true;
   }
 
-  if (type === "aegisProjector") {
-    drawFootprintPanel(unit, hl, hc, 0.88, 0.82, 0.16);
-    const radius = Math.min(hl, hc) * 0.58;
-    ctx.strokeStyle = "#6ee7b7";
-    ctx.lineWidth = Math.max(1.4, unit * 0.11);
-    ctx.beginPath(); ctx.arc(-radius * 0.14, 0, radius, -Math.PI * 0.43, Math.PI * 0.43); ctx.stroke();
-    ctx.strokeStyle = "rgba(110,231,183,0.42)"; ctx.lineWidth = fine;
-    ctx.beginPath(); ctx.arc(-radius * 0.14, 0, radius * 0.66, -Math.PI * 0.43, Math.PI * 0.43); ctx.stroke();
-    drawFootprintPort(unit, -radius * 0.14, 0, unit * 0.18, "#d1fae5");
-    drawFootprintSeams(unit, hl, hc, tilesLong);
-    return true;
-  }
-
   if (type === "reactor") {
     drawFootprintPanel(unit, hl, hc, 0.9, 0.73, 0.16);
     ctx.fillStyle = "#fff1a6";
@@ -1994,7 +2210,12 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
   }
 
   if (type === "proximityDemolitionCharge" || type === "demolitionCharge") {
-    drawDemolitionChargeAssembly(unit, hl, hc, color, visualState);
+    drawDemolitionChargeAssembly(unit, tilesLong, hl, hc, color, visualState);
+    return true;
+  }
+
+  if (COMMAND_ROLE_ART[type]) {
+    drawCommandDeckAssembly(type, unit, tilesLong, tilesCross, hl, hc, color);
     return true;
   }
 

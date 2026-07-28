@@ -210,6 +210,7 @@ export const dom = {
   mainMenuSettingsButton: document.getElementById("mainMenuSettingsButton"),
   mainMenuCloseButton: document.getElementById("mainMenuCloseButton"),
   lobbyCloseButton: document.getElementById("lobbyCloseButton"),
+  lobbyOpenDesignerButton: document.getElementById("lobbyOpenDesignerButton"),
   settingsCloseButton: document.getElementById("settingsCloseButton"),
   serverUrlInput: document.getElementById("serverUrlInput"),
   settingsTeamSelect: document.getElementById("settingsTeamSelect"),

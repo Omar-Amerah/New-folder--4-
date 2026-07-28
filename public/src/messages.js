@@ -147,7 +147,12 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
 
   runPresentation("phase:hideMenuScreens", lobbyUi.hideMenuScreens);
   runPresentation("phase:clearMatchPanels", lobbyUi.clearMatchPanels);
-  runPresentation("phase:closeBlueprintDesigner", closeBlueprintDesigner);
+  // Lobby -> design deliberately leaves the designer open: a player building in
+  // the lobby is doing the very thing the design phase asks for, and closing it
+  // under them would discard the context they were working in.
+  if (nextPhase !== "design") {
+    runPresentation("phase:closeBlueprintDesigner", closeBlueprintDesigner);
+  }
   runPresentation("phase:updateDeploymentControls", purchaseUi.updateDeploymentControls);
   runPresentation("phase:updateRallyUi", updateRallyUi);
   runPresentation("phase:updateSelectionCommandUi", updateSelectionCommandUi);

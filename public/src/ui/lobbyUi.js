@@ -9,7 +9,7 @@ import { synchronizeTelemetryFocus } from "../telemetryFocus.js";
 import { notify } from "./toastUi.js";
 import { isBalanceIncompatible, balanceBlockMessage } from "../balanceStatus.js";
 import { renderSavedDesigns } from "./savedBlueprintsUi.js";
-import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
+import { updateEconomyUi, renderPurchaseBar, DESIGNER_PHASES } from "./purchaseUi.js";
 import { renderPalette } from "./partPaletteUi.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats } from "./designerUi.js";
@@ -100,6 +100,15 @@ export function updateLobbyConnectionState(interaction = getLobbyInteractionStat
   if (dom.leaveLobbyButton) {
     dom.leaveLobbyButton.hidden = admin;
     dom.leaveLobbyButton.disabled = !connected;
+  }
+  if (dom.lobbyOpenDesignerButton) {
+    // Not admin-gated: every player builds their own ship, and the lobby is the
+    // one screen where they are all sitting and waiting.
+    const balanceCompatible = !isBalanceIncompatible();
+    dom.lobbyOpenDesignerButton.disabled = !connected
+      || !DESIGNER_PHASES.includes(phase)
+      || !balanceCompatible;
+    dom.lobbyOpenDesignerButton.title = balanceCompatible ? "" : balanceBlockMessage();
   }
   if (dom.startDesignButton) {
     dom.startDesignButton.hidden = !admin;

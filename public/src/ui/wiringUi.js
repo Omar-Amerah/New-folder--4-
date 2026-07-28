@@ -15,6 +15,7 @@ import { formatDataSupportValue, formatDataSupportEquation } from "../design/dat
 import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { applyPowerPolicyChange, renderLocalStats, invalidateHeatAnalysisCache } from "./designerUi.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
+import { phaseLockOverlayAnimations } from "./overlayAnimation.js";
 
 const GRID_SIZE = 15;
 const MAX_UNDO = 60;
@@ -1865,6 +1866,11 @@ function renderWiringOverlay() {
   }
   host.appendChild(svg);
   applyHoverHighlight();
+  // Dragging a cable rebuilds this whole overlay every frame. Without this the
+  // at-peak/above-sustained halos and the shortage outlines over source
+  // components restart their pulse on each rebuild and flicker instead of
+  // pulsing.
+  phaseLockOverlayAnimations(host);
 }
 
 function pct(value) { return `${Math.round((Number(value) || 0) * 100)}%`; }

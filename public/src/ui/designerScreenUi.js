@@ -1,17 +1,37 @@
 import { dom } from "./dom.js";
+import { state } from "../state.js";
 
 let closeReturnFocus = null;
+// Set when the designer was opened over the lobby panel, so closing it puts the
+// player back where they were instead of dropping them onto the empty arena
+// behind. Every menu screen shares one z-index, so the two cannot be stacked.
+let reopenLobbyOnClose = false;
 
-export function openBlueprintDesigner() {
+export function openBlueprintDesigner({ fromLobby = false } = {}) {
+  if (fromLobby) {
+    reopenLobbyOnClose = true;
+    import("./lobbyUi.js").then((mod) => mod.hideMenuScreens?.());
+  }
   if (dom.blueprintDesignerScreen) {
     dom.blueprintDesignerScreen.hidden = false;
   }
   import("./designerUi.js").then((mod) => mod.refreshBlueprintUndoControl?.());
 }
 
+export function openBlueprintDesignerFromLobby() {
+  openBlueprintDesigner({ fromLobby: true });
+}
+
 export function closeBlueprintDesigner() {
   if (dom.blueprintDesignerScreen) {
     dom.blueprintDesignerScreen.hidden = true;
+  }
+  const returnToLobbyPanel = reopenLobbyOnClose;
+  reopenLobbyOnClose = false;
+  // Only while the room is still in the lobby: once the match has moved on, the
+  // player wants the arena, not the panel they opened the designer from.
+  if (returnToLobbyPanel && state.phase === "lobby") {
+    import("./lobbyUi.js").then((mod) => mod.openLobbyManagement?.());
   }
 }
 
