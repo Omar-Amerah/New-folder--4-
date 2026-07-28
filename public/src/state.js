@@ -135,5 +135,7 @@ export const state = {
   lastPongAt: 0,
   latency: null,
   command: null,
+  pendingStartDesign: false,
+  pendingDeploy: false,
   lastFrameAt: performance.now()
 };

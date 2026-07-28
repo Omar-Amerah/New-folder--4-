@@ -33,6 +33,7 @@ const GROUPS = {
     "verify-module-imports.js",
     "verify-blueprint-storage.js",
     "verify-snapshot-merge.js",
+    "verify-phase-transition.js",
     "verify-blueprint-parity.js",
     "verify-rotation-parity.js",
     "verify-spawn-planner.js",

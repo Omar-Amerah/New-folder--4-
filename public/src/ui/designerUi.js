@@ -1425,17 +1425,47 @@ function renderAnalysisPanels(stats, heat) {
     dom.wiringAnalysisSummary.hidden = true;
   }
 
-  const speedPenalty = stats.speedCapped ? `Limited to ${formatSpeed(stats.speedCap)} by mass drag` : "None";
+  const accelText = (value) => {
+    const v = Number(value || 0);
+    if (v <= 0) return "0";
+    return v >= 1 ? `${Math.round(v)} m/s²` : `${v.toFixed(1)} m/s²`;
+  };
+  let marginalDelta = "—";
+  if (state?.design && Array.isArray(state.design)) {
+    try {
+      const testStats = computeStats([...state.design, { x: -1, y: -1, type: "engine", rotation: 0 }]);
+      const dSpeed = Math.round((testStats.maxSpeed || 0) - (stats.maxSpeed || 0));
+      const dAccel = Math.round((testStats.accel || 0) - (stats.accel || 0));
+      if (Number.isFinite(dSpeed) && Number.isFinite(dAccel) && testStats.mass > (stats.mass || 0)) {
+        marginalDelta = `max ${dSpeed >= 0 ? '+' : ''}${dSpeed} m/s, accel ${dAccel >= 0 ? '+' : ''}${dAccel} m/s²`;
+      }
+    } catch (e) { /* ignore if the dummy placement cannot be computed */ }
+  }
+  const speedCapped = Boolean(stats.speedCapped);
+  const unrestrictedSpeed = speedCapped
+    ? (stats.speedCap + (stats.maxSpeed - stats.speedCap) / 0.25)
+    : stats.maxSpeed;
+  const postCapEfficiency = speedCapped ? "25%" : "100%";
+  const movementNote = speedCapped
+    ? `Mass drag soft-cap begins at ${formatSpeed(stats.speedCap)}. Additional thrust above this point is only ${postCapEfficiency} effective.`
+    : `Top speed is set by available thrust and total mass. The soft-cap onset is ${formatSpeed(stats.speedCap)}.`;
+  const movementRows = [
+    ["Actual maximum speed", formatSpeed(Math.round(stats.maxSpeed || 0))],
+    ["Unrestricted thrust speed", formatSpeed(Math.round(unrestrictedSpeed || 0))],
+    ["Soft-cap onset", formatSpeed(Math.round(stats.speedCap || 0))],
+    ["Post-cap efficiency", postCapEfficiency],
+    ["Acceleration", accelText(stats.accel)],
+    ["+1 engine delta", marginalDelta],
+    ["Lateral acceleration", accelText(stats.lateralAccel)],
+    ["Braking acceleration", accelText(stats.brakingAccel)],
+    ["Reverse acceleration", accelText(stats.reverseAccel)],
+    ["Turn rate", turnText(stats)],
+    ["Effective thrust", formatThrust(stats.effectiveThrust)],
+    ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`],
+    ["Engine efficiency", formatPercent(stats.engineEfficiency)]
+  ];
   if (dom.analysisMovementPanel) {
-    dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card"><h3>Movement analysis</h3>${analysisGridMarkup([
-      ["Speed", formatSpeed(Math.round(stats.maxSpeed))],
-      ["Turn rate", turnText(stats)],
-      ["Effective thrust", formatThrust(stats.effectiveThrust)],
-      ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`],
-      ["Engine efficiency", formatPercent(stats.engineEfficiency)],
-      ["Mass drag limit", formatSpeed(stats.speedCap)],
-      ["Movement penalties", speedPenalty]
-    ])}</section>`;
+    dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card"><h3>Movement analysis</h3>${analysisGridMarkup(movementRows)}<p class="analysis-note">${escapeHtml(movementNote)}</p></section>`;
   }
 
   renderFullLoadThermalPanel(heat);
@@ -2343,12 +2373,12 @@ Fire rate: unaffected by power (only reduced by overheating)`
 
     case "speedCap":
       return {
-        label: "Mass Drag Limit",
-        desc: "Mass reduces engine efficiency smoothly. Heavier ships need more thrust to reach high speed. Ship class is descriptive, not a hard speed wall.",
-        formula: "Drag Factor = 1 / (1 + Mass / 100)^0.65",
+        label: "Soft-cap onset",
+        desc: "The total-mass drag curve and one broad soft cap replace class-based hard speed walls. Below this value thrust is fully effective; above it extra thrust is damped.",
+        formula: "Soft-cap onset = max(700, 1200 - Mass)",
         breakdown: `Ship Mass: ${stats.mass} T
-Weight Class: ${stats.massClass}
-Mass Drag Factor: ${stats.mass > 0 ? (1 / Math.pow(1 + stats.mass / 100, 0.65)).toFixed(3) : "1.000"}`
+Soft-cap onset: ${formatSpeed(stats.speedCap)}
+Actual maximum speed: ${formatSpeed(Math.round(stats.maxSpeed || 0))}`
       };
 
     case "thrustRatio":

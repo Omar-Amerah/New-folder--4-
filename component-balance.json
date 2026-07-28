@@ -81,7 +81,7 @@
     "requiresThrust": true,
     "noEngineMaxSpeed": "0 m/s",
     "noEngineAcceleration": "0 m/s^2",
-    "effectiveThrust": "Engine thrust stacks with diminishing returns: 100%, 88%, 77%, 68%, 60%, etc.",
+    "effectiveThrust": "Engine thrust stacks with gentler diminishing returns: 100%, 94%, 88%, 83%, 79%, 75%, etc. (falloff 0.94 per engine).",
     "effectiveTurn": "Positive turn modules stack with softer diminishing returns: 100%, 92%, 85%, etc.",
     "powerEfficiency": "Power displays as use/generated. If underpowered, movement is multiplied by pow(powerGeneration / max(powerUse, 1), 1.8), clamped to a minimum 18%, so deficits become severe quickly. Shield/system efficiency also drops with pow(ratio, 1.35).",
     "massClasses": [

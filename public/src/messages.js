@@ -18,7 +18,7 @@ import { renderMatchStatus } from "./ui/matchStatusUi.js";
 import { updateWinnerBanner } from "./ui/endGameUi.js";
 import { notify, addLog } from "./ui/toastUi.js";
 import { recordServerBalanceRevision } from "./balanceStatus.js";
-import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, syncUrlParams } from "./constants.js";
+import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, DIAGNOSTICS_ENABLED, syncUrlParams } from "./constants.js";
 import { saveResumeCredential, clearResumeCredential } from "./reconnectStorage.js";
 import { recordComponentHpChanges } from "./game/componentDamage.js";
 import { synchronizeTelemetryFocus } from "./telemetryFocus.js";
@@ -59,18 +59,77 @@ function buildClientSnapshotIndex(snapshot, myId, selectedIds) {
 
 // A compact, single-pass comparison that drives which UI layers run for a
 // snapshot. Avoids blindly calling every renderer on every accepted state.
+function playerChanged(prev, next) {
+  const keys = ["name", "team", "teamName", "ready", "isAdmin", "isBot", "color", "colour", "connected"];
+  if (!prev || !next) return true;
+  for (const key of keys) {
+    if (prev[key] !== next[key]) return true;
+  }
+  return false;
+}
+function playersChanged(previousIndex, nextIndex) {
+  const prev = previousIndex?.playersById;
+  const next = nextIndex?.playersById;
+  if (!prev || !next) return true;
+  if (prev.size !== next.size) return true;
+  for (const [id, prevPlayer] of prev) {
+    const nextPlayer = next.get(id);
+    if (!nextPlayer) return true;
+    if (playerChanged(prevPlayer, nextPlayer)) return true;
+  }
+  return false;
+}
+function rulesChanged(previous, next) {
+  const keys = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "asteroidDensity", "shipCap"];
+  for (const key of keys) {
+    if ((previous?.rules?.[key]) !== (next?.rules?.[key])) return true;
+  }
+  return false;
+}
+function economyChanged(previousIndex, nextIndex, myId) {
+  const prev = previousIndex?.playersById?.get(myId);
+  const next = nextIndex?.playersById?.get(myId);
+  if (!prev && !next) return false;
+  if (!prev || !next) return true;
+  const keys = ["money", "income", "activeShips", "shipCap", "spent", "fleetCost", "pendingPurchase"];
+  for (const key of keys) {
+    if (prev[key] !== next[key]) return true;
+  }
+  return false;
+}
+function fleetChanged(previousIndex, nextIndex) {
+  const prev = previousIndex?.shipById;
+  const next = nextIndex?.shipById;
+  if (!prev || !next) return true;
+  if (prev.size !== next.size) return true;
+  const keys = ["ownerId", "alive", "team"];
+  for (const [id, prevShip] of prev) {
+    const nextShip = next.get(id);
+    if (!nextShip) return true;
+    for (const key of keys) {
+      const pv = prevShip && prevShip[key];
+      const nv = nextShip && nextShip[key];
+      if (pv !== nv) return true;
+    }
+  }
+  return false;
+}
 function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex, nextIndex) {
   const all = !previous || !previousIndex;
-  const selectedIdsArray = selectedIds ? [...selectedIds] : [];
+  const previousSelectedCount = previousIndex?.selectedLivingShips?.length ?? 0;
+  const nextSelectedCount = nextIndex?.selectedLivingShips?.length ?? 0;
+  const nextPhase = next.phase === undefined ? previous.phase : next.phase;
+  const nextObjectives = next.objectives === undefined ? previous.objectives : next.objectives;
+  const nextVictor = next.victor === undefined ? previous.victor : next.victor;
   const summary = {
-    phaseChanged: all || previous.phase !== next.phase,
-    playersChanged: all || previous.players !== next.players,
-    rulesChanged: all || previous.rules !== next.rules,
-    economyChanged: all || previous.economy !== next.economy,
-    fleetChanged: all || previous.ships !== next.ships,
-    selectionAffected: all || previousIndex?.selectedLivingShips?.length !== (nextIndex?.selectedLivingShips?.length || 0),
-    objectivesChanged: all || previous.objectives !== next.objectives || previous.victor !== next.victor,
-    winnerChanged: all || previous.victor !== next.victor,
+    phaseChanged: all || previous.phase !== nextPhase,
+    playersChanged: all || playersChanged(previousIndex, nextIndex),
+    rulesChanged: all || rulesChanged(previous, next),
+    economyChanged: all || economyChanged(previousIndex, nextIndex, myId),
+    fleetChanged: all || fleetChanged(previousIndex, nextIndex),
+    selectionAffected: all || previousSelectedCount !== nextSelectedCount,
+    objectivesChanged: all || previous.objectives !== nextObjectives || previous.victor !== nextVictor,
+    winnerChanged: all || previous.victor !== nextVictor,
     selectedShipDamageChanged: false,
     selectedShipHeatChanged: false,
     selectedShipPowerChanged: false,
@@ -86,7 +145,7 @@ function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex,
     const selectedIdsSet = selectedIds || new Set();
     for (const id of selectedIdsSet) {
       const prevShip = previousIndex.shipById.get(id);
-      const nextShip = (next.shipsById || (nextIndex && nextIndex.shipById) || shipByIdFrom(next)).get(id);
+      const nextShip = nextIndex?.shipById?.get(id);
       if (prevShip && nextShip) {
         if (prevShip.chp !== nextShip.chp || prevShip.hp !== nextShip.hp) summary.selectedShipDamageChanged = true;
         if (prevShip.heat !== nextShip.heat || prevShip.componentHeatD !== nextShip.componentHeatD) summary.selectedShipHeatChanged = true;
@@ -97,10 +156,92 @@ function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex,
   return summary;
 }
 
-function shipByIdFrom(snapshot) {
-  const m = new Map();
-  for (const ship of snapshot.ships || []) if (ship) m.set(ship.id, ship);
-  return m;
+// Development/runtime counters to make snapshot and phase-transition regressions visible.
+const snapshotDiagnostics = {
+  snapshotAcceptedCount: 0,
+  snapshotPresentationErrorCount: 0,
+  phaseTransitionCount: 0,
+  phasePresentationSyncCount: 0,
+  lobbyToDesignCount: 0,
+  designToActiveCount: 0,
+  latest: {
+    previousPhase: null,
+    acceptedPhase: null,
+    statePhase: null,
+    snapshotSeq: null,
+    phaseChanged: null
+  }
+};
+state.snapshotDiagnostics = snapshotDiagnostics;
+if (DIAGNOSTICS_ENABLED) globalThis.__mfaSnapshotDiagnostics = snapshotDiagnostics;
+
+function makeFallbackSummary() {
+  return {
+    phaseChanged: true,
+    playersChanged: true,
+    rulesChanged: true,
+    economyChanged: true,
+    fleetChanged: true,
+    selectionAffected: true,
+    objectivesChanged: true,
+    winnerChanged: true,
+    selectedShipDamageChanged: true,
+    selectedShipHeatChanged: true,
+    selectedShipPowerChanged: true,
+    lobbyVisible: true
+  };
+}
+
+function runPresentation(name, fn) {
+  try {
+    fn();
+  } catch (e) {
+    snapshotDiagnostics.snapshotPresentationErrorCount += 1;
+    console.error(`[mfa] ${name} failed:`, e);
+  }
+}
+
+// Authoritative phase presentation: drives critical mode switches and is never skipped by optional UI optimisation.
+export function synchronizePhasePresentation(previousPhase, nextPhase) {
+  if (nextPhase === previousPhase) return;
+  snapshotDiagnostics.phasePresentationSyncCount += 1;
+
+  if (nextPhase === "lobby") {
+    closeBlueprintDesigner();
+    lobbyUi.clearMatchPanels?.();
+    lobbyUi.openLobbyManagement();
+    return;
+  }
+
+  if (previousPhase === "lobby" && nextPhase === "design") {
+    lobbyUi.hideMenuScreens();
+    lobbyUi.updateLobbyState();
+    renderSideControls();
+    closeBlueprintDesigner();
+    return;
+  }
+
+  if (previousPhase === "design" && nextPhase === "active") {
+    lobbyUi.hideMenuScreens();
+    closeBlueprintDesigner();
+    lobbyUi.updateLobbyState();
+    updateHud();
+    renderSideControls();
+    purchaseUi.updateEconomyUi({ refreshCatalogue: false });
+    if (state.mine?.rallyPoint) centerCameraOnPoint(state.mine.rallyPoint, 0.35);
+    return;
+  }
+
+  if (nextPhase === "ended") {
+    updateWinnerBanner();
+    renderMatchStatus();
+    return;
+  }
+
+  // Fallback for any other phase change (e.g. active -> lobby/ended variants)
+  lobbyUi.updateLobbyState();
+  renderSideControls();
+  updateHud();
 }
 
 // Records the backend's protocol/build identification and reports skew. The
@@ -295,6 +436,9 @@ export function handleServerMessage(message) {
     state.snapshotNetwork = { ...result.networkState, resyncing: false, lastResyncRequestAt: state.snapshotNetwork?.lastResyncRequestAt || 0 };
     recordNetworkEvent("acceptedSnapshot", { stateEpoch: state.snapshotNetwork.stateEpoch, snapshotSeq: state.snapshotNetwork.snapshotSeq, snapshotKind: message.snapshotKind || null });
     state.snapshotReceivedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    snapshotDiagnostics.snapshotAcceptedCount += 1;
+    snapshotDiagnostics.latest.snapshotSeq = state.snapshotNetwork.snapshotSeq;
+
     const accepted = result.snapshot;
     const previousSnapshot = state.snapshot;
     const previousIndex = state.snapshotIndex;
@@ -309,33 +453,77 @@ export function handleServerMessage(message) {
       if ((hpChanged || hasDelta) && newShip.chp) recordComponentHpChanges(newShip, oldShip?.chp || newShip.chp, newShip.chp);
     }
 
+    const nextIndex = buildClientSnapshotIndex(accepted, state.myId, state.selectedShipIds);
+
+    // Apply authoritative state unconditionally before any optional presentation work.
     state.snapshot = accepted;
-    state.snapshotIndex = buildClientSnapshotIndex(accepted, state.myId, state.selectedShipIds);
-    const summary = snapshotChangeSummary(previousSnapshot, accepted, state.myId, state.selectedShipIds, previousIndex, state.snapshotIndex);
+    state.snapshotIndex = nextIndex;
+    state.mine = nextIndex.playersById.get(state.myId) || null;
+    state.room = accepted.room ?? state.room;
+    state.world = accepted.world ?? state.world;
+    state.map = accepted.map ?? state.map;
+    state.phase = accepted.phase ?? state.phase;
+    state.adminId = accepted.adminId ?? state.adminId;
+    state.rules = { ...state.rules, ...(accepted.rules || {}) };
+
+    const phaseChanged = previousPhase !== state.phase;
+    snapshotDiagnostics.latest.previousPhase = previousPhase;
+    snapshotDiagnostics.latest.acceptedPhase = accepted.phase ?? previousPhase;
+    snapshotDiagnostics.latest.statePhase = state.phase;
+    snapshotDiagnostics.latest.phaseChanged = phaseChanged;
+    if (phaseChanged) snapshotDiagnostics.phaseTransitionCount += 1;
+
+    let summary;
+    try {
+      summary = snapshotChangeSummary(previousSnapshot, accepted, state.myId, state.selectedShipIds, previousIndex, nextIndex);
+    } catch (e) {
+      snapshotDiagnostics.snapshotPresentationErrorCount += 1;
+      console.error("[mfa] snapshotChangeSummary failed:", e);
+      summary = makeFallbackSummary();
+    }
     state.snapshotChangeSummary = summary;
 
     acceptSnapshotForRender(accepted, state.snapshotReceivedAt);
-    state.mine = state.snapshotIndex.playersById.get(state.myId) || null;
-    state.room = accepted.room;
-    state.world = accepted.world || state.world;
-    state.map = accepted.map || state.map;
-    state.phase = accepted.phase || state.phase;
-    state.adminId = accepted.adminId || state.adminId;
-    state.rules = { ...state.rules, ...(accepted.rules || {}) };
-    dom.roomLabel.textContent = accepted.room;
+    dom.roomLabel.textContent = state.room;
     purchaseUi.reconcilePendingPurchasesWithSnapshot();
     pruneSelection();
     synchronizeTelemetryFocus();
-    if (summary.fleetChanged || summary.selectionAffected) updateHud();
-    if (summary.fleetChanged || summary.selectionAffected || summary.phaseChanged) renderSideControls();
-    if (summary.objectivesChanged || summary.winnerChanged || summary.phaseChanged) renderMatchStatus();
-    if (summary.economyChanged) purchaseUi.updateEconomyUi({ refreshCatalogue: false });
-    if (summary.playersChanged || summary.rulesChanged || summary.phaseChanged || summary.lobbyVisible) lobbyUi.updateLobbyState();
-    if (summary.winnerChanged) updateWinnerBanner();
-    if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) lobbyUi.hideMenuScreens();
-    if (previousPhase !== "active" && state.phase === "active" && state.mine?.rallyPoint) {
-      centerCameraOnPoint(state.mine.rallyPoint, 0.35);
+
+    // Critical phase presentation is guarded by its own narrow error boundary.
+    if (phaseChanged) {
+      try {
+        synchronizePhasePresentation(previousPhase, state.phase);
+        snapshotDiagnostics.phasePresentationSyncCount += 1;
+      } catch (e) {
+        snapshotDiagnostics.snapshotPresentationErrorCount += 1;
+        console.error("[mfa] synchronizePhasePresentation failed:", e);
+      }
     }
+
+    // Optional UI updates each have narrow error boundaries.
+    if (summary.fleetChanged || summary.selectionAffected) runPresentation("updateHud", updateHud);
+    if (summary.fleetChanged || summary.selectionAffected || summary.phaseChanged) runPresentation("renderSideControls", renderSideControls);
+    if (summary.objectivesChanged || summary.winnerChanged || summary.phaseChanged) runPresentation("renderMatchStatus", renderMatchStatus);
+    if (summary.economyChanged) runPresentation("updateEconomyUi", () => purchaseUi.updateEconomyUi({ refreshCatalogue: false }));
+    if (summary.playersChanged || summary.rulesChanged || summary.phaseChanged || summary.lobbyVisible) runPresentation("updateLobbyState", lobbyUi.updateLobbyState);
+    if (summary.winnerChanged) runPresentation("updateWinnerBanner", updateWinnerBanner);
+
+    // Clear pending request presentation once the server confirms them.
+    if (state.phase === "design" && state.pendingStartDesign) {
+      state.pendingStartDesign = false;
+      if (dom.startDesignButton) {
+        dom.startDesignButton.disabled = false;
+        dom.startDesignButton.classList.remove("is-loading");
+        dom.startDesignButton.textContent = dom.startDesignButton.dataset.originalText || "Start Blueprint Design";
+      }
+    }
+    if (state.pendingDeploy && state.mine?.ready) {
+      state.pendingDeploy = false;
+      if (dom.deployButton) {
+        dom.deployButton.classList.remove("is-loading");
+      }
+    }
+
     return;
   }
 

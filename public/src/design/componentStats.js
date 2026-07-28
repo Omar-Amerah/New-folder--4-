@@ -509,7 +509,7 @@ export function shipWarnings(stats) {
 
   // Only show this if the movement system explicitly flags a cap.
   if (stats.speedCapped === true && Number(stats.speed || 0) > 0) {
-    warnings.push("Mass drag is limiting top speed. Add thrust or reduce mass.");
+    warnings.push("Extreme speed soft cap is active; additional thrust has reduced value.");
   }
 
   return dedupeWarnings(warnings);

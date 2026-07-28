@@ -241,38 +241,61 @@ function statusMessages(stats, power, context) {
 // ---------------------------------------------------------------------------
 
 function mobilitySection(stats, ledger) {
-  // Propulsion figures are meaningless on a ship with no working engines; the
-  // status area already reports that outright.
   const hasThrust = Number(stats.effectiveThrust || 0) > 0;
   const left = Number(stats.turnRateLeft ?? stats.turnRate ?? 0);
   const right = Number(stats.turnRateRight ?? stats.turnRate ?? 0);
   const turns = Math.max(left, right) > 0;
+  const accelText = (value) => {
+    const v = Number(value || 0);
+    if (v <= 0) return null;
+    return v >= 1 ? `${Math.round(v)} m/s²` : `${v.toFixed(1)} m/s²`;
+  };
   const rows = [
-    statRow("accel", "Acceleration", Number(stats.accel || 0) > 0 ? `${Math.round(stats.accel)} m/s²` : null),
+    statRow("accel", "Acceleration", hasThrust ? accelText(stats.accel) : null),
     statRow("thrust", "Effective Thrust", hasThrust ? formatThrust(stats.effectiveThrust) : null),
     statRow("thrustRatio", "Thrust-to-Mass", hasThrust ? `${round2(stats.thrustRatio)} kN/T` : null),
     statRow("engineEfficiency", "Engine Efficiency", hasThrust ? formatPercent(stats.engineEfficiency) : null),
-    statRow("speedCap", "Mass Drag Limit", formatSpeed(stats.speedCap)),
+    statRow("speedCap", "Soft-cap onset", formatSpeed(stats.speedCap)),
     statRow("turnLeft", "Left Turn", turns ? `${degreesPerSecond(left)}°/s` : null),
     statRow("turnRight", "Right Turn", turns ? `${degreesPerSecond(right)}°/s` : null),
     statRow("turnCap", "Turn Limit", Number(stats.turnCap || 0) > 0 ? `${degreesPerSecond(stats.turnCap)}°/s` : null),
     statRow("blockedEngines", "Blocked Engines", Number(stats.blockedEngines || 0) > 0 ? `${stats.blockedEngines}` : null, { tone: "warning" })
   ];
 
-  // Explain the relationship between top speed and the drag limit so the two
-  // numbers never look contradictory.
+  if (hasThrust && Number(stats.accel || 0) > 0 && Number(stats.maxSpeed || 0) > 0) {
+    const t50 = ((stats.maxSpeed * 0.5) / stats.accel).toFixed(1);
+    const t90 = ((stats.maxSpeed * 0.9) / stats.accel).toFixed(1);
+    rows.push(statRow("timeTo50", "Time to 50% speed", `${t50} s`));
+    rows.push(statRow("timeTo90", "Time to 90% speed", `${t90} s`));
+  }
+
+  if (hasThrust && Number(stats.lateralAccel || 0) >= 0.1) {
+    rows.push(statRow("lateralAccel", "Lateral acceleration", accelText(stats.lateralAccel)));
+  }
+  if (hasThrust && Number(stats.brakingAccel || 0) >= 0.1) {
+    rows.push(statRow("brakingAccel", "Braking acceleration", accelText(stats.brakingAccel)));
+  }
+  if (hasThrust && Number(stats.reverseAccel || 0) >= 0.1) {
+    rows.push(statRow("reverseAccel", "Reverse acceleration", accelText(stats.reverseAccel)));
+  }
+
+  if (hasThrust && Number(stats.maxSpeed || 0) > 0) {
+    const decel = Math.max(Number(stats.accel || 0) * 0.5, Number(stats.brakingAccel || 0) * 0.5, stats.maxSpeed * 0.06 + 1);
+    if (decel > 0) {
+      const brakingDist = (stats.maxSpeed * stats.maxSpeed) / (2 * decel);
+      rows.push(statRow("brakingDistance", "Braking distance", `${Math.round(brakingDist)} m`));
+    }
+  }
+
   const speed = Math.round(Number(stats.maxSpeed) || 0);
   const cap = Math.round(Number(stats.speedCap) || 0);
   let note = null;
-  if (stats.speedCapped === true) {
-    // The movement solver applies a soft cap, so thrust beyond the limit still
-    // yields a little extra speed. Say so rather than leaving two numbers that
-    // look contradictory.
-    note = speed >= cap
-      ? `Thrust would drive this ship past the ${formatSpeed(stats.speedCap)} mass drag limit; the limit is applied as a soft cap, so top speed settles just above it at ${formatSpeed(speed)}.`
-      : `Mass drag caps this ship at ${formatSpeed(stats.speedCap)}; thrust alone would drive it faster.`;
-  } else if (hasThrust && cap > 0 && speed < cap) {
-    note = `Top speed is set by available thrust (${formatSpeed(speed)}), which is below the ${formatSpeed(stats.speedCap)} mass drag limit.`;
+  if (hasThrust && cap > 0) {
+    if (stats.speedCapped === true) {
+      note = `Thrust would exceed the ${formatSpeed(stats.speedCap)} soft-cap onset (mass drag limit); the limit is applied as a soft cap, so the actual maximum speed is ${formatSpeed(speed)}.`;
+    } else if (speed < cap) {
+      note = `Top speed is set by available thrust (${formatSpeed(speed)}), which is below the ${formatSpeed(stats.speedCap)} soft-cap onset (mass drag limit).`;
+    }
   }
 
   const kept = ledger.take(rows);

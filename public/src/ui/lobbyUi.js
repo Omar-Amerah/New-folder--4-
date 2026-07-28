@@ -16,7 +16,6 @@ import { renderBuildGrid, renderLocalStats } from "./designerUi.js";
 import { closeBlueprintDesigner } from "./designerScreenUi.js";
 import { escapeHtml, formatMoney } from "../shared/formatting.js";
 import { normalizeDesign } from "../design/blueprintStorage.js";
-import { computeStats } from "../design/componentStats.js";
 import { LOCAL_SERVER_KEY, LOCAL_ACTIVE_ROOM_KEY, syncUrlParams } from "../constants.js";
 import { loadPreferences, persistPreferences, resetPreferences, applyInterfacePreferences } from "../localPreferences.js";
 import { categoryPresence, clearCurrentBlueprint, clearSavedBlueprintsAndLoadouts, forgetRecoverableRoom } from "../storageRecovery.js";
@@ -84,7 +83,9 @@ export function updateLobbyConnectionState() {
   }
   if (dom.startDesignButton) {
     dom.startDesignButton.hidden = !admin;
-    dom.startDesignButton.disabled = !connected || phase !== "lobby" || playerCount === 0;
+    dom.startDesignButton.disabled = !connected || phase !== "lobby" || state.pendingStartDesign;
+    dom.startDesignButton.classList.toggle("is-loading", state.pendingStartDesign);
+    dom.startDesignButton.textContent = state.pendingStartDesign ? "Starting…" : "Start Blueprint Design";
   }
   if (dom.restartLobbyButton) {
     const canRestartLobby = phase === "design" || phase === "active";
@@ -330,12 +331,26 @@ function handleTeamSelectChange() {
   }
 }
 
-export function onServerError() {
+export function onServerError(message = {}) {
   if (pendingTeamChange) {
     pendingTeamChange = null;
     const phase = state.snapshot?.phase || state.phase;
     const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
     updateTeamChoiceControls(connected, phase);
+  }
+  if (state.pendingStartDesign || state.pendingDeploy) {
+    state.pendingStartDesign = false;
+    state.pendingDeploy = false;
+    if (dom.startDesignButton) {
+      dom.startDesignButton.classList.remove("is-loading");
+      dom.startDesignButton.textContent = "Start Blueprint Design";
+    }
+    if (dom.deployButton) {
+      dom.deployButton.classList.remove("is-loading");
+      dom.deployButton.disabled = false;
+    }
+    updateLobbyConnectionState();
+    if (message.message) notify.error(message.message);
   }
 }
 
@@ -553,20 +568,34 @@ function releaseClickedControlFocus() {
 
 export function deployDesign() {
   releaseClickedControlFocus();
-  const stats = computeStats(state.design, { wiring: state.wiring });
+  if (state.pendingDeploy) return;
   const mine = state.mine;
   const isDesignStage = state.phase === "design";
   const ready = mine?.ready;
 
   if (isDesignStage && !ready) {
+    state.pendingDeploy = true;
+    if (dom.deployButton) {
+      dom.deployButton.classList.add("is-loading");
+      dom.deployButton.disabled = true;
+    }
     // Deploying during the design phase marks the player ready server-side;
     // there is no separate "ready" message in the protocol.
-    send({
+    const sent = send({
       type: "deploy",
       design: state.design,
       wiring: state.wiring,
       combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "hold"
     });
+    if (!sent) {
+      state.pendingDeploy = false;
+      if (dom.deployButton) {
+        dom.deployButton.classList.remove("is-loading");
+        dom.deployButton.disabled = false;
+      }
+      notify.error("Deploy request could not be sent.");
+      return;
+    }
     // Readying the first design confirms it; drop back to the arena view.
     closeBlueprintDesigner();
   }
@@ -574,7 +603,14 @@ export function deployDesign() {
 
 export function startDesign() {
   releaseClickedControlFocus();
-  send({ type: "startDesign" });
+  if (state.pendingStartDesign) return;
+  const sent = send({ type: "startDesign" });
+  if (sent) {
+    state.pendingStartDesign = true;
+    updateLobbyConnectionState();
+  } else {
+    notify.error("Start Blueprint Design request could not be sent.");
+  }
 }
 
 export function restartMatch() {
