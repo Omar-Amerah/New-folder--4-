@@ -2375,7 +2375,7 @@ Fire rate: unaffected by power (only reduced by overheating)`
       return {
         label: "Soft-cap onset",
         desc: "The total-mass drag curve and one broad soft cap replace class-based hard speed walls. Below this value thrust is fully effective; above it extra thrust is damped.",
-        formula: "Soft-cap onset = max(700, 1200 - Mass)",
+        formula: "Soft-cap onset = max(840, 1440 - Mass)",
         breakdown: `Ship Mass: ${stats.mass} T
 Soft-cap onset: ${formatSpeed(stats.speedCap)}
 Actual maximum speed: ${formatSpeed(Math.round(stats.maxSpeed || 0))}`

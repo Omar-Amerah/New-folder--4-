@@ -291,7 +291,10 @@ export function updateShipHud(ship, now) {
     lastSeenAt: now
   };
   const dt = clamp((now - previous.lastSeenAt) / 1000, 0, 0.12);
-  const shieldHit = ship.shield < previous.actualShield;
+  const safeShield = Number.isFinite(ship.shield) ? Math.max(0, ship.shield) : 0;
+  const previousShield = Number.isFinite(previous.shield) ? previous.shield : safeShield;
+  const previousActualShield = Number.isFinite(previous.actualShield) ? previous.actualShield : safeShield;
+  const shieldHit = safeShield < previousActualShield;
   const hullHit = ship.hp < previous.actualHp;
   const displayRate = 14 * dt;
   const lagRate = 4.4 * dt;
@@ -300,14 +303,14 @@ export function updateShipHud(ship, now) {
   // while using a faster response for real incoming damage.
   const shieldResponse = shieldHit ? 22 : 12;
   const shieldBlend = 1 - Math.exp(-shieldResponse * dt);
-  const displayShield = previous.shield + (ship.shield - previous.shield) * shieldBlend;
+  const displayShield = previousShield + (safeShield - previousShield) * shieldBlend;
   const next = {
     hp: approach(previous.hp, ship.hp, displayRate),
-    shield: Number.isFinite(displayShield) ? displayShield : ship.shield,
+    shield: Number.isFinite(displayShield) ? displayShield : safeShield,
     hpLag: approach(previous.hpLag, ship.hp, lagRate),
-    shieldLag: approach(previous.shieldLag, ship.shield, lagRate),
+    shieldLag: approach(previous.shieldLag, safeShield, lagRate),
     actualHp: ship.hp,
-    actualShield: ship.shield,
+    actualShield: safeShield,
     hitAt: shieldHit || hullHit ? now : previous.hitAt,
     lastHitShield: shieldHit || (!hullHit && previous.lastHitShield),
     lastSeenAt: now

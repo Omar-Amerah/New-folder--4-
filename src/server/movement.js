@@ -1220,7 +1220,8 @@ const SHIELD_RESTART_DELAY_MS = 3000;
 
 function regenerateShield(ship, stats, dt, now) {
   const effective = effectiveShieldStats(ship);
-  ship.maxShield = Math.max(0, effective.capacity);
+  const maxShield = Math.max(0, effective.capacity);
+  ship.maxShield = Number.isFinite(maxShield) ? maxShield : 0;
   ship.shield = Math.max(0, Math.min(Number(ship.shield) || 0, ship.maxShield));
   if (ship.maxShield > 0) {
     const missingShield = Math.max(0, ship.maxShield - ship.shield);
@@ -1256,14 +1257,15 @@ function regenerateShield(ship, stats, dt, now) {
       ship._shieldDepletedAt = null;
     }
 
-    const actualRecharge = Math.min(missingShield, recharge * dt);
+    const rawRecharge = Number.isFinite(recharge) && Number.isFinite(dt) ? recharge * dt : 0;
+    const actualRecharge = Number.isFinite(missingShield) && Number.isFinite(rawRecharge) ? Math.min(missingShield, rawRecharge) : 0;
     if (actualRecharge > 0 && totalHeatWeight > 0) {
       for (const entry of heatEntries) {
         const componentActual = actualRecharge * (entry.contribution / totalHeatWeight);
         addComponentHeat(ship, entry.index, componentActual * 0.7);
       }
     }
-    ship.shield = Math.min(ship.maxShield, ship.shield + actualRecharge);
+    ship.shield = Math.max(0, Math.min(ship.maxShield, ship.shield + actualRecharge));
   }
 }
 

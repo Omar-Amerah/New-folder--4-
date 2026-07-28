@@ -839,7 +839,9 @@ function drawPixiShieldStatusBar(env, gfx, options) {
 }
 
 function setPixiBarText(text, val, maxVal, height, centerX, centerY) {
-  const label = `${Math.round(val)} / ${Math.round(maxVal)}`;
+  const displayVal = Number.isFinite(Number(val)) ? Number(val) : 0;
+  const displayMax = Number.isFinite(Number(maxVal)) ? Number(maxVal) : 0;
+  const label = `${Math.round(displayVal)} / ${Math.round(displayMax)}`;
   if (text.text !== label) text.text = label;
   const fontSize = Math.max(7, Math.floor(height * 0.85));
   const targetScale = fontSize / 12;

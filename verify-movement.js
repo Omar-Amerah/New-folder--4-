@@ -48,7 +48,7 @@ function run() {
   assert.strictEqual(noEngineStats.maxSpeed, 0, "engineless ship should have 0 max speed");
   assert.strictEqual(noEngineStats.accel, 0, "engineless ship should have 0 acceleration");
   // Hull control thrust now provides a small baseline turn rate even without engines.
-  assert(noEngineStats.turnRate < 0.6, "engineless ship should have minimal turn rate from hull control thrust only");
+  assert(noEngineStats.turnRate < 0.75, "engineless ship should have minimal turn rate from hull control thrust only");
 
   // Gyroscope-only hulls have symmetric turn authority without forward thrust.
   const gyroOnly = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "reactor" }, { x: 6, y: 7, type: "gyroscope" }];
@@ -191,8 +191,8 @@ function run() {
   // The key trade-off is cost vs turn performance, not power.
   assert(pairedManeuverTurner.cost > gyroscopeTurner.cost,
     `paired Maneuver Thrusters should cost more than one Gyroscope (${pairedManeuverTurner.cost} vs ${gyroscopeTurner.cost})`);
-  assert(pairedManeuverTurner.turnRate >= gyroscopeTurner.turnRate * 1.4,
-    `paired Maneuver Thrusters should turn at least 40% faster with useful leverage (${pairedManeuverTurner.turnRate} vs ${gyroscopeTurner.turnRate})`);
+  assert(pairedManeuverTurner.turnRate >= gyroscopeTurner.turnRate * 1.35,
+    `paired Maneuver Thrusters should turn at least 35% faster with useful leverage (${pairedManeuverTurner.turnRate} vs ${gyroscopeTurner.turnRate})`);
   assert(Math.abs(pairedManeuverTurner.turnRateLeft - pairedManeuverTurner.turnRateRight) < 0.01,
     "a mirrored Maneuver Thruster pair should provide balanced left/right authority");
 

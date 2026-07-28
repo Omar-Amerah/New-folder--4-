@@ -1,20 +1,20 @@
 // Shared movement calculations for frontend component stats and backend ship stats.
 
 function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
-const ENGINE_FALLOFF = 0.94;
-const BASE_SPEED = 50;
+const ENGINE_FALLOFF = 0.96;
+const BASE_SPEED = 60;
 const SPEED_PER_THRUST = 1.05; // legacy, unused
-const THRUST_SPEED_SQRT_SCALE = 24;
-const MASS_SPEED_DIV = 120;
-const MASS_DRAG_EXP = 0.55;
-const MASS_TURN_DIV = 82;
-const MASS_TURN_EXP = 0.85;
+const THRUST_SPEED_SQRT_SCALE = 28.8;
+const MASS_SPEED_DIV = 150;
+const MASS_DRAG_EXP = 0.45;
+const MASS_TURN_DIV = 100;
+const MASS_TURN_EXP = 0.70;
 const ENGINE_TURN_PER_THRUST = 0.001;
 const LATERAL_ACCEL_RATIO = 0.26; // legacy, directional accel now thrust/mass based
-const ACCEL_SCALE = 5.0;
-const SOFT_CAP_MASS_SLOPE = 1.0;
-const SOFT_CAP_MIN = 700;
-const SOFT_CAP_BASE = 1200;
+const ACCEL_SCALE = 6.0;
+const SOFT_CAP_MASS_SLOPE = 0.7;
+const SOFT_CAP_MIN = 840;
+const SOFT_CAP_BASE = 1440;
 const SOFT_CAP_EFFICIENCY = 0.25;
 const DEFAULT_LEVER_SETTINGS = Object.freeze({ minimumLever: 0.35, leverPerCell: 0.35, maximumLever: 1.75 });
 const DEFAULT_HULL_CONTROL = Object.freeze({ Light: { turn: 0.15, lateral: 20, braking: 15 }, Medium: { turn: 0.10, lateral: 15, braking: 12 }, Heavy: { turn: 0.06, lateral: 10, braking: 8 }, Capital: { turn: 0.03, lateral: 5, braking: 5 } });
@@ -109,7 +109,7 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const negativeTurnDrag = Math.min(0, turnBonus||0);
   const massTurnPenalty = 1 / Math.pow(1 + safeMass / MASS_TURN_DIV, MASS_TURN_EXP);
   const turnCap = turnCapForMass(safeMass);
-  const toRate = positive => positive > 0 ? softCap(Math.max(0, (0.18 + (positive + negativeTurnDrag) * 2.6) * massTurnPenalty * movementPowerMultiplier), turnCap, 0.2) : 0;
+  const toRate = positive => positive > 0 ? softCap(Math.max(0, (0.216 + (positive + negativeTurnDrag) * 3.12) * massTurnPenalty * movementPowerMultiplier), turnCap, 0.2) : 0;
   const turnRateRight = toRate(symmetricTurn + (directional.clockwiseManeuverTurn || 0));
   const turnRateLeft = toRate(symmetricTurn + (directional.anticlockwiseManeuverTurn || 0));
   const turnRate = Math.min(turnRateLeft, turnRateRight);
@@ -127,5 +127,5 @@ export function effectiveStackedValue(values,falloff){ return [...values].sort((
 export function softCap(value,cap,softness=0.35){ return value<=cap?value:cap+(value-cap)*softness; }
 export function massClassForMass(mass){ if(mass<55)return 'Light'; if(mass<125)return 'Medium'; if(mass<230)return 'Heavy'; return 'Capital'; }
 export function speedCapForMass(mass){ return Math.max(SOFT_CAP_MIN, SOFT_CAP_BASE - Number(mass || 0) * SOFT_CAP_MASS_SLOPE); }
-export function turnCapForMass(mass){ if(mass<55)return 2.85; if(mass<125)return 2.05; if(mass<230)return 1.12; return 0.72; }
+export function turnCapForMass(mass){ if(mass<55)return 3.42; if(mass<125)return 2.46; if(mass<230)return 1.34; return 0.86; }
 if (typeof module !== "undefined" && module.exports) { module.exports = { calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, effectiveStackedValue, softCap, massClassForMass, speedCapForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }

@@ -3269,9 +3269,9 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
 
 
 
-  const shieldMultiplier = Number(options.shieldDamageMultiplier ?? 1);
+  const shieldMultiplier = Number.isFinite(Number(options.shieldDamageMultiplier ?? 1)) ? Number(options.shieldDamageMultiplier ?? 1) : 1;
 
-  const hullMultiplier = Number(options.hullDamageMultiplier ?? 1);
+  const hullMultiplier = Number.isFinite(Number(options.hullDamageMultiplier ?? 1)) ? Number(options.hullDamageMultiplier ?? 1) : 1;
 
 
 
@@ -3283,9 +3283,11 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
 
     const shieldDamage = damage * shieldMultiplier;
 
-    const blockedShieldDamage = Math.min(ship.shield, shieldDamage);
+    const safeShield = Number.isFinite(ship.shield) ? Math.max(0, ship.shield) : 0;
+    const safeShieldDamage = Number.isFinite(shieldDamage) ? Math.max(0, shieldDamage) : safeShield;
+    const blockedShieldDamage = Math.min(safeShield, safeShieldDamage);
 
-    ship.shield -= blockedShieldDamage;
+    ship.shield = Math.max(0, safeShield - blockedShieldDamage);
 
 
 
