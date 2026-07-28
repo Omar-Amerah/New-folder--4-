@@ -5,6 +5,7 @@ import { dom } from "./ui/dom.js";
 import { applyServerParts } from "./design/parts.js";
 import { normalizeDesign, normalizeWiring, defaultWiring } from "./design/blueprintStorage.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats } from "./ui/designerUi.js";
+import { closeBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { resetWiringEditorState } from "./ui/wiringUi.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
@@ -118,9 +119,9 @@ function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex,
   const all = !previous || !previousIndex;
   const previousSelectedCount = previousIndex?.selectedLivingShips?.length ?? 0;
   const nextSelectedCount = nextIndex?.selectedLivingShips?.length ?? 0;
-  const nextPhase = next.phase === undefined ? previous.phase : next.phase;
-  const nextObjectives = next.objectives === undefined ? previous.objectives : next.objectives;
-  const nextVictor = next.victor === undefined ? previous.victor : next.victor;
+  const nextPhase = next?.phase === undefined ? previous?.phase : next?.phase;
+  const nextObjectives = next?.objectives === undefined ? previous?.objectives : next?.objectives;
+  const nextVictor = next?.victor === undefined ? previous?.victor : next?.victor;
   const summary = {
     phaseChanged: all || previous.phase !== nextPhase,
     playersChanged: all || playersChanged(previousIndex, nextIndex),

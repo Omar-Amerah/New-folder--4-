@@ -116,8 +116,8 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   if (template) {
     Object.assign(ship, clonePrebuiltShipState(template.prebuiltShipState));
     ship.componentCellIndex = new Map(template.componentCellIndex);
-    ship.validEngineIndices = Array.from(template.exhaustAnalysis.validEngineIndices);
-    ship.blockedEngineIndices = Array.from(template.exhaustAnalysis.blockedEngineIndices);
+    ship.validEngineIndices = new Set(template.exhaustAnalysis.validEngineIndices);
+    ship.blockedEngineIndices = new Set(template.exhaustAnalysis.blockedEngineIndices);
     ship.engineExhaustAnalysis = template.exhaustAnalysis;
     ship.engineExhaustRevision = 1;
   } else {
