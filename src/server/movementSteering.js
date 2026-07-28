@@ -53,10 +53,13 @@ const {
   EDGE_RESTITUTION,
   ENGINE_HEAT_BASE,
   ENGINE_HEAT_PER_THRUST,
+  FACING_COMMAND_HYSTERESIS,
   FACING_MIN_SPEED,
+  FACING_MIN_SPEED_RELEASE,
   FINAL_FACING_TOLERANCE,
   MANEUVER_HEAT_PER_THRUST,
   REST_SPEED,
+  TURN_COMMAND_DAMPING,
   VELOCITY_TIME_CONSTANT_S
 } = require("./movementTuning");
 const { ensureMovementRuntime } = require("./movementRuntime");
@@ -129,6 +132,14 @@ function heatAdjustedMovementStats(ship, baseStats) {
 
 function driveAcceleration(stats) {
   return Math.max(0.001, Number(stats.accel) || 0);
+}
+
+// Whether the ship can produce thrust at all. driveAcceleration floors its
+// answer so the braking-profile maths never divides by zero, which means it
+// reports a trickle of thrust for a ship whose engines are all destroyed --
+// true of the stopping-distance maths, wrong for the propulsion path.
+function hasDrive(stats) {
+  return (Number(stats.effectiveThrust) || 0) > 0 && (Number(stats.maxSpeed) || 0) > 0;
 }
 
 function computeStoppingDistance(ship, stats) {
@@ -339,7 +350,7 @@ function buildMovementDecision(room, ship, stats, intent, navigation) {
 // Ordered rules, no capability tests and no blending. A ship under way points
 // where it is going, because that is the only direction it can travel; a ship
 // standing still points at whatever it cares about.
-function resolveDesiredFacing(ship, stats, intent, decision) {
+function computeDesiredFacing(ship, stats, intent, decision) {
   if (ship.manualRotation === 1 || ship.manualRotation === -1) {
     return (ship.angle || 0) + ship.manualRotation * (Math.PI - 1e-9);
   }
@@ -357,8 +368,15 @@ function resolveDesiredFacing(ship, stats, intent, decision) {
     if (targetAngle !== null) return targetAngle;
     return ship.angle || 0;
   }
-  // Under way: the nose is the direction of travel.
-  if (decision.desiredSpeed > FACING_MIN_SPEED) return decision.moveAngle;
+  // Under way: the nose is the direction of travel. Leaving that state costs
+  // less speed than entering it, so a ship idling either side of the threshold
+  // -- which is most of arrival -- does not swap the source of its facing every
+  // tick.
+  const travelling = ensureMovementRuntime(ship).facingTravelling
+    ? decision.desiredSpeed > FACING_MIN_SPEED_RELEASE
+    : decision.desiredSpeed > FACING_MIN_SPEED;
+  ensureMovementRuntime(ship).facingTravelling = travelling;
+  if (travelling) return decision.moveAngle;
   // A drifting hull can still have turn authority even when it has no working
   // forward drive. Keep an unfinished ground move pointed at its live
   // destination, but stop consulting that bearing once it is positioned.
@@ -373,6 +391,29 @@ function resolveDesiredFacing(ship, stats, intent, decision) {
   if (targetAngle !== null) return targetAngle;
   if (Number.isFinite(decision.finalFacing)) return decision.finalFacing;
   return ship.angle || 0;
+}
+
+// The facing computed above is a fresh answer every tick, and it moves: the
+// destination bearing swings when separation shoves the hull a few pixels, the
+// avoidance sidestep comes and goes, the branches above trade places. A slow
+// hull hid all of that behind its own turn rate, which is a low-pass filter by
+// accident. A fast one has none -- rotateToward reaches any of these in a single
+// tick -- so it reproduces the noise exactly, and that is the jitter. Filter the
+// command instead of the hull: hold the last one until the new answer is a real
+// change of mind.
+function resolveDesiredFacing(ship, stats, intent, decision) {
+  const desired = computeDesiredFacing(ship, stats, intent, decision);
+  const runtime = ensureMovementRuntime(ship);
+  const previous = runtime.facingCommand;
+  if (ship.manualRotation === 1 || ship.manualRotation === -1
+    || !Number.isFinite(previous)
+    || runtime.facingCommandIntent !== intent.type
+    || Math.abs(angleDifference(previous, desired)) > FACING_COMMAND_HYSTERESIS) {
+    runtime.facingCommand = desired;
+    runtime.facingCommandIntent = intent.type;
+    return desired;
+  }
+  return previous;
 }
 
 function directionalTurnRate(stats, current, desired, ship) {
@@ -439,7 +480,16 @@ function turnHullToward(ship, desiredFacing, stats, dt) {
     return;
   }
   const rate = directionalTurnRate(stats, before, desiredFacing, ship);
-  const next = rotateToward(before, desiredFacing, rate * dt);
+  // rotateToward lands exactly on the command as soon as the hull can cover the
+  // error in one tick, which for a fast hull is nearly always -- and an exact
+  // landing means whatever residual noise is left in the command shows up
+  // undamped in the hull angle. Approach the last of it exponentially instead.
+  // Large errors are unaffected: they are rate-limited long before the damping
+  // term binds, so a genuine change of course is as quick as it ever was.
+  const maxDelta = Math.max(0, rate * dt);
+  const step = clampNumber(difference * TURN_COMMAND_DAMPING, -maxDelta, maxDelta);
+  // sanitizeMovementState normalizes the hull angle at the end of every substep.
+  const next = before + step;
   ship.angle = next;
   const applied = Math.abs(angleDifference(before, next));
   const signed = Math.sign(angleDifference(before, next));
@@ -485,6 +535,13 @@ function heatMainEngines(ship, activity, dt, stats) {
 // around its target speed however weak or strong its engines are.
 function applyFlightAssist(ship, stats, decision, dt) {
   if (!decision.needsPropulsion) return;
+  // No working engines, no helm. Returning here leaves the existing velocity
+  // untouched, so the wreck coasts on the momentum it already had -- correct
+  // out here, and the only motion it can still have. Falling through would let
+  // it both accelerate on the driveAcceleration floor and, worse, re-point its
+  // whole velocity vector along the nose every substep, which is a ship with no
+  // engines steering itself.
+  if (!hasDrive(stats)) return;
   const forwardX = Math.cos(ship.angle || 0);
   const forwardY = Math.sin(ship.angle || 0);
 
@@ -527,6 +584,10 @@ function applySpeedLimit(ship, stats, decision) {
     }
   }
   const limit = Number(stats.maxSpeed) || 0;
+  // A ship with no engine-derived speed allowance is not clamped to a standstill:
+  // it has already been cut out of applyFlightAssist, so it cannot gain speed,
+  // and whatever momentum it still carries is a drift a collision may alter but
+  // nothing here should erase.
   if (limit <= 0) return;
   const speed = fastHypot(ship.vx || 0, ship.vy || 0);
   if (speed <= limit || speed <= 0) return;

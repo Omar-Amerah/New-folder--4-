@@ -1,6 +1,6 @@
 // Builds state snapshot objects representing game rooms and serializes them for network transmission.
 
-const { round, clampNumber } = require("./utils");
+const { round, roundAngle, clampNumber } = require("./utils");
 const { teamLabel } = require("./players");
 const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 const { getActiveFleetCost } = require("./economy");
@@ -67,21 +67,25 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     maxHp: round(station.maxHp),
     shield: round(station.shield),
     maxShield: round(station.maxShield),
-    radius: round(station.stats?.radius || 0),
+    // The station's real broad-phase radius from its compound collision pieces,
+    // not the capped gameplay stat a ship reports.
+    radius: round(station.radius || station.stats?.radius || 0),
+    moduleScale: station.moduleScale,
+    weaponAngles: (station.weaponAngles || []).map(round),
     team: station.team || null,
     ownerId: station.ownerId || null,
     state: station.state,
     revision: station.revision || 0,
     healthRevision: station.healthRevision || 0,
     stateRevision: station.stateRevision || 0,
-    productionRevision: station.productionRevision || 1
+    productionRevision: station.productionRevision || 1,
+    captureProgress: station.stationType === "relay" ? round(station.captureProgress || 0) : undefined,
+    captureContested: station.stationType === "relay" ? Boolean(station.captureContested) : undefined
   };
-  // Geometry is static for the lifetime of the station, so it rides along only
-  // on full snapshots; the client carries it forward across compact merges.
-  if (sendStatic) {
-    entry.design = station.design || [];
-    if (station.hangar) entry.hangar = station.hangar;
-  }
+  // Design and hangar geometry are needed every tick for station rendering and
+  // the component-based spawn/corridor UX.
+  entry.design = station.design || [];
+  if (station.hangar) entry.hangar = station.hangar;
   // The production queue is small but changes continuously, so it is part of
   // every snapshot. Progress is resolved server-side: the client has no
   // authoritative clock to compare buildStartedAt against.
@@ -122,7 +126,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       y: round(ship.y),
       vx: round(ship.vx),
       vy: round(ship.vy),
-      angle: round(ship.angle),
+      angle: roundAngle(ship.angle),
       turnActivity: Math.max(-1, Math.min(1, Number.isFinite(ship.turnActivity) ? ship.turnActivity : 0)),
       combatStyle: sanitizeCombatStyle(ship.combatStyle),
       targetX: round(ship.targetX),
@@ -185,27 +189,35 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     ships.push(entry);
   }
 
+  const stationMode = usesStationInfrastructure(room);
+  const relayTargets = stationMode
+    ? (room.stations || []).filter((s) => s.stationType === "relay")
+    : (room.points || []);
   const objectiveControl = {
-    total: room.points.length,
+    total: relayTargets.length,
     neutral: 0,
     contested: 0,
     teams: {},
     players: {}
   };
-  for (const point of room.points) {
-    if (point.contested) {
+  for (const target of relayTargets) {
+    const contested = stationMode ? target.captureContested : target.contested;
+    const progress = stationMode ? (target.captureProgress || 0) : (target.progress || 0);
+    const ownerId = target.ownerId;
+    const ownerTeam = stationMode ? target.team : target.ownerTeam;
+    if (contested) {
       objectiveControl.contested++;
     } else if (room.rules?.gameMode === "solo") {
-      if (!point.ownerId || point.progress < 0.98) {
+      if (!ownerId || progress < 0.98) {
         objectiveControl.neutral++;
       } else {
-        objectiveControl.players[point.ownerId] = (objectiveControl.players[point.ownerId] || 0) + 1;
+        objectiveControl.players[ownerId] = (objectiveControl.players[ownerId] || 0) + 1;
       }
     } else {
-      if (!point.ownerTeam || point.progress < 0.98) {
+      if (!ownerTeam || progress < 0.98) {
         objectiveControl.neutral++;
       } else {
-        objectiveControl.teams[point.ownerTeam] = (objectiveControl.teams[point.ownerTeam] || 0) + 1;
+        objectiveControl.teams[ownerTeam] = (objectiveControl.teams[ownerTeam] || 0) + 1;
       }
     }
   }

@@ -3859,11 +3859,14 @@ function findTarget(room, ship, ships) {
   const range = maxShipWeaponAcquisitionRange(ship);
   let holdFallback = null;
 
+  const stations = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled");
+  const targets = (ships || []).concat(stations);
+
 
 
   if (ship.focusTargetId) {
 
-    const focused = ships.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
+    const focused = targets.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
 
     if (focused && focused.alive) {
 
@@ -3883,7 +3886,7 @@ function findTarget(room, ship, ships) {
   // An explicit focus target always remains authoritative while alive.
   if (ship.combatTargetId) {
 
-    const current = ships.find((other) =>
+    const current = targets.find((other) =>
       other.id === ship.combatTargetId
       && areEnemies(room, ship.ownerId, other.ownerId));
 
@@ -3900,7 +3903,7 @@ function findTarget(room, ship, ships) {
 
 
 
-  for (const other of ships) {
+  for (const other of targets) {
 
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
 

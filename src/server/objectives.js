@@ -5,6 +5,7 @@ const { BALANCE } = require("./balanceConfig");
 const { effectiveComponentBonus } = require("./heat");
 
 function updateCapturePoints(room, ships, dt) {
+  if (room.rules?.infrastructureMode === "stations") return;
   const { teamLabel } = require("./players");
   const { broadcastRoom } = require("./messages");
 
@@ -61,6 +62,18 @@ function updateCapturePoints(room, ships, dt) {
 }
 
 function getTeamWithFullControl(room) {
+  if (room.rules?.infrastructureMode === "stations") {
+    const relays = (room.stations || []).filter((s) => s.stationType === "relay");
+    if (!relays.length) return null;
+    let controllingTeam = null;
+    for (const relay of relays) {
+      if (relay.state !== "operational" || !relay.team) return null;
+      if (!controllingTeam) controllingTeam = relay.team;
+      else if (relay.team !== controllingTeam) return null;
+    }
+    return controllingTeam;
+  }
+
   if (!room.points?.length) return null;
 
   let controllingTeam = null;
@@ -73,6 +86,18 @@ function getTeamWithFullControl(room) {
 }
 
 function getPlayerWithFullControl(room) {
+  if (room.rules?.infrastructureMode === "stations") {
+    const relays = (room.stations || []).filter((s) => s.stationType === "relay");
+    if (!relays.length) return null;
+    let controllingPlayerId = null;
+    for (const relay of relays) {
+      if (relay.state !== "operational" || !relay.ownerId) return null;
+      if (!controllingPlayerId) controllingPlayerId = relay.ownerId;
+      else if (relay.ownerId !== controllingPlayerId) return null;
+    }
+    return controllingPlayerId;
+  }
+
   if (!room.points?.length) return null;
 
   let controllingPlayerId = null;

@@ -47,6 +47,8 @@ assert(html.includes('<option value="classic">Classic</option>'), 'Classic infra
 assert(html.includes('<option value="stations">Stations</option>'), 'Stations infrastructure option exists');
 assert(html.includes('id="stationPanel"'), 'Station inspection panel exists in the arena markup');
 assert(html.includes('id="stationPanelBody"'), 'Station panel has a body container');
+assert(html.includes('id="stationPanelFocus"'), 'Station panel can centre the view on its station');
+assert(mainJs.includes('dom.stationPanelFocus?.addEventListener'), 'Focus button is wired');
 assert(css.includes('.station-panel'), 'Station panel is styled');
 assert(css.includes('.station-queue'), 'Station production queue is styled');
 assert(lobbyJs.includes('infrastructureMode'), 'Lobby rules payload carries infrastructureMode');
@@ -156,16 +158,26 @@ selection.resetSelectionForEpoch();
 assert.equal(state.selectedStationId, null, 'an epoch reset clears the inspected station');
 
 // --- Inspection panel --------------------------------------------------------
-const { renderStationPanel } = await import('./public/src/ui/stationPanelUi.js');
+const { renderStationPanel, panelStation, ownHomeStation } = await import('./public/src/ui/stationPanelUi.js');
 
 resetState();
 renderStationPanel();
-assert.equal(dom.stationPanel.hidden, true, 'the panel stays hidden with nothing selected');
+assert.equal(dom.stationPanel.hidden, false, 'the panel defaults to your own home station with nothing selected');
+assert.equal(panelStation()?.id, 'st-home', 'the default subject is your home station');
+assert.equal(ownHomeStation()?.id, 'st-home', 'your home station is resolved by team');
+assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the default subject is labelled as yours');
+assert(dom.stationPanelBody.innerHTML.includes('Hangar'), 'the default panel shows the hangar');
 
+resetState();
+state.snapshot = { ...state.snapshot, stations: state.snapshot.stations.filter((s) => s.stationType === 'relay') };
+renderStationPanel();
+assert.equal(dom.stationPanel.hidden, true, 'the panel hides when you have no home station and nothing is selected');
+
+resetState();
 selection.selectAt({ x: 600, y: 600 }, false);
 renderStationPanel();
 assert.equal(dom.stationPanel.hidden, false, 'selecting a station reveals the panel');
-assert.equal(dom.stationPanelKind.textContent, 'Home Station', 'the panel names the station type');
+assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the panel names the station type');
 assert(dom.stationPanelBody.innerHTML.includes('Operational'), 'the panel shows the operational state');
 assert(dom.stationPanelBody.innerHTML.includes('900 / 1000'), 'the panel shows hull vitals');
 assert(dom.stationPanelBody.innerHTML.includes('40 / 80'), 'the panel shows shield vitals');
@@ -177,7 +189,7 @@ selection.selectAt({ x: 1200, y: 600 }, false);
 renderStationPanel();
 assert.equal(dom.stationPanelKind.textContent, 'Relay Station', 'relay stations are labelled as such');
 assert(dom.stationPanelBody.innerHTML.includes('Unclaimed'), 'a neutral relay reads as unclaimed');
-assert(!dom.stationPanelBody.innerHTML.includes('Production'), 'relays have no production section');
+assert(!dom.stationPanelBody.innerHTML.includes('Hangar'), 'relays have no hangar section');
 
 state.rules = { ...state.rules, infrastructureMode: 'classic' };
 renderStationPanel();

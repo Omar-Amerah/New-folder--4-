@@ -41,6 +41,14 @@ function round(value) {
   return Math.round(value * 100) / 100;
 }
 
+// Angles are radians, so two decimals is 0.573 degrees of quantization -- a
+// tenth of a fast hull's per-tick step, and the client interpolates between two
+// already-quantized samples without smoothing it away. Three decimals costs a
+// few bytes per ship and puts the error below anything visible.
+function roundAngle(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
 // Math.hypot is robust but slow for 2-D work; callers pass finite deltas well
 // inside the double range, so sqrt(x*x + y*y) is equivalent and much cheaper.
 function fastHypot(dx, dy) { return Math.sqrt(dx * dx + dy * dy); }
@@ -70,6 +78,7 @@ module.exports = {
   angleDifference,
   rotateToward,
   round,
+  roundAngle,
   fastHypot,
   performanceNow,
   getLocalUrls

@@ -8,6 +8,7 @@
 import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { selectedStation } from "../game/selection.js";
+import { centerCameraOnPoint } from "../game/camera.js";
 
 const STATE_LABELS = {
   operational: "Operational",
@@ -62,9 +63,7 @@ function renderMeter(label, value, max, className) {
 
 function renderProductionQueue(station) {
   const queue = Array.isArray(station.productionQueue) ? station.productionQueue : [];
-  if (queue.length === 0) {
-    return `<p class="station-empty">Hangar idle. Purchases are built here and launched down the corridor.</p>`;
-  }
+  if (queue.length === 0) return `<p class="station-empty">Hangar idle — nothing in production.</p>`;
   const rows = queue.map((item, index) => {
     const stateLabel = QUEUE_STATE_LABELS[item.state] || item.state;
     const progress = Math.round(Math.max(0, Math.min(1, Number(item.progress) || 0)) * 100);
@@ -82,10 +81,35 @@ function renderProductionQueue(station) {
   return `<ul class="station-queue">${rows}</ul>`;
 }
 
+// Your own home station is where every purchase you make is built, so it is the
+// panel's default subject: in station mode the hangar is visible from the moment
+// the match starts, without having to find and click the structure first.
+export function ownHomeStation() {
+  const myTeam = state.mine?.team;
+  return (state.snapshot?.stations || []).find((station) => (
+    station.stationType === "home"
+    && (station.ownerId === state.myId || (myTeam && station.team === myTeam))
+  )) || null;
+}
+
+// The station this panel is describing: an explicit click always wins, and the
+// home station fills in otherwise.
+export function panelStation() {
+  if (state.rules?.infrastructureMode !== "stations") return null;
+  return selectedStation() || ownHomeStation();
+}
+
+export function focusPanelStation() {
+  const station = panelStation();
+  if (!station) return;
+  state.camera.follow = false;
+  centerCameraOnPoint({ x: station.x, y: station.y }, 0.35);
+}
+
 export function renderStationPanel() {
   const panel = dom.stationPanel;
   if (!panel) return;
-  const station = state.rules?.infrastructureMode === "stations" ? selectedStation() : null;
+  const station = panelStation();
   if (!station) {
     if (!panel.hidden) {
       panel.hidden = true;
@@ -94,8 +118,11 @@ export function renderStationPanel() {
     return;
   }
   panel.hidden = false;
+  const mine = station.stationType === "home" && station.id === ownHomeStation()?.id;
   if (dom.stationPanelKind) {
-    dom.stationPanelKind.textContent = station.stationType === "home" ? "Home Station" : "Relay Station";
+    dom.stationPanelKind.textContent = station.stationType === "home"
+      ? (mine ? "Your Home Station" : "Home Station")
+      : "Relay Station";
   }
   if (!dom.stationPanelBody) return;
 
@@ -111,8 +138,11 @@ export function renderStationPanel() {
     sections.push(renderMeter("Shield", Number(station.shield) || 0, Number(station.maxShield) || 0, "station-meter-shield"));
   }
   if (station.stationType === "home") {
-    sections.push(`<div class="section-heading compact"><h3>Production</h3></div>`);
+    sections.push(`<div class="section-heading compact"><h3>Hangar</h3></div>`);
     sections.push(renderProductionQueue(station));
+    if (mine) {
+      sections.push(`<p class="station-hint">Everything you buy is built here and launched down the corridor. Damaged friendly ships repair inside the station's aura.</p>`);
+    }
   } else if (station.state === "neutral") {
     sections.push(`<p class="station-empty">Bring ships inside the capture ring to claim this relay.</p>`);
   }

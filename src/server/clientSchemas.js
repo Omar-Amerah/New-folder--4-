@@ -6,7 +6,7 @@ const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setDroneBayMod
 // onto them. Deliberately permissive: an unrecognised style rejects the entire
 // deploy/buyShip message, so a blueprint saved under an old stance name would
 // fail to deploy rather than come in under its replacement.
-const COMBAT = new Set(['charge','hold','orbit','kite','sentry','circle','maintain','direct','interceptor','evasive','brawler','heavy']);
+const COMBAT = new Set(['charge','hold','orbit','kite','static','sentry','circle','maintain','direct','interceptor','evasive','brawler','heavy']);
 const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
 const SCHEMAS = Object.freeze(Object.fromEntries(TYPES.map((t)=>[t, Object.freeze({ type:t })])));
 function isPlainObject(v){return !!v && typeof v==='object' && !Array.isArray(v) && (Object.getPrototypeOf(v)===Object.prototype || Object.getPrototypeOf(v)===null);}

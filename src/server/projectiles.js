@@ -170,6 +170,7 @@ function missileEcmModifier(room, target, cache) {
 
 function updateBullets(room, dt, now) {
   const { areEnemies, damageShip } = require("./combat");
+  const { damageStation } = require("./stationCombat");
   const { recordFlakMetrics } = require("./performanceTelemetry");
 
   const liveShips = getLiveShips(
@@ -186,7 +187,7 @@ function updateBullets(room, dt, now) {
   const kept = room._projectileSpare && room._projectileSpare !== sourceBullets ? room._projectileSpare : [];
   kept.length = 0;
   const scratch = room._projectileSpatialScratch || (room._projectileSpatialScratch = {
-    asteroids: [], ships: [], drones: [], interceptableProjectiles: []
+    asteroids: [], ships: [], stations: [], drones: [], interceptableProjectiles: []
   });
   const asteroidCandidates = scratch.asteroids;
   const shipCandidates = scratch.ships;
@@ -219,6 +220,7 @@ function updateBullets(room, dt, now) {
     function pushEvent(entity, kind, direct) {
       if (entity === bullet) return;
       if (!entity || (kind === "ship" && (!entity.alive || entity.destroyed))) return;
+      if (kind === "station" && (!entity || entity.alive === false || entity.state === "disabled")) return;
       if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) return;
       if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) return;
       if (kind !== "asteroid" && !areEnemies(room, bullet.ownerId, entity.ownerId)) return;
@@ -245,6 +247,11 @@ function updateBullets(room, dt, now) {
       : liveShips;
     for (const s of sList) pushEvent(s, "ship", true);
     for (const s of sList) pushEvent(s, "ship", false);
+    const stList = spatial
+      ? spatial.querySweptAabbUnordered("stations", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.stations)
+      : (room.stations || []);
+    for (const st of stList) pushEvent(st, "station", true);
+    for (const st of stList) pushEvent(st, "station", false);
     events.push({ t: 1, x: bullet.x, y: bullet.y, kind: null, entity: null, direct: false });
     events.sort((a, b) => {
       if (a.t !== b.t) return a.t - b.t;
@@ -311,13 +318,20 @@ function updateBullets(room, dt, now) {
           room.effects.push({ type: "spark", x: entity.x, y: entity.y, at: now });
         }
         flakMetrics.missileHits += 1;
+      } else if (kind === "station") {
+        damageStation(room, entity, damage, bullet.ownerId, now, detonateX, detonateY, {
+          shieldDamageMultiplier: bullet.shieldDamageMultiplier,
+          hullDamageMultiplier: bullet.hullDamageMultiplier,
+          armorInteractionSeconds: bullet.armorInteractionSeconds
+        });
+        flakMetrics.stationHits = (flakMetrics.stationHits || 0) + 1;
       }
     }
 
     const spatial = room.disableSpatialIndex ? null : (room.spatialIndex?.dynamicValid ? room.spatialIndex : null);
-    const exScratch = room._flakExplosionScratch || (room._flakExplosionScratch = { interceptableProjectiles: [], drones: [], ships: [] });
+    const exScratch = room._flakExplosionScratch || (room._flakExplosionScratch = { interceptableProjectiles: [], drones: [], ships: [], stations: [] });
     if (spatial) {
-      for (const kind of ["interceptableProjectiles", "drones", "ships"]) {
+      for (const kind of ["interceptableProjectiles", "drones", "ships", "stations"]) {
         const out = exScratch[kind] || (exScratch[kind] = []);
         const candidates = spatial.queryRangeUnordered(kind, detonateX, detonateY, blastR, out);
         const normalized = kind === "interceptableProjectiles" ? "projectile" : kind;
@@ -544,6 +558,27 @@ function updateBullets(room, dt, now) {
       }
     }
 
+    const possibleStations = spatialIndex
+      ? spatialIndex.querySweptAabbUnordered("stations", previousX, previousY, bullet.x, bullet.y, 0, scratch.stations)
+      : (room.stations || []);
+    for (const station of possibleStations) {
+      if (station.alive === false || station.state === "disabled") continue;
+      if (!areEnemies(room, bullet.ownerId, station.ownerId)) continue;
+      const hitRadius = bullet.type === "missile"
+        ? PROJECTILES.hitRadius.missile
+        : bullet.type === "rail"
+          ? PROJECTILES.hitRadius.rail
+          : PROJECTILES.hitRadius.default;
+      if (station.shield >= SHIELD_HIT_MIN) {
+        const ringR = shieldCollisionRadius(station) + hitRadius;
+        const shieldHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, station.x, station.y, ringR);
+        if (shieldHit) recordHit({ kind: "station", t: shieldHit.t, x: shieldHit.x, y: shieldHit.y, station, entityId: station.id, shield: true });
+        continue;
+      }
+      const hullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, station.x, station.y, station.radius + hitRadius);
+      if (hullHit) recordHit({ kind: "station", t: hullHit.t, x: hullHit.x, y: hullHit.y, station, entityId: station.id, shield: false });
+    }
+
     const possibleDrones = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
       : (room.drones?.values?.() || []);
@@ -631,6 +666,32 @@ function updateBullets(room, dt, now) {
         y: earliest.y,
         at: now
       });
+      discardBullet(room, bulletsById, bullet);
+      continue;
+    }
+
+    if (earliest?.kind === "station") {
+      const station = earliest.station;
+      damageStation(room, station, bullet.damage, bullet.ownerId, now, earliest.x, earliest.y, {
+        shieldDamageMultiplier: bullet.shieldDamageMultiplier,
+        hullDamageMultiplier: bullet.hullDamageMultiplier,
+        armorInteractionSeconds: bullet.armorInteractionSeconds
+      });
+      if (earliest.shield) {
+        const ang = Math.atan2(earliest.y - station.y, earliest.x - station.x);
+        const surfaceR = shieldCollisionRadius(station);
+        room.effects.push({
+          type: "shieldhit",
+          subtype: bullet.type,
+          x: station.x + Math.cos(ang) * surfaceR,
+          y: station.y + Math.sin(ang) * surfaceR,
+          nx: Math.cos(ang),
+          ny: Math.sin(ang),
+          at: now
+        });
+      } else {
+        room.effects.push({ type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark", x: earliest.x, y: earliest.y, at: now });
+      }
       discardBullet(room, bulletsById, bullet);
       continue;
     }

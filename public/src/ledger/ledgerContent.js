@@ -356,20 +356,22 @@ const MANUAL_ARTICLES_PART_2 = [
     id: "combat-styles",
     category: "combat-styles",
     title: "Combat Styles",
-    summary: "Charge, Hold, Orbit, and Kite define how ships move around their current combat target.",
-    keywords: ["combat", "style", "hold", "charge", "orbit", "kite", "behavior", "ai", "stance"],
-    howItWorks: "Each ship follows one of four combat movement styles. Charge pursues continuously, closes through weapon range, and stops only at contact distance. Hold approaches when outside preferred weapon range, then fires from an established position without retreating from closer targets. Orbit circles at its intended radius with a stable direction and continuous radial correction. Kite retreats when too close, stops retreating once safe range is restored, and approaches only when the target is beyond weapon range. Ships acquire another nearby enemy when their current target becomes invalid.",
+    summary: "Charge, Hold, Orbit, Kite, and Static define how ships move around their current combat target.",
+    keywords: ["combat", "style", "hold", "charge", "orbit", "kite", "static", "behavior", "ai", "stance"],
+    howItWorks: "Each ship follows one of five combat movement styles. Charge pursues continuously, leads a moving target, and drives through weapon range to contact without braking. Hold approaches when outside preferred weapon range, then fires from an established position without retreating from closer targets. Orbit circles at its intended radius with a stable direction and continuous radial correction. Kite retreats when too close, slides along the world edge rather than pinning itself against it, stops retreating once safe range is restored, and approaches only when the target is beyond weapon range. Static never repositions for combat at all: it holds the ground it is standing on and turns to face whatever it is shooting. Ships acquire another nearby enemy when their current target becomes invalid. A move order you issue by hand overrides all of this until you give the ship another command.",
     importantStats: [
       { label: "Hold Range Ratio", value: "90% Of Max Weapon Range" },
       { label: "Charge Stop", value: "Contact Distance" },
       { label: "Orbit Range Ratio", value: "75% Of Max Weapon Range" },
-      { label: "Kite Safe Range", value: "90% Of Max Weapon Range" }
+      { label: "Kite Safe Range", value: "90% Of Max Weapon Range" },
+      { label: "Static Movement", value: "None" }
     ],
-    practicalUse: "Hold is the general ranged default. Charge suits ships that must force close contact. Orbit rewards agile ships that can sustain a curved course. Kite suits long-range ships built to preserve separation.",
+    practicalUse: "Hold is the general ranged default. Charge suits ships that must force close contact. Orbit rewards agile ships that can sustain a curved course. Kite suits long-range ships built to preserve separation. Static suits ships you want anchored exactly where you put them.",
     commonProblems: [
       "Ship not engaging? It may have no weapons with range, or the target is out of range.",
       "Hold ship moving closer? Its target has moved outside preferred weapon range.",
       "Kite ship moving away? Its target is inside the safe-range threshold.",
+      "Ship ignoring its stance? You gave it a move or stop order by hand -- those hold until you command it again.",
       "Want to change style mid-match? Select ships and use the combat style buttons in the match panel."
     ],
     related: ["movement", "weapons", "defence"]

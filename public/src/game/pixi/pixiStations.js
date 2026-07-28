@@ -15,7 +15,9 @@ import { state } from "../../state.js";
 import { GENERATED_BALANCE } from "../../generatedBalance.js";
 import { isCircleVisible } from "../viewportCulling.js";
 import { createPixiKeyedPool, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
-import { SHIP_SCALE, acquireHullLease } from "./pixiShipView.js";
+import { SHIP_SCALE, acquireHullLease, acquireTurretLease } from "./pixiShipView.js";
+import { footprintLocalPlacement } from "../shipGeometry.js";
+import { isRotatingWeaponPart, authoritativeWeaponAngle } from "../weaponAim.js";
 
 const INFRASTRUCTURE = GENERATED_BALANCE?.infrastructure || {};
 const HOME_STATION = INFRASTRUCTURE.homeStation || {};
@@ -55,15 +57,23 @@ export function stationStateLabel(station) {
   return station.stationType === "home" ? "OPERATIONAL" : "ONLINE";
 }
 
-// Bake radius for the station hull. The server builds stations on the same
-// 13px module grid the ship designer uses, so the design bounds alone determine
-// the extent; radius from the snapshot is only a floor.
+// Stations are authored on the same 15x15 grid ships use, but are drawn at a
+// larger module scale (the server sends it as `moduleScale`). The hull texture
+// is baked by the shared ship pipeline at SHIP_SCALE and then scaled up, so
+// station art needs no second baking path.
+function stationScaleRatio(station) {
+  const scale = Number(station.moduleScale);
+  return Number.isFinite(scale) && scale > 0 ? scale / SHIP_SCALE : 1;
+}
+
+// Bake radius in SHIP_SCALE units — the extent the shared baker must cover
+// before the sprite is scaled up.
 function stationBakeRadius(station) {
   let maxCell = 0;
   for (const module of station.design || []) {
-    maxCell = Math.max(maxCell, Math.abs(Number(module.x) || 0), Math.abs(Number(module.y) || 0));
+    maxCell = Math.max(maxCell, Math.abs((Number(module.x) || 0) - 7), Math.abs((Number(module.y) || 0) - 7));
   }
-  return Math.max(Number(station.radius) || 0, (maxCell + 1) * SHIP_SCALE);
+  return (maxCell + 1) * SHIP_SCALE;
 }
 
 function createPixiStationView(env) {
@@ -87,8 +97,13 @@ function createPixiStationView(env) {
   const stateText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "bold", fill: "#ffffff", stroke: { color: "rgba(0,0,0,0.7)", width: 3 } });
   const productionText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 12, fill: "#cfe3f5", stroke: { color: "rgba(0,0,0,0.7)", width: 3 } });
 
+  const turretContainer = new PIXI.Container();
+  turretContainer.label = "StationTurrets";
+  turretContainer.position.set(0, 0);
+
   root.addChild(auraGfx);
   root.addChild(hullSprite);
+  root.addChild(turretContainer);
   root.addChild(hudGfx);
   root.addChild(stateText);
   root.addChild(productionText);
@@ -97,6 +112,7 @@ function createPixiStationView(env) {
     root,
     auraGfx,
     hullSprite,
+    turretContainer,
     hudGfx,
     stateText,
     productionText,
@@ -105,6 +121,9 @@ function createPixiStationView(env) {
     textureKey: null,
     auraSignature: "",
     hudSignature: "",
+    turretSignature: "",
+    turretSprites: [],
+    turretsByDesignIndex: new Map(),
     stateLabel: null,
     productionLabel: null,
     release() {
@@ -116,12 +135,59 @@ function createPixiStationView(env) {
       this.textureKey = null;
       this.auraSignature = "";
       this.hudSignature = "";
+      this.turretSignature = "";
       this.stateLabel = null;
       this.productionLabel = null;
       this.auraGfx.clear();
       this.hudGfx.clear();
+      this.turretContainer.removeChildren();
+      for (const sprite of this.turretSprites) {
+        if (sprite.__lease) {
+          sprite.__lease.release();
+          sprite.__lease = null;
+        }
+        if (!sprite.destroyed) sprite.destroy({ children: false, texture: false, textureSource: false });
+      }
+      this.turretSprites = [];
+      this.turretsByDesignIndex.clear();
     }
   };
+}
+
+// Persistent rotating turret sprites for station weapon modules.
+function rebuildStationTurrets(env, view, station) {
+  const design = station.design || [];
+  const ratio = stationScaleRatio(station);
+
+  view.turretContainer.removeChildren();
+  for (const sprite of view.turretSprites) {
+    if (sprite.__lease) {
+      sprite.__lease.release();
+      sprite.__lease = null;
+    }
+    if (!sprite.destroyed) sprite.destroy({ children: false, texture: false, textureSource: false });
+  }
+  view.turretSprites = [];
+  view.turretsByDesignIndex.clear();
+
+  for (let i = 0; i < design.length; i += 1) {
+    const part = design[i];
+    if (!isRotatingWeaponPart(part.type)) continue;
+    const place = footprintLocalPlacement(part, SHIP_SCALE);
+    const lease = acquireTurretLease(env, part.type);
+    const sprite = new env.PIXI.Sprite(lease.texture);
+    sprite.label = `StationTurret[${i}] ${part.type}`;
+    sprite.anchor.set(0.5);
+    sprite.position.set(place.cx * ratio, place.cy * ratio);
+    sprite.scale.set(ratio / env.bakeScale);
+    sprite.__designIndex = i;
+    sprite.__partType = part.type;
+    sprite.__lease = lease;
+    sprite.rotation = authoritativeWeaponAngle(station, i) || 0;
+    view.turretContainer.addChild(sprite);
+    view.turretSprites.push(sprite);
+    view.turretsByDesignIndex.set(i, sprite);
+  }
 }
 
 // The repair aura / capture ring / hangar corridor. Purely a function of
@@ -131,31 +197,21 @@ function rebuildStationAura(view, station, color, zoom) {
   gfx.clear();
   const operational = station.state === "operational";
   if (station.stationType === "home") {
-    const repairRadius = Number(HOME_STATION.repairRadius) || 0;
-    if (repairRadius > 0 && operational) {
-      gfx.circle(0, 0, repairRadius);
-      gfx.fill({ color, alpha: 0.04 });
-      // Dashed ring. Each dash seeds its current point before arc() so Pixi does
-      // not connect a stray segment from the local origin.
-      const dashCount = Math.max(12, Math.round((Math.PI * 2 * repairRadius) / 90));
-      const dashAngle = (Math.PI * 2) / dashCount;
-      for (let i = 0; i < dashCount; i += 1) {
-        const start = i * dashAngle;
-        gfx.moveTo(Math.cos(start) * repairRadius, Math.sin(start) * repairRadius);
-        gfx.arc(0, 0, repairRadius, start, start + dashAngle * 0.5);
-      }
-      gfx.stroke({ width: 2 / zoom, color, alpha: 0.3 });
-    }
-    // Hangar corridor: the launch lane ships leave through, drawn in the
-    // station's own frame with +x as the hangar heading.
-    const corridorLength = Number(HOME_STATION.hangarCorridorLength) || 0;
-    if (corridorLength > 0) {
-      const halfWidth = Math.max(40, (Number(station.radius) || 0) * 0.45);
+    const hangar = station.hangar || {};
+    const corridorLength = Number(hangar.corridorLength) || Number(HOME_STATION.hangarCorridorLength) || 0;
+    const halfWidth = Number(hangar.apertureHalfWidth) || Math.max(40, (Number(station.radius) || 0) * 0.45);
+    if (corridorLength > 0 && halfWidth > 0) {
+      // Recessed bay floor visible through the open hangar mouth.
+      gfx.rect(0, -halfWidth, corridorLength, halfWidth * 2);
+      gfx.fill({ color, alpha: 0.08 });
+      // Door/wall edges with a rounded mouth frame.
       gfx.moveTo(0, -halfWidth);
       gfx.lineTo(corridorLength, -halfWidth);
       gfx.moveTo(0, halfWidth);
       gfx.lineTo(corridorLength, halfWidth);
-      gfx.stroke({ width: 2 / zoom, color, alpha: operational ? 0.45 : 0.18 });
+      gfx.stroke({ width: 3 / zoom, color, alpha: operational ? 0.55 : 0.22 });
+      gfx.arc(corridorLength, 0, halfWidth, -Math.PI / 2, Math.PI / 2);
+      gfx.stroke({ width: 3 / zoom, color, alpha: operational ? 0.5 : 0.2 });
     }
     return;
   }
@@ -251,7 +307,10 @@ export function updatePixiStations(env, now, players, bounds) {
     // Culling uses the aura extent, not the hull: a home station's repair ring
     // is meaningful long before the structure itself is on screen.
     const auraRadius = station.stationType === "home"
-      ? Math.max(Number(HOME_STATION.repairRadius) || 0, Number(station.radius) || 0)
+      ? Math.max(
+          Number(station.radius) || 0,
+          (Number(station.hangar?.corridorLength) || 0) + (Number(station.hangar?.apertureHalfWidth) || 0)
+        )
       : Math.max(Number(RELAY_STATION.captureRadius) || 0, Number(station.radius) || 0);
     if (bounds && !isCircleVisible(station.x, station.y, auraRadius, bounds)) continue;
 
@@ -260,24 +319,36 @@ export function updatePixiStations(env, now, players, bounds) {
     view.root.position.set(station.x, station.y);
     view.auraGfx.rotation = Number(station.angle) || 0;
     view.hullSprite.rotation = Number(station.angle) || 0;
+    view.turretContainer.rotation = Number(station.angle) || 0;
 
     // Static hull art. Absent design (a compact snapshot received before any
     // full one) leaves the sprite empty rather than baking a placeholder.
     const design = station.design;
     if (Array.isArray(design) && design.length > 0) {
       const radius = stationBakeRadius(station);
-      const key = `station|${station.id}|${design.length}|${color}|${Math.round(radius)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+      const ratio = stationScaleRatio(station);
+      const key = `station|${station.stationType}|${design.length}|${color}|${Math.round(radius)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
       if (view.textureKey !== key) {
         const lease = acquireHullLease(env, design, color, radius, key);
         swapTextureLease(view, lease, key, (texture) => {
           view.hullSprite.texture = texture;
-          view.hullSprite.scale.set(1 / env.bakeScale);
+          view.hullSprite.scale.set(ratio / env.bakeScale);
         });
+      } else {
+        view.hullSprite.scale.set(ratio / env.bakeScale);
+      }
+      const turretSignature = `${station.stationType}|${design.length}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+      if (view.turretSignature !== turretSignature) {
+        view.turretSignature = turretSignature;
+        rebuildStationTurrets(env, view, station);
+      }
+      for (const sprite of view.turretSprites) {
+        sprite.rotation = authoritativeWeaponAngle(station, sprite.__designIndex) || 0;
       }
     }
     view.hullSprite.alpha = station.state === "disabled" ? 0.55 : 1;
 
-    const auraSignature = `${station.stationType}|${station.state}|${color}|${zoomKey}|${Math.round(station.radius || 0)}`;
+    const auraSignature = `${station.stationType}|${station.state}|${color}|${zoomKey}|${Math.round(station.radius || 0)}|${Math.round(station.hangar?.apertureHalfWidth || 0)}|${Math.round(station.hangar?.corridorLength || 0)}`;
     if (view.auraSignature !== auraSignature) {
       view.auraSignature = auraSignature;
       rebuildStationAura(view, station, color, zoom);

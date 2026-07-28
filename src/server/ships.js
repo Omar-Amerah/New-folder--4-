@@ -309,13 +309,15 @@ function updateBots(room, now) {
       continue;
     }
 
-    const objectives = (room.points || [])
-      .filter((point) => point && (point.ownerTeam !== player.team || point.progress < 0.95))
+    const stationMode = usesStationInfrastructure(room);
+    const objectiveList = stationMode ? (room.stations || []).filter((s) => s && s.stationType === "relay") : (room.points || []);
+    const objectives = objectiveList
+      .filter((point) => point && (stationMode ? !(point.state === "operational" && point.team === player.team) : (point.ownerTeam !== player.team || point.progress < 0.95)))
       .sort((a, b) => {
         const diff = distanceToFleet(ships, a) - distanceToFleet(ships, b);
         return diff || String(a.id || `${a.x},${a.y}`).localeCompare(String(b.id || `${b.x},${b.y}`));
       });
-    const objective = objectives[0] || (room.points || [])[0];
+    const objective = objectives[0] || objectiveList[0];
     if (!objective) continue;
     commandShips(room, player, objective.x + rngRange(rng, -80, 80), objective.y + rngRange(rng, -80, 80), {
       formation: ships.length > 3 ? "clump" : "line"

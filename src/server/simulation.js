@@ -13,6 +13,7 @@ const { assertComponentHpConsistency, isComponentAssertionEnabled } = require(".
 const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
 const { buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./spatialIndex");
+const { updateStationWeapons } = require("./stationCombat");
 const { updateCommandAuras } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
 const { recordRoomTick } = require("./performanceTelemetry");
@@ -117,6 +118,7 @@ function tickRoom(room, dt, now) {
   }
   durations.weapons = weaponsMs;
   durations.heat = heatMs;
+  updateStationWeapons(room, room.stations || [], ships, dt, now);
   startedAt = performanceNow();
   updateBullets(room, dt, now);
   durations.projectiles = performanceNow() - startedAt;

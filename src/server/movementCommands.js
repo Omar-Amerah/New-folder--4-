@@ -25,8 +25,14 @@ function clearTargetReferences(ship) {
   ship.repairTargetId = null;
 }
 
-function commandRecord(id, type, destination = null, targetId = null, finalFacing = null) {
-  return { id, type, destination, targetId, finalFacing };
+// `manual` marks an order the player issued directly. Those own movement
+// outright: auto-targeting re-assigns ship.combatTargetId every combat tick, so
+// without this flag a combat stance reclaims the helm on the tick after a right
+// click and drags the ship back to where it was. Internal rally moves (station
+// spawn, formation assignment) leave it false so freshly built ships still
+// engage on their own.
+function commandRecord(id, type, destination = null, targetId = null, finalFacing = null, manual = false) {
+  return { id, type, destination, targetId, finalFacing, manual };
 }
 
 function slotOffsets(count, spacing) {
@@ -128,7 +134,7 @@ function setRepairCommand(ship, commandId, targetId) {
   syncMovementTarget(ship);
 }
 
-function setMoveCommand(ship, commandId, destination, finalFacing) {
+function setMoveCommand(ship, commandId, destination, finalFacing, manual = false) {
   clearTargetReferences(ship);
   resetStyleMemory(ship, ship.combatStyle);
   setMovementCommand(
@@ -138,7 +144,8 @@ function setMoveCommand(ship, commandId, destination, finalFacing) {
       "move",
       destination,
       null,
-      Number.isFinite(finalFacing) ? finalFacing : null
+      Number.isFinite(finalFacing) ? finalFacing : null,
+      manual
     )
   );
   syncMovementTarget(ship);
@@ -152,7 +159,7 @@ function commandShips(room, player, x, y, options = {}) {
 
   const clickedTarget = options.targetId == null
     ? null
-    : room.ships?.get(String(options.targetId));
+    : (room.ships?.get(String(options.targetId)) || room.stationsById?.get(String(options.targetId)));
   const livingTarget = clickedTarget?.alive ? clickedTarget : null;
   const selectedIds = new Set(ships.map((ship) => ship.id));
   const enemy = livingTarget
@@ -187,12 +194,19 @@ function commandShips(room, player, x, y, options = {}) {
     if (!slot) {
       setMovementCommand(
         ship,
-        commandRecord(`${commandId}:${ship.id}`, "stop", { x: ship.x, y: ship.y })
+        commandRecord(
+          `${commandId}:${ship.id}`,
+          "stop",
+          { x: ship.x, y: ship.y },
+          null,
+          null,
+          true
+        )
       );
       syncMovementTarget(ship);
       continue;
     }
-    setMoveCommand(ship, commandId, slot, options.finalFacing);
+    setMoveCommand(ship, commandId, slot, options.finalFacing, true);
     commanded += 1;
   }
   return {
@@ -224,7 +238,14 @@ function stopShips(room, player, shipIds) {
     resetStyleMemory(ship, ship.combatStyle);
     setMovementCommand(
       ship,
-      commandRecord(`${commandId}:${ship.id}`, "stop", { x: ship.x, y: ship.y })
+      commandRecord(
+        `${commandId}:${ship.id}`,
+        "stop",
+        { x: ship.x, y: ship.y },
+        null,
+        null,
+        true
+      )
     );
     syncMovementTarget(ship);
   }

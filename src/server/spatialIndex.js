@@ -11,7 +11,7 @@ const MAX_PROJECTILE_HIT_RADIUS = Math.max(
   Number(PROJECTILES.hitRadius?.missile) || 0,
   Number(PROJECTILES.hitRadius?.rail) || 0
 );
-const KINDS = Object.freeze(["ships", "drones", "projectiles", "interceptableProjectiles", "asteroids"]);
+const KINDS = Object.freeze(["ships", "stations", "drones", "projectiles", "interceptableProjectiles", "asteroids"]);
 const DYNAMIC_KINDS = Object.freeze(KINDS.filter((kind) => kind !== "asteroids"));
 const MAX_RECORD_POOL = 8192;
 const MAX_BUCKET_POOL = 4096;
@@ -34,6 +34,16 @@ function shipBroadPhaseRadius(ship) {
 
 function droneBroadPhaseRadius(drone) {
   return Math.max(0, finite(drone?.radius, 10)) + MAX_PROJECTILE_HIT_RADIUS;
+}
+
+function stationBroadPhaseRadius(station) {
+  const radius = Math.max(0, finite(station?.radius), finite(station?.physicalRadius));
+  const shield = PROJECTILES.shieldCollision || {};
+  const shieldRadius = Math.max(
+    finite(shield.minimumRadius),
+    radius + Math.max(finite(shield.flatPadding), radius * finite(shield.radiusMultiplier))
+  );
+  return Math.max(radius, shieldRadius) + MAX_PROJECTILE_HIT_RADIUS;
 }
 
 function createKindState() {
@@ -147,6 +157,7 @@ class RoomSpatialIndex {
     let order = 0;
     const inserted = this.spatialRecordsInsertedByKind;
     inserted.ships = 0;
+    inserted.stations = 0;
     inserted.drones = 0;
     inserted.projectiles = 0;
     inserted.interceptableProjectiles = 0;
@@ -154,6 +165,12 @@ class RoomSpatialIndex {
       if (!ship?.alive) continue;
       this.add("ships", ship, shipBroadPhaseRadius(ship), order++);
       inserted.ships += 1;
+    }
+    let stationOrder = 0;
+    for (const station of room?.stations || []) {
+      if (!station || station.alive === false || station.state === "disabled") continue;
+      this.add("stations", station, stationBroadPhaseRadius(station), stationOrder++);
+      inserted.stations += 1;
     }
     order = 0;
     for (const drone of room?.drones?.values?.() || []) {
@@ -370,5 +387,6 @@ module.exports = {
   buildRoomSpatialIndex,
   clearRoomSpatialIndex,
   shipBroadPhaseRadius,
+  stationBroadPhaseRadius,
   droneBroadPhaseRadius
 };

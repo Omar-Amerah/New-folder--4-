@@ -11,60 +11,19 @@ const { initShipHeat } = require("./heat");
 const { computeDesignFootprintRadius, computeDesignCollisionRadius } = require("./componentGeometry");
 const { spawnShip, applyRallySlots } = require("./ships");
 const { usesStationInfrastructure } = require("./rooms");
+const { initStationCombatRuntime } = require("./stationCombat");
 
-const MODULE_SCALE = 13;
-const GRID_CELLS = 15;
-
-function choosePart(x, y, w, h, cx, cy) {
-  if (x === cx && y === cy) return "core";
-  const dx = x - cx;
-  const dy = y - cy;
-  const dist = Math.max(Math.abs(dx), Math.abs(dy));
-  if (dist <= 1) return (x + y) % 2 === 0 ? "auxGenerator" : "shield";
-  if (x === 0 || x === w - 1 || y === 0 || y === h - 1) {
-    if (dy === 1 && (x === 2 || x === w - 3)) return "pointDefense";
-    if (dy === 1 && (x === 4 || x === w - 5)) return "flakCannon";
-    if (dy === 1 && (x === 6 || x === w - 7)) return "blaster";
-    if (dy === 1 && (x === 8 || x === w - 9)) return "missile";
-    return "armor";
-  }
-  if (x % 4 === 0 && y % 4 === 0) return (x + y) % 3 === 0 ? "radiator" : "heatSink";
-  if (dist === 3 && (dx === 0 || dy === 0)) return "auxGenerator";
-  if (dist <= 4 && (x + y) % 5 === 0) return "repair";
-  if (dist <= 4 && (x + y) % 5 === 1) return "repair";
-  return "frame";
-}
-
-function buildHomeStationDesign(width = 15, height = 15) {
-  const design = [];
-  const cx = Math.floor(width / 2);
-  const cy = Math.floor(height / 2);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      design.push({ x, y, type: choosePart(x, y, width, height, cx, cy), rotation: 0 });
-    }
-  }
-  return design;
-}
-
-function buildRelayStationDesign(width = 9, height = 9) {
-  const design = [];
-  const cx = Math.floor(width / 2);
-  const cy = Math.floor(height / 2);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      let type = "frame";
-      if (x === cx && y === cy) type = "core";
-      else if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) === 1) type = (x + y) % 2 === 0 ? "auxGenerator" : "shield";
-      else if (x === 0 || x === width - 1 || y === 0 || y === height - 1) type = "armor";
-      else if (x === cx || y === cy) type = "auxGenerator";
-      else if ((x + y) % 4 === 0) type = "repair";
-      else if ((x + y) % 4 === 1) type = "pointDefense";
-      design.push({ x, y, type, rotation: 0 });
-    }
-  }
-  return design;
-}
+const {
+  SHIP_MODULE_SCALE,
+  STATION_MODULE_SCALE,
+  MAX_SHIP_EXTENT,
+  HOME_STATION_CELLS,
+  stationModuleScale,
+  buildHomeStationDesign,
+  buildRelayStationDesign,
+  buildHomeStationGeometry,
+  buildRelayStationGeometry
+} = require("./stationTemplates");
 
 function buildStationTemplate(design) {
   const wiring = createGeneratedPowerWiring(design);
@@ -86,36 +45,154 @@ function isHostileEntity(source, target) {
   return true;
 }
 
-function computeMaxShipDimensions() {
-  const maxCell = GRID_CELLS - 1;
-  const cellsAcross = maxCell;
-  const halfCell = MODULE_SCALE / 2;
-  const fullWidth = cellsAcross * MODULE_SCALE + 2 * halfCell;
-  const clearance = INFRASTRUCTURE.homeStation.hangarClearanceCells * MODULE_SCALE;
-  return {
-    width: fullWidth + 2 * clearance,
-    height: fullWidth + 2 * clearance
-  };
+// Authored template geometry, measured once at module load rather than per
+// station: it depends only on the design, never on where a station stands.
+const homeStationGeometry = buildHomeStationGeometry();
+const relayStationGeometry = buildRelayStationGeometry();
+
+// The maximum ship a player can design, in world units. Every hangar dimension
+// derives from this so the two can never drift apart.
+function maximumShipEnvelope() {
+  return { width: MAX_SHIP_EXTENT, height: MAX_SHIP_EXTENT, halfDiagonal: Math.hypot(MAX_SHIP_EXTENT, MAX_SHIP_EXTENT) / 2 };
 }
 
-function buildHangarGeometry(x, y, angle) {
-  const dims = computeMaxShipDimensions();
-  const halfW = Math.max(dims.width, dims.height) / 2;
-  const corridorLen = INFRASTRUCTURE.homeStation.hangarCorridorLength;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const interiorSpawn = { x: x - cos * corridorLen * 0.35, y: y - sin * corridorLen * 0.35 };
-  const exitPoint = { x: x + cos * corridorLen * 0.65, y: y + sin * corridorLen * 0.65 };
+function rotatePoint(px, py, cos, sin) {
+  return { x: px * cos - py * sin, y: px * sin + py * cos };
+}
+
+// Transforms a structure-local point into world space for a placed station.
+function stationLocalToWorld(station, px, py) {
+  const cos = Math.cos(station.angle);
+  const sin = Math.sin(station.angle);
+  const rotated = rotatePoint(px, py, cos, sin);
+  return { x: station.x + rotated.x, y: station.y + rotated.y };
+}
+
+// Compound collision pieces in world space: an oriented box per authored hull
+// section. The hangar corridor is deliberately not among them, so it is the one
+// navigable path through the station's front.
+function stationCollisionPieces(station) {
+  const geometry = station.stationType === "home" ? homeStationGeometry : relayStationGeometry;
+  const cos = Math.cos(station.angle);
+  const sin = Math.sin(station.angle);
+  return geometry.collisionRects.map((rect) => {
+    const cx = (rect.minX + rect.maxX) / 2;
+    const cy = (rect.minY + rect.maxY) / 2;
+    const centre = rotatePoint(cx, cy, cos, sin);
+    return {
+      x: station.x + centre.x,
+      y: station.y + centre.y,
+      halfWidth: (rect.maxX - rect.minX) / 2,
+      halfHeight: (rect.maxY - rect.minY) / 2,
+      angle: station.angle,
+      // Broad-phase circle so spatial queries can reject quickly.
+      radius: Math.hypot(rect.maxX - rect.minX, rect.maxY - rect.minY) / 2
+    };
+  });
+}
+
+// True when a circle of `radius` at world (x, y) overlaps any solid station
+// piece. Used by collision, navigation and launch-clearance checks alike.
+function stationOverlapsCircle(station, x, y, radius) {
+  const cos = Math.cos(-station.angle);
+  const sin = Math.sin(-station.angle);
+  const dx = x - station.x;
+  const dy = y - station.y;
+  // Into structure-local space, where every piece is axis aligned.
+  const local = rotatePoint(dx, dy, cos, sin);
+  const geometry = station.stationType === "home" ? homeStationGeometry : relayStationGeometry;
+  for (const rect of geometry.collisionRects) {
+    const nearestX = Math.max(rect.minX, Math.min(rect.maxX, local.x));
+    const nearestY = Math.max(rect.minY, Math.min(rect.maxY, local.y));
+    const ox = local.x - nearestX;
+    const oy = local.y - nearestY;
+    if (ox * ox + oy * oy <= radius * radius) return true;
+  }
+  return false;
+}
+
+function resolveStationCollision(room, ship, shipRadius) {
+  if (!room?.stations?.length) return false;
+  let hit = false;
+  for (const station of room.stations) {
+    if (!station?.collisionPieces?.length) continue;
+    for (const piece of station.collisionPieces) {
+      const cos = Math.cos(-piece.angle);
+      const sin = Math.sin(-piece.angle);
+      const local = rotatePoint((ship.x || 0) - piece.x, (ship.y || 0) - piece.y, cos, sin);
+      const halfW = piece.halfWidth;
+      const halfH = piece.halfHeight;
+      const nearestX = Math.max(-halfW, Math.min(halfW, local.x));
+      const nearestY = Math.max(-halfH, Math.min(halfH, local.y));
+      const lx = local.x - nearestX;
+      const ly = local.y - nearestY;
+      const dist2 = lx * lx + ly * ly;
+      let nx = 0;
+      let ny = 0;
+      let penetration = 0;
+      if (dist2 < 0.0001) {
+        // Ship centre is inside the rectangle; exit through the closest face.
+        const left = local.x + halfW;
+        const right = halfW - local.x;
+        const top = local.y + halfH;
+        const bottom = halfH - local.y;
+        const minDist = Math.min(left, right, top, bottom);
+        if (minDist >= shipRadius) continue;
+        penetration = shipRadius - minDist;
+        if (minDist === left) { nx = -1; ny = 0; }
+        else if (minDist === right) { nx = 1; ny = 0; }
+        else if (minDist === top) { nx = 0; ny = -1; }
+        else { nx = 0; ny = 1; }
+      } else {
+        const dist = Math.sqrt(dist2);
+        if (dist >= shipRadius) continue;
+        penetration = shipRadius - dist;
+        const inv = 1 / dist;
+        nx = lx * inv;
+        ny = ly * inv;
+      }
+      const worldCos = Math.cos(piece.angle);
+      const worldSin = Math.sin(piece.angle);
+      const worldN = rotatePoint(nx, ny, worldCos, worldSin);
+      ship.x += worldN.x * penetration;
+      ship.y += worldN.y * penetration;
+      ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + worldN.x * penetration;
+      ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + worldN.y * penetration;
+      const inwardSpeed = (ship.vx || 0) * worldN.x + (ship.vy || 0) * worldN.y;
+      if (inwardSpeed < 0) {
+        ship.vx -= inwardSpeed * worldN.x;
+        ship.vy -= inwardSpeed * worldN.y;
+      }
+      hit = true;
+    }
+  }
+  return hit;
+}
+
+// World-space hangar geometry for a placed home station. All of it is derived
+// from the authored template, transformed by the station's pose.
+function buildHangarGeometry(station) {
+  const geometry = homeStationGeometry;
+  const envelope = maximumShipEnvelope();
+  const interiorSpawn = stationLocalToWorld(station, geometry.interiorSpawn.x, geometry.interiorSpawn.y);
+  const mouth = stationLocalToWorld(station, geometry.aperture.x, 0);
+  const rearWall = stationLocalToWorld(station, geometry.corridor.rearWallX, 0);
+  const exitPoint = stationLocalToWorld(station, geometry.releasePlaneX, 0);
   return {
-    x, y, angle,
+    angle: station.angle,
     interiorSpawn,
+    mouth,
+    rearWall,
     exitPoint,
-    releaseDistance: INFRASTRUCTURE.homeStation.releaseDistance,
-    corridorHalfWidth: halfW,
-    corridorLength: corridorLen,
-    maximumShipWidth: dims.width,
-    maximumShipHeight: dims.height,
-    clearance: INFRASTRUCTURE.homeStation.hangarClearanceCells * MODULE_SCALE
+    // Distance from the station centre at which a launching ship is clear.
+    releaseDistance: geometry.releasePlaneX,
+    corridorHalfWidth: geometry.corridor.halfWidth,
+    corridorLength: geometry.corridor.length,
+    apertureHalfWidth: geometry.aperture.halfWidth,
+    maximumShipWidth: envelope.width,
+    maximumShipHeight: envelope.height,
+    clearance: geometry.clearance,
+    clearanceCells: geometry.clearanceCells
   };
 }
 
@@ -150,19 +227,37 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
     stateRevision: 1,
     componentRevision: 1,
     productionRevision: 1,
+    captureProgress: 0,
     captureRevision: 1
   };
   initComponentState(station);
   initializeComponentPower(station);
+  // Stations are always fully powered; the ship-style power solve can leave
+  // weapon components unpowered because it prioritises engines and shields.
+  station.componentPowerState = new Array(design.length).fill(1);
+  station.componentPower = station.componentPower || { byComponentIndex: [] };
+  station.componentPower.byComponentIndex = design.map((_, i) => {
+    const existing = station.componentPower.byComponentIndex?.[i] || {};
+    return { ...existing, operationalMultiplier: 1, state: "powered" };
+  });
   const shield = effectiveShieldStats(station);
   station.maxShield = Math.max(0, shield.capacity);
   station.shield = station.maxShield;
   initShipHeat(station);
   station.hp = station.componentHp.reduce((sum, hp) => sum + hp, 0);
   station.maxHp = station.componentMaxHp.reduce((sum, hp) => sum + hp, 0);
-  if (stationType === "home") {
-    station.hangar = buildHangarGeometry(x, y, angle);
-  }
+  // Stations are laid out on the ship grid but drawn and collided at their own
+  // larger module scale; the client needs it to size the structure correctly.
+  station.moduleScale = stationModuleScale(stationType);
+  if (stationType === "home") station.hangar = buildHangarGeometry(station);
+  station.collisionPieces = stationCollisionPieces(station);
+  // Broad-phase radius covering every solid piece, for spatial-index queries.
+  station.radius = station.collisionPieces.reduce(
+    (max, piece) => Math.max(max, Math.hypot(piece.x - station.x, piece.y - station.y) + piece.radius),
+    0
+  );
+  station.alive = station.state !== "disabled";
+  initStationCombatRuntime(station);
   return station;
 }
 
@@ -231,8 +326,16 @@ function enqueueStationProduction(room, player, item, now) {
     money: Math.floor(player.money),
     activeShips: player.ships.filter((s) => s.alive).length,
     shipCap: player.shipCap,
-    queued: true
+    // Station mode never spawns on purchase, so the client has to be told the
+    // hull is queued and roughly how long the hangar will hold it.
+    queued: true,
+    queuePosition: station.productionQueue.length,
+    buildDurationSeconds: round2(queueItem.buildDurationSeconds)
   };
+}
+
+function round2(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 // Bots buy through buyShip() in Classic, which spawns instantly at the safe
@@ -252,13 +355,58 @@ function enqueueBotProduction(room, player, now) {
   return result.ok ? result : null;
 }
 
+// The corridor, in world space, as a swept segment from the interior spawn out
+// past the release plane. A launch may only begin when nothing occupies it.
+function corridorIsClear(room, station, ignoreShipId = null) {
+  const hangar = station.hangar;
+  if (!hangar) return false;
+  const cos = Math.cos(station.angle);
+  const sin = Math.sin(station.angle);
+  const from = hangar.rearWall;
+  const length = homeStationGeometry.releasePlaneX - homeStationGeometry.corridor.rearWallX;
+  const halfWidth = hangar.corridorHalfWidth;
+  const candidates = room.spatialIndex?.queryRange
+    ? room.spatialIndex.queryRange("ships", station.x, station.y, station.radius + length, [])
+    : [...room.ships.values()];
+  for (const ship of candidates) {
+    if (!ship?.alive || ship.id === ignoreShipId) continue;
+    // Project the ship into corridor space: along = distance down the corridor,
+    // across = lateral offset from its centreline.
+    const dx = ship.x - from.x;
+    const dy = ship.y - from.y;
+    const along = dx * cos + dy * sin;
+    const across = -dx * sin + dy * cos;
+    const shipRadius = Number(ship.physicalRadius) || Number(ship.radius) || 26;
+    if (along < -shipRadius || along > length + shipRadius) continue;
+    // The launching ship fits inside halfWidth by construction, so any hull
+    // reaching into the band obstructs it.
+    if (Math.abs(across) <= halfWidth + shipRadius) return false;
+  }
+  return true;
+}
+
 function spawnQueuedShip(room, station, queueItem, now) {
   const player = room.players.get(queueItem.playerId);
   if (!player || !player.ready) return null;
   const active = player.ships.filter((s) => s.alive).length;
   if (active >= player.shipCap) return null;
-  const spawn = station.hangar?.interiorSpawn;
-  if (!spawn) return null;
+  const hangar = station.hangar;
+  if (!hangar) return null;
+  // One corridor, one launch at a time: two ships completing on the same tick
+  // must not occupy it together.
+  if (station.launchReservation) {
+    bumpCounter(room, "stationLaunchBlockedCount");
+    return null;
+  }
+  bumpCounter(room, "stationLaunchAttemptCount");
+  const physicalRadius = computeDesignCollisionRadius(queueItem.template.design, queueItem.template.stats);
+  if (!corridorIsClear(room, station)) {
+    queueItem.blocked = true;
+    station.productionRevision += 1;
+    bumpCounter(room, "stationLaunchBlockedCount");
+    return null;
+  }
+  const spawn = hangar.interiorSpawn;
   const ship = spawnShip(room, player, now, active, {
     template: queueItem.template,
     combatStyle: queueItem.combatStyle,
@@ -266,15 +414,39 @@ function spawnQueuedShip(room, station, queueItem, now) {
     requestId: queueItem.requestId
   });
   if (!ship) return null;
-  const speed = INFRASTRUCTURE.homeStation.launchSpeed;
-  ship.vx = Math.cos(station.angle) * speed;
-  ship.vy = Math.sin(station.angle) * speed;
+  queueItem.blocked = false;
   ship.x = spawn.x;
   ship.y = spawn.y;
   ship.angle = station.angle;
-  applyRallySlots(room, player, [ship]);
-  station.activeLaunches.push({ shipId: ship.id, releasedAt: null, releasePlane: station.hangar.exitPoint });
+  const speed = INFRASTRUCTURE.homeStation.launchSpeed;
+  ship.vx = Math.cos(station.angle) * speed;
+  ship.vy = Math.sin(station.angle) * speed;
+  // Launch phase: the ship is under station control until its whole hull clears
+  // the release plane. Ordinary stance, orders and weapons stay inert so it
+  // cannot manoeuvre or shoot through the structure it is still inside.
+  ship.launchPhase = {
+    stationId: station.id,
+    startedAt: now,
+    angle: station.angle,
+    releaseDistance: hangar.releaseDistance + physicalRadius
+  };
+  station.launchReservation = { shipId: ship.id, startedAt: now };
+  station.activeLaunches.push({ shipId: ship.id, releasedAt: null, releasePlane: hangar.exitPoint });
+  bumpCounter(room, "stationLaunchSuccessCount");
+  // The purchase happened seconds ago and produced nothing visible at the time,
+  // so the launch itself is what the buyer needs told about.
+  if (!player.isBot) {
+    const { sendPlayer } = require("./messages");
+    sendPlayer(room, player, { type: "notice", message: "Your home station launched a ship" });
+  }
   return ship;
+}
+
+// Development counters (section 24). Kept on the room so they reset with it and
+// cost nothing in Classic, where no station code runs at all.
+function bumpCounter(room, name) {
+  const counters = room.stationCounters || (room.stationCounters = {});
+  counters[name] = (counters[name] || 0) + 1;
 }
 
 function processStationProduction(room, station, dt, now) {
@@ -303,21 +475,47 @@ function processStationProduction(room, station, dt, now) {
 // A launch record exists only while a freshly built ship is still clearing the
 // hangar corridor. Without this sweep the list grows for the whole match, since
 // nothing else ever removes an entry.
-function updateStationLaunches(room, station) {
+function updateStationLaunches(room, station, dt, now) {
   const launches = station.activeLaunches;
   if (!launches || launches.length === 0) return;
-  const releaseDistance = INFRASTRUCTURE.homeStation.releaseDistance;
+  const cos = Math.cos(station.angle);
+  const sin = Math.sin(station.angle);
   for (let i = launches.length - 1; i >= 0; i -= 1) {
     const launch = launches[i];
     const ship = room.ships.get(launch.shipId);
     if (!ship || !ship.alive) {
+      releaseLaunch(station, launch.shipId);
       launches.splice(i, 1);
       continue;
     }
-    const dx = ship.x - station.x;
-    const dy = ship.y - station.y;
-    if (Math.hypot(dx, dy) >= releaseDistance + (station.stats?.radius || 0)) launches.splice(i, 1);
+    const phase = ship.launchPhase;
+    if (!phase) {
+      releaseLaunch(station, launch.shipId);
+      launches.splice(i, 1);
+      continue;
+    }
+    // Hold the ship on the corridor centreline at a controlled speed. It is not
+    // steering yet, so nothing can turn it into the structure.
+    const speed = INFRASTRUCTURE.homeStation.launchSpeed;
+    ship.angle = phase.angle;
+    ship.vx = cos * speed;
+    ship.vy = sin * speed;
+    const along = (ship.x - station.x) * cos + (ship.y - station.y) * sin;
+    if (along >= phase.releaseDistance) {
+      // Fully clear: ordinary movement, orders and weapons resume, and the ship
+      // heads for the player's rally point.
+      ship.launchPhase = null;
+      launch.releasedAt = now;
+      releaseLaunch(station, launch.shipId);
+      launches.splice(i, 1);
+      const player = room.players.get(ship.ownerId);
+      if (player) applyRallySlots(room, player, [ship]);
+    }
   }
+}
+
+function releaseLaunch(station, shipId) {
+  if (station.launchReservation?.shipId === shipId) station.launchReservation = null;
 }
 
 function updateStationRepair(room, station, dt, now) {
@@ -345,7 +543,7 @@ function updateStationRecovery(station, dt, now) {
   if (station.state !== "disabled") return;
   const cfg = station.stationType === "home" ? INFRASTRUCTURE.homeStation : INFRASTRUCTURE.relayStation;
   if (now - station.lastDamagedAt < cfg.disabledRecoveryDelaySeconds * 1000) return;
-  const repair = (cfg.disabledRepairRatePerSecond || 0) * dt;
+  const repair = (cfg.disabledRepairRatePerSecond || 12) * dt;
   station.hp = Math.min(station.maxHp, station.hp + repair);
   const threshold = station.maxHp * (cfg.reactivationHpRatio || 1);
   if (station.hp >= threshold) {
@@ -353,16 +551,13 @@ function updateStationRecovery(station, dt, now) {
     station.stateRevision += 1;
     station.disabledAt = 0;
   }
+  station.alive = station.state !== "disabled";
   station.healthRevision += 1;
 }
 
 function updateStationCapture(room, station, dt, now) {
   if (station.stationType !== "relay") return;
-  // Presence-based capture with the existing capture balance constants.
-  // Full relay state machine: neutral operational can be captured; owned
-  // operational cannot be captured until disabled.
-  // This is intentionally conservative and will be expanded as station combat
-  // and damage integration land.
+
   const cfg = INFRASTRUCTURE.relayStation;
   const radiusSq = cfg.captureRadius * cfg.captureRadius;
   const counts = new Map();
@@ -377,19 +572,52 @@ function updateStationCapture(room, station, dt, now) {
     entry.count += 1;
     counts.set(player.team, entry);
   }
+
   const contenders = [...counts.entries()].sort((a, b) => b[1].count - a[1].count);
-  if (contenders.length === 0) return;
-  if (contenders.length > 1 && contenders[0][1].count === contenders[1][1].count) return;
+
+  if (contenders.length === 0) {
+    if (station.state === "disabled") {
+      const decay = (cfg.captureDecayPerSecond || 0) * dt;
+      station.captureProgress = Math.max(0, (station.captureProgress || 0) - decay);
+    }
+    return;
+  }
+
+  station.captureContested = contenders.length > 1 && contenders[0][1].count === contenders[1][1].count;
+  if (station.captureContested) return;
+
   const [leaderTeam, leader] = contenders[0];
+
+  function captureStation(newOwnerId, newTeam) {
+    station.ownerId = newOwnerId;
+    station.team = newTeam;
+    station.state = "operational";
+    station.alive = true;
+    station.hp = station.maxHp;
+    station.captureProgress = 0;
+    station.captureRevision += 1;
+    station.stateRevision += 1;
+    station.healthRevision += 1;
+  }
+
   if (station.state === "neutral") {
-    if (station.ownerId !== leaderTeam) {
-      station.ownerId = leader.ownerId;
-      station.team = leaderTeam;
-      station.state = "operational";
-      station.hp = station.maxHp * cfg.captureRestoreHpRatio;
-      station.captureRevision += 1;
-      station.stateRevision += 1;
-      station.healthRevision += 1;
+    captureStation(leader.ownerId, leaderTeam);
+    return;
+  }
+
+  // An active owned relay must be disabled (HP below threshold) before it can change hands.
+  if (station.state === "operational") return;
+
+  if (station.state === "disabled") {
+    if (leaderTeam === station.team) {
+      // Friendly presence halts enemy capture progress.
+      station.captureProgress = 0;
+      return;
+    }
+    const duration = cfg.captureDurationSeconds || 5;
+    station.captureProgress = Math.min(1, (station.captureProgress || 0) + dt / duration);
+    if (station.captureProgress >= 1) {
+      captureStation(leader.ownerId, leaderTeam);
     }
   }
 }
@@ -426,14 +654,24 @@ function destroyStationsForRoom(room) {
   room.stationRevision = (room.stationRevision || 0) + 1;
 }
 
+function updateStationSelfRepair(station, dt) {
+  if (station.state !== "operational" || station.hp >= station.maxHp) return;
+  const cfg = station.stationType === "home" ? INFRASTRUCTURE.homeStation : INFRASTRUCTURE.relayStation;
+  const rate = cfg?.selfRepairRatePerSecond || cfg?.disabledRepairRatePerSecond || 12;
+  const before = station.hp;
+  station.hp = Math.min(station.maxHp, station.hp + rate * dt);
+  if (station.hp !== before) station.healthRevision += 1;
+}
+
 function updateStations(room, dt, now) {
   if (!usesStationInfrastructure(room) || !room.stations) return;
   for (const station of room.stations) {
+    updateStationCapture(room, station, dt, now);
     updateStationRecovery(station, dt, now);
-    updateStationLaunches(room, station);
+    updateStationSelfRepair(station, dt);
+    updateStationLaunches(room, station, dt, now);
     updateStationRepair(room, station, dt, now);
     processStationProduction(room, station, dt, now);
-    updateStationCapture(room, station, dt, now);
   }
 }
 
@@ -452,5 +690,6 @@ module.exports = {
   enqueueBotProduction,
   queuedShipCount,
   findTeamHomeStation,
-  usesStationInfrastructure
+  usesStationInfrastructure,
+  resolveStationCollision
 };

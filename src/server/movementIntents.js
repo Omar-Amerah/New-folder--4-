@@ -11,13 +11,20 @@ const { sanitizeCombatStyle } = require("./validation");
 const {
   ARRIVE_DISTANCE,
   ARRIVE_SPEED,
+  CHARGE_LEAD_MAX_S,
   HOLD_RANGE_RATIO,
   KITE_RANGE_RATIO,
   NAV_STUCK_TIME_MS,
   ORBIT_LEAD_ANGLE,
   ORBIT_RANGE_RATIO,
-  REPAIR_STANDOFF_PAD
+  REPAIR_STANDOFF_PAD,
+  WORLD_MARGIN
 } = require("./movementTuning");
+const {
+  navigationClearanceRadius,
+  physicalCollisionRadius,
+  separationRadius
+} = require("./movementCollision");
 const { ensureMovementRuntime } = require("./movementRuntime");
 
 const SUPPORTED_MOVEMENT_TYPES = Object.freeze([
@@ -26,6 +33,7 @@ const SUPPORTED_MOVEMENT_TYPES = Object.freeze([
   "kite",
   "orbit",
   "charge",
+  "station",
   "repair",
   "stop"
 ]);
@@ -62,7 +70,9 @@ function stopIntent(reason = "no-command") {
 }
 
 function livingTarget(room, targetId) {
-  const target = targetId && room.ships?.get(String(targetId));
+  if (!targetId) return null;
+  const str = String(targetId);
+  const target = room.ships?.get(str) || room.stationsById?.get(str);
   return target?.alive ? target : null;
 }
 
@@ -128,6 +138,31 @@ function relativeRangeState(ship, target, desiredRange) {
       y: (target.y || 0) + unitY * desiredRange
     }
   };
+}
+
+// The legal interior a ship can actually be routed to. WORLD_MARGIN alone is not
+// enough: the nav grid additionally requires the ship's clearance radius, so a
+// destination inside that band is unreachable and nearestClearPoint relocates it
+// -- by BFS ring order, which is to say sideways, in whatever direction it
+// happens to visit first. Combat intents used to emit raw points and rely on
+// that, which is why a ship backed against a wall shuffled instead of moving.
+function playableBounds(room, ship) {
+  const width = room?.world?.width || 2000;
+  const height = room?.world?.height || 1600;
+  const inset = WORLD_MARGIN + navigationClearanceRadius(ship);
+  return {
+    minX: inset,
+    minY: inset,
+    maxX: Math.max(inset, width - inset),
+    maxY: Math.max(inset, height - inset)
+  };
+}
+
+function clampToPlayableArea(room, ship, candidate) {
+  const bounds = playableBounds(room, ship);
+  const x = clampNumber(candidate.x, bounds.minX, bounds.maxX);
+  const y = clampNumber(candidate.y, bounds.minY, bounds.maxY);
+  return { x, y, clamped: x !== candidate.x || y !== candidate.y };
 }
 
 function holdStationIntent(station, target, desiredRange, reason, memory = null) {
@@ -212,30 +247,83 @@ function holdIntent(ship, target, maximumRange, runtime) {
   });
 }
 
-function kiteIntent(ship, target, maximumRange) {
+// Angles off the straight-back bearing to try when a straight retreat would run
+// the ship into the edge of the world. Each still sits on the safe-range ring,
+// so separation is preserved while the ship travels along the wall rather than
+// into it.
+const KITE_WALL_SLIDE_ANGLES = Object.freeze([0.6, 1.2, 1.8]);
+
+function ringPoint(target, bearing, radius) {
+  return point(
+    (target.x || 0) + Math.cos(bearing) * radius,
+    (target.y || 0) + Math.sin(bearing) * radius
+  );
+}
+
+// Straight back if that is available. Backed against the world edge it is not,
+// and a clamped point sits inside the ring the ship is trying to hold, so the
+// ship re-issues the same retreat every tick and grinds along the boundary
+// without ever satisfying it. Give up on the radial line in that case and take
+// the ring point nearest to it that is actually reachable, committing to one
+// side so the choice does not flip tick to tick.
+function kiteRetreatDestination(room, ship, target, range, safeRange, preferredSide) {
+  const straight = clampToPlayableArea(room, ship, range.destination);
+  if (!straight.clamped) return { destination: point(straight.x, straight.y), side: preferredSide };
+  const bearing = Math.atan2(range.unitY, range.unitX);
+  const sides = preferredSide === -1 ? [-1, 1] : [1, -1];
+  for (const offset of KITE_WALL_SLIDE_ANGLES) {
+    for (const side of sides) {
+      const candidate = ringPoint(target, bearing + side * offset, safeRange);
+      const clamped = clampToPlayableArea(room, ship, candidate);
+      if (!clamped.clamped) return { destination: candidate, side };
+    }
+  }
+  return { destination: point(straight.x, straight.y), side: preferredSide };
+}
+
+function kiteIntent(room, ship, target, maximumRange, runtime, now) {
   const safeRange = Math.max(80, maximumRange * KITE_RANGE_RATIO);
   const range = relativeRangeState(ship, target, safeRange);
-  if (range.distance < safeRange) {
+  // Arrival braking parks a ship ARRIVE_DISTANCE short of its destination and
+  // the retreat destination sits exactly on the ring, so "distance >= safeRange"
+  // is a condition the controller can never reach: kite re-issued a retreat it
+  // had already completed, forever. Same shortfall, same band, as holdIntent.
+  const tolerance = Math.max(ARRIVE_DISTANCE, (Number(ship.radius) || 0) * 0.5);
+  const existing = runtime.style.kite?.targetId === target.id ? runtime.style.kite : null;
+  let side = existing?.side === 1 || existing?.side === -1 ? existing.side : null;
+  let stuckFlipAt = Number(existing?.stuckFlipAt) || 0;
+  if (side === null) {
+    side = orbitDirectionFor(ship, target, range);
+  } else if (orbitProgressStalled(runtime, now, stuckFlipAt)) {
+    side = -side;
+    stuckFlipAt = now;
+  }
+
+  if (range.distance < safeRange - tolerance) {
+    const retreat = kiteRetreatDestination(room, ship, target, range, safeRange, side);
     return movementIntent("kite", {
-      destination: range.destination,
+      destination: retreat.destination,
       facingMode: "target",
       facingTargetId: target.id,
       desiredRange: safeRange,
       arrivalRequired: true,
       persistent: true,
-      debugReason: "kite:retreat-too-close"
+      debugReason: "kite:retreat-too-close",
+      styleMemory: { kite: { targetId: target.id, side: retreat.side, stuckFlipAt } }
     });
   }
   if (range.distance > maximumRange) {
     const outside = relativeRangeState(ship, target, maximumRange);
+    const approach = clampToPlayableArea(room, ship, outside.destination);
     return movementIntent("kite", {
-      destination: outside.destination,
+      destination: point(approach.x, approach.y),
       facingMode: "target",
       facingTargetId: target.id,
       desiredRange: safeRange,
       arrivalRequired: true,
       persistent: true,
-      debugReason: "kite:approach-outside-weapon-range"
+      debugReason: "kite:approach-outside-weapon-range",
+      styleMemory: { kite: { targetId: target.id, side, stuckFlipAt } }
     });
   }
   return movementIntent("kite", {
@@ -245,7 +333,8 @@ function kiteIntent(ship, target, maximumRange) {
     desiredRange: safeRange,
     arrivalRequired: true,
     persistent: true,
-    debugReason: "kite:safe-range-restored"
+    debugReason: "kite:safe-range-restored",
+    styleMemory: { kite: { targetId: target.id, side, stuckFlipAt } }
   });
 }
 
@@ -331,28 +420,70 @@ function orbitIntent(ship, target, maximumRange, stats, runtime, now) {
   });
 }
 
-function chargeIntent(ship, target) {
+// Where the target will be by the time the charger gets there. Steering at
+// where it is now trails a moving target instead of intercepting it.
+function chargeInterceptPoint(ship, target, stats, distance) {
+  const closingSpeed = Math.max(10, Number(stats.maxSpeed) || 0);
+  const lead = Math.min(CHARGE_LEAD_MAX_S, distance / closingSpeed);
+  return {
+    x: (target.x || 0) + (Number(target.vx) || 0) * lead,
+    y: (target.y || 0) + (Number(target.vy) || 0) * lead
+  };
+}
+
+function chargeIntent(room, ship, target, stats) {
   const demolition = shipHasOperationalDemolitionCharge(ship);
-  const contactRange = Math.max(
-    1,
-    (Number(ship.physicalRadius) || (Number(ship.radius) || 0) * 0.56)
-      + (Number(target.physicalRadius) || (Number(target.radius) || 0) * 0.56)
-      + 2
-  );
-  const destination = demolition
-    ? nearestDemolitionTargetPoint(ship, target)
-    : relativeRangeState(ship, target, contactRange).destination;
+  // Separation actively holds the pair separationRadius + physicalCollisionRadius
+  // apart. A contact goal computed any tighter than that -- as this did, missing
+  // both the 18 px floor and the 4 px pad movementCollision applies -- sits
+  // inside the distance the solver is pushing the charger back out of, so flight
+  // assist and separation shove against each other and the charge never settles.
+  const contactRange = Math.max(1, separationRadius(ship) + physicalCollisionRadius(target));
+  let destination;
+  if (demolition) {
+    destination = nearestDemolitionTargetPoint(ship, target);
+  } else {
+    const lead = chargeInterceptPoint(
+      ship,
+      target,
+      stats,
+      relativeRangeState(ship, target, contactRange).distance
+    );
+    destination = relativeRangeState(ship, { ...target, ...lead }, contactRange).destination;
+  }
+  const clamped = clampToPlayableArea(room, ship, destination);
   return movementIntent("charge", {
-    destination: point(destination.x, destination.y),
+    destination: point(clamped.x, clamped.y),
     facingMode: "travel",
     facingTargetId: target.id,
     desiredRange: demolition ? 0 : contactRange,
-    arrivalRequired: true,
+    // A charge does not brake. Arrival braking zeroes commanded speed
+    // ARRIVE_DISTANCE short of the goal, which for the stance whose whole
+    // purpose is contact -- and for the demolition charge that needs it -- is
+    // exactly the wrong place to stop. Separation stops the ship on the hull.
+    arrivalRequired: false,
     persistent: true,
     maxSpeedFactor: 1,
     debugReason: demolition
       ? "charge:demolition-contact"
       : "charge:pursue-to-contact"
+  });
+}
+
+// Static: the ship fights from wherever it already stands. It never yields a
+// destination, so nothing routes it anywhere; with no goal, rangePositioned
+// settles as soon as it is still, and the positioned branch of
+// resolveDesiredFacing turns it onto its target. Deliberately not a "stop"
+// intent -- that type short-circuits facing to the current angle, which would
+// leave it staring wherever it happened to be pointed.
+function stationIntent(target) {
+  return movementIntent("station", {
+    desiredVelocity: { x: 0, y: 0 },
+    facingMode: "target",
+    facingTargetId: target.id,
+    arrivalRequired: true,
+    persistent: true,
+    debugReason: "static:hold-ground"
   });
 }
 
@@ -401,10 +532,25 @@ function createMovementIntent(room, ship, stats = ship.stats || {}, now = 0) {
       : stopIntent("repair:target-lost");
   }
 
-  // A living enemy target owns movement while it exists. Rally, Move, and Stop
-  // commands remain stored so they can resume if the target becomes invalid,
-  // but they must not suppress the selected combat stance after acquisition.
   const combatTarget = activeCombatTarget(room, ship, runtime);
+
+  // An order the player gave by hand outranks the combat stance. findTarget
+  // re-assigns ship.combatTargetId every combat tick, so without this a stance
+  // reclaimed the helm on the tick after a right click and walked the ship back
+  // to its station. Weapons are untouched -- the ship still shoots whatever it
+  // has acquired, it just goes where it was told. The lock stands until another
+  // command replaces it; right-clicking an enemy issues one.
+  if (runtime.command?.manual && (commandType === "move" || commandType === "stop")) {
+    if (commandType === "stop") return stopIntent("stop:brake");
+    // Once the move is done, hold the ground it was sent to and turn onto the
+    // target rather than keeping the heading it happened to arrive with.
+    if (combatTarget && runtime.phase === "positioned") return stationIntent(combatTarget);
+    return moveIntent(runtime);
+  }
+
+  // Otherwise a living enemy target owns movement while it exists. Rally moves
+  // and stored Stop commands remain so they can resume if the target becomes
+  // invalid, but they must not suppress the stance after acquisition.
   if (combatTarget) {
     const maximumRange = maximumWeaponRange(ship);
     if (maximumRange <= 0) return stopIntent("attack:no-operational-weapons");
@@ -413,9 +559,11 @@ function createMovementIntent(room, ship, stats = ship.stats || {}, now = 0) {
       case "orbit":
         return orbitIntent(ship, combatTarget, maximumRange, stats, runtime, now);
       case "kite":
-        return kiteIntent(ship, combatTarget, maximumRange);
+        return kiteIntent(room, ship, combatTarget, maximumRange, runtime, now);
       case "charge":
-        return chargeIntent(ship, combatTarget);
+        return chargeIntent(room, ship, combatTarget, stats);
+      case "static":
+        return stationIntent(combatTarget);
       case "hold":
       default:
         return holdIntent(ship, combatTarget, maximumRange, runtime);
@@ -434,7 +582,8 @@ function commitIntentStyleMemory(ship, intent) {
   for (const key of [
     "orbit",
     "holdPosition",
-    "holdTargetId"
+    "holdTargetId",
+    "kite"
   ]) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) style[key] = patch[key];
   }

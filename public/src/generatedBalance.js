@@ -1648,8 +1648,8 @@ export const GENERATED_BALANCE = {
       "disabledRecoveryDelaySeconds": 10,
       "disabledRepairRatePerSecond": 18,
       "reactivationHpRatio": 0.25,
-      "productionBaseSeconds": 5,
-      "productionCostSecondsMultiplier": 0.0015,
+      "productionBaseSeconds": 1.2,
+      "productionCostSecondsMultiplier": 0.0004,
       "launchRetrySeconds": 0.5
     },
     "relayStation": {

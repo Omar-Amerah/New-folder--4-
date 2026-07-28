@@ -158,8 +158,8 @@ function runSnapshotChecks() {
 
   const compact = buildSharedSnapshot(room, 2000, false);
   const compactHome = compact.stations.find((s) => s.stationType === "home");
-  assert(compactHome.design === undefined, "compact snapshot omits static station design");
-  assert(compactHome.hangar === undefined, "compact snapshot omits static hangar geometry");
+  assert(Array.isArray(compactHome.design) && compactHome.design.length > 0, "compact snapshot carries static station design for rendering");
+  assert(compactHome.hangar, "compact snapshot carries static hangar geometry for component-based station UX");
   assert(Array.isArray(compactHome.productionQueue) && compactHome.productionQueue.length === 1, "compact snapshot still carries the production queue");
   const item = compactHome.productionQueue[0];
   assert(typeof item.progress === "number" && item.progress >= 0 && item.progress <= 1, "queue progress is a resolved 0..1 ratio");

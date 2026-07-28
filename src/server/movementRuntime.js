@@ -22,7 +22,8 @@ function emptyStyle() {
   return {
     orbit: null,
     holdPosition: null,
-    holdTargetId: null
+    holdTargetId: null,
+    kite: null
   };
 }
 
@@ -31,7 +32,10 @@ function createMovementRuntime() {
     command: null,
     navigation: emptyNavigation(),
     style: emptyStyle(),
-    phase: "idle"
+    phase: "idle",
+    // Last facing actually commanded to the hull. Held across ticks so small
+    // wobble in the computed desire does not reach a fast-turning ship.
+    facingCommand: null
   };
 }
 
@@ -43,7 +47,9 @@ function ensureMovementRuntime(ship) {
 }
 
 function resetNavigation(ship) {
-  ensureMovementRuntime(ship).navigation = emptyNavigation();
+  const runtime = ensureMovementRuntime(ship);
+  runtime.navigation = emptyNavigation();
+  runtime.facingCommand = null;
 }
 
 function resetStyleMemory(ship, combatStyle = ship.combatStyle) {
@@ -51,6 +57,7 @@ function resetStyleMemory(ship, combatStyle = ship.combatStyle) {
   runtime.style.orbit = null;
   runtime.style.holdPosition = null;
   runtime.style.holdTargetId = null;
+  runtime.style.kite = null;
 }
 
 function setMovementCommand(ship, command) {
@@ -62,7 +69,8 @@ function setMovementCommand(ship, command) {
       type: String(command.type),
       destination: finitePoint(command.destination),
       targetId: command.targetId == null ? null : String(command.targetId),
-      finalFacing: Number.isFinite(command.finalFacing) ? Number(command.finalFacing) : null
+      finalFacing: Number.isFinite(command.finalFacing) ? Number(command.finalFacing) : null,
+      manual: Boolean(command.manual)
     }
     : null;
   runtime.navigation = emptyNavigation();
@@ -78,6 +86,7 @@ function setMovementCommand(ship, command) {
     runtime.style.orbit = null;
     runtime.style.holdPosition = null;
     runtime.style.holdTargetId = null;
+    runtime.style.kite = null;
   }
   return runtime.command;
 }

@@ -117,6 +117,7 @@ const GROUPS = {
     "verify-client-selection.js",
     "verify-station-infrastructure.js",
     "verify-station-client.js",
+    "verify-station-hangar.js",
     "verify-economy.js",
     "verify-economy-sequence.js",
     "verify-purchase-signature.js",

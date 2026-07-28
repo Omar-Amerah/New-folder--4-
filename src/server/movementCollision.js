@@ -31,6 +31,21 @@ const {
 } = require("./movementTuning");
 const { bumpMovementMetric } = require("./movementMetrics");
 
+// combat.js pulls in most of the simulation, so resolve it on first use rather
+// than at load time -- this module sits underneath it.
+let cachedAreEnemies = null;
+function areEnemies(room, a, b) {
+  if (!cachedAreEnemies) cachedAreEnemies = require("./combat").areEnemies;
+  return cachedAreEnemies(room, a, b);
+}
+
+let cachedResolveStationCollision = null;
+function resolveStationCollision(room, ship, shipRadius) {
+  if (!cachedResolveStationCollision) cachedResolveStationCollision = require("./stations").resolveStationCollision;
+  if (!cachedResolveStationCollision) return false;
+  return cachedResolveStationCollision(room, ship, shipRadius);
+}
+
 function physicalCollisionRadius(ship) {
   return Math.max(18, Number(ship?.physicalRadius) || (Number(ship?.radius) || 0) * 0.56);
 }
@@ -85,6 +100,13 @@ function applyLocalShipAvoidance(room, ship, decision, stats, now) {
   const horizon = spawning ? AVOIDANCE_HORIZON_SPAWN_S : AVOIDANCE_HORIZON_S;
   const queryRadius = ownRadius * 2
     + Math.max(AVOIDANCE_QUERY_MIN_RANGE, speed * horizon);
+  // A player who right-clicks past an enemy asked for that line, not for a
+  // detour around it. Pathing already ignores ships entirely -- the swerve came
+  // from here -- so dropping enemies from the avoidance set while a hand-issued
+  // move is running gives the straight run. Enemy hulls stay solid: the ship
+  // drives into them and shoves through rather than sliding round.
+  const command = ship.movement?.command;
+  const drivingThrough = Boolean(command?.manual && command.type === "move");
   const scratch = ship._shipAvoidanceScratch || (ship._shipAvoidanceScratch = []);
   const nearby = room.spatialIndex.queryRangeUnordered(
     "ships",
@@ -96,6 +118,7 @@ function applyLocalShipAvoidance(room, ship, decision, stats, now) {
   let best = null;
   for (const other of nearby) {
     if (!other?.alive || other === ship) continue;
+    if (drivingThrough && areEnemies(room, ship.ownerId, other.ownerId)) continue;
     const rx = other.x - ship.x;
     const ry = other.y - ship.y;
     const rvx = (other.vx || 0) - (ship.vx || 0);
@@ -433,6 +456,7 @@ function resolveFleetMapCollisions(room) {
   let count = 0;
   for (const ship of getLiveShips(room)) {
     if (resolveMapCollision(room, ship)) count += 1;
+    if (resolveStationCollision(room, ship, physicalCollisionRadius(ship))) count += 1;
   }
   return count;
 }

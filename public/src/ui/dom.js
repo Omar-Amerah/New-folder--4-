@@ -42,6 +42,7 @@ export const dom = {
   infrastructureModeSelect: document.getElementById("infrastructureModeSelect"),
   stationPanel: document.getElementById("stationPanel"),
   stationPanelKind: document.getElementById("stationPanelKind"),
+  stationPanelFocus: document.getElementById("stationPanelFocus"),
   stationPanelBody: document.getElementById("stationPanelBody"),
   teamChoiceCard: document.getElementById("teamChoiceCard"),
   teamChoiceStatus: document.getElementById("teamChoiceStatus"),

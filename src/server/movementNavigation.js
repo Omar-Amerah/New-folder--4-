@@ -4,6 +4,7 @@ const { clampNumber, fastHypot } = require("./utils");
 const {
   NAV_GRID_CELL_SIZE,
   NAV_PROGRESS_EPSILON,
+  NAV_REPLAN_CHARGE_THRESHOLD,
   NAV_REPLAN_COMBAT_THRESHOLD,
   NAV_REPLAN_MOVE_THRESHOLD,
   NAV_STUCK_TIME_MS,
@@ -419,7 +420,14 @@ function waypointInvalid(room, navigation) {
       < navigation.clearance;
 }
 
-function shouldReplan(room, ship, destination, now) {
+function replanThreshold(runtime, intent) {
+  if (intent?.type === "charge") return NAV_REPLAN_CHARGE_THRESHOLD;
+  return runtime.command?.type === "move"
+    ? NAV_REPLAN_MOVE_THRESHOLD
+    : NAV_REPLAN_COMBAT_THRESHOLD;
+}
+
+function shouldReplan(room, ship, destination, now, intent = null) {
   const runtime = ensureMovementRuntime(ship);
   const navigation = runtime.navigation;
   if (!navigation.waypoints?.length || !navigation.plannedDestination) return true;
@@ -431,10 +439,7 @@ function shouldReplan(room, ship, destination, now) {
     destination.x - navigation.plannedDestination.x,
     destination.y - navigation.plannedDestination.y
   );
-  const threshold = runtime.command?.type === "move"
-    ? NAV_REPLAN_MOVE_THRESHOLD
-    : NAV_REPLAN_COMBAT_THRESHOLD;
-  if (displacement > threshold) return true;
+  if (displacement > replanThreshold(runtime, intent)) return true;
   if (waypointInvalid(room, navigation)) return true;
   const index = clampNumber(
     navigation.waypointIndex || 0,
@@ -501,7 +506,7 @@ function resolveNavigation(room, ship, intent, now) {
       finalFacing: runtime.command?.finalFacing
     };
   }
-  if (shouldReplan(room, ship, intent.destination, now)) {
+  if (shouldReplan(room, ship, intent.destination, now, intent)) {
     planPath(room, ship, intent.destination, now);
   } else {
     bumpMovementMetric("pathCacheHitCount");

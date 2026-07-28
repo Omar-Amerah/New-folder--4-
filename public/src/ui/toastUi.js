@@ -126,6 +126,12 @@ export const notify = {
     addLog(text, "urgent");
     showToast(text, { tone: "urgent", ...options });
   },
+  // Neutral confirmation of something the player just did that has no other
+  // visible result yet (a station build order, for instance).
+  info(text, options = {}) {
+    addLog(text, "good");
+    showToast(text, { tone: "good", ...options });
+  },
   clipboard(text, success = true) {
     const tone = success ? "good" : "warning";
     showToast(text, { tone, duration: DURATIONS.clipboard });

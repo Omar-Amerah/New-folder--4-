@@ -117,14 +117,36 @@ export function generateMatchStatusHTML(players) {
 }
 
 function generateRelayChipsHTML(players) {
-  if (!state.snapshot?.points?.length) return "";
   const pMap = playerMap();
-  const chips = state.snapshot.points.map((point) => {
-    const owner = point.ownerId ? pMap.get(point.ownerId) : null;
+  const snapshot = state.snapshot;
+  let targets = [];
+  if (snapshot?.points?.length) {
+    targets = snapshot.points.map((point) => ({
+      id: point.id,
+      contested: point.contested,
+      progress: point.progress || 0,
+      ownerId: point.ownerId,
+      ownerTeam: point.ownerTeam
+    }));
+  } else if (snapshot?.stations?.length) {
+    targets = snapshot.stations
+      .filter((station) => station.stationType === "relay")
+      .map((station) => ({
+        id: station.id,
+        contested: station.captureContested,
+        progress: station.captureProgress || 0,
+        ownerId: station.ownerId,
+        ownerTeam: station.team
+      }));
+  }
+  if (!targets.length) return "";
+
+  const chips = targets.map((target) => {
+    const owner = target.ownerId ? pMap.get(target.ownerId) : null;
     let ownerClass = "neutral";
     let color = "var(--faint)";
     let label = "Neutral";
-    if (point.contested) {
+    if (target.contested) {
       ownerClass = "contested";
       color = "var(--amber)";
       label = "Contested";
@@ -133,9 +155,9 @@ function generateRelayChipsHTML(players) {
       color = owner.team === "blue" ? "var(--cyan)" : owner.team === "red" ? "var(--red)" : (owner.color || "var(--faint)");
       label = owner.teamName || owner.name;
     }
-    const pct = Math.round(point.progress * 100);
-    return `<div class="relay-chip ${escapeHtml(ownerClass)}" title="${escapeHtml(point.id)}: ${escapeHtml(label)} ${pct}%">
-      <span class="relay-letter">${escapeHtml(point.id)}</span>
+    const pct = Math.round(target.progress * 100);
+    return `<div class="relay-chip ${escapeHtml(ownerClass)}" title="${escapeHtml(target.id)}: ${escapeHtml(label)} ${pct}%">
+      <span class="relay-letter">${escapeHtml(target.id)}</span>
       <span class="relay-fill" style="width:${pct}%; background:${escapeHtml(color)}"></span>
       <span class="relay-pct">${pct}%</span>
     </div>`;

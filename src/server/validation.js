@@ -14,9 +14,10 @@ function sanitizeTeam(team, fallbackId) {
 
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
-  if (clean === "charge" || clean === "hold" || clean === "orbit" || clean === "kite") return clean;
+  if (clean === "charge" || clean === "hold" || clean === "orbit"
+    || clean === "kite" || clean === "static") return clean;
   // Compatibility for saved blueprints and older clients. The authoritative
-  // stance surface is now Charge, Hold, Orbit, and Kite.
+  // stance surface is now Charge, Hold, Orbit, Kite, and Static.
   if (clean === "circle" || clean === "evasive") return "orbit";
   if (clean === "maintain" || clean === "sentry" || clean === "heavy") return "hold";
   if (clean === "direct" || clean === "interceptor" || clean === "brawler") return "charge";

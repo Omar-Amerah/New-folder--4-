@@ -90,12 +90,20 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const mc = massClassForMass(safeMass);
   const hullControlRaw = hullControlThrust || DEFAULT_HULL_CONTROL;
   const hullControl = (hullControlRaw && hullControlRaw[mc]) || DEFAULT_HULL_CONTROL[mc] || { turn: 0 };
-  const hullTurn = Number(hullControl.turn) || 0;
+  // Hull control is trim assistance for a ship that still has working attitude
+  // control -- it is not a free always-on gyroscope. With every gyroscope,
+  // maneuver thruster and vectoring engine dead there is nothing left to push
+  // against, so the hull turn allowance and the base rate go with them.
+  const hasTurnAuthority = (directional.mainEngineVectorTurn||0)
+    + (directional.gyroscopeTurn||0)
+    + (directional.clockwiseManeuverTurn||0)
+    + (directional.anticlockwiseManeuverTurn||0) > 0;
+  const hullTurn = hasTurnAuthority ? (Number(hullControl.turn) || 0) : 0;
   const symmetricTurn = (directional.mainEngineVectorTurn||0)+(directional.gyroscopeTurn||0)+hullTurn;
   const negativeTurnDrag = Math.min(0, turnBonus||0);
   const massTurnPenalty = 1 / Math.pow(1 + safeMass / MASS_TURN_DIV, MASS_TURN_EXP);
   const turnCap = turnCapForMass(safeMass);
-  const toRate = positive => positive > 0 ? softCap(Math.max(0, (0.216 + (positive + negativeTurnDrag) * 3.12) * massTurnPenalty * movementPowerMultiplier), turnCap, 0.2) : 0;
+  const toRate = positive => (hasTurnAuthority && positive > 0) ? softCap(Math.max(0, (0.216 + (positive + negativeTurnDrag) * 3.12) * massTurnPenalty * movementPowerMultiplier), turnCap, 0.2) : 0;
   const turnRateRight = toRate(symmetricTurn + (directional.clockwiseManeuverTurn || 0));
   const turnRateLeft = toRate(symmetricTurn + (directional.anticlockwiseManeuverTurn || 0));
   const turnRate = Math.min(turnRateLeft, turnRateRight);

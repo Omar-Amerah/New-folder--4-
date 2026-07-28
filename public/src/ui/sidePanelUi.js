@@ -30,7 +30,8 @@ const SELECTED_COMBAT_STYLES = [
   { id: "charge", label: "Charge", description: STYLE_DESCRIPTIONS.charge },
   { id: "hold", label: "Hold", description: STYLE_DESCRIPTIONS.hold },
   { id: "orbit", label: "Orbit", description: STYLE_DESCRIPTIONS.orbit },
-  { id: "kite", label: "Kite", description: STYLE_DESCRIPTIONS.kite }
+  { id: "kite", label: "Kite", description: STYLE_DESCRIPTIONS.kite },
+  { id: "static", label: "Static", description: STYLE_DESCRIPTIONS.static }
 ];
 
 const GROUP_COMBAT_STYLES = [

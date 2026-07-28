@@ -88,7 +88,16 @@ function sampleVisual(samples, renderTimeMs, out) {
   const extra = Math.max(0, Math.min(EXTRAPOLATION_CAP_MS, renderTimeMs - latest.simulationTimeMs));
   out.x = latest.x + latest.vx * extra / 1000;
   out.y = latest.y + latest.vy * extra / 1000;
-  out.angle = latest.angle;
+  // Position dead-reckons here, so freezing the angle stalls the rotation and
+  // then snaps it when the next sample lands -- a fast hull can bank up 15
+  // degrees of that in one extrapolation window. There is no angular velocity in
+  // the snapshot, so derive one from the last two samples and carry the turn on.
+  const previous = samples[samples.length - 2];
+  const span = previous ? latest.simulationTimeMs - previous.simulationTimeMs : 0;
+  const angularVelocity = span > 0
+    ? angleDifference(previous.angle, latest.angle) / span
+    : 0;
+  out.angle = latest.angle + angularVelocity * extra;
   return out;
 }
 export function visualForShip(ship, renderTimeMs, out) {

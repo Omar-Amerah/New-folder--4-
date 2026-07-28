@@ -196,6 +196,14 @@ export function handlePurchaseResult(message) {
     const reason = message.message || "Purchase failed";
     if (pending?.optionId) setPurchaseError(pending.optionId, reason);
     notify.error(reason);
+  } else if (message.queued) {
+    // Station mode spawns nothing on purchase, so without this the money simply
+    // disappears and the arena looks unchanged until the hangar finishes.
+    const seconds = Number(message.buildDurationSeconds) || 0;
+    const eta = seconds > 0 ? ` (~${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s)` : "";
+    const position = Number(message.queuePosition) || 1;
+    const place = position > 1 ? ` · #${position} in queue` : "";
+    notify.info(`Building at your home station${eta}${place}`);
   }
   invalidatePresentation("purchase-pending");
 }

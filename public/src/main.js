@@ -14,6 +14,7 @@ import { bindPowerPriorityControls } from "./ui/wiringUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick, restoreActiveLoadout } from "./ui/purchaseUi.js";
 import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, closeSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
+import { focusPanelStation } from "./ui/stationPanelUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
 import { handleKeyDown, handleKeyUp, bindArenaPointerListeners } from "./game/input.js";
 import { LOCAL_ACTIVE_ROOM_KEY, syncUrlParams, DIAGNOSTICS_ENABLED } from "./constants.js";
@@ -188,6 +189,7 @@ dom.maxPlayersInput?.addEventListener("change", sendRulesUpdate);
 dom.mapSizeSelect?.addEventListener("change", sendRulesUpdate);
 dom.asteroidDensitySelect?.addEventListener("change", sendRulesUpdate);
 dom.infrastructureModeSelect?.addEventListener("change", sendRulesUpdate);
+dom.stationPanelFocus?.addEventListener("click", focusPanelStation);
 
 // Team select updates
 dom.teamSelect?.addEventListener("change", () => {

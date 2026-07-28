@@ -40,8 +40,22 @@ module.exports = Object.freeze({
   REST_SPEED: 0.5,
   // Commanded speed below which there is no meaningful direction of travel, so
   // the ship holds its heading rather than chasing a bearing that swings on
-  // every small displacement.
+  // every small displacement. Entering and leaving that state use different
+  // speeds: with one threshold, a ship hovering either side of it flips the
+  // source of its facing every tick, and a hull that can turn fast enough
+  // reproduces that flip exactly.
   FACING_MIN_SPEED: 5,
+  FACING_MIN_SPEED_RELEASE: 3,
+  // How far the newly computed facing must sit from the one already commanded
+  // before the hull is told about it. Below this the previous command stands.
+  // Without it a fast hull is a 1:1 follower of a signal that jitters with every
+  // separation shove and every branch flip in resolveDesiredFacing.
+  FACING_COMMAND_HYSTERESIS: 0.06,
+  // Fraction of the remaining heading error the hull takes per tick once that
+  // error is small enough to cover in one tick. Above that it is rate-limited as
+  // before, so this only shapes the last few degrees -- the part a fast hull
+  // used to cross in a single snap.
+  TURN_COMMAND_DAMPING: 0.35,
   // Turn penalty while running on the backup core.
   BACKUP_CORE_TURN_SCALE: 0.9,
 
@@ -83,6 +97,10 @@ module.exports = Object.freeze({
   NAV_GRID_CELL_SIZE: 24,
   NAV_REPLAN_MOVE_THRESHOLD: 60,
   NAV_REPLAN_COMBAT_THRESHOLD: 120,
+  // A charge aims at a contact point roughly one hull across, so the 120 px
+  // combat threshold is wider than the goal itself -- the charger would chase a
+  // position the target left long ago.
+  NAV_REPLAN_CHARGE_THRESHOLD: 40,
   NAV_STUCK_TIME_MS: 1500,
   NAV_WAYPOINT_CAPTURE_RATIO: 0.75,
   NAV_PROGRESS_EPSILON: 8,
@@ -103,6 +121,9 @@ module.exports = Object.freeze({
   // Larger cuts the corner inward and flies a polygon; smaller tracks the
   // circle tightly but spends the whole orbit turning.
   ORBIT_LEAD_ANGLE: 0.45,
+  // Charge aims where the target will be, not where it is. Capped so a fast
+  // target seen from across the map does not send the charger to empty space.
+  CHARGE_LEAD_MAX_S: 1.5,
   REPAIR_STANDOFF_PAD: 30,
 
   // --- Component heat from movement --------------------------------------
