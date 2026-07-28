@@ -2,38 +2,20 @@
 
 const { clampNumber, fastHypot, hashString } = require("./utils");
 const {
+  areEnemies,
   nearestDemolitionTargetPoint,
   shipHasOperationalDemolitionCharge
 } = require("./combat");
 const { getEffectiveWeaponRanges } = require("./componentData");
 const { sanitizeCombatStyle } = require("./validation");
-const { BALANCE } = require("./balanceConfig");
 const {
   ARRIVE_DISTANCE,
   ARRIVE_SPEED,
-  BRAWLER_RANGE_RATIO,
-  EVASIVE_RANGE_RATIO,
-  HEAVY_RANGE_RATIO,
   HOLD_RANGE_RATIO,
-  INTERCEPTOR_RANGE_RATIO,
   KITE_RANGE_RATIO,
-  KITE_TOLERANCE,
-  MAINTAIN_RANGE_RATIO,
-  MAINTAIN_TOLERANCE,
+  NAV_STUCK_TIME_MS,
+  ORBIT_LEAD_ANGLE,
   ORBIT_RANGE_RATIO,
-  BRAWLER_TOLERANCE,
-  HEAVY_TOLERANCE,
-  RANGE_BAND_RADIAL_SPEED,
-  ORBIT_TANGENTIAL_SPEED_RATIO,
-  ORBIT_TANGENTIAL_ACCEL_SCALE,
-  ORBIT_RADIAL_RANGE_GAIN,
-  ORBIT_RADIAL_DAMPING_GAIN,
-  ORBIT_MIN_RADIAL_LIMIT,
-  DIRECT_LEAD_SCALE,
-  DIRECT_MAX_LEAD_S,
-  INTERCEPTOR_MAX_LEAD_S,
-  EVASIVE_LATERAL_SPEED_RATIO,
-  EVASIVE_MIN_LATERAL_SPEED,
   REPAIR_STANDOFF_PAD
 } = require("./movementTuning");
 const { ensureMovementRuntime } = require("./movementRuntime");
@@ -41,16 +23,9 @@ const { ensureMovementRuntime } = require("./movementRuntime");
 const SUPPORTED_MOVEMENT_TYPES = Object.freeze([
   "move",
   "hold",
-  "maintain",
   "kite",
   "orbit",
-  "direct",
-  "sentry",
   "charge",
-  "interceptor",
-  "evasive",
-  "brawler",
-  "heavy",
   "repair",
   "stop"
 ]);
@@ -86,13 +61,41 @@ function stopIntent(reason = "no-command") {
   });
 }
 
-function activeTarget(room, ship, runtime) {
-  const targetId = ship.repairTargetId
-    || ship.focusTargetId
-    || ship.combatTargetId
-    || runtime.command?.targetId;
+function livingTarget(room, targetId) {
   const target = targetId && room.ships?.get(String(targetId));
   return target?.alive ? target : null;
+}
+
+function firstLivingTarget(room, targetIds) {
+  for (const targetId of targetIds) {
+    const target = livingTarget(room, targetId);
+    if (target) return target;
+  }
+  return null;
+}
+
+function firstLivingEnemyTarget(room, ship, targetIds) {
+  for (const targetId of targetIds) {
+    const target = livingTarget(room, targetId);
+    if (target && !target.removed
+      && areEnemies(room, ship.ownerId, target.ownerId)) return target;
+  }
+  return null;
+}
+
+function activeRepairTarget(room, ship, runtime) {
+  return firstLivingTarget(room, [
+    ship.repairTargetId,
+    runtime.command?.type === "repair" ? runtime.command.targetId : null
+  ]);
+}
+
+function activeCombatTarget(room, ship, runtime) {
+  return firstLivingEnemyTarget(room, ship, [
+    ship.focusTargetId,
+    ship.combatTargetId,
+    runtime.command?.type === "attack" ? runtime.command.targetId : null
+  ]);
 }
 
 function maximumWeaponRange(ship) {
@@ -127,61 +130,75 @@ function relativeRangeState(ship, target, desiredRange) {
   };
 }
 
-function rangeIntent(type, ship, target, desiredRange, toleranceRatio, reason) {
-  const range = relativeRangeState(ship, target, desiredRange);
-  const tolerance = Math.max(6, desiredRange * toleranceRatio);
-  const insideBand = Math.abs(range.rangeError) <= tolerance
-    && Math.abs(range.radialVelocity) <= RANGE_BAND_RADIAL_SPEED;
-  if (insideBand) {
-    return movementIntent(type, {
-      desiredVelocity: point(target.vx, target.vy),
-      facingMode: "target",
-      facingTargetId: target.id,
-      desiredRange,
-      arrivalRequired: true,
-      persistent: true,
-      debugReason: `${reason}:range-band`
-    });
-  }
-  return movementIntent(type, {
-    destination: range.destination,
+function holdStationIntent(station, target, desiredRange, reason, memory = null) {
+  return movementIntent("hold", {
+    destination: { ...station },
     facingMode: "target",
     facingTargetId: target.id,
     desiredRange,
     arrivalRequired: true,
     persistent: true,
-    debugReason: range.rangeError > 0 ? `${reason}:approach` : `${reason}:retreat`
+    debugReason: reason,
+    styleMemory: memory
   });
 }
 
+// Hold picks one firing position and works from it. It closes to weapon range
+// once, commits, and everything after that is a question of whether the target
+// is still shootable from where the ship already stands -- not of maintaining a
+// preferred separation. A target that closes in is a target that got easier to
+// hit, so it never causes a withdrawal.
 function holdIntent(ship, target, maximumRange, runtime) {
   const desiredRange = Math.max(80, maximumRange * HOLD_RANGE_RATIO);
-  if (runtime.style.holdPosition && runtime.style.holdTargetId === target.id) {
-    return movementIntent("hold", {
-      destination: { ...runtime.style.holdPosition },
-      facingMode: "target",
-      facingTargetId: target.id,
-      desiredRange,
-      arrivalRequired: true,
-      persistent: true,
-      debugReason: "hold:stored-position"
-    });
-  }
   const range = relativeRangeState(ship, target, desiredRange);
-  const margin = Math.max(ARRIVE_DISTANCE, (Number(ship.radius) || 0) * 0.5);
-  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
-  if (Math.abs(range.rangeError) <= margin && speed < ARRIVE_SPEED) {
+  // A committed station outlives the target that prompted it. Hold retargets
+  // deliberately (see findTarget), and re-approaching the range ring of every
+  // new contact would have it wandering the battle instead of holding a line.
+  // The station stands while anything it is shooting at is reachable from it.
+  const station = runtime.style.holdPosition;
+  if (station) {
+    const stationRange = fastHypot(
+      (target.x || 0) - station.x,
+      (target.y || 0) - station.y
+    );
+    if (stationRange <= maximumRange) {
+      return holdStationIntent(
+        station,
+        target,
+        desiredRange,
+        runtime.style.holdTargetId === target.id
+          ? "hold:established-position"
+          : "hold:station-retained-new-target",
+        { holdPosition: station, holdTargetId: target.id }
+      );
+    }
+  }
+  // Arrival braking parks a ship ARRIVE_DISTANCE short of its destination, and
+  // the approach destination sits exactly on the desiredRange ring -- so
+  // "distance <= desiredRange" is a condition the controller can never satisfy,
+  // and the ship chases the ring forever instead of committing. Commit on a
+  // band the size of that shortfall instead.
+  const tolerance = Math.max(ARRIVE_DISTANCE, (Number(ship.radius) || 0) * 0.5);
+  if (range.rangeError <= tolerance) {
+    // Inside the band but still carrying speed: park where we are rather than
+    // fall through to the approach branch, whose destination sits behind us and
+    // would read on screen as backing away from a target that just closed.
+    if (fastHypot(ship.vx || 0, ship.vy || 0) >= ARRIVE_SPEED) {
+      return holdStationIntent(
+        point(ship.x, ship.y),
+        target,
+        desiredRange,
+        "hold:settling"
+      );
+    }
     const holdPosition = point(ship.x, ship.y);
-    return movementIntent("hold", {
-      destination: holdPosition,
-      facingMode: "target",
-      facingTargetId: target.id,
+    return holdStationIntent(
+      holdPosition,
+      target,
       desiredRange,
-      arrivalRequired: true,
-      persistent: true,
-      debugReason: "hold:position-committed",
-      styleMemory: { holdPosition, holdTargetId: target.id }
-    });
+      "hold:position-committed",
+      { holdPosition, holdTargetId: target.id }
+    );
   }
   return movementIntent("hold", {
     destination: range.destination,
@@ -190,174 +207,152 @@ function holdIntent(ship, target, maximumRange, runtime) {
     desiredRange,
     arrivalRequired: true,
     persistent: true,
-    debugReason: "hold:positioning",
+    debugReason: "hold:approach-outside-range",
     styleMemory: { holdPosition: null, holdTargetId: target.id }
   });
 }
 
-function orbitIntent(ship, target, maximumRange, stats, runtime) {
+function kiteIntent(ship, target, maximumRange) {
+  const safeRange = Math.max(80, maximumRange * KITE_RANGE_RATIO);
+  const range = relativeRangeState(ship, target, safeRange);
+  if (range.distance < safeRange) {
+    return movementIntent("kite", {
+      destination: range.destination,
+      facingMode: "target",
+      facingTargetId: target.id,
+      desiredRange: safeRange,
+      arrivalRequired: true,
+      persistent: true,
+      debugReason: "kite:retreat-too-close"
+    });
+  }
+  if (range.distance > maximumRange) {
+    const outside = relativeRangeState(ship, target, maximumRange);
+    return movementIntent("kite", {
+      destination: outside.destination,
+      facingMode: "target",
+      facingTargetId: target.id,
+      desiredRange: safeRange,
+      arrivalRequired: true,
+      persistent: true,
+      debugReason: "kite:approach-outside-weapon-range"
+    });
+  }
+  return movementIntent("kite", {
+    desiredVelocity: point(target.vx, target.vy),
+    facingMode: "target",
+    facingTargetId: target.id,
+    desiredRange: safeRange,
+    arrivalRequired: true,
+    persistent: true,
+    debugReason: "kite:safe-range-restored"
+  });
+}
+
+// The direction a ship is already travelling decides which way round it goes:
+// the tangent it is closer to facing is the one it can take without first
+// throwing the hull through a half turn. A ship pointing straight at (or
+// straight away from) its target has no preference, so it falls back to a
+// stable per-pairing hash rather than picking a side that flips tick to tick.
+function orbitDirectionFor(ship, target, range) {
+  const forwardX = Math.cos(ship.angle || 0);
+  const forwardY = Math.sin(ship.angle || 0);
+  // Tangent for direction +1 is the radial unit rotated a quarter turn CCW.
+  const alignment = forwardX * -range.unitY + forwardY * range.unitX;
+  if (Math.abs(alignment) < 1e-6) {
+    return (hashString(`${ship.id}:${target.id}:orbit`) & 1) ? 1 : -1;
+  }
+  return alignment >= 0 ? 1 : -1;
+}
+
+// Wedged against a rock the navigator cannot route past, going the other way
+// round is the answer that always exists. Rate-limited so a ship that is merely
+// slow does not sit there reversing.
+function orbitProgressStalled(runtime, now, lastFlipAt) {
+  const navigation = runtime.navigation;
+  if (!navigation?.waypoints?.length || !Number.isFinite(now)) return false;
+  const progressAt = Number(navigation.progressAt) || 0;
+  if (!progressAt || now - progressAt <= NAV_STUCK_TIME_MS) return false;
+  return now - lastFlipAt > NAV_STUCK_TIME_MS * 2;
+}
+
+// Orbit steers at a point on the circle a fixed angle ahead of the ship rather
+// than at a blend of radial and tangential velocities. Two things fall out of
+// that: the destination always sits on the ring, so a ship too wide or too tight
+// closes on the correct radius with no separate controller, and the intent owns
+// a destination -- which is what lets resolveNavigation plan a path, so the
+// orbit routes around asteroids and rejoins the circle beyond them. Arrival is
+// never required, so none of this passes through arrival braking.
+function orbitIntent(ship, target, maximumRange, stats, runtime, now) {
   const desiredRange = Math.max(80, maximumRange * ORBIT_RANGE_RATIO);
   const range = relativeRangeState(ship, target, desiredRange);
-  const existing = runtime.style.orbit;
-  let direction = existing?.targetId === target.id ? existing.direction : null;
-  if (direction !== 1 && direction !== -1) {
-    const forwardX = Math.cos(ship.angle || 0);
-    const forwardY = Math.sin(ship.angle || 0);
-    const tangent = -range.unitX * forwardY + range.unitY * forwardX;
-    direction = Math.abs(tangent) > 1e-6
-      ? (tangent >= 0 ? 1 : -1)
-      : ((hashString(`${ship.id}:${target.id}:orbit`) & 1) ? 1 : -1);
+  const existing = runtime.style.orbit?.targetId === target.id
+    ? runtime.style.orbit
+    : null;
+  let direction = existing?.direction === 1 || existing?.direction === -1
+    ? existing.direction
+    : null;
+  let stuckFlipAt = Number(existing?.stuckFlipAt) || 0;
+  if (direction === null) {
+    direction = orbitDirectionFor(ship, target, range);
+  } else if (orbitProgressStalled(runtime, now, stuckFlipAt)) {
+    direction = -direction;
+    stuckFlipAt = now;
   }
+  const bearing = Math.atan2(range.unitY, range.unitX) + direction * ORBIT_LEAD_ANGLE;
+  // Steering at a point on the ring means flying its chords, and a chord runs
+  // inside the circle it joins -- so aiming at exactly desiredRange orbits
+  // measurably tighter than asked. Push the steering ring out by the chord's
+  // sagitta so the circle actually flown is the one requested.
+  const ringRadius = desiredRange / Math.cos(ORBIT_LEAD_ANGLE / 2);
   const maximumSpeed = Math.max(10, Number(stats.maxSpeed) || 0);
-  const orbitAcceleration = Math.max(1, Number(stats.accel) || 0);
-  const tangentialSpeed = Math.min(
-    maximumSpeed * ORBIT_TANGENTIAL_SPEED_RATIO,
-    Math.sqrt(orbitAcceleration * desiredRange * ORBIT_TANGENTIAL_ACCEL_SCALE)
-  );
-  const radialLimit = Math.max(ORBIT_MIN_RADIAL_LIMIT, tangentialSpeed * 2);
-  const radialSpeed = clampNumber(
-    -range.rangeError * ORBIT_RADIAL_RANGE_GAIN
-      - range.radialVelocity * ORBIT_RADIAL_DAMPING_GAIN,
-    -radialLimit,
-    radialLimit
-  );
-  const tangentX = -range.unitY * direction;
-  const tangentY = range.unitX * direction;
+  // v = omega * r. A hull that cannot turn fast enough to stay on the circle at
+  // full throttle would spiral out of it, so cap the throttle at what its
+  // weakest turn direction can actually hold.
+  const turnRate = Math.max(0, Math.min(
+    Number(stats.turnRateLeft ?? stats.turnRate) || 0,
+    Number(stats.turnRateRight ?? stats.turnRate) || 0
+  ));
   return movementIntent("orbit", {
-    desiredVelocity: {
-      x: (target.vx || 0) + range.unitX * radialSpeed + tangentX * tangentialSpeed,
-      y: (target.vy || 0) + range.unitY * radialSpeed + tangentY * tangentialSpeed
-    },
-    facingMode: "target",
+    destination: point(
+      (target.x || 0) + Math.cos(bearing) * ringRadius,
+      (target.y || 0) + Math.sin(bearing) * ringRadius
+    ),
+    // Feed-forward so a moving target is orbited rather than trailed.
+    desiredVelocity: point(target.vx, target.vy),
+    facingMode: "travel",
     facingTargetId: target.id,
     desiredRange,
     arrivalRequired: false,
     persistent: true,
-    debugReason: "orbit:radial-plus-tangential",
-    styleMemory: { orbit: { targetId: target.id, direction } }
-  });
-}
-
-function directIntent(ship, target, stats) {
-  const distance = fastHypot((target.x || 0) - (ship.x || 0), (target.y || 0) - (ship.y || 0));
-  const leadSeconds = clampNumber(
-    distance / Math.max(1, Number(stats.maxSpeed) || 1) * DIRECT_LEAD_SCALE,
-    0,
-    DIRECT_MAX_LEAD_S
-  );
-  return movementIntent("direct", {
-    destination: {
-      x: (target.x || 0) + (target.vx || 0) * leadSeconds,
-      y: (target.y || 0) + (target.vy || 0) * leadSeconds
-    },
-    facingMode: "target",
-    facingTargetId: target.id,
-    desiredRange: 0,
-    arrivalRequired: false,
-    persistent: true,
-    debugReason: "direct:predicted-target"
-  });
-}
-
-function sentryIntent(ship, target, runtime) {
-  const sentryPosition = runtime.style.sentryPosition || point(ship.x, ship.y);
-  return movementIntent("sentry", {
-    destination: { ...sentryPosition },
-    facingMode: "target",
-    facingTargetId: target.id,
-    arrivalRequired: true,
-    persistent: true,
-    debugReason: runtime.style.sentryPosition ? "sentry:return" : "sentry:position-committed",
-    styleMemory: runtime.style.sentryPosition ? null : { sentryPosition }
+    maxSpeedFactor: clampNumber(turnRate * desiredRange / maximumSpeed, 0.15, 1),
+    debugReason: "orbit:lead-point",
+    styleMemory: { orbit: { targetId: target.id, direction, stuckFlipAt } }
   });
 }
 
 function chargeIntent(ship, target) {
-  const destination = shipHasOperationalDemolitionCharge(ship)
+  const demolition = shipHasOperationalDemolitionCharge(ship);
+  const contactRange = Math.max(
+    1,
+    (Number(ship.physicalRadius) || (Number(ship.radius) || 0) * 0.56)
+      + (Number(target.physicalRadius) || (Number(target.radius) || 0) * 0.56)
+      + 2
+  );
+  const destination = demolition
     ? nearestDemolitionTargetPoint(ship, target)
-    : target;
+    : relativeRangeState(ship, target, contactRange).destination;
   return movementIntent("charge", {
     destination: point(destination.x, destination.y),
     facingMode: "travel",
     facingTargetId: target.id,
-    desiredRange: 0,
-    arrivalRequired: false,
+    desiredRange: demolition ? 0 : contactRange,
+    arrivalRequired: true,
     persistent: true,
     maxSpeedFactor: 1,
-    debugReason: shipHasOperationalDemolitionCharge(ship)
+    debugReason: demolition
       ? "charge:demolition-contact"
-      : "charge:hostile-position"
-  });
-}
-
-function interceptorIntent(
-  ship,
-  target,
-  maximumRange,
-  stats,
-  desiredRangeRatio = INTERCEPTOR_RANGE_RATIO
-) {
-  const desiredRange = Math.max(40, maximumRange * desiredRangeRatio);
-  const distance = fastHypot((target.x || 0) - (ship.x || 0), (target.y || 0) - (ship.y || 0));
-  const leadSeconds = clampNumber(
-    distance / Math.max(1, Number(stats.maxSpeed) || 1),
-    0,
-    INTERCEPTOR_MAX_LEAD_S
-  );
-  const predictedTarget = {
-    x: (target.x || 0) + (target.vx || 0) * leadSeconds,
-    y: (target.y || 0) + (target.vy || 0) * leadSeconds,
-    vx: target.vx || 0,
-    vy: target.vy || 0
-  };
-  const range = relativeRangeState(ship, predictedTarget, desiredRange);
-  return movementIntent("interceptor", {
-    destination: range.destination,
-    facingMode: "target",
-    facingTargetId: target.id,
-    desiredRange,
-    arrivalRequired: true,
-    persistent: true,
-    debugReason: "interceptor:predicted-intercept"
-  });
-}
-
-function evasiveIntent(ship, target, maximumRange, stats, runtime, now) {
-  const styleConfig = BALANCE.movement?.movementStyles?.evasive || {};
-  const desiredRange = Math.max(
-    80,
-    maximumRange * (styleConfig.desiredRangeRatio ?? EVASIVE_RANGE_RATIO)
-  );
-  const range = relativeRangeState(ship, target, desiredRange);
-  let evasive = runtime.style.evasive;
-  if (!evasive || now >= evasive.expiresAt) {
-    const interval = Math.max(250, Number(styleConfig.dodgeIntervalSeconds) * 1000 || 2500);
-    const window = Math.floor(now / interval);
-    evasive = {
-      direction: (hashString(`${ship.id}:${target.id}:evasive:${window}`) & 1) ? 1 : -1,
-      expiresAt: (window + 1) * interval
-    };
-  }
-  const lateralSpeed = Math.min(
-    Number(styleConfig.dodgeMagnitude) || 120,
-    Math.max(
-      EVASIVE_MIN_LATERAL_SPEED,
-      (Number(stats.maxSpeed) || 0) * EVASIVE_LATERAL_SPEED_RATIO
-    )
-  );
-  return movementIntent("evasive", {
-    destination: range.destination,
-    desiredVelocity: {
-      x: -range.unitY * evasive.direction * lateralSpeed,
-      y: range.unitX * evasive.direction * lateralSpeed
-    },
-    facingMode: "target",
-    facingTargetId: target.id,
-    desiredRange,
-    arrivalRequired: true,
-    persistent: true,
-    debugReason: "evasive:range-plus-lateral-offset",
-    styleMemory: { evasive }
+      : "charge:pursue-to-contact"
   });
 }
 
@@ -399,87 +394,37 @@ function moveIntent(runtime) {
 function createMovementIntent(room, ship, stats = ship.stats || {}, now = 0) {
   const runtime = ensureMovementRuntime(ship);
   const commandType = runtime.command?.type || null;
-  const target = activeTarget(room, ship, runtime);
+  if (commandType === "repair") {
+    const repairTarget = activeRepairTarget(room, ship, runtime);
+    return repairTarget
+      ? repairIntent(ship, repairTarget)
+      : stopIntent("repair:target-lost");
+  }
+
+  // A living enemy target owns movement while it exists. Rally, Move, and Stop
+  // commands remain stored so they can resume if the target becomes invalid,
+  // but they must not suppress the selected combat stance after acquisition.
+  const combatTarget = activeCombatTarget(room, ship, runtime);
+  if (combatTarget) {
+    const maximumRange = maximumWeaponRange(ship);
+    if (maximumRange <= 0) return stopIntent("attack:no-operational-weapons");
+    const style = sanitizeCombatStyle(ship.combatStyle);
+    switch (style) {
+      case "orbit":
+        return orbitIntent(ship, combatTarget, maximumRange, stats, runtime, now);
+      case "kite":
+        return kiteIntent(ship, combatTarget, maximumRange);
+      case "charge":
+        return chargeIntent(ship, combatTarget);
+      case "hold":
+      default:
+        return holdIntent(ship, combatTarget, maximumRange, runtime);
+    }
+  }
+
   if (commandType === "move") return moveIntent(runtime);
   if (commandType === "stop") return stopIntent("stop:brake");
-  if (commandType === "repair") {
-    return target ? repairIntent(ship, target) : stopIntent("repair:target-lost");
-  }
-  if (!target) return stopIntent(commandType === "attack" ? "attack:target-lost" : "idle");
-
-  const maximumRange = maximumWeaponRange(ship);
-  if (maximumRange <= 0) return stopIntent("attack:no-operational-weapons");
-  const style = sanitizeCombatStyle(ship.combatStyle);
-  switch (style) {
-    case "orbit":
-      return orbitIntent(ship, target, maximumRange, stats, runtime);
-    case "maintain":
-      return rangeIntent(
-        "maintain",
-        ship,
-        target,
-        Math.max(80, maximumRange * MAINTAIN_RANGE_RATIO),
-        MAINTAIN_TOLERANCE,
-        "maintain"
-      );
-    case "kite":
-      return rangeIntent(
-        "kite",
-        ship,
-        target,
-        Math.max(80, maximumRange * KITE_RANGE_RATIO),
-        KITE_TOLERANCE,
-        "kite"
-      );
-    case "direct":
-      return directIntent(ship, target, stats);
-    case "sentry":
-      return sentryIntent(ship, target, runtime);
-    case "charge":
-      return chargeIntent(ship, target);
-    case "interceptor":
-      return interceptorIntent(
-        ship,
-        target,
-        maximumRange,
-        stats,
-        BALANCE.movement?.movementStyles?.interceptor?.desiredRangeRatio
-          ?? INTERCEPTOR_RANGE_RATIO
-      );
-    case "evasive":
-      return evasiveIntent(ship, target, maximumRange, stats, runtime, now);
-    case "brawler":
-      return rangeIntent(
-        "brawler",
-        ship,
-        target,
-        Math.max(
-          40,
-          maximumRange
-            * (BALANCE.movement?.movementStyles?.brawler?.desiredRangeRatio
-              ?? BRAWLER_RANGE_RATIO)
-        ),
-        BRAWLER_TOLERANCE,
-        "brawler"
-      );
-    case "heavy":
-      return rangeIntent(
-        "heavy",
-        ship,
-        target,
-        Math.max(
-          40,
-          maximumRange
-            * (BALANCE.movement?.movementStyles?.heavy?.desiredRangeRatio
-              ?? HEAVY_RANGE_RATIO)
-        ),
-        HEAVY_TOLERANCE,
-        "heavy"
-      );
-    case "hold":
-    default:
-      return holdIntent(ship, target, maximumRange, runtime);
-  }
+  return stopIntent(commandType === "attack" ? "attack:target-lost" : "idle");
 }
 
 function commitIntentStyleMemory(ship, intent) {
@@ -488,8 +433,6 @@ function commitIntentStyleMemory(ship, intent) {
   const style = ensureMovementRuntime(ship).style;
   for (const key of [
     "orbit",
-    "evasive",
-    "sentryPosition",
     "holdPosition",
     "holdTargetId"
   ]) {

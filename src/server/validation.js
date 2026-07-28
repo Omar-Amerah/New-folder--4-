@@ -14,11 +14,15 @@ function sanitizeTeam(team, fallbackId) {
 
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
-  if (clean === "circle") return "orbit";
-  if (clean === "direct" || clean === "hold" || clean === "maintain" || clean === "orbit" || clean === "kite" ||
-      clean === "charge" || clean === "sentry" || clean === "interceptor" || clean === "evasive" ||
-      clean === "brawler" || clean === "heavy") return clean;
-  return fallback;
+  if (clean === "charge" || clean === "hold" || clean === "orbit" || clean === "kite") return clean;
+  // Compatibility for saved blueprints and older clients. The authoritative
+  // stance surface is now Charge, Hold, Orbit, and Kite.
+  if (clean === "circle" || clean === "evasive") return "orbit";
+  if (clean === "maintain" || clean === "sentry" || clean === "heavy") return "hold";
+  if (clean === "direct" || clean === "interceptor" || clean === "brawler") return "charge";
+  const cleanFallback = String(fallback || "").toLowerCase();
+  if (cleanFallback !== clean) return sanitizeCombatStyle(cleanFallback, "hold");
+  return "hold";
 }
 
 function sanitizeRoomCode(room) {

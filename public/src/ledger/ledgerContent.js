@@ -356,22 +356,20 @@ const MANUAL_ARTICLES_PART_2 = [
     id: "combat-styles",
     category: "combat-styles",
     title: "Combat Styles",
-    summary: "Hold, Charge, Sentry, Orbit, Maintain Range, Kite, and Direct — how ships behave in combat.",
-    keywords: ["combat", "style", "hold", "charge", "sentry", "orbit", "maintain", "kite", "direct", "behavior", "ai", "stance"],
-    howItWorks: "Each ship follows a combat style that controls its movement during engagements. Hold moves to weapon range then holds a fixed world position. Charge closes to 30% of max range for aggressive pressure. Sentry guards the current area and engages nearby threats. Orbit continuously orbits the target at ~75% of max weapon range. Maintain Range keeps the enemy at 90% of max weapon range. Kite keeps distance at max weapon range, retreating if the enemy approaches. Direct moves straight toward the target. Combat style can be set in the blueprint designer or changed mid-match using the combat style controls in the selection panel.",
+    summary: "Charge, Hold, Orbit, and Kite define how ships move around their current combat target.",
+    keywords: ["combat", "style", "hold", "charge", "orbit", "kite", "behavior", "ai", "stance"],
+    howItWorks: "Each ship follows one of four combat movement styles. Charge pursues continuously, closes through weapon range, and stops only at contact distance. Hold approaches when outside preferred weapon range, then fires from an established position without retreating from closer targets. Orbit circles at its intended radius with a stable direction and continuous radial correction. Kite retreats when too close, stops retreating once safe range is restored, and approaches only when the target is beyond weapon range. Ships acquire another nearby enemy when their current target becomes invalid.",
     importantStats: [
       { label: "Hold Range Ratio", value: "90% Of Max Weapon Range" },
-      { label: "Charge Range Ratio", value: "30% Of Max Weapon Range" },
-      { label: "Sentry", value: "Stays At Current Position" },
+      { label: "Charge Stop", value: "Contact Distance" },
       { label: "Orbit Range Ratio", value: "75% Of Max Weapon Range" },
-      { label: "Maintain Range Ratio", value: "90% Of Max Weapon Range" },
-      { label: "Kite Range Ratio", value: "Max Weapon Range" },
-      { label: "Direct", value: "Moves Straight Toward Target" }
+      { label: "Kite Safe Range", value: "90% Of Max Weapon Range" }
     ],
-    practicalUse: "Hold is the safest default for ranged ships. Charge suits tanky ships with short-range weapons. Sentry is ideal for defensive positions or sniper builds. Orbit works well for agile ships that want to dodge while firing. Maintain Range keeps a consistent distance. Kite is ideal for long-range ships that want to avoid closing.",
+    practicalUse: "Hold is the general ranged default. Charge suits ships that must force close contact. Orbit rewards agile ships that can sustain a curved course. Kite suits long-range ships built to preserve separation.",
     commonProblems: [
       "Ship not engaging? It may have no weapons with range, or the target is out of range.",
-      "Ship moving away? Sentry ships return to their assigned position.",
+      "Hold ship moving closer? Its target has moved outside preferred weapon range.",
+      "Kite ship moving away? Its target is inside the safe-range threshold.",
       "Want to change style mid-match? Select ships and use the combat style buttons in the match panel."
     ],
     related: ["movement", "weapons", "defence"]

@@ -250,13 +250,7 @@ function rotateShips(room, player, options) {
 
 function applyCombatStyle(ship, combatStyle) {
   ship.combatStyle = combatStyle;
-  const runtime = ensureMovementRuntime(ship);
   resetStyleMemory(ship, combatStyle);
-  if (combatStyle === "sentry"
-    && runtime.command?.type === "move"
-    && runtime.phase !== "positioned") {
-    runtime.style.sentryPosition = null;
-  }
   resetNavigation(ship);
 }
 

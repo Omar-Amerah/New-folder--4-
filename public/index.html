@@ -163,9 +163,7 @@
           <div id="combatStyleControls" class="combat-style-controls" role="group" aria-label="Combat style">
             <button type="button" data-combat-style="charge">Charge</button>
             <button type="button" data-combat-style="hold">Hold</button>
-            <button type="button" data-combat-style="sentry">Sentry</button>
             <button type="button" data-combat-style="orbit">Orbit</button>
-            <button type="button" data-combat-style="maintain">Maintain</button>
             <button type="button" data-combat-style="kite">Kite</button>
           </div>
           <div id="heatHud" class="heat-hud" title="Highest overall stored heat among selected ships">
@@ -486,10 +484,10 @@
             <div class="combat-style-selector">
               <label for="combatStyleSelect">Combat Movement Style</label>
               <select id="combatStyleSelect">
-                <option value="charge">Charge (Approach closer)</option>
-                <option value="hold" selected>Hold (Stay at max range)</option>
-                <option value="sentry">Sentry (Fire from position)</option>
-                <option value="circle">Circle (Orbit target)</option>
+                <option value="charge">Charge (Close to contact)</option>
+                <option value="hold" selected>Hold (Approach, then stay)</option>
+                <option value="orbit">Orbit (Circle target)</option>
+                <option value="kite">Kite (Preserve distance)</option>
               </select>
             </div>
             <div class="combat-style-selector power-priority-selector">

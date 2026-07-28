@@ -112,7 +112,13 @@ function preservedWiringFallback(wiring) {
 }
 
 function nowIso() { return new Date().toISOString(); }
-function safeStyle(value, fallback = "hold") { return ["charge", "circle", "sentry", "hold"].includes(value) ? value : fallback; }
+function safeStyle(value, fallback = "hold") {
+  if (["charge", "hold", "orbit", "kite"].includes(value)) return value;
+  if (value === "circle" || value === "evasive") return "orbit";
+  if (value === "direct" || value === "interceptor" || value === "brawler") return "charge";
+  if (value === "maintain" || value === "sentry" || value === "heavy") return "hold";
+  return ["charge", "hold", "orbit", "kite"].includes(fallback) ? fallback : "hold";
+}
 function storage() {
   try {
     if (typeof localStorage === "undefined" || !localStorage) return null;

@@ -20,9 +20,11 @@ const { initComponentState } = require("./src/server/componentHealth");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
 const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
+const { getEffectiveWeaponRanges } = require("./src/server/componentData");
 const { angleDifference } = require("./src/server/utils");
 const { sanitizeCombatStyle } = require("./src/server/validation");
 const { findShipHullOverlap } = require("./src/server/componentGeometry");
+const { findTarget } = require("./src/server/combat");
 const { createMovementRuntime } = require("./src/server/movementRuntime");
 
 const DT = 1 / 30;
@@ -127,22 +129,23 @@ function assertIntentShape(intent, label) {
   assert.strictEqual(typeof intent.debugReason, "string", `${label}: debugReason`);
 }
 
+function maximumWeaponRange(ship) {
+  return Math.max(0, ...Object.values(getEffectiveWeaponRanges(ship)).map(Number).filter(Number.isFinite));
+}
+
 function run() {
   assert.strictEqual(sanitizeCombatStyle("circle"), "orbit", "Circle remains an Orbit alias");
+  assert.strictEqual(sanitizeCombatStyle("maintain"), "hold", "Maintain migrates to Hold");
+  assert.strictEqual(sanitizeCombatStyle("sentry"), "hold", "Sentry migrates to Hold");
+  assert.strictEqual(sanitizeCombatStyle("direct"), "charge", "Direct migrates to Charge");
+  assert.strictEqual(sanitizeCombatStyle("evasive"), "orbit", "Evasive migrates to Orbit");
   assert.deepStrictEqual(
     [...SUPPORTED_MOVEMENT_TYPES].sort(),
-    [
-      "brawler", "charge", "direct", "evasive", "heavy", "hold",
-      "interceptor", "kite", "maintain", "move", "orbit", "repair",
-      "sentry", "stop"
-    ].sort(),
-    "all supported movement intent types remain registered"
+    ["charge", "hold", "kite", "move", "orbit", "repair", "stop"].sort(),
+    "only the revised stance and command intent types are registered"
   );
 
-  const combatStyles = [
-    "hold", "maintain", "kite", "orbit", "circle", "direct",
-    "sentry", "charge", "interceptor", "evasive", "brawler", "heavy"
-  ];
+  const combatStyles = ["charge", "hold", "orbit", "kite"];
   for (const style of combatStyles) {
     const { room, ship } = battle(style);
     const before = {
@@ -154,7 +157,7 @@ function run() {
     };
     const intent = createMovementIntent(room, ship, ship.stats, 1000);
     assertIntentShape(intent, style);
-    assert.strictEqual(intent.type, style === "circle" ? "orbit" : style,
+    assert.strictEqual(intent.type, style,
       `${style}: style maps to the expected intent`);
     assert.deepStrictEqual(
       {
@@ -182,6 +185,199 @@ function run() {
     }
     delete global.__mfaMovePerf;
   }
+  const indexSource = fs.readFileSync(path.join(__dirname, "public/index.html"), "utf8");
+  assert.deepStrictEqual(
+    [...indexSource.matchAll(/data-combat-style="([^"]+)"/g)].map((match) => match[1]),
+    ["charge", "hold", "orbit", "kite"],
+    "the in-match stance controls expose exactly the revised four stances"
+  );
+  const sidePanelSource = fs.readFileSync(
+    path.join(__dirname, "public/src/ui/sidePanelUi.js"),
+    "utf8"
+  );
+  for (const legacy of ["sentry", "maintain", "direct", "interceptor", "evasive", "brawler", "heavy"]) {
+    assert(!sidePanelSource.includes(`{ id: "${legacy}"`),
+      `legacy ${legacy} must not remain an in-match stance choice`);
+  }
+
+  // An acquired enemy must immediately hand movement to the combat stance,
+  // even when a persistent Move/Rally/Stop command was already active.
+  for (const style of combatStyles) {
+    const setup = roomWithPlayers();
+    const ship = runtimeShip(`command-priority-${style}`, 300, 500);
+    ship.combatStyle = style;
+    const target = {
+      id: `command-priority-target-${style}`,
+      ownerId: setup.enemyPlayer.id,
+      alive: true,
+      x: 900,
+      y: 500,
+      vx: 0,
+      vy: 0,
+      radius: 30,
+      design: [],
+      stats: { weaponDps: 1 }
+    };
+    addShip(setup.room, setup.player, ship);
+    addShip(setup.room, setup.enemyPlayer, target);
+    commandShips(setup.room, setup.player, 300, 1200, { shipIds: [ship.id] });
+    ship.combatTargetId = target.id;
+    assert.strictEqual(
+      createMovementIntent(setup.room, ship, ship.stats, 0).type,
+      style,
+      `${style}: an acquired enemy overrides a persistent move command`
+    );
+    target.alive = false;
+    assert.strictEqual(
+      createMovementIntent(setup.room, ship, ship.stats, 0).type,
+      "move",
+      `${style}: the interrupted move command resumes after the enemy becomes invalid`
+    );
+    target.alive = true;
+    stopShips(setup.room, setup.player, [ship.id]);
+    ship.combatTargetId = target.id;
+    assert.strictEqual(
+      createMovementIntent(setup.room, ship, ship.stats, 0).type,
+      style,
+      `${style}: an acquired enemy overrides a persistent stop command`
+    );
+    target.alive = false;
+    assert.strictEqual(
+      createMovementIntent(setup.room, ship, ship.stats, 0).type,
+      "stop",
+      `${style}: the stop command resumes after the enemy becomes invalid`
+    );
+    ship.focusTargetId = ship.id;
+    assert.strictEqual(
+      createMovementIntent(setup.room, ship, ship.stats, 0).type,
+      "stop",
+      `${style}: a living allied/stale target ID does not activate combat movement`
+    );
+  }
+
+  {
+    const setup = roomWithPlayers();
+    const hunter = runtimeShip("stable-target-hunter", 300, 500);
+    hunter.combatStyle = "charge";
+    const current = {
+      id: "stable-current", ownerId: setup.enemyPlayer.id, alive: true,
+      x: 650, y: 500, vx: 0, vy: 0, radius: 30, design: [], stats: { weaponDps: 1 }
+    };
+    const tempting = {
+      id: "tempting-replacement", ownerId: setup.enemyPlayer.id, alive: true,
+      x: 500, y: 500, vx: 0, vy: 0, radius: 30, design: [], stats: { weaponDps: 10000 }
+    };
+    addShip(setup.room, setup.player, hunter);
+    addShip(setup.room, setup.enemyPlayer, current);
+    addShip(setup.room, setup.enemyPlayer, tempting);
+    hunter.combatTargetId = current.id;
+    assert.strictEqual(findTarget(setup.room, hunter, [hunter, current, tempting]), current,
+      "a valid current target remains stable despite another target's higher threat score");
+    current.x = 5000;
+    setup.room.map.asteroids.push({ x: 1000, y: 500, radius: 180 });
+    assert.strictEqual(findTarget(setup.room, hunter, [hunter, current, tempting]), current,
+      "range and asteroid occlusion do not invalidate the current movement target");
+    current.alive = false;
+    hunter.focusTargetId = current.id;
+    hunter.combatTargetId = findTarget(
+      setup.room,
+      hunter,
+      [hunter, current, tempting]
+    )?.id || null;
+    assert.strictEqual(hunter.combatTargetId, tempting.id,
+      "a stance acquires another nearby enemy when its current target becomes invalid");
+    assert.strictEqual(
+      createMovementIntent(setup.room, hunter, hunter.stats, 0).facingTargetId,
+      tempting.id,
+      "a stale focus ID does not mask the valid replacement movement target"
+    );
+  }
+
+  {
+    const setup = roomWithPlayers();
+    const holder = runtimeShip("local-hold-targeting", 300, 500);
+    holder.combatStyle = "hold";
+    const departed = {
+      id: "departed-hold-target",
+      ownerId: setup.enemyPlayer.id,
+      alive: true,
+      x: 1800,
+      y: 500,
+      vx: 0,
+      vy: 0,
+      radius: 30,
+      design: [],
+      stats: { weaponDps: 1 }
+    };
+    const nearby = {
+      id: "nearby-hold-target",
+      ownerId: setup.enemyPlayer.id,
+      alive: true,
+      x: 650,
+      y: 500,
+      vx: 0,
+      vy: 0,
+      radius: 30,
+      design: [],
+      stats: { weaponDps: 1 }
+    };
+    addShip(setup.room, setup.player, holder);
+    addShip(setup.room, setup.enemyPlayer, departed);
+    addShip(setup.room, setup.enemyPlayer, nearby);
+    holder.combatTargetId = departed.id;
+    assert.strictEqual(
+      findTarget(setup.room, holder, [holder, departed, nearby]),
+      nearby,
+      "automatic Hold switches to a nearby engageable enemy instead of moving unnecessarily"
+    );
+    holder.focusTargetId = departed.id;
+    assert.strictEqual(
+      findTarget(setup.room, holder, [holder, departed, nearby]),
+      departed,
+      "an explicit target remains authoritative for Hold"
+    );
+  }
+
+  // A Hold station outlives the target that prompted it: switching to another
+  // enemy that is reachable from the same spot must not restart an approach.
+  {
+    const { room, ship, target } = battle("hold", { shipX: 200 });
+    tick(room, [ship], 12);
+    const station = { ...ship.movement.style.holdPosition };
+    assert(Number.isFinite(station.x), "Hold has a station to retain");
+    const replacement = {
+      id: "second-hold-target",
+      ownerId: room.players.get("p2").id,
+      alive: true,
+      x: station.x + maximumWeaponRange(ship) * 0.8,
+      y: station.y + 60,
+      vx: 0,
+      vy: 0,
+      radius: 30,
+      stats: { mass: 20 },
+      design: []
+    };
+    addShip(room, room.players.get("p2"), replacement);
+    target.alive = false;
+    ship.combatTargetId = replacement.id;
+    const swapped = createMovementIntent(room, ship, ship.stats, 20000);
+    assert.strictEqual(swapped.debugReason, "hold:station-retained-new-target",
+      "Hold engages another nearby enemy from the position it already occupies");
+    assert.deepStrictEqual(swapped.destination, station,
+      "Hold does not move to the new target's range ring");
+    assert.strictEqual(swapped.facingTargetId, replacement.id,
+      "Hold turns to the replacement target without relocating");
+    tick(room, [ship], 3, 21000);
+    assert(Math.hypot(ship.x - station.x, ship.y - station.y) < 4,
+      "Hold stays put while engaging the replacement target");
+    // Out of reach of the station is the one case worth moving for.
+    replacement.x = station.x + maximumWeaponRange(ship) + 400;
+    assert.strictEqual(
+      createMovementIntent(room, ship, ship.stats, 22000).debugReason,
+      "hold:approach-outside-range",
+      "Hold gives up its station once nothing it is shooting at is reachable from it"
+    );
+  }
 
   const intentSource = fs.readFileSync(
     path.join(__dirname, "src/server/movementIntents.js"),
@@ -195,11 +391,12 @@ function run() {
       `intent generators must not assign ship.${field}`);
   }
 
-  // Hold commits one bounded fixed point, faces its target when settled, and
-  // requests a return to that point after displacement.
+  // Hold approaches only from outside preferred weapon range, establishes a
+  // fixed position inside it, and never retreats from a closer target.
   {
     const { room, ship, target } = battle("hold", { shipX: 200 });
     const positioning = createMovementIntent(room, ship, ship.stats, 0);
+    assert.strictEqual(positioning.debugReason, "hold:approach-outside-range");
     ship.x = positioning.destination.x;
     ship.y = positioning.destination.y;
     ship.vx = 0;
@@ -207,6 +404,13 @@ function run() {
     tick(room, [ship], DT * 2);
     const held = { ...ship.movement.style.holdPosition };
     assert(Number.isFinite(held.x) && Number.isFinite(held.y), "Hold stores one fixed position");
+    target.x = held.x + 40;
+    target.y = held.y;
+    const close = createMovementIntent(room, ship, ship.stats, 100);
+    assert.deepStrictEqual(close.destination, held,
+      "Hold never retreats when the target moves closer");
+    target.x = 1000;
+    target.y = 500;
     ship.x += 90;
     const returning = createMovementIntent(room, ship, ship.stats, 100);
     assert.deepStrictEqual(returning.destination, held, "Hold returns to its stored position");
@@ -224,52 +428,111 @@ function run() {
     const endError = Math.abs(angleDifference(ship.angle,
       Math.atan2(target.y - ship.y, target.x - ship.x)));
     assert(endError < startError, "settled Hold faces its target");
+    target.x = held.x + positioning.desiredRange * 2;
+    const reacquireRange = createMovementIntent(room, ship, ship.stats, 12000);
+    assert.strictEqual(reacquireRange.debugReason, "hold:approach-outside-range",
+      "Hold approaches again after the target leaves preferred range");
+
+    const simulated = battle("hold", { shipX: 200 });
+    const simulatedRange = createMovementIntent(
+      simulated.room,
+      simulated.ship,
+      simulated.ship.stats,
+      0
+    ).desiredRange;
+    tick(simulated.room, [simulated.ship], 12);
+    const settledDistance = Math.hypot(
+      simulated.ship.x - simulated.target.x,
+      simulated.ship.y - simulated.target.y
+    );
+    assert(settledDistance <= simulatedRange + 24,
+      "Hold reaches its preferred range in the production movement loop");
+    assert(Math.hypot(simulated.ship.vx, simulated.ship.vy) < 18,
+      "Hold stops after entering its preferred range");
+    // Arrival braking parks the ship short of the ring, so a commit test written
+    // as distance <= desiredRange never fires in the real loop and the ship
+    // range-keeps forever instead of establishing a station.
+    assert(simulated.ship.movement.style.holdPosition,
+      "Hold commits a station in the production movement loop, not only when placed exactly on the ring");
+    assert.strictEqual(
+      createMovementIntent(simulated.room, simulated.ship, simulated.ship.stats, 12500)
+        .debugReason,
+      "hold:established-position",
+      "a settled Hold reports its established position rather than a permanent approach");
+    const station = { x: simulated.ship.x, y: simulated.ship.y };
+    // A target drifting past the preferred range but still shootable is not
+    // worth giving up a firing position for.
+    const holdMaximumRange = maximumWeaponRange(simulated.ship);
+    simulated.target.x = station.x + (simulatedRange + holdMaximumRange) / 2;
+    simulated.target.y = station.y;
+    tick(simulated.room, [simulated.ship], 3, 12600);
+    assert(Math.hypot(simulated.ship.x - station.x, simulated.ship.y - station.y) < 4,
+      "Hold stays on station while the target is still inside weapon range");
+    simulated.target.x = simulated.ship.x + 40;
+    simulated.target.y = simulated.ship.y;
+    tick(simulated.room, [simulated.ship], 3, 13000);
+    assert(Math.hypot(simulated.ship.x - station.x, simulated.ship.y - station.y) < 4,
+      "Hold does not retreat when its target closes");
+    simulated.target.x = simulated.ship.x + simulatedRange + 250;
+    const outsideDistance = Math.hypot(
+      simulated.ship.x - simulated.target.x,
+      simulated.ship.y - simulated.target.y
+    );
+    tick(simulated.room, [simulated.ship], 3, 17000);
+    assert(Math.hypot(
+      simulated.ship.x - simulated.target.x,
+      simulated.ship.y - simulated.target.y
+    ) < outsideDistance, "Hold approaches again when its target leaves range");
   }
 
-  // Maintain and Kite share range intent generation without band flags.
+  // Kite retreats only while too close, preserves separation in its safe band,
+  // and approaches only after the target is beyond maximum weapon range.
   {
-    const maintain = battle("maintain", { shipX: 150 });
-    const far = createMovementIntent(maintain.room, maintain.ship, maintain.ship.stats, 0);
-    assert(far.debugReason.endsWith("approach"), "Maintain approaches from outside range");
-    const desiredRange = far.desiredRange;
-    maintain.ship.x = maintain.target.x - 40;
-    maintain.ship.vx = 0;
-    const close = createMovementIntent(maintain.room, maintain.ship, maintain.ship.stats, 0);
-    assert(close.debugReason.endsWith("retreat"), "Maintain retreats inside range");
-    assert(Math.hypot(
-      close.destination.x - maintain.target.x,
-      close.destination.y - maintain.target.y
-    ) > 40, "Maintain retreat destination is away from the target");
-    maintain.ship.x = maintain.target.x - desiredRange;
-    maintain.ship.y = maintain.target.y;
-    maintain.ship.vx = 0;
-    maintain.ship.vy = 0;
-    const reasons = [];
-    for (let index = 0; index < 90; index += 1) {
-      reasons.push(createMovementIntent(
-        maintain.room,
-        maintain.ship,
-        maintain.ship.stats,
-        index * DT * 1000
-      ).debugReason);
-      updateShipMovement(maintain.room, maintain.ship, DT, index * DT * 1000);
-    }
-    const changes = reasons.slice(1).reduce(
-      (count, reason, index) => count + (reason !== reasons[index] ? 1 : 0),
+    const kite = battle("kite", { shipX: 950 });
+    const retreat = createMovementIntent(kite.room, kite.ship, kite.ship.stats, 0);
+    assert.strictEqual(retreat.debugReason, "kite:retreat-too-close");
+    assert(Math.hypot(retreat.destination.x - kite.target.x, retreat.destination.y - kite.target.y)
+      > Math.hypot(kite.ship.x - kite.target.x, kite.ship.y - kite.target.y),
+    "Kite retreat destination increases separation");
+    kite.ship.x = kite.target.x - (retreat.desiredRange + maximumWeaponRange(kite.ship)) / 2;
+    kite.ship.vx = 0;
+    kite.ship.vy = 0;
+    const safe = createMovementIntent(kite.room, kite.ship, kite.ship.stats, 0);
+    assert.strictEqual(safe.debugReason, "kite:safe-range-restored");
+    assert.deepStrictEqual(safe.desiredVelocity, { x: 0, y: 0 },
+      "Kite stops retreating once safe range is restored");
+    kite.ship.x = 100;
+    assert.strictEqual(createMovementIntent(kite.room, kite.ship, kite.ship.stats, 0)
+      .debugReason, "kite:approach-outside-weapon-range",
+    "Kite approaches only outside weapon range");
+
+    const simulated = battle("kite", { shipX: 950 });
+    const simulatedIntent = createMovementIntent(
+      simulated.room,
+      simulated.ship,
+      simulated.ship.stats,
       0
     );
-    assert(changes < 8, `Maintain must not rapidly alternate state (changes ${changes})`);
-    assert(Math.abs(
-      Math.hypot(maintain.ship.x - maintain.target.x, maintain.ship.y - maintain.target.y)
-      - desiredRange
-    ) < desiredRange * 0.12, "Maintain remains stable near desired range");
-
-    const kite = battle("kite", { shipX: 950 });
-    assert(createMovementIntent(kite.room, kite.ship, kite.ship.stats, 0)
-      .debugReason.endsWith("retreat"), "Kite retreats when too close");
-    kite.ship.x = 100;
-    assert(createMovementIntent(kite.room, kite.ship, kite.ship.stats, 0)
-      .debugReason.endsWith("approach"), "Kite approaches only outside range");
+    tick(simulated.room, [simulated.ship], 12);
+    const restoredDistance = Math.hypot(
+      simulated.ship.x - simulated.target.x,
+      simulated.ship.y - simulated.target.y
+    );
+    assert(Math.abs(restoredDistance - simulatedIntent.desiredRange) < 28,
+      "Kite restores its safe range in the production movement loop");
+    assert(Math.hypot(simulated.ship.vx, simulated.ship.vy) < 18,
+      "Kite stops retreating once the static target is at safe range");
+    simulated.target.x = simulated.ship.x + maximumWeaponRange(simulated.ship) + 250;
+    simulated.target.y = simulated.ship.y;
+    const farDistance = Math.hypot(
+      simulated.ship.x - simulated.target.x,
+      simulated.ship.y - simulated.target.y
+    );
+    tick(simulated.room, [simulated.ship], 3, 13000);
+    assert(Math.hypot(
+      simulated.ship.x - simulated.target.x,
+      simulated.ship.y - simulated.target.y
+    ) < farDistance, "Kite approaches after the target moves beyond weapon range");
 
     const obstacleKite = battle("kite", {
       shipX: 300,
@@ -281,12 +544,18 @@ function run() {
       "Kite uses shared obstacle pathing");
   }
 
-  // Orbit uses one radial+tangential velocity and never enters arrival braking.
+  // Orbit circles a lead point on the ring: it holds one radius and one
+  // direction, never enters arrival braking, and paths around obstacles.
   {
     const { room, ship, target } = battle("orbit", { shipX: 580, targetX: 1000 });
     const first = createMovementIntent(room, ship, ship.stats, 0);
     const desiredRange = first.desiredRange;
+    assert(Math.abs(desiredRange - maximumWeaponRange(ship) * 0.9) < 1,
+      "Orbit circles at 90% of maximum weapon range");
+    assert.strictEqual(first.arrivalRequired, false,
+      "Orbit never requests arrival, so radius correction skips arrival braking");
     const errors = [];
+    const speeds = [];
     let direction = null;
     for (let index = 0; index < 600; index += 1) {
       updateShipMovement(room, ship, DT, index * DT * 1000);
@@ -299,36 +568,51 @@ function run() {
         errors.push(Math.abs(
           Math.hypot(ship.x - target.x, ship.y - target.y) - desiredRange
         ));
+        speeds.push(Math.hypot(ship.vx, ship.vy));
       }
     }
     const averageError = errors.reduce((sum, value) => sum + value, 0) / errors.length;
     assert(averageError < desiredRange * 0.25,
       `Orbit radius error stays bounded (average ${averageError.toFixed(1)})`);
-    assert.strictEqual(ship.movement.navigation.waypoints.length, 0,
-      "Orbit does not manufacture advancing arrival waypoints");
+    // The previous radial+tangential blend crawled at roughly a tenth of top
+    // speed because its tangential term was capped by sqrt(accel * r * 0.1).
+    const averageSpeed = speeds.reduce((sum, value) => sum + value, 0) / speeds.length;
+    assert(averageSpeed > ship.stats.maxSpeed * 0.35,
+      `Orbit circles at a useful fraction of top speed (${averageSpeed.toFixed(1)} of ${ship.stats.maxSpeed.toFixed(1)})`);
+
+    // An asteroid sitting on the circle is routed around, not flown into, and
+    // the ship is still orbiting once it is past.
+    const blocked = battle("orbit", { shipX: 300, targetX: 1200, targetY: 500 });
+    const blockedRange = createMovementIntent(
+      blocked.room,
+      blocked.ship,
+      blocked.ship.stats,
+      0
+    ).desiredRange;
+    const rock = { x: 1200 - blockedRange, y: 500, radius: 140 };
+    blocked.room.map.asteroids.push(rock);
+    let routed = false;
+    let minimumClearance = Infinity;
+    for (let index = 0; index < 900; index += 1) {
+      updateShipMovement(blocked.room, blocked.ship, DT, index * DT * 1000);
+      routed ||= blocked.ship.movement.navigation.waypoints.length > 1;
+      minimumClearance = Math.min(
+        minimumClearance,
+        Math.hypot(blocked.ship.x - rock.x, blocked.ship.y - rock.y) - rock.radius
+      );
+    }
+    assert(routed, "Orbit uses shared obstacle pathing around an asteroid on its circle");
+    assert(minimumClearance > 0,
+      `Orbit never flies into the asteroid (closest approach ${minimumClearance.toFixed(1)} px)`);
+    assert(Math.abs(
+      Math.hypot(blocked.ship.x - blocked.target.x, blocked.ship.y - blocked.target.y)
+        - blockedRange
+    ) < blockedRange * 0.3, "Orbit rejoins its circle after clearing the obstacle");
   }
 
-  // Direct, Charge and Interceptor express destination choices but still use
-  // the same navigation/collision pipeline.
+  // Charge pursues through weapon range and stops only at contact distance while
+  // still using shared obstacle navigation.
   {
-    const direct = battle("direct", {
-      shipX: 300,
-      targetX: 1700,
-      asteroids: [{ x: 1000, y: 500, radius: 150 }]
-    });
-    updateShipMovement(direct.room, direct.ship, DT, 0);
-    assert(direct.ship.movement.navigation.waypoints.length > 1,
-      "Direct follows the shared obstacle route");
-    let nearest = Infinity;
-    for (let index = 1; index < 1200; index += 1) {
-      updateShipMovement(direct.room, direct.ship, DT, index * DT * 1000);
-      nearest = Math.min(nearest, Math.hypot(
-        direct.ship.x - direct.target.x,
-        direct.ship.y - direct.target.y
-      ));
-    }
-    assert(nearest < 180, `Direct reaches or follows its target (nearest ${nearest.toFixed(1)})`);
-
     const charge = battle("charge", {
       shipX: 300,
       targetX: 1700,
@@ -336,69 +620,34 @@ function run() {
     });
     const chargeIntent = createMovementIntent(charge.room, charge.ship, charge.ship.stats, 0);
     assert.strictEqual(chargeIntent.maxSpeedFactor, 1, "Charge requests normal maximum speed");
+    assert.strictEqual(chargeIntent.arrivalRequired, true,
+      "Charge stops only when its contact destination is reached");
     updateShipMovement(charge.room, charge.ship, DT, 0);
     assert(charge.ship.movement.navigation.waypoints.length > 1,
       "Charge does not bypass shared pathing");
-
-    const interceptor = battle("interceptor", {
-      shipX: 300,
-      targetX: 1200,
-      targetVx: 120
-    });
-    const movingPrediction = createMovementIntent(
-      interceptor.room,
-      interceptor.ship,
-      interceptor.ship.stats,
-      0
+    charge.ship.x = charge.target.x - maximumWeaponRange(charge.ship) * 0.5;
+    charge.ship.y = charge.target.y;
+    const insideWeaponRange = createMovementIntent(
+      charge.room,
+      charge.ship,
+      charge.ship.stats,
+      100
     );
-    interceptor.target.vx = 0;
-    const staticPrediction = createMovementIntent(
-      interceptor.room,
-      interceptor.ship,
-      interceptor.ship.stats,
-      0
+    assert.strictEqual(insideWeaponRange.debugReason, "charge:pursue-to-contact");
+    assert(insideWeaponRange.destination.x > charge.ship.x,
+      "Charge continues closing after entering weapon range");
+
+    const contact = battle("charge", { shipX: 300, targetX: 1000 });
+    const contactIntent = createMovementIntent(contact.room, contact.ship, contact.ship.stats, 0);
+    tick(contact.room, [contact.ship], 30);
+    const contactDistance = Math.hypot(
+      contact.ship.x - contact.target.x,
+      contact.ship.y - contact.target.y
     );
-    assert(Math.hypot(
-      movingPrediction.destination.x - staticPrediction.destination.x,
-      movingPrediction.destination.y - staticPrediction.destination.y
-    ) > 10, "Interceptor predicts target velocity");
-  }
-
-  // Sentry returns to one stored point; Evasive stores only a bounded dodge
-  // direction/expiry; Brawler and Heavy differ by configured desired range.
-  {
-    const sentry = battle("sentry", { shipX: 500, targetX: 1200 });
-    applyCombatStyle(sentry.ship, "sentry");
-    const sentryPoint = { ...sentry.ship.movement.style.sentryPosition };
-    sentry.ship.x += 180;
-    const sentryIntent = createMovementIntent(sentry.room, sentry.ship, sentry.ship.stats, 0);
-    assert.deepStrictEqual(sentryIntent.destination, sentryPoint, "Sentry returns to stored position");
-    const before = Math.hypot(sentry.ship.x - sentryPoint.x, sentry.ship.y - sentryPoint.y);
-    tick(sentry.room, [sentry.ship], 12);
-    assert(Math.hypot(sentry.ship.x - sentryPoint.x, sentry.ship.y - sentryPoint.y) < before,
-      "Sentry moves back toward its post");
-
-    const evasive = battle("evasive");
-    const evasiveIntent = createMovementIntent(evasive.room, evasive.ship, evasive.ship.stats, 1000);
-    assert(evasiveIntent.desiredVelocity
-      && Math.hypot(evasiveIntent.desiredVelocity.x, evasiveIntent.desiredVelocity.y) <= 120,
-    "Evasive adds a bounded lateral velocity");
-    updateShipMovement(evasive.room, evasive.ship, DT, 1000);
-    const dodge = { ...evasive.ship.movement.style.evasive };
-    updateShipMovement(evasive.room, evasive.ship, DT, 1050);
-    assert.deepStrictEqual(evasive.ship.movement.style.evasive, dodge,
-      "Evasive direction remains stable before expiry");
-    updateShipMovement(evasive.room, evasive.ship, DT, dodge.expiresAt + 1);
-    assert(evasive.ship.movement.style.evasive.expiresAt > dodge.expiresAt,
-      "Evasive direction has a bounded expiry");
-
-    const brawler = battle("brawler");
-    const heavy = battle("heavy");
-    assert(
-      createMovementIntent(brawler.room, brawler.ship, brawler.ship.stats, 0).desiredRange
-      < createMovementIntent(heavy.room, heavy.ship, heavy.ship.stats, 0).desiredRange,
-      "Brawler and Heavy retain distinct preferred ranges"
-    );
+    assert.strictEqual(contact.ship.movement.phase, "positioned",
+      "Charge settles only after reaching contact distance");
+    assert(Math.abs(contactDistance - contactIntent.desiredRange) < 24,
+      `Charge stops near required contact distance (error ${Math.abs(contactDistance - contactIntent.desiredRange).toFixed(1)})`);
   }
 
   // Manual rotation uses one API, releases cleanly, and every new command clears it.
@@ -530,8 +779,6 @@ function run() {
       },
       style: {
         orbit: null,
-        evasive: null,
-        sentryPosition: null,
         holdPosition: null,
         holdTargetId: null
       },
@@ -551,7 +798,8 @@ function run() {
   }
 
   console.log("Movement styles verification passed");
-  console.log("  intents: move/hold/maintain/kite/orbit/direct/sentry/charge/interceptor/evasive/brawler/heavy/repair/stop");
+  console.log("  stances: charge/hold/orbit/kite");
+  console.log("  commands: move/repair/stop");
   console.log("  pipeline: navigation -> controller -> facing -> propulsion -> collision");
 }
 

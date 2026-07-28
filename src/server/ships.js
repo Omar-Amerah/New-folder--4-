@@ -292,7 +292,7 @@ function updateBots(room, now) {
     const nearestEnemy = enemies[0];
 
     if (nearestEnemy && distanceToFleet(ships, nearestEnemy) < 760) {
-      const botStyles = ['charge', 'orbit', 'maintain', 'hold'];
+      const botStyles = ["charge", "hold", "orbit", "kite"];
       for (const ship of ships) {
         if (!ship.combatStyle || ship.combatStyle === 'hold') {
           ship.combatStyle = botStyles[seq % botStyles.length];

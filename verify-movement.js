@@ -345,7 +345,18 @@ function run() {
     moveDestination: null
   });
   const disarmedTarget = { id: "enemy", ownerId: "p2", alive: true, x: 900, y: 300, radius: 30 };
-  const combatRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map([[disarmedTarget.id, disarmedTarget]]) };
+  const combatRoom = {
+    world: { width: 2000, height: 1600 },
+    map: { asteroids: [] },
+    ships: new Map([[disarmedTarget.id, disarmedTarget]]),
+    // Stance movement resolves its target through areEnemies, so both owners
+    // have to exist here or the ship simply has no target to react to.
+    players: new Map([
+      ["p1", { id: "p1", team: "blue", ships: [] }],
+      ["p2", { id: "p2", team: "red", ships: [] }]
+    ]),
+    rules: { gameMode: "teams" }
+  };
   disarmed.componentHp[3] = 0;
   updateShipMovement(combatRoom, disarmed, 1 / 30);
   assert.strictEqual(disarmed.targetX, disarmed.x, "ship with no surviving gun holds its current range");
@@ -359,20 +370,31 @@ function run() {
     ? { ...module, rotation: 180 }
     : { ...module });
   const parkedEnemy = { id: "parked-enemy", ownerId: "p2", alive: true, x: 300, y: 900, radius: 30 };
-  const parkedRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map([[parkedEnemy.id, parkedEnemy]]) };
-  for (const style of ["sentry", "hold"]) {
+  const parkedRoom = {
+    world: { width: 2000, height: 1600 },
+    map: { asteroids: [] },
+    ships: new Map([[parkedEnemy.id, parkedEnemy]]),
+    players: new Map([
+      ["p1", { id: "p1", team: "blue", ships: [] }],
+      ["p2", { id: "p2", team: "red", ships: [] }]
+    ]),
+    rules: { gameMode: "teams" }
+  };
+  {
+    // Hold is the stance that parks; the other three are always under way, and
+    // a ship under way points where it is going.
     const parked = runtimeShip(rearGunDesign, {
-      id: `parked-${style}`,
+      id: "parked-hold",
       angle: 0.4,
-      combatStyle: style,
+      combatStyle: "hold",
       combatTargetId: parkedEnemy.id,
       moveDestination: null
     });
     const startAngle = parked.angle;
     for (let i = 0; i < 30; i += 1) updateShipMovement(parkedRoom, parked, 1 / 30, i * 1000 / 30);
-    assert(parked.angle > startAngle, `parked ${style} ship should turn toward the enemy, not its rear-facing weapon`);
+    assert(parked.angle > startAngle, "parked Hold ship should turn toward the enemy, not its rear-facing weapon");
     assert(Math.abs(Math.PI / 2 - parked.angle) < Math.abs(Math.PI / 2 - startAngle),
-      `parked ${style} ship should converge on the enemy bearing`);
+      "parked Hold ship should converge on the enemy bearing");
   }
 
   // 14. Exact-overlap separation uses a deterministic direction and converges.

@@ -61,7 +61,8 @@ function runAuthoritative() {
       { x: 8, y: 8, type: "maneuverThruster", rotation: 270 },
       { x: 6, y: 7, type: "blaster" }
     ];
-    const ship = runtimeShip("strafe", 300, 300, design, { combatStyle: "evasive", focusTargetId: "enemy", combatTargetId: "enemy" });
+    room.players.set("p2", { id: "p2", team: "B", ships: [] });
+    const ship = runtimeShip("strafe", 300, 300, design, { combatStyle: "charge", focusTargetId: "enemy", combatTargetId: "enemy" });
     const enemy = { id: "enemy", ownerId: "p2", team: "B", alive: true, x: 800, y: 300, radius: 40, stats: {} };
     addShip(room, player, ship);
     room.ships.set("enemy", enemy);
@@ -71,16 +72,19 @@ function runAuthoritative() {
       updateShipSeparation(room);
     }
     const distanceMovedX = ship.x - startX;
-    const distanceMovedY = Math.abs(ship.y - 300);
-    assert(distanceMovedX > 50, `evasive ship should close range (moved ${distanceMovedX.toFixed(1)} px)`);
-    assert(distanceMovedY > 30, `evasive ship should strafe laterally (y moved ${distanceMovedY.toFixed(1)} px)`);
-    // This hull has more lateral authority (~74) than forward (~55), so it can
-    // hold its guns on the target while the vector thrusters do the travelling.
-    // That is the whole point of fitting maneuver thrusters.
+    assert(distanceMovedX > 50, `charging ship should close range (moved ${distanceMovedX.toFixed(1)} px)`);
+    // Maneuver thrusters buy turn rate, not strafing: whatever the stance, the
+    // velocity a ship builds up lies on its hull axis.
+    const travelError = Math.abs(angleDifference(
+      ship.angle,
+      Math.atan2(ship.vy, ship.vx)
+    ));
+    assert(travelError < 0.2,
+      `velocity should stay on the hull axis (error ${travelError.toFixed(3)})`);
     const bearingToEnemy = Math.atan2(enemy.y - ship.y, enemy.x - ship.x);
     assert(Math.abs(angleDifference(ship.angle, bearingToEnemy)) < 0.8,
-      `a strafing hull should keep its guns on the target (error ${Math.abs(angleDifference(ship.angle, bearingToEnemy)).toFixed(3)})`);
-    console.log("  vector-strafe: passed");
+      `a closing hull should keep its guns on the target (error ${Math.abs(angleDifference(ship.angle, bearingToEnemy)).toFixed(3)})`);
+    console.log("  hull-axis-travel: passed");
   }
 
 
@@ -226,6 +230,7 @@ function runAuthoritative() {
     const room = makeRoom();
     const player = { id: "p1", team: "A", ships: [] };
     room.players.set("p1", player);
+    room.players.set("p2", { id: "p2", team: "B", ships: [] });
     const design = [
       { x: 7, y: 7, type: "core" },
       { x: 8, y: 7, type: "reactor" },
@@ -263,18 +268,19 @@ function runAuthoritative() {
     console.log("  stable-orbit: passed");
   }
 
-  // 8. Maintain range: ship should settle near 90% weapon range and stay.
+  // 8. Hold range: ship should settle near 90% weapon range and stay.
   {
     const room = makeRoom();
     const player = { id: "p1", team: "A", ships: [] };
     room.players.set("p1", player);
+    room.players.set("p2", { id: "p2", team: "B", ships: [] });
     const design = [
       { x: 7, y: 7, type: "core" },
       { x: 8, y: 7, type: "reactor" },
       { x: 7, y: 8, type: "engine" },
       { x: 6, y: 7, type: "blaster" }
     ];
-    const ship = runtimeShip("maintain", 200, 300, design, { combatStyle: "maintain", focusTargetId: "target", combatTargetId: "target" });
+    const ship = runtimeShip("hold", 200, 300, design, { combatStyle: "hold", focusTargetId: "target", combatTargetId: "target" });
     const target = { id: "target", ownerId: "p2", team: "B", alive: true, x: 900, y: 300, radius: 40, stats: {} };
     addShip(room, player, ship);
     room.ships.set("target", target);
@@ -293,8 +299,8 @@ function runAuthoritative() {
       updateShipSeparation(room);
     }
     const avgError = sumError / samples;
-    assert(avgError < desiredRange * 0.12, `maintain range should stay close to desired (avg error ${avgError.toFixed(1)})`);
-    console.log("  maintain-range: passed");
+    assert(avgError < desiredRange * 0.12, `Hold range should stay close to desired (avg error ${avgError.toFixed(1)})`);
+    console.log("  hold-range: passed");
   }
 
   console.log("Authoritative movement verification passed");

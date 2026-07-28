@@ -2,7 +2,11 @@ const { sanitizeRoomCode } = require('./validation');
 const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
 const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_COMBAT_SHIP_IDS = 360, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
 const TYPES = ['ping','join','deploy','buyShip','setCombatStyle','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','rotate','destruct','setTeam','setColor','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
-const COMBAT = new Set(['sentry','charge','circle','hold','orbit','maintain','kite','direct','interceptor','evasive','brawler','heavy']);
+// The four live stances plus the legacy names sanitizeCombatStyle() still maps
+// onto them. Deliberately permissive: an unrecognised style rejects the entire
+// deploy/buyShip message, so a blueprint saved under an old stance name would
+// fail to deploy rather than come in under its replacement.
+const COMBAT = new Set(['charge','hold','orbit','kite','sentry','circle','maintain','direct','interceptor','evasive','brawler','heavy']);
 const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
 const SCHEMAS = Object.freeze(Object.fromEntries(TYPES.map((t)=>[t, Object.freeze({ type:t })])));
 function isPlainObject(v){return !!v && typeof v==='object' && !Array.isArray(v) && (Object.getPrototypeOf(v)===Object.prototype || Object.getPrototypeOf(v)===null);}

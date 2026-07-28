@@ -29,9 +29,7 @@ const ASSIGNABLE_GROUP_IDS = ["group1", "group2", "group3", "group4", "group5"];
 const SELECTED_COMBAT_STYLES = [
   { id: "charge", label: "Charge", description: STYLE_DESCRIPTIONS.charge },
   { id: "hold", label: "Hold", description: STYLE_DESCRIPTIONS.hold },
-  { id: "sentry", label: "Sentry", description: STYLE_DESCRIPTIONS.sentry },
   { id: "orbit", label: "Orbit", description: STYLE_DESCRIPTIONS.orbit },
-  { id: "maintain", label: "Maintain", description: STYLE_DESCRIPTIONS.maintain },
   { id: "kite", label: "Kite", description: STYLE_DESCRIPTIONS.kite }
 ];
 
@@ -554,7 +552,10 @@ function combatStyleLabel(style) {
 }
 
 function normalizeCombatStyle(style) {
-  return SELECTED_COMBAT_STYLES.some((item) => item.id === style) ? style : "hold";
+  if (SELECTED_COMBAT_STYLES.some((item) => item.id === style)) return style;
+  if (style === "circle" || style === "evasive") return "orbit";
+  if (style === "direct" || style === "interceptor" || style === "brawler") return "charge";
+  return "hold";
 }
 
 function normalizeGroupCombatStyle(style) {

@@ -93,30 +93,16 @@ module.exports = Object.freeze({
 
   // --- Combat style stand-off ratios -------------------------------------
   HOLD_RANGE_RATIO: 0.9,
-  ORBIT_RANGE_RATIO: 0.75,
-  MAINTAIN_RANGE_RATIO: 0.9,
-  MAINTAIN_TOLERANCE: 0.05,
+  ORBIT_RANGE_RATIO: 0.9,
   KITE_RANGE_RATIO: 0.9,
-  KITE_TOLERANCE: 0.05,
-  INTERCEPTOR_RANGE_RATIO: 0.35,
-  EVASIVE_RANGE_RATIO: 0.75,
-  BRAWLER_RANGE_RATIO: 0.5,
-  BRAWLER_TOLERANCE: 0.04,
-  HEAVY_RANGE_RATIO: 0.85,
-  HEAVY_TOLERANCE: 0.04,
 
   // --- Combat style shaping ----------------------------------------------
-  RANGE_BAND_RADIAL_SPEED: 20,
-  ORBIT_TANGENTIAL_SPEED_RATIO: 0.2,
-  ORBIT_TANGENTIAL_ACCEL_SCALE: 0.1,
-  ORBIT_RADIAL_RANGE_GAIN: 1.6,
-  ORBIT_RADIAL_DAMPING_GAIN: 1.35,
-  ORBIT_MIN_RADIAL_LIMIT: 48,
-  DIRECT_LEAD_SCALE: 0.35,
-  DIRECT_MAX_LEAD_S: 1.5,
-  INTERCEPTOR_MAX_LEAD_S: 3,
-  EVASIVE_LATERAL_SPEED_RATIO: 0.28,
-  EVASIVE_MIN_LATERAL_SPEED: 16,
+  // Orbit steers at a point on the circle this far ahead of the ship, measured
+  // as an angle about the target. The ship therefore always flies toward the
+  // ring itself, which corrects the radius without a separate controller.
+  // Larger cuts the corner inward and flies a polygon; smaller tracks the
+  // circle tightly but spends the whole orbit turning.
+  ORBIT_LEAD_ANGLE: 0.45,
   REPAIR_STANDOFF_PAD: 30,
 
   // --- Component heat from movement --------------------------------------

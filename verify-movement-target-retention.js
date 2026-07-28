@@ -49,14 +49,25 @@ function runtimeShip(design, overrides = {}) {
 }
 
 function emptyRoom() {
-  return { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() };
+  // Stance movement resolves its target through areEnemies, so a room without
+  // both owners registered leaves every ship here with nothing to react to.
+  return {
+    world: { width: 2000, height: 1600 },
+    map: { asteroids: [] },
+    ships: new Map(),
+    players: new Map([
+      ["p1", { id: "p1", team: "blue", ships: [] }],
+      ["p2", { id: "p2", team: "red", ships: [] }]
+    ]),
+    rules: { gameMode: "teams" }
+  };
 }
 
 function run() {
   // ── 1. Manoeuvring ship retains its combat target across movement steps ──
   const thrusterDesign = [mod("core", 7, 7), mod("reactor", 8, 7), mod("engine", 7, 8), mod("maneuverThruster", 6, 7, 90)];
   const ship1 = runtimeShip(thrusterDesign, {
-    combatStyle: "evasive",
+    combatStyle: "orbit",
     targetX: 600, targetY: 300,
     focusTargetId: "enemy",
     combatTargetId: "enemy"
@@ -81,7 +92,7 @@ function run() {
 
   // ── 2. Target IDs survive a tick large enough to force several substeps ──
   const ship2 = runtimeShip(thrusterDesign, {
-    combatStyle: "interceptor",
+    combatStyle: "charge",
     targetX: 600, targetY: 300,
     focusTargetId: "enemy2",
     combatTargetId: "enemy2"

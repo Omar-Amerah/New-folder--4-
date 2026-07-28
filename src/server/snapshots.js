@@ -14,6 +14,7 @@ const { buildPowerWiringLayout, buildPowerWiringRuntime } = require("./powerWiri
 const { PARTS } = require("./components");
 const { BALANCE_REVISION } = require("./balanceConfig");
 const { reportInvalidShieldState } = require("./runtimeShield");
+const { sanitizeCombatStyle } = require("./validation");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -73,7 +74,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       vy: round(ship.vy),
       angle: round(ship.angle),
       turnActivity: Math.max(-1, Math.min(1, Number.isFinite(ship.turnActivity) ? ship.turnActivity : 0)),
-      combatStyle: ship.combatStyle === "circle" ? "orbit" : (ship.combatStyle || "hold"),
+      combatStyle: sanitizeCombatStyle(ship.combatStyle),
       targetX: round(ship.targetX),
       targetY: round(ship.targetY),
       hp: round(ship.hp),

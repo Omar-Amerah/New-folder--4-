@@ -21,8 +21,6 @@ function emptyNavigation() {
 function emptyStyle() {
   return {
     orbit: null,
-    evasive: null,
-    sentryPosition: null,
     holdPosition: null,
     holdTargetId: null
   };
@@ -51,17 +49,8 @@ function resetNavigation(ship) {
 function resetStyleMemory(ship, combatStyle = ship.combatStyle) {
   const runtime = ensureMovementRuntime(ship);
   runtime.style.orbit = null;
-  runtime.style.evasive = null;
   runtime.style.holdPosition = null;
   runtime.style.holdTargetId = null;
-  if (combatStyle === "sentry") {
-    runtime.style.sentryPosition = {
-      x: Number(ship.x) || 0,
-      y: Number(ship.y) || 0
-    };
-  } else {
-    runtime.style.sentryPosition = null;
-  }
 }
 
 function setMovementCommand(ship, command) {
@@ -87,7 +76,6 @@ function setMovementCommand(ship, command) {
   }
   if (previousTargetId !== runtime.command?.targetId || command?.type !== "attack") {
     runtime.style.orbit = null;
-    runtime.style.evasive = null;
     runtime.style.holdPosition = null;
     runtime.style.holdTargetId = null;
   }

@@ -44,6 +44,7 @@ const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty }
 const Relationships = require("./relationships");
 
 const { getShipComponentIndexes } = require("./componentIndexes");
+const { sanitizeCombatStyle } = require("./validation");
 
 
 
@@ -3856,6 +3857,7 @@ function findTarget(room, ship, ships) {
   let bestScore = -Infinity;
 
   const range = maxShipWeaponAcquisitionRange(ship);
+  let holdFallback = null;
 
 
 
@@ -3867,8 +3869,31 @@ function findTarget(room, ship, ships) {
 
       const focusedDistance = fastHypot(focused.x - ship.x, focused.y - ship.y);
 
-      if (focusedDistance <= range * 1.12 && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
+      if (focusedDistance <= range * 1.12
+        && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
 
+    }
+
+  }
+
+  // Automatic stance movement owns one current target at a time. Charge, Orbit,
+  // and Kite retain it until it ceases to be a living enemy. Hold may replace an
+  // automatic target that is no longer locally engageable with another nearby
+  // visible enemy, avoiding an unnecessary move away from its firing position.
+  // An explicit focus target always remains authoritative while alive.
+  if (ship.combatTargetId) {
+
+    const current = ships.find((other) =>
+      other.id === ship.combatTargetId
+      && areEnemies(room, ship.ownerId, other.ownerId));
+
+    if (current && current.alive) {
+      const explicitFocus = ship.focusTargetId === current.id;
+      if (explicitFocus || sanitizeCombatStyle(ship.combatStyle) !== "hold") return current;
+      const currentDistance = fastHypot(current.x - ship.x, current.y - ship.y);
+      if (currentDistance <= range
+        && !isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8)) return current;
+      holdFallback = current;
     }
 
   }
@@ -3900,6 +3925,8 @@ function findTarget(room, ship, ships) {
     }
 
   }
+
+  if (!best && holdFallback) best = holdFallback;
 
 
 

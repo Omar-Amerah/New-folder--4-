@@ -1,15 +1,12 @@
 import { computeStats } from "../design/componentStats.js";
 import { shipHeatPercent, formatHeatPercent } from "../shared/heatDisplay.js";
 
-const STYLE_LABELS = { charge: "Charge", hold: "Hold", sentry: "Sentry", orbit: "Orbit", maintain: "Maintain", kite: "Kite", direct: "Direct" };
+const STYLE_LABELS = { charge: "Charge", hold: "Hold", orbit: "Orbit", kite: "Kite" };
 export const STYLE_DESCRIPTIONS = {
-  charge: "Move aggressively toward the current command or target.",
-  hold: "Move to weapon range then hold a fixed world position.",
-  sentry: "Guard the current area and engage nearby threats.",
-  orbit: "Continuously orbit the target at ~75% of max weapon range.",
-  maintain: "Continuously keep the enemy at 90% of max weapon range.",
-  kite: "Keep distance at max weapon range, retreating if the enemy approaches.",
-  direct: "Move directly toward the target."
+  charge: "Pursue continuously and close aggressively until contact distance.",
+  hold: "Approach weapon range, then fire from an established position without retreating.",
+  orbit: "Circle the current target at a stable radius and direction.",
+  kite: "Retreat when threatened, stop at safe range, and approach only from beyond weapon range."
 };
 
 const COMPARE_STATS = [
@@ -101,5 +98,10 @@ function isPowerStarved(s) {
 }
 function distribution(values) { const counts = new Map(); values.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1)); return [...counts].map(([k, v]) => `${STYLE_LABELS[k] || k} ${v}`).join(", "); }
 function commonText(values) { const clean = values.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim()); if (!clean.length) return ""; return clean.every((v) => v === clean[0]) ? clean[0] : clean[0]?.includes("target") ? "Mixed targets" : "Mixed orders"; }
-export function normalizeStyle(style) { return STYLE_LABELS[style] ? style : "hold"; }
+export function normalizeStyle(style) {
+  if (STYLE_LABELS[style]) return style;
+  if (style === "circle" || style === "evasive") return "orbit";
+  if (style === "direct" || style === "interceptor" || style === "brawler") return "charge";
+  return "hold";
+}
 export function commonStyle(ships) { if (!ships.length) return null; const first = normalizeStyle(ships[0].combatStyle); return ships.every((s) => normalizeStyle(s.combatStyle) === first) ? first : null; }
