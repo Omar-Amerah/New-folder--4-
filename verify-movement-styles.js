@@ -341,6 +341,7 @@ function run() {
     const ranges = getEffectiveWeaponRanges(tmpShip);
     const maxRange = Math.max(120, ranges.blaster, ranges.missile, ranges.railgun, ranges.beam);
     const desiredRange = maxRange * 0.9;
+    const initialAngle = Math.atan2(target.y - target.y, target.x - (target.x + desiredRange));
     const ship = runtimeShip(armedDesign, {
       id: "facing-stability",
       combatStyle: "hold",
@@ -348,7 +349,8 @@ function run() {
       focusTargetId: "enemy",
       x: target.x + desiredRange, y: target.y,
       targetX: target.x + desiredRange, targetY: target.y,
-      holdState: null
+      holdState: null,
+      angle: initialAngle
     });
     // Run one tick to enter holding phase.
     updateShipMovement(room, ship, 1 / 30);
@@ -410,13 +412,15 @@ function run() {
     const tolerance = maxRange * 0.05;
     const shipX = target.x + desiredRange + tolerance * 0.5;
     const shipY = target.y;
+    const startAngle = Math.atan2(target.y - shipY, target.x - shipX);
     const ship = runtimeShip(armedDesign, {
       id: "maintain-facing-stability",
       combatStyle: "maintain",
       combatTargetId: "enemy",
       focusTargetId: "enemy",
       x: shipX, y: shipY,
-      targetX: shipX, targetY: shipY
+      targetX: shipX, targetY: shipY,
+      angle: startAngle
     });
     // Run a few ticks to settle.
     for (let i = 0; i < 5; i++) updateShipMovement(room, ship, 1 / 30);

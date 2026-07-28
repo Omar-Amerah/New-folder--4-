@@ -8,7 +8,7 @@ const { updateCapturePoints, updateControlVictory } = require("./objectives");
 const { updateShipHeat } = require("./heat");
 const { updateShipPowerDemand } = require("./componentPower");
 const { updateShipPowerProtection } = require("./powerProtection");
-const { assertComponentHpConsistency } = require("./componentHealth");
+const { assertComponentHpConsistency, isComponentAssertionEnabled } = require("./componentHealth");
 const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
 const { buildRoomSpatialIndex } = require("./spatialIndex");
@@ -56,7 +56,13 @@ function tickRoom(room, dt, now) {
   durations.commandAuras = performanceNow() - startedAt;
   startedAt = performanceNow();
   for (const ship of ships) updateShipMovement(room, ship, dt, now);
-  buildRoomSpatialIndex(room, ships, now);
+  // After movement, refresh only ship records. Drones and projectiles are
+  // updated by their own systems before consumers that need their positions.
+  if (room.spatialIndex && typeof room.spatialIndex.rebuildKind === "function") {
+    room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+  } else {
+    buildRoomSpatialIndex(room, ships, now);
+  }
   updateShipSeparation(room, ships, dt, now); resolveFleetMapCollisions(room, ships);
   durations.movementSeparationMap = performanceNow() - startedAt;
   startedAt = performanceNow();
@@ -105,11 +111,16 @@ function tickRoom(room, dt, now) {
   updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
   durations.objectives = performanceNow() - startedAt;
   recordRoomTick(durations);
-  if (process.env.NODE_ENV !== "production") {
+  const componentAssertionsEnabled = isComponentAssertionEnabled();
+  if (componentAssertionsEnabled) {
+    const sampleAll = now >= (Number(room._lastComponentAssertionSampleAt) || 0) + 1000;
     for (const ship of room.ships.values()) {
       if (!ship?.componentHp || !ship?.design) continue;
-      assertComponentHpConsistency(ship);
+      if (sampleAll || (ship.dirtyComponents?.size || 0) > 0) {
+        assertComponentHpConsistency(ship);
+      }
     }
+    if (sampleAll) room._lastComponentAssertionSampleAt = now;
   }
 }
 module.exports = { tickRoom };

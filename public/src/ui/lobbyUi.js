@@ -39,28 +39,40 @@ const AUTHORITATIVE_TEAM_IDS = ["blue", "red"];
 let pendingTeamChange = null;
 let lastTeamOptionsSignature = "";
 let lastRulesReadOnlySignature = "";
+let lastPlayerListSignature = "";
 
 
 export function isAdmin() {
   return state.adminId === state.myId || Boolean(state.mine?.isAdmin);
 }
 
-export function updateLobbyState() {
+function isLobbyPanelOpen() {
+  // The lobby DOM is only meaningful when the main menu or lobby management
+  // screen is actually visible. During active play these screens are hidden
+  // and repeated snapshot-driven DOM rebuilds must be skipped.
+  return Boolean(
+    (dom.lobbyManagementScreen && !dom.lobbyManagementScreen.hidden) ||
+    (dom.mainMenuScreen && !dom.mainMenuScreen.hidden)
+  );
+}
+
+export function updateLobbyConnectionState() {
   const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
   const connecting = state.socket?.readyState === WebSocket.CONNECTING;
   const playerCount = state.snapshot?.players?.length || 0;
   const phase = state.snapshot?.phase || state.phase;
   const admin = isAdmin();
-  dom.roomState.textContent = connected ? `${phaseLabel(phase)} | ${playerCount} in Room` : connecting ? "Connecting" : "Not Joined";
-  // Show a spinner from the create/join click until the room is joined (or the
-  // attempt fails), so the wait on lobby creation has visible feedback.
+
+  const roomStateText = connected ? `${phaseLabel(phase)} | ${playerCount} in Room` : connecting ? "Connecting" : "Not Joined";
+  if (dom.roomState && dom.roomState.textContent !== roomStateText) dom.roomState.textContent = roomStateText;
+
   const joining = Boolean(state.joiningLobby) && !connected;
-  dom.createButton.classList.toggle("is-loading", joining);
-  dom.joinButton.classList.toggle("is-loading", joining);
-  dom.createButton.disabled = connecting || joining;
-  dom.joinButton.disabled = connecting || joining;
+  dom.createButton?.classList.toggle("is-loading", joining);
+  dom.joinButton?.classList.toggle("is-loading", joining);
+  if (dom.createButton) dom.createButton.disabled = connecting || joining;
+  if (dom.joinButton) dom.joinButton.disabled = connecting || joining;
   if (dom.mainMenuCloseButton) dom.mainMenuCloseButton.disabled = !connected;
-  dom.copyButton.disabled = !state.room;
+  if (dom.copyButton) dom.copyButton.disabled = !state.room;
 
   if (dom.botButton) {
     dom.botButton.hidden = !admin;
@@ -70,7 +82,6 @@ export function updateLobbyState() {
     dom.leaveLobbyButton.hidden = admin;
     dom.leaveLobbyButton.disabled = !connected;
   }
-  updateTeamChoiceControls(connected, phase);
   if (dom.startDesignButton) {
     dom.startDesignButton.hidden = !admin;
     dom.startDesignButton.disabled = !connected || phase !== "lobby" || playerCount === 0;
@@ -82,15 +93,58 @@ export function updateLobbyState() {
   }
   if (dom.closeLobbyButton) {
     dom.closeLobbyButton.hidden = !admin;
-    // Admin can close the lobby in any phase, including an active battle.
     dom.closeLobbyButton.disabled = !connected;
   }
-  dom.currentRoomCard.hidden = !state.room;
-  dom.currentRoomCode.textContent = state.room || "----";
+  if (dom.currentRoomCard) dom.currentRoomCard.hidden = !state.room;
+  if (dom.currentRoomCode) dom.currentRoomCode.textContent = state.room || "----";
+}
+
+export function updateLobbyRulesState() {
+  const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
+  const phase = state.snapshot?.phase || state.phase;
+  const playerCount = state.snapshot?.players?.length || 0;
+  const admin = isAdmin();
   updateRulesControls(connected, admin, phase, playerCount);
+  updateTeamChoiceControls(connected, phase);
+}
+
+export function updateLobbyPhaseState() {
+  const phase = state.snapshot?.phase || state.phase;
   updatePhaseSteps(phase);
   updatePhaseDetail(phase);
+}
+
+function playerListSignature(players, phase, adminId) {
+  return players.map((p) => [
+    p.id,
+    p.name,
+    p.team,
+    p.teamName,
+    p.ready,
+    p.isAdmin,
+    p.isBot,
+    p.color,
+    phase,
+    adminId
+  ].join("\x1f")).join("\x1e");
+}
+
+export function updateLobbyPlayerState() {
+  if (!dom.playerList) return;
+  const players = state.snapshot?.players || [];
+  const phase = state.snapshot?.phase || state.phase;
+  const nextSignature = playerListSignature(players, phase, state.adminId);
+  if (nextSignature === lastPlayerListSignature) return;
+  lastPlayerListSignature = nextSignature;
   renderPlayerList();
+}
+
+export function updateLobbyState() {
+  updateLobbyConnectionState();
+  if (!isLobbyPanelOpen()) return;
+  updateLobbyRulesState();
+  updateLobbyPhaseState();
+  updateLobbyPlayerState();
   renderRecoveryCard();
 }
 

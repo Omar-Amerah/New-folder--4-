@@ -493,11 +493,18 @@ function zeroAllComponents(ship) {
   endComponentLifecycleBatch(ship);
 }
 
-// Dev-only consistency check: ship.hp must equal the non-core component sum
-// (the indestructible core keeps a pool for collision/display but is excluded
-// from the damageable total).
+// Explicitly gated dev-only consistency check. Controlled by the environment
+// variable MFA_ASSERT_COMPONENT_HP=1 (or a truthy value), not by NODE_ENV, so a
+// missing NODE_ENV never silently performs expensive full component reductions.
+// The active state is exposed so /health can report it.
+function isComponentAssertionEnabled() {
+  const explicit = process.env.MFA_ASSERT_COMPONENT_HP;
+  if (explicit === "" || explicit == null) return false;
+  return explicit !== "0" && explicit !== "false" && explicit !== "off";
+}
+
 function assertComponentHpConsistency(ship) {
-  if (process.env.NODE_ENV === "production" || !ship.componentHp) return;
+  if (!isComponentAssertionEnabled() || !ship.componentHp) return;
   const sum = ship.componentHp.reduce((total, hp, i) => (ship.design[i].type === "core" ? total : total + hp), 0);
   if (Math.abs(sum - ship.hp) > 0.5) {
     console.warn(`[componentHealth] ship ${ship.id} hp drift: ship.hp=${ship.hp.toFixed(2)} sum=${sum.toFixed(2)}`);
@@ -520,6 +527,7 @@ module.exports = {
   updateEngineExhaustState,
   repairShipComponents,
   bumpComponentAliveRevision,
-  assertComponentHpConsistency
-  ,beginComponentLifecycleBatch, requestComponentLifecycleRefresh, endComponentLifecycleBatch, flushComponentLifecycleRefresh
+  assertComponentHpConsistency,
+  isComponentAssertionEnabled,
+  beginComponentLifecycleBatch, requestComponentLifecycleRefresh, endComponentLifecycleBatch, flushComponentLifecycleRefresh
 };

@@ -1,3 +1,6 @@
+// Delegates all movement logic to the rewritten authoritative controller.
+return module.exports = require('./movementCore');
+
 const { clampNumber, rotateToward, angleDifference, fastHypot, performanceNow } = require("./utils");
 const { computePathDesiredAngle } = require("./navigation");
 const { PARTS } = require("./components");

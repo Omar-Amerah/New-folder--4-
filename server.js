@@ -19,6 +19,7 @@ const messages = require("./src/server/messages");
 const { broadcastSnapshot } = require("./src/server/snapshotDelivery");
 const { tickRoom } = require("./src/server/simulation");
 const { recordTick, performanceSnapshot } = require("./src/server/performanceTelemetry");
+const { isComponentAssertionEnabled } = require("./src/server/componentHealth");
 
 // In-memory static file cache (validated against file mtime) with pre-compressed
 // gzip variants for text assets — avoids re-reading and re-sending full payloads.
@@ -190,7 +191,8 @@ function healthPayload() {
     activeRooms: rooms.size,
     activeClients: transport.sockets.size,
     performance: performanceSnapshot(TICK_HZ),
-    originPolicy: { mode: policy.mode, allowedOriginCount: policy.allowedOriginCount }
+    originPolicy: { mode: policy.mode, allowedOriginCount: policy.allowedOriginCount },
+    assertions: { componentHp: isComponentAssertionEnabled() }
   };
 }
 

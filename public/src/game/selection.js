@@ -30,7 +30,10 @@ export function selectBox(a, b, additive) {
 }
 export function selectAllOwnShips() { state.selectedShipIds = new Set(ownLiveShips().map((ship) => ship.id)); state.activeShipGroup = null; synchronizeTelemetryFocus(); updateHud(); }
 export function pruneSelection() { const live = new Set(ownLiveShips().map((ship) => ship.id)); for (const id of [...state.selectedShipIds]) if (!live.has(id)) state.selectedShipIds.delete(id); if (state.selectedShipIds.size === 0) state.activeShipGroup = null; }
-export function ownLiveShips() { return state.snapshot?.ships?.filter((ship) => ship.ownerId === state.myId && ship.alive) || []; }
+export function ownLiveShips() {
+  if (state.snapshotIndex?.ownLivingShips) return state.snapshotIndex.ownLivingShips;
+  return state.snapshot?.ships?.filter((ship) => ship.ownerId === state.myId && ship.alive) || [];
+}
 export function findShipAt(x, y, predicate = () => true) {
   let best = null, bestDistance = Infinity;
   for (const ship of state.snapshot?.ships || []) {

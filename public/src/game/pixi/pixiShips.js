@@ -163,7 +163,7 @@ function updatePixiShieldRing(view, ship, zoom, displayedShield = ship?.shield) 
   const color = pixiShieldColorForRatio(ratio);
   const highlightColor = brightenPixiShieldColor(color);
   const lineWidth = Math.max(1.7, ringRadius * 0.04);
-  const fieldRadius = ringRadius + Math.max(2.5, ringRadius * 0.06);
+  const fieldRadius = ringRadius * 1.2;
   const ringAlpha = 0.24 + ratio * 0.46;
   const fieldAlpha = 0.018 + ratio * 0.055;
   const phase = pixiShieldIdPhase(ship.id);
@@ -218,19 +218,22 @@ function updatePixiComponentDamage(view, ship, design) {
 
   const overlay = Boolean(state.componentDamageView);
   const shows = (ratio) => ratio !== null && (ratio < DAMAGED_RATIO || (overlay && ratio < 0.999));
-  let sig = overlay ? "V|" : "";
-  let chargeSig = "P";
-  for (let i = 0; i < design.length; i += 1) {
-    const ratio = componentHealthRatio(ship, i);
-    if (shows(ratio)) sig += `${i}:${ratio <= 0 ? "x" : Math.round(ratio * 10)};`;
-    if (PART_STATS[design[i].type]?.proximityCharge) {
-      const detonated = ship.proximityChargeDetonated?.[i] ?? 0;
-      chargeSig += `${i}:${detonated ? "x" : Math.round(ratio * 10)};`;
-    }
+  const hpData = ship.chp || ship.chpVisual;
+  const damageState = {
+    hpData,
+    overlay,
+    designLength: design.length,
+    proximity: ship.proximityChargeDetonated
+  };
+  const prev = view.damageState;
+  if (prev &&
+      prev.hpData === damageState.hpData &&
+      prev.overlay === damageState.overlay &&
+      prev.designLength === damageState.designLength &&
+      prev.proximity === damageState.proximity) {
+    return;
   }
-  sig += "|" + chargeSig;
-  if (sig === view.damageSig) return;
-  view.damageSig = sig;
+  view.damageState = damageState;
   gfx.clear();
 
   for (let i = 0; i < design.length; i += 1) {
@@ -555,20 +558,36 @@ function updatePixiPlayerHullOutline(view, ship, player, design, zoom) {
   const gfx = view.playerHullOutline;
   const shouldShow = ship.alive && ship.ownerId !== state.myId && Boolean(player?.color);
   const color = shouldShow ? player.color : null;
-  const isLive = (index) => {
-    const ratio = componentHealthRatio(ship, index);
-    return ratio === null || ratio > 0;
+  const hpData = ship.chp || ship.chpVisual;
+  const outlineState = {
+    shouldShow,
+    color,
+    zoom: zoom.toFixed(2),
+    designSig: pixiDesignSignature(design),
+    hpData,
+    hp: ship.hp,
+    alive: ship.alive
   };
-  const liveMask = shouldShow ? design.map((_, index) => isLive(index) ? "1" : "0").join("") : "";
-  const sig = shouldShow
-    ? [ship.ownerId, color, zoom.toFixed(2), pixiDesignSignature(design), liveMask].join("|")
-    : "hidden";
-  if (view.playerHullOutlineSig === sig) return;
-  view.playerHullOutlineSig = sig;
+  const prev = view.playerHullOutlineState;
+  if (prev &&
+      prev.shouldShow === outlineState.shouldShow &&
+      prev.color === outlineState.color &&
+      prev.zoom === outlineState.zoom &&
+      prev.designSig === outlineState.designSig &&
+      prev.hpData === outlineState.hpData &&
+      prev.hp === outlineState.hp &&
+      prev.alive === outlineState.alive) {
+    return;
+  }
+  view.playerHullOutlineState = outlineState;
   gfx.clear();
   gfx.visible = shouldShow;
   if (!shouldShow) return;
 
+  const isLive = (index) => {
+    const ratio = componentHealthRatio(ship, index);
+    return ratio === null || ratio > 0;
+  };
   const strokeColor = normalizePixiStrokeColor(color);
   const width = Math.min(1.4, Math.max(0.65, 0.95 / zoom));
   const edges = buildExteriorHullEdges(design, { scale: SHIP_SCALE, isLive });

@@ -28,6 +28,81 @@ import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterp
 import { disableReconnect, send, recordNetworkEvent } from "./network.js";
 import { centerCameraOnPoint } from "./game/camera.js";
 
+// One snapshot-derived client index per accepted snapshot. UI panes read from
+// this index instead of independently filtering snapshot.ships/players arrays.
+function buildClientSnapshotIndex(snapshot, myId, selectedIds) {
+  const shipById = new Map();
+  const ownLivingShips = [];
+  const ownLivingShipIds = [];
+  const selectedLivingShips = [];
+  const playersById = new Map();
+  const relaysByTeam = new Map();
+  for (const player of snapshot.players || []) playersById.set(player.id, player);
+  for (const ship of snapshot.ships || []) {
+    if (!ship) continue;
+    shipById.set(ship.id, ship);
+    const alive = ship.alive !== false;
+    if (alive && ship.ownerId === myId) {
+      ownLivingShips.push(ship);
+      ownLivingShipIds.push(ship.id);
+    }
+    if (alive && selectedIds && selectedIds.has(ship.id)) selectedLivingShips.push(ship);
+    if (ship.type === "relay" || ship.kind === "relay") {
+      const owner = ship.ownerId || "neutral";
+      let list = relaysByTeam.get(owner);
+      if (!list) relaysByTeam.set(owner, list = []);
+      list.push(ship);
+    }
+  }
+  return { shipById, ownLivingShips, ownLivingShipIds, selectedLivingShips, playersById, relaysByTeam };
+}
+
+// A compact, single-pass comparison that drives which UI layers run for a
+// snapshot. Avoids blindly calling every renderer on every accepted state.
+function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex) {
+  const all = !previous || !previousIndex;
+  const selectedIdsArray = selectedIds ? [...selectedIds] : [];
+  const summary = {
+    phaseChanged: all || previous.phase !== next.phase,
+    playersChanged: all || previous.players !== next.players,
+    rulesChanged: all || previous.rules !== next.rules,
+    economyChanged: all || previous.economy !== next.economy,
+    fleetChanged: all || previous.ships !== next.ships,
+    selectionAffected: all || previousIndex?.selectedLivingShips?.length !== selectedLivingShips.length,
+    objectivesChanged: all || previous.objectives !== next.objectives || previous.victor !== next.victor,
+    winnerChanged: all || previous.victor !== next.victor,
+    selectedShipDamageChanged: false,
+    selectedShipHeatChanged: false,
+    selectedShipPowerChanged: false,
+    lobbyVisible: Boolean((dom.lobbyManagementScreen && !dom.lobbyManagementScreen.hidden) || (dom.mainMenuScreen && !dom.mainMenuScreen.hidden))
+  };
+  if (all) {
+    summary.selectedShipDamageChanged = true;
+    summary.selectedShipHeatChanged = true;
+    summary.selectedShipPowerChanged = true;
+    return summary;
+  }
+  if (previousIndex && summary.fleetChanged) {
+    const selectedIdsSet = selectedIds || new Set();
+    for (const id of selectedIdsSet) {
+      const prevShip = previousIndex.shipById.get(id);
+      const nextShip = (next.shipsById || shipByIdFrom(next)).get(id);
+      if (prevShip && nextShip) {
+        if (prevShip.chp !== nextShip.chp || prevShip.hp !== nextShip.hp) summary.selectedShipDamageChanged = true;
+        if (prevShip.heat !== nextShip.heat || prevShip.componentHeatD !== nextShip.componentHeatD) summary.selectedShipHeatChanged = true;
+        if (prevShip.powerRevision !== nextShip.powerRevision || prevShip.componentPower !== nextShip.componentPower) summary.selectedShipPowerChanged = true;
+      }
+    }
+  }
+  return summary;
+}
+
+function shipByIdFrom(snapshot) {
+  const m = new Map();
+  for (const ship of snapshot.ships || []) if (ship) m.set(ship.id, ship);
+  return m;
+}
+
 // Records the backend's protocol/build identification and reports skew. The
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
 // stale backend is a real failure mode: it must be called out instead of being
@@ -221,14 +296,26 @@ export function handleServerMessage(message) {
     recordNetworkEvent("acceptedSnapshot", { stateEpoch: state.snapshotNetwork.stateEpoch, snapshotSeq: state.snapshotNetwork.snapshotSeq, snapshotKind: message.snapshotKind || null });
     state.snapshotReceivedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     const accepted = result.snapshot;
-    const oldShips = new Map((state.snapshot?.ships || []).map((s) => [s.id, s]));
+    const previousSnapshot = state.snapshot;
+    const previousIndex = state.snapshotIndex;
+
+    // Reduce component-HP comparison work: only examine ships that carry a
+    // changed component-HP payload. The backend already sends chpD for deltas.
+    const oldShips = new Map((previousSnapshot?.ships || []).map((s) => [s.id, s]));
     for (const newShip of accepted.ships || []) {
       const oldShip = oldShips.get(newShip.id);
-      if (oldShip?.chp && newShip.chp && newShip.chp !== oldShip.chp) recordComponentHpChanges(newShip, oldShip.chp, newShip.chp);
+      const hpChanged = oldShip && newShip.chp && newShip.chp !== oldShip.chp;
+      const hasDelta = newShip.chpD && newShip.chpD.length;
+      if ((hpChanged || hasDelta) && newShip.chp) recordComponentHpChanges(newShip, oldShip?.chp || newShip.chp, newShip.chp);
     }
+
     state.snapshot = accepted;
+    state.snapshotIndex = buildClientSnapshotIndex(accepted, state.myId, state.selectedShipIds);
+    const summary = snapshotChangeSummary(previousSnapshot, accepted, state.myId, state.selectedShipIds, previousIndex);
+    state.snapshotChangeSummary = summary;
+
     acceptSnapshotForRender(accepted, state.snapshotReceivedAt);
-    state.mine = state.snapshot.players?.find((player) => player.id === state.myId) || null;
+    state.mine = state.snapshotIndex.playersById.get(state.myId) || null;
     state.room = accepted.room;
     state.world = accepted.world || state.world;
     state.map = accepted.map || state.map;
@@ -239,12 +326,12 @@ export function handleServerMessage(message) {
     purchaseUi.reconcilePendingPurchasesWithSnapshot();
     pruneSelection();
     synchronizeTelemetryFocus();
-    updateHud();
-    renderSideControls();
-    renderMatchStatus();
-    purchaseUi.updateEconomyUi({ refreshCatalogue: false });
-    lobbyUi.updateLobbyState();
-    updateWinnerBanner();
+    if (summary.fleetChanged || summary.selectionAffected) updateHud();
+    if (summary.fleetChanged || summary.selectionAffected || summary.phaseChanged) renderSideControls();
+    if (summary.objectivesChanged || summary.winnerChanged || summary.phaseChanged) renderMatchStatus();
+    if (summary.economyChanged) purchaseUi.updateEconomyUi({ refreshCatalogue: false });
+    if (summary.playersChanged || summary.rulesChanged || summary.phaseChanged || summary.lobbyVisible) lobbyUi.updateLobbyState();
+    if (summary.winnerChanged) updateWinnerBanner();
     if (previousPhase !== state.phase && (state.phase === "design" || state.phase === "active")) lobbyUi.hideMenuScreens();
     if (previousPhase !== "active" && state.phase === "active" && state.mine?.rallyPoint) {
       centerCameraOnPoint(state.mine.rallyPoint, 0.35);

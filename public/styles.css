@@ -497,23 +497,39 @@ h2 {
 
 .ship-group-controls {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: 5px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.ship-group-stance-label {
+  color: #8a9bb5;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
 }
 
 .ship-group-select {
   min-width: 0;
+  width: 100%;
   min-height: 30px;
   height: 30px;
-  padding: 0 22px 0 7px;
-  border-color: rgba(174, 199, 231, 0.14);
+  padding: 0 28px 0 8px;
+  border: 1px solid rgba(174, 199, 231, 0.14);
+  border-radius: 4px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
   background:
-    linear-gradient(45deg, transparent 50%, #b8c7dc 50%) calc(100% - 14px) 12px / 5px 5px no-repeat,
-    linear-gradient(135deg, #b8c7dc 50%, transparent 50%) calc(100% - 9px) 12px / 5px 5px no-repeat,
+    linear-gradient(45deg, transparent 50%, #b8c7dc 50%) calc(100% - 18px) 12px / 5px 5px no-repeat,
+    linear-gradient(135deg, #b8c7dc 50%, transparent 50%) calc(100% - 12px) 12px / 5px 5px no-repeat,
     rgba(5, 9, 15, 0.82);
   color: #cfdbea;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 850;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ship-group-button,
@@ -587,6 +603,14 @@ h2 {
 
 .ship-group-view {
   color: #c9bff5;
+}
+
+.ship-group-unassign {
+  color: #f2a4a4;
+}
+
+.ship-group-unassign:hover:not(:disabled) {
+  background: rgba(242, 164, 164, 0.08);
 }
 
 .ship-group-assign:disabled {

@@ -110,6 +110,28 @@ class RoomSpatialIndex {
     return this;
   }
 
+  rebuildKind(kind, items, radiusFn, now = 0) {
+    if (!KINDS.includes(kind) || kind === "asteroids") return this;
+    this._releaseKind(kind);
+    if (kind === "ships") this.spatialPartialRebuilds = (this.spatialPartialRebuilds || 0) + 1;
+    let order = 0;
+    const inserted = this.spatialRecordsInsertedByKind || (this.spatialRecordsInsertedByKind = {});
+    let count = 0;
+    for (const item of items || []) {
+      if (!item) continue;
+      if (kind === "ships" && !item.alive) continue;
+      if (kind === "drones" && (item.destroyed || item.removed)) continue;
+      if (kind === "projectiles" && item.life <= 0) continue;
+      const radius = radiusFn ? radiusFn(item) : 0;
+      this.add(kind, item, radius, order++);
+      count += 1;
+    }
+    inserted[kind] = (inserted[kind] || 0) + count;
+    this.builtAt = now;
+    this.dynamicValid = true;
+    return this;
+  }
+
   rebuild(room, ships, now = 0) {
     const requestedCellSize = Math.max(32, finite(room?.spatialCellSize, DEFAULT_CELL_SIZE));
     if (requestedCellSize !== this.cellSize) {
@@ -119,15 +141,25 @@ class RoomSpatialIndex {
       this.reset();
     }
 
+    this.spatialFullRebuilds = (this.spatialFullRebuilds || 0) + 1;
+    this.spatialRecordsInsertedByKind = this.spatialRecordsInsertedByKind || {};
+
     let order = 0;
+    const inserted = this.spatialRecordsInsertedByKind;
+    inserted.ships = 0;
+    inserted.drones = 0;
+    inserted.projectiles = 0;
+    inserted.interceptableProjectiles = 0;
     for (const ship of ships || []) {
       if (!ship?.alive) continue;
       this.add("ships", ship, shipBroadPhaseRadius(ship), order++);
+      inserted.ships += 1;
     }
     order = 0;
     for (const drone of room?.drones?.values?.() || []) {
       if (drone?.destroyed || drone?.removed) continue;
       this.add("drones", drone, droneBroadPhaseRadius(drone), order++);
+      inserted.drones += 1;
     }
     order = 0;
     for (const projectile of room?.bullets || []) {
@@ -135,7 +167,8 @@ class RoomSpatialIndex {
       const projectileSpeed = Math.hypot(finite(projectile.vx), finite(projectile.vy));
       if (projectileSpeed > this.maxProjectileSpeed) this.maxProjectileSpeed = projectileSpeed;
       this.add("projectiles", projectile, 0, order);
-      if (projectile.interceptable) this.add("interceptableProjectiles", projectile, 0, order);
+      inserted.projectiles += 1;
+      if (projectile.interceptable) { this.add("interceptableProjectiles", projectile, 0, order); inserted.interceptableProjectiles += 1; }
       order += 1;
     }
     this._rebuildAsteroidsIfNeeded(room);

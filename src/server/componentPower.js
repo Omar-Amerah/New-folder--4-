@@ -461,7 +461,10 @@ function weaponActivity(ship, index, now) {
 }
 function decoyLauncherActivity(ship, index, now) {
   const launchers = ship.decoyLaunchers || [];
-  const launcher = launchers.find((l) => l.componentIndex === index);
+  const launcherMap = ship._decoyLauncherByComponentIndex;
+  const launcher = launcherMap && launcherMap.has(index)
+    ? launcherMap.get(index)
+    : launchers.find((l) => l.componentIndex === index);
   if (!launcher) return 1; // pre-initialisation: request power so production can start
   if (launcher.pendingLaunch) return 1; // launch intent: need full nominal power
   if (launcher.stock < launcher.capacity) return 1; // producing
@@ -543,26 +546,36 @@ function componentActivityLevel(ship, index, module, part, now, cache = null) {
 // before gameplay systems consume the new operational multipliers.
 function updateShipPowerDemand(ship, room, now) {
   if (!ship || ship.alive === false || !Array.isArray(ship.design) || !ship.design.length) return;
-  bump("powerDemandRefreshCount");
+  bump("powerDemandTickCalls");
   const design = ship.design;
   const standby = BALANCE.powerDemand;
-  const activity = design.map(() => 0);
+  // Consumer metadata is built once per design and reused, so large Blueprints
+  // only scan components on creation/lifecycle changes, not every tick.
+  if (!Array.isArray(ship._powerConsumerIndices) || ship._powerConsumerIndices.length === 0) {
+    buildShipPowerConsumerMetadata(ship);
+  }
+  const consumerIndices = ship._powerConsumerIndices || [];
+  const nominalByIndex = ship._powerDemandNominalByIndex || new Map();
   const demandByIndex = {};
   const activityCache = {};
-  // Demand change detection compares fixed-point Power units directly instead
-  // of building a `"index:units|..."` string every tick for every ship.
-  // `mwToPowerUnits` is always a non-negative integer, so -1 is a safe
-  // "not a Power consumer" sentinel and the comparison stays exact (a hash
-  // would risk silently skipping a reallocation on collision).
+  // Reuse per-ship scratch arrays to avoid allocating a new activity array
+  // and demand object when nothing changed.
+  if (!ship._powerDemandActivity || ship._powerDemandActivity.length !== design.length) {
+    ship._powerDemandActivity = new Float64Array(design.length);
+  }
+  const activity = ship._powerDemandActivity;
   let units = ship._powerDemandUnits;
   if (!(units instanceof Float64Array) || units.length !== design.length) {
     units = ship._powerDemandUnits = new Float64Array(design.length);
   }
   units.fill(-1);
-  for (let i = 0; i < design.length; i += 1) {
+  activity.fill(0);
+  for (let k = 0; k < consumerIndices.length; k += 1) {
+    const i = consumerIndices[k];
     const module = design[i];
     const part = PARTS[module && module.type];
-    if (!part || !(Number(part.powerUse) > 0)) continue; // demand is per Power consumer
+    if (!part) continue;
+    bump("powerDemandComponentsVisited");
     const alive = (ship.componentHp?.[i] ?? 1) > 0;
     const level = alive ? clamp01(componentActivityLevel(ship, i, module, part, now, activityCache)) : 0;
     activity[i] = level;
@@ -579,17 +592,18 @@ function updateShipPowerDemand(ship, room, now) {
     for (let i = 0; i < units.length; i += 1) {
       if (units[i] !== applied[i]) { identical = false; break; }
     }
-    if (identical) { ship.powerDemandDirty = false; return; }
+    if (identical) { ship.powerDemandDirty = false; bump("powerDemandSkippedClean"); return; }
   }
 
   const appliedActivity = ship._powerDemandAppliedActivity;
   const appliedDemand = ship._powerDemandAppliedByIndex || {};
   let activatesConsumer = !Array.isArray(appliedActivity);
   if (!activatesConsumer) {
-    for (let i = 0; i < design.length; i += 1) {
+    for (let k = 0; k < consumerIndices.length; k += 1) {
+      const i = consumerIndices[k];
       const module = design[i];
       const part = PARTS[module && module.type];
-      if (!part || !(Number(part.powerUse) > 0)) continue;
+      if (!part) continue;
       const previousLevel = Number(appliedActivity[i]) || 0;
       if (activity[i] > 0 && previousLevel <= 0) {
         activatesConsumer = true;
@@ -631,6 +645,32 @@ function updateShipPowerDemand(ship, room, now) {
   reallocateShipPower(ship, "activity-demand", { skipRuntimeStats: true });
 }
 
+function buildShipPowerConsumerMetadata(ship) {
+  const design = ship.design || [];
+  const consumerIndices = [];
+  const nominalByIndex = new Map();
+  const categoryByIndex = new Map();
+  const decoyLauncherMap = new Map();
+  const launchers = ship.decoyLaunchers || [];
+  if (Array.isArray(launchers)) {
+    for (const launcher of launchers) {
+      if (Number.isInteger(launcher?.componentIndex)) decoyLauncherMap.set(launcher.componentIndex, launcher);
+    }
+  }
+  for (let i = 0; i < design.length; i += 1) {
+    const module = design[i];
+    const part = PARTS[module && module.type];
+    if (!part || !(Number(part.powerUse) > 0)) continue;
+    consumerIndices.push(i);
+    nominalByIndex.set(i, PowerDemandRules.requestedMwForComponent(part, 0, BALANCE.powerDemand));
+    if (part.powerCategory) categoryByIndex.set(i, part.powerCategory);
+  }
+  ship._powerConsumerIndices = consumerIndices;
+  ship._powerDemandNominalByIndex = nominalByIndex;
+  ship._powerDemandCategoryByIndex = categoryByIndex;
+  ship._decoyLauncherByComponentIndex = decoyLauncherMap;
+}
+
 function initializeComponentPower(ship) {
   // Section 7G: spawned/replaced designs always begin from deterministic
   // zero overload stress. Runtime protection state is never persisted in
@@ -640,6 +680,7 @@ function initializeComponentPower(ship) {
     return Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0;
   });
   require("./powerProtection").resetShipPowerProtection(ship);
+  buildShipPowerConsumerMetadata(ship);
   rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true });
   require("./powerProtection").refreshShipPowerProtectionDiagnostics(ship);
   return ship.componentPower;

@@ -13,6 +13,8 @@ const HeatRules = require("../../public/src/shared/heatRules.js");
 const { calculateCenterOfMass } = require("../../public/src/shared/movementStats.js");
 const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
 const { BALANCE } = require("./balanceConfig");
+const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
+const { initShipHeat } = require("./heat");
 
 // Template cache keyed by player ID and design revision
 const templateCache = new Map();
@@ -185,6 +187,40 @@ function createImmutableShipTemplate(design, wiring, stats) {
       )
     }))
   );
+
+  // Precompute a full-health runtime ship state once per template.
+  // spawnShip clones this instead of re-solving Power/Heat for every copy.
+  const prebuilt = {
+    design: normalizedDesign,
+    wiring: normalizedWiring,
+    componentMaxHp,
+    componentHp: componentMaxHp.slice(),
+    componentCellIndex,
+    componentStorageCharge: normalizedDesign.map((module) => {
+      const part = PARTS[module?.type] || {};
+      return Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0;
+    }),
+    _infrastructureHostMaps: {
+      power: infrastructureHostMaps.power,
+      data: infrastructureHostMaps.data
+    },
+    stats: { ...stats },
+    hp: stats?.maxHp || 0,
+    maxHp: stats?.maxHp || 0,
+    coreDestroyed: false,
+    componentAliveRevision: 1,
+    dirtyComponents: new Set(),
+    proximityChargeDetonated: normalizedDesign.map(() => 0),
+    proximityChargeRevision: 1
+  };
+  initializeComponentPower(prebuilt);
+  initShipHeat(prebuilt);
+  const shield = effectiveShieldStats(prebuilt);
+  prebuilt.maxShield = Math.max(0, shield.capacity);
+  prebuilt.shield = prebuilt.maxShield;
+  delete prebuilt.design;
+  delete prebuilt.wiring;
+  delete prebuilt.stats;
   
   // Create the immutable template
   const template = deepFreeze({
@@ -221,7 +257,8 @@ function createImmutableShipTemplate(design, wiring, stats) {
     componentAdjacency,
     radius: stats?.radius || 0,
     unitCost: stats?.unitCost || 0,
-    maxHp: stats?.maxHp || 0
+    maxHp: stats?.maxHp || 0,
+    prebuiltShipState: prebuilt
   });
   
   return template;

@@ -2,7 +2,7 @@
 
 import { state } from "./state.js";
 import { dom } from "./ui/dom.js";
-import { LOCAL_SERVER_KEY } from "./constants.js";
+import { LOCAL_SERVER_KEY, DIAGNOSTICS_ENABLED } from "./constants.js";
 import { handleServerMessage } from "./messages.js";
 import { setConnectionStatus, updateLobbyState } from "./ui/lobbyUi.js";
 import { getResumeCredential } from "./reconnectStorage.js";
@@ -32,7 +32,7 @@ const CONNECTION_TIMEOUT_MS = 12000;
 const HEALTH_TIMEOUT_MS = 2500;
 function netDiag() {
   if (typeof globalThis === "undefined") return null;
-  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], connectionFailures: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null };
+  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], connectionFailures: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null, acceptedSnapshotCount: 0, rejectedSnapshotCount: 0, lastSnapshotSequence: null, lastSnapshotAt: 0 };
 }
 function markSentType(type) {
   const diag = netDiag();
@@ -44,6 +44,18 @@ function markSentType(type) {
 export function recordNetworkEvent(kind, value) {
   const diag = netDiag();
   if (!diag) return;
+  // In production we maintain only scalar snapshot counters and avoid
+  // allocating timestamped history entries for every accepted snapshot.
+  if (!DIAGNOSTICS_ENABLED) {
+    if (kind === "acceptedSnapshot") {
+      diag.acceptedSnapshotCount = (diag.acceptedSnapshotCount || 0) + 1;
+      diag.lastSnapshotSequence = value?.snapshotSeq ?? diag.lastSnapshotSequence;
+      diag.lastSnapshotAt = Date.now();
+    } else if (kind === "snapshotRejected") {
+      diag.rejectedSnapshotCount = (diag.rejectedSnapshotCount || 0) + 1;
+    }
+    return;
+  }
   const boundedPush = (key, entry, limit = 10) => { diag[key] ||= []; diag[key].push({ ...entry, timestamp: Date.now() }); while (diag[key].length > limit) diag[key].shift(); };
   if (kind === "error") boundedPush("latestErrors", value);
   if (kind === "notice") boundedPush("latestNotices", value);

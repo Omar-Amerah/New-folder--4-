@@ -47,6 +47,13 @@ export function renderSideControls() {
 }
 
 export function handleShipGroupListClick(event) {
+  const unassignButton = event.target?.closest?.("[data-unassign-ship-group]");
+  if (unassignButton) {
+    event.preventDefault();
+    unassignSelectedShipsFromGroup(unassignButton.dataset.unassignShipGroup);
+    return;
+  }
+
   const assignButton = event.target?.closest?.("[data-assign-ship-group]");
   if (assignButton) {
     event.preventDefault();
@@ -109,7 +116,8 @@ function renderShipGroups() {
   const ships = ownLiveShips();
   const liveIds = new Set(ships.map((ship) => ship.id));
   cleanupShipGroups(liveIds);
-  const selectedCount = state.selectedShipIds.size;
+  const selectedLiveIds = new Set(ownLiveShips().filter((ship) => state.selectedShipIds.has(ship.id)).map((ship) => ship.id));
+  const selectedCount = selectedLiveIds.size;
   ensureShipGroupSettings();
   ensureShipGroupRows();
 
@@ -141,12 +149,32 @@ function renderShipGroups() {
       row.classList.toggle("has-ships", shipIds.length > 0);
     }
     if (countEl) countEl.textContent = `${shipIds.length} ship${shipIds.length === 1 ? "" : "s"}`;
-    const assignDisabled = group.id === "unassigned" || selectedCount === 0;
-    if (actionButton) actionButton.disabled = group.id === "unassigned" ? false : assignDisabled;
+    if (actionButton) {
+      if (group.id === "unassigned") {
+        actionButton.disabled = false;
+      } else {
+        const selectedInGroup = [...selectedLiveIds].filter((id) => state.shipGroups[group.id].has(id));
+        const allSelectedInGroup = selectedInGroup.length > 0 && selectedInGroup.length === selectedCount;
+        if (allSelectedInGroup) {
+          actionButton.className = "ship-group-action ship-group-unassign";
+          actionButton.textContent = "− Remove";
+          actionButton.title = `Remove selected ships from ${group.label}`;
+          actionButton.setAttribute("aria-label", `Remove selected ships from ${group.label}`);
+          delete actionButton.dataset.assignShipGroup;
+          actionButton.dataset.unassignShipGroup = group.id;
+          actionButton.disabled = false;
+        } else {
+          actionButton.className = "ship-group-action ship-group-assign";
+          actionButton.textContent = "+ Add";
+          actionButton.title = `Add selected ships to ${group.label}`;
+          actionButton.setAttribute("aria-label", `Add selected ships to ${group.label}`);
+          actionButton.dataset.assignShipGroup = group.id;
+          delete actionButton.dataset.unassignShipGroup;
+          actionButton.disabled = selectedCount === 0;
+        }
+      }
+    }
     if (stanceSelect) stanceSelect.value = normalizeGroupCombatStyle(state.shipGroupSettings[group.id]?.combatStyle);
-    // Stance controls only make sense once a group has ships in it.
-    const controls = dom.shipGroupList.querySelector?.(`[data-ship-group-controls="${group.id}"]`) || null;
-    if (controls) controls.hidden = shipIds.length === 0;
   }
 }
 
@@ -205,6 +233,10 @@ function ensureShipGroupRows() {
       controls.className = "ship-group-controls";
       controls.dataset.shipGroupControls = group.id;
 
+      const stanceLabel = document.createElement("span");
+      stanceLabel.className = "ship-group-stance-label";
+      stanceLabel.textContent = "Stance";
+
       const stanceSelect = document.createElement("select");
       stanceSelect.className = "ship-group-select";
       stanceSelect.dataset.shipGroupStance = group.id;
@@ -217,6 +249,7 @@ function ensureShipGroupRows() {
         stanceSelect.appendChild(optionEl);
       }
 
+      controls.appendChild(stanceLabel);
       controls.appendChild(stanceSelect);
       row.appendChild(controls);
     }
@@ -279,6 +312,39 @@ function assignSelectedShipsToGroup(groupId) {
   state.activeShipGroup = groupId;
   applyGroupCombatStyle(groupId);
   renderSideControls();
+}
+
+function unassignSelectedShipsFromGroup(groupId) {
+  if (!ASSIGNABLE_GROUP_IDS.includes(groupId)) return;
+  pruneSelection();
+  const liveIds = new Set(ownLiveShips().map((ship) => ship.id));
+  const selected = [...state.selectedShipIds].filter((id) => liveIds.has(id));
+  if (selected.length === 0) return;
+  ensureShipGroups();
+  const toRemove = selected.filter((id) => state.shipGroups[groupId].has(id));
+  if (toRemove.length === 0) return;
+  for (const id of toRemove) state.shipGroups[groupId].delete(id);
+  restoreShipCombatStyles(toRemove);
+  cleanupShipGroups(liveIds);
+  renderSideControls();
+}
+
+function restoreShipCombatStyles(shipIds) {
+  ensureBaseCombatStyles();
+  const byStyle = new Map();
+  for (const id of shipIds) {
+    const style = normalizeCombatStyle(state.shipGroupBaseCombatStyles.get(id) || state.combatStyle || "hold");
+    if (!byStyle.has(style)) byStyle.set(style, []);
+    byStyle.get(style).push(id);
+  }
+  if (state.socket && state.socket.readyState === WebSocket.OPEN && state.phase === "active") {
+    for (const [combatStyle, ids] of byStyle.entries()) {
+      if (ids.length > 0) {
+        const requestId = makeCombatStyleRequestId();
+        send({ type: "setCombatStyle", requestId, combatStyle, shipIds: ids });
+      }
+    }
+  }
 }
 
 function selectShipGroup(groupId) {

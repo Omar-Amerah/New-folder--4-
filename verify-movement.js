@@ -308,3 +308,4 @@ function run() {
 }
 
 run();
+require('./verify-movement-authoritative');

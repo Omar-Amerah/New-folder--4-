@@ -136,8 +136,15 @@ function initShipHeat(ship) {
   ship.overheatedComponentCount = 0;
   ship.hasPassiveHeatSource = design.some(module => (PARTS[module.type]?.powerGeneration || 0) > 0);
   ship.hasActiveHeat = ship.hasPassiveHeatSource;
+  ship.hasPendingHeatInput = false;
   ship.heatAdjacencyBuilds = (ship.heatAdjacencyBuilds || 0) + 1;
   ship.dirtyHeat = new Set(design.map((_, i) => i));
+  ship._heatScratch = {
+    delta: new Array(design.length).fill(0),
+    workingHeat: new Array(design.length).fill(0),
+    outflow: new Array(design.length).fill(0),
+    pendingTransfers: []
+  };
   rebuildThermalNetworks(ship);
 }
 
@@ -278,6 +285,7 @@ function addComponentHeat(ship, index, amount) {
   if (!ship.componentHeatInput || !Number.isFinite(amount) || amount <= 0) return;
   if (index < 0 || index >= ship.componentHeatInput.length) return;
   ship.componentHeatInput[index] += amount;
+  ship.hasPendingHeatInput = true;
   ship.hasActiveHeat = true;
 }
 
@@ -351,8 +359,9 @@ const { REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DA
 
 function updateShipHeat(ship, dt, room, now) {
   if (!ship.alive || !ship.componentHeat) return;
-  const pending = ship.componentHeatInput.some(value => value > 0);
+  const pending = ship.hasPendingHeatInput;
   if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending && !(ship.powerCableHeatRate > 0)) return;
+  ship.hasPendingHeatInput = false;
   const MAX_THERMAL_STEPS = 8;
   const MAX_THERMAL_BACKLOG_SECONDS = TICK_SECONDS * MAX_THERMAL_STEPS;
   ship.heatAccumulator = Math.min((ship.heatAccumulator || 0) + Math.max(0, dt || 0), MAX_THERMAL_BACKLOG_SECONDS);
@@ -363,7 +372,25 @@ function updateShipHeat(ship, dt, room, now) {
   ship.lastHeatTickDelta = elapsed;
 
   const heat = ship.componentHeat;
-  const delta = heat.map(() => 0);
+  if (!ship._heatScratch || ship._heatScratch.delta.length !== heat.length) {
+    ship._heatScratch = {
+      delta: new Array(heat.length).fill(0),
+      workingHeat: new Array(heat.length).fill(0),
+      outflow: new Array(heat.length).fill(0),
+      pendingTransfers: []
+    };
+  }
+  const scratch = ship._heatScratch;
+  const delta = scratch.delta;
+  const workingHeat = scratch.workingHeat;
+  const outflow = scratch.outflow;
+  const pendingTransfers = scratch.pendingTransfers;
+  for (let i = 0; i < heat.length; i += 1) {
+    delta[i] = 0;
+    workingHeat[i] = 0;
+    outflow[i] = 0;
+  }
+  pendingTransfers.length = 0;
   ship.componentHeatGenerated.fill(0);
   ship.componentHeatReceived.fill(0);
   ship.componentHeatRemoved.fill(0);
@@ -436,9 +463,9 @@ function updateShipHeat(ship, dt, room, now) {
   // down so it never sends more heat than it holds (per-edge clamps alone let a
   // component with several colder neighbours overdraw, minting heat from the
   // final max(0, ...) clamp). Scaling keeps transfers order independent.
-  const workingHeat = heat.map((value, i) => Math.max(0, value + delta[i]));
-  const pendingTransfers = [];
-  const outflow = heat.map(() => 0);
+  for (let i = 0; i < heat.length; i += 1) {
+    workingHeat[i] = Math.max(0, heat[i] + delta[i]);
+  }
   for (let i = 0; i < heat.length; i += 1) {
     for (const edge of ship.componentAdjacency[i]) {
       const j = edge.index;
