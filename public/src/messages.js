@@ -59,7 +59,7 @@ function buildClientSnapshotIndex(snapshot, myId, selectedIds) {
 
 // A compact, single-pass comparison that drives which UI layers run for a
 // snapshot. Avoids blindly calling every renderer on every accepted state.
-function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex) {
+function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex, nextIndex) {
   const all = !previous || !previousIndex;
   const selectedIdsArray = selectedIds ? [...selectedIds] : [];
   const summary = {
@@ -68,7 +68,7 @@ function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex)
     rulesChanged: all || previous.rules !== next.rules,
     economyChanged: all || previous.economy !== next.economy,
     fleetChanged: all || previous.ships !== next.ships,
-    selectionAffected: all || previousIndex?.selectedLivingShips?.length !== selectedLivingShips.length,
+    selectionAffected: all || previousIndex?.selectedLivingShips?.length !== (nextIndex?.selectedLivingShips?.length || 0),
     objectivesChanged: all || previous.objectives !== next.objectives || previous.victor !== next.victor,
     winnerChanged: all || previous.victor !== next.victor,
     selectedShipDamageChanged: false,
@@ -86,7 +86,7 @@ function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex)
     const selectedIdsSet = selectedIds || new Set();
     for (const id of selectedIdsSet) {
       const prevShip = previousIndex.shipById.get(id);
-      const nextShip = (next.shipsById || shipByIdFrom(next)).get(id);
+      const nextShip = (next.shipsById || (nextIndex && nextIndex.shipById) || shipByIdFrom(next)).get(id);
       if (prevShip && nextShip) {
         if (prevShip.chp !== nextShip.chp || prevShip.hp !== nextShip.hp) summary.selectedShipDamageChanged = true;
         if (prevShip.heat !== nextShip.heat || prevShip.componentHeatD !== nextShip.componentHeatD) summary.selectedShipHeatChanged = true;
@@ -311,7 +311,7 @@ export function handleServerMessage(message) {
 
     state.snapshot = accepted;
     state.snapshotIndex = buildClientSnapshotIndex(accepted, state.myId, state.selectedShipIds);
-    const summary = snapshotChangeSummary(previousSnapshot, accepted, state.myId, state.selectedShipIds, previousIndex);
+    const summary = snapshotChangeSummary(previousSnapshot, accepted, state.myId, state.selectedShipIds, previousIndex, state.snapshotIndex);
     state.snapshotChangeSummary = summary;
 
     acceptSnapshotForRender(accepted, state.snapshotReceivedAt);
