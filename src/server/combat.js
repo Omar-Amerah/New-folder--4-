@@ -70,7 +70,7 @@ function componentAimLocalPosition(ship, index) {
 
   if (!module) return null;
 
-  return moduleFootprintLocalPosition(module);
+  return moduleFootprintLocalPosition(module, ship?.moduleScale || MODULE_SCALE);
 
 }
 
@@ -4177,7 +4177,9 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
   if (!shipTarget) {
 
-    for (const other of ships) {
+    const stationTargets = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled");
+
+    for (const other of (ships || []).concat(stationTargets)) {
 
       if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
 

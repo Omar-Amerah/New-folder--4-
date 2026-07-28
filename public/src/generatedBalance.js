@@ -1653,7 +1653,7 @@ export const GENERATED_BALANCE = {
       "launchRetrySeconds": 0.5
     },
     "relayStation": {
-      "captureRadius": 160,
+      "captureRadius": 280,
       "repairDelaySeconds": 8,
       "repairRatePerSecond": 12,
       "captureRestoreHpRatio": 0.35,

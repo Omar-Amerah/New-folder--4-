@@ -354,8 +354,7 @@ function getPlayerRallyPoint(room, player) {
       y: Math.max(0, Math.min(room.world.height, rally.y))
     };
   }
-  const spawn = getPlayerSpawn(room, player.id);
-  return { x: spawn.x, y: spawn.y };
+  return null;
 }
 
 function applyRallySlots(room, player, ships) {

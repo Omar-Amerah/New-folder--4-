@@ -294,7 +294,7 @@ function renderRallyControls() {
   if (dom.rallyStatus) {
     dom.rallyStatus.textContent = rally && state.mine?.rallyPointCustom
       ? `${Math.round(rally.x)}, ${Math.round(rally.y)}`
-      : "Spawn";
+      : "Not set";
   }
 }
 

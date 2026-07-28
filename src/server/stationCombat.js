@@ -42,6 +42,15 @@ function liveStations(room) {
 }
 
 function stationModuleWorldPosition(station, index) {
+  const hardpoint = station.hardpoints?.[index];
+  if (hardpoint) {
+    const cos = Math.cos(station.angle || 0);
+    const sin = Math.sin(station.angle || 0);
+    return {
+      x: station.x + hardpoint.x * cos - hardpoint.y * sin,
+      y: station.y + hardpoint.x * sin + hardpoint.y * cos
+    };
+  }
   const module = station.design[index];
   if (!module) return { x: station.x, y: station.y };
   const footprint = PARTS[module.type]?.footprint || { width: 1, height: 1 };

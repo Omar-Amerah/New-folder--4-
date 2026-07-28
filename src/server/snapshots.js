@@ -86,6 +86,8 @@ function buildStationSnapshot(room, station, now, sendStatic) {
   // the component-based spawn/corridor UX.
   entry.design = station.design || [];
   if (station.hangar) entry.hangar = station.hangar;
+  if (station.hardpoints) entry.hardpoints = station.hardpoints;
+  if (station.componentHp) entry.componentHp = station.componentHp.map((hp) => round(hp * 10) / 10);
   // The production queue is small but changes continuously, so it is part of
   // every snapshot. Progress is resolved server-side: the client has no
   // authoritative clock to compare buildStartedAt against.

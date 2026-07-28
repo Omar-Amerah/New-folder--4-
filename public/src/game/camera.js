@@ -121,7 +121,6 @@ export function updateCamera(dt) {
     }
     if (Math.abs(target.x - state.camera.x) < 1 && Math.abs(target.y - state.camera.y) < 1 && (target.zoom == null || Math.abs(target.zoom - state.camera.zoom) < 0.01)) {
       state.camera.panTarget = null;
-      state.camera.follow = true;
     }
   } else if (state.camera.follow) {
     const selected = [...state.selectedShipIds];

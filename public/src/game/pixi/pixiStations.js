@@ -18,6 +18,24 @@ import { createPixiKeyedPool, getPixiBakeGeneration, swapTextureLease } from "./
 import { SHIP_SCALE, acquireHullLease, acquireTurretLease } from "./pixiShipView.js";
 import { footprintLocalPlacement } from "../shipGeometry.js";
 import { isRotatingWeaponPart, authoritativeWeaponAngle } from "../weaponAim.js";
+import { hullColorForRatio } from "../shipVitals.js";
+
+const stationBarGradientCache = new Map();
+
+function getPixiBarGradient(env, id, stops, vertical) {
+  let gradient = stationBarGradientCache.get(id);
+  if (!gradient) {
+    gradient = new env.PIXI.FillGradient({
+      type: "linear",
+      start: { x: 0, y: 0 },
+      end: vertical ? { x: 0, y: 1 } : { x: 1, y: 0 },
+      colorStops: stops,
+      textureSpace: "local"
+    });
+    stationBarGradientCache.set(id, gradient);
+  }
+  return gradient;
+}
 
 const INFRASTRUCTURE = GENERATED_BALANCE?.infrastructure || {};
 const HOME_STATION = INFRASTRUCTURE.homeStation || {};
@@ -86,6 +104,8 @@ function createPixiStationView(env) {
   const hullSprite = new PIXI.Sprite(PIXI.Texture.EMPTY);
   hullSprite.label = "StationHull";
   hullSprite.anchor.set(0.5);
+  const shellGfx = new PIXI.Graphics();
+  shellGfx.label = "StationShell";
   const hudGfx = new PIXI.Graphics();
   hudGfx.label = "StationHud";
 
@@ -103,6 +123,7 @@ function createPixiStationView(env) {
 
   root.addChild(auraGfx);
   root.addChild(hullSprite);
+  root.addChild(shellGfx);
   root.addChild(turretContainer);
   root.addChild(hudGfx);
   root.addChild(stateText);
@@ -112,6 +133,7 @@ function createPixiStationView(env) {
     root,
     auraGfx,
     hullSprite,
+    shellGfx,
     turretContainer,
     hudGfx,
     stateText,
@@ -120,6 +142,7 @@ function createPixiStationView(env) {
     lease: null,
     textureKey: null,
     auraSignature: "",
+    shellSignature: "",
     hudSignature: "",
     turretSignature: "",
     turretSprites: [],
@@ -134,11 +157,13 @@ function createPixiStationView(env) {
       }
       this.textureKey = null;
       this.auraSignature = "";
+      this.shellSignature = "";
       this.hudSignature = "";
       this.turretSignature = "";
       this.stateLabel = null;
       this.productionLabel = null;
       this.auraGfx.clear();
+      this.shellGfx.clear();
       this.hudGfx.clear();
       this.turretContainer.removeChildren();
       for (const sprite of this.turretSprites) {
@@ -173,12 +198,13 @@ function rebuildStationTurrets(env, view, station) {
   for (let i = 0; i < design.length; i += 1) {
     const part = design[i];
     if (!isRotatingWeaponPart(part.type)) continue;
-    const place = footprintLocalPlacement(part, SHIP_SCALE);
+    const hardpoint = station.hardpoints?.[i];
+    if (!hardpoint) continue;
     const lease = acquireTurretLease(env, part.type);
     const sprite = new env.PIXI.Sprite(lease.texture);
     sprite.label = `StationTurret[${i}] ${part.type}`;
     sprite.anchor.set(0.5);
-    sprite.position.set(place.cx * ratio, place.cy * ratio);
+    sprite.position.set(hardpoint.x, hardpoint.y);
     sprite.scale.set(ratio / env.bakeScale);
     sprite.__designIndex = i;
     sprite.__partType = part.type;
@@ -192,9 +218,10 @@ function rebuildStationTurrets(env, view, station) {
 
 // The repair aura / capture ring / hangar corridor. Purely a function of
 // station type, colour, state and zoom, so it is rebuilt only when those change.
-function rebuildStationAura(view, station, color, zoom) {
+function rebuildStationAura(view, station, color, zoom, debug) {
   const gfx = view.auraGfx;
   gfx.clear();
+  if (!debug) return;
   const operational = station.state === "operational";
   if (station.stationType === "home") {
     const hangar = station.hangar || {};
@@ -223,40 +250,192 @@ function rebuildStationAura(view, station, color, zoom) {
   }
 }
 
+// Exterior station shell. In normal play the hull sprite is mostly hidden so
+// the station reads as one cohesive silhouette; when selected the shell fades
+// and the component grid underneath is revealed.
+function isStationDebugEnabled() {
+  return typeof window !== "undefined" && window.__mfaDebugStationGeometry === true;
+}
+
+function rebuildStationShell(view, station, color) {
+  const gfx = view.shellGfx;
+  gfx.clear();
+  const accent = color || NEUTRAL_COLOR;
+  const dark = 0x11151c;
+  const hull = 0x222831;
+  const panel = 0x2d353f;
+  const metal = 0x39414c;
+
+  if (station.stationType === "home") {
+    const hangar = station.hangar || {};
+    const s = Number(hangar.apertureHalfWidth) || Math.max(60, (Number(station.radius) || 0) * 0.35);
+    const halfH = s * 1.6;
+    const rearX = -s * 3.8;
+    const shoulderX = -s * 0.8;
+    const frontX = s * 0.55;
+    const lipX = s * 0.9;
+    const depth = s * 2.6;
+
+    // Main body silhouette
+    gfx.moveTo(rearX, -halfH * 0.85);
+    gfx.lineTo(rearX * 0.55, -halfH);
+    gfx.lineTo(shoulderX, -halfH * 0.92);
+    gfx.lineTo(frontX, -halfH * 0.88);
+    gfx.lineTo(lipX, -s * 1.15);
+    gfx.lineTo(lipX, s * 1.15);
+    gfx.lineTo(frontX, halfH * 0.88);
+    gfx.lineTo(shoulderX, halfH * 0.92);
+    gfx.lineTo(rearX * 0.55, halfH);
+    gfx.lineTo(rearX, halfH * 0.85);
+    gfx.closePath();
+    gfx.fill(hull);
+    gfx.stroke({ width: 2, color: accent, alpha: 0.75 });
+
+    // Recessed hangar bay
+    gfx.rect(0, -s * 1.05, depth, s * 2.1);
+    gfx.fill(0x05070a);
+    // Hangar lip armour
+    gfx.rect(0, -s * 1.18, depth, s * 0.13);
+    gfx.fill(panel);
+    gfx.rect(0, s * 1.05, depth, s * 0.13);
+    gfx.fill(panel);
+    // Guide strips
+    gfx.rect(s * 0.3, -s * 0.92, depth * 0.75, s * 0.05);
+    gfx.fill({ color: accent, alpha: 0.85 });
+    gfx.rect(s * 0.3, s * 0.87, depth * 0.75, s * 0.05);
+    gfx.fill({ color: accent, alpha: 0.85 });
+    // Centreline
+    gfx.rect(s * 0.4, -s * 0.04, depth * 0.65, s * 0.08);
+    gfx.fill("rgba(255,255,255,0.08)");
+
+    // Armour panel lines
+    gfx.moveTo(rearX * 0.6, -halfH * 0.6);
+    gfx.lineTo(frontX, -halfH * 0.6);
+    gfx.stroke({ width: 1.5, color: 0xffffff, alpha: 0.08 });
+    gfx.moveTo(rearX * 0.6, halfH * 0.6);
+    gfx.lineTo(frontX, halfH * 0.6);
+    gfx.stroke({ width: 1.5, color: 0xffffff, alpha: 0.08 });
+
+    // Rear command tower / reactor mound
+    gfx.moveTo(rearX * 0.65, -halfH * 0.55);
+    gfx.lineTo(-s * 2.2, -halfH * 1.15);
+    gfx.lineTo(-s * 1.0, -halfH * 1.05);
+    gfx.lineTo(shoulderX * 0.6, -halfH * 0.62);
+    gfx.closePath();
+    gfx.fill(panel);
+    gfx.stroke({ width: 1.5, color: accent, alpha: 0.5 });
+
+    // Lower engine nacelle
+    gfx.moveTo(-s * 2.4, halfH * 0.55);
+    gfx.lineTo(-s * 1.4, halfH * 1.25);
+    gfx.lineTo(-s * 0.6, halfH * 1.15);
+    gfx.lineTo(shoulderX * 0.5, halfH * 0.62);
+    gfx.closePath();
+    gfx.fill(panel);
+    gfx.stroke({ width: 1.5, color: accent, alpha: 0.5 });
+
+    // Weapon hardpoints flanking the mouth
+    gfx.circle(lipX + s * 0.05, -s * 1.25, s * 0.12);
+    gfx.fill(dark);
+    gfx.stroke({ width: 1.5, color: accent, alpha: 0.8 });
+    gfx.circle(lipX + s * 0.05, s * 1.25, s * 0.12);
+    gfx.fill(dark);
+    gfx.stroke({ width: 1.5, color: accent, alpha: 0.8 });
+
+    return;
+  }
+
+  // Relay: compact armoured polygon with weapon hardpoints and antennae
+  const s = Math.max(45, (Number(station.radius) || 0) * 0.35);
+  const body = [
+    { x: -s * 1.2, y: -s * 0.9 },
+    { x: -s * 0.5, y: -s * 1.35 },
+    { x: s * 0.8, y: -s * 1.05 },
+    { x: s * 1.35, y: 0 },
+    { x: s * 0.8, y: s * 1.05 },
+    { x: -s * 0.5, y: s * 1.35 },
+    { x: -s * 1.2, y: s * 0.9 },
+    { x: -s * 1.55, y: 0 }
+  ];
+  gfx.moveTo(body[0].x, body[0].y);
+  for (let i = 1; i < body.length; i += 1) gfx.lineTo(body[i].x, body[i].y);
+  gfx.closePath();
+  gfx.fill(hull);
+  gfx.stroke({ width: 2, color: accent, alpha: 0.75 });
+
+  // Central core glow
+  gfx.circle(0, 0, s * 0.28);
+  gfx.fill("rgba(125,211,252,0.15)");
+
+  // Communications mast
+  gfx.rect(-s * 0.05, -s * 1.45, s * 0.1, s * 0.7);
+  gfx.fill(panel);
+  gfx.circle(0, -s * 1.45, s * 0.08);
+  gfx.fill({ color: accent, alpha: 0.9 });
+
+  // Outward hardpoints
+  const mounts = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+  for (const [sx, sy] of mounts) {
+    const mx = sx * s * 1.0;
+    const my = sy * s * 0.85;
+    gfx.circle(mx, my, s * 0.12);
+    gfx.fill(dark);
+    gfx.stroke({ width: 1, color: accent, alpha: 0.7 });
+  }
+
+  // Antenna arms
+  gfx.moveTo(-s * 0.6, -s * 0.6);
+  gfx.lineTo(s * 0.6, s * 0.6);
+  gfx.stroke({ width: 1, color: metal, alpha: 0.3 });
+  gfx.moveTo(s * 0.6, -s * 0.6);
+  gfx.lineTo(-s * 0.6, s * 0.6);
+  gfx.stroke({ width: 1, color: metal, alpha: 0.3 });
+}
+
 // Health + shield bars, the selection ring, and the build progress bar.
-function rebuildStationHud(view, station, color, zoom, selected, barY, progress) {
+function rebuildStationHud(env, view, station, color, zoom, selected, barY, progress) {
   const gfx = view.hudGfx;
   gfx.clear();
-  const width = Math.max(90, (Number(station.radius) || 60) * 1.4);
-  const height = Math.max(6, 7 / zoom);
+  const visualH = station.stationType === "home"
+    ? (Number(station.hangar?.apertureHalfWidth) || 60) * 1.65
+    : Math.max(45, (Number(station.radius) || 60) * 0.35) * 1.1;
+  const width = Math.max(70, visualH * 1.3);
+  const height = Math.max(5, 6 / zoom);
+  const shieldHeight = 3.5 / zoom;
+  const gap = 2 / zoom;
+  const shieldY = barY - shieldHeight - gap;
   const left = -width / 2;
 
   const hpRatio = station.maxHp > 0 ? Math.max(0, Math.min(1, station.hp / station.maxHp)) : 0;
+  const shieldRatio = station.maxShield > 0 ? Math.max(0, Math.min(1, station.shield / station.maxShield)) : 0;
+
+  // HP bar with ship-style gradient; shield bar above with a small gap.
   gfx.rect(left, barY, width, height);
-  gfx.fill("rgba(8,12,20,0.78)");
+  gfx.fill("rgba(2,10,18,0.85)");
   if (hpRatio > 0) {
+    const hpColor = hullColorForRatio(hpRatio);
+    const hpGradient = getPixiBarGradient(env, `station-hp-${hpColor.start}-${hpColor.end}`, [{ offset: 0, color: hpColor.start }, { offset: 1, color: hpColor.end }], false);
     gfx.rect(left, barY, width * hpRatio, height);
-    gfx.fill(station.state === "disabled" ? DISABLED_COLOR : color);
+    gfx.fill(hpGradient);
+    gfx.rect(left, barY, width * hpRatio, height * 0.45);
+    gfx.fill("rgba(255,255,255,0.14)");
+  }
+  if (shieldRatio > 0) {
+    gfx.rect(left, shieldY, width * shieldRatio, shieldHeight);
+    gfx.fill("#22d3ee");
   }
   gfx.rect(left, barY, width, height);
   gfx.stroke({ width: 1 / zoom, color: "rgba(255,255,255,0.35)" });
-
-  if (station.maxShield > 0) {
-    const shieldRatio = Math.max(0, Math.min(1, station.shield / station.maxShield));
-    const shieldY = barY - height - 2 / zoom;
-    gfx.rect(left, shieldY, width, height * 0.6);
-    gfx.fill("rgba(8,12,20,0.7)");
-    if (shieldRatio > 0) {
-      gfx.rect(left, shieldY, width * shieldRatio, height * 0.6);
-      gfx.fill("#7cc4ff");
-    }
+  if (shieldRatio > 0) {
+    gfx.rect(left, shieldY, width, shieldHeight);
+    gfx.stroke({ width: 1 / zoom, color: "rgba(125,211,252,0.35)" });
   }
 
   if (progress > 0) {
     const progressY = barY + height + 3 / zoom;
-    gfx.rect(left, progressY, width, height * 0.6);
+    gfx.rect(left, progressY, width, height * 0.5);
     gfx.fill("rgba(8,12,20,0.7)");
-    gfx.rect(left, progressY, width * progress, height * 0.6);
+    gfx.rect(left, progressY, width * progress, height * 0.5);
     gfx.fill("#ffc861");
   }
 
@@ -319,6 +498,7 @@ export function updatePixiStations(env, now, players, bounds) {
     view.root.position.set(station.x, station.y);
     view.auraGfx.rotation = Number(station.angle) || 0;
     view.hullSprite.rotation = Number(station.angle) || 0;
+    view.shellGfx.rotation = Number(station.angle) || 0;
     view.turretContainer.rotation = Number(station.angle) || 0;
 
     // Static hull art. Absent design (a compact snapshot received before any
@@ -337,26 +517,46 @@ export function updatePixiStations(env, now, players, bounds) {
       } else {
         view.hullSprite.scale.set(ratio / env.bakeScale);
       }
-      const turretSignature = `${station.stationType}|${design.length}|${env.bakeScale}|${getPixiBakeGeneration()}`;
+      const turretSignature = `${station.stationType}|${design.length}|${env.bakeScale}|${getPixiBakeGeneration()}|${station.hardpoints ? 1 : 0}`;
       if (view.turretSignature !== turretSignature) {
         view.turretSignature = turretSignature;
         rebuildStationTurrets(env, view, station);
       }
       for (const sprite of view.turretSprites) {
+        const hp = station.componentHp?.[sprite.__designIndex];
+        const dead = hp !== undefined && hp <= 1;
+        const operational = station.state === "operational";
         sprite.rotation = authoritativeWeaponAngle(station, sprite.__designIndex) || 0;
+        sprite.visible = operational && !dead;
+        sprite.alpha = dead ? 1 : (operational ? 1 : 0.35);
       }
     }
+    const selected = state.selectedStationId === station.id;
+    view.hullSprite.visible = selected;
     view.hullSprite.alpha = station.state === "disabled" ? 0.55 : 1;
+    view.turretContainer.visible = true;
+    view.turretContainer.alpha = 1;
+    view.shellGfx.alpha = selected ? 0.42 : 0.95;
 
-    const auraSignature = `${station.stationType}|${station.state}|${color}|${zoomKey}|${Math.round(station.radius || 0)}|${Math.round(station.hangar?.apertureHalfWidth || 0)}|${Math.round(station.hangar?.corridorLength || 0)}`;
+    const stationDebug = isStationDebugEnabled();
+    const auraSignature = `${station.stationType}|${station.state}|${color}|${zoomKey}|${stationDebug ? 1 : 0}|${Math.round(station.radius || 0)}|${Math.round(station.hangar?.apertureHalfWidth || 0)}|${Math.round(station.hangar?.corridorLength || 0)}`;
     if (view.auraSignature !== auraSignature) {
       view.auraSignature = auraSignature;
-      rebuildStationAura(view, station, color, zoom);
+      rebuildStationAura(view, station, color, zoom, stationDebug);
     }
 
     const production = station.stationType === "home" ? activeProductionSummary(station) : { label: "", progress: 0 };
-    const selected = state.selectedStationId === station.id;
-    const barY = Math.max(48, (Number(station.radius) || 60) + 24 / zoom);
+
+    const shellSignature = `${station.stationType}|${color}|${Math.round(station.radius || 0)}|${Math.round(station.hangar?.apertureHalfWidth || 0)}|${Math.round(station.hangar?.corridorLength || 0)}`;
+    if (view.shellSignature !== shellSignature) {
+      view.shellSignature = shellSignature;
+      rebuildStationShell(view, station, color);
+    }
+
+    const visibleH = station.stationType === "home"
+      ? (Number(station.hangar?.apertureHalfWidth) || 60) * 1.65
+      : Math.max(45, (Number(station.radius) || 60) * 0.35) * 1.1;
+    const barY = Math.max(36, visibleH + 8 / zoom);
     const hudSignature = [
       zoomKey, color, station.state, selected ? 1 : 0,
       Math.round(station.hp), Math.round(station.maxHp),
@@ -365,11 +565,20 @@ export function updatePixiStations(env, now, players, bounds) {
     ].join("|");
     if (view.hudSignature !== hudSignature) {
       view.hudSignature = hudSignature;
-      rebuildStationHud(view, station, color, zoom, selected, barY, production.progress);
+      rebuildStationHud(env, view, station, color, zoom, selected, barY, production.progress);
     }
 
     const labelScale = Math.max(1, 1 / zoom);
-    const stateLabel = stationStateLabel(station);
+    let stateLabel = stationStateLabel(station);
+    if (station.ownerId && station.ownerId !== state.myId) {
+      const owner = players?.get?.(station.ownerId);
+      if (owner) stateLabel += ` — ${owner.name || owner.team || ""}`;
+    } else if (station.team) {
+      stateLabel += ` — ${station.team === "blue" ? "Blue" : station.team === "red" ? "Red" : station.team}`;
+    }
+    if (station.stationType === "relay" && !selected && (station.captureProgress || 0) > 0) {
+      stateLabel += ` (${Math.round((station.captureProgress || 0) * 100)}%)`;
+    }
     if (view.stateLabel !== stateLabel) {
       view.stateLabel = stateLabel;
       view.stateText.text = stateLabel;
@@ -377,7 +586,8 @@ export function updatePixiStations(env, now, players, bounds) {
     const stateFill = station.state === "disabled" ? "#ffb4b4" : "#ffffff";
     if (view.stateText.style.fill !== stateFill) view.stateText.style.fill = stateFill;
     view.stateText.scale.set(labelScale);
-    view.stateText.position.set(0, barY + 22 / zoom);
+    view.stateText.position.set(0, barY + 18 / zoom);
+    view.stateText.visible = true;
 
     if (view.productionLabel !== production.label) {
       view.productionLabel = production.label;
@@ -385,7 +595,7 @@ export function updatePixiStations(env, now, players, bounds) {
     }
     view.productionText.visible = production.label.length > 0;
     view.productionText.scale.set(labelScale);
-    view.productionText.position.set(0, barY + 40 / zoom);
+    view.productionText.position.set(0, barY + 32 / zoom);
   }
 
   pixiStationPool.frameEnd();

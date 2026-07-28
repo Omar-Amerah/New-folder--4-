@@ -12,6 +12,7 @@ const { computeDesignFootprintRadius, computeDesignCollisionRadius } = require("
 const { spawnShip, applyRallySlots } = require("./ships");
 const { usesStationInfrastructure } = require("./rooms");
 const { initStationCombatRuntime } = require("./stationCombat");
+const { getShipComponentIndexes } = require("./componentIndexes");
 
 const {
   SHIP_MODULE_SCALE,
@@ -196,6 +197,45 @@ function buildHangarGeometry(station) {
   };
 }
 
+function computeStationHardpoints(station) {
+  const design = station.design || [];
+  const indexes = getShipComponentIndexes(station).weaponIndices;
+  const result = new Array(design.length).fill(null);
+  const isHome = station.stationType === "home";
+  const ah = Number(station.hangar?.apertureHalfWidth) || 60;
+  const rs = Math.max(40, (Number(station.radius) || 60) * 0.35);
+  const s = isHome ? ah : rs;
+  const homeLayout = [
+    { x: s * 0.9, y: -s * 1.25 },
+    { x: s * 0.9, y: s * 1.25 },
+    { x: -s * 2.1, y: -s * 1.45 },
+    { x: -s * 2.1, y: s * 1.45 },
+    { x: -s * 0.45, y: -s * 1.32 },
+    { x: -s * 0.45, y: s * 1.32 },
+    { x: -s * 3.0, y: -s * 0.75 },
+    { x: -s * 3.0, y: s * 0.75 },
+    { x: s * 0.35, y: -s * 1.62 },
+    { x: s * 0.35, y: s * 1.62 },
+    { x: -s * 1.2, y: -s * 1.6 },
+    { x: -s * 1.2, y: s * 1.6 }
+  ];
+  const relayLayout = [
+    { x: s * 1.0, y: -s * 0.85 },
+    { x: s * 1.0, y: s * 0.85 },
+    { x: -s * 1.0, y: -s * 0.85 },
+    { x: -s * 1.0, y: s * 0.85 },
+    { x: 0, y: -s * 1.35 },
+    { x: 0, y: s * 1.35 }
+  ];
+  const layout = isHome ? homeLayout : relayLayout;
+  for (let i = 0; i < indexes.length; i += 1) {
+    const idx = indexes[i];
+    const pos = layout[i % layout.length];
+    result[idx] = { x: pos.x, y: pos.y };
+  }
+  return result;
+}
+
 function createStationEntity(room, template, x, y, angle, stationType, team, ownerId, now) {
   const design = template.design.map((m) => ({ ...m }));
   const wiring = template.wiring; // wiring is treated as immutable; component power builds per-entity runtime state
@@ -256,6 +296,7 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
     (max, piece) => Math.max(max, Math.hypot(piece.x - station.x, piece.y - station.y) + piece.radius),
     0
   );
+  station.hardpoints = computeStationHardpoints(station);
   station.alive = station.state !== "disabled";
   initStationCombatRuntime(station);
   return station;
