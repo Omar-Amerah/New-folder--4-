@@ -170,10 +170,38 @@ function findTeamHomeStation(room, team) {
   return room.stations?.find((s) => s.stationType === "home" && s.team === team) || null;
 }
 
+// Ships already paid for but not yet launched still occupy a fleet slot; the
+// economy's fleet-cap validator only counts live hulls, so the queue has to be
+// counted here or a player could buy an unbounded fleet one build at a time.
+function queuedShipCount(room, playerId) {
+  let total = 0;
+  for (const station of room.stations || []) {
+    if (station.stationType !== "home") continue;
+    for (const queued of station.productionQueue) {
+      if (queued.playerId === playerId) total += Math.max(0, queued.quantityRemaining);
+    }
+  }
+  return total;
+}
+
 function enqueueStationProduction(room, player, item, now) {
   const station = findTeamHomeStation(room, player.team);
   if (!station) {
     return { type: "purchaseResult", ok: false, requestId: item.request.requestId, code: "no-home-station", message: "No home station available" };
+  }
+  if (station.state !== "operational") {
+    return { type: "purchaseResult", ok: false, requestId: item.request.requestId, code: "station-disabled", message: "Your home station is disabled and cannot build ships" };
+  }
+  const active = player.ships.filter((ship) => ship.alive).length;
+  const queued = queuedShipCount(room, player.id);
+  if (active + queued + item.validation.count > player.shipCap) {
+    return {
+      type: "purchaseResult",
+      ok: false,
+      requestId: item.request.requestId,
+      code: "fleet-cap",
+      message: `Fleet cap reached: ${active} active + ${queued} in production of ${player.shipCap}`
+    };
   }
   const cfg = INFRASTRUCTURE.homeStation;
   const queueItem = {
@@ -205,6 +233,23 @@ function enqueueStationProduction(room, player, item, now) {
     shipCap: player.shipCap,
     queued: true
   };
+}
+
+// Bots buy through buyShip() in Classic, which spawns instantly at the safe
+// zone. In station mode they must use the same production queue as human
+// purchases so a bot fleet is gated by hangar throughput too.
+function enqueueBotProduction(room, player, now) {
+  const stats = player.stats || computeStats(player.design, player.wiring);
+  if (!(stats.unitCost > 0) || player.money < stats.unitCost) return null;
+  const { canonicalBlueprintSignature, getOrCreateTemplate } = require("./shipTemplates");
+  const signature = canonicalBlueprintSignature(player.design, player.wiring);
+  const template = getOrCreateTemplate(player.id, player.design, player.wiring, stats, signature);
+  const result = enqueueStationProduction(room, player, {
+    template,
+    request: { requestId: `bot:${player.id}:${room.nextEntityId}`, combatStyle: player.combatStyle || "hold" },
+    validation: { count: 1, totalCost: stats.unitCost }
+  }, now);
+  return result.ok ? result : null;
 }
 
 function spawnQueuedShip(room, station, queueItem, now) {
@@ -252,6 +297,26 @@ function processStationProduction(room, station, dt, now) {
       if (item.quantityRemaining <= 0) station.productionQueue.shift();
       station.productionRevision += 1;
     }
+  }
+}
+
+// A launch record exists only while a freshly built ship is still clearing the
+// hangar corridor. Without this sweep the list grows for the whole match, since
+// nothing else ever removes an entry.
+function updateStationLaunches(room, station) {
+  const launches = station.activeLaunches;
+  if (!launches || launches.length === 0) return;
+  const releaseDistance = INFRASTRUCTURE.homeStation.releaseDistance;
+  for (let i = launches.length - 1; i >= 0; i -= 1) {
+    const launch = launches[i];
+    const ship = room.ships.get(launch.shipId);
+    if (!ship || !ship.alive) {
+      launches.splice(i, 1);
+      continue;
+    }
+    const dx = ship.x - station.x;
+    const dy = ship.y - station.y;
+    if (Math.hypot(dx, dy) >= releaseDistance + (station.stats?.radius || 0)) launches.splice(i, 1);
   }
 }
 
@@ -365,6 +430,7 @@ function updateStations(room, dt, now) {
   if (!usesStationInfrastructure(room) || !room.stations) return;
   for (const station of room.stations) {
     updateStationRecovery(station, dt, now);
+    updateStationLaunches(room, station);
     updateStationRepair(room, station, dt, now);
     processStationProduction(room, station, dt, now);
     updateStationCapture(room, station, dt, now);
@@ -383,5 +449,8 @@ module.exports = {
   destroyStationsForRoom,
   updateStations,
   enqueueStationProduction,
+  enqueueBotProduction,
+  queuedShipCount,
+  findTeamHomeStation,
   usesStationInfrastructure
 };

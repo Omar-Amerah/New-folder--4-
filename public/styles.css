@@ -651,6 +651,143 @@ h2 {
   background: rgba(7, 12, 20, 0.58);
 }
 
+/* Station inspection panel (station infrastructure mode). Read-only: it mirrors
+   the selection panel's chrome so the two read as the same family of cards. */
+.station-panel {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(174, 199, 231, 0.18);
+  border-radius: 8px;
+  background: rgba(7, 12, 20, 0.58);
+}
+
+.station-panel[hidden] {
+  display: none;
+}
+
+.station-panel h3 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9fb2c8;
+}
+
+.station-summary {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.station-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.station-summary-row dt {
+  color: #90a3ba;
+}
+
+.station-summary-row dd {
+  margin: 0;
+  color: #dce8f7;
+}
+
+.station-status-operational { color: #6ee7a8; }
+.station-status-disabled { color: #ff9a9a; }
+.station-status-neutral { color: #c8d4e3; }
+
+.station-meter {
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #b9c8db;
+}
+
+.station-meter-track {
+  height: 7px;
+  border: 1px solid rgba(174, 199, 231, 0.2);
+  border-radius: 4px;
+  background: rgba(4, 8, 14, 0.8);
+  overflow: hidden;
+}
+
+.station-meter-track i {
+  display: block;
+  height: 100%;
+  background: #38d5ff;
+}
+
+.station-meter-shield .station-meter-track i {
+  background: #7cc4ff;
+}
+
+.station-queue {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.station-queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  padding: 4px 6px;
+  border: 1px solid rgba(174, 199, 231, 0.14);
+  border-radius: 6px;
+  background: rgba(9, 15, 25, 0.7);
+  font-size: 11px;
+  color: #c6d5e6;
+}
+
+.station-queue-mine {
+  border-color: rgba(255, 202, 87, 0.45);
+}
+
+.station-queue-owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.station-queue-state {
+  color: #93a6bd;
+  text-align: right;
+}
+
+.station-queue-track {
+  grid-column: 1 / 2;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(4, 8, 14, 0.85);
+  overflow: hidden;
+}
+
+.station-queue-track i {
+  display: block;
+  height: 100%;
+  background: #ffc861;
+}
+
+.station-queue-progress {
+  text-align: right;
+  color: #ffc861;
+}
+
+.station-empty {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8ea1b8;
+}
+
 .combat-style-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

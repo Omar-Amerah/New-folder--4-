@@ -30,6 +30,7 @@ import {
   updateScoreboardStatus,
   updateWinnerStatus
 } from "./ui/matchStatusUi.js";
+import { updateStationPanel } from "./ui/stationPanelUi.js";
 import { notify, addLog } from "./ui/toastUi.js";
 import { recordServerBalanceRevision } from "./balanceStatus.js";
 import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, DIAGNOSTICS_ENABLED, syncUrlParams } from "./constants.js";
@@ -91,6 +92,7 @@ function presentationHandlers() {
     updateLobbyRules: lobbyUi.updateLobbyRules,
     updateLobbyPlayerRows: lobbyUi.updateLobbyPlayerRows,
     updateLobbyPlayerStatus: lobbyUi.updateLobbyPlayerStatus,
+    updateStationPanel,
     updateRelayStatus,
     updateControlVictoryStatus,
     updateScoreboardStatus,
@@ -142,6 +144,7 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
     runPresentation("phase:clearMatchPanels", () => lobbyUi.clearMatchPanels?.());
     runPresentation("phase:openLobbyManagement", lobbyUi.openLobbyManagement);
     runPresentation("phase:updateDeploymentControls", purchaseUi.updateDeploymentControls);
+    runPresentation("phase:updateStationPanel", updateStationPanel);
     return;
   }
 
@@ -156,6 +159,8 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
   runPresentation("phase:updateDeploymentControls", purchaseUi.updateDeploymentControls);
   runPresentation("phase:updateRallyUi", updateRallyUi);
   runPresentation("phase:updateSelectionCommandUi", updateSelectionCommandUi);
+  // Any phase move out of the match invalidates the inspected station.
+  runPresentation("phase:updateStationPanel", updateStationPanel);
 
   if (nextPhase === "active") {
     runPresentation("phase:updateRelayStatus", updateRelayStatus);

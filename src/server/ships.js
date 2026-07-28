@@ -271,6 +271,7 @@ function updateBots(room, now) {
   const { buyShip } = require("./economy");
   const { areEnemies } = require("./combat");
   const { commandShips } = require("./movement");
+  const { usesStationInfrastructure } = require("./rooms");
 
   for (const player of room.players.values()) {
     if (!player.isBot || !player.ready || now < player.ai.nextThinkAt) continue;
@@ -281,7 +282,10 @@ function updateBots(room, now) {
     ai.nextThinkAt = now + rngRange(rng, 900, 1700);
     const currentCost = player.stats?.unitCost || computeStats(player.design, player.wiring).unitCost;
     if (player.money >= currentCost) {
-      buyShip(room, player, now, { silent: true });
+      // Station mode has no instant spawn: everything a player or bot buys is
+      // built and launched by their home station.
+      if (usesStationInfrastructure(room)) require("./stations").enqueueBotProduction(room, player, now);
+      else buyShip(room, player, now, { silent: true });
     }
     const ships = player.ships.filter((ship) => ship.alive);
     if (ships.length === 0) continue;

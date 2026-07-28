@@ -16,6 +16,7 @@ import { playerMap } from "../../ui/matchStatusUi.js";
 import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagnostics } from "./pixiBake.js";
 import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
 import { updatePixiShips, destroyPixiShipPool, pixiShipViewCounts } from "./pixiShips.js";
+import { updatePixiStations, destroyPixiStations, pixiStationViewCount } from "./pixiStations.js";
 import { updatePixiDrones, destroyPixiDrones } from "./pixiDrones.js";
 import { recordRendererFrame, rendererMetricsSnapshot, resetRendererMetrics, setRendererMetricsPhase } from "../rendererMetrics.js";
 import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
@@ -81,6 +82,9 @@ export async function initPixiRenderer() {
     grid: new PIXI.Graphics(),
     map: new PIXI.Container(),
     relays: new PIXI.Container(),
+    // Stations sit above map features and relays but below ships, so a ship
+    // launching from a hangar is drawn in front of the structure it left.
+    stations: new PIXI.Container(),
     command: new PIXI.Graphics(),
     engineSmoke: new PIXI.Graphics(),
     enemyBullets: new PIXI.Container(),
@@ -95,6 +99,7 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.grid);
   worldRoot.addChild(layers.map);
   worldRoot.addChild(layers.relays);
+  worldRoot.addChild(layers.stations);
   worldRoot.addChild(layers.command);
   worldRoot.addChild(layers.engineSmoke);
   worldRoot.addChild(layers.enemyBullets);
@@ -207,6 +212,8 @@ function pixiFrame() {
     pixiEnv.layers.overlay.clear();
     lastRenderStage = "updatePixiWorld";
     updatePixiWorld(pixiEnv, now, players, bounds, rect);
+    lastRenderStage = "updatePixiStations";
+    updatePixiStations(pixiEnv, now, players, bounds);
     lastRenderStage = "updatePixiShips";
     updatePixiShips(pixiEnv, now, players, bounds);
     lastRenderStage = "updatePixiDrones";
@@ -254,6 +261,7 @@ function collectFatalPixiDiagnostics(error, stage) {
       asteroids: snapshot?.map?.asteroids?.length || state.map?.asteroids?.length || 0,
       clouds: snapshot?.map?.clouds?.length || state.map?.clouds?.length || 0,
       safeZones: snapshot?.map?.safeZones?.length || state.map?.safeZones?.length || 0,
+      stations: snapshot?.stations?.length || 0,
       bullets: snapshot?.bullets?.length || 0,
       effects: snapshot?.effects?.length || 0
     },
@@ -312,6 +320,7 @@ function handleFatalPixiFrameError(error, stage) {
       advancePixiBakeGeneration();
       destroyPixiShipPool();
       destroyPixiWorld();
+      destroyPixiStations();
       destroyPixiDrones();
       if (pixiEnv?.app?.ticker && !pixiEnv.app.ticker.started) {
         pixiEnv.app.ticker.start();
@@ -371,7 +380,7 @@ export function getPixiRuntimeDiagnostics() {
     authoritativeEntityCounts: { ships: state.snapshot?.ships?.length || 0, projectiles: state.snapshot?.bullets?.length || 0, effects: state.snapshot?.effects?.length || 0 },
     visibleCount: metrics.visibleCount,
     culledCount: metrics.culledCount,
-    pools: { ships },
+    pools: { ships, stations: { activeStationViews: pixiStationViewCount() } },
     sceneChildCounts: sceneChildCounts(app),
     frameMetrics: metrics,
     selectedShipIds: [...state.selectedShipIds],
@@ -417,6 +426,7 @@ export function destroyPixiRenderer() {
   // 2-6. Destroy pools/views (releases every texture lease; resets globals).
   destroyPixiShipPool();
   destroyPixiDrones();
+  destroyPixiStations();
   destroyPixiWorld();
   destroyPixiScreenUi(env);
   // 7. Now that no lease remains, destroy every cache-owned texture exactly once.

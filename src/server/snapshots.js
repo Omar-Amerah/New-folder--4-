@@ -1,6 +1,6 @@
 // Builds state snapshot objects representing game rooms and serializes them for network transmission.
 
-const { round } = require("./utils");
+const { round, clampNumber } = require("./utils");
 const { teamLabel } = require("./players");
 const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 const { getActiveFleetCost } = require("./economy");
@@ -56,7 +56,7 @@ function buildComponentDamageVisual(ship) {
 
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
-function buildStationSnapshot(room, station, sendStatic) {
+function buildStationSnapshot(room, station, now, sendStatic) {
   const entry = {
     id: station.id,
     stationType: station.stationType,
@@ -76,25 +76,33 @@ function buildStationSnapshot(room, station, sendStatic) {
     stateRevision: station.stateRevision || 0,
     productionRevision: station.productionRevision || 1
   };
+  // Geometry is static for the lifetime of the station, so it rides along only
+  // on full snapshots; the client carries it forward across compact merges.
   if (sendStatic) {
     entry.design = station.design || [];
     if (station.hangar) entry.hangar = station.hangar;
-    if (station.stationType === "home") {
-      entry.productionQueue = station.productionQueue.map((item) => ({
-        id: item.id,
-        playerId: item.playerId,
-        quantityRemaining: item.quantityRemaining,
-        state: item.state,
-        buildDurationSeconds: item.buildDurationSeconds
-      }));
-    }
+  }
+  // The production queue is small but changes continuously, so it is part of
+  // every snapshot. Progress is resolved server-side: the client has no
+  // authoritative clock to compare buildStartedAt against.
+  if (station.stationType === "home") {
+    entry.productionQueue = station.productionQueue.map((item) => ({
+      id: item.id,
+      playerId: item.playerId,
+      quantityRemaining: item.quantityRemaining,
+      state: item.state,
+      buildDurationSeconds: round(item.buildDurationSeconds),
+      progress: item.state === "queued"
+        ? 0
+        : round(clampNumber((now - item.buildStartedAt) / Math.max(1, item.buildDurationSeconds * 1000), 0, 1))
+    }));
   }
   return entry;
 }
 
 function buildStationSnapshots(room, now, sendStatic) {
   if (!usesStationInfrastructure(room) || !room.stations) return undefined;
-  return room.stations.map((station) => buildStationSnapshot(room, station, sendStatic));
+  return room.stations.map((station) => buildStationSnapshot(room, station, now, sendStatic));
 }
 
 function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false) {

@@ -115,6 +115,8 @@ const GROUPS = {
     "verify-ship-identification-renderer.js",
     "verify-selection.js",
     "verify-client-selection.js",
+    "verify-station-infrastructure.js",
+    "verify-station-client.js",
     "verify-economy.js",
     "verify-economy-sequence.js",
     "verify-purchase-signature.js",

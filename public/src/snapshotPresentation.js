@@ -35,7 +35,7 @@
 const PLAYER_IDENTITY_FIELDS = ["name", "teamName", "isAdmin", "isBot", "color", "colour"];
 const PLAYER_SCORE_FIELDS = ["kills", "losses", "captures", "destroyedEnemyCost", "lostFleetCost"];
 const PLAYER_ECONOMY_FIELDS = ["money", "income", "earned", "spent", "activeFleetCost", "deployedFleetCost", "lastReward", "shipsBuilt"];
-const RULE_FIELDS = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "asteroidDensity", "shipCap"];
+const RULE_FIELDS = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "asteroidDensity", "infrastructureMode", "shipCap"];
 const VITAL_FIELDS = ["hp", "maxHp", "shield", "maxShield", "alive"];
 const COMMAND_FIELDS = ["combatStyle", "commandState", "focusTargetId", "combatTargetId"];
 
@@ -109,6 +109,40 @@ function comparePoints(previous, next) {
     if (fieldsChanged(previousPoint, nextPoint, ["x", "y", "radius"])) result.pointsChanged = true;
   }
   result.pointsChanged ||= result.ownershipChanged || result.progressChanged;
+  return result;
+}
+
+function stationMap(snapshot) {
+  return new Map((snapshot?.stations || []).map((station) => [station.id, station]));
+}
+
+// Station production advances every tick while a hangar is busy, so the queue is
+// compared by its own summary rather than by identity: an idle station produces
+// no panel repaints at all.
+function productionSignature(station) {
+  const queue = station?.productionQueue;
+  if (!Array.isArray(queue) || queue.length === 0) return "";
+  return queue.map((item) => `${item.id}:${item.state}:${item.quantityRemaining}:${Math.round((Number(item.progress) || 0) * 100)}`).join(",");
+}
+
+function compareStations(previous, next) {
+  const left = stationMap(previous);
+  const right = stationMap(next);
+  const result = { membershipChanged: false, stateChanged: false, vitalsChanged: false, productionChanged: false };
+  if (left.size !== right.size) {
+    result.membershipChanged = result.stateChanged = result.vitalsChanged = result.productionChanged = true;
+    return result;
+  }
+  for (const [id, previousStation] of left) {
+    const nextStation = right.get(id);
+    if (!nextStation) {
+      result.membershipChanged = result.stateChanged = result.vitalsChanged = result.productionChanged = true;
+      continue;
+    }
+    if (fieldsChanged(previousStation, nextStation, ["state", "team", "ownerId"])) result.stateChanged = true;
+    if (fieldsChanged(previousStation, nextStation, ["hp", "maxHp", "shield", "maxShield"])) result.vitalsChanged = true;
+    if (productionSignature(previousStation) !== productionSignature(nextStation)) result.productionChanged = true;
+  }
   return result;
 }
 
@@ -309,6 +343,7 @@ export function captureLocalPresentationState(source) {
   for (const [key, ids] of Object.entries(source?.shipGroups || {})) cloneGroups[key] = new Set(ids || []);
   return {
     selectedShipIds: new Set(source?.selectedShipIds || []),
+    selectedStationId: source?.selectedStationId || null,
     activeShipGroup: source?.activeShipGroup || null,
     shipGroups: cloneGroups,
     settingRallyPoint: Boolean(source?.settingRallyPoint),
@@ -368,6 +403,13 @@ export function emptyPresentationChanges() {
       commandChanged: false
     },
     rally: { changed: false },
+    stations: {
+      membershipChanged: false,
+      stateChanged: false,
+      vitalsChanged: false,
+      productionChanged: false,
+      selectionChanged: false
+    },
     objectives: {
       pointsChanged: false,
       controlChanged: false,
@@ -501,6 +543,9 @@ export function derivePresentationChanges({
   changes.rally.changed = rallyChanged(previousMine, nextMine)
     || previousLocalState?.settingRallyPoint !== nextLocalState?.settingRallyPoint;
 
+  Object.assign(changes.stations, compareStations(previousSnapshot, nextSnapshot));
+  changes.stations.selectionChanged = previousLocalState?.selectedStationId !== nextLocalState?.selectedStationId;
+
   const pointChanges = comparePoints(previousSnapshot, nextSnapshot);
   changes.objectives.pointsChanged = pointChanges.pointsChanged;
   changes.objectives.relayOwnershipChanged = pointChanges.ownershipChanged;
@@ -549,6 +594,7 @@ export function changesForLocalInvalidation(reason) {
       changes.selection.selectedShipIdsChanged = true;
       changes.heat.ownedFleetSummaryChanged = true;
       changes.fleet.groupStateChanged = true;
+      changes.stations.selectionChanged = true;
       break;
     case "active-group":
       changes.fleet.groupStateChanged = true;
@@ -620,6 +666,11 @@ export function buildPresentationUpdatePlan(changes, shipStatusView = "damage") 
   ) add("updateEconomyHud");
   if (changes.objectives.relayStateChanged || changes.players.teamChanged) add("updateRelayHud");
   if (changes.selection.changed) add("updateSelectionHud");
+  if (
+    changes.stations.selectionChanged || changes.stations.membershipChanged
+    || changes.stations.stateChanged || changes.stations.vitalsChanged
+    || changes.stations.productionChanged || changes.lobby.rulesChanged
+  ) add("updateStationPanel");
   if (changes.selection.commandChanged) add("updateObjectiveHud");
   if (changes.heat.ownedFleetSummaryChanged || changes.selection.changed) add("updateHeatHud");
   if (changes.latency.changed) add("updateLatencyHud");

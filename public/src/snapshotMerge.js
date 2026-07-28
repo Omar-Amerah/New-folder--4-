@@ -134,6 +134,25 @@ export function mergeCachedShipFields(previousShips, nextShips) {
   });
 }
 
+// Station geometry (design + hangar) is sent only on full snapshots because it
+// never changes for the life of the station; compact snapshots carry position,
+// vitals, state and the production queue, so the static fields are inherited
+// from the previous merged snapshot here.
+export function mergeCachedStationFields(previousStations, nextStations) {
+  if (!Array.isArray(nextStations)) return nextStations;
+  if (!Array.isArray(previousStations)) return nextStations;
+  const oldStations = new Map(previousStations.map((station) => [station.id, station]));
+  return nextStations.map((station) => {
+    const old = oldStations.get(station.id);
+    if (!old) return station;
+    const merged = { ...station };
+    for (const key of ["design", "hangar"]) {
+      if (isNullish(merged[key])) merged[key] = old[key];
+    }
+    return merged;
+  });
+}
+
 export function inspectSnapshotEnvelope(networkState, message) {
   const diagnostic = {
     snapshotSeq: message?.snapshotSeq,
@@ -190,6 +209,7 @@ export function mergeCompactSnapshot(previous, message) {
   const next = { ...message };
   next.players = mergeStaticPlayerFields(previous.players, next.players || []);
   next.ships = mergeCachedShipFields(previous.ships, next.ships || []);
+  if (!isNullish(next.stations)) next.stations = mergeCachedStationFields(previous.stations, next.stations);
   for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = previous[key];
   return { ok: true, snapshot: next, networkState: { stateEpoch: next.stateEpoch, snapshotSeq: next.snapshotSeq, staticRevision: next.staticRevision, hasFullBaseline: true } };
 }

@@ -6,7 +6,7 @@
     <title>Modular Fleet Arena</title>
     <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.js"}}</script>
     <script src="/vendor/msgpack.min.js"></script>
-    <link rel="stylesheet" href="/styles.css?v=drone-command-1">
+    <link rel="stylesheet" href="/styles.css?v=station-infrastructure-1">
     <link rel="stylesheet" href="/design.css?v=wiring-analysis-redesign-15">
     <link rel="stylesheet" href="/hud.css?v=purchase-bar-fix-1">
     <link rel="stylesheet" href="/styles/fleet-ledger.css?v=fleet-ledger-1">
@@ -214,6 +214,13 @@
             </div>
           </div>
         </div>
+        <div id="stationPanel" class="station-panel" aria-label="Selected station" hidden>
+          <div class="section-heading compact">
+            <h2>Station</h2>
+            <span id="stationPanelKind">Home Station</span>
+          </div>
+          <div id="stationPanelBody" class="station-panel-body"></div>
+        </div>
         <div id="playerStatusList" class="player-status-list"></div>
         <div class="combat-log" id="combatLog" data-expanded="true">
           <div class="combat-log-head">
@@ -344,6 +351,13 @@
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
                 <option value="veryHigh">Very High</option>
+              </select>
+            </label>
+            <label for="infrastructureModeSelect">
+              Infrastructure
+              <select id="infrastructureModeSelect" title="Classic spawns purchases instantly at your safe zone. Stations build them in a home station hangar and launch them.">
+                <option value="classic">Classic</option>
+                <option value="stations">Stations</option>
               </select>
             </label>
           </div>

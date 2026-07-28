@@ -26,17 +26,23 @@ function validateGeneratedMap(map, world, options = {}) {
   // 800, meaning a regression collapsing relay spacing was invisible.
   const clearances = resolveMapClearances(world);
   const ids = { relays: new Set(), asteroids: new Set(), clouds: new Set() };
+  // Hand-authored fixtures place bare obstruction circles on purpose, so the
+  // generator-only invariants (render art, terrain spacing) are opt-out. Schema,
+  // bounds and id checks always run.
+  const generated = options.syntheticTerrain !== true;
   if (!Array.isArray(map.relays) || map.relays.length === 0) errors.push("map.relays must contain at least one relay");
   validateCircles(map.relays || [], "relay", ids.relays, 0);
-  validateCircles(map.asteroids || [], "asteroid", ids.asteroids, clearances.edgeInset);
-  validateAsteroidArt(map.asteroids || []);
+  validateCircles(map.asteroids || [], "asteroid", ids.asteroids, generated ? clearances.edgeInset : 0);
+  if (generated) validateAsteroidArt(map.asteroids || []);
   validateClouds(map.clouds || [], ids.clouds);
   validateSafeZones(map.safeZones || []);
   if (world.label !== "Testing") validateClearance(map.relays || [], "relay", map.safeZones || [], "safe zone", clearances.relayToSafeZone);
-  validateClearance(map.asteroids || [], "asteroid", map.safeZones || [], "safe zone", clearances.asteroidToSafeZone);
-  validateClearance(map.asteroids || [], "asteroid", map.relays || [], "relay", clearances.asteroidToRelayMin);
   validateClearance(map.relays || [], "relay", map.relays || [], "relay", clearances.relayToRelay, true);
-  validateClearance(map.asteroids || [], "asteroid", map.asteroids || [], "asteroid", clearances.asteroidToAsteroid, true);
+  if (generated) {
+    validateClearance(map.asteroids || [], "asteroid", map.safeZones || [], "safe zone", clearances.asteroidToSafeZone);
+    validateClearance(map.asteroids || [], "asteroid", map.relays || [], "relay", clearances.asteroidToRelayMin);
+    validateClearance(map.asteroids || [], "asteroid", map.asteroids || [], "asteroid", clearances.asteroidToAsteroid, true);
+  }
 
   function validateCircles(items, label, seen, edgeInset) {
     for (const item of items) {

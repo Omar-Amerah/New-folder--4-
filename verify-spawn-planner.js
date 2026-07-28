@@ -39,7 +39,10 @@ function assertPlan(r) {
     if (enemy) assert(!isInSafeZone(r, s.x, s.y, enemy), "enemy does not receive foreign spawn protection");
   }
   for (let i = 0; i < plan.spawns.length; i++) for (let j = i + 1; j < plan.spawns.length; j++) assert(Math.hypot(plan.spawns[i].x - plan.spawns[j].x, plan.spawns[i].y - plan.spawns[j].y) >= plan.spawns[i].reservedRadius + plan.spawns[j].reservedRadius, "starter fleet reservations overlap");
-  const validation = validateGeneratedMap(r.map, r.world, { seed: r.mapSeed });
+  // These maps are hand-built spawn fixtures, not generator output: they carry
+  // bare obstruction circles with no render art and deliberately sit inside a
+  // spawn zone, so the generator-only terrain invariants do not apply.
+  const validation = validateGeneratedMap(r.map, r.world, { seed: r.mapSeed, syntheticTerrain: true });
   assert(validation.ok, validation.errors.join("; "));
   return plan;
 }

@@ -187,6 +187,7 @@ dom.startingMoneyInput?.addEventListener("change", sendRulesUpdate);
 dom.maxPlayersInput?.addEventListener("change", sendRulesUpdate);
 dom.mapSizeSelect?.addEventListener("change", sendRulesUpdate);
 dom.asteroidDensitySelect?.addEventListener("change", sendRulesUpdate);
+dom.infrastructureModeSelect?.addEventListener("change", sendRulesUpdate);
 
 // Team select updates
 dom.teamSelect?.addEventListener("change", () => {

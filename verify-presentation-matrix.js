@@ -216,6 +216,9 @@ async function main() {
   const selection = changesForLocalInvalidation("selection");
   assert.deepStrictEqual(buildPresentationUpdatePlan(selection, "damage"), [
     "updateSelectionHud",
+    // An arena click resolves ship AND station selection together, so the
+    // station inspection panel repaints on the same invalidation.
+    "updateStationPanel",
     "updateHeatHud",
     "updateShipGroupUi",
     "updateSelectionCommandUi",

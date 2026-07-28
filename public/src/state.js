@@ -53,6 +53,7 @@ export const PRESENTATION_DIAGNOSTIC_DEFAULTS = Object.freeze({
   purchaseCatalogueBuildCount: 0,
   deploymentControlsUpdateCount: 0,
   matchStatusUpdateCount: 0,
+  stationPanelUpdateCount: 0,
   relayStatusUpdateCount: 0,
   controlVictoryStatusUpdateCount: 0,
   scoreboardStatusUpdateCount: 0,
@@ -141,6 +142,9 @@ export const state = {
   shipStatusView: "damage",
   debugTurrets: false,
   selectedShipIds: new Set(),
+  // Station selection is deliberately separate from ship selection: stations are
+  // inspectable but not commandable, so they must never join a command group.
+  selectedStationId: null,
   desiredTelemetryFocusShipId: null,
   telemetryFocusLastSentShipId: null,
   telemetryFocusLastSentGeneration: null,
@@ -180,7 +184,7 @@ export const state = {
   drag: null,
   keys: new Set(),
   stars: makeStars(260),
-  rules: { startingMoney: GENERATED_BALANCE.economy.startingMoney, shipCap: 30, maxPlayers: 8, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium" },
+  rules: { startingMoney: GENERATED_BALANCE.economy.startingMoney, shipCap: 30, maxPlayers: 8, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium", infrastructureMode: "classic" },
   minimap: null,
   shipHud: new Map(),
   engineSmoke: [],

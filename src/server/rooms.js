@@ -269,33 +269,72 @@ function generateMap(roomCode, world, gameMode, asteroidDensity, options = {}) {
 
   const densityMultiplier = ASTEROID_DENSITY[asteroidDensity] ?? ASTEROID_DENSITY.medium;
   const areaScale = (world.width * world.height) / MAP_REFERENCE_AREA;
-  const transforms = symmetryTransforms(world, resolveSymmetryOrder(options, gameMode, safeZones));
-
-  const relayPlan = generateRelays(rng, world, safeZones, transforms, clearances);
-  const asteroidPlan = generateAsteroidField(rng, world, relayPlan.relays, safeZones, {
+  const attempt = layOutTerrain(seed, world, safeZones, clearances, {
     densityMultiplier,
     areaScale,
-    transforms,
-    clearances
+    orders: symmetryOrderCandidates(resolveSymmetryOrder(options, gameMode, safeZones))
   });
 
   const map = {
     seed,
     name: MAP_NAMES[seed % MAP_NAMES.length],
-    relays: relayPlan.relays,
-    asteroids: asteroidPlan.asteroids,
-    clouds: generateClouds(rng, world, areaScale),
+    relays: attempt.relays.relays,
+    asteroids: attempt.asteroids.asteroids,
+    clouds: generateClouds(attempt.rng, world, areaScale),
     safeZones,
     generation: makeGenerationReport(
-      transforms.length,
+      attempt.order,
       areaScale,
-      asteroidPlan.connectivity,
-      { asteroids: asteroidPlan.requested, relays: relayPlan.requested },
-      { asteroids: asteroidPlan.asteroids.length, relays: relayPlan.relays.length }
+      attempt.asteroids.connectivity,
+      { asteroids: attempt.asteroids.requested, relays: attempt.relays.requested },
+      { asteroids: attempt.asteroids.asteroids.length, relays: attempt.relays.relays.length }
     )
   };
   reportGenerationShortfall(map, context);
   return validateMapOrFallback(map, world, context);
+}
+
+// A rectangular arena cannot host every symmetry order: rotation is taken in
+// normalized space, so for large N the images crowd together near the short axis
+// and no group can ever satisfy its own clearance. Try the roster's own order
+// first and step down through its divisors, so terrain is as fair as the arena
+// can actually support and never degenerates into an empty map.
+function layOutTerrain(seed, world, safeZones, clearances, options) {
+  let last = null;
+  for (let index = 0; index < options.orders.length; index += 1) {
+    const order = options.orders[index];
+    // Each order gets its own stream so a failed attempt cannot shift the
+    // sequence the successful one draws from.
+    const rng = seededRandom((seed ^ Math.imul(order, 0x9e3779b1)) >>> 0);
+    const transforms = symmetryTransforms(world, order);
+    const relays = generateRelays(rng, world, safeZones, transforms, clearances);
+    const asteroids = generateAsteroidField(rng, world, relays.relays, safeZones, {
+      densityMultiplier: options.densityMultiplier,
+      areaScale: options.areaScale,
+      transforms,
+      clearances
+    });
+    last = { order, rng, relays, asteroids };
+    if (index === options.orders.length - 1 || terrainIsHealthy(relays, asteroids)) return last;
+  }
+  return last;
+}
+
+function terrainIsHealthy(relays, asteroids) {
+  if (relays.relays.length < 3) return false;
+  return asteroids.requested === 0 || asteroids.asteroids.length >= asteroids.requested * 0.45;
+}
+
+// N first, then its divisors down to 2. Rotating by 2*pi/d where d divides N still
+// maps the player ring onto itself, so a divisor keeps players interchangeable in
+// groups rather than abandoning symmetry outright. Primes fall straight to 2.
+function symmetryOrderCandidates(order) {
+  const candidates = [order];
+  for (let divisor = order - 1; divisor >= 2; divisor -= 1) {
+    if (order % divisor === 0) candidates.push(divisor);
+  }
+  if (!candidates.includes(2)) candidates.push(2);
+  return candidates;
 }
 
 function makeGenerationReport(symmetryOrder, areaScale, connectivity, requested, placed) {
@@ -303,10 +342,12 @@ function makeGenerationReport(symmetryOrder, areaScale, connectivity, requested,
 }
 
 // Placement is best-effort by design, but silence turned "veryHigh" and "high"
-// into the same map on saturated arenas. Surface the shortfall instead.
+// into the same map on saturated arenas. The exact counts always live on
+// map.generation; warn only when the field came out badly short, since a dense
+// arena legitimately saturates around 60-75% of its requested budget.
 function reportGenerationShortfall(map, context) {
   const { requested, placed } = map.generation;
-  if (requested.asteroids >= 6 && placed.asteroids < requested.asteroids * 0.6) {
+  if (requested.asteroids >= 6 && placed.asteroids < requested.asteroids * 0.4) {
     console.warn(`Map generation shortfall room=${context.roomCode || "?"} seed=${map.seed} density=${context.asteroidDensity} symmetry=${map.generation.symmetryOrder}: placed ${placed.asteroids}/${requested.asteroids} asteroids`);
   }
 }
@@ -351,13 +392,14 @@ function snapUnit(value) {
 
 // The N images of a seed sit on a ring, so neighbours are a chord apart:
 // 2 * r * sin(pi / N). Below this radius a group can never satisfy its own mutual
-// clearance and every attempt is wasted -- which is exactly why odd/large solo
-// rosters used to end up with nothing but the central relay. Uses the shorter
-// semi-axis, so it is the conservative bound on any aspect ratio.
+// clearance and every attempt is wasted. Deliberately optimistic (longer
+// semi-axis): this is only an attempt filter, and the real pairwise check in
+// asteroidGroupIsPlaceable is authoritative, so it must never exclude a ring that
+// would actually have fit.
 function minNormalizedRadius(world, order, requiredGap) {
   if (order < 2) return 0;
-  const minSemiAxis = Math.min(world.width, world.height) / 2;
-  return requiredGap / (minSemiAxis * 2 * Math.sin(Math.PI / order));
+  const maxSemiAxis = Math.max(world.width, world.height) / 2;
+  return requiredGap / (maxSemiAxis * 2 * Math.sin(Math.PI / order));
 }
 
 // Area-uniform sampling in the normalized annulus, so features do not bunch up
@@ -441,9 +483,19 @@ function generateMapWithAuthoritativeSafeZones(room) {
 }
 
 function generateRelays(rng, world, safeZones, transforms, clearances) {
+  const withCentral = buildRelayLayout(rng, world, safeZones, transforms, clearances, true);
+  // On a crowded arena the central relay's exclusion radius can be the only thing
+  // blocking every outer group, leaving a single capture point and a degenerate
+  // control game. Trading it for a real layout is the better arena.
+  if (withCentral.relays.length >= 3) return finalizeRelays(withCentral);
+  const withoutCentral = buildRelayLayout(rng, world, safeZones, transforms, clearances, false);
+  return finalizeRelays(withoutCentral.relays.length > withCentral.relays.length ? withoutCentral : withCentral);
+}
+
+function buildRelayLayout(rng, world, safeZones, transforms, clearances, useCentral) {
   const relays = [];
   // Added first so symmetric groups check clearance against it.
-  const central = placeCentralRelay(rng, world, safeZones, clearances);
+  const central = useCentral ? placeCentralRelay(rng, world, safeZones, clearances) : null;
   if (central) relays.push(central);
 
   const order = transforms.length;
@@ -452,11 +504,14 @@ function generateRelays(rng, world, safeZones, transforms, clearances) {
   for (let group = 0; group < groupCount; group += 1) {
     addSymmetricRelayGroup(rng, relays, world, safeZones, transforms, clearances);
   }
+  return { relays, requested: (useCentral ? 1 : 0) + groupCount * order };
+}
 
-  const ordered = relays
+function finalizeRelays(layout) {
+  const ordered = layout.relays
     .sort((a, b) => a.x - b.x || a.y - b.y)
     .map((relay, index) => ({ id: relayId(index), x: relay.x, y: relay.y, radius: relay.radius }));
-  return { relays: ordered, requested: (central ? 1 : 0) + groupCount * order };
+  return { relays: ordered, requested: layout.requested };
 }
 
 function relayId(index) {
@@ -517,13 +572,17 @@ function addSymmetricRelayGroup(rng, relays, world, safeZones, transforms, clear
   const minRadius = Math.max(0.3, floor);
   const maxRadius = 0.86;
   if (minRadius >= maxRadius) return false;
-  for (let attempt = 0; attempt < 160; attempt += 1) {
+  const attempts = 160;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const nr = sampleAnnulus(rng, minRadius, maxRadius);
     const theta = rngRange(rng, 0, Math.PI * 2);
+    // Shrink toward the floor as attempts fail, matching placeCentralRelay. A
+    // crowded arena is better served by smaller relays than by none at all.
+    const ceiling = RELAY_RADIUS_RANGE.max - (RELAY_RADIUS_RANGE.max - RELAY_RADIUS_RANGE.min) * (attempt / attempts);
     const images = symmetricImages(transforms, {
       x: cx + Math.cos(theta) * nr * cx,
       y: cy + Math.sin(theta) * nr * cy,
-      radius: rngRange(rng, RELAY_RADIUS_RANGE.min, RELAY_RADIUS_RANGE.max)
+      radius: rngRange(rng, Math.min(RELAY_RADIUS_RANGE.min, ceiling), ceiling)
     });
     if (!relayGroupIsPlaceable(images, world, relays, safeZones, clearances)) continue;
     relays.push(...images);
@@ -640,7 +699,7 @@ function layAsteroids(rng, world, relays, safeZones, options) {
   const fromPolar = (nr, theta, radius) => ({ x: cx + Math.cos(theta) * nr * cx, y: cy + Math.sin(theta) * nr * cy, radius });
 
   for (let group = 0; group < fieldGroups; group += 1) {
-    for (let attempt = 0; attempt < 90; attempt += 1) {
+    for (let attempt = 0; attempt < 220; attempt += 1) {
       const radius = rngRange(rng, ASTEROID_RADIUS_RANGE.min, ASTEROID_RADIUS_RANGE.max);
       const anchor = anchors.length && rng() < 0.65 ? anchors[Math.floor(rng() * anchors.length)] : null;
       // Rectangular sampling for the open field so the map corners stay usable;
@@ -657,7 +716,7 @@ function layAsteroids(rng, world, relays, safeZones, options) {
   // Contested middle: the innermost ring symmetry allows. The old absolute +-800
   // box covered 38% of a Duel map but only 20% of a Grand battle map.
   for (let group = 0; group < centralGroups; group += 1) {
-    for (let attempt = 0; attempt < 70; attempt += 1) {
+    for (let attempt = 0; attempt < 160; attempt += 1) {
       const seedCircle = fromPolar(
         sampleAnnulus(rng, bands.min, bands.centralMax),
         rngRange(rng, 0, Math.PI * 2),
