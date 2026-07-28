@@ -155,10 +155,18 @@ function applyLocalShipAvoidance(room, ship, decision, stats, now) {
     AVOIDANCE_MIN_LATERAL,
     (Number(decision.maximumSpeed) || 0) * AVOIDANCE_SIDESTEP_RATIO
   ) * strength;
+  // On the final approach the arrival controller has already reduced the
+  // commanded speed to what the remaining distance can safely absorb. Do not
+  // let avoidance restore cruise speed after that calculation: it may change
+  // the course, but it must stay inside the same braking-speed budget.
+  const arrivalSpeedCap = decision.arrivalRequired && decision.isFinal && decision.goal
+    ? Math.max(0, Number(decision.desiredSpeed) || 0)
+    : Infinity;
+  const boundedSidestep = Math.min(sidestep, arrivalSpeedCap);
   const forwardX = Math.cos(decision.moveAngle || ship.angle || 0);
   const forwardY = Math.sin(decision.moveAngle || ship.angle || 0);
-  const sidestepX = -forwardY * side * sidestep;
-  const sidestepY = forwardX * side * sidestep;
+  const sidestepX = -forwardY * side * boundedSidestep;
+  const sidestepY = forwardX * side * boundedSidestep;
   const yielding = priority > 0
     || (!hasMassRightOfWay && best.time < AVOIDANCE_BRAKE_TIME_S);
   if (yielding) {
@@ -170,6 +178,17 @@ function applyLocalShipAvoidance(room, ship, decision, stats, now) {
   } else {
     decision.desiredVelocity.x += sidestepX;
     decision.desiredVelocity.y += sidestepY;
+  }
+  if (Number.isFinite(arrivalSpeedCap)) {
+    const amendedSpeed = fastHypot(
+      decision.desiredVelocity.x,
+      decision.desiredVelocity.y
+    );
+    if (amendedSpeed > arrivalSpeedCap && amendedSpeed > 0) {
+      const scale = arrivalSpeedCap / amendedSpeed;
+      decision.desiredVelocity.x *= scale;
+      decision.desiredVelocity.y *= scale;
+    }
   }
   decision.needsPropulsion = true;
   collisionBump(room, "shipAvoidanceActivations");

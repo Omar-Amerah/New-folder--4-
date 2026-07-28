@@ -353,6 +353,10 @@ function getPlayerRallyPoint(room, player) {
 }
 
 function applyRallySlots(room, player, ships) {
+  // A default spawn marker is informational, not an implicit movement order.
+  // Newly purchased ships already have collision-safe launch positions, so only
+  // send them elsewhere when the player has explicitly placed a rally point.
+  if (!player?.rallyPoint) return new Map();
   const rallyPoint = getPlayerRallyPoint(room, player);
   if (!rallyPoint || !ships?.length) return new Map();
   const { assignRallyArrivalSlots } = require("./spawnPlanner");

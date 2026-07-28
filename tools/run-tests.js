@@ -170,6 +170,7 @@ const GROUPS = {
   browser: [
     "verify-browser-startup.js",
     "verify-presentation-dispatch-browser.js",
+    "verify-endgame-actions-browser.js",
     "verify-deployment-controls-browser.js",
     "verify-wiring-browser.js",
     "verify-wiring-tier-status-browser.js",

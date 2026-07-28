@@ -454,8 +454,9 @@ function shouldReplan(room, ship, destination, now) {
 
 function selectWaypoint(ship) {
   const navigation = ensureMovementRuntime(ship).navigation;
+  const previousIndex = navigation.waypointIndex || 0;
   let index = clampNumber(
-    navigation.waypointIndex || 0,
+    previousIndex,
     0,
     Math.max(0, navigation.waypoints.length - 1)
   );
@@ -469,9 +470,20 @@ function selectWaypoint(ship) {
     bumpMovementMetric("waypointAdvanceCount");
   }
   navigation.waypointIndex = index;
+  if (index !== previousIndex) {
+    const next = navigation.waypoints[index];
+    navigation.progressDistance = next
+      ? fastHypot(next.x - ship.x, next.y - ship.y)
+      : 0;
+    navigation.progressAt = Number(ship._simNow) || navigation.plannedAt || 0;
+  }
   return {
     goal: navigation.waypoints[index],
     isFinal: index === navigation.waypoints.length - 1,
+    nextGoal: index < navigation.waypoints.length - 1
+      ? navigation.waypoints[index + 1]
+      : null,
+    captureDistance,
     finalFacing: navigation.finalFacing
   };
 }
@@ -484,6 +496,8 @@ function resolveNavigation(room, ship, intent, now) {
     return {
       goal: null,
       isFinal: true,
+      nextGoal: null,
+      captureDistance: 0,
       finalFacing: runtime.command?.finalFacing
     };
   }

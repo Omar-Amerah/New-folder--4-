@@ -341,6 +341,7 @@ function handleTeamSelectChange() {
 }
 
 export function onServerError(message = {}) {
+  if (state.pendingEndGameAction) clearPendingEndGameAction();
   if (pendingTeamChange) {
     pendingTeamChange = null;
     const phase = state.snapshot?.phase || state.phase;
@@ -668,27 +669,51 @@ export function startDesign() {
 }
 
 export function restartMatch() {
-  send({ type: "restart" });
+  // A rematch returns the existing room and roster to Lobby so the host can
+  // review teams/rules before starting the next design phase.
+  return sendEndGameAction("returnToLobby", "rematch");
 }
 
 export function returnToLobby() {
-  send({ type: "returnToLobby" });
+  return sendEndGameAction("returnToLobby", "return-to-lobby");
 }
 
 export function closeLobby() {
-  disableReconnect("room-closed");
-  send({ type: "closeLobby" });
+  const sent = sendEndGameAction("closeLobby", "close-lobby");
+  if (sent) disableReconnect("room-closed");
+  return sent;
 }
 
 export function leaveLobby() {
-  disableReconnect("explicit-leave");
-  send({ type: "leaveLobby" });
+  const sent = sendEndGameAction("leaveLobby", "leave-lobby");
+  if (sent) disableReconnect("explicit-leave");
+  return sent;
 }
 
 export function setEndGameActionState(disabled) {
   for (const element of [dom.restartButton, dom.returnToLobbyButton, dom.endCloseButton, dom.endLeaveButton]) {
     if (element) element.disabled = disabled;
   }
+}
+
+function sendEndGameAction(type, action) {
+  const fromEndGame = state.phase === "ended";
+  if (fromEndGame && state.pendingEndGameAction) return false;
+  if (fromEndGame) {
+    state.pendingEndGameAction = action;
+    setEndGameActionState(true);
+  }
+  const sent = send({ type });
+  if (!sent && fromEndGame) {
+    clearPendingEndGameAction();
+    notify.error("End-game action could not be sent. Check your connection and try again.");
+  }
+  return sent;
+}
+
+export function clearPendingEndGameAction() {
+  state.pendingEndGameAction = null;
+  setEndGameActionState(false);
 }
 
 export function returnToMainMenu(message = "", tone = "warning") {
@@ -728,6 +753,7 @@ export function clearRoomState() {
 }
 
 export function clearMatchPanels() {
+  clearPendingEndGameAction();
   dom.winner.hidden = true;
   dom.endGameScreen.hidden = true;
   if (dom.showEndGameButton) dom.showEndGameButton.hidden = true;

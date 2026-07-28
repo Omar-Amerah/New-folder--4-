@@ -43,6 +43,7 @@
     "test:snapshot-merge": "node verify-snapshot-merge.js",
     "test:presentation-matrix": "node verify-presentation-matrix.js",
     "test:presentation-browser": "node verify-presentation-dispatch-browser.js",
+    "test:endgame-actions-browser": "node verify-endgame-actions-browser.js",
     "test:production-path": "node verify-production-path.js",
     "check:components": "node verify-components.js",
     "test:components": "node verify-components.js",

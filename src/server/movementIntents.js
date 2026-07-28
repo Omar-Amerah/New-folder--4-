@@ -380,15 +380,19 @@ function repairIntent(ship, target) {
 function moveIntent(runtime) {
   const command = runtime.command;
   if (!command?.destination) return stopIntent("move:missing-destination");
+  const hasExplicitFinalFacing = Number.isFinite(command.finalFacing);
   return movementIntent("move", {
     destination: { ...command.destination },
-    facingMode: "final",
+    // A plain ground move owns a destination, not a hidden final rotation.
+    // While travelling the hull still follows its course; once parked it keeps
+    // the heading it arrived with unless the player explicitly supplied one.
+    facingMode: hasExplicitFinalFacing ? "final" : "current",
     finalFacing: command.finalFacing,
     arrivalRequired: true,
     persistent: false,
-    debugReason: command.finalFacing == null
-      ? "move:route-final-facing"
-      : "move:explicit-final-facing"
+    debugReason: hasExplicitFinalFacing
+      ? "move:explicit-final-facing"
+      : "move:course-facing"
   });
 }
 

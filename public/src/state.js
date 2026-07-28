@@ -201,5 +201,6 @@ export const state = {
   command: null,
   pendingStartDesign: false,
   pendingDeploy: false,
+  pendingEndGameAction: null,
   lastFrameAt: performance.now()
 };

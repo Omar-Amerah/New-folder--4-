@@ -135,6 +135,7 @@ registerPresentationInvalidationHandler((reason) => {
 export function synchronizePhasePresentation(previousPhase, nextPhase) {
   if (nextPhase === previousPhase) return;
   snapshotDiagnostics.phasePresentationSyncCount += 1;
+  runPresentation("phase:clearPendingEndGameAction", lobbyUi.clearPendingEndGameAction);
 
   if (nextPhase === "lobby") {
     runPresentation("phase:closeBlueprintDesigner", closeBlueprintDesigner);
@@ -145,6 +146,7 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
   }
 
   runPresentation("phase:hideMenuScreens", lobbyUi.hideMenuScreens);
+  runPresentation("phase:clearMatchPanels", lobbyUi.clearMatchPanels);
   runPresentation("phase:closeBlueprintDesigner", closeBlueprintDesigner);
   runPresentation("phase:updateDeploymentControls", purchaseUi.updateDeploymentControls);
   runPresentation("phase:updateRallyUi", updateRallyUi);

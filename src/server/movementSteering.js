@@ -146,12 +146,41 @@ function computeStoppingDistance(ship, stats) {
 // Ignoring the lag term leaves the ship a few pixels fast at the very end, which
 // it works off by drifting past the point and turning back -- a small visible
 // shimmy exactly when the player is watching the ship arrive.
-function approachSpeedLimit(stats, distance) {
-  const remaining = Math.max(0, distance - ARRIVE_DISTANCE);
-  if (remaining <= 0) return 0;
+function approachSpeedLimitForExit(stats, distance, exitSpeed = 0) {
+  const remaining = Math.max(0, distance);
+  const boundedExitSpeed = Math.max(0, Number(exitSpeed) || 0);
+  if (remaining <= 0) return boundedExitSpeed;
   const accel = driveAcceleration(stats);
   const coast = accel * VELOCITY_TIME_CONSTANT_S;
-  return Math.sqrt(coast * coast + 2 * accel * remaining) - coast;
+  return Math.sqrt(
+    (coast + boundedExitSpeed) * (coast + boundedExitSpeed)
+      + 2 * accel * remaining
+  ) - coast;
+}
+
+function approachSpeedLimit(stats, distance) {
+  return approachSpeedLimitForExit(
+    stats,
+    Math.max(0, distance - ARRIVE_DISTANCE),
+    0
+  );
+}
+
+function waypointTurnSpeedLimit(ship, stats, navigation) {
+  if (navigation.isFinal || !navigation.goal || !navigation.nextGoal) return Infinity;
+  const incoming = Math.atan2(
+    navigation.goal.y - (ship.y || 0),
+    navigation.goal.x - (ship.x || 0)
+  );
+  const outgoing = Math.atan2(
+    navigation.nextGoal.y - navigation.goal.y,
+    navigation.nextGoal.x - navigation.goal.x
+  );
+  const turnAngle = Math.abs(angleDifference(incoming, outgoing));
+  if (turnAngle < FINAL_FACING_TOLERANCE) return Infinity;
+  const turnRate = directionalTurnRate(stats, incoming, outgoing, ship);
+  const turningDistance = Math.max(1, Number(navigation.captureDistance) || 0);
+  return Math.max(0, turnRate) * turningDistance / turnAngle;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,9 +225,41 @@ function desiredVelocityFor(ship, stats, intent, navigation) {
     // a stopping distance derived from current speed, so braking shrank it,
     // which un-tripped the test, which resumed full speed. That feedback loop
     // was the arrival jitter.
-    const desiredSpeed = arrivalActive
+    let desiredSpeed = arrivalActive
       ? (parkedLatch ? 0 : Math.min(maximumSpeed, approachSpeedLimit(stats, distance)))
       : maximumSpeed;
+    if (!navigation.isFinal && navigation.nextGoal) {
+      const cornerSpeed = waypointTurnSpeedLimit(ship, stats, navigation);
+      const brakingDistance = Math.max(
+        0,
+        distance - Math.max(0, Number(navigation.captureDistance) || 0)
+      );
+      desiredSpeed = Math.min(
+        desiredSpeed,
+        approachSpeedLimitForExit(stats, brakingDistance, cornerSpeed)
+      );
+    }
+    // After a waypoint advances, keep the ship inside the same turn-radius
+    // budget until its hull has actually acquired the new leg. Otherwise it
+    // brakes for the corner, switches waypoints, immediately accelerates, and
+    // draws a wide loop past the route before it has finished turning.
+    const headingError = Math.abs(angleDifference(ship.angle || 0, Math.atan2(dy, dx)));
+    if (headingError > FINAL_FACING_TOLERANCE) {
+      const turnRate = directionalTurnRate(
+        stats,
+        ship.angle || 0,
+        Math.atan2(dy, dx),
+        ship
+      );
+      const turningDistance = Math.max(
+        1,
+        Number(navigation.captureDistance) || ARRIVE_DISTANCE
+      );
+      desiredSpeed = Math.min(
+        desiredSpeed,
+        Math.max(0, turnRate) * turningDistance / headingError
+      );
+    }
     baseVelocity = { x: directionX * desiredSpeed, y: directionY * desiredSpeed };
   }
   if (intent.desiredVelocity) {
@@ -265,6 +326,7 @@ function buildMovementDecision(room, ship, stats, intent, navigation) {
     target: target?.alive ? target : null,
     positioned: rangePositioned || destinationPositioned,
     needsPropulsion: !destinationPositioned || currentSpeed > REST_SPEED,
+    arrivalRequired: intent.arrivalRequired,
     stoppingDistance: computeStoppingDistance(ship, stats)
   };
   return refreshDecisionHeading(ship, decision);
@@ -297,6 +359,15 @@ function resolveDesiredFacing(ship, stats, intent, decision) {
   }
   // Under way: the nose is the direction of travel.
   if (decision.desiredSpeed > FACING_MIN_SPEED) return decision.moveAngle;
+  // A drifting hull can still have turn authority even when it has no working
+  // forward drive. Keep an unfinished ground move pointed at its live
+  // destination, but stop consulting that bearing once it is positioned.
+  if (intent.type === "move" && decision.goal) {
+    return Math.atan2(
+      decision.goal.y - (ship.y || 0),
+      decision.goal.x - (ship.x || 0)
+    );
+  }
   // Holding position without having formally arrived -- aim at the target if
   // there is one, otherwise stay put.
   if (targetAngle !== null) return targetAngle;

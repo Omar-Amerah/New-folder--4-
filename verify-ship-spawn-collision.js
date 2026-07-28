@@ -141,10 +141,26 @@ test("C repeated individual purchases", () => {
     const result = purchase(fixture, `C${i}`, 1, 1000 + i);
     assert(result.ok);
     const created = fixture.r.ships.get(result.shipIds[0]);
+    assert.strictEqual(created.movement.command, null,
+      "a ship launched without a custom rally point should stay at its safe spawn");
+    assert.strictEqual(created.targetX, created.x);
+    assert.strictEqual(created.targetY, created.y);
     for (const previous of fixture.r.ships.values()) {
       if (previous !== created) assert(clear(created, previous, 4));
     }
   }
+});
+
+test("C2 custom rally still commands new ships", () => {
+  const fixture = purchaseFixture();
+  fixture.player.rallyPoint = { x: 1200, y: 900 };
+  const result = purchase(fixture, "C2", 1, 1200);
+  assert(result.ok);
+  const created = fixture.r.ships.get(result.shipIds[0]);
+  assert.strictEqual(created.movement.command?.type, "move",
+    "an explicitly placed rally point should command a newly launched ship");
+  assert(Math.hypot(created.targetX - created.x, created.targetY - created.y) > 48,
+    "the custom rally order should lead away from the launch point");
 });
 
 test("D mixed-size spacing", () => {

@@ -29,15 +29,7 @@ export function updateWinnerBanner() {
   if (dom.returnToLobbyButton) dom.returnToLobbyButton.hidden = !admin;
   dom.endCloseButton.hidden = !admin;
   if (dom.endLeaveButton) dom.endLeaveButton.hidden = false;
-  setEndGameActionState(false);
-
-  dom.restartButton.disabled = false;
-  if (dom.returnToLobbyButton) dom.returnToLobbyButton.disabled = false;
-  dom.endCloseButton.disabled = false;
-  if (dom.endLeaveButton) dom.endLeaveButton.disabled = false;
-
-  console.log("updateWinnerBanner admin=", admin);
-  console.log("dom.returnToLobbyButton.hidden=", dom.returnToLobbyButton?.hidden);
+  setEndGameActionState(Boolean(state.pendingEndGameAction));
 }
 
 function formatTime(ms) {
