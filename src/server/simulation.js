@@ -4,6 +4,7 @@ const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
 const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
 const { updateBullets } = require("./projectiles");
+const { updateStations } = require("./stations");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
 const { updateShipHeat } = require("./heat");
 const { updateShipPowerDemand } = require("./componentPower");
@@ -120,6 +121,7 @@ function tickRoom(room, dt, now) {
   updateBullets(room, dt, now);
   durations.projectiles = performanceNow() - startedAt;
   startedAt = performanceNow();
+  updateStations(room, dt, now);
   updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
   durations.objectives = performanceNow() - startedAt;
   recordRoomTick(durations);

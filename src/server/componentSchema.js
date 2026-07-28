@@ -199,6 +199,35 @@ function validateCommandAura(commandAura, filePath, errors) {
   if (commandAura.notes !== undefined && typeof commandAura.notes !== "string" && !Array.isArray(commandAura.notes)) errors.push(`${path}.notes must be a string or array when present.`);
 }
 
+const INFRASTRUCTURE_NUMERIC_FIELDS = [
+  "maximumShipGridWidth", "maximumShipGridHeight", "hangarClearanceCells", "hangarCorridorLength",
+  "launchSpeed", "releaseDistance", "repairRadius", "repairRatePerSecond", "repairDelaySeconds",
+  "disabledRecoveryDelaySeconds", "disabledRepairRatePerSecond", "reactivationHpRatio",
+  "productionBaseSeconds", "productionCostSecondsMultiplier", "launchRetrySeconds",
+  "captureRadius", "captureRestoreHpRatio"
+];
+
+function validateInfrastructure(infrastructure, filePath, errors) {
+  if (infrastructure === undefined) return;
+  const path = `${filePath}.infrastructure`;
+  if (!infrastructure || typeof infrastructure !== "object" || Array.isArray(infrastructure)) {
+    errors.push(`${path} must be an object.`);
+    return;
+  }
+  for (const section of ["homeStation", "relayStation"]) {
+    const sectionConfig = infrastructure[section];
+    if (!sectionConfig || typeof sectionConfig !== "object" || Array.isArray(sectionConfig)) {
+      errors.push(`${path}.${section} must be an object.`);
+      continue;
+    }
+    for (const field of INFRASTRUCTURE_NUMERIC_FIELDS) {
+      if (sectionConfig[field] !== undefined && !isFiniteNonNegative(sectionConfig[field])) {
+        errors.push(`${path}.${section}.${field} must be a finite non-negative number.`);
+      }
+    }
+  }
+}
+
 function validateComponentAura(aura, path, errors) {
   if (aura === undefined || aura === null) return;
   if (typeof aura !== "object" || Array.isArray(aura)) {
@@ -244,6 +273,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   validatePowerDemand(balance.powerDemand, filePath, errors);
   validatePowerProtection(balance.powerProtection, filePath, errors);
   validateCommandAura(balance.commandAura, filePath, errors);
+  validateInfrastructure(balance.infrastructure, filePath, errors);
   const seen = new Set();
   balance.components.forEach((component, index) => {
     const prefix = `${filePath}.components[${index}]`;

@@ -29,6 +29,10 @@ const CLOSED_ROOM_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 const ECONOMY = Object.freeze({ ...BALANCE.economy, ...BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...BALANCE.shipPricing.weaponPremiums }) });
 
 const REWARDS = Object.freeze({ ...BALANCE.rewards });
+const INFRASTRUCTURE = Object.freeze({
+  homeStation: Object.freeze({ ...BALANCE.infrastructure?.homeStation }),
+  relayStation: Object.freeze({ ...BALANCE.infrastructure?.relayStation })
+});
 
 // Asteroid count multipliers relative to the original generation amount, which
 // is now the "high" setting. "medium" is the default; "none" disables asteroids.
@@ -40,12 +44,47 @@ const ASTEROID_DENSITY = Object.freeze({
   veryHigh: 1.5
 });
 
+// Skirmish is the size every generation budget was originally tuned against, so
+// asteroid/cloud counts scale against its area instead of being flat constants.
+const MAP_REFERENCE_AREA = 5120 * 3040;
+
+// Single source of truth for map geometry buffers. The generator (rooms.js), the
+// schema guard (mapValidation.js) and the spawn planner (spawnPlanner.js) all read
+// these, so a change can never leave generation and validation disagreeing.
+// All values are edge-to-edge gaps in world units, on top of both circles' radii.
+const MAP_CLEARANCES = Object.freeze({
+  edgeInset: 80,
+  relayToSafeZone: 500,
+  relayToRelay: 800,
+  asteroidToSafeZone: 425,
+  asteroidToRelayMin: 200,
+  asteroidToRelayMax: 500,
+  asteroidToAsteroid: 225,
+  // Deliberately looser than asteroidToSafeZone: this one guards a *re-planned*
+  // spawn slot against terrain that generation already kept 425 clear of, so it
+  // always passes on a freshly generated map and only relaxes edge cases when a
+  // roster change forces a re-plan against existing rocks.
+  asteroidToSpawnSlot: 220
+});
+
+// relayToRelay is the one buffer that cannot be world-independent: 800u between
+// relays is unsatisfiable on the smallest arenas, which is why small maps used to
+// silently end up with far fewer relays than requested.
+function resolveMapClearances(world) {
+  const width = Number.isFinite(world?.width) ? world.width : WORLD.width;
+  return Object.freeze({
+    ...MAP_CLEARANCES,
+    relayToRelay: Math.min(MAP_CLEARANCES.relayToRelay, Math.round(width * 0.19))
+  });
+}
+
 const DEFAULT_ROOM_RULES = Object.freeze({
   startingMoney: ECONOMY.startingMoney,
   maxPlayers: MAX_PLAYERS_PER_ROOM,
   mapSize: "auto",
   gameMode: "teams",
-  asteroidDensity: "medium"
+  asteroidDensity: "medium",
+  infrastructureMode: "classic"
 });
 
 
@@ -164,7 +203,11 @@ module.exports = {
   CLOSED_ROOM_CODE_TTL_MS,
   ECONOMY,
   DEFAULT_ROOM_RULES,
+  INFRASTRUCTURE,
   ASTEROID_DENSITY,
+  MAP_REFERENCE_AREA,
+  MAP_CLEARANCES,
+  resolveMapClearances,
   REWARDS,
   MIME,
   COLORS,

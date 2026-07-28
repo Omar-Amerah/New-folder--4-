@@ -1,5 +1,7 @@
 // Validates generated map data so rooms, snapshots and tests share one schema guard.
 
+const { resolveMapClearances } = require("./config");
+
 function isFiniteNumber(value) {
   return Number.isFinite(value);
 }
@@ -19,16 +21,22 @@ function validateGeneratedMap(map, world, options = {}) {
     if (!Array.isArray(map[key])) errors.push(`map.${key} must be an array`);
   }
 
+  // Buffers come from the same table the generator places against, so the guard
+  // actually guards. relay<->relay used to be 0 here while generation enforced
+  // 800, meaning a regression collapsing relay spacing was invisible.
+  const clearances = resolveMapClearances(world);
   const ids = { relays: new Set(), asteroids: new Set(), clouds: new Set() };
+  if (!Array.isArray(map.relays) || map.relays.length === 0) errors.push("map.relays must contain at least one relay");
   validateCircles(map.relays || [], "relay", ids.relays, 0);
-  validateCircles(map.asteroids || [], "asteroid", ids.asteroids, 80);
+  validateCircles(map.asteroids || [], "asteroid", ids.asteroids, clearances.edgeInset);
+  validateAsteroidArt(map.asteroids || []);
   validateClouds(map.clouds || [], ids.clouds);
   validateSafeZones(map.safeZones || []);
-  if (world.label !== "Testing") validateClearance(map.relays || [], "relay", map.safeZones || [], "safe zone", 500);
-  validateClearance(map.asteroids || [], "asteroid", map.safeZones || [], "safe zone", 220);
-  validateClearance(map.asteroids || [], "asteroid", map.relays || [], "relay", 200);
-  validateClearance(map.relays || [], "relay", map.relays || [], "relay", 0, true);
-  validateClearance(map.asteroids || [], "asteroid", map.asteroids || [], "asteroid", 220, true);
+  if (world.label !== "Testing") validateClearance(map.relays || [], "relay", map.safeZones || [], "safe zone", clearances.relayToSafeZone);
+  validateClearance(map.asteroids || [], "asteroid", map.safeZones || [], "safe zone", clearances.asteroidToSafeZone);
+  validateClearance(map.asteroids || [], "asteroid", map.relays || [], "relay", clearances.asteroidToRelayMin);
+  validateClearance(map.relays || [], "relay", map.relays || [], "relay", clearances.relayToRelay, true);
+  validateClearance(map.asteroids || [], "asteroid", map.asteroids || [], "asteroid", clearances.asteroidToAsteroid, true);
 
   function validateCircles(items, label, seen, edgeInset) {
     for (const item of items) {
@@ -45,11 +53,32 @@ function validateGeneratedMap(map, world, options = {}) {
       }
     }
   }
+  // The client renders these fields directly (public/src/game/worldArt.js
+  // drawAsteroid walks shape/craters), so malformed art must fail here rather
+  // than reach a browser and break the frame.
+  function validateAsteroidArt(items) {
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const label = item.id || "?";
+      if (!Array.isArray(item.shape) || item.shape.length < 6) errors.push(`asteroid ${label}.shape must be an array of at least 6 radii`);
+      else if (item.shape.some((value) => !isFiniteNumber(value) || value <= 0)) errors.push(`asteroid ${label}.shape must hold positive finite radii`);
+      if (!Array.isArray(item.craters)) errors.push(`asteroid ${label}.craters must be an array`);
+      else for (const crater of item.craters) {
+        if (!crater || ["angle", "distance", "radius"].some((key) => !isFiniteNumber(crater[key]))) {
+          errors.push(`asteroid ${label} has a crater with non-finite geometry`);
+          break;
+        }
+      }
+      for (const key of ["rotation", "spin"]) if (!isFiniteNumber(item[key])) errors.push(`asteroid ${label}.${key} must be finite`);
+      if (typeof item.shade !== "string" || !item.shade) errors.push(`asteroid ${label}.shade must be a non-empty string`);
+    }
+  }
   function validateClouds(items, seen) {
     for (const item of items) {
       if (typeof item.id !== "string" || seen.has(item.id)) errors.push(`cloud id ${item.id || "?"} is missing or duplicated`);
       seen.add(item.id);
       for (const key of ["x", "y", "rx", "ry", "rotation", "alpha"]) if (!isFiniteNumber(item[key])) errors.push(`cloud ${item.id || "?"}.${key} must be finite`);
+      for (const key of ["rx", "ry"]) if (!(item[key] > 0)) errors.push(`cloud ${item.id || "?"}.${key} must be positive`);
     }
   }
   function validateSafeZones(items) {

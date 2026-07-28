@@ -1,7 +1,7 @@
 "use strict";
 
 const { hashString } = require("./utils");
-const { TEAM_COLORS } = require("./config");
+const { TEAM_COLORS, MAP_CLEARANCES } = require("./config");
 const DEFAULT_SHIP_RADIUS = 46;
 const STARTER_SPACING = 96;
 const MAX_FALLBACK_ATTEMPTS = 72;
@@ -545,8 +545,8 @@ function inOwnSector(c, radius, world, player, players, room) {
 function isLegal(c, radius, world, map, reservations) {
   if (c.x < radius || c.x > world.width - radius || c.y < radius || c.y > world.height - radius) return false;
   for (const r of reservations) if (Math.hypot(c.x - r.x, c.y - r.y) < radius + r.radius) return false;
-  for (const a of map.asteroids || []) if (Math.hypot(c.x - a.x, c.y - a.y) < radius + (a.radius || 0) + 220) return false;
-  for (const relay of map.relays || []) if (Math.hypot(c.x - relay.x, c.y - relay.y) < radius + (relay.radius || 0) + 500) return false;
+  for (const a of map.asteroids || []) if (Math.hypot(c.x - a.x, c.y - a.y) < radius + (a.radius || 0) + MAP_CLEARANCES.asteroidToSpawnSlot) return false;
+  for (const relay of map.relays || []) if (Math.hypot(c.x - relay.x, c.y - relay.y) < radius + (relay.radius || 0) + MAP_CLEARANCES.relayToSafeZone) return false;
   return true;
 }
 function summarizeTeams(players) { return players.map((p) => ({ id: p.id, team: p.team, bot: !!p.isBot })); }

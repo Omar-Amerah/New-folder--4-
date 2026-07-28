@@ -15,6 +15,7 @@ const { PARTS } = require("./components");
 const { BALANCE_REVISION } = require("./balanceConfig");
 const { reportInvalidShieldState } = require("./runtimeShield");
 const { sanitizeCombatStyle } = require("./validation");
+const { usesStationInfrastructure } = require("./rooms");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -55,6 +56,47 @@ function buildComponentDamageVisual(ship) {
 
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
+function buildStationSnapshot(room, station, sendStatic) {
+  const entry = {
+    id: station.id,
+    stationType: station.stationType,
+    x: round(station.x),
+    y: round(station.y),
+    angle: round(station.angle),
+    hp: round(station.hp),
+    maxHp: round(station.maxHp),
+    shield: round(station.shield),
+    maxShield: round(station.maxShield),
+    radius: round(station.stats?.radius || 0),
+    team: station.team || null,
+    ownerId: station.ownerId || null,
+    state: station.state,
+    revision: station.revision || 0,
+    healthRevision: station.healthRevision || 0,
+    stateRevision: station.stateRevision || 0,
+    productionRevision: station.productionRevision || 1
+  };
+  if (sendStatic) {
+    entry.design = station.design || [];
+    if (station.hangar) entry.hangar = station.hangar;
+    if (station.stationType === "home") {
+      entry.productionQueue = station.productionQueue.map((item) => ({
+        id: item.id,
+        playerId: item.playerId,
+        quantityRemaining: item.quantityRemaining,
+        state: item.state,
+        buildDurationSeconds: item.buildDurationSeconds
+      }));
+    }
+  }
+  return entry;
+}
+
+function buildStationSnapshots(room, now, sendStatic) {
+  if (!usesStationInfrastructure(room) || !room.stations) return undefined;
+  return room.stations.map((station) => buildStationSnapshot(room, station, sendStatic));
+}
+
 function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false) {
   const ships = [];
   for (const ship of room.ships.values()) {
@@ -177,6 +219,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       // to its muzzle origin instead of extrapolating it ahead of the barrel.
       age: Math.max(0, Math.round(now - (bullet.bornAt || now))) / 1000
     })),
+    stations: buildStationSnapshots(room, now, sendStatic),
     points: room.points.map((point) => ({
       id: point.id,
       x: point.x,
@@ -638,6 +681,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     decoys: shared.decoys || [],
     bullets: shared.bullets,
     points: shared.points,
+    stations: shared.stations,
     effects: shared.effects,
     winner: room.winner,
     matchStartedAt: room.matchStartedAt,

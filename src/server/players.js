@@ -502,6 +502,7 @@ function maybeStartMatch(room, now) {
     // purchase bar becomes active.
     resetPlayerForMatch(room, player, now);
   }
+  require("./stations").createStationsForRoom(room, now);
   broadcastRoom(room, { type: "notice", message: "All pilots ready. Match started — buy ships from the bottom bar." });
   broadcastSnapshot(room, now, true);
 }
@@ -607,6 +608,7 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
   require("./spatialIndex").clearRoomSpatialIndex(room);
   room.effects = [];
   require("./rooms").clearRoomRuntimeScratch(room);
+  require("./stations").destroyStationsForRoom(room);
   room.controlVictory = {
     team: null,
     playerId: null,

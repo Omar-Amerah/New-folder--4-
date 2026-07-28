@@ -1633,6 +1633,32 @@
     "baseReacquisitionDelayMs": 600,
     "notes": "Base simulation-time delay before a defensive weapon (Point Defence, Flak, Interceptor Pod) can acquire a new target after losing its previous one. Reduced by interceptionReactionMultiplier from the Fleet Defence Coordinator aura."
   },
+  "infrastructure": {
+    "homeStation": {
+      "maximumShipGridWidth": 15,
+      "maximumShipGridHeight": 15,
+      "hangarClearanceCells": 1.4,
+      "hangarCorridorLength": 320,
+      "launchSpeed": 130,
+      "releaseDistance": 120,
+      "repairRadius": 520,
+      "repairRatePerSecond": 45,
+      "repairDelaySeconds": 6,
+      "disabledRecoveryDelaySeconds": 10,
+      "disabledRepairRatePerSecond": 18,
+      "reactivationHpRatio": 0.25,
+      "productionBaseSeconds": 5,
+      "productionCostSecondsMultiplier": 0.0015,
+      "launchRetrySeconds": 0.5
+    },
+    "relayStation": {
+      "captureRadius": 160,
+      "repairDelaySeconds": 8,
+      "repairRatePerSecond": 12,
+      "captureRestoreHpRatio": 0.35,
+      "disabledRecoveryDelaySeconds": 12
+    }
+  },
   "fireControl": {
     "baseReacquisitionDelayMs": 400,
     "notes": "Base simulation-time delay before an offensive weapon can fire at a new target after switching targets. Reduced by targetAcquisitionMultiplier from the Fire-Control Command Centre aura."

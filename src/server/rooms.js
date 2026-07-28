@@ -9,7 +9,9 @@ const {
   ECONOMY,
   CLOSED_ROOM_CODE_TTL_MS,
   MAP_NAMES,
-  MAP_CLOUD_COLORS
+  MAP_CLOUD_COLORS,
+  MAP_REFERENCE_AREA,
+  resolveMapClearances
 } = require("./config");
 const {
   clampNumber,
@@ -185,6 +187,15 @@ function setRoomRules(room, requester, updates) {
   broadcastSnapshot(room, performanceNow(), true);
 }
 
+function sanitizeInfrastructureMode(value) {
+  if (value === "classic" || value === "stations") return value;
+  return "classic";
+}
+
+function usesStationInfrastructure(room) {
+  return room?.rules?.infrastructureMode === "stations";
+}
+
 function sanitizeRoomRules(input, playerCount = 1) {
   const currentPlayers = Math.max(1, Number(playerCount) || 1);
   const startingMoney = Math.round(clampNumber(input.startingMoney, 100, ECONOMY.maxMoney));
@@ -192,7 +203,8 @@ function sanitizeRoomRules(input, playerCount = 1) {
   const mapSize = sanitizeMapSize(input.mapSize);
   const gameMode = sanitizeGameMode(input.gameMode);
   const asteroidDensity = sanitizeAsteroidDensity(input.asteroidDensity);
-  return { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity };
+  const infrastructureMode = sanitizeInfrastructureMode(input.infrastructureMode);
+  return { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode };
 }
 
 function sanitizeAsteroidDensity(value) {
@@ -229,46 +241,136 @@ function applyGameModeTeams(room) {
 }
 
 function createMapSeed(roomCode = "") {
-  return (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode) ^ Date.now()) >>> 0;
+  // MFA_MAP_SEED pins every arena to one layout so a reported map can be replayed
+  // exactly. crypto randomness already dominates the mix, so no clock term.
+  const forced = Number.parseInt(process.env.MFA_MAP_SEED ?? "", 10);
+  if (Number.isFinite(forced)) return forced >>> 0;
+  return (crypto.randomBytes(4).readUInt32BE(0) ^ hashString(roomCode)) >>> 0;
 }
 
 function generateMap(roomCode, world, gameMode, asteroidDensity, options = {}) {
   const seed = Number.isInteger(options.seed) ? (options.seed >>> 0) : createMapSeed(roomCode);
   const rng = seededRandom(seed);
   const safeZones = options.safeZones || generateSafeZones(world, gameMode);
-  const densityMultiplier = ASTEROID_DENSITY[asteroidDensity] ?? ASTEROID_DENSITY.medium;
+  const clearances = resolveMapClearances(world);
+  const context = { roomCode, gameMode, asteroidDensity, safeZones };
 
   if (world.label === "Testing") {
-    const relays = [
-      {
-        id: "A",
-        x: world.width * 0.5,
-        y: world.height * 0.5,
-        radius: 160
-      }
-    ];
     return validateMapOrFallback({
       seed,
       name: "Testing Sandbox",
-      relays,
+      relays: [{ id: "A", x: Math.round(world.width * 0.5), y: Math.round(world.height * 0.5), radius: 160 }],
       asteroids: [],
-      clouds: generateClouds(rng, world),
-      safeZones
-    }, world, { roomCode, gameMode, asteroidDensity });
+      clouds: generateClouds(rng, world, 1),
+      safeZones,
+      generation: makeGenerationReport(1, 1, "skipped", { asteroids: 0, relays: 1 }, { asteroids: 0, relays: 1 })
+    }, world, context);
   }
 
-  const relays = generateRelays(rng, world, safeZones);
-  const asteroids = generateAsteroids(rng, world, relays, safeZones, densityMultiplier);
-  const clouds = generateClouds(rng, world);
+  const densityMultiplier = ASTEROID_DENSITY[asteroidDensity] ?? ASTEROID_DENSITY.medium;
+  const areaScale = (world.width * world.height) / MAP_REFERENCE_AREA;
+  const transforms = symmetryTransforms(world, resolveSymmetryOrder(options, gameMode, safeZones));
 
-  return validateMapOrFallback({
+  const relayPlan = generateRelays(rng, world, safeZones, transforms, clearances);
+  const asteroidPlan = generateAsteroidField(rng, world, relayPlan.relays, safeZones, {
+    densityMultiplier,
+    areaScale,
+    transforms,
+    clearances
+  });
+
+  const map = {
     seed,
     name: MAP_NAMES[seed % MAP_NAMES.length],
-    relays,
-    asteroids,
-    clouds,
-    safeZones
-  }, world, { roomCode, gameMode, asteroidDensity });
+    relays: relayPlan.relays,
+    asteroids: asteroidPlan.asteroids,
+    clouds: generateClouds(rng, world, areaScale),
+    safeZones,
+    generation: makeGenerationReport(
+      transforms.length,
+      areaScale,
+      asteroidPlan.connectivity,
+      { asteroids: asteroidPlan.requested, relays: relayPlan.requested },
+      { asteroids: asteroidPlan.asteroids.length, relays: relayPlan.relays.length }
+    )
+  };
+  reportGenerationShortfall(map, context);
+  return validateMapOrFallback(map, world, context);
+}
+
+function makeGenerationReport(symmetryOrder, areaScale, connectivity, requested, placed) {
+  return { symmetryOrder, areaScale: round(areaScale), connectivity, requested, placed };
+}
+
+// Placement is best-effort by design, but silence turned "veryHigh" and "high"
+// into the same map on saturated arenas. Surface the shortfall instead.
+function reportGenerationShortfall(map, context) {
+  const { requested, placed } = map.generation;
+  if (requested.asteroids >= 6 && placed.asteroids < requested.asteroids * 0.6) {
+    console.warn(`Map generation shortfall room=${context.roomCode || "?"} seed=${map.seed} density=${context.asteroidDensity} symmetry=${map.generation.symmetryOrder}: placed ${placed.asteroids}/${requested.asteroids} asteroids`);
+  }
+}
+
+// Teams play across the x-axis, so 180deg point symmetry is the fair mapping.
+// Solo players are distributed radially by spawnPlanner.preferredSlots, where
+// 180deg is only fair for even rosters -- 3, 5 and 7 players used to get terrain
+// that simply did not exist for someone else. Match the roster's own order.
+function resolveSymmetryOrder(options, gameMode, safeZones) {
+  if (Number.isInteger(options.symmetryOrder)) return Math.max(1, Math.min(8, options.symmetryOrder));
+  if (gameMode !== "solo") return 2;
+  return Math.max(2, Math.min(8, safeZones.length || 2));
+}
+
+// Rotation happens in the unit-ellipse space centred on the world, which is the
+// same basis spawnPlanner uses to lay out solo players, so terrain symmetry lines
+// up with base symmetry on non-square arenas. Snapping keeps order 2 exactly
+// equal to the historical integer mirror (width - x, height - y).
+function symmetryTransforms(world, order) {
+  const cx = world.width / 2;
+  const cy = world.height / 2;
+  const transforms = [];
+  for (let k = 0; k < order; k += 1) {
+    const angle = (2 * Math.PI * k) / order;
+    const cos = snapUnit(Math.cos(angle));
+    const sin = snapUnit(Math.sin(angle));
+    transforms.push((x, y) => {
+      const nx = (x - cx) / cx;
+      const ny = (y - cy) / cy;
+      return { x: cx + (nx * cos - ny * sin) * cx, y: cy + (nx * sin + ny * cos) * cy };
+    });
+  }
+  return transforms;
+}
+
+function snapUnit(value) {
+  if (Math.abs(value) < 1e-9) return 0;
+  if (Math.abs(value - 1) < 1e-9) return 1;
+  if (Math.abs(value + 1) < 1e-9) return -1;
+  return value;
+}
+
+// The N images of a seed sit on a ring, so neighbours are a chord apart:
+// 2 * r * sin(pi / N). Below this radius a group can never satisfy its own mutual
+// clearance and every attempt is wasted -- which is exactly why odd/large solo
+// rosters used to end up with nothing but the central relay. Uses the shorter
+// semi-axis, so it is the conservative bound on any aspect ratio.
+function minNormalizedRadius(world, order, requiredGap) {
+  if (order < 2) return 0;
+  const minSemiAxis = Math.min(world.width, world.height) / 2;
+  return requiredGap / (minSemiAxis * 2 * Math.sin(Math.PI / order));
+}
+
+// Area-uniform sampling in the normalized annulus, so features do not bunch up
+// near the centre the way a uniform radius would.
+function sampleAnnulus(rng, minRadius, maxRadius) {
+  return Math.sqrt(rngRange(rng, minRadius * minRadius, maxRadius * maxRadius));
+}
+
+function symmetricImages(transforms, circle) {
+  return transforms.map((transform) => {
+    const point = transform(circle.x, circle.y);
+    return roundMapCircle({ x: point.x, y: point.y, radius: circle.radius });
+  });
 }
 
 function validateMapOrFallback(map, world, context = {}) {
@@ -277,16 +379,33 @@ function validateMapOrFallback(map, world, context = {}) {
   const message = `Generated invalid map seed=${validation.seed} room=${context.roomCode || "?"}: ${validation.errors.join("; ")}`;
   if (process.env.NODE_ENV !== "production") throw new Error(message);
   console.error(message);
-  return {
-    seed: map?.seed >>> 0,
-    name: "Fallback Arena",
-    relays: [{ id: "A", x: Math.round(world.width * 0.5), y: Math.round(world.height * 0.5), radius: 160 }],
-    asteroids: [],
-    clouds: [],
-    safeZones: generateSafeZones(world, context.gameMode || "teams")
-  };
+  return buildFallbackMap(map, world, context);
 }
 
+function buildFallbackMap(map, world, context) {
+  // Reuse the authoritative safe zones. Regenerating the static ones here used to
+  // leave room.map.safeZones disagreeing with the spawn plan players actually
+  // spawn into, and could drop the fallback relay straight onto a base.
+  const safeZones = context.safeZones || generateSafeZones(world, context.gameMode || "teams");
+  const clearances = resolveMapClearances(world);
+  const central = searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 160)
+    || searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 110);
+  const fallback = {
+    seed: (map?.seed ?? 0) >>> 0,
+    name: "Fallback Arena",
+    relays: central ? [{ id: "A", x: central.x, y: central.y, radius: central.radius }] : [],
+    asteroids: [],
+    clouds: [],
+    safeZones,
+    generation: makeGenerationReport(1, 1, "fallback", { asteroids: 0, relays: 1 }, { asteroids: 0, relays: central ? 1 : 0 })
+  };
+  const check = validateGeneratedMap(fallback, world, { seed: fallback.seed });
+  if (!check.ok) console.error(`Fallback arena is also invalid room=${context.roomCode || "?"}: ${check.errors.join("; ")}`);
+  return fallback;
+}
+
+// Default zones for direct generateMap calls (tests, tooling). Live rooms always
+// pass authoritative zones from spawnPlanner via options.safeZones.
 function generateSafeZones(world, gameMode) {
   const zones = [];
   const spawnRadius = 275;
@@ -312,168 +431,316 @@ function applyAuthoritativeSafeZones(room) {
 }
 
 function generateMapWithAuthoritativeSafeZones(room) {
+  // Bases resolve against a deliberately empty map: terrain yields to spawns,
+  // never the reverse. spawnPlanner.isLegal's asteroid/relay checks are therefore
+  // no-ops here and only bite on a later re-plan against real terrain.
   room.map = { seed: room.mapSeed, name: "Planning", relays: [], asteroids: [], clouds: [], safeZones: [] };
   invalidateSpawnPlan(room);
   const plan = getSpawnRegionPlan(room);
   return generateMap(room.code, room.world, room.rules?.gameMode || "teams", room.rules?.asteroidDensity, { seed: room.mapSeed, safeZones: plan.safeZones });
 }
 
-function generateRelays(rng, world, safeZones) {
+function generateRelays(rng, world, safeZones, transforms, clearances) {
   const relays = [];
+  // Added first so symmetric groups check clearance against it.
+  const central = placeCentralRelay(rng, world, safeZones, clearances);
+  if (central) relays.push(central);
 
-  // Always one central relay (add first so mirrored pairs check clearance against it).
-  // Keep it deterministic but validate against solo top/bottom spawn zones.
-  const centralRadius = rngRange(rng, 150, 180);
-  let centralRelay = null;
-  for (let attempt = 0; attempt < 24; attempt += 1) {
-    const candidate = roundMapCircle({
-      x: world.width * 0.5 + rngRange(rng, -200, 200),
-      y: world.height * 0.5 + rngRange(rng, -200, 200),
-      radius: centralRadius
-    });
-    if (circlesClear(candidate, safeZones, 500)) {
-      centralRelay = candidate;
-      break;
-    }
-  }
-  if (!centralRelay) {
-    const fallback = roundMapCircle({ x: world.width * 0.5, y: world.height * 0.5, radius: centralRadius });
-    if (!circlesClear(fallback, safeZones, 500)) {
-      throw new Error("Unable to place a valid central relay with required safe-zone clearance");
-    }
-    centralRelay = fallback;
-  }
-  relays.push(centralRelay);
-
-  // Try to place up to 3 pairs of mirrored relays
-  const pairCount = rng() > 0.6 ? 3 : 2;
-
-  for (let i = 0; i < pairCount; i++) {
-    addMirroredRelayPair(rng, relays, {
-      minX: world.width * 0.15,
-      maxX: world.width * 0.45,
-      minY: world.height * 0.15,
-      maxY: world.height * 0.85
-    }, world, safeZones);
+  const order = transforms.length;
+  // Aim for roughly 5-7 relays whatever the symmetry order happens to be.
+  const groupCount = Math.max(1, Math.min(3, Math.round(5 / order)));
+  for (let group = 0; group < groupCount; group += 1) {
+    addSymmetricRelayGroup(rng, relays, world, safeZones, transforms, clearances);
   }
 
-  return relays
+  const ordered = relays
     .sort((a, b) => a.x - b.x || a.y - b.y)
-    .map((relay, index) => ({
-      id: String.fromCharCode(65 + index),
-      ...relay
-    }));
+    .map((relay, index) => ({ id: relayId(index), x: relay.x, y: relay.y, radius: relay.radius }));
+  return { relays: ordered, requested: (central ? 1 : 0) + groupCount * order };
 }
 
-function addMirroredRelayPair(rng, relays, bounds, world, safeZones) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const radius = rngRange(rng, 140, 170);
-    const relay = roundMapCircle({
-      x: rngRange(rng, bounds.minX, bounds.maxX),
-      y: rngRange(rng, bounds.minY, bounds.maxY),
-      radius
-    });
-    const mirror = roundMapCircle({
-      x: world.width - relay.x,
-      y: world.height - relay.y,
-      radius
-    });
+function relayId(index) {
+  const letter = String.fromCharCode(65 + (index % 26));
+  return index < 26 ? letter : `${letter}${Math.floor(index / 26) + 1}`;
+}
 
-    // Check clearance against other relays (wider distance), between the pair itself, and against safe zones
-    if (circlesClear(relay, relays, 800) && circlesClear(mirror, relays, 800) &&
-        circlesClear(relay, [mirror], 800) &&
-        circlesClear(relay, safeZones, 500) && circlesClear(mirror, safeZones, 500)) {
-      relays.push(relay, mirror);
-      return true;
+// Relaxes across attempts (widening box, shrinking radius) and finally falls back
+// to a deterministic grid search. It never throws: an unplaceable relay used to
+// blow up the roster-change handler that triggered arena preparation.
+function placeCentralRelay(rng, world, safeZones, clearances) {
+  const buffer = clearances.relayToSafeZone;
+  const preferredRadius = rngRange(rng, 150, 180);
+  const attempts = 48;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const progress = attempt / attempts;
+    const spread = 200 + progress * Math.min(world.width, world.height) * 0.25;
+    const candidate = roundMapCircle({
+      x: world.width * 0.5 + rngRange(rng, -spread, spread),
+      y: world.height * 0.5 + rngRange(rng, -spread, spread),
+      radius: Math.max(110, preferredRadius * (1 - progress * 0.35))
+    });
+    if (insideWorld(candidate, world, 0) && circlesClear(candidate, safeZones, buffer)) return candidate;
+  }
+  return searchOpenCircle(world, safeZones, buffer, 140) || searchOpenCircle(world, safeZones, buffer, 110);
+}
+
+// Deterministic coarse sweep for the spot with the most slack against every safe
+// zone. Used as the last resort for the central relay and by the fallback arena.
+function searchOpenCircle(world, safeZones, buffer, radius) {
+  const steps = 24;
+  let best = null;
+  let bestSlack = -Infinity;
+  for (let ix = 1; ix < steps; ix += 1) {
+    for (let iy = 1; iy < steps; iy += 1) {
+      const x = Math.round((world.width * ix) / steps);
+      const y = Math.round((world.height * iy) / steps);
+      if (x - radius < 0 || x + radius > world.width || y - radius < 0 || y + radius > world.height) continue;
+      let slack = Infinity;
+      for (const zone of safeZones) slack = Math.min(slack, Math.hypot(x - zone.x, y - zone.y) - zone.radius - radius - buffer);
+      if (slack > bestSlack) {
+        bestSlack = slack;
+        best = { x, y, radius };
+      }
     }
+  }
+  return bestSlack >= 0 ? best : null;
+}
+
+const RELAY_RADIUS_RANGE = Object.freeze({ min: 140, max: 170 });
+
+function addSymmetricRelayGroup(rng, relays, world, safeZones, transforms, clearances) {
+  const cx = world.width / 2;
+  const cy = world.height / 2;
+  // Normalized polar sampling scales with the world. The old fixed left-hand
+  // rectangle plus an absolute 800u gap starved small arenas of relays.
+  const floor = minNormalizedRadius(world, transforms.length, RELAY_RADIUS_RANGE.max * 2 + clearances.relayToRelay);
+  const minRadius = Math.max(0.3, floor);
+  const maxRadius = 0.86;
+  if (minRadius >= maxRadius) return false;
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    const nr = sampleAnnulus(rng, minRadius, maxRadius);
+    const theta = rngRange(rng, 0, Math.PI * 2);
+    const images = symmetricImages(transforms, {
+      x: cx + Math.cos(theta) * nr * cx,
+      y: cy + Math.sin(theta) * nr * cy,
+      radius: rngRange(rng, RELAY_RADIUS_RANGE.min, RELAY_RADIUS_RANGE.max)
+    });
+    if (!relayGroupIsPlaceable(images, world, relays, safeZones, clearances)) continue;
+    relays.push(...images);
+    return true;
   }
   return false;
 }
 
-function circlesClearWithNoise(circle, others, minBuffer, maxBuffer, rng) {
-  for (const other of others) {
-    const buffer = rngRange(rng, minBuffer, maxBuffer);
-    const minimum = circle.radius + other.radius + buffer;
-    if (Math.hypot(circle.x - other.x, circle.y - other.y) < minimum) return false;
+function relayGroupIsPlaceable(images, world, relays, safeZones, clearances) {
+  for (let i = 0; i < images.length; i += 1) {
+    const image = images[i];
+    if (!insideWorld(image, world, 0)) return false;
+    if (!circlesClear(image, relays, clearances.relayToRelay)) return false;
+    if (!circlesClear(image, safeZones, clearances.relayToSafeZone)) return false;
+    for (let j = i + 1; j < images.length; j += 1) {
+      if (!circlesClear(image, [images[j]], clearances.relayToRelay)) return false;
+    }
   }
   return true;
 }
 
-function generateAsteroids(rng, world, relays, safeZones, densityMultiplier = 1) {
+function generateAsteroidField(rng, world, relays, safeZones, options) {
+  const { densityMultiplier, areaScale, transforms, clearances } = options;
+  if (densityMultiplier <= 0) return { asteroids: [], requested: 0, connectivity: "clear" };
+
+  // Budgets are totals scaled by world area -- they used to be flat counts, so a
+  // Grand battle map got a Duel map's rock budget over 3.5x the area.
+  const fieldTotal = (16 + Math.floor(rng() * 16)) * densityMultiplier * areaScale;
+  const centralTotal = (8 + Math.floor(rng() * 8)) * densityMultiplier * areaScale;
+  const order = transforms.length;
+  const fieldGroups = Math.max(0, Math.round(fieldTotal / order));
+  const centralGroups = Math.max(0, Math.round(centralTotal / order));
+  // Requested counts what generation actually set out to place, so the shortfall
+  // warning measures placement failure rather than group-rounding.
+  const requested = (fieldGroups + centralGroups) * order;
+  const bands = asteroidBands(world, order, clearances);
+  const anchors = makeClusterAnchors(rng, bands);
+
+  let asteroids = [];
+  // Terrain that walls a relay off is worse than sparse terrain, so retry with a
+  // thinner field. Never fatal: the last attempt is kept and the outcome recorded,
+  // so a coarse-grid false negative can never take a room down.
+  for (let pass = 0; pass < 3; pass += 1) {
+    const thinning = 0.75 ** pass;
+    asteroids = layAsteroids(rng, world, relays, safeZones, {
+      fieldGroups: Math.round(fieldGroups * thinning),
+      centralGroups: Math.round(centralGroups * thinning),
+      anchors,
+      bands,
+      transforms,
+      clearances
+    });
+    if (relaysAreReachable(world, asteroids, relays, safeZones)) {
+      return { asteroids, requested, connectivity: pass === 0 ? "clear" : "clear-after-thinning" };
+    }
+  }
+  return { asteroids, requested, connectivity: "degraded" };
+}
+
+const ASTEROID_RADIUS_RANGE = Object.freeze({ min: 60, max: 140 });
+
+// The placeable annulus for a symmetry order, plus the innermost slice of it that
+// still counts as the contested middle. The outer bound is where a rock of the
+// largest radius still clears the world edge, so attempts are not spent outside.
+function asteroidBands(world, order, clearances) {
+  const minSemiAxis = Math.min(world.width, world.height) / 2;
+  const floor = minNormalizedRadius(world, order, ASTEROID_RADIUS_RANGE.max * 2 + clearances.asteroidToAsteroid);
+  const min = Math.max(0.08, floor);
+  const max = 1 - (ASTEROID_RADIUS_RANGE.max + clearances.edgeInset) / minSemiAxis;
+  return { min, max, centralMax: Math.min(max, Math.max(min + 0.1, 0.34)), placeable: min < max };
+}
+
+function normalizedRadius(point, world) {
+  const nx = (point.x - world.width / 2) / (world.width / 2);
+  const ny = (point.y - world.height / 2) / (world.height / 2);
+  return Math.hypot(nx, ny);
+}
+
+// Cluster anchors turn a uniform scatter into belts and fields. Asteroids block
+// line of sight in combat.js, so terrain shape is a tactical input, not decoration.
+function makeClusterAnchors(rng, bands) {
+  if (!bands.placeable) return [];
+  const anchors = [];
+  for (let i = 0; i < 4; i += 1) {
+    const nr = sampleAnnulus(rng, bands.min, Math.min(bands.max, 0.85));
+    const theta = rngRange(rng, 0, Math.PI * 2);
+    anchors.push({ nx: Math.cos(theta) * nr, ny: Math.sin(theta) * nr });
+  }
+  return anchors;
+}
+
+function layAsteroids(rng, world, relays, safeZones, options) {
+  const { fieldGroups, centralGroups, anchors, bands, transforms, clearances } = options;
+  if (!bands.placeable) return [];
   const asteroids = [];
-  if (densityMultiplier <= 0) return asteroids;
-  // Exclude safe zones (relays checked dynamically with noise)
-  const reserved = safeZones.map(s => ({ x: s.x, y: s.y, radius: s.radius + 200 }));
-  const asteroidClearance = 225;
+  const reserved = safeZones.map((zone) => ({ x: zone.x, y: zone.y, radius: zone.radius }));
+  const cx = world.width / 2;
+  const cy = world.height / 2;
+  let nextId = 1;
 
-  const pairCount = Math.round((8 + Math.floor(rng() * 8)) * densityMultiplier);
+  const tryGroup = (seedCircle) => {
+    // One relay buffer per group, shared by every image. Sampling it per circle
+    // meant a rock and its mirror were judged against different constraints.
+    const relayBuffer = rngRange(rng, clearances.asteroidToRelayMin, clearances.asteroidToRelayMax);
+    const images = symmetricImages(transforms, seedCircle);
+    if (!asteroidGroupIsPlaceable(images, world, reserved, asteroids, relays, relayBuffer, clearances)) return false;
+    for (const image of images) {
+      asteroids.push(makeAsteroid(rng, `R${nextId}`, image));
+      nextId += 1;
+    }
+    return true;
+  };
 
-  for (let pair = 0; pair < pairCount; pair += 1) {
+  const fromPolar = (nr, theta, radius) => ({ x: cx + Math.cos(theta) * nr * cx, y: cy + Math.sin(theta) * nr * cy, radius });
+
+  for (let group = 0; group < fieldGroups; group += 1) {
     for (let attempt = 0; attempt < 90; attempt += 1) {
-      const radius = rngRange(rng, 60, 140);
-      // Place anywhere except extreme edges
-      const asteroid = {
-        x: rngRange(rng, world.width * 0.05, world.width * 0.49),
-        y: rngRange(rng, world.height * 0.05, world.height * 0.95),
-        radius
-      };
-      const mirror = {
-        x: world.width - asteroid.x,
-        y: world.height - asteroid.y,
-        radius
-      };
-      const roundedAsteroid = roundMapCircle(asteroid);
-      const roundedMirror = roundMapCircle(mirror);
-      if (!canPlaceMapCircle(roundedAsteroid, reserved, asteroids, asteroidClearance, world) ||
-          !canPlaceMapCircle(roundedMirror, reserved, asteroids, asteroidClearance, world) ||
-          !circlesClear(roundedAsteroid, [roundedMirror], asteroidClearance)) {
-        continue;
-      }
-      if (!circlesClearWithNoise(roundedAsteroid, relays, 200, 500, rng) || !circlesClearWithNoise(roundedMirror, relays, 200, 500, rng)) {
-        continue;
-      }
-      asteroids.push(
-        makeAsteroid(rng, `R${asteroids.length + 1}`, roundedAsteroid),
-        makeAsteroid(rng, `R${asteroids.length + 2}`, roundedMirror)
-      );
-      break;
+      const radius = rngRange(rng, ASTEROID_RADIUS_RANGE.min, ASTEROID_RADIUS_RANGE.max);
+      const anchor = anchors.length && rng() < 0.65 ? anchors[Math.floor(rng() * anchors.length)] : null;
+      // Rectangular sampling for the open field so the map corners stay usable;
+      // the band floor below is what keeps a high symmetry order from spending
+      // every attempt on a ring too tight to hold its own images.
+      const seedCircle = anchor
+        ? { x: cx + (anchor.nx + rngRange(rng, -0.16, 0.16)) * cx, y: cy + (anchor.ny + rngRange(rng, -0.16, 0.16)) * cy, radius }
+        : { x: rngRange(rng, world.width * 0.05, world.width * 0.95), y: rngRange(rng, world.height * 0.05, world.height * 0.95), radius };
+      if (normalizedRadius(seedCircle, world) < bands.min) continue;
+      if (tryGroup(seedCircle)) break;
     }
   }
 
-  // Central scattered asteroids
-  const centralCount = Math.round((4 + Math.floor(rng() * 4)) * densityMultiplier);
-  for (let i = 0; i < centralCount; i += 1) {
-      for (let attempt = 0; attempt < 70; attempt += 1) {
-        const radius = rngRange(rng, 70, 120);
-        const asteroid = {
-          x: world.width * 0.5 + rngRange(rng, -800, 800),
-          y: world.height * 0.5 + rngRange(rng, -800, 800),
-          radius
-        };
-        const mirror = {
-          x: world.width - asteroid.x,
-          y: world.height - asteroid.y,
-          radius
-        };
-        const roundedAsteroid = roundMapCircle(asteroid);
-        const roundedMirror = roundMapCircle(mirror);
-        if (!canPlaceMapCircle(roundedAsteroid, reserved, asteroids, asteroidClearance, world) ||
-            !canPlaceMapCircle(roundedMirror, reserved, asteroids, asteroidClearance, world) ||
-            !circlesClear(roundedAsteroid, [roundedMirror], asteroidClearance)) {
-          continue;
-        }
-        if (!circlesClearWithNoise(roundedAsteroid, relays, 200, 500, rng) || !circlesClearWithNoise(roundedMirror, relays, 200, 500, rng)) {
-          continue;
-        }
-        asteroids.push(
-          makeAsteroid(rng, `R${asteroids.length + 1}`, roundedAsteroid),
-          makeAsteroid(rng, `R${asteroids.length + 2}`, roundedMirror)
-        );
-        break;
-      }
+  // Contested middle: the innermost ring symmetry allows. The old absolute +-800
+  // box covered 38% of a Duel map but only 20% of a Grand battle map.
+  for (let group = 0; group < centralGroups; group += 1) {
+    for (let attempt = 0; attempt < 70; attempt += 1) {
+      const seedCircle = fromPolar(
+        sampleAnnulus(rng, bands.min, bands.centralMax),
+        rngRange(rng, 0, Math.PI * 2),
+        rngRange(rng, 70, 120)
+      );
+      if (tryGroup(seedCircle)) break;
+    }
   }
 
   return asteroids;
+}
+
+function asteroidGroupIsPlaceable(images, world, reserved, asteroids, relays, relayBuffer, clearances) {
+  for (let i = 0; i < images.length; i += 1) {
+    const image = images[i];
+    if (!insideWorld(image, world, clearances.edgeInset)) return false;
+    if (!circlesClear(image, reserved, clearances.asteroidToSafeZone)) return false;
+    if (!circlesClear(image, asteroids, clearances.asteroidToAsteroid)) return false;
+    if (!circlesClear(image, relays, relayBuffer)) return false;
+    for (let j = i + 1; j < images.length; j += 1) {
+      if (!circlesClear(image, [images[j]], clearances.asteroidToAsteroid)) return false;
+    }
+  }
+  return true;
+}
+
+const REACHABILITY_NEIGHBOURS = Object.freeze([[1, 0], [-1, 0], [0, 1], [0, -1]]);
+
+// Coarse grid flood fill: nothing previously stopped a belt from walling a relay
+// off entirely, which surfaces as "my fleet will not path to B". Orthogonal-only
+// steps keep it conservative -- a path is never assumed through a blocked corner.
+function relaysAreReachable(world, asteroids, relays, safeZones) {
+  if (!relays.length || !safeZones.length) return true;
+  const cell = 100;
+  const inflate = 45;
+  const cols = Math.max(1, Math.ceil(world.width / cell));
+  const rows = Math.max(1, Math.ceil(world.height / cell));
+  const blocked = new Uint8Array(cols * rows);
+
+  for (const asteroid of asteroids) {
+    const reach = asteroid.radius + inflate;
+    const minX = Math.max(0, Math.floor((asteroid.x - reach) / cell));
+    const maxX = Math.min(cols - 1, Math.floor((asteroid.x + reach) / cell));
+    const minY = Math.max(0, Math.floor((asteroid.y - reach) / cell));
+    const maxY = Math.min(rows - 1, Math.floor((asteroid.y + reach) / cell));
+    for (let gy = minY; gy <= maxY; gy += 1) {
+      for (let gx = minX; gx <= maxX; gx += 1) {
+        const dx = (gx + 0.5) * cell - asteroid.x;
+        const dy = (gy + 0.5) * cell - asteroid.y;
+        if (Math.hypot(dx, dy) <= reach) blocked[gy * cols + gx] = 1;
+      }
+    }
+  }
+
+  const startIndex = reachabilityCell(safeZones[0], cell, cols, rows);
+  if (blocked[startIndex]) return true;
+  const seen = new Uint8Array(cols * rows);
+  const queue = [startIndex];
+  seen[startIndex] = 1;
+  for (let head = 0; head < queue.length; head += 1) {
+    const index = queue[head];
+    const gx = index % cols;
+    const gy = (index - gx) / cols;
+    for (const [dx, dy] of REACHABILITY_NEIGHBOURS) {
+      const nx = gx + dx;
+      const ny = gy + dy;
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+      const next = ny * cols + nx;
+      if (seen[next] || blocked[next]) continue;
+      seen[next] = 1;
+      queue.push(next);
+    }
+  }
+
+  for (const target of relays) if (!seen[reachabilityCell(target, cell, cols, rows)]) return false;
+  for (const target of safeZones) if (!seen[reachabilityCell(target, cell, cols, rows)]) return false;
+  return true;
+}
+
+function reachabilityCell(point, cell, cols, rows) {
+  const gx = Math.max(0, Math.min(cols - 1, Math.floor(point.x / cell)));
+  const gy = Math.max(0, Math.min(rows - 1, Math.floor(point.y / cell)));
+  return gy * cols + gx;
 }
 
 function roundMapCircle(circle) {
@@ -513,9 +780,10 @@ function makeAsteroid(rng, id, asteroid) {
   };
 }
 
-function generateClouds(rng, world) {
+function generateClouds(rng, world, areaScale = 1) {
   const clouds = [];
-  const count = 5 + Math.floor(rng() * 4);
+  // Scaled by area: a flat 5-8 left the largest arenas looking empty.
+  const count = Math.max(4, Math.min(24, Math.round((5 + Math.floor(rng() * 4)) * areaScale)));
   for (let i = 0; i < count; i += 1) {
     clouds.push({
       id: `N${i + 1}`,
@@ -531,10 +799,10 @@ function generateClouds(rng, world) {
   return clouds;
 }
 
-function canPlaceMapCircle(circle, reserved, existing, buffer, world) {
-  if (circle.x - circle.radius < 80 || circle.x + circle.radius > world.width - 80) return false;
-  if (circle.y - circle.radius < 80 || circle.y + circle.radius > world.height - 80) return false;
-  return circlesClear(circle, reserved, buffer) && circlesClear(circle, existing, buffer);
+function insideWorld(circle, world, inset) {
+  if (circle.x - circle.radius < inset || circle.x + circle.radius > world.width - inset) return false;
+  if (circle.y - circle.radius < inset || circle.y + circle.radius > world.height - inset) return false;
+  return true;
 }
 
 function circlesClear(circle, others, buffer) {
@@ -550,8 +818,8 @@ function prepareArenaForCurrentPlayers(room) {
   const world = chooseRoomWorld(room);
   room.world = world;
   room.mapSizeLabel = world.label;
-  room.mapSeed = createMapSeed(room.code);
-  invalidateSpawnPlan(room);
+  // forcedMapSeed lets a rematch or a bug report replay an exact layout.
+  room.mapSeed = Number.isInteger(room.forcedMapSeed) ? (room.forcedMapSeed >>> 0) : createMapSeed(room.code);
   room.map = generateMapWithAuthoritativeSafeZones(room);
   room.points = room.map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 }));
   require("./projectiles").resetProjectileRuntime(room);
@@ -661,6 +929,8 @@ module.exports = {
   bumpStateEpoch,
   setRoomRules,
   sanitizeRoomRules,
+  sanitizeInfrastructureMode,
+  usesStationInfrastructure,
   sanitizeMapSize,
   sanitizeGameMode,
   applyGameModeTeams,
@@ -668,14 +938,15 @@ module.exports = {
   generateMap,
   validateMapOrFallback,
   generateRelays,
-  addMirroredRelayPair,
-  generateAsteroids,
+  generateAsteroidField,
+  relaysAreReachable,
+  symmetryTransforms,
   makeAsteroid,
   generateClouds,
   generateSafeZones,
   applyAuthoritativeSafeZones,
   generateMapWithAuthoritativeSafeZones,
-  canPlaceMapCircle,
+  insideWorld,
   circlesClear,
   prepareArenaForCurrentPlayers,
   chooseWorldSize,

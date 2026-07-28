@@ -1,6 +1,7 @@
 // Handles currency tracking, income calculations, ship purchases, and post-match reward distribution.
 
 const { ECONOMY, REWARDS } = require("./config");
+const { usesStationInfrastructure } = require("./rooms");
 const { clampNumber, round } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
@@ -184,6 +185,15 @@ function executePurchase(room, player, request, now) {
   const template = getOrCreateTemplate(player.id, request.design, request.wiring, validation.shipStats, canonicalBlueprint);
   const combatStyle = request.combatStyle || player.combatStyle || "hold";
   recordPurchaseStage("statCalculation", performance.now() - templateStart);
+
+  if (usesStationInfrastructure(room)) {
+    const { enqueueStationProduction } = require("./stations");
+    const result = enqueueStationProduction(room, player, { template, request, validation }, now);
+    cache.set(requestId, { at: now, signature, result });
+    prunePurchaseRequestCache(player, now);
+    recordPurchaseStage("totalPurchaseTime", performance.now() - purchaseStart);
+    return result;
+  }
 
   const {
     getPlannedSpawn, planShipSpawns, createSpawnReservations,
