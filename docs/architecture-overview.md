@@ -32,11 +32,12 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
   and mutates rooms; clients never simulate authoritatively.
 - **Client rendering role.** The client stores the latest snapshot, interpolates
   visual ship poses between snapshots (`visualShips`, `renderInterpolation.js`),
-  and renders with Pixi at display refresh rate, independent of the 15 Hz
+  and renders with Pixi at display refresh rate, independent of the 30 Hz
   snapshot rate.
-- **Tick independence.** Server tick (30 Hz, `TICK_HZ`) and snapshot broadcast
-  (15 Hz, `SNAPSHOT_HZ`) are separate `setInterval` loops in `server.js`; both are
-  `unref()`ed. Rooms idle-expire after 15 min empty.
+- **Tick cadence.** Snapshot broadcast (`SNAPSHOT_HZ`) is driven from the
+  simulation timer (`TICK_HZ`) rather than a second free-running interval, so the
+  two cannot drift apart under load. Both are 30 Hz, i.e. one snapshot per tick.
+  Timers are `unref()`ed. Rooms idle-expire after 15 min empty.
 
 ## B. Server modules (`src/server/`)
 

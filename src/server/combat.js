@@ -27,7 +27,7 @@ const {
 
 const { addBullet, removeProjectileRuntime, segmentCircleHit, shieldCollisionRadius, SHIELD_HIT_MIN } = require("./projectiles");
 
-const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents, onComponentDestroyed } = require("./componentHealth");
+const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents, onComponentDestroyed, markComponentDamageChanged } = require("./componentHealth");
 
 const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance } = require("./heat");
 
@@ -2631,7 +2631,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 
       applied += dealt;
 
-      ship.dirtyComponents.add(idx1);
+      markComponentDamageChanged(ship, idx1);
 
       if (ship.componentHp[idx1] <= 0.0001) {
 
@@ -2671,7 +2671,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 
     applied += incomingToHp1;
 
-    ship.dirtyComponents.add(idx1);
+    markComponentDamageChanged(ship, idx1);
 
     if (applied > 0) markShipRepairCacheDirty(ship);
 
@@ -2695,7 +2695,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 
   applied += hpAbsorbed1;
 
-  ship.dirtyComponents.add(idx1);
+  markComponentDamageChanged(ship, idx1);
 
   onComponentDestroyed(room, ship, idx1, now);
 
@@ -2723,7 +2723,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 
           applied += dealt2;
 
-          ship.dirtyComponents.add(idx2);
+          markComponentDamageChanged(ship, idx2);
 
           if (ship.componentHp[idx2] <= 0.0001) {
 
@@ -2773,7 +2773,7 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 
             applied += dealt2;
 
-            ship.dirtyComponents.add(idx2);
+            markComponentDamageChanged(ship, idx2);
 
             if (ship.componentHp[idx2] <= 0.0001) {
 
@@ -3129,7 +3129,7 @@ function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, 
 
       ship.componentHp[index] -= dealt;
 
-      ship.dirtyComponents.add(index);
+      markComponentDamageChanged(ship, index);
 
       if (ship.componentHp[index] <= 0.0001) {
 
@@ -3173,7 +3173,7 @@ function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, 
 
     ship.hp -= dealt;
 
-    ship.dirtyComponents.add(index);
+    markComponentDamageChanged(ship, index);
 
     if (ship.componentHp[index] <= 0.0001) {
 
@@ -5099,19 +5099,14 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true, c
 
   ship.hp = 0;
 
-  ship.targetX = ship.x;
-
-  ship.targetY = ship.y;
-
-  ship.arrived = true;
-
   ship.focusTargetId = null;
 
   ship.combatTargetId = null;
 
   ship.repairTargetId = null;
-
-  ship.commandMode = null;
+  const movementRuntime = require("./movementRuntime");
+  movementRuntime.setMovementCommand(ship, null);
+  movementRuntime.syncMovementTarget(ship);
 
   ship.commandAuraActive = false;
 

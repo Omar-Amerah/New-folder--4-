@@ -1584,7 +1584,7 @@ export const GENERATED_BALANCE = {
     "shieldHitMinimum": 10,
     "shieldCollision": {
       "minimumRadius": 30,
-      "flatPadding": 8,
+      "flatPadding": 12,
       "radiusMultiplier": 0.18
     },
     "mapImpactMargins": {

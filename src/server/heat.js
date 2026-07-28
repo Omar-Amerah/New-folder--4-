@@ -103,6 +103,9 @@ function initShipHeat(ship) {
   ship.componentHeatCapacity = ship.componentThermals.map(item => item.capacity);
   ship.componentHeatState = design.map(() => STATE.NORMAL);
   ship.heatStateRevision = 1;
+  ship.heatRevision = 1;
+  ship.componentHeatRevision = 1;
+  ship.heatTelemetryRevision = 1;
   ship._heatPowerSourceStates = ship.componentHeatState.slice();
   ship._heatDataSourceStates = ship.componentHeatState.slice();
   ship.componentHeatGenerated = design.map(() => 0);
@@ -143,7 +146,8 @@ function initShipHeat(ship) {
     delta: new Array(design.length).fill(0),
     workingHeat: new Array(design.length).fill(0),
     outflow: new Array(design.length).fill(0),
-    pendingTransfers: []
+    pendingTransfers: [],
+    telemetryValues: new Float64Array(design.length * 8)
   };
   rebuildThermalNetworks(ship);
 }
@@ -377,7 +381,8 @@ function updateShipHeat(ship, dt, room, now) {
       delta: new Array(heat.length).fill(0),
       workingHeat: new Array(heat.length).fill(0),
       outflow: new Array(heat.length).fill(0),
-      pendingTransfers: []
+      pendingTransfers: [],
+      telemetryValues: new Float64Array(heat.length * 8)
     };
   }
   const scratch = ship._heatScratch;
@@ -553,6 +558,7 @@ function updateShipHeat(ship, dt, room, now) {
   let totalCapacity = 0;
   let hotCount = 0;
   let overheatedCount = 0;
+  let componentHeatChanged = false;
   let meltdowns = null;
   if (!ship.componentMeltdown) ship.componentMeltdown = heat.map(() => 0);
   for (let i = 0; i < heat.length; i += 1) {
@@ -579,7 +585,11 @@ function updateShipHeat(ship, dt, room, now) {
     const physicalState = stateFor(capacity > 0 ? next / capacity : (next > 0 ? Infinity : 0), oldState);
     const nextState = alive ? physicalState : STATE.NORMAL;
     if (nextState !== oldState) ship.heatStateRevision = (ship.heatStateRevision || 0) + 1;
-    if (nextState !== oldState || Math.abs(next - heat[i]) >= 0.5) ship.dirtyHeat.add(i);
+    const visibleHeatChanged = Math.round(next * 10) !== Math.round(heat[i] * 10);
+    if (nextState !== oldState || visibleHeatChanged) {
+      ship.dirtyHeat.add(i);
+      componentHeatChanged = true;
+    }
     heat[i] = next;
     ship.componentHeatState[i] = nextState;
     if (alive) {
@@ -603,9 +613,23 @@ function updateShipHeat(ship, dt, room, now) {
     }
     if (next > 0.05) remainsActive = true;
   }
+  const nextPressure = totalCapacity > 0 ? totalHeat / totalCapacity : 0;
+  const previousHeatPresentation = ship._heatPresentationValues;
+  const nextHeatPresentation = [
+    Math.round(totalHeat * 10),
+    Math.round(totalCapacity * 10),
+    Math.round(nextPressure * 1000),
+    hotCount,
+    overheatedCount
+  ];
+  if (!previousHeatPresentation || nextHeatPresentation.some((value, index) => value !== previousHeatPresentation[index])) {
+    ship.heatRevision = (ship.heatRevision || 0) + 1;
+    ship._heatPresentationValues = nextHeatPresentation;
+  }
+  if (componentHeatChanged) ship.componentHeatRevision = (ship.componentHeatRevision || 0) + 1;
   ship.currentHeat = totalHeat;
   ship.maxHeat = totalCapacity;
-  ship.heatPressure = totalCapacity > 0 ? totalHeat / totalCapacity : 0;
+  ship.heatPressure = nextPressure;
   ship.hotComponentCount = hotCount;
   ship.overheatedComponentCount = overheatedCount;
   // Source state tiers alter only their own network allocation. Batch all
@@ -633,6 +657,30 @@ function updateShipHeat(ship, dt, room, now) {
     const generation = network.generators.reduce((sum, index) => sum + HeatRules.activityHeat(ship.design[index].type, PARTS[ship.design[index].type] || {}), 0);
     network.overloaded = generation > network.totalCoolingCapacity;
   }
+  const telemetryValues = scratch.telemetryValues?.length === heat.length * 8
+    ? scratch.telemetryValues
+    : (scratch.telemetryValues = new Float64Array(heat.length * 8));
+  let telemetryChanged = false;
+  for (let i = 0; i < heat.length; i += 1) {
+    const offset = i * 8;
+    const values = [
+      ship.componentHeatGenerated[i] || 0,
+      ship.componentHeatReceived[i] || 0,
+      ship.componentHeatTransferredOut[i] || 0,
+      ship.componentHeatCooled[i] || 0,
+      ship.componentHeatSentThroughFrame[i] || 0,
+      ship.componentHeatRadiated[i] || 0,
+      ship.componentVentedOverflowHeatThisTick[i] || 0,
+      ship.componentPowerCableHeatGenerated[i] || 0
+    ];
+    for (let field = 0; field < values.length; field += 1) {
+      if (telemetryValues[offset + field] !== values[field]) {
+        telemetryValues[offset + field] = values[field];
+        telemetryChanged = true;
+      }
+    }
+  }
+  if (telemetryChanged) ship.heatTelemetryRevision = (ship.heatTelemetryRevision || 0) + 1;
 
   // Resolve any reactor meltdowns after the thermal state is settled. Detonation
   // deals hp damage to neighbours (not heat), so it cannot instantly cascade; a

@@ -5,12 +5,26 @@ const WiringRules = require("./public/src/shared/wiringRules");
 const { calculateDirectionalTurnInputs, calculateMovementStats } = require("./public/src/shared/movementStats.js");
 const { PARTS } = require("./src/server/components");
 const { updateShipMovement } = require("./src/server/movement");
+const {
+  createMovementRuntime,
+  setMovementCommand,
+  syncMovementTarget
+} = require("./src/server/movementRuntime");
 
 // Powered speed is not a momentum eraser: an engine-less ship keeps drifting,
 // while the ordinary damping remains authoritative and prevents perpetual motion.
 const room = { world: { width: 2000, height: 1200 }, map: { asteroids: [] }, ships: new Map(), players: new Map() };
 const drift = { id: "drift", alive: true, x: 400, y: 400, vx: 120, vy: 0, angle: 0,
   targetX: 1200, targetY: 400, radius: 30, stats: { mass: 20, accel: 0, maxSpeed: 0, turnRate: 0 }, design: [], componentHp: [] };
+drift.movement = createMovementRuntime();
+setMovementCommand(drift, {
+  id: "power-loss-move",
+  type: "move",
+  destination: { x: 1200, y: 400 },
+  targetId: null,
+  finalFacing: null
+});
+syncMovementTarget(drift);
 updateShipMovement(room, drift, 1 / 30);
 assert(drift.vx > 0 && drift.vx < 120, "Power loss must preserve damped momentum");
 assert(drift.x > 400, "unpowered ship must continue drifting");

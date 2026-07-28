@@ -9,8 +9,8 @@ import { canUndoBlueprintEdit } from "../design/blueprintEditHistory.js";
 import { canUndoWiring, undoWiring } from "../ui/wiringUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { closeLedger } from "../ledger/fleetLedgerUi.js";
-import { updateHud } from "../ui/hudUi.js";
-import { renderSideControls, setRallyPointFromWorld } from "../ui/sidePanelUi.js";
+import { setRallyPointFromWorld } from "../ui/sidePanelUi.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 import { issueCommand, destructSelectedShips, stopSelectedShips, rotateSelectedShips } from "./commands.js";
 import { getMobileTestingModeEnabled } from "./renderSettings.js";
 
@@ -45,7 +45,6 @@ export function handlePointerUp(event) {
   if (!state.drag || state.drag.pointerId !== event.pointerId || state.drag.canvas !== binding.canvas) return;
   const drag = state.drag; state.drag = null; releaseCapture(binding.canvas, event.pointerId);
   if (Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY) < 6) selectAt(drag.currentWorld, drag.shift); else selectBox(drag.startWorld, drag.currentWorld, drag.shift);
-  updateHud(); renderSideControls();
 }
 function handlePointerCancel(event) { if (state.drag?.pointerId === event.pointerId || state.camDrag?.pointerId === event.pointerId) cancelArenaPointerState(event.type); }
 export function handleWheel(event) {
@@ -73,14 +72,14 @@ export function handleKeyDown(event) {
     if (canUndoBlueprintEdit()) { event.preventDefault(); undoBlueprintEdit(); }
     return;
   }
-  if (key === "escape" && state.settingRallyPoint) { event.preventDefault(); state.settingRallyPoint = false; renderSideControls(); return; }
+  if (key === "escape" && state.settingRallyPoint) { event.preventDefault(); state.settingRallyPoint = false; invalidatePresentation("rally-mode"); return; }
   if (eventComesFromEditableControl(event)) return;
   state.keys.add(key);
   if (key === "r") { event.preventDefault(); rotateFocusedPart(); return; }
   if (key === "o") { event.preventDefault(); rotateSelectedShips(1, true); return; }
   if (key === "i") { event.preventDefault(); rotateSelectedShips(-1, true); return; }
   if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) event.preventDefault();
-  if (key === "q") { event.preventDefault(); selectAllOwnShips(); renderSideControls(); } else if (key === "f") { event.preventDefault(); state.camera.follow = true; } else if (key === "escape") { state.selectedShipIds.clear(); state.activeShipGroup = null; cancelArenaPointerState("escape"); updateHud(); renderSideControls(); } else if (key === "0") { event.preventDefault(); resetCameraZoomToFit(); } else if (key === "c") { event.preventDefault(); const ships = [...state.selectedShipIds].length ? (state.snapshot?.ships || []).filter(s => state.selectedShipIds.has(s.id)) : ownLiveShips(); centerCameraOnShips(ships); } else if (key === "v") { event.preventDefault(); state.componentDamageView = !state.componentDamageView; renderSideControls(); } else if (key === "delete" || key === "backspace") { event.preventDefault(); destructSelectedShips(); } else if (key === "b") { event.preventDefault(); stopSelectedShips(); }
+  if (key === "q") { event.preventDefault(); selectAllOwnShips(); } else if (key === "f") { event.preventDefault(); state.camera.follow = true; } else if (key === "escape") { state.selectedShipIds.clear(); state.activeShipGroup = null; cancelArenaPointerState("escape"); invalidatePresentation("selection"); } else if (key === "0") { event.preventDefault(); resetCameraZoomToFit(); } else if (key === "c") { event.preventDefault(); const ships = state.snapshotIndex?.selectedLivingShips?.length ? state.snapshotIndex.selectedLivingShips : ownLiveShips(); centerCameraOnShips(ships); } else if (key === "v") { event.preventDefault(); state.componentDamageView = !state.componentDamageView; invalidatePresentation("panel-mode"); } else if (key === "delete" || key === "backspace") { event.preventDefault(); destructSelectedShips(); } else if (key === "b") { event.preventDefault(); stopSelectedShips(); }
 }
 export function bindArenaPointerListeners(canvasEl) {
   if (!canvasEl) return () => {}; if (binding?.canvas === canvasEl) return binding.unbind; if (binding) binding.unbind(); const canvas = canvasEl; bindingGeneration += 1;
@@ -98,7 +97,7 @@ export function handleKeyUp(event) {
       const direction = otherKey === "o" ? 1 : -1;
       rotateSelectedShips(direction, true);
     } else {
-      rotateSelectedShips(1, false);
+      rotateSelectedShips(key === "o" ? 1 : -1, false);
     }
   }
   state.keys.delete(key);

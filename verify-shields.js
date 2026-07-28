@@ -11,6 +11,8 @@ const { initComponentState } = require("./src/server/componentHealth");
 const { initShipHeat, distributeComponentHeatByWeight } = require("./src/server/heat");
 const { computeStats } = require("./src/server/shipStats");
 const { rebuildShipWiringState, updateShipPowerDemand, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
+const { updateRuntimeShield, SHIELD_RESTART_DELAY_MS } = require("./src/server/runtimeShield");
+const { tickRoom } = require("./src/server/simulation");
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) { let wiring = WiringRules.emptyWiring(); for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS); return wiring; }
 function shipFor(design, paths = []) { const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true }; initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "test"); return ship; }
@@ -71,6 +73,47 @@ for (let tick = 0; tick < 12; tick += 1) {
 }
 assert(stableCaps.every((capacity) => Math.abs(capacity - stableCaps[0]) < 0.011), "recharge demand must not alternate maxShield");
 assert(stableDemands.every((activity) => activity === 1), "a real shield deficit must remain active while power-starved");
+
+// Exercise the exact runtime stage called by simulation.tickRoom().
+const runtime = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
+runtime.id = "runtime-shield";
+runtime.maxShield = effectiveShieldStats(runtime).capacity;
+runtime.shield = runtime.maxShield;
+updateRuntimeShield(runtime, 0.1, 1000);
+assert(Number.isFinite(runtime.shield) && Number.isFinite(runtime.maxShield), "first production Shield stage keeps values finite");
+const full = runtime.shield;
+runtime.shield = full * 0.5;
+updateRuntimeShield(runtime, 0.1, 1100);
+assert(runtime.shield > full * 0.5, "damaged Shield heals through the production runtime stage");
+runtime.shield = 0;
+updateRuntimeShield(runtime, 0.1, 1200);
+updateRuntimeShield(runtime, 0.1, 1200 + SHIELD_RESTART_DELAY_MS - 1);
+assert.strictEqual(runtime.shield, 0, "depleted Shield respects restart delay");
+updateRuntimeShield(runtime, 0.1, 1200 + SHIELD_RESTART_DELAY_MS);
+assert(runtime.shield > 0, "depleted Shield heals after restart delay");
+runtime.shield = NaN;
+global.__mfaRuntimeDiagnostics = {};
+updateRuntimeShield(runtime, 0.1, 5000);
+assert.strictEqual(global.__mfaRuntimeDiagnostics.invalidShieldStateCount, 1, "invalid Shield state is diagnosed exactly once");
+assert(Number.isFinite(runtime.shield), "invalid Shield state is repaired to a finite runtime value");
+delete global.__mfaRuntimeDiagnostics;
+runtime.ownerId = "runtime-player";
+runtime.x = 500; runtime.y = 500; runtime.vx = 0; runtime.vy = 0; runtime.angle = 0;
+runtime.targetX = 500; runtime.targetY = 500; runtime.arrived = true; runtime.radius = 30;
+runtime.hp = runtime.maxHp = runtime.stats.maxHp;
+runtime.weaponAngles = []; runtime.weaponCooldowns = []; runtime.desiredAngles = [];
+runtime.aimTargetIds = []; runtime.componentTargetIds = []; runtime.beamContacts = [];
+runtime.shield = runtime.maxShield * 0.5;
+const beforeProductionTick = runtime.shield;
+const runtimeRoom = {
+  phase: "active", players: new Map(), ships: new Map([[runtime.id, runtime]]),
+  drones: new Map(), bullets: [], effects: [], points: [],
+  world: { width: 2000, height: 1600 }, map: { asteroids: [], points: [], safeZones: [] },
+  spatialIndex: null
+};
+tickRoom(runtimeRoom, 0.1, 6000);
+assert(Number.isFinite(runtime.shield) && Number.isFinite(runtime.maxShield), "simulation.tickRoom snapshot source remains finite");
+assert(runtime.shield > beforeProductionTick, "simulation.tickRoom heals damaged Shield through the production path");
 console.log("Shield rules verification passed.");
 
 async function verifyBlueprintRuntimeShieldParity() {

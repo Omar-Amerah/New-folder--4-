@@ -14,6 +14,7 @@ import { weaponAbbrevText, previewColor } from "./savedBlueprintsUi.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { isAdmin } from "./lobbyUi.js";
 import { analyseBlueprintOnce, analyseSavedBlueprintOnce, counters, resetBlueprintAnalysisCounters } from "../design/blueprintAnalysisCache.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 
 export function handlePurchasePointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return;
@@ -113,11 +114,11 @@ export function buyPurchaseOption(optionId) {
     pending.timeoutId = setTimeout(() => {
       if (!pending.settled) {
         state.pendingPurchases.delete(requestId);
-        renderPurchaseBar();
+        invalidatePresentation("purchase-pending");
       }
     }, 10000);
     notify.warning("Request timeout");
-    renderPurchaseBar();
+    invalidatePresentation("purchase-pending");
   }, 4500);
 
   state.pendingPurchases.set(requestId, {
@@ -140,7 +141,7 @@ export function buyPurchaseOption(optionId) {
     requestId
   });
 
-  renderPurchaseBar();
+  invalidatePresentation("purchase-pending");
   hidePurchaseTooltip();
   const card = dom.purchaseOptions?.querySelector?.(`[data-option-id="${escapeHtml(optionId)}"]`);
   setPurchaseCardFeedback(card, "pending", "Building...");
@@ -153,7 +154,7 @@ export function isMoneyPurchaseBlocker(reason = "") {
 
 export function setPurchaseQuantity(quantity) {
   state.purchaseQuantity = quantity === 5 ? 5 : 1;
-  renderPurchaseBar();
+  invalidatePresentation("purchase-quantity");
 }
 
 export function clearPendingPurchase(requestId) {
@@ -161,7 +162,7 @@ export function clearPendingPurchase(requestId) {
   if (!pending) return null;
   clearTimeout(pending.timeoutId);
   state.pendingPurchases.delete(requestId);
-  renderPurchaseBar();
+  invalidatePresentation("purchase-pending");
   return pending;
 }
 
@@ -196,7 +197,7 @@ export function handlePurchaseResult(message) {
     if (pending?.optionId) setPurchaseError(pending.optionId, reason);
     notify.error(reason);
   }
-  updateEconomyUi({ refreshCatalogue: false });
+  invalidatePresentation("purchase-pending");
 }
 
 export function setPurchaseError(optionId, message) {
@@ -205,14 +206,50 @@ export function setPurchaseError(optionId, message) {
   if (previous?.timeoutId) clearTimeout(previous.timeoutId);
   const timeoutId = setTimeout(() => {
     state.purchaseErrors.delete(optionId);
-    renderPurchaseBar();
+    invalidatePresentation("purchase-errors");
   }, 1600);
   state.purchaseErrors.set(optionId, { message, timeoutId });
-  renderPurchaseBar();
+  invalidatePresentation("purchase-errors");
 }
 
 export function updateEconomySnapshotUi() {
-  updateEconomyUi({ refreshCatalogue: false });
+  updatePurchaseAffordability();
+}
+
+export function updateDeploymentControls() {
+  const mine = state.mine;
+  const openState = typeof WebSocket !== "undefined" ? WebSocket.OPEN : 1;
+  const connected = state.socket?.readyState === openState && Boolean(state.room);
+  const analysis = analyseBlueprintOnce({
+    blueprint: state.design,
+    wiring: state.wiring,
+    combatStyle: state.combatStyle || "hold"
+  });
+  const blueprintValid = analysis.validation.ok && !state.designNeedsAttention;
+  const balanceCompatible = !isBalanceIncompatible();
+  const pending = Boolean(state.pendingDeploy);
+  const inDesign = state.phase === "design";
+  const ready = Boolean(mine?.ready);
+  const canReady = connected && inDesign && !ready && !pending && blueprintValid && balanceCompatible;
+  if (dom.deployButton) {
+    dom.deployButton.hidden = !inDesign;
+    dom.deployButton.disabled = !canReady;
+    dom.deployButton.classList.toggle("is-loading", pending);
+    const text = pending ? "Readying…" : ready ? "Waiting for Players" : "Ready Up";
+    const label = dom.deployButton.querySelector?.(".deploy-action-label");
+    if (label) label.textContent = text;
+    dom.deployButton.setAttribute?.("aria-label", blueprintValid ? text : (analysis.validation.errors[0] || "Blueprint is invalid."));
+    dom.deployButton.title = !balanceCompatible
+      ? balanceBlockMessage()
+      : !blueprintValid ? (analysis.validation.errors[0] || "Fix the blueprint before readying.") : "";
+  }
+  if (dom.openBlueprintDesignerButton) {
+    dom.openBlueprintDesignerButton.textContent = "Open Blueprint Designer";
+    dom.openBlueprintDesignerButton.disabled = !connected || !["design", "active"].includes(state.phase) || !balanceCompatible;
+    dom.openBlueprintDesignerButton.title = balanceCompatible ? "" : balanceBlockMessage();
+  }
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics.deploymentControlsUpdateCount = (diagnostics.deploymentControlsUpdateCount || 0) + 1;
 }
 
 export function updateEconomyUi({ refreshCatalogue = true } = {}) {
@@ -220,7 +257,6 @@ export function updateEconomyUi({ refreshCatalogue = true } = {}) {
   const income = mine?.income ?? 0;
   const myTeam = mine?.team;
   const relays = state.snapshot?.points?.filter((point) => point.ownerTeam === myTeam && point.progress > 0.98).length || 0;
-  const canReady = state.phase === "design" && !mine?.ready;
 
   if (dom.incomeHud) {
     dom.incomeHud.textContent = `+$${Math.round(income)}/s`;
@@ -228,15 +264,7 @@ export function updateEconomyUi({ refreshCatalogue = true } = {}) {
       ? `Base income plus ${relays} captured relay${relays === 1 ? "" : "s"}. Money rises every second.`
       : "Ready up to begin earning money.";
   }
-  dom.deployButton.hidden = state.phase !== "design";
-  dom.deployButton.disabled = !canReady;
-
-  if (dom.openBlueprintDesignerButton) {
-    dom.openBlueprintDesignerButton.textContent = "Open Blueprint Designer";
-  }
-  const deployLabel = dom.deployButton?.querySelector(".deploy-action-label");
-  if (deployLabel) deployLabel.textContent = "Ready Up";
-  dom.deployButton?.setAttribute?.("aria-label", "Ready Up. The ship is not bought until the match starts.");
+  updateDeploymentControls();
 
   if (mine) {
     const status = state.phase === "design"
@@ -287,6 +315,9 @@ function makePurchaseOptionKey() {
     combatStyle: state.combatStyle || "hold",
     activeLoadoutId: state.activeLoadoutId,
     balanceRevision,
+    blueprintRevision: state.presentationLocalRevision?.blueprint || 0,
+    wiringRevision: state.presentationLocalRevision?.wiring || 0,
+    purchaseRevision: state.presentationLocalRevision?.purchase || 0,
     // Capture saved design object references so mutations / replacements are detected.
     savedRefs: visible.map((saved) => [
       saved.id,
@@ -300,7 +331,12 @@ function makePurchaseOptionKey() {
 
 function sameOptionKey(a, b) {
   if (!a || !b) return false;
-  if (a.design !== b.design || a.wiring !== b.wiring || a.combatStyle !== b.combatStyle || a.activeLoadoutId !== b.activeLoadoutId || a.balanceRevision !== b.balanceRevision) return false;
+  if (
+    a.design !== b.design || a.wiring !== b.wiring || a.combatStyle !== b.combatStyle
+    || a.activeLoadoutId !== b.activeLoadoutId || a.balanceRevision !== b.balanceRevision
+    || a.blueprintRevision !== b.blueprintRevision || a.wiringRevision !== b.wiringRevision
+    || a.purchaseRevision !== b.purchaseRevision
+  ) return false;
   if (a.savedRefs.length !== b.savedRefs.length) return false;
   for (let i = 0; i < a.savedRefs.length; i += 1) {
     const ar = a.savedRefs[i];
@@ -361,6 +397,8 @@ function buildPurchaseOptions() {
 
 export function rebuildPurchaseCatalogue() {
   counters.catalogueRebuild++;
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics.purchaseCatalogueBuildCount += 1;
   const startMark = typeof performance !== "undefined" ? `bp-catalogue-rebuild-${Date.now()}` : null;
   if (startMark && typeof performance.mark === "function") performance.mark(startMark);
 
@@ -369,7 +407,7 @@ export function rebuildPurchaseCatalogue() {
 
   if (typeof document !== "undefined") {
     renderPurchaseCards(purchaseOptions);
-    updatePurchaseAvailability();
+    patchPurchaseAvailability();
   }
 
   if (startMark && typeof performance.measure === "function") {
@@ -405,7 +443,8 @@ export function setActiveLoadout(id) {
   state.activeLoadoutId = id;
   state.loadoutEditMode = false;
   persistActiveLoadoutId(id);
-  renderLoadouts();
+  invalidatePresentation("purchase-catalogue");
+  renderLoadoutManager();
 }
 
 export function addLoadout() {
@@ -421,7 +460,8 @@ export function addLoadout() {
   state.loadoutEditMode = true;
   state.pendingNewLoadoutName = loadout.id;
   persistActiveLoadoutId(loadout.id);
-  renderLoadouts();
+  invalidatePresentation("purchase-catalogue");
+  renderLoadoutManager();
 }
 
 export function duplicateLoadout(id) {
@@ -437,7 +477,8 @@ export function duplicateLoadout(id) {
   state.activeLoadoutId = copy.id;
   state.loadoutEditMode = false;
   persistActiveLoadoutId(copy.id);
-  renderLoadouts();
+  invalidatePresentation("purchase-catalogue");
+  renderLoadoutManager();
 }
 
 export function deleteLoadout(id) {
@@ -448,7 +489,8 @@ export function deleteLoadout(id) {
     persistActiveLoadoutId("all");
   }
   state.loadoutEditMode = false;
-  renderLoadouts();
+  invalidatePresentation("purchase-catalogue");
+  renderLoadoutManager();
 }
 
 export function renameLoadout(id, name) {
@@ -456,7 +498,8 @@ export function renameLoadout(id, name) {
   if (!clean) return;
   state.loadouts = (state.loadouts || []).map((lo) => (lo.id === id ? { ...lo, name: clean } : lo));
   persistLoadouts(state.loadouts);
-  renderLoadouts();
+  renderPurchaseBar();
+  renderLoadoutManager();
 }
 
 function persistActiveLoadoutId(id) {
@@ -484,12 +527,13 @@ export function toggleDesignInLoadout(designId) {
   if (idx >= 0) loadout.designIds.splice(idx, 1);
   else if (loadout.designIds.length < 12) loadout.designIds.push(designId);
   persistLoadouts(state.loadouts);
-  renderLoadouts();
+  invalidatePresentation("purchase-catalogue");
+  renderLoadoutManager();
 }
 
 export function toggleLoadoutEditMode() {
   state.loadoutEditMode = !state.loadoutEditMode;
-  renderLoadouts();
+  renderLoadoutManager();
 }
 
 export function getPurchaseOptionState(option, quantity = state.purchaseQuantity) {
@@ -532,17 +576,13 @@ export function getPendingPurchaseForOption(optionId) {
   return null;
 }
 
-export function updatePurchaseAvailability() {
+function patchPurchaseAvailability() {
   counters.availabilityUpdate++;
   if (!dom.purchaseBar || !dom.purchaseOptions) return;
   dom.purchaseQuantityOne?.classList?.toggle("active", state.purchaseQuantity === 1);
   dom.purchaseQuantityFive?.classList?.toggle("active", state.purchaseQuantity === 5);
   dom.purchaseQuantityOne?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 1));
   dom.purchaseQuantityFive?.setAttribute?.("aria-pressed", String(state.purchaseQuantity === 5));
-
-  // The purchase bar only lets you *pick* a saved loadout; creating/editing them
-  // lives in the Blueprint screen's loadout manager.
-  renderLoadoutTabs(dom.loadoutTabs, false);
 
   ensurePurchaseCatalogue();
   const options = purchaseOptions || [];
@@ -582,6 +622,32 @@ export function updatePurchaseAvailability() {
       }
     }
   });
+}
+
+export function updatePurchaseAffordability() {
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics.purchaseAffordabilityUpdateCount += 1;
+  patchPurchaseAvailability();
+}
+
+export function updatePurchasePendingState() {
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics.purchasePendingUpdateCount += 1;
+  patchPurchaseAvailability();
+}
+
+export function updatePurchaseErrors() {
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics.purchaseErrorUpdateCount += 1;
+  patchPurchaseAvailability();
+}
+
+export function updatePurchaseCatalogue() {
+  rebuildPurchaseCatalogue();
+}
+
+export function updatePurchaseAvailability() {
+  updatePurchaseAffordability();
 }
 
 function renderPurchaseCards(options) {
@@ -652,6 +718,8 @@ function renderPurchaseCards(options) {
 }
 
 export function renderPurchaseBar() {
+  // Loadout membership is catalogue state, not affordability state.
+  renderLoadoutTabs(dom.loadoutTabs, false);
   ensurePurchaseCatalogue();
   updatePurchaseAvailability();
 }
@@ -850,12 +918,6 @@ export function renderLoadoutManager() {
     if (editing) renderLoadoutEditor(active, dom.loadoutManagerEditor);
     else dom.loadoutManagerEditor.textContent = "";
   }
-}
-
-// Re-render both the purchase-bar tabs and the Blueprint-screen loadout maker.
-function renderLoadouts() {
-  renderPurchaseBar();
-  renderLoadoutManager();
 }
 
 function beginRenameLoadoutInline(tab) {

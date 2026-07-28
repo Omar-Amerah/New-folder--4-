@@ -9,6 +9,7 @@ import { getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, 
 import { activeEngineSmoke } from "../shipDynamics.js";
 import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
+import { invalidatePresentation } from "../../presentationInvalidation.js";
 
 const LINE_EFFECT_TYPES = new Set(["beam", "repairbeam", "laserPdPulse", "laserpd", "droneshot", "dronerepair"]);
 
@@ -190,15 +191,23 @@ function updatePixiMapFeatures(env, now, bounds) {
 function createPixiRelayView(env) {
   const PIXI = env.PIXI;
   const root = new PIXI.Container();
-  const gfx = new PIXI.Graphics();
+  const staticGfx = new PIXI.Graphics();
+  const captureGfx = new PIXI.Graphics();
+  const strutGfx = new PIXI.Graphics();
   const badgeText = new PIXI.Text({ text: "", style: { fontFamily: "system-ui, sans-serif", fontSize: 18, fontWeight: "bold", fill: "#ffffff" }, resolution: 2 });
   badgeText.anchor.set(0.5);
   const ownerText = new PIXI.Text({ text: "", style: { fontFamily: "system-ui, sans-serif", fontSize: 13, fill: "#ccd5e0" }, resolution: 2 });
   ownerText.anchor.set(0.5);
-  root.addChild(gfx);
+  root.addChild(captureGfx);
+  root.addChild(strutGfx);
+  root.addChild(staticGfx);
   root.addChild(badgeText);
   root.addChild(ownerText);
-  return { root, gfx, badgeText, ownerText, id: null, ownerLabel: null, ownerFill: null };
+  return {
+    root, staticGfx, captureGfx, strutGfx, badgeText, ownerText,
+    id: null, ownerLabel: null, ownerFill: null,
+    staticSignature: "", captureSignature: "", strutSignature: ""
+  };
 }
 
 function updatePixiRelays(env, now, players, bounds) {
@@ -222,48 +231,42 @@ function updatePixiRelays(env, now, players, bounds) {
 
       const view = pixiRelayPool.acquire(point.id);
       view.root.position.set(point.x, point.y);
-      const gfx = view.gfx;
-      gfx.clear();
-
-      // Capture influence disc.
-      gfx.circle(0, 0, point.radius);
-      gfx.fill({ color, alpha: 0.12 });
-
-      // Capture progress ring.
       const progress = point.progress || 0;
-      if (progress > 0) {
-        const start = -Math.PI / 2;
-        // Seed the current point so arc() does not connect a stray line from the relay center.
-        gfx.moveTo(Math.cos(start) * point.radius, Math.sin(start) * point.radius);
-        gfx.arc(0, 0, point.radius, start, start + Math.PI * 2 * progress);
-        gfx.stroke({ width: 3 / zoom, color, alpha: 0.76 });
-      }
-
-      // Rotating struts with node tips.
       const strutColor = owner ? color : "rgba(180,200,225,0.28)";
-      for (let i = 0; i < 3; i++) {
-        const angle = (i * Math.PI * 2) / 3 + now * 0.00015;
-        gfx.moveTo(0, 0);
-        gfx.lineTo(Math.cos(angle) * 36, Math.sin(angle) * 36);
-        gfx.stroke({ width: 3.5 / zoom, color: strutColor, alpha: owner ? 0.4 : 1 });
-        gfx.circle(Math.cos(angle) * 36, Math.sin(angle) * 36, 4);
-        gfx.fill(color);
-      }
-
-      // Station hull + glowing core.
-      gfx.circle(0, 0, 22);
-      gfx.fill("rgba(13,18,30,0.95)");
-      gfx.stroke({ width: 2.5 / zoom, color });
-      gfx.circle(0, 0, 7);
-      gfx.fill(color);
-
-      // Letter badge above the station.
       const idLabelY = -46 / zoom;
       const badgeWidth = 38 / zoom;
       const badgeHeight = 28 / zoom;
-      gfx.roundRect(-badgeWidth / 2, idLabelY - badgeHeight / 2, badgeWidth, badgeHeight, 6 / zoom);
-      gfx.fill("rgba(8,12,20,0.78)");
-      gfx.stroke({ width: 1.5 / zoom, color });
+      const zoomKey = zoom.toFixed(3);
+      const staticSignature = `${zoomKey}|${color}`;
+      if (view.staticSignature !== staticSignature) {
+        view.staticSignature = staticSignature;
+        const gfx = view.staticGfx;
+        gfx.clear();
+        gfx.circle(0, 0, 22);
+        gfx.fill("rgba(13,18,30,0.95)");
+        gfx.stroke({ width: 2.5 / zoom, color });
+        gfx.circle(0, 0, 7);
+        gfx.fill(color);
+        gfx.roundRect(-badgeWidth / 2, idLabelY - badgeHeight / 2, badgeWidth, badgeHeight, 6 / zoom);
+        gfx.fill("rgba(8,12,20,0.78)");
+        gfx.stroke({ width: 1.5 / zoom, color });
+      }
+
+      const strutSignature = `${zoomKey}|${strutColor}|${color}|${owner ? 1 : 0}`;
+      if (view.strutSignature !== strutSignature) {
+        view.strutSignature = strutSignature;
+        const gfx = view.strutGfx;
+        gfx.clear();
+        for (let i = 0; i < 3; i++) {
+          const angle = (i * Math.PI * 2) / 3;
+          gfx.moveTo(0, 0);
+          gfx.lineTo(Math.cos(angle) * 36, Math.sin(angle) * 36);
+          gfx.stroke({ width: 3.5 / zoom, color: strutColor, alpha: owner ? 0.4 : 1 });
+          gfx.circle(Math.cos(angle) * 36, Math.sin(angle) * 36, 4);
+          gfx.fill(color);
+        }
+      }
+      view.strutGfx.rotation = now * 0.00015;
 
       if (view.id !== point.id) {
         view.id = point.id;
@@ -278,8 +281,22 @@ function updatePixiRelays(env, now, players, bounds) {
       const ownerLabel = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
       const ownerFill = owner ? color : "#ccd5e0";
       const labelY = point.radius + 18 / zoom;
-      gfx.rect(-50, labelY - 9, 100, 18);
-      gfx.fill("rgba(8,12,20,0.72)");
+      const captureSignature = `${zoomKey}|${point.radius}|${progress}|${color}|${ownerLabel}`;
+      if (view.captureSignature !== captureSignature) {
+        view.captureSignature = captureSignature;
+        const gfx = view.captureGfx;
+        gfx.clear();
+        gfx.circle(0, 0, point.radius);
+        gfx.fill({ color, alpha: 0.12 });
+        if (progress > 0) {
+          const start = -Math.PI / 2;
+          gfx.moveTo(Math.cos(start) * point.radius, Math.sin(start) * point.radius);
+          gfx.arc(0, 0, point.radius, start, start + Math.PI * 2 * progress);
+          gfx.stroke({ width: 3 / zoom, color, alpha: 0.76 });
+        }
+        gfx.rect(-50, labelY - 9, 100, 18);
+        gfx.fill("rgba(8,12,20,0.72)");
+      }
       if (view.ownerLabel !== ownerLabel) {
         view.ownerLabel = ownerLabel;
         view.ownerText.text = ownerLabel;
@@ -315,6 +332,7 @@ function updatePixiCommandTarget(env, now) {
   const age = now - state.command.at;
   if (age > 1600) {
     state.command = null;
+    invalidatePresentation("command");
     return;
   }
   const alpha = 1 - age / 1600;

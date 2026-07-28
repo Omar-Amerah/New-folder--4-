@@ -4,20 +4,49 @@
 // engine, while independent turning systems can rotate a drifting hull.
 const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
-const { segmentCircleClearance, commandShips, updateShipMovement, updateShipSeparation, nearestClearPoint } = require("./src/server/movement");
+const { segmentCircleClearance, commandShips, stopShips, rotateShips, updateShipMovement, updateShipSeparation, nearestClearPoint } = require("./src/server/movement");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
 const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
+const {
+  createMovementRuntime,
+  setMovementCommand
+} = require("./src/server/movementRuntime");
+
+let testCommandId = 0;
+
+function setTestMove(ship, destination) {
+  setMovementCommand(ship, {
+    id: `test-move-${++testCommandId}`,
+    type: "move",
+    destination,
+    targetId: null,
+    finalFacing: null
+  });
+  ship.targetX = destination.x;
+  ship.targetY = destination.y;
+}
 
 function runtimeShip(design, overrides = {}) {
+  const hasMoveDestination = Object.prototype.hasOwnProperty.call(overrides, "moveDestination");
+  const moveDestination = hasMoveDestination
+    ? overrides.moveDestination
+    : { x: 300, y: 600 };
+  const shipOverrides = { ...overrides };
+  delete shipOverrides.moveDestination;
   const stats = computeStats(design);
   const ship = { id: "runtime", ownerId: "p1", alive: true, x: 300, y: 300, vx: 0, vy: 0, angle: 0,
-    targetX: 300, targetY: 600, arrived: false, isManualMove: true, radius: stats.radius, design,
-    wiring: createGeneratedPowerWiring(design), stats, ...overrides };
+    targetX: 300, targetY: 300, radius: stats.radius, design,
+    wiring: createGeneratedPowerWiring(design), stats, ...shipOverrides };
   initComponentState(ship);
   initializeComponentPower(ship);
   initShipHeat(ship);
+  ship.movement = createMovementRuntime();
+  if (moveDestination) setTestMove(ship, moveDestination);
+  if (shipOverrides.manualRotation === 1 || shipOverrides.manualRotation === -1) {
+    ship.manualRotation = shipOverrides.manualRotation;
+  }
   return ship;
 }
 
@@ -65,12 +94,15 @@ function run() {
   assert(gyroDrifter.angle > 0, "powered Gyroscope turns toward the movement target while drifting");
   assert(gyroDrifter.componentHeatInput[2] > 0, "powered Gyroscope produces Heat while turning");
   assert(Math.hypot(gyroDrifter.vx, gyroDrifter.vy) > 0 && Math.hypot(gyroDrifter.vx, gyroDrifter.vy) <= driftBefore, "Gyroscope-only ship preserves bounded drift without accelerating");
-  const idleGyro = runtimeShip(gyroOnly, { targetX: 300, targetY: 300, arrived: true });
+  const idleGyro = runtimeShip(gyroOnly, { moveDestination: null });
   updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, idleGyro, 1 / 30);
   assert.strictEqual(idleGyro.componentHeatInput[2], 0, "idle Gyroscope produces no activity Heat");
 
   const engineDesign = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "reactor" }, { x: 7, y: 8, type: "engine" }, { x: 6, y: 7, type: "gyroscope" }];
-  const restored = runtimeShip(engineDesign, { vx: 40, targetX: 1000, targetY: 300 });
+  const restored = runtimeShip(engineDesign, {
+    vx: 40,
+    moveDestination: { x: 1000, y: 300 }
+  });
   restored.componentPower.byComponentIndex[2].operationalMultiplier = 0;
   updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, restored, 1 / 30);
   const offlineVelocity = restored.vx;
@@ -100,14 +132,18 @@ function run() {
   assert(Math.abs(destroyedThruster.angle - destroyedAngle) < 0.03, "destroyed Manoeuvre Thruster contributes negligible turn");
   const underpoweredThruster = runtimeShip(thrusterOnly);
   const supportedDirection = thrusterStats.turnRateRight > 0 ? 1 : -1;
-  underpoweredThruster.targetX = 300 + Math.cos(supportedDirection) * 300;
-  underpoweredThruster.targetY = 300 + Math.sin(supportedDirection) * 300;
+  setTestMove(underpoweredThruster, {
+    x: 300 + Math.cos(supportedDirection) * 300,
+    y: 300 + Math.sin(supportedDirection) * 300
+  });
   underpoweredThruster.componentPower.byComponentIndex[3].operationalMultiplier = 0.5;
   updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, underpoweredThruster, 1 / 30);
   assert(Math.abs(underpoweredThruster.angle) > 0, "underpowered turning component retains proportional non-zero authority");
   const fullPowerThruster = runtimeShip(thrusterOnly);
-  fullPowerThruster.targetX = underpoweredThruster.targetX;
-  fullPowerThruster.targetY = underpoweredThruster.targetY;
+  setTestMove(fullPowerThruster, {
+    x: underpoweredThruster.targetX,
+    y: underpoweredThruster.targetY
+  });
   updateShipMovement({ world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map() }, fullPowerThruster, 1 / 30);
   assert(Math.abs(underpoweredThruster.angle) < Math.abs(fullPowerThruster.angle), "underpowered turning output scales below full-Power authority");
   assert(fullPowerThruster.componentHeatInput[3] > 0, "Manoeuvre Thruster produces Heat while turning");
@@ -225,7 +261,47 @@ function run() {
   assert.strictEqual(commandShips(room, player, 700, 700, {}).commanded, 3, "omitted selection intentionally commands all owned live ships");
   assert.strictEqual(commandShips(room, player, 900, 900, { shipIds: Array.from({ length: 65 }, (_, i) => `s${i}`) }).ok, false, "oversized command arrays should be rejected");
 
-  // 9. Ground moves preserve relative offsets and are bounded/clear.
+  // 9. Stop brakes without changing hull facing, clears stale facing input, and
+  // preserves explicit selected-ship semantics.
+  const stopDesign = [
+    { x: 7, y: 7, type: "core" },
+    { x: 8, y: 7, type: "reactor" },
+    { x: 7, y: 8, type: "engine" },
+    { x: 6, y: 7, type: "gyroscope" }
+  ];
+  const stopper = runtimeShip(stopDesign, {
+    id: "stopper",
+    vx: 120,
+    angle: 0.35,
+    manualRotation: 1
+  });
+  const untouched = {
+    id: "untouched",
+    ownerId: "p1",
+    alive: true,
+    movement: { command: { type: "move" } }
+  };
+  const stopPlayer = { id: "p1", ships: [stopper, untouched] };
+  const stopRoom = {
+    world: { width: 2000, height: 1600 },
+    map: { asteroids: [] },
+    ships: new Map([[stopper.id, stopper]]),
+    players: new Map([[stopPlayer.id, stopPlayer]])
+  };
+  const stopAngle = stopper.angle;
+  assert.strictEqual(stopShips(stopRoom, stopPlayer, ["stopper"]).commanded, 1, "Stop should affect only explicitly selected ships");
+  assert.strictEqual(untouched.movement.command.type, "move",
+    "Stop must not fall back to all owned ships");
+  assert.strictEqual(stopper.manualRotation, null, "Stop clears latched manual rotation");
+  for (let i = 0; i < 30; i += 1) updateShipMovement(stopRoom, stopper, 1 / 30, i * 1000 / 30);
+  assert(Math.abs(stopper.angle - stopAngle) < 1e-9, "braking after Stop must preserve hull facing");
+  assert(Math.hypot(stopper.vx, stopper.vy) < 120, "Stop still reduces ship speed");
+  rotateShips(stopRoom, stopPlayer, { direction: 1, shipIds: ["stopper"], active: true });
+  assert.strictEqual(stopper.manualRotation, 1, "active Rotate starts manual rotation");
+  rotateShips(stopRoom, stopPlayer, { direction: 1, shipIds: ["stopper"], active: false });
+  assert.strictEqual(stopper.manualRotation, null, "Rotate key release clears manual rotation");
+
+  // 10. Ground moves assign deterministic, non-overlapping independent slots.
   const groundRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map(), players: new Map() };
   const groundPlayer = { id: "p1", team: "blue", ships: [] };
   const g1 = { id: "g1", ownerId: "p1", alive: true, x: 100, y: 100, radius: 40, stats: {}, design: [] };
@@ -235,12 +311,15 @@ function run() {
   groundRoom.ships.set(g1.id, g1);
   groundRoom.ships.set(g2.id, g2);
   commandShips(groundRoom, groundPlayer, 500, 500, { shipIds: ["g1", "g2"] });
-  assert.strictEqual(g1.commandMode, "move", "ground move sets commandMode to move");
-  assert.strictEqual(g2.commandMode, "move", "ground move sets commandMode to move");
-  assert(Math.hypot((g2.targetX - g1.targetX) - (g2.x - g1.x), (g2.targetY - g1.targetY) - (g2.y - g1.y)) < 1e-6, "ground move preserves relative offset between selected ships");
+  assert.strictEqual(g1.movement.command.type, "move",
+    "ground move creates a runtime move command");
+  assert.strictEqual(g2.movement.command.type, "move",
+    "ground move creates a runtime move command");
+  assert(Math.hypot(g2.targetX - g1.targetX, g2.targetY - g1.targetY) > 50, "ground move assigns non-overlapping destination slots");
+  assert.notStrictEqual(g1.movement.command, g2.movement.command, "each group member owns an independent movement command");
   assert(g1.targetX >= 40 && g1.targetX <= groundRoom.world.width - 40, "ground move target stays in bounds");
 
-  // 10. Movement dt safety: non-positive/non-finite dt is ignored, large dt is
+  // 11. Movement dt safety: non-positive/non-finite dt is ignored, large dt is
   // clamped/subdivided, and invalid state is sanitized back to finite values.
   const moving = { id: "m1", ownerId: player.id, alive: true, x: 200, y: 200, vx: 0, vy: 0, angle: 0, targetX: 1000, targetY: 200, radius: 35, stats: { accel: 120, maxSpeed: 180, turnRate: Math.PI }, design: [], componentHp: [] };
   updateShipMovement(room, moving, NaN);
@@ -252,7 +331,7 @@ function run() {
   updateShipMovement(room, moving, 1 / 30);
   assert(Number.isFinite(moving.x) && Number.isFinite(moving.vx), "movement state should be sanitized to finite values");
 
-  // 11. Losing the final gun must not turn a ranged combat order into a charge.
+  // 12. Losing the final gun must not turn a ranged combat order into a charge.
   const armedDesign = [
     { x: 7, y: 7, type: "core" },
     { x: 8, y: 7, type: "reactor" },
@@ -263,9 +342,7 @@ function run() {
     id: "disarmed",
     combatStyle: "charge",
     combatTargetId: "enemy",
-    isManualMove: false,
-    targetX: 900,
-    targetY: 300
+    moveDestination: null
   });
   const disarmedTarget = { id: "enemy", ownerId: "p2", alive: true, x: 900, y: 300, radius: 30 };
   const combatRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map([[disarmedTarget.id, disarmedTarget]]) };
@@ -273,20 +350,43 @@ function run() {
   updateShipMovement(combatRoom, disarmed, 1 / 30);
   assert.strictEqual(disarmed.targetX, disarmed.x, "ship with no surviving gun holds its current range");
   assert.strictEqual(disarmed.targetY, disarmed.y, "disarmed ship does not target the enemy position");
-  assert.strictEqual(disarmed.arrived, true, "disarmed ship stops its automatic combat advance");
+  assert.strictEqual(disarmed.movement.phase, "idle",
+    "disarmed ship stops its automatic combat advance");
 
-  // 12. Exact-overlap separation uses a deterministic direction and converges.
+  // 13. Parked combat ships face the target directly instead of choosing a
+  // rear/side heading from the weapon layout.
+  const rearGunDesign = armedDesign.map((module) => module.type === "blaster"
+    ? { ...module, rotation: 180 }
+    : { ...module });
+  const parkedEnemy = { id: "parked-enemy", ownerId: "p2", alive: true, x: 300, y: 900, radius: 30 };
+  const parkedRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map([[parkedEnemy.id, parkedEnemy]]) };
+  for (const style of ["sentry", "hold"]) {
+    const parked = runtimeShip(rearGunDesign, {
+      id: `parked-${style}`,
+      angle: 0.4,
+      combatStyle: style,
+      combatTargetId: parkedEnemy.id,
+      moveDestination: null
+    });
+    const startAngle = parked.angle;
+    for (let i = 0; i < 30; i += 1) updateShipMovement(parkedRoom, parked, 1 / 30, i * 1000 / 30);
+    assert(parked.angle > startAngle, `parked ${style} ship should turn toward the enemy, not its rear-facing weapon`);
+    assert(Math.abs(Math.PI / 2 - parked.angle) < Math.abs(Math.PI / 2 - startAngle),
+      `parked ${style} ship should converge on the enemy bearing`);
+  }
+
+  // 14. Exact-overlap separation uses a deterministic direction and converges.
   const overlapA = { id: "a", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
   const overlapB = { id: "b", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
   updateShipSeparation(room, [overlapB, overlapA], 1 / 30);
   assert(Math.hypot(overlapA.x - overlapB.x, overlapA.y - overlapB.y) > 0, "overlapped ships should separate deterministically");
 
-  // 13. Nearest-clear-point reports metadata and clears all asteroid constraints when possible.
+  // 15. Nearest-clear-point reports metadata and clears all asteroid constraints when possible.
   room.map.asteroids = [{ x: 1000, y: 800, radius: 100 }];
   const clear = nearestClearPoint(room, 1000, 800, 48);
   assert(clear.adjusted && clear.clear && clear.reason === "adjusted", "clear-point helper should expose successful adjustment metadata");
 
-  // 14. Hostile-target commands set attack mode without suppressing the combat target.
+  // 16. Hostile-target commands set attack mode without suppressing the combat target.
   const attackRoom = { world: { width: 2000, height: 1600 }, map: { asteroids: [] }, ships: new Map(), players: new Map(), rules: { gameMode: "solo" } };
   const attackPlayer = { id: "p1", team: "blue", ships: [] };
   const enemyPlayer = { id: "p2", team: "red", ships: [] };
@@ -298,9 +398,11 @@ function run() {
   attackRoom.ships.set(attacker.id, attacker);
   attackRoom.ships.set(enemyShip2.id, enemyShip2);
   commandShips(attackRoom, attackPlayer, 500, 100, { targetId: "e2", shipIds: ["a1"] });
-  assert.strictEqual(attacker.commandMode, "attack", "hostile command sets commandMode to attack");
+  assert.strictEqual(attacker.movement.command.type, "attack",
+    "hostile command creates a runtime attack command");
   assert.strictEqual(attacker.focusTargetId, "e2", "hostile command sets focus target");
-  assert.strictEqual(attacker.isManualMove, false, "hostile command does not set manual move");
+  assert.strictEqual(attacker.movement.command.type, "attack",
+    "hostile command uses the authoritative movement runtime");
 
   console.log("Movement verification passed");
   console.log(`  speeds 1..8 engines: ${[1,2,3,4,5,6,7,8].map((n) => computeStats(buildShip(n)).maxSpeed).join(", ")}`);
@@ -308,4 +410,3 @@ function run() {
 }
 
 run();
-require('./verify-movement-authoritative');

@@ -3,11 +3,17 @@
 import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { notify } from "./toastUi.js";
-import { updateHud } from "./hudUi.js";
 import { send, recordNetworkEvent } from "../network.js";
 import { ownLiveShips, pruneSelection } from "../game/selection.js";
-import { renderShipDamagePanel } from "./shipDamagePanelUi.js";
+import {
+  renderShipDamagePanel,
+  updateSelectedShipDamageUi as repaintSelectedShipDamage,
+  updateSelectedShipHeatUi as repaintSelectedShipHeat,
+  updateSelectedShipPowerUi as repaintSelectedShipPower
+} from "./shipDamagePanelUi.js";
 import { STYLE_DESCRIPTIONS, selectedShipSummary, commonStyle } from "./section13bUi.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
+import { synchronizeTelemetryFocus } from "../telemetryFocus.js";
 
 const SHIP_GROUP_DEFS = [
   { id: "group1", label: "Group 1" },
@@ -44,7 +50,23 @@ export function renderSideControls() {
   renderShipGroups();
   renderRallyControls();
   renderSelectionControls();
+  renderShipDamagePanel();
 }
+
+function bumpSelectedDiagnostic(name) {
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics[name] = (diagnostics[name] || 0) + 1;
+}
+export function updateSelectedShipVitals() {
+  bumpSelectedDiagnostic("selectedVitalsUpdateCount");
+  renderSelectedSummary(selectedLiveShips());
+}
+export function updateSelectedShipDamageUi() { repaintSelectedShipDamage(); }
+export function updateSelectedShipHeatUi() { repaintSelectedShipHeat(); }
+export function updateSelectedShipPowerUi() { repaintSelectedShipPower(); }
+export function updateShipGroupUi() { bumpSelectedDiagnostic("shipGroupUpdateCount"); renderShipGroups(); }
+export function updateRallyUi() { bumpSelectedDiagnostic("rallyUpdateCount"); renderRallyControls(); }
+export function updateSelectionCommandUi() { bumpSelectedDiagnostic("selectionCommandUpdateCount"); renderSelectionControls(); }
 
 export function handleShipGroupListClick(event) {
   const unassignButton = event.target?.closest?.("[data-unassign-ship-group]");
@@ -80,21 +102,21 @@ export function beginRallyPointPlacement() {
     return;
   }
   state.settingRallyPoint = !state.settingRallyPoint;
-  renderRallyControls();
+  invalidatePresentation("rally-mode");
 }
 
 export function resetRallyPointToSpawn() {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN || state.phase !== "active") return;
   state.settingRallyPoint = false;
   send({ type: "resetRallyPoint" });
-  renderRallyControls();
+  invalidatePresentation("rally-mode");
 }
 
 export function setRallyPointFromWorld(world) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN || state.phase !== "active") return;
   state.settingRallyPoint = false;
   send({ type: "setRallyPoint", x: world.x, y: world.y });
-  renderRallyControls();
+  invalidatePresentation("rally-mode");
 }
 
 export function handleSelectedCombatStyleClick(event) {
@@ -116,7 +138,7 @@ function renderShipGroups() {
   const ships = ownLiveShips();
   const liveIds = new Set(ships.map((ship) => ship.id));
   cleanupShipGroups(liveIds);
-  const selectedLiveIds = new Set(ownLiveShips().filter((ship) => state.selectedShipIds.has(ship.id)).map((ship) => ship.id));
+  const selectedLiveIds = new Set((state.snapshotIndex?.selectedLivingShips || []).map((ship) => ship.id));
   const selectedCount = selectedLiveIds.size;
   ensureShipGroupSettings();
   ensureShipGroupRows();
@@ -180,6 +202,7 @@ function renderShipGroups() {
 
 function ensureShipGroupRows() {
   if (!dom.shipGroupList) return;
+  if (!dom.shipGroupList.dataset || typeof document === "undefined" || typeof document.createElement !== "function") return;
   if (dom.shipGroupList.dataset.ready === "true") return;
   dom.shipGroupList.textContent = "";
   for (const group of SHIP_GROUP_DEFS) {
@@ -295,7 +318,6 @@ function renderSelectionControls() {
     if (def) { button.title = def.description; button.setAttribute("aria-description", def.description); }
   }
   renderSelectedSummary(selectedShips);
-  renderShipDamagePanel();
 }
 
 function assignSelectedShipsToGroup(groupId) {
@@ -311,7 +333,7 @@ function assignSelectedShipsToGroup(groupId) {
   rememberBaseCombatStyles(selected);
   state.activeShipGroup = groupId;
   applyGroupCombatStyle(groupId);
-  renderSideControls();
+  invalidatePresentation("active-group");
 }
 
 function unassignSelectedShipsFromGroup(groupId) {
@@ -326,7 +348,7 @@ function unassignSelectedShipsFromGroup(groupId) {
   for (const id of toRemove) state.shipGroups[groupId].delete(id);
   restoreShipCombatStyles(toRemove);
   cleanupShipGroups(liveIds);
-  renderSideControls();
+  invalidatePresentation("active-group");
 }
 
 function restoreShipCombatStyles(shipIds) {
@@ -353,8 +375,8 @@ function selectShipGroup(groupId) {
   state.selectedShipIds = new Set(ids);
   state.activeShipGroup = groupId;
   if (ids.length > 0) state.camera.follow = true;
-  updateHud();
-  renderSideControls();
+  synchronizeTelemetryFocus();
+  invalidatePresentation("selection");
 }
 
 const COMBAT_STYLE_REQUEST_TIMEOUT_MS = 5000;
@@ -459,7 +481,7 @@ function restoreGroupCombatStyles(groupId) {
 
 function rememberBaseCombatStyles(shipIds) {
   ensureBaseCombatStyles();
-  const byId = new Map((state.snapshot?.ships || []).map((ship) => [ship.id, ship]));
+  const byId = state.snapshotIndex?.shipById || new Map();
   for (const id of shipIds) {
     if (!state.shipGroupBaseCombatStyles.has(id)) {
       state.shipGroupBaseCombatStyles.set(id, normalizeCombatStyle(byId.get(id)?.combatStyle || state.combatStyle || "hold"));
@@ -468,8 +490,7 @@ function rememberBaseCombatStyles(shipIds) {
 }
 
 function selectedLiveShips() {
-  const selected = state.selectedShipIds;
-  return ownLiveShips().filter((ship) => selected.has(ship.id));
+  return state.snapshotIndex?.selectedLivingShips || [];
 }
 
 function commonCombatStyle(ships) { return commonStyle(ships); }
@@ -490,10 +511,9 @@ function reconcilePendingCombatStyle() {
     state.pendingCombatStyle = null;
     return;
   }
-  const ships = state.snapshot?.ships || [];
-  const targetIds = pending.shipIds || ships.filter((ship) => ship.ownerId === state.myId && ship.alive).map((ship) => ship.id);
+  const targetIds = pending.shipIds || state.snapshotIndex?.ownLivingShipIds || [];
   const allConfirmed = targetIds.length > 0 && targetIds.every((id) => {
-    const ship = ships.find((s) => s.id === id);
+    const ship = state.snapshotIndex?.shipById?.get(id);
     return ship && normalizeCombatStyle(ship.combatStyle) === pending.style;
   });
   if (pending.acknowledged && allConfirmed) {
@@ -507,8 +527,10 @@ function renderSelectedSummary(selectedShips) {
   reconcilePendingCombatStyle();
   const summary = selectedShipSummary(selectedShips);
   dom.selectionPanelCount.textContent = `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}${summary.style ? ` · ${combatStyleLabel(summary.style)}` : ""}`;
-  dom.selectionPanelCount.title = summary.text;
-  dom.selectionPanelCount.setAttribute("aria-label", summary.text);
+  if (dom.selectionPanelCount.title !== summary.text) dom.selectionPanelCount.title = summary.text;
+  if (dom.selectionPanelCount.getAttribute?.("aria-label") !== summary.text) {
+    dom.selectionPanelCount.setAttribute?.("aria-label", summary.text);
+  }
 }
 
 export function onCombatStyleResult(message) {

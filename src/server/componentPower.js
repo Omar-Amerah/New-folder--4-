@@ -367,8 +367,8 @@ function applyShipPowerAllocation(ship, options = {}) {
       if (entry.role === "storage" && entry.storageDetails) {
         const idx = entry.componentIndex;
         ship.componentStorageCharge[idx] = entry.storageDetails.currentChargeMj;
-        if (entry.storageDetails.dischargeHeat > 0 && Array.isArray(ship.componentHeatInput)) {
-          ship.componentHeatInput[idx] = (ship.componentHeatInput[idx] || 0) + entry.storageDetails.dischargeHeat;
+        if (entry.storageDetails.dischargeHeat > 0) {
+          require("./heat").addComponentHeat(ship, idx, entry.storageDetails.dischargeHeat);
         }
       }
     });
@@ -472,18 +472,10 @@ function decoyLauncherActivity(ship, index, now) {
   return 0; // idle standby
 }
 function propulsionActivity(ship, part, index, module) {
-  if (part?.propulsionCapacitor) {
-    const state = ship._propulsionCapacitorState?.get(index);
-    return state?.active ? 1 : 0.1;
-  }
   const turn = clamp01(Math.abs(Number(ship.turnActivity) || 0));
-  if (module && module.type === "vectorThruster") {
-    const moving = ship.arrived === false ? 1 : 0;
-    const dodging = ship._evasiveDodgeDir !== undefined && ship.combatStyle === "evasive" ? 1 : 0;
-    return Math.max(turn, moving, dodging * 0.8);
-  }
+  const movementPhase = ship.movement?.phase || "idle";
+  const moving = movementPhase !== "idle" && movementPhase !== "positioned" ? 1 : 0;
   if (!(Number(part?.thrust) > 0)) return turn;
-  const moving = ship.arrived === false ? 1 : 0;
   return Math.max(turn, moving);
 }
 function shieldRechargeTarget(ship) {
@@ -551,7 +543,7 @@ function updateShipPowerDemand(ship, room, now) {
   const standby = BALANCE.powerDemand;
   // Consumer metadata is built once per design and reused, so large Blueprints
   // only scan components on creation/lifecycle changes, not every tick.
-  if (!Array.isArray(ship._powerConsumerIndices) || ship._powerConsumerIndices.length === 0) {
+  if (!Array.isArray(ship._powerConsumerIndices)) {
     buildShipPowerConsumerMetadata(ship);
   }
   const consumerIndices = ship._powerConsumerIndices || [];
@@ -597,7 +589,9 @@ function updateShipPowerDemand(ship, room, now) {
 
   const appliedActivity = ship._powerDemandAppliedActivity;
   const appliedDemand = ship._powerDemandAppliedByIndex || {};
-  let activatesConsumer = !Array.isArray(appliedActivity);
+  const validAppliedActivity = appliedActivity instanceof Float64Array
+    && appliedActivity.length === design.length;
+  let activatesConsumer = !validAppliedActivity;
   if (!activatesConsumer) {
     for (let k = 0; k < consumerIndices.length; k += 1) {
       const i = consumerIndices[k];

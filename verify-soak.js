@@ -6,6 +6,7 @@ const { computeStats } = require("./src/server/shipStats");
 const { spawnShip, getLiveShips } = require("./src/server/ships");
 const { updateEconomy } = require("./src/server/economy");
 const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./src/server/movement");
+const { setMovementCommand } = require("./src/server/movementRuntime");
 const { updateShipSupport, updateShipWeapons, updateDestroyedShips } = require("./src/server/combat");
 const { updateBullets } = require("./src/server/projectiles");
 const { updateCapturePoints, updateControlVictory } = require("./src/server/objectives");
@@ -24,9 +25,24 @@ const designs = [
   [{ x:7,y:7,type:"core" },{ x:7,y:6,type:"engine" },{ x:6,y:6,type:"swarmMissile" },{ x:8,y:6,type:"flakCannon" },{ x:7,y:5,type:"blaster" },{ x:6,y:7,type:"shield" }]
 ];
 function player(id, team, design) { return { id, name:id, team, isBot: id.includes("bot"), connected:true, ships:[], design, stats: computeStats(design), money:5000, maxMoney:99999, income:0, kills:0, losses:0, destroyedEnemyCost:0, lostFleetCost:0, earned:0, purchaseRequests:new Map(), color:"#fff", shipCap:SHIPS_PER_PLAYER }; }
+let soakMoveId = 0;
 function tick(room, dt, now) {
   updateEconomy(room, dt); updateDestroyedShips(room, now); const ships = getLiveShips(room);
-  for (const s of ships) { if (Math.floor(now / 400) % 5 === 0) { s.targetX = rngRange(rng, 100, room.world.width - 100); s.targetY = rngRange(rng, 100, room.world.height - 100); s.arrived = false; s.isManualMove = true; } updateShipMovement(room, s, dt); }
+  for (const s of ships) {
+    if (Math.floor(now / 400) % 5 === 0) {
+      setMovementCommand(s, {
+        id: `soak-${++soakMoveId}`,
+        type: "move",
+        destination: {
+          x: rngRange(rng, 100, room.world.width - 100),
+          y: rngRange(rng, 100, room.world.height - 100)
+        },
+        targetId: null,
+        finalFacing: null
+      });
+    }
+    updateShipMovement(room, s, dt);
+  }
   updateShipSeparation(room, ships, dt); resolveFleetMapCollisions(room, ships); updateShipSupport(room, ships, dt, now);
   for (const s of ships) { updateShipWeapons(room, s, ships, dt, now); updateShipHeat(s, dt, room, now); }
   updateBullets(room, dt, now); updateCapturePoints(room, ships, dt); updateControlVictory(room, now);

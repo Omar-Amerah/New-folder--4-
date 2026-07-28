@@ -90,7 +90,7 @@ function computeStats(modules, wiring = null) {
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
     const part = PARTS[module.type] || PARTS.frame;
-    const blockedEngine = (part.thrust > 0 || module.type === "maneuverThruster" || module.type === "vectorThruster") && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
+    const blockedEngine = (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
     cost += part.cost;
     mass += part.mass;
     maxHp += part.hp;
@@ -98,7 +98,7 @@ function computeStats(modules, wiring = null) {
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
-    if (module.type !== "maneuverThruster" && module.type !== "gyroscope" && module.type !== "vectorThruster") turnBonus += blockedEngine ? 0 : part.turn;
+    if (module.type !== "maneuverThruster" && module.type !== "gyroscope") turnBonus += blockedEngine ? 0 : part.turn;
     if (part.thrust > 0 && !blockedEngine) {
       engineThrustValues.push(part.thrust);
       engineMassValues.push(part.mass || 0);
@@ -142,7 +142,7 @@ function computeStats(modules, wiring = null) {
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PARTS, {
     centerOfMass,
     leverSettings: BALANCE.movement?.maneuverThrusterLever,
-    isBlockedEngine: (index, module, part) => ((part.thrust || 0) > 0 || module.type === "maneuverThruster" || module.type === "vectorThruster") && !exhaustAnalysis.validEngineIndices.has(index)
+    isBlockedEngine: (index, module, part) => ((part.thrust || 0) > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index)
   });
   const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, hullControlThrust: BALANCE.movement?.hullControlThrust });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
@@ -184,9 +184,6 @@ function computeStats(modules, wiring = null) {
     turnRate: round(movement.turnRate),
     turnRateLeft: round(movement.turnRateLeft),
     turnRateRight: round(movement.turnRateRight),
-    lateralAccel: round(movement.lateralAccel || 0),
-    brakingAccel: round(movement.brakingAccel || 0),
-    reverseAccel: round(movement.reverseAccel || 0),
     hullControlTurn: round(movement.hullControlTurn || 0),
     massClass: movement.massClass,
     speedCap: movement.speedCap,
@@ -366,9 +363,6 @@ function summarizeStats(stats) {
     engineEfficiency: stats.engineEfficiency,
     thrustRatio: stats.thrustRatio,
     speed: stats.maxSpeed,
-    lateralAccel: stats.lateralAccel,
-    brakingAccel: stats.brakingAccel,
-    reverseAccel: stats.reverseAccel,
     massClass: stats.massClass,
     speedCap: stats.speedCap,
     turnCap: stats.turnCap,

@@ -13,6 +13,7 @@ const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
 const { buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./spatialIndex");
 const { updateCommandAuras } = require("./commandAuras");
+const { updateRuntimeShield } = require("./runtimeShield");
 const { recordRoomTick } = require("./performanceTelemetry");
 const { performanceNow } = require("./utils");
 function tickRoom(room, dt, now) {
@@ -54,6 +55,11 @@ function tickRoom(room, dt, now) {
   startedAt = performanceNow();
   updateCommandAuras(room, ships, now);
   durations.commandAuras = performanceNow() - startedAt;
+  // Shield is an explicit runtime stage. It consumes the authoritative
+  // Power/Heat/aura state and is independent of movement substeps.
+  startedAt = performanceNow();
+  for (const ship of ships) updateRuntimeShield(ship, dt, now);
+  durations.shields = performanceNow() - startedAt;
   startedAt = performanceNow();
   for (const ship of ships) updateShipMovement(room, ship, dt, now);
   // After movement, refresh only ship records. Drones and projectiles are
@@ -64,6 +70,12 @@ function tickRoom(room, dt, now) {
     buildRoomSpatialIndex(room, ships, now);
   }
   updateShipSeparation(room, ships, dt, now); resolveFleetMapCollisions(room, ships);
+  // Separation and map recovery mutate positions after the pre-collision
+  // movement refresh. Publish the corrected coordinates without rebuilding
+  // unrelated dynamic kinds.
+  if (room.spatialIndex && typeof room.spatialIndex.rebuildKind === "function") {
+    room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+  }
   durations.movementSeparationMap = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateProximityCharges(room, ships, dt, now);

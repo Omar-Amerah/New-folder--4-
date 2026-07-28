@@ -16,11 +16,13 @@ const { computeStats } = require("./src/server/shipStats");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initShipHeat, updateShipHeat } = require("./src/server/heat");
 const { rebuildShipWiringState, updateShipPowerDemand, getComponentPowerMultiplier } = require("./src/server/componentPower");
+const { createMovementRuntime } = require("./src/server/movementRuntime");
 
 const STANDBY = BALANCE.powerDemand;
 let passed = 0;
 function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
-const close = (a, b, msg, eps = 1e-9) => assert(Math.abs(a - b) < eps, `${msg}: ${a} !== ${b}`);
+// Runtime allocation is represented in deterministic 0.001 MW fixed-point units.
+const close = (a, b, msg, eps = 0.0011) => assert(Math.abs(a - b) < eps, `${msg}: ${a} !== ${b}`);
 
 // ---------------------------------------------------------------------------
 // Shared demand rules
@@ -66,7 +68,7 @@ check("inputs are never mutated", () => {
 const mod = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, powerPaths) { let w = WiringRules.emptyWiring(); for (const p of powerPaths) w = WiringRules.addPath(w, "power", p, design, PARTS); return w; }
 function makeShip(design, powerPaths, extra = {}) {
-  const s = { id: "s", ownerId: "p1", alive: true, x: 0, y: 0, vx: 0, vy: 0, angle: 0, radius: 30, arrived: true, shield: 0, maxShield: 0, turnActivity: 0, heatPressure: 0, stats: computeStats(design), design, wiring: wiringFor(design, powerPaths), ...extra };
+  const s = { id: "s", ownerId: "p1", alive: true, x: 0, y: 0, vx: 0, vy: 0, angle: 0, radius: 30, shield: 0, maxShield: 0, turnActivity: 0, heatPressure: 0, stats: computeStats(design), design, wiring: wiringFor(design, powerPaths), movement: createMovementRuntime(), ...extra };
   initComponentState(s); initShipHeat(s); rebuildShipWiringState(s, "test", { skipRuntimeStats: true }); return s;
 }
 function room() { return { effects: [], bullets: [], map: { asteroids: [] }, rules: { gameMode: "solo" }, players: new Map(), ships: new Map(), combatRandom: () => 0.5 }; }
@@ -99,13 +101,13 @@ check("stopping returns to standby only after the deterministic hold", () => {
 // Propulsion.
 let prop = makeShip([mod("reactor", 0, 0), mod("engine", 2, 0)], [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]]);
 check("propulsion demand scales with requested effort (idle vs moving vs turning)", () => {
-  prop.arrived = true; prop.turnActivity = 0;
+  prop.movement.phase = "idle"; prop.turnActivity = 0;
   updateShipPowerDemand(prop, room(), 2000);
   close(demand(prop, 1), PARTS.engine.powerUse * 0.15, "idle propulsion at standby");
-  prop.arrived = false; // driving toward a move target
+  prop.movement.phase = "travelling";
   updateShipPowerDemand(prop, room(), 2100);
   close(demand(prop, 1), PARTS.engine.powerUse, "moving propulsion at full");
-  prop.arrived = true; prop.turnActivity = 0.5;
+  prop.movement.phase = "positioned"; prop.turnActivity = 0.5;
   updateShipPowerDemand(prop, room(), 2200);
   close(demand(prop, 1), PARTS.engine.powerUse * (0.15 + 0.5 * 0.85), "turning propulsion scales with effort");
 });
@@ -114,7 +116,7 @@ let turnOnly = makeShip(
   [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]]
 );
 check("turn-only propulsion consumes active Power only while turning", () => {
-  turnOnly.arrived = false;
+  turnOnly.movement.phase = "travelling";
   turnOnly.turnActivity = 0;
   updateShipPowerDemand(turnOnly, room(), 2300);
   close(demand(turnOnly, 1), PARTS.gyroscope.powerUse * 0.15, "straight movement keeps Gyroscope at standby");
@@ -170,10 +172,10 @@ check("a demand change performs exactly one reallocation; an unchanged cycle per
   const s = makeShip([mod("reactor", 0, 0), mod("blaster", 2, 0)], [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]]);
   global.__mfaDataSupportPerf = {};
   updateShipPowerDemand(s, room(), 7000); // first activity solve
-  const refresh1 = global.__mfaDataSupportPerf.powerDemandRefreshCount;
+  const refresh1 = global.__mfaDataSupportPerf.powerDemandTickCalls;
   const solve1 = global.__mfaDataSupportPerf.powerDemandSolveCount;
   updateShipPowerDemand(s, room(), 7100); // unchanged
-  assert.strictEqual(global.__mfaDataSupportPerf.powerDemandRefreshCount, refresh1 + 1, "refresh attempted again");
+  assert.strictEqual(global.__mfaDataSupportPerf.powerDemandTickCalls, refresh1 + 1, "refresh attempted again");
   assert.strictEqual(global.__mfaDataSupportPerf.powerDemandSolveCount, solve1, "no solve when demand unchanged");
   assert.strictEqual(s.powerDemandDirty, false, "unchanged demand is not dirty");
   s.weaponFireTargetIds = [null, "enemy"]; // change

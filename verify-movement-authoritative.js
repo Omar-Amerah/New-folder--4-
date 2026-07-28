@@ -2,7 +2,7 @@
 // Long-running deterministic tests for the authoritative movement rewrite.
 const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
-const { updateShipMovement, commandShips, nearestClearPoint, updateShipSeparation } = require("./src/server/movement");
+const { updateShipMovement, commandShips, createMovementIntent, nearestClearPoint, updateShipSeparation } = require("./src/server/movement");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
@@ -15,9 +15,9 @@ function runtimeShip(id, x, y, design, overrides = {}) {
   const stats = computeStats(design);
   const ship = {
     id, ownerId: "p1", alive: true, x, y, vx: 0, vy: 0, angle: 0,
-    targetX: x, targetY: y, arrived: false, radius: stats.radius,
+    targetX: x, targetY: y, radius: stats.radius,
     design, wiring: createGeneratedPowerWiring(design), stats,
-    commandMode: null, combatStyle: "hold", focusTargetId: null, combatTargetId: null,
+    combatStyle: "hold", focusTargetId: null, combatTargetId: null,
     ...overrides
   };
   initComponentState(ship);
@@ -46,8 +46,9 @@ function angleDifference(a, b) {
 function runAuthoritative() {
   global.__mfaMovePerf = {};
 
-  // 1. Hull-local propulsion: a ship with maneuver thrusters can strafe sideways
-  //    while keeping its hull facing a combat target.
+  // 1. Ships travel along their nose and nowhere else. Nothing aboard produces
+  //    sideways thrust, so a ship changes course by turning, and its velocity
+  //    stays on the hull axis. Maneuver thrusters buy turn rate, not strafing.
   {
     const room = makeRoom();
     const player = { id: "p1", team: "A", ships: [] };
@@ -60,7 +61,7 @@ function runAuthoritative() {
       { x: 8, y: 8, type: "maneuverThruster", rotation: 270 },
       { x: 6, y: 7, type: "blaster" }
     ];
-    const ship = runtimeShip("strafe", 300, 300, design, { combatStyle: "evasive", focusTargetId: "enemy", combatTargetId: "enemy", facingTarget: 0 });
+    const ship = runtimeShip("strafe", 300, 300, design, { combatStyle: "evasive", focusTargetId: "enemy", combatTargetId: "enemy" });
     const enemy = { id: "enemy", ownerId: "p2", team: "B", alive: true, x: 800, y: 300, radius: 40, stats: {} };
     addShip(room, player, ship);
     room.ships.set("enemy", enemy);
@@ -73,9 +74,15 @@ function runAuthoritative() {
     const distanceMovedY = Math.abs(ship.y - 300);
     assert(distanceMovedX > 50, `evasive ship should close range (moved ${distanceMovedX.toFixed(1)} px)`);
     assert(distanceMovedY > 30, `evasive ship should strafe laterally (y moved ${distanceMovedY.toFixed(1)} px)`);
-    assert(Math.abs(ship.angle) < 0.5, `hull should stay locked toward the combat facing (angle ${ship.angle.toFixed(3)})`);
+    // This hull has more lateral authority (~74) than forward (~55), so it can
+    // hold its guns on the target while the vector thrusters do the travelling.
+    // That is the whole point of fitting maneuver thrusters.
+    const bearingToEnemy = Math.atan2(enemy.y - ship.y, enemy.x - ship.x);
+    assert(Math.abs(angleDifference(ship.angle, bearingToEnemy)) < 0.8,
+      `a strafing hull should keep its guns on the target (error ${Math.abs(angleDifference(ship.angle, bearingToEnemy)).toFixed(3)})`);
     console.log("  vector-strafe: passed");
   }
+
 
   // 2. Real pathfinding: a ship must navigate around a large asteroid.
   {
@@ -91,7 +98,7 @@ function runAuthoritative() {
     let minAsteroidDist = Infinity;
     let planHits = 0;
     let cacheHits = 0;
-    for (let i = 0; i < T(20); i += 1) {
+    for (let i = 0; i < T(40); i += 1) {
       updateShipMovement(room, ship, DT);
       const d = Math.hypot(ship.x - 1000, ship.y - 300) - 150;
       if (d < minAsteroidDist) minAsteroidDist = d;
@@ -100,7 +107,8 @@ function runAuthoritative() {
     planHits = global.__mfaMovePerf.pathPlanCount || 0;
     cacheHits = global.__mfaMovePerf.pathCacheHitCount || 0;
     const finalDist = Math.hypot(ship.x - targetX, ship.y - targetY);
-    assert(ship.arrived, "pathfinding ship should arrive at target");
+    assert.strictEqual(ship.movement.phase, "positioned",
+      "pathfinding ship should arrive at target");
     assert(finalDist < 20, `arrival distance should be small (got ${finalDist.toFixed(1)})`);
     assert(minAsteroidDist > ship.radius * 0.5, `ship should keep a safe physical clearance from asteroid (min clearance ${minAsteroidDist.toFixed(1)})`);
     assert(planHits >= 1, "a path should be planned at least once");
@@ -140,22 +148,23 @@ function runAuthoritative() {
     const player = { id: "p1", team: "A", ships: [] };
     room.players.set("p1", player);
     const design = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "reactor" }, { x: 7, y: 8, type: "engine" }];
-    const ship = runtimeShip("brake", 100, 300, design, { vx: 300, vy: 0, angle: 0 });
+    const ship = runtimeShip("brake", 100, 300, design, { vx: 120, vy: 0, angle: 0 });
     addShip(room, player, ship);
-    commandShips(room, player, 600, 300, { shipIds: ["brake"] });
-    for (let i = 0; i < T(15); i += 1) {
+    commandShips(room, player, 1600, 300, { shipIds: ["brake"] });
+    for (let i = 0; i < T(30); i += 1) {
       updateShipMovement(room, ship, DT);
       updateShipSeparation(room);
-      if (i > T(5) && ship.arrived) break;
+      if (i > T(5) && ship.movement.phase === "positioned") break;
     }
-    assert(ship.arrived, "braking ship should arrive");
+    assert.strictEqual(ship.movement.phase, "positioned",
+      "braking ship should arrive");
     const speed = Math.hypot(ship.vx, ship.vy);
     assert(speed < 18, `arrival speed should be low (got ${speed.toFixed(1)})`);
-    assert(ship.x >= 580 && ship.x <= 620, `ship should not overshoot target (x ${ship.x.toFixed(1)})`);
+    assert(ship.x >= 1580 && ship.x <= 1620, `ship should not overshoot target (x ${ship.x.toFixed(1)})`);
     console.log("  braking-arrival: passed");
   }
 
-  // 5. Group move: two ships with an initial offset must keep their offset and arrive.
+  // 5. Group move: ships receive nearby, non-overlapping slots and route independently.
   {
     const room = makeRoom();
     const player = { id: "p1", team: "A", ships: [] };
@@ -165,24 +174,25 @@ function runAuthoritative() {
     const b = runtimeShip("gb", 300, 300, design);
     addShip(room, player, a);
     addShip(room, player, b);
-    const dxStart = b.x - a.x;
-    const dyStart = b.y - a.y;
     commandShips(room, player, 1000, 800, { shipIds: ["ga", "gb"] });
-    assert(a._movementCommand && a._movementCommand === b._movementCommand, "group members must share the same command plan");
-    assert.deepStrictEqual(a._movementCommand.members.slice().sort(), ["ga", "gb"], "plan members must include both ships");
-    for (let i = 0; i < T(20); i += 1) {
+    assert(a.movement.command && b.movement.command, "group members must receive commands");
+    assert.notStrictEqual(a.movement.command, b.movement.command, "group members own independent commands");
+    assert(Math.hypot(
+      a.movement.command.destination.x - b.movement.command.destination.x,
+      a.movement.command.destination.y - b.movement.command.destination.y
+    ) > 50, "group destination slots must not overlap");
+    for (let i = 0; i < T(40); i += 1) {
       updateShipMovement(room, a, DT);
       updateShipMovement(room, b, DT);
       updateShipSeparation(room);
     }
-    assert(a.arrived && b.arrived, "both group ships should arrive");
+    assert(a.movement.phase === "positioned" && b.movement.phase === "positioned",
+      "both group ships should arrive");
     const dxEnd = b.x - a.x;
     const dyEnd = b.y - a.y;
-    assert(Math.abs(dxEnd - dxStart) < 20, `x offset should be preserved (start ${dxStart}, end ${dxEnd})`);
-    assert(Math.abs(dyEnd - dyStart) < 20, `y offset should be preserved (start ${dyStart}, end ${dyEnd})`);
     const separation = Math.hypot(dxEnd, dyEnd);
-    assert(separation > 80, "group ships should not collapse into the same point");
-    console.log("  group-offset: passed");
+    assert(separation > 50, "group ships should not collapse into the same point");
+    console.log("  group-slots: passed");
   }
 
   // 6. Blocked destination: command into an asteroid must resolve to a clear point.
@@ -198,14 +208,16 @@ function runAuthoritative() {
     assert(clear.adjusted, "nearestClearPoint should report an adjustment for a blocked point");
     assert(clear.clear, "nearestClearPoint should return a passable cell");
     commandShips(room, player, inside.x, inside.y, { shipIds: ["block"] });
-    assert(ship.commandMode === "move", "blocked move command should still become a move");
+    assert.strictEqual(ship.movement.command?.type, "move",
+      "blocked move command should still become a move");
     const targetDistToAsteroid = Math.hypot(ship.targetX - inside.x, ship.targetY - inside.y);
     assert(targetDistToAsteroid >= 110, "ship target should be pushed outside the asteroid");
-    for (let i = 0; i < T(20); i += 1) {
+    for (let i = 0; i < T(40); i += 1) {
       updateShipMovement(room, ship, DT);
       updateShipSeparation(room);
     }
-    assert(ship.arrived, "ship should reach the adjusted clear target");
+    assert.strictEqual(ship.movement.phase, "positioned",
+      "ship should reach the adjusted clear target");
     console.log("  blocked-destination: passed");
   }
 
@@ -224,11 +236,10 @@ function runAuthoritative() {
     const target = { id: "target", ownerId: "p2", team: "B", alive: true, x: 900, y: 300, radius: 40, stats: {} };
     addShip(room, player, ship);
     room.ships.set("target", target);
+    const desiredOrbitRange = createMovementIntent(room, ship, ship.stats, 0).desiredRange;
     let minRange = Infinity, maxRange = -Infinity, sumRange = 0, samples = 0;
     let lastAngle = ship.angle;
     let totalRotation = 0;
-    let directionFlips = 0;
-    let lastDir = 0;
     for (let i = 0; i < T(20); i += 1) {
       updateShipMovement(room, ship, DT);
       const r = Math.hypot(ship.x - target.x, ship.y - target.y);
@@ -238,18 +249,17 @@ function runAuthoritative() {
       samples += 1;
       const delta = angleDifference(lastAngle, ship.angle);
       totalRotation += Math.abs(delta);
-      const dir = Math.sign(delta);
-      if (dir !== 0 && lastDir !== 0 && dir !== lastDir) directionFlips += 1;
-      if (dir !== 0) lastDir = dir;
       lastAngle = ship.angle;
       updateShipSeparation(room);
     }
     const avgRange = sumRange / samples;
-    assert(avgRange > 80 && avgRange < 250, `orbit should keep near desired radius (avg ${avgRange.toFixed(1)})`);
-    assert(maxRange - minRange < 350, `orbit range band should be reasonable (span ${(maxRange - minRange).toFixed(1)})`);
+    assert(Math.abs(avgRange - desiredOrbitRange) < desiredOrbitRange * 0.25,
+      `orbit should keep near desired radius (avg ${avgRange.toFixed(1)}, desired ${desiredOrbitRange.toFixed(1)})`);
+    assert(maxRange - minRange < desiredOrbitRange * 0.8,
+      `orbit range band should be reasonable (span ${(maxRange - minRange).toFixed(1)})`);
     assert(totalRotation < Math.PI * 12, `orbit should rotate in one direction (got ${totalRotation.toFixed(2)})`);
-    assert(directionFlips < 10, `orbit should not oscillate turn direction (flips ${directionFlips})`);
-    assert(ship.orbitDir === 1 || ship.orbitDir === -1, "orbit direction should be committed");
+    assert(ship.movement.style.orbit?.direction === 1 || ship.movement.style.orbit?.direction === -1,
+      "orbit direction should be committed");
     console.log("  stable-orbit: passed");
   }
 

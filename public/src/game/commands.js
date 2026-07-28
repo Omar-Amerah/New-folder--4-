@@ -6,6 +6,7 @@ import { send } from "../network.js";
 import { minimapWorldAt, screenToWorld } from "./camera.js";
 import { findShipAt, pruneSelection, ownLiveShips } from "./selection.js";
 import { playerMap } from "../ui/matchStatusUi.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 
 export function issueCommand(event) {
   if (event?.currentTarget && event.target !== event.currentTarget) return;
@@ -35,6 +36,7 @@ export function issueCommand(event) {
     targetKind,
     at: performance.now()
   };
+  invalidatePresentation("command");
 
   send({
     type: "command",

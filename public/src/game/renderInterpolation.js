@@ -4,7 +4,10 @@
 import { state } from "../state.js";
 import { angleDifference } from "../shared/math.js";
 
-export const INTERPOLATION_DELAY_MS = 100;
+// Buffer has to cover one snapshot interval plus arrival jitter. At 30 Hz
+// snapshots that interval is ~33 ms, so 55 ms keeps the same margin the old
+// 100 ms gave over a 66 ms interval while showing the player state sooner.
+export const INTERPOLATION_DELAY_MS = 55;
 export const EXTRAPOLATION_CAP_MS = 80;
 const MAX_SAMPLES_PER_SHIP = 8;
 const TELEPORT_DISTANCE = 900;

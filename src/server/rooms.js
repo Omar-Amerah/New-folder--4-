@@ -76,6 +76,8 @@ function createRoom(code, options = {}) {
     _projectileLookupInitialized: true,
     spatialIndex: null,
     effects: [],
+    spawnReservations: [],
+    spawnCollisionDiagnostics: {},
     map,
     mapSeed,
     points: map.relays.map((relay) => ({ ...relay, ownerId: null, ownerTeam: null, progress: 0 })),
@@ -557,6 +559,8 @@ function prepareArenaForCurrentPlayers(room) {
   require("./decoys").resetDecoyRuntime(room);
   require("./spatialIndex").clearRoomSpatialIndex(room);
   room.effects = [];
+  room.spawnReservations = [];
+  room.spawnCollisionDiagnostics = {};
   clearRoomRuntimeScratch(room);
   room.nextEntityId = 1;
 }
@@ -635,6 +639,7 @@ function resetMatch(room, now) {
   require("./decoys").resetDecoyRuntime(room);
   require("./projectiles").resetProjectileRuntime(room);
   require("./spatialIndex").clearRoomSpatialIndex(room);
+  room.spawnReservations = [];
   applyAuthoritativeSafeZones(room);
   for (const point of room.points) {
     point.ownerId = null;

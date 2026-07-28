@@ -7,9 +7,10 @@
 const { performance } = require("perf_hooks");
 const fixtures = require("../test-fixtures/powerInfrastructureReferenceShips");
 const harness = require("../test-fixtures/dataSupportRuntimeHarness");
-const { updateShipPowerDemand } = require("../src/server/componentPower");
+const { updateShipPowerDemand, effectiveShieldStats } = require("../src/server/componentPower");
 const { updateShipHeat } = require("../src/server/heat");
-const { updateShipMovement } = require("../src/server/movementCore");
+const { updateShipMovement } = require("../src/server/movement");
+const { updateRuntimeShield } = require("../src/server/runtimeShield");
 const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 
 const WARMUP_TICKS = 60;
@@ -38,6 +39,8 @@ function makeShips(count) {
     ship.targetX = ship.x;
     ship.targetY = ship.y;
     ship.alive = true;
+    ship.maxShield = Math.max(0, Number(effectiveShieldStats(ship)?.capacity) || 0);
+    ship.shield = ship.maxShield;
     ships.push(ship);
   }
   return ships;
@@ -81,6 +84,7 @@ function runForCount(count) {
     now += TICK_MS;
     for (const ship of ships) updateShipPowerDemand(ship, room, now);
     for (const ship of ships) updateShipHeat(ship, DT, room, now);
+    for (const ship of ships) updateRuntimeShield(ship, DT, now);
     for (const ship of ships) updateShipMovement(room, ship, DT, now);
     buildRoomSpatialIndex(room, ships, now);
   }
@@ -94,6 +98,10 @@ function runForCount(count) {
     t0 = performance.now();
     for (const ship of ships) updateShipHeat(ship, DT, room, now);
     state.heatMs += performance.now() - t0;
+
+    t0 = performance.now();
+    for (const ship of ships) updateRuntimeShield(ship, DT, now);
+    state.movementMs += performance.now() - t0;
 
     t0 = performance.now();
     for (const ship of ships) updateShipMovement(room, ship, DT, now);

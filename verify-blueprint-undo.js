@@ -51,6 +51,7 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: 
 
 const { state } = await import("./public/src/state.js");
 const { defaultDesign, defaultWiring, normalizeWiring } = await import("./public/src/design/blueprintStorage.js");
+const { validateBlueprint } = await import("./public/src/design/blueprintValidation.js");
 const history = await import("./public/src/design/blueprintEditHistory.js");
 const designer = await import("./public/src/ui/designerUi.js");
 const input = await import("./public/src/game/input.js");
@@ -148,6 +149,20 @@ removeCell(9, 7);
 assert.equal(blueprintEditHistorySize(), 1, "remove creates one history entry");
 assert.equal(canUndoWiring(), false, "physical removal clears stale wiring undo history");
 assertUndoRestores("remove", before);
+
+reset();
+state.design = [
+  { x: 7, y: 7, type: "core" },
+  { x: 8, y: 7, type: "frame" },
+  { x: 9, y: 7, type: "armor" }
+];
+state.wiring = normalizeWiring(globalThis.WiringRules.emptyWiring(), state.design);
+before = snap();
+removeCell(8, 7);
+assert.equal(state.design.some((part) => part.x === 8 && part.y === 7), false, "bridge component can be removed");
+assert.equal(state.design.some((part) => part.x === 9 && part.y === 7), true, "removal keeps the newly disconnected component");
+assert.match(validateBlueprint(state.design, { requireThrust: false }).errors.join(" "), /connect/i, "purchase validation still identifies the disconnected design");
+assertUndoRestores("disconnecting remove", before);
 
 reset();
 state.design = [...state.design, { x: 8, y: 8, type: "frame", rotation: 0 }];

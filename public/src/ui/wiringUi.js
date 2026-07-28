@@ -14,6 +14,7 @@ import { getCachedDesignDataSupport, getCachedDataVulnerabilities } from "../des
 import { formatDataSupportValue, formatDataSupportEquation } from "../design/dataSupportPresentation.js";
 import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { applyPowerPolicyChange, renderLocalStats, invalidateHeatAnalysisCache } from "./designerUi.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 
 const GRID_SIZE = 15;
 const MAX_UNDO = 60;
@@ -300,7 +301,7 @@ function pushUndo() { const stack = ui().undoStack; stack.push(rules().cloneWiri
 // Every committed wiring edit changes infrastructure cost, so the designer-derived
 // presentation (build cost, funds remaining, ship status, analysis) must refresh
 // alongside the wiring panel — not just refreshWiringPresentation().
-function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); renderLocalStats(); }
+function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); renderLocalStats(); invalidatePresentation("wiring-edit"); }
 
 function clearLocateHighlight() {
   locatedSectionId = null;

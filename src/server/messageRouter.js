@@ -58,7 +58,7 @@ function handleMessage(client, message) {
   const { computeStats } = require("./shipStats");
   const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
-  const { commandShips, stopShips, rotateShips } = require("./movement");
+  const { applyCombatStyle, commandShips, stopShips, rotateShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
   const { MAX_COMBAT_SELECTED_SHIP_IDS, selectOwnedLivingShips } = require("./selection");
   const { addBot } = require("./ships");
@@ -238,23 +238,7 @@ function handleMessage(client, message) {
     let updatedCount = 0;
     const updatedShipIds = [];
     for (const ship of selected.ships) {
-      ship.combatStyle = combatStyle;
-      ship.orbitDir = undefined;
-      ship.lastOrbitTargetId = null;
-      ship.holdState = null;
-      if (combatStyle === 'sentry') {
-        if (ship.commandMode !== 'move' || ship.arrived) {
-          ship.sentryX = ship.x;
-          ship.sentryY = ship.y;
-          ship.arrived = true;
-        }
-      } else {
-        ship.sentryX = null;
-        ship.sentryY = null;
-        if (ship.commandMode !== 'move' || ship.arrived) {
-          ship.arrived = false;
-        }
-      }
+      applyCombatStyle(ship, combatStyle);
       updatedCount++;
       updatedShipIds.push(ship.id);
     }
@@ -310,7 +294,8 @@ function handleMessage(client, message) {
     const y = clampNumber(message.y, 0, client.room.world.height);
     commandShips(client.room, client.player, x, y, {
       shipIds: Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined,
-      targetId: typeof message.targetId === "string" ? message.targetId : null
+      targetId: typeof message.targetId === "string" ? message.targetId : null,
+      finalFacing: Number.isFinite(message.finalFacing) ? message.finalFacing : null
     });
     return;
   }
@@ -332,7 +317,11 @@ function handleMessage(client, message) {
   if (message.type === "rotate") {
     if (client.room.phase !== "active") return;
     const shipIds = Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined;
-    rotateShips(client.room, client.player, message.direction, shipIds, message.active !== false);
+    rotateShips(client.room, client.player, {
+      direction: message.direction,
+      active: message.active,
+      shipIds
+    });
     return;
   }
 

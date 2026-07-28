@@ -18,7 +18,7 @@ function makeShip(id, ownerId, x, y, design, extra = {}) {
   const ship = {
     id, ownerId, alive: true, x, y, vx: 0, vy: 0, angle: extra.angle || 0,
     focusTargetId: null, combatTargetId: null, commandState: 'mainCore',
-    targetX: x, targetY: y, arrived: true, isManualMove: false,
+    targetX: x, targetY: y, arrived: true,
     stats: { maxHp: extra.maxHp || 0, unitCost: 100, radius: 20 },
     design, dirtyComponents: new Set(),
     componentPower: { byComponentIndex: design.map(() => ({ operationalMultiplier: 1 })) },

@@ -57,6 +57,10 @@ function canonicalBlueprintSignature(design, wiring) {
 
 function deepFreeze(obj) {
   if (obj === null || typeof obj !== "object") return obj;
+  // Node.js rejects Object.freeze() for populated typed-array views. Runtime
+  // ships clone these buffers, so retaining the template view is safe and
+  // avoids sharing mutable per-ship state.
+  if (ArrayBuffer.isView(obj)) return obj;
   if (Object.isFrozen(obj)) return obj;
   
   for (const key of Object.keys(obj)) {

@@ -13,6 +13,7 @@ const { buildPowerProtectionSnapshot } = require("./powerProtection");
 const { buildPowerWiringLayout, buildPowerWiringRuntime } = require("./powerWiringSnapshot");
 const { PARTS } = require("./components");
 const { BALANCE_REVISION } = require("./balanceConfig");
+const { reportInvalidShieldState } = require("./runtimeShield");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -30,6 +31,13 @@ function buildComponentHeatTuple(ship, index) {
   const heat = Number.isFinite(value) ? Math.round(value) : 0;
   const ratio = capacity > 0 ? Math.round((heat / capacity) * 1000) / 1000 : 0;
   return [heat, ship.componentHeatState[index] || 0, ratio, capacity];
+}
+
+function finiteShieldSnapshotValue(ship, key) {
+  const value = ship?.[key];
+  if (Number.isFinite(value)) return round(value);
+  reportInvalidShieldState(ship, value);
+  return 0;
 }
 
 // Public, deliberately low-precision component condition used only to draw
@@ -56,6 +64,9 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       id: ship.id,
       ownerId: ship.ownerId,
       designRevision: ship.designRevision || 1,
+      componentAliveRevision: ship.componentAliveRevision || 0,
+      componentDamageRevision: ship.componentDamageRevision || 0,
+      proximityChargeRevision: ship.proximityChargeRevision || 0,
       x: round(ship.x),
       y: round(ship.y),
       vx: round(ship.vx),
@@ -67,8 +78,8 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       targetY: round(ship.targetY),
       hp: round(ship.hp),
       maxHp: round(ship.maxHp),
-      shield: round(ship.shield),
-      maxShield: round(ship.maxShield),
+      shield: finiteShieldSnapshotValue(ship, "shield"),
+      maxShield: finiteShieldSnapshotValue(ship, "maxShield"),
       radius: round(ship.radius),
       cost: ship.cost || ship.stats?.unitCost || 0,
       focusTargetId: ship.focusTargetId || ship.repairTargetId || null,
@@ -104,6 +115,13 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     entry.heatMax = Math.round((ship.maxHeat || 0) * 10) / 10;
     entry.hot = ship.hotComponentCount || 0;
     entry.overheated = ship.overheatedComponentCount || 0;
+    entry.heatRevision = ship.heatRevision || 0;
+    entry.componentHeatRevision = ship.componentHeatRevision || 0;
+    entry.heatStateRevision = ship.heatStateRevision || 0;
+    entry.heatTelemetryRevision = ship.heatTelemetryRevision || 0;
+    entry.powerRuntimeRevision = (ship.powerRevision || 0)
+      + (ship.powerProtectionRevision || 0)
+      + (ship.heatTelemetryRevision || 0);
     if (ship.selfDestructAt && ship.alive) {
       const span = ship.selfDestructAt - ship.selfDestructStart;
       entry.destructProgress = span > 0 ? round(Math.max(0, Math.min(1, (now - ship.selfDestructStart) / span))) : 1;
@@ -279,6 +297,17 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   if (includeTelemetry && !powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
     entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
   }
+  const knownHeatTelemetry = client?.knownShipHeatTelemetryRevisions instanceof Map
+    ? client.knownShipHeatTelemetryRevisions
+    : null;
+  const currentHeatTelemetryRevision = ship.heatTelemetryRevision || 0;
+  const heatTelemetryChanged = knownHeatTelemetry
+    ? knownHeatTelemetry.get(ship.id) !== currentHeatTelemetryRevision
+    : Boolean(ship.dirtyHeat?.size);
+  if (includeTelemetry && heatTelemetryChanged && ship.componentPower?.byComponentIndex) {
+    entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
+    entry.heatTelemetryRevision = currentHeatTelemetryRevision;
+  }
   // Focused telemetry is deliberately independent of dirty/revision flags: a
   // newly selected ship must receive a complete current diagnostics block, and
   // the scheduled 2 Hz refresh must not depend on whether a topology changed.
@@ -437,9 +466,11 @@ function canViewShipInternals(viewer, ship, room) {
 // cached copies are discarded when a ship becomes public.
 const PRIVATE_SHIP_FIELDS = [
   "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
+  "powerRuntimeRevision",
   "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision",
   "powerWiring", "powerWiringRevision", "powerWiringRuntime",
-  "chp", "chpD", "componentHeat", "componentHeatD"
+  "chp", "chpD", "componentHeat", "componentHeatD",
+  "componentHeatRevision", "heatTelemetryRevision"
 ];
 
 // Enemy ships: attach only a safe public visual representation. This is the raw
@@ -626,7 +657,22 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     snapshot.map = room.map;
     snapshot.rules = room.rules;
   }
+  if (process.env.NODE_ENV !== "production" && room.spawnCollisionDiagnostics) {
+    snapshot.spawnCollisionDiagnostics = { ...room.spawnCollisionDiagnostics };
+  }
   return snapshot;
+}
+function collectSnapshotHeatTelemetryRevisions(snapshot) {
+  const revisions = [];
+  for (const ship of snapshot?.ships || []) {
+    if (ship.powerThermal) revisions.push([ship.id, ship.heatTelemetryRevision || 0]);
+  }
+  return revisions;
+}
+function markSnapshotHeatTelemetryWritten(client, revisions = []) {
+  if (!client) return;
+  if (!client.knownShipHeatTelemetryRevisions) client.knownShipHeatTelemetryRevisions = new Map();
+  for (const [shipId, revision] of revisions) client.knownShipHeatTelemetryRevisions.set(shipId, revision);
 }
 
 function canViewPlayerEconomy(viewer, player) {
@@ -642,10 +688,12 @@ module.exports = {
   collectSnapshotPowerRevisions,
   collectSnapshotPowerProtectionRevisions,
   collectSnapshotWiringLayoutRevisions,
+  collectSnapshotHeatTelemetryRevisions,
   markSnapshotDesignsWritten,
   markSnapshotPowerWritten,
   markSnapshotPowerProtectionWritten,
   markSnapshotWiringLayoutWritten,
+  markSnapshotHeatTelemetryWritten,
   canViewPlayerEconomy,
   _test: { buildSwitchgearSnapshot, buildRuntimePowerThermalSnapshot, finiteOrNull }
 };

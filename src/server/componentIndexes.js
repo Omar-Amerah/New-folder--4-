@@ -21,8 +21,6 @@ function getShipComponentIndexes(ship) {
       maneuverThrusterIndices: [],
       gyroscopeIndices: [],
       shieldRegenIndices: [],
-      vectorThrusterIndices: [],
-      propulsionCapacitorIndices: [],
       mainCoreIndex: -1,
       backupCoreIndex: -1
     };
@@ -40,8 +38,6 @@ function getShipComponentIndexes(ship) {
       if ((Number(part.thrust) || 0) > 0) cache.thrustIndices.push(i);
       if (module.type === "maneuverThruster") cache.maneuverThrusterIndices.push(i);
       if (module.type === "gyroscope") cache.gyroscopeIndices.push(i);
-      if (module.type === "vectorThruster") cache.vectorThrusterIndices.push(i);
-      if (module.type === "propulsionCapacitor") cache.propulsionCapacitorIndices.push(i);
       if ((Number(part.shieldRegen) || 0) > 0) cache.shieldRegenIndices.push(i);
     }
     ship._derivedComponentIndexes = cache;

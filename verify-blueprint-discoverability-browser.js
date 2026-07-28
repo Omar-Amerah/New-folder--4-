@@ -447,7 +447,7 @@ async function main() {
     const heatGuide = await guide.textContent();
     assert.match(heatGuide, /left-click/i);
     assert.match(heatGuide, /Hover to inspect Heat/i);
-    assert.doesNotMatch(heatGuide, /right-click removal|right-click to remove/i);
+    assert.match(heatGuide, /right-click/i);
     assert.equal(await indicator.isVisible(), true, "rotation indicator is visible in Heat");
     await selectPalettePart(page, { category: "Structure", type: "armor", name: "Armor", rotatable: false });
     const beforeHeatPlace = await snapshot(page);
@@ -460,6 +460,7 @@ async function main() {
     await page.click("#undoBlueprintEditButton");
     assert.equal(await snapshot(page), beforeHeatPlace, "Undo restores exact design/Wiring after Heat edit");
 
+    await assertRightClickRemovesPlacedBlaster(page);
     await selectPalettePart(page, { category: "Weapons", type: "blaster", name: "Blaster", rotatable: true });
     await assertHeatRotationUpdates(page);
 

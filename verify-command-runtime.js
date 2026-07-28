@@ -206,11 +206,11 @@ function makeRoom(ships) {
 // T10: Shield depletion timestamp at sim time zero.
 {
   // Verify the source code uses explicit null/undefined check instead of falsy.
-  const src = require("fs").readFileSync("./src/server/movement.js", "utf8");
-  assert(src.includes("ship._shieldDepletedAt === undefined || ship._shieldDepletedAt === null"),
-    "movement.js uses explicit null/undefined check for _shieldDepletedAt");
+  const src = require("fs").readFileSync("./src/server/runtimeShield.js", "utf8");
+  assert(src.includes("!Number.isFinite(ship._shieldDepletedAt)"),
+    "runtimeShield.js uses an explicit finite check for _shieldDepletedAt");
   assert(!src.includes("!ship._shieldDepletedAt"),
-    "movement.js no longer uses falsy check for _shieldDepletedAt");
+    "runtimeShield.js no longer uses falsy check for _shieldDepletedAt");
 
   // Functional test: manually set shield to 0 and verify the check works at now=0.
   // Simulate the condition: shield <= 0 and _shieldDepletedAt is 0 (set at sim time zero).

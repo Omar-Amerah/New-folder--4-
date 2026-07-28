@@ -1,4 +1,11 @@
 // Shared movement calculations for frontend component stats and backend ship stats.
+//
+// Movement is flight-assisted: velocity decays toward the commanded velocity and
+// ships point where they are going, so thrust is effectively omnidirectional and
+// `accel` is the single authority figure. There are deliberately no separate
+// lateral/braking/reverse accelerations -- the only component that ever supplied
+// them (a "vector thruster") does not exist, so they resolved to a flat per-hull
+// constant that made every ship accelerate ~16x harder than it could stop.
 
 function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
 const ENGINE_FALLOFF = 0.96;
@@ -10,7 +17,6 @@ const MASS_DRAG_EXP = 0.45;
 const MASS_TURN_DIV = 100;
 const MASS_TURN_EXP = 0.70;
 const ENGINE_TURN_PER_THRUST = 0.001;
-const LATERAL_ACCEL_RATIO = 0.26; // legacy, directional accel now thrust/mass based
 const ACCEL_SCALE = 6.0;
 const SOFT_CAP_MASS_SLOPE = 0.7;
 const SOFT_CAP_MIN = 840;
@@ -39,7 +45,6 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
   const centerOfMass = options.centerOfMass || calculateCenterOfMass(modules, parts);
   const leverSettings = { ...DEFAULT_LEVER_SETTINGS, ...(options.leverSettings || {}) };
   const mainEngineValues = [], gyroscopeValues = [], clockwiseThrusterValues = [], anticlockwiseThrusterValues = [], maneuverThrusters = [];
-  const vectorThrusterTurnValues = [], vectorLateralValues = [], vectorBrakingValues = [], vectorReverseValues = [];
   for (let i = 0; i < (modules || []).length; i += 1) {
     const module = modules[i]; const part = parts[module.type] || parts.frame || {};
     const blocked = options.isBlockedEngine?.(i, module, part) || false;
@@ -55,13 +60,6 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
       maneuverThrusters.push(record);
       if (sign > 0) clockwiseThrusterValues.push(value); else if (sign < 0) anticlockwiseThrusterValues.push(value);
     }
-    const isVectorType = module.type === 'vectorThruster' || module.type === 'maneuverThruster';
-    if (isVectorType && !blocked && multiplier > 0) {
-      if ((part.turn || 0) > 0 && module.type === 'vectorThruster') vectorThrusterTurnValues.push((part.turn || 0) * multiplier);
-      if ((part.lateralThrust || 0) > 0) vectorLateralValues.push((part.lateralThrust || 0) * multiplier);
-      if ((part.brakingThrust || 0) > 0) vectorBrakingValues.push((part.brakingThrust || 0) * multiplier);
-      if ((part.reverseThrust || 0) > 0) vectorReverseValues.push((part.reverseThrust || 0) * multiplier);
-    }
   }
   return {
     centerOfMass,
@@ -69,18 +67,8 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
     gyroscopeTurn: effectiveStackedValue(gyroscopeValues, 0.92),
     clockwiseManeuverTurn: effectiveStackedValue(clockwiseThrusterValues, 0.92),
     anticlockwiseManeuverTurn: effectiveStackedValue(anticlockwiseThrusterValues, 0.92),
-    maneuverThrusters,
-    vectorThrusterTurn: effectiveStackedValue(vectorThrusterTurnValues, 0.92),
-    vectorLateralThrust: effectiveStackedValue(vectorLateralValues, 0.92),
-    vectorBrakingThrust: effectiveStackedValue(vectorBrakingValues, 0.92),
-    vectorReverseThrust: effectiveStackedValue(vectorReverseValues, 0.92)
+    maneuverThrusters
   };
-}
-
-function computeDirectionalAccel(thrustTotal, mass, massDrag, powerMultiplier) {
-  if (thrustTotal <= 0) return 0;
-  const ratio = thrustTotal / Math.max(1, mass);
-  return Math.max(0, ratio * ACCEL_SCALE * massDrag * powerMultiplier);
 }
 
 export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, movementPowerMultiplier: suppliedPowerMultiplier, hullControlThrust }) {
@@ -98,14 +86,12 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const speedCapped = hasEngineThrust && unrestrictedThrustSpeed > speedCap;
   const maxSpeed = hasEngineThrust ? Math.max(0, softCap(unrestrictedThrustSpeed, speedCap, SOFT_CAP_EFFICIENCY)) : 0;
   const accel = hasEngineThrust ? (thrustRatio * ACCEL_SCALE * movementPowerMultiplier) : 0;
-  const directional = directionalTurnInputs || { mainEngineVectorTurn: effectiveStackedValue(engines.map(e=>e.thrust*ENGINE_TURN_PER_THRUST),0.85), gyroscopeTurn: effectiveStackedValue(turnModuleValues||[],0.92), clockwiseManeuverTurn:0, anticlockwiseManeuverTurn:0, vectorThrusterTurn:0, vectorLateralThrust:0, vectorBrakingThrust:0, vectorReverseThrust:0 };
+  const directional = directionalTurnInputs || { mainEngineVectorTurn: effectiveStackedValue(engines.map(e=>e.thrust*ENGINE_TURN_PER_THRUST),0.85), gyroscopeTurn: effectiveStackedValue(turnModuleValues||[],0.92), clockwiseManeuverTurn:0, anticlockwiseManeuverTurn:0 };
   const mc = massClassForMass(safeMass);
   const hullControlRaw = hullControlThrust || DEFAULT_HULL_CONTROL;
-  const hullControl = (hullControlRaw && hullControlRaw[mc]) || DEFAULT_HULL_CONTROL[mc] || { turn: 0, lateral: 0, braking: 0 };
+  const hullControl = (hullControlRaw && hullControlRaw[mc]) || DEFAULT_HULL_CONTROL[mc] || { turn: 0 };
   const hullTurn = Number(hullControl.turn) || 0;
-  const hullLateral = Number(hullControl.lateral) || 0;
-  const hullBraking = Number(hullControl.braking) || 0;
-  const symmetricTurn = (directional.mainEngineVectorTurn||0)+(directional.gyroscopeTurn||0)+(directional.vectorThrusterTurn||0)+hullTurn;
+  const symmetricTurn = (directional.mainEngineVectorTurn||0)+(directional.gyroscopeTurn||0)+hullTurn;
   const negativeTurnDrag = Math.min(0, turnBonus||0);
   const massTurnPenalty = 1 / Math.pow(1 + safeMass / MASS_TURN_DIV, MASS_TURN_EXP);
   const turnCap = turnCapForMass(safeMass);
@@ -113,13 +99,7 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const turnRateRight = toRate(symmetricTurn + (directional.clockwiseManeuverTurn || 0));
   const turnRateLeft = toRate(symmetricTurn + (directional.anticlockwiseManeuverTurn || 0));
   const turnRate = Math.min(turnRateLeft, turnRateRight);
-  const lateralThrustTotal = (directional.vectorLateralThrust || 0) + hullLateral;
-  const brakingThrustTotal = (directional.vectorBrakingThrust || 0) + hullBraking;
-  const reverseThrustTotal = (directional.vectorReverseThrust || 0);
-  const lateralAccel = computeDirectionalAccel(lateralThrustTotal, safeMass, massDrag, movementPowerMultiplier);
-  const brakingAccel = computeDirectionalAccel(brakingThrustTotal, safeMass, massDrag, movementPowerMultiplier);
-  const reverseAccel = computeDirectionalAccel(reverseThrustTotal, safeMass, massDrag, movementPowerMultiplier);
-  return { maxSpeed, accel, turnRate, turnRateLeft, turnRateRight, thrustRatio, effectiveThrust, engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0, powerEfficiency, powerDebuff: Math.max(0, 1 - movementPowerMultiplier), speedCap, turnCap, massClass: mc, speedCapped, directionalTurn: directional, lateralAccel, brakingAccel, reverseAccel, hullControlTurn: hullTurn };
+  return { maxSpeed, accel, turnRate, turnRateLeft, turnRateRight, thrustRatio, effectiveThrust, engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0, powerEfficiency, powerDebuff: Math.max(0, 1 - movementPowerMultiplier), speedCap, turnCap, massClass: mc, speedCapped, directionalTurn: directional, hullControlTurn: hullTurn };
 }
 export function calculateSystemEfficiency(powerGeneration,powerUse){ if(powerUse<=0)return 1.08; const ratio=powerGeneration/Math.max(powerUse,1); if(ratio>=1)return clamp(1+Math.min((ratio-1)*0.25,0.12),1,1.12); return clamp(Math.pow(Math.max(ratio,0),1.35),0.25,1); }
 export function calculateMovementPowerMultiplier(powerGeneration,powerUse){ if(powerUse<=0)return 1.04; const ratio=powerGeneration/Math.max(powerUse,1); if(ratio>=1)return clamp(Math.sqrt(ratio),1,1.08); return clamp(Math.pow(Math.max(ratio,0),1.8),0.18,1); }

@@ -6,6 +6,15 @@ const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
 const { recordPurchaseStage } = require("./performanceTelemetry");
+const { createMovementRuntime } = require("./movementRuntime");
+
+class SpawnPlacementError extends Error {
+  constructor(reason = "no-clear-spawn") {
+    super(reason);
+    this.name = "SpawnPlacementError";
+    this.code = reason;
+  }
+}
 
 function clonePrebuiltShipState(prebuilt) {
   return cloneValue(prebuilt, new Set(["design", "wiring", "stats"]));
@@ -14,6 +23,15 @@ function clonePrebuiltShipState(prebuilt) {
 function cloneValue(value, skipKeys = null) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map((item) => cloneValue(item));
+  if (ArrayBuffer.isView(value)) {
+    if (value instanceof DataView) {
+      const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+      return new DataView(buffer);
+    }
+    return new value.constructor(value);
+  }
+  if (value instanceof ArrayBuffer) return value.slice(0);
+  if (value instanceof Date) return new Date(value.getTime());
   if (value instanceof Map) return new Map([...value].map(([k, v]) => [cloneValue(k), cloneValue(v)]));
   if (value instanceof Set) return new Set([...value].map((v) => cloneValue(v)));
   const proto = Object.getPrototypeOf(value);
@@ -27,7 +45,6 @@ function cloneValue(value, skipKeys = null) {
 }
 
 function spawnShip(room, player, now, index = 0, options = {}) {
-  const { nearestClearPoint } = require("./movement");
   const { initComponentState, initProximityChargeState } = require("./componentHealth");
   const { initShipHeat } = require("./heat");
   
@@ -39,14 +56,23 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   
   const spawn = getPlayerSpawn(room, player.id);
   const spawnRng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:${index}:${room.nextEntityId}`)) >>> 0);
-  const offset = index - Math.floor(player.shipCap / 2);
-  const ySpread = Math.sin(index * 1.7) * 27;
-  const spawnPoint = nearestClearPoint(
-    room,
-    spawn.x + offset * 8 + rngRange(spawnRng, -13, 13),
-    spawn.y + ySpread + rngRange(spawnRng, -16, 16),
-    Math.max(46, stats.radius * 0.72)
-  );
+  const { authoritativePhysicalRadius, findClearShipSpawnPoint } = require("./spawnPlanner");
+  const { computeDesignCollisionRadius } = require("./componentGeometry");
+  const physicalRadius = Math.max(authoritativePhysicalRadius(stats), computeDesignCollisionRadius(design, stats));
+  const spawnPoint = options.spawnPoint || findClearShipSpawnPoint(room, {
+    preferredX: spawn.x,
+    preferredY: spawn.y,
+    physicalRadius,
+    navigationRadius: physicalRadius + Math.max(8, (Number(stats.radius) || 0) * 0.12),
+    reservations: options.reservations,
+    ownerId: player.id,
+    requestId: options.requestId || `legacy:${room.nextEntityId}`,
+    shipIndex: index,
+    spawnAngle: spawn.angle
+  });
+  if (!spawnPoint?.ok && !Number.isFinite(spawnPoint?.x)) {
+    throw new SpawnPlacementError(spawnPoint?.reason || "no-clear-spawn");
+  }
   const ship = {
     id: `s${room.nextEntityId++}`,
     ownerId: player.id,
@@ -58,10 +84,6 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     combatStyle: options.combatStyle || "hold",
     targetX: spawnPoint.x,
     targetY: spawnPoint.y,
-    arrived: true,
-    commandMode: null,
-    sentryX: null,
-    sentryY: null,
     alive: true,
     removed: false,
     removeAt: 0,
@@ -74,6 +96,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     wiring,
     cost: stats.unitCost,
     radius: stats.radius,
+    physicalRadius,
     blasterCooldown: rngRange(spawnRng, 0.08, 0.42),
     missileCooldown: rngRange(spawnRng, 0.35, 0.9),
     railgunCooldown: rngRange(spawnRng, 0.45, 1.4),
@@ -86,6 +109,12 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     aimTargetIds: [],
     componentTargetIds: [],
     beamContacts: []
+  };
+  ship.spawnState = {
+    createdAt: now,
+    expiresAt: now + 2400,
+    launchPoint: { x: ship.x, y: ship.y },
+    slotId: options.slotId || `${options.requestId || "spawn"}:${index}`
   };
   
   // Initialize design-index-aligned weapon runtime arrays before ship is placed in room.ships
@@ -118,7 +147,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     ship.componentCellIndex = new Map(template.componentCellIndex);
     ship.validEngineIndices = new Set(template.exhaustAnalysis.validEngineIndices);
     ship.blockedEngineIndices = new Set(template.exhaustAnalysis.blockedEngineIndices);
-    ship.engineExhaustAnalysis = template.exhaustAnalysis;
+    ship.engineExhaustAnalysis = cloneValue(template.exhaustAnalysis);
     ship.engineExhaustRevision = 1;
   } else {
     initComponentState(ship);
@@ -148,29 +177,16 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   if (typeof recordPurchaseStage === 'function') {
     recordPurchaseStage("decoyLauncherInitialization", performance.now() - decoyStart);
   }
+
+  ship.movement = createMovementRuntime();
   
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
-  room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
-
-  const rallyPoint = getPlayerRallyPoint(room, player);
-  if (rallyPoint) {
-    const rallyTarget = nearestClearPoint(
-      room,
-      rallyPoint.x,
-      rallyPoint.y,
-      Math.max(42, ship.radius * 0.72)
-    );
-    if (Math.hypot(rallyTarget.x - ship.x, rallyTarget.y - ship.y) > 48) {
-      ship.targetX = rallyTarget.x;
-      ship.targetY = rallyTarget.y;
-      ship.arrived = false;
-      ship.isManualMove = true;
-      ship.commandMode = 'move';
-      ship.focusTargetId = null;
-      ship.repairTargetId = null;
-    }
+  if (room.spatialIndex?.dynamicValid && typeof room.spatialIndex.append === "function") {
+    const { shipBroadPhaseRadius } = require("./spatialIndex");
+    room.spatialIndex.append("ships", ship, shipBroadPhaseRadius(ship));
   }
+  room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
 
   if (process.env.NODE_ENV !== "production") {
     console.log(`[DEBUG] Spawning ship ${ship.id} for player ${player.id} with combatStyle: ${ship.combatStyle}`);
@@ -336,6 +352,27 @@ function getPlayerRallyPoint(room, player) {
   return { x: spawn.x, y: spawn.y };
 }
 
+function applyRallySlots(room, player, ships) {
+  const rallyPoint = getPlayerRallyPoint(room, player);
+  if (!rallyPoint || !ships?.length) return new Map();
+  const { assignRallyArrivalSlots } = require("./spawnPlanner");
+  const slots = assignRallyArrivalSlots(room, ships, rallyPoint);
+  const movingShips = [];
+  for (const ship of ships) {
+    const slot = slots.get(ship.id);
+    if (!slot || Math.hypot(slot.x - ship.x, slot.y - ship.y) <= 48) continue;
+    movingShips.push(ship);
+    if (ship.spawnState) ship.spawnState.slotId = slot.id;
+  }
+  require("./movement").commandShipsToAssignedSlots(
+    room,
+    movingShips,
+    slots,
+    { prefix: "rally" }
+  );
+  return slots;
+}
+
 function distanceToFleet(ships, target) {
   let best = Infinity;
   for (const ship of ships) {
@@ -374,6 +411,8 @@ module.exports = {
   chooseBotTeam,
   getPlayerSpawn,
   getPlayerRallyPoint,
+  applyRallySlots,
   distanceToFleet,
-  getShipModuleWorldCoords
+  getShipModuleWorldCoords,
+  SpawnPlacementError
 };

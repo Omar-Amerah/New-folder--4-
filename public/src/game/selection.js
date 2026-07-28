@@ -1,8 +1,8 @@
 // Manages drag box overlays, own live ships, selection lists, and bounds overlap mathematics.
 
 import { state } from "../state.js";
-import { updateHud } from "../ui/hudUi.js";
 import { synchronizeTelemetryFocus } from "../telemetryFocus.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 
 export function shipVisualState(ship) {
   const vis = state.visualShips?.get?.(ship.id);
@@ -20,6 +20,7 @@ export function selectAt(world, additive) {
   if (!additive) state.selectedShipIds.clear();
   if (ship) { if (state.selectedShipIds.has(ship.id) && additive) state.selectedShipIds.delete(ship.id); else state.selectedShipIds.add(ship.id); state.camera.follow = true; }
   synchronizeTelemetryFocus();
+  invalidatePresentation("selection");
 }
 export function selectBox(a, b, additive) {
   state.activeShipGroup = null; if (!additive) state.selectedShipIds.clear();
@@ -27,9 +28,30 @@ export function selectBox(a, b, additive) {
   for (const ship of ownLiveShips()) { const v = shipVisualState(ship); if (circleIntersectsBox(v.x, v.y, shipHitRadius(ship), minX, minY, maxX, maxY)) state.selectedShipIds.add(ship.id); }
   if (state.selectedShipIds.size > 0) state.camera.follow = true;
   synchronizeTelemetryFocus();
+  invalidatePresentation("selection");
 }
-export function selectAllOwnShips() { state.selectedShipIds = new Set(ownLiveShips().map((ship) => ship.id)); state.activeShipGroup = null; synchronizeTelemetryFocus(); updateHud(); }
-export function pruneSelection() { const live = new Set(ownLiveShips().map((ship) => ship.id)); for (const id of [...state.selectedShipIds]) if (!live.has(id)) state.selectedShipIds.delete(id); if (state.selectedShipIds.size === 0) state.activeShipGroup = null; }
+export function selectAllOwnShips() {
+  state.selectedShipIds = new Set(ownLiveShips().map((ship) => ship.id));
+  state.activeShipGroup = null;
+  synchronizeTelemetryFocus();
+  invalidatePresentation("selection");
+}
+export function pruneSelection({ invalidate = true } = {}) {
+  const live = new Set(ownLiveShips().map((ship) => ship.id));
+  let changed = false;
+  for (const id of [...state.selectedShipIds]) {
+    if (!live.has(id)) {
+      state.selectedShipIds.delete(id);
+      changed = true;
+    }
+  }
+  if (state.selectedShipIds.size === 0 && state.activeShipGroup !== null) {
+    state.activeShipGroup = null;
+    changed = true;
+  }
+  if (changed && invalidate) invalidatePresentation("selection");
+  return changed;
+}
 export function ownLiveShips() {
   if (state.snapshotIndex?.ownLivingShips) return state.snapshotIndex.ownLivingShips;
   return state.snapshot?.ships?.filter((ship) => ship.ownerId === state.myId && ship.alive) || [];
@@ -42,4 +64,9 @@ export function findShipAt(x, y, predicate = () => true) {
   }
   return best;
 }
-export function resetSelectionForEpoch() { state.selectedShipIds.clear(); state.activeShipGroup = null; synchronizeTelemetryFocus(); }
+export function resetSelectionForEpoch() {
+  state.selectedShipIds.clear();
+  state.activeShipGroup = null;
+  synchronizeTelemetryFocus();
+  invalidatePresentation("selection");
+}

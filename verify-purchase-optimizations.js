@@ -281,10 +281,32 @@ try {
   const room = createTestRoom();
   const player = createTestPlayer("p7", "Player 7");
   room.players.set(player.id, player);
+  const occupiedSpawn = require("./src/server/spawnPlanner").getPlannedSpawn(room, player.id);
+  const launchBlocker = {
+    id: "rollback-blocker",
+    ownerId: "other",
+    x: occupiedSpawn.x,
+    y: occupiedSpawn.y,
+    targetX: occupiedSpawn.x,
+    targetY: occupiedSpawn.y,
+    radius: 48,
+    physicalRadius: 48,
+    stats: { mass: 100 },
+    alive: true,
+    arrived: true,
+    commandMode: null,
+    design: []
+  };
+  room.ships.set(launchBlocker.id, launchBlocker);
   
   const originalMoney = player.money;
   const originalSpent = player.spent;
+  const originalDeployedFleetCost = player.deployedFleetCost;
+  const originalShipsBuilt = player.shipsBuilt;
   const originalShipsLength = player.ships.length;
+  const originalRoomShips = room.ships.size;
+  const originalEffectsLength = room.effects.length;
+  const originalNextEntityId = room.nextEntityId;
   
   const design = createTestDesign();
   const wiring = createTestWiring();
@@ -318,7 +340,15 @@ try {
   if (!result.ok && 
       player.money === originalMoney && 
       player.spent === originalSpent && 
-      player.ships.length === originalShipsLength) {
+      player.deployedFleetCost === originalDeployedFleetCost &&
+      player.shipsBuilt === originalShipsBuilt &&
+      player.ships.length === originalShipsLength &&
+      room.ships.size === originalRoomShips &&
+      room.effects.length === originalEffectsLength &&
+      room.nextEntityId === originalNextEntityId &&
+      launchBlocker.x === occupiedSpawn.x &&
+      launchBlocker.y === occupiedSpawn.y &&
+      (room.spawnReservations || []).length === 0) {
     console.log("✓ Rollback restored player state after spawn failure");
   } else {
     console.log("✗ Rollback did not restore player state correctly");

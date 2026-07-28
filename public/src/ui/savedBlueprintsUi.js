@@ -6,7 +6,8 @@ import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
 import { normalizeDesign, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
 import { notify } from "./toastUi.js";
-import { updateEconomyUi, renderPurchaseBar, renderLoadoutManager } from "./purchaseUi.js";
+import { renderLoadoutManager } from "./purchaseUi.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 import { send } from "../network.js";
 import { makeDesignId } from "../shared/ids.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
@@ -82,7 +83,6 @@ export function renderSavedDesigns() {
     empty.className = "saved-design-empty";
     empty.textContent = "No saved blueprints yet — build a ship and press Save Blueprint.";
     dom.savedDesignList.appendChild(empty);
-    renderPurchaseBar();
     renderLoadoutManager();
     return;
   }
@@ -102,7 +102,6 @@ export function renderSavedDesigns() {
     empty.textContent = "No blueprints match this search.";
     dom.savedDesignList.appendChild(empty);
   }
-  renderPurchaseBar();
   renderLoadoutManager();
 }
 
@@ -328,7 +327,7 @@ export function duplicateSavedDesign(id) {
   state.savedDesigns.splice(index + 1, 0, copy);
   persistSavedDesigns(state.savedDesigns);
   renderSavedDesigns();
-  updateEconomyUi();
+  invalidatePresentation("purchase-catalogue");
 }
 
 export function isSavedDesignNameFocused() {
@@ -344,7 +343,7 @@ export function renameSavedDesign(id, name) {
     ? { ...design, name: cleanName, updatedAt: Date.now() }
     : design);
   persistSavedDesigns(state.savedDesigns);
-  renderPurchaseBar();
+  invalidatePresentation("purchase-catalogue");
   if (state.loadedEditorBlueprintId === id) refreshLoadedBlueprintPresentation();
 }
 
@@ -443,7 +442,7 @@ export function confirmModalAction() {
   persistSavedDesigns(state.savedDesigns);
   closeConfirmModal();
   renderSavedDesigns();
-  updateEconomyUi();
+  invalidatePresentation("purchase-catalogue");
 }
 
 function loadSavedDesign(id, editSource = true) {
@@ -492,7 +491,7 @@ function doLoadSavedDesign(id, editSource = true) {
     mod.renderLocalStats();
   });
   renderSavedDesigns();
-  updateEconomyUi();
+  invalidatePresentation("purchase-catalogue");
   document.dispatchEvent(new CustomEvent("designer-inspector-activate", { detail: { tab: "design" } }));
 }
 
@@ -645,7 +644,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
 
   refreshLoadedBlueprintPresentation();
   renderSavedDesigns();
-  updateEconomyUi();
+  invalidatePresentation("purchase-catalogue");
   import("./designerUi.js").then((mod) => {
     mod.invalidateHeatAnalysisCache();
     mod.renderBuildGrid();

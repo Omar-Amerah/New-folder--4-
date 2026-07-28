@@ -31,6 +31,13 @@ function bumpComponentAliveRevision(ship) {
   return ship.componentAliveRevision;
 }
 
+function markComponentDamageChanged(ship, index) {
+  if (!ship) return 0;
+  ship.dirtyComponents?.add(index);
+  ship.componentDamageRevision = (Number(ship.componentDamageRevision) || 0) + 1;
+  return ship.componentDamageRevision;
+}
+
 function initComponentState(ship) {
   const design = ship.design || [];
   const rawHp = design.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
@@ -44,6 +51,7 @@ function initComponentState(ship) {
   ship.componentMaxHp = rawHp.map((hp, i) => (design[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale));
   ship.componentHp = ship.componentMaxHp.slice();
   bumpComponentAliveRevision(ship);
+  ship.componentDamageRevision = 1;
   ship.maxHp = ship.stats?.maxHp || rawSum;
   ship.hp = ship.maxHp;
   ship.coreDestroyed = false;
@@ -191,7 +199,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
         ship.componentHp[idx] -= dealt;
         remaining -= dealt;
         applied += dealt;
-        ship.dirtyComponents.add(idx);
+        markComponentDamageChanged(ship, idx);
         if (ship.componentHp[idx] <= 0.0001) {
           ship.componentHp[idx] = 0;
           onComponentDestroyed(room, ship, idx, now);
@@ -222,7 +230,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
     ship.hp -= dealt;
     remaining -= mult > 0 ? dealt / mult : remaining;
     applied += dealt;
-    ship.dirtyComponents.add(idx);
+    markComponentDamageChanged(ship, idx);
     if (ship.componentHp[idx] <= 0.0001) {
       ship.componentHp[idx] = 0;
       onComponentDestroyed(room, ship, idx, now);
@@ -351,7 +359,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
     ship.componentHp[i] -= dealt;
     if (ship.design[i].type === "heatSink") require("./heat").recalculateEffectiveThermalCapacities(ship, i);
     if (!isCore) ship.hp -= dealt; // the core is kept out of the hull sum
-    ship.dirtyComponents.add(i);
+    markComponentDamageChanged(ship, i);
     if (ship.componentHp[i] <= 0.0001) {
       ship.componentHp[i] = 0;
       onComponentDestroyed(room, ship, i, now);
@@ -456,7 +464,7 @@ function repairShipComponents(room, ship, amount, now, emitterShip) {
     // The core has a separate durability pool and is intentionally excluded
     // from ship.hp, so repairing core damage must not inflate hull integrity.
     if (!isCore) ship.hp = Math.min(ship.maxHp, ship.hp + heal);
-    ship.dirtyComponents.add(idx);
+    markComponentDamageChanged(ship, idx);
     remaining -= heal;
     healed += heal;
     if (wasDestroyed && ship.componentHp[idx] > 0) {
@@ -481,7 +489,7 @@ function zeroAllComponents(ship) {
   for (let i = 0; i < ship.componentHp.length; i += 1) {
     if (ship.componentHp[i] !== 0) {
       ship.componentHp[i] = 0;
-      ship.dirtyComponents.add(i);
+      markComponentDamageChanged(ship, i);
       changedAliveState = true;
     }
   }
@@ -527,6 +535,7 @@ module.exports = {
   updateEngineExhaustState,
   repairShipComponents,
   bumpComponentAliveRevision,
+  markComponentDamageChanged,
   assertComponentHpConsistency,
   isComponentAssertionEnabled,
   beginComponentLifecycleBatch, requestComponentLifecycleRefresh, endComponentLifecycleBatch, flushComponentLifecycleRefresh

@@ -6,6 +6,7 @@
 
 import { dom, withCanvasContext } from "./dom.js";
 import { state } from "../state.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 import { PART_DEFS, PART_STATS } from "../design/parts.js";
 import { getOccupiedCells } from "../design/footprint.js";
 import { drawRotatingWeaponTop } from "../game/componentArt.js";
@@ -40,6 +41,8 @@ let bound = false;
 // diagram. componentIndex is a persistent tap selection; hoverIndex is the
 // transient mouse hover.
 let diagramInteraction = null; // { shipId, componentIndex, hoverIndex, cellMap, cellSize, originX, originY }
+let diagramStaticCache = null;
+let powerWiringGeometryCache = null;
 const pendingDroneBayCommands = new Map();
 const DRONE_COMMAND_TIMEOUT_MS = 3000;
 const MIN_DRONE_UI_POWER = 0.05;
@@ -255,6 +258,7 @@ function renderPowerSummary(ship) {
   const networks = finitePowerValue(ws.powerNetworks);
   const broken = countOrZero(ws.brokenPowerConnections) + countOrZero(ws.disabledPowerSections);
   const overloaded = countOrZero(pp.aboveSustainedSectionCount) + countOrZero(pp.atPeakSectionCount);
+  const powerCableHeatRate = finitePowerValue(pt.powerCableHeatRate);
   const issueMarkup = visibleIssues.length
     ? visibleIssues.map(powerIssueHtml).join("")
     : `<p class="power-healthy-line"><span aria-hidden="true">OK</span> No Power issues detected</p>`;
@@ -281,6 +285,7 @@ function renderPowerSummary(ship) {
         ${powerDiagnosticRow("network", networks !== null ? networks : "Unavailable")}
         ${powerDiagnosticRow("broken/disabled", broken)}
         ${powerDiagnosticRow("overloaded", overloaded)}
+        ${powerDiagnosticRow("Cable Heat", powerCableHeatRate !== null ? `${formatHeatAmount(powerCableHeatRate)} H/s` : "Unavailable")}
       </div>
       <h4>Issues</h4>
       <div class="power-issues-section">
@@ -488,7 +493,9 @@ function statusLabel(status) {
 function selectedSingleShip() {
   if (state.selectedShipIds.size !== 1) return null;
   const [id] = state.selectedShipIds;
-  const ship = state.snapshot?.ships?.find((candidate) => candidate.id === id);
+  const ship = state.snapshotIndex?.selectedShipById?.get(id)
+    || state.snapshotIndex?.shipById?.get(id)
+    || state.snapshot?.ships?.find((candidate) => candidate.id === id);
   if (!ship || !ship.design || !ship.chp) return null;
   return ship;
 }
@@ -836,7 +843,7 @@ function switchStatusView(view) {
     clearDiagramSelection();
     clearComponentReadout();
   }
-  renderShipDamagePanel();
+  invalidatePresentation("panel-mode");
 }
 
 function diagramIndexAt(event) {
@@ -865,15 +872,13 @@ function handleDiagramPointerMove(event) {
     const changed = diagramInteraction.sectionHoverId !== sectionId || diagramInteraction.hoverIndex !== index;
     diagramInteraction.sectionHoverId = sectionId || undefined;
     diagramInteraction.hoverIndex = index;
-    refreshComponentReadout(ship);
-    if (changed) drawDiagram(ship);
+    if (changed) invalidatePresentation("telemetry-component");
     return;
   }
   const index = diagramIndexAt(event);
   const changed = diagramInteraction.hoverIndex !== index;
   diagramInteraction.hoverIndex = index;
-  refreshComponentReadout(ship);
-  if (changed) drawDiagram(ship);
+  if (changed) invalidatePresentation("telemetry-component");
 }
 
 function handleDiagramPointerDown(event) {
@@ -896,24 +901,21 @@ function handleDiagramPointerDown(event) {
       diagramInteraction.sectionSelectedId = undefined;
     }
     if (event.pointerType && event.pointerType !== "mouse") { diagramInteraction.hoverIndex = undefined; diagramInteraction.sectionHoverId = undefined; }
-    refreshComponentReadout(ship);
-    drawDiagram(ship);
+    invalidatePresentation("telemetry-component");
     return;
   }
   const index = diagramIndexAt(event);
   // Tapping a component selects it persistently; tapping outside clears.
   diagramInteraction.componentIndex = index;
   if (event.pointerType && event.pointerType !== "mouse") diagramInteraction.hoverIndex = undefined;
-  refreshComponentReadout(ship);
-  drawDiagram(ship);
+  invalidatePresentation("telemetry-component");
 }
 
 function handleDiagramPointerLeave() {
   if (diagramInteraction) { diagramInteraction.hoverIndex = undefined; diagramInteraction.sectionHoverId = undefined; }
   const ship = selectedSingleShip();
   if (ship && diagramInteraction && diagramInteraction.shipId === ship.id) {
-    refreshComponentReadout(ship);
-    drawDiagram(ship);
+    invalidatePresentation("telemetry-component");
   } else {
     clearComponentReadout();
   }
@@ -1050,6 +1052,43 @@ function shipDamageDiagramGeometry(ship, canvasWidth, canvasHeight, pad = 18) {
   return { cellMap, cellsByIndex, footprintByIndex, bounds, cellSize, originX, originY, pad };
 }
 
+function staticDiagramLayer(ship, canvas, trim) {
+  const key = [
+    ship.id,
+    ship.designRevision || 0,
+    canvas.width,
+    canvas.height,
+    trim
+  ].join("|");
+  if (diagramStaticCache?.key === key) return diagramStaticCache;
+  const geometry = shipDamageDiagramGeometry(ship, canvas.width, canvas.height);
+  const layer = typeof document !== "undefined" && document.createElement
+    ? document.createElement("canvas")
+    : null;
+  if (layer) {
+    layer.width = canvas.width;
+    layer.height = canvas.height;
+    const ctx = layer.getContext?.("2d");
+    if (ctx) {
+      withCanvasContext(ctx, () => {
+        ctx.save();
+        ctx.translate(geometry.originX, geometry.originY);
+        ctx.rotate(-Math.PI / 2);
+        ship.design.forEach((part) => {
+          const def = PART_DEFS[part.type] || PART_DEFS.frame;
+          const place = footprintLocalPlacement(part, geometry.cellSize);
+          drawPlacedStaticComponent(ctx, { part, place, unit: geometry.cellSize, color: def.color, trim });
+        });
+        ctx.restore();
+      });
+    }
+  }
+  diagramStaticCache = { key, layer, geometry };
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics.selectedStaticGeometryBuildCount = (diagnostics.selectedStaticGeometryBuildCount || 0) + 1;
+  return diagramStaticCache;
+}
+
 function hpBarColor(ratio) {
   if (ratio <= CRITICAL_RATIO) return "#ef4444";
   if (ratio < DAMAGED_RATIO) return "#fbb040";
@@ -1090,12 +1129,16 @@ function drawDiagram(ship) {
   const drawCtx = canvas?.getContext("2d");
   if (!drawCtx) return;
   drawCtx.clearRect(0, 0, canvas.width, canvas.height);
+  const player = state.snapshot?.players?.find((candidate) => candidate.id === ship.ownerId);
+  const trim = player?.color || "#8fd8ff";
+  const staticLayer = staticDiagramLayer(ship, canvas, trim);
+  if (staticLayer.layer) drawCtx.drawImage(staticLayer.layer, 0, 0);
 
   // Authoritative per-component footprints and bounds. The design bounds come
   // from the same footprintLocalPlacement()/drawPlacedStaticComponent() geometry
   // used to render art, not just anchor cells, so rotated multi-cell parts that
   // extend right, left, above, or below their anchor cannot be clipped.
-  const geometry = shipDamageDiagramGeometry(ship, canvas.width, canvas.height);
+  const geometry = staticLayer.geometry;
   const { cellMap, cellsByIndex, cellSize, originX, originY } = geometry;
   // Snapshots replace ship objects each frame, so interaction state is keyed
   // by ship id: the selection survives replacement objects for the same ship
@@ -1114,8 +1157,6 @@ function drawDiagram(ship) {
   const sectionHoverId = sameShip && sectionExists(diagramInteraction.sectionHoverId) ? diagramInteraction.sectionHoverId : undefined;
   diagramInteraction = { shipId: ship.id, componentIndex, hoverIndex, sectionSelectedId, sectionHoverId, cellMap, cellsByIndex, cellSize, originX, originY, bounds: geometry.bounds, sectionsScreen: [] };
 
-  const player = state.snapshot?.players?.find((candidate) => candidate.id === ship.ownerId);
-  const trim = player?.color || "#8fd8ff";
   const now = performance.now();
 
   // The arena drawing helpers work in ship-local space (nose along +x); rotate
@@ -1132,8 +1173,6 @@ function drawDiagram(ship) {
       const halfLong = (place.tilesLong * cellSize) / 2;
       const halfCross = (place.tilesCross * cellSize) / 2;
       drawCtx.save();
-      if (destroyed) drawCtx.globalAlpha *= 0.6;
-      drawPlacedStaticComponent(drawCtx, { part, place, unit: cellSize, color: def.color, trim });
       if (isRotatingWeaponPart(part.type)) {
         drawCtx.save();
         drawCtx.translate(place.cx, place.cy);
@@ -1239,14 +1278,35 @@ function cellCenterScreen(cx, cy, cellSize, originX, originY) {
 // section. Disabled/non-conducting sections render dashed; the selected and
 // hovered sections get a strong highlight. Colour is a secondary cue only.
 function drawPowerWiringOverlay(ship, drawCtx, cellSize, originX, originY) {
-  const sections = powerSectionsView(ship);
+  const layout = Array.isArray(ship.powerWiring?.sections) ? ship.powerWiring.sections : [];
+  const geometryKey = [
+    ship.id,
+    ship.powerWiringRevision ?? ship.wiringRevision ?? 0,
+    cellSize,
+    originX,
+    originY
+  ].join("|");
+  if (powerWiringGeometryCache?.key !== geometryKey) {
+    powerWiringGeometryCache = {
+      key: geometryKey,
+      sections: layout.map((section) => {
+        const a = cellCenterScreen(section.x1, section.y1, cellSize, originX, originY);
+        const b = cellCenterScreen(section.x2, section.y2, cellSize, originX, originY);
+        return { section, id: section.id, ax: a.x, ay: a.y, bx: b.x, by: b.y };
+      })
+    };
+    const diagnostics = state.presentationDiagnostics;
+    if (diagnostics) diagnostics.selectedStaticWiringBuildCount = (diagnostics.selectedStaticWiringBuildCount || 0) + 1;
+  }
+  const runtimeById = new Map((ship.powerWiringRuntime?.sections || []).map((section) => [section.id, section]));
   const geom = [];
   const selectedId = diagramInteraction?.sectionSelectedId;
   const hoverId = diagramInteraction?.sectionHoverId;
-  for (const section of sections) {
-    const a = cellCenterScreen(section.x1, section.y1, cellSize, originX, originY);
-    const b = cellCenterScreen(section.x2, section.y2, cellSize, originX, originY);
-    geom.push({ id: section.id, ax: a.x, ay: a.y, bx: b.x, by: b.y });
+  for (const cached of powerWiringGeometryCache.sections) {
+    const section = { ...cached.section, runtime: runtimeById.get(cached.id) || null };
+    const a = { x: cached.ax, y: cached.ay };
+    const b = { x: cached.bx, y: cached.by };
+    geom.push({ id: cached.id, ax: cached.ax, ay: cached.ay, bx: cached.bx, by: cached.by });
     const style = sectionStatusStyle(section);
     const width = tierStrokeWidth(section.tier, cellSize);
     const selected = section.id === selectedId;
@@ -1332,9 +1392,15 @@ function renderFeed(ship) {
   }
 }
 
-export function renderShipDamagePanel() {
+function bumpSelected(name) {
+  const diagnostics = state.presentationDiagnostics;
+  if (!diagnostics) return;
+  diagnostics[name] = (diagnostics[name] || 0) + 1;
+}
+
+function synchronizePanelShell() {
   const panel = dom.shipDamagePanel;
-  if (!panel) return;
+  if (!panel) return null;
   bindOnce();
 
   const view = state.shipStatusView === "heat" || state.shipStatusView === "power" ? state.shipStatusView : "damage";
@@ -1344,13 +1410,13 @@ export function renderShipDamagePanel() {
   dom.shipDamageTab?.classList.toggle("active", damageView);
   dom.shipHeatTab?.classList.toggle("active", heatView);
   dom.shipPowerTab?.classList.toggle("active", powerView);
-  dom.shipDamageTab?.setAttribute("aria-selected", String(damageView));
-  dom.shipHeatTab?.setAttribute("aria-selected", String(heatView));
-  dom.shipPowerTab?.setAttribute("aria-selected", String(powerView));
-  dom.shipDamageTab?.setAttribute("tabindex", damageView ? "0" : "-1");
-  dom.shipHeatTab?.setAttribute("tabindex", heatView ? "0" : "-1");
-  dom.shipPowerTab?.setAttribute("tabindex", powerView ? "0" : "-1");
-  dom.shipStatusPanelBody?.setAttribute("aria-labelledby", powerView ? "shipPowerTab" : heatView ? "shipHeatTab" : "shipDamageTab");
+  dom.shipDamageTab?.setAttribute?.("aria-selected", String(damageView));
+  dom.shipHeatTab?.setAttribute?.("aria-selected", String(heatView));
+  dom.shipPowerTab?.setAttribute?.("aria-selected", String(powerView));
+  dom.shipDamageTab?.setAttribute?.("tabindex", damageView ? "0" : "-1");
+  dom.shipHeatTab?.setAttribute?.("tabindex", heatView ? "0" : "-1");
+  dom.shipPowerTab?.setAttribute?.("tabindex", powerView ? "0" : "-1");
+  dom.shipStatusPanelBody?.setAttribute?.("aria-labelledby", powerView ? "shipPowerTab" : heatView ? "shipHeatTab" : "shipDamageTab");
   if (dom.damageLegend) dom.damageLegend.hidden = !damageView;
   if (dom.heatLegend) dom.heatLegend.hidden = !heatView;
   if (dom.powerLegend) dom.powerLegend.hidden = !powerView;
@@ -1366,23 +1432,62 @@ export function renderShipDamagePanel() {
     if (dom.shipHeatSummary) dom.shipHeatSummary.hidden = true;
     if (dom.shipPowerSummary) dom.shipPowerSummary.hidden = true;
     if (dom.shipDroneSummary) dom.shipDroneSummary.hidden = true;
-    return;
+    return null;
   }
   panel.hidden = false;
   renderDroneSummary(ship);
-  if (heatView) updateComponentHeatTrends(ship, state.snapshotReceivedAt, state.room, state.snapshotNetwork?.stateEpoch || 0);
+  return { ship, view };
+}
+
+function repaintSelectedDamage(ship) {
   drawDiagram(ship);
-  // Every new snapshot re-renders the readout from the latest ship object so
-  // the component line below the diagram can never show stale values.
   refreshComponentReadout(ship);
-  if (heatView) {
-    renderHeatSummary(ship);
-    if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
-  } else if (powerView) {
-    renderPowerSummary(ship);
-    if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
-  } else {
-    renderCoreStatus(ship);
-    renderFeed(ship);
-  }
+  renderCoreStatus(ship);
+  renderFeed(ship);
+}
+
+function repaintSelectedHeat(ship) {
+  updateComponentHeatTrends(ship, state.snapshotReceivedAt, state.room, state.snapshotNetwork?.stateEpoch || 0);
+  drawDiagram(ship);
+  refreshComponentReadout(ship);
+  renderHeatSummary(ship);
+  if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
+}
+
+function repaintSelectedPower(ship) {
+  drawDiagram(ship);
+  refreshComponentReadout(ship);
+  renderPowerSummary(ship);
+  if (dom.coreStatusLabel) dom.coreStatusLabel.hidden = true;
+}
+
+export function updateSelectedShipDamageUi() {
+  bumpSelected("selectedDamageUpdateCount");
+  const current = synchronizePanelShell();
+  if (!current || current.view !== "damage") return;
+  bumpSelected("selectedDynamicRedrawCount");
+  repaintSelectedDamage(current.ship);
+}
+
+export function updateSelectedShipHeatUi() {
+  bumpSelected("selectedHeatUpdateCount");
+  const current = synchronizePanelShell();
+  if (!current || current.view !== "heat") return;
+  bumpSelected("selectedDynamicRedrawCount");
+  repaintSelectedHeat(current.ship);
+}
+
+export function updateSelectedShipPowerUi() {
+  bumpSelected("selectedPowerUpdateCount");
+  const current = synchronizePanelShell();
+  if (!current || current.view !== "power") return;
+  bumpSelected("selectedDynamicRedrawCount");
+  repaintSelectedPower(current.ship);
+}
+
+export function renderShipDamagePanel() {
+  const view = state.shipStatusView;
+  if (view === "heat") updateSelectedShipHeatUi();
+  else if (view === "power") updateSelectedShipPowerUi();
+  else updateSelectedShipDamageUi();
 }

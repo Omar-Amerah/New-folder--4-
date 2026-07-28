@@ -4,6 +4,8 @@
 
 import { clamp } from "../shared/math.js";
 import { PART_STATS } from "../design/parts.js";
+import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { shipLocalBounds } from "./shipGeometry.js";
 
 // Per-component max hp mirrors the server: each part's base hp scaled so the
 // design total matches ship.maxHp. Cached per design array (designs are static
@@ -39,9 +41,20 @@ export function shieldRatioForShip(ship) {
   return clamp((Number(ship.shield) || 0) / maxShield, 0, 1);
 }
 
-export function shieldRingRadius(ship) {
-  const radius = Number(ship?.radius) || 0;
-  return Math.max(30, radius + Math.max(12, radius * 0.35));
+export function shieldRingRadius(ship, design = ship?.design, scale = 13) {
+  const collision = GENERATED_BALANCE?.projectiles?.shieldCollision || {};
+  const footprintRadius = shipLocalBounds(design, scale).radius;
+  const physicalRadius = Number(ship?.physicalRadius) || 0;
+  const gameplayRadius = Number(ship?.radius) || 0;
+  const hullRadius = footprintRadius > 0
+    ? Math.max(18, footprintRadius)
+    : Math.max(18, physicalRadius || gameplayRadius);
+  const flatPadding = Number(collision.flatPadding) || 0;
+  const proportionalPadding = hullRadius * (Number(collision.radiusMultiplier) || 0);
+  return Math.max(
+    Number(collision.minimumRadius) || 0,
+    hullRadius + Math.max(flatPadding, proportionalPadding)
+  );
 }
 
 export function hullColorForRatio(ratio) {

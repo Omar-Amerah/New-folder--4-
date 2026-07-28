@@ -25,7 +25,7 @@ has(designer, /heat-flag-displacement[\s\S]*heat-flag-cable-heat[\s\S]*heat-flag
 has(css, /heat-flag-cable-heat[\s\S]*box-shadow[\s\S]*heat-flag-cable-risk[\s\S]*repeating-linear-gradient/, "Thermal overlays use outlines/patterns rather than replacing tier colour");
 has(css, /prefers-reduced-motion[\s\S]*animation:none[\s\S]*heat-flag-cable-peak/, "Reduced-motion mode keeps static cues");
 has(designer, /isPhysicalBlueprintEditMode\(mode = state\.blueprintView\) \{ return mode === "build" \|\| mode === "heat"; \}/, "Heat mode still permits component placement and rotation");
-has(designer, /isBlueprintRemovalMode\(mode = state\.blueprintView\) \{ return mode === "build"; \}/, "Heat mode does not permit Build-only removal");
+has(designer, /isBlueprintRemovalMode\(mode = state\.blueprintView\) \{ return isPhysicalBlueprintEditMode\(mode\); \}/, "Heat mode permits component removal");
 has(designer, /previousView === "wiring" && state\.blueprintView !== "wiring"\) resetWiringTransientState\(\)/, "Leaving Wiring only clears transient route state");
 has(snapshots, /powerThermal = buildRuntimePowerThermalSnapshot\(ship\)/, "Runtime snapshot exposes authoritative compact Power/Heat diagnostics");
 has(merge, /"powerThermal"/, "Snapshot merge safely carries optional runtime diagnostics");

@@ -37,7 +37,7 @@ import {
   drawShipStructure,
   drawRotatingWeaponTop
 } from "../componentArt.js";
-import { moduleLocalPosition, footprintLocalPlacement, shipEngineNozzles } from "../shipGeometry.js";
+import { footprintLocalPlacement, shipEngineNozzles, shipLocalBounds } from "../shipGeometry.js";
 import { drawPlacedStaticComponent } from "../staticComponentComposition.js";
 import { isRotatingWeaponPart } from "../weaponAim.js";
 
@@ -89,13 +89,13 @@ export function acquireTurretArrowLease(env) {
 // block and non-directional mount. Rotating weapon tops are excluded — they
 // live on their own turret sprites.
 export function bakePixiHullTexture(env, design, color, radius) {
-  let maxAbsX = radius + 12;
-  let maxAbsY = radius + 12;
-  for (const part of design) {
-    const { x, y } = moduleLocalPosition(part, SHIP_SCALE);
-    maxAbsX = Math.max(maxAbsX, Math.abs(x));
-    maxAbsY = Math.max(maxAbsY, Math.abs(y));
-  }
+  const hullBounds = shipLocalBounds(design, SHIP_SCALE);
+  const hasFootprint = hullBounds.radius > 0;
+  const forwardEdge = hasFootprint ? hullBounds.maxX : radius;
+  const arrowBaseX = forwardEdge + 9;
+  const arrowTipX = forwardEdge + 21;
+  let maxAbsX = Math.max(radius + 12, Math.abs(hullBounds.minX), Math.abs(hullBounds.maxX), Math.abs(arrowTipX));
+  let maxAbsY = Math.max(radius + 12, Math.abs(hullBounds.minY), Math.abs(hullBounds.maxY));
   // Extra pad so multi-tile non-rotatable parts (engine/reactor/capacitor) that
   // extend a tile beyond their anchor cell are not clipped by the bake bounds.
   const pad = SHIP_SCALE * 1.6 + 16;
@@ -111,11 +111,11 @@ export function bakePixiHullTexture(env, design, color, radius) {
     }
     // Forward direction indicator (the ship's nose arrowhead).
     bctx.strokeStyle = color;
-    bctx.lineWidth = 2.5 / BAKE_NOMINAL_ZOOM;
+    bctx.lineWidth = 1.6 / BAKE_NOMINAL_ZOOM;
     bctx.beginPath();
-    bctx.moveTo(radius + 8, 0);
-    bctx.lineTo(radius - 8, -7);
-    bctx.lineTo(radius - 8, 7);
+    bctx.moveTo(arrowTipX, 0);
+    bctx.lineTo(arrowBaseX, -7);
+    bctx.lineTo(arrowBaseX, 7);
     bctx.closePath();
     bctx.stroke();
   });

@@ -222,9 +222,9 @@ const { BALANCE } = require("./src/server/balanceConfig");
   assert(getCommandAuraMultiplier(r, "shieldRestartDelayMultiplier") < 1, "shield restart delay reduction");
 }
 {
-  const ms = require("fs").readFileSync("./src/server/movement.js", "utf8");
-  assert(ms.includes("_shieldDepletedAt"), "movement.js uses _shieldDepletedAt (sim time)");
-  assert(!ms.includes("_shieldRestartAt"), "movement.js no longer uses _shieldRestartAt (wall-clock)");
+  const ms = require("fs").readFileSync("./src/server/runtimeShield.js", "utf8");
+  assert(ms.includes("_shieldDepletedAt"), "runtimeShield.js uses _shieldDepletedAt (sim time)");
+  assert(!ms.includes("_shieldRestartAt"), "runtimeShield.js no longer uses _shieldRestartAt (wall-clock)");
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import {
 import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
 import { createPlacementCandidate, findPartAtCell } from "../design/placementCandidate.js";
 import { normalizeRotation, nextRotation } from "../design/rotation.js";
-import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping, validateBlueprint } from "../design/blueprintValidation.js";
+import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { computeStats } from "../design/componentStats.js";
 import { buildShipSummaryModel, turnText, resolvePowerSummary } from "../design/shipSummaryModel.js";
@@ -16,9 +16,9 @@ import { defaultDesign, defaultWiring, persistDesign, makeDesignPart } from "../
 import { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, blueprintSnapshotsEqual, canUndoBlueprintEdit, undoBlueprintEdit as popBlueprintEditUndo, clearBlueprintEditHistory } from "../design/blueprintEditHistory.js";
 import { notify } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedBlueprintPresentation } from "./savedBlueprintsUi.js";
-import { updateEconomyUi } from "./purchaseUi.js";
 import { formatThrust, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
@@ -75,7 +75,7 @@ export function isPhysicalBlueprintEditMode(mode = state.blueprintView) { return
 export function isPaletteBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isWiringBlueprintEditMode(mode = state.blueprintView) { return mode === "wiring"; }
 export function isBlueprintRotationMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
-export function isBlueprintRemovalMode(mode = state.blueprintView) { return mode === "build"; }
+export function isBlueprintRemovalMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 
 const BLUEPRINT_MODE_CONTENT = {
   build: { title: "Build", description: "Add, rotate and remove ship components." },
@@ -276,7 +276,7 @@ function refreshBlueprintControls() {
   if (dom.buildInteractionGuide) {
     dom.buildInteractionGuide.hidden = wiringView;
     dom.buildInteractionGuide.textContent = heatView
-      ? "Place: left-click · Rotate: R or click again · Hover to inspect Heat"
+      ? "Place: left-click · Rotate: R or click again · Remove: right-click · Hover to inspect Heat"
       : "Place: left-click · Rotate: R or click again · Remove: right-click";
   }
   if (dom.emptyGridInstruction) {
@@ -287,7 +287,7 @@ function refreshBlueprintControls() {
       ? "Choose a component, then left-click a grid cell to place it while viewing predicted Heat."
       : "Choose a component, then left-click a grid cell to place it.";
     if (secondary) secondary.textContent = heatView
-      ? "Click the same component again or press R to rotate · Hover components to inspect Heat"
+      ? "Click the same component again or press R to rotate · Right-click to remove · Hover components to inspect Heat"
       : "Click the same component again or press R to rotate · Right-click to remove";
   }
   if (dom.rotationIndicator) refreshRotationIndicator();
@@ -981,6 +981,7 @@ function refreshAfterPhysicalEdit() {
   invalidateHeatAnalysisCache();
   persistCurrentEditorDesign();
   refreshEditorAfterBlueprintHistoryChange();
+  invalidatePresentation("blueprint-edit");
 }
 
 function cloneWiringUiState() {
@@ -1053,6 +1054,7 @@ export function undoBlueprintEdit() {
   clearHeatInspectionState();
   resetWiringEditorState();
   persistCurrentEditorDesign();
+  invalidatePresentation("blueprint-edit");
   if (blueprintEditUiHooks?.refresh) {
     blueprintEditUiHooks.refresh();
   } else {
@@ -1160,19 +1162,6 @@ export function removeCell(x, y) {
   const existing = findPartAt(x, y);
   if (!existing || existing.type === "core") return;
   const next = state.design.filter((part) => part !== existing);
-  const validation = validateBlueprint(next, { requireThrust: false });
-  // Removing a part must never be blocked by problems that already existed
-  // before the removal (e.g. an unconfigured Drone Bay elsewhere in the design).
-  // Only block when the removal itself introduces a NEW blueprint error, such as
-  // disconnecting the ship from its core.
-  const preexisting = new Set(validateBlueprint(state.design, { requireThrust: false }).errors);
-  const introduced = validation.errors.filter((message) => !preexisting.has(message));
-  if (introduced.length) {
-    const message = introduced[0] || "Removing that part would make the blueprint invalid";
-    setBuildStatus(message, "warning");
-    notify.warning(message);
-    return;
-  }
   const snapshot = captureBlueprintEditSnapshot(state);
   commitPhysicalEdit(snapshot, () => {
     state.design = next;
@@ -1379,7 +1368,6 @@ export function renderLocalStats() {
     dom.blueprintCostBreakdown.innerHTML = costBreakdownInnerMarkup(stats.costBreakdown);
   }
 
-  updateEconomyUi();
   renderAnalysisPanels(stats, heat);
 }
 
@@ -1456,9 +1444,6 @@ function renderAnalysisPanels(stats, heat) {
     ["Post-cap efficiency", postCapEfficiency],
     ["Acceleration", accelText(stats.accel)],
     ["+1 engine delta", marginalDelta],
-    ["Lateral acceleration", accelText(stats.lateralAccel)],
-    ["Braking acceleration", accelText(stats.brakingAccel)],
-    ["Reverse acceleration", accelText(stats.reverseAccel)],
     ["Turn rate", turnText(stats)],
     ["Effective thrust", formatThrust(stats.effectiveThrust)],
     ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`],

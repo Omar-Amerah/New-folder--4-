@@ -269,18 +269,10 @@ function mobilitySection(stats, ledger) {
     rows.push(statRow("timeTo90", "Time to 90% speed", `${t90} s`));
   }
 
-  if (hasThrust && Number(stats.lateralAccel || 0) >= 0.1) {
-    rows.push(statRow("lateralAccel", "Lateral acceleration", accelText(stats.lateralAccel)));
-  }
-  if (hasThrust && Number(stats.brakingAccel || 0) >= 0.1) {
-    rows.push(statRow("brakingAccel", "Braking acceleration", accelText(stats.brakingAccel)));
-  }
-  if (hasThrust && Number(stats.reverseAccel || 0) >= 0.1) {
-    rows.push(statRow("reverseAccel", "Reverse acceleration", accelText(stats.reverseAccel)));
-  }
-
   if (hasThrust && Number(stats.maxSpeed || 0) > 0) {
-    const decel = Math.max(Number(stats.accel || 0) * 0.5, Number(stats.brakingAccel || 0) * 0.5, stats.maxSpeed * 0.06 + 1);
+    // Flight assist thrusts in whatever direction is needed, so a ship stops on
+    // the same acceleration it accelerates with.
+    const decel = Number(stats.accel || 0);
     if (decel > 0) {
       const brakingDist = (stats.maxSpeed * stats.maxSpeed) / (2 * decel);
       rows.push(statRow("brakingDistance", "Braking distance", `${Math.round(brakingDist)} m`));

@@ -5,6 +5,354 @@ const { TEAM_COLORS } = require("./config");
 const DEFAULT_SHIP_RADIUS = 46;
 const STARTER_SPACING = 96;
 const MAX_FALLBACK_ATTEMPTS = 72;
+// Four world units is enough to avoid floating-point re-contact without
+// turning launch placement into an artificial wide-spread formation.
+const SHIP_SPAWN_MARGIN = 4;
+const SHIP_SPAWN_RESERVATION_TTL_MS = 5000;
+const SHIP_SPAWN_MAX_RINGS = 24;
+const WORLD_MARGIN = 42;
+const DIAGNOSTIC_KEYS = [
+  "spawnPlacementAttempts", "spawnPlacementSuccesses", "spawnPlacementFailures",
+  "spawnCandidatesRejectedByAsteroid", "spawnCandidatesRejectedByWorld",
+  "spawnCandidatesRejectedByShip", "spawnCandidatesRejectedByReservation",
+  "spawnReservationsCreated", "spawnReservationsReleased", "spawnOverlapDetected",
+  "rallySlotAssignments", "rallySlotFailures", "shipCollisionPairs",
+  "shipCollisionIterations", "shipCollisionPenetrationCorrected",
+  "shipCollisionImpulseApplied", "shipCollisionUnresolvedPairs",
+  "shipAvoidanceActivations", "shipAvoidanceSideChanges", "towingRegressionDetections",
+  "spawnShipsPushedAside"
+];
+
+function diagnostics(room) {
+  const counters = room.spawnCollisionDiagnostics || (room.spawnCollisionDiagnostics = {});
+  if (!counters._initialized) {
+    for (const key of DIAGNOSTIC_KEYS) if (!Number.isFinite(counters[key])) counters[key] = 0;
+    Object.defineProperty(counters, "_initialized", { value: true, enumerable: false, configurable: true });
+  }
+  return counters;
+}
+
+function bump(room, key, amount = 1) {
+  const counters = diagnostics(room);
+  counters[key] = (counters[key] || 0) + amount;
+}
+
+function authoritativePhysicalRadius(value) {
+  if (Number.isFinite(Number(value)) && typeof value !== "object") return Math.max(18, Number(value));
+  const radius = Number(value?.physicalRadius ?? value?.stats?.physicalRadius);
+  if (Number.isFinite(radius) && radius > 0) return radius;
+  const visualRadius = Number(value?.radius ?? value?.stats?.radius ?? value);
+  return Math.max(18, (Number.isFinite(visualRadius) ? visualRadius : DEFAULT_SHIP_RADIUS) * 0.56);
+}
+
+function expireSpawnReservations(room, now = Date.now()) {
+  const source = Array.isArray(room.spawnReservations) ? room.spawnReservations : [];
+  if (source.length === 0) {
+    room.spawnReservations = source;
+    return source;
+  }
+  let write = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    const reservation = source[i];
+    if (reservation && Number(reservation.expiresAt) > now) source[write++] = reservation;
+    else bump(room, "spawnReservationsReleased");
+  }
+  source.length = write;
+  return source;
+}
+
+function createSpawnReservations(room, playerId, requestId, placements, now = Date.now()) {
+  const active = expireSpawnReservations(room, now);
+  const created = placements.map((placement, index) => ({
+    id: `${String(requestId)}:${index}`,
+    playerId,
+    requestId: String(requestId),
+    x: placement.x,
+    y: placement.y,
+    radius: placement.physicalRadius,
+    physicalRadius: placement.physicalRadius,
+    createdAt: now,
+    expiresAt: now + SHIP_SPAWN_RESERVATION_TTL_MS
+  }));
+  active.push(...created);
+  bump(room, "spawnReservationsCreated", created.length);
+  return created;
+}
+
+function releaseSpawnReservations(room, reservations) {
+  if (!Array.isArray(reservations) || reservations.length === 0) return;
+  const ids = new Set(reservations.map((reservation) => reservation.id));
+  const active = Array.isArray(room.spawnReservations) ? room.spawnReservations : [];
+  let write = 0;
+  let released = 0;
+  for (let i = 0; i < active.length; i += 1) {
+    if (ids.has(active[i]?.id)) released += 1;
+    else active[write++] = active[i];
+  }
+  active.length = write;
+  bump(room, "spawnReservationsReleased", released);
+}
+
+function candidateBlockReason(room, x, y, physicalRadius, reservations, ignoredReservationIds, ignoredShips) {
+  const world = room.world || { width: 2000, height: 1600 };
+  const edge = WORLD_MARGIN + physicalRadius;
+  if (x < edge || x > world.width - edge || y < edge || y > world.height - edge) return "world";
+
+  const asteroidScratch = room._spawnAsteroidScratch || (room._spawnAsteroidScratch = []);
+  const asteroids = room.spatialIndex?.dynamicValid && room.spatialIndex.queryRangeUnordered
+    ? room.spatialIndex.queryRangeUnordered("asteroids", x, y, physicalRadius + 512, asteroidScratch)
+    : (room.map?.asteroids || []);
+  for (const asteroid of asteroids) {
+    if (!asteroid) continue;
+    const minimum = physicalRadius + Math.max(0, Number(asteroid.radius) || 0) + SHIP_SPAWN_MARGIN;
+    if ((x - asteroid.x) ** 2 + (y - asteroid.y) ** 2 < minimum * minimum) return "asteroid";
+  }
+
+  // The index is a fast first pass, but room.ships remains authoritative:
+  // freshly inserted ships may not have reached the current index yet.
+  const checked = new Set();
+  const shipScratch = room._spawnShipScratch || (room._spawnShipScratch = []);
+  const indexed = room.spatialIndex?.dynamicValid && room.spatialIndex.queryRangeUnordered
+    ? room.spatialIndex.queryRangeUnordered("ships", x, y, physicalRadius + 192, shipScratch)
+    : [];
+  const sources = [indexed, room.ships?.values?.() || []];
+  for (const source of sources) {
+    for (const ship of source) {
+      if (!ship?.alive || checked.has(ship) || ignoredShips?.has(ship)) continue;
+      checked.add(ship);
+      const minimum = physicalRadius + authoritativePhysicalRadius(ship) + SHIP_SPAWN_MARGIN;
+      if ((x - ship.x) ** 2 + (y - ship.y) ** 2 < minimum * minimum) return "ship";
+    }
+  }
+
+  const allReservations = [];
+  if (Array.isArray(room.spawnReservations)) allReservations.push(...room.spawnReservations);
+  if (Array.isArray(reservations)) allReservations.push(...reservations);
+  const seen = new Set();
+  for (const reservation of allReservations) {
+    if (!reservation || ignoredReservationIds?.has(reservation.id) || seen.has(reservation)) continue;
+    seen.add(reservation);
+    const minimum = physicalRadius + authoritativePhysicalRadius(reservation) + SHIP_SPAWN_MARGIN;
+    if ((x - reservation.x) ** 2 + (y - reservation.y) ** 2 < minimum * minimum) return "reservation";
+  }
+  return null;
+}
+
+function findClearShipSpawnPoint(room, options = {}) {
+  const physicalRadius = authoritativePhysicalRadius(options.physicalRadius);
+  const navigationRadius = Math.max(physicalRadius, Number(options.navigationRadius) || physicalRadius);
+  const preferredX = Number.isFinite(Number(options.preferredX)) ? Number(options.preferredX) : room.world.width / 2;
+  const preferredY = Number.isFinite(Number(options.preferredY)) ? Number(options.preferredY) : room.world.height / 2;
+  const seed = hashString(`${room.mapSeed || room.map?.seed || 0}:${options.ownerId || ""}:${options.requestId || ""}:${options.shipIndex || 0}`);
+  const phase = ((seed >>> 0) / 0x100000000) * Math.PI * 2 + (Number(options.spawnAngle) || 0);
+  const step = Math.max(physicalRadius * 2 + SHIP_SPAWN_MARGIN + 0.5, navigationRadius * 1.5);
+  const reservations = options.reservations || [];
+  const ignored = options.ignoredReservationIds || null;
+  let attempts = 0;
+  let lastReason = "no-clear-spawn";
+
+  for (let ring = 0; ring <= SHIP_SPAWN_MAX_RINGS; ring += 1) {
+    const ringRadius = ring * step;
+    const samples = ring === 0 ? 1 : Math.max(8, Math.ceil((Math.PI * 2 * ringRadius) / step));
+    for (let sample = 0; sample < samples; sample += 1) {
+      const angle = ring === 0 ? phase : phase + (sample * Math.PI * 2) / samples;
+      const x = preferredX + Math.cos(angle) * ringRadius;
+      const y = preferredY + Math.sin(angle) * ringRadius;
+      attempts += 1;
+      bump(room, "spawnPlacementAttempts");
+      const reason = candidateBlockReason(room, x, y, physicalRadius, reservations, ignored, options.ignoredShips);
+      if (!reason) {
+        bump(room, "spawnPlacementSuccesses");
+        return { ok: true, x: round(x), y: round(y), attempts, adjusted: ring !== 0, reason: ring === 0 ? "preferred-clear" : "outward-search", physicalRadius };
+      }
+      lastReason = reason;
+      const counter = reason === "world" ? "spawnCandidatesRejectedByWorld"
+        : reason === "asteroid" ? "spawnCandidatesRejectedByAsteroid"
+          : reason === "ship" ? "spawnCandidatesRejectedByShip"
+            : "spawnCandidatesRejectedByReservation";
+      bump(room, counter);
+    }
+  }
+  bump(room, "spawnPlacementFailures");
+  return { ok: false, reason: "no-clear-spawn", blockedBy: lastReason, attempts };
+}
+
+function planShipSpawns(room, options = {}) {
+  expireSpawnReservations(room, options.now);
+  const placements = [];
+  const count = Math.max(1, Number(options.count) || 1);
+  for (let i = 0; i < count; i += 1) {
+    const radius = Array.isArray(options.physicalRadii) ? options.physicalRadii[i] : options.physicalRadius;
+    const result = findClearShipSpawnPoint(room, {
+      ...options,
+      physicalRadius: radius,
+      shipIndex: i,
+      reservations: placements
+    });
+    if (!result.ok) return result;
+    placements.push({ ...result, radius: result.physicalRadius });
+  }
+  return { ok: true, placements, attempts: placements.reduce((sum, placement) => sum + placement.attempts, 0) };
+}
+
+function assertNoShipOverlap(room, ship, ignored = null) {
+  for (const other of room.ships?.values?.() || []) {
+    if (!other?.alive || other === ship || ignored?.has(other)) continue;
+    const minimum = authoritativePhysicalRadius(ship) + authoritativePhysicalRadius(other);
+    if ((ship.x - other.x) ** 2 + (ship.y - other.y) ** 2 < minimum * minimum - 1e-6) {
+      bump(room, "spawnOverlapDetected");
+      throw new Error(`Spawn overlap: ${ship.id} and ${other.id}`);
+    }
+  }
+  return true;
+}
+
+function pushShipsOutOfSpawn(room, options = {}) {
+  const physicalRadius = authoritativePhysicalRadius(options.physicalRadius);
+  const preferredX = Number(options.preferredX);
+  const preferredY = Number(options.preferredY);
+  if (!Number.isFinite(preferredX) || !Number.isFinite(preferredY)) {
+    return { ok: false, reason: "invalid-spawn" };
+  }
+
+  const liveShips = [...(room.ships?.values?.() || [])]
+    .filter((ship) => ship?.alive)
+    .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const blockers = liveShips.filter((ship) => {
+    const minimum = physicalRadius + authoritativePhysicalRadius(ship) + SHIP_SPAWN_MARGIN;
+    return (ship.x - preferredX) ** 2 + (ship.y - preferredY) ** 2 < minimum * minimum;
+  });
+  if (blockers.length === 0) return { ok: true, moved: [] };
+
+  // Never force a launch point through a wall or asteroid. This override is
+  // specifically for ship crowding; static geometry remains authoritative.
+  const staticReason = candidateBlockReason(
+    room, preferredX, preferredY, physicalRadius, [], null, new Set(liveShips)
+  );
+  if (staticReason) return { ok: false, reason: staticReason };
+
+  const moved = [];
+  const reserved = [{ x: preferredX, y: preferredY, radius: physicalRadius, physicalRadius, id: "launch-centre" }];
+  for (let index = 0; index < blockers.length; index += 1) {
+    const blocker = blockers[index];
+    let dx = blocker.x - preferredX;
+    let dy = blocker.y - preferredY;
+    let distance = Math.hypot(dx, dy);
+    if (distance < 0.001) {
+      const angle = ((hashString(`${options.requestId || ""}:${blocker.id}`) >>> 0) / 0x100000000) * Math.PI * 2;
+      dx = Math.cos(angle);
+      dy = Math.sin(angle);
+      distance = 1;
+    }
+    const blockerRadius = authoritativePhysicalRadius(blocker);
+    const minimumDistance = physicalRadius + blockerRadius + SHIP_SPAWN_MARGIN + 0.5;
+    const desiredDistance = Math.max(distance, minimumDistance);
+    const result = findClearShipSpawnPoint(room, {
+      preferredX: preferredX + dx / distance * desiredDistance,
+      preferredY: preferredY + dy / distance * desiredDistance,
+      physicalRadius: blockerRadius,
+      navigationRadius: blockerRadius + 8,
+      reservations: reserved,
+      ignoredShips: new Set([blocker]),
+      ownerId: blocker.ownerId,
+      requestId: `push:${options.requestId || ""}:${blocker.id}`,
+      shipIndex: index,
+      spawnAngle: Math.atan2(dy, dx)
+    });
+    if (!result.ok) {
+      rollbackPushedShips(moved);
+      return { ok: false, reason: "no-clear-push-space" };
+    }
+    moved.push({
+      ship: blocker,
+      x: blocker.x,
+      y: blocker.y,
+      targetX: blocker.targetX,
+      targetY: blocker.targetY,
+      collisionCorrectionX: blocker._collisionCorrectionX,
+      collisionCorrectionY: blocker._collisionCorrectionY
+    });
+    blocker.x = result.x;
+    blocker.y = result.y;
+    const movement = blocker.movement;
+    const movementCommand = movement?.command;
+    if (!movementCommand
+      || movementCommand.type === "stop"
+      || movement?.phase === "idle"
+      || movement?.phase === "positioned") {
+      blocker.targetX = result.x;
+      blocker.targetY = result.y;
+    }
+    blocker._collisionCorrectionX = (blocker._collisionCorrectionX || 0) + result.x - moved[moved.length - 1].x;
+    blocker._collisionCorrectionY = (blocker._collisionCorrectionY || 0) + result.y - moved[moved.length - 1].y;
+    reserved.push({ x: result.x, y: result.y, radius: blockerRadius, physicalRadius: blockerRadius, id: `pushed:${blocker.id}` });
+  }
+  bump(room, "spawnShipsPushedAside", moved.length);
+  return { ok: true, moved };
+}
+
+function rollbackPushedShips(moved) {
+  for (const entry of moved || []) {
+    entry.ship.x = entry.x;
+    entry.ship.y = entry.y;
+    entry.ship.targetX = entry.targetX;
+    entry.ship.targetY = entry.targetY;
+    entry.ship._collisionCorrectionX = entry.collisionCorrectionX;
+    entry.ship._collisionCorrectionY = entry.collisionCorrectionY;
+  }
+}
+
+function assignRallyArrivalSlots(room, ships, rallyPoint) {
+  const initial = ships.filter((ship) => ship?.alive);
+  const approach = initial.length
+    ? Math.atan2(
+      rallyPoint.y - initial.reduce((sum, ship) => sum + ship.y, 0) / initial.length,
+      rallyPoint.x - initial.reduce((sum, ship) => sum + ship.x, 0) / initial.length
+    )
+    : 0;
+  const lateralX = -Math.sin(approach);
+  const lateralY = Math.cos(approach);
+  const ordered = initial.slice().sort((a, b) => {
+    const lateralA = a.x * lateralX + a.y * lateralY;
+    const lateralB = b.x * lateralX + b.y * lateralY;
+    return lateralA - lateralB || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+  });
+  const assigned = [];
+  const slots = new Map();
+  const ignoredShips = new Set(ordered);
+  const totalWidth = ordered.reduce((sum, ship) => sum + authoritativePhysicalRadius(ship) * 2, 0)
+    + Math.max(0, ordered.length - 1) * SHIP_SPAWN_MARGIN;
+  let cursor = -totalWidth / 2;
+  for (let i = 0; i < ordered.length; i += 1) {
+    const ship = ordered[i];
+    const physicalRadius = authoritativePhysicalRadius(ship);
+    const lateralOffset = cursor + physicalRadius;
+    cursor += physicalRadius * 2 + SHIP_SPAWN_MARGIN;
+    const result = findClearShipSpawnPoint(room, {
+      preferredX: rallyPoint.x + lateralX * lateralOffset,
+      preferredY: rallyPoint.y + lateralY * lateralOffset,
+      physicalRadius,
+      navigationRadius: Math.max(physicalRadius + 8, physicalRadius * 1.2),
+      reservations: assigned,
+      ignoredShips,
+      ownerId: ship.ownerId,
+      requestId: `rally:${rallyPoint.x}:${rallyPoint.y}`,
+      shipIndex: i,
+      // Start on a row perpendicular to the fleet's approach. Retaining the
+      // fleet's lateral ordering avoids assigning crossing arrival paths.
+      spawnAngle: approach + Math.PI / 2
+    });
+    if (!result.ok) {
+      bump(room, "rallySlotFailures");
+      continue;
+    }
+    const slot = { x: result.x, y: result.y, radius: physicalRadius, physicalRadius, id: `rally:${ship.id}` };
+    assigned.push(slot);
+    slots.set(ship.id, slot);
+    bump(room, "rallySlotAssignments");
+  }
+  return slots;
+}
 
 function planSpawns(room, options = {}) {
   const players = [...(room.players?.values?.() || [])].sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -207,4 +555,11 @@ function hexToRgba(hex, alpha) { const h = hex.replace("#", ""); const r = parse
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function round(v) { return Math.round(v * 100) / 100; }
 function zoneInsideWorld(zone, world) { return zone.x - zone.radius >= 0 && zone.x + zone.radius <= world.width && zone.y - zone.radius >= 0 && zone.y + zone.radius <= world.height; }
-module.exports = { planSpawns, planSpawnRegions, getSpawnRegionPlan, freezeSpawnPlan, getPlannedSpawn, reservationRadius, invalidateSpawnPlan };
+module.exports = {
+  planSpawns, planSpawnRegions, getSpawnRegionPlan, freezeSpawnPlan, getPlannedSpawn,
+  reservationRadius, invalidateSpawnPlan, authoritativePhysicalRadius,
+  findClearShipSpawnPoint, planShipSpawns, createSpawnReservations,
+  releaseSpawnReservations, expireSpawnReservations, assertNoShipOverlap,
+  assignRallyArrivalSlots, pushShipsOutOfSpawn, rollbackPushedShips,
+  SHIP_SPAWN_MARGIN, SHIP_SPAWN_RESERVATION_TTL_MS
+};

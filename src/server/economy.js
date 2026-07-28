@@ -4,7 +4,7 @@ const { ECONOMY, REWARDS } = require("./config");
 const { clampNumber, round } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
-const { spawnShip } = require("./ships");
+const { spawnShip, applyRallySlots } = require("./ships");
 const { validateBuildShip } = require("./validation");
 const { getOrCreateTemplate, canonicalBlueprintSignature } = require("./shipTemplates");
 const { recordPurchaseStage } = require("./performanceTelemetry");
@@ -22,6 +22,17 @@ function finiteMoney(value, fallback = 0) {
   return Number.isFinite(number) ? Math.max(0, number) : fallback;
 }
 
+function refreshShipSpatialIndex(room, now) {
+  if (!room.spatialIndex?.rebuildKind) return;
+  const { shipBroadPhaseRadius } = require("./spatialIndex");
+  room.spatialIndex.rebuildKind(
+    "ships",
+    [...room.ships.values()].filter((ship) => ship?.alive),
+    shipBroadPhaseRadius,
+    now
+  );
+}
+
 function buyShip(room, player, now, options = {}) {
   if (!player.ready) return null;
   const stats = options.stats || player.stats || computeStats(player.design, player.wiring);
@@ -37,10 +48,68 @@ function buyShip(room, player, now, options = {}) {
     }
   }
 
-  player.shipsBuilt = (player.shipsBuilt || 0) + 1;
   const activeCount = activeFleetCount(player);
   const combatStyle = options.combatStyle || player.combatStyle || "hold";
-  const ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle });
+  const {
+    getPlannedSpawn, planShipSpawns, createSpawnReservations,
+    releaseSpawnReservations, assertNoShipOverlap,
+    pushShipsOutOfSpawn, rollbackPushedShips
+  } = require("./spawnPlanner");
+  const { computeDesignCollisionRadius } = require("./componentGeometry");
+  const preferred = getPlannedSpawn(room, player.id);
+  const requestId = options.requestId || `single:${player.id}:${room.nextEntityId}`;
+  const physicalRadius = computeDesignCollisionRadius(design, stats);
+  const original = {
+    shipsLength: player.ships.length,
+    effectsLength: room.effects.length,
+    nextEntityId: room.nextEntityId
+  };
+  const pushed = pushShipsOutOfSpawn(room, {
+    preferredX: preferred.x,
+    preferredY: preferred.y,
+    physicalRadius,
+    ownerId: player.id,
+    requestId
+  });
+  if (pushed.ok && pushed.moved.length) refreshShipSpatialIndex(room, now);
+  const plan = planShipSpawns(room, {
+    count: 1,
+    preferredX: preferred.x,
+    preferredY: preferred.y,
+    physicalRadius,
+    ownerId: player.id,
+    requestId,
+    spawnAngle: preferred.angle,
+    now
+  });
+  if (!plan.ok) {
+    rollbackPushedShips(pushed.moved);
+    if (pushed.moved?.length) refreshShipSpatialIndex(room, now);
+    if (!options.silent) player.lastBuildError = "No safe launch position is currently available.";
+    return null;
+  }
+  const reservations = createSpawnReservations(room, player.id, requestId, plan.placements, now);
+  let ship;
+  try {
+    ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle, spawnPoint: plan.placements[0], requestId });
+    if (process.env.NODE_ENV !== "production") assertNoShipOverlap(room, ship);
+    applyRallySlots(room, player, [ship]);
+  } catch (error) {
+    for (const added of player.ships.slice(original.shipsLength)) {
+      room.spatialIndex?.remove?.("ships", added);
+      room.ships.delete(added.id);
+    }
+    player.ships.length = original.shipsLength;
+    room.effects.length = original.effectsLength;
+    room.nextEntityId = original.nextEntityId;
+    rollbackPushedShips(pushed.moved);
+    if (pushed.moved?.length) refreshShipSpatialIndex(room, now);
+    releaseSpawnReservations(room, reservations);
+    if (!options.silent) player.lastBuildError = error.message;
+    return null;
+  }
+  releaseSpawnReservations(room, reservations);
+  player.shipsBuilt = (player.shipsBuilt || 0) + 1;
   player.money = finiteMoney(player.money - stats.unitCost);
   player.spent = finiteMoney(player.spent + stats.unitCost);
   player.deployedFleetCost = finiteMoney(player.deployedFleetCost + stats.unitCost);
@@ -116,6 +185,14 @@ function executePurchase(room, player, request, now) {
   const combatStyle = request.combatStyle || player.combatStyle || "hold";
   recordPurchaseStage("statCalculation", performance.now() - templateStart);
 
+  const {
+    getPlannedSpawn, planShipSpawns, createSpawnReservations,
+    releaseSpawnReservations, assertNoShipOverlap,
+    pushShipsOutOfSpawn, rollbackPushedShips
+  } = require("./spawnPlanner");
+  const preferred = getPlannedSpawn(room, player.id);
+  const { computeDesignCollisionRadius } = require("./componentGeometry");
+  const plannedPhysicalRadius = computeDesignCollisionRadius(template.design, validation.shipStats);
   const createdShips = [];
   const original = {
     money: player.money,
@@ -127,6 +204,32 @@ function executePurchase(room, player, request, now) {
     effectsLength: room.effects.length,
     lastBuildError: player.lastBuildError || ""
   };
+  const pushed = pushShipsOutOfSpawn(room, {
+    preferredX: preferred.x,
+    preferredY: preferred.y,
+    physicalRadius: plannedPhysicalRadius,
+    ownerId: player.id,
+    requestId
+  });
+  if (pushed.ok && pushed.moved.length) refreshShipSpatialIndex(room, now);
+  const spawnPlan = planShipSpawns(room, {
+    count: validation.count,
+    preferredX: preferred.x,
+    preferredY: preferred.y,
+    physicalRadius: plannedPhysicalRadius,
+    ownerId: player.id,
+    requestId,
+    spawnAngle: preferred.angle,
+    now
+  });
+  if (!spawnPlan.ok) {
+    rollbackPushedShips(pushed.moved);
+    if (pushed.moved?.length) refreshShipSpatialIndex(room, now);
+    const result = makePurchaseFailure(requestId, "spawn-area-blocked", "No safe launch position is currently available.");
+    cache.set(requestId, { at: now, signature, result });
+    return result;
+  }
+  const spawnReservations = createSpawnReservations(room, player.id, requestId, spawnPlan.placements, now);
 
   try {
     // Capture the active fleet count ONCE before spawning. Recomputing it inside
@@ -138,7 +241,10 @@ function executePurchase(room, player, request, now) {
       const index = initialActiveCount + i;
       createdShips.push(spawnShip(room, player, now, index, {
         template,
-        combatStyle
+        combatStyle,
+        spawnPoint: spawnPlan.placements[i],
+        requestId,
+        slotId: spawnReservations[i]?.id
       }));
       recordPurchaseStage("perShipSpawnTime", performance.now() - shipStart);
     }
@@ -170,6 +276,8 @@ function executePurchase(room, player, request, now) {
     player.deployedFleetCost = original.deployedFleetCost;
     player.shipsBuilt = original.shipsBuilt;
     player.lastBuildError = original.lastBuildError;
+    rollbackPushedShips(pushed.moved);
+    if (pushed.moved?.length) refreshShipSpatialIndex(room, now);
     
     // Assert rollback consistency
     if (process.env.NODE_ENV !== "production") {
@@ -181,8 +289,43 @@ function executePurchase(room, player, request, now) {
       }
     }
     
-    return makePurchaseFailure(requestId, "spawn-failed", "Could not spawn ship");
+    releaseSpawnReservations(room, spawnReservations);
+    return makePurchaseFailure(
+      requestId,
+      error?.code === "no-clear-spawn" ? "spawn-area-blocked" : "spawn-failed",
+      error?.code === "no-clear-spawn" ? "No safe launch position is currently available." : "Could not spawn ship"
+    );
   }
+
+  try {
+    if (process.env.NODE_ENV !== "production") {
+      for (const ship of createdShips) assertNoShipOverlap(room, ship);
+    }
+    applyRallySlots(room, player, createdShips);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") console.error("[Purchase] Post-spawn placement validation failed:", error);
+    for (const ship of createdShips) {
+      ship.removed = true;
+      ship.alive = false;
+      require("./componentGeometry").invalidateShipCollisionGeometry(ship);
+      room.spatialIndex?.remove?.("ships", ship);
+      room.ships.delete(ship.id);
+    }
+    player.ships.length = original.shipsLength;
+    Relationships.revalidateTelemetryFocusForRoom(room);
+    room.nextEntityId = original.nextEntityId;
+    room.effects.length = original.effectsLength;
+    player.money = original.money;
+    player.spent = original.spent;
+    player.deployedFleetCost = original.deployedFleetCost;
+    player.shipsBuilt = original.shipsBuilt;
+    player.lastBuildError = original.lastBuildError;
+    rollbackPushedShips(pushed.moved);
+    if (pushed.moved?.length) refreshShipSpatialIndex(room, now);
+    releaseSpawnReservations(room, spawnReservations);
+    return makePurchaseFailure(requestId, "spawn-failed", "Could not complete safe ship placement");
+  }
+  releaseSpawnReservations(room, spawnReservations);
 
   player.money = finiteMoney(player.money - validation.totalCost);
   player.spent = finiteMoney(player.spent + validation.totalCost);

@@ -23,7 +23,7 @@ function finite(value, fallback = 0) {
 }
 
 function shipBroadPhaseRadius(ship) {
-  const radius = Math.max(0, finite(ship?.radius));
+  const radius = Math.max(0, finite(ship?.radius), finite(ship?.physicalRadius));
   const shield = PROJECTILES.shieldCollision || {};
   const shieldRadius = Math.max(
     finite(shield.minimumRadius),

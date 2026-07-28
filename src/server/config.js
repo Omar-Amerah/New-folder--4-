@@ -17,7 +17,11 @@ const WORLD_SIZES = Object.freeze([
 ]);
 
 const TICK_HZ = 30;
-const SNAPSHOT_HZ = 15;
+// One snapshot per tick. Snapshots are per-client deltas against acknowledged
+// baselines, so halving the interval roughly halves each payload rather than
+// doubling bandwidth -- and it halves how long a command waits to become
+// visible, which dominates how responsive a move order feels.
+const SNAPSHOT_HZ = 30;
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_PLAYERS_PER_ROOM = 8;
 const ROOM_IDLE_MS = 15 * 60 * 1000;

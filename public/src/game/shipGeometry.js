@@ -10,12 +10,65 @@ import { getOccupiedCells } from "../design/footprint.js";
 // Grid center for the 15x15 build grid (core sits here), so modules render
 // centered on the ship's origin instead of offset toward one corner.
 export const GRID_CENTER = 7;
+const designBoundsCache = new WeakMap();
 
 export function moduleLocalPosition(part, scale) {
   return {
     x: (GRID_CENTER - part.y) * scale,
     y: (part.x - GRID_CENTER) * scale
   };
+}
+
+// Axis-aligned bounds and the furthest occupied hull corner in ship-local
+// space. Unlike ship.radius (a capped gameplay stat), these measurements follow
+// the rendered component footprint, so very small and very large designs do not
+// inherit the same visual envelope.
+export function shipLocalBounds(design, scale = 13) {
+  if (!Array.isArray(design) || design.length === 0) {
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0, radius: 0 };
+  }
+
+  let byScale = designBoundsCache.get(design);
+  if (!byScale) {
+    byScale = new Map();
+    designBoundsCache.set(design, byScale);
+  }
+  const cached = byScale.get(scale);
+  if (cached) return cached;
+
+  const halfCell = scale / 2;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let radius = 0;
+
+  for (const part of design) {
+    const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    for (const cell of cells) {
+      const center = moduleLocalPosition(cell, scale);
+      const left = center.x - halfCell;
+      const right = center.x + halfCell;
+      const top = center.y - halfCell;
+      const bottom = center.y + halfCell;
+      minX = Math.min(minX, left);
+      minY = Math.min(minY, top);
+      maxX = Math.max(maxX, right);
+      maxY = Math.max(maxY, bottom);
+      radius = Math.max(
+        radius,
+        Math.hypot(left, top),
+        Math.hypot(right, top),
+        Math.hypot(right, bottom),
+        Math.hypot(left, bottom)
+      );
+    }
+  }
+
+  const bounds = { minX, minY, maxX, maxY, radius };
+  byScale.set(scale, bounds);
+  return bounds;
 }
 
 // Where and how a (possibly multi-tile) part should be drawn on a ship, in the

@@ -13,10 +13,23 @@ import { renderSavedDesigns } from "./ui/savedBlueprintsUi.js";
 import * as lobbyUi from "./ui/lobbyUi.js";
 import * as purchaseUi from "./ui/purchaseUi.js";
 import { pruneSelection } from "./game/selection.js";
-import { updateHud } from "./ui/hudUi.js";
-import { renderSideControls, onCombatStyleResult } from "./ui/sidePanelUi.js";
-import { renderMatchStatus } from "./ui/matchStatusUi.js";
-import { updateWinnerBanner } from "./ui/endGameUi.js";
+import { updateTeamHud, updateFleetHud, updateEconomyHud, updateRelayHud, updateSelectionHud, updateObjectiveHud, updateHeatHud, updateLatencyHud } from "./ui/hudUi.js";
+import {
+  onCombatStyleResult,
+  updateShipGroupUi,
+  updateRallyUi,
+  updateSelectionCommandUi,
+  updateSelectedShipVitals,
+  updateSelectedShipDamageUi,
+  updateSelectedShipHeatUi,
+  updateSelectedShipPowerUi
+} from "./ui/sidePanelUi.js";
+import {
+  updateRelayStatus,
+  updateControlVictoryStatus,
+  updateScoreboardStatus,
+  updateWinnerStatus
+} from "./ui/matchStatusUi.js";
 import { notify, addLog } from "./ui/toastUi.js";
 import { recordServerBalanceRevision } from "./balanceStatus.js";
 import { LOCAL_ACTIVE_ROOM_KEY, LOCAL_DESIGN_KEY, WORLD_FALLBACK, FRONTEND_BUILD, DIAGNOSTICS_ENABLED, syncUrlParams } from "./constants.js";
@@ -28,179 +41,95 @@ import { mapSnapshotRejectionToResyncReason } from "./snapshotResync.js";
 import { acceptSnapshotForRender, resetRenderHistory } from "./game/renderInterpolation.js";
 import { disableReconnect, send, recordNetworkEvent } from "./network.js";
 import { centerCameraOnPoint } from "./game/camera.js";
+import {
+  allPresentationChanges,
+  buildSnapshotIndex,
+  captureLocalPresentationState,
+  changesForLocalInvalidation,
+  derivePresentationChanges,
+  dispatchPresentationChanges as dispatchSemanticPresentationChanges,
+  refreshSnapshotSelectionIndex
+} from "./snapshotPresentation.js";
+import { registerPresentationInvalidationHandler, invalidatePresentation } from "./presentationInvalidation.js";
 
-// One snapshot-derived client index per accepted snapshot. UI panes read from
-// this index instead of independently filtering snapshot.ships/players arrays.
-function buildClientSnapshotIndex(snapshot, myId, selectedIds) {
-  const shipById = new Map();
-  const ownLivingShips = [];
-  const ownLivingShipIds = [];
-  const selectedLivingShips = [];
-  const playersById = new Map();
-  const relaysByTeam = new Map();
-  for (const player of snapshot.players || []) playersById.set(player.id, player);
-  for (const ship of snapshot.ships || []) {
-    if (!ship) continue;
-    shipById.set(ship.id, ship);
-    const alive = ship.alive !== false;
-    if (alive && ship.ownerId === myId) {
-      ownLivingShips.push(ship);
-      ownLivingShipIds.push(ship.id);
-    }
-    if (alive && selectedIds && selectedIds.has(ship.id)) selectedLivingShips.push(ship);
-    if (ship.type === "relay" || ship.kind === "relay") {
-      const owner = ship.ownerId || "neutral";
-      let list = relaysByTeam.get(owner);
-      if (!list) relaysByTeam.set(owner, list = []);
-      list.push(ship);
-    }
-  }
-  return { shipById, ownLivingShips, ownLivingShipIds, selectedLivingShips, playersById, relaysByTeam };
-}
-
-// A compact, single-pass comparison that drives which UI layers run for a
-// snapshot. Avoids blindly calling every renderer on every accepted state.
-function playerChanged(prev, next) {
-  const keys = ["name", "team", "teamName", "ready", "isAdmin", "isBot", "color", "colour", "connected"];
-  if (!prev || !next) return true;
-  for (const key of keys) {
-    if (prev[key] !== next[key]) return true;
-  }
-  return false;
-}
-function playersChanged(previousIndex, nextIndex) {
-  const prev = previousIndex?.playersById;
-  const next = nextIndex?.playersById;
-  if (!prev || !next) return true;
-  if (prev.size !== next.size) return true;
-  for (const [id, prevPlayer] of prev) {
-    const nextPlayer = next.get(id);
-    if (!nextPlayer) return true;
-    if (playerChanged(prevPlayer, nextPlayer)) return true;
-  }
-  return false;
-}
-function rulesChanged(previous, next) {
-  const keys = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "asteroidDensity", "shipCap"];
-  for (const key of keys) {
-    if ((previous?.rules?.[key]) !== (next?.rules?.[key])) return true;
-  }
-  return false;
-}
-function economyChanged(previousIndex, nextIndex, myId) {
-  const prev = previousIndex?.playersById?.get(myId);
-  const next = nextIndex?.playersById?.get(myId);
-  if (!prev && !next) return false;
-  if (!prev || !next) return true;
-  const keys = ["money", "income", "activeShips", "shipCap", "spent", "fleetCost", "pendingPurchase"];
-  for (const key of keys) {
-    if (prev[key] !== next[key]) return true;
-  }
-  return false;
-}
-function fleetChanged(previousIndex, nextIndex) {
-  const prev = previousIndex?.shipById;
-  const next = nextIndex?.shipById;
-  if (!prev || !next) return true;
-  if (prev.size !== next.size) return true;
-  const keys = ["ownerId", "alive", "team"];
-  for (const [id, prevShip] of prev) {
-    const nextShip = next.get(id);
-    if (!nextShip) return true;
-    for (const key of keys) {
-      const pv = prevShip && prevShip[key];
-      const nv = nextShip && nextShip[key];
-      if (pv !== nv) return true;
-    }
-  }
-  return false;
-}
-function snapshotChangeSummary(previous, next, myId, selectedIds, previousIndex, nextIndex) {
-  const all = !previous || !previousIndex;
-  const previousSelectedCount = previousIndex?.selectedLivingShips?.length ?? 0;
-  const nextSelectedCount = nextIndex?.selectedLivingShips?.length ?? 0;
-  const nextPhase = next?.phase === undefined ? previous?.phase : next?.phase;
-  const nextObjectives = next?.objectives === undefined ? previous?.objectives : next?.objectives;
-  const nextVictor = next?.victor === undefined ? previous?.victor : next?.victor;
-  const summary = {
-    phaseChanged: all || previous.phase !== nextPhase,
-    playersChanged: all || playersChanged(previousIndex, nextIndex),
-    rulesChanged: all || rulesChanged(previous, next),
-    economyChanged: all || economyChanged(previousIndex, nextIndex, myId),
-    fleetChanged: all || fleetChanged(previousIndex, nextIndex),
-    selectionAffected: all || previousSelectedCount !== nextSelectedCount,
-    objectivesChanged: all || previous.objectives !== nextObjectives || previous.victor !== nextVictor,
-    winnerChanged: all || previous.victor !== nextVictor,
-    selectedShipDamageChanged: false,
-    selectedShipHeatChanged: false,
-    selectedShipPowerChanged: false,
-    lobbyVisible: Boolean((dom.lobbyManagementScreen && !dom.lobbyManagementScreen.hidden) || (dom.mainMenuScreen && !dom.mainMenuScreen.hidden))
-  };
-  if (all) {
-    summary.selectedShipDamageChanged = true;
-    summary.selectedShipHeatChanged = true;
-    summary.selectedShipPowerChanged = true;
-    return summary;
-  }
-  if (previousIndex && summary.fleetChanged) {
-    const selectedIdsSet = selectedIds || new Set();
-    for (const id of selectedIdsSet) {
-      const prevShip = previousIndex.shipById.get(id);
-      const nextShip = nextIndex?.shipById?.get(id);
-      if (prevShip && nextShip) {
-        if (prevShip.chp !== nextShip.chp || prevShip.hp !== nextShip.hp) summary.selectedShipDamageChanged = true;
-        if (prevShip.heat !== nextShip.heat || prevShip.componentHeatD !== nextShip.componentHeatD) summary.selectedShipHeatChanged = true;
-        if (prevShip.powerRevision !== nextShip.powerRevision || prevShip.componentPower !== nextShip.componentPower) summary.selectedShipPowerChanged = true;
-      }
-    }
-  }
-  return summary;
-}
-
-// Development/runtime counters to make snapshot and phase-transition regressions visible.
-const snapshotDiagnostics = {
-  snapshotAcceptedCount: 0,
-  snapshotPresentationErrorCount: 0,
-  phaseTransitionCount: 0,
-  phasePresentationSyncCount: 0,
-  lobbyToDesignCount: 0,
-  designToActiveCount: 0,
-  latest: {
-    previousPhase: null,
-    acceptedPhase: null,
-    statePhase: null,
-    snapshotSeq: null,
-    phaseChanged: null
-  }
-};
+// Compatibility alias retained for existing diagnostics consumers.
+const snapshotDiagnostics = state.presentationDiagnostics;
+snapshotDiagnostics.snapshotPresentationErrorCount ||= 0;
+snapshotDiagnostics.lobbyToDesignCount ||= 0;
+snapshotDiagnostics.designToActiveCount ||= 0;
 state.snapshotDiagnostics = snapshotDiagnostics;
 if (DIAGNOSTICS_ENABLED) globalThis.__mfaSnapshotDiagnostics = snapshotDiagnostics;
-
-function makeFallbackSummary() {
-  return {
-    phaseChanged: true,
-    playersChanged: true,
-    rulesChanged: true,
-    economyChanged: true,
-    fleetChanged: true,
-    selectionAffected: true,
-    objectivesChanged: true,
-    winnerChanged: true,
-    selectedShipDamageChanged: true,
-    selectedShipHeatChanged: true,
-    selectedShipPowerChanged: true,
-    lobbyVisible: true
-  };
-}
 
 function runPresentation(name, fn) {
   try {
     fn();
   } catch (e) {
+    snapshotDiagnostics.presentationErrorCount += 1;
     snapshotDiagnostics.snapshotPresentationErrorCount += 1;
     console.error(`[mfa] ${name} failed:`, e);
   }
 }
+
+function presentationHandlers() {
+  const handlers = {
+    updateTeamHud,
+    updateFleetHud,
+    updateEconomyHud,
+    updateRelayHud,
+    updateSelectionHud,
+    updateObjectiveHud,
+    updateHeatHud,
+    updateLatencyHud,
+    updateShipGroupUi,
+    updateRallyUi,
+    updateSelectionCommandUi,
+    updateSelectedShipVitals,
+    updateSelectedShipDamageUi,
+    updateSelectedShipHeatUi,
+    updateSelectedShipPowerUi,
+    updateLobbyVisibility: lobbyUi.updateLobbyVisibility,
+    updateLobbyRules: lobbyUi.updateLobbyRules,
+    updateLobbyPlayerRows: lobbyUi.updateLobbyPlayerRows,
+    updateLobbyPlayerStatus: lobbyUi.updateLobbyPlayerStatus,
+    updateRelayStatus,
+    updateControlVictoryStatus,
+    updateScoreboardStatus,
+    updateWinnerStatus,
+    updatePurchaseAffordability: purchaseUi.updatePurchaseAffordability,
+    updatePurchasePendingState: purchaseUi.updatePurchasePendingState,
+    updatePurchaseErrors: purchaseUi.updatePurchaseErrors,
+    updatePurchaseCatalogue: purchaseUi.updatePurchaseCatalogue,
+    updateDeploymentControls: purchaseUi.updateDeploymentControls
+  };
+  const forced = state.presentationTestHooks?.throwOnUpdater;
+  if (!forced || !handlers[forced]) return handlers;
+  return {
+    ...handlers,
+    [forced]: () => { throw new Error(`forced presentation updater failure: ${forced}`); }
+  };
+}
+
+export function dispatchPresentationChanges(changes) {
+  return dispatchSemanticPresentationChanges(changes, {
+    handlers: presentationHandlers(),
+    shipStatusView: state.shipStatusView,
+    onDispatch: (operations) => {
+      snapshotDiagnostics.presentationDispatchCount += 1;
+      snapshotDiagnostics.latest.operations = operations.slice();
+      state.snapshotPresentationUpdatePlan = operations;
+    },
+    onError: (operation, error) => {
+      snapshotDiagnostics.presentationErrorCount += 1;
+      snapshotDiagnostics.snapshotPresentationErrorCount += 1;
+      console.error(`[mfa] ${operation} failed:`, error);
+    }
+  });
+}
+
+registerPresentationInvalidationHandler((reason) => {
+  if (reason === "selection") refreshSnapshotSelectionIndex(state.snapshotIndex, state.selectedShipIds);
+  dispatchPresentationChanges(changesForLocalInvalidation(reason));
+});
 
 // Authoritative phase presentation: drives critical mode switches and is never skipped by optional UI optimisation.
 export function synchronizePhasePresentation(previousPhase, nextPhase) {
@@ -208,41 +137,34 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
   snapshotDiagnostics.phasePresentationSyncCount += 1;
 
   if (nextPhase === "lobby") {
-    closeBlueprintDesigner();
-    lobbyUi.clearMatchPanels?.();
-    lobbyUi.openLobbyManagement();
+    runPresentation("phase:closeBlueprintDesigner", closeBlueprintDesigner);
+    runPresentation("phase:clearMatchPanels", () => lobbyUi.clearMatchPanels?.());
+    runPresentation("phase:openLobbyManagement", lobbyUi.openLobbyManagement);
+    runPresentation("phase:updateDeploymentControls", purchaseUi.updateDeploymentControls);
     return;
   }
 
-  if (previousPhase === "lobby" && nextPhase === "design") {
-    lobbyUi.hideMenuScreens();
-    lobbyUi.updateLobbyState();
-    renderSideControls();
-    closeBlueprintDesigner();
-    return;
-  }
+  runPresentation("phase:hideMenuScreens", lobbyUi.hideMenuScreens);
+  runPresentation("phase:closeBlueprintDesigner", closeBlueprintDesigner);
+  runPresentation("phase:updateDeploymentControls", purchaseUi.updateDeploymentControls);
+  runPresentation("phase:updateRallyUi", updateRallyUi);
+  runPresentation("phase:updateSelectionCommandUi", updateSelectionCommandUi);
 
-  if (previousPhase === "design" && nextPhase === "active") {
-    lobbyUi.hideMenuScreens();
-    closeBlueprintDesigner();
-    lobbyUi.updateLobbyState();
-    updateHud();
-    renderSideControls();
-    purchaseUi.updateEconomyUi({ refreshCatalogue: false });
-    if (state.mine?.rallyPoint) centerCameraOnPoint(state.mine.rallyPoint, 0.35);
+  if (nextPhase === "active") {
+    runPresentation("phase:updateRelayStatus", updateRelayStatus);
+    runPresentation("phase:updateControlVictoryStatus", updateControlVictoryStatus);
+    runPresentation("phase:updateScoreboardStatus", updateScoreboardStatus);
+    if (state.mine?.rallyPoint) runPresentation("phase:centerCameraOnRally", () => centerCameraOnPoint(state.mine.rallyPoint, 0.35));
     return;
   }
 
   if (nextPhase === "ended") {
-    updateWinnerBanner();
-    renderMatchStatus();
+    runPresentation("phase:updateWinnerStatus", updateWinnerStatus);
+    runPresentation("phase:updateRelayStatus", updateRelayStatus);
+    runPresentation("phase:updateControlVictoryStatus", updateControlVictoryStatus);
+    runPresentation("phase:updateScoreboardStatus", updateScoreboardStatus);
     return;
   }
-
-  // Fallback for any other phase change (e.g. active -> lobby/ended variants)
-  lobbyUi.updateLobbyState();
-  renderSideControls();
-  updateHud();
 }
 
 // Records the backend's protocol/build identification and reports skew. The
@@ -310,6 +232,7 @@ function recordServerBuild(message) {
   }
   info.compatibility = checkServerProtocol(info);
   state.server = info;
+  invalidatePresentation("purchase-catalogue");
   // Read-only debug handle for diagnostics and the missing-angle warning.
   globalThis.__mfaServerBuild = { ...info };
   return info.compatibility;
@@ -412,8 +335,7 @@ export function handleServerMessage(message) {
     lobbyUi.clearMenuNotice();
     rememberActiveRoom(message.room);
     lobbyUi.setConnectionStatus("online", "Room linked");
-    renderSideControls();
-    lobbyUi.updateLobbyState();
+    invalidatePresentation("selection");
     if (state.phase === "design" || state.phase === "active") {
       lobbyUi.hideMenuScreens();
     } else {
@@ -425,6 +347,9 @@ export function handleServerMessage(message) {
   if (message.type === "state") {
     recordServerBuild(message);
     const previousPhase = state.phase;
+    const previousSnapshot = state.snapshot;
+    const previousIndex = state.snapshotIndex;
+    const previousLocalState = captureLocalPresentationState(state);
     const result = mergeSnapshotTransaction(state.snapshot, state.snapshotNetwork, message);
     if (!result.ok) {
       const wireReason = mapSnapshotRejectionToResyncReason(result.reason);
@@ -441,31 +366,21 @@ export function handleServerMessage(message) {
     snapshotDiagnostics.latest.snapshotSeq = state.snapshotNetwork.snapshotSeq;
 
     const accepted = result.snapshot;
-    const previousSnapshot = state.snapshot;
-    const previousIndex = state.snapshotIndex;
-
-    // Reduce component-HP comparison work: only examine ships that carry a
-    // changed component-HP payload. The backend already sends chpD for deltas.
-    const oldShips = new Map((previousSnapshot?.ships || []).map((s) => [s.id, s]));
-    for (const newShip of accepted.ships || []) {
-      const oldShip = oldShips.get(newShip.id);
-      const hpChanged = oldShip && newShip.chp && newShip.chp !== oldShip.chp;
-      const hasDelta = newShip.chpD && newShip.chpD.length;
-      if ((hpChanged || hasDelta) && newShip.chp) recordComponentHpChanges(newShip, oldShip?.chp || newShip.chp, newShip.chp);
-    }
-
-    const nextIndex = buildClientSnapshotIndex(accepted, state.myId, state.selectedShipIds);
+    const nextIndex = buildSnapshotIndex(accepted, state.myId, state.selectedShipIds);
 
     // Apply authoritative state unconditionally before any optional presentation work.
     state.snapshot = accepted;
     state.snapshotIndex = nextIndex;
-    state.mine = nextIndex.playersById.get(state.myId) || null;
+    state.mine = nextIndex.playerById.get(state.myId) || null;
     state.room = accepted.room ?? state.room;
     state.world = accepted.world ?? state.world;
     state.map = accepted.map ?? state.map;
     state.phase = accepted.phase ?? state.phase;
     state.adminId = accepted.adminId ?? state.adminId;
     state.rules = { ...state.rules, ...(accepted.rules || {}) };
+    if (state.phase === "design" && state.pendingStartDesign) state.pendingStartDesign = false;
+    if (state.pendingDeploy && state.mine?.ready) state.pendingDeploy = false;
+    pruneSelection({ invalidate: false });
 
     const phaseChanged = previousPhase !== state.phase;
     snapshotDiagnostics.latest.previousPhase = previousPhase;
@@ -474,55 +389,55 @@ export function handleServerMessage(message) {
     snapshotDiagnostics.latest.phaseChanged = phaseChanged;
     if (phaseChanged) snapshotDiagnostics.phaseTransitionCount += 1;
 
-    let summary;
-    try {
-      summary = snapshotChangeSummary(previousSnapshot, accepted, state.myId, state.selectedShipIds, previousIndex, nextIndex);
-    } catch (e) {
-      snapshotDiagnostics.snapshotPresentationErrorCount += 1;
-      console.error("[mfa] snapshotChangeSummary failed:", e);
-      summary = makeFallbackSummary();
-    }
-    state.snapshotChangeSummary = summary;
-
-    acceptSnapshotForRender(accepted, state.snapshotReceivedAt);
-    dom.roomLabel.textContent = state.room;
-    purchaseUi.reconcilePendingPurchasesWithSnapshot();
-    pruneSelection();
+    // Renderer authority and presentation-side damage history are isolated from
+    // semantic comparators: neither can prevent accepted state from being stored.
+    runPresentation("acceptSnapshotForRender", () => acceptSnapshotForRender(accepted, state.snapshotReceivedAt));
+    runPresentation("recordComponentHpChanges", () => {
+      const oldShips = previousIndex?.shipById || new Map();
+      for (const newShip of accepted.ships || []) {
+        const oldShip = oldShips.get(newShip.id);
+        const hpChanged = oldShip && newShip.componentDamageRevision !== oldShip.componentDamageRevision;
+        const hasDelta = Boolean(newShip.chpD?.length);
+        if ((hpChanged || hasDelta) && newShip.chp) {
+          recordComponentHpChanges(newShip, oldShip?.chp || newShip.chp, newShip.chp);
+        }
+      }
+    });
+    runPresentation("reconcilePendingPurchasesWithSnapshot", purchaseUi.reconcilePendingPurchasesWithSnapshot);
     synchronizeTelemetryFocus();
 
-    // Critical phase presentation is guarded by its own narrow error boundary.
+    const nextLocalState = captureLocalPresentationState(state);
+    let changes;
+    try {
+      if (state.presentationTestHooks?.throwOnComparator) throw new Error("forced presentation comparator failure");
+      changes = derivePresentationChanges({
+        previousSnapshot,
+        nextSnapshot: accepted,
+        previousIndex,
+        nextIndex,
+        previousLocalState,
+        nextLocalState,
+        myId: state.myId
+      });
+    } catch (e) {
+      snapshotDiagnostics.presentationErrorCount += 1;
+      snapshotDiagnostics.snapshotPresentationErrorCount += 1;
+      console.error("[mfa] derivePresentationChanges failed:", e);
+      changes = allPresentationChanges(previousPhase, state.phase);
+    }
+    // The joined packet may establish the phase before the first authoritative
+    // snapshot. Presentation phase ownership compares the applied client phase,
+    // so initial lobby domains are not accidentally suppressed as a transition.
+    changes.phase.previous = previousPhase;
+    changes.phase.next = state.phase;
+    changes.phase.changed = phaseChanged;
+    state.snapshotChangeSummary = changes;
+
+    // Optional domains are isolated from each other. Critical phase
+    // synchronization always runs afterwards, even if a comparator/updater fails.
+    dispatchPresentationChanges(changes);
     if (phaseChanged) {
-      try {
-        synchronizePhasePresentation(previousPhase, state.phase);
-        snapshotDiagnostics.phasePresentationSyncCount += 1;
-      } catch (e) {
-        snapshotDiagnostics.snapshotPresentationErrorCount += 1;
-        console.error("[mfa] synchronizePhasePresentation failed:", e);
-      }
-    }
-
-    // Optional UI updates each have narrow error boundaries.
-    if (summary.fleetChanged || summary.selectionAffected) runPresentation("updateHud", updateHud);
-    if (summary.fleetChanged || summary.selectionAffected || summary.phaseChanged) runPresentation("renderSideControls", renderSideControls);
-    if (summary.objectivesChanged || summary.winnerChanged || summary.phaseChanged) runPresentation("renderMatchStatus", renderMatchStatus);
-    if (summary.economyChanged) runPresentation("updateEconomyUi", () => purchaseUi.updateEconomyUi({ refreshCatalogue: false }));
-    if (summary.playersChanged || summary.rulesChanged || summary.phaseChanged || summary.lobbyVisible) runPresentation("updateLobbyState", lobbyUi.updateLobbyState);
-    if (summary.winnerChanged) runPresentation("updateWinnerBanner", updateWinnerBanner);
-
-    // Clear pending request presentation once the server confirms them.
-    if (state.phase === "design" && state.pendingStartDesign) {
-      state.pendingStartDesign = false;
-      if (dom.startDesignButton) {
-        dom.startDesignButton.disabled = false;
-        dom.startDesignButton.classList.remove("is-loading");
-        dom.startDesignButton.textContent = dom.startDesignButton.dataset.originalText || "Start Blueprint Design";
-      }
-    }
-    if (state.pendingDeploy && state.mine?.ready) {
-      state.pendingDeploy = false;
-      if (dom.deployButton) {
-        dom.deployButton.classList.remove("is-loading");
-      }
+      synchronizePhasePresentation(previousPhase, state.phase);
     }
 
     return;
@@ -542,7 +457,6 @@ function requestFullState(reason) {
 
   if (message.type === "purchaseResult") {
     purchaseUi.handlePurchaseResult(message);
-    renderSideControls();
     return;
   }
 
@@ -555,6 +469,7 @@ function requestFullState(reason) {
     if (message.at) {
       state.latency = performance.now() - message.at;
       state.lastPongAt = performance.now();
+      invalidatePresentation("latency");
     }
     return;
   }

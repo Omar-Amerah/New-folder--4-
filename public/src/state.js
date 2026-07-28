@@ -23,6 +23,61 @@ function makeStars(count) {
 
 export const DEFAULT_THERMAL_LOAD_MODE = "combat";
 
+export const PRESENTATION_DIAGNOSTIC_DEFAULTS = Object.freeze({
+  snapshotAcceptedCount: 0,
+  presentationDispatchCount: 0,
+  presentationErrorCount: 0,
+  phaseTransitionCount: 0,
+  phasePresentationSyncCount: 0,
+  economyHudUpdateCount: 0,
+  fleetHudUpdateCount: 0,
+  relayHudUpdateCount: 0,
+  selectionHudUpdateCount: 0,
+  objectiveHudUpdateCount: 0,
+  heatHudUpdateCount: 0,
+  latencyHudUpdateCount: 0,
+  teamHudUpdateCount: 0,
+  lobbyPlayerListRebuildCount: 0,
+  lobbyPlayerRowPatchCount: 0,
+  hiddenLobbyDomWriteCount: 0,
+  selectedVitalsUpdateCount: 0,
+  selectedDamageUpdateCount: 0,
+  selectedHeatUpdateCount: 0,
+  selectedPowerUpdateCount: 0,
+  selectedStaticGeometryBuildCount: 0,
+  selectedStaticWiringBuildCount: 0,
+  selectedDynamicRedrawCount: 0,
+  purchaseAffordabilityUpdateCount: 0,
+  purchasePendingUpdateCount: 0,
+  purchaseErrorUpdateCount: 0,
+  purchaseCatalogueBuildCount: 0,
+  deploymentControlsUpdateCount: 0,
+  matchStatusUpdateCount: 0,
+  relayStatusUpdateCount: 0,
+  controlVictoryStatusUpdateCount: 0,
+  scoreboardStatusUpdateCount: 0,
+  winnerUpdateCount: 0,
+  presentationDomWriteCount: 0,
+  hudDomWriteCount: 0,
+  lobbyDomWriteCount: 0,
+  purchaseDomWriteCount: 0,
+  selectedPanelDomWriteCount: 0
+});
+
+function makePresentationDiagnostics() {
+  return {
+    ...PRESENTATION_DIAGNOSTIC_DEFAULTS,
+    latest: {
+      previousPhase: null,
+      acceptedPhase: null,
+      statePhase: null,
+      snapshotSeq: null,
+      phaseChanged: null,
+      operations: []
+    }
+  };
+}
+
 export const state = {
   visualShips: new Map(),
   socket: null,
@@ -102,6 +157,15 @@ export const state = {
   },
   settingRallyPoint: false,
   snapshot: null,
+  snapshotIndex: null,
+  presentationDiagnostics: makePresentationDiagnostics(),
+  presentationLocalRevision: {
+    blueprint: 0,
+    wiring: 0,
+    purchase: 0,
+    telemetry: 0,
+    rally: 0
+  },
   snapshotNetwork: { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 },
   // Backend identification from hello/state messages:
   // { protocolVersion, buildSha, compatibility: "ok" | "stale" | "incompatible" }

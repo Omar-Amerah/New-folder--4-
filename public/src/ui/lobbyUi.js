@@ -13,6 +13,7 @@ import { updateEconomyUi, renderPurchaseBar } from "./purchaseUi.js";
 import { renderPalette } from "./partPaletteUi.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { renderBuildGrid, renderLocalStats } from "./designerUi.js";
+import { invalidatePresentation } from "../presentationInvalidation.js";
 import { closeBlueprintDesigner } from "./designerScreenUi.js";
 import { escapeHtml, formatMoney } from "../shared/formatting.js";
 import { normalizeDesign } from "../design/blueprintStorage.js";
@@ -38,14 +39,37 @@ const AUTHORITATIVE_TEAM_IDS = ["blue", "red"];
 let pendingTeamChange = null;
 let lastTeamOptionsSignature = "";
 let lastRulesReadOnlySignature = "";
-let lastPlayerListSignature = "";
 
+function bumpPresentation(name) {
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics[name] = (diagnostics[name] || 0) + 1;
+}
 
 export function isAdmin() {
   return state.adminId === state.myId || Boolean(state.mine?.isAdmin);
 }
 
-function isLobbyPanelOpen() {
+export function getLobbyInteractionState() {
+  const phase = state.snapshot?.phase ?? state.phase;
+  const readyState = state.socket?.readyState;
+  const connected = readyState === WebSocket.OPEN && Boolean(state.room);
+  const connecting = readyState === WebSocket.CONNECTING;
+  const admin = isAdmin();
+  const playerCount = state.snapshotIndex?.playerById?.size
+    ?? state.snapshot?.players?.length
+    ?? 0;
+  return {
+    phase,
+    connected,
+    connecting,
+    admin,
+    playerCount,
+    canEditRules: connected && admin && phase === "lobby",
+    canChooseTeam: connected && phase === "lobby"
+  };
+}
+
+export function isLobbyPresentationVisible() {
   // The lobby DOM is only meaningful when the main menu or lobby management
   // screen is actually visible. During active play these screens are hidden
   // and repeated snapshot-driven DOM rebuilds must be skipped.
@@ -55,12 +79,8 @@ function isLobbyPanelOpen() {
   );
 }
 
-export function updateLobbyConnectionState() {
-  const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
-  const connecting = state.socket?.readyState === WebSocket.CONNECTING;
-  const playerCount = state.snapshot?.players?.length || 0;
-  const phase = state.snapshot?.phase || state.phase;
-  const admin = isAdmin();
+export function updateLobbyConnectionState(interaction = getLobbyInteractionState()) {
+  const { connected, connecting, playerCount, phase, admin } = interaction;
 
   const roomStateText = connected ? `${phaseLabel(phase)} | ${playerCount} in Room` : connecting ? "Connecting" : "Not Joined";
   if (dom.roomState && dom.roomState.textContent !== roomStateText) dom.roomState.textContent = roomStateText;
@@ -100,52 +120,33 @@ export function updateLobbyConnectionState() {
   if (dom.currentRoomCode) dom.currentRoomCode.textContent = state.room || "----";
 }
 
-export function updateLobbyRulesState() {
-  const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
-  const phase = state.snapshot?.phase || state.phase;
-  const playerCount = state.snapshot?.players?.length || 0;
-  const admin = isAdmin();
-  updateRulesControls(connected, admin, phase, playerCount);
-  updateTeamChoiceControls(connected, phase);
+export function updateLobbyRulesState(interaction = getLobbyInteractionState()) {
+  updateRulesControls(interaction);
+  updateTeamChoiceControls(interaction);
 }
 
-export function updateLobbyPhaseState() {
-  const phase = state.snapshot?.phase || state.phase;
-  updatePhaseSteps(phase);
-  updatePhaseDetail(phase);
-}
-
-function playerListSignature(players, phase, adminId) {
-  return players.map((p) => [
-    p.id,
-    p.name,
-    p.team,
-    p.teamName,
-    p.ready,
-    p.isAdmin,
-    p.isBot,
-    p.color,
-    phase,
-    adminId
-  ].join("\x1f")).join("\x1e");
+export function updateLobbyPhaseState(interaction = getLobbyInteractionState()) {
+  updatePhaseSteps(interaction.phase);
+  updatePhaseDetail(interaction.phase);
 }
 
 export function updateLobbyPlayerState() {
-  if (!dom.playerList) return;
-  const players = state.snapshot?.players || [];
-  const phase = state.snapshot?.phase || state.phase;
-  const nextSignature = playerListSignature(players, phase, state.adminId);
-  if (nextSignature === lastPlayerListSignature) return;
-  lastPlayerListSignature = nextSignature;
+  updateLobbyPlayerRows();
+  updateLobbyPlayerStatus();
+}
+
+export function updateLobbyPlayerRows() {
+  if (!isLobbyPresentationVisible() || !dom.playerList) return;
   renderPlayerList();
 }
 
 export function updateLobbyState() {
-  updateLobbyConnectionState();
-  if (!isLobbyPanelOpen()) return;
-  updateLobbyRulesState();
-  updateLobbyPhaseState();
-  updateLobbyPlayerState();
+  if (!isLobbyPresentationVisible()) return;
+  const interaction = getLobbyInteractionState();
+  updateLobbyVisibility(interaction);
+  updateLobbyRules(interaction);
+  updateLobbyPlayerRows();
+  updateLobbyPlayerStatus();
   renderRecoveryCard();
 }
 
@@ -167,15 +168,19 @@ function renderRulesReadOnly(rules) {
   `;
 }
 
-export function updateRulesControls(connected, admin, phase, playerCount) {
-  const editable = connected && admin && phase === "lobby";
+export function updateRulesControls(interaction = getLobbyInteractionState()) {
+  const { connected, admin, phase, playerCount, canEditRules: editable } = interaction;
   const rules = state.snapshot?.rules || state.rules || {};
   state.rules = { ...state.rules, ...rules };
   if (dom.rulesStatus) {
     if (editable) {
       dom.rulesStatus.textContent = "Host Controls";
-    } else {
+    } else if (phase !== "lobby") {
       dom.rulesStatus.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked after lobby';
+    } else if (!connected) {
+      dom.rulesStatus.textContent = "Reconnecting…";
+    } else {
+      dom.rulesStatus.textContent = admin ? "Host Controls" : "Host controls";
     }
   }
 
@@ -203,21 +208,21 @@ export function updateRulesControls(connected, admin, phase, playerCount) {
   }
 }
 
-export function updateTeamChoiceControls(connected, phase) {
+export function updateTeamChoiceControls(interaction = getLobbyInteractionState()) {
   if (!dom.teamChoiceCard) return;
+  const { connected, phase, canChooseTeam: canChoose } = interaction;
   const gameMode = state.snapshot?.rules?.gameMode || state.rules?.gameMode || "teams";
   const isTeamMode = gameMode !== "solo";
   dom.teamChoiceCard.hidden = !isTeamMode;
   if (!isTeamMode) return;
 
-  const canChoose = connected && phase === "lobby";
   const loading = !state.snapshot || !Array.isArray(state.snapshot.players);
   const teams = loading ? [] : getAuthoritativeTeams();
   buildTeamSelectOptions(loading, teams);
   const myTeam = state.mine?.team || (state.snapshot?.players?.find((p) => p.id === state.myId)?.team) || "";
   setTeamSelectValue(myTeam);
   dom.teamSelect.disabled = loading || teams.length === 0 || !canChoose;
-  updateTeamChoiceStatus(myTeam, canChoose);
+  updateTeamChoiceStatus(myTeam, canChoose, connected, phase);
   if (pendingTeamChange && myTeam === pendingTeamChange) pendingTeamChange = null;
 }
 
@@ -304,8 +309,12 @@ function getTeamDisplayName(team) {
   return label || getTeamFallbackName(team);
 }
 
-function updateTeamChoiceStatus(myTeam, canChoose) {
+function updateTeamChoiceStatus(myTeam, canChoose, connected, phase) {
   if (!dom.teamChoiceStatus) return;
+  if (phase === "lobby" && !connected) {
+    dom.teamChoiceStatus.textContent = "Reconnecting…";
+    return;
+  }
   if (myTeam) {
     dom.teamChoiceStatus.textContent = `${getTeamDisplayName(myTeam)}${canChoose ? "" : " (Locked)"}`;
   } else {
@@ -335,8 +344,7 @@ export function onServerError(message = {}) {
   if (pendingTeamChange) {
     pendingTeamChange = null;
     const phase = state.snapshot?.phase || state.phase;
-    const connected = state.socket?.readyState === WebSocket.OPEN && Boolean(state.room);
-    updateTeamChoiceControls(connected, phase);
+    updateTeamChoiceControls(getLobbyInteractionState());
   }
   if (state.pendingStartDesign || state.pendingDeploy) {
     state.pendingStartDesign = false;
@@ -347,8 +355,8 @@ export function onServerError(message = {}) {
     }
     if (dom.deployButton) {
       dom.deployButton.classList.remove("is-loading");
-      dom.deployButton.disabled = false;
     }
+    invalidatePresentation("deployment");
     updateLobbyConnectionState();
     if (message.message) notify.error(message.message);
   }
@@ -399,16 +407,25 @@ export function updatePhaseDetail(phase) {
   }
 }
 
+function lobbyPlayerStatus(player) {
+  if (player.connected === false) return "Disconnected";
+  if (player.isAdmin) return "Admin";
+  if (player.ready) return "Ready";
+  if (state.phase === "design") return "Designing";
+  return player.isBot ? "Bot" : "Waiting";
+}
+
 function createPlayerRow(player) {
   const row = document.createElement("div");
   row.className = `player-row${player.id === state.myId ? " mine" : ""}`;
+  row.dataset.playerId = player.id;
   const canKick = isAdmin() && player.id !== state.myId && (state.phase === "lobby" || state.phase === "design");
-  const status = player.isAdmin ? "Admin" : player.ready ? "Ready" : state.phase === "design" ? "Designing" : player.isBot ? "Bot" : "Waiting";
+  const status = lobbyPlayerStatus(player);
   row.innerHTML = `
-    <span class="player-color" style="background:${player.color}"></span>
+    <span class="player-color" data-player-color style="background:${player.color}"></span>
     <div>
-      <strong>${escapeHtml(player.name)}${player.id === state.myId ? " (you)" : ""}</strong>
-      <span>${escapeHtml(state.rules?.gameMode === "solo" ? "No wing" : player.teamName || "Blue wing")} | ${status}</span>
+      <strong data-player-name>${escapeHtml(player.name)}${player.id === state.myId ? " (you)" : ""}</strong>
+      <span><span data-player-team>${escapeHtml(state.rules?.gameMode === "solo" ? "No wing" : player.teamName || getTeamFallbackName(player.team || "blue"))}</span><span data-player-status>${escapeHtml(status)}</span></span>
     </div>
     ${canKick ? `<button type="button" data-kick="${escapeHtml(player.id)}">Kick</button>` : ""}
   `;
@@ -416,7 +433,8 @@ function createPlayerRow(player) {
 }
 
 export function renderPlayerList() {
-  if (!dom.playerList) return;
+  if (!dom.playerList || !isLobbyPresentationVisible()) return;
+  bumpPresentation("lobbyPlayerListRebuildCount");
   const players = state.snapshot?.players || [];
   dom.playerList.textContent = "";
   if (!players.length) return;
@@ -431,7 +449,7 @@ export function renderPlayerList() {
   summary.style.marginBottom = "0.5rem";
 
   if (state.rules?.gameMode === "solo") {
-    summary.innerHTML = `<h2>Players: ${total} / ${max} | Ready: ${ready} / ${total}</h2>`;
+    summary.innerHTML = `<h2><span data-lobby-summary-main>Players: ${total} / ${max} | Ready: ${ready} / ${total}</span></h2>`;
     dom.playerList.appendChild(summary);
 
     for (const player of players) {
@@ -443,7 +461,7 @@ export function renderPlayerList() {
 
     const blueCount = blueTeam.length;
     const redCount = redTeam.length;
-    summary.innerHTML = `<h2>Players: ${total} / ${max} | Ready: ${ready} / ${total} <span style="margin-left: 8px; color: var(--muted); font-weight: normal;">Blue: ${blueCount} | Red: ${redCount}</span></h2>`;
+    summary.innerHTML = `<h2><span data-lobby-summary-main>Players: ${total} / ${max} | Ready: ${ready} / ${total}</span> <span data-lobby-summary-teams style="margin-left: 8px; color: var(--muted); font-weight: normal;">Blue: ${blueCount} | Red: ${redCount}</span></h2>`;
     dom.playerList.appendChild(summary);
 
     const blueHeader = document.createElement("div");
@@ -486,6 +504,47 @@ export function renderPlayerList() {
       }
     }
     dom.playerList.appendChild(redGroup);
+  }
+}
+
+export function updateLobbyPlayerStatus() {
+  if (!isLobbyPresentationVisible() || !dom.playerList) return;
+  const players = state.snapshot?.players || [];
+  let patchCount = 0;
+  for (const player of players) {
+    const row = dom.playerList.querySelector?.(`[data-player-id="${player.id}"]`);
+    if (!row) continue;
+    const status = lobbyPlayerStatus(player);
+    const statusElement = row.querySelector?.("[data-player-status]");
+    if (statusElement && statusElement.textContent !== status) {
+      statusElement.textContent = status;
+      patchCount += 1;
+    }
+  }
+  const total = players.length;
+  const ready = players.filter((player) => player.ready).length;
+  const max = state.rules?.maxPlayers || 8;
+  const blueCount = players.filter((player) => player.team !== "red").length;
+  const redCount = total - blueCount;
+  const summary = `Players: ${total} / ${max} | Ready: ${ready} / ${total}`;
+  const summaryElement = dom.playerList.querySelector?.("[data-lobby-summary-main]");
+  if (summaryElement && summaryElement.textContent !== summary) {
+    summaryElement.textContent = summary;
+    patchCount += 1;
+  }
+  const teamSummary = `Blue: ${blueCount} | Red: ${redCount}`;
+  const teamSummaryElement = dom.playerList.querySelector?.("[data-lobby-summary-teams]");
+  if (teamSummaryElement && teamSummaryElement.textContent !== teamSummary) {
+    teamSummaryElement.textContent = teamSummary;
+    patchCount += 1;
+  }
+  if (patchCount) {
+    const diagnostics = state.presentationDiagnostics;
+    if (diagnostics) {
+      diagnostics.lobbyPlayerRowPatchCount += patchCount;
+      diagnostics.presentationDomWriteCount += patchCount;
+      diagnostics.lobbyDomWriteCount += patchCount;
+    }
   }
 }
 
@@ -575,10 +634,7 @@ export function deployDesign() {
 
   if (isDesignStage && !ready) {
     state.pendingDeploy = true;
-    if (dom.deployButton) {
-      dom.deployButton.classList.add("is-loading");
-      dom.deployButton.disabled = true;
-    }
+    invalidatePresentation("deployment");
     // Deploying during the design phase marks the player ready server-side;
     // there is no separate "ready" message in the protocol.
     const sent = send({
@@ -589,10 +645,7 @@ export function deployDesign() {
     });
     if (!sent) {
       state.pendingDeploy = false;
-      if (dom.deployButton) {
-        dom.deployButton.classList.remove("is-loading");
-        dom.deployButton.disabled = false;
-      }
+      invalidatePresentation("deployment");
       notify.error("Deploy request could not be sent.");
       return;
     }
@@ -608,6 +661,7 @@ export function startDesign() {
   if (sent) {
     state.pendingStartDesign = true;
     updateLobbyConnectionState();
+    invalidatePresentation("deployment");
   } else {
     notify.error("Start Blueprint Design request could not be sent.");
   }
@@ -880,9 +934,22 @@ function colorValue() {
 }
 
 export function setConnectionStatus(status, text) {
-  if (!dom.status) return;
-  dom.status.textContent = text;
-  dom.status.className = `connection-status ${status}`;
+  if (dom.status) {
+    dom.status.textContent = text;
+    dom.status.className = `connection-status ${status}`;
+  }
+  invalidatePresentation("lobby-connection");
+}
+
+export function updateLobbyVisibility(interaction = getLobbyInteractionState()) {
+  if (!isLobbyPresentationVisible()) return;
+  updateLobbyConnectionState(interaction);
+  updateLobbyPhaseState(interaction);
+}
+
+export function updateLobbyRules(interaction = getLobbyInteractionState()) {
+  if (!isLobbyPresentationVisible()) return;
+  updateLobbyRulesState(interaction);
 }
 
 

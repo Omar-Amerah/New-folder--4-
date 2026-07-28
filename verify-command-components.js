@@ -206,9 +206,9 @@ test("componentAimRetentionMultiplier is applied in combat.js", () => {
   assert(combatSrc.includes("componentAimRetentionMultiplier"), "combat.js should consume componentAimRetentionMultiplier");
 });
 
-test("shieldRestartDelayMultiplier is applied in movement.js", () => {
-  const moveSrc = require("fs").readFileSync("./src/server/movement.js", "utf8");
-  assert(moveSrc.includes("shieldRestartDelayMultiplier"), "movement.js should consume shieldRestartDelayMultiplier");
+test("shieldRestartDelayMultiplier is applied in runtimeShield.js", () => {
+  const shieldSrc = require("fs").readFileSync("./src/server/runtimeShield.js", "utf8");
+  assert(shieldSrc.includes("shieldRestartDelayMultiplier"), "runtimeShield.js should consume shieldRestartDelayMultiplier");
 });
 
 test("shieldRegenMultiplier is applied in componentPower.js", () => {
@@ -221,14 +221,14 @@ test("overheatRecoveryMultiplier is applied in heat.js", () => {
   assert(heatSrc.includes("overheatRecoveryMultiplier"), "heat.js should consume overheatRecoveryMultiplier");
 });
 
-test("accelerationMultiplier is applied in movement.js", () => {
-  const moveSrc = require("fs").readFileSync("./src/server/movement.js", "utf8");
-  assert(moveSrc.includes("accelerationMultiplier"), "movement.js should consume accelerationMultiplier");
+test("accelerationMultiplier is applied in movementSteering.js", () => {
+  const moveSrc = require("fs").readFileSync("./src/server/movementSteering.js", "utf8");
+  assert(moveSrc.includes("accelerationMultiplier"), "movementSteering.js should consume accelerationMultiplier");
 });
 
-test("turnRateMultiplier is applied in movement.js", () => {
-  const moveSrc = require("fs").readFileSync("./src/server/movement.js", "utf8");
-  assert(moveSrc.includes("turnRateMultiplier"), "movement.js should consume turnRateMultiplier");
+test("turnRateMultiplier is applied in movementSteering.js", () => {
+  const moveSrc = require("fs").readFileSync("./src/server/movementSteering.js", "utf8");
+  assert(moveSrc.includes("turnRateMultiplier"), "movementSteering.js should consume turnRateMultiplier");
 });
 
 test("repairRateMultiplier is applied in componentHealth.js", () => {

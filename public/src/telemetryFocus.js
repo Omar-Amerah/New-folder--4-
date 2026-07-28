@@ -11,7 +11,8 @@ export function synchronizeTelemetryFocus() {
   let desired = null;
   if (joined && state.selectedShipIds.size === 1) {
     const [selectedId] = [...state.selectedShipIds];
-    const ship = state.snapshot?.ships?.find((candidate) => candidate.id === selectedId);
+    const ship = state.snapshotIndex?.shipById?.get(selectedId)
+      || (!state.snapshotIndex ? state.snapshot?.ships?.find((candidate) => candidate.id === selectedId) : null);
     if (ship && isFocusEligible(ship)) desired = selectedId;
   }
 
@@ -36,7 +37,10 @@ export function synchronizeTelemetryFocus() {
   }
 
   if (typeof process !== "undefined" && process.env && process.env.NODE_ENV !== "production") {
-    const focusedShip = desired ? state.snapshot?.ships?.find((candidate) => candidate.id === desired) : null;
+    const focusedShip = desired
+      ? state.snapshotIndex?.shipById?.get(desired)
+        || (!state.snapshotIndex ? state.snapshot?.ships?.find((candidate) => candidate.id === desired) : null)
+      : null;
     globalThis.__mfaTelemetryFocusDiagnostics = {
       desiredTelemetryFocusShipId: desired,
       telemetryFocusLastSentShipId: state.telemetryFocusLastSentShipId,

@@ -21,6 +21,7 @@ const MODULE_SCALE = 13;
 // Half-extent used when treating each occupied cell as a collision circle. Kept
 // identical for beams and projectiles so the two systems agree cell-for-cell.
 const COMPONENT_CELL_COLLISION_RADIUS = 8.5;
+const SHIP_HULL_CELL_COLLISION_RADIUS = MODULE_SCALE * Math.SQRT2 / 2;
 const SHIELD_COLLISION = BALANCE.projectiles?.shieldCollision || {};
 
 // Local (ship-space, unrotated) coordinates of every cell a module occupies.
@@ -38,6 +39,30 @@ function componentCellLocalCoords(module) {
   }));
 }
 
+function computeDesignCollisionRadius(design, fallback = 18) {
+  let radius = Math.max(18, Number(fallback?.radius ?? fallback) * 0.56 || 18);
+  for (const module of design || []) {
+    for (const cell of componentCellLocalCoords(module)) {
+      radius = Math.max(radius, Math.hypot(cell.x, cell.y) + SHIP_HULL_CELL_COLLISION_RADIUS);
+    }
+  }
+  return radius;
+}
+
+function computeDesignFootprintRadius(design) {
+  let radius = 0;
+  const halfCell = MODULE_SCALE / 2;
+  for (const module of design || []) {
+    for (const cell of componentCellLocalCoords(module)) {
+      radius = Math.max(
+        radius,
+        Math.hypot(Math.abs(cell.x) + halfCell, Math.abs(cell.y) + halfCell)
+      );
+    }
+  }
+  return radius;
+}
+
 // World coordinates of every occupied cell of every component, grouped per
 // component index: return[i] is an array of { x, y } world points for the cells
 // component i occupies.
@@ -48,7 +73,12 @@ function componentCellLocalCoords(module) {
 // component reuses the same geometry and a destroyed component's cells stop
 // blocking without invalidating the whole cache.
 function shieldRadiusForShip(ship) {
-  const radius = Number(ship?.radius) || 0;
+  const footprintRadius = computeDesignFootprintRadius(ship?.design);
+  const physicalRadius = Number(ship?.physicalRadius) || 0;
+  const gameplayRadius = Number(ship?.radius) || 0;
+  const radius = footprintRadius > 0
+    ? Math.max(18, footprintRadius)
+    : Math.max(18, physicalRadius || gameplayRadius);
   return Math.max(
     Number(SHIELD_COLLISION.minimumRadius) || 0,
     radius + Math.max(Number(SHIELD_COLLISION.flatPadding) || 0, radius * (Number(SHIELD_COLLISION.radiusMultiplier) || 0))
@@ -87,6 +117,7 @@ function getShipCollisionGeometry(ship) {
     angle: NaN,
     radius: NaN,
     shieldRadius: 0,
+    physicalRadius: 0,
     bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 }
   });
   ensureLocalGeometry(cache, ship, design);
@@ -120,6 +151,10 @@ function getShipCollisionGeometry(ship) {
     cache.shieldRadius = shieldRadiusForShip(ship);
   }
   const coarseRadius = Math.max(radius, cache.shieldRadius);
+  cache.physicalRadius = Math.max(
+    Number(ship.physicalRadius) || 0,
+    computeDesignCollisionRadius(design, radius)
+  );
   cache.bounds.minX = x - coarseRadius;
   cache.bounds.minY = y - coarseRadius;
   cache.bounds.maxX = x + coarseRadius;
@@ -148,6 +183,41 @@ function getShipCollisionGeometry(ship) {
   return cache;
 }
 
+function shipHullCircles(ship) {
+  const geometry = getShipCollisionGeometry(ship);
+  const circles = ship._shipHullCircleScratch || (ship._shipHullCircleScratch = []);
+  circles.length = 0;
+  for (const componentIndex of geometry.liveComponentIndices) {
+    const cells = geometry.worldCells[componentIndex] || [];
+    for (let i = 0; i < cells.length; i += 1) {
+      circles.push({ x: cells[i].x, y: cells[i].y, radius: SHIP_HULL_CELL_COLLISION_RADIUS });
+    }
+  }
+  if (circles.length === 0) circles.push({ x: ship.x, y: ship.y, radius: Math.max(18, Number(ship.physicalRadius) || 18) });
+  return circles;
+}
+
+function findShipHullOverlap(a, b) {
+  const circlesA = shipHullCircles(a);
+  const circlesB = shipHullCircles(b);
+  let best = null;
+  for (let i = 0; i < circlesA.length; i += 1) {
+    const ca = circlesA[i];
+    for (let j = 0; j < circlesB.length; j += 1) {
+      const cb = circlesB[j];
+      const dx = cb.x - ca.x;
+      const dy = cb.y - ca.y;
+      const minimum = ca.radius + cb.radius;
+      const distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared >= minimum * minimum) continue;
+      const distance = Math.sqrt(distanceSquared);
+      const penetration = minimum - distance;
+      if (!best || penetration > best.penetration) best = { dx, dy, distance, penetration };
+    }
+  }
+  return best;
+}
+
 function getShipComponentCellWorldCoords(ship) {
   return getShipCollisionGeometry(ship).worldCells;
 }
@@ -155,9 +225,14 @@ function getShipComponentCellWorldCoords(ship) {
 module.exports = {
   MODULE_SCALE,
   COMPONENT_CELL_COLLISION_RADIUS,
+  SHIP_HULL_CELL_COLLISION_RADIUS,
   componentCellLocalCoords,
+  computeDesignCollisionRadius,
+  computeDesignFootprintRadius,
   getShipComponentCellWorldCoords,
   getShipCollisionGeometry,
+  shipHullCircles,
+  findShipHullOverlap,
   invalidateShipCollisionGeometry,
   shieldRadiusForShip
 };

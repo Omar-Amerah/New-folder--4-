@@ -4,31 +4,66 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { isAdmin } from "./lobbyUi.js";
+import { updateWinnerBanner } from "./endGameUi.js";
 
 // Snapshots arrive frequently, so steady-state updates are diffed before DOM writes.
 let lastPlayerStatusHtml = null;
 let lastRelayChipsHtml = null;
 
-export function renderMatchStatus() {
-  if (!state.snapshot) return;
-  const players = [...state.snapshot.players].sort((a, b) => {
+function bump(name) {
+  const diagnostics = state.presentationDiagnostics;
+  if (!diagnostics) return;
+  diagnostics[name] = (diagnostics[name] || 0) + 1;
+  diagnostics.matchStatusUpdateCount += 1;
+}
+
+function sortedPlayers() {
+  return [...(state.snapshot?.players || [])].sort((a, b) => {
     const teamOrder = String(a.team || "").localeCompare(String(b.team || ""));
     return teamOrder || String(a.name || "").localeCompare(String(b.name || ""));
   });
+}
 
+export function updateScoreboardStatus() {
+  bump("scoreboardStatusUpdateCount");
+  if (!state.snapshot) return;
+  const players = sortedPlayers();
   const html = generateMatchStatusHTML(players);
   if (dom.playerStatusList && html !== lastPlayerStatusHtml) {
     lastPlayerStatusHtml = html;
     dom.playerStatusList.innerHTML = html;
   }
+}
 
+export function updateControlVictoryStatus() {
+  bump("controlVictoryStatusUpdateCount");
+  if (!state.snapshot) return;
+  const players = sortedPlayers();
   updateRelayControlMeter(players);
+}
 
+export function updateRelayStatus() {
+  bump("relayStatusUpdateCount");
+  if (!state.snapshot) return;
+  const players = sortedPlayers();
   const relayChipsHtml = generateRelayChipsHTML(players);
   if (dom.relayChips && relayChipsHtml !== lastRelayChipsHtml) {
     lastRelayChipsHtml = relayChipsHtml;
     dom.relayChips.innerHTML = relayChipsHtml;
   }
+}
+
+export function updateWinnerStatus() {
+  const diagnostics = state.presentationDiagnostics;
+  if (diagnostics) diagnostics.winnerUpdateCount += 1;
+  updateWinnerBanner();
+}
+
+export function renderMatchStatus() {
+  updateScoreboardStatus();
+  updateRelayStatus();
+  updateControlVictoryStatus();
+  updateWinnerStatus();
 }
 
 export function generateMatchStatusHTML(players) {
@@ -58,7 +93,6 @@ export function generateMatchStatusHTML(players) {
       const statusClass = showReady ? "ready" : state.phase === "design" ? "building" : player.connected === false ? "disconnected" : "in-match";
       const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin && (state.phase === "lobby" || state.phase === "design");
       const infoItems = [];
-      if (player.money != null) infoItems.push(`$${player.money}`);
       infoItems.push(`${player.activeShips} ship${player.activeShips === 1 ? "" : "s"}`);
       infoItems.push(`${player.captures} capture${player.captures === 1 ? "" : "s"}`);
 
@@ -247,6 +281,8 @@ export function updateRelayControlMeter(players) {
 let playerMapCache = null;
 let playerMapCacheFor = null;
 export function playerMap() {
+  const indexed = state.snapshotIndex?.playerById;
+  if (indexed) return indexed;
   const players = state.snapshot?.players || [];
   if (playerMapCacheFor !== players) {
     playerMapCacheFor = players;
