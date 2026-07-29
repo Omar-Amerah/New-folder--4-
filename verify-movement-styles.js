@@ -141,7 +141,7 @@ function run() {
   assert.strictEqual(sanitizeCombatStyle("evasive"), "orbit", "Evasive migrates to Orbit");
   assert.deepStrictEqual(
     [...SUPPORTED_MOVEMENT_TYPES].sort(),
-    ["charge", "hold", "kite", "move", "orbit", "repair", "stop"].sort(),
+    ["charge", "hold", "kite", "move", "orbit", "repair", "station", "stop"].sort(),
     "only the revised stance and command intent types are registered"
   );
 
@@ -200,8 +200,9 @@ function run() {
       `legacy ${legacy} must not remain an in-match stance choice`);
   }
 
-  // An acquired enemy must immediately hand movement to the combat stance,
-  // even when a persistent Move/Rally/Stop command was already active.
+  // Explicit player Move/Stop orders keep the helm while weapons may continue
+  // tracking an acquired enemy. Automatic stance movement resumes only after a
+  // later command replaces the manual order.
   for (const style of combatStyles) {
     const setup = roomWithPlayers();
     const ship = runtimeShip(`command-priority-${style}`, 300, 500);
@@ -224,8 +225,8 @@ function run() {
     ship.combatTargetId = target.id;
     assert.strictEqual(
       createMovementIntent(setup.room, ship, ship.stats, 0).type,
-      style,
-      `${style}: an acquired enemy overrides a persistent move command`
+      "move",
+      `${style}: a manual move command outranks automatic combat movement`
     );
     target.alive = false;
     assert.strictEqual(
@@ -238,8 +239,8 @@ function run() {
     ship.combatTargetId = target.id;
     assert.strictEqual(
       createMovementIntent(setup.room, ship, ship.stats, 0).type,
-      style,
-      `${style}: an acquired enemy overrides a persistent stop command`
+      "stop",
+      `${style}: a manual stop command outranks automatic combat movement`
     );
     target.alive = false;
     assert.strictEqual(
@@ -610,8 +611,8 @@ function run() {
     ) < blockedRange * 0.3, "Orbit rejoins its circle after clearing the obstacle");
   }
 
-  // Charge pursues through weapon range and stops only at contact distance while
-  // still using shared obstacle navigation.
+  // Charge pursues through weapon range without arrival braking, tapers only
+  // near contact, and still uses shared obstacle navigation.
   {
     const charge = battle("charge", {
       shipX: 300,
@@ -620,8 +621,8 @@ function run() {
     });
     const chargeIntent = createMovementIntent(charge.room, charge.ship, charge.ship.stats, 0);
     assert.strictEqual(chargeIntent.maxSpeedFactor, 1, "Charge requests normal maximum speed");
-    assert.strictEqual(chargeIntent.arrivalRequired, true,
-      "Charge stops only when its contact destination is reached");
+    assert.strictEqual(chargeIntent.arrivalRequired, false,
+      "Charge bypasses arrival braking so it can actually reach contact");
     updateShipMovement(charge.room, charge.ship, DT, 0);
     assert(charge.ship.movement.navigation.waypoints.length > 1,
       "Charge does not bypass shared pathing");
@@ -644,8 +645,8 @@ function run() {
       contact.ship.x - contact.target.x,
       contact.ship.y - contact.target.y
     );
-    assert.strictEqual(contact.ship.movement.phase, "positioned",
-      "Charge settles only after reaching contact distance");
+    assert.strictEqual(contact.ship.movement.phase, "travelling",
+      "Charge remains an active pursuit while separation holds contact");
     assert(Math.abs(contactDistance - contactIntent.desiredRange) < 24,
       `Charge stops near required contact distance (error ${Math.abs(contactDistance - contactIntent.desiredRange).toFixed(1)})`);
   }
@@ -703,14 +704,19 @@ function run() {
     assert.strictEqual(ship.manualRotation, null, "Stop clears manual rotation");
   }
 
-  // A normal click stops, rotates to the final route segment, then completes.
+  // A normal click owns only a destination. It completes without adding a
+  // hidden final-facing command.
   {
     const setup = roomWithPlayers();
     const ship = runtimeShip("final-facing", 300, 300);
     addShip(setup.room, setup.player, ship);
     commandShips(setup.room, setup.player, 1500, 700, { shipIds: [ship.id] });
+    assert.strictEqual(
+      createMovementIntent(setup.room, ship, ship.stats, 0).facingMode,
+      "current",
+      "plain click does not request a final-facing phase"
+    );
     updateShipMovement(setup.room, ship, DT, 0);
-    const routeFacing = ship.movement.navigation.finalFacing;
     tick(setup.room, [ship], 45, DT * 1000);
     assert.strictEqual(ship.movement.phase, "positioned", "Move completes after final-facing");
     assert(Math.hypot(ship.vx, ship.vy) < 18, "Move completes at low speed");
@@ -718,8 +724,6 @@ function run() {
       ship.x - ship.movement.command.destination.x,
       ship.y - ship.movement.command.destination.y
     ) < 32, "Move completes near its destination");
-    assert(Math.abs(angleDifference(ship.angle, routeFacing)) < 0.04,
-      "plain click uses the final route segment as final facing");
   }
 
   // Group commands discard unsafe original offsets and assign independent slots.
@@ -780,9 +784,11 @@ function run() {
       style: {
         orbit: null,
         holdPosition: null,
-        holdTargetId: null
+        holdTargetId: null,
+        kite: null
       },
-      phase: "idle"
+      phase: "idle",
+      facingCommand: null
     }, "new movement runtime starts clean");
     const runtimeSource = fs.readFileSync(
       path.join(__dirname, "src/server/movementRuntime.js"),

@@ -65,5 +65,22 @@ globalThis.HeatRules = require("./public/src/shared/heatRules.js");
   assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,1); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"full"}); assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,2);
   const cached=A.getCachedDataVulnerabilities(d,w,PART_STATS,r); A.getCachedDataVulnerabilities(d,w,PART_STATS,r); assert.equal(A.getDataSupportAnalysisCacheCounters().vulnerabilityRuns,1);
 
+  // Dense 15x15 Auto-data wiring must not rerun complete ship Power/thermal
+  // analysis once per section and host. That synchronous fan-out used to lock
+  // up or crash the designer immediately after Auto-wire committed 224 sections.
+  const dense=[];
+  for(let y=0;y<15;y+=1) for(let x=0;x<15;x+=1) dense.push(m(x===0&&y===0?"signalAmplifier":"blaster",x,y));
+  const denseWiring=globalThis.WiringRules.createGeneratedDataWiring(dense,PART_STATS);
+  assert.equal(denseWiring.data.sections.length,224,"dense Auto-data produces a bounded spanning network");
+  let repeatedThermalRuns=0;
+  const previousThermal=globalThis.DesignThermalAnalysis;
+  globalThis.DesignThermalAnalysis={analyzeDesignHeat:()=>{repeatedThermalRuns+=1; return null;}};
+  const denseBase=A.analyzeDesignDataSupport(dense,denseWiring,PART_STATS,{thermalAnalysis:{predictions:new Map()},sourcePowerMultiplier:1,sourceThermalMultiplier:1});
+  const denseFailures=A.analyzeDataVulnerabilities(dense,denseWiring,PART_STATS,denseBase);
+  if(previousThermal===undefined) delete globalThis.DesignThermalAnalysis; else globalThis.DesignThermalAnalysis=previousThermal;
+  assert.equal(repeatedThermalRuns,0,"Data failure analysis reuses the completed ship thermal prediction");
+  assert.equal(denseFailures.filter(item=>item.kind==="section").length,224,"every dense Data section still receives failure analysis");
+  assert(denseFailures.some(item=>item.kind==="source"&&item.lostRangeBonus>0),"dense source failure still reports concrete support loss");
+
   console.log("Data-support designer analysis verification passed.");
 })();

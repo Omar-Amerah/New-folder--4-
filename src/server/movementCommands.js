@@ -1,7 +1,7 @@
 "use strict";
 
 const { clampNumber, fastHypot } = require("./utils");
-const { areAllies, areEnemies } = require("./combat");
+const { areEntityAllies, areEntityEnemies } = require("./relationships");
 const { selectOwnedLivingShips } = require("./selection");
 const { WORLD_MARGIN } = require("./movementTuning");
 const {
@@ -172,10 +172,10 @@ function commandShips(room, player, x, y, options = {}) {
   const livingTarget = clickedTarget?.alive ? clickedTarget : null;
   const selectedIds = new Set(ships.map((ship) => ship.id));
   const enemy = livingTarget
-    && areEnemies(room, player?.id, livingTarget.ownerId);
+    && areEntityEnemies(room, player?.id, livingTarget);
   const ally = livingTarget
     && !selectedIds.has(livingTarget.id)
-    && areAllies(room, player?.id, livingTarget.ownerId);
+    && areEntityAllies(room, player?.id, livingTarget);
   const commandId = nextMovementCommandId(
     room,
     enemy ? "a" : (ally ? "r" : "m")

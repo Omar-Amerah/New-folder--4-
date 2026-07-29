@@ -247,6 +247,12 @@ function leaveRoom(client, explicitLeave = false) {
       client.player = null;
       return;
     }
+    const { setManualRotation } = require("./movementRuntime");
+    for (const ship of room.ships?.values() || []) {
+      if (ship?.alive && ship.ownerId === player.id && ship.manualRotation) {
+        setManualRotation(ship, null);
+      }
+    }
     player.client = null;
     player.connected = false;
 

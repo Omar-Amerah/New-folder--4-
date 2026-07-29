@@ -11,7 +11,7 @@ import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { closeLedger } from "../ledger/fleetLedgerUi.js";
 import { setRallyPointFromWorld } from "../ui/sidePanelUi.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
-import { issueCommand, destructSelectedShips, stopSelectedShips, rotateSelectedShips } from "./commands.js";
+import { issueCommand, destructSelectedShips, stopSelectedShips, rotateSelectedShips, releaseAllRotatingShips } from "./commands.js";
 import { getMobileTestingModeEnabled } from "./renderSettings.js";
 
 let binding = null; let bindingGeneration = 0;
@@ -19,6 +19,7 @@ export function inputDiagnostics() { return { bindingGeneration, bound: !!bindin
 function eventIsOnCanvas(event) { return !!binding && event.currentTarget === binding.canvas && event.target === binding.canvas; }
 function releaseCapture(canvas, id) { try { if (canvas?.hasPointerCapture?.(id)) canvas.releasePointerCapture(id); } catch {} }
 export function cancelArenaPointerState(reason = "cancel") { if (binding) { releaseCapture(binding.canvas, state.drag?.pointerId); releaseCapture(binding.canvas, state.camDrag?.pointerId); } state.drag = null; state.camDrag = null; state.pointerCancelledAt = performance.now?.() || Date.now(); state.pointerCancelReason = reason; }
+function cancelKeyboardState() { releaseAllRotatingShips(); state.keys.delete("o"); state.keys.delete("i"); }
 
 export function handlePointerDown(event) {
   if (!eventIsOnCanvas(event) || !state.snapshot) return;
@@ -84,9 +85,9 @@ export function handleKeyDown(event) {
 export function bindArenaPointerListeners(canvasEl) {
   if (!canvasEl) return () => {}; if (binding?.canvas === canvasEl) return binding.unbind; if (binding) binding.unbind(); const canvas = canvasEl; bindingGeneration += 1;
   const contextmenu = (event) => { if (event.currentTarget === canvas) event.preventDefault(); };
-  const blur = () => cancelArenaPointerState("blur"); const vis = () => { if (document.visibilityState === "hidden") cancelArenaPointerState("hidden"); };
+  const blur = () => { cancelArenaPointerState("blur"); cancelKeyboardState(); }; const vis = () => { if (document.visibilityState === "hidden") { cancelArenaPointerState("hidden"); cancelKeyboardState(); } };
   canvas.addEventListener("pointerdown", handlePointerDown); canvas.addEventListener("pointermove", handlePointerMove); canvas.addEventListener("pointerup", handlePointerUp); canvas.addEventListener("pointercancel", handlePointerCancel); canvas.addEventListener("lostpointercapture", handlePointerCancel); canvas.addEventListener("wheel", handleWheel, { passive: false }); canvas.addEventListener("contextmenu", contextmenu); window.addEventListener("blur", blur); document.addEventListener("visibilitychange", vis);
-  const unbind = () => { if (binding?.canvas !== canvas) return; cancelArenaPointerState("unbind"); canvas.removeEventListener("pointerdown", handlePointerDown); canvas.removeEventListener("pointermove", handlePointerMove); canvas.removeEventListener("pointerup", handlePointerUp); canvas.removeEventListener("pointercancel", handlePointerCancel); canvas.removeEventListener("lostpointercapture", handlePointerCancel); canvas.removeEventListener("wheel", handleWheel); canvas.removeEventListener("contextmenu", contextmenu); window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", vis); binding = null; };
+  const unbind = () => { if (binding?.canvas !== canvas) return; cancelArenaPointerState("unbind"); cancelKeyboardState(); canvas.removeEventListener("pointerdown", handlePointerDown); canvas.removeEventListener("pointermove", handlePointerMove); canvas.removeEventListener("pointerup", handlePointerUp); canvas.removeEventListener("pointercancel", handlePointerCancel); canvas.removeEventListener("lostpointercapture", handlePointerCancel); canvas.removeEventListener("wheel", handleWheel); canvas.removeEventListener("contextmenu", contextmenu); window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", vis); binding = null; };
   binding = { canvas, unbind }; return unbind;
 }
 export function handleKeyUp(event) {

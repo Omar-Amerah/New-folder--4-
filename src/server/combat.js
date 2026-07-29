@@ -2950,6 +2950,50 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
 
 
 
+  const stationCandidates = useIndex
+    ? index.querySweptAabbUnordered("stations", x1, y1, x2, y2, beamRadius, roomScratch(room, "beamStations"))
+    : (room.stations || []);
+  for (const station of stationCandidates) {
+    if (!station || station.alive === false || station.state === "disabled") continue;
+    if (!Relationships.areEntityEnemies(room, ship.ownerId, station)) continue;
+
+    if (station.shield >= SHIELD_HIT_MIN) {
+      const ringR = shieldCollisionRadius(station) + beamRadius;
+      const shieldHit = segmentCircleHit(x1, y1, x2, y2, station.x, station.y, ringR);
+      if (shieldHit) {
+        candidates.push({
+          kind: "station-shield",
+          station,
+          t: shieldHit.t,
+          hit: shieldHit,
+          tieRank: BEAM_TIE_SHIP,
+          tieId: station.id
+        });
+      }
+      continue;
+    }
+
+    const hullHit = segmentCircleHit(
+      x1,
+      y1,
+      x2,
+      y2,
+      station.x,
+      station.y,
+      (Number(station.radius) || 0) + beamRadius
+    );
+    if (hullHit) {
+      candidates.push({
+        kind: "station",
+        station,
+        t: hullHit.t,
+        hit: hullHit,
+        tieRank: BEAM_TIE_SHIP,
+        tieId: station.id
+      });
+    }
+  }
+
   const droneCandidates = useIndex
 
     ? index.querySweptAabbUnordered("drones", x1, y1, x2, y2, beamRadius, roomScratch(room, "beamDrones"))
@@ -3015,6 +3059,38 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     room.effects.push({ type: "shieldhit", x: shieldHitX, y: shieldHitY, nx: Math.cos(ang), ny: Math.sin(ang), at: now });
 
     return { hitX: shieldHitX, hitY: shieldHitY, t: nearest.t, firstHitIndex: -1, hitTargetShipId: target.id };
+
+  }
+
+
+
+  if (nearest.kind === "station-shield" || nearest.kind === "station") {
+
+    const station = nearest.station;
+
+    const shieldHit = nearest.kind === "station-shield";
+
+    const ang = Math.atan2(y1 - station.y, x1 - station.x);
+
+    const surfaceR = shieldHit ? shieldCollisionRadius(station) : Number(station.radius) || 0;
+
+    const hitX = station.x + Math.cos(ang) * surfaceR;
+
+    const hitY = station.y + Math.sin(ang) * surfaceR;
+
+    require("./stationCombat").damageStation(room, station, damage, ship.ownerId, now, hitX, hitY, options);
+
+    if (shieldHit) {
+
+      room.effects.push({ type: "shieldhit", x: hitX, y: hitY, nx: Math.cos(ang), ny: Math.sin(ang), at: now });
+
+    } else {
+
+      room.effects.push({ type: "spark", x: hitX, y: hitY, at: now });
+
+    }
+
+    return { hitX, hitY, t: nearest.t, firstHitIndex: -1, hitTargetShipId: station.id, hitTargetEntityId: station.id };
 
   }
 
@@ -3877,7 +3953,7 @@ function findTarget(room, ship, ships) {
 
   if (ship.focusTargetId) {
 
-    const focused = targets.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId) && canTeamTargetEntity(room, viewerTeam, other, now));
+    const focused = targets.find((other) => other.id === ship.focusTargetId && Relationships.areEntityEnemies(room, ship.ownerId, other) && canTeamTargetEntity(room, viewerTeam, other, now));
 
     if (focused && focused.alive) {
 
@@ -3899,7 +3975,7 @@ function findTarget(room, ship, ships) {
 
     const current = targets.find((other) =>
       other.id === ship.combatTargetId
-      && areEnemies(room, ship.ownerId, other.ownerId)
+      && Relationships.areEntityEnemies(room, ship.ownerId, other)
       && canTeamTargetEntity(room, viewerTeam, other, now));
 
     if (current && current.alive) {
@@ -3917,7 +3993,7 @@ function findTarget(room, ship, ships) {
 
   for (const other of targets) {
 
-    if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+    if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) continue;
 
     if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) continue;
 
@@ -4203,7 +4279,7 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
     for (const other of (ships || []).concat(stationTargets)) {
 
-      if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+      if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) continue;
 
       if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) continue;
 

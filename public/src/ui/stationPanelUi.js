@@ -9,11 +9,17 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { selectedStation } from "../game/selection.js";
 import { centerCameraOnPoint } from "../game/camera.js";
+import {
+  brightenShieldColor,
+  hullColorForRatio,
+  shieldColorForRatio
+} from "../game/shipVitals.js";
 
 const STATE_LABELS = {
   operational: "Operational",
   disabled: "Disabled",
-  neutral: "Unclaimed"
+  neutral: "Unclaimed",
+  controlled: "Controlled"
 };
 
 const QUEUE_STATE_LABELS = {
@@ -33,6 +39,19 @@ function percent(value, max) {
   return Math.max(0, Math.min(100, Math.round((value / max) * 100)));
 }
 
+function colorHex(value) {
+  return `#${Math.max(0, Math.min(0xffffff, Number(value) || 0)).toString(16).padStart(6, "0")}`;
+}
+
+function meterPalette(kind, value, max) {
+  const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+  if (kind === "shield") {
+    const base = shieldColorForRatio(ratio);
+    return { start: colorHex(base), end: colorHex(brightenShieldColor(base, 0.34)) };
+  }
+  return hullColorForRatio(ratio);
+}
+
 function playerName(playerId) {
   if (!playerId) return "Unknown";
   if (playerId === state.myId) return "You";
@@ -50,13 +69,14 @@ function ownerLabel(station) {
   return "Unclaimed";
 }
 
-function renderMeter(label, value, max, className) {
+function renderMeter(label, value, max, kind) {
   const ratio = percent(value, max);
+  const palette = meterPalette(kind, value, max);
   return `
-    <div class="station-meter ${className}">
+    <div class="station-meter station-meter-${kind}" style="--station-meter-start:${palette.start};--station-meter-end:${palette.end}" aria-label="${escapeHtml(label)} ${ratio}%">
       <span class="station-meter-label">${escapeHtml(label)}</span>
       <span class="station-meter-track"><i style="width:${ratio}%"></i></span>
-      <span class="station-meter-value">${Math.round(value)} / ${Math.round(max)}</span>
+      <span class="station-meter-value"><strong>${Math.round(value)}</strong><small>/ ${Math.round(max)}</small></span>
     </div>
   `;
 }
@@ -127,27 +147,22 @@ export function renderStationPanel() {
   if (!dom.stationPanelBody) return;
 
   const stateLabel = STATE_LABELS[station.state] || station.state;
+  const ownerTone = station.team === "blue" ? "blue" : (station.team === "red" ? "red" : "neutral");
   const sections = [
-    `<dl class="station-summary">
+    `<div class="station-overview">
+      <dl class="station-summary">
        <div class="station-summary-row"><dt>Status</dt><dd class="station-status station-status-${escapeHtml(station.state)}">${escapeHtml(stateLabel)}</dd></div>
-       <div class="station-summary-row"><dt>Controlled by</dt><dd>${escapeHtml(ownerLabel(station))}</dd></div>
-     </dl>`,
-    renderMeter("Hull", Number(station.hp) || 0, Number(station.maxHp) || 0, "station-meter-hull")
+       <div class="station-summary-row"><dt>Controlled by</dt><dd class="station-owner station-owner-${ownerTone}">${escapeHtml(ownerLabel(station))}</dd></div>
+      </dl>
+      <div class="station-vitals">
+        ${renderMeter("Hull", Number(station.hp) || 0, Number(station.maxHp) || 0, "hull")}
+        ${Number(station.maxShield) > 0 ? renderMeter("Shield", Number(station.shield) || 0, Number(station.maxShield) || 0, "shield") : ""}
+      </div>
+    </div>`
   ];
-  if (Number(station.maxShield) > 0) {
-    sections.push(renderMeter("Shield", Number(station.shield) || 0, Number(station.maxShield) || 0, "station-meter-shield"));
-  }
   if (station.stationType === "home") {
-    sections.push(`<div class="section-heading compact"><h3>Hangar</h3></div>`);
+    sections.push(`<div class="station-subhead"><h3>Hangar</h3></div>`);
     sections.push(renderProductionQueue(station));
-    if (mine) {
-      sections.push(`<p class="station-hint">Everything you buy is built here and launched down the corridor. Damaged friendly ships repair inside the station's aura.</p>`);
-    }
-  } else if (station.state === "neutral") {
-    sections.push(`<p class="station-empty">Bring ships inside the capture ring to claim this relay.</p>`);
-  }
-  if (station.state === "disabled") {
-    sections.push(`<p class="station-empty">Disabled stations self-repair once they stop taking fire, then come back online.</p>`);
   }
 
   const html = sections.join("");

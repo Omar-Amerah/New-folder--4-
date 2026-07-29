@@ -67,20 +67,23 @@ function runAuthoritative() {
     addShip(room, player, ship);
     room.ships.set("enemy", enemy);
     const startX = ship.x;
+    let maximumHullAxisError = 0;
     for (let i = 0; i < T(10); i += 1) {
       updateShipMovement(room, ship, DT);
+      if (Math.hypot(ship.vx, ship.vy) > 1) {
+        maximumHullAxisError = Math.max(maximumHullAxisError, Math.abs(angleDifference(
+          ship.angle,
+          Math.atan2(ship.vy, ship.vx)
+        )));
+      }
       updateShipSeparation(room);
     }
     const distanceMovedX = ship.x - startX;
     assert(distanceMovedX > 50, `charging ship should close range (moved ${distanceMovedX.toFixed(1)} px)`);
     // Maneuver thrusters buy turn rate, not strafing: whatever the stance, the
     // velocity a ship builds up lies on its hull axis.
-    const travelError = Math.abs(angleDifference(
-      ship.angle,
-      Math.atan2(ship.vy, ship.vx)
-    ));
-    assert(travelError < 0.2,
-      `velocity should stay on the hull axis (error ${travelError.toFixed(3)})`);
+    assert(maximumHullAxisError < 0.2,
+      `controller velocity should stay on the hull axis before collision impulses (error ${maximumHullAxisError.toFixed(3)})`);
     const bearingToEnemy = Math.atan2(enemy.y - ship.y, enemy.x - ship.x);
     assert(Math.abs(angleDifference(ship.angle, bearingToEnemy)) < 0.8,
       `a closing hull should keep its guns on the target (error ${Math.abs(angleDifference(ship.angle, bearingToEnemy)).toFixed(3)})`);

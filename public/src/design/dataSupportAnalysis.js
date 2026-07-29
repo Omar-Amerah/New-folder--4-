@@ -26,17 +26,6 @@ function thermalMultiplier(index, design, thermalAnalysis) {
     return heatRules().activeOutputForState(prediction.state ?? heatRules().STATE.NORMAL);
   } catch (_error) { return 0; }
 }
-function cloneWiringWithout(wiring, remove) {
-  const next = wiringRules().cloneWiring(wiring);
-  const ids = new Set(remove.sectionIds || []);
-  if (remove.sourceIndex != null) {
-    next.data.sections = next.data.sections.filter((section) => !ids.has(wiringRules().segmentKey(section)));
-  } else {
-    next.data.sections = next.data.sections.filter((section) => !ids.has(wiringRules().segmentKey(section)));
-  }
-  next.data.connections = next.data.connections.filter((connection) => !connection.sectionIds.some((id) => ids.has(id)) && connection.sourceIndex !== remove.sourceIndex);
-  return wiringRules().normalizeWiring(next, modulesOf(remove.design), remove.catalogue).wiring;
-}
 function bonusLoss(before, after, weaponIndex) {
   const a = getDesignWeaponSupport(before, weaponIndex), b = getDesignWeaponSupport(after, weaponIndex);
   return { lostRangeBonus: Math.max(0, (a.rangeBonus || 0) - (b.rangeBonus || 0)), lostAccuracyBonus: Math.max(0, (a.accuracyBonus || 0) - (b.accuracyBonus || 0)), lostFireRateBonus: Math.max(0, (a.fireRateBonus || 0) - (b.fireRateBonus || 0)) };
@@ -83,21 +72,135 @@ export function analyzeDesignDataSupport(design, wiring, catalogue, options = {}
 export function getDesignSourceAllocation(analysis, sourceIndex) { return analysis?.sourceAllocationByIndex?.[sourceIndex] || null; }
 export function getDesignWeaponSupport(analysis, weaponIndex) { return analysis?.weaponBonusByIndex?.[weaponIndex] || dataRules().weaponSupportForIndex(analysis?.support || {}, weaponIndex); }
 export function getDesignEffectiveWeaponProfile(analysis, weaponIndex, catalogue) { const weapon = getDesignWeaponSupport(analysis, weaponIndex); return dataRules().effectiveWeaponProfile(partFor(catalogue, weapon.weaponType).weapon || {}, weapon); }
+
+// Build the canonical cell/terminal graph once for the whole failure matrix.
+// Each candidate then runs a small union pass over integer node ids instead of
+// cloning, normalizing and sorting the entire Blueprint wiring graph again.
+function buildDataFailureTopology(modules, wiring, catalogue) {
+  const nodeByKey = new Map();
+  const node = (key) => {
+    if (!nodeByKey.has(key)) nodeByKey.set(key, nodeByKey.size);
+    return nodeByKey.get(key);
+  };
+  const cellNode = (cell) => node(`c:${wiringRules().cellKey(cell.x, cell.y)}`);
+  const sectionEdges = wiring.data.sections.map((section) => {
+    const cells = wiringRules().sectionCells(section);
+    return { section, a: cellNode(cells[0]), b: cellNode(cells[1]) };
+  });
+  const terminalLinks = [];
+  const terminals = [];
+  modules.forEach((module, index) => {
+    const source = wiringRules().isDataSourceType(module?.type);
+    const weapon = wiringRules().isDataTarget(module?.type, catalogue);
+    if (!source && !weapon) return;
+    const bus = node(`t:${index}`);
+    wiringRules().moduleCells(module, catalogue).forEach((cell) => terminalLinks.push([bus, cellNode(cell)]));
+    terminals.push({ index, bus, source, weapon });
+  });
+  return {
+    without(removedSectionIds = []) {
+      const removed = removedSectionIds instanceof Set ? removedSectionIds : new Set(removedSectionIds);
+      const parent = Int16Array.from({ length: nodeByKey.size }, (_, index) => index);
+      const find = (index) => {
+        let root = index;
+        while (parent[root] !== root) root = parent[root];
+        while (parent[index] !== index) { const next = parent[index]; parent[index] = root; index = next; }
+        return root;
+      };
+      const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[Math.max(a, b)] = Math.min(a, b); };
+      terminalLinks.forEach(([a, b]) => union(a, b));
+      sectionEdges.forEach((edge) => { if (!removed.has(edge.section.id)) union(edge.a, edge.b); });
+      const groups = new Map();
+      sectionEdges.forEach((edge) => {
+        if (removed.has(edge.section.id)) return;
+        const root = find(edge.a);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root).push(edge.section);
+      });
+      const terminalGroups = new Map();
+      terminals.forEach((terminal) => {
+        const root = find(terminal.bus);
+        if (!terminalGroups.has(root)) terminalGroups.set(root, []);
+        terminalGroups.get(root).push(terminal);
+      });
+      return [...groups].map(([root, sections]) => {
+        const connected = terminalGroups.get(find(root)) || [];
+        const sectionIds = sections.map((section) => section.id).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        const sourceIndices = connected.filter((terminal) => terminal.source).map((terminal) => terminal.index).sort((a, b) => a - b);
+        const weaponIndices = connected.filter((terminal) => terminal.weapon).map((terminal) => terminal.index).sort((a, b) => a - b);
+        return {
+          id: `data-${sectionIds[0]}`,
+          label: `Data Network ${sectionIds[0]}`,
+          sections,
+          sectionIds,
+          sourceIndices,
+          weaponIndices,
+          componentIndices: [...new Set([...sourceIndices, ...weaponIndices])].sort((a, b) => a - b)
+        };
+      }).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+    }
+  };
+}
+
+function analyzeFailureDataSupport(modules, networks, analysis, options = {}) {
+  const operational = options.sourceOperationalMultiplier;
+  const weapons = analysis.weapons.map((weapon) => ({
+    weaponIndex: weapon.weaponIndex,
+    weaponType: weapon.weaponType,
+    rangeBonus: 0,
+    accuracyBonus: 0,
+    fireRateBonus: 0,
+    sourceIndices: [],
+    contributions: []
+  }));
+  const weaponBonusByIndex = Array(modules.length).fill(null);
+  weapons.forEach((weapon) => { weaponBonusByIndex[weapon.weaponIndex] = weapon; });
+  networks.forEach((network) => {
+    network.sourceIndices.forEach((sourceIndex) => {
+      const source = analysis.sourceAllocationByIndex?.[sourceIndex];
+      if (!source) return;
+      const eligible = new Set(source.eligibleWeaponIndices || source.connectedWeaponIndices || []);
+      const recipients = network.weaponIndices.filter((weaponIndex) => eligible.has(weaponIndex));
+      if (!recipients.length) return;
+      let multiplier = source.predictedSourceMultiplier ?? source.sourceMultiplier ?? 0;
+      if (typeof operational === "function") {
+        const power = Number(source.predictedPowerMultiplier) || 0;
+        const thermal = Number(source.predictedThermalMultiplier) || 0;
+        multiplier = power * thermal * (Number(operational(sourceIndex, modules[sourceIndex])) || 0);
+      }
+      const amount = (Number(source.nominalBudget) || 0) * multiplier / recipients.length;
+      recipients.forEach((weaponIndex) => {
+        const weapon = weaponBonusByIndex[weaponIndex];
+        if (!weapon) return;
+        weapon.sourceIndices.push(sourceIndex);
+        weapon.contributions.push({ sourceIndex, sourceType: source.sourceType, bonusField: source.bonusField, amount });
+        weapon[source.bonusField] += amount;
+      });
+    });
+  });
+  return { networks, weapons, weaponBonusByIndex };
+}
 export function analyzeDataVulnerabilities(design, wiring, catalogue, analysis = analyzeDesignDataSupport(design, wiring, catalogue)) {
-  const modules = modulesOf(design); const out = []; const beforeSig = topologySignature(analysis);
-  const compare = (kind, id, componentIndex, failedWiring, affectedSourceIndices = [], options = {}) => {
-    const after = analyzeDesignDataSupport(modules, failedWiring, catalogue, { thermalLoadMode: analysis.scenario, sourceOperationalMultiplier: options.sourceOperationalMultiplier });
+  const modules = modulesOf(design); const out = []; const beforeSig = topologySignature(analysis); const canonicalWiring = analysis.physical.wiring;
+  const topology = buildDataFailureTopology(modules, canonicalWiring, catalogue);
+  const compare = (kind, id, componentIndex, removedSectionIds = [], affectedSourceIndices = [], options = {}) => {
+    // A Data cable/source failure does not change the design, Power network or
+    // thermal prediction. Reuse those authoritative source multipliers and
+    // recalculate only the filtered Data topology/allocation.
+    const after = analyzeFailureDataSupport(modules, topology.without(removedSectionIds), analysis, options);
     const disconnectedWeaponIndices = analysis.weapons.filter((w) => (w.sourceIndices?.length || 0) && !(getDesignWeaponSupport(after, w.weaponIndex).sourceIndices || []).length).map((w) => w.weaponIndex);
     const losses = analysis.weapons.map((w) => { const l = bonusLoss(analysis, after, w.weaponIndex); const before = getDesignWeaponSupport(analysis, w.weaponIndex); l.weaponIndex = w.weaponIndex; l.allSupportLost = Boolean((before.sourceIndices||[]).length && !(getDesignWeaponSupport(after, w.weaponIndex).sourceIndices||[]).length); return l; });
     const total = losses.reduce((a, l) => ({ lostRangeBonus: a.lostRangeBonus + l.lostRangeBonus, lostAccuracyBonus: a.lostAccuracyBonus + l.lostAccuracyBonus, lostFireRateBonus: a.lostFireRateBonus + l.lostFireRateBonus }), { lostRangeBonus: 0, lostAccuracyBonus: 0, lostFireRateBonus: 0 });
     const severity = severityFor(losses, disconnectedWeaponIndices);
     out.push({ kind, id, componentIndex, topologyChanged: topologySignature(after) !== beforeSig, disconnectedWeaponIndices, affectedSourceIndices, losses: losses.filter(changedLoss), lostByWeapon: losses.filter(changedLoss), ...total, severity, summary: severity === "redundant" ? "Redundant route preserves predicted Data support." : `Loss affects ${losses.filter(changedLoss).length} weapon(s).` });
   };
-  for (const section of analysis.physical.wiring.data.sections) compare("section", section.id, null, cloneWiringWithout(wiring, { design: modules, catalogue, sectionIds: [section.id] }));
+  for (const section of canonicalWiring.data.sections) compare("section", section.id, null, [section.id]);
+  const ownerByCell = new Map();
+  modules.forEach((module, index) => wiringRules().moduleCells(module, catalogue).forEach((cell) => ownerByCell.set(wiringRules().cellKey(cell.x, cell.y), index)));
   const byHost = new Map();
-  for (const section of analysis.physical.wiring.data.sections) for (const cell of wiringRules().sectionCells(section)) { const idx = modules.findIndex((m, i) => wiringRules().moduleCells(m, catalogue).some((c) => c.x === cell.x && c.y === cell.y)); if (idx >= 0) { if (!byHost.has(idx)) byHost.set(idx, new Set()); byHost.get(idx).add(section.id); } }
-  byHost.forEach((ids, idx) => compare("host", `host-${idx}`, idx, cloneWiringWithout(wiring, { design: modules, catalogue, sectionIds: [...ids] })));
-  analysis.sources.forEach((s) => compare("source", `source-${s.sourceIndex}`, s.sourceIndex, wiring, [s.sourceIndex], { sourceOperationalMultiplier: (sourceIndex) => sourceIndex === s.sourceIndex ? 0 : 1 }));
+  for (const section of canonicalWiring.data.sections) for (const cell of wiringRules().sectionCells(section)) { const idx = ownerByCell.get(wiringRules().cellKey(cell.x, cell.y)); if (idx !== undefined) { if (!byHost.has(idx)) byHost.set(idx, new Set()); byHost.get(idx).add(section.id); } }
+  byHost.forEach((ids, idx) => compare("host", `host-${idx}`, idx, [...ids]));
+  analysis.sources.forEach((s) => compare("source", `source-${s.sourceIndex}`, s.sourceIndex, [], [s.sourceIndex], { sourceOperationalMultiplier: (sourceIndex) => sourceIndex === s.sourceIndex ? 0 : 1 }));
   return out.sort((a, b) => String(a.kind).localeCompare(b.kind) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
 }
 

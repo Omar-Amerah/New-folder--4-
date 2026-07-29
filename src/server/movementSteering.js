@@ -87,7 +87,7 @@ function heatAdjustedMovementStats(ship, baseStats) {
   }
   const isBlockedEngine = (index, module, part) => {
     if ((ship.componentHp?.[index] ?? 1) <= 0) return true;
-    return (part.thrust || 0) > 0
+    return ((part.thrust || 0) > 0 || module.type === "maneuverThruster")
       && ship.validEngineIndices
       && !ship.validEngineIndices.has(index);
   };
@@ -319,8 +319,14 @@ function buildMovementDecision(room, ship, stats, intent, navigation) {
       velocityPlan.desiredVelocity.x - (ship.vx || 0),
       velocityPlan.desiredVelocity.y - (ship.vy || 0)
     ) < ARRIVE_SPEED;
-  const target = intent.facingTargetId
-    ? room.ships?.get(String(intent.facingTargetId))
+  const facingTargetId = intent.facingTargetId == null
+    ? null
+    : String(intent.facingTargetId);
+  const target = facingTargetId
+    ? room.ships?.get(facingTargetId)
+      || room.stationsById?.get?.(facingTargetId)
+      || room.stations?.find((station) => String(station?.id) === facingTargetId)
+      || null
     : null;
   const decision = {
     desiredVelocity: velocityPlan.desiredVelocity,

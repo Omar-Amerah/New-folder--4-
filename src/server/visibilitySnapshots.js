@@ -135,7 +135,9 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
       // the guns track visibly instead of the client having to invent angles.
       //
       // Condition stays hidden: no hp/maxHp, shields, per-component damage or
-      // production queue, and `state` reads "unknown".
+      // production queue. Captured relays still report the public fact that
+      // they are controlled; "unknown" is reserved for a structure whose
+      // public state cannot be described without revealing its condition.
       const hiddenStation = {
         id: station.id,
         team: station.team,
@@ -145,7 +147,9 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
         // a neutral station as "unknown" would hide something the panel on the
         // right is showing anyway. Only the operational/disabled distinction is
         // withheld, because that is the part that reveals condition.
-        state: station.state === "neutral" ? "neutral" : "unknown",
+        state: station.state === "neutral"
+          ? "neutral"
+          : (station.stationType === "relay" && (station.team || station.ownerId) ? "controlled" : "unknown"),
         revision: station.revision,
         weaponRange: station.weaponRange,
         conditionKnown: false,

@@ -6,7 +6,7 @@ const assert = require("assert");
 const { leaveRoom } = require("./src/server/players");
 
 function makeContext() {
-  const ship = { id: "s1", ownerId: "p1", alive: true, removed: false };
+  const ship = { id: "s1", ownerId: "p1", alive: true, removed: false, manualRotation: 1 };
   const player = { id: "p1", name: "Pilot", connected: true, isBot: false, ships: [ship], attachmentId: 1, resumeToken: "token" };
   const room = {
     phase: "battle",
@@ -33,6 +33,7 @@ function makeContext() {
   assert(room.ships.has("s1"), "ship should remain in the room during the grace period");
   assert.strictEqual(player.ships.length, 1, "player should retain its ships during the grace period");
   assert.strictEqual(player.connected, false, "player should be marked disconnected");
+  assert.strictEqual(ship.manualRotation, null, "disconnect releases latched manual rotation");
   assert(room.players.has("p1"), "player should remain in the room during the grace period");
   assert(player.disconnectTimeout, "a reconnect grace timer should be scheduled");
   clearTimeout(player.disconnectTimeout); // don't leak the 10s timer into the test run

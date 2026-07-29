@@ -3,6 +3,7 @@
 
 const assert = require('node:assert/strict');
 const { resolveDemolitionContacts, detonateProximityCharge, armedProximityChargeRanges, nearestDemolitionTargetPoint } = require('./src/server/combat');
+const { createMovementIntent } = require('./src/server/movement');
 const { initComponentState, initProximityChargeState } = require('./src/server/componentHealth');
 const { PARTS } = require('./src/server/components');
 
@@ -310,6 +311,25 @@ function multiChargeDesign() {
   assert.equal(heavy.proximityCharge.damagesFriendlyShips, true, 'heavy retains friendly fire');
   assert.equal(small.proximityCharge.maxAffectedComponents, 12, 'small retains 12-component cap');
   assert.equal(small.proximityCharge.damagesFriendlyShips, false, 'small protects friendly ships');
+}
+
+// 18. An armed demolition-only charger still closes on its target.
+{
+  const room = makeRoom();
+  const carrier = makeShip('movement-carrier', 'blue', 300, 500, chargeDesign());
+  const enemy = makeShip('movement-enemy', 'red', 900, 500, basicDesign());
+  carrier.combatStyle = 'charge';
+  carrier.combatTargetId = enemy.id;
+  room.ships.set(carrier.id, carrier);
+  room.ships.set(enemy.id, enemy);
+  const intent = createMovementIntent(room, carrier, carrier.stats, 1000);
+  assert.equal(intent.type, 'charge', 'an armed demolition ship does not stop for having no conventional weapon range');
+  carrier.componentHp[1] = 0;
+  assert.equal(
+    createMovementIntent(room, carrier, carrier.stats, 1000).type,
+    'stop',
+    'a disarmed demolition-only ship still stops safely'
+  );
 }
 
 console.log('Demolition charge verification passed');

@@ -66,6 +66,32 @@ function areEnemies(room, ownerA, ownerB) {
   return relationship(room, ownerA, ownerB).enemies;
 }
 
+// Stations are owned by a team even when they have no persistent player owner
+// (home stations), or when the player who captured a relay has since left.
+// Resolve a live team representative before applying the player-id relationship
+// rules so every combat system sees the same allegiance.
+function entityRelationshipOwnerId(room, entity) {
+  if (!entity) return null;
+  const players = room?.players;
+  if (entity.ownerId && players?.has?.(entity.ownerId) && !players.get(entity.ownerId)?.removed) {
+    return entity.ownerId;
+  }
+  if (entity.entityType === "station" && entity.team && players) {
+    for (const player of players.values()) {
+      if (!player.removed && player.team === entity.team) return player.id;
+    }
+  }
+  return entity.ownerId || null;
+}
+
+function areEntityAllies(room, ownerId, entity) {
+  return areAllies(room, ownerId, entityRelationshipOwnerId(room, entity));
+}
+
+function areEntityEnemies(room, ownerId, entity) {
+  return areEnemies(room, ownerId, entityRelationshipOwnerId(room, entity));
+}
+
 function isTelemetryFocusEligible(client, shipId, room) {
   if (typeof shipId !== "string" || !shipId || !client?.player || !room) return false;
   const ship = room.ships.get(shipId);
@@ -90,4 +116,15 @@ function revalidateTelemetryFocusForRoom(room) {
   for (const client of room?.clients || []) revalidateTelemetryFocusForClient(client, room);
 }
 
-module.exports = { invalidateRelationshipCache, relationship, areAllies, areEnemies, isTelemetryFocusEligible, revalidateTelemetryFocusForClient, revalidateTelemetryFocusForRoom };
+module.exports = {
+  invalidateRelationshipCache,
+  relationship,
+  areAllies,
+  areEnemies,
+  entityRelationshipOwnerId,
+  areEntityAllies,
+  areEntityEnemies,
+  isTelemetryFocusEligible,
+  revalidateTelemetryFocusForClient,
+  revalidateTelemetryFocusForRoom
+};

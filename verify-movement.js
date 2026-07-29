@@ -400,8 +400,13 @@ function run() {
   // 14. Exact-overlap separation uses a deterministic direction and converges.
   const overlapA = { id: "a", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
   const overlapB = { id: "b", alive: true, x: 400, y: 400, vx: 0, vy: 0, radius: 40 };
-  updateShipSeparation(room, [overlapB, overlapA], 1 / 30);
+  updateShipSeparation(room, [overlapB, overlapA], 1 / 30, 100);
   assert(Math.hypot(overlapA.x - overlapB.x, overlapA.y - overlapB.y) > 0, "overlapped ships should separate deterministically");
+  assert.strictEqual(room._shipCollisionContacts.size, 1, "recent collision contact is retained for consecutive-contact detection");
+  overlapA.x = 200;
+  overlapB.x = 800;
+  updateShipSeparation(room, [overlapB, overlapA], 1 / 30, 1201);
+  assert.strictEqual(room._shipCollisionContacts.size, 0, "stale collision diagnostics are pruned");
 
   // 15. Nearest-clear-point reports metadata and clears all asteroid constraints when possible.
   room.map.asteroids = [{ x: 1000, y: 800, radius: 100 }];

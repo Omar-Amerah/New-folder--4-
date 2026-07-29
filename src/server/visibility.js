@@ -349,6 +349,10 @@ function canTeamTargetEntity(room, teamOrOwnerId, target, now) {
   if (!target || !usesSensorVisibility(room)) return true;
   const teamId = normalizedTeamId(room, teamOrOwnerId);
   if (teamOfEntity(room, target) === teamId) return true;
+  // Stations are permanent, public map structures even when their live
+  // condition is outside sensor coverage. Players can issue an attack order
+  // against that known structure without revealing its hidden health state.
+  if (target.entityType === "station" || target.stationType) return true;
   return getVisibilityState(room, teamId, target.id, now) === "visible";
 }
 

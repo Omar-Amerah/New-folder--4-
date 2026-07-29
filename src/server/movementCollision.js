@@ -260,6 +260,7 @@ function resolveMapCollision(room, ship) {
       ship.vy -= inwardSpeed * normalY * ASTEROID_RESTITUTION;
     }
   }
+  if (resolveStationCollision(room, ship, radius)) hit = true;
   const edge = WORLD_MARGIN + radius;
   const beforeX = ship.x;
   const beforeY = ship.y;
@@ -377,7 +378,23 @@ function getLiveShips(room) {
   return Array.from(room.ships?.values() || []).filter((ship) => ship && ship.alive);
 }
 
+const COLLISION_CONTACT_RETENTION_MS = 1000;
+
+function pruneCollisionContacts(room, now) {
+  const contacts = room?._shipCollisionContacts;
+  const tick = Number(now) || 0;
+  if (!contacts?.size || tick <= 0) return;
+  if (tick < (Number(room._nextShipCollisionContactPruneAt) || 0)) return;
+  for (const [pairKey, contact] of contacts) {
+    if (tick - (Number(contact?.at) || 0) > COLLISION_CONTACT_RETENTION_MS) {
+      contacts.delete(pairKey);
+    }
+  }
+  room._nextShipCollisionContactPruneAt = tick + COLLISION_CONTACT_RETENTION_MS;
+}
+
 function updateShipSeparation(room, shipList, dt, now = 0) {
+  pruneCollisionContacts(room, now);
   const ships = (Array.isArray(shipList)
     ? shipList.filter((ship) => ship && ship.alive)
     : getLiveShips(room))
@@ -456,7 +473,6 @@ function resolveFleetMapCollisions(room) {
   let count = 0;
   for (const ship of getLiveShips(room)) {
     if (resolveMapCollision(room, ship)) count += 1;
-    if (resolveStationCollision(room, ship, physicalCollisionRadius(ship))) count += 1;
   }
   return count;
 }

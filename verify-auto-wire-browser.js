@@ -93,7 +93,42 @@ let browser;
     assert.deepStrictEqual(undone.data, before.data, "Undo keeps the previous Data wiring");
 
     await page.locator("#wiringModeData").click();
-    assert.equal(await autoWire.isDisabled(), true, "Auto-wire is disabled in Data mode");
+    assert.equal(await autoWire.isDisabled(), false, "Auto-wire is available in Data mode");
+
+    await page.evaluate(async () => {
+      const [{ state }, designer, wiringUi] = await Promise.all([
+        import("/src/state.js"),
+        import("/src/ui/designerUi.js"),
+        import("/src/ui/wiringUi.js")
+      ]);
+      const dense = [];
+      for (let y = 0; y < 15; y += 1) for (let x = 0; x < 15; x += 1) {
+        dense.push({ x, y, rotation: 0, type: x === 0 && y === 0 ? "signalAmplifier" : "blaster" });
+      }
+      state.design = dense;
+      state.wiring = window.WiringRules.emptyWiring();
+      wiringUi.resetWiringEditorState();
+      designer.renderBuildGrid();
+      wiringUi.refreshWiringPresentation();
+    });
+    const denseStart = Date.now();
+    await autoWire.click({ timeout: 30000 });
+    const denseElapsedMs = Date.now() - denseStart;
+    const denseResult = await page.evaluate(async () => {
+      const [{ state }, { PART_STATS }] = await Promise.all([import("/src/state.js"), import("/src/design/parts.js")]);
+      const analysis = window.WiringRules.analyzeWiring(state.design, state.wiring, PART_STATS);
+      return {
+        sections: state.wiring.data.sections.length,
+        powerSections: state.wiring.power.sections.length,
+        disconnectedWeapons: analysis.data.weaponIndices.filter((index) => !analysis.data.networkByComponent.get(index)?.sourceIndices.length),
+        undoDepth: state.wiringUi.undoStack.length
+      };
+    });
+    assert.equal(denseResult.sections, 224, "dense 15x15 Auto-data creates one bounded spanning network");
+    assert.equal(denseResult.powerSections, 0, "Auto-data preserves the empty Power network");
+    assert.deepStrictEqual(denseResult.disconnectedWeapons, [], "dense Auto-data connects every weapon to its source");
+    assert.equal(denseResult.undoDepth, 1, "dense Auto-data creates one undo entry");
+    assert.ok(denseElapsedMs < 30000, `dense Auto-data completes without hanging the page (${denseElapsedMs} ms)`);
     console.log("Auto-wire browser verification passed");
   } finally {
     if (browser) await browser.close().catch(() => {});

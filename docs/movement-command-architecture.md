@@ -15,11 +15,10 @@ This document records the authoritative movement contract after the Section 6 re
 
 | Field | Owner and lifecycle |
 |---|---|
-| `x`, `y`, `vx`, `vy`, `angle` | Server movement owns authoritative pose. Spawn initializes them; movement, asteroid collision and separation mutate them; snapshots expose pose/velocity/angle to clients for interpolation. |
+| `x`, `y`, `vx`, `vy`, `angle` | Server movement owns authoritative pose. Spawn initializes them; movement, map/station collision and separation mutate them; snapshots expose pose/velocity/angle to clients for interpolation. |
 | `targetX`, `targetY`, `arrived`, `isManualMove`, `commandMode` | Server command and movement own destination state. Commands and rally-spawn movement set targets, `commandMode` and clear stale arrival; arrival/braking and combat-style movement update them. |
 | `combatStyle`, `focusTargetId`, `combatTargetId`, `repairTargetId` | Server command/combat own intent. Commands set focus/repair targets; combat may set `combatTargetId`; movement clears dead target/orbit state. |
-| `orbitDir`, `lastOrbitTargetId` | Movement-only cache for circle style; reset when target/style changes or target dies. |
-| `sentryX`, `sentryY` | Sentry-style anchor; captured when Sentry is selected or when a manual ground move completes with Sentry style. |
+| `movement.style` | Movement-only memory for Orbit direction, Hold position and Kite side; reset when the relevant target, command or style changes. |
 | `rallyPoint` | Player-owned authoritative rally target. It is validated and adjusted server-side; new purchased ships spawn-to-rally without commanding existing ships. |
 | `validEngineIndices`, `blockedEngineIndices`, component Power state | Component-health/heat/power derived state consumed by movement stats. Destroyed, blocked, overheated or underpowered propulsion contributes reduced or zero movement. |
 | `hullAngleWeapons` | Movement/combat-facing cache for hull-rotation candidate ranking; derived from immutable spawned design and not client-authored. |
@@ -37,7 +36,7 @@ The active server connection for the stable player identity is the only connecti
 
 ## Ground move destination
 
-A plain right-click sends each selected owned ship to a destination computed from the click plus the ship's offset from the fleet centre. Relative offsets are preserved so the fleet stays arranged, each destination is clamped to world bounds and adjusted for obstacles with `nearestClearPoint`, and heavily overlapped ships fall back to a deterministic ring spread. No formation plan is built.
+A plain right-click assigns each selected owned ship a deterministic, non-overlapping slot around the click. Each destination is clamped to world bounds and adjusted for obstacles with `nearestClearPoint`; stable ship ordering keeps slot assignment repeatable.
 
 ## Integration and collision order
 
@@ -51,14 +50,13 @@ Each movement substep runs in this order:
 6. Apply `dt`-aware damping.
 7. Enforce maximum speed, including zeroing velocity when propulsion is unavailable.
 8. Integrate position and clamp to world bounds.
-9. Resolve asteroid collision as a safety net and damp velocity into rocks.
-10. Regenerate shields.
+9. Resolve asteroid, station-solid and world-edge collision as a safety net.
 
-The room tick then runs deterministic pairwise ship separation over living ships sorted by stable ID, followed by a final asteroid-collision pass. Exact ship overlaps use a deterministic separation direction; separation applies between all living ships, allied or enemy, and remains simple O(n²) because fleet caps are intentionally small.
+Shield regeneration is a separate combat-system stage, not part of movement integration. The room tick runs deterministic pairwise ship separation over living ships sorted by stable ID, followed by a final shared map/station-collision pass. Exact ship overlaps use a deterministic separation direction; separation applies between all living ships, allied or enemy, and remains simple O(n²) because fleet caps are intentionally small.
 
 ## Combat-style movement scope
 
-Movement uses the spawned design's maximum ship-level weapon range (`blaster`, `missile`, `railgun`, `beam`) as an engagement-distance rule. It does not duplicate the full weapon-targeting system and does not account for temporary turret state. Ships with no movement range close directly to an existing valid target. `charge`, `hold`, `sentry` and `circle` retain their existing ratios and hysteresis; circle keeps a stable orbit direction per target and clears it on target death/change.
+Movement uses the spawned design's current effective ship-level weapon range (`blaster`, `missile`, `railgun`, `beam`) as an engagement-distance rule. Charge, Hold, Orbit, Kite and Static consume the same authoritative target but produce distinct movement intents. A ship with no operational conventional weapon stops safely, except an armed demolition-only Charge ship, which continues closing for contact.
 
 ## Rally and bot movement
 

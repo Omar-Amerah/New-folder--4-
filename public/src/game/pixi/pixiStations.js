@@ -94,8 +94,14 @@ export function stationStateLabel(station) {
   // than describing its ownership.
   if (station.state === "neutral") return "OFFLINE";
   if (station.state === "disabled") return "DISABLED";
+  if (station.state === "controlled") return "CONTROLLED";
   // A station the sensor snapshot only knows structurally: its condition was
   // withheld, so claiming ONLINE would be asserting something we were not told.
+  // Older snapshots used "unknown" for captured relays too; ownership is public,
+  // so keep those clients clear of the misleading UNSCANNED label.
+  if (station.state === "unknown" && station.stationType === "relay" && (station.team || station.ownerId)) {
+    return "CONTROLLED";
+  }
   if (station.state === "unknown") return "UNSCANNED";
   return station.stationType === "home" ? "OPERATIONAL" : "ONLINE";
 }
@@ -104,7 +110,7 @@ export function stationStateLabel(station) {
 // sensor snapshot withheld is still a live installation to look at, so it is
 // drawn powered — only its readouts are unknown.
 function stationIsPowered(state) {
-  return state === "operational" || state === "unknown";
+  return state === "operational" || state === "unknown" || state === "controlled";
 }
 
 // Stations are authored on the same 15x15 grid ships use, but are drawn at a

@@ -150,8 +150,9 @@ function resolveStationCollision(room, ship, shipRadius) {
         const top = local.y + halfH;
         const bottom = halfH - local.y;
         const minDist = Math.min(left, right, top, bottom);
-        if (minDist >= shipRadius) continue;
-        penetration = shipRadius - minDist;
+        // The hull must travel from its centre to the nearest face, then one
+        // full radius farther so the circle clears the solid piece.
+        penetration = minDist + shipRadius;
         if (minDist === left) { nx = -1; ny = 0; }
         else if (minDist === right) { nx = 1; ny = 0; }
         else if (minDist === top) { nx = 0; ny = -1; }

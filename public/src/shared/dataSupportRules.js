@@ -100,10 +100,18 @@
         recipientCount: allocation.recipientCount, bonusPerWeapon: allocation.bonusPerWeapon,
         status: !eligible || sourceMultiplier === 0 ? "disabled" : allocation.recipientCount ? "active" : "idle-no-weapons" };
     });
+    // Index allocations once. The previous weapon-side scan searched every
+    // source and then linearly searched each source's recipients, which became
+    // cubic on large Data networks and multiplied the cost of failure analysis.
+    const allocationsByWeapon = new Map();
+    sourceAllocations.forEach((source) => source.eligibleWeaponIndices.forEach((weaponIndex) => {
+      if (!allocationsByWeapon.has(weaponIndex)) allocationsByWeapon.set(weaponIndex, []);
+      allocationsByWeapon.get(weaponIndex).push(source);
+    }));
     const weaponBonuses = allWeapons.map((weaponIndex) => {
       const module = modules[weaponIndex]; const network = domainByWeapon.get(weaponIndex) || null;
       const eligible = typeof options.isWeaponEligible !== "function" || options.isWeaponEligible(weaponIndex, module, partFor(catalogue, module.type), network);
-      const contributions = sourceAllocations.filter((source) => source.eligibleWeaponIndices.includes(weaponIndex)).map((source) => ({
+      const contributions = (allocationsByWeapon.get(weaponIndex) || []).map((source) => ({
         sourceIndex: source.sourceIndex, sourceType: source.sourceType, bonusField: source.bonusField, amount: source.bonusPerWeapon
       })).sort((a, b) => a.sourceIndex - b.sourceIndex);
       const totals = { rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0 };

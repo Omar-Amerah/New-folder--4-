@@ -2,10 +2,10 @@
 
 const { clampNumber, fastHypot, hashString } = require("./utils");
 const {
-  areEnemies,
   nearestDemolitionTargetPoint,
   shipHasOperationalDemolitionCharge
 } = require("./combat");
+const { areEntityEnemies } = require("./relationships");
 const { getEffectiveWeaponRanges } = require("./componentData");
 const { sanitizeCombatStyle } = require("./validation");
 const {
@@ -92,7 +92,7 @@ function firstLivingEnemyTarget(room, ship, targetIds) {
   for (const targetId of targetIds) {
     const target = livingTarget(room, targetId);
     if (target && !target.removed
-      && areEnemies(room, ship.ownerId, target.ownerId)) return target;
+      && areEntityEnemies(room, ship.ownerId, target)) return target;
   }
   return null;
 }
@@ -612,9 +612,12 @@ function createMovementIntent(room, ship, stats = ship.stats || {}, now = 0) {
   // and stored Stop commands remain so they can resume if the target becomes
   // invalid, but they must not suppress the stance after acquisition.
   if (combatTarget) {
-    const maximumRange = maximumWeaponRange(ship);
-    if (maximumRange <= 0) return stopIntent("attack:no-operational-weapons");
     const style = sanitizeCombatStyle(ship.combatStyle);
+    const maximumRange = maximumWeaponRange(ship);
+    const demolitionCharge = style === "charge" && shipHasOperationalDemolitionCharge(ship);
+    if (maximumRange <= 0 && !demolitionCharge) {
+      return stopIntent("attack:no-operational-weapons");
+    }
     switch (style) {
       case "orbit":
         return orbitIntent(room, ship, combatTarget, maximumRange, stats, runtime, now);

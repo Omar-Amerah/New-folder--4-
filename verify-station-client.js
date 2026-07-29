@@ -152,6 +152,18 @@ function resetState() {
 
 assert.equal(state.rules.infrastructureMode !== undefined, true, 'client rules default carries an infrastructure mode');
 
+const { commandTargetAt } = await import('./public/src/game/commands.js');
+resetState();
+state.snapshot.stations[1] = {
+  ...state.snapshot.stations[1],
+  ownerId: 'p2',
+  team: 'red',
+  state: 'controlled'
+};
+const relayCommandTarget = commandTargetAt({ x: 1200, y: 600 }, ['own-a']);
+assert.equal(relayCommandTarget.entity?.id, 'st-relay', 'right-click targeting resolves a hostile relay station');
+assert.equal(relayCommandTarget.kind, 'hostile', 'a hostile relay receives the attack command marker');
+
 resetState();
 assert.equal(selection.findStationAt(600, 600)?.id, 'st-home', 'a click inside the station radius finds it');
 assert.equal(selection.findStationAt(4000, 4000), null, 'a click in empty space finds no station');
@@ -214,17 +226,21 @@ renderStationPanel();
 assert.equal(dom.stationPanel.hidden, false, 'selecting a station reveals the panel');
 assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the panel names the station type');
 assert(dom.stationPanelBody.innerHTML.includes('Operational'), 'the panel shows the operational state');
-assert(dom.stationPanelBody.innerHTML.includes('900 / 1000'), 'the panel shows hull vitals');
-assert(dom.stationPanelBody.innerHTML.includes('40 / 80'), 'the panel shows shield vitals');
+assert(dom.stationPanelBody.innerHTML.includes('<strong>900</strong><small>/ 1000</small>'), 'the panel shows hull vitals');
+assert(dom.stationPanelBody.innerHTML.includes('<strong>40</strong><small>/ 80</small>'), 'the panel shows shield vitals');
 assert(dom.stationPanelBody.innerHTML.includes('Building'), 'the panel shows what the hangar is building');
 assert(dom.stationPanelBody.innerHTML.includes('50%'), 'the panel shows build progress');
 assert(dom.stationPanelBody.innerHTML.includes('You'), 'the panel attributes the build to its owner');
+assert(dom.stationPanelBody.innerHTML.includes('--station-meter-start:#062f17'), 'healthy station hulls use the green ship-hull palette');
+assert(dom.stationPanelBody.innerHTML.includes('--station-meter-start:#fbbf24'), 'half-strength station shields use the amber ship-shield palette');
+assert(!dom.stationPanelBody.innerHTML.includes('Everything you buy'), 'the home-station description is removed');
 
 selection.selectAt({ x: 1200, y: 600 }, false);
 renderStationPanel();
 assert.equal(dom.stationPanelKind.textContent, 'Relay Station', 'relay stations are labelled as such');
 assert(dom.stationPanelBody.innerHTML.includes('Unclaimed'), 'a neutral relay reads as unclaimed');
 assert(!dom.stationPanelBody.innerHTML.includes('Hangar'), 'relays have no hangar section');
+assert(!dom.stationPanelBody.innerHTML.includes('Bring ships inside'), 'the relay description is removed');
 
 state.rules = { ...state.rules, infrastructureMode: 'classic' };
 renderStationPanel();
@@ -247,6 +263,16 @@ assert.equal(stationStateLabel(relay), 'OFFLINE', 'neutral relays read as offlin
 // A station the sensor snapshot only knows structurally must not claim ONLINE:
 // its condition was deliberately withheld.
 assert.equal(stationStateLabel({ ...relay, state: 'unknown' }), 'UNSCANNED', 'sensor-stub stations do not claim a condition');
+assert.equal(
+  stationStateLabel({ ...relay, state: 'controlled', team: 'red', ownerId: 'p2' }),
+  'CONTROLLED',
+  'a hidden captured relay reports public control instead of unscanned'
+);
+assert.equal(
+  stationStateLabel({ ...relay, state: 'unknown', team: 'red', ownerId: 'p2' }),
+  'CONTROLLED',
+  'legacy hidden captured relay snapshots also avoid the unscanned label'
+);
 
 // The hangar build bar. Builds are sub-second for a light hull, so this is
 // checked by driving the drawing directly rather than trying to photograph it.

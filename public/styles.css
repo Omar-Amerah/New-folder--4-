@@ -655,11 +655,15 @@ h2 {
    the selection panel's chrome so the two read as the same family of cards. */
 .station-panel {
   display: grid;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid rgba(174, 199, 231, 0.18);
-  border-radius: 8px;
-  background: rgba(7, 12, 20, 0.58);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(174, 199, 231, 0.2);
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgba(16, 24, 37, 0.86), rgba(6, 11, 19, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 10px 24px rgba(0, 0, 0, 0.16);
 }
 
 .station-panel[hidden] {
@@ -667,90 +671,226 @@ h2 {
 }
 
 .station-panel-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-height: 28px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(174, 199, 231, 0.12);
+}
+
+.side-panel .station-panel-head {
+  margin-bottom: 0;
 }
 
 .station-panel-head h2 {
-  flex: 1 1 auto;
+  margin: 0;
+}
+
+#stationPanelKind {
+  justify-self: end;
+  overflow: hidden;
+  color: #a9b8cd;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #stationPanelFocus {
-  flex: 0 0 auto;
-  min-height: 22px;
-  padding: 0 8px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
+  min-height: 26px;
+  padding: 0 9px;
+  border-color: rgba(174, 199, 231, 0.2);
+  border-radius: 6px;
+  background: rgba(18, 26, 39, 0.86);
+  color: #dce8f7;
+  font-size: 9px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.station-hint {
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.45;
-  color: #7f93ab;
+.station-panel-body {
+  display: grid;
+  gap: 9px;
 }
 
 .station-panel h3 {
   margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  color: #a9b9cd;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #9fb2c8;
+}
+
+.station-overview {
+  display: grid;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid rgba(174, 199, 231, 0.1);
+  border-radius: 8px;
+  background: rgba(3, 8, 15, 0.4);
+  box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.16);
 }
 
 .station-summary {
   display: grid;
-  gap: 3px;
+  gap: 5px;
   margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(174, 199, 231, 0.1);
 }
 
 .station-summary-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  min-width: 0;
+  font-size: 10px;
 }
 
 .station-summary-row dt {
-  color: #90a3ba;
+  color: #8497ae;
 }
 
 .station-summary-row dd {
   margin: 0;
   color: #dce8f7;
+  font-weight: 700;
+  text-align: right;
 }
 
-.station-status-operational { color: #6ee7a8; }
-.station-status-disabled { color: #ff9a9a; }
-.station-status-neutral { color: #c8d4e3; }
+.station-status {
+  padding: 2px 6px;
+  border: 1px solid rgba(174, 199, 231, 0.13);
+  border-radius: 999px;
+  background: rgba(174, 199, 231, 0.06);
+  font-size: 9px;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.station-status-operational {
+  border-color: rgba(103, 224, 138, 0.26);
+  background: rgba(34, 197, 94, 0.08);
+  color: #86efac !important;
+}
+
+.station-status-disabled {
+  border-color: rgba(255, 95, 126, 0.3);
+  background: rgba(239, 68, 68, 0.09);
+  color: #fda4af !important;
+}
+
+.station-status-neutral,
+.station-status-controlled,
+.station-status-unknown {
+  color: #c8d4e3 !important;
+}
+
+.station-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.station-owner::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8497ae;
+  box-shadow: 0 0 7px rgba(132, 151, 174, 0.32);
+  content: "";
+}
+
+.station-owner-blue::before {
+  background: #38d5ff;
+  box-shadow: 0 0 7px rgba(56, 213, 255, 0.5);
+}
+
+.station-owner-red::before {
+  background: #ff5f7e;
+  box-shadow: 0 0 7px rgba(255, 95, 126, 0.5);
+}
+
+.station-vitals {
+  display: grid;
+  gap: 7px;
+}
 
 .station-meter {
   display: grid;
-  grid-template-columns: 46px 1fr auto;
+  grid-template-columns: 38px minmax(40px, 1fr) minmax(72px, auto);
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 7px;
+  min-width: 0;
+  font-size: 10px;
   color: #b9c8db;
 }
 
+.station-meter-label {
+  color: #91a4bb;
+  font-weight: 750;
+}
+
 .station-meter-track {
-  height: 7px;
-  border: 1px solid rgba(174, 199, 231, 0.2);
-  border-radius: 4px;
-  background: rgba(4, 8, 14, 0.8);
+  height: 8px;
+  border: 1px solid rgba(174, 199, 231, 0.16);
+  border-radius: 999px;
+  background: rgba(2, 6, 12, 0.92);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7);
   overflow: hidden;
 }
 
 .station-meter-track i {
+  position: relative;
   display: block;
   height: 100%;
-  background: #38d5ff;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--station-meter-start), var(--station-meter-end));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--station-meter-end) 46%, transparent);
 }
 
-.station-meter-shield .station-meter-track i {
-  background: #7cc4ff;
+.station-meter-track i::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 58%);
+  content: "";
+}
+
+.station-meter-value {
+  min-width: 0;
+  color: #e4edf9;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.station-meter-value strong {
+  font-weight: 750;
+}
+
+.station-meter-value small {
+  color: #8497ae;
+  font-size: inherit;
+  font-weight: 550;
+}
+
+.station-subhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 1px;
+}
+
+.station-subhead::after {
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(174, 199, 231, 0.18), transparent);
+  content: "";
 }
 
 .station-queue {
@@ -765,11 +905,11 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 6px;
-  padding: 4px 6px;
-  border: 1px solid rgba(174, 199, 231, 0.14);
+  padding: 6px 7px;
+  border: 1px solid rgba(174, 199, 231, 0.12);
   border-radius: 6px;
-  background: rgba(9, 15, 25, 0.7);
-  font-size: 11px;
+  background: rgba(6, 12, 21, 0.72);
+  font-size: 10px;
   color: #c6d5e6;
 }
 
@@ -809,9 +949,13 @@ h2 {
 
 .station-empty {
   margin: 0;
-  font-size: 11px;
-  line-height: 1.4;
-  color: #8ea1b8;
+  padding: 7px 8px;
+  border: 1px dashed rgba(174, 199, 231, 0.12);
+  border-radius: 6px;
+  background: rgba(4, 9, 16, 0.34);
+  color: #8497ae;
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .combat-style-controls {

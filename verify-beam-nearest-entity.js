@@ -2,9 +2,9 @@
 //
 // A single beam ray must damage only the NEAREST valid blocking entity across a
 // unified, ordered candidate list (asteroids, active shield bubbles, living ship
-// components, living drones). It must never damage a second ship or drone behind
-// the first blocker. Burn-through may still carry excess damage into at most one
-// further component INSIDE the single nearest ship.
+// components, stations, living drones). It must never damage a second entity
+// behind the first blocker. Burn-through may still carry excess damage into at
+// most one further component INSIDE the single nearest ship.
 
 const assert = require("assert");
 const { damageBeamTargets } = require("./src/server/combat");
@@ -46,6 +46,27 @@ function makeShip(id, ownerId, x, y, { shield = 0, design = null } = {}) {
 
 function makeDrone(id, ownerId, x, y) {
   return { id, ownerId, x, y, radius: 10, hull: 40, maxHull: 40, destroyed: false };
+}
+
+function makeStation(id, ownerId, x, y, shield = 0) {
+  return {
+    id,
+    entityType: "station",
+    stationType: "relay",
+    ownerId,
+    team: "red",
+    x,
+    y,
+    radius: 60,
+    alive: true,
+    state: "operational",
+    hp: 100,
+    maxHp: 100,
+    shield,
+    maxShield: shield,
+    componentHp: [100],
+    componentMaxHp: [100]
+  };
 }
 
 const shooter = () => makeShip("shooter", "p1", 0, 0);
@@ -173,6 +194,23 @@ const BURN_DESIGN = [
   assert.deepStrictEqual(first, second, "equal-distance tie-break must be deterministic across runs");
   assert.ok(first.d1 !== first.d2, "exactly one of the tied candidates is resolved");
   console.log("PASS: equal-distance collision candidates use a deterministic tie-break");
+})();
+
+// 8. A station participates in the unified nearest-blocker list and receives
+// authoritative station damage instead of letting the beam pass through.
+(function beamStationThenShip() {
+  const room = createRoom();
+  const s = shooter();
+  const station = makeStation("relay", null, 200, 0);
+  const behind = makeShip("behind", "p2", 400, 0);
+  room.ships = new Map([["shooter", s], ["behind", behind]]);
+  room.stations = [station];
+  room.stationsById = new Map([[station.id, station]]);
+  const result = damageBeamTargets(room, s, [behind], 0, 0, 1000, 0, 0, 20, 1000, {});
+  assert.ok(station.hp < 100, "the relay station takes beam hull damage");
+  assert.ok(isIntact(behind), "the relay blocks the beam from the ship behind it");
+  assert.strictEqual(result?.hitTargetEntityId, station.id, "the beam reports the station as its contact");
+  console.log("PASS: a relay station takes beam damage and blocks entities behind it");
 })();
 
 console.log("\nBEAM NEAREST-ENTITY REGRESSION TESTS PASSED");

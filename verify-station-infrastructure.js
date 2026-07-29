@@ -25,6 +25,7 @@ const { updateStationWeapons, stationModuleWorldPosition, damageStation } = requ
 const { PARTS } = require("./src/server/components");
 const { areEnemies } = require("./src/server/combat");
 const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
+const { resolveMapCollision } = require("./src/server/movement");
 
 function assert(condition, message) {
   if (!condition) {
@@ -449,6 +450,16 @@ function runEnemyStationVisibilityChecks() {
   const seenRelay = filtered.stations.find((s) => s.id === neutralRelay.id);
   assert(neutralRelay.state === "neutral", "the relay under test is uncaptured");
   assert(seenRelay.state === "neutral", "an unscanned uncaptured relay still reads neutral, not unknown");
+
+  neutralRelay.state = "operational";
+  neutralRelay.team = "blue";
+  neutralRelay.ownerId = "p1";
+  const capturedSnapshot = buildSharedSnapshot(room, 1100, true);
+  const capturedFiltered = filterSnapshotForPlayer(room, viewer, capturedSnapshot, 1100);
+  const capturedRelay = capturedFiltered.stations.find((station) => station.id === neutralRelay.id);
+  assert(capturedRelay.state === "controlled", "a hidden captured relay reports public control, not unscanned");
+  assert(capturedRelay.conditionKnown === false, "the captured relay's operational condition remains concealed");
+  assert(capturedRelay.hp === undefined && capturedRelay.maxHp === undefined, "captured relay health remains concealed");
 }
 
 function runRepairBeamChecks() {
@@ -521,6 +532,30 @@ function runHangarDoorChecks() {
   const spawn = home.hangar.interiorSpawn;
   const parked = { id: "x4", x: spawn.x, y: spawn.y, vx: 0, vy: 0 };
   assert(!resolveStationCollision(room, parked, 26), "the build position inside the corridor is still clear");
+
+  section("Station solids eject embedded hulls during the shared map-collision pass");
+  const solidRoom = {
+    world: { width: 1200, height: 1000 },
+    map: { asteroids: [] },
+    stations: [{
+      id: "solid",
+      collisionPieces: [{ x: 600, y: 500, halfWidth: 100, halfHeight: 80, angle: 0 }]
+    }]
+  };
+  const embedded = { id: "embedded", x: 600, y: 500, vx: 0, vy: 0 };
+  assert(resolveStationCollision(solidRoom, embedded, 26), "a hull deep inside a solid station piece collides");
+  assert(
+    Math.abs(embedded.y - 500) >= 106,
+    "an embedded hull clears the nearest station face by its full radius"
+  );
+  const sharedPassShip = {
+    id: "shared-pass", x: 600, y: 500, vx: 0, vy: 0, radius: 46, physicalRadius: 26
+  };
+  assert(resolveMapCollision(solidRoom, sharedPassShip), "the shared map-collision pass includes station solids");
+  assert(
+    Math.abs(sharedPassShip.y - 500) >= 106,
+    "movement substeps cannot leave a hull embedded inside a station"
+  );
 
   section("Loitering outside the mouth no longer stalls the hangar");
   // The clearance check used to sweep all the way out to the release plane, so
