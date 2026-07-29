@@ -210,6 +210,23 @@ function installUniversalPowerAllocation(ship, options = {}) {
     };
   });
 
+  const demandMw = byComponentIndex.reduce((sum, entry) => sum + (entry.role === "consumer" ? entry.requestedMw : 0), 0);
+  const availableGenerationMw = byComponentIndex.reduce((sum, entry) => sum + (entry.role === "source" && entry.state === "source" ? entry.generationAvailableMw : 0), 0);
+  const supplyRatio = demandMw > 0 ? Math.min(1, availableGenerationMw / demandMw) : 1;
+  console.error('installUniversal', demandMw, availableGenerationMw, supplyRatio, byComponentIndex.length);
+  byComponentIndex.forEach((entry) => {
+    if (entry.role !== "consumer" || !entry.operational) return;
+    entry.operationalMultiplier = supplyRatio;
+    entry.availableEfficiency = supplyRatio;
+    entry.allocatedMw = entry.requestedMw * supplyRatio;
+    entry.unmetMw = entry.requestedMw - entry.allocatedMw;
+    if (supplyRatio <= 0) {
+      entry.state = "unpowered";
+      entry.networkId = null;
+      entry.networkIds = [];
+    }
+  });
+
   const powerSignature = byComponentIndex.map((entry) => [
     entry.state,
     entry.networkId || "",
@@ -223,7 +240,6 @@ function installUniversalPowerAllocation(ship, options = {}) {
     ship.dirtyPower = true;
   }
 
-  const demandMw = byComponentIndex.reduce((sum, entry) => sum + (entry.role === "consumer" ? entry.requestedMw : 0), 0);
   const allocatedMw = byComponentIndex.reduce((sum, entry) => sum + (entry.role === "consumer" ? entry.allocatedMw : 0), 0);
   const result = {
     byComponentIndex: byComponentIndex.map((entry, componentIndex) => ({ componentIndex, ...entry })),
@@ -231,7 +247,7 @@ function installUniversalPowerAllocation(ship, options = {}) {
     sectionFlows: [],
     summary: {
       mode: "universal",
-      availableGenerationMw: demandMw,
+      availableGenerationMw,
       demandMw,
       allocatedMw,
       unmetMw: Math.max(0, demandMw - allocatedMw),
@@ -370,6 +386,9 @@ function buildShipPowerSolveBaseInput(ship) {
     if (isPowerSource(module)) sourceGenerationByIndex[index] = effectiveLiveSourceGeneration(ship, index);
     return (ship.componentHp?.[index] ?? 1) > 0;
   });
+  const componentStorageChargeByIndex = Array.isArray(ship.componentStorageCharge)
+    ? ship.componentStorageCharge.map((charge, index) => ((ship.componentHp?.[index] ?? 1) > 0 ? charge : 0))
+    : undefined;
   return {
     design,
     wiring: runtimePowerWiring,
@@ -378,7 +397,7 @@ function buildShipPowerSolveBaseInput(ship) {
     sourceGenerationByIndex,
     componentOperationalByIndex,
     componentDemandByIndex: ship._activityDemandByIndex || undefined,
-    componentStorageChargeByIndex: ship.componentStorageCharge || undefined,
+    componentStorageChargeByIndex,
     dt: ship.lastHeatTickDelta || 1.0
   };
 }

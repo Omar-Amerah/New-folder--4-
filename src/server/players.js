@@ -8,7 +8,7 @@ const { invalidateRelationshipCache, revalidateTelemetryFocusForRoom, isTelemetr
 
 // A player who drops (refresh or brief disconnect) keeps their ships and state
 // for this long; the server only despawns them if no reconnection arrives first.
-const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS || 10000);
+const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS || 30000);
 const MAX_RESUME_TOKEN_LENGTH = 128;
 let nextStablePlayerId = 1;
 
@@ -651,7 +651,7 @@ function checkEmptyLobby(room) {
   } else if (!room.emptyLobbyTimeout) {
     room.emptyLobbyTimeout = setTimeout(() => {
       closeLobby(room, null);
-    }, 10000);
+    }, 120000);
   }
 }
 

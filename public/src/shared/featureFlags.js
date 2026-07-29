@@ -9,6 +9,6 @@
     WIRING_ENABLED: false,
     // Set to true to use the current split movement modules instead of the
     // legacy monolithic movement implementation.
-    MODERN_MOVEMENT: false
+    MODERN_MOVEMENT: true
   });
 }));
