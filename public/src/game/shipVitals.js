@@ -21,7 +21,12 @@ export function componentHealthRatio(ship, index) {
     return clamp(Number(ship.chpVisual[index]) / 10, 0, 1);
   }
   if (!chp || chp[index] === undefined || !ship.design) return null;
-  if (ship.design[index]?.type === "core") return 1;
+  if (ship.design[index]?.type === "core") {
+    const hasBackupCore = ship.design.some((part) => part.type === "backupCore");
+    if (!hasBackupCore) return 1;
+    const coreMax = Math.max(1, Number(PART_STATS.core?.hp) || 340);
+    return clamp(chp[index] / coreMax, 0, 1);
+  }
   let raw = designComponentHpCache.get(ship.design);
   if (!raw) {
     const values = ship.design.map((part) => Math.max(1, Number(PART_STATS[part.type]?.hp) || 1));

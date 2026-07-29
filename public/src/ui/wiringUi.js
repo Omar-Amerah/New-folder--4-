@@ -10,6 +10,7 @@ import { computeStats } from "../design/componentStats.js";
 import { canUndoBlueprintEdit } from "../design/blueprintEditHistory.js";
 import { preDisplacementHeatCapacities } from "../design/thermalAnalysis.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
+import { WIRING_ENABLED } from "../featureFlags.js";
 import { getCachedDesignDataSupport, getCachedDataVulnerabilities } from "../design/dataSupportAnalysis.js";
 import { formatDataSupportValue, formatDataSupportEquation } from "../design/dataSupportPresentation.js";
 import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
@@ -912,7 +913,7 @@ export function bindWiringControls() {
 export function canUndoWiring() { return ui().undoStack.length > 0; }
 export function wiringReadinessWarning() {
   try {
-    if (!state.design.length) return null;
+    if (!WIRING_ENABLED || !state.design.length) return null;
     const analysis = currentAnalysis();
     const powerSections = bucket("power").sections.length;
     const dataSections = bucket("data").sections.length;

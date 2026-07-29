@@ -145,6 +145,7 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
     runPresentation("phase:openLobbyManagement", lobbyUi.openLobbyManagement);
     runPresentation("phase:updateDeploymentControls", purchaseUi.updateDeploymentControls);
     runPresentation("phase:updateStationPanel", updateStationPanel);
+    runPresentation("phase:updateScoreboardStatus", updateScoreboardStatus);
     return;
   }
 
@@ -161,6 +162,7 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
   runPresentation("phase:updateSelectionCommandUi", updateSelectionCommandUi);
   // Any phase move out of the match invalidates the inspected station.
   runPresentation("phase:updateStationPanel", updateStationPanel);
+  runPresentation("phase:updateScoreboardStatus", updateScoreboardStatus);
 
   if (nextPhase === "active") {
     runPresentation("phase:updateRelayStatus", updateRelayStatus);

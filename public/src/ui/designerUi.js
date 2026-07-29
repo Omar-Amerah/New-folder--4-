@@ -1293,7 +1293,7 @@ function renderShipSummary(stats, heat) {
     powerSummary: flow,
     partNames: PART_DEFS,
     overheatingCount: overheatingComponentCount(heat),
-    includePower: WIRING_ENABLED
+    includePower: true
   });
   const open = shipSummaryOpenSections();
 

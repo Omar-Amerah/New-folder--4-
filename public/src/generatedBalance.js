@@ -1192,7 +1192,7 @@ export const GENERATED_BALANCE = {
       "thrust": 0,
       "turn": -0.01,
       "energy": 0,
-      "repair": 4,
+      "repair": 10,
       "description": "Small support module that slowly repairs hull over time."
     },
     {
@@ -1233,7 +1233,7 @@ export const GENERATED_BALANCE = {
       "thrust": 0,
       "turn": -0.02,
       "energy": 0,
-      "repair": 8,
+      "repair": 20,
       "rotatable": true,
       "description": "Heavy repair beam. Aim it toward a friendly ship to project a hull-recovery beam from the emitter.",
       "footprint": {
