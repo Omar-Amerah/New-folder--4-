@@ -181,12 +181,11 @@ async function readInspector(page) {
         snapshots.reactor.core.find((c) => /power/i.test(c.label)).label);
     });
 
-    check("Frame renders no empty Thermal details block and no capability grid", () => {
+    check("Frame renders a Thermal details block but no thermal summary or capability grid", () => {
       const frame = snapshots.frame;
-      assert.equal(frame.sections.length, 0, "Frame renders no advanced sections");
+      assert.ok(frame.sections.some((section) => /thermal details/i.test(section.title)), "Frame renders a Thermal details section");
       assert.equal(frame.thermal.length, 0, "Frame renders no thermal summary");
       assert.equal(frame.capability.length, 0, "Frame renders no capability grid");
-      assert.doesNotMatch(frame.allText, /thermal details/i, "no empty Heat accordion for a bare Frame");
     });
 
     check("Reactor shows one consolidated meltdown warning outside the stat cards", () => {

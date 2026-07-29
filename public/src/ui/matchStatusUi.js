@@ -89,8 +89,8 @@ export function generateMatchStatusHTML(players) {
 
     for (const player of teamPlayers) {
       const showReady = player.ready && state.phase !== "active";
-      const status = showReady ? "Ready" : state.phase === "design" ? "Building" : player.connected === false ? "Disconnected" : "In match";
-      const statusClass = showReady ? "ready" : state.phase === "design" ? "building" : player.connected === false ? "disconnected" : "in-match";
+      const status = showReady ? "Ready" : state.phase === "design" ? "Building" : state.phase === "lobby" ? "In lobby" : player.connected === false ? "Disconnected" : "In match";
+      const statusClass = showReady ? "ready" : state.phase === "design" ? "building" : state.phase === "lobby" ? "lobby" : player.connected === false ? "disconnected" : "in-match";
       const canKick = isAdmin() && player.id !== state.myId && !player.isAdmin && (state.phase === "lobby" || state.phase === "design");
       const infoItems = [];
       infoItems.push(`${player.activeShips} ship${player.activeShips === 1 ? "" : "s"}`);

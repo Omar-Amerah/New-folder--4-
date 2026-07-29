@@ -15,6 +15,7 @@ import { GENERATED_BALANCE } from "../generatedBalance.js";
 import { WIRING_ENABLED } from "../featureFlags.js";
 
 const WiringRules = globalThis.WiringRules;
+const DataSupportRules = globalThis.DataSupportRules || null;
 if (!WiringRules) {
   throw new Error("WiringRules must load before componentStats.js");
 }
@@ -149,6 +150,18 @@ export function computeStats(modules, options = {}) {
     pointDefense: weaponAccumulator()
   };
 
+  let weaponBonusByIndex = null;
+  if (DataSupportRules) {
+    try {
+      const dataNetworks = WIRING_ENABLED && options.wiring
+        ? (WiringRules.analyzeWiring(modules, options.wiring, PART_STATS).data || {}).networks || []
+        : DataSupportRules.automaticDataNetworks(modules, PART_STATS);
+      weaponBonusByIndex = DataSupportRules.analyzeDataSupport(modules, dataNetworks, PART_STATS).weaponBonusByIndex || [];
+    } catch (_) {
+      weaponBonusByIndex = null;
+    }
+  }
+
   const centerOfMass = calculateCenterOfMass(modules, PART_STATS);
 
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
@@ -204,7 +217,9 @@ export function computeStats(modules, options = {}) {
     }
 
     if (part.weapon && weaponTotals[part.weapon.type]) {
-      addWeaponStats(weaponTotals[part.weapon.type], part.weapon);
+      const support = weaponBonusByIndex ? weaponBonusByIndex[moduleIndex] : null;
+      const fireRateMultiplier = support ? 1 + (Number(support.fireRateBonus) || 0) : 1;
+      addWeaponStats(weaponTotals[part.weapon.type], part.weapon, fireRateMultiplier);
     }
   }
 
@@ -216,7 +231,7 @@ export function computeStats(modules, options = {}) {
   applyWeaponUtilityBonuses(weaponTotals, {
     rangeBonus,
     accuracyBonus,
-    fireRateBonus,
+    fireRateBonus: weaponBonusByIndex ? 0 : fireRateBonus,
     coolingBonus
   });
 
@@ -474,17 +489,17 @@ export function weaponAccumulator() {
   };
 }
 
-export function addWeaponStats(total, weapon) {
+export function addWeaponStats(total, weapon, fireRateMultiplier = 1) {
   total.count += 1;
   total.damage += weapon.damage;
   total.range = Math.max(total.range, weapon.range);
   total.radius = Math.max(total.radius, weapon.radius || 0);
-  total.fireRate += weapon.fireRate;
-  total.reload += calculateReload(weapon);
+  total.fireRate += weapon.fireRate * fireRateMultiplier;
+  total.reload += calculateReload({ ...weapon, fireRate: weapon.fireRate * fireRateMultiplier });
   total.projectileSpeed += weapon.projectileSpeed;
   total.accuracy += weapon.accuracy;
   total.tracking += weapon.tracking || 0;
-  total.dps += calculateDps(weapon);
+  total.dps += calculateDps(weapon) * fireRateMultiplier;
 }
 
 export function applyWeaponUtilityBonuses(totals, bonuses) {
@@ -493,7 +508,8 @@ export function applyWeaponUtilityBonuses(totals, bonuses) {
 
   const rangeBonus = Number(bonuses.rangeBonus) || 0;
   const accuracyBonus = Number(bonuses.accuracyBonus) || 0;
-  const fireRateMultiplier = 1 + (Number(bonuses.fireRateBonus) || 0);
+  const totalWeaponCount = Object.values(totals).reduce((sum, t) => sum + t.count, 0);
+  const fireRateMultiplier = 1 + (totalWeaponCount > 0 ? (Number(bonuses.fireRateBonus) || 0) / totalWeaponCount : 0);
 
   for (const total of Object.values(totals)) {
     if (total.count <= 0) continue;

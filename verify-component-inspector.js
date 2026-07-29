@@ -194,19 +194,19 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
   });
 
   // -- 7. Heat presentation ---------------------------------------------------
-  check("Frame has no Thermal details block and no thermal summary", () => {
+  check("Frame has a Thermal details block but no thermal summary", () => {
     const frame = build("frame");
-    assert.equal(frame.sections.length, 0, "a bare Frame renders no advanced sections at all");
+    assert.ok(frame.sections.some((section) => section.id === "thermal"), "a Frame now renders a Thermal details section");
     assert.equal(frame.thermalSummary.length, 0, "a bare Frame renders no thermal summary");
     assert.equal(frame.capability.length, 0, "a bare Frame renders no capability grid");
-    assert.equal(Model.hasThermalRelevance("frame", PART_STATS.frame), false);
+    assert.equal(Model.hasThermalRelevance("frame", PART_STATS.frame), true);
   });
 
   check("thermal components summarise their role compactly", () => {
     const summaryOf = (type) => build(type).thermalSummary.map((row) => `${row.label} — ${row.value}`);
     assert.deepEqual(summaryOf("heatSink"), [`Heat — Stores ${HeatRules.profile("heatSink", PART_STATS.heatSink).capacity} Heat`]);
     assert.deepEqual(summaryOf("radiator"), [`Cooling — Removes ${HeatRules.profile("radiator", PART_STATS.radiator).cooling.toFixed(1)} Heat/s`]);
-    assert.deepEqual(summaryOf("heatPipe"), ["Thermal role — Transfers heat to sinks and radiators"]);
+    assert.deepEqual(summaryOf("heatPipe"), ["Thermal role — High-conductivity conduit — components attach directly to transfer heat toward sinks and radiators"]);
     assert.match(summaryOf("reactor")[0], /^Heat — Produces [\d.]+ Heat\/s at power load$/);
   });
 

@@ -147,14 +147,12 @@ export function heatProfileFor(type, stat) {
 const THERMAL_ROLE_TYPES = new Set(["radiator", "heatSink", "heatPipe"]);
 
 /**
- * Whether a component has heat behaviour worth its own panel. Passive structure
- * (a bare Frame) deliberately reports false so it stays compact instead of
- * showing an empty accordion.
+ * All components now show heat details, so the thermal section is always
+ * considered relevant even when the part itself produces no heat.
  */
 export function hasThermalRelevance(type, stat) {
-  if (THERMAL_ROLE_TYPES.has(type)) return true;
-  if (heatProfileFor(type, stat).generation > 0.05) return true;
-  return Boolean(stat.weapon) || (stat.powerGeneration || 0) > 0;
+  // Heat details are now shown for every component.
+  return true;
 }
 
 // ---------------------------------------------------------------------------

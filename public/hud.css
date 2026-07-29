@@ -1196,6 +1196,11 @@
   color: var(--cyan);
 }
 
+.team-player-status.lobby {
+  background: rgba(174, 199, 231, 0.18);
+  color: var(--muted);
+}
+
 .team-player-metrics {
   gap: 4px;
 }

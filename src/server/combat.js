@@ -1518,14 +1518,17 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       } else {
         // Threat differs from acquired target.
         if (newPdId !== pdPendingId) {
-          // Fresh threat: start a new reaction delay timer.
-          const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
-          const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
-          const delay = Math.round(baseDelay / Math.max(0.01, reactMult));
           ship.pdPendingTargetIds[i] = newPdId;
-          // Use the later of now+delay or the existing reaction ready time
-          // (from a previous target loss) to prevent gap bypass.
-          ship.pdAcquireCompleteAt[i] = Math.max(now + delay, pdReactionReady);
+          // Only start a new reaction delay if there was no pending target.
+          // If a different target appears while we are already reacting,
+          // we keep the existing timer so the turret does not get stuck
+          // cycling through nearby threats.
+          if (!pdPendingId) {
+            const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
+            const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
+            const delay = Math.round(baseDelay / Math.max(0.01, reactMult));
+            ship.pdAcquireCompleteAt[i] = Math.max(now + delay, pdReactionReady);
+          }
         }
         // While reaction delay is pending, the turret may track the threat
         // visually but must not fire. Check if timer has completed.
