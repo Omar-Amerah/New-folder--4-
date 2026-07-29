@@ -302,7 +302,34 @@ function rollbackPushedShips(moved) {
   }
 }
 
-function assignRallyArrivalSlots(room, ships, rallyPoint) {
+// Places in the arrival formation that are already spoken for. A station hangar
+// releases one hull at a time, so this runs with a single ship far more often
+// than with a whole batch -- and a lone ship is centred on the rally point by
+// the cursor below. Without the standing claims, every ship the hangar ever
+// produces is assigned that same centre slot: the one the previous ship is
+// still flying toward. They converge on one point, the separation solver shoves
+// them apart, and the fleet mills about outside the hangar instead of forming
+// up. A ship under way owns where it is GOING, not where it currently is --
+// keying off its position would reserve a point halfway across the map.
+function claimedRallySlots(fleet, ships) {
+  if (!Array.isArray(fleet) || fleet.length === 0) return [];
+  const claiming = new Set(ships.map((ship) => ship?.id));
+  const claims = [];
+  for (const other of fleet) {
+    if (!other?.alive || claiming.has(other.id)) continue;
+    const destination = other.movement?.command?.type === "move"
+      ? other.movement.command.destination
+      : null;
+    const x = Number.isFinite(destination?.x) ? destination.x : other.x;
+    const y = Number.isFinite(destination?.y) ? destination.y : other.y;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const physicalRadius = authoritativePhysicalRadius(other);
+    claims.push({ x, y, radius: physicalRadius, physicalRadius, id: `rally-claim:${other.id}` });
+  }
+  return claims;
+}
+
+function assignRallyArrivalSlots(room, ships, rallyPoint, options = {}) {
   const initial = ships.filter((ship) => ship?.alive);
   const approach = initial.length
     ? Math.atan2(
@@ -317,7 +344,7 @@ function assignRallyArrivalSlots(room, ships, rallyPoint) {
     const lateralB = b.x * lateralX + b.y * lateralY;
     return lateralA - lateralB || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
   });
-  const assigned = [];
+  const assigned = claimedRallySlots(options.fleet, ordered);
   const slots = new Map();
   const ignoredShips = new Set(ordered);
   const totalWidth = ordered.reduce((sum, ship) => sum + authoritativePhysicalRadius(ship) * 2, 0)

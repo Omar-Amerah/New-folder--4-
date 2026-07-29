@@ -13,6 +13,7 @@ const {
   MAP_REFERENCE_AREA,
   resolveMapClearances
 } = require("./config");
+const { clearVisibilityForRoom, usesSensorVisibility } = require("./visibility");
 const {
   clampNumber,
   rngRange,
@@ -189,11 +190,17 @@ function setRoomRules(room, requester, updates) {
 
 function sanitizeInfrastructureMode(value) {
   if (value === "classic" || value === "stations") return value;
-  return "classic";
+  return DEFAULT_ROOM_RULES.infrastructureMode;
 }
 
 function usesStationInfrastructure(room) {
   return room?.rules?.infrastructureMode === "stations";
+}
+
+function sanitizeVisibilityMode(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "full" || text === "sensors" || text === "dark") return text;
+  return DEFAULT_ROOM_RULES.visibilityMode;
 }
 
 function sanitizeRoomRules(input, playerCount = 1) {
@@ -204,7 +211,8 @@ function sanitizeRoomRules(input, playerCount = 1) {
   const gameMode = sanitizeGameMode(input.gameMode);
   const asteroidDensity = sanitizeAsteroidDensity(input.asteroidDensity);
   const infrastructureMode = sanitizeInfrastructureMode(input.infrastructureMode);
-  return { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode };
+  const visibilityMode = sanitizeVisibilityMode(input.visibilityMode);
+  return { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode, visibilityMode };
 }
 
 function sanitizeAsteroidDensity(value) {
@@ -978,6 +986,7 @@ function resetMatch(room, now) {
     resetPlayerForMatch(room, player, now);
   }
   clearRoomRuntimeScratch(room);
+  clearVisibilityForRoom(room);
   broadcastRoom(room, { type: "notice", message: "New match started" });
 }
 
@@ -992,6 +1001,8 @@ module.exports = {
   usesStationInfrastructure,
   sanitizeMapSize,
   sanitizeGameMode,
+  sanitizeVisibilityMode,
+  usesSensorVisibility,
   applyGameModeTeams,
   createMapSeed,
   generateMap,

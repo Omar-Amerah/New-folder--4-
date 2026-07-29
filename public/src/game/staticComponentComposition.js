@@ -1,5 +1,9 @@
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
-import { moduleRotationToRadians, normalizeRotation } from "../design/rotation.js";
+import {
+  directionalFootprintToShipRadians,
+  moduleRotationToRadians,
+  normalizeRotation
+} from "../design/rotation.js";
 import { drawModule, drawFootprintComponent, drawStaticComponentBase, drawStaticWeaponMount } from "./componentArt.js";
 import { isRotatingWeaponPart } from "./weaponAim.js";
 
@@ -15,7 +19,14 @@ export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim,
     drawStaticWeaponMount({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor });
     if (includeWeaponTop) drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, drawBase: false, visualState });
   } else if (place.multi) {
-    ctx.rotate(place.longAxisAngle);
+    const stat = PART_STATS[part.type] || {};
+    const artAngle = stat.sensorRole === "directed"
+      ? directionalFootprintToShipRadians(
+        normalizeRotation(part.rotation),
+        stat.footprint
+      )
+      : place.longAxisAngle;
+    ctx.rotate(artAngle);
     drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, visualState });
   } else if (isRotatablePart(part?.type) || part?.type === "maneuverThruster") {
     ctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));

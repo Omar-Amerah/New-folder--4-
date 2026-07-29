@@ -6,9 +6,8 @@
 // while a cable is being dragged. Every recreated element starts its infinite
 // CSS animation over at time zero, so a run of rebuilds pins those animations
 // near their first keyframe and they visibly stutter instead of pulsing. The
-// overloaded states are the ones that show it, because they are the only
-// overlay elements carrying infinite animations (the at-peak/above-sustained
-// cable halos, the shortage outline over a source component, the marching
+// overloaded states are the ones that show it, because their overlays carry
+// infinite animations (the at-peak/above-sustained cable halos and the marching
 // heat-flow dashes).
 //
 // Anchoring each infinite animation's `startTime` to the document timeline

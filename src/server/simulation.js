@@ -18,6 +18,9 @@ const { updateCommandAuras } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
 const { recordRoomTick } = require("./performanceTelemetry");
 const { performanceNow } = require("./utils");
+const { invalidateVisibility } = require("./visibility");
+const { dropHiddenTargetLocksForShips } = require("./targetLocks");
+
 function tickRoom(room, dt, now) {
   if (room.phase !== "active") {
     const source = room.effects || [];
@@ -79,6 +82,17 @@ function tickRoom(room, dt, now) {
     room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
   }
   durations.movementSeparationMap = performanceNow() - startedAt;
+  // Everything below this point sees one cached visibility generation. Combat
+  // may ask about hundreds of targets with slightly different performanceNow()
+  // values; those calls must not rebuild team visibility independently.
+  invalidateVisibility(room, "post-movement");
+  // A remembered contact is useful map information, but it is not a live
+  // target. Clear retained focus, pursuit and weapon-acquisition state at the
+  // same authoritative visibility boundary combat uses. This shares the cached
+  // team scan below instead of adding another fog pass earlier in the tick.
+  startedAt = performanceNow();
+  dropHiddenTargetLocksForShips(room, ships, now);
+  durations.visibility = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateProximityCharges(room, ships, dt, now);
   durations.proximityCharges = performanceNow() - startedAt;
@@ -118,13 +132,20 @@ function tickRoom(room, dt, now) {
   }
   durations.weapons = weaponsMs;
   durations.heat = heatMs;
+  startedAt = performanceNow();
   updateStationWeapons(room, room.stations || [], ships, dt, now);
+  durations.stationWeapons = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateBullets(room, dt, now);
   durations.projectiles = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateStations(room, dt, now);
   updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
+  // Weapons, projectile damage, drone movement, ship destruction and station
+  // capture can all change final visibility after combat started using the
+  // post-movement generation. Publish one final generation for snapshots.
+  invalidateVisibility(room, "post-combat");
+  room._visibilityFinalizedAt = now;
   durations.objectives = performanceNow() - startedAt;
   recordRoomTick(durations);
   const componentAssertionsEnabled = isComponentAssertionEnabled();

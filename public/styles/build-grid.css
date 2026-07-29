@@ -116,18 +116,12 @@
 .engine-thrust-arrow { position:absolute; z-index:30; display:grid; place-items:center; color:#69f3bd; font-size:20px; font-weight:950; text-shadow:0 0 5px #082; pointer-events:none; }
 .engine-thrust-arrow.invalid { color:#ff6079; text-shadow:0 0 5px #700; }
 
-/* Every layer of the overheated presentation (cell shell, the ::after wash and
-   the corner warning badge) shares one period so they read as a single pulse.
-   With three different periods they beat against each other and the component
-   looked like it was flickering rather than pulsing. */
-:root { --overheat-pulse-period: .85s; }
-
 .build-cell.heat-generator::after, .build-cell.heat-predicted-hot::after, .build-cell.heat-cooling::after { content:""; position:absolute; inset:1px; border-radius:4px; pointer-events:none; }
 .build-cell.heat-generator::after { box-shadow:inset 0 0 12px rgba(255,154,68,.42); }
 .build-cell.heat-predicted-hot::after { box-shadow:inset 0 0 16px rgba(255,70,70,.72); animation:designer-heat-pulse 1.2s ease-in-out infinite alternate; }
 .build-cell.heat-cooling::after { box-shadow:inset 0 0 14px rgba(80,205,255,.55); }
 .build-cell.heat-critical::after { box-shadow:inset 0 0 18px rgba(255,35,60,.88), 0 0 10px rgba(255,35,60,.35); }
-.build-cell.heat-overheated::after { box-shadow:inset 0 0 20px rgba(255,255,255,.92), 0 0 12px rgba(255,35,60,.8); animation:designer-heat-pulse .45s ease-in-out infinite alternate; }
+.build-cell.heat-overheated::after { box-shadow:inset 0 0 20px rgba(255,255,255,.92), 0 0 12px rgba(255,35,60,.8); }
 .heat-flow-overlay { position:absolute; z-index:2; inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); overflow:visible; color:#ffd166; pointer-events:none; }
 .heat-flow-overlay line { stroke:currentColor; stroke-linecap:round; filter:drop-shadow(0 0 .1px currentColor); }
 .heat-flow-overlay .low-heat-flow { color:#c58a2a; stroke:#c58a2a; }
@@ -158,7 +152,7 @@
 .component-heat-value-three-digit { gap:0; padding-inline:2px; font-size:7px; letter-spacing:-0.02em; }
 .component-heat-value-three-digit .heat-badge-icon { font-size:6px; margin-right:1px; }
 .component-heat-value-three-digit .heat-badge-percent { font-size:5px; }
-.component-overheat-warning { position:absolute; z-index:9; left:2px; top:2px; display:grid; place-items:center; width:11px; height:10px; border:1px solid rgba(255,240,240,.8); border-radius:3px; background:#d7193f; color:#fff; font-size:7px; line-height:1; text-shadow:0 1px 2px #700; box-shadow:0 0 6px rgba(255,32,67,.75); pointer-events:none; animation:overheat-warning-pulse var(--overheat-pulse-period) ease-in-out infinite alternate; }
+.component-overheat-warning { position:absolute; z-index:9; left:2px; top:2px; display:grid; place-items:center; width:11px; height:10px; border:1px solid rgba(255,240,240,.8); border-radius:3px; background:#d7193f; color:#fff; font-size:7px; line-height:1; text-shadow:0 1px 2px #700; box-shadow:0 0 6px rgba(255,32,67,.75); pointer-events:none; }
 .component-critical-warning { position:absolute; z-index:9; left:2px; top:2px; display:grid; place-items:center; width:11px; height:10px; border:1px solid rgba(255,240,220,.72); border-radius:3px; background:#c2410c; color:#fff; font-size:7px; line-height:1; text-shadow:0 1px 2px #611; box-shadow:0 0 5px rgba(249,115,22,.6); pointer-events:none; }
 .heat-cooling .component-heat-value { color:#7dd3fc; }
 .heat-predicted-hot .component-heat-value { color:#ff9a85; border-color:rgba(255,90,70,.5); }
@@ -167,7 +161,7 @@
 .build-cell.heat-ui-warm::after { background:rgba(250,204,21,.10); box-shadow:inset 0 0 9px rgba(250,204,21,.32); }
 .build-cell.heat-ui-hot::after { background:rgba(249,115,22,.14); box-shadow:inset 0 0 11px rgba(249,115,22,.48); }
 .build-cell.heat-ui-critical::after { background:rgba(225,29,72,.20); box-shadow:inset 0 0 13px rgba(225,29,72,.72); }
-.build-cell.heat-ui-overheated::after { background:rgba(255,241,242,.28); box-shadow:inset 0 0 16px rgba(255,255,255,.92), 0 0 9px rgba(225,29,72,.62); animation:overheated-component-pulse var(--overheat-pulse-period) ease-in-out infinite alternate; }
+.build-cell.heat-ui-overheated::after { background:rgba(255,241,242,.28); box-shadow:inset 0 0 16px rgba(255,255,255,.92), 0 0 9px rgba(225,29,72,.62); }
 .heat-ui-warm .component-heat-value { border-color:rgba(250,204,21,.4); }
 .heat-ui-hot .component-heat-value { border-color:rgba(249,115,22,.5); color:#ffd8b5; }
 .heat-ui-critical .component-heat-value { border-color:rgba(225,29,72,.66); color:#fecdd3; }
@@ -178,8 +172,6 @@
 @keyframes designer-heat-pulse { to { opacity:.48; } }
 @keyframes thermal-flow-route { to { stroke-dashoffset:-.3; } }
 @keyframes heat-sink-ring { from { transform:scale(.72); opacity:.8; } to { transform:scale(1.12); opacity:0; } }
-@keyframes overheat-warning-pulse { to { filter:brightness(1.25); } }
-@keyframes overheated-component-pulse { to { opacity:.58; box-shadow:inset 0 0 18px rgba(255,245,245,.82), 0 0 9px rgba(255,32,67,.5); } }
 
 
 .heat-flow-row button { border:1px solid rgba(117,145,175,.38); border-radius:6px; background:rgba(10,20,34,.72); color:#d9edff; padding:4px 6px; font-size:10px; font-weight:800; cursor:pointer; }
@@ -209,17 +201,10 @@
 .build-grid.heat-overlay-active .build-cell.occupied::after { z-index:2; mix-blend-mode:screen; }
 .build-grid.heat-overlay-active .build-cell.occupied { overflow:visible; }
 .build-grid.heat-overlay-active .build-cell.heat-ui-critical { border-color:#e11d48; box-shadow:0 0 10px rgba(225,29,72,.55), inset 0 0 0 2px rgba(225,29,72,.74); }
-/* The shell pulse animates box-shadow, never filter. A build cell's underlying
-   filter varies with its other state -- `heat-flag-throttled` sets
-   saturate()+contrast() and hover inspection sets saturate() on
-   `heat-unrelated` -- and a `filter:brightness()` keyframe cannot interpolate
-   against a different filter function list. The browser falls back to discrete
-   interpolation, so the cell hard-snapped between `saturate(.82) contrast(1.08)`
-   and `brightness(1.18)` twice a second. That hit overloaded components hardest,
-   because power-throttled components are exactly the ones carrying both classes.
-   box-shadow interpolates continuously here: both keyframes declare the same
-   three shadows with matching inset flags. */
-.build-grid.heat-overlay-active .build-cell.heat-ui-overheated { border-color:#fff; box-shadow:0 0 15px rgba(255,255,255,.72), 0 0 18px rgba(225,29,72,.78), inset 0 0 0 2px rgba(255,255,255,.86); animation:overheated-cell-shell var(--overheat-pulse-period) ease-in-out infinite alternate; }
+/* Overheated components use a steady high-contrast shell. Animating the whole
+   component made the 100% Heat warning read as renderer flicker, especially
+   when the same component was also Power-throttled. */
+.build-grid.heat-overlay-active .build-cell.heat-ui-overheated { border-color:#fff; box-shadow:0 0 18px rgba(255,255,255,.82), 0 0 22px rgba(225,29,72,.86), inset 0 0 0 2px rgba(255,255,255,.94); }
 .thermal-role-indicator { position:absolute; z-index:9; display:grid; place-items:center; width:12px; height:12px; border-radius:4px; border:1px solid rgba(255,255,255,.45); background:rgba(5,10,18,.92); font-size:8px; font-weight:950; line-height:1; pointer-events:none; }
 .thermal-role-indicator.heat-source { right:2px; top:2px; width:10px; height:10px; border-radius:3px; color:#ffb454; border-color:rgba(255,180,84,.58); background:rgba(20,12,5,.88); font-size:6px; font-weight:900; line-height:1; box-shadow:0 0 4px rgba(255,154,61,.28); opacity:.9; }
 .thermal-role-indicator.heat-sink-role, .thermal-role-indicator.radiator-role { right:2px; top:16px; color:#7dd3fc; border-color:rgba(125,211,252,.78); box-shadow:0 0 8px rgba(56,189,248,.35); }
@@ -249,7 +234,6 @@
 .heat-flow-overlay .outgoing-flow-label-group .heat-flow-label-background { stroke:rgba(255,154,61,.65); }
 .heat-flow-overlay .incoming-flow-label { fill:#7eeaff; }
 .heat-flow-overlay .outgoing-flow-label { fill:#ffb260; }
-@keyframes overheated-cell-shell { to { box-shadow:0 0 21px rgba(255,255,255,.92), 0 0 25px rgba(225,29,72,.94), inset 0 0 0 2px rgba(255,255,255,1); } }
 @media (prefers-reduced-motion: reduce) {
   .build-cell.heat-predicted-hot::after,
   .build-cell.heat-overheated::after,

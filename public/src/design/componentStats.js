@@ -7,6 +7,7 @@ import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation
 import { getOccupiedCells } from "./footprint.js";
 import ShieldRules from "../shared/shieldRules.js";
 import { solveBlueprintPower } from "./powerAllocationAnalysis.js";
+import { directionalFootprintToShipRadians, normalizeRotation } from "./rotation.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
@@ -15,6 +16,82 @@ import { GENERATED_BALANCE } from "../generatedBalance.js";
 const WiringRules = globalThis.WiringRules;
 if (!WiringRules) {
   throw new Error("WiringRules must load before componentStats.js");
+}
+
+function sensorStackMultiplier(index) {
+  if (index <= 0) return 1;
+  if (index === 1) return 0.65;
+  if (index === 2) return 0.45;
+  return 0.25;
+}
+
+function blueprintSensorProfile(modules, massClass) {
+  const ranges = GENERATED_BALANCE?.visibility?.hullBaseSensorRange || {};
+  const baseRange = Number(ranges[String(massClass || "medium").toLowerCase()]) || Number(ranges.medium) || 460;
+  const sensors = modules.map((module, index) => {
+    const part = PART_STATS[module.type];
+    const bonus = Number(part?.sensorRangeBonus) || 0;
+    if (!(bonus > 0)) return null;
+    const role = part.sensorRole === "directed"
+      ? "directed"
+      : part.sensorRole === "omniSmall" ? "omniSmall" : "omniLarge";
+    const rotation = normalizeRotation(module.rotation, part.allowedRotations);
+    return {
+      index,
+      type: module.type,
+      bonus,
+      role,
+      arc: Math.max(0, Number(part.sensorArc) || 0) * Math.PI / 180,
+      relativeAngle: role === "directed"
+        ? directionalFootprintToShipRadians(rotation, part.footprint)
+        : 0
+    };
+  }).filter(Boolean);
+  const omni = sensors
+    .filter((entry) => entry.role !== "directed")
+    .sort((a, b) => (a.role === "omniSmall") - (b.role === "omniSmall") || b.bonus - a.bonus || a.index - b.index);
+  const directed = sensors
+    .filter((entry) => entry.role === "directed")
+    .sort((a, b) => b.bonus - a.bonus || a.index - b.index);
+  const stackedOmni = omni.map((entry, stackIndex) => {
+    const multiplier = sensorStackMultiplier(stackIndex);
+    return {
+      componentIndex: entry.index,
+      type: entry.type,
+      role: entry.role,
+      stackIndex,
+      multiplier,
+      nominalBonus: entry.bonus,
+      effectiveBonus: entry.bonus * multiplier
+    };
+  });
+  const stackedDirected = directed.map((entry, stackIndex) => {
+    const multiplier = sensorStackMultiplier(stackIndex);
+    const effectiveBonus = entry.bonus * multiplier;
+    return {
+      componentIndex: entry.index,
+      type: entry.type,
+      role: entry.role,
+      stackIndex,
+      multiplier,
+      nominalBonus: entry.bonus,
+      effectiveBonus,
+      range: baseRange + effectiveBonus,
+      arc: entry.arc,
+      relativeAngle: entry.relativeAngle
+    };
+  });
+  const omniBonus = stackedOmni.reduce((sum, entry) => sum + entry.effectiveBonus, 0);
+  return {
+    baseRange,
+    omniRange: baseRange + omniBonus,
+    directedRange: stackedDirected[0]?.range || 0,
+    directedArc: stackedDirected[0]?.arc || 0,
+    sensorComponentCount: sensors.length,
+    directedSensorCount: directed.length,
+    omniContributions: stackedOmni,
+    directedContributions: stackedDirected
+  };
 }
 
 export function computeStats(modules, options = {}) {
@@ -150,6 +227,7 @@ export function computeStats(modules, options = {}) {
     directionalTurnInputs,
     hullControlThrust: GENERATED_BALANCE?.movement?.hullControlThrust
   });
+  const sensorProfile = blueprintSensorProfile(modules, movement.massClass);
 
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
@@ -256,7 +334,18 @@ export function computeStats(modules, options = {}) {
     blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     warnings,
     costBreakdown,
-    fleetCount
+    fleetCount,
+    baseSensorRange: sensorProfile.baseRange,
+    sensorRange: Number(sensorProfile.omniRange.toFixed(1)),
+    directedSensorRange: Number(sensorProfile.directedRange.toFixed(1)),
+    directedSensorArc: sensorProfile.directedArc,
+    sensorComponentCount: sensorProfile.sensorComponentCount,
+    directedSensorCount: sensorProfile.directedSensorCount,
+    sensorContributions: {
+      baseRange: sensorProfile.baseRange,
+      omni: sensorProfile.omniContributions,
+      directed: sensorProfile.directedContributions
+    }
   };
 }
 

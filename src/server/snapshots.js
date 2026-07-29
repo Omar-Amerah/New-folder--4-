@@ -12,10 +12,15 @@ const { buildDecoySnapshots, buildLauncherSnapshots } = require("./decoys");
 const { buildPowerProtectionSnapshot } = require("./powerProtection");
 const { buildPowerWiringLayout, buildPowerWiringRuntime } = require("./powerWiringSnapshot");
 const { PARTS } = require("./components");
+const { getShipComponentIndexes } = require("./componentIndexes");
 const { BALANCE_REVISION } = require("./balanceConfig");
 const { reportInvalidShieldState } = require("./runtimeShield");
 const { sanitizeCombatStyle } = require("./validation");
 const { usesStationInfrastructure } = require("./rooms");
+const { filterSnapshotForPlayer } = require("./visibilitySnapshots");
+const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapability");
+const { ensureTeamVisibility, invalidateVisibility, usesSensorVisibility } = require("./visibility");
+const { INFRASTRUCTURE } = require("./config");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -54,40 +59,89 @@ function buildComponentDamageVisual(ship) {
   });
 }
 
+// The furthest any battery still standing on this station can shoot.
+function stationWeaponRange(station) {
+  const componentRevision = station.componentDamageRevision || 0;
+  const cached = station._snapshotWeaponRangeCache;
+  if (cached?.componentRevision === componentRevision) return cached.value;
+  const design = station.design || [];
+  let range = 0;
+  for (const i of getShipComponentIndexes(station).weaponIndices) {
+    const weapon = PARTS[design[i]?.type]?.weapon;
+    if (!weapon) continue;
+    if (station.componentHp && !(station.componentHp[i] > 0)) continue;
+    range = Math.max(range, Number(weapon.range) || 0);
+  }
+  station._snapshotWeaponRangeCache = { componentRevision, value: range };
+  return range;
+}
+
+function stationComponentHpSnapshot(station) {
+  const componentRevision = station.componentDamageRevision || 0;
+  const cached = station._snapshotComponentHpCache;
+  if (cached?.componentRevision === componentRevision) return cached.value;
+  const value = station.componentHp?.map((hp) => round(hp * 10) / 10);
+  station._snapshotComponentHpCache = { componentRevision, value };
+  return value;
+}
+
+// Compact snapshots only need the bearings of actual station batteries. The
+// authoritative runtime stores one angle slot per design component, but sending
+// hundreds of default angles for non-weapons dominated otherwise-small station
+// updates. Full baselines retain the original dense array for compatibility.
+function buildStationWeaponAnglePairs(station) {
+  const pairs = [];
+  const angles = station.weaponAngles || [];
+  for (const index of getShipComponentIndexes(station).weaponIndices) {
+    pairs.push(index, round(angles[index]));
+  }
+  return pairs;
+}
+
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
 function buildStationSnapshot(room, station, now, sendStatic) {
   const entry = {
     id: station.id,
-    stationType: station.stationType,
-    x: round(station.x),
-    y: round(station.y),
-    angle: round(station.angle),
     hp: round(station.hp),
-    maxHp: round(station.maxHp),
     shield: round(station.shield),
-    maxShield: round(station.maxShield),
-    // The station's real broad-phase radius from its compound collision pieces,
-    // not the capped gameplay stat a ship reports.
-    radius: round(station.radius || station.stats?.radius || 0),
-    moduleScale: station.moduleScale,
-    weaponAngles: (station.weaponAngles || []).map(round),
     team: station.team || null,
     ownerId: station.ownerId || null,
     state: station.state,
+    sensorRange: round(effectiveSensorRange(station, room)),
+    // Furthest a live battery can reach, so the client can draw the station's
+    // engagement envelope the same way it draws a ship's. Destroyed weapons
+    // drop out of it, so the ring shrinks as the station is stripped.
+    weaponRange: round(stationWeaponRange(station)),
     revision: station.revision || 0,
     healthRevision: station.healthRevision || 0,
+    componentDamageRevision: station.componentDamageRevision || 0,
     stateRevision: station.stateRevision || 0,
     productionRevision: station.productionRevision || 1,
     captureProgress: station.stationType === "relay" ? round(station.captureProgress || 0) : undefined,
-    captureContested: station.stationType === "relay" ? Boolean(station.captureContested) : undefined
+    captureContested: station.stationType === "relay" ? Boolean(station.captureContested) : undefined,
+    // Who the capture bar currently belongs to, so it draws in their colour.
+    captureTeam: station.stationType === "relay" ? (station.captureTeam || null) : undefined
   };
-  // Design and hangar geometry are needed every tick for station rendering and
-  // the component-based spawn/corridor UX.
-  entry.design = station.design || [];
-  if (station.hangar) entry.hangar = station.hangar;
-  if (station.hardpoints) entry.hardpoints = station.hardpoints;
-  if (station.componentHp) entry.componentHp = station.componentHp.map((hp) => round(hp * 10) / 10);
+  if (sendStatic) {
+    entry.stationType = station.stationType;
+    entry.x = round(station.x);
+    entry.y = round(station.y);
+    entry.angle = round(station.angle);
+    // The station's real broad-phase radius from its compound collision pieces,
+    // not the capped gameplay stat a ship reports.
+    entry.radius = round(station.radius || station.stats?.radius || 0);
+    entry.moduleScale = station.moduleScale;
+    entry.design = station.design || [];
+    if (station.hangar) entry.hangar = station.hangar;
+    if (station.hardpoints) entry.hardpoints = station.hardpoints;
+    entry.weaponAngles = (station.weaponAngles || []).map(round);
+    entry.maxHp = round(station.maxHp);
+    entry.maxShield = round(station.maxShield);
+    if (station.componentHp) entry.componentHp = stationComponentHpSnapshot(station);
+  } else {
+    entry.weaponAnglePairs = buildStationWeaponAnglePairs(station);
+  }
   // The production queue is small but changes continuously, so it is part of
   // every snapshot. Progress is resolved server-side: the client has no
   // authoritative clock to compare buildStartedAt against.
@@ -112,14 +166,20 @@ function buildStationSnapshots(room, now, sendStatic) {
 }
 
 function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false) {
+  // Snapshot construction is also used by immediate purchase/reconnect sends
+  // outside the regular simulation cadence. Advance visibility once here so
+  // those snapshots cannot reuse coverage from before an entity/state change.
+  if (room._visibilityFinalizedAt !== now) invalidateVisibility(room, "snapshot-build");
   const ships = [];
   for (const ship of room.ships.values()) {
     if (ship.removed) continue;
     const effectiveWeapons = ensureEffectiveWeaponProfileCache(ship);
     const effectiveRanges = effectiveWeapons?.familyRanges || {};
+    const sensorProfile = effectiveSensorProfile(ship, room);
     const entry = {
       id: ship.id,
       ownerId: ship.ownerId,
+      team: room.players?.get?.(ship.ownerId)?.team ?? ship.team ?? null,
       designRevision: ship.designRevision || 1,
       componentAliveRevision: ship.componentAliveRevision || 0,
       componentDamageRevision: ship.componentDamageRevision || 0,
@@ -156,6 +216,13 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
         profile && (ship.componentHp?.[index] ?? 1) > 0 ? Number(profile.range) || 0 : null
       )),
       beamRadius: ship.stats?.beamRadius || 0,
+      sensorRange: round(sensorProfile.omniRange),
+      sensorCones: (sensorProfile.directed || []).map((cone) => ({
+        componentIndex: cone.componentIndex,
+        relativeAngle: roundAngle(cone.relativeAngle),
+        arc: roundAngle(cone.arcRadians),
+        range: round(cone.range)
+      })),
       respawnIn: 0,
       removeIn: ship.alive ? 0 : Math.max(0, Math.ceil(((ship.removeAt || now) - now) / 1000))
     };
@@ -191,22 +258,57 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     ships.push(entry);
   }
 
+  // Objective points, in one shape for both modes.
+  //
+  // Classic capture points ramp `progress` to 1 and HOLD it there while owned,
+  // so every consumer — the relay chips, the team relay list, objectiveControl,
+  // the victory meter — treats `progress >= 0.98` as "controlled". A station
+  // relay's `captureProgress` is the opposite: a transient capture timer that
+  // resets to 0 the moment the relay changes hands, and `room.points` is never
+  // updated in station mode at all. The HUD therefore read every relay as
+  // neutral at 0% for the whole match. Relays are projected onto the classic
+  // contract here (held == 1) so there is one meaning of `progress` downstream.
   const stationMode = usesStationInfrastructure(room);
-  const relayTargets = stationMode
-    ? (room.stations || []).filter((s) => s.stationType === "relay")
-    : (room.points || []);
+  const objectivePoints = stationMode
+    ? (room.stations || [])
+      .filter((station) => station.stationType === "relay")
+      .map((station) => {
+        const held = Boolean(station.team) && station.state !== "neutral";
+        return {
+          id: station.relayId || station.id,
+          stationId: station.id,
+          x: station.x,
+          y: station.y,
+          radius: INFRASTRUCTURE.relayStation?.captureRadius || station.radius || 0,
+          ownerId: station.ownerId || null,
+          ownerTeam: station.team || null,
+          contested: Boolean(station.captureContested),
+          progress: held ? 1 : Math.max(0, Math.min(1, station.captureProgress || 0))
+        };
+      })
+    : (room.points || []).map((point) => ({
+      id: point.id,
+      x: point.x,
+      y: point.y,
+      radius: point.radius,
+      ownerId: point.ownerId,
+      ownerTeam: point.ownerTeam,
+      contested: Boolean(point.contested),
+      progress: point.progress || 0
+    }));
+
   const objectiveControl = {
-    total: relayTargets.length,
+    total: objectivePoints.length,
     neutral: 0,
     contested: 0,
     teams: {},
     players: {}
   };
-  for (const target of relayTargets) {
-    const contested = stationMode ? target.captureContested : target.contested;
-    const progress = stationMode ? (target.captureProgress || 0) : (target.progress || 0);
+  for (const target of objectivePoints) {
+    const contested = target.contested;
+    const progress = target.progress;
     const ownerId = target.ownerId;
-    const ownerTeam = stationMode ? target.team : target.ownerTeam;
+    const ownerTeam = target.ownerTeam;
     if (contested) {
       objectiveControl.contested++;
     } else if (room.rules?.gameMode === "solo") {
@@ -242,14 +344,14 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       age: Math.max(0, Math.round(now - (bullet.bornAt || now))) / 1000
     })),
     stations: buildStationSnapshots(room, now, sendStatic),
-    points: room.points.map((point) => ({
+    points: objectivePoints.map((point) => ({
       id: point.id,
-      x: point.x,
-      y: point.y,
+      x: round(point.x),
+      y: round(point.y),
       radius: point.radius,
       ownerId: point.ownerId,
       ownerTeam: point.ownerTeam,
-      contested: Boolean(point.contested),
+      contested: point.contested,
       progress: round(point.progress)
     })),
     effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, round(now - effect.at)), subtype: effect.subtype })),
@@ -261,6 +363,18 @@ function getKnownShipDesigns(client) {
   if (!client) return new Map();
   if (!client.knownShipDesignRevisions) client.knownShipDesignRevisions = new Map();
   return client.knownShipDesignRevisions;
+}
+
+function getKnownStationStaticRevisions(client) {
+  if (!client) return new Map();
+  if (!client.knownStationStaticRevisions) client.knownStationStaticRevisions = new Map();
+  return client.knownStationStaticRevisions;
+}
+
+function getKnownStationComponentRevisions(client) {
+  if (!client) return new Map();
+  if (!client.knownStationComponentRevisions) client.knownStationComponentRevisions = new Map();
+  return client.knownStationComponentRevisions;
 }
 
 
@@ -555,16 +669,34 @@ function appendPublicShipVisual(entry, ship, includeDesign) {
   for (const key of PRIVATE_SHIP_FIELDS) delete entry[key];
 }
 
-function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusShipId) {
+function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusShipId, visibilityState = null) {
   const known = getKnownShipDesigns(client);
+  const knownVisible = client?.knownVisibleShipIds;
+  const sensorVisibility = usesSensorVisibility(room);
   const viewer = client?.player || null;
   const legacyTelemetry = telemetryFocusShipId === undefined;
-  return sharedShips.map((base) => {
+  const entries = [];
+  for (const base of sharedShips) {
+    if (sensorVisibility && visibilityState && !visibilityState.visibleEntityIds.has(base.id)) continue;
     const entry = { ...base };
     const ship = room.ships.get(entry.id);
-    if (!ship || ship.removed) return entry;
+    if (!ship || ship.removed) {
+      entries.push(entry);
+      continue;
+    }
     const revision = ship.designRevision || 1;
-    const needBaseline = sendStatic || known.get(ship.id) !== revision;
+    // A hidden ship is removed from the client's merged snapshot. Its design
+    // revision may still be "known", but a later compact reacquisition has no
+    // entity baseline to merge against. Track what the client actually received
+    // in its last written snapshot so reacquisition includes a fresh baseline
+    // instead of causing a missing-baseline resync loop.
+    const visibleInSensorSnapshot = !sensorVisibility
+      || !visibilityState
+      || visibilityState?.visibleEntityIds?.has?.(ship.id);
+    const visibilityBaselineMissing = sensorVisibility
+      && (!(knownVisible instanceof Set) || !knownVisible.has(ship.id));
+    const needBaseline = visibleInSensorSnapshot
+      && (sendStatic || known.get(ship.id) !== revision || visibilityBaselineMissing);
     if (canViewShipInternals(viewer, ship, room)) {
       entry.detail = "full";
       const focusedTelemetry = telemetryFocusShipId === ship.id;
@@ -573,6 +705,49 @@ function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusS
       else appendShipDeltas(entry, ship, client, { includeTelemetry, forceTelemetry: focusedTelemetry && !legacyTelemetry });
     } else {
       appendPublicShipVisual(entry, ship, needBaseline);
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function buildClientStations(room, sharedStations, client, sendStatic) {
+  if (!Array.isArray(sharedStations)) return sharedStations;
+  const knownStatic = getKnownStationStaticRevisions(client);
+  const knownComponents = getKnownStationComponentRevisions(client);
+  const knownCondition = client?.knownConditionStationIds;
+  return sharedStations.map((base) => {
+    const station = room.stationsById?.get?.(base.id)
+      || room.stations?.find?.((entry) => entry.id === base.id);
+    if (!station) return base;
+    const entry = { ...base };
+    const staticRevision = station.revision || 1;
+    const componentRevision = station.componentDamageRevision || 0;
+    const needsStatic = sendStatic
+      || (client && knownStatic.get(station.id) !== staticRevision);
+    const needsHealth = sendStatic
+      || (client && (
+        !(knownCondition instanceof Set)
+        || !knownCondition.has(station.id)
+        || knownComponents.get(station.id) !== componentRevision
+    ));
+    if (needsStatic) {
+      entry.stationType = station.stationType;
+      entry.x = round(station.x);
+      entry.y = round(station.y);
+      entry.angle = round(station.angle);
+      entry.radius = round(station.radius || station.stats?.radius || 0);
+      entry.moduleScale = station.moduleScale;
+      entry.design = station.design || [];
+      if (station.hangar) entry.hangar = station.hangar;
+      if (station.hardpoints) entry.hardpoints = station.hardpoints;
+      entry.weaponAngles = (station.weaponAngles || []).map(round);
+      delete entry.weaponAnglePairs;
+    }
+    if (needsHealth && station.componentHp) {
+      entry.maxHp = round(station.maxHp);
+      entry.maxShield = round(station.maxShield);
+      entry.componentHp = stationComponentHpSnapshot(station);
     }
     return entry;
   });
@@ -627,6 +802,47 @@ function markSnapshotDesignsWritten(client, designRevisions = []) {
   for (const [shipId, revision] of designRevisions) known.set(shipId, revision);
 }
 
+function collectSnapshotStationStaticRevisions(snapshot) {
+  const revisions = [];
+  for (const station of snapshot?.stations || []) {
+    if (station.design) revisions.push([station.id, station.revision || 1]);
+  }
+  return revisions;
+}
+
+function markSnapshotStationStaticWritten(client, revisions = []) {
+  const known = getKnownStationStaticRevisions(client);
+  for (const [stationId, revision] of revisions) known.set(stationId, revision);
+}
+
+function collectSnapshotStationComponentRevisions(snapshot) {
+  const revisions = [];
+  for (const station of snapshot?.stations || []) {
+    if (station.conditionKnown !== false && station.componentHp) {
+      revisions.push([station.id, station.componentDamageRevision || 0]);
+    }
+  }
+  return revisions;
+}
+
+function collectSnapshotConditionStationIds(snapshot) {
+  const ids = [];
+  for (const station of snapshot?.stations || []) {
+    if (station.conditionKnown !== false) ids.push(station.id);
+  }
+  return ids;
+}
+
+function markSnapshotStationComponentWritten(client, revisions = []) {
+  const known = getKnownStationComponentRevisions(client);
+  for (const [stationId, revision] of revisions) known.set(stationId, revision);
+}
+
+function markSnapshotConditionStationsWritten(client, stationIds = []) {
+  if (!client) return;
+  client.knownConditionStationIds = new Set(stationIds);
+}
+
 function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null, options = null) {
   if (!shared) shared = buildSharedSnapshot(room, now, sendStatic, Boolean(client));
   const telemetryFocusShipId = options && Object.prototype.hasOwnProperty.call(options, "telemetryFocusShipId")
@@ -678,6 +894,10 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     players.push(packet);
   }
 
+  const visibilityViewer = client?.player || viewer;
+  const visibilityState = visibilityViewer && usesSensorVisibility(room)
+    ? ensureTeamVisibility(room, visibilityViewer.team ?? visibilityViewer.id, now)
+    : null;
   const snapshot = {
     type: "state",
     room: room.code,
@@ -698,12 +918,12 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     phase: room.phase,
     adminId: room.adminId,
     players,
-    ships: buildClientShips(room, shared.ships, client, sendStatic, telemetryFocusShipId),
+    ships: buildClientShips(room, shared.ships, client, sendStatic, telemetryFocusShipId, visibilityState),
     drones: shared.drones || [],
     decoys: shared.decoys || [],
     bullets: shared.bullets,
     points: shared.points,
-    stations: shared.stations,
+    stations: buildClientStations(room, shared.stations, client, sendStatic),
     effects: shared.effects,
     winner: room.winner,
     matchStartedAt: room.matchStartedAt,
@@ -727,7 +947,16 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
   if (process.env.NODE_ENV !== "production" && room.spawnCollisionDiagnostics) {
     snapshot.spawnCollisionDiagnostics = { ...room.spawnCollisionDiagnostics };
   }
-  return snapshot;
+  return client?.player
+    ? filterSnapshotForPlayer(room, client.player, snapshot, now)
+    : snapshot;
+}
+function collectSnapshotVisibleShipIds(snapshot) {
+  return (snapshot?.ships || []).map((ship) => ship.id);
+}
+function markSnapshotVisibilityWritten(client, shipIds = []) {
+  if (!client) return;
+  client.knownVisibleShipIds = new Set(shipIds);
 }
 function collectSnapshotHeatTelemetryRevisions(snapshot) {
   const revisions = [];
@@ -752,15 +981,23 @@ module.exports = {
   snapshotRoom,
   buildSharedSnapshot,
   collectSnapshotDesignRevisions,
+  collectSnapshotVisibleShipIds,
+  markSnapshotVisibilityWritten,
   collectSnapshotPowerRevisions,
   collectSnapshotPowerProtectionRevisions,
   collectSnapshotWiringLayoutRevisions,
   collectSnapshotHeatTelemetryRevisions,
+  collectSnapshotStationStaticRevisions,
+  collectSnapshotStationComponentRevisions,
+  collectSnapshotConditionStationIds,
   markSnapshotDesignsWritten,
   markSnapshotPowerWritten,
   markSnapshotPowerProtectionWritten,
   markSnapshotWiringLayoutWritten,
   markSnapshotHeatTelemetryWritten,
+  markSnapshotStationStaticWritten,
+  markSnapshotStationComponentWritten,
+  markSnapshotConditionStationsWritten,
   canViewPlayerEconomy,
   _test: { buildSwitchgearSnapshot, buildRuntimePowerThermalSnapshot, finiteOrNull }
 };

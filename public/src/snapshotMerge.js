@@ -134,10 +134,37 @@ export function mergeCachedShipFields(previousShips, nextShips) {
   });
 }
 
-// Station geometry (design + hangar) is sent only on full snapshots because it
-// never changes for the life of the station; compact snapshots carry position,
-// vitals, state and the production queue, so the static fields are inherited
-// from the previous merged snapshot here.
+export function validateStationWeaponAnglePairs(previousAngles, pairs) {
+  if (!Array.isArray(previousAngles)) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE };
+  if (!Array.isArray(pairs) || pairs.length === 0) return { ok: true };
+  if (pairs.length % 2 !== 0) return { ok: false, reason: SNAPSHOT_REJECTION.MALFORMED_DELTA };
+  let last = -1;
+  for (let offset = 0; offset < pairs.length; offset += 2) {
+    const index = Number(pairs[offset]);
+    const angle = Number(pairs[offset + 1]);
+    if (!Number.isInteger(index) || index < 0 || index >= previousAngles.length || index <= last || !Number.isFinite(angle)) {
+      return { ok: false, reason: SNAPSHOT_REJECTION.MALFORMED_DELTA };
+    }
+    last = index;
+  }
+  return { ok: true };
+}
+
+export function applyStationWeaponAnglePairs(previousAngles, pairs) {
+  const valid = validateStationWeaponAnglePairs(previousAngles, pairs);
+  if (!valid.ok) return undefined;
+  if (!Array.isArray(pairs) || pairs.length === 0) return previousAngles;
+  const merged = previousAngles.slice();
+  for (let offset = 0; offset < pairs.length; offset += 2) {
+    merged[Number(pairs[offset])] = Number(pairs[offset + 1]);
+  }
+  return merged;
+}
+
+// Station geometry is immutable and only travels with a baseline. Compact
+// snapshots inherit it, apply sparse turret bearings, and carry component HP
+// only when the authoritative component-damage revision changes. Unknown enemy
+// condition explicitly clears component HP so cached detail cannot leak.
 export function mergeCachedStationFields(previousStations, nextStations) {
   if (!Array.isArray(nextStations)) return nextStations;
   if (!Array.isArray(previousStations)) return nextStations;
@@ -146,8 +173,23 @@ export function mergeCachedStationFields(previousStations, nextStations) {
     const old = oldStations.get(station.id);
     if (!old) return station;
     const merged = { ...station };
-    for (const key of ["design", "hangar"]) {
+    for (const key of [
+      "stationType", "x", "y", "angle", "radius",
+      "design", "hangar", "hardpoints", "moduleScale"
+    ]) {
       if (isNullish(merged[key])) merged[key] = old[key];
+    }
+    if (isNullish(merged.weaponAngles)) {
+      merged.weaponAngles = applyStationWeaponAnglePairs(old.weaponAngles, merged.weaponAnglePairs);
+      if (isNullish(merged.weaponAngles)) merged.weaponAngles = old.weaponAngles;
+    }
+    delete merged.weaponAnglePairs;
+    if (merged.conditionKnown === false) {
+      for (const key of ["hp", "maxHp", "shield", "maxShield", "componentHp"]) delete merged[key];
+    } else {
+      for (const key of ["maxHp", "maxShield", "componentHp"]) {
+        if (isNullish(merged[key])) merged[key] = old[key];
+      }
     }
     return merged;
   });
@@ -191,6 +233,38 @@ function validateShipDeltas(previous, message) {
   return { ok: true };
 }
 
+function validateStationDeltas(previous, message) {
+  const oldStations = new Map((previous?.stations || []).map((station) => [station.id, station]));
+  for (const station of message.stations || []) {
+    const old = oldStations.get(station.id);
+    if (!old && isNullish(station.design)) {
+      return {
+        ok: false,
+        reason: SNAPSHOT_REJECTION.MISSING_BASELINE,
+        snapshotSeq: message.snapshotSeq,
+        baseSnapshotSeq: message.baseSnapshotSeq,
+        snapshotKind: message.snapshotKind,
+        stationId: station.id,
+        stationDesignMissing: true
+      };
+    }
+    if (station.weaponAnglePairs) {
+      const result = validateStationWeaponAnglePairs(old?.weaponAngles, station.weaponAnglePairs);
+      if (!result.ok) {
+        return {
+          ...result,
+          snapshotSeq: message.snapshotSeq,
+          baseSnapshotSeq: message.baseSnapshotSeq,
+          snapshotKind: message.snapshotKind,
+          stationId: station.id,
+          stationDesignMissing: false
+        };
+      }
+    }
+  }
+  return { ok: true };
+}
+
 // Merged snapshots are built from shallow copies of the freshly decoded wire
 // message plus reference-shared static data from the previous snapshot. Deep
 // cloning here (formerly structuredClone) ran 15x/second over the full map and
@@ -200,15 +274,21 @@ export function mergeFullSnapshot(message) {
   const full = { ...message };
   full.players = Array.isArray(full.players) ? full.players : [];
   full.ships = Array.isArray(full.ships) ? full.ships.map((s) => ({ ...s, componentHeat: normalizeComponentHeatSnapshot(s.componentHeat) })) : [];
+  full.contacts = Array.isArray(full.contacts) ? full.contacts : [];
   return { ok: true, snapshot: full, networkState: { stateEpoch: full.stateEpoch, snapshotSeq: full.snapshotSeq, staticRevision: full.staticRevision, hasFullBaseline: true } };
 }
 
 export function mergeCompactSnapshot(previous, message) {
   const validation = validateShipDeltas(previous, message);
   if (!validation.ok) return validation;
+  const stationValidation = validateStationDeltas(previous, message);
+  if (!stationValidation.ok) return stationValidation;
   const next = { ...message };
   next.players = mergeStaticPlayerFields(previous.players, next.players || []);
   next.ships = mergeCachedShipFields(previous.ships, next.ships || []);
+  // Contacts are a complete dynamic set. Carrying the previous array when a
+  // packet omits it leaves stale contacts on screen after a mode/state change.
+  next.contacts = Array.isArray(next.contacts) ? next.contacts : [];
   if (!isNullish(next.stations)) next.stations = mergeCachedStationFields(previous.stations, next.stations);
   for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = previous[key];
   return { ok: true, snapshot: next, networkState: { stateEpoch: next.stateEpoch, snapshotSeq: next.snapshotSeq, staticRevision: next.staticRevision, hasFullBaseline: true } };

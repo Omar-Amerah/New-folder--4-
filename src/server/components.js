@@ -7,6 +7,13 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function normalizeAffectedComponentLimit(primary, fallback, defaultValue) {
+  const value = primary !== undefined ? primary : fallback;
+  if (value === null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 1 ? Math.round(number) : defaultValue;
+}
+
 function calculateDps(weapon) {
   return (weapon.damage * weapon.fireRate);
 }
@@ -133,6 +140,9 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     accuracyBonus: toNumber(component.accuracyBonus, 0),
     fireRateBonus: toNumber(component.fireRateBonus, 0),
     captureBonus: toNumber(component.captureBonus, 0),
+    sensorRangeBonus: toNumber(component.sensorRangeBonus, 0),
+    sensorRole: typeof component.sensorRole === "string" ? component.sensorRole : null,
+    sensorArc: toNumber(component.sensorArc, 0),
     rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
@@ -158,10 +168,19 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
           falloffExponent: toNumber(component.proximityCharge.falloffExponent, 2),
           directContactMultiplier: toNumber(component.proximityCharge.directContactMultiplier, 1.5),
           directContactHullDamage: toNumber(component.proximityCharge.directContactHullDamage, null),
-          contactMaxAffectedComponents: toNumber(component.proximityCharge.contactMaxAffectedComponents ?? component.proximityCharge.maxAffectedComponents, 10),
-          splashMaxAffectedComponents: toNumber(component.proximityCharge.splashMaxAffectedComponents ?? component.proximityCharge.maxAffectedComponents, 6),
+          contactMaxAffectedComponents: normalizeAffectedComponentLimit(
+            component.proximityCharge.contactMaxAffectedComponents,
+            component.proximityCharge.maxAffectedComponents,
+            10
+          ),
+          splashMaxAffectedComponents: normalizeAffectedComponentLimit(
+            component.proximityCharge.splashMaxAffectedComponents,
+            component.proximityCharge.maxAffectedComponents,
+            6
+          ),
           contactInternalDamageReduction: toNumber(component.proximityCharge.contactInternalDamageReduction ?? component.proximityCharge.internalDamageReduction, 0.35),
-          splashInternalDamageReduction: toNumber(component.proximityCharge.splashInternalDamageReduction ?? component.proximityCharge.internalDamageReduction, 0.7)
+          splashInternalDamageReduction: toNumber(component.proximityCharge.splashInternalDamageReduction ?? component.proximityCharge.internalDamageReduction, 0.7),
+          damagesFriendlyShips: component.proximityCharge.damagesFriendlyShips !== false
         })
       : null,
     propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object"

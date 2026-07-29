@@ -43,6 +43,7 @@
 // through the rear body, so generated wiring reaches every component.
 
 const { PARTS } = require("./components");
+const { getOccupiedCells } = require("./footprint");
 
 // The ship module scale. Ships are laid out at 13 world units per cell.
 const SHIP_MODULE_SCALE = 13;
@@ -105,6 +106,28 @@ function surfaceDepth(x, y) {
   return depth;
 }
 
+// The rotation that points a surface module away from the hull it is mounted
+// on, in the grid convention above (+x forward comes from the LOWEST cell y).
+//   front  (y = min)  -> +x  ->   0
+//   rear   (y = max)  -> -x  -> 180
+//   x = min           -> -y  -> 270
+//   x = max           -> +y  ->  90
+// This matters for gameplay, not just looks: a weapon's firing arc is measured
+// from its blueprint facing, so leaving every battery at rotation 0 would give a
+// 125-degree blaster and a 220-degree missile launcher mounted on the REAR of
+// the station an arc that cannot reach anything behind it.
+function outwardRotation(x, y, xMin, xMax, yMin, yMax) {
+  const toFront = y - yMin;
+  const toRear = yMax - y;
+  const toLeft = x - xMin;
+  const toRight = xMax - x;
+  const nearest = Math.min(toFront, toRear, toLeft, toRight);
+  if (nearest === toFront) return 0;
+  if (nearest === toRear) return 180;
+  if (nearest === toLeft) return 270;
+  return 90;
+}
+
 // Weapon batteries: point defence closest to the mouth (it protects the launch
 // corridor), heavier mounts outboard and along the flanks. Every one is an
 // ordinary weapon component running through the ordinary combat pipeline.
@@ -149,19 +172,61 @@ function homeStationInteriorPart(x, y, coreX, coreY) {
   }
 }
 
+// Long-range repair emitters, mounted on the hull surface and pointing off it.
+// Two flank the hangar mouth (a ship limping home is repaired on final
+// approach) and four sit along the flanks. Every one is an ordinary repairBeam
+// component: it traverses, draws a beam and heals through the same pipeline a
+// support ship's emitter does, just at the station's longer reach.
+//
+// repairBeam has a 1x2 footprint, so each emitter also consumes the cell it
+// extends into — always inward, given these rotations — and the body fill skips
+// those cells rather than stacking two modules on one square.
+const HOME_REPAIR_BEAM_MOUNTS = Object.freeze([
+  { x: APERTURE_X_MIN - 1, y: CORRIDOR_Y_MIN + 2, rotation: 0 },
+  { x: APERTURE_X_MAX + 1, y: CORRIDOR_Y_MIN + 2, rotation: 0 },
+  { x: HOME_X_MIN, y: 5, rotation: 270 },
+  { x: HOME_X_MAX, y: 5, rotation: 90 },
+  { x: HOME_X_MIN, y: 9, rotation: 270 },
+  { x: HOME_X_MAX, y: 9, rotation: 90 }
+]);
+
 function buildHomeStationDesign() {
   const design = [];
   // The core sits in the rear body, behind the corridor, so it cannot be sniped
   // straight down the hangar mouth.
   const coreX = GRID_CENTER;
   const coreY = CORRIDOR_Y_MAX + Math.floor(BODY_CELLS / 2);
+  // Cells the repair emitters occupy, so the body fill leaves them alone.
+  const emitterCells = new Set();
+  const emitterAt = new Map();
+  for (const mount of HOME_REPAIR_BEAM_MOUNTS) {
+    emitterAt.set(`${mount.x},${mount.y}`, mount);
+    for (const cell of getOccupiedCells(mount.x, mount.y, PARTS.repairBeam.footprint, mount.rotation)) {
+      emitterCells.add(`${cell.x},${cell.y}`);
+    }
+  }
   for (let y = HOME_Y_MIN; y <= HOME_Y_MAX; y += 1) {
     for (let x = HOME_X_MIN; x <= HOME_X_MAX; x += 1) {
       if (inCorridorVoid(x, y)) continue;
-      const type = surfaceDepth(x, y) === 0
+      const key = `${x},${y}`;
+      const emitter = emitterAt.get(key);
+      if (emitter) {
+        design.push({ x, y, type: "repairBeam", rotation: emitter.rotation });
+        continue;
+      }
+      if (emitterCells.has(key)) continue;
+      const onSurface = surfaceDepth(x, y) === 0;
+      const type = onSurface
         ? homeStationSurfacePart(x, y)
         : homeStationInteriorPart(x, y, coreX, coreY);
-      design.push({ x, y, type, rotation: 0 });
+      // Batteries beside the hangar mouth stay bore-sighted down the launch
+      // corridor; every other surface battery points off its own facing.
+      // Only weapons are turned: armour plating is non-rotatable hull art.
+      const besideMouth = inAperture(x + 1) || inAperture(x - 1);
+      const rotation = onSurface && PARTS[type]?.weapon && !(besideMouth && y <= CORRIDOR_Y_MIN + 2)
+        ? outwardRotation(x, y, HOME_X_MIN, HOME_X_MAX, HOME_Y_MIN, HOME_Y_MAX)
+        : 0;
+      design.push({ x, y, type, rotation });
     }
   }
   if (!design.some((module) => module.type === "core")) {
@@ -184,7 +249,12 @@ function buildRelayStationDesign() {
       else if ((x + y) % 4 === 0) type = "repair";
       else if ((x + y) % 4 === 2) type = "radiator";
       else type = "auxGenerator";
-      design.push({ x, y, type, rotation: 0 });
+      // Ring batteries face out of the relay so their idle pose reads as a
+      // defensive perimeter rather than six guns all staring the same way.
+      const rotation = PARTS[type]?.weapon
+        ? outwardRotation(x, y, GRID_CENTER - half, GRID_CENTER + half, GRID_CENTER - half, GRID_CENTER + half)
+        : 0;
+      design.push({ x, y, type, rotation });
     }
   }
   return design;
@@ -199,6 +269,20 @@ function stationModuleScale(stationType) {
 // The shared cell -> structure-local mapping, at a caller-supplied scale.
 function cellToLocal(x, y, scale) {
   return { x: (GRID_CENTER - y) * scale, y: (x - GRID_CENTER) * scale };
+}
+
+// A placed module's centre in structure-local space, footprint aware. This is
+// the one mapping every station system must agree on: the renderer draws a
+// weapon here, the combat code fires from here, and both read it from the same
+// function so a shot can never leave from somewhere the barrel is not.
+function moduleCentreToLocal(module, scale, footprint) {
+  const width = footprint?.width || 1;
+  const height = footprint?.height || 1;
+  return cellToLocal(
+    (Number(module.x) || 0) + (width - 1) / 2,
+    (Number(module.y) || 0) + (height - 1) / 2,
+    scale
+  );
 }
 
 // Axis-aligned local rectangle covering an inclusive cell range.
@@ -237,6 +321,17 @@ function buildHomeStationGeometry() {
     ],
     aperture: { x: mouthX, halfWidth, minY: aperture.minY, maxY: aperture.maxY },
     corridor: { rearWallX, mouthX, halfWidth, length: mouthX - rearWallX },
+    // The blast door across the mouth. It is NOT part of collisionRects: it is
+    // solid to everything except the hull currently launching, so a ship may
+    // leave the hangar but nothing may fly back in. Without it an enemy could
+    // park inside the corridor and stop the station building ships at all,
+    // since a launch only starts when the corridor is clear.
+    doorRect: {
+      minX: mouthX - scale * 0.4,
+      maxX: mouthX,
+      minY: aperture.minY,
+      maxY: aperture.maxY
+    },
     // Centred in the corridor: the deepest point where a maximum ship's whole
     // padded hull is both clear of the rear wall and still behind the mouth.
     interiorSpawn: { x: (rearWallX + mouthX) / 2, y: 0 },
@@ -290,6 +385,8 @@ module.exports = {
   buildRelayStationGeometry,
   cellToLocal,
   cellRectToLocal,
+  moduleCentreToLocal,
+  outwardRotation,
   inCorridorVoid,
   PARTS_REFERENCE: PARTS
 };

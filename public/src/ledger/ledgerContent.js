@@ -955,7 +955,9 @@ function generateComponentArticle(partId) {
     if (prox.blastRadius) importantStats.push({ label: "Blast Radius", value: formatDistance(prox.blastRadius) });
     if (prox.centreDamage) importantStats.push({ label: "Centre Damage", value: formatDamage(prox.centreDamage) });
     if (prox.falloffExponent) importantStats.push({ label: "Blast Falloff", value: `${prox.falloffExponent}` });
-    if (prox.maxAffectedComponents) importantStats.push({ label: "Max Affected Components", value: `${prox.maxAffectedComponents}` });
+    if (prox.maxAffectedComponents === null) importantStats.push({ label: "Max Affected Components", value: "Unlimited" });
+    else if (prox.maxAffectedComponents) importantStats.push({ label: "Max Affected Components", value: `${prox.maxAffectedComponents}` });
+    importantStats.push({ label: "Damages Friendly Ships", value: prox.damagesFriendlyShips === false ? "No" : "Yes" });
     if (prox.internalDamageReduction) importantStats.push({ label: "Internal Damage Reduction", value: formatPercent(prox.internalDamageReduction) });
   }
 

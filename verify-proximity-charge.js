@@ -259,7 +259,7 @@ function multiChargeDesign() {
   assert.ok(loss2 < loss1 * 2, `Two charges (${loss2}) should deal less than 2x one charge (${loss1}) due to diminishing returns`);
 }
 
-// --- Max affected components limit ---
+// --- Heavy charge has no max affected-components limit ---
 
 {
   const room = makeRoom();
@@ -281,9 +281,7 @@ function multiChargeDesign() {
     if (enemy.componentHp[i] < hpBefore[i]) damagedCount += 1;
   }
 
-  // Should damage at most maxAffectedComponents (12) components
-  assert.ok(damagedCount <= 12, `Damaged components (${damagedCount}) should not exceed maxAffectedComponents (12)`);
-  assert.ok(damagedCount >= 1, "At least one component damaged");
+  assert.equal(damagedCount, enemy.design.length, `Heavy charge should damage every component, got ${damagedCount}`);
 }
 
 console.log("Proximity charge verification passed");

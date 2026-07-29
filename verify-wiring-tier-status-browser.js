@@ -153,6 +153,12 @@ async function makeShortageFixture(page, { multipleGenerators = false } = {}) {
     designer.renderLocalStats();
   }, multipleGenerators);
   await page.locator(".wire-component-supply-source").first().waitFor({ state: "visible", timeout: 5000 });
+  const sourceWarningStyle = await page.locator(".wire-component-supply-source").first().evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { animationName: style.animationName, opacity: Number(style.opacity) };
+  });
+  assert.strictEqual(sourceWarningStyle.animationName, "none", "under-supplied generator warning must not flicker");
+  assert(sourceWarningStyle.opacity >= 0.7, "steady under-supplied generator warning remains clearly visible");
 }
 // Computed style of the visible cable line for a section id.
 async function visibleStyle(page, sectionId) {

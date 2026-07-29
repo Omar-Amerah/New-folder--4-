@@ -10,6 +10,8 @@ import { activeEngineSmoke } from "../shipDynamics.js";
 import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
 import { invalidatePresentation } from "../../presentationInvalidation.js";
+import { updatePixiContacts } from "./pixiSensorContacts.js";
+import { updatePixiFog } from "./pixiFog.js";
 
 const LINE_EFFECT_TYPES = new Set(["beam", "repairbeam", "laserPdPulse", "laserpd", "droneshot", "dronerepair"]);
 
@@ -215,6 +217,13 @@ function updatePixiRelays(env, now, players, bounds) {
   pixiRelayPool.frameStart();
   const snap = state.snapshot;
   const zoom = state.camera.zoom;
+  // In station mode a relay is a real structure and the station renderer draws
+  // its body, its capture ring (at the authoritative capture radius, which is
+  // NOT the map point's radius) and its ownership label. Drawing the abstract
+  // objective marker on top of it stacked two bodies, two rings of different
+  // sizes and two owner labels on the same coordinates, so here only the ID
+  // badge survives — the one thing the objective HUD refers to by name.
+  const stationMode = Array.isArray(snap?.stations) && snap.stations.length > 0;
   if (snap && snap.points) {
     for (const point of snap.points) {
       if (bounds && !isCircleVisible(point.x, point.y, point.radius || 100, bounds)) continue;
@@ -233,31 +242,34 @@ function updatePixiRelays(env, now, players, bounds) {
       view.root.position.set(point.x, point.y);
       const progress = point.progress || 0;
       const strutColor = owner ? color : "rgba(180,200,225,0.28)";
-      const idLabelY = -46 / zoom;
+      // The badge clears the structure in station mode instead of sitting on it.
+      const idLabelY = stationMode ? -(140 + 26 / zoom) : -46 / zoom;
       const badgeWidth = 38 / zoom;
       const badgeHeight = 28 / zoom;
       const zoomKey = zoom.toFixed(3);
-      const staticSignature = `${zoomKey}|${color}`;
+      const staticSignature = `${zoomKey}|${color}|${stationMode ? 1 : 0}`;
       if (view.staticSignature !== staticSignature) {
         view.staticSignature = staticSignature;
         const gfx = view.staticGfx;
         gfx.clear();
-        gfx.circle(0, 0, 22);
-        gfx.fill("rgba(13,18,30,0.95)");
-        gfx.stroke({ width: 2.5 / zoom, color });
-        gfx.circle(0, 0, 7);
-        gfx.fill(color);
+        if (!stationMode) {
+          gfx.circle(0, 0, 22);
+          gfx.fill("rgba(13,18,30,0.95)");
+          gfx.stroke({ width: 2.5 / zoom, color });
+          gfx.circle(0, 0, 7);
+          gfx.fill(color);
+        }
         gfx.roundRect(-badgeWidth / 2, idLabelY - badgeHeight / 2, badgeWidth, badgeHeight, 6 / zoom);
         gfx.fill("rgba(8,12,20,0.78)");
         gfx.stroke({ width: 1.5 / zoom, color });
       }
 
-      const strutSignature = `${zoomKey}|${strutColor}|${color}|${owner ? 1 : 0}`;
+      const strutSignature = `${zoomKey}|${strutColor}|${color}|${owner ? 1 : 0}|${stationMode ? 1 : 0}`;
       if (view.strutSignature !== strutSignature) {
         view.strutSignature = strutSignature;
         const gfx = view.strutGfx;
         gfx.clear();
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; !stationMode && i < 3; i++) {
           const angle = (i * Math.PI * 2) / 3;
           gfx.moveTo(0, 0);
           gfx.lineTo(Math.cos(angle) * 36, Math.sin(angle) * 36);
@@ -281,21 +293,23 @@ function updatePixiRelays(env, now, players, bounds) {
       const ownerLabel = point.contested ? "Contested" : owner ? owner.teamName || owner.name : "Neutral";
       const ownerFill = owner ? color : "#ccd5e0";
       const labelY = point.radius + 18 / zoom;
-      const captureSignature = `${zoomKey}|${point.radius}|${progress}|${color}|${ownerLabel}`;
+      const captureSignature = `${zoomKey}|${point.radius}|${progress}|${color}|${ownerLabel}|${stationMode ? 1 : 0}`;
       if (view.captureSignature !== captureSignature) {
         view.captureSignature = captureSignature;
         const gfx = view.captureGfx;
         gfx.clear();
-        gfx.circle(0, 0, point.radius);
-        gfx.fill({ color, alpha: 0.12 });
-        if (progress > 0) {
-          const start = -Math.PI / 2;
-          gfx.moveTo(Math.cos(start) * point.radius, Math.sin(start) * point.radius);
-          gfx.arc(0, 0, point.radius, start, start + Math.PI * 2 * progress);
-          gfx.stroke({ width: 3 / zoom, color, alpha: 0.76 });
+        if (!stationMode) {
+          gfx.circle(0, 0, point.radius);
+          gfx.fill({ color, alpha: 0.12 });
+          if (progress > 0) {
+            const start = -Math.PI / 2;
+            gfx.moveTo(Math.cos(start) * point.radius, Math.sin(start) * point.radius);
+            gfx.arc(0, 0, point.radius, start, start + Math.PI * 2 * progress);
+            gfx.stroke({ width: 3 / zoom, color, alpha: 0.76 });
+          }
+          gfx.rect(-50, labelY - 9, 100, 18);
+          gfx.fill("rgba(8,12,20,0.72)");
         }
-        gfx.rect(-50, labelY - 9, 100, 18);
-        gfx.fill("rgba(8,12,20,0.72)");
       }
       if (view.ownerLabel !== ownerLabel) {
         view.ownerLabel = ownerLabel;
@@ -309,6 +323,7 @@ function updatePixiRelays(env, now, players, bounds) {
       const ownerScale = ownerFont / 13;
       if (view.ownerText.scale.x !== ownerScale) view.ownerText.scale.set(ownerScale);
       if (view.ownerText.position.y !== labelY) view.ownerText.position.set(0, labelY);
+      view.ownerText.visible = !stationMode;
     }
   }
   pixiRelayPool.frameEnd();
@@ -739,6 +754,8 @@ export function updatePixiWorld(env, now, players, bounds, rect) {
   updatePixiBullets(env, players, bounds);
   updatePixiEffects(env, now, bounds);
   updatePixiSelectionBox(env);
+  updatePixiContacts(env, now, bounds);
+  updatePixiFog(env, now, bounds);
 }
 
 // Tears down every world-object pool (releasing texture leases and destroying

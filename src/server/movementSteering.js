@@ -380,7 +380,19 @@ function computeDesiredFacing(ship, stats, intent, decision) {
   // A drifting hull can still have turn authority even when it has no working
   // forward drive. Keep an unfinished ground move pointed at its live
   // destination, but stop consulting that bearing once it is positioned.
-  if (intent.type === "move" && decision.goal) {
+  //
+  // Only while the destination is far enough away for its bearing to mean
+  // anything. refreshDecisionHeading already refuses to derive a heading from a
+  // commanded velocity this small, for the reason that applies just as much
+  // here: the bearing to a point a few pixels away swings wildly, and at the
+  // end of an arrival that point is a few pixels away by definition. A ship
+  // parked on its mark and nudged sideways -- by a neighbour, or by the
+  // separation solver -- would drop out of `positioned` for one tick, land in
+  // this branch, and be told to face a destination now 20 px off its beam. It
+  // turned 40-odd degrees to obey, then re-settled: the arrival pirouette.
+  if (intent.type === "move"
+    && decision.goal
+    && decision.distance > ARRIVE_DISTANCE * ARRIVE_LATCH_RATIO) {
     return Math.atan2(
       decision.goal.y - (ship.y || 0),
       decision.goal.x - (ship.x || 0)

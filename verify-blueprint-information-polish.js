@@ -203,10 +203,22 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   const html = fs.readFileSync("public/index.html", "utf8");
   const controlsCss = fs.readFileSync("public/styles/blueprint-controls.css", "utf8");
   const purchaseCss = fs.readFileSync("public/styles/purchase-ui.css", "utf8");
+  const buildGridCss = fs.readFileSync("public/styles/build-grid.css", "utf8");
+  const wiringCss = fs.readFileSync("public/styles/wiring-editor.css", "utf8");
   assert.match(html, /id="blueprintCostBanner"[\s\S]*Build cost/, "cost banner keeps existing id and says Build cost");
   assert.equal((html.match(/id="saveDesignButton"/g) || []).length, 1, "Save button remains a single DOM element");
   assert.match(controlsCss, /blueprint-cost-banner[\s\S]*overflow-wrap:\s*anywhere/, "cost banner supports wrapping without clipping");
   assert.match(purchaseCss, /purchase-status[\s\S]*white-space:\s*normal[\s\S]*-webkit-line-clamp:\s*3/, "purchase reasons wrap in a stable status area");
+  const cssRule = (css, selector) => css.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] || "";
+  for (const selector of [
+    ".build-cell.heat-overheated::after",
+    ".component-overheat-warning",
+    ".build-cell.heat-ui-overheated::after",
+    ".build-grid.heat-overlay-active .build-cell.heat-ui-overheated"
+  ]) {
+    assert.doesNotMatch(cssRule(buildGridCss, selector), /\banimation\s*:/, `${selector} remains a steady warning without flicker`);
+  }
+  assert.doesNotMatch(cssRule(wiringCss, ".wiring-overlay .wire-component-supply-source"), /\banimation\s*:/, "under-supplied generator warning remains steady without flicker");
 
   console.log("Blueprint information polish verification passed");
 })().catch((error) => { console.error(error); process.exit(1); });

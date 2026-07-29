@@ -180,6 +180,12 @@ function validateWebSocketUpgrade(req, socket, options = {}) {
 
 function shortSha(value) { return String(value || "dev").slice(0, 12); }
 
+function currentPerformanceSnapshot() {
+  const performance = performanceSnapshot(TICK_HZ);
+  performance.outbound.clients = messages.summarizeOutboundClients(transport.sockets);
+  return performance;
+}
+
 function healthPayload() {
   const policy = websocketOriginPolicy();
   return {
@@ -190,7 +196,7 @@ function healthPayload() {
     uptimeSeconds: Math.floor(process.uptime()),
     activeRooms: rooms.size,
     activeClients: transport.sockets.size,
-    performance: performanceSnapshot(TICK_HZ),
+    performance: currentPerformanceSnapshot(),
     originPolicy: { mode: policy.mode, allowedOriginCount: policy.allowedOriginCount },
     assertions: { componentHp: isComponentAssertionEnabled() }
   };
@@ -387,7 +393,7 @@ function createGameServer(options = {}) {
   }
 
   function address() { return httpServer.address(); }
-  function diagnostics() { return { ...diagnosticsState, activeClients: transport.sockets.size, activeRooms: rooms.size, activeTimers: Array.from(timers.keys()), performance: performanceSnapshot(TICK_HZ) }; }
+  function diagnostics() { return { ...diagnosticsState, activeClients: transport.sockets.size, activeRooms: rooms.size, activeTimers: Array.from(timers.keys()), performance: currentPerformanceSnapshot() }; }
   const api = { start, stop, address, diagnostics, server: httpServer };
   return api;
 }

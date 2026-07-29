@@ -11,9 +11,12 @@ const SUBSYSTEM_NAMES = Object.freeze([
   "movementSeparationMap",
   "spatialIndex",
   "commandAuras",
+  "shields",
+  "visibility",
   "support",
   "drones",
   "weapons",
+  "stationWeapons",
   "projectiles",
   "heat",
   "objectives"
@@ -81,7 +84,12 @@ const totals = {
   snapshotPayloadBytes: 0,
   outboundBytes: 0,
   outboundSnapshotBytes: 0,
-  outboundControlBytes: 0
+  outboundControlBytes: 0,
+  outboundBlockedEvents: 0,
+  outboundDrainEvents: 0,
+  outboundCoalescedSnapshots: 0,
+  outboundQueueLimitCloses: 0,
+  outboundBackpressureCloses: 0
 };
 const outboundBuckets = new Map();
 let lastPrunedOutboundSecond = 0;
@@ -147,6 +155,16 @@ function recordOutbound(bytes, kind = "control") {
     lastPrunedOutboundSecond = second;
     for (const key of outboundBuckets.keys()) if (key < second - 120) outboundBuckets.delete(key);
   }
+}
+
+function recordOutboundEvent(event, count = 1) {
+  const amount = Math.max(0, Number(count) || 0);
+  if (!amount) return;
+  if (event === "blocked") totals.outboundBlockedEvents += amount;
+  else if (event === "drain") totals.outboundDrainEvents += amount;
+  else if (event === "coalesced") totals.outboundCoalescedSnapshots += amount;
+  else if (event === "queue-limit-close") totals.outboundQueueLimitCloses += amount;
+  else if (event === "backpressure-close") totals.outboundBackpressureCloses += amount;
 }
 
 function recordPurchaseStage(stageName, durationMs) {
@@ -252,10 +270,15 @@ function performanceSnapshot(tickHz = 30) {
       ...outboundWindow(now),
       totalBytes: totals.outboundBytes,
       totalSnapshotBytes: totals.outboundSnapshotBytes,
-      totalControlBytes: totals.outboundControlBytes
+      totalControlBytes: totals.outboundControlBytes,
+      blockedEvents: totals.outboundBlockedEvents,
+      drainEvents: totals.outboundDrainEvents,
+      coalescedSnapshots: totals.outboundCoalescedSnapshots,
+      queueLimitCloses: totals.outboundQueueLimitCloses,
+      backpressureCloses: totals.outboundBackpressureCloses
     },
     purchase: Object.fromEntries(PURCHASE_STAGE_NAMES.map((name) => [name, summarize(`purchase:${name}`, now)]))
   };
 }
 
-module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, recordPurchaseStage, recordFlakMetrics, performanceSnapshot };
+module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, recordOutboundEvent, recordPurchaseStage, recordFlakMetrics, performanceSnapshot };

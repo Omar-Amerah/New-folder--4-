@@ -12,6 +12,7 @@ const { areEnemies, damageShip, shipRepairNeed, areAllies } = require("./combat"
 const { getComponentPowerMultiplier } = require("./componentPower");
 const { repairShipComponents } = require("./componentHealth");
 const { addComponentHeat } = require("./heat");
+const { canTeamTargetEntity } = require("./visibility");
 
 const CONFIG = BALANCE.drones;
 const MODULE_SCALE = 13;
@@ -279,12 +280,13 @@ function resolveDroneTarget(room, targetId) {
     || null;
 }
 
-function nearestEnemyDrone(room, drone, maximumRange) {
+function nearestEnemyDrone(room, drone, maximumRange, now) {
   let best = null;
   let bestDistanceSq = maximumRange * maximumRange;
   const candidates = nearbyCandidates(room, drone, "drones", drone.x, drone.y, maximumRange, room.drones.values(), true);
   for (const other of candidates) {
     if (other.id === drone.id || other.destroyed || other.removed || room.drones.get(other.id) !== other || !areEnemies(room, drone.ownerId, other.ownerId)) continue;
+    if (!canTeamTargetEntity(room, drone.ownerId, other, now)) continue;
     const dx = other.x - drone.x;
     const dy = other.y - drone.y;
     const distanceSq = dx * dx + dy * dy;
@@ -313,12 +315,13 @@ function nearestHostileMissile(room, drone, maximumRange) {
   return best;
 }
 
-function nearestEnemyShip(room, drone, maximumRange) {
+function nearestEnemyShip(room, drone, maximumRange, now) {
   let best = null;
   let bestDistanceSq = maximumRange * maximumRange;
   const candidates = nearbyCandidates(room, drone, "ships", drone.x, drone.y, maximumRange, room.ships.values(), true);
   for (const ship of candidates) {
     if (!ship.alive || !areEnemies(room, drone.ownerId, ship.ownerId)) continue;
+    if (!canTeamTargetEntity(room, drone.ownerId, ship, now)) continue;
     const dx = ship.x - drone.x;
     const dy = ship.y - drone.y;
     const distanceSq = dx * dx + dy * dy;
@@ -345,7 +348,7 @@ function repairTargetScore(ship, need, distance, config) {
   return need * (1 + importantComponentDamageFraction(ship)) + distanceFactor * 25;
 }
 
-function chooseTarget(room, drone, parent, config) {
+function chooseTarget(room, drone, parent, config, now) {
   if (drone.type === "repair") {
     // Prefer the parent while it has ANY repairable damage (component or Core),
     // using the same shared repair-need helper as repair modules and beams so
@@ -378,20 +381,21 @@ function chooseTarget(room, drone, parent, config) {
     const missile = nearestHostileMissile(room, drone, config.commandRange);
     if (missile) return missile;
   }
-  const hostileDrone = nearestEnemyDrone(room, drone, drone.type === "defence" ? config.commandRange : config.weaponRange);
+  const hostileDrone = nearestEnemyDrone(room, drone, drone.type === "defence" ? config.commandRange : config.weaponRange, now);
   if (hostileDrone) return hostileDrone;
   if (drone.type === "fighter" && parent.focusTargetId) {
     const focused = room.ships.get(parent.focusTargetId);
-    if (focused?.alive && areEnemies(room, drone.ownerId, focused.ownerId)) return focused;
+    if (focused?.alive && areEnemies(room, drone.ownerId, focused.ownerId)
+      && canTeamTargetEntity(room, drone.ownerId, focused, now)) return focused;
   }
-  return nearestEnemyShip(room, drone, config.commandRange);
+  return nearestEnemyShip(room, drone, config.commandRange, now);
 }
 
-function chooseFallbackTarget(room, drone, parent, config) {
+function chooseFallbackTarget(room, drone, parent, config, now) {
   if (drone.type === "repair") return parent;
   return (drone.type === "defence" ? nearestHostileMissile(room, drone, config.weaponRange) : null)
-    || nearestEnemyDrone(room, drone, config.weaponRange)
-    || nearestEnemyShip(room, drone, config.weaponRange);
+    || nearestEnemyDrone(room, drone, config.weaponRange, now)
+    || nearestEnemyShip(room, drone, config.weaponRange, now);
 }
 
 function steerDrone(drone, targetX, targetY, speed, turnRate, dt) {
@@ -854,7 +858,8 @@ function updateDroneEntity(room, drone, dt, now) {
   const targetInvalid = !target
     || target.destroyed
     || target.alive === false
-    || (target.life !== undefined && target.life <= 0);
+    || (target.life !== undefined && target.life <= 0)
+    || (target.life === undefined && !canTeamTargetEntity(room, drone.ownerId, target, now));
   const parentDx = drone.x - parent.x;
   const parentDy = drone.y - parent.y;
   const outsideCommandRange = parentDx * parentDx + parentDy * parentDy > config.commandRange * config.commandRange;
@@ -871,8 +876,8 @@ function updateDroneEntity(room, drone, dt, now) {
     const selectedTarget = outsideCommandRange
       ? null
       : fallback
-        ? chooseFallbackTarget(room, drone, parent, config)
-        : chooseTarget(room, drone, parent, config);
+        ? chooseFallbackTarget(room, drone, parent, config, now)
+        : chooseTarget(room, drone, parent, config, now);
     drone.targetId = selectedTarget?.id || null;
     drone.cachedEvasion = ((Number(config.evasionLookaheadSeconds) || 0) > 0 && (Number(config.evasionClearance) || 0) > 0)
       ? fighterProjectileEvasion(room, drone, config)

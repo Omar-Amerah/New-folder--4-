@@ -15,6 +15,12 @@ export function openBlueprintDesigner({ fromLobby = false } = {}) {
   if (dom.blueprintDesignerScreen) {
     dom.blueprintDesignerScreen.hidden = false;
   }
+  // Anchor dirty tracking to what the editor looked like on open, so a design
+  // that no saved blueprint backs only counts as dirty once it is actually edited.
+  import("./savedBlueprintsUi.js").then((mod) => {
+    mod.captureEditorBaseline?.();
+    mod.refreshLoadedBlueprintPresentation?.();
+  });
   import("./designerUi.js").then((mod) => mod.refreshBlueprintUndoControl?.());
 }
 
@@ -36,8 +42,10 @@ export function closeBlueprintDesigner() {
 }
 
 export async function requestCloseBlueprintDesigner() {
-  const { isEditorDirty } = await import("./savedBlueprintsUi.js");
-  if (isEditorDirty()) {
+  const { isEditorDirty, isLoadedBlueprintDirty } = await import("./savedBlueprintsUi.js");
+  // Only a loaded blueprint can lose work on close: an unbacked design is
+  // written to localStorage on every edit and comes back as-is next time.
+  if (isLoadedBlueprintDirty()) {
     const { state } = await import("../state.js");
     closeReturnFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -62,6 +70,12 @@ export async function requestCloseBlueprintDesigner() {
 
   const { state } = await import("../state.js");
   if (state.loadedEditorBlueprintId) {
+    closeBlueprintDesigner();
+    return true;
+  }
+
+  // Nothing was touched since the designer opened — never interrupt the close.
+  if (!isEditorDirty()) {
     closeBlueprintDesigner();
     return true;
   }

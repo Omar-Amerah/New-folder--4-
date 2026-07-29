@@ -9,12 +9,13 @@ const VALID_POWER_CATEGORIES = new Set(["command", "propulsion", "shields", "poi
 const POWER_SOURCE_IDS = new Set(["core", "reactor", "nuclearReactor", "auxGenerator"]);
 const POWER_TIER_NAMES = ["light", "standard", "heavy"];
 const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "costPerHostedCell", "heatCapacityDisplacement", "renderedThickness"];
+const VALID_SENSOR_ROLES = new Set(["omniSmall", "omniLarge", "directed"]);
 const VALID_AURA_TYPES = new Set(["command", "fireControl", "fleetDefence", "shield", "engineering", "propulsion", "ewar"]);
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
   "thrust", "turn", "lateralThrust", "brakingThrust", "reverseThrust", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
   "chargeEfficiency", "dischargeEfficiency", "dischargeHeatAtMax", "dischargeHeat", "repair", "repairRate",
-  "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength",
+  "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength", "sensorRangeBonus", "sensorArc",
   "frontDamageReduction", "frontArc", "maxPerShip", "meltdownDamage", "meltdownRadius"
 ];
 const WEAPON_NUMERIC_FIELDS = [
@@ -310,6 +311,35 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     validatePropulsionCapacitor(component.propulsionCapacitor, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
     validateBoolean(component.rotationRequired, `${path}.rotationRequired`, errors);
+    if (component.proximityCharge !== undefined) {
+      const charge = component.proximityCharge;
+      const chargePath = `${path}.proximityCharge`;
+      if (!charge || typeof charge !== "object" || Array.isArray(charge)) {
+        errors.push(`${chargePath} must be an object when present.`);
+      } else {
+        for (const field of ["triggerRadius", "triggerConfirmationSeconds", "blastRadius", "centreDamage", "falloffExponent", "internalDamageReduction", "directContactMultiplier"]) {
+          if (charge[field] !== undefined && !isFiniteNumber(charge[field])) {
+            errors.push(`${chargePath}.${field} must be a finite number when present.`);
+          }
+        }
+        for (const field of ["maxAffectedComponents", "contactMaxAffectedComponents", "splashMaxAffectedComponents"]) {
+          const value = charge[field];
+          if (value !== undefined && value !== null && (!Number.isInteger(value) || value < 1)) {
+            errors.push(`${chargePath}.${field} must be null or an integer >= 1 when present.`);
+          }
+        }
+        validateBoolean(charge.damagesFriendlyShips, `${chargePath}.damagesFriendlyShips`, errors);
+      }
+    }
+    if (component.sensorRole !== undefined && !VALID_SENSOR_ROLES.has(component.sensorRole)) {
+      errors.push(`${path}.sensorRole must be one of omniSmall, omniLarge, or directed.`);
+    }
+    if (component.sensorRole !== undefined && !(isFiniteNumber(component.sensorRangeBonus) && component.sensorRangeBonus > 0)) {
+      errors.push(`${path}.sensorRangeBonus must be a finite number greater than zero for a sensor component.`);
+    }
+    if (component.sensorRole === "directed" && !(isFiniteNumber(component.sensorArc) && component.sensorArc > 0 && component.sensorArc < 180)) {
+      errors.push(`${path}.sensorArc must be a finite number between 0 and 180 for a directed sensor.`);
+    }
     if (component.footprint !== undefined) {
       if (!component.footprint || typeof component.footprint !== "object" || Array.isArray(component.footprint)) {
         errors.push(`${path}.footprint must be an object with positive finite width and height.`);

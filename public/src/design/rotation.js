@@ -3,7 +3,13 @@ import "../shared/rotationRules.js";
 
 const RotationRules = globalThis.RotationRules;
 
-export const { normalizeRotation, legacySideRotation, maneuverThrusterAutoRotation, moduleRotationToRadians } = RotationRules;
+export const {
+  normalizeRotation,
+  legacySideRotation,
+  maneuverThrusterAutoRotation,
+  moduleRotationToRadians,
+  directionalFootprintToShipRadians
+} = RotationRules;
 
 export function nextRotation(current, allowedRotations = null) {
   const allowed = Array.isArray(allowedRotations) && allowedRotations.length ? allowedRotations.map(Number) : RotationRules.DEFAULT_ROTATIONS.slice();

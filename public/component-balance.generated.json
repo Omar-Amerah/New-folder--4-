@@ -7,6 +7,19 @@
     "Section units: currency $, mass tonnes, hull HP, shield points, seconds, metres, metres/second, radians/second, damage, shots/second, energy, heat, percentages as 0-1 fractions, multipliers as direct factors.",
     "Missile weapon fields are base damage, fire rate, projectile speed, guidance/tracking strength, tracking delay, tracking duration, lifetime where present, firing arc, and accuracy; theoretical DPS is damage * fireRate, not expected applied damage."
   ],
+  "visibility": {
+    "defaultMode": "sensors",
+    "hullBaseSensorRange": {
+      "light": 520,
+      "medium": 460,
+      "heavy": 400,
+      "capital": 480
+    },
+    "detectionLingerSeconds": 0.25,
+    "rememberedContactSeconds": 12,
+    "homeStationSensorRange": 1400,
+    "relayStationSensorRange": 950
+  },
   "shipCostLimits": {
     "minimum": 300,
     "maximum": 2000,
@@ -615,6 +628,164 @@
       "energy": 0,
       "repair": 0,
       "description": "Stabilizer that improves turn rate without adding thrust."
+    },
+    {
+      "id": "sensorArray",
+      "name": "Long-Range Sensor Array",
+      "category": "Support",
+      "cost": 45,
+      "mass": 3.8,
+      "hull": 38,
+      "powerGeneration": 0,
+      "powerUse": 1.4,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "maxPerShip": 4,
+      "sensorRangeBonus": 420,
+      "sensorRole": "omniLarge",
+      "description": "Legacy long-range sensor retained for saved-blueprint compatibility.",
+      "footprint": {
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "id": "smallSensor",
+      "name": "Small Sensor",
+      "category": "Support",
+      "cost": 22,
+      "mass": 1.8,
+      "hull": 26,
+      "powerGeneration": 0,
+      "powerUse": 0.65,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "maxPerShip": 8,
+      "sensorRole": "omniSmall",
+      "sensorRangeBonus": 240,
+      "description": "Compact omnidirectional sensor. Small and Large Sensors share diminishing returns, with Large Sensors always receiving the strongest stack slots first.",
+      "footprint": {
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "id": "largeSensor",
+      "name": "Large Sensor",
+      "category": "Support",
+      "cost": 58,
+      "mass": 6.5,
+      "hull": 58,
+      "powerGeneration": 0,
+      "powerUse": 2.4,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "maxPerShip": 4,
+      "sensorRole": "omniLarge",
+      "sensorRangeBonus": 420,
+      "description": "Powerful omnidirectional sensor. It shares diminishing returns with Small Sensors and takes priority in the combined stack.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
+    },
+    {
+      "id": "directedSensor",
+      "name": "Directed Sensor",
+      "category": "Support",
+      "cost": 65,
+      "mass": 5.2,
+      "hull": 44,
+      "powerGeneration": 0,
+      "powerUse": 2.8,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "maxPerShip": 4,
+      "sensorRole": "directed",
+      "sensorRangeBonus": 1250,
+      "sensorArc": 50,
+      "description": "Legacy directed sensor retained for saved-blueprint compatibility.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
+    },
+    {
+      "id": "smallDirectedSensor",
+      "name": "Small Directed Sensor",
+      "category": "Support",
+      "cost": 30,
+      "mass": 2.2,
+      "hull": 28,
+      "powerGeneration": 0,
+      "powerUse": 1.15,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "maxPerShip": 8,
+      "sensorRole": "directed",
+      "sensorRangeBonus": 700,
+      "sensorArc": 60,
+      "description": "Compact directional sensor covering a forward cone. Small and Large Directed Sensors diminish only each other, with the Large variant receiving the strongest stack slots first.",
+      "footprint": {
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "id": "largeDirectedSensor",
+      "name": "Large Directed Sensor",
+      "category": "Support",
+      "cost": 65,
+      "mass": 5.2,
+      "hull": 44,
+      "powerGeneration": 0,
+      "powerUse": 2.8,
+      "powerCategory": "command",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "rotatable": true,
+      "maxPerShip": 4,
+      "sensorRole": "directed",
+      "sensorRangeBonus": 1250,
+      "sensorArc": 50,
+      "description": "Long-range directional sensor covering a narrow forward cone. It diminishes only other Directed Sensors and takes priority over the Small variant.",
+      "footprint": {
+        "width": 2,
+        "height": 1
+      }
     },
     {
       "id": "maneuverThruster",
@@ -1457,11 +1628,12 @@
         "blastRadius": 420,
         "centreDamage": 8000,
         "falloffExponent": 2,
-        "maxAffectedComponents": 12,
+        "maxAffectedComponents": null,
         "internalDamageReduction": 0.5,
-        "directContactMultiplier": 2.5
+        "directContactMultiplier": 2.5,
+        "damagesFriendlyShips": true
       },
-      "description": "Heavy kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius, destroying everything within 420 m."
+      "description": "Heavy kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. Its blast has quadratic falloff but no component target cap, and damages friendly ships."
     },
     {
       "id": "demolitionCharge",
@@ -1493,9 +1665,10 @@
         "falloffExponent": 2,
         "maxAffectedComponents": 12,
         "internalDamageReduction": 0.5,
-        "directContactMultiplier": 2.5
+        "directContactMultiplier": 2.5,
+        "damagesFriendlyShips": false
       },
-      "description": "Kamikaze proximity charge. Armed by default, it detonates when an enemy ship enters the trigger radius. The blast damages all nearby entities regardless of team."
+      "description": "Kamikaze proximity charge for small attack swarms. Armed by default, it detonates when an enemy ship enters the trigger radius, damages at most 12 components per ship, and does not damage friendly ships."
     },
     {
       "id": "electronicWarfareCommandCentre",
@@ -1642,21 +1815,33 @@
       "launchSpeed": 130,
       "releaseDistance": 120,
       "repairRadius": 520,
-      "repairRatePerSecond": 45,
+      "repairRatePerSecond": 22.5,
+      "repairBeamRange": 1250,
+      "repairBeamRatePerSecond": 11,
       "repairDelaySeconds": 6,
       "disabledRecoveryDelaySeconds": 10,
-      "disabledRepairRatePerSecond": 18,
+      "disabledRepairRatePerSecond": 9,
+      "selfRepairRatePerSecond": 9,
+      "disabledHpRatio": 0.1,
       "reactivationHpRatio": 0.25,
-      "productionBaseSeconds": 1.2,
-      "productionCostSecondsMultiplier": 0.0004,
+      "productionBaseSeconds": 0.6,
+      "productionSecondsPerModule": 0.05,
+      "productionCostSecondsMultiplier": 0.0002,
       "launchRetrySeconds": 0.5
     },
     "relayStation": {
       "captureRadius": 280,
       "repairDelaySeconds": 8,
-      "repairRatePerSecond": 12,
+      "repairRatePerSecond": 6,
       "captureRestoreHpRatio": 0.35,
-      "disabledRecoveryDelaySeconds": 12
+      "captureDurationSeconds": 10,
+      "captureDecayPerSecond": 0.25,
+      "disabledRecoveryDelaySeconds": 12,
+      "disabledRepairRatePerSecond": 6,
+      "selfRepairRatePerSecond": 6,
+      "disabledHpRatio": 0.1,
+      "reactivationHpRatio": 1,
+      "hullScale": 0.6
     }
   },
   "fireControl": {

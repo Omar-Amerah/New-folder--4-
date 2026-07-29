@@ -40,6 +40,7 @@ export const dom = {
   mapSizeSelect: document.getElementById("mapSizeSelect"),
   asteroidDensitySelect: document.getElementById("asteroidDensitySelect"),
   infrastructureModeSelect: document.getElementById("infrastructureModeSelect"),
+  visibilityModeSelect: document.getElementById("visibilityModeSelect"),
   stationPanel: document.getElementById("stationPanel"),
   stationPanelKind: document.getElementById("stationPanelKind"),
   stationPanelFocus: document.getElementById("stationPanelFocus"),

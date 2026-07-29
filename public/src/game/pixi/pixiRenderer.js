@@ -17,6 +17,8 @@ import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagno
 import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
 import { updatePixiShips, destroyPixiShipPool, pixiShipViewCounts } from "./pixiShips.js";
 import { updatePixiStations, destroyPixiStations, pixiStationViewCount } from "./pixiStations.js";
+import { destroyPixiContacts } from "./pixiSensorContacts.js";
+import { destroyPixiFog } from "./pixiFog.js";
 import { updatePixiDrones, destroyPixiDrones } from "./pixiDrones.js";
 import { recordRendererFrame, rendererMetricsSnapshot, resetRendererMetrics, setRendererMetricsPhase } from "../rendererMetrics.js";
 import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
@@ -93,6 +95,8 @@ export async function initPixiRenderer() {
     friendlyBullets: new PIXI.Container(),
     effects: new PIXI.Container(),
     effectText: new PIXI.Container(),
+    contacts: new PIXI.Container(),
+    fog: new PIXI.Container(),
     overlay: new PIXI.Graphics(),
     screenUiRoot: new PIXI.Container()
   };
@@ -108,6 +112,10 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.friendlyBullets);
   worldRoot.addChild(layers.effects);
   worldRoot.addChild(layers.effectText);
+  worldRoot.addChild(layers.fog);
+  // Remembered contacts are tactical UI and remain legible over unexplored
+  // space; live world entities stay beneath the fog.
+  worldRoot.addChild(layers.contacts);
   worldRoot.addChild(layers.overlay);
   app.stage.addChild(backdropRoot);
   app.stage.addChild(worldRoot);
@@ -427,6 +435,8 @@ export function destroyPixiRenderer() {
   destroyPixiShipPool();
   destroyPixiDrones();
   destroyPixiStations();
+  destroyPixiContacts();
+  destroyPixiFog();
   destroyPixiWorld();
   destroyPixiScreenUi(env);
   // 7. Now that no lease remains, destroy every cache-owned texture exactly once.

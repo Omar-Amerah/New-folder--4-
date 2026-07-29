@@ -4,10 +4,18 @@
 import { state } from "../state.js";
 import { angleDifference } from "../shared/math.js";
 
-// Buffer has to cover one snapshot interval plus arrival jitter. At 30 Hz
-// snapshots that interval is ~33 ms, so 55 ms keeps the same margin the old
-// 100 ms gave over a 66 ms interval while showing the player state sooner.
-export const INTERPOLATION_DELAY_MS = 55;
+// Buffer has to cover one snapshot interval plus however late a snapshot can
+// arrive. The interval is ~33 ms at 30 Hz, but the server tick is a setInterval
+// whose slip under load comfortably exceeds a couple of frames, so the margin
+// has to be several intervals rather than one. Trimming this to 55 ms bought
+// ~45 ms of latency and cost visible shimmer: whenever the render clock outran
+// the newest sample the client dead-reckoned from velocity and then snapped back
+// as the sample landed.
+//
+// The latency win from raising SNAPSHOT_HZ to 30 does not depend on this number:
+// it comes from halving how long a command waits for the next snapshot. Keep the
+// buffer generous and take that win alone.
+export const INTERPOLATION_DELAY_MS = 100;
 export const EXTRAPOLATION_CAP_MS = 80;
 const MAX_SAMPLES_PER_SHIP = 8;
 const TELEPORT_DISTANCE = 900;

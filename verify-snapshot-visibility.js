@@ -9,7 +9,12 @@
 // from an earlier full-detail snapshot.
 
 const assert = require("assert");
-const { snapshotRoom, buildSharedSnapshot } = require("./src/server/snapshots");
+const {
+  snapshotRoom,
+  buildSharedSnapshot,
+  collectSnapshotVisibleShipIds,
+  markSnapshotVisibilityWritten
+} = require("./src/server/snapshots");
 
 const PRIVATE_FIELDS = [
   "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
@@ -171,6 +176,46 @@ function shipEntry(snapshot, id) {
   assert.strictEqual(entry.detail, "public", "solo non-owner sees redacted ship");
   assertNoPrivateFields(entry, "solo enemy");
   console.log("PASS: solo mode redacts every non-owner ship");
+})();
+
+// 8. Fog hide -> reacquire on a compact snapshot includes a new public visual
+// baseline. The design revision alone is insufficient because the hidden ship
+// was removed from the client's previous merged entity list.
+(function fogReacquisitionRestoresBaseline() {
+  const room = makeRoom("teams");
+  room.rules.visibilityMode = "sensors";
+  room.rules.infrastructureMode = "classic";
+  const enemyViewer = room.players.get("pe");
+  const redSensor = makeShip("shipRed", enemyViewer.id);
+  redSensor.x = 10;
+  redSensor.y = 2;
+  enemyViewer.ships.push(redSensor);
+  room.ships.set(redSensor.id, redSensor);
+
+  const client = {
+    player: enemyViewer,
+    knownShipDesignRevisions: new Map([["shipA", 1], ["shipRed", 1]]),
+    knownShipPowerRevisions: new Map(),
+    knownVisibleShipIds: new Set(["shipA", "shipRed"])
+  };
+
+  const first = snapshotRoom(room, 1000, enemyViewer, false, null, client);
+  assert.ok(shipEntry(first, "shipA"), "enemy is initially detected");
+  assert.strictEqual(shipEntry(first, "shipA").team, "blue", "snapshot derives ship team from its owner");
+
+  room.ships.get("shipA").x = 3000;
+  snapshotRoom(room, 2000, enemyViewer, false, null, client); // detection linger
+  const hidden = snapshotRoom(room, 2300, enemyViewer, false, null, client);
+  assert.strictEqual(shipEntry(hidden, "shipA"), undefined, "lost enemy leaves the live compact entity list");
+  assert.ok(hidden.contacts.some((contact) => contact.id === "shipA"), "lost enemy becomes a remembered contact");
+  markSnapshotVisibilityWritten(client, collectSnapshotVisibleShipIds(hidden));
+
+  room.ships.get("shipA").x = 100;
+  const reacquired = snapshotRoom(room, 2400, enemyViewer, false, null, client);
+  const entry = shipEntry(reacquired, "shipA");
+  assert.ok(entry, "enemy reappears when it enters sensor range");
+  assert.ok(entry.design, "compact reacquisition carries a fresh public visual baseline");
+  console.log("PASS: sensor-fog compact reacquisition restores the ship baseline without a forced resync");
 })();
 
 console.log("\nSNAPSHOT VISIBILITY REGRESSION TESTS PASSED");

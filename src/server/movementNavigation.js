@@ -15,17 +15,90 @@ const { navigationClearanceRadius } = require("./movementCollision");
 const { bumpMovementMetric } = require("./movementMetrics");
 const { ensureMovementRuntime } = require("./movementRuntime");
 
+// Stations are solid: resolveStationCollision pushes any hull that touches one
+// back out. Until they were added here the navigator could not see them at all,
+// so a routed path ran straight through a home station and the mover spent the
+// crossing being shoved sideways by the collision solver. Everything that is
+// physically solid has to be navigationally solid too, or the two disagree and
+// the ship grinds along the hull. No state filter, for exactly that reason:
+// resolveStationCollision does not filter either, so a disabled wreck is still
+// an obstacle to both.
+function stationCollisionPieces(room) {
+  const pieces = [];
+  for (const station of room?.stations || []) {
+    for (const piece of station?.collisionPieces || []) {
+      if (piece) pieces.push(piece);
+    }
+  }
+  return pieces;
+}
+
+// Cheap identity for the structure set. Stations never move once placed, so the
+// piece count changing is the only thing that can alter the grid.
+function stationSignature(room) {
+  let count = 0;
+  for (const station of room?.stations || []) count += station?.collisionPieces?.length || 0;
+  return count;
+}
+
+// Signed distance from a point to a rotated rectangle: positive outside,
+// negative inside, so it drops into the same "clearance" min as an asteroid.
+function boxClearance(x, y, piece) {
+  const cos = Math.cos(-(piece.angle || 0));
+  const sin = Math.sin(-(piece.angle || 0));
+  const dx = x - piece.x;
+  const dy = y - piece.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+  const halfWidth = piece.halfWidth || 0;
+  const halfHeight = piece.halfHeight || 0;
+  const outX = Math.abs(localX) - halfWidth;
+  const outY = Math.abs(localY) - halfHeight;
+  if (outX <= 0 && outY <= 0) return -Math.min(-outX, -outY);
+  return fastHypot(Math.max(outX, 0), Math.max(outY, 0));
+}
+
+// Past this distance a structure can no longer be the binding constraint on any
+// ship's clearance, so cells beyond it keep whatever the asteroids and walls
+// gave them. Bounding the sweep this way keeps the rebuild proportional to the
+// area the stations actually cover rather than to the whole map times the piece
+// count.
+const NAV_STATION_INFLUENCE = 260;
+
+function applyStationClearance(room, nav) {
+  const pieces = stationCollisionPieces(room);
+  if (pieces.length === 0) return;
+  const { cellSize, cols, rows, cells } = nav;
+  for (const piece of pieces) {
+    const reach = fastHypot(piece.halfWidth || 0, piece.halfHeight || 0) + NAV_STATION_INFLUENCE;
+    const minCol = Math.max(0, Math.floor((piece.x - reach) / cellSize));
+    const maxCol = Math.min(cols - 1, Math.floor((piece.x + reach) / cellSize));
+    const minRow = Math.max(0, Math.floor((piece.y - reach) / cellSize));
+    const maxRow = Math.min(rows - 1, Math.floor((piece.y + reach) / cellSize));
+    for (let col = minCol; col <= maxCol; col += 1) {
+      const x = col * cellSize + cellSize / 2;
+      for (let row = minRow; row <= maxRow; row += 1) {
+        const index = row * cols + col;
+        const distance = boxClearance(x, row * cellSize + cellSize / 2, piece);
+        if (distance < cells[index]) cells[index] = distance;
+      }
+    }
+  }
+}
+
 function ensureRoomNavigation(room) {
   const map = room?.map || null;
   const asteroids = map?.asteroids || [];
   const width = room?.world?.width || 2000;
   const height = room?.world?.height || 1600;
   const revision = room?.mapRevision ?? map?.revision ?? 0;
+  const stations = stationSignature(room);
   if (room?._movementNav
     && room._movementNav.revision === revision
     && room._movementNav.width === width
     && room._movementNav.height === height
-    && room._movementNav.asteroidRef === asteroids) {
+    && room._movementNav.asteroidRef === asteroids
+    && room._movementNav.stationSignature === stations) {
     return room._movementNav;
   }
   const cellSize = NAV_GRID_CELL_SIZE;
@@ -59,8 +132,10 @@ function ensureRoomNavigation(room) {
     rows,
     cells,
     revision,
-    asteroidRef: asteroids
+    asteroidRef: asteroids,
+    stationSignature: stations
   };
+  applyStationClearance(room, room._movementNav);
   return room._movementNav;
 }
 
@@ -173,6 +248,57 @@ function segmentCircleClearance(x1, y1, x2, y2, centerX, centerY, radius) {
   };
 }
 
+// Segment against a rotated rectangle grown by `clearance`, done in the piece's
+// own frame where the box is axis aligned, by the standard slab test. The grid
+// alone is not enough: planPath takes a straight line whenever this says the
+// line is clear, and the path smoother uses it to cut corners -- so a station
+// invisible here is a station routed straight through however solid the grid
+// says it is.
+function segmentBoxBlocked(x1, y1, x2, y2, piece, clearance) {
+  const cos = Math.cos(-(piece.angle || 0));
+  const sin = Math.sin(-(piece.angle || 0));
+  const ax = x1 - piece.x;
+  const ay = y1 - piece.y;
+  const bx = x2 - piece.x;
+  const by = y2 - piece.y;
+  const localAx = ax * cos - ay * sin;
+  const localAy = ax * sin + ay * cos;
+  const localBx = bx * cos - by * sin;
+  const localBy = bx * sin + by * cos;
+  const halfWidth = (piece.halfWidth || 0) + clearance;
+  const halfHeight = (piece.halfHeight || 0) + clearance;
+  const dx = localBx - localAx;
+  const dy = localBy - localAy;
+  let enter = 0;
+  let exit = 1;
+  // One slab per axis; a zero-length component means the segment is parallel to
+  // that pair of faces, so it either lies inside the slab for its whole length
+  // or misses the box outright.
+  for (const [origin, delta, half] of [[localAx, dx, halfWidth], [localAy, dy, halfHeight]]) {
+    if (Math.abs(delta) < 1e-9) {
+      if (origin < -half || origin > half) return false;
+      continue;
+    }
+    const inverse = 1 / delta;
+    let near = (-half - origin) * inverse;
+    let far = (half - origin) * inverse;
+    if (near > far) { const swap = near; near = far; far = swap; }
+    if (near > enter) enter = near;
+    if (far < exit) exit = far;
+    if (enter > exit) return false;
+  }
+  return true;
+}
+
+function isSegmentStationClear(room, x1, y1, x2, y2, clearance) {
+  for (const station of room?.stations || []) {
+    for (const piece of station?.collisionPieces || []) {
+      if (piece && segmentBoxBlocked(x1, y1, x2, y2, piece, clearance)) return false;
+    }
+  }
+  return true;
+}
+
 function isSegmentClear(room, x1, y1, x2, y2, clearance) {
   const width = room?.world?.width || 2000;
   const height = room?.world?.height || 1600;
@@ -209,7 +335,7 @@ function isSegmentClear(room, x1, y1, x2, y2, clearance) {
       (asteroid.radius || 0) + clearance
     ).blocked) return false;
   }
-  return true;
+  return isSegmentStationClear(room, x1, y1, x2, y2, clearance);
 }
 
 class BinaryHeap {

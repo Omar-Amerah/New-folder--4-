@@ -31,12 +31,38 @@ export function stations() {
   return state.snapshot?.stations || [];
 }
 export function stationHitRadius(station) { return Math.max(24, Number(station?.radius) || 60); }
+// The station's real half-extents in structure-local space. `station.radius` is
+// the broad-phase circle around a SQUARE structure, so on a home station it
+// reaches ~40% past the corners — clicking well clear of the hull used to
+// select it, and clicks meant for a ship parked alongside were swallowed.
+function stationHalfExtent(station) {
+  const design = station?.design;
+  const scale = Number(station?.moduleScale);
+  if (!Array.isArray(design) || design.length === 0 || !(scale > 0)) return null;
+  let maxCell = 0;
+  for (const module of design) {
+    maxCell = Math.max(maxCell, Math.abs((Number(module.x) || 0) - 7), Math.abs((Number(module.y) || 0) - 7));
+  }
+  return (maxCell + 0.5) * scale;
+}
 export function findStationAt(x, y) {
   let best = null, bestDistance = Infinity;
   for (const station of stations()) {
     const distance = Math.hypot(station.x - x, station.y - y);
-    const radius = stationHitRadius(station);
-    if (distance <= radius && distance < bestDistance) { best = station; bestDistance = distance; }
+    const half = stationHalfExtent(station);
+    let inside;
+    if (half === null) {
+      inside = distance <= stationHitRadius(station);
+    } else {
+      // Into structure-local space, where the footprint is axis aligned.
+      const angle = Number(station.angle) || 0;
+      const cos = Math.cos(-angle), sin = Math.sin(-angle);
+      const dx = x - station.x, dy = y - station.y;
+      const localX = dx * cos - dy * sin;
+      const localY = dx * sin + dy * cos;
+      inside = Math.abs(localX) <= half && Math.abs(localY) <= half;
+    }
+    if (inside && distance < bestDistance) { best = station; bestDistance = distance; }
   }
   return best;
 }

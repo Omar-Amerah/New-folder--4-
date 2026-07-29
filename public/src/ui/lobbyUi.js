@@ -167,6 +167,9 @@ function renderRulesReadOnly(rules) {
   const mapValue = rules.mapSize === "auto" ? "Automatic by player count" : (escapeHtml(rules.mapSize) || missing);
   const densityValue = escapeHtml(ASTEROID_DENSITY_LABELS[rules.asteroidDensity] || rules.asteroidDensity || "Not set");
   const infrastructureValue = rules.infrastructureMode === "stations" ? "Stations" : "Classic";
+  const visibilityValue = rules.visibilityMode === "dark"
+    ? "Full Dark"
+    : rules.visibilityMode === "sensors" ? "Sensor Fog" : "Full Visibility";
   return `
     <dl class="game-rules-grid">
       <div class="game-rule"><dt>Mode</dt><dd>${modeValue}</dd></div>
@@ -175,6 +178,7 @@ function renderRulesReadOnly(rules) {
       <div class="game-rule"><dt>Map size</dt><dd>${mapValue}</dd></div>
       <div class="game-rule"><dt>Asteroid density</dt><dd>${densityValue}</dd></div>
       <div class="game-rule"><dt>Infrastructure</dt><dd>${infrastructureValue}</dd></div>
+      <div class="game-rule"><dt>Visibility</dt><dd>${visibilityValue}</dd></div>
     </dl>
   `;
 }
@@ -204,9 +208,10 @@ export function updateRulesControls(interaction = getLobbyInteractionState()) {
       setRuleControlValue(dom.maxPlayersInput, String(Math.min(Number(rules.maxPlayers) || 8, 8)));
       setRuleControlValue(dom.mapSizeSelect, rules.mapSize);
       setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity);
-      setRuleControlValue(dom.infrastructureModeSelect, rules.infrastructureMode || "classic");
+      setRuleControlValue(dom.infrastructureModeSelect, rules.infrastructureMode || "stations");
+      setRuleControlValue(dom.visibilityModeSelect, rules.visibilityMode || "sensors");
     } else {
-      const nextSignature = `${rules.gameMode}|${rules.startingMoney}|${rules.maxPlayers}|${rules.mapSize}|${rules.asteroidDensity}|${rules.infrastructureMode}|${phase}`;
+      const nextSignature = `${rules.gameMode}|${rules.startingMoney}|${rules.maxPlayers}|${rules.mapSize}|${rules.asteroidDensity}|${rules.infrastructureMode}|${rules.visibilityMode}|${phase}`;
       if (nextSignature !== lastRulesReadOnlySignature) {
         lastRulesReadOnlySignature = nextSignature;
         dom.rulesReadOnly.innerHTML = renderRulesReadOnly(rules);
@@ -872,10 +877,11 @@ export function sendRulesUpdate() {
   const mapSize = dom.mapSizeSelect?.value || "auto";
   const gameMode = dom.gameModeSelect?.value || "teams";
   const asteroidDensity = dom.asteroidDensitySelect?.value || "medium";
-  const infrastructureMode = dom.infrastructureModeSelect?.value || "classic";
+  const infrastructureMode = dom.infrastructureModeSelect?.value || "stations";
+  const visibilityMode = dom.visibilityModeSelect?.value || "sensors";
   send({
     type: "setRules",
-    rules: { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode }
+    rules: { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode, visibilityMode }
   });
 }
 

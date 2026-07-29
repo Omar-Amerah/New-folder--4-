@@ -64,7 +64,9 @@ export const HIDDEN_PARTS = new Set([
   "heavyBlaster",
   "lightMissile",
   "lightRailgun",
-  "heavyRailgun"
+  "heavyRailgun",
+  "sensorArray",
+  "directedSensor"
 ]);
 
 export let SHIP_ECONOMY = Object.freeze({ ...GENERATED_BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...GENERATED_BALANCE.shipPricing.weaponPremiums }) });

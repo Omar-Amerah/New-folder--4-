@@ -40,6 +40,20 @@
     return 0;
   }
 
+  // Convert a placed component's blueprint rotation into ship-local facing.
+  // Blueprint +x points to the ship's right (+y local), while blueprint -y is
+  // ship-forward (+x local). Square components already use the regular module
+  // convention; elongated directional components need the footprint's canonical
+  // long-axis offset so their gameplay direction matches their rendered horn.
+  function directionalFootprintToShipRadians(rotation, footprint = null) {
+    const width = Math.max(1, Number(footprint?.width) || 1);
+    const height = Math.max(1, Number(footprint?.height) || 1);
+    const footprintOffset = width > height
+      ? Math.PI / 2
+      : height > width ? Math.PI : 0;
+    return angleDifference(0, moduleRotationToRadians(rotation) + footprintOffset);
+  }
+
   // Signed shortest angular distance from a to b, in (-PI, PI].
   function angleDifference(a, b) {
     let diff = b - a;
@@ -62,6 +76,7 @@
     maneuverThrusterAutoRotation,
     normalizeRotation,
     moduleRotationToRadians,
+    directionalFootprintToShipRadians,
     angleDifference,
     approachAngle
   });

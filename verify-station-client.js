@@ -44,7 +44,7 @@ const css = fs.readFileSync('public/styles.css', 'utf8');
 
 assert(html.includes('<label for="infrastructureModeSelect">'), 'Infrastructure selector has an associated <label>');
 assert(html.includes('<option value="classic">Classic</option>'), 'Classic infrastructure option exists');
-assert(html.includes('<option value="stations">Stations</option>'), 'Stations infrastructure option exists');
+assert(html.includes('<option value="stations" selected>Stations</option>'), 'Stations infrastructure option exists and is selected by default');
 assert(html.includes('id="stationPanel"'), 'Station inspection panel exists in the arena markup');
 assert(html.includes('id="stationPanelBody"'), 'Station panel has a body container');
 assert(html.includes('id="stationPanelFocus"'), 'Station panel can centre the view on its station');
@@ -62,12 +62,47 @@ assert(dom.stationPanel && dom.stationPanelBody && dom.stationPanelKind, 'Statio
 // --- Snapshot merge ----------------------------------------------------------
 const { mergeCachedStationFields, mergeCompactSnapshot } = await import('./public/src/snapshotMerge.js');
 
-const previousStations = [{ id: 'st1', stationType: 'home', design: [{ x: 0, y: 0, type: 'core' }], hangar: { x: 1, y: 2 }, hp: 100 }];
-const compactStations = [{ id: 'st1', stationType: 'home', hp: 80, productionQueue: [] }];
+const previousStations = [{
+  id: 'st1',
+  stationType: 'home',
+  design: [{ x: 0, y: 0, type: 'core' }, { x: 1, y: 0, type: 'laser' }],
+  hangar: { x: 1, y: 2 },
+  hardpoints: [null, { x: 36, y: 0 }],
+  moduleScale: 36,
+  weaponAngles: [0, 0],
+  componentHp: [100, 50],
+  hp: 100
+}];
+const compactStations = [{
+  id: 'st1',
+  stationType: 'home',
+  hp: 80,
+  healthRevision: 2,
+  weaponAnglePairs: [1, 0.75],
+  productionQueue: []
+}];
 const merged = mergeCachedStationFields(previousStations, compactStations);
 assert.deepEqual(merged[0].design, previousStations[0].design, 'compact station inherits the cached design');
 assert.deepEqual(merged[0].hangar, previousStations[0].hangar, 'compact station inherits the cached hangar');
+assert.deepEqual(merged[0].hardpoints, previousStations[0].hardpoints, 'compact station inherits cached hardpoints');
+assert.equal(merged[0].moduleScale, 36, 'compact station inherits cached module scale');
+assert.deepEqual(merged[0].weaponAngles, [0, 0.75], 'compact station applies sparse authoritative turret bearings');
+assert.deepEqual(merged[0].componentHp, previousStations[0].componentHp, 'unchanged station health inherits its baseline');
+assert.equal(merged[0].weaponAnglePairs, undefined, 'wire-only sparse bearing data is removed after merge');
 assert.equal(merged[0].hp, 80, 'live station fields come from the compact snapshot');
+
+const damaged = mergeCachedStationFields(previousStations, [{
+  ...compactStations[0],
+  componentHp: [80, 0]
+}]);
+assert.deepEqual(damaged[0].componentHp, [80, 0], 'a changed health revision replaces cached component health');
+
+const redacted = mergeCachedStationFields(previousStations, [{
+  ...compactStations[0],
+  conditionKnown: false
+}]);
+assert.equal(redacted[0].componentHp, undefined, 'fog redaction clears cached station condition');
+assert.deepEqual(redacted[0].design, previousStations[0].design, 'fog redaction retains public station geometry');
 
 const unknown = mergeCachedStationFields(previousStations, [{ id: 'st2', stationType: 'relay', hp: 50 }]);
 assert.equal(unknown[0].design, undefined, 'a station with no baseline gains no invented geometry');
@@ -206,7 +241,47 @@ assert.equal(stationColor({ ...home, team: 'red', ownerId: 'p2' }, players), '#e
 assert.equal(stationColor(relay, players), '#9fb0c6', 'a neutral relay renders unclaimed');
 assert.equal(stationStateLabel(home), 'OPERATIONAL', 'operational home stations are labelled');
 assert.equal(stationStateLabel({ ...home, state: 'disabled' }), 'DISABLED', 'disabled stations are labelled');
-assert.equal(stationStateLabel(relay), 'UNCLAIMED', 'neutral relays are labelled');
+// An uncaptured relay is not running for anybody, so it reads OFFLINE rather
+// than describing its ownership.
+assert.equal(stationStateLabel(relay), 'OFFLINE', 'neutral relays read as offline');
+// A station the sensor snapshot only knows structurally must not claim ONLINE:
+// its condition was deliberately withheld.
+assert.equal(stationStateLabel({ ...relay, state: 'unknown' }), 'UNSCANNED', 'sensor-stub stations do not claim a condition');
+
+// The hangar build bar. Builds are sub-second for a light hull, so this is
+// checked by driving the drawing directly rather than trying to photograph it.
+{
+  const { drawProductionBar } = await import('./public/src/game/pixi/pixiStations.js');
+  const record = () => {
+    const calls = [];
+    const gfx = {};
+    for (const method of ['rect', 'moveTo', 'lineTo', 'fill', 'stroke', 'circle', 'arc', 'closePath', 'regularPoly']) {
+      gfx[method] = (...args) => { calls.push({ method, args }); return gfx; };
+    }
+    return { gfx, calls };
+  };
+
+  const idle = record();
+  drawProductionBar(idle.gfx, -50, 0, 100, 8, 1, 0);
+  assert.equal(idle.calls.length, 0, 'an idle hangar draws no build bar at all');
+
+  const mid = record();
+  drawProductionBar(mid.gfx, -50, 0, 100, 8, 1, 0.42);
+  const rects = mid.calls.filter((c) => c.method === 'rect');
+  assert(rects.length >= 4, 'a running build draws a track, a fill, a run-up and a leading edge');
+  const track = rects[0];
+  assert.equal(track.args[2], 100, 'the track spans the full bar width');
+  const fill = rects[1];
+  assert(Math.abs(fill.args[2] - 42) < 0.001, 'the fill width follows progress');
+  assert(mid.calls.some((c) => c.method === 'moveTo'), 'segment ticks are drawn for the fill to travel past');
+
+  // At 100% there is no leading edge to draw — the bar is simply full.
+  const done = record();
+  drawProductionBar(done.gfx, -50, 0, 100, 8, 1, 1);
+  const doneRects = done.calls.filter((c) => c.method === 'rect');
+  assert(doneRects.length < rects.length, 'a finished build drops the leading edge');
+  assert(Math.abs(doneRects[1].args[2] - 100) < 0.001, 'a finished build fills the bar');
+}
 
 const rendererJs = fs.readFileSync('public/src/game/pixi/pixiRenderer.js', 'utf8');
 assert(rendererJs.includes('stations: new PIXI.Container()'), 'the renderer owns a dedicated stations layer');

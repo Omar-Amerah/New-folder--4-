@@ -349,7 +349,15 @@ function supportSection(stats, ledger) {
     statRow("drones", "Drone Capacity", Number(stats.droneCapacity || 0) > 0 ? `${stats.droneCapacity}` : null),
     statRow("dronesByType", "Drone Squads", droneSquadText(stats)),
     statRow("capture", "Capture Pressure", Number(stats.captureBonus || 0) > 0 ? `+${formatPercent(stats.captureBonus)}` : null),
-    statRow("cooling", "Cooling Bonus", Number(stats.coolingBonus || 0) > 0 ? `+${formatPercent(stats.coolingBonus)}` : null)
+    statRow("cooling", "Cooling Bonus", Number(stats.coolingBonus || 0) > 0 ? `+${formatPercent(stats.coolingBonus)}` : null),
+    statRow("sensors.omni", "Omnidirectional Sensors", Number(stats.sensorComponentCount || 0) > 0 ? `${Math.round(stats.sensorRange || 0)} m` : null),
+    statRow(
+      "sensors.directed",
+      "Directed Sensors",
+      Number(stats.directedSensorCount || 0) > 0
+        ? `${Math.round(stats.directedSensorRange || 0)} m · ${Math.round((stats.directedSensorArc || 0) * 180 / Math.PI)}° cone`
+        : null
+    )
   ];
   const kept = ledger.take(rows);
   return kept.length ? { id: "support", title: "Support details", rows: kept } : null;

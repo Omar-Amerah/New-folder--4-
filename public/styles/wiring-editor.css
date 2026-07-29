@@ -525,22 +525,18 @@
 }
 
 /* Component outlines are dormant until a shortage summary is inspected.
-   Only the contributing source keeps a slow, restrained warning pulse. */
+   The contributing source keeps a steady amber warning: animating its opacity
+   made an under-supplied generator look like it was dropping render frames. */
 .wiring-overlay .wire-component-supply {
   opacity: 0;
   pointer-events: none;
   fill: none;
 }
 .wiring-overlay .wire-component-supply-source {
-  opacity: .58;
+  opacity: .72;
   stroke: #ffd166;
   stroke-width: .075px;
   stroke-dasharray: .14 .08;
-  animation: wiring-source-shortage-pulse 2.4s ease-in-out infinite;
-}
-@keyframes wiring-source-shortage-pulse {
-  0%, 100% { opacity: .4; }
-  50% { opacity: .78; }
 }
 .wiring-shortage-highlight-active .wire-component-supply.wire-shortage-related { opacity: .9; }
 .wiring-shortage-highlight-active .wire-component-supply-full.wire-shortage-related {
@@ -599,9 +595,6 @@
   filter: drop-shadow(0 0 .08px #79dcff);
 }
 .wiring-shortage-highlight-active .wire-warning-layer .wire-shortage-unrelated { opacity: .28; }
-@media (prefers-reduced-motion: reduce) {
-  .wiring-overlay .wire-component-supply-source { animation: none !important; opacity: .72; }
-}
 /* Destructive section previews use a visible dashed highlight. */
 .wiring-overlay .wire-section-preview { stroke: #ffd27a; stroke-dasharray: 0.14 0.08; }
 

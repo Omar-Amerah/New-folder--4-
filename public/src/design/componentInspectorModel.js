@@ -210,7 +210,8 @@ function capabilityRows(type, stat, family, context = {}) {
       statRow("proximityCharge.blastRadius", "Blast radius", formatDistance(cfg.blastRadius)),
       statRow("proximityCharge.shieldBypass", "Shield interaction", "Bypasses shields"),
       statRow("proximityCharge.carrierEffect", "Carrier effect", "Destroys entire ship"),
-      statRow("proximityCharge.friendlyFire", "Friendly fire", "Yes"),
+      statRow("proximityCharge.componentCap", "Affected components", cfg.maxAffectedComponents === null ? "Unlimited" : `Up to ${cfg.maxAffectedComponents}`),
+      statRow("proximityCharge.friendlyFire", "Friendly ship damage", cfg.damagesFriendlyShips === false ? "No" : "Yes"),
       statRow("proximityCharge.multiCharge", "Multiple charges", "100% / +50% / +25% / +10%")
     ];
   }
@@ -226,6 +227,20 @@ function capabilityRows(type, stat, family, context = {}) {
       statRow("drone.refuel", "Dock / Refuel", `${config.refuelSeconds}s`),
       statRow("drone.maxActive", "Ship Limit", `${config.maxActivePerShip} active`),
       statRow("drone.bays", "Bay Limit", `${config.maxBaysPerShip} per ship`)
+    ];
+  }
+
+  if ((stat.sensorRangeBonus || 0) > 0) {
+    const directed = stat.sensorRole === "directed";
+    return [
+      statRow("sensor.role", "Coverage", directed ? "Forward cone" : "Omnidirectional"),
+      statRow("sensor.rangeBonus", "Range bonus", `+${formatDistance(stat.sensorRangeBonus)}`),
+      statRow("sensor.arc", "Cone width", directed ? degrees(stat.sensorArc) : null),
+      statRow(
+        "sensor.stacking",
+        "Diminishing stack",
+        directed ? "Large first; Directed only" : "Large first, then Small"
+      )
     ];
   }
 
@@ -814,7 +829,7 @@ function activeOutputLabel(stat) {
   if ((stat.shieldRegen || 0) > 0) return "recharge rate";
   if ((stat.repairRate || 0) > 0) return "repair output";
   if ((stat.powerGeneration || 0) > 0) return "power output";
-  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength) return "bonus effectiveness";
+  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength || stat.sensorRangeBonus) return "bonus effectiveness";
   return null;
 }
 

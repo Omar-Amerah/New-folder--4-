@@ -4,6 +4,7 @@ const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 const { clampNumber, round } = require("./utils");
+const { designSensorProfile } = require("./sensorCapability");
 const {
   calculateMovementStats,
   calculateCenterOfMass,
@@ -150,6 +151,7 @@ function computeStats(modules, wiring = null) {
   // Keep catalogue weapon-family totals base-only so support is not applied twice.
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
+  const sensorProfile = designSensorProfile(modules, movement.massClass);
   const costBreakdown = applyInfrastructureCost(calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam }), modules, wiring);
   const unitCost = costBreakdown.total;
   const f = BALANCE.shipPricing.fleetCountFormulaInputs;
@@ -241,7 +243,13 @@ function computeStats(modules, wiring = null) {
     costBreakdown,
     repairRange: repair > 0 ? BALANCE.repair.repairRange : 0,
     radius: round(radius),
-    fleetCount
+    fleetCount,
+    baseSensorRange: sensorProfile.baseRange,
+    sensorRange: round(sensorProfile.omniRange),
+    directedSensorRange: round(sensorProfile.directedRange),
+    directedSensorArc: round(sensorProfile.directedArc),
+    sensorComponentCount: sensorProfile.sensorComponentCount,
+    directedSensorCount: sensorProfile.directedSensorCount
   };
 }
 
@@ -389,7 +397,13 @@ function summarizeStats(stats) {
     weaponDps: stats.weaponDps,
     warnings: stats.warnings,
     costBreakdown: stats.costBreakdown,
-    efficiency: stats.efficiency
+    efficiency: stats.efficiency,
+    baseSensorRange: stats.baseSensorRange,
+    sensorRange: stats.sensorRange,
+    directedSensorRange: stats.directedSensorRange,
+    directedSensorArc: stats.directedSensorArc,
+    sensorComponentCount: stats.sensorComponentCount,
+    directedSensorCount: stats.directedSensorCount
   };
 }
 

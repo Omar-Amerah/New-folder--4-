@@ -3,7 +3,7 @@
 const { encodeMessage } = require("./wsCodec");
 const { validateClientMessage } = require("./clientSchemas");
 const { serverEnvelope } = require("./protocol");
-const { recordOutbound } = require("./performanceTelemetry");
+const { recordOutbound, recordOutboundEvent } = require("./performanceTelemetry");
 
 const { BINARY_OPCODE, writeFrameTo } = require("./wsFrame");
 const CONTROL_QUEUE_BYTE_LIMIT = 256 * 1024;
@@ -28,17 +28,17 @@ function enqueueRaw(client, payload, options = {}) {
   if (client.isClosed || client.socket.destroyed) return;
   const out = getOutbound(client); const bytes = frameBytes(payload); const kind = options.kind || 'control'; const item = makeItem(payload, bytes, kind, options);
   if (kind === 'snapshot-compact' || kind === 'snapshot-full') {
-    if (out.snapshot) { out.bytes = Math.max(0, out.bytes - out.snapshot.bytes); out.coalescedSnapshots += 1; emitLifecycle(client, 'replaced', out.snapshot); }
+    if (out.snapshot) { out.bytes = Math.max(0, out.bytes - out.snapshot.bytes); out.coalescedSnapshots += 1; recordOutboundEvent('coalesced'); emitLifecycle(client, 'replaced', out.snapshot); }
     out.snapshot = item; out.bytes += bytes; emitLifecycle(client, 'queued', item);
   } else { out.control.push(item); out.bytes += bytes; out.controlBytes += bytes; }
-  if (out.controlBytes > CONTROL_QUEUE_BYTE_LIMIT || out.bytes > TOTAL_QUEUE_BYTE_LIMIT || out.control.length > 128) { if (out.snapshot) emitLifecycle(client, 'dropped', out.snapshot); safeClose(client, 1013, 'rate-limited: outbound-queue-limit'); return; }
+  if (out.controlBytes > CONTROL_QUEUE_BYTE_LIMIT || out.bytes > TOTAL_QUEUE_BYTE_LIMIT || out.control.length > 128) { if (out.snapshot) emitLifecycle(client, 'dropped', out.snapshot); recordOutboundEvent('queue-limit-close'); safeClose(client, 1013, 'rate-limited: outbound-queue-limit'); return; }
   if (!out.blocked) flushOutbound(client);
 }
 function markBlocked(client, out) {
-  if (out.blocked) return; out.blocked = true; out.blockedSince = Date.now();
-  out.drainListener = () => { removeDrain(client, out); clearBlockedTimer(out); out.blocked = false; out.blockedSince = 0; flushOutbound(client); };
+  if (out.blocked) return; out.blocked = true; out.blockedSince = Date.now(); recordOutboundEvent('blocked');
+  out.drainListener = () => { removeDrain(client, out); clearBlockedTimer(out); out.blocked = false; out.blockedSince = 0; recordOutboundEvent('drain'); flushOutbound(client); };
   client.socket.once?.('drain', out.drainListener);
-  out.blockedCloseTimer = setTimeout(() => { if (!client.isClosed && out.blocked && Date.now() - out.blockedSince >= BLOCKED_CLOSE_MS) safeClose(client, 1013, 'rate-limited: outbound-backpressure'); }, BLOCKED_CLOSE_MS + 25); out.blockedCloseTimer.unref?.();
+  out.blockedCloseTimer = setTimeout(() => { if (!client.isClosed && out.blocked && Date.now() - out.blockedSince >= BLOCKED_CLOSE_MS) { recordOutboundEvent('backpressure-close'); safeClose(client, 1013, 'rate-limited: outbound-backpressure'); } }, BLOCKED_CLOSE_MS + 25); out.blockedCloseTimer.unref?.();
 }
 function flushOutbound(client) {
   const out = getOutbound(client); if (out.flushing || out.blocked || client.isClosed || client.socket.destroyed) return; out.flushing = true;
@@ -49,4 +49,23 @@ function flushOutbound(client) {
 function sendRaw(client, payload, options = {}) { enqueueRaw(client, payload, options); }
 function sendPlayer(room, player, data) { for (const client of room.clients) if (client.player?.id === player?.id) { send(client, data); return; } }
 function broadcastRoom(room, data) { const payload = encodeMessage(data); for (const client of room.clients) sendRaw(client, payload); }
-module.exports = { configureOutbound, send, sendPlayer, broadcastRoom, sendRaw, getOutbound, enqueueRaw, flushOutbound, resetOutbound, constants: { CONTROL_QUEUE_BYTE_LIMIT, TOTAL_QUEUE_BYTE_LIMIT, BLOCKED_CLOSE_MS } };
+function summarizeOutboundClients(clients) {
+  const now = Date.now();
+  const summary = { clients: 0, blockedClients: 0, queuedBytes: 0, queuedControlBytes: 0, queuedSnapshots: 0, coalescedSnapshots: 0, longestBlockedMs: 0 };
+  for (const client of clients || []) {
+    if (!client || client.isClosed) continue;
+    summary.clients += 1;
+    const out = client.outbound;
+    if (!out) continue;
+    summary.queuedBytes += Math.max(0, Number(out.bytes) || 0);
+    summary.queuedControlBytes += Math.max(0, Number(out.controlBytes) || 0);
+    summary.queuedSnapshots += out.snapshot ? 1 : 0;
+    summary.coalescedSnapshots += Math.max(0, Number(out.coalescedSnapshots) || 0);
+    if (out.blocked) {
+      summary.blockedClients += 1;
+      summary.longestBlockedMs = Math.max(summary.longestBlockedMs, Math.max(0, now - (Number(out.blockedSince) || now)));
+    }
+  }
+  return summary;
+}
+module.exports = { configureOutbound, send, sendPlayer, broadcastRoom, sendRaw, getOutbound, enqueueRaw, flushOutbound, resetOutbound, summarizeOutboundClients, constants: { CONTROL_QUEUE_BYTE_LIMIT, TOTAL_QUEUE_BYTE_LIMIT, BLOCKED_CLOSE_MS } };

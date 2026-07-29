@@ -358,7 +358,15 @@
               Infrastructure
               <select id="infrastructureModeSelect" title="Classic spawns purchases instantly at your safe zone. Stations build them in a home station hangar and launch them.">
                 <option value="classic">Classic</option>
-                <option value="stations">Stations</option>
+                <option value="stations" selected>Stations</option>
+              </select>
+            </label>
+            <label for="visibilityModeSelect">
+              Visibility
+              <select id="visibilityModeSelect" title="Full Visibility shows everything. Sensor Fog hides enemies outside allied coverage. Full Dark uses the same sensor rules with opaque black fog.">
+                <option value="full">Full Visibility</option>
+                <option value="sensors" selected>Sensor Fog</option>
+                <option value="dark">Full Dark</option>
               </select>
             </label>
           </div>
@@ -665,7 +673,7 @@
                 <button id="analysisHeatTab" type="button" role="tab" aria-selected="false" aria-controls="analysisHeatPanel" tabindex="-1">Heat</button>
                 <button id="analysisPowerTab" type="button" role="tab" aria-selected="false" aria-controls="analysisPowerPanel" tabindex="-1">Power</button>
                 <button id="analysisWiringTab" type="button" role="tab" aria-selected="false" aria-controls="analysisWiringPanel" tabindex="-1">Wiring</button>
-                <button id="analysisMovementTab" type="button" role="tab" aria-selected="true" aria-controls="analysisMovementPanel" tabindex="0">Movement</button>
+                <button id="analysisMovementTab" type="button" role="tab" aria-selected="true" aria-controls="analysisMovementPanel" tabindex="0">Combat</button>
               </div>
               <div id="analysisHeatPanel" class="designer-analysis-panel" aria-label="Heat analysis" hidden>
                 <div id="heatToolbar" class="heat-toolbar">
@@ -712,7 +720,7 @@
                 <div id="wiringAnalysisSummary" class="combined-analysis-summary"></div>
                 <section id="wiringStatusPanel" class="wiring-status-panel" hidden aria-label="Wiring status"></section>
               </div>
-              <div id="analysisMovementPanel" class="designer-analysis-panel" aria-label="Movement analysis"></div>
+              <div id="analysisMovementPanel" class="designer-analysis-panel" aria-label="Combat analysis"></div>
             </div>
 
             <div id="designerBlueprintsPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerBlueprintsTab" hidden>

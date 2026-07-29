@@ -1393,6 +1393,137 @@ function analysisGridMarkup(rows) {
     <div${tone ? ` class="${escapeHtml(tone)}"` : ""}><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}</div>`;
 }
 
+function sensorSectorPath(cx, cy, radius, relativeAngle, arc) {
+  const screenAngle = (Number(relativeAngle) || 0) - Math.PI / 2;
+  const halfArc = Math.max(0, Number(arc) || 0) / 2;
+  const start = screenAngle - halfArc;
+  const end = screenAngle + halfArc;
+  const x1 = cx + Math.cos(start) * radius;
+  const y1 = cy + Math.sin(start) * radius;
+  const x2 = cx + Math.cos(end) * radius;
+  const y2 = cy + Math.sin(end) * radius;
+  return [
+    `M ${cx.toFixed(2)} ${cy.toFixed(2)}`,
+    `L ${x1.toFixed(2)} ${y1.toFixed(2)}`,
+    `A ${radius.toFixed(2)} ${radius.toFixed(2)} 0 ${halfArc * 2 > Math.PI ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`,
+    "Z"
+  ].join(" ");
+}
+
+function sensorContributionRows(entries, stackName) {
+  if (!entries.length) {
+    return `<p class="sensor-stack-empty">No ${escapeHtml(stackName.toLowerCase())} sensor components fitted.</p>`;
+  }
+  return `<div class="sensor-stack-list">${entries.map((entry) => {
+    const partName = PART_DEFS[entry.type]?.name || entry.type || "Sensor";
+    const multiplier = Math.max(0, Math.min(1, Number(entry.multiplier) || 0));
+    const percent = Math.round(multiplier * 100);
+    const nominal = Math.round(Number(entry.nominalBonus) || 0);
+    const effective = Math.round(Number(entry.effectiveBonus) || 0);
+    const directionalDetail = stackName === "Directed"
+      ? `<span>${Math.round(Number(entry.range) || 0)} m cone · ${Math.round((Number(entry.arc) || 0) * 180 / Math.PI)}°</span>`
+      : `<span>+${effective} m effective range</span>`;
+    return `<div class="sensor-stack-entry">
+      <div class="sensor-stack-entry-head">
+        <strong>${escapeHtml(partName)}</strong>
+        <b>${percent}%</b>
+      </div>
+      <div class="sensor-stack-track" aria-label="${escapeHtml(`${partName} receives ${percent}% of its nominal range bonus`)}">
+        <i style="width:${percent}%"></i>
+      </div>
+      <div class="sensor-stack-entry-detail">
+        <span>Stack ${Number(entry.stackIndex) + 1} · +${nominal} m nominal</span>
+        ${directionalDetail}
+      </div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function sensorCoverageMarkup(stats) {
+  const contributions = stats.sensorContributions || {};
+  const omni = Array.isArray(contributions.omni) ? contributions.omni : [];
+  const directed = Array.isArray(contributions.directed) ? contributions.directed : [];
+  const baseRange = Math.max(0, Number(contributions.baseRange ?? stats.baseSensorRange) || 0);
+  const omniRange = Math.max(baseRange, Number(stats.sensorRange) || 0);
+  const directedMax = directed.reduce((maximum, entry) => Math.max(maximum, Number(entry.range) || 0), 0);
+  const maxRange = Math.max(1, omniRange, directedMax);
+  const cx = 130;
+  const cy = 118;
+  const chartRadius = 92;
+  const scaledRadius = (range) => Math.max(0, Math.min(chartRadius, chartRadius * (Number(range) || 0) / maxRange));
+  const baseRadius = scaledRadius(baseRange);
+  const omniRadius = scaledRadius(omniRange);
+  const coneMarkup = [...directed]
+    .sort((a, b) => (Number(b.range) || 0) - (Number(a.range) || 0))
+    .map((entry, index) => {
+      const multiplier = Math.max(0, Math.min(1, Number(entry.multiplier) || 0));
+      const opacity = (0.2 + multiplier * 0.42).toFixed(2);
+      return `<path class="sensor-coverage-cone sensor-coverage-cone-${index % 3}"
+        d="${sensorSectorPath(cx, cy, scaledRadius(entry.range), entry.relativeAngle, entry.arc)}"
+        style="fill-opacity:${opacity}"></path>`;
+    }).join("");
+  const ringMarkup = [0.25, 0.5, 0.75, 1].map((ratio) => `
+    <circle class="sensor-coverage-grid-ring" cx="${cx}" cy="${cy}" r="${(chartRadius * ratio).toFixed(2)}"></circle>`).join("");
+  const rangeLabel = (value) => `${Math.round(Number(value) || 0).toLocaleString()} m`;
+  const hasInstalledSensors = omni.length + directed.length > 0;
+
+  return `<section class="analysis-summary-card sensor-coverage-card">
+    <div class="sensor-coverage-heading">
+      <div>
+        <h3>Sensor coverage</h3>
+        <p>Effective detection envelope at full power and full component health.</p>
+      </div>
+      <span class="sensor-coverage-status">${hasInstalledSensors ? `${omni.length + directed.length} fitted` : "Hull array only"}</span>
+    </div>
+    <div class="sensor-coverage-readouts">
+      <div><span>General range</span><strong>${escapeHtml(rangeLabel(omniRange))}</strong></div>
+      <div><span>Directional maximum</span><strong>${directedMax > 0 ? escapeHtml(rangeLabel(directedMax)) : "None"}</strong></div>
+    </div>
+    <div class="sensor-coverage-plot-wrap">
+      <svg class="sensor-coverage-plot" viewBox="0 0 260 226" role="img"
+        aria-label="${escapeHtml(`General sensor range ${rangeLabel(omniRange)}${directedMax > 0 ? `, maximum directional range ${rangeLabel(directedMax)}` : ", no directional sensor fitted"}`)}">
+        <defs>
+          <radialGradient id="sensorOmniGradient">
+            <stop offset="0%" stop-color="#22d3ee" stop-opacity=".25"></stop>
+            <stop offset="70%" stop-color="#0ea5e9" stop-opacity=".12"></stop>
+            <stop offset="100%" stop-color="#38bdf8" stop-opacity=".03"></stop>
+          </radialGradient>
+          <linearGradient id="sensorHullGradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#e0f2fe"></stop>
+            <stop offset="100%" stop-color="#0891b2"></stop>
+          </linearGradient>
+        </defs>
+        <g class="sensor-coverage-grid">
+          ${ringMarkup}
+          <line x1="${cx}" y1="${cy - chartRadius - 8}" x2="${cx}" y2="${cy + chartRadius}" class="sensor-coverage-axis"></line>
+          <line x1="${cx - chartRadius}" y1="${cy}" x2="${cx + chartRadius}" y2="${cy}" class="sensor-coverage-axis"></line>
+          <text x="${cx}" y="13" class="sensor-coverage-forward-label">FORWARD</text>
+        </g>
+        <circle class="sensor-coverage-omni" cx="${cx}" cy="${cy}" r="${omniRadius.toFixed(2)}"></circle>
+        <circle class="sensor-coverage-base" cx="${cx}" cy="${cy}" r="${baseRadius.toFixed(2)}"></circle>
+        ${coneMarkup}
+        <g class="sensor-coverage-ship" transform="translate(${cx} ${cy})">
+          <path d="M 0 -15 L 10 12 L 0 7 L -10 12 Z"></path>
+          <circle cx="0" cy="1" r="3"></circle>
+        </g>
+      </svg>
+      <div class="sensor-coverage-legend" aria-hidden="true">
+        <span class="omni">General</span>
+        <span class="directed">Directional</span>
+        <span class="base">Hull baseline</span>
+      </div>
+    </div>
+    <div class="sensor-stack-explanation">
+      <strong>Diminishing returns</strong>
+      <span>Large variants take the strongest slots. General and Directional sensors use separate stacks.</span>
+    </div>
+    <div class="sensor-stack-groups">
+      <section><h4>General stack</h4>${sensorContributionRows(omni, "General")}</section>
+      <section><h4>Directional stack</h4>${sensorContributionRows(directed, "Directed")}</section>
+    </div>
+  </section>`;
+}
+
 function renderAnalysisPanels(stats, heat) {
   // One shared resolver keeps the Ship summary, its Power details and this panel
   // reporting identical authoritative figures.
@@ -1456,7 +1587,7 @@ function renderAnalysisPanels(stats, heat) {
     ["Engine efficiency", formatPercent(stats.engineEfficiency)]
   ];
   if (dom.analysisMovementPanel) {
-    dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card"><h3>Movement analysis</h3>${analysisGridMarkup(movementRows)}<p class="analysis-note">${escapeHtml(movementNote)}</p></section>`;
+    dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card combat-movement-card"><h3>Combat movement</h3>${analysisGridMarkup(movementRows)}<p class="analysis-note">${escapeHtml(movementNote)}</p></section>${sensorCoverageMarkup(stats)}`;
   }
 
   renderFullLoadThermalPanel(heat);

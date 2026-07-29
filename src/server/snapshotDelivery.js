@@ -1,7 +1,28 @@
 const { encodeMessage } = require("./wsCodec");
 const { performanceNow } = require("./utils");
 const { sendRaw, getOutbound } = require("./outbound");
-const { snapshotRoom, buildSharedSnapshot, collectSnapshotDesignRevisions, collectSnapshotPowerRevisions, collectSnapshotPowerProtectionRevisions, collectSnapshotWiringLayoutRevisions, collectSnapshotHeatTelemetryRevisions, markSnapshotDesignsWritten, markSnapshotPowerWritten, markSnapshotPowerProtectionWritten, markSnapshotWiringLayoutWritten, markSnapshotHeatTelemetryWritten } = require("./snapshots");
+const {
+  snapshotRoom,
+  buildSharedSnapshot,
+  collectSnapshotDesignRevisions,
+  collectSnapshotVisibleShipIds,
+  collectSnapshotPowerRevisions,
+  collectSnapshotPowerProtectionRevisions,
+  collectSnapshotWiringLayoutRevisions,
+  collectSnapshotHeatTelemetryRevisions,
+  collectSnapshotStationStaticRevisions,
+  collectSnapshotStationComponentRevisions,
+  collectSnapshotConditionStationIds,
+  markSnapshotDesignsWritten,
+  markSnapshotVisibilityWritten,
+  markSnapshotPowerWritten,
+  markSnapshotPowerProtectionWritten,
+  markSnapshotWiringLayoutWritten,
+  markSnapshotHeatTelemetryWritten,
+  markSnapshotStationStaticWritten,
+  markSnapshotStationComponentWritten,
+  markSnapshotConditionStationsWritten
+} = require("./snapshots");
 const { recordSnapshot } = require("./performanceTelemetry");
 
 const TELEMETRY_INTERVAL_MS = 500;
@@ -19,7 +40,33 @@ function onSnapshotLifecycle(client, outcome, meta) {
   const b = ensureSnapshotBaseline(client, client.room || { stateEpoch: meta?.stateEpoch || 1 }); const d = diag(client); d[outcome] = (d[outcome] || 0) + 1;
   if (outcome === 'queued') { b.lastQueuedSeq = meta.snapshotSeq; b.queuedSnapshotKind = meta.snapshotKind; b.queuedBaseSeq = meta.baseSnapshotSeq ?? null; b.queuedStaticRevision = meta.staticRevision || 0; }
   if (outcome === 'replaced' || outcome === 'dropped' || outcome === 'reset') { if (b.lastQueuedSeq === meta.snapshotSeq) { b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; } }
-  if (outcome === 'written') { b.lastWrittenSeq = meta.snapshotSeq; b.lastSentSeq = b.lastWrittenSeq; b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; markSnapshotDesignsWritten(client, meta.shipDesignRevisions); markSnapshotPowerWritten(client, meta.shipPowerRevisions); markSnapshotPowerProtectionWritten(client, meta.shipPowerProtectionRevisions); markSnapshotWiringLayoutWritten(client, meta.shipWiringLayoutRevisions); markSnapshotHeatTelemetryWritten(client, meta.shipHeatTelemetryRevisions); if (meta.telemetryFocusShipId) { client.telemetryLastWrittenFocusId = meta.telemetryFocusShipId; client.telemetryLastWrittenAt = meta.telemetryAt || performanceNow(); } if (meta.snapshotKind === 'full') { b.lastWrittenFullSeq = meta.snapshotSeq; b.fullRequired = false; b.staticRevisionKnown = meta.staticRevision || 1; d.completedRecoveries += 1; } }
+  if (outcome === 'written') {
+    b.lastWrittenSeq = meta.snapshotSeq;
+    b.lastSentSeq = b.lastWrittenSeq;
+    b.lastQueuedSeq = 0;
+    b.queuedSnapshotKind = null;
+    b.queuedBaseSeq = null;
+    b.queuedStaticRevision = 0;
+    markSnapshotDesignsWritten(client, meta.shipDesignRevisions);
+    markSnapshotVisibilityWritten(client, meta.visibleShipIds);
+    markSnapshotPowerWritten(client, meta.shipPowerRevisions);
+    markSnapshotPowerProtectionWritten(client, meta.shipPowerProtectionRevisions);
+    markSnapshotWiringLayoutWritten(client, meta.shipWiringLayoutRevisions);
+    markSnapshotHeatTelemetryWritten(client, meta.shipHeatTelemetryRevisions);
+    markSnapshotStationStaticWritten(client, meta.stationStaticRevisions);
+    markSnapshotStationComponentWritten(client, meta.stationComponentRevisions);
+    markSnapshotConditionStationsWritten(client, meta.conditionStationIds);
+    if (meta.telemetryFocusShipId) {
+      client.telemetryLastWrittenFocusId = meta.telemetryFocusShipId;
+      client.telemetryLastWrittenAt = meta.telemetryAt || performanceNow();
+    }
+    if (meta.snapshotKind === 'full') {
+      b.lastWrittenFullSeq = meta.snapshotSeq;
+      b.fullRequired = false;
+      b.staticRevisionKnown = meta.staticRevision || 1;
+      d.completedRecoveries += 1;
+    }
+  }
 }
 // The shared snapshot carries only viewer-independent dynamic fields
 // (suppressed deltas, no baselines); buildClientShips layers per-client
@@ -49,7 +96,21 @@ function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
   const encodingStartedAt = performanceNow();
   const payload = encodeMessage(snap);
   const encodingMs = performanceNow() - encodingStartedAt;
-  return { payload, constructionMs, encodingMs, telemetryFocusShipId, designRevisions: collectSnapshotDesignRevisions(snap), powerRevisions: collectSnapshotPowerRevisions(snap), powerProtectionRevisions: collectSnapshotPowerProtectionRevisions(snap), wiringLayoutRevisions: collectSnapshotWiringLayoutRevisions(snap), heatTelemetryRevisions: collectSnapshotHeatTelemetryRevisions(snap) };
+  return {
+    payload,
+    constructionMs,
+    encodingMs,
+    telemetryFocusShipId,
+    designRevisions: collectSnapshotDesignRevisions(snap),
+    visibleShipIds: collectSnapshotVisibleShipIds(snap),
+    powerRevisions: collectSnapshotPowerRevisions(snap),
+    powerProtectionRevisions: collectSnapshotPowerProtectionRevisions(snap),
+    wiringLayoutRevisions: collectSnapshotWiringLayoutRevisions(snap),
+    heatTelemetryRevisions: collectSnapshotHeatTelemetryRevisions(snap),
+    stationStaticRevisions: collectSnapshotStationStaticRevisions(snap),
+    stationComponentRevisions: collectSnapshotStationComponentRevisions(snap),
+    conditionStationIds: collectSnapshotConditionStationIds(snap)
+  };
 }
 function enqueueSnapshot(client, payload, meta) { sendRaw(client, payload, { kind: meta.snapshotKind === 'full' ? 'snapshot-full' : 'snapshot-compact', snapshotMeta: meta, onSnapshotLifecycle: (outcome, itemMeta) => onSnapshotLifecycle(client, outcome, itemMeta) }); }
 function nextSeq(room) { return (room.snapshotSeq = Math.max(0, room.snapshotSeq || 0) + 1); }
@@ -62,7 +123,8 @@ function sendFullSnapshot(client, now = performanceNow(), reason = 'client-reque
   const meta = { stateEpoch: room.stateEpoch || 1, snapshotSeq: seq, baseSnapshotSeq: null, snapshotKind: 'full', staticRevision: room.staticRevision || 1, completeStatic: true, reason };
   const built = buildPayload(room, client, now, true, seq, null);
   meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
-  meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
+  meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
+  meta.stationStaticRevisions = built.stationStaticRevisions; meta.stationComponentRevisions = built.stationComponentRevisions; meta.conditionStationIds = built.conditionStationIds;
   diag(client).fullBuilt += 1;
   if (reason) diag(client).recoveryRequests += 1;
   enqueueSnapshot(client, built.payload, meta);
@@ -85,6 +147,10 @@ function stableRevisionMap(map) {
     .map(([id, revision]) => `${String(id)}:${Number(revision) || 0}`)
     .join(",");
 }
+function stableIdSet(set) {
+  if (!(set instanceof Set) || set.size === 0) return "";
+  return [...set].map(String).sort().join(",");
+}
 function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId }) {
   const player = client?.player;
   if (!player?.id) return null;
@@ -104,7 +170,11 @@ function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, t
     stableRevisionMap(client.knownShipPowerRevisions),
     stableRevisionMap(client.knownShipPowerProtectionRevisions),
     stableRevisionMap(client.knownShipWiringLayoutRevisions),
-    stableRevisionMap(client.knownShipHeatTelemetryRevisions)
+    stableRevisionMap(client.knownShipHeatTelemetryRevisions),
+    stableIdSet(client.knownVisibleShipIds),
+    stableRevisionMap(client.knownStationStaticRevisions),
+    stableRevisionMap(client.knownStationComponentRevisions),
+    stableIdSet(client.knownConditionStationIds)
   ]);
 }
 function duplicateSnapshotPlayerIds(clients) {
@@ -174,7 +244,8 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     for (const recipient of group.recipients) {
       const { client, meta } = recipient;
       meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
-      meta.shipDesignRevisions = built.designRevisions; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
+      meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
+      meta.stationStaticRevisions = built.stationStaticRevisions; meta.stationComponentRevisions = built.stationComponentRevisions; meta.conditionStationIds = built.conditionStationIds;
       diag(client)[group.full ? 'fullBuilt' : 'compactBuilt'] += 1;
       enqueueSnapshot(client, built.payload, meta);
       payloadBytes += built.payload.length;

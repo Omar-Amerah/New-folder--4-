@@ -515,6 +515,299 @@
 .analysis-stat-grid .good strong { color: #86efac; }
 .analysis-stat-grid .bad strong { color: #fda4af; }
 
+#analysisMovementPanel {
+  display: grid;
+  gap: 10px;
+}
+
+#analysisMovementPanel[hidden] {
+  display: none;
+}
+
+.sensor-coverage-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(14, 165, 233, .09), transparent 52%),
+    linear-gradient(145deg, rgba(5, 15, 26, .96), rgba(5, 10, 18, .86));
+}
+
+.sensor-coverage-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(125, 211, 252, .025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, .025) 1px, transparent 1px);
+  background-size: 18px 18px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .8), transparent 72%);
+}
+
+.sensor-coverage-card > * {
+  position: relative;
+}
+
+.sensor-coverage-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sensor-coverage-heading p {
+  margin: 3px 0 0;
+  color: #8fa3be;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.sensor-coverage-status {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border: 1px solid rgba(34, 211, 238, .28);
+  border-radius: 999px;
+  background: rgba(8, 145, 178, .12);
+  color: #a5f3fc;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.sensor-coverage-readouts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.sensor-coverage-readouts > div {
+  padding: 7px 8px;
+  border: 1px solid rgba(125, 211, 252, .1);
+  border-radius: 7px;
+  background: rgba(2, 8, 16, .55);
+}
+
+.sensor-coverage-readouts span,
+.sensor-coverage-readouts strong {
+  display: block;
+}
+
+.sensor-coverage-readouts span {
+  color: #7186a3;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.sensor-coverage-readouts strong {
+  margin-top: 2px;
+  color: #cffafe;
+  font-size: 13px;
+}
+
+.sensor-coverage-plot-wrap {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+}
+
+.sensor-coverage-plot {
+  display: block;
+  width: min(100%, 300px);
+  height: auto;
+  filter: drop-shadow(0 0 10px rgba(14, 165, 233, .12));
+}
+
+.sensor-coverage-grid-ring,
+.sensor-coverage-axis {
+  fill: none;
+  stroke: rgba(125, 211, 252, .13);
+  stroke-width: .8;
+  vector-effect: non-scaling-stroke;
+}
+
+.sensor-coverage-axis {
+  stroke-dasharray: 2 5;
+}
+
+.sensor-coverage-forward-label {
+  fill: #6f91ae;
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: .12em;
+  text-anchor: middle;
+}
+
+.sensor-coverage-omni {
+  fill: url(#sensorOmniGradient);
+  stroke: #22d3ee;
+  stroke-width: 1.4;
+  stroke-opacity: .72;
+}
+
+.sensor-coverage-base {
+  fill: none;
+  stroke: #e0f2fe;
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  stroke-opacity: .5;
+}
+
+.sensor-coverage-cone {
+  stroke: #a5f3fc;
+  stroke-width: 1.2;
+  stroke-opacity: .8;
+  fill: #38bdf8;
+}
+
+.sensor-coverage-cone-1 { fill: #818cf8; stroke: #c7d2fe; }
+.sensor-coverage-cone-2 { fill: #2dd4bf; stroke: #99f6e4; }
+
+.sensor-coverage-ship path {
+  fill: url(#sensorHullGradient);
+  stroke: #ecfeff;
+  stroke-width: 1.2;
+}
+
+.sensor-coverage-ship circle {
+  fill: #020617;
+  stroke: #67e8f9;
+  stroke-width: 1;
+}
+
+.sensor-coverage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px 10px;
+  margin-top: -5px;
+  color: #8499b6;
+  font-size: 8px;
+  font-weight: 850;
+}
+
+.sensor-coverage-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+
+.sensor-coverage-legend .omni::before { background: #22d3ee; }
+.sensor-coverage-legend .directed::before { background: #818cf8; }
+.sensor-coverage-legend .base::before {
+  border: 1px dashed #e0f2fe;
+  background: transparent;
+}
+
+.sensor-stack-explanation {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-left: 2px solid rgba(34, 211, 238, .65);
+  background: rgba(14, 116, 144, .08);
+}
+
+.sensor-stack-explanation strong {
+  color: #a5f3fc;
+  font-size: 9px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.sensor-stack-explanation span {
+  color: #8fa3be;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.sensor-stack-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.sensor-stack-groups > section {
+  min-width: 0;
+}
+
+.sensor-stack-groups h4 {
+  margin: 0 0 5px;
+  color: #b9d9ef;
+  font-size: 9px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.sensor-stack-list {
+  display: grid;
+  gap: 6px;
+}
+
+.sensor-stack-entry {
+  display: grid;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid rgba(125, 211, 252, .1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .025);
+}
+
+.sensor-stack-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sensor-stack-entry-head strong {
+  min-width: 0;
+  color: #d7edff;
+  font-size: 9px;
+}
+
+.sensor-stack-entry-head b {
+  color: #67e8f9;
+  font-size: 9px;
+}
+
+.sensor-stack-track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, .1);
+}
+
+.sensor-stack-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0891b2, #67e8f9);
+  box-shadow: 0 0 7px rgba(34, 211, 238, .38);
+}
+
+.sensor-stack-entry-detail {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 8px;
+  color: #7186a3;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.sensor-stack-empty {
+  margin: 0;
+  padding: 7px;
+  border: 1px dashed rgba(125, 211, 252, .12);
+  border-radius: 7px;
+  color: #7186a3;
+  font-size: 9px;
+}
+
 #analysisHeatPanel .heat-toolbar {
   margin-bottom: 8px;
 }

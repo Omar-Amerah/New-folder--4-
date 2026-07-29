@@ -12,10 +12,13 @@ const {
   ARRIVE_DISTANCE,
   ARRIVE_SPEED,
   CHARGE_LEAD_MAX_S,
+  CHARGE_MIN_SPEED_FACTOR,
+  CHARGE_SETTLE_TIME_S,
   HOLD_RANGE_RATIO,
   KITE_RANGE_RATIO,
   NAV_STUCK_TIME_MS,
   ORBIT_LEAD_ANGLE,
+  ORBIT_LEAD_STEPS,
   ORBIT_RANGE_RATIO,
   REPAIR_STANDOFF_PAD,
   WORLD_MARGIN
@@ -26,6 +29,7 @@ const {
   separationRadius
 } = require("./movementCollision");
 const { ensureMovementRuntime } = require("./movementRuntime");
+const { nearestClearPoint } = require("./movementNavigation");
 
 const SUPPORTED_MOVEMENT_TYPES = Object.freeze([
   "move",
@@ -372,7 +376,32 @@ function orbitProgressStalled(runtime, now, lastFlipAt) {
 // a destination -- which is what lets resolveNavigation plan a path, so the
 // orbit routes around asteroids and rejoins the circle beyond them. Arrival is
 // never required, so none of this passes through arrival braking.
-function orbitIntent(ship, target, maximumRange, stats, runtime, now) {
+// The aim point that keeps the ship ON the circle. Steering at a blocked lead
+// point does not stop the ship going there -- the navigator simply routes around
+// the obstacle, and "around" for anything sitting on the ring means outside it.
+// That is the fling: a ship orbiting at 508 px was dragged out past 880, well
+// beyond its own weapon range, before it could rejoin. Slide the aim point
+// further around the circle instead, so the detour is taken along the orbit
+// rather than away from it, and the guns stay on the target throughout.
+function orbitAimPoint(room, ship, target, ringRadius, baseBearing, direction) {
+  const clearance = navigationClearanceRadius(ship);
+  for (let step = 1; step <= ORBIT_LEAD_STEPS; step += 1) {
+    const candidate = ringPoint(
+      target,
+      baseBearing + direction * ORBIT_LEAD_ANGLE * step,
+      ringRadius
+    );
+    if (clampToPlayableArea(room, ship, candidate).clamped) continue;
+    const clear = nearestClearPoint(room, candidate.x, candidate.y, clearance);
+    // `adjusted` means the navigator had to move the point to make it legal, so
+    // the point asked for is inside something. Only an unmodified answer is a
+    // spot on the ring the ship can actually occupy.
+    if (clear.clear && !clear.adjusted) return candidate;
+  }
+  return null;
+}
+
+function orbitIntent(room, ship, target, maximumRange, stats, runtime, now) {
   const desiredRange = Math.max(80, maximumRange * ORBIT_RANGE_RATIO);
   const range = relativeRangeState(ship, target, desiredRange);
   const existing = runtime.style.orbit?.targetId === target.id
@@ -388,12 +417,30 @@ function orbitIntent(ship, target, maximumRange, stats, runtime, now) {
     direction = -direction;
     stuckFlipAt = now;
   }
-  const bearing = Math.atan2(range.unitY, range.unitX) + direction * ORBIT_LEAD_ANGLE;
+  const baseBearing = Math.atan2(range.unitY, range.unitX);
   // Steering at a point on the ring means flying its chords, and a chord runs
   // inside the circle it joins -- so aiming at exactly desiredRange orbits
   // measurably tighter than asked. Push the steering ring out by the chord's
   // sagitta so the circle actually flown is the one requested.
   const ringRadius = desiredRange / Math.cos(ORBIT_LEAD_ANGLE / 2);
+  let aim = orbitAimPoint(room, ship, target, ringRadius, baseBearing, direction);
+  let reason = "orbit:lead-point";
+  if (!aim) {
+    // The whole arc ahead is blocked -- a station or a large rock is sitting on
+    // it. Going the other way round is the answer that always exists, and it
+    // keeps the ship on the circle and in range. The reversal is committed to
+    // style memory, so the ship sweeps the clear arc rather than re-deciding
+    // into a stutter at the obstacle's edge every tick.
+    const reversed = orbitAimPoint(room, ship, target, ringRadius, baseBearing, -direction);
+    if (reversed) {
+      direction = -direction;
+      aim = reversed;
+      reason = "orbit:reversed-around-obstacle";
+    } else {
+      aim = ringPoint(target, baseBearing + direction * ORBIT_LEAD_ANGLE, ringRadius);
+      reason = "orbit:ring-blocked";
+    }
+  }
   const maximumSpeed = Math.max(10, Number(stats.maxSpeed) || 0);
   // v = omega * r. A hull that cannot turn fast enough to stay on the circle at
   // full throttle would spiral out of it, so cap the throttle at what its
@@ -403,10 +450,7 @@ function orbitIntent(ship, target, maximumRange, stats, runtime, now) {
     Number(stats.turnRateRight ?? stats.turnRate) || 0
   ));
   return movementIntent("orbit", {
-    destination: point(
-      (target.x || 0) + Math.cos(bearing) * ringRadius,
-      (target.y || 0) + Math.sin(bearing) * ringRadius
-    ),
+    destination: point(aim.x, aim.y),
     // Feed-forward so a moving target is orbited rather than trailed.
     desiredVelocity: point(target.vx, target.vy),
     facingMode: "travel",
@@ -415,7 +459,7 @@ function orbitIntent(ship, target, maximumRange, stats, runtime, now) {
     arrivalRequired: false,
     persistent: true,
     maxSpeedFactor: clampNumber(turnRate * desiredRange / maximumSpeed, 0.15, 1),
-    debugReason: "orbit:lead-point",
+    debugReason: reason,
     styleMemory: { orbit: { targetId: target.id, direction, stuckFlipAt } }
   });
 }
@@ -452,6 +496,18 @@ function chargeIntent(room, ship, target, stats) {
     destination = relativeRangeState(ship, { ...target, ...lead }, contactRange).destination;
   }
   const clamped = clampToPlayableArea(room, ship, destination);
+  // Skipping arrival braking is not the same as closing at full throttle.
+  // Separation holds the pair contactRange apart, so a charger that arrives at
+  // maxSpeed is shoved straight back out, re-accelerates, and orbits the contact
+  // point forever -- never "positioned", speed bouncing between nothing and half
+  // its cruise. Taper the throttle over the last stretch instead: the ship still
+  // has no braking phase and never parks short of the hull, it just arrives
+  // slowly enough to stay there.
+  const closing = relativeRangeState(ship, target, contactRange);
+  const taperDistance = Math.max(
+    contactRange,
+    (Number(stats.maxSpeed) || 0) * CHARGE_SETTLE_TIME_S
+  );
   return movementIntent("charge", {
     destination: point(clamped.x, clamped.y),
     facingMode: "travel",
@@ -463,7 +519,11 @@ function chargeIntent(room, ship, target, stats) {
     // exactly the wrong place to stop. Separation stops the ship on the hull.
     arrivalRequired: false,
     persistent: true,
-    maxSpeedFactor: 1,
+    maxSpeedFactor: clampNumber(
+      closing.rangeError / taperDistance,
+      CHARGE_MIN_SPEED_FACTOR,
+      1
+    ),
     debugReason: demolition
       ? "charge:demolition-contact"
       : "charge:pursue-to-contact"
@@ -557,7 +617,7 @@ function createMovementIntent(room, ship, stats = ship.stats || {}, now = 0) {
     const style = sanitizeCombatStyle(ship.combatStyle);
     switch (style) {
       case "orbit":
-        return orbitIntent(ship, combatTarget, maximumRange, stats, runtime, now);
+        return orbitIntent(room, ship, combatTarget, maximumRange, stats, runtime, now);
       case "kite":
         return kiteIntent(room, ship, combatTarget, maximumRange, runtime, now);
       case "charge":

@@ -206,7 +206,9 @@ const COMPONENT_ART_ALIASES = Object.freeze({
   lightMissile: "missile",
   lightRailgun: "railgun",
   heavyRailgun: "railgun",
-  pointDefenseLaser: "pointDefense"
+  pointDefenseLaser: "pointDefense",
+  sensorArray: "largeSensor",
+  directedSensor: "largeDirectedSensor"
 });
 
 function componentArtType(type) {
@@ -958,6 +960,53 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     ctx.beginPath(); ctx.arc(0, 0, size * 0.3, Math.PI * 0.12, Math.PI * 1.88); ctx.stroke();
     ctx.strokeStyle = "rgba(167,243,208,0.42)"; ctx.lineWidth = fine;
     ctx.beginPath(); ctx.arc(0, 0, size * 0.2, Math.PI * 0.12, Math.PI * 1.88); ctx.stroke();
+    return true;
+  }
+  if (type === "smallSensor") {
+    drawRecessedPanel(size, 0.78, 0.78, 0.14);
+    ctx.strokeStyle = "#7dd3fc";
+    ctx.lineWidth = fine;
+    for (const radius of [0.14, 0.27, 0.38]) {
+      ctx.beginPath();
+      ctx.arc(0, 0, size * radius, -Math.PI * 0.82, Math.PI * 0.82);
+      ctx.stroke();
+    }
+    drawComponentPort(size, 0, 0, 0.1, "#e0f2fe", 0.56);
+    return true;
+  }
+  if (type === "largeSensor") {
+    drawRecessedPanel(size, 0.84, 0.8, 0.13);
+    ctx.strokeStyle = "#67e8f9";
+    ctx.lineWidth = line;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.31, -Math.PI * 0.8, Math.PI * 0.8);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(165,243,252,0.62)";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.4, -Math.PI * 0.7, Math.PI * 0.7);
+    ctx.stroke();
+    drawComponentPort(size, 0, 0, 0.13, "#ecfeff", 0.62);
+    return true;
+  }
+  if (type === "smallDirectedSensor" || type === "largeDirectedSensor") {
+    drawRecessedPanel(size, 0.84, 0.76, 0.1);
+    ctx.fillStyle = "rgba(4,18,30,0.88)";
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.28, -size * 0.28);
+    ctx.lineTo(size * 0.36, 0);
+    ctx.lineTo(-size * 0.28, size * 0.28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#a5f3fc";
+    ctx.lineWidth = fine;
+    const waveOffsets = type === "smallDirectedSensor" ? [0.11, 0.26] : [0.08, 0.2, 0.32];
+    for (const offset of waveOffsets) {
+      ctx.beginPath();
+      ctx.arc(-size * 0.22, 0, size * offset, -Math.PI * 0.32, Math.PI * 0.32);
+      ctx.stroke();
+    }
+    drawComponentPort(size, -0.3, 0, 0.09, "#e0f2fe", 0.55);
     return true;
   }
 
@@ -2196,6 +2245,52 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     ctx.restore();
 
     drawFootprintSeams(unit, hl, hc, Math.max(2, tilesLong));
+    return true;
+  }
+
+  if (type === "largeSensor" || type === "largeDirectedSensor") {
+    const directed = type === "largeDirectedSensor";
+    const accent = directed ? "#a5f3fc" : "#67e8f9";
+    drawFootprintPanel(unit, hl, hc, 0.92, 0.82, 0.12);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = line;
+    ctx.beginPath();
+    ctx.moveTo(-hl * 0.72, 0);
+    ctx.lineTo(hl * 0.72, 0);
+    ctx.stroke();
+
+    if (directed) {
+      // A phased horn spanning the footprint. The aperture points along local
+      // +x, matching the authoritative component rotation used by the cone.
+      ctx.fillStyle = "rgba(3,17,29,0.9)";
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.58, -hc * 0.52);
+      ctx.lineTo(hl * 0.62, -hc * 0.2);
+      ctx.lineTo(hl * 0.62, hc * 0.2);
+      ctx.lineTo(-hl * 0.58, hc * 0.52);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = fine;
+      for (let step = 0; step < 3; step += 1) {
+        const x = -hl * 0.3 + step * hl * 0.38;
+        ctx.beginPath();
+        ctx.moveTo(x, -hc * (0.38 - step * 0.08));
+        ctx.lineTo(x, hc * (0.38 - step * 0.08));
+        ctx.stroke();
+      }
+      drawFootprintPort(unit, -hl * 0.65, 0, unit * 0.12, "#ecfeff");
+    } else {
+      for (const x of [-hl * 0.5, 0, hl * 0.5]) {
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = fine;
+        ctx.beginPath();
+        ctx.arc(x, 0, unit * 0.25, -Math.PI * 0.82, Math.PI * 0.82);
+        ctx.stroke();
+        drawFootprintPort(unit, x, 0, unit * 0.1, "#ecfeff");
+      }
+    }
+    drawFootprintSeams(unit, hl, hc, tilesLong);
     return true;
   }
 

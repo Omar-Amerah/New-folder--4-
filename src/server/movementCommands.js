@@ -18,6 +18,7 @@ const {
   setMovementCommand,
   syncMovementTarget
 } = require("./movementRuntime");
+const { canTeamTargetEntity } = require("./visibility");
 
 function clearTargetReferences(ship) {
   ship.focusTargetId = null;
@@ -111,7 +112,15 @@ function generateDestinationSlots(room, ships, destination) {
   return slots;
 }
 
-function setAttackCommand(ship, commandId, targetId) {
+function setAttackCommand(ship, commandId, targetId, room = null, now = 0) {
+  const target = room?.ships?.get?.(targetId) || room?.stationsById?.get?.(targetId);
+  const viewerTeam = room?.players?.get?.(ship.ownerId)?.team ?? ship.team ?? ship.ownerId;
+  if (target && room && !canTeamTargetEntity(room, viewerTeam, target, now)) {
+    clearTargetReferences(ship);
+    ship.combatTargetId = null;
+    ship.focusTargetId = null;
+    return false;
+  }
   clearTargetReferences(ship);
   ship.combatTargetId = targetId;
   ship.focusTargetId = targetId;
@@ -173,7 +182,9 @@ function commandShips(room, player, x, y, options = {}) {
   );
 
   if (enemy) {
-    for (const ship of ships) setAttackCommand(ship, commandId, livingTarget.id);
+    const { performanceNow } = require("./utils");
+    const now = performanceNow();
+    for (const ship of ships) setAttackCommand(ship, commandId, livingTarget.id, room, now);
     return { ok: true, code: "attack", commanded: ships.length };
   }
   if (ally) {

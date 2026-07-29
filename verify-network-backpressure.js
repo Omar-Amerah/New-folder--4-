@@ -2,6 +2,7 @@
 const assert = require("assert");
 const EventEmitter = require("events");
 const messages = require("./src/server/messages");
+const { performanceSnapshot } = require("./src/server/performanceTelemetry");
 class Transport extends EventEmitter { constructor(pattern){ super(); this.pattern=pattern; this.writes=[]; this.destroyed=false; } write(buf){ this.writes.push(buf); return this.pattern.length ? this.pattern.shift() : true; } destroy(){ this.destroyed=true; this.emit('close'); } }
 function client(pattern){ return { id:'test', socket:new Transport(pattern), isClosed:false }; }
 const slow=client([true,false]);
@@ -23,6 +24,19 @@ const blocked=client([false]);
 messages.enqueueRaw(blocked, Buffer.alloc(1024));
 for(let i=0;i<300;i++) messages.enqueueRaw(blocked, Buffer.alloc(4096));
 assert.equal(blocked.isClosed, true, 'blocked client closes at queue limit');
+const stalled=client([false]);
+messages.enqueueRaw(stalled, Buffer.alloc(128), {kind:'snapshot-compact'});
+messages.enqueueRaw(stalled, Buffer.alloc(128), {kind:'snapshot-compact'});
+const outboundHealth=messages.summarizeOutboundClients([slow,healthy,blocked,stalled]);
+assert.equal(outboundHealth.blockedClients,1,'health summary exposes a currently blocked client');
+assert.equal(outboundHealth.queuedSnapshots,1,'health summary exposes the coalesced queued snapshot');
+assert.ok(outboundHealth.coalescedSnapshots>=1,'health summary exposes per-client snapshot coalescing');
+const telemetry=performanceSnapshot().outbound;
+assert.ok(telemetry.blockedEvents>=2,'telemetry counts blocked socket events');
+assert.ok(telemetry.drainEvents>=1,'telemetry counts successful drain recovery');
+assert.ok(telemetry.coalescedSnapshots>=1,'telemetry counts snapshot replacement under pressure');
+assert.ok(telemetry.queueLimitCloses>=1,'telemetry counts outbound queue-limit closes');
+messages.resetOutbound(stalled);
 messages.resetOutbound(slow);
 assert.equal(messages.getOutbound(slow).bytes,0);
 console.log("Network backpressure verification passed");

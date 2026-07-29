@@ -35,7 +35,7 @@
 const PLAYER_IDENTITY_FIELDS = ["name", "teamName", "isAdmin", "isBot", "color", "colour"];
 const PLAYER_SCORE_FIELDS = ["kills", "losses", "captures", "destroyedEnemyCost", "lostFleetCost"];
 const PLAYER_ECONOMY_FIELDS = ["money", "income", "earned", "spent", "activeFleetCost", "deployedFleetCost", "lastReward", "shipsBuilt"];
-const RULE_FIELDS = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "asteroidDensity", "infrastructureMode", "shipCap"];
+const RULE_FIELDS = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "asteroidDensity", "infrastructureMode", "visibilityMode", "shipCap"];
 const VITAL_FIELDS = ["hp", "maxHp", "shield", "maxShield", "alive"];
 const COMMAND_FIELDS = ["combatStyle", "commandState", "focusTargetId", "combatTargetId"];
 

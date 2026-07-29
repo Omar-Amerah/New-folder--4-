@@ -63,6 +63,12 @@ export const PART_DEFS = {
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
+  sensorArray: { name: "Long-Range Sensor Array", color: "#38bdf8", glyph: "radial-gradient(circle, #e0f2fe 0 12%, #38bdf8 18% 34%, #0c4a6e 42% 60%)" },
+  smallSensor: { name: "Small Sensor", color: "#67e8f9", glyph: "radial-gradient(circle, #ecfeff 0 14%, #22d3ee 22% 42%, #164e63 52%)" },
+  largeSensor: { name: "Large Sensor", color: "#38bdf8", glyph: "radial-gradient(circle, #e0f2fe 0 12%, #38bdf8 18% 34%, #0c4a6e 42% 60%)" },
+  directedSensor: { name: "Directed Sensor", color: "#7dd3fc", glyph: "linear-gradient(90deg, #082f49 0 20%, #0ea5e9 22% 58%, #e0f2fe 60% 78%, transparent 80%)" },
+  smallDirectedSensor: { name: "Small Directed Sensor", color: "#7dd3fc", glyph: "linear-gradient(90deg, #082f49 0 22%, #38bdf8 24% 60%, #e0f2fe 62% 78%, transparent 80%)" },
+  largeDirectedSensor: { name: "Large Directed Sensor", color: "#38bdf8", glyph: "linear-gradient(90deg, #020617 0 18%, #0284c7 20% 58%, #bae6fd 60% 80%, transparent 82%)" },
   droneBay: { name: "Drone Bay", color: "#67e8f9", glyph: "radial-gradient(circle at 50% 50%, #e0f2fe 0 13%, #22d3ee 15% 28%, #0e7490 30% 43%, #082f49 45%)" },
   fireControlCommandCentre: { name: "Fire-Control Command Centre", color: "#fdba74", glyph: "radial-gradient(circle, #fff7ed 0 18%, #f97316 28% 55%, #7c2d12 60%)" },
   fleetDefenceCoordinator: { name: "Fleet Defence Coordinator", color: "#fca5a5", glyph: "radial-gradient(circle, #fef2f2 0 18%, #ef4444 28% 55%, #7f1d1d 60%)" },
@@ -316,6 +322,9 @@ export function normalizeRuntimePart(part = {}) {
     accuracyBonus: numberOr(part.accuracyBonus, 0),
     fireRateBonus: numberOr(part.fireRateBonus, 0),
     captureBonus: numberOr(part.captureBonus, 0),
+    sensorRangeBonus: numberOr(part.sensorRangeBonus, 0),
+    sensorRole: typeof part.sensorRole === "string" ? part.sensorRole : null,
+    sensorArc: numberOr(part.sensorArc, 0),
     // Server-normalized parts expose rotationRequired even when they omit the
     // source balance file's rotatable field. Preserve that capability when a
     // hello/state message replaces the locally loaded component definition.
@@ -370,6 +379,9 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     accuracyBonus: numberOr(component.accuracyBonus, 0),
     fireRateBonus: numberOr(component.fireRateBonus, 0),
     captureBonus: numberOr(component.captureBonus, 0),
+    sensorRangeBonus: numberOr(component.sensorRangeBonus, 0),
+    sensorRole: typeof component.sensorRole === "string" ? component.sensorRole : null,
+    sensorArc: numberOr(component.sensorArc, 0),
     rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,

@@ -57,6 +57,36 @@ export function shieldRingRadius(ship, design = ship?.design, scale = 13) {
   );
 }
 
+// Shield ring palette, shared by the ship and station renderers so a station's
+// shield reads as the same system as a hull's: cyan at full, amber under
+// pressure, red about to fail.
+function blendShieldColor(a, b, t) {
+  const mix = clamp(t, 0, 1);
+  const ar = (a >> 16) & 0xff;
+  const ag = (a >> 8) & 0xff;
+  const ab = a & 0xff;
+  const br = (b >> 16) & 0xff;
+  const bg = (b >> 8) & 0xff;
+  const bb = b & 0xff;
+  return (
+    (Math.round(ar + (br - ar) * mix) << 16)
+    | (Math.round(ag + (bg - ag) * mix) << 8)
+    | Math.round(ab + (bb - ab) * mix)
+  );
+}
+
+export function shieldColorForRatio(ratio) {
+  const cyan = 0x38d5ff;
+  const amber = 0xfbbf24;
+  const red = 0xef4444;
+  if (ratio > 0.5) return blendShieldColor(amber, cyan, (ratio - 0.5) / 0.5);
+  return blendShieldColor(red, amber, ratio / 0.5);
+}
+
+export function brightenShieldColor(color, amount = 0.52) {
+  return blendShieldColor(color, 0xffffff, amount);
+}
+
 export function hullColorForRatio(ratio) {
   if (ratio <= 0.25) return { start: "#450a0a", end: "#ef4444" };
   if (ratio <= 0.55) return { start: "#431407", end: "#f97316" };

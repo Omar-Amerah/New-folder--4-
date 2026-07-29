@@ -84,7 +84,8 @@ const DEFAULT_ROOM_RULES = Object.freeze({
   mapSize: "auto",
   gameMode: "teams",
   asteroidDensity: "medium",
-  infrastructureMode: "classic"
+  infrastructureMode: "stations",
+  visibilityMode: "sensors"
 });
 
 

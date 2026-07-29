@@ -270,6 +270,7 @@ function updateBots(room, now) {
 
   const { buyShip } = require("./economy");
   const { areEnemies } = require("./combat");
+  const { canTeamTargetEntity } = require("./visibility");
   const { commandShips } = require("./movement");
   const { usesStationInfrastructure } = require("./rooms");
 
@@ -291,7 +292,7 @@ function updateBots(room, now) {
     if (ships.length === 0) continue;
 
     const enemies = getLiveShips(room)
-      .filter((ship) => areEnemies(room, player.id, ship.ownerId))
+      .filter((ship) => areEnemies(room, player.id, ship.ownerId) && canTeamTargetEntity(room, player.team, ship, now))
       .sort((a, b) => distanceToFleet(ships, a) - distanceToFleet(ships, b));
     const nearestEnemy = enemies[0];
 
@@ -365,7 +366,10 @@ function applyRallySlots(room, player, ships) {
   const rallyPoint = getPlayerRallyPoint(room, player);
   if (!rallyPoint || !ships?.length) return new Map();
   const { assignRallyArrivalSlots } = require("./spawnPlanner");
-  const slots = assignRallyArrivalSlots(room, ships, rallyPoint);
+  // The rest of the fleet already holds places in the formation. A hangar
+  // launch calls this one ship at a time, so without them the new ship is
+  // handed the slot its predecessor is still flying toward.
+  const slots = assignRallyArrivalSlots(room, ships, rallyPoint, { fleet: player.ships });
   const movingShips = [];
   for (const ship of ships) {
     const slot = slots.get(ship.id);

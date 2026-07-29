@@ -7,7 +7,7 @@ const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 
-const { rngRange, clampNumber, angleDifference, rotateToward, fastHypot } = require("./utils");
+const { rngRange, clampNumber, angleDifference, rotateToward, fastHypot, performanceNow } = require("./utils");
 
 const { normalizeRotation } = require("./shipDesign");
 
@@ -26,6 +26,8 @@ const {
 } = require("./componentGeometry");
 
 const { addBullet, removeProjectileRuntime, segmentCircleHit, shieldCollisionRadius, SHIELD_HIT_MIN } = require("./projectiles");
+
+const { canTeamTargetEntity, usesSensorVisibility } = require("./visibility");
 
 const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponents, onComponentDestroyed, markComponentDamageChanged } = require("./componentHealth");
 
@@ -966,6 +968,10 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
   const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
 
+  const nowTs = now || performanceNow();
+  const viewerPlayer = room.players?.get?.(shipOwnerId);
+  const viewerTeam = viewerPlayer?.team;
+
   // Per-tick reservation map: multiple defensive weapons on the same ship can
   // see what damage has already been committed to each fragile target so they
   // avoid overkilling the same projectile/drone/decoy.
@@ -1041,6 +1047,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
   for (const drone of droneCandidates) {
 
     if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, shipOwnerId, drone.ownerId)) continue;
+    if (usesSensorVisibility(room) && viewerTeam && !canTeamTargetEntity(room, viewerTeam, drone, nowTs)) continue;
 
     const dx = drone.x - worldX;
 
@@ -1083,6 +1090,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
   for (const other of shipCandidates) {
 
     if (!other.alive || !areEnemies(room, shipOwnerId, other.ownerId)) continue;
+    if (usesSensorVisibility(room) && viewerTeam && !canTeamTargetEntity(room, viewerTeam, other, nowTs)) continue;
 
     const dx = other.x - worldX;
 
@@ -3858,6 +3866,9 @@ function findTarget(room, ship, ships) {
 
   const range = maxShipWeaponAcquisitionRange(ship);
   let holdFallback = null;
+  const now = performanceNow();
+  const owner = room.players?.get?.(ship.ownerId);
+  const viewerTeam = owner?.team || ship.team;
 
   const stations = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled");
   const targets = (ships || []).concat(stations);
@@ -3866,7 +3877,7 @@ function findTarget(room, ship, ships) {
 
   if (ship.focusTargetId) {
 
-    const focused = targets.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId));
+    const focused = targets.find((other) => other.id === ship.focusTargetId && areEnemies(room, ship.ownerId, other.ownerId) && canTeamTargetEntity(room, viewerTeam, other, now));
 
     if (focused && focused.alive) {
 
@@ -3888,7 +3899,8 @@ function findTarget(room, ship, ships) {
 
     const current = targets.find((other) =>
       other.id === ship.combatTargetId
-      && areEnemies(room, ship.ownerId, other.ownerId));
+      && areEnemies(room, ship.ownerId, other.ownerId)
+      && canTeamTargetEntity(room, viewerTeam, other, now));
 
     if (current && current.alive) {
       const explicitFocus = ship.focusTargetId === current.id;
@@ -3906,6 +3918,8 @@ function findTarget(room, ship, ships) {
   for (const other of targets) {
 
     if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+
+    if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) continue;
 
     const distance = fastHypot(other.x - ship.x, other.y - ship.y);
 
@@ -4115,9 +4129,14 @@ function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, w
 
   const nearbyArmedCount = countNearbyArmedDrones(room, ship, closeRange * 1.5);
 
+  const now = performanceNow();
+  const owner = room.players?.get?.(ship.ownerId);
+  const viewerTeam = owner?.team || ship.team;
+
   for (const drone of room.drones?.values?.() || []) {
 
     if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
+    if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, drone, now)) continue;
 
     const distance = fastHypot(drone.x - worldX, drone.y - worldY);
 
@@ -4160,8 +4179,11 @@ function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, w
 function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range, options = {}) {
 
   let shipTarget = null;
+  const now = performanceNow();
+  const owner = room.players?.get?.(ship.ownerId);
+  const viewerTeam = owner?.team || ship.team;
 
-  if (primary?.alive && !room.drones?.has?.(primary.id)) {
+  if (primary?.alive && !room.drones?.has?.(primary.id) && canTeamTargetEntity(room, viewerTeam, primary, now)) {
 
     const distance = fastHypot(primary.x - worldX, primary.y - worldY);
 
@@ -4182,6 +4204,8 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
     for (const other of (ships || []).concat(stationTargets)) {
 
       if (!other.alive || !areEnemies(room, ship.ownerId, other.ownerId)) continue;
+
+      if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) continue;
 
       const distance = fastHypot(other.x - worldX, other.y - worldY);
 
@@ -4851,8 +4875,12 @@ function applyBlastDamageToShip(room, target, origin, cfg, damageMultiplier, con
   const centreDamage = cfg.centreDamage ?? cfg.splashCentreDamage ?? 0;
   const directContactMultiplier = cfg.directContactMultiplier ?? 1.5;
   const directContactHullDamage = cfg.directContactHullDamage ?? (centreDamage * directContactMultiplier);
-  const contactMaxAffected = cfg.contactMaxAffectedComponents ?? cfg.maxAffectedComponents ?? 6;
-  const splashMaxAffected = cfg.splashMaxAffectedComponents ?? cfg.maxAffectedComponents ?? 6;
+  const contactMaxAffected = cfg.contactMaxAffectedComponents === null
+    ? null
+    : (cfg.contactMaxAffectedComponents ?? cfg.maxAffectedComponents ?? 6);
+  const splashMaxAffected = cfg.splashMaxAffectedComponents === null
+    ? null
+    : (cfg.splashMaxAffectedComponents ?? cfg.maxAffectedComponents ?? 6);
   const contactInternalReduction = cfg.contactInternalDamageReduction ?? cfg.internalDamageReduction ?? 0.7;
   const splashInternalReduction = cfg.splashInternalDamageReduction ?? cfg.internalDamageReduction ?? 0.7;
 
@@ -4885,7 +4913,9 @@ function applyBlastDamageToShip(room, target, origin, cfg, damageMultiplier, con
     return a.index - b.index;
   });
 
-  const affected = candidates.slice(0, Math.max(1, Math.round(maxComponents)));
+  const affected = Number.isFinite(maxComponents)
+    ? candidates.slice(0, Math.max(1, Math.round(maxComponents)))
+    : candidates;
   let totalRemoved = 0;
 
   // Ripple: nearest component takes the largest share, each further one takes half as much.
@@ -5070,6 +5100,7 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true, c
       if (kind === "ships") {
 
         if (!entity.alive) continue;
+        if (cfg.damagesFriendlyShips === false && !areEnemies(room, attackerId, entity.ownerId)) continue;
 
         const removed = applyBlastDamageToShip(room, entity, origin, cfg, damageMultiplier, contactTargetShip, attackerId, now);
 

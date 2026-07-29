@@ -27,7 +27,19 @@ module.exports = Object.freeze({
   // How far a parked ship may be nudged off its destination before it bothers
   // to correct. Wide enough to ignore a separation shove, narrow enough that it
   // never strands itself short of the point it was sent to.
-  ARRIVE_LATCH_RATIO: 1.25,
+  //
+  // This has to be measured against where a ship actually STOPS, not against the
+  // destination: the braking profile reaches zero speed at ARRIVE_DISTANCE, so a
+  // parked ship is already sitting a full ARRIVE_DISTANCE out. At 1.25 that left
+  // 4 px of headroom, so a parked ship sat at 80% of its own tolerance and the
+  // first neighbour to jostle it tipped it out -- whereupon it re-commanded a
+  // crawl at the destination, and its nose followed that crawl. That was the
+  // "turned for no reason on arrival" pirouette. 2.0 leaves a whole
+  // ARRIVE_DISTANCE of slack on top of the stopping shortfall, which absorbs a
+  // separation shove without the ship ever deciding it has been displaced.
+  // A new order resets the phase to "travelling" (see setMovementCommand), so a
+  // wider latch can never suppress a genuine short move.
+  ARRIVE_LATCH_RATIO: 2,
   FINAL_FACING_TOLERANCE: 0.035,
 
   // --- Flight assist ------------------------------------------------------
@@ -121,9 +133,29 @@ module.exports = Object.freeze({
   // Larger cuts the corner inward and flies a polygon; smaller tracks the
   // circle tightly but spends the whole orbit turning.
   ORBIT_LEAD_ANGLE: 0.45,
+  // How far around the circle the aim point may slide looking for somewhere the
+  // ship can actually be, before orbit gives up on this direction and reverses.
+  // Six steps sweeps ~155 degrees, which clears anything short of an obstacle
+  // that swallows half the ring -- and half the ring is a case where reversing
+  // is the right answer anyway.
+  ORBIT_LEAD_STEPS: 6,
   // Charge aims where the target will be, not where it is. Capped so a fast
   // target seen from across the map does not send the charger to empty space.
   CHARGE_LEAD_MAX_S: 1.5,
+  // A charge deliberately skips arrival braking -- stopping ARRIVE_DISTANCE short
+  // is exactly wrong for the stance whose purpose is contact. But arriving at the
+  // contact ring at full throttle is just as wrong: separation actively holds the
+  // pair apart, so the charger is shoved back out, re-accelerates into the same
+  // wall, and oscillates about the target forever instead of sitting on its hull.
+  // Throttle is tapered over the last CHARGE_SETTLE_TIME_S of closing instead, so
+  // the ship still never stops short -- it just stops slamming.
+  CHARGE_SETTLE_TIME_S: 0.55,
+  // Zero at the contact ring itself. Any floor here is a permanent order to keep
+  // driving into a hull the separation solver is already holding off, which is a
+  // limit cycle by construction: the ship rams, gets pushed out, rams again. A
+  // charger that has arrived should sit on its target and shoot; it picks the
+  // throttle straight back up the moment the target opens the range.
+  CHARGE_MIN_SPEED_FACTOR: 0,
   REPAIR_STANDOFF_PAD: 30,
 
   // --- Component heat from movement --------------------------------------

@@ -4,7 +4,7 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
-import { normalizeDesign, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
+import { normalizeDesign, normalizeDesignDetailed, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
 import { notify } from "./toastUi.js";
 import { renderLoadoutManager } from "./purchaseUi.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
@@ -38,31 +38,106 @@ export function previewColor() {
   return (me && me.color) || loadPreferences().preferences.preferredColor || "#8fb4ff";
 }
 
+// ---- Dirty tracking -----------------------------------------------------------
+// Dirty detection compares canonical, order-insensitive keys rather than raw
+// JSON.stringify output. Stringifying the arrays reported "unsaved changes" for
+// edits that changed nothing about the ship: a replaced part lands at the end of
+// the modules array, wiring sections come back in a different order after an
+// undo, and object key order differs between freshly placed parts and parts
+// rehydrated from storage.
+
+function moduleIdentity(part) {
+  return `${Math.trunc(Number(part?.x))},${Math.trunc(Number(part?.y))},${String(part?.type || "")}`;
+}
+
+function moduleKey(part) {
+  return `${moduleIdentity(part)},${part?.rotation || 0},${part?.droneType || ""}`;
+}
+
+function sectionKey(section) {
+  const a = `${Math.trunc(Number(section?.x1))},${Math.trunc(Number(section?.y1))}`;
+  const b = `${Math.trunc(Number(section?.x2))},${Math.trunc(Number(section?.y2))}`;
+  // A wire drawn end-to-start is the same wire.
+  const [first, second] = a <= b ? [a, b] : [b, a];
+  return `${first}|${second}|${section?.tier || "standard"}`;
+}
+
+function wiringKindKey(kindValue, moduleRef) {
+  const sections = (kindValue?.sections || []).map(sectionKey).sort();
+  const connections = (kindValue?.connections || []).map((connection) => {
+    const ids = (connection?.sectionIds || []).map(String).slice().sort().join(";");
+    return `${moduleRef(connection?.sourceIndex)}>${moduleRef(connection?.targetIndex)}|${ids}`;
+  }).sort();
+  return `${sections.join("/")}#${connections.join("/")}`;
+}
+
+function editorStateKey(modules, wiring, combatStyle) {
+  const list = Array.isArray(modules) ? modules : [];
+  // Connection endpoints are module indexes into this exact array, so resolve
+  // them to positional identities before sorting anything.
+  const identities = list.map(moduleIdentity);
+  const moduleRef = (index) => identities[index] ?? `#${index}`;
+  const normalized = normalizeDesignDetailed(list, { allowEmpty: true }).modules.map(moduleKey).sort();
+  const normalizedWiring = normalizeWiring(wiring, list) || {};
+  const policy = normalizedWiring.powerPolicy || {};
+  return [
+    normalized.join("/"),
+    wiringKindKey(normalizedWiring.power, moduleRef),
+    wiringKindKey(normalizedWiring.data, moduleRef),
+    `${policy.preset || "balanced"}:${(policy.customOrder || []).join(",")}`,
+    combatStyle || "hold"
+  ].join("\n");
+}
+
+function currentEditorKey() {
+  return editorStateKey(state.design, state.wiring, state.combatStyle);
+}
+
+// Baseline for a design that no saved blueprint backs. See isEditorDirty().
+let editorBaselineKey = null;
+
+export function captureEditorBaseline() {
+  editorBaselineKey = currentEditorKey();
+}
+
 export function isEditorDirty() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
-  if (!existing) return true;
-  const modulesSame = JSON.stringify(existing.blueprint || []) === JSON.stringify(state.design || []);
-  const wiringSame = JSON.stringify(normalizeWiring(existing.wiring, existing.blueprint)) === JSON.stringify(normalizeWiring(state.wiring, state.design));
-  const styleSame = (existing.combatStyle || "hold") === (state.combatStyle || "hold");
-  return !(modulesSame && wiringSame && styleSame);
+  const current = currentEditorKey();
+  if (existing) {
+    return current !== editorStateKey(existing.blueprint, existing.wiring, existing.combatStyle);
+  }
+  // No saved blueprint backs the editor. The working design is written to
+  // localStorage on every edit, so closing the designer cannot lose it — only
+  // loading another blueprint over it can. Treat it as dirty solely when it has
+  // actually changed since the designer was opened (or since the last save/load).
+  if (editorBaselineKey === null) editorBaselineKey = current;
+  return current !== editorBaselineKey;
+}
+
+// True only when a saved blueprint is loaded and the editor has diverged from
+// it — i.e. when discarding the editor would actually lose work that is not
+// recoverable from the auto-persisted current design.
+export function isLoadedBlueprintDirty() {
+  const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
+  if (!existing) return false;
+  return currentEditorKey() !== editorStateKey(existing.blueprint, existing.wiring, existing.combatStyle);
 }
 
 export function refreshLoadedBlueprintPresentation() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
   if (dom.loadedBlueprintName) dom.loadedBlueprintName.textContent = existing?.name || "Unsaved design";
+  const dirty = isEditorDirty();
+  const savedToLibrary = Boolean(existing) && !dirty;
   if (dom.loadedBlueprintState) {
-    const dirty = isEditorDirty();
-    dom.loadedBlueprintState.textContent = dirty ? "Unsaved changes" : "Saved";
-    dom.loadedBlueprintState.classList.toggle("saved", !dirty);
-    dom.loadedBlueprintState.classList.toggle("unsaved", dirty);
+    dom.loadedBlueprintState.textContent = existing ? (dirty ? "Unsaved changes" : "Saved") : "Not in library";
+    dom.loadedBlueprintState.classList.toggle("saved", savedToLibrary);
+    dom.loadedBlueprintState.classList.toggle("unsaved", !savedToLibrary);
   }
   if (dom.saveDesignButton) {
-    const dirty = isEditorDirty();
-    const hasExisting = Boolean(existing);
-    dom.saveDesignButton.disabled = !dirty && hasExisting;
-    dom.saveDesignButton.title = (!dirty && hasExisting) ? "No unsaved changes" : "";
-    dom.saveDesignButton.classList.toggle("is-primary", dirty);
-    dom.saveDesignButton.classList.toggle("secondary", !dirty);
+    dom.saveDesignButton.disabled = savedToLibrary;
+    dom.saveDesignButton.title = savedToLibrary ? "No unsaved changes" : "";
+    dom.saveDesignButton.classList.toggle("is-primary", !savedToLibrary);
+    dom.saveDesignButton.classList.toggle("secondary", savedToLibrary);
   }
 }
 
@@ -473,6 +548,7 @@ function doLoadSavedDesign(id, editSource = true) {
   state.hoveredHeatPartIndex = null;
   state.combatStyle = saved.combatStyle || "hold";
   state.loadedEditorBlueprintId = editSource ? saved.id : null;
+  captureEditorBaseline();
   refreshLoadedBlueprintPresentation();
 
   if (dom.combatStyleSelect) {
@@ -642,6 +718,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
     send({ type: "deploy", design: blueprint, wiring, combatStyle: state.combatStyle || "hold" });
   }
 
+  captureEditorBaseline();
   refreshLoadedBlueprintPresentation();
   renderSavedDesigns();
   invalidatePresentation("purchase-catalogue");

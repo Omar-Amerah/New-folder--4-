@@ -62,6 +62,7 @@ function makeRoom(extra = {}) {
 }
 
 function chargeDesign() { return [{ x: 7, y: 7, type: 'core' }, { x: 5, y: 7, type: 'proximityDemolitionCharge' }]; }
+function smallChargeDesign() { return [{ x: 7, y: 7, type: 'core' }, { x: 6, y: 7, type: 'demolitionCharge' }]; }
 function basicDesign() { return [{ x: 7, y: 7, type: 'core' }, { x: 6, y: 7, type: 'frame' }]; }
 function largeDesign() {
   const d = [{ x: 7, y: 7, type: 'core' }];
@@ -252,14 +253,63 @@ function multiChargeDesign() {
   assert.equal(armedProximityChargeRanges(carrier).armed, false, 'charge disabled after component destroyed');
 }
 
-// 15. Balance values are authoritative
+// 15. Heavy charge has no component cap; small charge retains its 12-component cap
+{
+  const room1 = makeRoom();
+  const room2 = makeRoom();
+  const heavy = makeShip('heavy', 'blue', 0, 0, chargeDesign());
+  const small = makeShip('small', 'blue', 0, 0, smallChargeDesign());
+  const heavyTarget = makeShip('heavy-target', 'red', 0, 60, largeDesign(), { maxHp: 100000 });
+  const smallTarget = makeShip('small-target', 'red', 0, 60, largeDesign(), { maxHp: 100000 });
+  room1.ships.set(heavy.id, heavy);
+  room1.ships.set(heavyTarget.id, heavyTarget);
+  room2.ships.set(small.id, small);
+  room2.ships.set(smallTarget.id, smallTarget);
+  const heavyBefore = heavyTarget.componentHp.slice();
+  const smallBefore = smallTarget.componentHp.slice();
+  detonateProximityCharge(room1, heavy, 1, 0, true, heavyTarget, { x: 0, y: 8, geometry: 'cell', t: 1 });
+  detonateProximityCharge(room2, small, 1, 0, true, smallTarget, { x: 0, y: 8, geometry: 'cell', t: 1 });
+  assert.equal(heavyTarget.componentHp.filter((hp, index) => hp < heavyBefore[index]).length, heavyTarget.design.length, 'heavy charge damages every component without a cap');
+  assert.equal(smallTarget.componentHp.filter((hp, index) => hp < smallBefore[index]).length, 12, 'small charge remains capped at 12 components');
+}
+
+// 16. Small charge protects friendly ships; heavy charge retains friendly fire
+{
+  const smallRoom = makeRoom();
+  const small = makeShip('small', 'blue', 0, 0, smallChargeDesign());
+  const smallEnemy = makeShip('small-enemy', 'red', 0, 0, basicDesign());
+  const smallAlly = makeShip('small-ally', 'ally', 40, 0, basicDesign());
+  smallRoom.ships.set(small.id, small);
+  smallRoom.ships.set(smallEnemy.id, smallEnemy);
+  smallRoom.ships.set(smallAlly.id, smallAlly);
+  const smallAllyHp = smallAlly.hp;
+  resolveDemolitionContacts(smallRoom, [small, smallEnemy, smallAlly], 0);
+  assert.equal(smallAlly.hp, smallAllyHp, 'small charge does not damage friendly ships');
+
+  const heavyRoom = makeRoom();
+  const heavy = makeShip('heavy', 'blue', 0, 0, chargeDesign());
+  const heavyEnemy = makeShip('heavy-enemy', 'red', 0, 0, basicDesign());
+  const heavyAlly = makeShip('heavy-ally', 'ally', 40, 0, basicDesign());
+  heavyRoom.ships.set(heavy.id, heavy);
+  heavyRoom.ships.set(heavyEnemy.id, heavyEnemy);
+  heavyRoom.ships.set(heavyAlly.id, heavyAlly);
+  const heavyAllyHp = heavyAlly.hp;
+  resolveDemolitionContacts(heavyRoom, [heavy, heavyEnemy, heavyAlly], 0);
+  assert.ok(heavyAlly.hp < heavyAllyHp, 'heavy charge still damages friendly ships');
+}
+
+// 17. Balance values are authoritative
 {
   const balance = require('./public/component-balance.generated.json');
-  const part = balance.components.find((c) => c.id === 'proximityDemolitionCharge');
-  assert.ok(part, 'demolition charge exists in balance');
-  assert.equal(part.proximityCharge.centreDamage, 8000, 'centre damage');
-  assert.equal(part.proximityCharge.maxAffectedComponents, 12, 'max affected components');
-  assert.equal(part.proximityCharge.blastRadius, 420, 'blast radius');
+  const heavy = balance.components.find((c) => c.id === 'proximityDemolitionCharge');
+  const small = balance.components.find((c) => c.id === 'demolitionCharge');
+  assert.ok(heavy && small, 'both demolition charges exist in balance');
+  assert.equal(heavy.proximityCharge.centreDamage, 8000, 'heavy centre damage');
+  assert.equal(heavy.proximityCharge.maxAffectedComponents, null, 'heavy has no affected-component cap');
+  assert.equal(heavy.proximityCharge.blastRadius, 420, 'heavy blast radius');
+  assert.equal(heavy.proximityCharge.damagesFriendlyShips, true, 'heavy retains friendly fire');
+  assert.equal(small.proximityCharge.maxAffectedComponents, 12, 'small retains 12-component cap');
+  assert.equal(small.proximityCharge.damagesFriendlyShips, false, 'small protects friendly ships');
 }
 
 console.log('Demolition charge verification passed');

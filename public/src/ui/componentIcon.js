@@ -4,7 +4,11 @@
 // aspect ratio with a hull plate behind the single-cell emblem.
 
 import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
-import { normalizeRotation, moduleRotationToRadians } from "../design/rotation.js";
+import {
+  directionalFootprintToShipRadians,
+  normalizeRotation,
+  moduleRotationToRadians
+} from "../design/rotation.js";
 import { withCanvasContext } from "./dom.js";
 import { drawModule, drawFootprintComponent } from "../game/componentArt.js";
 import { isRotatingWeaponPart } from "../game/weaponAim.js";
@@ -61,6 +65,14 @@ function isWeaponPart(stat) {
 // with the icon's longer footprint dimension (post-rotation w/h cells).
 function footprintArtAngle(type, rotationDeg, wCells, hCells) {
   const stat = PART_STATS[type] || {};
+  if (stat.sensorRole === "directed") {
+    // Ship-local +x is blueprint-up. Derive the icon angle from the exact same
+    // footprint-aware facing used by authoritative sensor coverage.
+    return directionalFootprintToShipRadians(
+      normalizeRotation(rotationDeg),
+      stat.footprint
+    ) - Math.PI / 2;
+  }
   if (isRotatingWeaponPart(type)) {
     const footprint = stat.footprint || { width: 1, height: 1 };
     const baseAngle = (footprint.width || 1) >= (footprint.height || 1) ? 0 : -Math.PI / 2;

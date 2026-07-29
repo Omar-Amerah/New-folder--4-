@@ -6,6 +6,7 @@ import { state } from "../../state.js";
 import { getMinimapStaticLayer } from "../worldArt.js";
 import { pixiBakeScreenTexture } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
+import { getPixiFogTexture } from "./pixiFog.js";
 
 let screenUiViews = null;
 let backdropSize = { width: 0, height: 0 };
@@ -84,15 +85,31 @@ function ensureMinimapView(env) {
   const content = new PIXI.Container();
   const staticSprite = new PIXI.Sprite();
   const dots = new PIXI.Graphics();
+  const fullDarkFog = new PIXI.Sprite(PIXI.Texture.EMPTY);
+  const overlay = new PIXI.Graphics();
   const mask = new PIXI.Graphics();
   content.addChild(staticSprite);
   content.addChild(dots);
+  content.addChild(fullDarkFog);
+  content.addChild(overlay);
   content.mask = mask;
   root.addChild(background);
   root.addChild(content);
   root.addChild(mask);
   env.layers.screenUiRoot.addChild(root);
-  minimapView = { root, background, content, staticSprite, dots, mask, w: 0, h: 0, staticCanvas: null };
+  minimapView = {
+    root,
+    background,
+    content,
+    staticSprite,
+    dots,
+    fullDarkFog,
+    overlay,
+    mask,
+    w: 0,
+    h: 0,
+    staticCanvas: null
+  };
   return minimapView;
 }
 
@@ -154,6 +171,8 @@ function updatePixiMinimap(env, players, rect) {
 
   const dots = view.dots;
   dots.clear();
+  const overlay = view.overlay;
+  overlay.clear();
   const myTeam = state.mine?.team;
   const isSolo = state.rules?.gameMode === "solo";
   for (const point of snap.points || []) {
@@ -175,16 +194,28 @@ function updatePixiMinimap(env, players, rect) {
     dots.circle(ship.x * sx, ship.y * sy, 2.5);
     dots.fill(isFriendly ? "#38d7ff" : "#ff3838");
   }
+
+  const fogTexture = state.rules?.visibilityMode === "dark" ? getPixiFogTexture() : null;
+  view.fullDarkFog.visible = Boolean(fogTexture);
+  if (fogTexture) {
+    view.fullDarkFog.texture = fogTexture;
+    view.fullDarkFog.position.set(0, 0);
+    view.fullDarkFog.width = w;
+    view.fullDarkFog.height = h;
+  } else {
+    view.fullDarkFog.texture = env.PIXI.Texture.EMPTY;
+  }
+
   const rally = getRallyPoint();
   if (rally) {
-    dots.circle(rally.x * sx, rally.y * sy, 4.5);
-    dots.fill("#67e08a");
-    dots.stroke({ width: 1.5, color: "rgba(4,8,14,0.9)" });
+    overlay.circle(rally.x * sx, rally.y * sy, 4.5);
+    overlay.fill("#67e08a");
+    overlay.stroke({ width: 1.5, color: "rgba(4,8,14,0.9)" });
   }
   const viewW = rect.width / state.camera.zoom;
   const viewH = rect.height / state.camera.zoom;
-  dots.rect((state.camera.x - viewW / 2) * sx, (state.camera.y - viewH / 2) * sy, viewW * sx, viewH * sy);
-  dots.stroke({ width: 1, color: "#ffca57" });
+  overlay.rect((state.camera.x - viewW / 2) * sx, (state.camera.y - viewH / 2) * sy, viewW * sx, viewH * sy);
+  overlay.stroke({ width: 1, color: "#ffca57" });
 }
 
 export function updatePixiScreenUi(env, now, players, rect) {
