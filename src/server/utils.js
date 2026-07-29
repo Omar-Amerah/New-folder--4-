@@ -22,6 +22,73 @@ function hashString(value) {
   return hash >>> 0;
 }
 
+// Natural ("s2" before "s10") ordering for entity ids, without ICU.
+//
+// The simulation orders collision pairs, avoidance ties and target lists by id
+// so results are deterministic. Those comparisons used
+// String.localeCompare(other, undefined, { numeric: true }), which runs a full
+// ICU collation per call: at 60 ships the separation solver alone spent the
+// majority of the server tick inside it. This produces the same ordering for
+// the ids the simulation generates (an ASCII prefix followed by a decimal
+// counter) at a fraction of the cost.
+function compareNaturalIds(left, right) {
+  const a = typeof left === "string" ? left : String(left ?? "");
+  const b = typeof right === "string" ? right : String(right ?? "");
+  if (a === b) return 0;
+  const aLength = a.length;
+  const bLength = b.length;
+  let i = 0;
+  let j = 0;
+  while (i < aLength && j < bLength) {
+    const aCode = a.charCodeAt(i);
+    const bCode = b.charCodeAt(j);
+    const aIsDigit = aCode >= 48 && aCode <= 57;
+    const bIsDigit = bCode >= 48 && bCode <= 57;
+    if (aIsDigit && bIsDigit) {
+      // Leading zeros do not change a number's value, so skip them before
+      // comparing: a longer run of significant digits is the larger number.
+      while (i < aLength && a.charCodeAt(i) === 48) i += 1;
+      while (j < bLength && b.charCodeAt(j) === 48) j += 1;
+      let aEnd = i;
+      while (aEnd < aLength) { const code = a.charCodeAt(aEnd); if (code < 48 || code > 57) break; aEnd += 1; }
+      let bEnd = j;
+      while (bEnd < bLength) { const code = b.charCodeAt(bEnd); if (code < 48 || code > 57) break; bEnd += 1; }
+      const aDigits = aEnd - i;
+      const bDigits = bEnd - j;
+      if (aDigits !== bDigits) return aDigits < bDigits ? -1 : 1;
+      while (i < aEnd) {
+        const aDigit = a.charCodeAt(i);
+        const bDigit = b.charCodeAt(j);
+        if (aDigit !== bDigit) return aDigit < bDigit ? -1 : 1;
+        i += 1;
+        j += 1;
+      }
+      continue;
+    }
+    if (aCode !== bCode) return aCode < bCode ? -1 : 1;
+    i += 1;
+    j += 1;
+  }
+  if (i < aLength) return 1;
+  if (j < bLength) return -1;
+  return 0;
+}
+
+function compareEntityIds(a, b) {
+  return compareNaturalIds(a?.id, b?.id);
+}
+
+// Plain lexical ordering, for the tie-breaks that used String.localeCompare
+// without { numeric: true }. Those sites only need a stable total order, and
+// for the ASCII ids the simulation produces this is the same order ICU gives —
+// without constructing a collator on every comparison.
+function compareIdStrings(left, right) {
+  const a = typeof left === "string" ? left : String(left ?? "");
+  const b = typeof right === "string" ? right : String(right ?? "");
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 function seededRandom(seed) {
   let value = seed >>> 0;
   return function nextRandom() {
@@ -74,6 +141,9 @@ module.exports = {
   clampNumber,
   rngRange,
   hashString,
+  compareNaturalIds,
+  compareEntityIds,
+  compareIdStrings,
   seededRandom,
   angleDifference,
   rotateToward,

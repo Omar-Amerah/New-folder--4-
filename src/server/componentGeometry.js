@@ -101,6 +101,9 @@ function ensureLocalGeometry(cache, ship, design) {
   cache.x = NaN;
   cache.y = NaN;
   cache.angle = NaN;
+  // Both derived radii are functions of the design, so a design change has to
+  // drop them as well.
+  cache.radius = NaN;
 }
 
 function getShipCollisionGeometry(ship) {
@@ -117,6 +120,7 @@ function getShipCollisionGeometry(ship) {
     angle: NaN,
     radius: NaN,
     shieldRadius: 0,
+    designCollisionRadius: 0,
     physicalRadius: 0,
     bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 }
   });
@@ -146,14 +150,20 @@ function getShipCollisionGeometry(ship) {
   const radius = Number.isFinite(Number(ship.radius))
     ? Number(ship.radius)
     : (Number(ship.stats?.radius) || 0);
-  if (cache.radius !== radius || cache.x !== x || cache.y !== y) {
+  // Both of these walk every occupied cell of every module. They depend on the
+  // design and the ship's stat radius, never on where the ship is, so they are
+  // cached alongside the local cell layout. The collision radius used to be
+  // recomputed on every call — and this function runs for both hulls of every
+  // separation candidate pair, and for every beam and projectile hit test.
+  if (cache.radius !== radius) {
     cache.radius = radius;
     cache.shieldRadius = shieldRadiusForShip(ship);
+    cache.designCollisionRadius = computeDesignCollisionRadius(design, radius);
   }
   const coarseRadius = Math.max(radius, cache.shieldRadius);
   cache.physicalRadius = Math.max(
     Number(ship.physicalRadius) || 0,
-    computeDesignCollisionRadius(design, radius)
+    cache.designCollisionRadius
   );
   cache.bounds.minX = x - coarseRadius;
   cache.bounds.minY = y - coarseRadius;

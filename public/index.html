@@ -175,7 +175,7 @@
               <div class="status-view-tabs" role="tablist" aria-label="Ship status view">
                 <button id="shipDamageTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="shipStatusPanelBody">Damage</button>
                 <button id="shipHeatTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="shipStatusPanelBody">Heat</button>
-                <button id="shipPowerTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="shipStatusPanelBody">Power</button>
+                <button id="shipPowerTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="shipStatusPanelBody" data-feature-wiring hidden>Power</button>
               </div>
             </div>
             <div id="shipStatusPanelBody" role="tabpanel" aria-labelledby="shipDamageTab">
@@ -514,7 +514,7 @@
                 <option value="kite">Kite (Preserve distance)</option>
               </select>
             </div>
-            <div class="combat-style-selector power-priority-selector">
+            <div class="combat-style-selector power-priority-selector" data-feature-wiring hidden>
               <label for="powerPrioritySelect">Power Priority</label>
               <select id="powerPrioritySelect">
                 <option value="balanced">Balanced</option>
@@ -540,7 +540,7 @@
               <div class="blueprint-view-tabs" role="tablist" aria-label="Blueprint view">
                 <button id="blueprintBuildTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="blueprintModeContext">Build</button>
                 <button id="blueprintHeatTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Heat</button>
-                <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext">Wiring</button>
+                <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext" data-feature-wiring hidden>Wiring</button>
               </div>
               <div class="designer-top-right">
                 <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Remove: right-click</div>
@@ -671,8 +671,9 @@
             <div id="designerAnalysisPanel" class="designer-inspector-panel" role="tabpanel" aria-labelledby="designerAnalysisTab" hidden>
               <div id="designerAnalysisSubtabs" class="designer-analysis-tabs designer-analysis-subtabs" role="tablist" aria-label="Analysis type">
                 <button id="analysisHeatTab" type="button" role="tab" aria-selected="false" aria-controls="analysisHeatPanel" tabindex="-1">Heat</button>
-                <button id="analysisPowerTab" type="button" role="tab" aria-selected="false" aria-controls="analysisPowerPanel" tabindex="-1">Power</button>
-                <button id="analysisWiringTab" type="button" role="tab" aria-selected="false" aria-controls="analysisWiringPanel" tabindex="-1">Wiring</button>
+                <button id="analysisPowerTab" type="button" role="tab" aria-selected="false" aria-controls="analysisPowerPanel" tabindex="-1" data-feature-wiring hidden>Power</button>
+                <button id="analysisWiringTab" type="button" role="tab" aria-selected="false" aria-controls="analysisWiringPanel" tabindex="-1" data-feature-wiring hidden>Wiring</button>
+                <button id="analysisDataTab" type="button" role="tab" aria-selected="false" aria-controls="analysisDataPanel" tabindex="-1" data-feature-no-wiring hidden>Data</button>
                 <button id="analysisMovementTab" type="button" role="tab" aria-selected="true" aria-controls="analysisMovementPanel" tabindex="0">Combat</button>
               </div>
               <div id="analysisHeatPanel" class="designer-analysis-panel" aria-label="Heat analysis" hidden>
@@ -720,6 +721,9 @@
                 <div id="wiringAnalysisSummary" class="combined-analysis-summary"></div>
                 <section id="wiringStatusPanel" class="wiring-status-panel" hidden aria-label="Wiring status"></section>
               </div>
+              <div id="analysisDataPanel" class="designer-analysis-panel" aria-label="Data analysis" hidden>
+                <div id="dataAnalysisSummary" class="combined-analysis-summary"></div>
+              </div>
               <div id="analysisMovementPanel" class="designer-analysis-panel" aria-label="Combat analysis"></div>
             </div>
 
@@ -757,6 +761,7 @@
 
     <script src="/build-sha.js"></script>
     <script src="/src/shared/protocolVersion.js?v=protocol-2"></script>
+    <script src="/src/shared/featureFlags.js?v=feature-flags-1"></script>
     <script src="/src/shared/balanceRevision.js?v=balance-revision-1"></script>
     <script src="/src/shared/heatRules.js?v=local-heat-4"></script>
     <script src="/src/shared/engineExhaust.js?v=engine-exhaust-1"></script>

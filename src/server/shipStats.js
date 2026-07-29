@@ -20,12 +20,14 @@ const {
 const ShieldRules = require("../../public/src/shared/shieldRules");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 // Section 7A cost ordering: the component-derived ship price is computed
 // normally, then raw Power/Data infrastructure cost is added on top (never
 // multiplied by hull/mass/weapon premiums). Passing wiring is what turns the
 // infrastructure surcharge on; callers without wiring get the component price.
 function applyInfrastructureCost(costBreakdown, modules, wiring) {
+  if (!WIRING_ENABLED) return costBreakdown;
   const componentsTotal = costBreakdown.total;
   let powerWiring = 0; let dataWiring = 0;
   if (wiring) {
@@ -139,13 +141,14 @@ function computeStats(modules, wiring = null) {
   repairRate = effectiveStackedValue(repairRateValues, BALANCE.repair.stackingMultiplier);
   const shieldStats = ShieldRules.calculateShieldStats(modules, PARTS);
   const power = powerGeneration - powerUse;
-  const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
+  const effectivePowerGeneration = WIRING_ENABLED ? powerGeneration : powerUse;
+  const efficiency = WIRING_ENABLED ? calculateSystemEfficiency(powerGeneration, powerUse) : 1;
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PARTS, {
     centerOfMass,
     leverSettings: BALANCE.movement?.maneuverThrusterLever,
     isBlockedEngine: (index, module, part) => ((part.thrust || 0) > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index)
   });
-  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, hullControlThrust: BALANCE.movement?.hullControlThrust });
+  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration: effectivePowerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, hullControlThrust: BALANCE.movement?.hullControlThrust });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
   // Data support is applied per weapon at runtime by componentData/combat.
   // Keep catalogue weapon-family totals base-only so support is not applied twice.
@@ -338,18 +341,18 @@ function shipWarnings(stats) {
   const warnings = [];
   const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.pointDefense || 0);
   const hasReactor = stats.modules.some((module) => module.type === "reactor" || module.type === "nuclearReactor");
-  if (stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
-  if (!hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
+  if (WIRING_ENABLED && stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
+  if (WIRING_ENABLED && !hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
   if (stats.effectiveThrust <= 0) warnings.push("No engines: this ship cannot move");
   if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
   if (stats.speedCapped) warnings.push("Extreme speed soft cap is active; additional thrust has reduced value.");
-  if (stats.powerDebuff > 0.08 && stats.thrust > 0) warnings.push(`Underpowered systems: movement reduced ${Math.round(stats.powerDebuff * 100)}%. Add reactors.`);
+  if (WIRING_ENABLED && stats.powerDebuff > 0.08 && stats.thrust > 0) warnings.push(`Underpowered systems: movement reduced ${Math.round(stats.powerDebuff * 100)}%. Add reactors.`);
   if (stats.effectiveThrust > 0 && (stats.mass > 85 || stats.turnRate < 0.85)) warnings.push("Heavy ship: turning will be slow");
   if (stats.effectiveThrust > 0 && (stats.turnRateLeft || 0) < 0.15) warnings.push("No meaningful left-turn capability");
   if (stats.effectiveThrust > 0 && (stats.turnRateRight || 0) < 0.15) warnings.push("No meaningful right-turn capability");
   if (stats.modules.some((module) => module.type === "maneuverThruster" && Math.abs((module.y || 0) - 7) < 0.75)) warnings.push("Manoeuvre thrusters near the centre provide weak torque");
-  if (stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
-  if (stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
+  if (WIRING_ENABLED && stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
+  if (WIRING_ENABLED && stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
   if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack.");
   const hasBackupCore = stats.modules.some((module) => module.type === "backupCore");
   if (hasBackupCore) warnings.push("Backup available: ship can survive main Core loss");

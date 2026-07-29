@@ -18,6 +18,7 @@ import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { getCachedDesignDataSupport, getDesignSourceAllocation } from "../design/dataSupportAnalysis.js";
 import { buildComponentInspectorModel, powerRequirementState, dataRequirementState } from "../design/componentInspectorModel.js";
+import { WIRING_ENABLED } from "../featureFlags.js";
 
 export function renderPartInspector() {
   const type = state.selectedPart || selectedPlacedPart()?.type;
@@ -46,6 +47,9 @@ export function renderPartInspector() {
     droneType: placed?.droneType || globalThis.DroneBayRules?.normalizeDroneType?.(placed?.droneType) || null,
     thermalNote: thermalNoteFor(type),
     requirementStatus: requirementStatusFor(placed),
+    includePowerRequirements: WIRING_ENABLED,
+    includeDataRequirements: true,
+    automaticDataLinks: !WIRING_ENABLED,
     launchEdge,
     preferredLaunchEdge
   });
@@ -197,7 +201,7 @@ function requirementStatusFor(placed) {
   const status = {};
   const stat = PART_STATS[placed.type] || PART_STATS.frame;
 
-  if ((stat.powerUse || 0) > 0) {
+  if (WIRING_ENABLED && (stat.powerUse || 0) > 0) {
     try {
       const flow = solveBlueprintPower(design, state.wiring || null, PART_STATS, WIRING_INFRASTRUCTURE);
       const entry = flow?.byComponentIndex?.find((item) => item.componentIndex === index) || null;

@@ -148,7 +148,7 @@ function joinList(items) {
 // Overview — approximately nine headline values
 // ---------------------------------------------------------------------------
 
-function overviewRows(stats, power, ledger) {
+function overviewRows(stats, power, ledger, includePower = true) {
   const rows = [
     statRow("cost", "Build cost", `$${Number(stats.unitCost || 0).toLocaleString()}`),
     statRow("class", "Class", stats.massClass),
@@ -167,7 +167,7 @@ function overviewRows(stats, power, ledger) {
   const powerRow = power.shortfall
     ? statRow("power", "Power", `${mw(power.unmet)} short`, { tone: "bad" })
     : statRow("power", "Power", `${mw(power.spare)} spare`, { tone: power.requested > 0 ? "good" : "neutral" });
-  if (powerRow) {
+  if (includePower && powerRow) {
     rows.push(powerRow);
   }
 
@@ -183,25 +183,26 @@ const LEVELS = { good: "good", warning: "warning", bad: "bad", neutral: "neutral
 function statusMessages(stats, power, context) {
   const messages = [];
   const design = Array.isArray(context.design) ? context.design : [];
+  const includePower = context.includePower !== false;
   const add = (id, level, text) => { if (isMeaningfulValue(text)) messages.push({ id, level: LEVELS[level] || "neutral", text }); };
 
   // Power
-  if (power.loadShedActive) {
+  if (includePower && power.loadShedActive) {
     add("power-shed", "warning", "Load shedding active");
   }
-  if (power.shortfall) {
+  if (includePower && power.shortfall) {
     const affected = affectedSystems(stats, power);
     add("power-short", "bad", affected.length ? `${mw(power.unmet)} short · ${joinList(affected)} reduced` : `${mw(power.unmet)} short of demand`);
-  } else if (power.requested > 0) {
+  } else if (includePower && power.requested > 0) {
     add("power-ok", "good", "Fully powered");
   }
-  if (power.stranded > 0.0005) {
+  if (includePower && power.stranded > 0.0005) {
     add("power-stranded", "warning", `${mw(power.stranded)} stranded on isolated network`);
   }
 
   // Mobility
   if (Number(stats.effectiveThrust || 0) <= 0) {
-    add("no-thrust", "bad", "No effective thrust · add engines or restore Power");
+    add("no-thrust", "bad", includePower ? "No effective thrust · add engines or restore Power" : "No effective thrust · add engines");
   } else if (stats.speedCapped === true) {
     add("mass-drag", "warning", "Mass is limiting maximum speed");
   }
@@ -229,7 +230,7 @@ function statusMessages(stats, power, context) {
   }
 
   // Infrastructure
-  if (power.overloadedSections > 0) {
+  if (includePower && power.overloadedSections > 0) {
     add("cable-overload", "warning", `${power.overloadedSections} Power cable section${power.overloadedSections === 1 ? "" : "s"} over its sustained rating`);
   }
 
@@ -384,14 +385,15 @@ function droneSquadText(stats) {
 export function buildShipSummaryModel(stats, context = {}) {
   const ledger = new StatLedger();
   const power = resolvePowerSummary(stats, context.powerSummary, context);
+  const includePower = context.includePower !== false;
 
-  const overview = overviewRows(stats, power, ledger);
+  const overview = overviewRows(stats, power, ledger, includePower);
   const status = statusMessages(stats, power, context);
 
   const sections = [];
   for (const section of [
     mobilitySection(stats, ledger),
-    powerSection(stats, power, ledger),
+    includePower ? powerSection(stats, power, ledger) : null,
     combatSection(stats, ledger, context),
     supportSection(stats, ledger)
   ]) {

@@ -58,6 +58,8 @@ function makeStation(id, ownerId, x, y, shield = 0) {
     x,
     y,
     radius: 60,
+    shieldRadius: 90,
+    collisionPieces: [{ x, y, angle: 0, halfWidth: 60, halfHeight: 60, radius: Math.hypot(60, 60), door: false }],
     alive: true,
     state: "operational",
     hp: 100,

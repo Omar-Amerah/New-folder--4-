@@ -5,6 +5,7 @@ const { getOccupiedCells } = require("./footprint");
 const HeatRules = require("../../public/src/shared/heatRules");
 const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
 const { BALANCE } = require("./balanceConfig");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, edgeConductivity, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION } = HeatRules;
 function isThermalRouteType(type) {
@@ -90,9 +91,14 @@ function initShipHeat(ship) {
   // so order is: base + static bonuses - Power/Data displacement -> clamp.
   const infrastructure = BALANCE.wiringInfrastructure;
   ship.wiringMinimumHeatCapacity = WiringInfrastructureRules.minimumCapacity(infrastructure);
-  const wiringAccounting = WiringInfrastructureRules.accountInfrastructure(design, ship.wiring, PARTS, infrastructure);
-  ship.componentWiringDisplacement = wiringAccounting.byComponentIndex.map(entry => entry.powerDisplacement + entry.dataDisplacement);
-  ship.componentWiringHeatDiagnostics = WiringInfrastructureRules.componentThermalDiagnostics(design, ship.wiring, PARTS, infrastructure, ship.componentBaseHeatCapacity);
+  if (WIRING_ENABLED) {
+    const wiringAccounting = WiringInfrastructureRules.accountInfrastructure(design, ship.wiring, PARTS, infrastructure);
+    ship.componentWiringDisplacement = wiringAccounting.byComponentIndex.map(entry => entry.powerDisplacement + entry.dataDisplacement);
+    ship.componentWiringHeatDiagnostics = WiringInfrastructureRules.componentThermalDiagnostics(design, ship.wiring, PARTS, infrastructure, ship.componentBaseHeatCapacity);
+  } else {
+    ship.componentWiringDisplacement = design.map(() => 0);
+    ship.componentWiringHeatDiagnostics = null;
+  }
   ship.componentAdjacency = edgeCounts.map((edges, i) => [...edges].map(([index, sharedEdges]) => ({
     index,
     sharedEdges,

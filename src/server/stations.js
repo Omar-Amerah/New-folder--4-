@@ -14,6 +14,7 @@ const { usesStationInfrastructure } = require("./rooms");
 const { initStationCombatRuntime, stationModuleWorldPosition } = require("./stationCombat");
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getShipComponentIndexes } = require("./componentIndexes");
+const { computeStationShieldCollisionRadius } = require("./stationCollision");
 
 const {
   SHIP_MODULE_SCALE,
@@ -36,6 +37,14 @@ function buildStationTemplate(design) {
 
 const homeStationTemplate = buildStationTemplate(buildHomeStationDesign());
 const relayStationTemplate = buildStationTemplate(buildRelayStationDesign());
+
+function enemyPlayerCountForHomeStation(room, team, ownerId) {
+  const players = [...(room?.players?.values?.() || [])].filter((player) => !player.removed);
+  if (room?.rules?.gameMode === "solo") {
+    return Math.max(1, players.filter((player) => player.id !== ownerId).length);
+  }
+  return Math.max(1, players.filter((player) => player.team && player.team !== team).length);
+}
 
 function isStation(entity) { return entity?.entityType === "station"; }
 function isOperationalStation(entity) { return isStation(entity) && entity.state === "operational"; }
@@ -88,6 +97,11 @@ function stationCollisionPieces(station) {
       halfWidth: (rect.maxX - rect.minX) / 2,
       halfHeight: (rect.maxY - rect.minY) / 2,
       angle: station.angle,
+      // Stations never move, so the rotation into and out of the piece's local
+      // frame is fixed. Collision resolution runs per ship per separation
+      // iteration; deriving these trigonometrically each time was pure waste.
+      cos: cos,
+      sin: sin,
       // Broad-phase circle so spatial queries can reject quickly.
       radius: Math.hypot(rect.maxX - rect.minX, rect.maxY - rect.minY) / 2,
       door: Boolean(door)
@@ -120,9 +134,19 @@ function stationOverlapsCircle(station, x, y, radius) {
 
 function resolveStationCollision(room, ship, shipRadius) {
   if (!room?.stations?.length) return false;
+  const shipX = ship.x || 0;
+  const shipY = ship.y || 0;
   let hit = false;
   for (const station of room.stations) {
     if (!station?.collisionPieces?.length) continue;
+    // station.radius already bounds every solid piece. Almost every ship on the
+    // map is nowhere near a given structure, and this runs for each of them on
+    // each separation iteration, so reject the whole station in one test before
+    // walking its pieces.
+    const reach = (Number(station.radius) || 0) + shipRadius;
+    const stationDx = shipX - station.x;
+    const stationDy = shipY - station.y;
+    if (stationDx * stationDx + stationDy * stationDy > reach * reach) continue;
     // The blast door stands open only for the hull this station is currently
     // launching, and only while it is still clearing the corridor. Everything
     // else — including the launched ship the moment it is released — bounces
@@ -130,8 +154,8 @@ function resolveStationCollision(room, ship, shipRadius) {
     const launching = Boolean(ship.launchPhase) && ship.launchPhase.stationId === station.id;
     for (const piece of station.collisionPieces) {
       if (piece.door && launching) continue;
-      const cos = Math.cos(-piece.angle);
-      const sin = Math.sin(-piece.angle);
+      const cos = piece.cos !== undefined ? piece.cos : Math.cos(-piece.angle);
+      const sin = piece.sin !== undefined ? -piece.sin : Math.sin(-piece.angle);
       const local = rotatePoint((ship.x || 0) - piece.x, (ship.y || 0) - piece.y, cos, sin);
       const halfW = piece.halfWidth;
       const halfH = piece.halfHeight;
@@ -165,8 +189,8 @@ function resolveStationCollision(room, ship, shipRadius) {
         nx = lx * inv;
         ny = ly * inv;
       }
-      const worldCos = Math.cos(piece.angle);
-      const worldSin = Math.sin(piece.angle);
+      const worldCos = piece.cos !== undefined ? piece.cos : Math.cos(piece.angle);
+      const worldSin = piece.sin !== undefined ? piece.sin : Math.sin(piece.angle);
       const worldN = rotatePoint(nx, ny, worldCos, worldSin);
       ship.x += worldN.x * penetration;
       ship.y += worldN.y * penetration;
@@ -275,19 +299,28 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
     const existing = station.componentPower.byComponentIndex?.[i] || {};
     return { ...existing, operationalMultiplier: 1, state: "powered" };
   });
+  const stationConfig = stationType === "home" ? INFRASTRUCTURE.homeStation : INFRASTRUCTURE.relayStation;
+  const enemyPlayerCount = stationType === "home"
+    ? enemyPlayerCountForHomeStation(room, team, ownerId)
+    : 1;
+  const configuredShieldScale = Number(stationConfig?.shieldScale);
+  const shieldScale = (Number.isFinite(configuredShieldScale) && configuredShieldScale >= 0
+    ? configuredShieldScale
+    : 1) * enemyPlayerCount;
   const shield = effectiveShieldStats(station);
-  station.maxShield = Math.max(0, shield.capacity);
+  station.maxShield = Math.max(0, shield.capacity * shieldScale);
   station.shield = station.maxShield;
   initShipHeat(station);
-  // Optional hull scale from the balance sheet. A relay's component sheet adds
-  // up to a structure far too tough to break open and contest inside a match,
+  // Optional hull scale from the balance sheet. A station's component sheet
+  // can add up to a structure far too tough to contest inside a match,
   // so it is scaled down here rather than by hand-editing every module's HP —
   // the design stays a normal component structure, it is just built lighter.
   // Scaling the per-component arrays (not just the totals) keeps component
   // damage, destruction and the HP total consistent with each other.
-  const hullScale = Number(
-    (stationType === "home" ? INFRASTRUCTURE.homeStation : INFRASTRUCTURE.relayStation)?.hullScale
-  );
+  const configuredHullScale = Number(stationConfig?.hullScale);
+  const hullScale = (Number.isFinite(configuredHullScale) && configuredHullScale > 0
+    ? configuredHullScale
+    : 1) * enemyPlayerCount;
   if (Number.isFinite(hullScale) && hullScale > 0 && hullScale !== 1) {
     for (let i = 0; i < station.componentMaxHp.length; i += 1) {
       station.componentMaxHp[i] *= hullScale;
@@ -296,11 +329,13 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
   }
   station.hp = station.componentHp.reduce((sum, hp) => sum + hp, 0);
   station.maxHp = station.componentMaxHp.reduce((sum, hp) => sum + hp, 0);
+  station.enemyPlayerCount = enemyPlayerCount;
   // Stations are laid out on the ship grid but drawn and collided at their own
   // larger module scale; the client needs it to size the structure correctly.
   station.moduleScale = stationModuleScale(stationType);
   if (stationType === "home") station.hangar = buildHangarGeometry(station);
   station.collisionPieces = stationCollisionPieces(station);
+  station.shieldRadius = computeStationShieldCollisionRadius(station);
   // Broad-phase radius covering every solid piece, for spatial-index queries.
   station.radius = station.collisionPieces.reduce(
     (max, piece) => Math.max(max, Math.hypot(piece.x - station.x, piece.y - station.y) + piece.radius),
@@ -454,7 +489,11 @@ function corridorIsClear(room, station, ignoreShipId = null) {
     const along = dx * cos + dy * sin;
     const across = -dx * sin + dy * cos;
     const shipRadius = Number(ship.physicalRadius) || Number(ship.radius) || 26;
-    if (along < -shipRadius || along > length + shipRadius) continue;
+    // The mouth is a hard boundary for launch clearance. A hostile hull outside
+    // may overlap this band with its collision radius, but allowing that radius
+    // to veto the launch lets enemies blockade production without entering the
+    // one-way door. Normal separation handles contact with the launched hull.
+    if (along < -shipRadius || along > length) continue;
     // The launching ship fits inside halfWidth by construction, so any hull
     // reaching into the band obstructs it.
     if (Math.abs(across) <= halfWidth + shipRadius) return false;

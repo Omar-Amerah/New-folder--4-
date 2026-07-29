@@ -1,3 +1,5 @@
+import { WIRING_ENABLED } from "../featureFlags.js";
+
 function dataRules() { return globalThis.DataSupportRules; }
 function wiringRules() { return globalThis.WiringRules; }
 function heatRules() { return globalThis.HeatRules; }
@@ -45,13 +47,20 @@ function topologySignature(analysis) {
 }
 export function analyzeDesignDataSupport(design, wiring, catalogue, options = {}) {
   const modules = modulesOf(design); const mode = options.thermalLoadMode || options.scenario || "full";
-  const physical = wiringRules().analyzeWiring(modules, wiring, catalogue);
+  const automatic = !WIRING_ENABLED;
+  const physical = automatic
+    ? {
+        wiring: wiringRules().emptyWiring(),
+        power: { networks: [], networkByComponent: new Map() },
+        data: { networks: dataRules().automaticDataNetworks(modules, catalogue), networkByComponent: new Map() }
+      }
+    : wiringRules().analyzeWiring(modules, wiring, catalogue);
   const thermalAnalysis = thermalAnalysisFor(modules, physical.wiring, mode, options.thermalAnalysis);
   const sourcePrediction = new Map();
   modules.forEach((module, index) => {
     if (!dataRules().isDataSupportSource(module?.type)) return;
     const pred = thermalAnalysis?.predictions?.get?.(module) || (thermalAnalysis?.predictions ? [...thermalAnalysis.predictions.values()][index] : null);
-    const predictedPowerMultiplier = typeof options.sourcePowerMultiplier === "function" ? Number(options.sourcePowerMultiplier(index, module)) || 0 : options.sourcePowerMultiplier != null ? Number(options.sourcePowerMultiplier) || 0 : pred && typeof pred.powerMultiplier === "number" ? pred.powerMultiplier : powerMultiplier(index, physical.power);
+    const predictedPowerMultiplier = typeof options.sourcePowerMultiplier === "function" ? Number(options.sourcePowerMultiplier(index, module)) || 0 : options.sourcePowerMultiplier != null ? Number(options.sourcePowerMultiplier) || 0 : automatic ? 1 : pred && typeof pred.powerMultiplier === "number" ? pred.powerMultiplier : powerMultiplier(index, physical.power);
     const predictedThermalMultiplier = typeof options.sourceThermalMultiplier === "function" ? Number(options.sourceThermalMultiplier(index, module)) || 0 : options.sourceThermalMultiplier != null ? Number(options.sourceThermalMultiplier) || 0 : thermalMultiplier(index, modules, thermalAnalysis);
     const op = options.sourceOperationalMultiplier ?? options.operationalMultiplier;
     const predictedOperationalMultiplier = typeof op === "function" ? Number(op(index, module)) || 0 : op == null ? 1 : Number(op) || 0;
@@ -61,13 +70,13 @@ export function analyzeDesignDataSupport(design, wiring, catalogue, options = {}
   const sources = support.sourceAllocations.map((source) => {
     const pred = sourcePrediction.get(source.sourceIndex) || { predictedPowerMultiplier: 0, predictedThermalMultiplier: 0, predictedOperationalMultiplier: 1, predictedSourceMultiplier: 0 };
     const status = pred.predictedPowerMultiplier <= 0 ? "unpowered" : pred.predictedThermalMultiplier <= 0 ? "overheated" : pred.predictedThermalMultiplier < 1 ? "thermally-reduced" : pred.predictedPowerMultiplier < 1 ? "underpowered" : source.status;
-    const statusReason = status === "unpowered" ? "No intact physical Power network supplies this Data source." : status === "underpowered" ? "Power network demand exceeds generation." : status === "thermally-reduced" ? "Predicted heat reduces active output." : status === "overheated" ? "Predicted heat disables active output." : source.recipientCount ? "Predicted output is divided across connected eligible weapons." : "No eligible weapon recipients on this Data network.";
+    const statusReason = status === "unpowered" ? "No intact physical Power network supplies this Data source." : status === "underpowered" ? "Power network demand exceeds generation." : status === "thermally-reduced" ? "Predicted heat reduces active output." : status === "overheated" ? "Predicted heat disables active output." : source.recipientCount ? `Predicted output is divided across ${automatic ? "automatically linked" : "connected"} eligible weapons.` : "No eligible weapon recipients are linked.";
     return { ...source, ...pred, status, statusReason };
   });
   const sourceByIndex = Array(modules.length).fill(null); sources.forEach((s) => { sourceByIndex[s.sourceIndex] = s; });
   const weapons = support.weaponBonuses.map((weapon) => ({ ...weapon, baseProfile: { ...(partFor(catalogue, weapon.weaponType).weapon || {}) }, effectiveProfile: dataRules().effectiveWeaponProfile(partFor(catalogue, weapon.weaponType).weapon || {}, weapon), contributions: weapon.contributions.map((c) => ({ ...c, effect: sourceByIndex[c.sourceIndex]?.effect, nominalBudget: sourceByIndex[c.sourceIndex]?.nominalBudget || 0, sourceMultiplier: sourceByIndex[c.sourceIndex]?.sourceMultiplier || 0, effectiveBudget: sourceByIndex[c.sourceIndex]?.effectiveBudget || 0, recipientCount: sourceByIndex[c.sourceIndex]?.recipientCount || 0 })), statusReason: weapon.status === "supported" ? "Predicted Data support is applied to this weapon." : weapon.status === "connected-unsupported" ? "Operating at base stats; no active source contributes." : "Operating at base stats." }));
   const weaponByIndex = Array(modules.length).fill(null); weapons.forEach((w) => { weaponByIndex[w.weaponIndex] = w; });
-  return Object.freeze({ version: 1, scenario: mode, scenarioLabel: scenarioName(mode), physical, thermalAnalysis, support, networks: support.networks, sources, weapons, sourceAllocationByIndex: sourceByIndex, weaponBonusByIndex: weaponByIndex, warnings: support.warnings, cableSectionCount: wiringRules().countUniqueSections(physical.wiring, "data") });
+  return Object.freeze({ version: 1, mode: automatic ? "automatic" : "wired", scenario: mode, scenarioLabel: scenarioName(mode), physical, thermalAnalysis, support, networks: support.networks, sources, weapons, sourceAllocationByIndex: sourceByIndex, weaponBonusByIndex: weaponByIndex, warnings: support.warnings, cableSectionCount: automatic ? 0 : wiringRules().countUniqueSections(physical.wiring, "data") });
 }
 export function getDesignSourceAllocation(analysis, sourceIndex) { return analysis?.sourceAllocationByIndex?.[sourceIndex] || null; }
 export function getDesignWeaponSupport(analysis, weaponIndex) { return analysis?.weaponBonusByIndex?.[weaponIndex] || dataRules().weaponSupportForIndex(analysis?.support || {}, weaponIndex); }

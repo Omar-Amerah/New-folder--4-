@@ -7,11 +7,12 @@ import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation
 import { getOccupiedCells } from "./footprint.js";
 import ShieldRules from "../shared/shieldRules.js";
 import { solveBlueprintPower } from "./powerAllocationAnalysis.js";
-import { directionalFootprintToShipRadians, normalizeRotation } from "./rotation.js";
+import { angleDifference, directionalFootprintToShipRadians, normalizeRotation } from "./rotation.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { WIRING_ENABLED } from "../featureFlags.js";
 
 const WiringRules = globalThis.WiringRules;
 if (!WiringRules) {
@@ -76,17 +77,28 @@ function blueprintSensorProfile(modules, massClass) {
       multiplier,
       nominalBonus: entry.bonus,
       effectiveBonus,
-      range: baseRange + effectiveBonus,
       arc: entry.arc,
       relativeAngle: entry.relativeAngle
     };
+  }).map((entry, _stackIndex, entries) => {
+    const overlappingBonus = entries.reduce((total, candidate) => {
+      const sameBearing = Math.abs(angleDifference(entry.relativeAngle, candidate.relativeAngle)) < 1e-9;
+      return sameBearing && candidate.arc + 1e-9 >= entry.arc
+        ? total + candidate.effectiveBonus
+        : total;
+    }, 0);
+    return { ...entry, range: baseRange + overlappingBonus };
   });
   const omniBonus = stackedOmni.reduce((sum, entry) => sum + entry.effectiveBonus, 0);
+  const strongestDirected = stackedDirected.reduce(
+    (strongest, entry) => !strongest || entry.range > strongest.range ? entry : strongest,
+    null
+  );
   return {
     baseRange,
     omniRange: baseRange + omniBonus,
-    directedRange: stackedDirected[0]?.range || 0,
-    directedArc: stackedDirected[0]?.arc || 0,
+    directedRange: strongestDirected?.range || 0,
+    directedArc: strongestDirected?.arc || 0,
     sensorComponentCount: sensors.length,
     directedSensorCount: directed.length,
     omniContributions: stackedOmni,
@@ -199,7 +211,7 @@ export function computeStats(modules, options = {}) {
   repairRate = effectiveStackedValue(repairRateValues, 0.62);
   const baseShieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
   const effectiveShieldStats = calculateBlueprintEffectiveShieldStats(modules, options.wiring);
-  const shieldStats = options.wiring ? effectiveShieldStats : baseShieldStats;
+  const shieldStats = WIRING_ENABLED && options.wiring ? effectiveShieldStats : baseShieldStats;
 
   applyWeaponUtilityBonuses(weaponTotals, {
     rangeBonus,
@@ -209,7 +221,8 @@ export function computeStats(modules, options = {}) {
   });
 
   const power = powerGeneration - powerUse;
-  const efficiency = calculateSystemEfficiency(powerGeneration, powerUse);
+  const effectivePowerGeneration = WIRING_ENABLED ? powerGeneration : powerUse;
+  const efficiency = WIRING_ENABLED ? calculateSystemEfficiency(powerGeneration, powerUse) : 1;
 
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PART_STATS, {
     centerOfMass,
@@ -219,7 +232,7 @@ export function computeStats(modules, options = {}) {
     mass,
     thrust,
     turnBonus,
-    powerGeneration,
+    powerGeneration: effectivePowerGeneration,
     powerUse,
     engineThrustValues,
     engineMassValues,
@@ -350,6 +363,7 @@ export function computeStats(modules, options = {}) {
 }
 
 export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
+  if (!WIRING_ENABLED) return ShieldRules.calculateShieldStats(modules, PART_STATS);
   if (!wiring) return ShieldRules.calculateShieldStats(modules, PART_STATS);
   const flow = solveBlueprintPower(modules, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
   const powerByComponent = new Map((flow?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
@@ -389,6 +403,7 @@ export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
 // surcharge; without wiring the component price is returned unchanged so the
 // client preview total matches the server total for the same inputs.
 export function calculateInfrastructureCost(modules, wiring) {
+  if (!WIRING_ENABLED) return { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0 };
   const rules = globalThis.WiringInfrastructureRules;
   if (!wiring || !rules) return { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0 };
   try {
@@ -400,6 +415,7 @@ export function calculateInfrastructureCost(modules, wiring) {
 }
 
 export function applyInfrastructureCost(costBreakdown, modules, wiring) {
+  if (!WIRING_ENABLED) return costBreakdown;
   const componentsTotal = costBreakdown.total;
   const infra = calculateInfrastructureCost(modules, wiring);
   const rules = globalThis.WiringInfrastructureRules;
@@ -550,18 +566,18 @@ export function shipWarnings(stats) {
   // Keep warnings for clear, actionable problems.
   // Softer trade-offs like "heavy", "slow", or "average mobility" should be handled by stat colour-coding.
 
-  if (isUnderpowered) {
+  if (WIRING_ENABLED && isUnderpowered) {
     warnings.push(
       `Power overdraw: uses ${formatStatNumber(powerUse)} MW / generates ${formatStatNumber(powerGeneration)} MW. Add reactors or remove high-power modules.`
     );
   }
 
-  if (!hasReactor && powerUse > coreGeneration && !isUnderpowered) {
+  if (WIRING_ENABLED && !hasReactor && powerUse > coreGeneration && !isUnderpowered) {
     warnings.push("No reactor installed: add a reactor for high-power systems.");
   }
 
   if (effectiveThrust <= 0) {
-    warnings.push("No effective thrust: add engines or fix power supply.");
+    warnings.push(WIRING_ENABLED ? "No effective thrust: add engines or fix power supply." : "No effective thrust: add engines.");
   }
 
   if (weaponCount === 0) {
@@ -575,7 +591,7 @@ export function shipWarnings(stats) {
     warnings.push("Main Core only: destruction disables ship");
   }
 
-  if (isUnderpowered && (hasShield || hasRepair || effectiveThrust > 0 || powerDebuff > 0)) {
+  if (WIRING_ENABLED && isUnderpowered && (hasShield || hasRepair || effectiveThrust > 0 || powerDebuff > 0)) {
     const affected = [];
 
     if (effectiveThrust > 0 || powerDebuff > 0) affected.push("engines");

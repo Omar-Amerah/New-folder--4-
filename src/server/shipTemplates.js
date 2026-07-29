@@ -8,6 +8,7 @@ const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
 const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
+const { compareIdStrings } = require("./utils");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const HeatRules = require("../../public/src/shared/heatRules.js");
 const { calculateCenterOfMass } = require("../../public/src/shared/movementStats.js");
@@ -15,6 +16,7 @@ const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrast
 const { BALANCE } = require("./balanceConfig");
 const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
 const { initShipHeat } = require("./heat");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 // Template cache keyed by player ID and design revision
 const templateCache = new Map();
@@ -36,9 +38,12 @@ function canonicalize(value) {
 function canonicalBlueprintSignature(design, wiring) {
   const blueprint = createShipBlueprintSnapshot(design, wiring);
   const canonicalKind = (kind) => ({
-    sections: kind.sections.map((section) => canonicalize(section)).sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    sections: kind.sections.map((section) => canonicalize(section)).sort((a, b) => compareIdStrings(a.id, b.id)),
     connections: kind.connections.map((connection) => canonicalize({ ...connection, sectionIds: [...connection.sectionIds] }))
-      .sort((a, b) => `${a.sourceIndex}>${a.targetIndex}:${a.sectionIds.join(";")}`.localeCompare(`${b.sourceIndex}>${b.targetIndex}:${b.sectionIds.join(";")}`))
+      .sort((a, b) => compareIdStrings(
+        `${a.sourceIndex}>${a.targetIndex}:${a.sectionIds.join(";")}`,
+        `${b.sourceIndex}>${b.targetIndex}:${b.sectionIds.join(";")}`
+      ))
   });
   return canonicalize({
     // Full normalized design parts — every field the normalizer preserves,
@@ -129,12 +134,14 @@ function createImmutableShipTemplate(design, wiring, stats) {
   
   // Precompute wiring infrastructure accounting
   const infrastructure = BALANCE.wiringInfrastructure;
-  const wiringAccounting = WiringInfrastructureRules.accountInfrastructure(
-    normalizedDesign, 
-    normalizedWiring, 
-    PARTS, 
-    infrastructure
-  );
+  const wiringAccounting = WIRING_ENABLED
+    ? WiringInfrastructureRules.accountInfrastructure(
+      normalizedDesign,
+      normalizedWiring,
+      PARTS,
+      infrastructure
+    )
+    : { byComponentIndex: normalizedDesign.map(() => ({ powerDisplacement: 0, dataDisplacement: 0 })) };
   
   // Precompute component maximum HP
   const rawHp = normalizedDesign.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
@@ -143,11 +150,10 @@ function createImmutableShipTemplate(design, wiring, stats) {
   const componentMaxHp = rawHp.map((hp, i) => (normalizedDesign[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale));
   
   // Precompute Power infrastructure host maps
-  const infrastructureHostMaps = WiringInfrastructureRules.mapHostedCells(
-    normalizedDesign,
-    normalizedWiring,
-    PARTS
-  );
+  const emptyHostKind = () => ({ bySectionId: new Map(), byComponentIndex: new Map() });
+  const infrastructureHostMaps = WIRING_ENABLED
+    ? WiringInfrastructureRules.mapHostedCells(normalizedDesign, normalizedWiring, PARTS)
+    : { power: emptyHostKind(), data: emptyHostKind() };
   
   // Precompute wiring minimum heat capacity
   const wiringMinimumHeatCapacity = WiringInfrastructureRules.minimumCapacity(infrastructure);

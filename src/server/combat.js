@@ -7,7 +7,7 @@ const { PARTS } = require("./components");
 const { ECONOMY } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 
-const { rngRange, clampNumber, angleDifference, rotateToward, fastHypot, performanceNow } = require("./utils");
+const { rngRange, clampNumber, angleDifference, rotateToward, fastHypot, performanceNow, compareIdStrings } = require("./utils");
 
 const { normalizeRotation } = require("./shipDesign");
 
@@ -44,6 +44,7 @@ const { getCommandAuraMultiplier } = require("./commandAuras");
 const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty } = require("./repairCache");
 
 const Relationships = require("./relationships");
+const { segmentStationHullHit, nearestStationHullPoint } = require("./stationCollision");
 
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { sanitizeCombatStyle } = require("./validation");
@@ -734,7 +735,7 @@ function stableId(value) {
 
 function isStableIdBefore(a, b) {
 
-  return stableId(a).localeCompare(stableId(b)) < 0;
+  return compareIdStrings(stableId(a), stableId(b)) < 0;
 
 }
 
@@ -2973,15 +2974,7 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
       continue;
     }
 
-    const hullHit = segmentCircleHit(
-      x1,
-      y1,
-      x2,
-      y2,
-      station.x,
-      station.y,
-      (Number(station.radius) || 0) + beamRadius
-    );
+    const hullHit = segmentStationHullHit(station, x1, y1, x2, y2, beamRadius);
     if (hullHit) {
       candidates.push({
         kind: "station",
@@ -3022,7 +3015,7 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
 
     if (a.tieRank !== b.tieRank) return a.tieRank - b.tieRank;
 
-    return String(a.tieId).localeCompare(String(b.tieId));
+    return compareIdStrings(a.tieId, b.tieId);
 
   });
 
@@ -3070,13 +3063,13 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
 
     const shieldHit = nearest.kind === "station-shield";
 
-    const ang = Math.atan2(y1 - station.y, x1 - station.x);
+    const ang = Math.atan2(nearest.hit.y - station.y, nearest.hit.x - station.x);
 
-    const surfaceR = shieldHit ? shieldCollisionRadius(station) : Number(station.radius) || 0;
+    const surfaceR = shieldHit ? shieldCollisionRadius(station) : 0;
 
-    const hitX = station.x + Math.cos(ang) * surfaceR;
+    const hitX = shieldHit ? station.x + Math.cos(ang) * surfaceR : nearest.hit.x;
 
-    const hitY = station.y + Math.sin(ang) * surfaceR;
+    const hitY = shieldHit ? station.y + Math.sin(ang) * surfaceR : nearest.hit.y;
 
     require("./stationCombat").damageStation(room, station, damage, ship.ownerId, now, hitX, hitY, options);
 
@@ -4621,6 +4614,26 @@ function aabbOverlap(aMinX, aMinY, aMaxX, aMaxY, bMinX, bMinY, bMaxX, bMaxY) {
 
 }
 
+function stationDemolitionContact(ship, station) {
+  if (!station?.collisionPieces?.length) return null;
+  const cells = getShipCellPoints(ship);
+  if (!cells.length) return null;
+  const threshold = COMPONENT_CELL_COLLISION_RADIUS + DEMOLITION_TRIGGER_RANGE;
+  let best = null;
+  for (const cell of cells) {
+    const hit = segmentStationHullHit(
+      station,
+      cell.prevX,
+      cell.prevY,
+      cell.x,
+      cell.y,
+      threshold
+    );
+    if (hit && (!best || hit.t < best.t)) best = { ...hit, geometry: "station" };
+  }
+  return best;
+}
+
 
 
 function segmentPairContact(a0x, a0y, a1x, a1y, b0x, b0y, b1x, b1y, threshold) {
@@ -4807,6 +4820,10 @@ function nearestDemolitionTargetPoint(ship, target) {
 
   if (!target || !target.alive) return { x: target?.x ?? ship.x, y: target?.y ?? ship.y };
 
+  if (target.entityType === "station") {
+    return nearestStationHullPoint(ship.x, ship.y, target);
+  }
+
   const geometry = getShipCollisionGeometry(target);
 
   let best = null;
@@ -4902,6 +4919,19 @@ function resolveDemolitionContacts(room, ships, now) {
         detonateProximityCharge(room, b, getFirstOperationalProximityChargeIndex(b), now, true, a, contact);
       }
     }
+    if (!a.alive) continue;
+    for (const station of room.stations || []) {
+      if (!station || station.alive === false || station.state === "disabled" || station.state === "destroyed") continue;
+      if (!Relationships.areEntityEnemies(room, a.ownerId, station)) continue;
+      const dx = station.x - a.x;
+      const dy = station.y - a.y;
+      const broadRadius = aRadius + (Number(station.radius) || 0) + aMovement + DEMOLITION_TRIGGER_RANGE;
+      if (dx * dx + dy * dy > broadRadius * broadRadius) continue;
+      const contact = stationDemolitionContact(a, station);
+      if (!contact) continue;
+      detonateProximityCharge(room, a, getFirstOperationalProximityChargeIndex(a), now, true, station, contact);
+      break;
+    }
   }
 }
 
@@ -4923,6 +4953,35 @@ function blastDamageFor(edge, blastR, centre, exp) {
 
   return centre * Math.pow(ratio, exp);
 
+}
+
+function applyBlastDamageToStation(room, station, origin, cfg, damageMultiplier, contactTarget, attackerId, now) {
+  if (!station || station.alive === false || station.state === "destroyed") return 0;
+  const isContact = contactTarget && station.id === contactTarget.id;
+  const nearest = nearestStationHullPoint(origin.x, origin.y, station);
+  const distance = fastHypot(nearest.x - origin.x, nearest.y - origin.y);
+  const blastR = cfg.blastRadius;
+  if (!isContact && distance >= blastR) return 0;
+  const centreDamage = cfg.centreDamage ?? cfg.splashCentreDamage ?? 0;
+  const directContactMultiplier = cfg.directContactMultiplier ?? 1.5;
+  const directContactHullDamage = cfg.directContactHullDamage ?? (centreDamage * directContactMultiplier);
+  const falloff = isContact
+    ? 1
+    : Math.pow(Math.max(0, 1 - distance / blastR), Math.max(0, cfg.falloffExponent));
+  const hullDamage = (isContact ? directContactHullDamage : centreDamage) * falloff * damageMultiplier;
+  if (hullDamage <= 0) return 0;
+  // Demolition charges bypass ship shields, so station shields follow the same
+  // rule. Station combat still owns component HP and victory state.
+  return require("./stationCombat").damageStation(
+    room,
+    station,
+    hullDamage,
+    attackerId,
+    now,
+    origin.x,
+    origin.y,
+    { shieldDamageMultiplier: 0 }
+  );
 }
 
 
@@ -5228,6 +5287,21 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true, c
 
     }
 
+  }
+
+  for (const station of room.stations || []) {
+    if (!station || station.alive === false || station.state === "destroyed") continue;
+    if (cfg.damagesFriendlyShips === false && !Relationships.areEntityEnemies(room, attackerId, station)) continue;
+    diagnostics.hpRemoved += applyBlastDamageToStation(
+      room,
+      station,
+      origin,
+      cfg,
+      damageMultiplier,
+      contactTargetShip,
+      attackerId,
+      now
+    );
   }
 
 

@@ -8,7 +8,8 @@ export const {
   legacySideRotation,
   maneuverThrusterAutoRotation,
   moduleRotationToRadians,
-  directionalFootprintToShipRadians
+  directionalFootprintToShipRadians,
+  angleDifference
 } = RotationRules;
 
 export function nextRotation(current, allowedRotations = null) {

@@ -18,6 +18,7 @@ import {
 const STATE_LABELS = {
   operational: "Operational",
   disabled: "Disabled",
+  destroyed: "Destroyed",
   neutral: "Unclaimed",
   controlled: "Controlled"
 };

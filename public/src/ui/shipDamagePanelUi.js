@@ -22,6 +22,7 @@ import { WIRING_INFRASTRUCTURE } from "../constants.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { send } from "../network.js";
 import { notify } from "./toastUi.js";
+import { WIRING_ENABLED } from "../featureFlags.js";
 import {
   componentMaxFromShip,
   componentFlash,
@@ -814,7 +815,7 @@ function droneCommandPresentation(bay, counts) {
   return { tone: "queued", status: `Deployment queued · ${counts.ready} ready`, action: "Recall squad" };
 }
 
-function statusTabs() { return [dom.shipDamageTab, dom.shipHeatTab, dom.shipPowerTab].filter(Boolean); }
+function statusTabs() { return [dom.shipDamageTab, dom.shipHeatTab, ...(WIRING_ENABLED ? [dom.shipPowerTab] : [])].filter(Boolean); }
 function statusTabView(tab) {
   if (tab === dom.shipHeatTab) return "heat";
   if (tab === dom.shipPowerTab) return "power";
@@ -837,6 +838,7 @@ function handleStatusTabKeydown(event) {
 }
 
 function switchStatusView(view) {
+  if (!WIRING_ENABLED && view === "power") view = "damage";
   if (state.shipStatusView !== view) {
     state.shipStatusView = view;
     // A heat readout must not linger on the Damage tab (or vice versa).
@@ -1403,7 +1405,7 @@ function synchronizePanelShell() {
   if (!panel) return null;
   bindOnce();
 
-  const view = state.shipStatusView === "heat" || state.shipStatusView === "power" ? state.shipStatusView : "damage";
+  const view = state.shipStatusView === "heat" || (WIRING_ENABLED && state.shipStatusView === "power") ? state.shipStatusView : "damage";
   const damageView = view === "damage";
   const heatView = view === "heat";
   const powerView = view === "power";

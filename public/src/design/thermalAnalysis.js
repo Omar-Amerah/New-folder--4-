@@ -3,6 +3,7 @@
 import { PART_DEFS, PART_STATS } from "./parts.js";
 import { getOccupiedCells } from "./footprint.js";
 import { WIRING_INFRASTRUCTURE, POWER_DEMAND } from "../constants.js";
+import { WIRING_ENABLED } from "../featureFlags.js";
 
 // UI colour bucket per authoritative Heat STATE index (Cool/Warm/Hot/Critical/
 // Overheated). The state itself is derived from the shared runtime thresholds
@@ -13,6 +14,7 @@ const HEAT_UI_STATE_CLASSES = ["heat-ui-cool", "heat-ui-warm", "heat-ui-hot", "h
 // shared infrastructure authority so Blueprint thermal capacity matches the
 // server runtime capacity for the same design + wiring.
 function wiringInfrastructureAccounting(design, wiring) {
+  if (!WIRING_ENABLED) return null;
   const rules = globalThis.WiringInfrastructureRules;
   if (!wiring || !rules) return null;
   try {
@@ -25,6 +27,7 @@ function wiringInfrastructureAccounting(design, wiring) {
 // Apply Power/Data displacement to a capacity that already includes legitimate
 // static bonuses (heat-sink adjacency), then clamp to the configured minimum.
 function clampWiringCapacity(capacityWithBonuses, powerDisplacement, dataDisplacement) {
+  if (!WIRING_ENABLED) return capacityWithBonuses;
   const rules = globalThis.WiringInfrastructureRules;
   if (!rules) return capacityWithBonuses;
   return rules.clampDisplacedCapacity(capacityWithBonuses, powerDisplacement, dataDisplacement, WIRING_INFRASTRUCTURE);
@@ -146,7 +149,14 @@ export function buildThermalLoad(model, mode = "full", wiring = null, options = 
   // Data-support prediction still uses the wiring analysis; Power prediction uses
   // the shared solver (Section 7D-3), not the WiringRules aggregate ratio.
   let wiringAnalysis = null;
-  try { wiringAnalysis = wiring ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS) : null; } catch (_) { wiringAnalysis = null; }
+  try {
+    wiringAnalysis = WIRING_ENABLED && wiring
+      ? globalThis.WiringRules.analyzeWiring(design, wiring, PART_STATS)
+      : {
+          power: { networks: [] },
+          data: { networks: globalThis.DataSupportRules?.automaticDataNetworks?.(design, PART_STATS) || [] }
+        };
+  } catch (_) { wiringAnalysis = null; }
   const initialStoredHeat = buildInitialStoredHeat(design, model.profiles || [], rules, options);
   const initialHeatStates = buildInitialHeatStates(design, model.profiles || [], rules, initialStoredHeat, options);
   const initialGeneratorAvailability = design.map((module, i) => isPowerGenerator(module.type) && initialHeatStates[i] !== rules.STATE.OVERHEATED);
@@ -525,6 +535,7 @@ export function generateThermalAdvice(problems, model) {
  */
 export function analyzeDesignHeat(design, wiring = null, mode = "full") {
   if (typeof wiring === "string") { mode = wiring; wiring = null; }
+  if (!WIRING_ENABLED) wiring = null;
   const types = [...new Set(design.map(module => module.type))];
   const thermalSignature = types.map(type => {
     const stat = PART_STATS[type] || {};
@@ -705,6 +716,40 @@ function solvePredictedPower(design, wiring, mode, generatorAvailable) {
 }
 
 function buildPredictedPowerState(design, wiring, mode, available = null) {
+  if (!WIRING_ENABLED) {
+    const demandByIndex = {};
+    const byIndex = new Map();
+    const multipliers = design.map(() => 1);
+    let demandMw = 0;
+    const sourceIndices = [];
+    const consumerIndices = [];
+    design.forEach((module, index) => {
+      const part = PART_STATS[module?.type] || {};
+      const requestedMw = Math.max(0, Number(part.powerUse) || 0);
+      if (requestedMw > 0) {
+        demandByIndex[index] = requestedMw;
+        demandMw += requestedMw;
+        consumerIndices.push(index);
+      }
+      if ((Number(part.powerGeneration) || 0) > 0) sourceIndices.push(index);
+      byIndex.set(index, { componentIndex: index, operationalMultiplier: 1, requestedMw, allocatedMw: requestedMw, unmetMw: 0 });
+    });
+    const networks = [{ id: "universal", sourceIndices, consumerIndices, demandMw, liveDemandMw: demandMw, availableGenerationMw: demandMw }];
+    const result = { byComponentIndex: [...byIndex.values()], networks, sectionFlows: [], summary: { demandMw, allocatedMw: demandMw, unmetMw: 0 } };
+    return {
+      _design: design,
+      _wiring: null,
+      _mode: mode,
+      networks,
+      multipliers,
+      cableHeatRate: design.map(() => 0),
+      cableHeat: { sections: [], components: [], summary: {} },
+      demandByIndex,
+      activity: design.map(() => 1),
+      byIndex,
+      result
+    };
+  }
   const solve = solvePredictedPower(design, wiring, mode, available);
   return {
     _design: design, _wiring: wiring, _mode: mode,
@@ -721,6 +766,7 @@ function clonePredictedPowerState(state) {
   };
 }
 function recalculatePredictedPowerState(state, design, available) {
+  if (!WIRING_ENABLED) return state.multipliers;
   const solve = solvePredictedPower(state._design || design, state._wiring, state._mode, available);
   state.networks = solve.networks; state.multipliers = solve.multipliers; state.cableHeatRate = solve.cableHeatRate;
   state.cableHeat = solve.cableHeat; state.demandByIndex = solve.demandByIndex; state.activity = solve.activity; state.byIndex = solve.byIndex; state.result = solve.result;

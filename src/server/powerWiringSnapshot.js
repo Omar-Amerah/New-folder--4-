@@ -14,6 +14,7 @@
 // Every emitted number is finite and never NaN, Infinity, undefined or -0.
 
 const PowerProtectionRules = require("../../public/src/shared/powerProtectionRules");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 const sanitize = PowerProtectionRules.sanitizeNumber;
 function round2(value) { return sanitize(Math.round(sanitize(value) * 100) / 100); }
@@ -34,6 +35,7 @@ function sectionNetworkMap(ship) {
 // component indices come from the cached hosted-cell authority. Changes only
 // when the wiring revision changes.
 function buildPowerWiringLayout(ship) {
+  if (!WIRING_ENABLED) return { revision: 0, sections: [] };
   const design = Array.isArray(ship.design) ? ship.design : [];
   const disabled = ship.runtimeWiring && ship.runtimeWiring.power && ship.runtimeWiring.power.disabledSectionIds instanceof Set
     ? ship.runtimeWiring.power.disabledSectionIds
@@ -74,6 +76,7 @@ function buildPowerWiringLayout(ship) {
 // disabled/non-conducting sections are absent and the client draws them from
 // the layout as disabled/broken.
 function buildPowerWiringRuntime(ship) {
+  if (!WIRING_ENABLED) return { sections: [], mostStressedSectionId: null, mostStressedStress: 0 };
   const netById = sectionNetworkMap(ship);
   const records = ship._powerProtection && ship._powerProtection.sections instanceof Map
     ? [...ship._powerProtection.sections.values()]

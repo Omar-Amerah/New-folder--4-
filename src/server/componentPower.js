@@ -12,8 +12,9 @@ const PowerCableThermalRules = require("../../public/src/shared/powerCableTherma
 const PowerDemandRules = require("../../public/src/shared/powerDemandRules");
 const PowerProtectionRules = require("../../public/src/shared/powerProtectionRules");
 const { BALANCE } = require("./balanceConfig");
-const { clampNumber } = require("./utils");
+const { clampNumber, compareNaturalIds, compareIdStrings } = require("./utils");
 const ShieldRules = require("../../public/src/shared/shieldRules");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 const SOURCE_TYPES = new Set(WiringRules.POWER_SOURCE_TYPES);
 // Continuous inputs such as turn effort and Heat pressure can change every
@@ -92,12 +93,15 @@ function addDisabledCell(disabledByCell, kind, section, host) {
 function finalizeDisabledCells(disabledByCell) {
   const cells = [...disabledByCell.values()];
   for (const cell of cells) {
-    cell.sectionIds = [...new Set(cell.sectionIds)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    cell.ownerConnectionIds = [...new Set(cell.ownerConnectionIds)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    cell.sectionIds = [...new Set(cell.sectionIds)].sort(compareNaturalIds);
+    cell.ownerConnectionIds = [...new Set(cell.ownerConnectionIds)].sort(compareNaturalIds);
     cell.sectionId = cell.sectionIds[0] || cell.sectionId || null;
-    if (Array.isArray(cell.tiers)) cell.tiers = [...new Set(cell.tiers)].sort((a, b) => (WiringRules.POWER_TIER_PRECEDENCE[a] || 0) - (WiringRules.POWER_TIER_PRECEDENCE[b] || 0) || a.localeCompare(b));
+    if (Array.isArray(cell.tiers)) cell.tiers = [...new Set(cell.tiers)].sort((a, b) => (WiringRules.POWER_TIER_PRECEDENCE[a] || 0) - (WiringRules.POWER_TIER_PRECEDENCE[b] || 0) || compareIdStrings(a, b));
   }
-  return cells.sort((a, b) => `${a.routeType}:${a.x},${a.y}:${a.hostComponentIndex ?? ""}`.localeCompare(`${b.routeType}:${b.x},${b.y}:${b.hostComponentIndex ?? ""}`, undefined, { numeric: true }));
+  return cells.sort((a, b) => compareNaturalIds(
+    `${a.routeType}:${a.x},${a.y}:${a.hostComponentIndex ?? ""}`,
+    `${b.routeType}:${b.x},${b.y}:${b.hostComponentIndex ?? ""}`
+  ));
 }
 
 function deriveRuntimeKind(ship, kind, hostMap) {
@@ -160,9 +164,114 @@ function stateSignature(runtime) {
   return values.join(",");
 }
 
+function emptyRuntimeKind() {
+  return {
+    operationalSectionIds: new Set(),
+    disabledSectionIds: new Set(),
+    disabledCells: [],
+    operationalConnectionIds: new Set(),
+    brokenConnectionIds: new Set(),
+    sectionHosts: new Map(),
+    operationalWiring: { sections: [], connections: [] }
+  };
+}
+
+function installUniversalPowerAllocation(ship, options = {}) {
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const byComponentIndex = design.map((module, index) => {
+    const part = PARTS[module?.type] || {};
+    const alive = (ship.componentHp?.[index] ?? 1) > 0;
+    const enabled = ship.componentPowerState?.[index] !== 0;
+    const operational = alive && enabled;
+    const requestedMw = Math.max(0, Number(ship._activityDemandByIndex?.[index] ?? part.powerUse) || 0);
+    const ratedGenerationMw = Math.max(0, Number(part.powerGeneration) || 0);
+    const storageCapacity = Math.max(0, Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0);
+    const role = ratedGenerationMw > 0 ? "source" : storageCapacity > 0 ? "storage" : requestedMw > 0 ? "consumer" : "passive";
+    const state = role === "consumer"
+      ? (operational ? "powered" : "unpowered")
+      : role === "source" ? (alive ? "source" : "unpowered")
+        : role === "storage" ? (alive ? "storage" : "unpowered") : "passive";
+    return {
+      state,
+      networkId: operational ? "universal" : null,
+      availableEfficiency: operational ? 1 : 0,
+      operationalMultiplier: operational ? 1 : 0,
+      role,
+      powerCategory: part.powerCategory || null,
+      priorityBand: null,
+      networkIds: operational ? ["universal"] : [],
+      requestedMw,
+      allocatedMw: operational ? requestedMw : 0,
+      unmetMw: operational ? 0 : requestedMw,
+      generationAvailableMw: alive ? ratedGenerationMw : 0,
+      generationUsedMw: 0,
+      generationReductionReasons: [],
+      storageDetails: undefined
+    };
+  });
+
+  const powerSignature = byComponentIndex.map((entry) => [
+    entry.state,
+    entry.networkId || "",
+    PowerAllocationRules.mwToPowerUnits(entry.allocatedMw),
+    PowerAllocationRules.mwToPowerUnits(entry.requestedMw),
+    entry.operationalMultiplier
+  ].join(":")).join("|");
+  if (ship._powerStateSignature !== powerSignature) {
+    ship._powerStateSignature = powerSignature;
+    ship.powerRevision = (ship.powerRevision || 0) + 1;
+    ship.dirtyPower = true;
+  }
+
+  const demandMw = byComponentIndex.reduce((sum, entry) => sum + (entry.role === "consumer" ? entry.requestedMw : 0), 0);
+  const allocatedMw = byComponentIndex.reduce((sum, entry) => sum + (entry.role === "consumer" ? entry.allocatedMw : 0), 0);
+  const result = {
+    byComponentIndex: byComponentIndex.map((entry, componentIndex) => ({ componentIndex, ...entry })),
+    networks: [],
+    sectionFlows: [],
+    summary: {
+      mode: "universal",
+      availableGenerationMw: demandMw,
+      demandMw,
+      allocatedMw,
+      unmetMw: Math.max(0, demandMw - allocatedMw),
+      spareGenerationMw: 0
+    }
+  };
+  ship.componentPower = { byComponentIndex };
+  ship.powerFlow = result;
+  ship.powerAnalysis = result;
+  ship.powerStatus = summarizePower(byComponentIndex);
+  ship._powerFlowSectionSignature = "";
+  ensureShipCableThermalAnalysis(ship);
+  if (!options.skipRuntimeStats && ship.alive !== false) require("./componentHealth").recalcEffectiveStats(ship);
+  else if (ship.alive === false) { ship.maxShield = 0; ship.shield = 0; }
+  if (!options.skipDataRefresh) require("./componentData").refreshShipDataAllocation(ship, "universal-power");
+  return ship.componentPower;
+}
+
 
 
 function rebuildShipWiringState(ship, reason = "component-boundary", options = {}) {
+  if (!WIRING_ENABLED) {
+    const power = emptyRuntimeKind();
+    const data = emptyRuntimeKind();
+    const runtime = { power, data, powerNetworks: [], dataNetworks: [], reason: "wiring-disabled" };
+    ship._runtimePowerWiring = {
+      version: WiringRules.WIRING_VERSION,
+      power: power.operationalWiring,
+      data: data.operationalWiring,
+      powerPolicy: PowerPolicyRules.clonePolicy(ship.wiring?.powerPolicy)
+    };
+    if (ship._wiringStateSignature !== "wiring-disabled") {
+      ship._wiringStateSignature = "wiring-disabled";
+      ship.wiringRevision = (ship.wiringRevision || 0) + 1;
+    }
+    ship.runtimeWiring = runtime;
+    installUniversalPowerAllocation(ship, { ...options, skipDataRefresh: true });
+    require("./componentData").rebuildShipDataTopology(ship, reason);
+    return runtime;
+  }
   const design = Array.isArray(ship?.design) ? ship.design : [];
   bump("wiringNormalizationCount");
   const hostMaps = shipHostMaps(ship);
@@ -275,6 +384,7 @@ function buildShipPowerSolveBaseInput(ship) {
 }
 
 function applyShipPowerAllocation(ship, options = {}) {
+  if (!WIRING_ENABLED) return installUniversalPowerAllocation(ship, options);
   const design = Array.isArray(ship?.design) ? ship.design : [];
   // The shared solver is the sole allocation authority. An unexpected exception
   // must propagate so tests and server diagnostics expose the underlying defect,
@@ -395,6 +505,21 @@ function applyShipPowerAllocation(ship, options = {}) {
 // consumed by the thermal tick.
 function ensureShipCableThermalAnalysis(ship) {
   if (!ship) return null;
+  if (!WIRING_ENABLED) {
+    const design = Array.isArray(ship.design) ? ship.design : [];
+    if (!ship.powerCableThermalAnalysis || ship.powerCableThermalAnalysis.mode !== "disabled") {
+      ship.powerCableThermalAnalysis = {
+        mode: "disabled",
+        sections: [],
+        components: [],
+        summary: { totalPowerCableHeatPerSecond: 0, hottestSectionId: null }
+      };
+      ship.componentPowerCableHeatRate = design.map(() => 0);
+      ship.powerCableHeatRate = 0;
+      ship.powerCableThermalRevision = (ship.powerCableThermalRevision || 0) + 1;
+    }
+    return ship.powerCableThermalAnalysis;
+  }
   const flowRevision = ship.powerFlowRevision || 0;
   if (ship.powerCableThermalAnalysis && ship._powerCableThermalFlowRevision === flowRevision) return ship.powerCableThermalAnalysis;
   const sectionFlows = ship.powerFlow && Array.isArray(ship.powerFlow.sectionFlows) ? ship.powerFlow.sectionFlows : [];
@@ -538,6 +663,7 @@ function componentActivityLevel(ship, index, module, part, now, cache = null) {
 // before gameplay systems consume the new operational multipliers.
 function updateShipPowerDemand(ship, room, now) {
   if (!ship || ship.alive === false || !Array.isArray(ship.design) || !ship.design.length) return;
+  if (!WIRING_ENABLED) return;
   bump("powerDemandTickCalls");
   const design = ship.design;
   const standby = BALANCE.powerDemand;
@@ -673,10 +799,12 @@ function initializeComponentPower(ship) {
     const part = PARTS[module?.type] || {};
     return Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0;
   });
-  require("./powerProtection").resetShipPowerProtection(ship);
   buildShipPowerConsumerMetadata(ship);
   rebuildShipWiringState(ship, "initialization", { skipRuntimeStats: true });
-  require("./powerProtection").refreshShipPowerProtectionDiagnostics(ship);
+  if (WIRING_ENABLED) {
+    require("./powerProtection").resetShipPowerProtection(ship);
+    require("./powerProtection").refreshShipPowerProtectionDiagnostics(ship);
+  }
   return ship.componentPower;
 }
 function reallocateShipPower(ship, reason = "source-availability", options = {}) {
@@ -696,6 +824,7 @@ function getComponentPowerMultiplier(ship, componentIndex) {
 function getShieldCapacityPowerMultiplier(ship, componentIndex) {
   if ((ship?.componentHp?.[componentIndex] ?? 1) <= 0) return 0;
   if (ship?.componentPowerState?.[componentIndex] === 0) return 0;
+  if (!WIRING_ENABLED) return 1;
   const module = ship?.design?.[componentIndex];
   const part = PARTS[module?.type] || {};
   const entry = ship?.componentPower?.byComponentIndex?.[componentIndex];
@@ -739,6 +868,7 @@ function effectiveShieldStats(ship) {
 }
 
 function componentHostsWiring(ship, index) {
+  if (!WIRING_ENABLED) return false;
   if (!Number.isInteger(index) || !ship) return false;
   const maps = shipHostMaps(ship);
   return (maps.power.byComponentIndex.get(index)?.length || 0) > 0 || (maps.data.byComponentIndex.get(index)?.length || 0) > 0;

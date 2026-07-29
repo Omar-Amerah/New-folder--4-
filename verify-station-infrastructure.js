@@ -26,6 +26,13 @@ const { PARTS } = require("./src/server/components");
 const { areEnemies } = require("./src/server/combat");
 const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
 const { resolveMapCollision } = require("./src/server/movement");
+const { updateEconomy } = require("./src/server/economy");
+const { effectiveShieldStats } = require("./src/server/componentPower");
+const {
+  segmentStationHullHit,
+  computeStationShieldCollisionRadius
+} = require("./src/server/stationCollision");
+const { shieldCollisionRadius, addBullet, updateBullets } = require("./src/server/projectiles");
 
 function assert(condition, message) {
   if (!condition) {
@@ -94,6 +101,116 @@ function run() {
   const home = room.stations.find((s) => s.stationType === "home");
   const relay = room.stations.find((s) => s.stationType === "relay");
   assert(isHostileEntity(home, relay) === true || home.team === null || relay.team === null, "hostility helper tolerates unset teams");
+  const homeHullScale = INFRASTRUCTURE.homeStation.hullScale;
+  const unscaledHomeHp = homeStationTemplate.stats.maxHp
+    + homeStationTemplate.design.filter((module) => module.type === "core").length * PARTS.core.hp;
+  assert(homeHullScale === 0.4, "home station hull health is configured at 40% after the 60% reduction");
+  assert(
+    Math.abs(home.maxHp - unscaledHomeHp * homeHullScale) < 0.001,
+    `home station hull health is reduced by exactly 60% (${home.maxHp} vs ${unscaledHomeHp})`
+  );
+  assert(INFRASTRUCTURE.homeStation.shieldScale === 0.4, "home station shield capacity is configured at 40% after the 60% reduction");
+  assert(
+    Math.abs(home.maxShield - effectiveShieldStats(home).capacity * INFRASTRUCTURE.homeStation.shieldScale) < 0.001,
+    "home station shield capacity is reduced by exactly 60%"
+  );
+
+  section("Station shield and hull hitboxes match the rendered station geometry");
+  const expectedHomeShieldRadius = Math.hypot(270, 270) * 1.06;
+  assert(
+    Math.abs(home.shieldRadius - expectedHomeShieldRadius) < 0.001,
+    `home shield wraps the rendered 540x540 footprint (${home.shieldRadius} vs ${expectedHomeShieldRadius})`
+  );
+  assert(
+    shieldCollisionRadius(home) === home.shieldRadius
+      && computeStationShieldCollisionRadius(home) === home.shieldRadius,
+    "projectile collision consumes the authoritative rendered shield radius"
+  );
+  const worldPoint = (localX, localY) => {
+    const cos = Math.cos(home.angle);
+    const sin = Math.sin(home.angle);
+    return {
+      x: home.x + localX * cos - localY * sin,
+      y: home.y + localX * sin + localY * cos
+    };
+  };
+  const emptyStart = worldPoint(600, 350);
+  const emptyEnd = worldPoint(-600, 350);
+  assert(
+    segmentStationHullHit(home, emptyStart.x, emptyStart.y, emptyEnd.x, emptyEnd.y) === null,
+    "a shot outside the rendered station footprint does not hit the old enclosing circle"
+  );
+  const flankStart = worldPoint(600, 198);
+  const flankEnd = worldPoint(-600, 198);
+  const flankHit = segmentStationHullHit(home, flankStart.x, flankStart.y, flankEnd.x, flankEnd.y);
+  assert(flankHit && flankHit.t > 0 && flankHit.t < 1, "a shot through rendered flank plating hits the compound hull");
+  const hangarStart = worldPoint(600, 0);
+  const hangarEnd = worldPoint(-250, 0);
+  const hangarHit = segmentStationHullHit(home, hangarStart.x, hangarStart.y, hangarEnd.x, hangarEnd.y);
+  const hitDx = hangarHit.x - home.x;
+  const hitDy = hangarHit.y - home.y;
+  const hangarHitLocalX = hitDx * Math.cos(home.angle) + hitDy * Math.sin(home.angle);
+  assert(
+    Math.abs(hangarHitLocalX - 18) < 0.001,
+    "shots pass through the visibly open hangar mouth and hit its rendered rear bulkhead"
+  );
+
+  const hitRoom = createRoom("HITBOX");
+  hitRoom.disableSpatialIndex = true;
+  hitRoom.map.asteroids = [];
+  hitRoom.players.set("blue", { id: "blue", team: "blue", ships: [] });
+  hitRoom.players.set("red", { id: "red", team: "red", ships: [] });
+  createStationsForRoom(hitRoom, 0);
+  const targetHome = hitRoom.stations.find((station) => station.stationType === "home" && station.team === "red");
+  hitRoom.stations = [targetHome];
+  hitRoom.stationsById = new Map([[targetHome.id, targetHome]]);
+  const targetPoint = (localX, localY) => {
+    const cos = Math.cos(targetHome.angle);
+    const sin = Math.sin(targetHome.angle);
+    return {
+      x: targetHome.x + localX * cos - localY * sin,
+      y: targetHome.y + localX * sin + localY * cos
+    };
+  };
+  const fireAcross = (localY) => {
+    const start = targetPoint(600, localY);
+    // The red home faces inward from the arena edge. Stop just behind its rear
+    // face so the verification remains inside the world boundary.
+    const end = targetPoint(-250, localY);
+    addBullet(hitRoom, {
+      type: "bolt",
+      ownerId: "blue",
+      targetId: targetHome.id,
+      x: start.x,
+      y: start.y,
+      vx: end.x - start.x,
+      vy: end.y - start.y,
+      damage: 10,
+      life: 5,
+      bornAt: 0
+    });
+    updateBullets(hitRoom, 1, 1000);
+  };
+  targetHome.shield = 0;
+  fireAcross(350);
+  assert(hitRoom.bullets.length === 1, "the live projectile path passes through empty space outside the station hull");
+  hitRoom.bullets.length = 0;
+  hitRoom.projectileById.clear();
+  const hullBefore = targetHome.hp;
+  fireAcross(198);
+  assert(hitRoom.bullets.length === 0 && targetHome.hp < hullBefore, "the live projectile path damages rendered station plating");
+  targetHome.shield = 100;
+  targetHome.maxShield = Math.max(targetHome.maxShield, 100);
+  hitRoom.effects.length = 0;
+  fireAcross(0);
+  const shieldEffect = hitRoom.effects.find((effect) => effect.type === "shieldhit");
+  assert(shieldEffect, "the live projectile path resolves against the station shield");
+  const shieldDx = shieldEffect.x - targetHome.x;
+  const shieldDy = shieldEffect.y - targetHome.y;
+  assert(
+    Math.abs(Math.hypot(shieldDx, shieldDy) - targetHome.shieldRadius) < 0.01,
+    "the authoritative shield impact is drawn at the same radius as the visible shield"
+  );
 
   updateStations(room, 0.016, 0);
   assert(Array.isArray(room.stations) && room.stations.length > 0, "stations remain after tick");
@@ -234,7 +351,18 @@ function runCaptureChecks() {
   assert(cfg.captureDecayPerSecond > 0, "captureDecayPerSecond is configured");
 
   const hull = (id, ownerId, team) => ({ id, alive: true, ownerId, team, x: relay.x, y: relay.y, vx: 0, vy: 0, radius: 26, hp: 100, maxHp: 100 });
-  room.players.set("p2", { id: "p2", team: "red", ready: true, ships: [], client: {}, purchaseRequests: new Map() });
+  room.players.set("p2", {
+    id: "p2",
+    team: "red",
+    ready: true,
+    money: 0,
+    maxMoney: 99999,
+    income: 0,
+    earned: 0,
+    ships: [],
+    client: {},
+    purchaseRequests: new Map()
+  });
   room.ships.set("r1", hull("r1", "p2", "red"));
 
   let now = 0;
@@ -288,6 +416,9 @@ function makeStationRoom(code, { money = 5000, shipCap = 4, isBot = false } = {}
     isBot,
     ai: { nextThinkAt: 0, objectiveId: null, decisionSeq: 0 },
     money,
+    income: 0,
+    earned: 0,
+    captures: 0,
     spent: 0,
     deployedFleetCost: 0,
     shipCap,
@@ -320,6 +451,7 @@ function runSnapshotChecks() {
   const fullHome = full.stations.find((s) => s.stationType === "home");
   assert(Array.isArray(fullHome.design) && fullHome.design.length > 0, "full snapshot carries station design");
   assert(fullHome.hangar && typeof fullHome.hangar.interiorSpawn === "object", "full snapshot carries hangar geometry");
+  assert(fullHome.shieldRadius === home.shieldRadius, "full snapshot carries the authoritative shield radius");
   assert(Array.isArray(fullHome.productionQueue) && fullHome.productionQueue.length === 1, "full snapshot carries the production queue");
 
   const compact = buildSharedSnapshot(room, 2000, false);
@@ -328,6 +460,7 @@ function runSnapshotChecks() {
   assert(compactHome.hangar === undefined, "compact snapshot omits cached hangar geometry");
   assert(compactHome.hardpoints === undefined, "compact snapshot omits cached hardpoints");
   assert(compactHome.moduleScale === undefined, "compact snapshot omits cached module scale");
+  assert(compactHome.shieldRadius === undefined, "compact snapshot omits the cached station shield radius");
   assert(compactHome.componentHp === undefined, "shared compact snapshot omits revision-gated component health");
   assert(Array.isArray(compactHome.weaponAnglePairs), "compact snapshot carries sparse weapon bearings");
   assert(
@@ -387,7 +520,18 @@ function runObjectiveHudChecks() {
   section("Relays drive the objective HUD through snapshot.points");
   const { room } = makeStationRoom("HUD1");
   const relay = room.stations.find((s) => s.stationType === "relay");
-  room.players.set("p2", { id: "p2", team: "red", ready: true, ships: [], client: {}, purchaseRequests: new Map() });
+  room.players.set("p2", {
+    id: "p2",
+    team: "red",
+    ready: true,
+    money: 0,
+    maxMoney: 99999,
+    income: 0,
+    earned: 0,
+    ships: [],
+    client: {},
+    purchaseRequests: new Map()
+  });
   room.ships.set("r1", { id: "r1", alive: true, ownerId: "p2", team: "red", x: relay.x, y: relay.y, vx: 0, vy: 0, radius: 26, hp: 100, maxHp: 100, shield: 0, maxShield: 0 });
 
   const pointsOf = (now) => buildSharedSnapshot(room, now, true).points;
@@ -414,6 +558,12 @@ function runObjectiveHudChecks() {
   const control = buildSharedSnapshot(room, now, true).objectiveControl;
   assert(control.teams.red === 1, `objectiveControl credits the holding team (got ${JSON.stringify(control)})`);
   assert(control.neutral === control.total - 1, "the remaining relays stay neutral");
+  const red = room.players.get("p2");
+  updateEconomy(room, 1);
+  assert(
+    red.income === 25 && red.money === 25,
+    `a captured station relay adds exactly $5/s to base income (income ${red.income}, money ${red.money})`
+  );
 }
 
 // Under sensor visibility an enemy station outside sensor range is reduced to a
@@ -566,11 +716,13 @@ function runHangarDoorChecks() {
   prodHome.team = player.team;
   const outward = { x: Math.cos(prodHome.angle), y: Math.sin(prodHome.angle) };
   // 40 units beyond the mouth: outside the structure, dead ahead of the door.
+  // Give it a capital-sized collision radius so its edge reaches deep into the
+  // corridor. Clearance follows the door plane, not an enemy's radius.
   prodRoom.ships.set("block", {
     id: "block", alive: true, ownerId: "p2", team: "red",
     x: prodHome.hangar.mouth.x + outward.x * 40,
     y: prodHome.hangar.mouth.y + outward.y * 40,
-    vx: 0, vy: 0, radius: 26, physicalRadius: 26, hp: 900, maxHp: 900
+    vx: 0, vy: 0, radius: 220, physicalRadius: 220, hp: 900, maxHp: 900
   });
   assert(enqueueBotProduction(prodRoom, player, 0), "the build is queued");
   let launched = false;

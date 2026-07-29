@@ -31,6 +31,21 @@
 
   function isDataSupportSource(type) { return Object.prototype.hasOwnProperty.call(DATA_SOURCE_INFO, type); }
   function supportDescriptorForType(type) { const value = DATA_SOURCE_INFO[type]; return value ? { ...value } : null; }
+  function automaticDataNetworks(design, catalogue) {
+    const modules = modulesOf(design);
+    const sourceIndices = modules.map((module, index) => isDataSupportSource(module?.type) ? index : -1).filter((index) => index >= 0);
+    const weaponIndices = modules.map((module, index) => isWeapon(module, catalogue) ? index : -1).filter((index) => index >= 0);
+    if (!sourceIndices.length && !weaponIndices.length) return [];
+    return [{
+      id: "automatic-data-links",
+      label: "Automatic Data Links",
+      mode: "automatic",
+      sourceIndices,
+      weaponIndices,
+      componentIndices: [...new Set([...sourceIndices, ...weaponIndices])].sort(numericSort),
+      sectionIds: []
+    }];
+  }
   function nominalSupportBudget(type, catalogue) {
     const descriptor = DATA_SOURCE_INFO[type];
     if (!descriptor) return 0;
@@ -145,6 +160,6 @@
     if (Number.isFinite(Number(result.damage)) && Number.isFinite(fireRate)) result.dps = Number(result.damage) * fireRate;
     return result;
   }
-  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, supportDescriptorForType, nominalSupportBudget,
+  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, supportDescriptorForType, automaticDataNetworks, nominalSupportBudget,
     normalizeSourceMultiplier, allocateSourceBudget, analyzeDataSupport, weaponSupportForIndex, effectiveWeaponProfile };
 }));

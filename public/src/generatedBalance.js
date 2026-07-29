@@ -1828,7 +1828,9 @@ export const GENERATED_BALANCE = {
       "productionBaseSeconds": 0.6,
       "productionSecondsPerModule": 0.05,
       "productionCostSecondsMultiplier": 0.0002,
-      "launchRetrySeconds": 0.5
+      "launchRetrySeconds": 0.5,
+      "hullScale": 0.4,
+      "shieldScale": 0.4
     },
     "relayStation": {
       "captureRadius": 280,

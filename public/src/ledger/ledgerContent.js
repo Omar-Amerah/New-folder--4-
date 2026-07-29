@@ -470,7 +470,7 @@ const MANUAL_ARTICLES_PART_3 = [
     title: "Economy & Objectives",
     summary: "Money, income, ship purchases, relays, and victory conditions.",
     keywords: ["economy", "money", "income", "ship cap", "relay", "capture", "bounty", "victory", "win", "objective"],
-    howItWorks: "Players earn money passively through base income and relay control. Relays are capturable points on the map — controlling them provides additional income. Ships cost money to build, up to a fleet cap. Destroying enemy ships awards kill bounties (28% of the destroyed ship's cost, minimum £24). Capturing a relay awards a £70 bonus. Victory is achieved by controlling a majority of relays for a sustained period or by eliminating all enemy ships.",
+    howItWorks: "Players earn money passively through base income and relay control. Relays are capturable points on the map — controlling them provides additional income. Ships cost money to build, up to a fleet cap. Destroying enemy ships awards kill bounties (28% of the destroyed ship's cost, minimum £24). Capturing a relay awards a £70 bonus. Victory is achieved by holding every relay for the victory countdown or by destroying the enemy home station. Each home station's hull and shields scale with the number of players attacking it.",
     importantStats: [
       { label: "Starting Money", value: `\u00a3${ECON.startingMoney ?? 1000}` },
       { label: "Maximum Money", value: `\u00a3${ECON.maxMoney ?? 99999}` },

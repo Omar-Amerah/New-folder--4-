@@ -35,6 +35,7 @@ globalThis.document = globalThis.document || {
   visibilityState: 'visible'
 };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {} };
+await import('./public/src/shared/featureFlags.js');
 
 // --- Lobby control -----------------------------------------------------------
 const html = fs.readFileSync('public/index.html', 'utf8');
@@ -69,6 +70,7 @@ const previousStations = [{
   hangar: { x: 1, y: 2 },
   hardpoints: [null, { x: 36, y: 0 }],
   moduleScale: 36,
+  shieldRadius: 405,
   weaponAngles: [0, 0],
   componentHp: [100, 50],
   hp: 100
@@ -86,6 +88,7 @@ assert.deepEqual(merged[0].design, previousStations[0].design, 'compact station 
 assert.deepEqual(merged[0].hangar, previousStations[0].hangar, 'compact station inherits the cached hangar');
 assert.deepEqual(merged[0].hardpoints, previousStations[0].hardpoints, 'compact station inherits cached hardpoints');
 assert.equal(merged[0].moduleScale, 36, 'compact station inherits cached module scale');
+assert.equal(merged[0].shieldRadius, 405, 'compact station inherits the authoritative shield hit radius');
 assert.deepEqual(merged[0].weaponAngles, [0, 0.75], 'compact station applies sparse authoritative turret bearings');
 assert.deepEqual(merged[0].componentHp, previousStations[0].componentHp, 'unchanged station health inherits its baseline');
 assert.equal(merged[0].weaponAnglePairs, undefined, 'wire-only sparse bearing data is removed after merge');
@@ -257,6 +260,7 @@ assert.equal(stationColor({ ...home, team: 'red', ownerId: 'p2' }, players), '#e
 assert.equal(stationColor(relay, players), '#9fb0c6', 'a neutral relay renders unclaimed');
 assert.equal(stationStateLabel(home), 'OPERATIONAL', 'operational home stations are labelled');
 assert.equal(stationStateLabel({ ...home, state: 'disabled' }), 'DISABLED', 'disabled stations are labelled');
+assert.equal(stationStateLabel({ ...home, state: 'destroyed' }), 'DESTROYED', 'destroyed home stations are labelled');
 // An uncaptured relay is not running for anybody, so it reads OFFLINE rather
 // than describing its ownership.
 assert.equal(stationStateLabel(relay), 'OFFLINE', 'neutral relays read as offline');

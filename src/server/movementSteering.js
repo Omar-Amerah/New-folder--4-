@@ -54,6 +54,8 @@ const {
   ENGINE_HEAT_BASE,
   ENGINE_HEAT_PER_THRUST,
   FACING_COMMAND_HYSTERESIS,
+  FACING_MIN_GOAL_DISTANCE,
+  FACING_MIN_GOAL_DISTANCE_RELEASE,
   FACING_MIN_SPEED,
   FACING_MIN_SPEED_RELEASE,
   FINAL_FACING_TOLERANCE,
@@ -378,9 +380,21 @@ function computeDesiredFacing(ship, stats, intent, decision) {
   // less speed than entering it, so a ship idling either side of the threshold
   // -- which is most of arrival -- does not swap the source of its facing every
   // tick.
-  const travelling = ensureMovementRuntime(ship).facingTravelling
-    ? decision.desiredSpeed > FACING_MIN_SPEED_RELEASE
-    : decision.desiredSpeed > FACING_MIN_SPEED;
+  //
+  // "Under way" needs somewhere to be going as well as a speed to go there at.
+  // A commanded speed says nothing on its own: an intent that skips arrival
+  // braking keeps commanding one after the ship is standing on its goal, and the
+  // bearing to a goal that close is noise the hull would spend its whole turn
+  // rate chasing.
+  const wasTravelling = ensureMovementRuntime(ship).facingTravelling;
+  const goalIsSteerable = !decision.goal
+    || decision.distance > (wasTravelling
+      ? FACING_MIN_GOAL_DISTANCE_RELEASE
+      : FACING_MIN_GOAL_DISTANCE);
+  const travelling = goalIsSteerable
+    && (wasTravelling
+      ? decision.desiredSpeed > FACING_MIN_SPEED_RELEASE
+      : decision.desiredSpeed > FACING_MIN_SPEED);
   ensureMovementRuntime(ship).facingTravelling = travelling;
   if (travelling) return decision.moveAngle;
   // A drifting hull can still have turn authority even when it has no working

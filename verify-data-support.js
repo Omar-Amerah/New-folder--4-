@@ -11,6 +11,13 @@ const analyze = (types, networks, options) => Rules.analyzeDataSupport(types.map
 const budget = (type) => Rules.nominalSupportBudget(type, PARTS);
 const close = (actual, expected, message) => assert(Math.abs(actual - expected) < 1e-12, `${message}: ${actual} !== ${expected}`);
 
+const automaticDesign = ["fireControl", "frame", "railgun", "blaster"].map((type, index) => moduleAt(type, index, 0));
+const automaticNetworks = Rules.automaticDataNetworks(automaticDesign, PARTS);
+assert.deepEqual(automaticNetworks[0].sourceIndices, [0], "automatic Data links find support sources");
+assert.deepEqual(automaticNetworks[0].weaponIndices, [2, 3], "automatic Data links include only weapon components");
+const automaticAnalysis = Rules.analyzeDataSupport(automaticDesign, automaticNetworks, PARTS);
+automaticAnalysis.weapons.forEach((weapon) => close(weapon.fireRateBonus, budget("fireControl") / 2, "automatic links diminish by recipient count"));
+
 for (const [source, field, count] of [["fireControl", "fireRateBonus", 1], ["fireControl", "fireRateBonus", 3], ["signalAmplifier", "rangeBonus", 2], ["targetingComputer", "accuracyBonus", 4], ["signalAmplifier", "rangeBonus", 1], ["stabilizerNode", "accuracyBonus", 1]]) {
   const types = [source, ...Array(count).fill("railgun")];
   const result = analyze(types, [network([0], Array.from({ length: count }, (_, i) => i + 1))]);

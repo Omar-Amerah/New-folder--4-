@@ -21,6 +21,8 @@ import { escapeHtml } from "../shared/formatting.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
+import { getCachedDesignDataSupport } from "../design/dataSupportAnalysis.js";
+import { formatDataSupportValue } from "../design/dataSupportPresentation.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
   refreshWiringPresentation,
@@ -42,6 +44,7 @@ import {
   confirmPendingWiringClear,
   cancelPendingWiringClear
 } from "./wiringUi.js";
+import { WIRING_ENABLED } from "../featureFlags.js";
 
 import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { WIRING_INFRASTRUCTURE } from "../constants.js";
@@ -51,6 +54,24 @@ export { analyzeDesignHeat };
 
 export function currentPowerFlow() {
   const design = Array.isArray(state.design) ? state.design : [];
+  if (!WIRING_ENABLED) {
+    const demand = design.reduce(
+      (sum, module) => sum + Math.max(0, Number(PART_STATS[module?.type]?.powerUse) || 0),
+      0
+    );
+    return {
+      byComponentIndex: [],
+      networks: [],
+      sectionFlows: [],
+      summary: {
+        availableGenerationMw: demand,
+        demandMw: demand,
+        allocatedMw: demand,
+        unmetMw: 0,
+        spareGenerationMw: 0
+      }
+    };
+  }
   const wiring = state.wiring || {};
   return solveBlueprintPower(design, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
 }
@@ -74,7 +95,7 @@ function powerPresetLabel(preset) {
 
 export function isPhysicalBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isPaletteBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
-export function isWiringBlueprintEditMode(mode = state.blueprintView) { return mode === "wiring"; }
+export function isWiringBlueprintEditMode(mode = state.blueprintView) { return WIRING_ENABLED && mode === "wiring"; }
 export function isBlueprintRotationMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 export function isBlueprintRemovalMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 
@@ -109,7 +130,8 @@ function cachedPartReferencesMatch(design) {
 
 export function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE) {
   const design = state.design;
-  const signature = heatDesignSignature(design, state.wiring, mode);
+  const activeWiring = WIRING_ENABLED ? state.wiring : null;
+  const signature = heatDesignSignature(design, activeWiring, mode);
 
   if (
     cachedHeatAnalysis?.signature === signature &&
@@ -118,7 +140,7 @@ export function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_
     return cachedHeatAnalysis.result;
   }
 
-  const result = analyzeDesignHeat(design, state.wiring, mode);
+  const result = analyzeDesignHeat(design, activeWiring, mode);
   cachedHeatAnalysis = {
     signature,
     partReferences: [...design],
@@ -155,13 +177,13 @@ export function renderBuildGrid() {
   if (state.blueprintView === "heat") {
     suppressHeatGridNativeTooltips();
     refreshHeatPresentationSafely();
-  } else if (state.blueprintView === "wiring") {
+  } else if (WIRING_ENABLED && state.blueprintView === "wiring") {
     applyBlueprintPresentation();
     refreshWiringPresentation();
   } else {
     applyBlueprintPresentation();
   }
-  if (state.blueprintView !== "wiring") refreshWiringAnalysisPresentation();
+  if (WIRING_ENABLED && state.blueprintView !== "wiring") refreshWiringAnalysisPresentation();
   refreshBlueprintControls();
   refreshBlueprintDiscoverabilityUi();
   refreshBlueprintUndoControl();
@@ -195,7 +217,7 @@ function suppressHeatGridNativeTooltips() {
 
 export function setBlueprintView(view) {
   const previousView = state.blueprintView;
-  state.blueprintView = view === "heat" ? "heat" : view === "wiring" ? "wiring" : "build";
+  state.blueprintView = view === "heat" ? "heat" : WIRING_ENABLED && view === "wiring" ? "wiring" : "build";
   if (state.blueprintView === "wiring") {
     document.dispatchEvent?.(new CustomEvent("designer-inspector-activate", { detail: { tab: "analysis" } }));
   }
@@ -714,8 +736,13 @@ function ensureBlueprintGridEventHandlers() {
       setBlueprintView("wiring");
       renderLocalStats();
     });
-    const modeTabs = [dom.blueprintBuildTab, dom.blueprintHeatTab, dom.blueprintWiringTab].filter(Boolean);
-    const activateTab = (index) => { const mode = ["build", "heat", "wiring"][index]; setBlueprintView(mode); renderLocalStats(); if (mode === "heat") renderPartInspector(); modeTabs[index]?.focus(); };
+    const modeEntries = [
+      [dom.blueprintBuildTab, "build"],
+      [dom.blueprintHeatTab, "heat"],
+      ...(WIRING_ENABLED ? [[dom.blueprintWiringTab, "wiring"]] : [])
+    ].filter(([tab]) => Boolean(tab));
+    const modeTabs = modeEntries.map(([tab]) => tab);
+    const activateTab = (index) => { const mode = modeEntries[index][1]; setBlueprintView(mode); renderLocalStats(); if (mode === "heat") renderPartInspector(); modeTabs[index]?.focus(); };
     for (const tab of modeTabs) tab.addEventListener("keydown", (event) => {
       const index = modeTabs.indexOf(tab);
       if (event.key === "ArrowRight") { event.preventDefault(); activateTab((index + 1) % modeTabs.length); }
@@ -1260,12 +1287,13 @@ function designRepairWarningMessage() {
 // buildShipSummaryModel; this function only renders it.
 function renderShipSummary(stats, heat) {
   if (!dom.stats) return;
-  const flow = currentPowerFlow();
+  const flow = WIRING_ENABLED ? currentPowerFlow() : null;
   const model = buildShipSummaryModel(stats, {
     design: state.design,
     powerSummary: flow,
     partNames: PART_DEFS,
-    overheatingCount: overheatingComponentCount(heat)
+    overheatingCount: overheatingComponentCount(heat),
+    includePower: WIRING_ENABLED
   });
   const open = shipSummaryOpenSections();
 
@@ -1360,7 +1388,7 @@ export function renderLocalStats() {
   if (dom.combatStyleSelect) {
     dom.combatStyleSelect.value = state.combatStyle || "hold";
   }
-  refreshPowerPriorityControls();
+  if (WIRING_ENABLED) refreshPowerPriorityControls();
   refreshLoadedBlueprintPresentation();
   if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost.toLocaleString()}`;
   if (dom.blueprintCostStatus) {
@@ -1525,29 +1553,72 @@ function sensorCoverageMarkup(stats) {
 }
 
 function renderAnalysisPanels(stats, heat) {
-  // One shared resolver keeps the Ship summary, its Power details and this panel
-  // reporting identical authoritative figures.
-  const flow = currentPowerFlow();
-  const resolved = resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
-  const { requested, delivered, spare, unmet, overloadedSections } = resolved;
-  const powerRows = [
-    ["Available generation", `${resolved.generation.toFixed(1)} MW`],
-    ["Active demand", `${requested.toFixed(1)} MW`],
-    ["Delivered", `${delivered.toFixed(1)} MW`],
-    ["Reachable spare", `${spare.toFixed(1)} MW`, spare > 0 ? "good" : ""],
-    ["Unmet", `${unmet.toFixed(1)} MW`, unmet > 0 ? "bad" : "good"],
-    ["Efficiency", formatPercent(stats.powerEfficiency)],
-    ["Priority preset", powerPresetLabel(resolved.preset || state.wiring?.powerPolicy?.preset)],
-    ["Overloaded sections", String(overloadedSections)]
-  ];
-  if (dom.powerAnalysisSummary) {
-    dom.powerAnalysisSummary.innerHTML = `<section class="analysis-summary-card"><h3>Power analysis</h3>${analysisGridMarkup(powerRows)}</section>${powerAllocationAnalysisHtml()}`;
-  }
-  if (dom.wiringAnalysisSummary) {
-    // Wiring owns a prioritised, actionable analysis renderer. Keep this legacy
-    // summary host empty so the same raw values are not repeated above it.
-    dom.wiringAnalysisSummary.innerHTML = "";
-    dom.wiringAnalysisSummary.hidden = true;
+  if (WIRING_ENABLED) {
+    // One shared resolver keeps the Ship summary, its Power details and this
+    // panel reporting identical authoritative figures.
+    const flow = currentPowerFlow();
+    const resolved = resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
+    const { requested, delivered, spare, unmet, overloadedSections } = resolved;
+    const powerRows = [
+      ["Available generation", `${resolved.generation.toFixed(1)} MW`],
+      ["Active demand", `${requested.toFixed(1)} MW`],
+      ["Delivered", `${delivered.toFixed(1)} MW`],
+      ["Reachable spare", `${spare.toFixed(1)} MW`, spare > 0 ? "good" : ""],
+      ["Unmet", `${unmet.toFixed(1)} MW`, unmet > 0 ? "bad" : "good"],
+      ["Efficiency", formatPercent(stats.powerEfficiency)],
+      ["Priority preset", powerPresetLabel(resolved.preset || state.wiring?.powerPolicy?.preset)],
+      ["Overloaded sections", String(overloadedSections)]
+    ];
+    if (dom.powerAnalysisSummary) {
+      dom.powerAnalysisSummary.innerHTML = `<section class="analysis-summary-card"><h3>Power analysis</h3>${analysisGridMarkup(powerRows)}</section>${powerAllocationAnalysisHtml()}`;
+    }
+    if (dom.wiringAnalysisSummary) {
+      // Wiring owns a prioritised, actionable analysis renderer. Keep this
+      // legacy summary host empty so the same values are not repeated above it.
+      dom.wiringAnalysisSummary.innerHTML = "";
+      dom.wiringAnalysisSummary.hidden = true;
+    }
+  } else if (dom.dataAnalysisSummary) {
+    const analysis = getCachedDesignDataSupport(state.design, null, PART_STATS, {
+      thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE,
+      thermalAnalysis: heat
+    });
+    const sourceRows = analysis.sources.map((source) => {
+      const name = PART_DEFS[source.sourceType]?.name || source.sourceType;
+      const total = formatDataSupportValue({ bonusField: source.bonusField, amount: source.effectiveBudget });
+      const each = formatDataSupportValue({ bonusField: source.bonusField, amount: source.bonusPerWeapon });
+      return [
+        `${name} #${source.sourceIndex + 1}`,
+        source.recipientCount
+          ? `${total} ${source.effect} shared across ${source.recipientCount} linked weapon${source.recipientCount === 1 ? "" : "s"} = ${each} each`
+          : "No compatible weapons fitted"
+      ];
+    });
+    const weaponRows = analysis.weapons.map((weapon) => {
+      const name = PART_DEFS[weapon.weaponType]?.name || weapon.weaponType;
+      const bonuses = [];
+      if (weapon.rangeBonus > 0) bonuses.push(formatDataSupportValue({ bonusField: "rangeBonus", amount: weapon.rangeBonus }));
+      if (weapon.accuracyBonus > 0) bonuses.push(`${formatDataSupportValue({ bonusField: "accuracyBonus", amount: weapon.accuracyBonus })} accuracy`);
+      if (weapon.fireRateBonus > 0) bonuses.push(`${formatDataSupportValue({ bonusField: "fireRateBonus", amount: weapon.fireRateBonus })} fire rate`);
+      return [`${name} #${weapon.weaponIndex + 1}`, bonuses.length ? bonuses.join(" / ") : "Base weapon performance"];
+    });
+    dom.dataAnalysisSummary.innerHTML = `
+      <section class="analysis-summary-card data-analysis-overview">
+        <h3>Automatic Data links</h3>
+        <p>Data-support components automatically link to compatible weapons. Each source has a fixed support budget, so linking more weapons gives each weapon a smaller share.</p>
+        ${analysisGridMarkup([
+          ["Active sources", `${analysis.sources.filter((source) => source.effectiveBudget > 0).length} / ${analysis.sources.length}`],
+          ["Supported weapons", `${analysis.weapons.filter((weapon) => weapon.status === "supported").length} / ${analysis.weapons.length}`]
+        ])}
+      </section>
+      <section class="analysis-summary-card">
+        <h3>Support allocation</h3>
+        ${sourceRows.length ? analysisGridMarkup(sourceRows) : '<p class="data-analysis-empty">Add a Fire Control, Signal Amplifier, Targeting Computer, or Stabilizer Node to create Data links.</p>'}
+      </section>
+      <section class="analysis-summary-card">
+        <h3>Linked weapons</h3>
+        ${weaponRows.length ? analysisGridMarkup(weaponRows) : '<p class="data-analysis-empty">Add a weapon to receive Data support.</p>'}
+      </section>`;
   }
 
   const accelText = (value) => {
@@ -2593,7 +2664,7 @@ function costBreakdownInnerMarkup(breakdown) {
   // Section 7A: infrastructure (Power/Data wiring) is added on top of the
   // component-derived price. Only render the infrastructure block when wiring
   // cost data is present so component-only previews are unchanged.
-  const hasInfrastructure = breakdown.totalInfrastructure !== undefined;
+  const hasInfrastructure = WIRING_ENABLED && breakdown.totalInfrastructure !== undefined;
   const infrastructureRows = hasInfrastructure ? [
     ["Power wiring", breakdown.powerWiring || 0],
     ["Data wiring", breakdown.dataWiring || 0],

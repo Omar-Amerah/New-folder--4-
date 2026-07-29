@@ -332,4 +332,49 @@ function multiChargeDesign() {
   );
 }
 
+// 19. Demolition charges acquire, contact, and damage station hulls.
+{
+  const room = makeRoom();
+  const carrier = makeShip('station-carrier', 'blue', 25, 0, chargeDesign());
+  const station = {
+    id: 'enemy-station',
+    entityType: 'station',
+    stationType: 'relay',
+    team: 'b',
+    ownerId: 'red',
+    alive: true,
+    state: 'operational',
+    x: 100,
+    y: 0,
+    angle: 0,
+    radius: 100,
+    collisionPieces: [{
+      x: 100,
+      y: 0,
+      angle: 0,
+      halfWidth: 20,
+      halfHeight: 80,
+      radius: 83
+    }],
+    design: [{ x: 7, y: 7, type: 'frame' }],
+    componentHp: [100000],
+    componentMaxHp: [100000],
+    hp: 100000,
+    maxHp: 100000,
+    shield: 5000,
+    maxShield: 5000,
+    dirtyComponents: new Set(),
+    healthRevision: 1,
+    stateRevision: 1
+  };
+  room.ships.set(carrier.id, carrier);
+  room.stations = [station];
+  const aim = nearestDemolitionTargetPoint(carrier, station);
+  assert.equal(aim.x, 80, 'demolition movement aims at the nearest solid station surface');
+  resolveDemolitionContacts(room, [carrier], 0);
+  assert.equal(carrier.alive, false, 'enemy station proximity detonates the carrier');
+  assert.ok(station.hp < station.maxHp, 'station hull takes demolition damage');
+  assert.equal(station.shield, station.maxShield, 'demolition blast bypasses station shields like ship shields');
+}
+
 console.log('Demolition charge verification passed');

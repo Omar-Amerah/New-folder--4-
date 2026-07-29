@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 // Single home for every movement tunable. Values that used to sit inline in
 // movementController/movementPropulsion/movementBasic/movementCollision live
@@ -58,6 +58,19 @@ module.exports = Object.freeze({
   // reproduces that flip exactly.
   FACING_MIN_SPEED: 5,
   FACING_MIN_SPEED_RELEASE: 3,
+  // How close the goal may get before its bearing stops meaning anything. Speed
+  // alone is not a sufficient test for "under way": an intent that skips arrival
+  // braking -- charge, most of all -- still commands cruise speed while standing
+  // on its goal, so the ship reads as travelling while the point it is steering
+  // at is a couple of pixels away. The bearing to a point that close swings
+  // faster than the hull can follow, and the hull chasing it moves the ship,
+  // which swings the bearing further: a charger parked on its target's hull
+  // rotated a full turn every three and a half seconds without going anywhere.
+  // Entering and leaving use different distances for the same reason the speed
+  // test does -- one threshold makes a ship hovering at the boundary swap the
+  // source of its facing every tick.
+  FACING_MIN_GOAL_DISTANCE: 16,
+  FACING_MIN_GOAL_DISTANCE_RELEASE: 8,
   // How far the newly computed facing must sit from the one already commanded
   // before the hull is told about it. Below this the previous command stands.
   // Without it a fast hull is a 1:1 follower of a signal that jitters with every
@@ -88,8 +101,22 @@ module.exports = Object.freeze({
   // by the strengths above, with a floor so near-stationary ships still edge out
   // of the way. It has to be a real swerve: a token nudge leaves a heavy ship
   // bulldozing whatever is in front of it rather than going round.
+  //
+  // This sets the ANGLE of the dodge, not its speed: applyLocalShipAvoidance
+  // bounds the amended command by the intent's own throttle, so a ratio of 1
+  // means the lateral term is comparable to the forward one -- a decisive swerve
+  // -- and not, as it used to, a full-throttle broadside dash. Turning it down
+  // was tried and is the wrong lever: it costs a heavy hull the lateral term it
+  // needs to clear a light one, and buys nothing the magnitude bound has not
+  // already bought.
   AVOIDANCE_MIN_LATERAL: 18,
   AVOIDANCE_SIDESTEP_RATIO: 1,
+  // How much of the original course a give-way keeps. Giving way used to replace
+  // the commanded velocity with the sidestep outright, which leaves a vector
+  // perpendicular to the goal -- zero closing rate. A ship that gives way has to
+  // still be going somewhere, or it slides sideways until the obstruction leaves,
+  // and in a crowd the obstruction never leaves.
+  AVOIDANCE_YIELD_COURSE_RETENTION: 0.35,
 
   // --- Hard collision / separation ---------------------------------------
   SHIP_MASS_RIGHT_OF_WAY_RATIO: 1.35,
@@ -138,6 +165,16 @@ module.exports = Object.freeze({
   // Six steps sweeps ~155 degrees, which clears anything short of an obstacle
   // that swallows half the ring -- and half the ring is a case where reversing
   // is the right answer anyway.
+  //
+  // The long slide looks wrong on paper: the ship flies the chord to its aim
+  // point, and a chord subtending 155 degrees passes 0.22r from the centre, so
+  // in principle a blocked near arc is an order to cut across the middle of the
+  // orbit. Capping it was tried and measured worse on both cases that exercise
+  // it. Pulling the aim point back lands it on the obstacle, and the route the
+  // navigator then finds around the obstacle dives further inside the ring than
+  // the chord ever did -- 205 px on a 507 px ring, against 434 px for the long
+  // slide. Against a ring clipped by the world edge, capping forces a reversal
+  // instead, and the hairpin cuts in to 104 px. Leave it long.
   ORBIT_LEAD_STEPS: 6,
   // Charge aims where the target will be, not where it is. Capped so a fast
   // target seen from across the map does not send the charger to empty space.

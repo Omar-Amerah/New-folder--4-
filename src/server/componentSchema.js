@@ -205,7 +205,7 @@ const INFRASTRUCTURE_NUMERIC_FIELDS = [
   "launchSpeed", "releaseDistance", "repairRadius", "repairRatePerSecond", "repairDelaySeconds",
   "disabledRecoveryDelaySeconds", "disabledRepairRatePerSecond", "reactivationHpRatio",
   "productionBaseSeconds", "productionCostSecondsMultiplier", "launchRetrySeconds",
-  "captureRadius", "captureRestoreHpRatio"
+  "captureRadius", "captureRestoreHpRatio", "hullScale", "shieldScale"
 ];
 
 function validateInfrastructure(infrastructure, filePath, errors) {

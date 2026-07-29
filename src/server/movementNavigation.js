@@ -399,12 +399,17 @@ function heuristic(nav, colA, rowA, colB, rowB) {
   return fastHypot(a.x - b.x, a.y - b.y);
 }
 
-function findPathWorld(room, startX, startY, goalX, goalY, clearance) {
+// The search proper. Reports whether it actually got there, because "no route"
+// and "a route" need different answers from the caller and collapsing them to
+// null loses the half of the search that is still useful: the flood already
+// knows the reachable cell nearest the goal, which is exactly where a ship that
+// cannot arrive should go instead.
+function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
   bumpMovementMetric("pathPlanCount");
   const nav = ensureRoomNavigation(room);
   const startClear = nearestClearPoint(room, startX, startY, clearance + nav.cellSize / 2);
   const goalClear = nearestClearPoint(room, goalX, goalY, clearance + nav.cellSize / 2);
-  if (!goalClear.clear) return null;
+  if (!goalClear.clear) return { waypoints: [], reachedGoal: false };
   const start = cellFor(nav, startClear.x, startClear.y);
   const goal = cellFor(nav, goalClear.x, goalClear.y);
   const size = nav.cols * nav.rows;
@@ -427,11 +432,25 @@ function findPathWorld(room, startX, startY, goalX, goalY, clearance) {
     [-1, -1, Math.SQRT2], [1, -1, Math.SQRT2]
   ];
   const required = clearance + nav.cellSize / 2;
+  // Best consolation prize seen so far: the settled cell closest to the goal.
+  // Costs one heuristic per expansion and is what makes an unreachable
+  // destination produce a sane partial route rather than nothing.
+  let closestIndex = start.index;
+  let closestHeuristic = heuristic(nav, start.col, start.row, goal.col, goal.row);
+  let reachedGoal = false;
   while (open.length > 0) {
     const node = open.pop();
-    if (node.index === goal.index) break;
+    if (node.index === goal.index) {
+      reachedGoal = true;
+      break;
+    }
     const row = Math.floor(node.index / nav.cols);
     const col = node.index % nav.cols;
+    const remaining = heuristic(nav, col, row, goal.col, goal.row);
+    if (remaining < closestHeuristic) {
+      closestHeuristic = remaining;
+      closestIndex = node.index;
+    }
     for (const [dx, dy, distanceMultiplier] of directions) {
       const nextCol = col + dx;
       const nextRow = row + dy;
@@ -454,9 +473,9 @@ function findPathWorld(room, startX, startY, goalX, goalY, clearance) {
       });
     }
   }
-  if (scores[goal.index] === Infinity) return null;
+  const terminal = reachedGoal ? goal.index : closestIndex;
   const raw = [];
-  let index = goal.index;
+  let index = terminal;
   while (index !== -1) {
     const row = Math.floor(index / nav.cols);
     const col = index % nav.cols;
@@ -482,8 +501,27 @@ function findPathWorld(room, startX, startY, goalX, goalY, clearance) {
     smoothed.push(raw[candidate]);
     anchor = candidate;
   }
-  smoothed[smoothed.length - 1] = { x: goalClear.x, y: goalClear.y };
-  return smoothed;
+  // Only a route that arrives may end on the requested point. A partial one ends
+  // on the cell the search actually settled, which is already the last entry.
+  if (reachedGoal) smoothed[smoothed.length - 1] = { x: goalClear.x, y: goalClear.y };
+  return { waypoints: smoothed, reachedGoal };
+}
+
+// Full routes only, for callers that want "is there a way through" rather than
+// "how close can this hull get".
+function findPathWorld(room, startX, startY, goalX, goalY, clearance) {
+  const result = searchPathWorld(room, startX, startY, goalX, goalY, clearance);
+  return result.reachedGoal ? result.waypoints : null;
+}
+
+// The clearance the planner will demand of a destination. Anything that picks a
+// point for a ship to be sent to has to use this and not the bare hull
+// clearance: the grid is sampled at cell centres, so the search needs half a
+// cell more than the hull does, and a destination legal by the looser test is
+// one the planner then quietly relocates -- leaving the ship parked somewhere
+// the player never clicked while the order marker sits elsewhere.
+function navigationPlanningClearance(ship) {
+  return navigationClearanceRadius(ship) + NAV_GRID_CELL_SIZE / 2;
 }
 
 function planPath(room, ship, destination, now) {
@@ -491,10 +529,11 @@ function planPath(room, ship, destination, now) {
   const navigation = runtime.navigation;
   const clearance = navigationClearanceRadius(ship);
   let waypoints;
+  let reachable = true;
   if (isSegmentClear(room, ship.x, ship.y, destination.x, destination.y, clearance)) {
     waypoints = [{ x: destination.x, y: destination.y }];
   } else {
-    waypoints = findPathWorld(
+    const search = searchPathWorld(
       room,
       ship.x,
       ship.y,
@@ -502,9 +541,19 @@ function planPath(room, ship, destination, now) {
       destination.y,
       clearance
     );
-    if (!waypoints?.length) {
-      const clear = nearestClearPoint(room, destination.x, destination.y, clearance);
-      waypoints = clear.clear ? [{ x: clear.x, y: clear.y }] : [{ ...destination }];
+    waypoints = search.waypoints;
+    reachable = search.reachedGoal;
+    // Nothing is routable at all -- the hull is too wide for anywhere it could
+    // go from here. Hold station rather than invent a course.
+    //
+    // What this replaces: a straight line drawn to the destination whenever the
+    // search failed. That line ran through whatever the search had just proved
+    // impassable, so the ship drove into a station and stayed there being pushed
+    // back out -- 95% of ticks in hull contact, a thousand pixels short, for as
+    // long as the order stood. A route that does not exist must not be faked.
+    if (!waypoints.length) {
+      waypoints = [{ x: ship.x, y: ship.y }];
+      reachable = false;
     }
   }
   const finalStart = waypoints.length > 1
@@ -525,12 +574,14 @@ function planPath(room, ship, destination, now) {
   navigation.plannedAt = now;
   navigation.commandId = commandId;
   navigation.clearance = clearance;
+  navigation.reachable = reachable;
   if (!keepFinalFacing) {
     navigation.finalFacing = Math.atan2(final.y - finalStart.y, final.x - finalStart.x);
   }
   navigation.progressDistance = fastHypot(final.x - ship.x, final.y - ship.y);
   navigation.progressAt = now;
   bumpMovementMetric("pathReplanCount");
+  if (!reachable) bumpMovementMetric("pathUnreachableCount");
   return navigation;
 }
 
@@ -615,7 +666,11 @@ function selectWaypoint(ship) {
       ? navigation.waypoints[index + 1]
       : null,
     captureDistance,
-    finalFacing: navigation.finalFacing
+    finalFacing: navigation.finalFacing,
+    // False when the route stops short because the destination cannot be
+    // reached. The mover still flies and arrives normally -- it just arrives
+    // somewhere else, and callers that care can tell the difference.
+    reachable: navigation.reachable !== false
   };
 }
 
@@ -629,7 +684,8 @@ function resolveNavigation(room, ship, intent, now) {
       isFinal: true,
       nextGoal: null,
       captureDistance: 0,
-      finalFacing: runtime.command?.finalFacing
+      finalFacing: runtime.command?.finalFacing,
+      reachable: true
     };
   }
   if (shouldReplan(room, ship, intent.destination, now, intent)) {
@@ -648,7 +704,9 @@ module.exports = {
   ensureRoomNavigation,
   findPathWorld,
   isSegmentClear,
+  navigationPlanningClearance,
   nearestClearPoint,
   resolveNavigation,
+  searchPathWorld,
   segmentCircleClearance
 };

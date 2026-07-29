@@ -1,14 +1,14 @@
 "use strict";
 
-const { clampNumber, fastHypot } = require("./utils");
+const { clampNumber, fastHypot, compareEntityIds } = require("./utils");
 const { areEntityAllies, areEntityEnemies } = require("./relationships");
 const { selectOwnedLivingShips } = require("./selection");
 const { WORLD_MARGIN } = require("./movementTuning");
+const { separationRadius } = require("./movementCollision");
 const {
-  navigationClearanceRadius,
-  separationRadius
-} = require("./movementCollision");
-const { nearestClearPoint } = require("./movementNavigation");
+  navigationPlanningClearance,
+  nearestClearPoint
+} = require("./movementNavigation");
 const {
   ensureMovementRuntime,
   nextMovementCommandId,
@@ -68,11 +68,17 @@ function clearNonOverlappingSlot(room, desired, ship, assigned, ordinal, spacing
       x: desired.x + Math.cos(angle) * ring * spacing,
       y: desired.y + Math.sin(angle) * ring * spacing
     };
+    // The planner's requirement, not the hull's. A slot that satisfies only the
+    // hull clearance is one the path search will not accept as a goal, so it
+    // relocates it -- and the ship then parks wherever the relocation landed
+    // while the order marker stays where the player clicked. Measured 367 px
+    // apart for a wide hull ordered near a station, with the ship reporting
+    // itself arrived the whole time.
     const clear = nearestClearPoint(
       room,
       candidate.x,
       candidate.y,
-      navigationClearanceRadius(ship)
+      navigationPlanningClearance(ship)
     );
     if (!clear.clear || !slotDoesNotOverlap(clear, radius, assigned)) continue;
     return { x: clear.x, y: clear.y, radius };
@@ -81,8 +87,7 @@ function clearNonOverlappingSlot(room, desired, ship, assigned, ordinal, spacing
 }
 
 function generateDestinationSlots(room, ships, destination) {
-  const ordered = ships.slice().sort((a, b) =>
-    String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const ordered = ships.slice().sort(compareEntityIds);
   const largestRadius = ordered.reduce(
     (largest, ship) => Math.max(largest, separationRadius(ship)),
     18

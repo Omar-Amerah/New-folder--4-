@@ -2,6 +2,7 @@
 
 const { PARTS } = require("./components");
 const { getShipComponentCellWorldCoords } = require("./componentGeometry");
+const { compareIdStrings } = require("./utils");
 const HeatRules = require("../../public/src/shared/heatRules");
 
 function ensureDecoyRuntime(room) {
@@ -130,7 +131,7 @@ function collectStableThreats(room, ship, range, output) {
     const seqA = Number.isFinite(a.authoritativeSequence) ? a.authoritativeSequence : 0;
     const seqB = Number.isFinite(b.authoritativeSequence) ? b.authoritativeSequence : 0;
     if (seqA !== seqB) return seqA - seqB;
-    return String(a.id || "").localeCompare(String(b.id || ""));
+    return compareIdStrings(a.id || "", b.id || "");
   });
   return output;
 }

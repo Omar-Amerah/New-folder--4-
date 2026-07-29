@@ -23,8 +23,10 @@ import { bindRoomRecoveryCard, renderRecoveryCard } from "./ui/roomRecoveryUi.js
 import { send, getConfiguredServerUrl, persistServerQueryParam } from "./network.js";
 import { applyComponentBalance } from "./design/parts.js";
 import { initLedger, openLedger, closeLedger } from "./ledger/fleetLedgerUi.js";
+import { applyFeatureFlagPresentation, WIRING_ENABLED } from "./featureFlags.js";
 
 const loadedPreferences = loadPreferences().preferences;
+applyFeatureFlagPresentation();
 if (!loadedPreferences.pilotName) loadedPreferences.pilotName = `Pilot-${Math.floor(100 + Math.random() * 900)}`;
 applyInterfacePreferences(loadedPreferences);
 dom.pilotName.value = loadedPreferences.pilotName;
@@ -252,7 +254,7 @@ async function initializeClient() {
   await loadComponentBalance();
   renderPalette();
   initializeDesignerInspector();
-  bindPowerPriorityControls();
+  if (WIRING_ENABLED) bindPowerPriorityControls();
   initializeSavedBlueprintLibraryControls();
   restoreActiveLoadout();
   renderPartInspector();

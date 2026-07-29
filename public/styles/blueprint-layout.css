@@ -520,6 +520,14 @@
   gap: 10px;
 }
 
+.data-analysis-overview p,
+.data-analysis-empty {
+  margin: 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 #analysisMovementPanel[hidden] {
   display: none;
 }

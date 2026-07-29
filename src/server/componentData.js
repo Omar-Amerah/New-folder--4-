@@ -8,6 +8,7 @@ const WiringRules = require("../../public/src/shared/wiringRules");
 const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 const HeatRules = require("../../public/src/shared/heatRules");
 const TurretRules = require("../../public/src/shared/turretRules");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 const ZERO_SUPPORT = Object.freeze({ rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0, sourceIndices: Object.freeze([]), contributions: Object.freeze([]), status: "disconnected" });
 const numericSort = (a, b) => a - b;
@@ -58,6 +59,7 @@ function analyzeTopology(ship, precomputedDataNetworks = null) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   if (!design.length) return { networks: [] };
   if (Array.isArray(precomputedDataNetworks)) return { networks: precomputedDataNetworks };
+  if (!WIRING_ENABLED) return { networks: DataSupportRules.automaticDataNetworks(design, PARTS) };
   bump("wiringAnalysisCount");
   return WiringRules.analyzeWiring(design, runtimeWiringFor(ship), PARTS).data || { networks: [] };
 }
@@ -116,6 +118,29 @@ function installState(ship, networks, analysis, topologySignature, allocationSig
   ship.runtimeDataSupport = { version: 1, topologyRevision: (previous.topologyRevision || 0) + (topologyChanged ? 1 : 0), allocationRevision: (previous.allocationRevision || 0) + (allocationChanged ? 1 : 0), topologySignature, allocationSignature, lastReason: (topologyChanged || allocationChanged) ? reason : previous.lastReason,
     networks: normalizeNetworks(analysis.networks || networks), sourceAllocations: analysis.sourceAllocations.map(r => cloneAllocation(r, r.sourceIndex)), weaponBonuses: analysis.weaponBonuses.map(r => cloneSupport(r, r.weaponIndex)),
     sourceAllocationByIndex: analysis.sourceAllocationByIndex.map((r, i) => cloneAllocation(r, i)), weaponBonusByIndex: analysis.weaponBonusByIndex.map((r, i) => cloneSupport(r, i)) };
+  return ship.runtimeDataSupport;
+}
+function disableShipDataSupport(ship, reason = "wiring-disabled") {
+  if (!ship || typeof ship !== "object") return null;
+  const design = Array.isArray(ship.design) ? ship.design : [];
+  const previous = ship.runtimeDataSupport || {};
+  const weaponBonusByIndex = design.map((module, index) => (
+    PARTS[module?.type]?.weapon ? cloneSupport(ZERO_SUPPORT, index) : null
+  ));
+  ship.runtimeDataSupport = {
+    version: 1,
+    disabled: true,
+    topologyRevision: previous.disabled ? (previous.topologyRevision || 1) : (previous.topologyRevision || 0) + 1,
+    allocationRevision: previous.disabled ? (previous.allocationRevision || 1) : (previous.allocationRevision || 0) + 1,
+    topologySignature: "wiring-disabled",
+    allocationSignature: "wiring-disabled",
+    lastReason: reason,
+    networks: [],
+    sourceAllocations: [],
+    weaponBonuses: weaponBonusByIndex.filter(Boolean),
+    sourceAllocationByIndex: design.map(() => null),
+    weaponBonusByIndex
+  };
   return ship.runtimeDataSupport;
 }
 function rebuildShipDataTopology(ship, reason = "topology", precomputedDataNetworks = null) { const topology = analyzeTopology(ship, precomputedDataNetworks); const sig = topologySignatureFrom(topology.networks, ship); const analysis = buildAllocation(ship, topology.networks); return installState(ship, topology.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
@@ -232,4 +257,4 @@ function getEffectiveWeaponRanges(ship) {
 function getWeaponDataSupport(ship, weaponIndex) { if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return cloneSupport(null, weaponIndex); const state = ensureShipDataSupport(ship); return cloneSupport(state?.weaponBonusByIndex?.[weaponIndex], weaponIndex); }
 function getEffectiveWeaponStats(ship, weaponIndex) { const profile = getEffectiveWeaponStatsInternal(ship, weaponIndex); return profile ? { ...profile } : null; }
 function getSourceDataAllocation(ship, sourceIndex) { if (!Number.isInteger(sourceIndex) || sourceIndex < 0) return null; const state = ensureShipDataSupport(ship); return cloneAllocation(state?.sourceAllocationByIndex?.[sourceIndex], sourceIndex); }
-module.exports = { rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };
+module.exports = { rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };

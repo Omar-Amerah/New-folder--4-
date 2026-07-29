@@ -2,6 +2,7 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
+import { WIRING_ENABLED } from "../featureFlags.js";
 const INSPECTOR_TABS = [
   ["design", "designerDesignTab", "designerDesignPanel"],
   ["analysis", "designerAnalysisTab", "designerAnalysisPanel"],
@@ -11,8 +12,12 @@ const ANALYSIS_TABS = [
   ["heat", "analysisHeatTab", "analysisHeatPanel"],
   ["power", "analysisPowerTab", "analysisPowerPanel"],
   ["wiring", "analysisWiringTab", "analysisWiringPanel"],
+  ["data", "analysisDataTab", "analysisDataPanel"],
   ["movement", "analysisMovementTab", "analysisMovementPanel"]
 ];
+const AVAILABLE_ANALYSIS_TABS = WIRING_ENABLED
+  ? ANALYSIS_TABS.filter(([key]) => key !== "data")
+  : ANALYSIS_TABS.filter(([key]) => key !== "power" && key !== "wiring");
 
 function applyTabState(entries, activeKey) {
   for (const [key, tabKey, panelKey] of entries) {
@@ -27,7 +32,7 @@ function applyTabState(entries, activeKey) {
 
 function analysisForBlueprintView(view = state.blueprintView) {
   if (view === "heat") return "heat";
-  if (view === "wiring") return "wiring";
+  if (WIRING_ENABLED && view === "wiring") return "wiring";
   return "movement";
 }
 
@@ -36,7 +41,9 @@ export function syncDesignerAnalysisToBlueprintView() {
 }
 
 export function activateDesignerAnalysisTab(key, { focus = false } = {}) {
-  const entry = ANALYSIS_TABS.find(([candidate]) => candidate === key) || ANALYSIS_TABS[0];
+  const entry = AVAILABLE_ANALYSIS_TABS.find(([candidate]) => candidate === key)
+    || AVAILABLE_ANALYSIS_TABS.find(([candidate]) => candidate === "movement")
+    || AVAILABLE_ANALYSIS_TABS[0];
   state.designerAnalysisTab = entry[0];
   applyTabState(ANALYSIS_TABS, entry[0]);
   if (focus) dom[entry[1]]?.focus();
@@ -74,7 +81,7 @@ function bindTablist(entries, activate) {
 
 export function initializeDesignerInspector() {
   bindTablist(INSPECTOR_TABS, activateDesignerInspectorTab);
-  bindTablist(ANALYSIS_TABS, activateDesignerAnalysisTab);
+  bindTablist(AVAILABLE_ANALYSIS_TABS, activateDesignerAnalysisTab);
   syncDesignerAnalysisToBlueprintView();
   activateDesignerInspectorTab(state.designerInspectorTab || "design");
 }

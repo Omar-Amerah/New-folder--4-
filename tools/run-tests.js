@@ -45,6 +45,7 @@ const GROUPS = {
     "verify-movement-styles.js",
     "verify-basic-movement.js",
     "verify-movement-authoritative.js",
+    "verify-movement-stability.js",
     "verify-propulsion-rebalance.js",
     "verify-movement-target-retention.js",
     "verify-targeting.js",

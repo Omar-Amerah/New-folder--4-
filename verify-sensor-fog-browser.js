@@ -90,9 +90,11 @@ try {
       directedIcons.rearward,
       "opposite Large Directed Sensor rotations render with opposite facings"
     );
-    await page.evaluate(async () => {
+    const browserDirectedStack = await page.evaluate(async () => {
       const { state } = await import("/src/state.js");
       const designerUi = await import("/src/ui/designerUi.js");
+      const { computeStats } = await import("/src/design/componentStats.js");
+      const { PART_STATS } = await import("/src/design/parts.js");
       state.design = [
         ...state.design,
         { x: 1, y: 1, type: "smallSensor", rotation: 0 },
@@ -102,7 +104,19 @@ try {
       ];
       designerUi.renderBuildGrid();
       designerUi.renderLocalStats();
+      const stats = computeStats(state.design);
+      return {
+        actual: stats.directedSensorRange,
+        expected: stats.baseSensorRange
+          + PART_STATS.largeDirectedSensor.sensorRangeBonus
+          + PART_STATS.smallDirectedSensor.sensorRangeBonus * 0.65
+      };
     });
+    assert.strictEqual(
+      browserDirectedStack.actual,
+      browserDirectedStack.expected,
+      "browser designer stacks aligned Directed Sensor range with diminishing returns"
+    );
     await page.locator("#designerAnalysisTab").click();
     await page.locator("#analysisMovementTab").click();
     assert.strictEqual(await page.locator("#analysisMovementTab").textContent(), "Combat",

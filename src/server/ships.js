@@ -1,7 +1,7 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
-const { performanceNow, seededRandom, rngRange, hashString } = require("./utils");
+const { performanceNow, seededRandom, rngRange, hashString, compareIdStrings } = require("./utils");
 const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
@@ -316,7 +316,7 @@ function updateBots(room, now) {
       .filter((point) => point && (stationMode ? !(point.state === "operational" && point.team === player.team) : (point.ownerTeam !== player.team || point.progress < 0.95)))
       .sort((a, b) => {
         const diff = distanceToFleet(ships, a) - distanceToFleet(ships, b);
-        return diff || String(a.id || `${a.x},${a.y}`).localeCompare(String(b.id || `${b.x},${b.y}`));
+        return diff || compareIdStrings(a.id || `${a.x},${a.y}`, b.id || `${b.x},${b.y}`);
       });
     const objective = objectives[0] || objectiveList[0];
     if (!objective) continue;

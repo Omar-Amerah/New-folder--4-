@@ -1,9 +1,15 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
-const { clampNumber, rotateToward, fastHypot } = require("./utils");
+const { clampNumber, rotateToward, fastHypot, compareIdStrings } = require("./utils");
 const { getShipCollisionGeometry, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
 const { getLiveShips } = require("./ships");
 const { buildRoomSpatialIndex } = require("./spatialIndex");
+const Relationships = require("./relationships");
+const {
+  segmentStationHullHit,
+  nearestStationHullPoint,
+  stationShieldCollisionRadius
+} = require("./stationCollision");
 const { BALANCE } = require("./balanceConfig");
 const PROJECTILES = BALANCE.projectiles;
 const MISSILE_GUIDANCE = BALANCE.missileGuidance;
@@ -118,6 +124,7 @@ const SHIELD_HIT_MIN = PROJECTILES.shieldHitMinimum;
 // rendered shield ring (renderer.js shieldRingRadius) so bullets visually stop
 // exactly at the ring the player sees.
 function shieldCollisionRadius(ship) {
+  if (ship?.entityType === "station") return stationShieldCollisionRadius(ship);
   return getShipCollisionGeometry(ship).shieldRadius;
 }
 
@@ -210,6 +217,9 @@ function updateBullets(room, dt, now) {
     if (kind === "ship") {
       return (entity && entity.shield >= SHIELD_HIT_MIN) ? shieldCollisionRadius(entity) : (entity?.radius || 0);
     }
+    if (kind === "station") {
+      return (entity && entity.shield >= SHIELD_HIT_MIN) ? shieldCollisionRadius(entity) : (entity?.radius || 0);
+    }
     if (kind === "drone") return Number(entity.radius) || 10;
     return Number(entity.radius) || ((entity.type === "missile" || entity.type === "torpedo") ? PROJECTILES.hitRadius.missile : (entity.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default));
   }
@@ -223,10 +233,16 @@ function updateBullets(room, dt, now) {
       if (kind === "station" && (!entity || entity.alive === false || entity.state === "disabled")) return;
       if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) return;
       if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) return;
-      if (kind !== "asteroid" && !areEnemies(room, bullet.ownerId, entity.ownerId)) return;
+      if (kind === "station") {
+        if (!Relationships.areEntityEnemies(room, bullet.ownerId, entity)) return;
+      } else if (kind !== "asteroid" && !areEnemies(room, bullet.ownerId, entity.ownerId)) {
+        return;
+      }
       const radius = flakRadiusFor(entity, kind);
       const hitR = direct ? radius : radius + fuseR;
-      const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, entity.x, entity.y, hitR);
+      const hit = kind === "station" && entity.shield < SHIELD_HIT_MIN
+        ? segmentStationHullHit(entity, previousX, previousY, bullet.x, bullet.y, direct ? 0 : fuseR)
+        : segmentCircleHit(previousX, previousY, bullet.x, bullet.y, entity.x, entity.y, hitR);
       if (!hit) return;
       events.push({ t: hit.t, x: hit.x, y: hit.y, kind, entity, direct });
     }
@@ -258,7 +274,7 @@ function updateBullets(room, dt, now) {
       if (a.direct !== b.direct) return a.direct ? -1 : 1;
       const idA = String(a.entity?.id || a.kind || "");
       const idB = String(b.entity?.id || b.kind || "");
-      return idA.localeCompare(idB);
+      return compareIdStrings(idA, idB);
     });
     const best = events[0];
     const candidates = events.reduce((sum, e) => sum + (!e.direct && e.kind && e.t < 1 ? 1 : 0), 0);
@@ -286,14 +302,21 @@ function updateBullets(room, dt, now) {
 
     function damageEntity(entity, kind) {
       if (entity === bullet) return;
-      if (!entity || !areEnemies(room, bullet.ownerId, entity.ownerId)) return;
+      if (!entity) return;
+      if (kind === "station") {
+        if (!Relationships.areEntityEnemies(room, bullet.ownerId, entity)) return;
+      } else if (!areEnemies(room, bullet.ownerId, entity.ownerId)) {
+        return;
+      }
       if (kind === "ship" && (!entity.alive || entity.destroyed)) return;
       if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) return;
       if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) return;
       const radius = flakRadiusFor(entity, kind);
       const dx = entity.x - detonateX;
       const dy = entity.y - detonateY;
-      const edge = Math.max(0, fastHypot(dx, dy) - radius);
+      const edge = kind === "station" && entity.shield < SHIELD_HIT_MIN
+        ? nearestStationHullPoint(detonateX, detonateY, entity).distance
+        : Math.max(0, fastHypot(dx, dy) - radius);
       if (edge > blastR) return;
       processed += 1;
       if (maxTargets > 0 && processed > maxTargets) return;
@@ -476,7 +499,7 @@ function updateBullets(room, dt, now) {
     let earliest = null;
     const recordHit = (candidate) => {
       if (!candidate) return;
-      if (!earliest || candidate.t < earliest.t || (candidate.t === earliest.t && String(candidate.entityId || "").localeCompare(String(earliest.entityId || "")) < 0)) {
+      if (!earliest || candidate.t < earliest.t || (candidate.t === earliest.t && compareIdStrings(candidate.entityId || "", earliest.entityId || "") < 0)) {
         earliest = candidate;
       }
     };
@@ -563,7 +586,7 @@ function updateBullets(room, dt, now) {
       : (room.stations || []);
     for (const station of possibleStations) {
       if (station.alive === false || station.state === "disabled") continue;
-      if (!areEnemies(room, bullet.ownerId, station.ownerId)) continue;
+      if (!Relationships.areEntityEnemies(room, bullet.ownerId, station)) continue;
       const hitRadius = bullet.type === "missile"
         ? PROJECTILES.hitRadius.missile
         : bullet.type === "rail"
@@ -575,7 +598,7 @@ function updateBullets(room, dt, now) {
         if (shieldHit) recordHit({ kind: "station", t: shieldHit.t, x: shieldHit.x, y: shieldHit.y, station, entityId: station.id, shield: true });
         continue;
       }
-      const hullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, station.x, station.y, station.radius + hitRadius);
+      const hullHit = segmentStationHullHit(station, previousX, previousY, bullet.x, bullet.y, hitRadius);
       if (hullHit) recordHit({ kind: "station", t: hullHit.t, x: hullHit.x, y: hullHit.y, station, entityId: station.id, shield: false });
     }
 

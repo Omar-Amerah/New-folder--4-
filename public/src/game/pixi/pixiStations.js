@@ -94,6 +94,7 @@ export function stationStateLabel(station) {
   // than describing its ownership.
   if (station.state === "neutral") return "OFFLINE";
   if (station.state === "disabled") return "DISABLED";
+  if (station.state === "destroyed") return "DESTROYED";
   if (station.state === "controlled") return "CONTROLLED";
   // A station the sensor snapshot only knows structurally: its condition was
   // withheld, so claiming ONLINE would be asserting something we were not told.
@@ -351,7 +352,9 @@ function isStationDebugEnabled() {
 // The radius a shield envelope sits at: the structure's circumradius plus a
 // margin, so it clears the corners of a square station rather than cutting
 // through them.
-function stationShieldRadius(bounds) {
+function stationShieldRadius(bounds, station) {
+  const authoritative = Number(station?.shieldRadius);
+  if (Number.isFinite(authoritative) && authoritative > 0) return authoritative;
   const corner = Math.hypot(
     Math.max(Math.abs(bounds.minX), Math.abs(bounds.maxX)),
     Math.max(Math.abs(bounds.minY), Math.abs(bounds.maxY))
@@ -373,7 +376,7 @@ function rebuildStationShield(view, station, bounds) {
   }
   gfx.visible = true;
 
-  const radius = stationShieldRadius(bounds);
+  const radius = stationShieldRadius(bounds, station);
   const color = shieldColorForRatio(ratio);
   const highlight = brightenShieldColor(color);
   const lineWidth = 4.5 * (0.72 + ratio * 0.28);
@@ -482,7 +485,7 @@ function regularPolygon(radius, sides, rotation = 0) {
 // A disabled hull is unlit and a neutral one has no allegiance to advertise, so
 // the accent trim carries the station's state without a second colour scheme.
 function trimAlpha(state, lit) {
-  if (state === "disabled") return lit * 0.25;
+  if (state === "disabled" || state === "destroyed") return lit * 0.25;
   // An uncaptured relay is unlit: nobody is running it.
   if (state === "neutral") return lit * 0.55;
   return lit;
@@ -990,7 +993,7 @@ export function updatePixiStations(env, now, players, bounds) {
 
     const localBounds = stationLocalBounds(station);
     // Quantised so a regenerating shield does not rebuild the ring every frame.
-    const shieldSignature = `${Math.round((station.maxShield > 0 ? station.shield / station.maxShield : 0) * 200)}|${Math.round(localBounds.maxX)}`;
+    const shieldSignature = `${Math.round((station.maxShield > 0 ? station.shield / station.maxShield : 0) * 200)}|${Math.round(localBounds.maxX)}|${Math.round(Number(station.shieldRadius) || 0)}`;
     if (view.shieldSignature !== shieldSignature) {
       view.shieldSignature = shieldSignature;
       rebuildStationShield(view, station, localBounds);
@@ -1029,7 +1032,7 @@ export function updatePixiStations(env, now, players, bounds) {
       view.stateLabel = stateLabel;
       view.stateText.text = stateLabel;
     }
-    const stateFill = station.state === "disabled" ? "#ffb4b4" : "#ffffff";
+    const stateFill = station.state === "disabled" || station.state === "destroyed" ? "#ffb4b4" : "#ffffff";
     if (view.stateText.style.fill !== stateFill) view.stateText.style.fill = stateFill;
     view.stateText.scale.set(labelScale);
     view.stateText.position.set(0, barY + 18 / zoom);

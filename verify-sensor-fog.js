@@ -155,7 +155,7 @@ function testDirectedSensorProfileAndCoverage() {
   assert(!isPointInCoverage(cone, -1400, 0), "rear target is outside directed coverage");
   assert(!isPointInCoverage(cone, 0, 1400), "side target is outside directed coverage");
 
-  const secondDirected = { x: 10, y: 8, type: "smallDirectedSensor", rotation: 90 };
+  const secondDirected = { x: 10, y: 8, type: "smallDirectedSensor", rotation: 0 };
   const doubled = {
     ...ship,
     design: [...design, secondDirected],
@@ -169,8 +169,34 @@ function testDirectedSensorProfileAndCoverage() {
   assert.strictEqual(doubledProfile.directed.length, 2);
   assert.strictEqual(doubledProfile.directed[0].componentIndex, 3,
     "Large Directed Sensors receive the first directed stack slot");
-  assert(doubledProfile.directed[1].range < doubledProfile.directed[0].range,
-    "Directed Sensors diminish other Directed Sensors");
+  const expectedStackedForwardRange = getHullBaseSensorRange("medium")
+    + PARTS.largeDirectedSensor.sensorRangeBonus
+    + PARTS.smallDirectedSensor.sensorRangeBonus * 0.65;
+  assert.strictEqual(
+    doubledProfile.directed[0].range,
+    expectedStackedForwardRange,
+    "aligned Directed Sensors stack their diminished bonuses into the forward cone"
+  );
+  assert(doubledProfile.directed[0].range > profile.directed[0].range,
+    "a second forward Directed Sensor increases forward detection range");
+
+  const doubledDesignProfile = designSensorProfile([...design, secondDirected], "medium");
+  assert.strictEqual(
+    doubledDesignProfile.directedRange,
+    expectedStackedForwardRange,
+    "the designer reports the same stacked forward range as runtime"
+  );
+
+  const sideFacing = {
+    ...doubled,
+    design: [...design, { ...secondDirected, rotation: 90 }]
+  };
+  const sideFacingProfile = effectiveSensorProfile(sideFacing);
+  assert.strictEqual(
+    sideFacingProfile.directed[0].range,
+    profile.directed[0].range,
+    "a Directed Sensor aimed elsewhere does not extend the forward cone"
+  );
 }
 
 function testDesignerSensorRange() {

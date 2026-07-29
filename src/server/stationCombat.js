@@ -187,12 +187,21 @@ function damageStation(room, station, damage, attackerId, now, sourceX, sourceY,
 
   const infra = BALANCE.infrastructure || {};
   const cfg = station.stationType === "home" ? infra.homeStation : infra.relayStation;
-  const threshold = (station.maxHp || 1) * (cfg?.disabledHpRatio || 0.1);
-  if (station.hp <= threshold && station.state !== "disabled") {
-    station.state = "disabled";
+  if (station.stationType === "home" && station.hp <= 0.001 && station.state !== "destroyed") {
+    station.hp = 0;
+    station.state = "destroyed";
     station.alive = false;
     station.disabledAt = now;
     station.stateRevision = (station.stateRevision || 0) + 1;
+    require("./objectives").finalizeHomeStationDestruction(room, station, attackerId, now);
+  } else {
+    const threshold = (station.maxHp || 1) * (cfg?.disabledHpRatio || 0.1);
+    if (station.stationType !== "home" && station.hp <= threshold && station.state !== "disabled") {
+      station.state = "disabled";
+      station.alive = false;
+      station.disabledAt = now;
+      station.stateRevision = (station.stateRevision || 0) + 1;
+    }
   }
 
   return applied;

@@ -54,6 +54,20 @@ function roomVisibilityGeneration(room) {
   return Number.isSafeInteger(generation) && generation > 0 ? generation : 1;
 }
 
+// teamOfEntity walks ownership (and, for drones, the parent ship) through the
+// player map. A single team scan asks for the same entity's team once per
+// sensor source, which at fleet scale is tens of thousands of Map lookups per
+// tick. Allegiance cannot change inside one visibility generation — capture and
+// destruction both publish a new one — so memoize it for the length of a scan.
+function cachedTeamOfEntity(room, entity, generation) {
+  if (!entity) return null;
+  if (entity._visibilityTeamGeneration === generation) return entity._visibilityTeamValue;
+  const team = teamOfEntity(room, entity);
+  entity._visibilityTeamGeneration = generation;
+  entity._visibilityTeamValue = team;
+  return team;
+}
+
 function getTeamVisibilityState(room, teamOrOwnerId) {
   const teamId = normalizedTeamId(room, teamOrOwnerId);
   if (!room.visibilityByTeam) room.visibilityByTeam = new Map();
@@ -120,11 +134,12 @@ function writeSensorSource(sources, index, entity, range, shape = "circle", angl
 
 function getSensorSourcesForTeam(room, teamOrOwnerId, output = null) {
   const teamId = normalizedTeamId(room, teamOrOwnerId);
+  const generation = roomVisibilityGeneration(room);
   const sources = output || [];
   let sourceCount = 0;
 
   for (const ship of room.ships?.values?.() || []) {
-    if (!ship?.alive || ship.removed || teamOfEntity(room, ship) !== teamId) continue;
+    if (!ship?.alive || ship.removed || cachedTeamOfEntity(room, ship, generation) !== teamId) continue;
     const profile = effectiveSensorProfile(ship, room);
     if (profile.omniRange > 0) {
       sourceCount = writeSensorSource(sources, sourceCount, ship, profile.omniRange);
@@ -144,7 +159,7 @@ function getSensorSourcesForTeam(room, teamOrOwnerId, output = null) {
   }
 
   for (const station of room.stations || []) {
-    if (!station || teamOfEntity(room, station) !== teamId) continue;
+    if (!station || cachedTeamOfEntity(room, station, generation) !== teamId) continue;
     const range = effectiveSensorRange(station, room);
     if (range > 0) sourceCount = writeSensorSource(sources, sourceCount, station, range);
   }
@@ -192,7 +207,7 @@ function inSensorRange(sourceRecord, target) {
   return isPointInCoverage(sourceRecord, target?.x, target?.y, targetRadius(target));
 }
 
-function addDetectedTargets(room, teamId, sourceRecord, current, shipScratch) {
+function addDetectedShips(room, teamId, generation, sourceRecord, current, shipScratch) {
   const source = sourceRecord.entity;
   const range = sourceRecord.range;
   const spatial = room.spatialIndex?.dynamicValid === false ? null : room.spatialIndex;
@@ -201,33 +216,51 @@ function addDetectedTargets(room, teamId, sourceRecord, current, shipScratch) {
     : (room.ships?.values?.() || []);
 
   for (const target of ships) {
-    if (!target?.alive || target.removed || teamOfEntity(room, target) === teamId) continue;
+    if (!target?.alive || target.removed || cachedTeamOfEntity(room, target, generation) === teamId) continue;
     if (inSensorRange(sourceRecord, target)) current.add(target.id);
-  }
-
-  // Stations and drones are small bounded collections. Iterating them directly
-  // avoids stale broad-phase buckets after drone movement and fixes the previous
-  // implementation, which never made either kind visible at all.
-  for (const station of room.stations || []) {
-    if (!station || station.alive === false || station.state === "destroyed") continue;
-    if (teamOfEntity(room, station) === teamId) continue;
-    if (inSensorRange(sourceRecord, station)) current.add(station.id);
-  }
-  for (const drone of room.drones?.values?.() || []) {
-    if (!drone || drone.destroyed || drone.removed || teamOfEntity(room, drone) === teamId) continue;
-    if (inSensorRange(sourceRecord, drone)) current.add(drone.id);
   }
 }
 
-function addAlliedEntities(room, teamId, current) {
-  for (const ship of room.ships?.values?.() || []) {
-    if (ship?.alive && !ship.removed && teamOfEntity(room, ship) === teamId) current.add(ship.id);
+function coverageSeesPoint(coverage, count, x, y, padding) {
+  for (let index = 0; index < count; index += 1) {
+    if (isPointInCoverage(coverage[index], x, y, padding)) return true;
   }
+  return false;
+}
+
+// Stations and drones are small bounded collections without a reliable
+// broad-phase bucket (drones move after the index is built, and station
+// visibility must survive a stale one). They are swept once against the
+// finished coverage set rather than once per sensor source: the geometry test
+// is the same, but each entity is filtered for team and liveness a single time
+// and stops at the first source that sees it.
+function addDetectedStructures(room, teamId, generation, coverage, coverageCount, current) {
+  if (coverageCount === 0) return;
   for (const station of room.stations || []) {
-    if (station && station.alive !== false && teamOfEntity(room, station) === teamId) current.add(station.id);
+    if (!station || station.alive === false || station.state === "destroyed") continue;
+    if (cachedTeamOfEntity(room, station, generation) === teamId) continue;
+    if (coverageSeesPoint(coverage, coverageCount, station.x, station.y, targetRadius(station))) {
+      current.add(station.id);
+    }
   }
   for (const drone of room.drones?.values?.() || []) {
-    if (drone && !drone.destroyed && !drone.removed && teamOfEntity(room, drone) === teamId) current.add(drone.id);
+    if (!drone || drone.destroyed || drone.removed) continue;
+    if (cachedTeamOfEntity(room, drone, generation) === teamId) continue;
+    if (coverageSeesPoint(coverage, coverageCount, drone.x, drone.y, targetRadius(drone))) {
+      current.add(drone.id);
+    }
+  }
+}
+
+function addAlliedEntities(room, teamId, generation, current) {
+  for (const ship of room.ships?.values?.() || []) {
+    if (ship?.alive && !ship.removed && cachedTeamOfEntity(room, ship, generation) === teamId) current.add(ship.id);
+  }
+  for (const station of room.stations || []) {
+    if (station && station.alive !== false && cachedTeamOfEntity(room, station, generation) === teamId) current.add(station.id);
+  }
+  for (const drone of room.drones?.values?.() || []) {
+    if (drone && !drone.destroyed && !drone.removed && cachedTeamOfEntity(room, drone, generation) === teamId) current.add(drone.id);
   }
 }
 
@@ -251,6 +284,7 @@ function computeTeamVisibility(room, teamOrOwnerId, now) {
   }
 
   const teamId = normalizedTeamId(room, teamOrOwnerId);
+  const generation = roomVisibilityGeneration(room);
   const state = getTeamVisibilityState(room, teamId);
   const previouslyVisible = state.visibleEntityIds;
   const current = state.nextVisibleEntityIds;
@@ -276,10 +310,11 @@ function computeTeamVisibility(room, teamOrOwnerId, now) {
     coverage.angle = sourceRecord.angle;
     coverage.halfAngle = sourceRecord.halfAngle;
     coverageCount += 1;
-    addDetectedTargets(room, teamId, sourceRecord, current, shipScratch);
+    addDetectedShips(room, teamId, generation, sourceRecord, current, shipScratch);
   }
   state.coverage.length = coverageCount;
-  addAlliedEntities(room, teamId, current);
+  addDetectedStructures(room, teamId, generation, state.coverage, coverageCount, current);
+  addAlliedEntities(room, teamId, generation, current);
 
   for (const id of previouslyVisible) {
     if (current.has(id) || state.remembered.has(id)) continue;
@@ -317,6 +352,16 @@ function computeTeamVisibility(room, teamOrOwnerId, now) {
 
 function ensureTeamVisibility(room, teamOrOwnerId, now) {
   if (!usesSensorVisibility(room)) return null;
+  // Combat asks this thousands of times per tick and virtually every one of
+  // those hits an already-computed scan. Answer those without running
+  // getTeamVisibilityState's legacy-shape repair, which is only needed on the
+  // path that is about to (re)build the scan anyway.
+  const cached = room.visibilityByTeam?.get?.(normalizedTeamId(room, teamOrOwnerId));
+  if (cached
+    && cached.computedGeneration === roomVisibilityGeneration(room)
+    && cached.visibleEntityIds instanceof Set) {
+    return cached;
+  }
   const state = getTeamVisibilityState(room, teamOrOwnerId);
   if (state.computedGeneration !== roomVisibilityGeneration(room)) {
     return computeTeamVisibility(room, teamOrOwnerId, now);
@@ -348,12 +393,16 @@ function canTeamSeeEntity(room, teamOrOwnerId, entity, now) {
 function canTeamTargetEntity(room, teamOrOwnerId, target, now) {
   if (!target || !usesSensorVisibility(room)) return true;
   const teamId = normalizedTeamId(room, teamOrOwnerId);
-  if (teamOfEntity(room, target) === teamId) return true;
+  if (cachedTeamOfEntity(room, target, roomVisibilityGeneration(room)) === teamId) return true;
   // Stations are permanent, public map structures even when their live
   // condition is outside sensor coverage. Players can issue an attack order
   // against that known structure without revealing its hidden health state.
   if (target.entityType === "station" || target.stationType) return true;
-  return getVisibilityState(room, teamId, target.id, now) === "visible";
+  // Deliberately not routed through getVisibilityState: this is the single
+  // hottest visibility query in the simulation, and only the "visible" verdict
+  // matters, so it does not need the remembered-contact lookup or a second
+  // team normalization.
+  return ensureTeamVisibility(room, teamId, now).visibleEntityIds.has(target.id);
 }
 
 function isPointVisibleInState(state, x, y, padding = 0) {
@@ -397,6 +446,16 @@ function clearVisibilityForRoom(room) {
     delete ship._sensorRangeCacheValue;
     delete ship._sensorProfileCacheGeneration;
     delete ship._sensorProfileCacheValue;
+  }
+  // The generation counter restarts here, so any entity still carrying a stamp
+  // from the previous match would otherwise answer with its old allegiance.
+  for (const entity of [
+    ...(room.ships?.values?.() || []),
+    ...(room.stations || []),
+    ...(room.drones?.values?.() || [])
+  ]) {
+    delete entity._visibilityTeamGeneration;
+    delete entity._visibilityTeamValue;
   }
   room._visibilityGeneration = 1;
   room._visibilityFinalizedAt = null;

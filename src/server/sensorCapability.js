@@ -6,7 +6,8 @@
 // ordered first even if damaged, so adding a Small Sensor can never consume the
 // best multiplier ahead of an operational Large Sensor. Directed Sensors use a
 // separate bonus-sorted stack, so Large Directed Sensors take priority over
-// Small Directed Sensors, and each component produces its own facing cone.
+// Small Directed Sensors. Components aimed along the same bearing combine their
+// diminished bonuses wherever their facing cones overlap.
 
 const { BALANCE } = require("./balanceConfig");
 const { PARTS } = require("./components");
@@ -118,6 +119,34 @@ function stackedSensorRangeBonus(bonuses) {
   return total;
 }
 
+function stackedDirectedSensorCoverage(bonuses, baseRange, auraMultiplier = 1) {
+  const stacked = [...bonuses]
+    .sort(compareDirectedBonuses)
+    .map((entry, stackIndex) => ({
+      ...entry,
+      effectiveBonus: (Number(entry.bonus) || 0) * stackingMultiplier(stackIndex)
+    }));
+  const aura = Math.max(0, Number(auraMultiplier) || 0);
+  return stacked.map((entry) => {
+    let overlappingBonus = 0;
+    for (const candidate of stacked) {
+      const sameBearing = Math.abs(
+        RotationRules.angleDifference(entry.relativeAngle, candidate.relativeAngle)
+      ) < 1e-9;
+      if (sameBearing && candidate.arcRadians + 1e-9 >= entry.arcRadians) {
+        overlappingBonus += candidate.effectiveBonus;
+      }
+    }
+    return {
+      componentIndex: entry.index,
+      relativeAngle: entry.relativeAngle,
+      arcRadians: entry.arcRadians,
+      halfAngle: entry.arcRadians * 0.5,
+      range: Math.max(0, (baseRange + overlappingBonus) * aura)
+    };
+  });
+}
+
 function getHullBaseSensorRange(massClass) {
   return HULL_BASE_RANGES[String(massClass).toLowerCase()] || HULL_BASE_RANGES.medium;
 }
@@ -133,13 +162,16 @@ function designSensorProfile(design, massClass = "medium") {
   const bonuses = sensorComponentBonuses(ship);
   const omni = bonuses.filter((entry) => entry.role !== "directed");
   const directed = bonuses.filter((entry) => entry.role === "directed").sort(compareDirectedBonuses);
+  const directedCoverage = stackedDirectedSensorCoverage(directed, baseRange);
+  const strongestDirected = directedCoverage.reduce(
+    (strongest, entry) => !strongest || entry.range > strongest.range ? entry : strongest,
+    null
+  );
   return {
     baseRange,
     omniRange: baseRange + stackedSensorRangeBonus(omni),
-    directedRange: directed.length
-      ? baseRange + directed[0].bonus * stackingMultiplier(0)
-      : 0,
-    directedArc: directed.length ? directed[0].arcRadians : 0,
+    directedRange: strongestDirected?.range || 0,
+    directedArc: strongestDirected?.arcRadians || 0,
     sensorComponentCount: bonuses.length,
     directedSensorCount: directed.length
   };
@@ -195,14 +227,7 @@ function effectiveSensorProfile(entity, room = null) {
     if (entry.role === "directed") directedBonuses.push(entry);
     else omni.push(entry);
   }
-  directedBonuses.sort(compareDirectedBonuses);
-  const directed = directedBonuses.map((entry, stackIndex) => ({
-    componentIndex: entry.index,
-    relativeAngle: entry.relativeAngle,
-    arcRadians: entry.arcRadians,
-    halfAngle: entry.arcRadians * 0.5,
-    range: Math.max(0, (base + entry.bonus * stackingMultiplier(stackIndex)) * auraMultiplier)
-  }));
+  const directed = stackedDirectedSensorCoverage(directedBonuses, base, auraMultiplier);
   const profile = {
     omniRange: Math.max(0, (base + stackedSensorRangeBonus(omni)) * auraMultiplier),
     directed
@@ -234,6 +259,7 @@ module.exports = {
   effectiveSensorRange,
   sensorComponentBonuses,
   stackedSensorRangeBonus,
+  stackedDirectedSensorCoverage,
   designSensorProfile,
   isOperationalSensorSource,
   getHullBaseSensorRange,

@@ -18,6 +18,7 @@ const { updateCommandAuras } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
 const { recordRoomTick } = require("./performanceTelemetry");
 const { performanceNow } = require("./utils");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const { invalidateVisibility } = require("./visibility");
 const { dropHiddenTargetLocksForShips } = require("./targetLocks");
 
@@ -46,10 +47,10 @@ function tickRoom(room, dt, now) {
   // Section 7D-2: refresh activity-driven Power demand once per ship, before any
   // gameplay system consumes this cycle's operational multipliers / section flow.
   startedAt = performanceNow();
-  for (const ship of ships) updateShipPowerDemand(ship, room, now);
+  if (WIRING_ENABLED) for (const ship of ships) updateShipPowerDemand(ship, room, now);
   // Section 7G: runtime Power overload protection reads the freshly solved
   // section flows; only trip/retry connectivity transitions re-solve Power.
-  for (const ship of ships) updateShipPowerProtection(ship, dt);
+  if (WIRING_ENABLED) for (const ship of ships) updateShipPowerProtection(ship, dt);
   durations.powerDemandProtection = performanceNow() - startedAt;
   // Build spatial index before movement and drone updates to ensure static asteroid data is available
   startedAt = performanceNow();

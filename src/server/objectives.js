@@ -160,6 +160,47 @@ function finalizeSoloControlVictory(room, playerId, now) {
   }, now, `${playerName} won the match`);
 }
 
+function finalizeHomeStationDestruction(room, station, attackerId, now) {
+  if (!room || !station || station.stationType !== "home") return false;
+  const activePlayers = [...room.players.values()].filter((player) => !player.removed);
+  const attacker = room.players.get(attackerId);
+
+  if (room.rules?.gameMode === "solo") {
+    const defeatedPlayerId = station.ownerId || station.team;
+    const winner = attacker && attacker.id !== defeatedPlayerId
+      ? attacker
+      : activePlayers.find((player) => player.id !== defeatedPlayerId);
+    if (!winner) return false;
+    return finalizeMatchWinner(room, {
+      id: winner.id,
+      playerId: winner.id,
+      team: winner.team || winner.id,
+      name: winner.name || "A player",
+      reason: "home-base-destroyed"
+    }, now, `${winner.name || "A player"} destroyed the enemy home station and won the match`);
+  }
+
+  const defeatedTeam = station.team;
+  const opposingPlayers = activePlayers.filter((player) => player.team && player.team !== defeatedTeam);
+  const winningTeam = attacker?.team && attacker.team !== defeatedTeam
+    ? attacker.team
+    : opposingPlayers[0]?.team;
+  if (!winningTeam) return false;
+  const winningPlayer = (attacker?.team === winningTeam ? attacker : null)
+    || opposingPlayers.find((player) => player.team === winningTeam)
+    || null;
+  const { teamLabel } = require("./players");
+  const winningName = teamLabel(room, winningTeam, winningPlayer?.name || `Wing ${winningTeam}`);
+  const defeatedName = teamLabel(room, defeatedTeam, `Wing ${defeatedTeam}`);
+  return finalizeMatchWinner(room, {
+    id: winningPlayer?.id || null,
+    playerId: winningPlayer?.id || null,
+    team: winningTeam,
+    name: winningName,
+    reason: "home-base-destroyed"
+  }, now, `${winningName} destroyed ${defeatedName}'s home station and won the match`);
+}
+
 function updateControlVictory(room, now) {
   if (room.phase !== "active" || room.winner) return;
 
@@ -235,5 +276,6 @@ module.exports = {
   resetControlVictory,
   getTeamWithFullControl,
   getPlayerWithFullControl,
-  finalizeMatchWinner
+  finalizeMatchWinner,
+  finalizeHomeStationDestruction
 };

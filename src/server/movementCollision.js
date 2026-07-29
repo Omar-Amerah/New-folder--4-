@@ -1,6 +1,6 @@
 "use strict";
 
-const { clampNumber, fastHypot, hashString } = require("./utils");
+const { clampNumber, fastHypot, hashString, compareEntityIds, compareNaturalIds } = require("./utils");
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
@@ -17,6 +17,7 @@ const {
   AVOIDANCE_STRENGTH_EQUAL,
   AVOIDANCE_STRENGTH_RIGHT_OF_WAY,
   AVOIDANCE_STRENGTH_YIELD,
+  AVOIDANCE_YIELD_COURSE_RETENTION,
   SEPARATION_BIAS_SCALE,
   SEPARATION_BROAD_PHASE_PAD,
   SEPARATION_CORRECTION,
@@ -87,7 +88,7 @@ function stableAvoidancePriority(ship, other) {
   if (otherStopped !== shipStopped) return otherStopped ? 1 : -1;
   const massDifference = otherMass - shipMass;
   if (Math.abs(massDifference) > 0.01) return massDifference > 0 ? 1 : -1;
-  return String(other.id).localeCompare(String(ship.id), undefined, { numeric: true }) < 0 ? 1 : -1;
+  return compareNaturalIds(other.id, ship.id) < 0 ? 1 : -1;
 }
 
 function applyLocalShipAvoidance(room, ship, decision, stats, now) {
@@ -143,10 +144,17 @@ function applyLocalShipAvoidance(room, ship, decision, stats, now) {
   }
   if (!best) return;
 
+  // The side commitment belongs to the ship's own course, not to whichever
+  // neighbour happens to be the most urgent this tick. Keying it to best.other
+  // meant that in any group the commitment was void the moment a different hull
+  // took the lead -- which in a six-ship arrival happened several times a second.
+  // Re-deciding flips the sign of the sidestep, and the sidestep is the whole
+  // heading once a ship is giving way, so the commanded facing swung 180 degrees
+  // and back: 698 flips in 40 seconds, and a hull that spun continuously trying
+  // to follow them. The dodge now stands for its full duration whatever else
+  // wanders into range.
   const state = ship._shipAvoidance || (ship._shipAvoidance = {});
-  let side = state.otherShipId === best.other.id && now < (state.committedUntil || 0)
-    ? state.side
-    : 0;
+  let side = now < (state.committedUntil || 0) ? state.side : 0;
   if (!side) {
     const travelX = Math.cos(decision.moveAngle || ship.angle || 0);
     const travelY = Math.sin(decision.moveAngle || ship.angle || 0);
@@ -178,40 +186,61 @@ function applyLocalShipAvoidance(room, ship, decision, stats, now) {
     AVOIDANCE_MIN_LATERAL,
     (Number(decision.maximumSpeed) || 0) * AVOIDANCE_SIDESTEP_RATIO
   ) * strength;
-  // On the final approach the arrival controller has already reduced the
-  // commanded speed to what the remaining distance can safely absorb. Do not
-  // let avoidance restore cruise speed after that calculation: it may change
-  // the course, but it must stay inside the same braking-speed budget.
-  const arrivalSpeedCap = decision.arrivalRequired && decision.isFinal && decision.goal
+  // Avoidance may change where the command points. It may never raise how fast
+  // it asks for. On the final approach that budget is the braking profile, which
+  // has already reduced the commanded speed to what the remaining distance can
+  // absorb; everywhere else it is the intent's own throttle -- decision.maximumSpeed
+  // carries intent.maxSpeedFactor, so a stance that has deliberately wound the
+  // throttle down keeps it wound down.
+  //
+  // Leaving the non-arrival case uncapped meant a settled charger, whose own
+  // throttle is zero because it is sitting on its target's hull, was handed a
+  // lateral command anyway. Facing follows the commanded velocity, so the ship
+  // swung broadside to a target it was supposed to be ramming, and swung back
+  // when the dodge committed to the other side: 111 deg/s of rotation on a hull
+  // travelling 3 px/s.
+  const commandSpeedCap = decision.arrivalRequired && decision.isFinal && decision.goal
     ? Math.max(0, Number(decision.desiredSpeed) || 0)
-    : Infinity;
-  const boundedSidestep = Math.min(sidestep, arrivalSpeedCap);
+    : Math.max(0, Number(decision.maximumSpeed) || 0);
+  const boundedSidestep = Math.min(sidestep, commandSpeedCap);
+  // Nothing left in the budget to steer with -- the intent has already wound the
+  // throttle to nothing, and a zero-length sidestep can only leave the command
+  // where it was. Bail rather than report an activation that did not happen.
+  if (boundedSidestep <= 0) return;
   const forwardX = Math.cos(decision.moveAngle || ship.angle || 0);
   const forwardY = Math.sin(decision.moveAngle || ship.angle || 0);
   const sidestepX = -forwardY * side * boundedSidestep;
   const sidestepY = forwardX * side * boundedSidestep;
-  const yielding = priority > 0
-    || (!hasMassRightOfWay && best.time < AVOIDANCE_BRAKE_TIME_S);
+  // Exactly one ship in a pair gives way, and it is the one that lost the
+  // right-of-way test. The old disjunction also yielded on a short time to
+  // closest approach whenever the ship lacked a mass advantage -- but two hulls
+  // of similar mass both lack one, so both gave way to each other, neither
+  // closed, and a crowd converging on a rally point simply milled about. Priority
+  // is antisymmetric by construction, so this branch can only be true on one side
+  // of any pair.
+  const yielding = priority > 0 && best.time < AVOIDANCE_BRAKE_TIME_S;
   if (yielding) {
-    // Giving way means giving up the course, not merely easing off it: the
-    // commanded velocity becomes the sidestep alone, so the ship stops closing
-    // and slides clear instead of continuing to press into whatever is ahead.
-    decision.desiredVelocity.x = sidestepX;
-    decision.desiredVelocity.y = sidestepY;
+    // Give way by leaning off the course, not by abandoning it. Replacing the
+    // command with the sidestep alone leaves a velocity perpendicular to the
+    // goal -- the ship stops closing entirely and slides sideways for as long as
+    // anything is near it. Keeping a fraction of the course still opens the gap
+    // while the ship continues to make ground.
+    decision.desiredVelocity.x = decision.desiredVelocity.x * AVOIDANCE_YIELD_COURSE_RETENTION
+      + sidestepX;
+    decision.desiredVelocity.y = decision.desiredVelocity.y * AVOIDANCE_YIELD_COURSE_RETENTION
+      + sidestepY;
   } else {
     decision.desiredVelocity.x += sidestepX;
     decision.desiredVelocity.y += sidestepY;
   }
-  if (Number.isFinite(arrivalSpeedCap)) {
-    const amendedSpeed = fastHypot(
-      decision.desiredVelocity.x,
-      decision.desiredVelocity.y
-    );
-    if (amendedSpeed > arrivalSpeedCap && amendedSpeed > 0) {
-      const scale = arrivalSpeedCap / amendedSpeed;
-      decision.desiredVelocity.x *= scale;
-      decision.desiredVelocity.y *= scale;
-    }
+  const amendedSpeed = fastHypot(
+    decision.desiredVelocity.x,
+    decision.desiredVelocity.y
+  );
+  if (amendedSpeed > commandSpeedCap && amendedSpeed > 0) {
+    const scale = commandSpeedCap / amendedSpeed;
+    decision.desiredVelocity.x *= scale;
+    decision.desiredVelocity.y *= scale;
   }
   decision.needsPropulsion = true;
   collisionBump(room, "shipAvoidanceActivations");
@@ -290,7 +319,7 @@ function resolveSeparationPair(room, a, b) {
     normalX = broadDx * inverse;
     normalY = broadDy * inverse;
   } else {
-    normalX = String(a.id).localeCompare(String(b.id), undefined, { numeric: true }) <= 0 ? 1 : -1;
+    normalX = compareNaturalIds(a.id, b.id) <= 0 ? 1 : -1;
     normalY = 0;
   }
 
@@ -399,7 +428,24 @@ function updateShipSeparation(room, shipList, dt, now = 0) {
     ? shipList.filter((ship) => ship && ship.alive)
     : getLiveShips(room))
     .slice()
-    .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+    .sort(compareEntityIds);
+  // Pair resolution has to visit (a, b) in a stable order, and it used to
+  // establish that order by comparing ids for every candidate of every ship on
+  // every iteration. Stamping each ship's rank in the already-sorted list turns
+  // those comparisons into integer arithmetic. Ships the spatial index returns
+  // that are not part of this pass keep the id comparison, so the ordering is
+  // identical either way.
+  const orderEpoch = (room._separationOrderEpoch = (Number(room._separationOrderEpoch) || 0) + 1);
+  for (let index = 0; index < ships.length; index += 1) {
+    ships[index]._separationOrder = index;
+    ships[index]._separationOrderEpoch = orderEpoch;
+  }
+  const rankOf = (ship) => (ship._separationOrderEpoch === orderEpoch ? ship._separationOrder : -1);
+  const byRank = (x, y) => {
+    const xRank = rankOf(x);
+    const yRank = rankOf(y);
+    return xRank >= 0 && yRank >= 0 ? xRank - yRank : compareEntityIds(x, y);
+  };
   const modified = new Set();
   let unresolved = [];
   for (let iteration = 0; iteration < SEPARATION_ITERATIONS; iteration += 1) {
@@ -418,14 +464,12 @@ function updateShipSeparation(room, shipList, dt, now = 0) {
           a._shipCollisionCandidateScratch || (a._shipCollisionCandidateScratch = [])
         )
         : ships;
-      if (usingIndex && candidates.length > 1) {
-        candidates.sort((x, y) =>
-          String(x.id).localeCompare(String(y.id), undefined, { numeric: true }));
-      }
+      if (usingIndex && candidates.length > 1) candidates.sort(byRank);
+      const aRank = rankOf(a);
       for (const b of candidates) {
-        if (!b?.alive
-          || b === a
-          || String(b.id).localeCompare(String(a.id), undefined, { numeric: true }) <= 0) continue;
+        if (!b?.alive || b === a) continue;
+        const bRank = rankOf(b);
+        if (bRank >= 0 && aRank >= 0 ? bRank <= aRank : compareEntityIds(b, a) <= 0) continue;
         const result = resolveSeparationPair(room, a, b);
         if (!result) continue;
         overlaps += 1;

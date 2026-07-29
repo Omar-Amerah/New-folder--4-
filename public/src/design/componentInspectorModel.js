@@ -440,10 +440,12 @@ const FAILED_DATA_STATES = new Set(["disconnected", "unpowered", "overheated"]);
  * "unplaced" and renders as an ordinary (amber) dependency.
  */
 export function requirementsFor(type, stat, context = {}) {
+  const includePower = context.includePowerRequirements ?? (context.includeWiringRequirements !== false);
+  const includeData = context.includeDataRequirements ?? (context.includeWiringRequirements !== false);
   const status = context.requirementStatus || {};
   const requirements = [];
 
-  if ((stat.powerUse || 0) > 0) {
+  if (includePower && (stat.powerUse || 0) > 0) {
     requirements.push({
       id: "power",
       label: "Power",
@@ -455,13 +457,16 @@ export function requirementsFor(type, stat, context = {}) {
     });
   }
 
-  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus) {
+  if (includeData && (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus)) {
+    const automatic = context.automaticDataLinks === true;
     requirements.push({
       id: "data",
       label: "Data",
       icon: "◇",
-      summary: "Cable link",
-      detail: "Supports only weapons joined to it by Data cable. Its bonus is split evenly between every weapon on that network.",
+      summary: automatic ? "Automatic links" : "Cable link",
+      detail: automatic
+        ? "Automatically links to compatible weapons. Its fixed bonus is split evenly between them, so each additional linked weapon receives a smaller share."
+        : "Supports only weapons joined to it by Data cable. Its bonus is split evenly between every weapon on that network.",
       status: status.data?.state || "unplaced",
       failureText: status.data?.reason || null
     });

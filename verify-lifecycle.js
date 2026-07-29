@@ -2,7 +2,8 @@
 
 const assert = require("assert");
 const { rooms } = require("./src/server/rooms");
-const { joinRoom, findReservedNameOwner, maybeStartMatch } = require("./src/server/players");
+const { joinRoom, findReservedNameOwner, maybeStartMatch, returnToLobbyPhase } = require("./src/server/players");
+const { damageStation } = require("./src/server/stationCombat");
 
 function makeSocket() { return { destroyed: false, write() {}, destroy() { this.destroyed = true; } }; }
 function makeClient(id) { return { id, socket: makeSocket(), room: null, player: null, isClosed: false }; }
@@ -60,12 +61,15 @@ const readyCode = "READY1";
 rooms.delete(readyCode);
 const readyA = makeClient("c7");
 const readyB = makeClient("c8");
+const readyC = makeClient("c9");
 joinRoom(readyA, { type: "join", room: readyCode, name: "Ready Ace", team: "blue" });
 joinRoom(readyB, { type: "join", room: readyCode, name: "Ready Bee", team: "red" });
+joinRoom(readyC, { type: "join", room: readyCode, name: "Ready Sea", team: "red" });
 const readyRoom = readyA.room;
 readyRoom.phase = "design";
 readyA.player.ready = true;
 readyB.player.ready = true;
+readyC.player.ready = true;
 const startingMoney = readyRoom.rules.startingMoney;
 maybeStartMatch(readyRoom, 1000);
 assert.strictEqual(readyRoom.phase, "active", "all ready players still start the match");
@@ -76,6 +80,26 @@ for (const player of readyRoom.players.values()) {
   assert.strictEqual(player.spent, 0, "readiness does not count as a purchase");
   assert.strictEqual(player.shipsBuilt || 0, 0, "readiness does not increment ships built");
 }
+
+const blueHome = readyRoom.stations.find((station) => station.stationType === "home" && station.team === "blue");
+const redHome = readyRoom.stations.find((station) => station.stationType === "home" && station.team === "red");
+assert(blueHome && redHome, "each team receives a home station");
+assert.strictEqual(blueHome.enemyPlayerCount, 2, "blue home station scales for two enemy players");
+assert.strictEqual(redHome.enemyPlayerCount, 1, "red home station scales for one enemy player");
+assert(Math.abs(blueHome.maxHp - redHome.maxHp * 2) < 0.001, "home station hull scales linearly with enemy player count");
+assert(Math.abs(blueHome.maxShield - redHome.maxShield * 2) < 0.001, "home station shields scale linearly with enemy player count");
+
+redHome.shield = 0;
+damageStation(readyRoom, redHome, redHome.hp * 2, readyA.player.id, 2000, redHome.x, redHome.y);
+assert.strictEqual(redHome.state, "destroyed", "a depleted home station is permanently destroyed");
+assert.strictEqual(readyRoom.phase, "ended", "home station destruction ends the match");
+assert.strictEqual(readyRoom.winner?.team, "blue", "the opposing team wins after destroying the enemy home station");
+assert.strictEqual(readyRoom.winner?.reason, "home-base-destroyed", "winner snapshot identifies the home-base victory");
+
+returnToLobbyPhase(readyRoom, readyA.player);
+assert.strictEqual(readyRoom.phase, "lobby", "the admin can return to the existing lobby after a base-destruction victory");
+assert.strictEqual(readyRoom.winner, null, "returning to lobby clears the completed match winner");
+assert.strictEqual(rooms.get(readyCode), readyRoom, "base-destruction victory keeps the lobby joinable");
 rooms.delete(readyCode);
 
 console.log("Lifecycle verification passed");

@@ -1,7 +1,7 @@
 "use strict";
 
 const { BALANCE } = require("./balanceConfig");
-const { fastHypot } = require("./utils");
+const { fastHypot, compareIdStrings } = require("./utils");
 const { PARTS } = require("./components");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const HeatRules = require("../../public/src/shared/heatRules");
@@ -370,7 +370,7 @@ function chooseTarget(room, drone, parent, config, now) {
       if (need <= 0) continue;
       const distance = Math.sqrt(distanceSq);
       const score = repairTargetScore(ship, need, distance, config);
-      if (score > bestScore || (score === bestScore && (!best || String(ship.id).localeCompare(String(best.id)) < 0))) {
+      if (score > bestScore || (score === bestScore && (!best || compareIdStrings(ship.id, best.id) < 0))) {
         best = ship;
         bestScore = score;
       }
@@ -526,7 +526,7 @@ function resolveDroneSeparation(drones, ordered = [], spatialIndex = null, movem
   ordered.sort((a, b) => {
     const seqA = Number.isFinite(a.authoritativeSequence) ? a.authoritativeSequence : 0;
     const seqB = Number.isFinite(b.authoritativeSequence) ? b.authoritativeSequence : 0;
-    return seqA - seqB || String(a.id).localeCompare(String(b.id));
+    return seqA - seqB || compareIdStrings(a.id, b.id);
   });
   let maximumRadius = 10;
   for (let index = 0; index < ordered.length; index += 1) {

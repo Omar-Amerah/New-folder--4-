@@ -1,5 +1,5 @@
 const { encodeMessage } = require("./wsCodec");
-const { performanceNow } = require("./utils");
+const { performanceNow, compareIdStrings } = require("./utils");
 const { sendRaw, getOutbound } = require("./outbound");
 const {
   snapshotRoom,
@@ -143,7 +143,7 @@ function canSendCompact(room, b, broadcastSeq, forceStatic) {
 function stableRevisionMap(map) {
   if (!(map instanceof Map) || map.size === 0) return "";
   return [...map.entries()]
-    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    .sort((a, b) => compareIdStrings(a[0], b[0]))
     .map(([id, revision]) => `${String(id)}:${Number(revision) || 0}`)
     .join(",");
 }

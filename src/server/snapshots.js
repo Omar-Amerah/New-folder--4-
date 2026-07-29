@@ -11,6 +11,7 @@ const { buildDroneSnapshots, buildBaySnapshots } = require("./drones");
 const { buildDecoySnapshots, buildLauncherSnapshots } = require("./decoys");
 const { buildPowerProtectionSnapshot } = require("./powerProtection");
 const { buildPowerWiringLayout, buildPowerWiringRuntime } = require("./powerWiringSnapshot");
+const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const { PARTS } = require("./components");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { BALANCE_REVISION } = require("./balanceConfig");
@@ -131,6 +132,7 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     // The station's real broad-phase radius from its compound collision pieces,
     // not the capped gameplay stat a ship reports.
     entry.radius = round(station.radius || station.stats?.radius || 0);
+    entry.shieldRadius = station.shieldRadius || 0;
     entry.moduleScale = station.moduleScale;
     entry.design = station.design || [];
     if (station.hangar) entry.hangar = station.hangar;
@@ -383,6 +385,7 @@ function finiteOrNull(value) { const number = Number(value); return Number.isFin
 function buildSwitchgearSnapshot(_ship) { return []; }
 
 function buildProtectionSnapshot(ship) {
+  if (!WIRING_ENABLED) return null;
   return buildPowerProtectionSnapshot(ship);
 }
 
@@ -402,6 +405,7 @@ function appendComponentPowerState(entry, ship) {
 
 function appendDetailedPowerTelemetry(entry, ship) {
   appendComponentPowerState(entry, ship);
+  if (!WIRING_ENABLED) return;
   entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
   entry.wiringStatus = wiringStatus(ship);
   entry.switchgear = buildSwitchgearSnapshot(ship);
@@ -434,7 +438,7 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   const powerChanged = ship.componentPower?.byComponentIndex && (knownPower ? known !== currentPowerRevision : ship.dirtyPower);
   if (powerChanged) {
     appendComponentPowerState(entry, ship);
-    if (includeTelemetry) {
+    if (includeTelemetry && WIRING_ENABLED) {
       entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
       entry.wiringStatus = wiringStatus(ship);
       entry.switchgear = buildSwitchgearSnapshot(ship);
@@ -448,7 +452,7 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   const currentProtectionRevision = ship.powerProtectionRevision || 0;
   const protectionChanged = ship.componentPower?.byComponentIndex
     && (knownProtection ? knownProtection.get(ship.id) !== currentProtectionRevision : ship.dirtyPowerProtection);
-  if (includeTelemetry && protectionChanged) {
+  if (WIRING_ENABLED && includeTelemetry && protectionChanged) {
     entry.powerProtection = buildProtectionSnapshot(ship);
     entry.powerProtectionRevision = currentProtectionRevision;
     if (!powerChanged) entry.switchgear = buildSwitchgearSnapshot(ship);
@@ -460,13 +464,13 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   const currentWiringRevision = ship.wiringRevision || 0;
   const wiringLayoutChanged = ship.componentPower?.byComponentIndex
     && (knownWiring ? knownWiring.get(ship.id) !== currentWiringRevision : (powerChanged || protectionChanged));
-  if (includeTelemetry && wiringLayoutChanged) {
+  if (WIRING_ENABLED && includeTelemetry && wiringLayoutChanged) {
     entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
     entry.powerWiringRevision = currentWiringRevision;
   }
   // Live per-section runtime block: whenever flow (power) or stress/protection
   // changed. Layout stays cached; only the runtime values refresh.
-  if (includeTelemetry && (powerChanged || protectionChanged) && ship.componentPower?.byComponentIndex) {
+  if (WIRING_ENABLED && includeTelemetry && (powerChanged || protectionChanged) && ship.componentPower?.byComponentIndex) {
     entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
   }
   // `powerThermal` contains Heat-derived values (component Heat generated,
@@ -474,7 +478,7 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   // during ordinary thermal ticks even when the Power allocator does not run.
   // Send a fresh compact diagnostics block with Heat deltas, without forcing a
   // Power solve or resending static design data.
-  if (includeTelemetry && !powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
+  if (WIRING_ENABLED && includeTelemetry && !powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
     entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
   }
   const knownHeatTelemetry = client?.knownShipHeatTelemetryRevisions instanceof Map
@@ -484,7 +488,7 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   const heatTelemetryChanged = knownHeatTelemetry
     ? knownHeatTelemetry.get(ship.id) !== currentHeatTelemetryRevision
     : Boolean(ship.dirtyHeat?.size);
-  if (includeTelemetry && heatTelemetryChanged && ship.componentPower?.byComponentIndex) {
+  if (WIRING_ENABLED && includeTelemetry && heatTelemetryChanged && ship.componentPower?.byComponentIndex) {
     entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
     entry.heatTelemetryRevision = currentHeatTelemetryRevision;
   }
@@ -607,6 +611,7 @@ function buildRuntimePowerThermalSnapshot(ship) {
 }
 
 function wiringStatus(ship) {
+  if (!WIRING_ENABLED) return undefined;
   const runtime = ship.runtimeWiring;
   return runtime ? {
     powerNetworks: runtime.powerNetworks.length,

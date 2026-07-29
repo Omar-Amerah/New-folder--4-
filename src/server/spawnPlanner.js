@@ -1,6 +1,6 @@
 "use strict";
 
-const { hashString } = require("./utils");
+const { hashString, compareEntityIds, compareIdStrings } = require("./utils");
 const { TEAM_COLORS, MAP_CLEARANCES } = require("./config");
 const DEFAULT_SHIP_RADIUS = 46;
 const STARTER_SPACING = 96;
@@ -217,7 +217,7 @@ function pushShipsOutOfSpawn(room, options = {}) {
 
   const liveShips = [...(room.ships?.values?.() || [])]
     .filter((ship) => ship?.alive)
-    .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+    .sort(compareEntityIds);
   const blockers = liveShips.filter((ship) => {
     const minimum = physicalRadius + authoritativePhysicalRadius(ship) + SHIP_SPAWN_MARGIN;
     return (ship.x - preferredX) ** 2 + (ship.y - preferredY) ** 2 < minimum * minimum;
@@ -342,7 +342,7 @@ function assignRallyArrivalSlots(room, ships, rallyPoint, options = {}) {
   const ordered = initial.slice().sort((a, b) => {
     const lateralA = a.x * lateralX + a.y * lateralY;
     const lateralB = b.x * lateralX + b.y * lateralY;
-    return lateralA - lateralB || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+    return lateralA - lateralB || compareEntityIds(a, b);
   });
   const assigned = claimedRallySlots(options.fleet, ordered);
   const slots = new Map();
@@ -382,7 +382,7 @@ function assignRallyArrivalSlots(room, ships, rallyPoint, options = {}) {
 }
 
 function planSpawns(room, options = {}) {
-  const players = [...(room.players?.values?.() || [])].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const players = [...(room.players?.values?.() || [])].sort((a, b) => compareIdStrings(a.id, b.id));
   const world = room.world || { width: 5120, height: 3040 };
   const map = room.map || { asteroids: [], relays: [] };
   const seed = (options.seed ?? room.mapSeed ?? map.seed ?? 0) >>> 0;
@@ -510,7 +510,7 @@ function preferredSlots(world, solo, player, players, seed, radius) {
     if (!byTeam.has(key)) byTeam.set(key, []);
     byTeam.get(key).push(p);
   }
-  for (const group of byTeam.values()) group.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  for (const group of byTeam.values()) group.sort((a, b) => compareIdStrings(a.id, b.id));
   const teamKey = solo ? player.id : (normalizeTeam(player.team) || player.id);
   const group = byTeam.get(teamKey) || [player];
   const index = group.findIndex((p) => p.id === player.id);
