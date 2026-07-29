@@ -85,6 +85,46 @@ function recordRevisionChanged(previous, next, revisions, fallback) {
   return fallback ? fallback(previous, next) : false;
 }
 
+function droneBaysChanged(left, right) {
+  const leftBays = left?.droneBays;
+  const rightBays = right?.droneBays;
+  if (!Array.isArray(leftBays) || !Array.isArray(rightBays)) return leftBays !== rightBays;
+  if (leftBays.length !== rightBays.length) return true;
+  for (let i = 0; i < leftBays.length; i += 1) {
+    const a = leftBays[i];
+    const b = rightBays[i];
+    if (a === b) continue;
+    if (!a || !b) return true;
+    if (
+      a.mode !== b.mode ||
+      a.operational !== b.operational ||
+      a.powerFraction !== b.powerFraction ||
+      a.overheated !== b.overheated ||
+      a.launchBlockedBySpawn !== b.launchBlockedBySpawn ||
+      a.productionProgress !== b.productionProgress ||
+      a.productionPausedReason !== b.productionPausedReason ||
+      a.activeCount !== b.activeCount ||
+      a.storedCount !== b.storedCount ||
+      a.refuelingCount !== b.refuelingCount
+    ) return true;
+    const leftSlots = a.slots || [];
+    const rightSlots = b.slots || [];
+    if (leftSlots.length !== rightSlots.length) return true;
+    for (let j = 0; j < leftSlots.length; j += 1) {
+      const sA = leftSlots[j];
+      const sB = rightSlots[j];
+      if (!sA || !sB) return true;
+      if (
+        sA.state !== sB.state ||
+        sA.droneId !== sB.droneId ||
+        sA.progress !== sB.progress ||
+        sA.pauseReason !== sB.pauseReason
+      ) return true;
+    }
+  }
+  return false;
+}
+
 function pointIdentity(point) {
   return point?.id ?? `${point?.x ?? ""}:${point?.y ?? ""}`;
 }
@@ -212,7 +252,8 @@ function selectedTelemetryChanges(previousIndex, nextIndex, selectedIds) {
     powerProtection: false,
     wiringLayout: false,
     staticGeometry: false,
-    command: false
+    command: false,
+    drones: false
   };
   for (const id of selectedIds || []) {
     const previous = previousIndex?.shipById?.get(id);
@@ -263,6 +304,7 @@ function selectedTelemetryChanges(previousIndex, nextIndex, selectedIds) {
       (left, right) => left?.powerWiring !== right?.powerWiring
     );
     result.staticGeometry ||= previous.designRevision !== next.designRevision;
+    result.drones ||= droneBaysChanged(previous, next);
     result.command ||= fieldsChanged(previous, next, COMMAND_FIELDS);
   }
   return result;
@@ -430,7 +472,8 @@ export function emptyPresentationChanges() {
       selectedShipVitalsChanged: false,
       selectedComponentHpChanged: false,
       selectedComponentAliveChanged: false,
-      selectedStaticGeometryChanged: false
+      selectedStaticGeometryChanged: false,
+      dronesChanged: false
     },
     power: {
       selectedAllocationChanged: false,
@@ -565,6 +608,7 @@ export function derivePresentationChanges({
   changes.damage.selectedComponentHpChanged = telemetry.componentHp;
   changes.damage.selectedComponentAliveChanged = telemetry.componentAlive;
   changes.damage.selectedStaticGeometryChanged = telemetry.staticGeometry;
+  changes.damage.dronesChanged = telemetry.drones;
   changes.heat.selectedShipChanged = telemetry.heat;
   changes.heat.selectedComponentsChanged = telemetry.componentHeat;
   changes.power.selectedAllocationChanged = telemetry.powerAllocation;
@@ -688,7 +732,8 @@ export function buildPresentationUpdatePlan(changes, shipStatusView = "damage") 
 
   const selectedDomainChanged = changes.selection.changed
     || changes.selection.panelModeChanged
-    || changes.selection.telemetryComponentChanged;
+    || changes.selection.telemetryComponentChanged
+    || changes.damage.dronesChanged;
   if (selectedDomainChanged) add(activeSelectedOperation(shipStatusView));
   if (
     shipStatusView === "damage"

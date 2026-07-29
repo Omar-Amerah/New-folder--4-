@@ -7,6 +7,7 @@ const { areEnemies, areAllies, moduleRotationToRadians, moduleLocalPosition } = 
 const { normalizeRotation } = require("./shipDesign");
 const { addComponentHeat, componentPerformance } = require("./heat");
 const { selectOwnedLivingShips } = require("./selection");
+const { heatAdjustedMovementStats: modernHeatAdjusted } = require("./movementSteering");
 
 const WORLD_MARGIN = 42;
 const EDGE_BOUNCE_MARGIN = 43;
@@ -39,15 +40,7 @@ function heatWeightedMovementFactors(ship) {
 }
 
 function heatAdjustedMovementStats(ship, stats) {
-  const factors = heatWeightedMovementFactors(ship);
-  return {
-    ...stats,
-    accel: (stats.accel || 0) * factors.thrust * factors.power,
-    maxSpeed: (stats.maxSpeed || 0) * factors.thrust * factors.power,
-    turnRate: (stats.turnRate || 0) * factors.turn * factors.power,
-    thrustHeatFactor: factors.thrust,
-    turnHeatFactor: factors.turn
-  };
+  return modernHeatAdjusted(ship, stats);
 }
 
 const HOLD_RANGE_RATIO = 0.9;
@@ -86,7 +79,7 @@ function commandShips(room, player, x, y, options = {}) {
   const plan = planFormation(room, ships, {
     x: destination.x,
     y: destination.y,
-    formation: options.formation || "line",
+    formation: options.formation || "clump",
     direction: Number.isFinite(options.direction) ? options.direction : null
   });
 
@@ -96,6 +89,7 @@ function commandShips(room, player, x, y, options = {}) {
     ship.targetY = slot.y;
     ship.formationX = slot.offsetX;
     ship.formationY = slot.offsetY;
+    ship.formationFacing = plan.direction;
 
     ship.focusTargetId = focusTargetId;
     ship.repairTargetId = repairTargetId && hasRepairBeam(ship) ? repairTargetId : null;
@@ -108,6 +102,27 @@ function commandShips(room, player, x, y, options = {}) {
     }
   }
   return { ok: true, code: "commanded", commanded: plan.slots.length, plan };
+}
+
+function stopShips(room, player, shipIds) {
+  const selected = selectOwnedLivingShips(player, shipIds);
+  if (!selected.ok) return { ok: false, code: selected.code, commanded: 0 };
+  for (const ship of selected.ships) {
+    ship.targetX = ship.x;
+    ship.targetY = ship.y;
+    ship.arrived = true;
+    ship.isManualMove = false;
+    ship.focusTargetId = null;
+    ship.combatTargetId = null;
+    clearOrbitState(ship);
+  }
+  return { ok: true, code: "stop", commanded: selected.ships.length };
+}
+
+function rotateShips(room, player, options) {
+  const selected = selectOwnedLivingShips(player, options?.shipIds);
+  if (!selected.ok) return { ok: false, code: selected.code, commanded: 0 };
+  return { ok: true, code: "rotate", commanded: selected.ships.length };
 }
 
 function planFormation(room, ships, options = {}) {
@@ -222,6 +237,10 @@ function updateShipMovementStep(room, ship, dt) {
   applySpeedLimit(ship, stats);
   applyPosition(room, ship, dt);
   regenerateShield(ship, stats, dt);
+
+  if (ship.arrived && !isCircleOrbit && !target && Number.isFinite(ship.formationFacing)) {
+    ship.angle = ship.formationFacing;
+  }
 }
 
 function getCombatStyle(ship) {
@@ -230,6 +249,11 @@ function getCombatStyle(ship) {
   if (ship.combatStyle === "circle") return "circle";
   if (ship.combatStyle === "charge") return "charge";
   return "sentry";
+}
+
+function applyCombatStyle(ship, combatStyle) {
+  ship.combatStyle = combatStyle;
+  clearOrbitState(ship);
 }
 
 function ensureMoveTarget(ship) {
@@ -491,12 +515,12 @@ function rotateHullForCombat(room, ship, stats, target, dt) {
 }
 
 function applyDamping(ship, distance, isCircleOrbit, dt) {
-  let damping = 0.985;
+  let damping = 0.998;
 
   if (ship.arrived && !isCircleOrbit) {
-    damping = 0.78;
+    damping = 0.75;
   } else if (distance < 85 && !isCircleOrbit) {
-    damping = 0.9;
+    damping = 0.95;
   }
 
   ship.vx *= Math.pow(damping, dt * 60);
@@ -761,7 +785,10 @@ function findOptimalHullAngle(ship, target) {
 }
 
 module.exports = {
+  applyCombatStyle,
   commandShips,
+  stopShips,
+  rotateShips,
   formationOffset,
   planFormation,
   updateShipMovement,
