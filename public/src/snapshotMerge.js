@@ -7,6 +7,7 @@ export const SNAPSHOT_REJECTION = Object.freeze({
   DUPLICATE_SEQUENCE: "duplicate-sequence",
   MISSING_BASELINE: "missing-baseline",
   SEQUENCE_GAP: "sequence-gap",
+  PROJECTILE_SEQUENCE_GAP: "projectile-sequence-gap",
   WRONG_BASE: "wrong-base",
   STATIC_REVISION_MISMATCH: "static-revision-mismatch",
   MALFORMED_DELTA: "malformed-delta",
@@ -271,17 +272,21 @@ function validateStationDeltas(previous, message) {
 // cloning here (formerly structuredClone) ran 15x/second over the full map and
 // caused GC hitches; merged snapshots are immutable by contract, so sharing is
 // safe — merges always produce new ship/player objects for changed entries.
-export function mergeFullSnapshot(message) {
+export function mergeFullSnapshot(message, renderNow = null) {
   const full = { ...message };
   full.players = Array.isArray(full.players) ? full.players : [];
   full.ships = Array.isArray(full.ships) ? full.ships.map((s) => ({ ...s, componentHeat: normalizeComponentHeatSnapshot(s.componentHeat) })) : [];
   full.contacts = Array.isArray(full.contacts) ? full.contacts : [];
-  applySnapshotToProjectiles(full);
-  full.bullets = getProjectilesForRender();
+  const projectileResult = applySnapshotToProjectiles(full);
+  if (!projectileResult?.ok) {
+    return { ok: false, reason: SNAPSHOT_REJECTION.PROJECTILE_SEQUENCE_GAP, snapshotSeq: full.snapshotSeq, baseSnapshotSeq: full.baseSnapshotSeq, snapshotKind: full.snapshotKind };
+  }
+  const useRender = Number.isFinite(renderNow) ? renderNow : (Number(full.projectileSimulationTimeMs) || full.simulationTimeMs);
+  full.bullets = getProjectilesForRender(useRender);
   return { ok: true, snapshot: full, networkState: { stateEpoch: full.stateEpoch, snapshotSeq: full.snapshotSeq, staticRevision: full.staticRevision, hasFullBaseline: true } };
 }
 
-export function mergeCompactSnapshot(previous, message) {
+export function mergeCompactSnapshot(previous, message, renderNow = null) {
   const validation = validateShipDeltas(previous, message);
   if (!validation.ok) return validation;
   const stationValidation = validateStationDeltas(previous, message);
@@ -293,14 +298,18 @@ export function mergeCompactSnapshot(previous, message) {
   // packet omits it leaves stale contacts on screen after a mode/state change.
   next.contacts = Array.isArray(next.contacts) ? next.contacts : [];
   if (!isNullish(next.stations)) next.stations = mergeCachedStationFields(previous.stations, next.stations);
-  applySnapshotToProjectiles(next);
-  next.bullets = getProjectilesForRender();
+  const projectileResult = applySnapshotToProjectiles(next);
+  if (!projectileResult?.ok) {
+    return { ok: false, reason: SNAPSHOT_REJECTION.PROJECTILE_SEQUENCE_GAP, snapshotSeq: next.snapshotSeq, baseSnapshotSeq: next.baseSnapshotSeq, snapshotKind: next.snapshotKind };
+  }
+  const useRender = Number.isFinite(renderNow) ? renderNow : (Number(next.projectileSimulationTimeMs) || next.simulationTimeMs);
+  next.bullets = getProjectilesForRender(useRender);
   for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = previous[key];
   return { ok: true, snapshot: next, networkState: { stateEpoch: next.stateEpoch, snapshotSeq: next.snapshotSeq, staticRevision: next.staticRevision, hasFullBaseline: true } };
 }
 
-export function mergeSnapshotTransaction(previous, networkState, message) {
+export function mergeSnapshotTransaction(previous, networkState, message, renderNow = null) {
   const envelope = inspectSnapshotEnvelope(networkState, message);
   if (!envelope.ok) return envelope;
-  return envelope.kind === "full" ? mergeFullSnapshot(message) : mergeCompactSnapshot(previous, message);
+  return envelope.kind === "full" ? mergeFullSnapshot(message, renderNow) : mergeCompactSnapshot(previous, message, renderNow);
 }

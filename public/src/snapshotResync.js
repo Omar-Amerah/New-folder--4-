@@ -1,6 +1,7 @@
 const CANONICAL = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
 const MAP = Object.freeze({
   'sequence-gap': 'sequence-gap',
+  'projectile-sequence-gap': 'client-request',
   'wrong-base': 'sequence-gap',
   'missing-baseline': 'client-request',
   'static-revision-mismatch': 'static-revision',

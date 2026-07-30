@@ -21,7 +21,9 @@ const {
   usesSensorVisibility,
   ensureTeamVisibility,
   canTeamSeeEntity,
-  normalizedTeamId
+  isPointVisibleToTeam,
+  normalizedTeamId,
+  teamOfEntity
 } = require("./visibility");
 
 const PROJECTILE_EVENTS_CAPABILITY = "projectileEventsV1";
@@ -58,9 +60,9 @@ function isEventReplicationEnabled() {
 }
 
 function clientSupportsProjectileEvents(client) {
-  if (!client) return false;
-  if (!PROJECTILE_EVENT_REPLICATION()) return false;
-  return true;
+  return PROJECTILE_EVENT_REPLICATION()
+    && Array.isArray(client?.protocol?.capabilities)
+    && client.protocol.capabilities.includes(PROJECTILE_EVENTS_CAPABILITY);
 }
 
 function ensureReplication(room) {
@@ -233,6 +235,7 @@ function recordProjectileSpawn(room, bullet, now) {
     stateEpoch: rep.stateEpoch,
     projectileEventSeq: seq,
     simulationTimeMs: simMs,
+    _visibleTeams: computeVisibleTeams(room, bullet, simMs),
     projectile: {
       id: bullet.id,
       ownerId: bullet.ownerId || null,
@@ -262,6 +265,40 @@ function validateRemoveReason(reason) {
   return "despawn";
 }
 
+function activeTeamIds(room) {
+  const ids = new Set();
+  if (room?.players) {
+    for (const player of room.players.values()) {
+      ids.add(normalizedTeamId(room, player.team ?? player.id));
+    }
+  }
+  if (room?.teams) {
+    for (const team of room.teams) {
+      ids.add(normalizedTeamId(room, team));
+    }
+  }
+  return ids;
+}
+
+function computeVisibleTeams(room, bullet, now) {
+  const visible = new Set();
+  if (!bullet) return visible;
+  const ownTeam = teamOfEntity(room, bullet);
+  if (ownTeam) visible.add(ownTeam);
+  if (!usesSensorVisibility(room)) {
+    for (const teamId of activeTeamIds(room)) visible.add(teamId);
+    return visible;
+  }
+  const padding = Number(bullet.radius) || 0;
+  for (const teamId of activeTeamIds(room)) {
+    if (teamId === ownTeam) continue;
+    if (isPointVisibleToTeam(room, teamId, bullet.x, bullet.y, now, padding)) {
+      visible.add(teamId);
+    }
+  }
+  return visible;
+}
+
 function recordProjectileRemove(room, bullet, reason, now, finalX, finalY) {
   if (!isEventReplicationEnabled() || !room || !bullet) return;
   const rep = ensureReplication(room);
@@ -272,15 +309,18 @@ function recordProjectileRemove(room, bullet, reason, now, finalX, finalY) {
     return;
   }
   rep.nextEventSeq += 1;
+  bullet.life = 0;
   const seq = rep.nextEventSeq;
   const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
   const x = Number.isFinite(finalX) ? round(finalX) : round(bullet.x);
   const y = Number.isFinite(finalY) ? round(finalY) : round(bullet.y);
+  const pointBullet = { ...bullet, x, y };
   rep.log.push({
     type: "projectileRemove",
     stateEpoch: rep.stateEpoch,
     projectileEventSeq: seq,
     simulationTimeMs: simMs,
+    _visibleTeams: computeVisibleTeams(room, pointBullet, simMs),
     projectileId: bullet.id,
     reason: validateRemoveReason(reason),
     x,
@@ -312,11 +352,13 @@ function viewerTeamId(room, client) {
 
 function getTeamVisibleProjectiles(room, teamId, now) {
   const rep = ensureReplication(room);
-  if (rep._visibleAt === now && rep._visibleByTeam.has(teamId)) {
+  if (rep._visibleAt !== now) {
+    rep._visibleAt = now;
+    rep._visibleByTeam.clear();
+  }
+  if (rep._visibleByTeam.has(teamId)) {
     return rep._visibleByTeam.get(teamId);
   }
-  rep._visibleAt = now;
-  rep._visibleByTeam = new Map();
 
   if (!usesSensorVisibility(room)) {
     const visible = new Set();
@@ -486,11 +528,19 @@ function buildClientBatch(room, client, now, fullBaseline) {
   }
 
   const visible = visibleProjectilesForClient(room, client, now);
+  const teamId = viewerTeamId(room, client);
   const simMs = Math.floor(now);
   const events = [];
-  const newKnown = new Set(visible);
+  const projectedKnown = new Set(baseKnown);
+  let scannedEventSeq = baseEventSeq;
   let newEventSeq = baseEventSeq;
   let newCorrectionSeq = baseCorrectionSeq;
+
+  function pushWire(event) {
+    const wire = { ...event };
+    delete wire._visibleTeams;
+    events.push(wire);
+  }
 
   // Replay lifecycle records the client has not yet acknowledged.
   if (baseEventSeq < rep.nextEventSeq) {
@@ -498,32 +548,34 @@ function buildClientBatch(room, client, now, fullBaseline) {
       if (event.projectileEventSeq <= baseEventSeq) continue;
       if (event.projectileEventSeq > rep.nextEventSeq) break;
       if (event.stateEpoch !== rep.stateEpoch) continue;
+      scannedEventSeq = event.projectileEventSeq;
       if (event.type === "projectileSpawn") {
-        if (visible.has(event.projectile?.id)) {
-          events.push(event);
+        const id = event.projectile?.id;
+        if (id && !projectedKnown.has(id) && event._visibleTeams?.has(teamId)) {
+          pushWire(event);
+          projectedKnown.add(id);
           newEventSeq = Math.max(newEventSeq, event.projectileEventSeq);
         }
       } else if (event.type === "projectileRemove") {
-        if (baseKnown.has(event.projectileId)) {
-          events.push(event);
+        if (projectedKnown.has(event.projectileId)) {
+          pushWire(event);
+          projectedKnown.delete(event.projectileId);
           newEventSeq = Math.max(newEventSeq, event.projectileEventSeq);
         }
       }
     }
   }
 
-  // Synthesise visibility transitions.
+  // Synthesise visibility transitions from the projected known set.
   const gained = [];
   const lost = [];
   for (const id of visible) {
-    if (!baseKnown.has(id)) gained.push(id);
+    if (!projectedKnown.has(id)) gained.push(id);
   }
-  for (const id of baseKnown) {
+  for (const id of projectedKnown) {
     if (!visible.has(id)) {
       const bullet = room.projectileById?.get?.(id);
-      if (bullet && bullet.life > 0) {
-        lost.push(id);
-      }
+      if (bullet && bullet.life > 0) lost.push(id);
     }
   }
 
@@ -539,6 +591,7 @@ function buildClientBatch(room, client, now, fullBaseline) {
       simulationTimeMs: simMs,
       projectile: current
     });
+    projectedKnown.add(id);
     newEventSeq = Math.max(newEventSeq, seq);
     rep.diagnostics.projectileVisibilitySpawns += 1;
     rep.diagnostics.projectileLifecycleEventsCreated += 1;
@@ -546,6 +599,7 @@ function buildClientBatch(room, client, now, fullBaseline) {
   }
 
   for (const id of lost) {
+    if (!projectedKnown.has(id)) continue;
     rep.nextEventSeq += 1;
     const seq = rep.nextEventSeq;
     events.push({
@@ -555,6 +609,7 @@ function buildClientBatch(room, client, now, fullBaseline) {
       simulationTimeMs: simMs,
       projectileId: id
     });
+    projectedKnown.delete(id);
     newEventSeq = Math.max(newEventSeq, seq);
     rep.diagnostics.projectileVisibilityHides += 1;
     rep.diagnostics.projectileLifecycleEventsCreated += 1;
@@ -564,12 +619,18 @@ function buildClientBatch(room, client, now, fullBaseline) {
   // Append corrections that are relevant to this client.  They were generated
   // once per room update in prepareRoomCorrections().
   for (const id of visible) {
-    if (!baseKnown.has(id)) continue;
+    if (!projectedKnown.has(id)) continue;
     const c = rep.corrections.get(id);
     if (!c) continue;
     events.push(c);
     newCorrectionSeq = Math.max(newCorrectionSeq, c.correctionSeq);
   }
+
+  // The client must advance through every sequence that has been examined,
+  // even when none of the records are relevant to this viewer.
+  newEventSeq = Math.max(newEventSeq, scannedEventSeq);
+
+  const newKnown = projectedKnown;
 
   // If the backlog is too large for one frame, promote to a full baseline
   // rather than silently truncating events.  A full baseline carries the

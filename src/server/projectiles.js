@@ -1083,6 +1083,7 @@ function updateBullets(room, dt, now) {
     }
 
     if (earliest?.kind === "drone") {
+      recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       require("./drones").damageDrone(room, earliest.drone, bullet.damage, bullet.ownerId, now);
       room.effects.push({
         type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark",

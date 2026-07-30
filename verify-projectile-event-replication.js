@@ -38,7 +38,7 @@ function makeRoom() {
     bullets: [],
     projectileById: new Map(),
     clients: new Set(),
-    players: new Map(),
+    players: new Map([["p1", { id: "p1", team: "t1" }]]),
     rules: {},
     world: { width: 2000, height: 2000 }
   };
@@ -167,7 +167,7 @@ test("client capability follows the server feature flag", () => {
   assert.strictEqual(clientSupportsProjectileEvents(clientNoCaps), false);
   assert.strictEqual(clientSupportsProjectileEvents(clientWithCaps), false);
   __setPROJECTILE_EVENT_REPLICATION(true);
-  assert.strictEqual(clientSupportsProjectileEvents(clientNoCaps), true);
+  assert.strictEqual(clientSupportsProjectileEvents(clientNoCaps), false);
   assert.strictEqual(clientSupportsProjectileEvents(clientWithCaps), true);
   __setPROJECTILE_EVENT_REPLICATION(false);
 });

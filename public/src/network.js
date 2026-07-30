@@ -390,7 +390,7 @@ export function withClientProtocol(message) {
     minProtocolVersion: globalThis.MFAProtocol?.MIN_SUPPORTED_PROTOCOL ?? 5,
     maxProtocolVersion: globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 5,
     frontendBuildSha: globalThis.MFA_FRONTEND_BUILD_SHA || "dev",
-    capabilities: ["messagepack", "resume-v1", "heartbeat-v1", "telemetry-focus-v1"],
+    capabilities: ["messagepack", "resume-v1", "heartbeat-v1", "telemetry-focus-v1", "projectileEventsV1"],
     ...message
   };
 }

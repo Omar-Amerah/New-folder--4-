@@ -8,6 +8,7 @@ const VERSION = 1;
 
 const MAX_TOMBSTONES = 4096;
 const TOMBSTONE_WINDOW = 2048;
+const EXTRAPOLATION_CAP_MS = 80;
 
 let store = {
   version: VERSION,
@@ -122,8 +123,8 @@ function applyBaseline(message) {
 }
 
 function applyEvents(message) {
-  const events = message.projectileEvents;
-  if (!Array.isArray(events) || events.length === 0) return;
+  const events = message.projectileEvents || [];
+  if (!Array.isArray(events)) return { ok: false, reason: "projectile-sequence-gap" };
 
   // The server tells us the range of event sequences this frame covers.
   // If it does not start exactly where we left off, we have missed events
@@ -133,14 +134,14 @@ function applyEvents(message) {
   const baseCorrection = Number(message.projectileCorrectionBaseSeq) || 0;
   const endCorrection = Number(message.projectileCorrectionSeq) || 0;
 
-  if (events.length > 0 && base !== store.eventSeq) {
+  if (base !== store.eventSeq) {
     // Sequence gap: drop the partial batch and request a reset via the next full.
     store.hasBaseline = false;
-    return;
+    return { ok: false, reason: "projectile-sequence-gap" };
   }
   if (endCorrection > 0 && baseCorrection !== store.correctionSeq) {
     store.hasBaseline = false;
-    return;
+    return { ok: false, reason: "projectile-sequence-gap" };
   }
 
   for (const ev of events) {
@@ -150,33 +151,35 @@ function applyEvents(message) {
   store.eventSeq = Math.max(store.eventSeq, end);
   store.correctionSeq = Math.max(store.correctionSeq, endCorrection);
   pruneTombstones();
+  return { ok: true };
 }
 
 export function applySnapshotToProjectiles(message) {
-  if (!message || message.type !== "state") return;
+  if (!message || message.type !== "state") return { ok: true };
   ensureEpoch(message);
 
   if (message.snapshotKind === "full") {
     applyBaseline(message);
+    return { ok: true };
   } else if (message.projectileEvents !== undefined) {
-    if (!store.hasBaseline) return; // Ignore events until a full baseline arrives.
-    applyEvents(message);
-    if (message.projectileEvents.length === 0) {
-      // Empty compact event batch: still advance cursors to the server's head.
-      store.eventSeq = Math.max(store.eventSeq, Number(message.projectileEventSeq) || 0);
-      store.correctionSeq = Math.max(store.correctionSeq, Number(message.projectileCorrectionSeq) || 0);
-    }
+    if (!store.hasBaseline) return { ok: false, reason: "projectile-sequence-gap" };
+    const result = applyEvents(message);
+    if (!result.ok) store.hasBaseline = false;
+    return result;
   } else {
     // Fallback: compact snapshot still carries the complete bullet list.
     applyBaseline(message);
+    return { ok: true };
   }
 }
 
 export function getProjectilesForRender(now = null) {
   const out = [];
   const useNow = Number.isFinite(now);
+  const cap = EXTRAPOLATION_CAP_MS / 1000;
   for (const p of store.projectiles.values()) {
-    const dt = (useNow && Number.isFinite(p.simulationTimeMs)) ? (now - p.simulationTimeMs) / 1000 : 0;
+    const rawDt = (useNow && Number.isFinite(p.simulationTimeMs)) ? (now - p.simulationTimeMs) / 1000 : 0;
+    const dt = useNow ? Math.max(0, Math.min(rawDt, cap)) : 0;
     const render = {
       id: p.id,
       type: p.type,
@@ -186,8 +189,8 @@ export function getProjectilesForRender(now = null) {
       y: p.y + p.vy * dt,
       vx: p.vx,
       vy: p.vy,
-      age: p.age,
-      remainingLife: p.remainingLife,
+      age: p.age + dt,
+      remainingLife: Math.max(0, p.remainingLife - dt),
       simulationTimeMs: p.simulationTimeMs
     };
     if (p.angle !== undefined) render.angle = p.angle;
