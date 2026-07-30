@@ -21,9 +21,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
-import { getCachedDesignDataSupport } from "../design/dataSupportAnalysis.js";
-import { formatDataSupportValue } from "../design/dataSupportPresentation.js";
-import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation } from "./dataLinksUi.js";
+import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, renderDataAnalysisPanel } from "./dataLinksUi.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
   refreshWiringPresentation,
@@ -1614,47 +1612,9 @@ function renderAnalysisPanels(stats, heat) {
       dom.wiringAnalysisSummary.hidden = true;
     }
   } else if (dom.dataAnalysisSummary) {
-    const analysis = getCachedDesignDataSupport(state.design, null, PART_STATS, {
-      thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE,
-      thermalAnalysis: heat,
-      dataLinks: state.dataLinks
-    });
-    const sourceRows = analysis.sources.map((source) => {
-      const name = PART_DEFS[source.sourceType]?.name || source.sourceType;
-      const total = formatDataSupportValue({ bonusField: source.bonusField, amount: source.effectiveBudget });
-      const each = formatDataSupportValue({ bonusField: source.bonusField, amount: source.bonusPerWeapon });
-      return [
-        `${name} #${source.sourceIndex + 1}`,
-        source.recipientCount
-          ? `${total} ${source.effect} shared across ${source.recipientCount} linked weapon${source.recipientCount === 1 ? "" : "s"} = ${each} each`
-          : "No compatible weapons fitted"
-      ];
-    });
-    const weaponRows = analysis.weapons.map((weapon) => {
-      const name = PART_DEFS[weapon.weaponType]?.name || weapon.weaponType;
-      const bonuses = [];
-      if (weapon.rangeBonus > 0) bonuses.push(formatDataSupportValue({ bonusField: "rangeBonus", amount: weapon.rangeBonus }));
-      if (weapon.accuracyBonus > 0) bonuses.push(`${formatDataSupportValue({ bonusField: "accuracyBonus", amount: weapon.accuracyBonus })} accuracy`);
-      if (weapon.fireRateBonus > 0) bonuses.push(`${formatDataSupportValue({ bonusField: "fireRateBonus", amount: weapon.fireRateBonus })} fire rate`);
-      return [`${name} #${weapon.weaponIndex + 1}`, bonuses.length ? bonuses.join(" / ") : "Base weapon performance"];
-    });
-    dom.dataAnalysisSummary.innerHTML = `
-      <section class="analysis-summary-card data-analysis-overview">
-        <h3>Automatic Data links</h3>
-        <p>Data-support components automatically link to compatible weapons. Each source has a fixed support budget, so linking more weapons gives each weapon a smaller share.</p>
-        ${analysisGridMarkup([
-          ["Active sources", `${analysis.sources.filter((source) => source.effectiveBudget > 0).length} / ${analysis.sources.length}`],
-          ["Supported weapons", `${analysis.weapons.filter((weapon) => weapon.status === "supported").length} / ${analysis.weapons.length}`]
-        ])}
-      </section>
-      <section class="analysis-summary-card">
-        <h3>Support allocation</h3>
-        ${sourceRows.length ? analysisGridMarkup(sourceRows) : '<p class="data-analysis-empty">Add a Fire Control, Signal Amplifier, Targeting Computer, or Stabilizer Node to create Data links.</p>'}
-      </section>
-      <section class="analysis-summary-card">
-        <h3>Linked weapons</h3>
-        ${weaponRows.length ? analysisGridMarkup(weaponRows) : '<p class="data-analysis-empty">Add a weapon to receive Data support.</p>'}
-      </section>`;
+    // Data support reuses the Data Links presentation so the analysis tab and
+    // the grid overlay describe the same prediction with the same cards.
+    renderDataAnalysisPanel(dom.dataAnalysisSummary, { thermalAnalysis: heat });
   }
 
   const accelText = (value) => {

@@ -467,6 +467,9 @@
 
 .combined-analysis-summary {
   display: grid;
+  /* minmax(0, …) keeps a card with wide nowrap content from growing the track
+     and pushing the whole analysis panel past the inspector column. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -518,14 +521,6 @@
 #analysisMovementPanel {
   display: grid;
   gap: 10px;
-}
-
-.data-analysis-overview p,
-.data-analysis-empty {
-  margin: 0;
-  color: var(--faint);
-  font-size: 10px;
-  line-height: 1.45;
 }
 
 #analysisMovementPanel[hidden] {

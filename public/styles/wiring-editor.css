@@ -1774,7 +1774,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  /* The status badge never wraps its own text, so let it drop to a second line
+     rather than widening the card past the inspector column. */
+  flex-wrap: wrap;
+  gap: 4px 10px;
   padding-bottom: 2px;
 }
 
@@ -1829,7 +1832,9 @@
 /* Summary stats cells */
 .data-summary-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* minmax(0, …) lets the nowrap stat values ellipsize instead of stretching
+     the grid past its container. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1895,7 +1900,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   padding: 6px 10px;
   background: rgba(16, 26, 42, 0.6);
   border: 1px solid rgba(126, 160, 210, 0.14);
@@ -1923,6 +1929,29 @@
   object-fit: contain;
 }
 
+/* Component rows carry a name/status line plus the allocation arithmetic that
+   produced that status underneath it. */
+.data-component-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.data-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.data-component-detail {
+  color: #728aa8;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .data-component-name {
   color: #d7e4f5;
   font-size: 12px;
@@ -1944,6 +1973,7 @@
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .data-status-badge {
@@ -2085,10 +2115,7 @@
 
 @media (max-width: 480px) {
   .data-summary-stats {
-    grid-template-columns: 1fr;
-  }
-  .data-component-row {
-    flex-wrap: wrap;
+    grid-template-columns: minmax(0, 1fr);
   }
   .data-row-actions {
     width: 100%;

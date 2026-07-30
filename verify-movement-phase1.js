@@ -9,7 +9,8 @@
 //   * a new click while travelling works
 //   * the ship never reverses
 //   * the ship never circles its destination
-//   * the ship stops, and stays stopped, without creeping
+//   * the ship stops, and stays stopped, without creeping -- and does it promptly
+//   * a course change costs the ship its heading, not its momentum
 //   * a light ship turns faster than a capital ship
 //   * different tick partitions produce the same trajectory
 
@@ -17,6 +18,7 @@ const assert = require("assert");
 const { computeStats } = require("./src/server/shipStats");
 const {
   commandShips,
+  stopShips,
   updateShipMovement,
   updateShipSeparation
 } = require("./src/server/movement");
@@ -94,12 +96,15 @@ function makeShip(design, x, y, angle = 0) {
   return ship;
 }
 
-function makeScenario(ships, asteroids = []) {
+// The default map is deliberately small. Cases that need a ship at full cruise
+// with room to manoeuvre afterwards pass a bigger one -- this hull needs over
+// 1300 px just to get up to speed.
+function makeScenario(ships, asteroids = [], world = { width: 4000, height: 3000 }) {
   const player = { id: "p1", team: "A", ships };
   return {
     player,
     room: {
-      world: { width: 4000, height: 3000 },
+      world,
       map: { asteroids },
       ships: new Map(ships.map((ship) => [ship.id, ship])),
       players: new Map([["p1", player]]),
@@ -220,6 +225,99 @@ function run() {
       "a parked ship should not rotate toward the destination it is sitting short of");
     assert.strictEqual(ship.vx, 0, "a parked ship should have exactly zero velocity");
     assert.strictEqual(ship.vy, 0, "a parked ship should have exactly zero velocity");
+  }
+
+  // --- A course change costs the heading, not the momentum ------------------
+  {
+    // A ship at cruise given a new destination square abeam must turn onto it
+    // without braking for the turn.
+    //
+    // The alignment throttle exists to stop a ship accelerating along a heading
+    // it is about to leave. Used as a speed *target* it does more than that: it
+    // actively sheds momentum that costs nothing to keep, so every corner
+    // becomes a stop followed by a fresh acceleration run and the whole fleet
+    // reads as sluggish. The throttle is now a floor on thrust rather than a
+    // speed to hold, with a separate ceiling saying what the ship may keep.
+    const ship = makeShip(LIGHT_DESIGN, 3000, 6000, 0);
+    const { room, player } = makeScenario([ship], [], { width: 12000, height: 12000 });
+    commandShips(room, player, 11000, 6000, { shipIds: [ship.id] });
+    simulate(room, [ship], 8);
+    const cruise = speedOf(ship);
+    assert(cruise > 450, `fixture should reach cruise first (${cruise.toFixed(0)} px/s)`);
+
+    // A leg long enough that the arrival profile never binds during the turn.
+    const destinationX = ship.x;
+    const destinationY = ship.y + 4000;
+    commandShips(room, player, destinationX, destinationY, { shipIds: [ship.id] });
+    let lowest = Infinity;
+    simulate(room, [ship], 4, DT, () => {
+      lowest = Math.min(lowest, speedOf(ship));
+      assertNeverReverses(ship, "abeam turn");
+    });
+    assert(lowest > cruise * 0.95,
+      `a 90 degree course change should not cost the ship its speed (kept ${(lowest / cruise * 100).toFixed(0)}% of ${cruise.toFixed(0)} px/s)`);
+    // Settled on the new leg -- measured as the bearing to the destination, not
+    // as a fixed angle: the ship carries several hundred pixels of momentum
+    // through the turn, so the leg it ends up flying is not quite the one that
+    // was clicked from where it then stood.
+    const bearingError = Math.abs(Math.atan2(destinationY - ship.y, destinationX - ship.x) - ship.angle);
+    assert(bearingError < 0.05,
+      `...and should still come round onto the new course (${bearingError.toFixed(3)} rad off)`);
+  }
+
+  // --- ...but momentum aimed the wrong way is still given up ----------------
+  {
+    // The other half of the same rule, and the reason the coast band is bounded:
+    // once the destination is behind the ship the speed it is carrying is being
+    // spent going the wrong way, so it has to be shed. Without this the band
+    // would simply be "never brake", and a reversal would become a long lazy
+    // loop through whatever the ship was flying past.
+    const ship = makeShip(LIGHT_DESIGN, 3000, 6000, 0);
+    const { room, player } = makeScenario([ship], [], { width: 12000, height: 12000 });
+    commandShips(room, player, 11000, 6000, { shipIds: [ship.id] });
+    simulate(room, [ship], 8);
+    const cruise = speedOf(ship);
+    const turnX = ship.x;
+
+    commandShips(room, player, turnX - 4000, 6000, { shipIds: [ship.id] });
+    let lowest = Infinity;
+    let overshoot = 0;
+    simulate(room, [ship], 6, DT, () => {
+      lowest = Math.min(lowest, speedOf(ship));
+      overshoot = Math.max(overshoot, ship.x - turnX);
+    });
+    assert(lowest < cruise * 0.7,
+      `a reversal should shed speed (kept ${(lowest / cruise * 100).toFixed(0)}% of ${cruise.toFixed(0)} px/s)`);
+    assert(overshoot < 350,
+      `a reversal should not sail on past the turn (${overshoot.toFixed(0)} px)`);
+  }
+
+  // --- Stopping is prompt ---------------------------------------------------
+  {
+    // Deceleration is not acceleration run backwards: a hull that is no longer
+    // being asked anywhere can put its engines and every attitude thruster into
+    // braking. Sharing one figure with acceleration meant a ship needed its
+    // entire acceleration run again to stop -- 1400 px and five and a half
+    // seconds -- which is the "ships are on ice" complaint.
+    const ship = makeShip(LIGHT_DESIGN, 3000, 6000, 0);
+    const { room, player } = makeScenario([ship], [], { width: 12000, height: 12000 });
+    commandShips(room, player, 11000, 6000, { shipIds: [ship.id] });
+    simulate(room, [ship], 8);
+    const cruise = speedOf(ship);
+    const startX = ship.x;
+
+    stopShips(room, player, [ship.id]);
+    let stoppedAfter = null;
+    simulate(room, [ship], 10, DT, (tick) => {
+      if (stoppedAfter === null && speedOf(ship) < 1) stoppedAfter = (tick + 1) * DT;
+    });
+    const coasted = ship.x - startX;
+    assert(stoppedAfter !== null && stoppedAfter < 2.5,
+      `a stop order should stop the ship promptly (${stoppedAfter === null ? "never stopped" : stoppedAfter.toFixed(2) + " s"} from ${cruise.toFixed(0)} px/s)`);
+    assert(coasted < 700,
+      `a stop order should not coast half the map (${coasted.toFixed(0)} px)`);
+    assert.strictEqual(ship.vx, 0, "a stopped ship should be exactly at rest");
+    assert.strictEqual(ship.vy, 0, "a stopped ship should be exactly at rest");
   }
 
   // --- The course is smooth, not quantised ---------------------------------

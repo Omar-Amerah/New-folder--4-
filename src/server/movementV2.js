@@ -27,17 +27,27 @@
 //
 //         remaining     = max(0, distance - ARRIVE_RADIUS)
 //         safeArrival   = sqrt(2 * brakingAccel * remaining)
+//         permitted     = min(maxSpeed, safeArrival, turnLimit)
 //         alignment     = clamp(cos(headingError), 0, 1)
-//         desiredSpeed  = min(maxSpeed, safeArrival, turnLimit) * alignment
+//         desiredSpeed  = permitted * alignment
 //
 //     Facing the destination gives full permitted speed. Partly aligned gives
-//     less. More than 90 degrees off gives zero, so the ship turns and brakes
-//     rather than accelerating away from where it was sent.
+//     less. More than 90 degrees off gives zero, so the ship turns rather than
+//     accelerating away from where it was sent.
 //
 //     safeArrival is the speed from which the ship can still stop on the mark,
 //     so braking falls out of the geometry instead of being switched on at a
 //     threshold. turnLimit is what keeps a fast hull from circling a
 //     destination it cannot turn tightly enough to hit.
+//
+//     desiredSpeed is a throttle, not a speed to be held. It says how fast the
+//     engines may push; it does not ask the ship to shed speed it already has.
+//     What it may keep is a second number:
+//
+//         speedCeiling  = permitted * momentumRetention(headingError)
+//
+//     and between the two the ship simply coasts. That band is what carries a
+//     ship through a corner -- see momentumRetention.
 
 const {
   angleDifference,
@@ -126,6 +136,28 @@ const BEARING_MIN_DISTANCE = 1;
 // longer rate-limited. Short enough to be invisible on a real change of course,
 // long enough that command noise never reaches the hull one-for-one.
 const TURN_TIME_CONSTANT_S = 0.04;
+
+// Stopping is not acceleration run backwards. Getting under way is limited by
+// what the engines can push a loaded hull to; shedding speed is the same engines
+// against a hull that is no longer being asked anywhere, plus every attitude
+// thruster aboard pointed the other way. A ship can therefore lose speed a good
+// deal faster than it gained it.
+//
+// Without this a corvette needs its entire acceleration run again to stop --
+// 1408 px and five and a half seconds from cruise -- which is exactly what "the
+// ships are on ice" is. The arrival profile is measured with the same figure, so
+// a ship still comes to rest precisely on its mark; it simply holds cruise most
+// of the way there instead of coasting down from a third of the map out.
+const BRAKE_ACCEL_RATIO = 3;
+
+// How far off the goal a ship may be pointing before it gives up speed it has
+// already paid for. Inside this cone it coasts through the turn: the alignment
+// throttle stops it *adding* speed it cannot use, which is all it was ever for,
+// but there is no drag out here and nothing is gained by braking into a corner
+// and re-accelerating out of it. Past the cone the goal is genuinely behind the
+// ship, the momentum is being spent going the wrong way, and it is shed --
+// smoothly, reaching zero when the goal is dead astern.
+const MOMENTUM_HOLD_ANGLE = Math.PI / 2;
 
 // How far a ship may be off the group's heading before it is allowed to steer
 // by its own slot bearing instead. Inside this cone the formation heading is
@@ -283,15 +315,40 @@ function applyManualRotation(ship, stats, dt) {
   applyTurnHeat(ship, ship.turnActivity, dt);
 }
 
-// Approach `desiredSpeed` at whatever the engines can deliver this step.
+function brakingAcceleration(stats) {
+  return driveAcceleration(stats) * BRAKE_ACCEL_RATIO;
+}
+
+// The fraction of its current speed a ship is allowed to keep while it is off
+// course: all of it while the goal is anywhere ahead of the beam, tapering to
+// none as the goal passes astern.
+function momentumRetention(headingError) {
+  const beyond = Math.abs(headingError) - MOMENTUM_HOLD_ANGLE;
+  if (beyond <= 0) return 1;
+  return clampNumber(1 - beyond / (Math.PI - MOMENTUM_HOLD_ANGLE), 0, 1);
+}
+
+// Bring the ship's speed inside the band the plan asked for.
+//
+// Three regimes, and the middle one is the whole point of having two numbers:
+//
+//   below desiredSpeed  -- the engines push
+//   above speedCeiling  -- the engines brake
+//   between the two     -- the ship carries the speed it already has
+//
+// The band is what a ship keeps through a turn. A single target makes the
+// alignment throttle do double duty: it is meant to stop a ship accelerating
+// along a heading it is about to leave, but as a target it also actively brakes
+// away momentum that costs nothing to keep, so every course change becomes a
+// stop and a fresh acceleration run.
 //
 // The ship's velocity is read back off the hull axis first. That is what folds
 // in everything else that touched it -- a separation impulse, an asteroid
 // bounce, the hull having turned since last step -- without this function
-// needing to know any of it happened. Speed is then floored at zero: engines
-// point backwards, so a ship asked to be somewhere behind it turns around
+// needing to know any of it happened. Speed is then floored at zero: no engine
+// points backwards, so a ship asked to be somewhere behind it turns around
 // rather than reversing into it.
-function moveSpeedToward(ship, desiredSpeed, stats, dt) {
+function moveSpeedToward(ship, desiredSpeed, speedCeiling, stats, dt) {
   const forwardX = Math.cos(ship.angle || 0);
   const forwardY = Math.sin(ship.angle || 0);
   const speed = (ship.vx || 0) * forwardX + (ship.vy || 0) * forwardY;
@@ -300,20 +357,25 @@ function moveSpeedToward(ship, desiredSpeed, stats, dt) {
   // both accelerate and re-point its whole velocity along its nose.
   if (!hasDrive(stats)) return;
 
-  const available = driveAcceleration(stats) * dt;
-  const requested = Math.max(0, desiredSpeed) - speed;
+  const target = Math.max(0, desiredSpeed);
+  const ceiling = Math.max(target, Number.isFinite(speedCeiling) ? speedCeiling : target);
+  let requested = 0;
+  if (speed < target) requested = target - speed;
+  else if (speed > ceiling) requested = ceiling - speed;
+
+  const available = (requested < 0 ? brakingAcceleration(stats) : driveAcceleration(stats)) * dt;
   const delta = clampNumber(requested, -available, available);
   let next = speed + delta;
   if (next < 0) next = 0;
   // Converging on zero asymptotically never gets there, and out here there is
   // no drag to finish the job -- so a ship asked to stop creeps off station a
   // pixel at a time forever. Park it outright instead.
-  if (next < REST_SPEED && desiredSpeed < REST_SPEED) next = 0;
+  if (next < REST_SPEED && ceiling < REST_SPEED) next = 0;
   ship.vx = forwardX * next;
   ship.vy = forwardY * next;
 
-  // Coasting is free. Only a change of speed burns anything, so a ship holding
-  // a cruise generates no engine heat.
+  // Coasting is free -- and now genuinely free, since the band means a ship
+  // holding its momentum through a turn is not thrusting at all.
   applyEngineHeat(ship, Math.min(1, Math.abs(requested) / Math.max(available, 1e-9)), dt);
 }
 
@@ -1090,7 +1152,7 @@ function planMovement(room, ship, runtime, stats, route) {
   // intermediate waypoints are rounded at speed and the ship comes to rest only
   // at the end.
   const remainingToEnd = Math.max(0, (route ? route.remaining : distance) - ARRIVE_DISTANCE);
-  const safeArrivalSpeed = Math.sqrt(2 * driveAcceleration(stats) * remainingToEnd);
+  const safeArrivalSpeed = Math.sqrt(2 * brakingAcceleration(stats) * remainingToEnd);
 
   // Speed from the geometry of the turn: a ship doing v with turn rate w flies
   // a circle of radius v/w, and if that circle is wider than the distance left
@@ -1102,7 +1164,8 @@ function planMovement(room, ship, runtime, stats, route) {
   // Alignment throttle: full speed pointing at the goal, nothing at all pointing
   // away from it. The ship accelerates gently out of a turn and hard once it is
   // on course, and it never has to stop and aim before setting off.
-  const alignment = clampNumber(Math.cos(angleDifference(ship.angle || 0, bearing)), 0, 1);
+  const headingError = angleDifference(ship.angle || 0, bearing);
+  const alignment = clampNumber(Math.cos(headingError), 0, 1);
   const permitted = Math.min(
     Number(stats.maxSpeed) || 0,
     // A group travels at the pace of its slowest hull, so the formation stays a
@@ -1114,13 +1177,22 @@ function planMovement(room, ship, runtime, stats, route) {
   );
 
   const desiredSpeed = permitted * alignment;
+  // Every limit in `permitted` is a hard one -- the arrival profile, the turn
+  // radius, the corner, the group's pace -- so the ceiling is the same figure.
+  // Only the alignment term is relaxed into a coast band, because it is the only
+  // one that is about where the ship is pointing rather than about what it will
+  // hit.
+  const speedCeiling = permitted * momentumRetention(headingError);
   return {
     desiredHeading,
     desiredSpeed,
+    speedCeiling,
     // "Braking" is a report of what the ship is doing, not of where it is: a
     // hull holding a cruise a long way out is travelling even though the
-    // arrival profile is already the binding limit on its speed.
-    phase: desiredSpeed < speed - REST_SPEED ? "braking" : "travelling"
+    // arrival profile is already the binding limit on its speed. Measured
+    // against the ceiling, since that is the figure the engines actually work
+    // against -- coasting through a turn is not braking.
+    phase: speedCeiling < speed - REST_SPEED ? "braking" : "travelling"
   };
 }
 
@@ -1160,6 +1232,10 @@ function movementStep(room, ship, runtime, stats, routed, avoidance, dt) {
   if (avoidance && (avoidance.headingOffset !== 0 || avoidance.speedMultiplier !== 1)) {
     plan.desiredHeading = normalizeHullAngle(plan.desiredHeading + avoidance.headingOffset);
     plan.desiredSpeed *= avoidance.speedMultiplier;
+    // The ceiling comes down with the throttle. Slowing for a threat is a
+    // decision to give up speed, not merely to stop adding it -- a ship that
+    // coasted through it would arrive at the closest point just as fast.
+    if (Number.isFinite(plan.speedCeiling)) plan.speedCeiling *= avoidance.speedMultiplier;
   }
 
   runtime.desiredHeading = plan.desiredHeading;
@@ -1167,17 +1243,18 @@ function movementStep(room, ship, runtime, stats, routed, avoidance, dt) {
 
   if (ship.manualRotation) {
     applyManualRotation(ship, stats, dt);
-    // Manual rotation owns the facing but not the throttle. The alignment term
-    // in the plan was computed against the hull's own angle, so turning off
-    // course slows the ship down of its own accord -- which is what a ship that
-    // cannot thrust sideways would do.
+    // Manual rotation owns the facing but not the throttle. The plan's terms
+    // were computed against the hull's own angle, so swinging off course stops
+    // the engines pushing long before it costs the ship the speed it has: it
+    // carries its momentum round, and only gives it up once the goal is behind
+    // it. Which is what a ship that cannot thrust sideways would do.
     runtime.phase = plan.phase === "idle" ? "turning" : plan.phase;
   } else {
     turnTowardHeading(ship, plan.desiredHeading, stats, dt);
     runtime.phase = plan.phase;
   }
 
-  moveSpeedToward(ship, plan.desiredSpeed, stats, dt);
+  moveSpeedToward(ship, plan.desiredSpeed, plan.speedCeiling, stats, dt);
   integratePosition(room, ship, dt);
   sanitizeMovementState(room, ship);
 }

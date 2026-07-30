@@ -64,13 +64,20 @@ const { launchChromium, startServer, waitForServer, uniquePort } = require("./ve
           { type: "blaster", x: 7, y: 7, rotation: 0 },
           { type: "railgun", x: 8, y: 7, rotation: 0 }
         ];
+        state.dataLinks = [
+          { sourceIndex: 0, targetIndex: 1 },
+          { sourceIndex: 0, targetIndex: 2 }
+        ];
         designer.renderLocalStats();
         inspector.activateDesignerInspectorTab("analysis");
         inspector.activateDesignerAnalysisTab("data");
+        const host = document.getElementById("dataAnalysisSummary");
         return {
           panelHidden: document.getElementById("analysisDataPanel").hidden,
           selected: document.getElementById("analysisDataTab").getAttribute("aria-selected"),
-          text: document.getElementById("dataAnalysisSummary").textContent,
+          text: host.textContent,
+          overviewCards: host.querySelectorAll(".data-inspection-card").length,
+          componentRows: host.querySelectorAll(".data-component-row").length,
           dataRequirement: inspectorModel.requirementsFor("fireControl", { fireRateBonus: 0.15 }, {
             includePowerRequirements: false,
             includeDataRequirements: true,
@@ -80,9 +87,11 @@ const { launchChromium, startServer, waitForServer, uniquePort } = require("./ve
       });
       assert.equal(dataTab.panelHidden, false, "Data analysis opens as its own tab");
       assert.equal(dataTab.selected, "true", "Data analysis tab reports selected state");
-      assert.match(dataTab.text, /Automatic Data links/i, "Data analysis explains automatic links");
+      assert.equal(dataTab.overviewCards, 1, "Data analysis renders the Data-support overview card");
+      assert.equal(dataTab.componentRows, 3, "Data analysis lists every source and weapon");
+      assert.match(dataTab.text, /DATA SUPPORT/, "Data analysis headlines the Data-support prediction");
       assert.match(dataTab.text, /smaller share/i, "Data analysis explains diminishing returns");
-      assert.match(dataTab.text, /shared across 2 linked weapons/i, "Data analysis reports the selected recipient count");
+      assert.match(dataTab.text, /shared across 2 linked weapons/i, "Data analysis reports the recipient count");
       assert.equal(dataTab.dataRequirement.summary, "Automatic links", "Data-support components no longer ask for a cable");
       assert.match(dataTab.dataRequirement.detail, /smaller share/i, "component inspector explains automatic diminishing returns");
     }

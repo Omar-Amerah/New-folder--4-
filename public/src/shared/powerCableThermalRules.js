@@ -113,7 +113,8 @@
         // that supply a plain hostMap will simply skip their Heat; callers that
         // augment the hostMap (runtime) include it.
         if (flow.internal) continue;
-        throw new Error(`Power-cable Heat: no host entry for section ${sectionId}`);
+        // No physical wiring host cells — no cable heat to account.
+        continue;
       }
       const rawCells = Array.isArray(hostEntry.hostCells) ? hostEntry.hostCells : [];
       const seenCells = new Set();

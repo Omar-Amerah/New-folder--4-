@@ -46,10 +46,7 @@ export function renderDataLinksOverlay() {
   });
   svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;";
 
-  const analysis = getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, {
-    thermalLoadMode: state.thermalLoadMode || "full",
-    dataLinks: state.dataLinks
-  });
+  const analysis = currentDataSupportAnalysis();
 
   const selected = state.selectedCell ? state.design.indexOf(state.design.find((m) => m.x === state.selectedCell.x && m.y === state.selectedCell.y)) : null;
   const hoverIndex = state.hoveredCell ? state.design.indexOf(state.design.find((m) => m.x === state.hoveredCell.x && m.y === state.hoveredCell.y)) : null;
@@ -105,10 +102,12 @@ export function renderDataLinksOverlay() {
   host.appendChild(svg);
 }
 
-let lastDataLinksMarkup = "";
-function setDataLinksMarkup(panel, markup) {
-  if (markup === lastDataLinksMarkup) return;
-  lastDataLinksMarkup = markup;
+// Each host keeps its own last-rendered markup so the Data Links view and the
+// Data analysis tab can share one builder without starving each other's cache.
+const lastPanelMarkup = new WeakMap();
+function setPanelMarkup(panel, markup) {
+  if (lastPanelMarkup.get(panel) === markup) return;
+  lastPanelMarkup.set(panel, markup);
   panel.innerHTML = markup;
 }
 
@@ -122,28 +121,79 @@ function partName(type) {
   return PART_DEFS[type]?.name || type;
 }
 
-export function renderDataLinksPanel() {
-  const panel = dom.wiringStatusPanel;
-  if (!panel) return;
-  if (state.blueprintView !== "dataLinks") { panel.hidden = true; return; }
-  panel.hidden = false;
-  panel.tabIndex = -1;
+const WARNING_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2L1 14h14L8 2z"/><line x1="8" y1="6" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor"/></svg>`;
 
-  let analysis;
-  try {
-    analysis = getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, {
-      thermalLoadMode: state.thermalLoadMode || "full",
-      dataLinks: state.dataLinks
-    });
-  } catch (_) {
-    setDataLinksMarkup(panel, `<div role="status" class="wiring-summary-line">Data Links analysis could not be produced.</div>`);
-    return;
+// One cached prediction backs every Data presentation, so the grid overlay and
+// the analysis tab can never report different numbers for the same blueprint.
+export function currentDataSupportAnalysis(options = {}) {
+  return getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, {
+    thermalLoadMode: state.thermalLoadMode || "full",
+    dataLinks: state.dataLinks,
+    ...options
+  });
+}
+
+function sourceRowStatus(source) {
+  if (source.status === "active" || source.effectiveBudget > 0) {
+    return { label: `ACTIVE (${formatDataSupportValue({ bonusField: source.bonusField, amount: source.effectiveBudget })})`, tone: "badge-active" };
   }
+  if (source.powerMultiplier <= 0) return { label: "UNPOWERED", tone: "badge-offline" };
+  if (source.thermalMultiplier < 1) return { label: "THERMALLY REDUCED", tone: "badge-reduced" };
+  if (source.recipientCount === 0) return { label: "NO RECIPIENTS", tone: "badge-neutral" };
+  return { label: String(source.status).toUpperCase(), tone: "badge-neutral" };
+}
 
-  const netSources = analysis.sources || [];
-  const netWeapons = analysis.weapons || [];
-  const activeSources = netSources.filter((s) => s.status === "active" || s.effectiveBudget > 0);
-  const supportedWeapons = netWeapons.filter((w) => w.status === "supported");
+function weaponRowStatus(weapon) {
+  if (weapon.status !== "supported") return { label: "NO SUPPORT", tone: "badge-neutral" };
+  const parts = [];
+  if (weapon.rangeBonus > 0) parts.push(formatDataSupportValue({ bonusField: "rangeBonus", amount: weapon.rangeBonus }));
+  if (weapon.accuracyBonus > 0) parts.push(formatDataSupportValue({ bonusField: "accuracyBonus", amount: weapon.accuracyBonus }));
+  if (weapon.fireRateBonus > 0) parts.push(formatDataSupportValue({ bonusField: "fireRateBonus", amount: weapon.fireRateBonus }));
+  return { label: parts.length ? `SUPPORTED (${parts.join(", ")})` : "SUPPORTED", tone: "badge-active" };
+}
+
+// Keep the arithmetic on the row: a fixed budget divided by the linked weapon
+// count is the whole reason a design gains or loses per-weapon support.
+function sourceRowDetail(source) {
+  if (!source.recipientCount) return "No weapons linked";
+  const total = formatDataSupportValue({ bonusField: source.bonusField, amount: source.effectiveBudget });
+  const each = formatDataSupportValue({ bonusField: source.bonusField, amount: source.bonusPerWeapon });
+  return `${total} ${source.effect} shared across ${source.recipientCount} linked weapon${source.recipientCount === 1 ? "" : "s"} = ${each} each`;
+}
+
+function weaponRowDetail(weapon) {
+  const sourceIndices = weapon.sourceIndices || [];
+  if (!sourceIndices.length) return "No Data source linked";
+  return `Fed by ${sourceIndices.map((index) => partName(state.design?.[index]?.type)).join(", ")}`;
+}
+
+function componentRowHtml(kind, index, type, { label, tone }, detail) {
+  const module = state.design?.[index];
+  const coords = module ? `(${module.x},${module.y})` : "";
+  const icon = partIconMarkup ? partIconMarkup(type, "data-component-icon", module?.rotation || 0) : "";
+  return `<div class="wiring-summary-line wiring-component-row data-component-row data-component-row-stacked data-row-${kind} data-row-${tone}" data-data-inspector="${kind}">
+    <div class="data-row-head">
+      <div class="data-row-main">
+        ${icon}
+        <span class="data-component-name">${escapeHtml(partName(type))}</span>
+        <span class="data-component-coords">${escapeHtml(coords)}</span>
+      </div>
+      <div class="data-row-actions">
+        <span class="data-status-badge ${tone}">${escapeHtml(label)}</span>
+      </div>
+    </div>
+    <span class="data-component-detail">${escapeHtml(detail)}</span>
+  </div>`;
+}
+
+// Shared Data-support presentation. The Data Links view and the Blueprint's
+// Data analysis tab render the same cards so one design reads identically in
+// both places.
+export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}) {
+  const sources = analysis?.sources || [];
+  const weapons = analysis?.weapons || [];
+  const activeSources = sources.filter((s) => s.status === "active" || s.effectiveBudget > 0);
+  const supportedWeapons = weapons.filter((w) => w.status === "supported");
 
   let totalRange = 0, totalAccuracy = 0, totalFireRate = 0;
   activeSources.forEach((s) => {
@@ -152,31 +202,33 @@ export function renderDataLinksPanel() {
     if (s.bonusField === "fireRateBonus") totalFireRate += s.effectiveBudget;
   });
 
-  const unpoweredSources = netSources.filter((s) => s.powerMultiplier <= 0);
-  const reducedSources = netSources.filter((s) => s.thermalMultiplier < 1 && s.powerMultiplier > 0);
+  const unpoweredSources = sources.filter((s) => s.powerMultiplier <= 0);
+  const reducedSources = sources.filter((s) => s.thermalMultiplier < 1 && s.powerMultiplier > 0);
 
   let statusText = "ACTIVE";
   let statusClass = "data-badge-active";
-  if (netSources.length === 0) {
+  if (sources.length === 0) {
     statusText = "OFFLINE · NO SOURCES";
     statusClass = "data-badge-offline";
   } else if (unpoweredSources.length > 0) {
-    statusText = unpoweredSources.length === netSources.length ? "OFFLINE · SOURCE UNPOWERED" : "PARTIALLY ACTIVE · SOURCE UNPOWERED";
-    statusClass = unpoweredSources.length === netSources.length ? "data-badge-offline" : "data-badge-partially-active";
+    statusText = unpoweredSources.length === sources.length ? "OFFLINE · SOURCE UNPOWERED" : "PARTIALLY ACTIVE · SOURCE UNPOWERED";
+    statusClass = unpoweredSources.length === sources.length ? "data-badge-offline" : "data-badge-partially-active";
   } else if (reducedSources.length > 0) {
     statusText = "PARTIALLY ACTIVE · SOURCE REDUCED";
     statusClass = "data-badge-partially-active";
+  } else if (activeSources.length === 0) {
+    statusText = "IDLE · NO LINKS";
+    statusClass = "data-badge-partially-active";
   }
 
-  let deliveredSummaryText = "None";
   const deliveredParts = [];
   if (totalRange > 0) deliveredParts.push(`${formatDataSupportValue({ bonusField: "rangeBonus", amount: totalRange })} Range`);
   if (totalAccuracy > 0) deliveredParts.push(`${formatDataSupportValue({ bonusField: "accuracyBonus", amount: totalAccuracy })} Accuracy`);
   if (totalFireRate > 0) deliveredParts.push(`${formatDataSupportValue({ bonusField: "fireRateBonus", amount: totalFireRate })} Fire Rate`);
-  if (deliveredParts.length > 0) deliveredSummaryText = deliveredParts.join(", ");
+  const deliveredSummaryText = deliveredParts.length ? deliveredParts.join(", ") : "None";
 
   const warningCallouts = [];
-  netSources.forEach((s) => {
+  sources.forEach((s) => {
     if (s.powerMultiplier <= 0) {
       warningCallouts.push({
         title: `${partName(s.sourceType)} is unpowered`,
@@ -190,107 +242,45 @@ export function renderDataLinksPanel() {
     } else if (s.recipientCount === 0) {
       warningCallouts.push({
         title: `${partName(s.sourceType)} has no weapon recipients`,
-        message: "No eligible weapons are directly linked to receive support."
+        message: "No eligible weapons are linked to receive support."
       });
     }
   });
-  if (netSources.length === 0 && netWeapons.length > 0) {
+  if (sources.length === 0 && weapons.length > 0) {
     warningCallouts.push({
-      title: "No Data support source connected",
-      message: `There ${netWeapons.length === 1 ? "is" : "are"} ${netWeapons.length} weapon${netWeapons.length === 1 ? "" : "s"} but no active Data source.`
+      title: "No Data support source fitted",
+      message: `There ${weapons.length === 1 ? "is" : "are"} ${weapons.length} weapon${weapons.length === 1 ? "" : "s"} but no active Data source.`
     });
   }
 
-  const locateIconSvg = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5"/><line x1="8" y1="1" x2="8" y2="3"/><line x1="8" y1="13" x2="8" y2="15"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="13" y1="8" x2="15" y2="8"/></svg>`;
-  const warningIconSvg = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2L1 14h14L8 2z"/><line x1="8" y1="6" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor"/></svg>`;
-
-  let body = `<div id="data-links-live" aria-live="polite" class="sr-only">Data Links prediction refreshed.</div>`;
+  let body = `<div id="data-support-live" aria-live="polite" class="sr-only">Data support prediction refreshed.</div>`;
 
   body += `<section class="wiring-summary-section data-inspection-card" data-data-inspector="overview">
     <div class="data-card-header">
       <span class="data-network-title">DATA SUPPORT</span>
       <span class="data-badge ${statusClass}">${escapeHtml(statusText)}</span>
     </div>
-    <div class="data-summary-stats" data-data-inspector="status" style="margin-top:8px;">
-      <div class="data-stat-cell"><span class="data-stat-label">Sources</span><strong class="data-stat-value">${activeSources.length} / ${netSources.length}</strong></div>
-      <div class="data-stat-cell"><span class="data-stat-label">Weapons</span><strong class="data-stat-value">${supportedWeapons.length} / ${netWeapons.length}</strong></div>
+    <div class="data-summary-stats" data-data-inspector="status">
+      <div class="data-stat-cell"><span class="data-stat-label">Sources</span><strong class="data-stat-value">${activeSources.length} / ${sources.length} active</strong></div>
+      <div class="data-stat-cell"><span class="data-stat-label">Weapons</span><strong class="data-stat-value">${supportedWeapons.length} / ${weapons.length} supported</strong></div>
       <div class="data-stat-cell"><span class="data-stat-label">Delivered</span><strong class="data-stat-value ${deliveredSummaryText === "None" ? "data-stat-none" : "data-stat-active"}">${escapeHtml(deliveredSummaryText)}</strong></div>
     </div>
+    <div class="data-infra-note">Each Data source divides one fixed support budget across its linked weapons, so linking more weapons gives every weapon a smaller share.</div>
   </section>`;
 
   body += `<div class="data-components-card" data-data-inspector="components-card">
     <h5 class="data-section-heading">NETWORK COMPONENTS</h5>
     <div class="data-component-list">`;
-
-  netSources.forEach((s) => {
-    const mod = state.design[s.sourceIndex];
-    const coords = mod ? `(${mod.x},${mod.y})` : "";
-    let statusLabel = "";
-    let statusTone = "";
-    if (s.status === "active" || s.effectiveBudget > 0) {
-      statusLabel = `ACTIVE (${formatDataSupportValue({ bonusField: s.bonusField, amount: s.effectiveBudget })})`;
-      statusTone = "badge-active";
-    } else if (s.powerMultiplier <= 0) {
-      statusLabel = "UNPOWERED";
-      statusTone = "badge-offline";
-    } else if (s.thermalMultiplier < 1) {
-      statusLabel = "THERMALLY REDUCED";
-      statusTone = "badge-reduced";
-    } else if (s.recipientCount === 0) {
-      statusLabel = "NO RECIPIENTS";
-      statusTone = "badge-neutral";
-    } else {
-      statusLabel = s.status.toUpperCase();
-      statusTone = "badge-neutral";
-    }
-    const iconHtml = partIconMarkup ? partIconMarkup(s.sourceType, "data-component-icon", mod?.rotation || 0) : "";
-    body += `<div class="wiring-summary-line wiring-component-row data-component-row data-row-source data-row-${statusTone}" data-data-inspector="source">
-      <div class="data-row-main">
-        ${iconHtml}
-        <span class="data-component-name">${escapeHtml(partName(s.sourceType))}</span>
-        <span class="data-component-coords">${escapeHtml(coords)}</span>
-      </div>
-      <div class="data-row-actions">
-        <span class="data-status-badge ${statusTone}">${escapeHtml(statusLabel)}</span>
-      </div>
-    </div>`;
-  });
-
-  netWeapons.forEach((w) => {
-    const mod = state.design[w.weaponIndex];
-    const coords = mod ? `(${mod.x},${mod.y})` : "";
-    let statusLabel = "";
-    let statusTone = "";
-    if (w.status === "supported") {
-      const bonusParts = [];
-      if (w.rangeBonus > 0) bonusParts.push(`${formatDataSupportValue({ bonusField: "rangeBonus", amount: w.rangeBonus })}`);
-      if (w.accuracyBonus > 0) bonusParts.push(`${formatDataSupportValue({ bonusField: "accuracyBonus", amount: w.accuracyBonus })}`);
-      if (w.fireRateBonus > 0) bonusParts.push(`${formatDataSupportValue({ bonusField: "fireRateBonus", amount: w.fireRateBonus })}`);
-      const bonusText = bonusParts.join(", ");
-      statusLabel = bonusText ? `SUPPORTED (${bonusText})` : "SUPPORTED";
-      statusTone = "badge-active";
-    } else {
-      statusLabel = "NO SUPPORT";
-      statusTone = "badge-neutral";
-    }
-    const iconHtml = partIconMarkup ? partIconMarkup(w.weaponType, "data-component-icon", mod?.rotation || 0) : "";
-    body += `<div class="wiring-summary-line wiring-component-row data-component-row data-row-weapon data-row-${statusTone}" data-data-inspector="weapon">
-      <div class="data-row-main">
-        ${iconHtml}
-        <span class="data-component-name">${escapeHtml(partName(w.weaponType))}</span>
-        <span class="data-component-coords">${escapeHtml(coords)}</span>
-      </div>
-      <div class="data-row-actions">
-        <span class="data-status-badge ${statusTone}">${escapeHtml(statusLabel)}</span>
-      </div>
-    </div>`;
-  });
-
+  if (!sources.length && !weapons.length) {
+    body += `<div class="data-delivered-empty">Add a Data-support component and a weapon to predict Data support.</div>`;
+  }
+  sources.forEach((s) => { body += componentRowHtml("source", s.sourceIndex, s.sourceType, sourceRowStatus(s), sourceRowDetail(s)); });
+  weapons.forEach((w) => { body += componentRowHtml("weapon", w.weaponIndex, w.weaponType, weaponRowStatus(w), weaponRowDetail(w)); });
   body += `  </div></div>`;
 
   body += `<div class="data-delivered-card" data-data-inspector="delivered-support">
     <h5 class="data-section-heading">DELIVERED SUPPORT</h5>`;
-  if (totalRange <= 0 && totalAccuracy <= 0 && totalFireRate <= 0) {
+  if (!deliveredParts.length) {
     body += `<div class="data-delivered-empty">No Data bonuses are currently being delivered.</div>`;
   } else {
     body += `<div class="data-delivered-chips">`;
@@ -305,7 +295,7 @@ export function renderDataLinksPanel() {
     body += `<div class="data-warnings-container" data-data-inspector="warnings">`;
     warningCallouts.forEach((warn) => {
       body += `<div class="data-warning-callout">
-        <div class="data-warning-title">${warningIconSvg} ${escapeHtml(warn.title)}</div>
+        <div class="data-warning-title">${WARNING_ICON} ${escapeHtml(warn.title)}</div>
         <div class="data-warning-msg">${escapeHtml(warn.message)}</div>
       </div>`;
     });
@@ -315,15 +305,15 @@ export function renderDataLinksPanel() {
   body += `<details class="wiring-analysis-expander wiring-advanced-details" data-wiring-details="advanced">
     <summary aria-expanded="false" aria-controls="data-infra-content"><span>Infrastructure details</span></summary>
     <div id="data-infra-content" class="wiring-summary-subsection data-infra-details">
-      <div class="data-infra-row"><span>Direct links</span><strong>${(analysis.links || []).length}</strong></div>
+      <div class="data-infra-row"><span>Direct links</span><strong>${(analysis?.links || []).length}</strong></div>
       <div class="data-infra-row"><span>Wiring cost</span><strong>$0.00</strong></div>
       <div class="data-infra-row"><span>Heat-capacity displacement</span><strong>0</strong></div>
       <div class="data-infra-note">Direct Data Links do not use physical cable and have no capacity, flow or overload limits.</div>
     </div>
   </details>`;
 
-  if (dataLinksUiState.selectedLinkKey) {
-    const [s, t] = dataLinksUiState.selectedLinkKey.split(":").map(Number);
+  if (selectedLinkKey) {
+    const [s, t] = selectedLinkKey.split(":").map(Number);
     body += `<section class="wiring-summary-section data-inspection-card" data-data-inspector="selected-link">
       <h5>Selected link</h5>
       <div class="wiring-summary-line">${moduleLabel(s)} → ${moduleLabel(t)}</div>
@@ -331,7 +321,39 @@ export function renderDataLinksPanel() {
     </section>`;
   }
 
-  setDataLinksMarkup(panel, body);
+  return body;
+}
+
+// Blueprint inspector host for the Data analysis tab. `heat` is the designer's
+// already-computed thermal prediction so the tab does not re-run it.
+export function renderDataAnalysisPanel(host, { thermalAnalysis } = {}) {
+  if (!host) return;
+  let analysis;
+  try {
+    analysis = currentDataSupportAnalysis(thermalAnalysis ? { thermalAnalysis } : {});
+  } catch (_) {
+    setPanelMarkup(host, `<div role="status" class="wiring-summary-line">Data support analysis could not be produced.</div>`);
+    return;
+  }
+  setPanelMarkup(host, dataSupportPanelMarkup(analysis));
+}
+
+export function renderDataLinksPanel() {
+  const panel = dom.wiringStatusPanel;
+  if (!panel) return;
+  if (state.blueprintView !== "dataLinks") { panel.hidden = true; return; }
+  panel.hidden = false;
+  panel.tabIndex = -1;
+
+  let analysis;
+  try {
+    analysis = currentDataSupportAnalysis();
+  } catch (_) {
+    setPanelMarkup(panel, `<div role="status" class="wiring-summary-line">Data Links analysis could not be produced.</div>`);
+    return;
+  }
+
+  setPanelMarkup(panel, dataSupportPanelMarkup(analysis, { selectedLinkKey: dataLinksUiState.selectedLinkKey }));
 }
 
 export function refreshDataLinksPresentation() {

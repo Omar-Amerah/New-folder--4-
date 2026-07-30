@@ -991,7 +991,7 @@ function renderStaticClarity() {
   const cards = clarity.tierCards(WIRING_INFRASTRUCTURE);
   document.querySelectorAll("[data-tier-capacity-compact]").forEach((element) => {
     const card = cards.find((item) => item.key === element.dataset.tierCapacityCompact);
-    if (card && card.kind === "power") element.textContent = `${card.sustainedMw} / ${card.peakMw} MW\n$${card.costPerCell} · \u2212${card.displacementPerCell} Heat`;
+    if (card && card.kind === "power") element.textContent = `${card.sustainedMw} / ${card.peakMw} MW`;
   });
   document.querySelectorAll("[data-wiring-tier]").forEach((button) => {
     const card = cards.find((item) => item.key === button.dataset.wiringTier);
