@@ -1,6 +1,7 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
+const { sanitizeMovementToggles } = require("./validation");
 const { performanceNow, seededRandom, rngRange, hashString, compareIdStrings } = require("./utils");
 const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
@@ -83,6 +84,9 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     vy: 0,
     angle: spawn.angle,
     combatStyle: options.combatStyle || "hold",
+    // A new hull inherits its owner's standing movement instructions, the same
+    // way it inherits their combat stance.
+    movementToggles: sanitizeMovementToggles(options.movementToggles || player?.movementToggles),
     targetX: spawnPoint.x,
     targetY: spawnPoint.y,
     alive: true,

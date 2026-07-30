@@ -157,7 +157,7 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
       };
       for (const key of [
         "stationType", "x", "y", "angle", "radius", "shieldRadius",
-        "design", "hardpoints", "moduleScale", "weaponAngles", "weaponAnglePairs", "hangar"
+        "design", "hardpoints", "moduleScale", "weaponAngles", "weaponAnglePairs", "hangar", "hangars"
       ]) {
         if (station[key] !== undefined) hiddenStation[key] = station[key];
       }

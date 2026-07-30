@@ -23,7 +23,7 @@ const GRID_SIZE = 15;
 
 const rules = () => globalThis.DataSupportRules;
 
-globalThis.DataLinksUi = { renderDataLinksOverlay, refreshDataLinksPresentation };
+globalThis.DataLinksUi = { renderDataLinksOverlay, refreshDataLinksPresentation, linkAllDataSourcesToWeapons };
 
 function svgEl(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -39,12 +39,24 @@ function componentCells(index) {
   return getOccupiedCells(module.x, module.y, footprint, module.rotation || 0);
 }
 
-function componentCenter(index) {
+// A component's footprint is always rectangular, so its cells collapse to one
+// box in grid units — the box the player sees on the grid, and the only shape
+// Data Links hit-tests or highlights.
+function componentBox(index) {
   const cells = componentCells(index);
   if (!cells.length) return null;
-  let sumX = 0, sumY = 0;
-  for (const cell of cells) { sumX += cell.x + 0.5; sumY += cell.y + 0.5; }
-  return { x: sumX / cells.length, y: sumY / cells.length };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const cell of cells) {
+    minX = Math.min(minX, cell.x); maxX = Math.max(maxX, cell.x);
+    minY = Math.min(minY, cell.y); maxY = Math.max(maxY, cell.y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function componentCenter(index) {
+  const box = componentBox(index);
+  if (!box) return null;
+  return { x: (box.minX + box.maxX + 1) / 2, y: (box.minY + box.maxY + 1) / 2 };
 }
 
 // Build-grid geometry in CSS pixels. The grid is a CSS grid with a border,
@@ -101,6 +113,16 @@ function projectPoint(proj, point) {
   return point ? { x: proj.x(point.x), y: proj.y(point.y) } : null;
 }
 
+// Component box in overlay units. A multi-cell component is one box: the gaps
+// between its own cells belong to it, exactly as they do on the grid.
+function projectBox(proj, index) {
+  const box = componentBox(index);
+  if (!box) return null;
+  const x = proj.x(box.minX);
+  const y = proj.y(box.minY);
+  return { x, y, width: proj.x(box.maxX) + 1 - x, height: proj.y(box.maxY) + 1 - y };
+}
+
 function isSourceIndex(index) {
   return rules().isDataSupportSource(state.design?.[index]?.type);
 }
@@ -113,17 +135,20 @@ function hasLink(sourceIndex, targetIndex) {
   return (state.dataLinks || []).some((l) => l.sourceIndex === sourceIndex && l.targetIndex === targetIndex);
 }
 
-// Whole-footprint hit pads. One transparent rect per occupied cell means the
-// player clicks the component itself rather than hunting a small port dot.
-function hitPadsFor(index, role, { cursor, active, proj }) {
-  return componentCells(index).map((cell) => svgEl("rect", {
-    x: proj.x(cell.x), y: proj.y(cell.y), width: 1, height: 1,
+// One transparent rect over the component's box: the player clicks the
+// component itself, and the click area is exactly what they see — no dead gaps
+// inside a multi-cell part, and nothing sticking out past its edges.
+function hitPadFor(index, role, { cursor, active, proj }) {
+  const box = projectBox(proj, index);
+  if (!box) return null;
+  return svgEl("rect", {
+    ...box,
     fill: "transparent",
     class: `data-link-pad data-link-pad-${role}${active ? " is-active" : ""}`,
     [`data-${role}-index`]: String(index),
     "pointer-events": "all",
     style: `cursor:${cursor}`
-  }));
+  });
 }
 
 export function renderDataLinksOverlay() {
@@ -162,21 +187,19 @@ export function renderDataLinksOverlay() {
   // else fades so its links and candidate weapons stand out.
   const focus = dragging ?? armed;
 
-  // Ring the focused source and every weapon it can reach.
+  // Outline the focused source and every weapon it can reach. The outline is
+  // the component's box, so the highlight shows exactly where a click lands.
   if (focus != null) {
-    const center = projectPoint(proj, componentCenter(focus));
-    if (center) {
-      svg.appendChild(svgEl("circle", {
-        cx: center.x, cy: center.y, r: 0.62,
-        class: "data-link-source-halo"
-      }));
+    const sourceBox = projectBox(proj, focus);
+    if (sourceBox) {
+      svg.appendChild(svgEl("rect", { ...sourceBox, rx: 0.12, class: "data-link-source-halo" }));
     }
     for (let i = 0; i < state.design.length; i += 1) {
       if (!isDataLinksWeaponTargetValid(focus, i)) continue;
-      const target = projectPoint(proj, componentCenter(i));
-      if (!target) continue;
-      svg.appendChild(svgEl("circle", {
-        cx: target.x, cy: target.y, r: 0.46,
+      const targetBox = projectBox(proj, i);
+      if (!targetBox) continue;
+      svg.appendChild(svgEl("rect", {
+        ...targetBox, rx: 0.12,
         class: `data-link-candidate${hasLink(focus, i) ? " is-linked" : ""}`
       }));
     }
@@ -224,12 +247,12 @@ export function renderDataLinksOverlay() {
   // Pads last so clicking a component always beats clicking a line across it.
   for (let i = 0; i < state.design.length; i += 1) {
     if (isSourceIndex(i)) {
-      const pads = hitPadsFor(i, "source", { cursor: dragging === i ? "grabbing" : "pointer", active: focus === i, proj });
-      for (const pad of pads) svg.appendChild(pad);
+      const pad = hitPadFor(i, "source", { cursor: dragging === i ? "grabbing" : "pointer", active: focus === i, proj });
+      if (pad) svg.appendChild(pad);
     } else if (isWeaponIndex(i)) {
       const reachable = focus != null && isDataLinksWeaponTargetValid(focus, i);
-      const pads = hitPadsFor(i, "target", { cursor: reachable ? "copy" : "pointer", active: reachable, proj });
-      for (const pad of pads) svg.appendChild(pad);
+      const pad = hitPadFor(i, "target", { cursor: reachable ? "copy" : "pointer", active: reachable, proj });
+      if (pad) svg.appendChild(pad);
     }
   }
 
@@ -250,25 +273,38 @@ function componentIndexAtGridPoint(point) {
   return null;
 }
 
+// Written into the Build view's interaction guide line (which would otherwise
+// advertise placement, and placement is paused here), so it reads in the same
+// "action: input" shorthand rather than as its own paragraph.
 export function dataLinksHintText() {
   const armed = dataLinksUiState.armedSourceIndex;
   if (!state.design?.some((_, i) => isSourceIndex(i))) {
-    return "Add a Fire Control, Signal Amplifier, Targeting Computer or Stabilizer Node to create Data links.";
+    return "Add a Fire Control, Signal Amplifier, Targeting Computer or Stabilizer Node to create Data links";
   }
   if (armed == null) {
-    return "Click a Data-support component to select it, then click weapons to link them. Drag from a source to a weapon also works.";
+    return "Select: click a Data source · Link: click a weapon, or drag source → weapon";
   }
   const name = PART_DEFS[state.design[armed]?.type]?.name || "Source";
   const linked = (state.dataLinks || []).filter((l) => l.sourceIndex === armed).length;
-  return `${name} selected · ${linked} weapon${linked === 1 ? "" : "s"} linked. Click a weapon to link or unlink it · Esc to deselect.`;
+  return `${name} selected · ${linked} linked · Link/unlink: click a weapon · Deselect: Esc`;
 }
 
 export function refreshDataLinksControls() {
   const active = state.blueprintView === "dataLinks";
   if (dom.dataLinksToolbar) dom.dataLinksToolbar.hidden = !active;
   if (!active) return;
-  if (dom.dataLinksHint) dom.dataLinksHint.textContent = dataLinksHintText();
+  // Live updates (arming a source, adding a link) land here without a full
+  // blueprint-control refresh, so the guide line is rewritten here too.
+  if (dom.buildInteractionGuide) {
+    dom.buildInteractionGuide.hidden = false;
+    dom.buildInteractionGuide.textContent = dataLinksHintText();
+  }
   if (dom.dataLinksClearButton) dom.dataLinksClearButton.disabled = (state.dataLinks || []).length === 0;
+  if (dom.dataLinksAutoButton) {
+    const pairs = allDataLinkPairs();
+    // Nothing to link, or everything already linked.
+    dom.dataLinksAutoButton.disabled = !pairs.length || pairs.every((p) => hasLink(p.sourceIndex, p.targetIndex));
+  }
 }
 
 // Each host keeps its own last-rendered markup so the Data Links view and the
@@ -575,28 +611,43 @@ export function clearAllDataLinks() {
   commitDataLinks([]);
 }
 
+// Every (source, weapon) pair the editor would accept, in design order.
+function allDataLinkPairs() {
+  const design = state.design || [];
+  const pairs = [];
+  for (let source = 0; source < design.length; source += 1) {
+    if (!isSourceIndex(source)) continue;
+    for (let target = 0; target < design.length; target += 1) {
+      if (isDataLinksWeaponTargetValid(source, target)) pairs.push({ sourceIndex: source, targetIndex: target });
+    }
+  }
+  return pairs;
+}
+
+// Auto-link: connect every Data source to every weapon. This is the maximum
+// coverage a design can have, not the strongest per-weapon bonus — each source
+// still divides one fixed budget across everything it feeds.
+export function linkAllDataSourcesToWeapons() {
+  const pairs = allDataLinkPairs();
+  if (!pairs.length || pairs.every((p) => hasLink(p.sourceIndex, p.targetIndex))) return false;
+  dataLinksUiState.selectedLinkKey = null;
+  commitDataLinks(pairs);
+  return true;
+}
+
 function pointerGridPoint(clientX, clientY) {
-  const rect = dom.grid?.getBoundingClientRect();
-  if (!rect || !rect.width || !rect.height) return null;
-  const style = getComputedStyle(dom.grid);
-  const px = (s, d) => Math.max(0, Number.parseFloat(s) || d);
-  const left = px(style.borderLeftWidth) + px(style.paddingLeft, 8);
-  const top = px(style.borderTopWidth) + px(style.paddingTop, 8);
-  const right = px(style.borderRightWidth) + px(style.paddingRight, 8);
-  const bottom = px(style.borderBottomWidth) + px(style.paddingBottom, 8);
-  const gapX = px(style.columnGap || style.gap, 2);
-  const gapY = px(style.rowGap || style.gap, 2);
-  const cellWidth = (rect.width - left - right - gapX * (GRID_SIZE - 1)) / GRID_SIZE;
-  const cellHeight = (rect.height - top - bottom - gapY * (GRID_SIZE - 1)) / GRID_SIZE;
-  const stepX = cellWidth + gapX;
-  const stepY = cellHeight + gapY;
-  if (!(cellWidth > 0 && cellHeight > 0)) return null;
-  const localX = clientX - rect.left - left;
-  const localY = clientY - rect.top - top;
-  const x = Math.floor(localX / stepX);
-  const y = Math.floor(localY / stepY);
-  const fx = (localX - x * stepX) / cellWidth;
-  const fy = (localY - y * stepY) / cellHeight;
+  const m = gridMetrics();
+  if (!m) return null;
+  const localX = clientX - m.rect.left - m.left;
+  const localY = clientY - m.rect.top - m.top;
+  const x = Math.floor(localX / m.stepX);
+  const y = Math.floor(localY / m.stepY);
+  // A pointer inside the gap after cell n reads as a fraction above 1, which
+  // would floor into cell n+1 when a drop is resolved. Gap pixels belong to the
+  // cell they follow, so the fraction never leaves that cell.
+  const inCell = (offset, size) => Math.max(0, Math.min(offset / size, 0.999));
+  const fx = inCell(localX - x * m.stepX, m.cellWidth);
+  const fy = inCell(localY - y * m.stepY, m.cellHeight);
   return { x: Math.max(0, Math.min(GRID_SIZE, x + fx)), y: Math.max(0, Math.min(GRID_SIZE, y + fy)) };
 }
 
@@ -708,6 +759,7 @@ export function initDataLinksUi() {
   host.addEventListener("pointerup", onDataLinksPointerUp);
   host.addEventListener("pointercancel", () => { dataLinksUiState.drag = null; renderDataLinksOverlay(); });
   document.addEventListener("keydown", onDataLinksKeyDown);
+  dom.dataLinksAutoButton?.addEventListener("click", linkAllDataSourcesToWeapons);
   dom.dataLinksClearButton?.addEventListener("click", clearAllDataLinks);
   host.dataset.dataLinksBound = "1";
 }

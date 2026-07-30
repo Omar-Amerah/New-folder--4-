@@ -128,6 +128,22 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   assert.equal(saveButton.disabled, false, "changed combatStyle is dirty");
   assert.equal(loadedState.textContent, "Unsaved changes", "changed combatStyle shows Unsaved changes");
 
+  // Data links are part of the design: editing them must be savable.
+  state.combatStyle = "sentry";
+  state.dataLinks = [];
+  state.savedDesigns = [{ ...saved("link-test", "Link Test"), dataLinks: [] }];
+  state.loadedEditorBlueprintId = "link-test";
+  savedUi.refreshLoadedBlueprintPresentation();
+  assert.equal(saveButton.disabled, true, "matching data links are not dirty");
+  state.dataLinks = [{ sourceIndex: 1, targetIndex: 2 }];
+  savedUi.refreshLoadedBlueprintPresentation();
+  assert.equal(saveButton.disabled, false, "adding a data link is dirty");
+  assert.equal(loadedState.textContent, "Unsaved changes", "added data link shows Unsaved changes");
+  state.savedDesigns = [{ ...saved("link-test", "Link Test"), dataLinks: [{ sourceIndex: 1, targetIndex: 2 }] }];
+  savedUi.refreshLoadedBlueprintPresentation();
+  assert.equal(saveButton.disabled, true, "saving the link clears the dirty state");
+  state.dataLinks = [];
+
   state.design = clone(baseDesign);
   state.wiring = clone(baseWiring);
   state.savedDesigns = [saved("saved-a", "Saved A"), saved("saved-b", "Saved B")];

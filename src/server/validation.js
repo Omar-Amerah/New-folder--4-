@@ -40,6 +40,40 @@ function sanitizeCombatStyle(style, fallback = "hold") {
   return "hold";
 }
 
+// Per-ship movement toggles.
+//
+// Every one defaults to true, and true is how the game behaves without them, so
+// a ship that has never been told otherwise flies exactly as it always did and
+// an older client that sends none of this is unaffected.
+const MOVEMENT_TOGGLE_DEFAULTS = Object.freeze({
+  // Swing the nose onto whatever the ship is engaging once it has stopped.
+  autoTurn: true,
+  // Act on a target combat acquired by itself. Off, the ship will still shoot
+  // what it can reach, it just will not go anywhere about it.
+  autoEngage: true,
+  // Go after a target that opens the range again once already established.
+  pursue: true,
+  // Travel at the group's pace rather than the hull's own.
+  matchFormationSpeed: true
+});
+
+const MOVEMENT_TOGGLE_KEYS = Object.freeze(Object.keys(MOVEMENT_TOGGLE_DEFAULTS));
+
+function sanitizeMovementToggles(toggles, fallback = null) {
+  const base = fallback && typeof fallback === "object" ? fallback : MOVEMENT_TOGGLE_DEFAULTS;
+  const source = toggles && typeof toggles === "object" ? toggles : null;
+  const clean = {};
+  for (const key of MOVEMENT_TOGGLE_KEYS) {
+    const requested = source ? source[key] : undefined;
+    if (requested === undefined) {
+      clean[key] = base[key] === undefined ? MOVEMENT_TOGGLE_DEFAULTS[key] : Boolean(base[key]);
+    } else {
+      clean[key] = Boolean(requested);
+    }
+  }
+  return clean;
+}
+
 function sanitizeRoomCode(room) {
   return String(room || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
 }
@@ -64,9 +98,12 @@ function validateBuildShip(room, player, stats = null) {
 }
 
 module.exports = {
+  MOVEMENT_TOGGLE_DEFAULTS,
+  MOVEMENT_TOGGLE_KEYS,
   sanitizeName,
   sanitizeTeam,
   sanitizeCombatStyle,
+  sanitizeMovementToggles,
   sanitizeRoomCode,
   sanitizeRequestId,
   validateBuildShip

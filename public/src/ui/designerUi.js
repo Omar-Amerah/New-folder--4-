@@ -21,7 +21,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
-import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
+import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, dataLinksHintText, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
   refreshWiringPresentation,
@@ -319,9 +319,13 @@ function refreshBlueprintControls() {
   }
   if (dom.buildInteractionGuide) {
     dom.buildInteractionGuide.hidden = wiringView;
-    dom.buildInteractionGuide.textContent = heatView
-      ? "Place: left-click · Rotate: R or click again · Remove: right-click · Hover to inspect Heat"
-      : "Place: left-click · Rotate: R or click again · Remove: right-click";
+    // Data Links pauses placement, so the guide carries its linking hint here
+    // instead of a separate sentence under the grid.
+    dom.buildInteractionGuide.textContent = dataLinksView
+      ? dataLinksHintText()
+      : heatView
+        ? "Place: left-click · Rotate: R or click again · Remove: right-click · Hover to inspect Heat"
+        : "Place: left-click · Rotate: R or click again · Remove: right-click";
   }
   if (dom.emptyGridInstruction) {
     dom.emptyGridInstruction.hidden = !((buildView || heatView) && state.design.length === 0);

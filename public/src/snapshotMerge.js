@@ -177,7 +177,7 @@ export function mergeCachedStationFields(previousStations, nextStations) {
     const merged = { ...station };
     for (const key of [
       "stationType", "x", "y", "angle", "radius", "shieldRadius",
-      "design", "hangar", "hardpoints", "moduleScale"
+      "design", "hangar", "hangars", "hardpoints", "moduleScale"
     ]) {
       if (isNullish(merged[key])) merged[key] = old[key];
     }

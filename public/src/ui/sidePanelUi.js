@@ -125,6 +125,12 @@ export function handleSelectedCombatStyleClick(event) {
   setSelectedCombatStyle(button.dataset.combatStyle);
 }
 
+export function handleMovementToggleChange(event) {
+  const box = event.target?.closest?.("[data-movement-toggle]");
+  if (!box || !dom.movementToggleControls?.contains?.(box)) return;
+  setSelectedMovementToggle(box.dataset.movementToggle, box.checked);
+}
+
 export function getRallyPoint() {
   if (state.phase !== "active") return null;
   const rally = state.mine?.rallyPoint;
@@ -316,7 +322,64 @@ function renderSelectionControls() {
     if (def && button.textContent !== def.label) button.textContent = def.label;
     if (def) { button.title = def.description; button.setAttribute("aria-description", def.description); }
   }
+  renderMovementToggles(selectedShips);
   renderSelectedSummary(selectedShips);
+}
+
+const MOVEMENT_TOGGLE_DESCRIPTIONS = {
+  autoTurn: "Turn to face whatever the ship is engaging once it has stopped, so fixed weapons bear.",
+  autoEngage: "Move to engage targets the ship picks out for itself. Off, it holds station and fires at whatever comes into range.",
+  pursue: "Go after a target that opens the range again. Off, the ship keeps the position it took and lets it go.",
+  matchFormationSpeed: "Travel at the group's pace so it arrives together. Off, every ship runs at its own top speed."
+};
+
+// A checkbox over a mixed selection shows indeterminate rather than picking a
+// side, so the player can see the selection disagrees before they change it.
+function renderMovementToggles(selectedShips) {
+  if (!dom.movementToggleControls) return;
+  const boxes = dom.movementToggleControls.querySelectorAll("input[data-movement-toggle]");
+  for (const box of boxes) {
+    const key = box.dataset.movementToggle;
+    box.disabled = state.phase !== "active" || selectedShips.length === 0;
+    const description = MOVEMENT_TOGGLE_DESCRIPTIONS[key];
+    if (description) box.title = description;
+    const values = new Set(selectedShips.map((ship) => ship.movementToggles?.[key] !== false));
+    box.indeterminate = values.size > 1;
+    box.checked = values.size === 1 ? [...values][0] : true;
+  }
+}
+
+function setSelectedMovementToggle(key, value) {
+  if (!Object.prototype.hasOwnProperty.call(MOVEMENT_TOGGLE_DESCRIPTIONS, key)) return;
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN || state.phase !== "active") {
+    notify.warning("Movement toggles are only available during an active match.");
+    return;
+  }
+  pruneSelection();
+  const ownShips = ownLiveShips();
+  const shipIds = ownShips.filter((ship) => state.selectedShipIds.has(ship.id)).map((ship) => ship.id);
+  if (shipIds.length === 0) {
+    notify.warning("Select ships before changing movement toggles.");
+    renderSelectionControls();
+    return;
+  }
+  // Only the one key travels, so the server merges it onto whatever else each
+  // hull already had rather than the panel restating the lot.
+  const payload = { type: "setMovementToggles", requestId: makeCombatStyleRequestId(), toggles: { [key]: value } };
+  if (shipIds.length === ownShips.length || shipIds.length > MAX_COMBAT_STYLE_EXPLICIT_IDS) {
+    payload.scope = "all-owned";
+  } else {
+    payload.shipIds = shipIds;
+  }
+  // Optimistic, so the checkbox answers immediately; the next snapshot is
+  // authoritative either way.
+  for (const ship of ownShips) {
+    if (payload.scope || shipIds.includes(ship.id)) {
+      ship.movementToggles = { ...(ship.movementToggles || {}), [key]: value };
+    }
+  }
+  send(payload);
+  renderSelectionControls();
 }
 
 function assignSelectedShipsToGroup(groupId) {

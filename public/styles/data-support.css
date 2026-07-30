@@ -25,7 +25,7 @@
   overflow: visible;
 }
 
-/* Dim components while linking so links and candidate rings stay readable. */
+/* Dim components while linking so links and candidate boxes stay readable. */
 .build-grid.data-links-active .build-cell {
   filter: brightness(0.78) saturate(0.85);
 }
@@ -63,18 +63,19 @@
   stroke-dasharray: 0.2 0.1;
 }
 
-/* Halo around the source the player is currently working with. */
+/* Box around the source the player is currently working with. Highlights trace
+   the component's footprint, which is also its click target. */
 .data-link-source-halo {
   fill: rgba(34, 211, 238, 0.14);
   stroke: #22d3ee;
-  stroke-width: 0.07;
+  stroke-width: 0.08;
 }
 
-/* Ring on every weapon that source can reach. */
+/* Box on every weapon that source can reach. */
 .data-link-candidate {
   fill: none;
   stroke: #86efac;
-  stroke-width: 0.07;
+  stroke-width: 0.08;
   stroke-dasharray: 0.16 0.12;
   opacity: 0.9;
 }
@@ -85,7 +86,7 @@
   stroke-dasharray: none;
 }
 
-/* Invisible whole-footprint hit targets. */
+/* Invisible footprint-shaped hit targets. */
 .data-link-pad {
   fill: transparent;
 }
@@ -100,7 +101,9 @@
 .data-links-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* The linking hint lives in the Build interaction guide, so only the
+     Auto-link and Clear actions sit here. */
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px 12px;
   width: 100%;
@@ -110,15 +113,7 @@
   display: none;
 }
 
-.data-links-hint {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: #9db4d6;
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.data-links-clear {
+.data-links-action {
   flex-shrink: 0;
   min-height: 24px;
   padding: 3px 10px;
@@ -133,18 +128,18 @@
   cursor: pointer;
 }
 
-.data-links-clear:hover:not(:disabled) {
+.data-links-action:hover:not(:disabled) {
   border-color: rgba(0, 229, 255, 0.5);
   background: rgba(0, 229, 255, 0.12);
   color: #9eefff;
 }
 
-.data-links-clear:disabled {
+.data-links-action:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.data-links-clear:focus-visible {
+.data-links-action:focus-visible {
   outline: 2px solid #00e5ff;
   outline-offset: 2px;
 }

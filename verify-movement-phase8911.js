@@ -732,8 +732,11 @@ function run() {
 
     const reach = getMaxEffectiveWeaponRange(attackers[0]);
     const inRange = attackers.filter((ship) => rangeTo(ship, enemy) <= reach).length;
-    assert(inRange >= attackers.length - 1,
+    assert.strictEqual(inRange, attackers.length,
       `every ship sent to attack should end up able to shoot (${inRange}/${attackers.length} in range)`);
+    const engaged = attackers.filter((ship) => ship.movement.holdEngaged).length;
+    assert(engaged >= attackers.length - 2,
+      `...and settled into its place rather than still trying to reach one (${engaged}/${attackers.length} engaged)`);
 
     // ...and still not stacked inside one another.
     for (let i = 0; i < attackers.length; i += 1) {

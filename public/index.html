@@ -166,6 +166,12 @@
             <button type="button" data-combat-style="orbit">Orbit</button>
             <button type="button" data-combat-style="kite">Kite</button>
           </div>
+          <div id="movementToggleControls" class="movement-toggle-controls" role="group" aria-label="Movement toggles">
+            <label><input type="checkbox" data-movement-toggle="autoTurn" checked><span>Auto turn to enemies</span></label>
+            <label><input type="checkbox" data-movement-toggle="autoEngage" checked><span>Auto engage</span></label>
+            <label><input type="checkbox" data-movement-toggle="pursue" checked><span>Pursue</span></label>
+            <label><input type="checkbox" data-movement-toggle="matchFormationSpeed" checked><span>Match formation speed</span></label>
+          </div>
           <div id="heatHud" class="heat-hud" title="Highest overall stored heat among selected ships">
             <span id="heatHudLabel">HEAT 0%</span><i><b id="heatHudFill"></b></i>
           </div>
@@ -628,8 +634,8 @@
                 </div>
               </div>
               <div id="dataLinksToolbar" class="data-links-toolbar" role="toolbar" aria-label="Data Links editor" hidden>
-                <small id="dataLinksHint" class="data-links-hint" aria-live="polite"></small>
-                <button type="button" id="dataLinksClearButton" class="data-links-clear">Clear all links</button>
+                <button type="button" id="dataLinksAutoButton" class="data-links-action" title="Link every Data-support source to every weapon. Each source still divides one budget, so every weapon gets a smaller share.">Auto-link all</button>
+                <button type="button" id="dataLinksClearButton" class="data-links-action">Clear all links</button>
               </div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGridStage" class="build-grid-stage">

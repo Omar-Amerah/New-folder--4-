@@ -49,6 +49,7 @@ const GROUPS = {
     "verify-movement-phase567.js",
     "verify-movement-phase8911.js",
     "verify-movement-charge.js",
+    "verify-movement-toggles.js",
     "verify-demolition-charge.js",
     "verify-propulsion-rebalance.js",
     "verify-targeting.js",

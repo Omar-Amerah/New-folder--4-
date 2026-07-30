@@ -72,7 +72,18 @@ function wiringKindKey(kindValue, moduleRef) {
   return `${sections.join("/")}#${connections.join("/")}`;
 }
 
-function editorStateKey(modules, wiring, combatStyle) {
+// Data links are (source, weapon) module-index pairs, resolved to positional
+// identities like wiring connections are. Without them in the key, adding or
+// removing a link left the editor looking clean, so the loaded blueprint could
+// never be re-saved with its links.
+function dataLinksKey(dataLinks, moduleRef) {
+  return (Array.isArray(dataLinks) ? dataLinks : [])
+    .map((link) => `${moduleRef(link?.sourceIndex)}>${moduleRef(link?.targetIndex)}`)
+    .sort()
+    .join("/");
+}
+
+function editorStateKey(modules, wiring, combatStyle, dataLinks) {
   const list = Array.isArray(modules) ? modules : [];
   // Connection endpoints are module indexes into this exact array, so resolve
   // them to positional identities before sorting anything.
@@ -86,12 +97,17 @@ function editorStateKey(modules, wiring, combatStyle) {
     wiringKindKey(normalizedWiring.power, moduleRef),
     wiringKindKey(normalizedWiring.data, moduleRef),
     `${policy.preset || "balanced"}:${(policy.customOrder || []).join(",")}`,
-    combatStyle || "hold"
+    combatStyle || "hold",
+    dataLinksKey(dataLinks, moduleRef)
   ].join("\n");
 }
 
 function currentEditorKey() {
-  return editorStateKey(state.design, state.wiring, state.combatStyle);
+  return editorStateKey(state.design, state.wiring, state.combatStyle, state.dataLinks);
+}
+
+function savedEditorKey(saved) {
+  return editorStateKey(saved.blueprint, saved.wiring, saved.combatStyle, saved.dataLinks);
 }
 
 // Baseline for a design that no saved blueprint backs. See isEditorDirty().
@@ -105,7 +121,7 @@ export function isEditorDirty() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
   const current = currentEditorKey();
   if (existing) {
-    return current !== editorStateKey(existing.blueprint, existing.wiring, existing.combatStyle);
+    return current !== savedEditorKey(existing);
   }
   // No saved blueprint backs the editor. The working design is written to
   // localStorage on every edit, so closing the designer cannot lose it — only
@@ -121,7 +137,7 @@ export function isEditorDirty() {
 export function isLoadedBlueprintDirty() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
   if (!existing) return false;
-  return currentEditorKey() !== editorStateKey(existing.blueprint, existing.wiring, existing.combatStyle);
+  return currentEditorKey() !== savedEditorKey(existing);
 }
 
 export function refreshLoadedBlueprintPresentation() {
@@ -393,8 +409,10 @@ export function duplicateSavedDesign(id) {
     id: makeDesignId(),
     name: `${source.name} copy`.slice(0, 28),
     blueprint: copyBlueprint,
-    // Independent wiring copy so editing the duplicate never touches the source.
+    // Independent wiring and Data-link copies so editing the duplicate never
+    // touches the source.
     wiring: normalizeWiring(source.wiring, copyBlueprint),
+    dataLinks: savedDataLinksCopy(copyBlueprint, source.dataLinks),
     invalid: Boolean(source.invalid),
     invalidReason: source.invalidReason || "Invalid blueprint.",
     createdAt: Date.now(),
@@ -628,6 +646,16 @@ export function initializeSavedBlueprintLibraryControls() {
   }
 }
 
+// Independent, normalized copy of the links, so editing the design later never
+// reaches back into the saved entry (and dropped links never survive a save).
+function savedDataLinksCopy(blueprint, dataLinks) {
+  const rules = globalThis.DataSupportRules;
+  if (!rules?.normalizeDataLinks) {
+    return (Array.isArray(dataLinks) ? dataLinks : []).map((link) => ({ ...link }));
+  }
+  return rules.normalizeDataLinks(blueprint, dataLinks, PART_STATS) || [];
+}
+
 export async function saveCurrentDesignAsCopy({ skipWiringWarning = false } = {}) {
   state.loadedEditorBlueprintId = null;
   return saveCurrentDesign({ skipWiringWarning });
@@ -637,6 +665,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   const blueprint = state.design.map((part) => ({ ...part }));
   // Saved designs keep an independent copy of the wiring arrays.
   const wiring = normalizeWiring(state.wiring, blueprint);
+  const dataLinks = savedDataLinksCopy(blueprint, state.dataLinks);
   const analysis = analyseBlueprintOnce({ blueprint, wiring, combatStyle: state.combatStyle || "hold" });
   const stats = analysis.stats;
   const validation = analysis.validation;
@@ -671,7 +700,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
       ...design,
       blueprint,
       wiring,
-      dataLinks: state.dataLinks,
+      dataLinks,
       combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
@@ -690,7 +719,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
       name,
       blueprint,
       wiring,
-      dataLinks: state.dataLinks,
+      dataLinks,
       combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),

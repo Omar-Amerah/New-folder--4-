@@ -151,14 +151,40 @@ function stationLocalBounds(station) {
   return bounds;
 }
 
-// The hangar void in local space: the corridor is a genuine hole in the design,
-// so its mouth is the front face and its rear wall is one corridor length back.
-function stationHangarLocal(station, bounds) {
-  if (station.stationType !== "home") return null;
-  const halfWidth = Number(station.hangar?.apertureHalfWidth) || 0;
-  const length = Number(station.hangar?.corridorLength) || Number(HOME_STATION.hangarCorridorLength) || 0;
-  if (!(halfWidth > 0) || !(length > 0)) return null;
-  return { halfWidth, length, mouthX: bounds.maxX, rearWallX: bounds.maxX - length };
+// The hangar voids in local space. Each launch bay is a genuine hole in the
+// design, so its mouth is the front face and its rear wall is one corridor
+// length back; `centreY` is the bay's lateral offset from the station's nose
+// axis. Stations served by an older server report a single centred bay.
+function stationHangarBaysLocal(station, bounds) {
+  if (station.stationType !== "home") return [];
+  const source = Array.isArray(station.hangars) && station.hangars.length
+    ? station.hangars
+    : (station.hangar ? [station.hangar] : []);
+  const bays = [];
+  for (const bay of source) {
+    const halfWidth = Number(bay?.apertureHalfWidth) || 0;
+    const length = Number(bay?.corridorLength) || Number(HOME_STATION.hangarCorridorLength) || 0;
+    if (!(halfWidth > 0) || !(length > 0)) continue;
+    bays.push({
+      halfWidth,
+      length,
+      centreY: Number(bay?.centreY) || 0,
+      mouthX: bounds.maxX,
+      rearWallX: bounds.maxX - length
+    });
+  }
+  return bays;
+}
+
+// Bay layout, flattened for the shell cache key: a station whose bays change
+// shape or count has to be redrawn, and nothing else about it would say so.
+function stationBaySignature(station) {
+  const source = Array.isArray(station.hangars) && station.hangars.length
+    ? station.hangars
+    : (station.hangar ? [station.hangar] : []);
+  return source
+    .map((bay) => `${Math.round(Number(bay?.centreY) || 0)}:${Math.round(Number(bay?.apertureHalfWidth) || 0)}:${Math.round(Number(bay?.corridorLength) || 0)}`)
+    .join(",");
 }
 
 function createPixiStationView(env) {
@@ -306,10 +332,12 @@ function rebuildStationAura(view, station, color, zoom, debug, captureStep, sele
     }
     if (debug) {
       const bounds = stationLocalBounds(station);
-      const hangar = stationHangarLocal(station, bounds);
-      if (hangar) {
-        gfx.rect(hangar.rearWallX, -hangar.halfWidth, hangar.length, hangar.halfWidth * 2);
+      const bays = stationHangarBaysLocal(station, bounds);
+      for (const bay of bays) {
+        gfx.rect(bay.rearWallX, bay.centreY - bay.halfWidth, bay.length, bay.halfWidth * 2);
         gfx.stroke({ width: thin, color: "#ffd166", alpha: 0.8 });
+      }
+      if (bays.length) {
         gfx.rect(bounds.minX, bounds.minY, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
         gfx.stroke({ width: thin, color: "#ff6b6b", alpha: 0.8 });
       }
@@ -436,16 +464,17 @@ const RECESS_FILL = "#05080c";    // open space: the hangar bay
 const GUN_WELL = "#0b0f15";       // the socket a battery sits in
 
 // The solid outline of a station: the footprint rectangle with chamfered
-// corners, cut open by the hangar corridor in the middle of the front face.
-// Without a hangar the front face is unbroken and closePath() draws it.
-function shellOutline(bounds, hangar, chamfer) {
+// corners, cut open by each hangar bay along the front face. Bays are walked in
+// lateral order so the notches nest into the perimeter without crossing it.
+// With no bays the front face is unbroken and closePath() draws it.
+function shellOutline(bounds, bays, chamfer) {
   const { minX, maxX, minY, maxY } = bounds;
   const points = [];
-  if (hangar) {
-    points.push({ x: maxX, y: -hangar.halfWidth });
-    points.push({ x: hangar.rearWallX, y: -hangar.halfWidth });
-    points.push({ x: hangar.rearWallX, y: hangar.halfWidth });
-    points.push({ x: maxX, y: hangar.halfWidth });
+  for (const bay of [...(bays || [])].sort((a, b) => a.centreY - b.centreY)) {
+    points.push({ x: maxX, y: bay.centreY - bay.halfWidth });
+    points.push({ x: bay.rearWallX, y: bay.centreY - bay.halfWidth });
+    points.push({ x: bay.rearWallX, y: bay.centreY + bay.halfWidth });
+    points.push({ x: maxX, y: bay.centreY + bay.halfWidth });
   }
   points.push({ x: maxX, y: maxY - chamfer });
   points.push({ x: maxX - chamfer, y: maxY });
@@ -456,6 +485,19 @@ function shellOutline(bounds, hangar, chamfer) {
   points.push({ x: maxX - chamfer, y: minY });
   points.push({ x: maxX, y: minY + chamfer });
   return points;
+}
+
+// The narrowest solid wall left between two neighbouring bays. Infinite when
+// there is nothing to squeeze between.
+function bayWallGap(bays) {
+  const ordered = [...(bays || [])].sort((a, b) => a.centreY - b.centreY);
+  let gap = Infinity;
+  for (let i = 1; i < ordered.length; i += 1) {
+    const previous = ordered[i - 1];
+    const bay = ordered[i];
+    gap = Math.min(gap, (bay.centreY - bay.halfWidth) - (previous.centreY + previous.halfWidth));
+  }
+  return Math.max(0, gap);
 }
 
 function tracePolygon(gfx, points) {
@@ -519,24 +561,31 @@ function drawEdgeLights(gfx, from, to, count, size, color, alpha) {
 }
 
 function drawHomeShell(gfx, station, bounds, accent, state) {
-  const scale = Number(station.moduleScale) || 36;
-  const hangar = stationHangarLocal(station, bounds);
+  const scale = Number(station.moduleScale) || 56;
+  const bays = stationHangarBaysLocal(station, bounds);
+  const hangar = bays.length ? bays[Math.floor(bays.length / 2)] : null;
   const chamfer = scale * 1.7;
   const beltWidth = scale * 1.5;
   const lit = trimAlpha(state, 1);
 
   // 1. Hull silhouette — the armour belt colour, since the belt is the edge.
-  const outline = shellOutline(bounds, hangar, chamfer);
+  const outline = shellOutline(bounds, bays, chamfer);
   tracePolygon(gfx, outline);
   gfx.fill(BELT_FILL);
   gfx.stroke({ width: scale * 0.16, color: accent, alpha: lit * 0.9 });
 
-  // 2. Sealed interior decking inside the belt.
+  // 2. Sealed interior decking inside the belt. The bay notches in the deck are
+  //    widened so a belt of plating frames each one — but never by more than
+  //    two-fifths of the wall between neighbouring bays, or the notches would
+  //    swallow the dividers and the outline would cross itself.
   const deckBounds = insetBounds(bounds, beltWidth);
-  const deckHangar = hangar
-    ? { ...hangar, halfWidth: hangar.halfWidth + beltWidth, rearWallX: hangar.rearWallX + beltWidth }
-    : null;
-  tracePolygon(gfx, shellOutline(deckBounds, deckHangar, chamfer * 0.7));
+  const bayBelt = Math.min(beltWidth, bayWallGap(bays) * 0.4);
+  const deckBays = bays.map((bay) => ({
+    ...bay,
+    halfWidth: bay.halfWidth + bayBelt,
+    rearWallX: bay.rearWallX + beltWidth
+  }));
+  tracePolygon(gfx, shellOutline(deckBounds, deckBays, chamfer * 0.7));
   gfx.fill(HULL_BASE);
   gfx.stroke({ width: scale * 0.07, color: METAL, alpha: 0.35 });
 
@@ -637,30 +686,38 @@ function drawHomeShell(gfx, station, bounds, accent, state) {
   drawEdgeLights(gfx, { x: bounds.minX + chamfer, y: bounds.maxY }, { x: bounds.maxX - chamfer, y: bounds.maxY }, 5, lightSize, accent, lit * 0.9);
   drawEdgeLights(gfx, { x: bounds.minX, y: bounds.minY + chamfer }, { x: bounds.minX, y: bounds.maxY - chamfer }, 4, lightSize, accent, lit * 0.9);
 
-  if (hangar) {
-    // 9. The hangar bay. The corridor is a genuine void in the design, so it is
-    //    drawn as open space with lit guide strips and a marked centreline.
-    gfx.rect(hangar.rearWallX, -hangar.halfWidth, hangar.length, hangar.halfWidth * 2);
+  // 9. The launch bays. Each corridor is a genuine void in the design, so it is
+  //    drawn as open space with lit guide strips and a marked centreline.
+  for (const bay of bays) {
+    gfx.rect(bay.rearWallX, bay.centreY - bay.halfWidth, bay.length, bay.halfWidth * 2);
     gfx.fill(RECESS_FILL);
+  }
+  for (const bay of bays) {
     for (const sy of [-1, 1]) {
-      const y = sy * (hangar.halfWidth - scale * 0.3);
-      gfx.rect(hangar.rearWallX + scale * 0.4, y - scale * 0.09, hangar.length - scale * 0.8, scale * 0.18);
+      const y = bay.centreY + sy * (bay.halfWidth - scale * 0.3);
+      gfx.rect(bay.rearWallX + scale * 0.4, y - scale * 0.09, bay.length - scale * 0.8, scale * 0.18);
       gfx.fill({ color: accent, alpha: stationIsPowered(state) ? 0.9 : 0.25 });
     }
-    // Approach chevrons on the bay floor, pointing out of the mouth.
+  }
+  // Approach chevrons on each bay floor, pointing out of its mouth.
+  for (const bay of bays) {
     for (let i = 0; i < 3; i += 1) {
-      const x = hangar.rearWallX + hangar.length * (0.3 + i * 0.2);
-      gfx.moveTo(x, -hangar.halfWidth * 0.34);
-      gfx.lineTo(x + scale * 0.7, 0);
-      gfx.lineTo(x, hangar.halfWidth * 0.34);
+      const x = bay.rearWallX + bay.length * (0.3 + i * 0.2);
+      gfx.moveTo(x, bay.centreY - bay.halfWidth * 0.34);
+      gfx.lineTo(x + scale * 0.7, bay.centreY);
+      gfx.lineTo(x, bay.centreY + bay.halfWidth * 0.34);
     }
-    gfx.stroke({ width: scale * 0.12, color: accent, alpha: lit * 0.3 });
+  }
+  if (bays.length) gfx.stroke({ width: scale * 0.12, color: accent, alpha: lit * 0.3 });
+  for (const bay of bays) {
     // Rear bulkhead.
-    gfx.rect(hangar.rearWallX - scale * 0.25, -hangar.halfWidth, scale * 0.25, hangar.halfWidth * 2);
+    gfx.rect(bay.rearWallX - scale * 0.25, bay.centreY - bay.halfWidth, scale * 0.25, bay.halfWidth * 2);
     gfx.fill(PLATE_FILL);
-    // Retracted door plates framing the mouth.
+  }
+  // Retracted door plates framing each mouth.
+  for (const bay of bays) {
     for (const sy of [-1, 1]) {
-      gfx.rect(hangar.mouthX - scale * 1.1, sy * hangar.halfWidth - scale * 0.32, scale * 1.1, scale * 0.64);
+      gfx.rect(bay.mouthX - scale * 1.1, bay.centreY + sy * bay.halfWidth - scale * 0.32, scale * 1.1, scale * 0.64);
       gfx.fill(PLATE_FILL);
       gfx.stroke({ width: scale * 0.07, color: accent, alpha: lit });
     }
@@ -985,7 +1042,7 @@ export function updatePixiStations(env, now, players, bounds) {
       view.destroyedMountHardpoints = station.hardpoints;
     }
     const destroyedMounts = view.destroyedMounts || "";
-    const shellSignature = `${station.stationType}|${color}|${station.state}|${station.design?.length || 0}|${Math.round(station.moduleScale || 0)}|${Math.round(station.hangar?.apertureHalfWidth || 0)}|${Math.round(station.hangar?.corridorLength || 0)}|${destroyedMounts}`;
+    const shellSignature = `${station.stationType}|${color}|${station.state}|${station.design?.length || 0}|${Math.round(station.moduleScale || 0)}|${stationBaySignature(station)}|${destroyedMounts}`;
     if (view.shellSignature !== shellSignature) {
       view.shellSignature = shellSignature;
       rebuildStationShell(view, station, color);

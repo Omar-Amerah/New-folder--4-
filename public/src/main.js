@@ -12,7 +12,7 @@ import { openBlueprintDesigner, openBlueprintDesignerFromLobby, closeBlueprintDe
 import { initializeDesignerInspector } from "./ui/designerInspectorUi.js";
 import { bindPowerPriorityControls } from "./ui/wiringUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick, restoreActiveLoadout } from "./ui/purchaseUi.js";
-import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick } from "./ui/sidePanelUi.js";
+import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick, handleMovementToggleChange } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, closeSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
 import { focusPanelStation } from "./ui/stationPanelUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
@@ -76,6 +76,7 @@ dom.shipGroupList?.addEventListener("change", handleShipGroupListChange);
 dom.rallyPointButton?.addEventListener("click", beginRallyPointPlacement);
 dom.resetRallyButton?.addEventListener("click", resetRallyPointToSpawn);
 dom.combatStyleControls?.addEventListener("click", handleSelectedCombatStyleClick);
+dom.movementToggleControls?.addEventListener("change", handleMovementToggleChange);
 dom.blueprintCostBanner?.addEventListener("click", () => {
   if (dom.blueprintCostBreakdown) {
     const open = dom.blueprintCostBreakdown.hidden;

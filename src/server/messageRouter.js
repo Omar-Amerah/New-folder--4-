@@ -57,9 +57,9 @@ function handleMessage(client, message) {
   const { validateDesign, validateWiring } = require("./shipDesign");
   const { recordPurchaseStage } = require("./performanceTelemetry");
   const { computeStats } = require("./shipStats");
-  const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle } = require("./validation");
+  const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle, sanitizeMovementToggles } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
-  const { applyCombatStyle, commandShips, stopShips, rotateShips } = require("./movement");
+  const { applyCombatStyle, applyMovementToggles, commandShips, stopShips, rotateShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
   const { MAX_COMBAT_SELECTED_SHIP_IDS, selectOwnedLivingShips } = require("./selection");
   const { addBot } = require("./ships");
@@ -221,6 +221,41 @@ function handleMessage(client, message) {
       client.room._snapshotCoalesceTimer.unref?.();
     }
     
+    return;
+  }
+
+  if (message.type === "setMovementToggles") {
+    const requestId = message.requestId || null;
+    if (client.room.phase !== "active") {
+      send(client, { type: "movementTogglesResult", requestId, ok: false, code: "wrong-phase", message: "Movement toggles can only be changed during an active match." });
+      return;
+    }
+    const scope = message.scope || null;
+    const selectedOptions = scope ? { scope } : { max: MAX_COMBAT_SELECTED_SHIP_IDS };
+    const selected = selectOwnedLivingShips(client.player, scope ? undefined : message.shipIds, selectedOptions);
+    if (!selected.ok) {
+      send(client, { type: "movementTogglesResult", requestId, ok: false, code: selected.code || "invalid-selection", message: "Invalid ship selection for movement toggles." });
+      return;
+    }
+    const updatedShipIds = [];
+    let applied = null;
+    for (const ship of selected.ships) {
+      // Merged per ship, so toggling one checkbox over a mixed selection does
+      // not quietly overwrite the settings each hull already had.
+      applied = applyMovementToggles(ship, message.toggles);
+      updatedShipIds.push(ship.id);
+    }
+    if (updatedShipIds.length === 0) {
+      send(client, { type: "movementTogglesResult", requestId, ok: false, code: "no-authorized-ships", message: "No owned living ships matched the movement toggle request." });
+      return;
+    }
+    // A selection-wide change also becomes the player's default for new hulls,
+    // matching how the combat stance behaves.
+    if (!selected.explicit) {
+      client.player.movementToggles = sanitizeMovementToggles(message.toggles, client.player.movementToggles);
+    }
+    broadcastSnapshot(client.room, performanceNow());
+    send(client, { type: "movementTogglesResult", requestId, ok: true, toggles: applied, updatedCount: updatedShipIds.length, updatedShipIds });
     return;
   }
 

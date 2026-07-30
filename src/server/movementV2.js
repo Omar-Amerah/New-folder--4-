@@ -75,7 +75,11 @@ const {
 } = require("./movementTuning");
 const { circularShipSeparation } = require("./performanceFlags");
 const { getMaxEffectiveWeaponRange, shipHasArmedProximityCharge } = require("./componentData");
-const { sanitizeCombatStyle } = require("./validation");
+const {
+  MOVEMENT_TOGGLE_DEFAULTS,
+  sanitizeCombatStyle,
+  sanitizeMovementToggles
+} = require("./validation");
 const {
   applyEngineHeat,
   applyTurnHeat,
@@ -567,10 +571,17 @@ function refreshEngagement(room, ship, runtime, now) {
     }
   }
 
-  // Static never repositions for combat. It stands where it is and turns to face
-  // whatever it can shoot, which is what planMovement does for an engaged ship
-  // with no destination -- so the stance is exactly "produce no destination".
-  if (combatStance(ship) === "static" && type !== "repair") {
+  const toggles = movementToggles(ship);
+
+  // Static never repositions for combat, and neither does a ship whose owner has
+  // switched off going after targets it picked out for itself. Both stand where
+  // they are and turn to face what they can shoot, which is what planMovement
+  // does for an engaged ship with no destination -- so both are exactly "produce
+  // no destination".
+  //
+  // Note the automatic case is scoped to targets nobody named. An attack the
+  // player ordered is an order, and no toggle countermands it.
+  if (type !== "repair" && (combatStance(ship) === "static" || (!explicit && !toggles.autoEngage))) {
     runtime.holdEngaged = true;
     clearRoute(runtime);
     return;
@@ -595,9 +606,11 @@ function refreshEngagement(room, ship, runtime, now) {
   if (runtime.holdEngaged) {
     // Established. Only a target that has genuinely opened the range is worth
     // getting under way for again -- and nothing at all is worth backing away
-    // from, however close it comes.
-    if (distance <= resume
-      && !(closingToContact && targetIsBreakingAway(ship, target, distance))) {
+    // from, however close it comes. With pursuit switched off, nothing at all
+    // is: the ship has taken its position and that is where it stays.
+    const chase = toggles.pursue
+      && (distance > resume || (closingToContact && targetIsBreakingAway(ship, target, distance)));
+    if (!chase) {
       clearRoute(runtime);
       return;
     }
@@ -1325,7 +1338,7 @@ function bearingTo(ship, point) {
 // moved across it was tracked only if something else put the ship back under way.
 function stationaryHeading(room, ship, runtime, command) {
   if (Number.isFinite(command?.finalFacing)) return command.finalFacing;
-  const engaged = engagementTarget(room, ship, runtime);
+  const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
   if (engaged) {
     const distance = fastHypot(engaged.target.x - (ship.x || 0), engaged.target.y - (ship.y || 0));
     if (distance > BEARING_MIN_DISTANCE) return bearingTo(ship, engaged.target);
@@ -1373,6 +1386,13 @@ function targetIsBreakingAway(ship, target, distance) {
 // returns something there is code for.
 function combatStance(ship) {
   return sanitizeCombatStyle(ship?.combatStyle);
+}
+
+// The player's standing instructions for this hull. Absent means all of them,
+// which is how the controller behaved before there were any -- so a ship that
+// has never been told otherwise flies exactly as it always did.
+function movementToggles(ship) {
+  return ship?.movementToggles || MOVEMENT_TOGGLE_DEFAULTS;
 }
 
 // How close this ship needs to be to fight, and how far the target may drift
@@ -1444,7 +1464,7 @@ function planMovement(room, ship, runtime, stats, route) {
     // ship has stopped moving, not stopped fighting, so it keeps its guns on
     // what it was engaging.
     const speed = Math.abs(forwardSpeedOf(ship));
-    const engaged = engagementTarget(room, ship, runtime);
+    const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
     const distance = engaged ? fastHypot(engaged.target.x - ship.x, engaged.target.y - ship.y) : 0;
     return {
       desiredHeading: engaged && distance > BEARING_MIN_DISTANCE
@@ -1463,7 +1483,7 @@ function planMovement(room, ship, runtime, stats, route) {
   // acquired automatically, and it is reached the moment the stance decides the
   // ship is close enough -- there is nothing else Hold does once established.
   if (!destination) {
-    const engaged = engagementTarget(room, ship, runtime);
+    const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
     if (engaged) {
       const distance = fastHypot(engaged.target.x - ship.x, engaged.target.y - ship.y);
       return {
@@ -1568,8 +1588,11 @@ function planMovement(room, ship, runtime, stats, route) {
   const permitted = Math.min(
     Number(stats.maxSpeed) || 0,
     // A group travels at the pace of its slowest hull, so the formation stays a
-    // formation the whole way instead of only at the destination.
-    Number.isFinite(command?.formationSpeed) ? command.formationSpeed : Infinity,
+    // formation the whole way instead of only at the destination -- unless the
+    // player would rather have the fast ships there first.
+    Number.isFinite(command?.formationSpeed) && movementToggles(ship).matchFormationSpeed
+      ? command.formationSpeed
+      : Infinity,
     ramming ? Infinity : safeArrivalSpeed,
     ramming ? Infinity : turnLimit,
     route ? route.cornerLimit : Infinity
@@ -2299,9 +2322,18 @@ function applyCombatStyle(ship, combatStyle) {
   ship.combatStyle = combatStyle;
 }
 
+// Merge, not replace: a request naming one toggle leaves the rest of the ship's
+// standing instructions alone, so the panel can send a single checkbox without
+// having to restate everything else the player has already set.
+function applyMovementToggles(ship, toggles) {
+  ship.movementToggles = sanitizeMovementToggles(toggles, ship.movementToggles);
+  return ship.movementToggles;
+}
+
 module.exports = {
   SUPPORTED_MOVEMENT_TYPES,
   applyCombatStyle,
+  applyMovementToggles,
   commandShips,
   commandShipsToAssignedSlots,
   createMovementRuntime,

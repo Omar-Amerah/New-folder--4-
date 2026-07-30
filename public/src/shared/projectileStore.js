@@ -157,7 +157,7 @@ export function applySnapshotToProjectiles(message) {
   if (!message || message.type !== "state") return { ok: true };
   ensureEpoch(message);
 
-  if (message.snapshotKind === "full") {
+  if (message.snapshotKind === "full" || message.projectileBaseline) {
     applyBaseline(message);
     return { ok: true };
   } else if (message.projectileEvents !== undefined) {

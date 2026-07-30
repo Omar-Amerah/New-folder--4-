@@ -39,6 +39,19 @@ const RULE_FIELDS = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "aste
 const VITAL_FIELDS = ["hp", "maxHp", "shield", "maxShield", "alive"];
 const COMMAND_FIELDS = ["combatStyle", "commandState", "focusTargetId", "combatTargetId"];
 
+const MOVEMENT_TOGGLE_FIELDS = ["autoTurn", "autoEngage", "pursue", "matchFormationSpeed"];
+
+// Compared flag by flag rather than through fieldsChanged, because the snapshot
+// carries a fresh object every tick and comparing those by identity would report
+// a command change on every frame forever.
+function movementTogglesChanged(previous, next) {
+  if (!previous || !next) return previous !== next;
+  for (const field of MOVEMENT_TOGGLE_FIELDS) {
+    if (previous[field] !== next[field]) return true;
+  }
+  return false;
+}
+
 function fieldsChanged(previous, next, fields) {
   if (!previous || !next) return previous !== next;
   for (const field of fields) if (previous[field] !== next[field]) return true;
@@ -305,7 +318,8 @@ function selectedTelemetryChanges(previousIndex, nextIndex, selectedIds) {
     );
     result.staticGeometry ||= previous.designRevision !== next.designRevision;
     result.drones ||= droneBaysChanged(previous, next);
-    result.command ||= fieldsChanged(previous, next, COMMAND_FIELDS);
+    result.command ||= fieldsChanged(previous, next, COMMAND_FIELDS)
+      || movementTogglesChanged(previous?.movementToggles, next?.movementToggles);
   }
   return result;
 }

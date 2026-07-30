@@ -57,9 +57,11 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
     await page.locator("#blueprintDesignerScreen:not([hidden])").waitFor({ state: "visible" });
 
     const links = () => page.evaluate(async () => (await import("/src/state.js")).state.dataLinks.map((l) => `${l.sourceIndex}:${l.targetIndex}`).sort());
-    const hint = () => page.locator("#dataLinksHint").textContent();
+    const hint = () => page.locator("#buildInteractionGuide").textContent();
 
-    // Centre of a component's first footprint cell, in page coordinates.
+    // Centre of a component, in page coordinates, measured from the REAL build
+    // grid cells rather than from the overlay. Clicks here only land if the
+    // overlay's hit pads sit on the cells they belong to.
     async function centreOf(index) {
       return page.evaluate(async (i) => {
         const { state } = await import("/src/state.js");
@@ -67,16 +69,79 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
         const { getOccupiedCells } = await import("/src/design/footprint.js");
         const m = state.design[i];
         const cells = getOccupiedCells(m.x, m.y, PART_STATS[m.type]?.footprint || { width: 1, height: 1 }, m.rotation || 0);
-        const svg = document.querySelector(".data-links-overlay");
-        const box = svg.getBoundingClientRect();
-        const cx = cells.reduce((s, c) => s + c.x + 0.5, 0) / cells.length;
-        const cy = cells.reduce((s, c) => s + c.y + 0.5, 0) / cells.length;
-        return { x: box.left + (cx / 15) * box.width, y: box.top + (cy / 15) * box.height };
+        // Multi-cell components span their extension cells, so the centre comes
+        // from the grid's measured lattice rather than from cell elements.
+        const grid = document.getElementById("buildGrid");
+        const rect = grid.getBoundingClientRect();
+        const style = getComputedStyle(grid);
+        const px = (v) => Number.parseFloat(v) || 0;
+        const left = rect.left + px(style.borderLeftWidth) + px(style.paddingLeft);
+        const top = rect.top + px(style.borderTopWidth) + px(style.paddingTop);
+        const inner = rect.width - px(style.borderLeftWidth) - px(style.borderRightWidth) - px(style.paddingLeft) - px(style.paddingRight);
+        const gap = px(style.columnGap || style.gap);
+        const cell = (inner - gap * 14) / 15;
+        const pitch = cell + gap;
+        let x = 0, y = 0;
+        for (const c of cells) {
+          x += left + c.x * pitch + cell / 2;
+          y += top + c.y * pitch + cell / 2;
+        }
+        return { x: x / cells.length, y: y / cells.length };
       }, index);
     }
+
+    // Every hit pad must be exactly its component's box on the grid. Drawing the
+    // overlay as an even 15ths division of the host box (ignoring the grid's
+    // border and its 2px gaps) drifted the far-edge pads off their components.
+    const padDrift = await page.evaluate(() => {
+      // The grid's own lattice, read straight off its layout: content origin,
+      // cell size and pitch (cell + gap). Multi-cell components span cells, so
+      // the lattice is measured rather than sampled from cell elements.
+      const grid = document.getElementById("buildGrid");
+      const rect = grid.getBoundingClientRect();
+      const style = getComputedStyle(grid);
+      const px = (v) => Number.parseFloat(v) || 0;
+      const left = rect.left + px(style.borderLeftWidth) + px(style.paddingLeft);
+      const top = rect.top + px(style.borderTopWidth) + px(style.paddingTop);
+      const inner = rect.width - px(style.borderLeftWidth) - px(style.borderRightWidth) - px(style.paddingLeft) - px(style.paddingRight);
+      const gap = px(style.columnGap || style.gap);
+      const cell = (inner - gap * 14) / 15;
+      const pitch = cell + gap;
+      // A component covering n cells spans n * pitch - gap pixels.
+      const spanFor = (size) => Math.round((size + gap) / pitch);
+      const rects = [...document.querySelectorAll(".data-link-pad")];
+      let worst = 0;
+      let worstSize = 0;
+      for (const pad of rects) {
+        const b = pad.getBoundingClientRect();
+        const ix = Math.round((b.left - left) / pitch);
+        const iy = Math.round((b.top - top) / pitch);
+        worst = Math.max(worst, Math.abs(b.left - (left + ix * pitch)), Math.abs(b.top - (top + iy * pitch)));
+        worstSize = Math.max(worstSize,
+          Math.abs(b.width - (spanFor(b.width) * pitch - gap)),
+          Math.abs(b.height - (spanFor(b.height) * pitch - gap)));
+      }
+      return { worst, worstSize, pads: rects.length };
+    });
+    assert.ok(padDrift.pads > 0, "the overlay draws hit pads");
+    assert.ok(padDrift.worst <= 1, `hit pads sit on the grid lattice (worst offset ${padDrift.worst}px)`);
+    assert.ok(padDrift.worstSize <= 1, `hit pads are a whole number of cells (worst error ${padDrift.worstSize}px)`);
+
+    // One pad per source/weapon — a multi-cell component is a single box, not a
+    // pad per cell with dead gaps between them.
+    const padCount = await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      const { PART_STATS } = await import("/src/design/parts.js");
+      const rules = globalThis.DataSupportRules;
+      return {
+        pads: document.querySelectorAll(".data-link-pad").length,
+        expected: state.design.filter((m) => rules.isDataSupportSource(m.type) || rules.isWeapon(m, PART_STATS)).length
+      };
+    });
+    assert.equal(padCount.pads, padCount.expected, "one hit pad per Data source and weapon");
     const clickOn = async (index) => { const p = await centreOf(index); await page.mouse.click(p.x, p.y); };
 
-    assert.match(await hint(), /Click a Data-support component/, "idle hint invites selecting a source");
+    assert.match(await hint(), /Select: click a Data source/, "idle hint invites selecting a source");
     await page.locator("#analysisDataPanel").screenshot({ path: `${out}-panel-before.png` });
 
     // --- click-to-connect ---
@@ -91,7 +156,7 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
 
     await clickOn(RAILGUN);
     assert.deepEqual(await links(), [`${FIRE_CONTROL}:${BLASTER}`, `${FIRE_CONTROL}:${RAILGUN}`], "a second weapon links too");
-    assert.match(await hint(), /2 weapons linked/, "hint counts the links");
+    assert.match(await hint(), /2 linked/, "hint counts the links");
 
     // Clicking a linked weapon again unlinks it.
     await clickOn(BLASTER);
@@ -127,7 +192,9 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
       const at = (a, b) => a + (b - a) * 0.25;
       const gx = at(Number(line.getAttribute("x1")), Number(line.getAttribute("x2")));
       const gy = at(Number(line.getAttribute("y1")), Number(line.getAttribute("y2")));
-      return { x: box.left + (gx / 15) * box.width, y: box.top + (gy / 15) * box.height };
+      // Overlay units are cells spaced by the grid gap, so map through the viewBox.
+      const vb = svg.viewBox.baseVal;
+      return { x: box.left + (gx / vb.width) * box.width, y: box.top + (gy / vb.height) * box.height };
     });
     const atPoint = await page.evaluate((p) => {
       const el = document.elementFromPoint(p.x, p.y);
@@ -143,11 +210,23 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
     await clickOn(AMPLIFIER);
     assert.match(await hint(), /Signal Amplifier selected/, "amplifier arms");
     await page.keyboard.press("Escape");
-    assert.match(await hint(), /Click a Data-support component/, "Escape deselects");
+    assert.match(await hint(), /Select: click a Data source/, "Escape deselects");
 
     await page.locator("#dataLinksClearButton").click();
     assert.deepEqual(await links(), [], "Clear all links empties the set");
     assert.equal(await page.locator("#dataLinksClearButton").isDisabled(), true, "Clear disables when there is nothing to clear");
+
+    // --- Auto-link connects every source to every weapon ---
+    assert.equal(await page.locator("#dataLinksAutoButton").isDisabled(), false, "Auto-link is available with links missing");
+    await page.locator("#dataLinksAutoButton").click();
+    assert.deepEqual(await links(), [
+      `${FIRE_CONTROL}:${BLASTER}`, `${FIRE_CONTROL}:${RAILGUN}`,
+      `${AMPLIFIER}:${BLASTER}`, `${AMPLIFIER}:${RAILGUN}`
+    ].sort(), "Auto-link links every source to every weapon");
+    assert.equal(await page.locator("#dataLinksAutoButton").isDisabled(), true, "Auto-link disables once everything is linked");
+    await page.locator("#buildGridStage").screenshot({ path: `${out}-auto-linked.png` });
+    await page.locator("#dataLinksClearButton").click();
+    assert.deepEqual(await links(), [], "Clear all links undoes Auto-link");
 
     // --- links survive a save/load round trip ---
     const roundTrip = await page.evaluate(async () => {

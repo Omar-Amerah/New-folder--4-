@@ -19,7 +19,7 @@ const { PARTS } = require("./components");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { BALANCE_REVISION } = require("./balanceConfig");
 const { reportInvalidShieldState } = require("./runtimeShield");
-const { sanitizeCombatStyle } = require("./validation");
+const { sanitizeCombatStyle, sanitizeMovementToggles } = require("./validation");
 const { usesStationInfrastructure } = require("./rooms");
 const { filterSnapshotForPlayer } = require("./visibilitySnapshots");
 const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapability");
@@ -139,6 +139,7 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     entry.moduleScale = station.moduleScale;
     entry.design = station.design || [];
     if (station.hangar) entry.hangar = station.hangar;
+    if (station.hangars) entry.hangars = station.hangars;
     if (station.hardpoints) entry.hardpoints = station.hardpoints;
     entry.weaponAngles = (station.weaponAngles || []).map(round);
     entry.maxHp = round(station.maxHp);
@@ -196,6 +197,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       angle: roundAngle(ship.angle),
       turnActivity: Math.max(-1, Math.min(1, Number.isFinite(ship.turnActivity) ? ship.turnActivity : 0)),
       combatStyle: sanitizeCombatStyle(ship.combatStyle),
+      movementToggles: sanitizeMovementToggles(ship.movementToggles),
       targetX: round(ship.targetX),
       targetY: round(ship.targetY),
       hp: round(ship.hp),
@@ -757,6 +759,7 @@ function buildClientStations(room, sharedStations, client, sendStatic) {
       entry.moduleScale = station.moduleScale;
       entry.design = station.design || [];
       if (station.hangar) entry.hangar = station.hangar;
+      if (station.hangars) entry.hangars = station.hangars;
       if (station.hardpoints) entry.hardpoints = station.hardpoints;
       entry.weaponAngles = (station.weaponAngles || []).map(round);
       delete entry.weaponAnglePairs;

@@ -2164,3 +2164,48 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* Movement toggles: standing instructions for the selected ships, sitting
+   directly under the combat stance they qualify. */
+.movement-toggle-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 8px;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid rgba(174, 199, 231, 0.18);
+  border-radius: 6px;
+}
+
+.movement-toggle-controls label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: #b9c8dd;
+  font-size: 10.5px;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.movement-toggle-controls input {
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: #ffca57;
+  cursor: pointer;
+}
+
+.movement-toggle-controls label:has(input:checked) {
+  color: #e7f0fd;
+}
+
+.movement-toggle-controls label:has(input:disabled) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.movement-toggle-controls span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

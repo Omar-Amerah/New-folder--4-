@@ -243,7 +243,7 @@
 .end-game-screen {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  z-index: 20;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -262,7 +262,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: hidden auto;
 }
 
 .minimize-button {

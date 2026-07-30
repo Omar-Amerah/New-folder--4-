@@ -20,7 +20,6 @@ const { PROJECTILE_EVENT_REPLICATION } = require("./performanceFlags");
 const {
   usesSensorVisibility,
   ensureTeamVisibility,
-  canTeamSeeEntity,
   isPointVisibleToTeam,
   normalizedTeamId,
   teamOfEntity
@@ -375,7 +374,8 @@ function getTeamVisibleProjectiles(room, teamId, now) {
   const visible = new Set();
   for (const bullet of room.bullets || []) {
     if (bullet?.life <= 0 || !bullet?.id) continue;
-    if (canTeamSeeEntity(room, teamId, bullet, now)) {
+    if (teamOfEntity(room, bullet) === teamId
+        || isPointVisibleToTeam(room, teamId, bullet.x, bullet.y, now, bullet.radius || 0)) {
       visible.add(bullet.id);
     }
   }
@@ -701,6 +701,7 @@ function applyClientProjectiles(room, client, now, sendStatic, snapshot) {
 
   if (fullBaseline) {
     snapshot.bullets = batch.bullets;
+    snapshot.projectileBaseline = true;
     snapshot.projectileEvents = [];
     rep.diagnostics.projectileFullBaselineBytes += JSON.stringify(batch.bullets).length;
   } else {

@@ -389,13 +389,18 @@ function planSpawns(room, options = {}) {
   const reservations = [];
   const results = [];
   const attempts = [];
+  // Slots are spaced against each other by the player's own reservation radius,
+  // but held off the world edge by whichever is larger — that radius or the
+  // footprint of the home station that will be planted on the region centre.
+  const regionRadius = stationRegionRadius(room);
   for (const player of players) {
     const reservedRadius = reservationRadius(player, options);
-    const preferred = preferredSlots(world, room.rules?.gameMode === "solo", player, players, seed, reservedRadius);
+    const edgeRadius = Math.max(reservedRadius, regionRadius);
+    const preferred = preferredSlots(world, room.rules?.gameMode === "solo", player, players, seed, reservedRadius, edgeRadius);
     let placed = null;
     for (const slot of preferred) {
       attempts.push({ playerId: player.id, x: round(slot.x), y: round(slot.y), angle: round(slot.angle), reason: slot.reason });
-      const adjusted = findLegalSlot(slot, reservedRadius, world, map, reservations, player, players, room, attempts);
+      const adjusted = findLegalSlot(slot, reservedRadius, edgeRadius, world, map, reservations, player, players, room, attempts);
       if (adjusted) {
         placed = adjusted;
         break;
@@ -416,10 +421,14 @@ function planSpawnRegions(room, options = {}) {
   const players = new Map([...(room.players?.values?.() || [])].map((p) => [p.id, p]));
   const solo = room.rules?.gameMode === "solo";
   const groups = new Map();
+  // One region per TEAM, not per player. A team shares a single home station
+  // with a launch bay per member, so drawing a separate circle around every
+  // team-mate's planned slot left several bases on the map with the station
+  // sitting in only one of them. Solo players still each get their own.
   for (const spawn of spawns) {
     const player = players.get(spawn.playerId);
     const team = normalizeTeam(player?.team) || player?.team;
-    const key = solo ? `player:${spawn.playerId}` : `team:${team || spawn.playerId}:player:${spawn.playerId}`;
+    const key = solo ? `player:${spawn.playerId}` : `team:${team || spawn.playerId}`;
     if (!groups.has(key)) groups.set(key, { ownerId: solo ? spawn.playerId : null, team: solo ? null : team, spawns: [] });
     groups.get(key).spawns.push(spawn);
   }
@@ -429,14 +438,16 @@ function planSpawnRegions(room, options = {}) {
     const cy = group.spawns.reduce((sum, s) => sum + s.y, 0) / group.spawns.length;
     let radius = 0;
     for (const s of group.spawns) radius = Math.max(radius, Math.hypot(s.x - cx, s.y - cy) + s.reservedRadius);
-    radius = Math.ceil(radius);
+    // In station mode the home station is planted at this centre, so the region
+    // has to be able to hold the structure as well as the starting hulls.
+    radius = Math.ceil(Math.max(radius, stationRegionRadius(room)));
     const ownerPlayer = group.ownerId ? players.get(group.ownerId) : players.get(group.spawns[0].playerId);
     const borderColor = solo
       ? (ownerPlayer?.color || "#ffffff")
       : (TEAM_COLORS[group.team] || "#ffffff");
     const fillColor = ownerPlayer?.color || borderColor;
     const zone = {
-      id: group.ownerId ? `spawn-player-${group.ownerId}` : `spawn-team-${group.team}-${group.spawns[0].playerId}`,
+      id: group.ownerId ? `spawn-player-${group.ownerId}` : `spawn-team-${group.team}`,
       x: round(cx),
       y: round(cy),
       radius,
@@ -455,6 +466,16 @@ function planSpawnRegions(room, options = {}) {
     if (Math.hypot(a.x - b.x, a.y - b.y) < a.radius + b.radius) throw new Error(`Unable to plan legal spawn safe zones: ${a.id} overlaps ${b.id}`);
   }
   return { spawns, safeZones, key: planKey(room) };
+}
+
+// The radius a spawn region needs to contain a home station. Zero outside
+// station mode, where no structure is planted at the region centre. Read from
+// the authored template so the two can never drift apart.
+function stationRegionRadius(room) {
+  if (room?.rules?.infrastructureMode !== "stations") return 0;
+  const { buildHomeStationGeometry } = require("./stationTemplates");
+  const shell = buildHomeStationGeometry().shell;
+  return Math.hypot(shell.maxX - shell.minX, shell.maxY - shell.minY) / 2 + 40;
 }
 
 function getSpawnRegionPlan(room) {
@@ -501,7 +522,7 @@ function reservationRadius(player, options = {}) {
   return Math.ceil(radius + STARTER_SPACING * Math.sqrt(count));
 }
 
-function preferredSlots(world, solo, player, players, seed, radius) {
+function preferredSlots(world, solo, player, players, seed, radius, edgeRadius = radius) {
   const ids = players.map((p) => p.id).sort();
   const byTeam = new Map();
   for (const p of players) {
@@ -517,11 +538,16 @@ function preferredSlots(world, solo, player, players, seed, radius) {
   const count = group.length;
   if (!solo && (teamKey === "blue" || teamKey === "red")) {
     const left = teamKey === "blue";
-    const x = left ? radius + 80 : world.width - radius - 80;
-    const minY = radius + 80;
-    const maxY = world.height - radius - 80;
-    const y = count === 1 ? world.height / 2 : minY + (maxY - minY) * (index / (count - 1));
-    return jitteredLine(x, y, left ? 0 : Math.PI, seed, player.id, radius, world, left ? "blue-side" : "red-side");
+    const x = left ? edgeRadius + 80 : world.width - edgeRadius - 80;
+    const minY = edgeRadius + 80;
+    const maxY = world.height - edgeRadius - 80;
+    // Team-mates cluster around one base rather than being strung out along the
+    // whole side of the map. They share a home station, so their slots have to
+    // sit close enough together that a single safe zone covers all of them and
+    // the station lands in the middle of it.
+    const spacing = radius * 2 + 40;
+    const y = clamp(world.height / 2 + (index - (count - 1) / 2) * spacing, minY, maxY);
+    return jitteredLine(x, y, left ? 0 : Math.PI, seed, player.id, edgeRadius, world, left ? "blue-side" : "red-side");
   }
   const soloIndex = ids.indexOf(player.id);
   // With the default phase two solo players land on the short (vertical) axis,
@@ -529,11 +555,11 @@ function preferredSlots(world, solo, player, players, seed, radius) {
   // safe-zone clearance. Rotate the pair onto the long axis instead.
   const phase = ids.length === 2 ? Math.PI / 2 : 0;
   const angle = -Math.PI + phase + (2 * Math.PI * (soloIndex + 0.5)) / Math.max(1, ids.length);
-  const sectorRadiusX = world.width * 0.5 - radius - 120;
-  const sectorRadiusY = world.height * 0.5 - radius - 120;
+  const sectorRadiusX = world.width * 0.5 - edgeRadius - 120;
+  const sectorRadiusY = world.height * 0.5 - edgeRadius - 120;
   const x = world.width / 2 + Math.cos(angle) * sectorRadiusX * 0.72;
   const y = world.height / 2 + Math.sin(angle) * sectorRadiusY * 0.72;
-  return jitteredLine(x, y, angle + Math.PI, seed, player.id, radius, world, "solo-sector");
+  return jitteredLine(x, y, angle + Math.PI, seed, player.id, edgeRadius, world, "solo-sector");
 }
 
 function jitteredLine(x, y, angle, seed, id, radius, world, reason) {
@@ -547,7 +573,7 @@ function jitteredLine(x, y, angle, seed, id, radius, world, reason) {
   return slots.map((s) => ({ ...s, x: clamp(s.x, radius, world.width - radius), y: clamp(s.y, radius, world.height - radius) }));
 }
 
-function findLegalSlot(slot, radius, world, map, reservations, player, players, room, attempts) {
+function findLegalSlot(slot, radius, edgeRadius, world, map, reservations, player, players, room, attempts) {
   const candidates = [slot];
   for (let i = 0; i < MAX_FALLBACK_ATTEMPTS; i += 1) {
     const ring = 1 + Math.floor(i / 12);
@@ -557,7 +583,7 @@ function findLegalSlot(slot, radius, world, map, reservations, player, players, 
   for (let i = 0; i < candidates.length; i += 1) {
     const c = candidates[i];
     if (!inOwnSector(c, radius, world, player, players, room)) continue;
-    if (isLegal(c, radius, world, map, reservations)) return { ...c, attempts: i + 1 };
+    if (isLegal(c, radius, edgeRadius, world, map, reservations)) return { ...c, attempts: i + 1 };
   }
   return null;
 }
@@ -569,8 +595,10 @@ function inOwnSector(c, radius, world, player, players, room) {
   if (team === "red") return c.x >= world.width * 0.58;
   return true;
 }
-function isLegal(c, radius, world, map, reservations) {
-  if (c.x < radius || c.x > world.width - radius || c.y < radius || c.y > world.height - radius) return false;
+function isLegal(c, radius, edgeRadius, world, map, reservations) {
+  // The world margin uses edgeRadius so the safe zone this slot ends up inside —
+  // which in station mode has to hold the home station — cannot fall off the map.
+  if (c.x < edgeRadius || c.x > world.width - edgeRadius || c.y < edgeRadius || c.y > world.height - edgeRadius) return false;
   for (const r of reservations) if (Math.hypot(c.x - r.x, c.y - r.y) < radius + r.radius) return false;
   for (const a of map.asteroids || []) if (Math.hypot(c.x - a.x, c.y - a.y) < radius + (a.radius || 0) + MAP_CLEARANCES.asteroidToSpawnSlot) return false;
   for (const relay of map.relays || []) if (Math.hypot(c.x - relay.x, c.y - relay.y) < radius + (relay.radius || 0) + MAP_CLEARANCES.relayToSafeZone) return false;
