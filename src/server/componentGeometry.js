@@ -120,6 +120,8 @@ function buildProjectileCollisionGrid(ship) {
     cellOccupants,
     occupiedCellCount,
     componentCount: design.length,
+    cellVisitEpoch: new Int32Array(GRID_SIZE * GRID_SIZE),
+    cellVisitToken: 0,
     candidateScratch: {
       epoch: 0,
       seen: new Int32Array(design.length),
