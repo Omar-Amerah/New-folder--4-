@@ -855,7 +855,32 @@ function effectiveShieldCapacityContributions(ship) {
   });
 }
 
-function effectiveShieldStats(ship) {
+function shieldStatsSignature(ship) {
+  return [
+    ship.powerRevision || 0,
+    ship.wiringRevision || 0,
+    ship.componentAliveRevision || 0,
+    ship.heatStateRevision || 0,
+    ship.designRevision || 1,
+    getCommandAuraMultiplier(ship, "shieldRegenMultiplier")
+  ].join(":");
+}
+
+function effectiveShieldStats(ship, room = null) {
+  const signature = shieldStatsSignature(ship);
+  const cache = ship?._shieldStatsCache;
+  if (cache && cache.signature === signature) {
+    if (room) {
+      const { bump } = require("./roomTelemetry");
+      bump(room, "shieldDerivedStatCacheHits");
+    }
+    return { ...cache.stats };
+  }
+  if (room) {
+    const { bump } = require("./roomTelemetry");
+    bump(room, "shieldDerivedStatCacheMisses");
+    bump(room, "shieldDerivedStatCalculations");
+  }
   const HeatRules = require("../../public/src/shared/heatRules");
   const stats = ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
     isLive: (index) => (ship.componentHp?.[index] ?? 1) > 0,
@@ -864,7 +889,8 @@ function effectiveShieldStats(ship) {
     heatMultiplier: (index, module, part) => (Number(part.shieldRegen) || 0) > 0 ? HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL) : 1
   });
   stats.recharge *= getCommandAuraMultiplier(ship, "shieldRegenMultiplier");
-  return stats;
+  if (ship) ship._shieldStatsCache = { signature, stats };
+  return { ...stats };
 }
 
 function componentHostsWiring(ship, index) {

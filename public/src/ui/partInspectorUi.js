@@ -47,7 +47,7 @@ export function renderPartInspector() {
     droneType: placed?.droneType || globalThis.DroneBayRules?.normalizeDroneType?.(placed?.droneType) || null,
     thermalNote: thermalNoteFor(type),
     requirementStatus: requirementStatusFor(placed),
-    includePowerRequirements: WIRING_ENABLED,
+    includePowerRequirements: true,
     includeDataRequirements: true,
     automaticDataLinks: !WIRING_ENABLED,
     launchEdge,
@@ -201,12 +201,20 @@ function requirementStatusFor(placed) {
   const status = {};
   const stat = PART_STATS[placed.type] || PART_STATS.frame;
 
-  if (WIRING_ENABLED && (stat.powerUse || 0) > 0) {
-    try {
-      const flow = solveBlueprintPower(design, state.wiring || null, PART_STATS, WIRING_INFRASTRUCTURE);
-      const entry = flow?.byComponentIndex?.find((item) => item.componentIndex === index) || null;
-      status.power = powerRequirementState(entry);
-    } catch { status.power = { state: "unplaced", reason: null }; }
+  if ((stat.powerUse || 0) > 0) {
+    if (WIRING_ENABLED) {
+      try {
+        const flow = solveBlueprintPower(design, state.wiring || null, PART_STATS, WIRING_INFRASTRUCTURE);
+        const entry = flow?.byComponentIndex?.find((item) => item.componentIndex === index) || null;
+        status.power = powerRequirementState(entry);
+      } catch { status.power = { state: "unplaced", reason: null }; }
+    } else {
+      const totalGen = design.reduce((sum, m) => sum + (Number(PART_STATS[m?.type]?.powerGeneration) || 0), 0);
+      const totalUse = design.reduce((sum, m) => sum + (Number(PART_STATS[m?.type]?.powerUse) || 0), 0);
+      status.power = totalGen >= totalUse
+        ? { state: "met", reason: null }
+        : { state: "unmet", reason: "This component is not receiving enough Power." };
+    }
   }
 
   if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus) {

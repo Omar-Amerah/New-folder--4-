@@ -257,6 +257,7 @@ function mobilitySection(stats, ledger) {
     statRow("thrustRatio", "Thrust-to-Mass", hasThrust ? `${round2(stats.thrustRatio)} kN/T` : null),
     statRow("engineEfficiency", "Engine Efficiency", hasThrust ? formatPercent(stats.engineEfficiency) : null),
     statRow("speedCap", "Soft-cap onset", formatSpeed(stats.speedCap)),
+    statRow("massDragLimit", "Mass Drag Limit", formatSpeed(stats.speedCap)),
     statRow("turnLeft", "Left Turn", turns ? `${degreesPerSecond(left)}°/s` : null),
     statRow("turnRight", "Right Turn", turns ? `${degreesPerSecond(right)}°/s` : null),
     statRow("turnCap", "Turn Limit", Number(stats.turnCap || 0) > 0 ? `${degreesPerSecond(stats.turnCap)}°/s` : null),

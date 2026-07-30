@@ -1,6 +1,7 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
 const { clampNumber, rotateToward, fastHypot, compareIdStrings } = require("./utils");
+const { bump } = require("./roomTelemetry");
 const { getShipCollisionGeometry, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
 const { getLiveShips } = require("./ships");
 const { buildRoomSpatialIndex } = require("./spatialIndex");
@@ -131,9 +132,11 @@ function shieldCollisionRadius(ship) {
 function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIndex, scratch = []) {
   const margin = bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
   let hit = null;
+  if (spatialIndex) bump(room, "projectileSpatialQueries");
   const asteroids = spatialIndex
     ? spatialIndex.querySweptAabbUnordered("asteroids", x1, y1, bullet.x, bullet.y, margin, scratch)
     : (room.map?.asteroids || []);
+  bump(room, "projectileCandidateAsteroids", asteroids.length);
   for (const asteroid of asteroids) {
     const impact = segmentCircleHit(x1, y1, bullet.x, bullet.y, asteroid.x, asteroid.y, asteroid.radius + margin);
     if (!impact) continue;
@@ -401,6 +404,7 @@ function updateBullets(room, dt, now) {
         && (bullet.trackRemaining === undefined || bullet.trackRemaining > 0)
         && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
+        bump(room, "missileGuidanceUpdates");
         const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
         if (bullet.targetComponentIndex === undefined) bullet.targetComponentIndex = -1;
         if (bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0)) {
@@ -510,9 +514,11 @@ function updateBullets(room, dt, now) {
 
     // pdShot: hostile interceptable projectiles along the swept segment.
     if (bullet.type === "pdShot") {
+      if (spatialIndex) bump(room, "projectileSpatialQueries");
       const pList = spatialIndex
         ? spatialIndex.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, PROJECTILES.interceptRadius, scratch.interceptableProjectiles)
         : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
+      bump(room, "projectileSpatialQueries");
       for (const p of pList) {
         if (p === bullet) continue;
         if (!areEnemies(room, bullet.ownerId, p.ownerId)) continue;
@@ -532,9 +538,11 @@ function updateBullets(room, dt, now) {
       }
     }
 
+    if (spatialIndex) bump(room, "projectileSpatialQueries");
     const possibleShips = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("ships", previousX, previousY, bullet.x, bullet.y, 0, shipCandidates)
       : liveShips;
+    bump(room, "projectileCandidateShips", possibleShips.length);
     for (const ship of possibleShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? PROJECTILES.hitRadius.missile : bullet.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
@@ -565,9 +573,11 @@ function updateBullets(room, dt, now) {
       const componentHp = ship.componentHp;
       let moduleHit = null;
       const collisionR = COMPONENT_CELL_COLLISION_RADIUS + hitRadius;
+      let componentCellTests = 0;
       for (const i of geometry.liveComponentIndices) {
         if (componentHp && componentHp[i] <= 0) continue;
         const cells = cellCoords[i];
+        componentCellTests += cells.length;
         for (let c = 0; c < cells.length; c++) {
           const cell = cells[c];
           const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, cell.x, cell.y, collisionR);
@@ -579,8 +589,10 @@ function updateBullets(room, dt, now) {
       if (moduleHit) {
         recordHit({ kind: "ship", t: moduleHit.t, x: moduleHit.x, y: moduleHit.y, ship, entityId: ship.id, shield: false });
       }
+      bump(room, "projectileComponentCellTests", componentCellTests);
     }
 
+    if (spatialIndex) bump(room, "projectileSpatialQueries", 2);
     const possibleStations = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("stations", previousX, previousY, bullet.x, bullet.y, 0, scratch.stations)
       : (room.stations || []);
@@ -605,6 +617,7 @@ function updateBullets(room, dt, now) {
     const possibleDrones = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
       : (room.drones?.values?.() || []);
+    bump(room, "projectileCandidateDrones", possibleDrones.length);
     for (const drone of possibleDrones) {
       if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
       const hitRadius = bullet.type === "missile"

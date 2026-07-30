@@ -1,0 +1,137 @@
+"use strict";
+
+// Per-room reusable tick telemetry.  All counters are plain numbers on a single
+// room-scoped object that is reset deterministically at the start of every tick.
+// No per-entity, per-candidate or per-projectile allocations are made for
+// telemetry; callers bump counters and record stage durations using the helpers
+// below.
+
+const { performanceNow } = require("./utils");
+
+const DURATION_FIELDS = Object.freeze([
+  "movementControllerMs",
+  "movementAvoidanceMs",
+  "movementMapCollisionMs",
+  "shipSeparationMs",
+  "separationSpatialQueryMs",
+  "separationNarrowPhaseMs",
+  "separationSpatialRebuildMs"
+]);
+
+const COUNTER_FIELDS = Object.freeze([
+  // Ship separation counters
+  "liveShips",
+  "separationIterations",
+  "separationQueries",
+  "separationCandidatesReturned",
+  "separationPairsExamined",
+  "separationBroadPhaseRejected",
+  "separationNarrowPhaseChecks",
+  "separationOverlapsResolved",
+  "separationUnresolvedPairs",
+  "separationShipIndexRebuilds",
+  "separationMapCollisionCalls",
+
+  // Projectile counters
+  "liveProjectiles",
+  "projectileSpatialQueries",
+  "projectileCandidateShips",
+  "projectileCandidateDrones",
+  "projectileCandidateStations",
+  "projectileCandidateAsteroids",
+  "projectileComponentCellTests",
+  "flakEventCandidates",
+  "flakEventSorts",
+  "missileGuidanceUpdates",
+
+  // Weapon counters
+  "weaponComponentsVisited",
+  "targetAcquisitionRuns",
+  "pointDefenceSearches",
+  "pointDefenceCandidates",
+  "lineOfSightChecks",
+
+  // Shield counters
+  "shieldRuntimeUpdates",
+  "shieldDerivedStatCalculations",
+  "shieldDerivedStatCacheHits",
+  "shieldDerivedStatCacheMisses",
+  "shieldDerivedStatVerificationFailures",
+
+  // Snapshot counters
+  "shipsSerialized",
+  "bulletsSerialized",
+  "dronesSerialized",
+  "effectsSerialized",
+  "weaponAnglesSerialized",
+  "snapshotConstructionMs",
+  "snapshotEncodingMs",
+  "aggregatePayloadBytes",
+  "maximumClientPayloadBytes"
+]);
+
+const ALL_FIELDS = Object.freeze([...DURATION_FIELDS, ...COUNTER_FIELDS]);
+
+function ensureTelemetry(room) {
+  if (room?._roomTelemetry) return room._roomTelemetry;
+  if (!room) return {};
+  const telemetry = {};
+  for (const field of ALL_FIELDS) telemetry[field] = 0;
+  room._roomTelemetry = telemetry;
+  return telemetry;
+}
+
+function resetRoomTelemetry(room) {
+  const telemetry = ensureTelemetry(room);
+  for (const field of ALL_FIELDS) telemetry[field] = 0;
+  return telemetry;
+}
+
+function bump(room, name, amount = 1) {
+  if (!room) return 0;
+  const telemetry = ensureTelemetry(room);
+  if (!(name in telemetry)) return 0;
+  const delta = Number(amount) || 0;
+  telemetry[name] = Math.max(0, telemetry[name] + delta);
+  return telemetry[name];
+}
+
+function recordDuration(room, name, startMs) {
+  if (!room || !Number.isFinite(startMs)) return 0;
+  const telemetry = ensureTelemetry(room);
+  if (!(name in telemetry)) return 0;
+  const elapsed = Math.max(0, performanceNow() - startMs);
+  telemetry[name] = Math.max(0, telemetry[name] + elapsed);
+  return elapsed;
+}
+
+function setCounter(room, name, value) {
+  if (!room) return 0;
+  const telemetry = ensureTelemetry(room);
+  if (!(name in telemetry)) return 0;
+  const n = Number(value) || 0;
+  telemetry[name] = Math.max(0, n);
+  return telemetry[name];
+}
+
+function getRoomTelemetry(room) {
+  const telemetry = ensureTelemetry(room);
+  return Object.fromEntries(ALL_FIELDS.map((field) => [field, telemetry[field]]));
+}
+
+function telemetryDiagnostics(room) {
+  if (!room) return Object.fromEntries(ALL_FIELDS.map((field) => [field, 0]));
+  return getRoomTelemetry(room);
+}
+
+module.exports = {
+  ALL_FIELDS,
+  DURATION_FIELDS,
+  COUNTER_FIELDS,
+  resetRoomTelemetry,
+  bump,
+  recordDuration,
+  setCounter,
+  getRoomTelemetry,
+  telemetryDiagnostics
+};

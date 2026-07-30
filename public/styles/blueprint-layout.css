@@ -274,7 +274,8 @@
 .blueprint-mode-context[data-mode="wiring"] { border-color: rgba(56,217,255,.28); }
 /* Build has no mode controls, and Heat controls live in the analysis inspector. */
 .blueprint-mode-context[data-mode="build"],
-.blueprint-mode-context[data-mode="heat"] { display: none; }
+.blueprint-mode-context[data-mode="heat"],
+.blueprint-mode-context[data-mode="dataLinks"] { display: none; }
 .blueprint-mode-summary { display:flex; gap:8px; align-items:baseline; justify-content:center; min-width:0; color:#cfe8ff; font-size:12px; }
 .blueprint-mode-summary strong { text-transform:uppercase; letter-spacing:.06em; }
 .blueprint-mode-summary span { color:#9fb2cc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

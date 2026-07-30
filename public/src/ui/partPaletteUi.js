@@ -52,7 +52,7 @@ export function renderPalette() {
     notice.className = "palette-locked-notice";
     notice.setAttribute("role", "status");
     const title = document.createElement("strong");
-    title.textContent = "Component placement paused in Wiring mode";
+    title.textContent = `Component placement paused in ${state.blueprintView === "dataLinks" ? "Data Links" : "Wiring"} mode`;
     const description = document.createElement("span");
     description.textContent = "Switch to Build or Heat to add or change components.";
     notice.appendChild(title);

@@ -1,4 +1,5 @@
 const assert = require('assert');
+require('./public/src/shared/featureFlags.js');
 const HeatRules = require('./public/src/shared/heatRules');
 
 global.document = {
@@ -28,7 +29,7 @@ global.window = { devicePixelRatio: 1 };
   assert.strictEqual(parts.PART_STATS.droneBay.category, 'Weapons');
   assert.strictEqual(parts.PART_STATS.heatPipe.category, 'Heat Components');
   assert.deepStrictEqual(parts.PART_STATS.nuclearReactor.footprint, { width: 3, height: 2 });
-  assert.strictEqual(parts.PART_STATS.nuclearReactor.powerGeneration, 42);
+  assert.strictEqual(parts.PART_STATS.nuclearReactor.powerGeneration, 60);
   assert(HeatRules.activityHeat('nuclearReactor', parts.PART_STATS.nuclearReactor)
     > HeatRules.activityHeat('reactor', parts.PART_STATS.reactor) * 2,
   'Nuclear Reactor generates substantially more Heat than a standard Reactor');

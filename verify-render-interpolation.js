@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 globalThis.document = globalThis.document || { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], body: null, addEventListener(){}, removeEventListener(){}, activeElement: null, visibilityState: 'visible' };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener(){}, removeEventListener(){} };
 globalThis.performance = globalThis.performance || { now: () => Date.now() };
+await import('./public/src/shared/featureFlags.js');
 const { state } = await import('./public/src/state.js');
 const { resetRenderHistory, acceptSnapshotForRender, visualForShip, interpolateShips, EXTRAPOLATION_CAP_MS } = await import('./public/src/game/renderInterpolation.js');
 resetRenderHistory(); state.snapshotNetwork={stateEpoch:1,snapshotSeq:0};

@@ -257,7 +257,7 @@ export const GENERATED_BALANCE = {
       "category": "Structure",
       "cost": 1,
       "mass": 5,
-      "hull": 260,
+      "hull": 320,
       "powerGeneration": 4,
       "powerUse": 0,
       "shield": 0,

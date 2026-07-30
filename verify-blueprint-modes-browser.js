@@ -76,7 +76,7 @@ function assertStable(before, after, label) {
     for (const viewport of [{ width: 1180, height: 760 }, { width: 1280, height: 900 }, { width: 1600, height: 900 }]) {
       await page.setViewportSize(viewport);
       await setupDesigner(page);
-      assert.deepEqual(await page.$$eval('.blueprint-view-tabs [role="tab"]', tabs => tabs.map(t => t.textContent.trim())), ["Build", "Heat", "Wiring"]);
+      assert.deepEqual(await page.$$eval('.blueprint-view-tabs [role="tab"]', tabs => tabs.map(t => t.textContent.trim())), ["Build", "Heat", "Data Links", "Wiring"]);
       assert.equal(await page.locator("#blueprintBuildTab").getAttribute("aria-selected"), "true");
       assert.match(await page.locator("#blueprintModeContext").textContent(), /Build/);
       const build = await gridRect(page);
@@ -84,16 +84,16 @@ function assertStable(before, after, label) {
       assert.equal(await page.locator("#blueprintHeatTab").getAttribute("aria-selected"), "true");
       assert.match(await page.locator("#blueprintModeContext").textContent(), /Build while viewing predicted component Heat/);
       assertStable(build, await gridRect(page), `${viewport.width}x${viewport.height} Heat`);
-      await page.click("#blueprintWiringTab");
-      assert.equal(await page.locator("#blueprintWiringTab").getAttribute("aria-selected"), "true");
+      await page.click("#blueprintDataLinksTab");
+      assert.equal(await page.locator("#blueprintDataLinksTab").getAttribute("aria-selected"), "true");
       assert.match(await page.locator("#blueprintModeContext").textContent(), /Component placement is paused/);
-      assert.match(await page.locator("#partPalette").textContent(), /Component placement paused in Wiring mode/);
+      assert.match(await page.locator("#partPalette").textContent(), /Component placement paused in Data Links mode/);
       assert.equal(await page.locator("#partPalette .part-button").first().isDisabled(), true);
-      assertStable(build, await gridRect(page), `${viewport.width}x${viewport.height} Wiring`);
+      assertStable(build, await gridRect(page), `${viewport.width}x${viewport.height} Data Links`);
       await page.keyboard.press("Home");
       assert.equal(await page.locator("#blueprintBuildTab").getAttribute("aria-selected"), "true");
       await page.keyboard.press("End");
-      assert.equal(await page.locator("#blueprintWiringTab").getAttribute("aria-selected"), "true");
+      assert.equal(await page.locator("#blueprintDataLinksTab").getAttribute("aria-selected"), "true");
     }
     assert.deepEqual(errors, []);
     console.log("Blueprint modes browser verification passed");

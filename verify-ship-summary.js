@@ -9,6 +9,7 @@
 // browser globals.
 
 const assert = require("assert");
+require('./public/src/shared/featureFlags.js');
 const HeatRules = require("./public/src/shared/heatRules");
 const WiringRules = require("./public/src/shared/wiringRules");
 const DataRules = require("./public/src/shared/dataSupportRules");
@@ -273,7 +274,7 @@ const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
         assert.match(repair[0].value, /HP\/s$/);
       }
       for (const row of allRows(model)) {
-        assert.doesNotMatch(`${row.label}: ${row.value}`, /repair.*:?\s*0(\.0)? HP\/s/i, `${key} shows no zero repair rate`);
+        assert.doesNotMatch(`${row.label}: ${row.value}`, /repair.*(?<![\d.])0(\.0)?\s*HP\/s/i, `${key} shows no zero repair rate`);
       }
     }
   });

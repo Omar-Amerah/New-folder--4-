@@ -1,6 +1,7 @@
 "use strict";
 const assert = require("assert");
 const fs = require("fs");
+require('./public/src/shared/featureFlags.js');
 
 globalThis.document = { getElementById() { return { style: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false;} }, addEventListener(){}, setAttribute(){}, getContext(){ return null; } }; }, createElement() { return { style: {}, appendChild(){}, setAttribute(){}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false;} } }; } };
 globalThis.window = globalThis;
@@ -53,6 +54,6 @@ globalThis.EngineExhaustRules = {
   assert(/2 ships/.test(multi.text)); assert(/Hull 75\/200/.test(multi.text)); assert(/Shield 15\/40/.test(multi.text)); assert.strictEqual(multi.style, "Mixed");
   assert(!/credential|connectionId|internal/i.test(one.text + multi.text));
   assert(fs.readFileSync("public/styles.css", "utf8").includes("prefers-reduced-motion") || true, "reduced motion remains compatible with CSS-only additions");
-  assert(fs.readFileSync("public/src/ui/sidePanelUi.js", "utf8").includes('send({ type: "setCombatStyle", combatStyle: style, shipIds });'));
+  assert(fs.readFileSync("public/src/ui/sidePanelUi.js", "utf8").includes('send({ type: "setCombatStyle", requestId, combatStyle: style, shipIds });'));
   console.log("Section 13B UI helpers verified");
 })();

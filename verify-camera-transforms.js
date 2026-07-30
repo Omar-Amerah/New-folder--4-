@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 globalThis.document = globalThis.document || { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], body: null, addEventListener(){}, removeEventListener(){}, activeElement: null, visibilityState: 'visible' };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener(){}, removeEventListener(){} };
 globalThis.performance = globalThis.performance || { now: () => Date.now() };
+await import('./public/src/shared/featureFlags.js');
 const { worldToScreen, screenToWorldPoint, clampCameraToWorld, zoomCameraAtScreenPoint, minimapToWorld, worldToMinimap, cameraViewportWorldBounds, CAMERA_MIN_ZOOM, CAMERA_PAN_RANGE_SCALE } = await import('./public/src/game/camera.js');
 const rect={left:40,top:20,width:900,height:700}, world={width:2000,height:1200};
 assert.equal(CAMERA_MIN_ZOOM, 0.22, "manual camera zoom reaches the wider tactical view");

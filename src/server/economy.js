@@ -2,6 +2,7 @@
 
 const { ECONOMY, REWARDS } = require("./config");
 const { usesStationInfrastructure } = require("./rooms");
+const { findTeamHomeStation } = require("./stations");
 const { clampNumber, round } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
@@ -186,7 +187,7 @@ function executePurchase(room, player, request, now) {
   const combatStyle = request.combatStyle || player.combatStyle || "hold";
   recordPurchaseStage("statCalculation", performance.now() - templateStart);
 
-  if (usesStationInfrastructure(room)) {
+  if (usesStationInfrastructure(room) && findTeamHomeStation(room, player.team)) {
     const { enqueueStationProduction } = require("./stations");
     const result = enqueueStationProduction(room, player, { template, request, validation }, now);
     cache.set(requestId, { at: now, signature, result });

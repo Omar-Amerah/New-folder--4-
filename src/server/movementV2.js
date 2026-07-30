@@ -73,6 +73,7 @@ const {
   REST_SPEED,
   WORLD_MARGIN
 } = require("./movementTuning");
+const { circularShipSeparation } = require("./performanceFlags");
 const { getMaxEffectiveWeaponRange } = require("./componentData");
 const {
   applyEngineHeat,
@@ -189,7 +190,9 @@ const WAYPOINT_CAPTURE_RATIO = 0.75;
 // to correct in the first place -- and it is harmful: it leaves two hulls
 // spawned on the same coordinate visibly interpenetrated for several ticks
 // instead of recovering at once.
-const SEPARATION_OPTIONS = Object.freeze({ circular: true });
+function getSeparationOptions() {
+  return { circular: circularShipSeparation() };
+}
 
 // --- Predictive avoidance ----------------------------------------------------
 // How far ahead to look for a closing threat. Long, because the horizon is also
@@ -1325,7 +1328,7 @@ function updateShipMovement(room, ship, dt, now) {
 // -- a ship shoved by a third party, a hull spawning into a crowd -- using
 // circles, so it can only ever undo positional overlap and never opposes a turn.
 function updateShipSeparation(room, ships, dt, now = 0) {
-  return resolveShipSeparation(room, ships, dt, now, SEPARATION_OPTIONS);
+  return resolveShipSeparation(room, ships, dt, now, getSeparationOptions());
 }
 
 // ---------------------------------------------------------------------------
@@ -1340,6 +1343,7 @@ function clearTargetReferences(ship) {
 
 function issueMove(ship, commandId, destination, options = {}) {
   clearTargetReferences(ship);
+  ship.commandMode = "move";
   setMovementCommand(ship, {
     id: `${commandId}:${ship.id}`,
     type: "move",

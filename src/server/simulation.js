@@ -2,7 +2,7 @@
 const { updateBots, getLiveShips } = require("./ships");
 const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
-const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./movement");
+const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions, resolveMapCollision } = require("./movement");
 const { updateBullets } = require("./projectiles");
 const { updateStations } = require("./stations");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
@@ -17,8 +17,10 @@ const { updateStationWeapons } = require("./stationCombat");
 const { updateCommandAuras } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
 const { recordRoomTick } = require("./performanceTelemetry");
+const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
+const { redundantFleetMapCollisionPass } = require("./performanceFlags");
 const { invalidateVisibility } = require("./visibility");
 const { dropHiddenTargetLocksForShips } = require("./targetLocks");
 
@@ -46,6 +48,8 @@ function tickRoom(room, dt, now) {
   // ship surging and stalling. Measured at 30 Hz ticks against 20 Hz snapshots:
   // a hull holding a true 510 px/s was rendered swinging between 340 and 680.
   room.simulationTimeMs = now;
+  // Reset the per-room telemetry record deterministically at the start of the tick.
+  resetRoomTelemetry(room);
   // Telemetry consumes these synchronously, so one mutable record per room can
   // be reused instead of allocating a fresh timing object every simulation tick.
   const durations = room._tickDurations || (room._tickDurations = {});
@@ -53,6 +57,7 @@ function tickRoom(room, dt, now) {
   updateBots(room, now); updateEconomy(room, dt); updateSelfDestructingShips(room, now); updateDestroyedShips(room, now);
   durations.botsEconomyLifecycle = performanceNow() - startedAt;
   const ships = getLiveShips(room, room._liveShipScratch || (room._liveShipScratch = []));
+  setCounter(room, "liveShips", ships.length);
   // Section 7D-2: refresh activity-driven Power demand once per ship, before any
   // gameplay system consumes this cycle's operational multipliers / section flow.
   startedAt = performanceNow();
@@ -73,10 +78,14 @@ function tickRoom(room, dt, now) {
   // Shield is an explicit runtime stage. It consumes the authoritative
   // Power/Heat/aura state and is independent of movement substeps.
   startedAt = performanceNow();
-  for (const ship of ships) updateRuntimeShield(ship, dt, now);
+  for (const ship of ships) updateRuntimeShield(ship, dt, now, room);
+  recordDuration(room, "shieldRuntimeUpdates", startedAt);
+  setCounter(room, "shieldRuntimeUpdates", ships.length);
   durations.shields = performanceNow() - startedAt;
   startedAt = performanceNow();
+  let movementStart = performanceNow();
   for (const ship of ships) updateShipMovement(room, ship, dt, now);
+  recordDuration(room, "movementControllerMs", movementStart);
   // After movement, refresh only ship records. Drones and projectiles are
   // updated by their own systems before consumers that need their positions.
   if (room.spatialIndex && typeof room.spatialIndex.rebuildKind === "function") {
@@ -84,7 +93,17 @@ function tickRoom(room, dt, now) {
   } else {
     buildRoomSpatialIndex(room, ships, now);
   }
-  updateShipSeparation(room, ships, dt, now); resolveFleetMapCollisions(room, ships);
+  const modifiedShipIds = updateShipSeparation(room, ships, dt, now);
+  const mapCollisionStart = performanceNow();
+  if (redundantFleetMapCollisionPass()) {
+    resolveFleetMapCollisions(room, ships);
+  } else {
+    for (const id of modifiedShipIds) {
+      const ship = room.ships.get(id);
+      if (ship) resolveMapCollision(room, ship);
+    }
+  }
+  recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
   // Separation and map recovery mutate positions after the pre-collision
   // movement refresh. Publish the corrected coordinates without rebuilding
   // unrelated dynamic kinds.
@@ -147,6 +166,7 @@ function tickRoom(room, dt, now) {
   durations.stationWeapons = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateBullets(room, dt, now);
+  setCounter(room, "liveProjectiles", (room.bullets || []).length);
   durations.projectiles = performanceNow() - startedAt;
   startedAt = performanceNow();
   updateStations(room, dt, now);

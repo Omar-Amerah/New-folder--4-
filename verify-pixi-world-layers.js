@@ -1,4 +1,5 @@
 const assert = require('assert');
+require('./public/src/shared/featureFlags.js');
 
 function makeCtx() {
   return {

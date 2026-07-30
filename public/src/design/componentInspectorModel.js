@@ -438,8 +438,8 @@ const FAILED_DATA_STATES = new Set(["disconnected", "unpowered", "overheated"]);
  * "unplaced" and renders as an ordinary (amber) dependency.
  */
 export function requirementsFor(type, stat, context = {}) {
-  const includePower = context.includePowerRequirements ?? (context.includeWiringRequirements !== false);
-  const includeData = context.includeDataRequirements ?? (context.includeWiringRequirements !== false);
+  const includePower = context.includePowerRequirements ?? true;
+  const includeData = context.includeDataRequirements ?? true;
   const status = context.requirementStatus || {};
   const requirements = [];
 
@@ -475,7 +475,7 @@ export function requirementsFor(type, stat, context = {}) {
 
 /** Classify a solved Blueprint power entry for the requirements row. */
 export function powerRequirementState(entry) {
-  if (!entry) return { state: "unplaced", reason: null };
+  if (!entry) return { state: "unmet", reason: "Not connected to any Power network." };
   if (!FAILED_POWER_STATES.has(entry.state)) return { state: "met", reason: null };
   const reason = entry.state === "disconnected"
     ? "Not connected to any Power network."
@@ -487,7 +487,7 @@ export function powerRequirementState(entry) {
 
 /** Classify a Blueprint Data-source allocation for the requirements row. */
 export function dataRequirementState(source) {
-  if (!source) return { state: "unplaced", reason: null };
+  if (!source) return { state: "unmet", reason: "No weapon is connected to this Data network." };
   if (FAILED_DATA_STATES.has(source.status)) {
     return { state: "unmet", reason: source.statusReason || "This Data source is not delivering support." };
   }
@@ -534,7 +534,7 @@ function weaponDetailRows(type, stat) {
   }
   rows.push(statRow("weapon.traverse", "Turret Traverse", aimSpeedText(turretRules().turnRateFor(weapon))));
   rows.push(statRow("weapon.vsShields", "Vs Shields", formatMultiplierPercent(weapon.shieldDamageMultiplier)));
-  if (Number(weapon.hullDamageMultiplier ?? 1) !== 1) rows.push(statRow("weapon.vsHull", "Vs Hull", formatMultiplierPercent(weapon.hullDamageMultiplier)));
+  rows.push(statRow("weapon.vsHull", "Vs Hull", formatMultiplierPercent(weapon.hullDamageMultiplier)));
 
   if (weapon.type === "missile") {
     rows.push(statRow("weapon.tracking", "Tracking", formatPercent(weapon.tracking)));

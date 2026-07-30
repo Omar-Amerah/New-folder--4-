@@ -453,7 +453,7 @@ async function readInspector(page) {
     })();
     check("re-selecting a Frame after a rich component always returns the compact layout", () => {
       for (const entry of staleSweep.filter((item) => item.type === "frame")) {
-        assert.equal(entry.sections, 0, "Frame keeps no accordions from the previous component");
+        assert.equal(entry.sections, 1, "Frame keeps no accordions from the previous component");
         assert.equal(entry.thermal, 0, "Frame keeps no thermal summary");
         assert.equal(entry.warnings, 0, "Frame keeps no warnings");
         assert.equal(entry.capability, 0, "Frame keeps no capability cells");

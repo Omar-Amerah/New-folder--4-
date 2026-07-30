@@ -1,6 +1,7 @@
 "use strict";
 
-const { clampNumber, fastHypot, hashString, compareEntityIds, compareNaturalIds } = require("./utils");
+const { clampNumber, fastHypot, hashString, compareEntityIds, compareNaturalIds, performanceNow } = require("./utils");
+const { bump, recordDuration } = require("./roomTelemetry");
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
@@ -128,14 +129,20 @@ function findShipCircleOverlap(a, b, dx, dy, minimum) {
 }
 
 function resolveSeparationPair(room, a, b, options = null) {
+  bump(room, "separationPairsExamined");
   const broadDx = (b.x || 0) - (a.x || 0);
   const broadDy = (b.y || 0) - (a.y || 0);
   const broadMinimum = physicalCollisionRadius(a) + physicalCollisionRadius(b);
-  if (broadDx * broadDx + broadDy * broadDy >= broadMinimum * broadMinimum) return null;
+  if (broadDx * broadDx + broadDy * broadDy >= broadMinimum * broadMinimum) {
+    bump(room, "separationBroadPhaseRejected");
+    return null;
+  }
+  bump(room, "separationNarrowPhaseChecks");
   const overlap = options?.circular
     ? findShipCircleOverlap(a, b, broadDx, broadDy, broadMinimum)
     : findShipHullOverlap(a, b);
   if (!overlap) return null;
+  bump(room, "separationOverlapsResolved");
 
   let normalX;
   let normalY;
@@ -258,6 +265,8 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
     : getLiveShips(room))
     .slice()
     .sort(compareEntityIds);
+  const separationStart = performanceNow();
+  bump(room, "liveShips", ships.length);
   // Pair resolution has to visit (a, b) in a stable order, and it used to
   // establish that order by comparing ids for every candidate of every ship on
   // every iteration. Stamping each ship's rank in the already-sorted list turns
@@ -275,12 +284,14 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
     const yRank = rankOf(y);
     return xRank >= 0 && yRank >= 0 ? xRank - yRank : compareEntityIds(x, y);
   };
-  const modified = new Set();
+  const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
+  modified.clear();
   let unresolved = [];
   for (let iteration = 0; iteration < SEPARATION_ITERATIONS; iteration += 1) {
     let overlaps = 0;
     unresolved = [];
-    collisionBump(room, "shipCollisionIterations");
+    bump(room, "separationIterations");
+    const narrowStart = performanceNow();
     for (const a of ships) {
       const usingIndex = room.spatialIndex?.dynamicValid
         && room.spatialIndex.queryRangeUnordered;
@@ -295,6 +306,8 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
         : ships;
       if (usingIndex && candidates.length > 1) candidates.sort(byRank);
       const aRank = rankOf(a);
+      bump(room, "separationQueries");
+      bump(room, "separationCandidatesReturned", candidates.length);
       for (const b of candidates) {
         if (!b?.alive || b === a) continue;
         const bRank = rankOf(b);
@@ -307,11 +320,20 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
         modified.add(b.id);
       }
     }
-    for (const ship of ships) resolveMapCollision(room, ship);
+    recordDuration(room, "separationNarrowPhaseMs", narrowStart);
+    const mapStart = performanceNow();
+    for (const ship of ships) {
+      resolveMapCollision(room, ship);
+      bump(room, "separationMapCollisionCalls");
+    }
+    recordDuration(room, "separationMapCollisionMs", mapStart);
     if (overlaps === 0) break;
     if (room.spatialIndex?.rebuildKind) {
+      const rebuildStart = performanceNow();
       const { shipBroadPhaseRadius } = require("./spatialIndex");
       room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+      bump(room, "separationShipIndexRebuilds");
+      recordDuration(room, "separationSpatialRebuildMs", rebuildStart);
     }
   }
   if (unresolved.length) {
@@ -339,6 +361,8 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
       }
     }
   }
+  bump(room, "separationUnresolvedPairs", unresolved.length);
+  recordDuration(room, "shipSeparationMs", separationStart);
   return Array.from(modified);
 }
 
