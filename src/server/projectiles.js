@@ -70,12 +70,9 @@ function removeProjectilesByOwner(room, ownerId) {
   const source = room.bullets || [];
   const kept = room._projectileSpare && room._projectileSpare !== source ? room._projectileSpare : [];
   kept.length = 0;
-  const lookup = ensureProjectileLookup(room);
   for (const projectile of source) {
     if (projectile.ownerId === ownerId) {
-      if (projectile.id) lookup.delete(projectile.id);
-      room.spatialIndex?.remove?.("projectiles", projectile);
-      room.spatialIndex?.remove?.("interceptableProjectiles", projectile);
+      removeProjectileRuntime(room, projectile, "ownerRemoved", projectile.x, projectile.y);
     } else {
       kept.push(projectile);
     }

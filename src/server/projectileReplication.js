@@ -1,9 +1,17 @@
 // Authoritative projectile lifecycle replication for PROJECTILE_EVENT_REPLICATION.
 //
-// This module owns the server-side lifecycle log, per-client event cursors and
-// visible projectile sets.  It does not perform gameplay collision or damage;
-// it only records authoritative spawn/remove/correction state and builds the
+// This module owns the server-side lifecycle log, per-client delivery cursors and
+// visible projectile sets.  It does not perform gameplay collision or damage; it
+// only records authoritative spawn/remove/correction state and builds the
 // per-client, per-snapshot payload when the feature is enabled.
+//
+// Delivery discipline:
+//   - buildClientBatch() NEVER mutates client._projectile.
+//   - It returns a delivery descriptor that carries the desired end state.
+//   - applyClientProjectiles() writes only to the snapshot; it stores the
+//     delivery descriptor in client._projectile.pendingDelivery.
+//   - snapshotDelivery calls markProjectilesWritten() only when the socket
+//     actually writes the frame.  That is the only place client state advances.
 
 "use strict";
 
@@ -12,7 +20,7 @@ const { PROJECTILE_EVENT_REPLICATION } = require("./performanceFlags");
 const {
   usesSensorVisibility,
   ensureTeamVisibility,
-  isPointVisibleInState,
+  canTeamSeeEntity,
   normalizedTeamId
 } = require("./visibility");
 
@@ -24,8 +32,8 @@ const DEFAULTS = Object.freeze({
   maxEventBatch: 512,
   maxPermittedSeqGap: 1024,
   missileCorrectionIntervalMs: 100,
-  // Allow correction at the normal snapshot rate for anything non-ballistic.
-  guidedCorrectionIntervalMs: 100
+  guidedCorrectionIntervalMs: 100,
+  maxVisibleProjectileCacheMs: 100
 });
 
 const LIFECYCLE_EVENT_TYPES = Object.freeze([
@@ -51,8 +59,8 @@ function isEventReplicationEnabled() {
 
 function clientSupportsProjectileEvents(client) {
   if (!client) return false;
-  const caps = client.protocol?.capabilities;
-  return Array.isArray(caps) && caps.includes(PROJECTILE_EVENTS_CAPABILITY);
+  if (!PROJECTILE_EVENT_REPLICATION()) return false;
+  return true;
 }
 
 function ensureReplication(room) {
@@ -64,6 +72,10 @@ function ensureReplication(room) {
     nextEventSeq: 0,
     nextCorrectionSeq: 0,
     log: [],
+    corrections: new Map(),
+    _correctionsPreparedAt: -1,
+    _visibleByTeam: new Map(),
+    _visibleAt: -1,
     diagnostics: {
       projectileLifecycleEventsCreated: 0,
       projectileSpawnEventsCreated: 0,
@@ -114,6 +126,10 @@ function resetProjectileReplication(room, newEpoch) {
   rep.nextEventSeq = 0;
   rep.nextCorrectionSeq = 0;
   rep.log.length = 0;
+  rep.corrections = new Map();
+  rep._correctionsPreparedAt = -1;
+  rep._visibleByTeam = new Map();
+  rep._visibleAt = -1;
   rep.diagnostics.lifecycleLogSize = 0;
   rep.diagnostics.lifecycleLogHighWaterMark = 0;
   if (room.clients) {
@@ -136,18 +152,33 @@ function closeProjectileReplication(room) {
   }
 }
 
+function promoteAllClientsForLog(room, reason, firstSeqToKeep) {
+  if (!room?.clients) return;
+  for (const client of room.clients) {
+    if (!client._projectile) continue;
+    if (client._projectile.eventCursor < (firstSeqToKeep ?? Infinity)) {
+      client._projectile.needsFullBaseline = true;
+      client._projectile.eventCursor = room.projectileReplication?.nextEventSeq ?? 0;
+      room.projectileReplication.diagnostics.projectileBaselinePromotions += 1;
+    }
+  }
+}
+
 function pruneLogIfNeeded(room) {
   const rep = room?.projectileReplication;
   if (!rep) return;
   const max = DEFAULTS.maxLifecycleLog;
   const over = rep.log.length - max;
-  if (over <= 0) return;
-  // Prune only the oldest records that every connected capable client has
-  // already passed.  Never silently discard undelivered lifecycle records.
+  if (over <= 0) {
+    rep.diagnostics.lifecycleLogSize = rep.log.length;
+    return;
+  }
+
+  // Conservative pass: drop only records every connected capable client has
+  // already passed.
   let minCursor = Infinity;
   if (room.clients) {
     for (const client of room.clients) {
-      if (!clientSupportsProjectileEvents(client)) continue;
       const cursor = client._projectile?.eventCursor ?? rep.nextEventSeq;
       if (cursor < minCursor) minCursor = cursor;
     }
@@ -161,26 +192,19 @@ function pruneLogIfNeeded(room) {
     if (rep.log.length <= max) break;
   }
 
-  // If the log is still above the hard cap after conservative pruning, we must
-  // promote lagging clients to full baselines rather than losing events.
-  if (rep.log.length > max && room.clients) {
-    for (const client of room.clients) {
-      if (!clientSupportsProjectileEvents(client)) continue;
-      const cursor = client._projectile?.eventCursor ?? 0;
-      const first = rep.log[0]?.projectileEventSeq ?? 0;
-      if (first > cursor) {
-        if (client._projectile) {
-          client._projectile.needsFullBaseline = true;
-          client._projectile.eventCursor = rep.nextEventSeq;
-        }
-        rep.diagnostics.projectileBaselinePromotions += 1;
-      }
-    }
+  // If the log is still above the hard cap, promote lagging clients to a full
+  // baseline BEFORE any records are lost.
+  if (rep.log.length > max) {
+    const first = rep.log[0]?.projectileEventSeq ?? rep.nextEventSeq;
+    promoteAllClientsForLog(room, "log-prune", first);
   }
 
-  // Last resort: drop from the front only when backpressure already closed the
-  // client, or every client has been promoted.  This is a bounded hard cap.
+  // Last-resort hard cap: only after all clients have been promoted can we
+  // splice.  If they are still lagging, the promotion above set their cursor
+  // past the prune window.
   if (rep.log.length > max * 2) {
+    const first = rep.log[0]?.projectileEventSeq ?? 0;
+    promoteAllClientsForLog(room, "hard-cap", first);
     const toDrop = rep.log.length - max;
     rep.log.splice(0, toDrop);
     rep.diagnostics.lifecycleEventsPruned += toDrop;
@@ -197,7 +221,6 @@ function recordProjectileSpawn(room, bullet, now) {
   const rep = ensureReplication(room);
   if (bullet._replicationSpawned) return;
   if (rep.stateEpoch !== (room.stateEpoch || 1)) {
-    // Should have been reset on epoch change; recover defensively.
     resetProjectileReplication(room, room.stateEpoch || 1);
   }
   rep.nextEventSeq += 1;
@@ -287,33 +310,47 @@ function viewerTeamId(room, client) {
   return normalizedTeamId(room, client.player.team ?? client.player.id);
 }
 
-function visibleProjectilesForClient(room, client, now) {
+function getTeamVisibleProjectiles(room, teamId, now) {
+  const rep = ensureReplication(room);
+  if (rep._visibleAt === now && rep._visibleByTeam.has(teamId)) {
+    return rep._visibleByTeam.get(teamId);
+  }
+  rep._visibleAt = now;
+  rep._visibleByTeam = new Map();
+
   if (!usesSensorVisibility(room)) {
     const visible = new Set();
     for (const bullet of room.bullets || []) {
       if (bullet?.life > 0 && bullet?.id) visible.add(bullet.id);
     }
+    rep._visibleByTeam.set(teamId, visible);
     return visible;
   }
-  const teamId = viewerTeamId(room, client);
-  if (!teamId) return new Set();
-  const state = ensureTeamVisibility(room, teamId, now);
+
+  ensureTeamVisibility(room, teamId, now);
   const visible = new Set();
   for (const bullet of room.bullets || []) {
     if (bullet?.life <= 0 || !bullet?.id) continue;
-    if (isPointVisibleInState(state, bullet.x, bullet.y, 0)) {
+    if (canTeamSeeEntity(room, teamId, bullet, now)) {
       visible.add(bullet.id);
     }
   }
+  rep._visibleByTeam.set(teamId, visible);
   return visible;
 }
 
-function buildVisibleBaseline(room, client, now) {
-  const visible = visibleProjectilesForClient(room, client, now);
+function visibleProjectilesForClient(room, client, now) {
+  const teamId = viewerTeamId(room, client);
+  if (!teamId) return new Set();
+  return getTeamVisibleProjectiles(room, teamId, now);
+}
+
+function buildVisibleBaseline(room, client, now, visible = null) {
+  const vis = visible || visibleProjectilesForClient(room, client, now);
   const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
   const bullets = [];
   const lookup = room.projectileById;
-  for (const id of visible) {
+  for (const id of vis) {
     const bullet = lookup?.get?.(id);
     if (!bullet || bullet.life <= 0) continue;
     const age = Number.isFinite(bullet.bornAt) ? Math.max(0, (simMs - bullet.bornAt) / 1000) : 0;
@@ -380,80 +417,109 @@ function shouldCorrect(bullet, now) {
     return now - (bullet._lastCorrectionAt || 0) >= DEFAULTS.missileCorrectionIntervalMs;
   }
   if (bullet.type === "flak" || bullet.type === "pdShot" || bullet.type === "bolt" || bullet.type === "rail") {
-    // Only non-ballistic or guided fall through; ballistic ones do not receive
-    // corrections by default.
     return false;
   }
   return now - (bullet._lastCorrectionAt || 0) >= DEFAULTS.guidedCorrectionIntervalMs;
 }
 
+function prepareRoomCorrections(room, now) {
+  const rep = ensureReplication(room);
+  if (rep._correctionsPreparedAt === now) return;
+  rep._correctionsPreparedAt = now;
+  rep.corrections = new Map();
+  const simMs = Math.floor(now);
+  for (const bullet of room.bullets || []) {
+    if (!bullet || bullet.life <= 0) continue;
+    if (shouldCorrect(bullet, now)) {
+      bullet._lastCorrectionAt = now;
+      rep.corrections.set(bullet.id, buildCorrectionFor(bullet, rep, simMs));
+      rep.diagnostics.projectileCorrectionRecordsCreated += 1;
+    }
+  }
+}
+
 function buildClientBatch(room, client, now, fullBaseline) {
-  if (!room || !client) return { events: [], newCursor: 0, knownVisible: new Set(), newCorrectionCursor: 0, bullets: [] };
+  if (!room || !client) {
+    return { events: [], knownVisible: new Set(), bullets: [], delivery: null };
+  }
   const rep = ensureReplication(room);
   const ps = getClientProjectileState(client, room);
-
-  // Full baseline: replace the client's known set with the current visible set.
-  if (fullBaseline) {
-    const bullets = buildVisibleBaseline(room, client, now);
-    ps.eventCursor = rep.nextEventSeq;
-    ps.correctionCursor = rep.nextCorrectionSeq;
-    ps.stateEpoch = rep.stateEpoch;
-    ps.needsFullBaseline = false;
-    const known = new Set(bullets.map((b) => b.id));
-    ps.knownVisible = known;
-    rep.diagnostics.projectileFullBaselineBytes += JSON.stringify(bullets).length;
-    return { events: [], newCursor: rep.nextEventSeq, knownVisible: known, newCorrectionCursor: rep.nextCorrectionSeq, bullets };
-  }
+  const baseEventSeq = ps.eventCursor;
+  const baseCorrectionSeq = ps.correctionCursor;
+  const baseKnown = ps.knownVisible;
 
   if (ps.stateEpoch !== rep.stateEpoch) {
-    ps.needsFullBaseline = true;
-    ps.eventCursor = rep.nextEventSeq;
-    ps.correctionCursor = rep.nextCorrectionSeq;
-    ps.stateEpoch = rep.stateEpoch;
-    ps.knownVisible = new Set();
-    rep.diagnostics.projectileBaselinePromotions += 1;
-    return { events: [], newCursor: rep.nextEventSeq, knownVisible: new Set(), newCorrectionCursor: rep.nextCorrectionSeq, bullets: [] };
+    // State changed; a full baseline is required.  Do not mutate client state.
+    return {
+      events: [],
+      knownVisible: new Set(),
+      bullets: [],
+      delivery: null,
+      needsFullBaseline: true,
+      baseEventSeq,
+      baseCorrectionSeq
+    };
+  }
+
+  if (fullBaseline) {
+    const visible = visibleProjectilesForClient(room, client, now);
+    const bullets = buildVisibleBaseline(room, client, now, visible);
+    const known = new Set(visible);
+    const delivery = {
+      stateEpoch: rep.stateEpoch,
+      eventSeq: rep.nextEventSeq,
+      correctionSeq: rep.nextCorrectionSeq,
+      knownVisible: known,
+      needsFullBaseline: false
+    };
+    rep.diagnostics.projectileFullBaselineBytes += JSON.stringify(bullets).length;
+    return {
+      events: [],
+      knownVisible: known,
+      bullets,
+      delivery,
+      baseEventSeq: 0,
+      newEventSeq: rep.nextEventSeq,
+      baseCorrectionSeq: 0,
+      newCorrectionSeq: rep.nextCorrectionSeq
+    };
   }
 
   const visible = visibleProjectilesForClient(room, client, now);
+  const simMs = Math.floor(now);
   const events = [];
-  const nextCursor = Math.max(0, ps.eventCursor || 0);
-  const from = nextCursor;
-  const to = rep.nextEventSeq;
+  const newKnown = new Set(visible);
+  let newEventSeq = baseEventSeq;
+  let newCorrectionSeq = baseCorrectionSeq;
 
   // Replay lifecycle records the client has not yet acknowledged.
-  if (from < to) {
+  if (baseEventSeq < rep.nextEventSeq) {
     for (const event of rep.log) {
-      if (event.projectileEventSeq <= from) continue;
-      if (event.projectileEventSeq > to) break;
+      if (event.projectileEventSeq <= baseEventSeq) continue;
+      if (event.projectileEventSeq > rep.nextEventSeq) break;
       if (event.stateEpoch !== rep.stateEpoch) continue;
       if (event.type === "projectileSpawn") {
         if (visible.has(event.projectile?.id)) {
           events.push(event);
+          newEventSeq = Math.max(newEventSeq, event.projectileEventSeq);
         }
       } else if (event.type === "projectileRemove") {
-        const id = event.projectileId;
-        // Only send removes for projectiles the client still thinks are alive.
-        if (ps.knownVisible.has(id)) {
+        if (baseKnown.has(event.projectileId)) {
           events.push(event);
+          newEventSeq = Math.max(newEventSeq, event.projectileEventSeq);
         }
       }
     }
   }
 
   // Synthesise visibility transitions.
-  //   Not visible -> visible: fresh projectileSpawn using current state.
-  //   Visible -> not visible (still active): projectileHide.
   const gained = [];
   const lost = [];
   for (const id of visible) {
-    if (!ps.knownVisible.has(id)) gained.push(id);
+    if (!baseKnown.has(id)) gained.push(id);
   }
-  for (const id of ps.knownVisible) {
+  for (const id of baseKnown) {
     if (!visible.has(id)) {
-      // If the projectile is still alive, it is a hide.  If it was removed
-      // there will already be a remove record above, but if no record exists
-      // it is effectively hidden now.
       const bullet = room.projectileById?.get?.(id);
       if (bullet && bullet.life > 0) {
         lost.push(id);
@@ -465,13 +531,15 @@ function buildClientBatch(room, client, now, fullBaseline) {
     const current = bulletSnapshot(id, room, now);
     if (!current) continue;
     rep.nextEventSeq += 1;
+    const seq = rep.nextEventSeq;
     events.push({
       type: "projectileSpawn",
       stateEpoch: rep.stateEpoch,
-      projectileEventSeq: rep.nextEventSeq,
-      simulationTimeMs: Math.floor(now),
+      projectileEventSeq: seq,
+      simulationTimeMs: simMs,
       projectile: current
     });
+    newEventSeq = Math.max(newEventSeq, seq);
     rep.diagnostics.projectileVisibilitySpawns += 1;
     rep.diagnostics.projectileLifecycleEventsCreated += 1;
     rep.diagnostics.projectileSpawnEventsCreated += 1;
@@ -479,46 +547,63 @@ function buildClientBatch(room, client, now, fullBaseline) {
 
   for (const id of lost) {
     rep.nextEventSeq += 1;
+    const seq = rep.nextEventSeq;
     events.push({
       type: "projectileHide",
       stateEpoch: rep.stateEpoch,
-      projectileEventSeq: rep.nextEventSeq,
-      simulationTimeMs: Math.floor(now),
+      projectileEventSeq: seq,
+      simulationTimeMs: simMs,
       projectileId: id
     });
+    newEventSeq = Math.max(newEventSeq, seq);
     rep.diagnostics.projectileVisibilityHides += 1;
     rep.diagnostics.projectileLifecycleEventsCreated += 1;
     rep.diagnostics.projectileHideEventsCreated += 1;
   }
 
-  // Corrections for visible, known, guided projectiles.
-  const correctionById = new Map();
-  const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
+  // Append corrections that are relevant to this client.  They were generated
+  // once per room update in prepareRoomCorrections().
   for (const id of visible) {
-    if (!ps.knownVisible.has(id)) continue; // spawn already contains the latest state
-    const bullet = room.projectileById?.get?.(id);
-    if (!bullet || bullet.life <= 0) continue;
-    if (shouldCorrect(bullet, now)) {
-      bullet._lastCorrectionAt = now;
-      const correction = buildCorrectionFor(bullet, rep, simMs);
-      correctionById.set(id, correction);
-      rep.diagnostics.projectileCorrectionRecordsCreated += 1;
-    }
+    if (!baseKnown.has(id)) continue;
+    const c = rep.corrections.get(id);
+    if (!c) continue;
+    events.push(c);
+    newCorrectionSeq = Math.max(newCorrectionSeq, c.correctionSeq);
   }
 
-  const corrections = [...correctionById.values()];
-  for (const c of corrections) events.push(c);
-
+  // If the backlog is too large for one frame, promote to a full baseline
+  // rather than silently truncating events.  A full baseline carries the
+  // complete current visible set and resets the client cursor.
   if (events.length > DEFAULTS.maxEventBatch) {
-    events.length = DEFAULTS.maxEventBatch;
-    rep.diagnostics.staleProjectileEventsIgnored += 1;
+    return {
+      events: [],
+      knownVisible: newKnown,
+      bullets: [],
+      delivery: null,
+      needsFullBaseline: true,
+      baseEventSeq,
+      baseCorrectionSeq
+    };
   }
 
-  const newKnown = new Set(visible);
-  ps.knownVisible = newKnown;
-  ps.eventCursor = rep.nextEventSeq;
-  ps.correctionCursor = rep.nextCorrectionSeq;
-  return { events, newCursor: rep.nextEventSeq, knownVisible: newKnown, newCorrectionCursor: rep.nextCorrectionSeq, bullets: [] };
+  const delivery = {
+    stateEpoch: rep.stateEpoch,
+    eventSeq: newEventSeq,
+    correctionSeq: newCorrectionSeq,
+    knownVisible: newKnown,
+    needsFullBaseline: false
+  };
+
+  return {
+    events,
+    knownVisible: newKnown,
+    bullets: [],
+    delivery,
+    baseEventSeq,
+    newEventSeq,
+    baseCorrectionSeq,
+    newCorrectionSeq
+  };
 }
 
 function applyClientProjectiles(room, client, now, sendStatic, snapshot) {
@@ -526,19 +611,34 @@ function applyClientProjectiles(room, client, now, sendStatic, snapshot) {
   if (!isEventReplicationEnabled() || !clientSupportsProjectileEvents(client)) return null;
   const rep = ensureReplication(room);
   const ps = getClientProjectileState(client, room);
-  const full = ps.needsFullBaseline || sendStatic;
-  const batch = buildClientBatch(room, client, now, full);
+
+  // If a previous pending delivery never wrote, the client is still at the
+  // old cursors.  We replace the stale pending descriptor with this one.
+  ps.pendingDelivery = null;
+
+  prepareRoomCorrections(room, now);
+
+  let fullBaseline = ps.needsFullBaseline || sendStatic;
+  let batch = buildClientBatch(room, client, now, fullBaseline);
+
+  if (batch.needsFullBaseline) {
+    fullBaseline = true;
+    ps.needsFullBaseline = true;
+    batch = buildClientBatch(room, client, now, true);
+    // A full baseline is the only safe way to recover.
+    ps.needsFullBaseline = false;
+  }
 
   snapshot.projectileStateEpoch = rep.stateEpoch;
-  snapshot.projectileEventSeq = batch.newCursor;
-  snapshot.projectileEventBaseSeq = full ? 0 : ps.eventCursor;
-  snapshot.projectileCorrectionSeq = batch.newCorrectionCursor;
   snapshot.projectileSimulationTimeMs = Math.floor(now);
+  snapshot.projectileEventBaseSeq = fullBaseline ? 0 : batch.baseEventSeq;
+  snapshot.projectileEventSeq = fullBaseline ? rep.nextEventSeq : batch.newEventSeq;
+  snapshot.projectileCorrectionBaseSeq = fullBaseline ? 0 : batch.baseCorrectionSeq;
+  snapshot.projectileCorrectionSeq = fullBaseline ? rep.nextCorrectionSeq : batch.newCorrectionSeq;
 
-  if (full) {
+  if (fullBaseline) {
     snapshot.bullets = batch.bullets;
     snapshot.projectileEvents = [];
-    snapshot.projectileEventBaseSeq = 0;
     rep.diagnostics.projectileFullBaselineBytes += JSON.stringify(batch.bullets).length;
   } else {
     snapshot.bullets = [];
@@ -552,12 +652,11 @@ function applyClientProjectiles(room, client, now, sendStatic, snapshot) {
     }
   }
 
-  return {
-    stateEpoch: rep.stateEpoch,
-    eventSeq: batch.newCursor,
-    correctionSeq: batch.newCorrectionCursor,
-    knownVisible: batch.knownVisible
-  };
+  if (batch.delivery) {
+    setPendingDelivery(client, room, batch.delivery);
+  }
+
+  return batch.delivery;
 }
 
 function markProjectilesWritten(client, room, delivery) {
@@ -568,20 +667,21 @@ function markProjectilesWritten(client, room, delivery) {
   ps.eventCursor = delivery.eventSeq;
   ps.correctionCursor = delivery.correctionSeq;
   if (delivery.knownVisible instanceof Set) ps.knownVisible = delivery.knownVisible;
+  ps.needsFullBaseline = delivery.needsFullBaseline || false;
   ps.pendingDelivery = null;
 }
 
 function markProjectilesReplaced(client) {
   if (!client?._projectile) return;
   client._projectile.pendingDelivery = null;
+  // Do not advance cursors; a replaced frame is equivalent to never having
+  // been sent.  If the pending delivery was a full-baseline recovery request,
+  // leave needsFullBaseline true.
 }
 
 function setPendingDelivery(client, room, delivery) {
   if (!client || !delivery) return;
-  const ps = client._projectile;
-  if (!ps) {
-    initializeClient(client, room, false);
-  }
+  if (!client._projectile) initializeClient(client, room, false);
   client._projectile.pendingDelivery = delivery;
 }
 
@@ -592,6 +692,13 @@ function getProjectileReplicationDiagnostics(room) {
 
 function getLogSize(room) {
   return room?.projectileReplication?.log?.length || 0;
+}
+
+function getClientProjectileSignature(client) {
+  if (!client?._projectile) return "none";
+  const ps = client._projectile;
+  const known = [...(ps.knownVisible || new Set())].sort().join(",");
+  return `${ps.stateEpoch}:${ps.eventCursor}:${ps.correctionCursor}:${ps.needsFullBaseline ? 1 : 0}:${known}`;
 }
 
 module.exports = {
@@ -617,5 +724,8 @@ module.exports = {
   setPendingDelivery,
   getClientProjectileState,
   getProjectileReplicationDiagnostics,
-  getLogSize
+  getLogSize,
+  prepareRoomCorrections,
+  getTeamVisibleProjectiles,
+  getClientProjectileSignature
 };

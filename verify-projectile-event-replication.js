@@ -15,6 +15,7 @@ const {
   recordProjectileReason,
   buildClientBatch,
   applyClientProjectiles,
+  markProjectilesWritten,
   clientSupportsProjectileEvents,
   getLogSize,
   getProjectileReplicationDiagnostics
@@ -102,7 +103,7 @@ test("full baseline replaces the visible set", () => {
   recordProjectileSpawn(room, b2, 0);
   const batch = buildClientBatch(room, client, 0, true);
   assert.ok(batch.bullets.length > 0);
-  assert.strictEqual(batch.newCursor, room.projectileReplication.nextEventSeq);
+  assert.strictEqual(batch.delivery.eventSeq, room.projectileReplication.nextEventSeq);
   __setPROJECTILE_EVENT_REPLICATION(false);
 });
 
@@ -117,6 +118,7 @@ test("event batch delivers spawn then remove", () => {
   recordProjectileSpawn(room, b, 0);
   const baseline = buildClientBatch(room, client, 0, true);
   assert.strictEqual(baseline.bullets.length, 1);
+  markProjectilesWritten(client, room, baseline.delivery);
   recordProjectileReason(b, "expired", 100, 100);
   recordProjectileRemove(room, b, "expired", 100, 100, 100);
   const compact = buildClientBatch(room, client, 100, false);
@@ -158,11 +160,16 @@ test("state-epoch change resets log and client state", () => {
   __setPROJECTILE_EVENT_REPLICATION(false);
 });
 
-test("client capability is required for event mode", () => {
+test("client capability follows the server feature flag", () => {
   const clientNoCaps = makeClient([]);
   const clientWithCaps = makeClient(["projectileEventsV1"]);
+  __setPROJECTILE_EVENT_REPLICATION(false);
   assert.strictEqual(clientSupportsProjectileEvents(clientNoCaps), false);
+  assert.strictEqual(clientSupportsProjectileEvents(clientWithCaps), false);
+  __setPROJECTILE_EVENT_REPLICATION(true);
+  assert.strictEqual(clientSupportsProjectileEvents(clientNoCaps), true);
   assert.strictEqual(clientSupportsProjectileEvents(clientWithCaps), true);
+  __setPROJECTILE_EVENT_REPLICATION(false);
 });
 
 test("applyClientProjectiles overrides snapshot bullets for event clients", () => {
@@ -174,7 +181,8 @@ test("applyClientProjectiles overrides snapshot bullets for event clients", () =
   const client = makeClient();
   room.clients.add(client);
   const snap = { bullets: [{ id: "old" }] };
-  applyClientProjectiles(room, client, 0, true, snap);
+  const delivery = applyClientProjectiles(room, client, 0, true, snap);
+  assert.ok(delivery);
   assert.strictEqual(snap.bullets[0].id, "b1");
   assert.strictEqual(snap.projectileStateEpoch, room.projectileReplication.stateEpoch);
   __setPROJECTILE_EVENT_REPLICATION(false);
@@ -182,7 +190,7 @@ test("applyClientProjectiles overrides snapshot bullets for event clients", () =
 
 test("fallback client keeps the original bullets", () => {
   const room = makeRoom();
-  __setPROJECTILE_EVENT_REPLICATION(true);
+  __setPROJECTILE_EVENT_REPLICATION(false);
   const b = makeBullet("b1");
   room.bullets.push(b);
   room.projectileById.set(b.id, b);
@@ -192,7 +200,6 @@ test("fallback client keeps the original bullets", () => {
   const delivery = applyClientProjectiles(room, client, 0, true, snap);
   assert.strictEqual(delivery, null);
   assert.strictEqual(snap.bullets[0].id, "fallback");
-  __setPROJECTILE_EVENT_REPLICATION(false);
 });
 
 test("feature flags for phase 2B-D remain unchanged", () => {

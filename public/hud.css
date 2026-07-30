@@ -253,12 +253,16 @@
 
 .end-game-screen > div {
   width: min(840px, 95vw);
+  max-height: calc(100vh - 48px);
   padding: 26px;
   border: 1px solid rgba(255, 202, 87, 0.35);
   border-radius: 12px;
   background: rgba(9, 15, 25, 0.96);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
   position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .minimize-button {
@@ -490,6 +494,12 @@
   font-size: 13px;
   font-weight: 700;
   line-height: 1.45;
+}
+
+#endGameSummary {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .end-game-actions {

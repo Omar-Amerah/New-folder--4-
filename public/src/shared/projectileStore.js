@@ -6,6 +6,9 @@
 
 const VERSION = 1;
 
+const MAX_TOMBSTONES = 4096;
+const TOMBSTONE_WINDOW = 2048;
+
 let store = {
   version: VERSION,
   stateEpoch: 0,
@@ -28,6 +31,14 @@ function resetStore(stateEpoch, projectileStateEpoch) {
     projectiles: new Map(),
     tombstones: new Map()
   };
+}
+
+function pruneTombstones() {
+  if (store.tombstones.size <= MAX_TOMBSTONES) return;
+  const floor = Math.max(0, store.eventSeq - TOMBSTONE_WINDOW);
+  for (const [id, entry] of store.tombstones) {
+    if (entry.seq < floor) store.tombstones.delete(id);
+  }
 }
 
 function ensureEpoch(message) {
@@ -113,14 +124,32 @@ function applyBaseline(message) {
 function applyEvents(message) {
   const events = message.projectileEvents;
   if (!Array.isArray(events) || events.length === 0) return;
+
+  // The server tells us the range of event sequences this frame covers.
+  // If it does not start exactly where we left off, we have missed events
+  // and must wait for a full baseline instead of applying a partial batch.
+  const base = Number(message.projectileEventBaseSeq) || 0;
+  const end = Number(message.projectileEventSeq) || 0;
+  const baseCorrection = Number(message.projectileCorrectionBaseSeq) || 0;
+  const endCorrection = Number(message.projectileCorrectionSeq) || 0;
+
+  if (events.length > 0 && base !== store.eventSeq) {
+    // Sequence gap: drop the partial batch and request a reset via the next full.
+    store.hasBaseline = false;
+    return;
+  }
+  if (endCorrection > 0 && baseCorrection !== store.correctionSeq) {
+    store.hasBaseline = false;
+    return;
+  }
+
   for (const ev of events) {
-    if (ev.projectileEventSeq !== undefined && ev.projectileEventSeq <= store.eventSeq) continue;
     applyEvent(ev, message);
     if (ev.projectileEventSeq !== undefined) store.eventSeq = Math.max(store.eventSeq, ev.projectileEventSeq);
   }
-  if (message.projectileCorrectionSeq !== undefined) {
-    store.correctionSeq = Math.max(store.correctionSeq, Number(message.projectileCorrectionSeq));
-  }
+  store.eventSeq = Math.max(store.eventSeq, end);
+  store.correctionSeq = Math.max(store.correctionSeq, endCorrection);
+  pruneTombstones();
 }
 
 export function applySnapshotToProjectiles(message) {
@@ -132,26 +161,34 @@ export function applySnapshotToProjectiles(message) {
   } else if (message.projectileEvents !== undefined) {
     if (!store.hasBaseline) return; // Ignore events until a full baseline arrives.
     applyEvents(message);
+    if (message.projectileEvents.length === 0) {
+      // Empty compact event batch: still advance cursors to the server's head.
+      store.eventSeq = Math.max(store.eventSeq, Number(message.projectileEventSeq) || 0);
+      store.correctionSeq = Math.max(store.correctionSeq, Number(message.projectileCorrectionSeq) || 0);
+    }
   } else {
     // Fallback: compact snapshot still carries the complete bullet list.
     applyBaseline(message);
   }
 }
 
-export function getProjectilesForRender() {
+export function getProjectilesForRender(now = null) {
   const out = [];
+  const useNow = Number.isFinite(now);
   for (const p of store.projectiles.values()) {
+    const dt = (useNow && Number.isFinite(p.simulationTimeMs)) ? (now - p.simulationTimeMs) / 1000 : 0;
     const render = {
       id: p.id,
       type: p.type,
       subtype: p.subtype,
       ownerId: p.ownerId,
-      x: p.x,
-      y: p.y,
+      x: p.x + p.vx * dt,
+      y: p.y + p.vy * dt,
       vx: p.vx,
       vy: p.vy,
       age: p.age,
-      remainingLife: p.remainingLife
+      remainingLife: p.remainingLife,
+      simulationTimeMs: p.simulationTimeMs
     };
     if (p.angle !== undefined) render.angle = p.angle;
     out.push(render);

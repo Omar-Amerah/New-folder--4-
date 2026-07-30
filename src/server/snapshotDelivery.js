@@ -26,7 +26,7 @@ const {
   pruneClientKnownStations
 } = require("./snapshots");
 const { recordSnapshot } = require("./performanceTelemetry");
-const { markProjectilesWritten, markProjectilesReplaced } = require("./projectileReplication");
+const { markProjectilesWritten, markProjectilesReplaced, getClientProjectileSignature, clientSupportsProjectileEvents } = require("./projectileReplication");
 
 const TELEMETRY_INTERVAL_MS = 500;
 
@@ -98,7 +98,7 @@ function telemetryFocusForPayload(client, now, full) {
 function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
   const constructionStartedAt = performanceNow();
   room._buildingSnapshotSeq = seq; room._buildingBaseSnapshotSeq = baseSeq;
-  if (!shared) shared = buildSharedSnapshot(room, now, false, true);
+  if (!shared) shared = buildSharedSnapshot(room, now, false, true, !clientSupportsProjectileEvents(client));
   const telemetryFocusShipId = telemetryFocusForPayload(client, now, full);
   const snap = snapshotRoom(room, now, client.player, full, shared, client, { telemetryFocusShipId });
   delete room._buildingSnapshotSeq; delete room._buildingBaseSnapshotSeq;
@@ -186,7 +186,7 @@ function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, t
   if (!player?.id) return null;
   // Deliberately strict. Player identity is included because own-ship/private
   // visibility and player-specific economy fields can differ even on one team.
-  return getClientKnownSignature(client) + "\0" + JSON.stringify([
+  return getClientKnownSignature(client) + "\0" + getClientProjectileSignature(client) + "\0" + JSON.stringify([
     player.id,
     player.team ?? null,
     room.rules?.gameMode || "teams",
@@ -228,7 +228,8 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   // was rebuilt inside buildPayload per client, making broadcast cost scale
   // as O(clients x ships) on the viewer-independent work too.
   const sharedStartedAt = performanceNow();
-  const shared = buildSharedSnapshot(room, now, false, true);
+  const needsFallback = [...(room.clients || [])].some((c) => !clientSupportsProjectileEvents(c));
+  const shared = buildSharedSnapshot(room, now, false, true, needsFallback);
   let constructionMs = performanceNow() - sharedStartedAt;
   let encodingMs = 0;
   let payloadBytes = 0;

@@ -170,7 +170,7 @@ function buildStationSnapshots(room, now, sendStatic) {
   return room.stations.map((station) => buildStationSnapshot(room, station, now, sendStatic));
 }
 
-function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false) {
+function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false, buildBullets = true) {
   // Snapshot construction is also used by immediate purchase/reconnect sends
   // outside the regular simulation cadence. Advance visibility once here so
   // those snapshots cannot reuse coverage from before an entity/state change.
@@ -331,22 +331,25 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     }
   }
 
-  const bulletStart = performanceNow();
-  const bullets = room.bullets.map((bullet) => ({
-    id: bullet.id,
-    type: bullet.type,
-    subtype: bullet.subtype,
-    ownerId: bullet.ownerId,
-    x: round(bullet.x),
-    y: round(bullet.y),
-    vx: round(bullet.vx),
-    vy: round(bullet.vy),
-    // Seconds since spawn, so the client can backdate a freshly fired bullet
-    // to its muzzle origin instead of extrapolating it ahead of the barrel.
-    age: Math.max(0, Math.round(now - (bullet.bornAt || now))) / 1000
-  }));
-  recordDuration(room, "projectileSnapshotConstructionMs", bulletStart);
-  if (sendStatic) bump(room, "projectileFullBaselineEntries", bullets.length);
+  let bullets = [];
+  if (buildBullets) {
+    const bulletStart = performanceNow();
+    bullets = room.bullets.map((bullet) => ({
+      id: bullet.id,
+      type: bullet.type,
+      subtype: bullet.subtype,
+      ownerId: bullet.ownerId,
+      x: round(bullet.x),
+      y: round(bullet.y),
+      vx: round(bullet.vx),
+      vy: round(bullet.vy),
+      // Seconds since spawn, so the client can backdate a freshly fired bullet
+      // to its muzzle origin instead of extrapolating it ahead of the barrel.
+      age: Math.max(0, Math.round(now - (bullet.bornAt || now))) / 1000
+    }));
+    recordDuration(room, "projectileSnapshotConstructionMs", bulletStart);
+    if (sendStatic) bump(room, "projectileFullBaselineEntries", bullets.length);
+  }
 
   const shared = {
     ships,
@@ -858,7 +861,10 @@ function markSnapshotConditionStationsWritten(client, stationIds = []) {
 }
 
 function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null, options = null) {
-  if (!shared) shared = buildSharedSnapshot(room, now, sendStatic, Boolean(client));
+  if (!shared) {
+    const clientUsesEvents = client && require("./projectileReplication").clientSupportsProjectileEvents(client);
+    shared = buildSharedSnapshot(room, now, sendStatic, Boolean(client), !clientUsesEvents);
+  }
   const telemetryFocusShipId = options && Object.prototype.hasOwnProperty.call(options, "telemetryFocusShipId")
     ? options.telemetryFocusShipId
     : (client && Object.prototype.hasOwnProperty.call(client, "telemetryFocusShipId") ? client.telemetryFocusShipId : undefined);
@@ -941,6 +947,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     bullets: shared.bullets,
     effects: shared.effects,
     stations: buildClientStations(room, shared.stations, client, sendStatic),
+    points: shared.points,
     winner: room.winner,
     matchStartedAt: room.matchStartedAt,
     controlVictory: room.controlVictory ? {
