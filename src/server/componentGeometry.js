@@ -111,7 +111,19 @@ function buildProjectileCollisionGrid(ship) {
       occupiedCellCount += 1;
     }
   }
-  return { designRevision, width: GRID_SIZE, height: GRID_SIZE, cellOccupants, occupiedCellCount };
+  return {
+    designRevision,
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    cellOccupants,
+    occupiedCellCount,
+    componentCount: design.length,
+    candidateScratch: {
+      epoch: 0,
+      seen: new Int32Array(design.length),
+      candidates: []
+    }
+  };
 }
 
 function ensureProjectileCollisionGrid(ship) {

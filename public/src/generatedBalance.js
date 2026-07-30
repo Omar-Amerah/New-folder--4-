@@ -879,7 +879,7 @@ export const GENERATED_BALANCE = {
       "mass": 5.4,
       "hull": 44,
       "powerGeneration": 0,
-      "powerUse": 1.8,
+      "powerUse": 2.8,
       "powerCategory": "weapons",
       "shield": 0,
       "shieldRegen": 0,
@@ -889,9 +889,9 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 8,
+        "damage": 10,
         "fireRate": 6,
-        "range": 390,
+        "range": 400,
         "projectileSpeed": 760,
         "accuracy": 0.62,
         "tracking": 0,
@@ -950,7 +950,7 @@ export const GENERATED_BALANCE = {
       "mass": 5.4,
       "hull": 47,
       "powerGeneration": 0,
-      "powerUse": 2.4,
+      "powerUse": 2,
       "powerCategory": "weapons",
       "shield": 0,
       "shieldRegen": 0,
@@ -960,7 +960,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 12.6,
+        "damage": 11.8,
         "fireRate": 1.6,
         "range": 560,
         "projectileSpeed": 760,
@@ -1366,8 +1366,8 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "weapon": {
         "family": "pointDefense",
-        "damage": 3,
-        "fireRate": 3.5,
+        "damage": 4,
+        "fireRate": 4,
         "range": 450,
         "projectileSpeed": 0,
         "accuracy": 1,
@@ -1788,7 +1788,8 @@ export const GENERATED_BALANCE = {
     },
     "interceptRadius": 20,
     "worldPadding": 80,
-    "effectLifetime": 1.2
+    "effectLifetime": 1.2,
+    "missileGuidanceUpdatesPerSecond": 12
   },
   "missileGuidance": {
     "armingTurnRate": 0.1,

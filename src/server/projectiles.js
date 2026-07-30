@@ -171,7 +171,6 @@ function shieldCollisionRadius(ship) {
 }
 
 function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIndex, scratch = []) {
-  const mapStart = performanceNow();
   const margin = bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
   let hit = null;
   if (spatialIndex) {
@@ -187,7 +186,6 @@ function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIn
     if (!impact) continue;
     if (!hit || impact.t < hit.t) hit = impact;
   }
-  recordDuration(room, "projectileMapQueryMs", mapStart);
   return hit;
 }
 
@@ -225,34 +223,101 @@ function findOldComponentHit(ship, x1, y1, x2, y2, hitRadius) {
 
 function findGridComponentHit(ship, x1, y1, x2, y2, hitRadius) {
   const grid = ensureProjectileCollisionGrid(ship);
-  if (!grid) return findOldComponentHit(ship, x1, y1, x2, y2, hitRadius);
+  if (!grid) return { ...findOldComponentHit(ship, x1, y1, x2, y2, hitRadius), gridCellsVisited: 0 };
   const a = worldToLocal(ship, x1, y1);
   const b = worldToLocal(ship, x2, y2);
-  const padding = COMPONENT_CELL_COLLISION_RADIUS + hitRadius + MODULE_SCALE;
-  const minX = Math.min(a.x, b.x) - padding;
-  const maxX = Math.max(a.x, b.x) + padding;
-  const minY = Math.min(a.y, b.y) - padding;
-  const maxY = Math.max(a.y, b.y) + padding;
-  const gMinX = Math.max(0, Math.floor(minY / MODULE_SCALE + GRID_CENTER) - 1);
-  const gMaxX = Math.min(GRID_SIZE - 1, Math.ceil(maxY / MODULE_SCALE + GRID_CENTER) + 1);
-  const gMinY = Math.max(0, Math.floor(GRID_CENTER - maxX / MODULE_SCALE) - 1);
-  const gMaxY = Math.min(GRID_SIZE - 1, Math.ceil(GRID_CENTER - minX / MODULE_SCALE) + 1);
-  const candidates = new Set();
-  for (let gy = gMinY; gy <= gMaxY; gy += 1) {
-    const rowOffset = gy * GRID_SIZE;
-    for (let gx = gMinX; gx <= gMaxX; gx += 1) {
-      for (const occupant of grid.cellOccupants[rowOffset + gx]) {
-        candidates.add(occupant.componentIndex);
-      }
-    }
-  }
+
+  const ax = a.y / MODULE_SCALE + GRID_CENTER;
+  const ay = GRID_CENTER - a.x / MODULE_SCALE;
+  const bx = b.y / MODULE_SCALE + GRID_CENTER;
+  const by = GRID_CENTER - b.x / MODULE_SCALE;
+  const dgx = bx - ax;
+  const dgy = by - ay;
+
   const geometry = getShipCollisionGeometry(ship);
   const componentHp = ship.componentHp;
   const cellCoords = geometry.worldCells;
+
+  const scratch = grid.candidateScratch;
+  const token = ++scratch.epoch;
+  if (token >= 0x7FFFFFFF) {
+    scratch.epoch = 1;
+    scratch.seen.fill(0);
+  }
+  const seen = scratch.seen;
+  const candidates = scratch.candidates;
+  candidates.length = 0;
+
+  let gridCellsVisited = 0;
+  const componentCount = grid.componentCount;
+
+  function addCell(gx, gy) {
+    if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) return;
+    const occupants = grid.cellOccupants[gy * GRID_SIZE + gx];
+    if (!occupants || occupants.length === 0) return;
+    gridCellsVisited += 1;
+    for (let k = 0; k < occupants.length; k += 1) {
+      const componentIndex = occupants[k].componentIndex;
+      if (componentIndex >= componentCount) continue;
+      if (seen[componentIndex] !== token) {
+        seen[componentIndex] = token;
+        candidates.push(componentIndex);
+      }
+    }
+  }
+
+  const startX = Math.round(ax);
+  const startY = Math.round(ay);
+  const endX = Math.round(bx);
+  const endY = Math.round(by);
+  const padCells = Math.min(GRID_SIZE, Math.ceil((COMPONENT_CELL_COLLISION_RADIUS + hitRadius) / MODULE_SCALE));
+
+  if (Math.abs(dgx) < 1e-9 && Math.abs(dgy) < 1e-9) {
+    for (let dy = -padCells; dy <= padCells; dy += 1) {
+      for (let dx = -padCells; dx <= padCells; dx += 1) {
+        addCell(startX + dx, startY + dy);
+      }
+    }
+  } else {
+    const stepX = dgx >= 0 ? 1 : -1;
+    const stepY = dgy >= 0 ? 1 : -1;
+    const tDeltaX = dgx === 0 ? Infinity : 1 / Math.abs(dgx);
+    const tDeltaY = dgy === 0 ? Infinity : 1 / Math.abs(dgy);
+    const fracX = ax - (startX - 0.5);
+    const fracY = ay - (startY - 0.5);
+    let tMaxX = dgx === 0 ? Infinity : (stepX > 0 ? (1 - fracX) : fracX) / Math.abs(dgx);
+    let tMaxY = dgy === 0 ? Infinity : (stepY > 0 ? (1 - fracY) : fracY) / Math.abs(dgy);
+    let ix = startX;
+    let iy = startY;
+    const maxSteps = 2 * GRID_SIZE;
+    let steps = 0;
+    while (steps < maxSteps) {
+      for (let dy = -padCells; dy <= padCells; dy += 1) {
+        for (let dx = -padCells; dx <= padCells; dx += 1) {
+          addCell(ix + dx, iy + dy);
+        }
+      }
+      if (ix === endX && iy === endY) break;
+      if (tMaxX < tMaxY) {
+        ix += stepX;
+        tMaxX += tDeltaX;
+      } else if (tMaxY < tMaxX) {
+        iy += stepY;
+        tMaxY += tDeltaY;
+      } else {
+        ix += stepX;
+        iy += stepY;
+        tMaxX += tDeltaX;
+        tMaxY += tDeltaY;
+      }
+      steps += 1;
+    }
+  }
+
   let moduleHit = null;
   let componentCellTests = 0;
-  for (const i of geometry.liveComponentIndices) {
-    if (!candidates.has(i)) continue;
+  for (let cIndex = 0; cIndex < candidates.length; cIndex += 1) {
+    const i = candidates[cIndex];
     if (componentHp && componentHp[i] <= 0) continue;
     const cells = cellCoords[i];
     componentCellTests += cells.length;
@@ -264,7 +329,7 @@ function findGridComponentHit(ship, x1, y1, x2, y2, hitRadius) {
       }
     }
   }
-  return { hit: moduleHit, componentCellTests };
+  return { hit: moduleHit, componentCellTests, gridCellsVisited };
 }
 
 function compareModuleHits(a, b) {
@@ -598,20 +663,14 @@ function updateBullets(room, dt, now) {
   let missileCount = 0;
   let flakCount = 0;
   let pdCount = 0;
+  const sourceBulletsCount = sourceBullets.length;
+  const updateStartedAt = performanceNow();
+
   for (const bullet of sourceBullets) {
     if (bullet.type === "missile") missileCount += 1;
     else if (bullet.type === "flak") flakCount += 1;
     else if (bullet.type === "pdShot") pdCount += 1;
     else if (bullet.type) ballisticCount += 1;
-  }
-  setCounter(room, "projectilesVisited", sourceBullets.length);
-  setCounter(room, "ballisticProjectilesVisited", ballisticCount);
-  setCounter(room, "missilesVisited", missileCount);
-  setCounter(room, "flakProjectilesVisited", flakCount);
-  setCounter(room, "pointDefenceProjectilesVisited", pdCount);
-  const updateStartedAt = performanceNow();
-
-  for (const bullet of sourceBullets) {
     if (!Number.isFinite(bullet.x) || !Number.isFinite(bullet.y)
       || !Number.isFinite(bullet.vx) || !Number.isFinite(bullet.vy)
       || !Number.isFinite(bullet.life) || !Number.isFinite(bullet.damage || 0)) {
@@ -635,7 +694,6 @@ function updateBullets(room, dt, now) {
     const previousY = bullet.y;
 
     if (bullet.type === "missile") {
-      const guidanceStart = performanceNow();
       bullet.age = (bullet.age || 0) + dt;
       if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
         bullet.trackingDisabledFor -= dt;
@@ -645,12 +703,20 @@ function updateBullets(room, dt, now) {
         && (bullet.trackRemaining === undefined || bullet.trackRemaining > 0)
         && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
-        if (bullet.nextGuidanceAt === undefined) bullet.nextGuidanceAt = now;
-        const updatesPerSecond = PROJECTILES.missileGuidanceUpdatesPerSecond || 12;
-        const cadenceEnabled = PROJECTILE_GUIDANCE_CADENCE();
-        const intervalMs = cadenceEnabled && updatesPerSecond > 0 ? 1000 / updatesPerSecond : 0;
+        if (bullet.nextGuidanceAt === undefined) {
+          const cadenceEnabled = PROJECTILE_GUIDANCE_CADENCE();
+          const updatesPerSecond = PROJECTILES.missileGuidanceUpdatesPerSecond || 12;
+          const intervalMs = cadenceEnabled && updatesPerSecond > 0 ? 1000 / updatesPerSecond : 0;
+          const idNum = parseInt(String(bullet.id).slice(1), 10) || 0;
+          const staggerPartition = 100;
+          const stagger = cadenceEnabled ? (idNum % staggerPartition) * (intervalMs / staggerPartition) : 0;
+          bullet.nextGuidanceAt = now + stagger;
+        }
         const targetChanged = target.id !== bullet._guidanceTargetId;
         const componentDestroyed = bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0);
+        const cadenceEnabled = PROJECTILE_GUIDANCE_CADENCE();
+        const updatesPerSecond = PROJECTILES.missileGuidanceUpdatesPerSecond || 12;
+        const intervalMs = cadenceEnabled && updatesPerSecond > 0 ? 1000 / updatesPerSecond : 0;
         const guidanceDue = !cadenceEnabled || now >= bullet.nextGuidanceAt || targetChanged || componentDestroyed;
         if (guidanceDue) {
           bump(room, "missileGuidanceUpdates");
@@ -681,43 +747,31 @@ function updateBullets(room, dt, now) {
 
           turnRate *= missileEcmModifier(room, target, ecmModCache || (ecmModCache = new Map()));
 
-          const current = Math.atan2(bullet.vy, bullet.vx);
-          const next = rotateToward(current, desired, turnRate * dt);
-          const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, fastHypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
-          bullet.vx = Math.cos(next) * speed;
-          bullet.vy = Math.sin(next) * speed;
-
+          bullet.desiredGuidanceAngle = desired;
+          bullet.guidanceTurnRate = turnRate;
           bullet.lastGuidanceAt = now;
           bullet.guidanceRevision = (bullet.guidanceRevision || 0) + 1;
-          if (PROJECTILE_EVENT_REPLICATION()) {
-            const correctionInterval = 1000 / 8;
-            if (now - (bullet.lastCorrectionAt || now) >= correctionInterval) {
-              bullet.lastCorrectionAt = now;
-              emitProjectileEvent(room, {
-                type: "correction",
-                id: bullet.id,
-                x: round(bullet.x),
-                y: round(bullet.y),
-                vx: round(bullet.vx),
-                vy: round(bullet.vy),
-                t: now
-              });
-            }
-          }
           if (cadenceEnabled) {
-            const idNum = parseInt(String(bullet.id).slice(1), 10) || 0;
-            const staggerPartition = 100;
-            const stagger = (idNum % staggerPartition) * (intervalMs / staggerPartition);
-            bullet.nextGuidanceAt = now + intervalMs + stagger;
+            bullet.nextGuidanceAt = now + intervalMs;
           }
         } else {
           bump(room, "missileGuidanceDeferred");
         }
+
+        // Apply guidance every tick using the most recently computed desired
+        // direction and turn rate; the cadence only controls how often those
+        // steering targets are recomputed.
+        const current = Math.atan2(bullet.vy, bullet.vx);
+        const desired = bullet.desiredGuidanceAngle ?? current;
+        const turnRate = bullet.guidanceTurnRate ?? MISSILE_GUIDANCE.armingTurnRate;
+        const next = rotateToward(current, desired, turnRate * dt);
+        const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, fastHypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
+        bullet.vx = Math.cos(next) * speed;
+        bullet.vy = Math.sin(next) * speed;
       } else if (target && !areEnemies(room, bullet.ownerId, target.ownerId)) {
         bullet._guidanceTargetId = target.id;
       }
       if (bullet.trackRemaining !== undefined) bullet.trackRemaining = Math.max(0, bullet.trackRemaining - dt);
-      recordDuration(room, "missileGuidanceMs", guidanceStart);
     }
 
     bullet.x += bullet.vx * dt;
@@ -732,11 +786,9 @@ function updateBullets(room, dt, now) {
     if (bullet.type === "flak") {
       flakMetrics.active += 1;
       const eventScratch = room._flakEventScratch || (room._flakEventScratch = { interceptableProjectiles: scratch.interceptableProjectiles, drones: scratch.drones, ships: scratch.ships, asteroids: asteroidCandidates });
-      const flakSelectStart = performanceNow();
       const event = PROJECTILE_FLAK_SINGLE_PASS()
         ? findFlakEventSinglePass(bullet, previousX, previousY, spatialIndex, eventScratch)
         : findFlakEvent(bullet, previousX, previousY, spatialIndex, eventScratch);
-      recordDuration(room, "flakEventSelectionMs", flakSelectStart);
       flakMetrics.proximityCandidates += event.candidates || 0;
 
       const dx = bullet.x - previousX;
@@ -774,9 +826,7 @@ function updateBullets(room, dt, now) {
       }
 
       if (detonateT < 1 || detonateKind) {
-        const flakExplStart = performanceNow();
         detonateFlakShell(bullet, detonateX, detonateY, detonateKind, detonateEntity || null, now, detonateDirect);
-        recordDuration(room, "flakExplosionMs", flakExplStart);
         discardBullet(room, bulletsById, bullet);
         continue;
       }
@@ -799,7 +849,6 @@ function updateBullets(room, dt, now) {
     }
 
     // pdShot: hostile interceptable projectiles along the swept segment.
-    const interceptionStart = performanceNow();
     if (bullet.type === "pdShot") {
       if (spatialIndex) {
         bump(room, "projectileSpatialQueries");
@@ -816,7 +865,6 @@ function updateBullets(room, dt, now) {
         if (hit) recordHit({ kind: "projectile", t: hit.t, x: hit.x, y: hit.y, target: p, entityId: p.id });
       }
     }
-    recordDuration(room, "projectileInterceptionMs", interceptionStart);
 
     // Decoys are false targets only for guided missiles. Unguided bolts, rails
     // and other projectiles neither acquire nor collide with them.
@@ -829,7 +877,6 @@ function updateBullets(room, dt, now) {
       }
     }
 
-    const shipBroadStart = performanceNow();
     if (spatialIndex) {
       bump(room, "projectileSpatialQueries");
       bump(room, "shipQueries");
@@ -839,8 +886,6 @@ function updateBullets(room, dt, now) {
       : liveShips;
     bump(room, "projectileCandidateShips", possibleShips.length);
     bump(room, "candidateShipsReturned", possibleShips.length);
-    recordDuration(room, "projectileShipBroadPhaseMs", shipBroadStart);
-    const shipNarrowStart = performanceNow();
     for (const ship of possibleShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? PROJECTILES.hitRadius.missile : bullet.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
@@ -876,9 +921,7 @@ function updateBullets(room, dt, now) {
         const oldResult = findOldComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius);
         if (!compareModuleHits(componentHitResult.hit, oldResult.hit)) {
           const detail = `grid collision mismatch for ship ${ship.id}: new=${JSON.stringify(componentHitResult.hit)} old=${JSON.stringify(oldResult.hit)} bullet=${bullet.id}`;
-          if (process.env.NODE_ENV === "test") throw new Error(detail);
-          console.error(detail);
-          componentHitResult = oldResult;
+          throw new Error(detail);
         }
       }
       const moduleHit = componentHitResult.hit;
@@ -888,10 +931,9 @@ function updateBullets(room, dt, now) {
       }
       bump(room, "projectileComponentCellTests", componentCellTests);
       bump(room, "componentCellsTested", componentCellTests);
+      if (useGrid) bump(room, "componentGridCellsVisited", componentHitResult.gridCellsVisited || 0);
     }
-    recordDuration(room, "projectileShipNarrowPhaseMs", shipNarrowStart);
 
-    const stationStart = performanceNow();
     if (spatialIndex) {
       bump(room, "projectileSpatialQueries");
       bump(room, "stationQueries");
@@ -918,9 +960,7 @@ function updateBullets(room, dt, now) {
       const hullHit = segmentStationHullHit(station, previousX, previousY, bullet.x, bullet.y, hitRadius);
       if (hullHit) recordHit({ kind: "station", t: hullHit.t, x: hullHit.x, y: hullHit.y, station, entityId: station.id, shield: false });
     }
-    recordDuration(room, "projectileStationCollisionMs", stationStart);
 
-    const droneStart = performanceNow();
     if (spatialIndex) bump(room, "droneQueries");
     const possibleDrones = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
@@ -945,7 +985,6 @@ function updateBullets(room, dt, now) {
       );
       if (hit) recordHit({ kind: "drone", t: hit.t, x: hit.x, y: hit.y, drone, entityId: drone.id });
     }
-    recordDuration(room, "projectileDroneCollisionMs", droneStart);
 
     if (earliest?.kind === "asteroid") {
       room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
@@ -1055,6 +1094,12 @@ function updateBullets(room, dt, now) {
   sourceBullets.length = 0;
   room.bullets = kept;
   room._projectileSpare = sourceBullets;
+
+  setCounter(room, "projectilesVisited", sourceBulletsCount);
+  setCounter(room, "ballisticProjectilesVisited", ballisticCount);
+  setCounter(room, "missilesVisited", missileCount);
+  setCounter(room, "flakProjectilesVisited", flakCount);
+  setCounter(room, "pointDefenceProjectilesVisited", pdCount);
 
   const cleanupStart = performanceNow();
   const sourceEffects = room.effects || [];

@@ -349,7 +349,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     room.projectileEvents.length = 0;
   }
   recordDuration(room, "projectileSnapshotConstructionMs", bulletStart);
-  bump(room, "projectileFullBaselineEntries", bullets.length);
+  if (sendStatic) bump(room, "projectileFullBaselineEntries", bullets.length);
   if (PROJECTILE_EVENT_REPLICATION()) bump(room, "projectileCompactEntries", events.length);
 
   const shared = {
