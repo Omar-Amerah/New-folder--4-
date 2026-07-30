@@ -457,9 +457,20 @@ function buildFallbackMap(map, world, context) {
 
 // Default zones for direct generateMap calls (tests, tooling). Live rooms always
 // pass authoritative zones from spawnPlanner via options.safeZones.
+// Fallback regions, used only until the authoritative per-roster plan resolves
+// (see applyAuthoritativeSafeZones). A home station is planted on the centre of
+// whichever region belongs to the team, so both the radius and the inset from
+// the world edge have to be able to hold the structure — otherwise the station
+// hangs off the side of the map for the first few frames of a room's life.
 function generateSafeZones(world, gameMode) {
   const zones = [];
-  const spawnRadius = 275;
+  const { buildHomeStationGeometry } = require("./stationTemplates");
+  const stationShell = buildHomeStationGeometry().shell;
+  const stationRadius = Math.hypot(
+    stationShell.maxX - stationShell.minX,
+    stationShell.maxY - stationShell.minY
+  ) / 2 + 40;
+  const spawnRadius = Math.max(275, Math.ceil(stationRadius));
   const sideInset = spawnRadius;
   if (gameMode === "teams") {
     zones.push({ x: sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(63,214,255,0.06)", borderColor: "#38d5ff", isSpawn: true, team: "blue" });

@@ -1,5 +1,5 @@
 import { resizeArenaRenderer } from "../game/renderController.js";
-import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatEffectsEnabled, getDebugRendererEnabled, setDebugRendererEnabled, getMobileTestingModeEnabled, setMobileTestingModeEnabled } from "../game/renderSettings.js";
+import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatEffectsEnabled, getDebugRendererEnabled, setDebugRendererEnabled, getMobileTestingModeEnabled, setMobileTestingModeEnabled, getFogOpacity, setFogOpacity } from "../game/renderSettings.js";
 // Handles lobby screens, player wing choices, starting/leaving, rules updates, and host controls.
 
 import { dom } from "./dom.js";
@@ -1021,6 +1021,12 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
     if (dom.mobileTestingToggle) {
       dom.mobileTestingToggle.addEventListener("change", (e) => {
         setMobileTestingModeEnabled(e.target.checked);
+      });
+    }
+    if (dom.fogOpacitySlider) {
+      dom.fogOpacitySlider.addEventListener("input", (e) => {
+        setFogOpacity(e.target.value);
+        if (dom.fogOpacityValue) dom.fogOpacityValue.textContent = `${Math.round(getFogOpacity() * 100)}%`;
       });
     }
     if (dom.teamSelect) {

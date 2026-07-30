@@ -218,6 +218,8 @@ export const dom = {
   debugOverlayToggle: document.getElementById("debugOverlayToggle"),
   combatEffectsToggle: document.getElementById("combatEffectsToggle"),
   mobileTestingToggle: document.getElementById("mobileTestingToggle"),
+  fogOpacitySlider: document.getElementById("fogOpacitySlider"),
+  fogOpacityValue: document.getElementById("fogOpacityValue"),
   debugOverlay: document.getElementById("debugOverlay"),
   mainMenuButton: document.getElementById("mainMenuButton"),
   lobbyManagementButton: document.getElementById("lobbyManagementButton"),

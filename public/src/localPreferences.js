@@ -11,7 +11,8 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   combatEffectsEnabled: true,
   serverUrl: "",
   reducedMotion: false,
-  interfaceScale: 1
+  interfaceScale: 1,
+  fogOpacity: 0.76
 });
 
 const teams = new Set(["blue", "red"]);
@@ -54,6 +55,8 @@ export function validatePreferences(input = {}, storage = getStorage()) {
     p.reducedMotion = bool(input.reducedMotion, DEFAULT_PREFERENCES.reducedMotion);
     const scale = Number(input.interfaceScale);
     p.interfaceScale = scales.has(scale) ? scale : DEFAULT_PREFERENCES.interfaceScale;
+    const fog = Number(input.fogOpacity);
+    p.fogOpacity = Number.isFinite(fog) ? Math.min(1, Math.max(0, fog)) : DEFAULT_PREFERENCES.fogOpacity;
   }
   if (!p.pilotName) p.pilotName = cleanName(safeGet(storage, LOCAL_NAME_KEY));
   return p;

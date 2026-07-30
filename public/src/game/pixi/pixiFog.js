@@ -8,8 +8,9 @@
 // the distracting hard-edged overlapping discs.
 
 import { state } from "../../state.js";
+import { getFogOpacity } from "../../game/renderSettings.js";
 
-const SENSOR_FOG_COLOR = "rgba(0, 4, 16, 0.76)";
+const SENSOR_FOG_COLOR_BASE = "rgba(0, 4, 16, ";
 const FULL_DARK_COLOR = "rgba(0, 0, 0, 1)";
 const EDGE_START = 0.86;
 
@@ -70,7 +71,7 @@ function disposeTexture(env, view) {
   view.texture = null;
 }
 
-function configureFogSurface(env, view, worldW, worldH, mode) {
+function configureFogSurface(env, view, worldW, worldH, mode, opacity) {
   const policy = texturePolicy(env.quality);
   const dimensions = textureDimensions(worldW, worldH, policy.maxDimension);
   const unchanged = view.canvas
@@ -79,6 +80,7 @@ function configureFogSurface(env, view, worldW, worldH, mode) {
     && view.worldW === worldW
     && view.worldH === worldH
     && view.mode === mode
+    && view.opacity === opacity
     && view.quality === env.quality;
   if (unchanged) return policy;
 
@@ -94,6 +96,7 @@ function configureFogSurface(env, view, worldW, worldH, mode) {
   view.worldW = worldW;
   view.worldH = worldH;
   view.mode = mode;
+  view.opacity = opacity;
   view.quality = env.quality;
   view.texture = env.PIXI.Texture.from(canvas);
   view.sprite.texture = view.texture;
@@ -112,7 +115,7 @@ function configureFogSurface(env, view, worldW, worldH, mode) {
   view.outside.rect(worldW, 0, margin, worldH);
   view.outside.fill(mode === "dark"
     ? { color: 0x000000, alpha: 1 }
-    : { color: 0x000410, alpha: 0.76 });
+    : { color: 0x000410, alpha: opacity });
   return policy;
 }
 
@@ -166,17 +169,18 @@ function sourcesKey(sources) {
   return key;
 }
 
-function drawFogMask(view, sources, mode) {
+function drawFogMask(view, sources, mode, opacity) {
   const context = view.context;
   if (!context) return;
   const sx = view.canvasWidth / view.worldW;
   const sy = view.canvasHeight / view.worldH;
   const scale = Math.min(sx, sy);
+  const fogColor = mode === "dark" ? FULL_DARK_COLOR : `${SENSOR_FOG_COLOR_BASE}${opacity})`;
 
   context.save();
   context.globalCompositeOperation = "source-over";
   context.clearRect(0, 0, view.canvasWidth, view.canvasHeight);
-  context.fillStyle = mode === "dark" ? FULL_DARK_COLOR : SENSOR_FOG_COLOR;
+  context.fillStyle = fogColor;
   context.fillRect(0, 0, view.canvasWidth, view.canvasHeight);
   context.globalCompositeOperation = "destination-out";
 
@@ -221,16 +225,21 @@ export function updatePixiFog(env, now, _bounds) {
 
   const snapshot = state.snapshot || {};
   const mode = state.rules?.visibilityMode;
+  const opacity = mode === "dark" ? 1 : getFogOpacity();
   const worldW = Math.max(1, Number(state.world?.width) || Number(snapshot.world?.width) || 4000);
   const worldH = Math.max(1, Number(state.world?.height) || Number(snapshot.world?.height) || 4000);
-  const policy = configureFogSurface(env, fogView, worldW, worldH, mode);
+  const policy = configureFogSurface(env, fogView, worldW, worldH, mode, opacity);
   if (now - fogView.lastCheckAt < policy.intervalMs) return;
   fogView.lastCheckAt = now;
   const sources = alliedSensorSources(snapshot, viewerTeam());
   const key = sourcesKey(sources);
 
+  if (opacity !== fogView.opacity) {
+    fogView.lastSourcesKey = null;
+    fogView.opacity = opacity;
+  }
   if (key === fogView.lastSourcesKey) return;
-  drawFogMask(fogView, sources, mode);
+  drawFogMask(fogView, sources, mode, opacity);
   fogView.lastSourcesKey = key;
   fogView.lastDrawAt = now;
 }

@@ -187,21 +187,25 @@ function damageStation(room, station, damage, attackerId, now, sourceX, sourceY,
 
   const infra = BALANCE.infrastructure || {};
   const cfg = station.stationType === "home" ? infra.homeStation : infra.relayStation;
-  if (station.stationType === "home" && station.hp <= 0.001 && station.state !== "destroyed") {
+  const homeComponentsDestroyed = station.stationType === "home" && !station.componentHp.some((hp) => hp > 0);
+  if (station.stationType === "home" && station.state !== "destroyed" && (station.hp <= 0.001 || homeComponentsDestroyed)) {
     station.hp = 0;
     station.state = "destroyed";
     station.alive = false;
     station.disabledAt = now;
     station.stateRevision = (station.stateRevision || 0) + 1;
     require("./objectives").finalizeHomeStationDestruction(room, station, attackerId, now);
-  } else {
-    const threshold = (station.maxHp || 1) * (cfg?.disabledHpRatio || 0.1);
-    if (station.stationType !== "home" && station.hp <= threshold && station.state !== "disabled") {
-      station.state = "disabled";
-      station.alive = false;
-      station.disabledAt = now;
-      station.stateRevision = (station.stateRevision || 0) + 1;
-    }
+  } else if (station.stationType !== "home" && station.hp <= 0.001 && station.state !== "destroyed") {
+    // A damaged relay goes disabled and becomes capturable; the actual
+    // handover is handled by updateStationCapture so the timed ring means
+    // the same thing for both neutral and enemy-held relays.
+    station.state = "disabled";
+    station.alive = true;
+    station.captureProgress = 0;
+    station.captureTeam = null;
+    station.captureRevision = (station.captureRevision || 0) + 1;
+    station.stateRevision = (station.stateRevision || 0) + 1;
+    station.healthRevision = (station.healthRevision || 0) + 1;
   }
 
   return applied;

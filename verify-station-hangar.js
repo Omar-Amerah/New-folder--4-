@@ -12,10 +12,12 @@ const {
   MAX_SHIP_EXTENT,
   GRID_CENTER,
   HOME_STATION_CELLS,
+  HANGAR_BAY_COUNT,
   buildHomeStationDesign,
   buildHomeStationGeometry,
   buildRelayStationDesign,
-  inCorridorVoid
+  inCorridorVoid,
+  isSolidCell
 } = require("./src/server/stationTemplates");
 const { computeDesignCollisionRadius, computeDesignFootprintRadius } = require("./src/server/componentGeometry");
 
@@ -85,86 +87,127 @@ const CASES = [
 function run() {
   console.log("verify-station-hangar");
 
-  section("The hangar aperture is derived from the maximum ship, not a magic number");
+  section("A home station carries one launch bay per team seat");
   assert(MAX_SHIP_EXTENT === MAX_SHIP_CELLS * SHIP_MODULE_SCALE, "maximum ship extent follows the ship module scale");
-  assert(geometry.aperture.halfWidth * 2 > MAX_SHIP_EXTENT, "aperture is wider than the maximum ship");
-  assert(geometry.clearance >= SHIP_MODULE_SCALE, `aperture grants at least one ship cell of clearance per side (got ${geometry.clearance})`);
+  assert(HANGAR_BAY_COUNT === 3, "a team of up to three shares one station with a bay each");
+  assert(geometry.bays.length === HANGAR_BAY_COUNT, "the authored geometry exposes every bay");
+  assert(geometry.doorRects.length === HANGAR_BAY_COUNT, "every bay has its own one-way blast door");
 
-  section("Every supported maximum-size design fits the aperture, corridor and interior");
+  const ordered = [...geometry.bays].sort((a, b) => a.centreY - b.centreY);
+  for (let i = 0; i < ordered.length; i += 1) {
+    const bay = ordered[i];
+    assert(bay.minY >= geometry.shell.minY && bay.maxY <= geometry.shell.maxY, `bay ${bay.index} is inside the shell`);
+    assert(bay.mouthX === geometry.shell.maxX, `bay ${bay.index} opens on the front face`);
+    if (i > 0) {
+      const wall = bay.minY - ordered[i - 1].maxY;
+      assert(wall > 0, `bays ${i - 1} and ${i} are separated by solid structure (got ${wall})`);
+    }
+  }
+  // Symmetric about the nose, so no player is handed a bay closer to the front.
+  const centres = ordered.map((bay) => bay.centreY);
+  for (let i = 0; i < centres.length; i += 1) {
+    assert(
+      Math.abs(centres[i] + centres[centres.length - 1 - i]) < 1e-9,
+      `the bay layout is symmetric about the station's nose (${centres.join(", ")})`
+    );
+  }
+
+  section("Bays fit the hulls players actually build, in every dimension");
+  // A bay is narrower than a maximum 15x15 hull on purpose: launch control makes
+  // a ship intangible to its own station and pins it to the bay centreline, so
+  // an oversized hull pushes straight out instead of jamming. What the geometry
+  // still has to guarantee is that ordinary hulls fit properly.
+  const bayHalfWidth = ordered[0].halfWidth;
+  let widestFittingCells = 0;
+  for (let cells = 1; cells <= MAX_SHIP_CELLS; cells += 1) {
+    if ((cells * SHIP_MODULE_SCALE) / 2 + HULL_CELL_COLLISION_RADIUS <= bayHalfWidth) widestFittingCells = cells;
+  }
+  assert(
+    widestFittingCells >= 11,
+    `a bay swallows a hull at least 11 cells wide, padding included (got ${widestFittingCells})`
+  );
+  assert(
+    bayHalfWidth * 2 < MAX_SHIP_EXTENT,
+    "the narrower-than-maximum bay is the documented trade, not an accident"
+  );
+
   for (const [label, shipDesign] of CASES) {
     const bounds = shipLocalBounds(shipDesign);
     const collisionRadius = computeDesignCollisionRadius(shipDesign, { radius: 0 });
     const footprintRadius = computeDesignFootprintRadius(shipDesign);
-    const halfLateral = Math.max(bounds.height / 2, Math.abs(bounds.minY), Math.abs(bounds.maxY));
-
-    // Rendered and collision bounds both clear the mouth laterally, with more
-    // than a full ship blueprint cell to spare.
-    const sweptHalfWidth = halfLateral + HULL_CELL_COLLISION_RADIUS;
-    assert(halfLateral <= geometry.aperture.halfWidth, `${label}: rendered width fits the aperture`);
-    assert(sweptHalfWidth <= geometry.aperture.halfWidth, `${label}: swept collision width fits the aperture (${sweptHalfWidth.toFixed(1)} <= ${geometry.aperture.halfWidth})`);
-    assert(
-      geometry.aperture.halfWidth - sweptHalfWidth >= SHIP_MODULE_SCALE,
-      `${label}: aperture leaves at least one ship cell of visible clearance per side (got ${(geometry.aperture.halfWidth - sweptHalfWidth).toFixed(1)})`
-    );
     assert(Number.isFinite(collisionRadius) && Number.isFinite(footprintRadius), `${label}: collision geometry is measurable`);
 
-    // The interior spawn puts the whole hull inside the corridor, behind the mouth.
-    const spawnFront = geometry.interiorSpawn.x + bounds.maxX;
-    const spawnBack = geometry.interiorSpawn.x + bounds.minX;
-    assert(spawnBack >= geometry.corridor.rearWallX, `${label}: hull does not clip the corridor rear wall`);
-    assert(spawnFront <= geometry.aperture.x, `${label}: hull starts entirely inside the mouth`);
-
-    // Travelling forward, the hull clears the release plane without ever
-    // overlapping a solid piece.
-    const releaseBack = geometry.releasePlaneX + bounds.minX;
-    assert(releaseBack >= geometry.aperture.x, `${label}: release plane is beyond the mouth for the whole hull`);
+    for (const bay of geometry.bays) {
+      // The interior spawn puts the whole hull inside the corridor, behind the
+      // mouth — true for every design, however large, because bays are deep.
+      const spawnFront = bay.interiorSpawn.x + bounds.maxX;
+      const spawnBack = bay.interiorSpawn.x + bounds.minX;
+      assert(spawnBack >= bay.rearWallX, `${label}: hull does not clip bay ${bay.index}'s rear wall`);
+      assert(spawnFront <= bay.mouthX, `${label}: hull starts entirely inside bay ${bay.index}'s mouth`);
+      // Travelling forward, the hull clears the release plane completely.
+      assert(
+        bay.releasePlaneX + bounds.minX >= bay.mouthX,
+        `${label}: bay ${bay.index}'s release plane is beyond the mouth for the whole hull`
+      );
+    }
   }
 
-  section("No supported design overlaps a solid station piece while in the corridor");
-  for (const [label, shipDesign] of CASES) {
-    const bounds = shipLocalBounds(shipDesign);
-    const halfLateral = Math.max(Math.abs(bounds.minY), Math.abs(bounds.maxY)) + HULL_CELL_COLLISION_RADIUS;
-    // Sweep the aligned hull down the corridor centreline from the interior
-    // spawn to the release plane, testing its real oriented box each step.
-    for (let x = geometry.interiorSpawn.x; x <= geometry.releasePlaneX; x += 6) {
+  section("A bay-sized hull sweeps out without ever touching a solid piece");
+  const fittingHalfWidth = (widestFittingCells * SHIP_MODULE_SCALE) / 2 + HULL_CELL_COLLISION_RADIUS;
+  for (const bay of geometry.bays) {
+    const bounds = shipLocalBounds(fullGrid());
+    for (let x = bay.interiorSpawn.x; x <= bay.releasePlaneX; x += 6) {
       const hull = {
         minX: x + bounds.minX - HULL_CELL_COLLISION_RADIUS,
         maxX: x + bounds.maxX + HULL_CELL_COLLISION_RADIUS,
-        minY: -halfLateral,
-        maxY: halfLateral
+        minY: bay.centreY - fittingHalfWidth,
+        maxY: bay.centreY + fittingHalfWidth
       };
       for (const rect of geometry.collisionRects) {
         const overlaps = hull.minX < rect.maxX && hull.maxX > rect.minX
           && hull.minY < rect.maxY && hull.maxY > rect.minY;
-        assert(!overlaps, `${label}: hull does not intersect a station piece at corridor x=${x}`);
+        assert(!overlaps, `a fitting hull does not intersect a station piece in bay ${bay.index} at x=${x}`);
       }
     }
   }
 
-  section("Visual proportions: a station reads as a structure, not a wall with a hole");
+  section("Visual proportions: a station reads as a structure, not a wall with holes");
   const frontWidth = geometry.shell.maxY - geometry.shell.minY;
   const depth = geometry.shell.maxX - geometry.shell.minX;
-  const apertureWidth = geometry.aperture.halfWidth * 2;
-  const sideStructure = (frontWidth - apertureWidth) / 2;
+  const bayTotalWidth = geometry.bays.reduce((sum, bay) => sum + bay.halfWidth * 2, 0);
+  const sideStructure = (frontWidth - (ordered[ordered.length - 1].maxY - ordered[0].minY)) / 2;
   const widthRatio = frontWidth / MAX_SHIP_EXTENT;
 
-  assert(widthRatio >= 2.2 && widthRatio <= 2.8, `station front is 2.2-2.8x the maximum ship width (got ${widthRatio.toFixed(2)})`);
+  assert(widthRatio >= 4 && widthRatio <= 4.6, `station front is 4.0-4.6x the maximum ship width (got ${widthRatio.toFixed(2)})`);
   assert(depth >= MAX_SHIP_EXTENT * 2, `station is deep enough that a ship starts inside it (got ${depth})`);
-  assert(apertureWidth / frontWidth < 0.55, `aperture does not consume the front (got ${(apertureWidth / frontWidth).toFixed(2)})`);
-  assert(sideStructure >= MAX_SHIP_EXTENT * 0.5, `substantial structure flanks the hangar on both sides (got ${sideStructure})`);
-  assert(geometry.corridor.length >= MAX_SHIP_EXTENT, `corridor is at least a full ship deep (got ${geometry.corridor.length})`);
+  assert(bayTotalWidth / frontWidth < 0.66, `the bays do not consume the front (got ${(bayTotalWidth / frontWidth).toFixed(2)})`);
+  assert(sideStructure >= MAX_SHIP_EXTENT * 0.5, `substantial structure flanks the bay block on both sides (got ${sideStructure})`);
+  assert(geometry.corridor.length >= MAX_SHIP_EXTENT, `each corridor is at least a full ship deep (got ${geometry.corridor.length})`);
   assert(geometry.collisionRects.length >= 3, "collision geometry is compound, not a single circle");
 
-  section("The corridor is genuinely open: no module and no collision piece occupies it");
+  section("Every bay is genuinely open, and the walls between them are genuinely solid");
   for (const module of design) {
-    assert(!inCorridorVoid(module.x, module.y), `no module occupies the corridor void (found ${module.type} at ${module.x},${module.y})`);
+    assert(!inCorridorVoid(module.x, module.y), `no module occupies a bay void (found ${module.type} at ${module.x},${module.y})`);
   }
-  // A point on the corridor centreline, inside the station, hits nothing solid.
-  const probeX = (geometry.corridor.rearWallX + geometry.aperture.x) / 2;
-  for (const rect of geometry.collisionRects) {
-    const inside = probeX >= rect.minX && probeX <= rect.maxX && rect.minY <= 0 && rect.maxY >= 0;
-    assert(!inside, "the corridor centreline is not inside a solid piece");
+  for (const bay of geometry.bays) {
+    // A point on this bay's centreline, inside the station, hits nothing solid.
+    const probeX = (bay.rearWallX + bay.mouthX) / 2;
+    for (const rect of geometry.collisionRects) {
+      const inside = probeX >= rect.minX && probeX <= rect.maxX
+        && rect.minY <= bay.centreY && rect.maxY >= bay.centreY;
+      assert(!inside, `bay ${bay.index}'s centreline is not inside a solid piece`);
+    }
   }
+  for (const cells of HOME_STATION_CELLS.hullColumns) {
+    for (let x = cells.xMin; x <= cells.xMax; x += 1) {
+      for (let y = HOME_STATION_CELLS.yMin; y <= HOME_STATION_CELLS.yMax; y += 1) {
+        assert(isSolidCell(x, y), `hull column cell ${x},${y} is solid structure`);
+      }
+    }
+  }
+  // The design is one connected structure, or generated wiring cannot reach the
+  // components stranded on a dividing wall.
+  assertConnected(design);
 
   section("Stations use the shared component system at a larger module scale");
   assert(STATION_MODULE_SCALE > SHIP_MODULE_SCALE, "stations are scaled up relative to ships");

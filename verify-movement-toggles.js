@@ -27,7 +27,7 @@ const {
 } = require("./src/server/validation");
 const { validateClientMessage } = require("./src/server/clientSchemas");
 const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
+const { initializeComponentPower, effectiveShieldStats } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
 const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
 const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
@@ -94,6 +94,9 @@ function makeShip(x, y, angle = 0, design = GUNSHIP, ownerId = "p1", toggles = n
   };
   initComponentState(ship);
   initializeComponentPower(ship);
+  const shield = effectiveShieldStats(ship);
+  ship.maxShield = Math.max(0, shield.capacity);
+  ship.shield = ship.maxShield;
   initShipHeat(ship);
   if (toggles) applyMovementToggles(ship, toggles);
   return ship;
@@ -186,7 +189,16 @@ function run() {
     const { handleMessage } = require("./src/server/messageRouter");
     const mine = makeShip(1000, 2000);
     const other = makeShip(1400, 2000);
-    const player = { id: "p1", team: "A", ships: [mine, other], combatStyle: "hold" };
+    // The static half of a snapshot serializes the player's own design, so the
+    // fixture needs a real one.
+    const player = {
+      id: "p1",
+      team: "A",
+      ships: [mine, other],
+      combatStyle: "hold",
+      design: GUNSHIP.map((part) => ({ ...part })),
+      stats: computeStats(GUNSHIP)
+    };
     const room = {
       phase: "active",
       world: { width: 8000, height: 6000 },
@@ -197,6 +209,11 @@ function run() {
       stationsById: new Map(),
       drones: new Map(),
       effects: [],
+      // The handler broadcasts a snapshot on success, so the room has to be
+      // complete enough to serialize.
+      bullets: [],
+      points: [],
+      rules: { gameMode: "teams" },
       clients: new Set()
     };
     // The outbound path writes MessagePack frames to a socket, so the stub just
@@ -206,8 +223,13 @@ function run() {
       player,
       room,
       isClosed: false,
+      // The router refuses anything from a connection that is not the player's
+      // current attachment, so the fixture has to be one.
+      attachmentId: 1,
       socket: { readyState: 1, destroyed: false, write: (frame) => { writes.push(frame); return true; }, once() {} }
     };
+    player.client = client;
+    player.attachmentId = 1;
     room.clients.add(client);
 
     handleMessage(client, {

@@ -82,6 +82,7 @@ export function setDebugRendererEnabled(enabled) {
 
 
 let cachedMobileTestingMode = null;
+let cachedFogOpacity = null;
 
 export function getMobileTestingModeEnabled() {
   if (cachedMobileTestingMode === null) {
@@ -93,4 +94,24 @@ export function getMobileTestingModeEnabled() {
 export function setMobileTestingModeEnabled(enabled) {
   cachedMobileTestingMode = Boolean(enabled);
   storageSet("mfa.mobileTestingMode", cachedMobileTestingMode);
+}
+
+export function getFogOpacity() {
+  if (cachedFogOpacity === null) {
+    const stored = storageGet("mfa.fogOpacity");
+    if (stored !== null) {
+      const parsed = Number(stored);
+      cachedFogOpacity = Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : loadPreferences().preferences.fogOpacity;
+    } else {
+      cachedFogOpacity = loadPreferences().preferences.fogOpacity;
+    }
+  }
+  return cachedFogOpacity;
+}
+
+export function setFogOpacity(value) {
+  const parsed = Number(value);
+  cachedFogOpacity = Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : loadPreferences().preferences.fogOpacity;
+  persistPreferences({ ...loadPreferences().preferences, fogOpacity: cachedFogOpacity });
+  storageSet("mfa.fogOpacity", String(cachedFogOpacity));
 }
