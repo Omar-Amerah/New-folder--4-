@@ -47,6 +47,60 @@ function componentCenter(index) {
   return { x: sumX / cells.length, y: sumY / cells.length };
 }
 
+// Build-grid geometry in CSS pixels. The grid is a CSS grid with a border,
+// padding and 2px gaps, so a cell is NOT a plain fifteenth of the host box.
+// Drawing the overlay as an even 15x15 division puts every pad a few pixels off
+// the component it belongs to — worst at the far edges — which is what made the
+// hit areas feel wrong. Overlay geometry and pointer hit-testing share this.
+function gridMetrics() {
+  const grid = dom.grid;
+  const rect = grid?.getBoundingClientRect();
+  if (!rect || !rect.width || !rect.height) return null;
+  const style = getComputedStyle(grid);
+  const px = (s, d = 0) => Math.max(0, Number.parseFloat(s) || d);
+  const left = px(style.borderLeftWidth) + px(style.paddingLeft, 8);
+  const top = px(style.borderTopWidth) + px(style.paddingTop, 8);
+  const right = px(style.borderRightWidth) + px(style.paddingRight, 8);
+  const bottom = px(style.borderBottomWidth) + px(style.paddingBottom, 8);
+  const gapX = px(style.columnGap || style.gap, 2);
+  const gapY = px(style.rowGap || style.gap, 2);
+  const contentWidth = rect.width - left - right;
+  const contentHeight = rect.height - top - bottom;
+  const cellWidth = (contentWidth - gapX * (GRID_SIZE - 1)) / GRID_SIZE;
+  const cellHeight = (contentHeight - gapY * (GRID_SIZE - 1)) / GRID_SIZE;
+  if (!(cellWidth > 0 && cellHeight > 0)) return null;
+  return {
+    rect, left, top, contentWidth, contentHeight,
+    cellWidth, cellHeight, gapX, gapY,
+    stepX: cellWidth + gapX, stepY: cellHeight + gapY
+  };
+}
+
+// Overlay coordinates stay in cell units — one unit is one cell, so the CSS
+// stroke widths and radii keep their meaning — but cells are pushed apart by
+// the grid's gap so pad n lands exactly on component cell n.
+function overlayProjection() {
+  const metrics = gridMetrics();
+  if (!metrics) {
+    return { metrics: null, viewBoxWidth: GRID_SIZE, viewBoxHeight: GRID_SIZE, x: (v) => v, y: (v) => v };
+  }
+  const kx = metrics.stepX / metrics.cellWidth;
+  const ky = metrics.stepY / metrics.cellHeight;
+  // v is cellIndex + fraction, so only whole cells accumulate gap.
+  const axis = (k) => (v) => v + Math.floor(v) * (k - 1);
+  return {
+    metrics,
+    viewBoxWidth: GRID_SIZE + (GRID_SIZE - 1) * (kx - 1),
+    viewBoxHeight: GRID_SIZE + (GRID_SIZE - 1) * (ky - 1),
+    x: axis(kx),
+    y: axis(ky)
+  };
+}
+
+function projectPoint(proj, point) {
+  return point ? { x: proj.x(point.x), y: proj.y(point.y) } : null;
+}
+
 function isSourceIndex(index) {
   return rules().isDataSupportSource(state.design?.[index]?.type);
 }
@@ -61,9 +115,9 @@ function hasLink(sourceIndex, targetIndex) {
 
 // Whole-footprint hit pads. One transparent rect per occupied cell means the
 // player clicks the component itself rather than hunting a small port dot.
-function hitPadsFor(index, role, { cursor, active }) {
+function hitPadsFor(index, role, { cursor, active, proj }) {
   return componentCells(index).map((cell) => svgEl("rect", {
-    x: cell.x, y: cell.y, width: 1, height: 1,
+    x: proj.x(cell.x), y: proj.y(cell.y), width: 1, height: 1,
     fill: "transparent",
     class: `data-link-pad data-link-pad-${role}${active ? " is-active" : ""}`,
     [`data-${role}-index`]: String(index),
@@ -85,11 +139,21 @@ export function renderDataLinksOverlay() {
   host.classList.add("is-active");
   dom.grid?.classList.add("data-links-active");
 
+  const proj = overlayProjection();
   const svg = svgEl("svg", {
-    viewBox: `0 0 ${GRID_SIZE} ${GRID_SIZE}`,
+    viewBox: `0 0 ${proj.viewBoxWidth} ${proj.viewBoxHeight}`,
     class: "data-links-overlay",
     preserveAspectRatio: "none"
   });
+  // Pin the overlay to the grid's content box. The stylesheet's inset:8px
+  // assumes the grid's padding but ignores its 1px border, so the pads sat a
+  // pixel off in both axes before this.
+  if (proj.metrics) {
+    const hostRect = host.getBoundingClientRect();
+    const left = proj.metrics.rect.left - hostRect.left + proj.metrics.left;
+    const top = proj.metrics.rect.top - hostRect.top + proj.metrics.top;
+    svg.setAttribute("style", `left:${left}px;top:${top}px;right:auto;bottom:auto;width:${proj.metrics.contentWidth}px;height:${proj.metrics.contentHeight}px`);
+  }
 
   const links = state.dataLinks || [];
   const armed = dataLinksUiState.armedSourceIndex;
@@ -100,7 +164,7 @@ export function renderDataLinksOverlay() {
 
   // Ring the focused source and every weapon it can reach.
   if (focus != null) {
-    const center = componentCenter(focus);
+    const center = projectPoint(proj, componentCenter(focus));
     if (center) {
       svg.appendChild(svgEl("circle", {
         cx: center.x, cy: center.y, r: 0.62,
@@ -109,7 +173,7 @@ export function renderDataLinksOverlay() {
     }
     for (let i = 0; i < state.design.length; i += 1) {
       if (!isDataLinksWeaponTargetValid(focus, i)) continue;
-      const target = componentCenter(i);
+      const target = projectPoint(proj, componentCenter(i));
       if (!target) continue;
       svg.appendChild(svgEl("circle", {
         cx: target.x, cy: target.y, r: 0.46,
@@ -120,8 +184,8 @@ export function renderDataLinksOverlay() {
 
   const hitLines = [];
   for (const link of links) {
-    const from = componentCenter(link.sourceIndex);
-    const to = componentCenter(link.targetIndex);
+    const from = projectPoint(proj, componentCenter(link.sourceIndex));
+    const to = projectPoint(proj, componentCenter(link.targetIndex));
     if (!from || !to) continue;
     const key = `${link.sourceIndex}:${link.targetIndex}`;
     const selected = dataLinksUiState.selectedLinkKey === key;
@@ -144,8 +208,8 @@ export function renderDataLinksOverlay() {
 
   // Rubber band for an in-progress drag.
   if (dataLinksUiState.drag?.pointer) {
-    const from = componentCenter(dataLinksUiState.drag.sourceIndex);
-    const to = dataLinksUiState.drag.pointer;
+    const from = projectPoint(proj, componentCenter(dataLinksUiState.drag.sourceIndex));
+    const to = projectPoint(proj, dataLinksUiState.drag.pointer);
     if (from && to) {
       svg.appendChild(svgEl("line", {
         x1: from.x, y1: from.y, x2: to.x, y2: to.y,
@@ -160,11 +224,11 @@ export function renderDataLinksOverlay() {
   // Pads last so clicking a component always beats clicking a line across it.
   for (let i = 0; i < state.design.length; i += 1) {
     if (isSourceIndex(i)) {
-      const pads = hitPadsFor(i, "source", { cursor: dragging === i ? "grabbing" : "pointer", active: focus === i });
+      const pads = hitPadsFor(i, "source", { cursor: dragging === i ? "grabbing" : "pointer", active: focus === i, proj });
       for (const pad of pads) svg.appendChild(pad);
     } else if (isWeaponIndex(i)) {
       const reachable = focus != null && isDataLinksWeaponTargetValid(focus, i);
-      const pads = hitPadsFor(i, "target", { cursor: reachable ? "copy" : "pointer", active: reachable });
+      const pads = hitPadsFor(i, "target", { cursor: reachable ? "copy" : "pointer", active: reachable, proj });
       for (const pad of pads) svg.appendChild(pad);
     }
   }

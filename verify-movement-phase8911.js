@@ -499,9 +499,12 @@ function run() {
       targetId: enemy.id
     });
 
-    // Every ship gets its own place on the line.
-    const laterals = attackers.map((ship) => ship.movement.command.firingLateral);
-    assert.strictEqual(new Set(laterals).size, attackers.length,
+    // Every ship gets its own place on the line. A place is a bearing either
+    // side of the group's approach plus the rank it stands in, so two ships
+    // share a place only if both match.
+    const places = attackers.map((ship) =>
+      `${ship.movement.command.firingAngle.toFixed(6)}@${ship.movement.command.firingRadiusScale.toFixed(6)}`);
+    assert.strictEqual(new Set(places).size, attackers.length,
       "each ship should get a distinct place on the firing line");
 
     let sweep = 0;
@@ -688,6 +691,58 @@ function run() {
       `...without ramming it (passed at ${closest.toFixed(1)} px)`);
     assert(rangeTo(attacker, target) <= reach,
       `...and the attacker should still reach a firing position (${rangeTo(attacker, target).toFixed(0)} px)`);
+  }
+
+  // A firing line has to hold however many ships it is given.
+  //
+  // Places used to be offsets from a straight line, clamped to a fraction of the
+  // standoff so the group could not wrap into a ring. For a large fleet that cap
+  // did not trim the line, it collapsed it: three quarters of a 24-ship attack
+  // were handed the same two points, and they spent the fight shouldering each
+  // other off a spot only one of them could stand on while several never got
+  // into weapons range at all. A line too long for one arc has to gain depth
+  // instead.
+  {
+    const attackers = [];
+    for (let i = 0; i < 24; i += 1) attackers.push(makeShip(2000, 2000 + (i - 12) * 130));
+    const enemy = makeShip(7000, 2000, Math.PI, UNARMED_DESIGN, "p2");
+    const { room, ships, players } = makeScenario({ p1: attackers, p2: [enemy] });
+    commandShips(room, players.get("p1"), enemy.x, enemy.y, {
+      shipIds: attackers.map((s) => s.id),
+      targetId: enemy.id
+    });
+
+    const places = attackers.map((ship) =>
+      `${ship.movement.command.firingAngle.toFixed(6)}@${ship.movement.command.firingRadiusScale.toFixed(6)}`);
+    assert.strictEqual(new Set(places).size, attackers.length,
+      "24 ships should get 24 distinct places, not a handful of shared ones");
+    assert(new Set(attackers.map((s) => s.movement.command.firingRadiusScale)).size > 1,
+      "a line that cannot fit on one arc should gain ranks");
+
+    // Nobody is left circling once the fight has settled.
+    let milling = 0;
+    let samples = 0;
+    simulate(room, ships, 120, (tick) => {
+      if (tick * DT < 100) return;
+      samples += 1;
+      milling += attackers.filter((ship) => speedOf(ship) > 5).length;
+    });
+    assert(milling / Math.max(1, samples) < 1,
+      `a large attack should settle rather than mill (${(milling / Math.max(1, samples)).toFixed(1)} ships still under way)`);
+
+    const reach = getMaxEffectiveWeaponRange(attackers[0]);
+    const inRange = attackers.filter((ship) => rangeTo(ship, enemy) <= reach).length;
+    assert(inRange >= attackers.length - 1,
+      `every ship sent to attack should end up able to shoot (${inRange}/${attackers.length} in range)`);
+
+    // ...and still not stacked inside one another.
+    for (let i = 0; i < attackers.length; i += 1) {
+      for (let j = i + 1; j < attackers.length; j += 1) {
+        const gap = rangeTo(attackers[i], attackers[j]);
+        assert(gap >= attackers[i].physicalRadius + attackers[j].physicalRadius - 1,
+          `${attackers[i].id} and ${attackers[j].id} overlap (${gap.toFixed(1)} px)`);
+      }
+    }
   }
 
   // Ships already in range do not shuffle to tidy the formation.

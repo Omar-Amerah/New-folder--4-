@@ -81,9 +81,16 @@ function setMovementCommand(ship, command) {
       formationSpeed: Number.isFinite(command.formationSpeed) && command.formationSpeed > 0
         ? Number(command.formationSpeed)
         : null,
-      // This ship's place across a group's firing line, so a fleet attacking one
-      // target forms a line rather than a ring around it.
-      firingLateral: Number.isFinite(command.firingLateral) ? Number(command.firingLateral) : 0,
+      // This ship's place on a group's firing line: an angle either side of the
+      // group's approach bearing, and how far in its rank stands as a fraction
+      // of the ship's own engagement range. Stated as an arc rather than an
+      // offset from a straight line so that every ship in the group ends up at
+      // the range it was sent to, and so that a line too long for one arc gains
+      // depth instead of piling its outer ships onto the same point.
+      firingAngle: Number.isFinite(command.firingAngle) ? Number(command.firingAngle) : 0,
+      firingRadiusScale: Number.isFinite(command.firingRadiusScale) && command.firingRadiusScale > 0
+        ? Number(command.firingRadiusScale)
+        : 1,
       // This ship's bearing around a target a group is charging, so a fleet
       // closing to contact shares the hull out between its sides instead of
       // every ship driving at the same point on it. Null for every other stance.

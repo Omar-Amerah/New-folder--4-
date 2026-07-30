@@ -158,6 +158,7 @@ function promoteAllClientsForLog(room, reason, firstSeqToKeep) {
   if (!room?.clients) return;
   for (const client of room.clients) {
     if (!client._projectile) continue;
+    if (!clientSupportsProjectileEvents(client)) continue;
     if (client._projectile.eventCursor < (firstSeqToKeep ?? Infinity)) {
       client._projectile.needsFullBaseline = true;
       client._projectile.eventCursor = room.projectileReplication?.nextEventSeq ?? 0;
@@ -181,6 +182,7 @@ function pruneLogIfNeeded(room) {
   let minCursor = Infinity;
   if (room.clients) {
     for (const client of room.clients) {
+      if (!clientSupportsProjectileEvents(client)) continue;
       const cursor = client._projectile?.eventCursor ?? rep.nextEventSeq;
       if (cursor < minCursor) minCursor = cursor;
     }
@@ -686,8 +688,8 @@ function applyClientProjectiles(room, client, now, sendStatic, snapshot) {
     fullBaseline = true;
     ps.needsFullBaseline = true;
     batch = buildClientBatch(room, client, now, true);
-    // A full baseline is the only safe way to recover.
-    ps.needsFullBaseline = false;
+    // Do not clear needsFullBaseline here; markProjectilesWritten() will
+    // update it once the full-baseline frame has actually been delivered.
   }
 
   snapshot.projectileStateEpoch = rep.stateEpoch;

@@ -8,7 +8,6 @@ const VERSION = 1;
 
 const MAX_TOMBSTONES = 4096;
 const TOMBSTONE_WINDOW = 2048;
-const EXTRAPOLATION_CAP_MS = 80;
 
 let store = {
   version: VERSION,
@@ -176,10 +175,8 @@ export function applySnapshotToProjectiles(message) {
 export function getProjectilesForRender(now = null) {
   const out = [];
   const useNow = Number.isFinite(now);
-  const cap = EXTRAPOLATION_CAP_MS / 1000;
   for (const p of store.projectiles.values()) {
-    const rawDt = (useNow && Number.isFinite(p.simulationTimeMs)) ? (now - p.simulationTimeMs) / 1000 : 0;
-    const dt = useNow ? Math.max(0, Math.min(rawDt, cap)) : 0;
+    const dt = (useNow && Number.isFinite(p.simulationTimeMs)) ? Math.max(0, (now - p.simulationTimeMs) / 1000) : 0;
     const render = {
       id: p.id,
       type: p.type,
