@@ -48,6 +48,8 @@ const GROUPS = {
     "verify-movement-phase4.js",
     "verify-movement-phase567.js",
     "verify-movement-phase8911.js",
+    "verify-movement-charge.js",
+    "verify-demolition-charge.js",
     "verify-propulsion-rebalance.js",
     "verify-targeting.js",
     "verify-turrets.js",
@@ -122,7 +124,11 @@ const GROUPS = {
     "verify-diagnostics-gating.js",
     "verify-fleet-ledger.js",
     "verify-command-auras.js",
-    "verify-command-runtime.js"
+    "verify-command-runtime.js",
+    "verify-phase-one-telemetry.js",
+    "verify-circular-separation.js",
+    "verify-redundant-map-collision.js",
+    "verify-shield-cache.js"
   ],
 
   // Browser-free module/room/input lifecycle integration. These may use fake
@@ -135,7 +141,8 @@ const GROUPS = {
     "verify-lifecycle.js",
     "verify-input-lifecycle.js",
     "verify-renderer-structural-updates.js",
-    "verify-pixi-world-layers.js"
+    "verify-pixi-world-layers.js",
+    "verify-shield-cache-live.js"
   ],
 
   // Real server.js process + real WebSockets + MessagePack snapshots.

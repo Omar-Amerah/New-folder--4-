@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("assert");
-const { resetRoomTelemetry, getRoomTelemetry, telemetryDiagnostics } = require("./src/server/roomTelemetry");
+const { resetRoomTelemetry, getRoomTelemetry, telemetryDiagnostics, setCounter } = require("./src/server/roomTelemetry");
 const { updateShipSeparation } = require("./src/server/movement");
 const { updateBullets } = require("./src/server/projectiles");
 const { computeStats } = require("./src/server/shipStats");
@@ -100,6 +100,7 @@ function run() {
     }
     buildRoomSpatialIndex(room, ships, 0);
     resetRoomTelemetry(room);
+    setCounter(room, "liveShips", ships.length);
     updateShipSeparation(room, ships, DT, 0);
     assertTelemetryInvariant(room, "many-ships");
     const telemetry = getRoomTelemetry(room);

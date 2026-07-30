@@ -228,17 +228,11 @@ export function updateDeploymentControls() {
   const mine = state.mine;
   const openState = typeof WebSocket !== "undefined" ? WebSocket.OPEN : 1;
   const connected = state.socket?.readyState === openState && Boolean(state.room);
-  const analysis = analyseBlueprintOnce({
-    blueprint: state.design,
-    wiring: state.wiring,
-    combatStyle: state.combatStyle || "hold"
-  });
-  const blueprintValid = analysis.validation.ok && !state.designNeedsAttention;
   const balanceCompatible = !isBalanceIncompatible();
   const pending = Boolean(state.pendingDeploy);
   const inDesign = state.phase === "design";
   const ready = Boolean(mine?.ready);
-  const canReady = connected && inDesign && !ready && !pending && blueprintValid && balanceCompatible;
+  const canReady = connected && inDesign && !ready && !pending;
   if (dom.deployButton) {
     dom.deployButton.hidden = !inDesign;
     dom.deployButton.disabled = !canReady;
@@ -246,10 +240,8 @@ export function updateDeploymentControls() {
     const text = pending ? "Readying…" : ready ? "Waiting for Players" : "Ready Up";
     const label = dom.deployButton.querySelector?.(".deploy-action-label");
     if (label) label.textContent = text;
-    dom.deployButton.setAttribute?.("aria-label", blueprintValid ? text : (analysis.validation.errors[0] || "Blueprint is invalid."));
-    dom.deployButton.title = !balanceCompatible
-      ? balanceBlockMessage()
-      : !blueprintValid ? (analysis.validation.errors[0] || "Fix the blueprint before readying.") : "";
+    dom.deployButton.setAttribute?.("aria-label", text);
+    dom.deployButton.title = "";
   }
   if (dom.openBlueprintDesignerButton) {
     dom.openBlueprintDesignerButton.textContent = "Open Blueprint Designer";

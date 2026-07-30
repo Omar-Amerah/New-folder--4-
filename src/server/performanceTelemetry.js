@@ -94,10 +94,14 @@ const totals = {
 const outboundBuckets = new Map();
 let lastPrunedOutboundSecond = 0;
 
+function ensureSeries(name) {
+  if (!series[name]) series[name] = createSampleRing();
+  return series[name];
+}
+
 function boundedSample(name, value, at = Date.now()) {
   if (!Number.isFinite(value)) return;
-  const samples = series[name];
-  if (!samples) return;
+  const samples = ensureSeries(name);
   samples.times[samples.cursor] = at;
   samples.values[samples.cursor] = value;
   samples.cursor = (samples.cursor + 1) % MAX_SAMPLES;
@@ -181,6 +185,15 @@ function recordFlakMetrics(metrics = {}) {
   boundedSample("flak:droneHits", Math.max(0, Number(metrics.droneHits) || 0), at);
   boundedSample("flak:missileHits", Math.max(0, Number(metrics.missileHits) || 0), at);
   boundedSample("flak:processingUs", Math.max(0, Number(metrics.processingUs) || 0), at);
+}
+
+function recordRoomTelemetry(room) {
+  const at = Date.now();
+  const RoomTelemetry = require("./roomTelemetry");
+  const telemetry = room?._roomTelemetry || RoomTelemetry.ensureTelemetry(room);
+  for (const name of RoomTelemetry.ALL_FIELDS) {
+    boundedSample(`room:${name}`, Math.max(0, Number(telemetry[name]) || 0), at);
+  }
 }
 
 function currentValues(name, now) {
@@ -277,8 +290,9 @@ function performanceSnapshot(tickHz = 30) {
       queueLimitCloses: totals.outboundQueueLimitCloses,
       backpressureCloses: totals.outboundBackpressureCloses
     },
-    purchase: Object.fromEntries(PURCHASE_STAGE_NAMES.map((name) => [name, summarize(`purchase:${name}`, now)]))
+    purchase: Object.fromEntries(PURCHASE_STAGE_NAMES.map((name) => [name, summarize(`purchase:${name}`, now)])),
+    room: Object.fromEntries(Object.keys(series).filter((k) => k.startsWith("room:")).map((k) => [k.slice(5), summarize(k, now)]))
   };
 }
 
-module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordSnapshot, recordOutbound, recordOutboundEvent, recordPurchaseStage, recordFlakMetrics, performanceSnapshot };
+module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordRoomTelemetry, recordSnapshot, recordOutbound, recordOutboundEvent, recordPurchaseStage, recordFlakMetrics, performanceSnapshot };

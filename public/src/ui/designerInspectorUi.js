@@ -33,11 +33,25 @@ function applyTabState(entries, activeKey) {
 function analysisForBlueprintView(view = state.blueprintView) {
   if (view === "heat") return "heat";
   if (WIRING_ENABLED && view === "wiring") return "wiring";
+  if (!WIRING_ENABLED && view === "dataLinks") return "data";
   return "movement";
+}
+
+// Each Blueprint view has an inspector section that reads on it: Build wants the
+// component palette in Design, while the analysis views want their own readout.
+function inspectorForBlueprintView(view = state.blueprintView) {
+  if (view === "heat" || view === "wiring" || view === "dataLinks") return "analysis";
+  return "design";
 }
 
 export function syncDesignerAnalysisToBlueprintView() {
   activateDesignerAnalysisTab(analysisForBlueprintView());
+}
+
+// Called when the player switches Blueprint view, so the inspector follows them
+// to the matching readout instead of leaving a stale panel open.
+export function syncDesignerInspectorToBlueprintView() {
+  activateDesignerInspectorTab(inspectorForBlueprintView());
 }
 
 export function activateDesignerAnalysisTab(key, { focus = false } = {}) {
@@ -90,4 +104,12 @@ document.addEventListener?.("designer-inspector-activate", (event) => {
   activateDesignerInspectorTab(event.detail?.tab || "design");
 });
 
-document.addEventListener?.("blueprint-mode-change", syncDesignerAnalysisToBlueprintView);
+// Only follow a real view change; re-clicking the active view tab must not yank
+// the inspector away from wherever the player put it.
+document.addEventListener?.("blueprint-mode-change", (event) => {
+  if (event.detail?.changed === false) {
+    syncDesignerAnalysisToBlueprintView();
+    return;
+  }
+  syncDesignerInspectorToBlueprintView();
+});

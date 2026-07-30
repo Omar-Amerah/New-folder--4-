@@ -35,7 +35,6 @@ function assertFiniteShieldState(ship) {
 function updateRuntimeShield(ship, dt, now, room) {
   if (!ship || ship.alive === false) return;
   bump("shieldRuntimeUpdateCount");
-  if (room) require("./roomTelemetry").bump(room, "shieldRuntimeUpdates");
 
   const effective = effectiveShieldStats(ship, room);
   const capacity = Math.max(0, Number(effective?.capacity) || 0);

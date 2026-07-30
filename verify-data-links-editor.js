@@ -175,13 +175,54 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
     });
     assert.ok(deployPayloads >= 1, "deploy message is sent");
 
-    // --- leaving the view releases the grid ---
-    // The overlay accepts pointer input while active; if it is not torn down it
-    // silently swallows every Build-mode click.
-    const released = await page.evaluate(async () => {
-      const designer = await import("/src/ui/designerUi.js");
-      designer.setBlueprintView("build");
-      designer.renderBuildGrid();
+    // --- switching view via the real tabs ---
+    // Regression: the Build tab calls setBlueprintView + renderLocalStats but
+    // never renderBuildGrid, so Data Links teardown has to happen in
+    // setBlueprintView or the grid stays dimmed and swallows every click.
+    const viewState = async () => page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      const grid = document.getElementById("buildGrid");
+      const host = document.getElementById("dataLinksOverlayHost");
+      return {
+        view: state.blueprintView,
+        gridDimmed: grid.classList.contains("data-links-active"),
+        overlayActive: host.classList.contains("is-active"),
+        overlayChildren: host.childElementCount,
+        pointerEvents: getComputedStyle(host).pointerEvents,
+        toolbarHidden: document.getElementById("dataLinksToolbar")?.hidden,
+        inspector: state.designerInspectorTab,
+        analysis: state.designerAnalysisTab
+      };
+    });
+
+    // Each view auto-opens the inspector section that reads on it.
+    await page.locator("#blueprintDataLinksTab").click();
+    let vs = await viewState();
+    assert.equal(vs.inspector, "analysis", "Data Links opens the Analysis inspector");
+    assert.equal(vs.analysis, "data", "Data Links opens the Data analysis tab");
+    assert.equal(vs.overlayActive, true, "Data Links activates its overlay");
+    assert.equal(vs.toolbarHidden, false, "Data Links shows its toolbar");
+
+    await page.locator("#blueprintHeatTab").click();
+    vs = await viewState();
+    assert.equal(vs.inspector, "analysis", "Heat opens the Analysis inspector");
+    assert.equal(vs.analysis, "heat", "Heat opens the Heat analysis tab");
+    assert.equal(vs.gridDimmed, false, "Heat undims the grid");
+    assert.equal(vs.overlayActive, false, "Heat tears down the Data Links overlay");
+
+    await page.locator("#blueprintDataLinksTab").click();
+    await page.locator("#blueprintBuildTab").click();
+    vs = await viewState();
+    assert.equal(vs.inspector, "design", "Build opens the Design inspector");
+    assert.equal(vs.gridDimmed, false, "Build undims the grid");
+    assert.equal(vs.toolbarHidden, true, "Build hides the Data Links toolbar");
+
+    // Re-clicking the active view tab must not yank a manually chosen section.
+    await page.locator("#designerBlueprintsTab").click();
+    await page.locator("#blueprintBuildTab").click();
+    assert.equal((await viewState()).inspector, "blueprints", "re-clicking the active view keeps the chosen inspector tab");
+
+    const released = await page.evaluate(() => {
       const host = document.getElementById("dataLinksOverlayHost");
       return {
         active: host.classList.contains("is-active"),

@@ -518,7 +518,6 @@ function updateBullets(room, dt, now) {
       const pList = spatialIndex
         ? spatialIndex.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, PROJECTILES.interceptRadius, scratch.interceptableProjectiles)
         : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
-      bump(room, "projectileSpatialQueries");
       for (const p of pList) {
         if (p === bullet) continue;
         if (!areEnemies(room, bullet.ownerId, p.ownerId)) continue;
@@ -592,7 +591,7 @@ function updateBullets(room, dt, now) {
       bump(room, "projectileComponentCellTests", componentCellTests);
     }
 
-    if (spatialIndex) bump(room, "projectileSpatialQueries", 2);
+    if (spatialIndex) bump(room, "projectileSpatialQueries");
     const possibleStations = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("stations", previousX, previousY, bullet.x, bullet.y, 0, scratch.stations)
       : (room.stations || []);

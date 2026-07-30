@@ -23,7 +23,7 @@
     "test:live-turrets": "node verify-live-turrets.js",
     "test:heat": "node verify-heat.js",
     "test:engine-exhaust": "node verify-engine-exhaust.js",
-    "test:movement": "node verify-movement-phase1.js && node verify-movement-phase2.js && node verify-movement-phase3.js && node verify-movement-phase4.js && node verify-movement-phase567.js && node verify-movement-phase8911.js",
+    "test:movement": "node verify-movement-phase1.js && node verify-movement-phase2.js && node verify-movement-phase3.js && node verify-movement-phase4.js && node verify-movement-phase567.js && node verify-movement-phase8911.js && node verify-movement-charge.js",
     "test:movement-phase1": "node verify-movement-phase1.js",
     "test:movement-phase2": "node verify-movement-phase2.js",
     "test:movement-phase3": "node verify-movement-phase3.js",
@@ -209,7 +209,8 @@
     "test:drone-networking": "node verify-drone-networking.js",
     "test:drone-bay-browser": "npm run build && node verify-drone-bay-browser.js",
     "test:server-spatial": "node verify-server-spatial-regression.js && node verify-performance-health.js",
-    "test:server-spatial-performance": "node verify-server-spatial-performance.js"
+    "test:server-spatial-performance": "node verify-server-spatial-performance.js",
+    "test:movement-charge": "node verify-movement-charge.js"
   },
   "keywords": [
     "browser-game",

@@ -1,8 +1,8 @@
 "use strict";
 
-// Authoritative server-side performance feature flags.  These are mutable for
-// tests via the __set* helpers and default to the values that preserve the
-// existing behaviour until parity is demonstrated.
+// Authoritative server-side performance feature flags for Phase One.
+// Defaults enable the circular separation and redundant-pass removals now that
+// parity tests pass; tests can override them via the __set* helpers.
 
 let _circularShipSeparation = true;
 let _redundantFleetMapCollisionPass = false;

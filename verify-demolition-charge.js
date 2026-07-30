@@ -3,7 +3,8 @@
 
 const assert = require('node:assert/strict');
 const { resolveDemolitionContacts, detonateProximityCharge, armedProximityChargeRanges, nearestDemolitionTargetPoint } = require('./src/server/combat');
-const { createMovementIntent } = require('./src/server/movement');
+const { updateShipMovement } = require('./src/server/movement');
+const { physicalCollisionRadius } = require('./src/server/movementCollision');
 const { initComponentState, initProximityChargeState } = require('./src/server/componentHealth');
 const { PARTS } = require('./src/server/components');
 
@@ -313,7 +314,17 @@ function multiChargeDesign() {
   assert.equal(small.proximityCharge.damagesFriendlyShips, false, 'small protects friendly ships');
 }
 
-// 18. An armed demolition-only charger still closes on its target.
+// 18. How close Charge gets depends on whether the charge is still aboard.
+//
+// A demolition ship IS the weapon, so it drives until the hulls touch and lets
+// the trigger radius do the rest. Take the charge away and the same stance still
+// closes -- it is the stance the player picked, not a consequence of the
+// loadout -- but it pulls up alongside instead of ramming, because there is no
+// longer anything to be gained by grinding hulls together.
+//
+// Asserted on the destination the stance produces rather than on a flown
+// trajectory: these fixtures carry no engine or turn stats, so the hull cannot
+// actually go anywhere.
 {
   const room = makeRoom();
   const carrier = makeShip('movement-carrier', 'blue', 300, 500, chargeDesign());
@@ -322,14 +333,23 @@ function multiChargeDesign() {
   carrier.combatTargetId = enemy.id;
   room.ships.set(carrier.id, carrier);
   room.ships.set(enemy.id, enemy);
-  const intent = createMovementIntent(room, carrier, carrier.stats, 1000);
-  assert.equal(intent.type, 'charge', 'an armed demolition ship does not stop for having no conventional weapon range');
+
+  const standoff = () => {
+    updateShipMovement(room, carrier, 1 / 30, 1000);
+    const destination = carrier.movement.destination;
+    assert.ok(destination, 'a charging ship should be given somewhere to be');
+    return Math.hypot(destination.x - enemy.x, destination.y - enemy.y);
+  };
+  const hull = physicalCollisionRadius(carrier) + physicalCollisionRadius(enemy);
+
+  assert.ok(armedProximityChargeRanges(carrier).armed, 'the carrier starts armed');
+  assert.ok(Math.abs(standoff() - hull) < 1e-6,
+    `an armed demolition ship closes to hull contact (${standoff().toFixed(1)} px vs ${hull.toFixed(1)})`);
+
   carrier.componentHp[1] = 0;
-  assert.equal(
-    createMovementIntent(room, carrier, carrier.stats, 1000).type,
-    'stop',
-    'a disarmed demolition-only ship still stops safely'
-  );
+  assert.ok(!armedProximityChargeRanges(carrier).armed, 'the charge is gone once destroyed');
+  assert.ok(standoff() > hull + 1,
+    `a ship whose charge is gone still charges, but pulls up alongside (${standoff().toFixed(1)} px vs ${hull.toFixed(1)})`);
 }
 
 // 19. Demolition charges acquire, contact, and damage station hulls.

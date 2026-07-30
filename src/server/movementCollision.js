@@ -266,7 +266,6 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
     .slice()
     .sort(compareEntityIds);
   const separationStart = performanceNow();
-  bump(room, "liveShips", ships.length);
   // Pair resolution has to visit (a, b) in a stable order, and it used to
   // establish that order by comparing ids for every candidate of every ship on
   // every iteration. Stamping each ship's rank in the already-sorted list turns

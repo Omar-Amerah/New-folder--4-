@@ -218,12 +218,20 @@ function run() {
       "a target alone must not cause movement without a stance that acts on it");
   }
 
-  // Withdrawn stances migrate to Hold rather than leaving a ship unflyable.
+  // Stances the controller flies survive; the ones it does not migrate to Hold,
+  // so a ship can never end up carrying a stance nothing will fly.
   {
-    assert.strictEqual(sanitizeCombatStyle("charge"), "hold", "Charge should migrate to Hold");
+    assert.strictEqual(sanitizeCombatStyle("charge"), "charge", "Charge is flown");
+    assert.strictEqual(sanitizeCombatStyle("hold"), "hold");
+    assert.strictEqual(sanitizeCombatStyle("static"), "static", "Static is flown");
     assert.strictEqual(sanitizeCombatStyle("orbit"), "hold", "Orbit should migrate to Hold");
     assert.strictEqual(sanitizeCombatStyle("kite"), "hold", "Kite should migrate to Hold");
-    assert.strictEqual(sanitizeCombatStyle("hold"), "hold");
+    // Legacy aggressive aliases land on Charge, matching the client's own
+    // normalizeCombatStyle, so a blueprint saved as "brawler" gets the stance it
+    // was named for rather than the opposite one.
+    assert.strictEqual(sanitizeCombatStyle("brawler"), "charge");
+    assert.strictEqual(sanitizeCombatStyle("interceptor"), "charge");
+    assert.strictEqual(sanitizeCombatStyle("evasive"), "hold");
   }
 
   // =======================================================================

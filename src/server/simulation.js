@@ -16,7 +16,7 @@ const { buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./spatialIndex"
 const { updateStationWeapons } = require("./stationCombat");
 const { updateCommandAuras } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
-const { recordRoomTick } = require("./performanceTelemetry");
+const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry");
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
@@ -79,7 +79,7 @@ function tickRoom(room, dt, now) {
   // Power/Heat/aura state and is independent of movement substeps.
   startedAt = performanceNow();
   for (const ship of ships) updateRuntimeShield(ship, dt, now, room);
-  recordDuration(room, "shieldRuntimeUpdates", startedAt);
+  recordDuration(room, "shieldRuntimeMs", startedAt);
   setCounter(room, "shieldRuntimeUpdates", ships.length);
   durations.shields = performanceNow() - startedAt;
   startedAt = performanceNow();
@@ -178,6 +178,7 @@ function tickRoom(room, dt, now) {
   room._visibilityFinalizedAt = now;
   durations.objectives = performanceNow() - startedAt;
   recordRoomTick(durations);
+  recordRoomTelemetry(room);
   const componentAssertionsEnabled = isComponentAssertionEnabled();
   if (componentAssertionsEnabled) {
     const sampleAll = now >= (Number(room._lastComponentAssertionSampleAt) || 0) + 1000;

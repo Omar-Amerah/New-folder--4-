@@ -10,12 +10,12 @@ const { performanceNow } = require("./utils");
 
 const DURATION_FIELDS = Object.freeze([
   "movementControllerMs",
-  "movementAvoidanceMs",
-  "movementMapCollisionMs",
   "shipSeparationMs",
-  "separationSpatialQueryMs",
   "separationNarrowPhaseMs",
-  "separationSpatialRebuildMs"
+  "separationMapCollisionMs",
+  "separationSpatialRebuildMs",
+  "movementMapCollisionMs",
+  "shieldRuntimeMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -40,34 +40,14 @@ const COUNTER_FIELDS = Object.freeze([
   "projectileCandidateStations",
   "projectileCandidateAsteroids",
   "projectileComponentCellTests",
-  "flakEventCandidates",
-  "flakEventSorts",
   "missileGuidanceUpdates",
-
-  // Weapon counters
-  "weaponComponentsVisited",
-  "targetAcquisitionRuns",
-  "pointDefenceSearches",
-  "pointDefenceCandidates",
-  "lineOfSightChecks",
 
   // Shield counters
   "shieldRuntimeUpdates",
   "shieldDerivedStatCalculations",
   "shieldDerivedStatCacheHits",
   "shieldDerivedStatCacheMisses",
-  "shieldDerivedStatVerificationFailures",
-
-  // Snapshot counters
-  "shipsSerialized",
-  "bulletsSerialized",
-  "dronesSerialized",
-  "effectsSerialized",
-  "weaponAnglesSerialized",
-  "snapshotConstructionMs",
-  "snapshotEncodingMs",
-  "aggregatePayloadBytes",
-  "maximumClientPayloadBytes"
+  "shieldDerivedStatVerificationFailures"
 ]);
 
 const ALL_FIELDS = Object.freeze([...DURATION_FIELDS, ...COUNTER_FIELDS]);
@@ -128,6 +108,7 @@ module.exports = {
   ALL_FIELDS,
   DURATION_FIELDS,
   COUNTER_FIELDS,
+  ensureTelemetry,
   resetRoomTelemetry,
   bump,
   recordDuration,

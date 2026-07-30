@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 // The movement controller.
 //
@@ -178,11 +178,30 @@ const SLOT_SPACING_PAD = 12;
 // separation solver is not correcting an overlap every tick for the whole fight.
 // A ship that IS carrying a charge uses none of this and drives into contact.
 const CHARGE_STANDOFF_PAD = 30;
-// ...and how far the target may open up before the charger gets under way
-// again. Narrow on purpose: a charger is already touching its target, so the
-// only thing this has to absorb is separation jitter, and anything wider reads
-// as the ship losing interest.
-const CHARGE_CLING_SLACK = 24;
+// ...and how far the target may open up before the charger gets under way again
+// on distance alone. Loose on purpose. A charger at contact is standing in a
+// crowd and is shoved constantly, and a narrow band made it let go every time a
+// neighbour leaned on it -- which cost it the one thing the stance has to
+// guarantee, since a ship that has let go is steering at a point again rather
+// than at the hull it is supposed to be facing. A target that is genuinely
+// leaving is caught by targetIsBreakingAway long before this.
+const CHARGE_CLING_SLACK = 90;
+// How fast the target has to be pulling away, in its own right, before the
+// charger stops treating a growing gap as somebody jostling it.
+const CHARGE_PURSUE_SPEED = 8;
+// How close, in multiples of the standoff, a charger has to be before it drops
+// the side it was given and simply drives at the hull.
+//
+// Deliberately tiny -- only the last fraction of a hull-length. The assigned
+// sides are what stop four chargers queueing up behind each other on one flank,
+// and they are worth almost nothing if dropped early: the ring is barely two
+// hull radii across, so from any real approach distance every side of it points
+// in near enough the same direction, and handing the ship back its own bearing
+// sooner just funnels the whole group in along one line. Swept at 1.2 / 2 / 3 /
+// 6 and the tightest value won on every measure at once -- ships ended closest
+// to the hull, spread over the widest arc, and pointing most nearly at the thing
+// they were charging.
+const CHARGE_RING_FADE = 1.2;
 
 // --- Route following ---------------------------------------------------------
 // How far ahead of a corner a ship starts cutting toward the next leg. Scaled by
@@ -513,6 +532,15 @@ function refreshEngagement(room, ship, runtime, now) {
     }
   }
 
+  // Static never repositions for combat. It stands where it is and turns to face
+  // whatever it can shoot, which is what planMovement does for an engaged ship
+  // with no destination -- so the stance is exactly "produce no destination".
+  if (combatStance(ship) === "static" && type !== "repair") {
+    runtime.holdEngaged = true;
+    clearRoute(runtime);
+    return;
+  }
+
   const distance = fastHypot(target.x - (ship.x || 0), target.y - (ship.y || 0));
   const { enter, resume } = engagementRanges(ship, target, type);
 
@@ -520,7 +548,7 @@ function refreshEngagement(room, ship, runtime, now) {
     // Established. Only a target that has genuinely opened the range is worth
     // getting under way for again -- and nothing at all is worth backing away
     // from, however close it comes.
-    if (distance <= resume) {
+    if (distance <= resume && !targetIsBreakingAway(ship, target, distance)) {
       clearRoute(runtime);
       return;
     }
@@ -531,6 +559,13 @@ function refreshEngagement(room, ship, runtime, now) {
     return;
   }
 
+  // A ship whose weapon is itself is on a ramming run, and a ram that arrives at
+  // walking pace is not a ram. Recorded here, once per tick, because this is the
+  // only place that knows all three things at the same time: the stance, the
+  // target, and whether the charge is still aboard to be delivered.
+  runtime.ramming = type === "attack"
+    && combatStance(ship) === "charge"
+    && shipHasArmedProximityCharge(ship);
   runtime.destination = firingPosition(ship, target, runtime, command, enter);
 }
 
@@ -587,15 +622,54 @@ function firingSlot(command) {
 // measuring from each ship's own bearing spreads them evenly around the target,
 // which looks wrong and cannot concentrate fire.
 function firingPosition(ship, target, runtime, command, standoff) {
+  // Charge takes a bearing around the target rather than a place on a line: a
+  // group closing to contact has to share the hull it is all trying to touch, so
+  // the slots are spread right around it (see assignChargeRing). It is only ever
+  // a preference -- the stance latches on reaching contact from ANY direction,
+  // so a charger blocked out of its own bearing clings wherever it got to
+  // instead of circling for a tidier one.
+  if (combatStance(ship) === "charge") {
+    return firingPoint(target, chargeBearing(ship, target, command, standoff), 0, standoff);
+  }
   const slot = firingSlot(command);
   if (slot) return firingPoint(target, slot.approach, slot.lateral, standoff);
-  const held = runtime.engageApproach;
-  if (held && held.targetId === target.id) {
-    return firingPoint(target, held.approach, 0, standoff);
+  return firingPoint(target, heldApproach(ship, target, runtime), 0, standoff);
+}
+
+// Which side of the target a charging ship comes in on, as a bearing from the
+// target outward.
+//
+// Far out it is the side the group handed this ship, so a fleet converging on
+// one hull fans out on the way in instead of queueing up behind each other.
+//
+// Close in it is simply the direction the ship is already coming from, so the
+// last stretch is driven straight at the target. That is not a detail: a hull
+// travels along its nose and nothing else, so steering for a *particular* side
+// from close range means crossing in front of the target showing it a flank,
+// and a ring of ships all doing that circles the target forever instead of
+// hitting it -- measured at four chargers still swinging round after a minute,
+// two of them pointing more than 60 degrees off the thing they were charging.
+// Where they end up spread is then settled by arriving from different sides and
+// by the separation solver, which is enough to surround a hull without any ship
+// ever having to fly sideways to do it.
+function chargeBearing(ship, target, command, standoff) {
+  const assigned = command?.chargeBearing;
+  if (Number.isFinite(assigned)) {
+    const distance = fastHypot(target.x - (ship.x || 0), target.y - (ship.y || 0));
+    if (distance > standoff * CHARGE_RING_FADE) return assigned;
   }
+  return Math.atan2((ship.y || 0) - target.y, (ship.x || 0) - target.x);
+}
+
+// The bearing this ship approaches its target on, fixed at the moment the
+// engagement starts. See the note above firingPosition for why it must not be
+// recomputed from the ship's live position.
+function heldApproach(ship, target, runtime) {
+  const held = runtime.engageApproach;
+  if (held && held.targetId === target.id) return held.approach;
   const approach = Math.atan2((ship.y || 0) - target.y, (ship.x || 0) - target.x);
   runtime.engageApproach = { targetId: target.id, approach };
-  return firingPoint(target, approach, 0, standoff);
+  return approach;
 }
 
 // A place on the firing line, at the engagement range from the target.
@@ -1082,6 +1156,26 @@ function bearingTo(ship, point) {
   return Math.atan2(point.y - (ship.y || 0), point.x - (ship.x || 0));
 }
 
+// Where a ship with nothing left to fly toward should point.
+//
+// Whatever it is fighting outranks the order's own idea of a final heading,
+// because fixed weapons only bear where the hull points -- "close in and face
+// it" is the whole of Charge, and a ship parked at its firing slot is no use
+// aimed at where it happened to arrive from. An explicit finalFacing still wins:
+// that is the player asking for a heading in as many words.
+//
+// Without this a parked ship kept the angle it arrived on, so a target that then
+// moved across it was tracked only if something else put the ship back under way.
+function stationaryHeading(room, ship, runtime, command) {
+  if (Number.isFinite(command?.finalFacing)) return command.finalFacing;
+  const engaged = engagementTarget(room, ship, runtime);
+  if (engaged) {
+    const distance = fastHypot(engaged.target.x - (ship.x || 0), engaged.target.y - (ship.y || 0));
+    if (distance > BEARING_MIN_DISTANCE) return bearingTo(ship, engaged.target);
+  }
+  return restingHeading(ship, command);
+}
+
 // ---------------------------------------------------------------------------
 // Explicit targeting
 // ---------------------------------------------------------------------------
@@ -1096,6 +1190,26 @@ function bearingTo(ship, point) {
 // combat.js honours ship.focusTargetId over anything its automatic acquisition
 // would otherwise pick, and targetLocks.js drops it when sensor fog takes the
 // contact away.
+
+// Is the target actually running, as opposed to the gap having opened for some
+// other reason?
+//
+// A charger that has closed to contact is standing in a crowd -- its own target,
+// its own side's other chargers -- and gets shoved about constantly. The gap
+// growing therefore means one of two completely different things, and the ship
+// has to answer them differently: absorb a shove and stay put, chase a hull that
+// is leaving.
+//
+// So the range band is deliberately loose enough to swallow a jostle, and this
+// reads the target's own motion to catch a genuine break-away long before the
+// gap grows that far. Measured against the target's velocity, not the pair's:
+// the ship closing on its target is not the target escaping.
+function targetIsBreakingAway(ship, target, distance) {
+  if (!(distance > BEARING_MIN_DISTANCE)) return false;
+  const away = ((target.vx || 0) * (target.x - (ship.x || 0))
+    + (target.vy || 0) * (target.y - (ship.y || 0))) / distance;
+  return away > CHARGE_PURSUE_SPEED;
+}
 
 // Which stance is flying this ship. Anything the controller does not implement
 // has already been resolved to Hold by sanitizeCombatStyle, so this only ever
@@ -1158,9 +1272,14 @@ function planMovement(room, ship, runtime, stats, route) {
   const command = runtime.command;
   const resting = { desiredHeading: restingHeading(ship, command), desiredSpeed: 0 };
 
-  if (!command) return { ...resting, desiredHeading: ship.angle || 0, phase: "idle" };
+  // Note there is deliberately no "no order, nothing to do" shortcut here. A
+  // ship that has never been given an order is exactly the ship the stance flies
+  // on its own, off a target combat acquired for it -- and returning idle the
+  // moment runtime.command was null threw away the destination refreshEngagement
+  // had just worked out. Every ship without an explicit order simply sat there,
+  // which made the whole automatic-engagement path dead code.
 
-  if (command.type === "stop") {
+  if (command?.type === "stop") {
     // Stop preserves the hull's heading: turning to face the destination it was
     // just cancelled off would make the stop key a rotate key.
     //
@@ -1198,7 +1317,9 @@ function planMovement(room, ship, runtime, stats, route) {
         phase: "positioned"
       };
     }
-    return { ...resting, phase: "positioned" };
+    // Nowhere to be and nothing to shoot at. A ship that was never given an
+    // order is idle; one that has carried its order out is in position.
+    return { ...resting, phase: command ? "positioned" : "idle" };
   }
 
   const distance = fastHypot(destination.x - (ship.x || 0), destination.y - (ship.y || 0));
@@ -1208,7 +1329,11 @@ function planMovement(room, ship, runtime, stats, route) {
   // a crawl -- and a crawl is what the nose would then follow.
   if (runtime.arrived) {
     if (distance <= ARRIVE_LATCH_DISTANCE) {
-      return { ...resting, phase: "positioned" };
+      return {
+        desiredHeading: stationaryHeading(room, ship, runtime, command),
+        desiredSpeed: 0,
+        phase: "positioned"
+      };
     }
     runtime.arrived = false;
   }
@@ -1219,8 +1344,12 @@ function planMovement(room, ship, runtime, stats, route) {
     // A Move that has been flown is done with. Latching it here is what hands
     // the helm to the combat stance afterwards, and what stops the stance and
     // the stale Move order taking turns to drag the ship about.
-    if (command.type === "move") runtime.orderComplete = true;
-    return { ...resting, phase: "positioned" };
+    if (command?.type === "move") runtime.orderComplete = true;
+    return {
+      desiredHeading: stationaryHeading(room, ship, runtime, command),
+      desiredSpeed: 0,
+      phase: "positioned"
+    };
   }
 
   // The one point the controller steers at. It has no idea whether this is the
@@ -1234,7 +1363,7 @@ function planMovement(room, ship, runtime, stats, route) {
   // rounding an obstacle has to be free to point where the detour goes.
   const desiredHeading = route && !route.isFinal
     ? bearing
-    : travelHeading(bearing, command.formationHeading);
+    : travelHeading(bearing, command?.formationHeading);
 
   // Speed from the ground still to cover -- along the whole remaining route, so
   // intermediate waypoints are rounded at speed and the ship comes to rest only
@@ -1249,6 +1378,24 @@ function planMovement(room, ship, runtime, stats, route) {
   const turnRate = maxTurnRate(stats);
   const turnLimit = turnRate > 0 ? turnRate * Math.max(goalDistance, ARRIVE_DISTANCE) : Infinity;
 
+  // A ramming run keeps neither of those.
+  //
+  // The arrival profile and the turn-radius cap both exist to set a ship down
+  // gently and accurately on a spot. A demolition ship wants the opposite: it is
+  // the weapon, and everything that makes for a tidy arrival -- braking from a
+  // third of the map out, easing off as the point gets close -- is exactly what
+  // makes it drift up to its target and stop politely a hull's width short.
+  //
+  // Only on the final leg. A detour around an asteroid is still ordinary flying,
+  // still has to be flown accurately, and a ship that took its corners at ram
+  // speed would simply spread itself over the rock.
+  //
+  // Nothing else is relaxed. maxSpeed still binds, so "as fast as it can" means
+  // the hull's own limit; the corner limit still binds; and the alignment
+  // throttle still binds, so a ship that has lost the bearing slows down and
+  // lines the run up again instead of tearing past at full power.
+  const ramming = runtime.ramming && (!route || route.isFinal);
+
   // Alignment throttle: full speed pointing at the goal, nothing at all pointing
   // away from it. The ship accelerates gently out of a turn and hard once it is
   // on course, and it never has to stop and aim before setting off.
@@ -1258,9 +1405,9 @@ function planMovement(room, ship, runtime, stats, route) {
     Number(stats.maxSpeed) || 0,
     // A group travels at the pace of its slowest hull, so the formation stays a
     // formation the whole way instead of only at the destination.
-    Number.isFinite(command.formationSpeed) ? command.formationSpeed : Infinity,
-    safeArrivalSpeed,
-    turnLimit,
+    Number.isFinite(command?.formationSpeed) ? command.formationSpeed : Infinity,
+    ramming ? Infinity : safeArrivalSpeed,
+    ramming ? Infinity : turnLimit,
     route ? route.cornerLimit : Infinity
   );
 
@@ -1355,6 +1502,10 @@ function updateShipMovement(room, ship, dt, now) {
   ship._integratedMovementX = 0;
   ship._integratedMovementY = 0;
   ship.turnActivity = 0;
+  // Cleared unconditionally so only refreshEngagement, running this same tick,
+  // can turn it back on. A ram that outlived the order or the charge that
+  // justified it would be a ship flying into things for no reason.
+  runtime.ramming = false;
 
   let safeDt = Number(dt);
   if (!Number.isFinite(safeDt) || safeDt <= 0) return;
@@ -1463,6 +1614,7 @@ function issueAttack(room, ship, commandId, targetId, now, options = {}) {
     targetId,
     formationHeading: options.formationHeading,
     firingLateral: options.firingLateral,
+    chargeBearing: options.chargeBearing,
     manual: true
   });
   // A ship that could already shoot the target when the order arrived is
@@ -1508,6 +1660,34 @@ function assignFiringLine(ships, target) {
     lateral.set(ordered[index].id, (index - (ordered.length - 1) / 2) * spacing);
   }
   return { lateral, approach };
+}
+
+// Bearings around a target for a group charging it.
+//
+// A firing line does not work at contact range: the line's lateral spread is
+// capped as a fraction of the standoff, and a charger's standoff is two hull
+// radii, so every place on it collapses onto the same few pixels. Charging ships
+// are given a bearing each and close from all sides instead.
+//
+// Assignment preserves the order the ships already stand in around the target --
+// sort by current bearing, then step evenly from the first one's -- so no ship
+// crosses another's path to reach its side, and a lone charger is handed the
+// bearing it is already on and drives straight in.
+function assignChargeRing(ships, target) {
+  const bearings = new Map();
+  if (ships.length === 0) return bearings;
+  const bearingOf = (ship) => Math.atan2(ship.y - target.y, ship.x - target.x);
+  const ordered = ships.slice().sort((a, b) => {
+    const difference = bearingOf(a) - bearingOf(b);
+    if (Math.abs(difference) > 1e-9) return difference;
+    return compareEntityIds(a, b);
+  });
+  const step = (Math.PI * 2) / ordered.length;
+  const base = bearingOf(ordered[0]);
+  for (let index = 0; index < ordered.length; index += 1) {
+    bearings.set(ordered[index].id, normalizeHullAngle(base + index * step));
+  }
+  return bearings;
 }
 
 function issueRepair(ship, commandId, targetId) {
@@ -1782,12 +1962,17 @@ function commandShips(room, player, x, y, options = {}) {
 
   if (enemy) {
     const now = performanceNow();
-    const line = assignFiringLine(ships, livingTarget);
+    // Stance decides the shape, so a mixed selection gets both: the chargers
+    // spread around the target, the rest form a line at weapons range. A charger
+    // must not be handed a formationHeading -- that is a place on the line, and
+    // firingSlot would then steer it to one.
+    const charging = ships.filter((ship) => combatStance(ship) === "charge");
+    const ring = assignChargeRing(charging, livingTarget);
+    const line = assignFiringLine(ships.filter((ship) => !ring.has(ship.id)), livingTarget);
     for (const ship of ships) {
-      issueAttack(room, ship, commandId, livingTarget.id, now, {
-        formationHeading: line.approach,
-        firingLateral: line.lateral?.get(ship.id)
-      });
+      issueAttack(room, ship, commandId, livingTarget.id, now, ring.has(ship.id)
+        ? { chargeBearing: ring.get(ship.id) }
+        : { formationHeading: line.approach, firingLateral: line.lateral?.get(ship.id) });
     }
     return { ok: true, code: "attack", commanded: ships.length };
   }
@@ -1874,10 +2059,10 @@ function rotateShips(room, player, options) {
   return { ok: true, code: "rotate", commanded: selected.ships.length };
 }
 
-// Combat stances are frozen for the rewrite: the selection is still recorded on
-// the ship and still published in snapshots, so the UI and the fallback
-// implementation both keep working, but the controller flies every ship as
-// "hold" until charge, orbit and kite are reinstated.
+// Three stances are flown: Charge closes to contact, Hold approaches to weapons
+// range and stops, Static never repositions at all. Orbit and Kite are still
+// withdrawn in sanitizeCombatStyle and arrive here already resolved to Hold, so
+// the controller never sees a stance it has no code for.
 function applyCombatStyle(ship, combatStyle) {
   ship.combatStyle = combatStyle;
 }
@@ -1906,3 +2091,7 @@ module.exports = {
   updateShipMovement,
   updateShipSeparation
 };
+
+
+
+

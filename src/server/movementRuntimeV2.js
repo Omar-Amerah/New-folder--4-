@@ -38,7 +38,11 @@ function createMovementRuntime() {
     orderComplete: false,
     // Hold has reached its firing position. Also latched -- it is what makes the
     // ship ignore a target closing on it rather than backing away.
-    holdEngaged: false
+    holdEngaged: false,
+    // On a ramming run: a Charge ship carrying a live demolition charge, closing
+    // on the target it will detonate against. Recomputed every tick, never
+    // latched -- see updateShipMovement.
+    ramming: false
   };
 }
 
@@ -80,6 +84,10 @@ function setMovementCommand(ship, command) {
       // This ship's place across a group's firing line, so a fleet attacking one
       // target forms a line rather than a ring around it.
       firingLateral: Number.isFinite(command.firingLateral) ? Number(command.firingLateral) : 0,
+      // This ship's bearing around a target a group is charging, so a fleet
+      // closing to contact shares the hull out between its sides instead of
+      // every ship driving at the same point on it. Null for every other stance.
+      chargeBearing: Number.isFinite(command.chargeBearing) ? Number(command.chargeBearing) : null,
       finalFacing: Number.isFinite(command.finalFacing) ? Number(command.finalFacing) : null,
       manual: Boolean(command.manual)
     }

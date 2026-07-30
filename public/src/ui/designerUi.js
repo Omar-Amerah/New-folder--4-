@@ -225,12 +225,11 @@ function suppressHeatGridNativeTooltips() {
 export function setBlueprintView(view) {
   const previousView = state.blueprintView;
   state.blueprintView = view === "heat" ? "heat" : view === "dataLinks" ? "dataLinks" : WIRING_ENABLED && view === "wiring" ? "wiring" : "build";
-  if (state.blueprintView === "wiring") {
-    document.dispatchEvent?.(new CustomEvent("designer-inspector-activate", { detail: { tab: "analysis" } }));
-  }
   if (previousView === state.blueprintView) {
+    // `changed: false` keeps the inspector where the player left it; only a real
+    // view switch moves them to that view's readout.
     refreshBlueprintControls();
-    document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView } }));
+    document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView, changed: false } }));
     return;
   }
   if (previousView === "wiring" && state.blueprintView !== "wiring") resetWiringTransientState();
@@ -239,7 +238,7 @@ export function setBlueprintView(view) {
   if (previousView === "dataLinks" || state.blueprintView === "dataLinks") resetDataLinksUiState();
   if (state.blueprintView === "wiring") { state.hoveredCell = null; state.selectedCell = null; }
   refreshBlueprintControls();
-  document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView } }));
+  document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView, changed: true } }));
   renderHoverPreview();
 
   if (state.blueprintView === "heat") {
@@ -254,6 +253,15 @@ export function setBlueprintView(view) {
     refreshWiringPresentation();
   } else {
     clearWiringPresentation();
+  }
+
+  // Data Links owns an input-accepting overlay and dims the grid, so entering
+  // and leaving it must be symmetric with Heat and Wiring above. Switching view
+  // does not necessarily re-render the grid, so this cannot live there.
+  if (state.blueprintView === "dataLinks") {
+    refreshDataLinksPresentation();
+  } else {
+    renderDataLinksOverlay();
   }
 }
 

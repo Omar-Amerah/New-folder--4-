@@ -856,32 +856,13 @@ function effectiveShieldCapacityContributions(ship) {
   });
 }
 
-function shieldStatsSignature(ship) {
-  return [
-    ship.powerRevision || 0,
-    ship.wiringRevision || 0,
-    ship.componentAliveRevision || 0,
-    ship.heatStateRevision || 0,
-    ship.designRevision || 1,
-    getCommandAuraMultiplier(ship, "shieldRegenMultiplier")
-  ].join(":");
+let _shieldCacheVerification = false;
+
+function __setShieldCacheVerification(value) {
+  _shieldCacheVerification = Boolean(value);
 }
 
-function effectiveShieldStats(ship, room = null) {
-  const signature = shieldStatsSignature(ship);
-  const cache = ship?._shieldStatsCache;
-  if (cache && cache.signature === signature) {
-    if (room) {
-      const { bump } = require("./roomTelemetry");
-      bump(room, "shieldDerivedStatCacheHits");
-    }
-    return { ...cache.stats };
-  }
-  if (room) {
-    const { bump } = require("./roomTelemetry");
-    bump(room, "shieldDerivedStatCacheMisses");
-    bump(room, "shieldDerivedStatCalculations");
-  }
+function calculateEffectiveShieldStats(ship) {
   const HeatRules = require("../../public/src/shared/heatRules");
   const stats = ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
     isLive: (index) => (ship.componentHp?.[index] ?? 1) > 0,
@@ -890,8 +871,55 @@ function effectiveShieldStats(ship, room = null) {
     heatMultiplier: (index, module, part) => (Number(part.shieldRegen) || 0) > 0 ? HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL) : 1
   });
   stats.recharge *= getCommandAuraMultiplier(ship, "shieldRegenMultiplier");
-  if (ship) ship._shieldStatsCache = { signature, stats };
-  return { ...stats };
+  Object.freeze(stats);
+  return stats;
+}
+
+function shieldCacheMatches(ship, cache) {
+  const aura = getCommandAuraMultiplier(ship, "shieldRegenMultiplier");
+  return cache
+    && cache.powerRevision === (ship.powerRevision || 0)
+    && cache.wiringRevision === (ship.wiringRevision || 0)
+    && cache.componentAliveRevision === (ship.componentAliveRevision || 0)
+    && cache.heatStateRevision === (ship.heatStateRevision || 0)
+    && cache.designRevision === (ship.designRevision || 1)
+    && cache.auraMultiplier === aura;
+}
+
+function effectiveShieldStats(ship, room = null) {
+  const cache = ship?._shieldStatsCache;
+  if (shieldCacheMatches(ship, cache)) {
+    if (room) {
+      const { bump } = require("./roomTelemetry");
+      bump(room, "shieldDerivedStatCacheHits");
+    }
+    if (_shieldCacheVerification && room) {
+      const fresh = calculateEffectiveShieldStats(ship);
+      if (fresh.capacity !== cache.stats.capacity || fresh.recharge !== cache.stats.recharge) {
+        const { bump } = require("./roomTelemetry");
+        bump(room, "shieldDerivedStatVerificationFailures");
+      }
+    }
+    return cache.stats;
+  }
+  if (room) {
+    const { bump } = require("./roomTelemetry");
+    bump(room, "shieldDerivedStatCacheMisses");
+    bump(room, "shieldDerivedStatCalculations");
+  }
+  const stats = calculateEffectiveShieldStats(ship);
+  if (ship) {
+    ship._shieldStatsCache = {
+      powerRevision: ship.powerRevision || 0,
+      wiringRevision: ship.wiringRevision || 0,
+      componentAliveRevision: ship.componentAliveRevision || 0,
+      heatStateRevision: ship.heatStateRevision || 0,
+      designRevision: ship.designRevision || 1,
+      auraMultiplier: getCommandAuraMultiplier(ship, "shieldRegenMultiplier"),
+      stats
+    };
+  }
+  return stats;
 }
 
 function componentHostsWiring(ship, index) {
@@ -901,4 +929,4 @@ function componentHostsWiring(ship, index) {
   return (maps.power.byComponentIndex.get(index)?.length || 0) > 0 || (maps.data.byComponentIndex.get(index)?.length || 0) > 0;
 }
 
-module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, getShieldCapacityPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, effectiveShieldCapacityContributions, componentHostsWiring, powerProtectionConfig, __setPowerProtectionConfigForTests, buildShipPowerSolveBaseInput };
+module.exports = { initializeComponentPower, rebuildShipWiringState, reallocateShipPower, applyShipPowerAllocation, ensureShipCableThermalAnalysis, updateShipPowerDemand, getComponentPowerMultiplier, getShieldCapacityPowerMultiplier, effectiveLiveSourceGeneration, effectiveShieldStats, __setShieldCacheVerification, effectiveShieldCapacityContributions, componentHostsWiring, powerProtectionConfig, __setPowerProtectionConfigForTests, buildShipPowerSolveBaseInput };
