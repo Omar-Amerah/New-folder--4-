@@ -37,6 +37,15 @@ function tickRoom(room, dt, now) {
     room._effectSpare = source;
     return;
   }
+  // The instant this tick's state is stamped with. Snapshots must publish THIS,
+  // not the moment they happen to be broadcast: the two run on independent
+  // timers, so a snapshot carries state that is anywhere from zero to a full
+  // tick old. Labelling it with the broadcast time tells the client the ship
+  // travelled a uniform snapshot interval when it really travelled one tick more
+  // or less -- and the client, interpolating between those stamps, renders the
+  // ship surging and stalling. Measured at 30 Hz ticks against 20 Hz snapshots:
+  // a hull holding a true 510 px/s was rendered swinging between 340 and 680.
+  room.simulationTimeMs = now;
   // Telemetry consumes these synchronously, so one mutable record per room can
   // be reused instead of allocating a fresh timing object every simulation tick.
   const durations = room._tickDurations || (room._tickDurations = {});

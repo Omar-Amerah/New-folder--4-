@@ -1211,6 +1211,54 @@ export function updatePixiShips(env, now, players, bounds) {
 // Tears down the ship pool (releasing every texture lease and destroying display
 // objects without their cache-owned textures) and resets module-global state.
 // Called by destroyPixiRenderer().
+export function updatePixiShipPoses(env, now, players, bounds) {
+  if (!pixiShipPool) return;
+  const snap = state.snapshot;
+  if (!snap || !snap.ships) return;
+
+  const overlay = env.layers.overlay;
+  const zoom = state.camera.zoom;
+
+  for (const ship of snap.ships) {
+    const vis = state.visualShips ? state.visualShips.get(ship.id) : null;
+    if (!vis) continue;
+
+    const view = pixiShipPool.peek(ship.id);
+    if (!view) continue;
+
+    const visible = !bounds || isCircleVisible(vis.x, vis.y, ship.radius || 60, bounds);
+    view.root.visible = visible;
+    if (!visible) continue;
+
+    const player = players.get(ship.ownerId);
+    const design = ship.design || player?.design || [];
+
+    view.root.position.set(vis.x, vis.y);
+    setHullFrameRotation(view, vis.angle);
+    view.hullContainer.alpha = ship.alive ? 1 : 0.32;
+    updatePixiTurrets(env, view, ship, design);
+
+    let renderShip = renderShipCache.get(ship);
+    if (!renderShip) {
+      renderShip = Object.create(ship);
+      renderShipCache.set(ship, renderShip);
+    }
+    renderShip.x = vis.x;
+    renderShip.y = vis.y;
+    renderShip.angle = vis.angle;
+
+    if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
+    if (ship.commandAuraActive) drawPixiCommandAura(env, overlay, renderShip, zoom, players);
+    if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom, players);
+    if (ship.destructProgress != null && ship.alive) drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
+
+    if (state.debugStats) {
+      state.debugStats.totalShips++;
+      state.debugStats.drawnShips++;
+    }
+  }
+}
+
 export function destroyPixiShipPool() {
   if (pixiShipPool) {
     pixiShipPool.destroy();

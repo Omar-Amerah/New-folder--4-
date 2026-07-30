@@ -301,12 +301,29 @@ function resolveMapCollision(room, ship) {
   return hit;
 }
 
-function resolveSeparationPair(room, a, b) {
+// Circle-on-circle overlap in the shape findShipHullOverlap returns, so the
+// solver below does not care which one it was handed.
+//
+// This is what "physical collision stops positional overlap, not angular
+// overlap" means in practice. Hull-cell collision is a function of both ships'
+// angles, so a hull rotating on the spot can push itself into a neighbour and be
+// pushed back -- a packed group becomes angularly locked and cannot turn at all.
+// A circle has no orientation, so rotation is free by construction and only
+// actual positional overlap is ever resolved.
+function findShipCircleOverlap(a, b, dx, dy, minimum) {
+  const distance = fastHypot(dx, dy);
+  if (distance >= minimum) return null;
+  return { dx, dy, distance, penetration: minimum - distance };
+}
+
+function resolveSeparationPair(room, a, b, options = null) {
   const broadDx = (b.x || 0) - (a.x || 0);
   const broadDy = (b.y || 0) - (a.y || 0);
   const broadMinimum = physicalCollisionRadius(a) + physicalCollisionRadius(b);
   if (broadDx * broadDx + broadDy * broadDy >= broadMinimum * broadMinimum) return null;
-  const overlap = findShipHullOverlap(a, b);
+  const overlap = options?.circular
+    ? findShipCircleOverlap(a, b, broadDx, broadDy, broadMinimum)
+    : findShipHullOverlap(a, b);
   if (!overlap) return null;
 
   let normalX;
@@ -327,7 +344,8 @@ function resolveSeparationPair(room, a, b) {
   const inverseMassB = 1 / Math.max(1, Number(b.stats?.mass) || 1);
   const inverseMassSum = inverseMassA + inverseMassB;
   const correctedPenetration = Math.max(0, overlap.penetration - SEPARATION_SLOP);
-  const correction = correctedPenetration * SEPARATION_CORRECTION;
+  const correction = correctedPenetration
+    * (Number.isFinite(options?.correction) ? options.correction : SEPARATION_CORRECTION);
   const moveA = correction * inverseMassA / inverseMassSum;
   const moveB = correction * inverseMassB / inverseMassSum;
   const width = room.world?.width || 2000;
@@ -422,7 +440,7 @@ function pruneCollisionContacts(room, now) {
   room._nextShipCollisionContactPruneAt = tick + COLLISION_CONTACT_RETENTION_MS;
 }
 
-function updateShipSeparation(room, shipList, dt, now = 0) {
+function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
   pruneCollisionContacts(room, now);
   const ships = (Array.isArray(shipList)
     ? shipList.filter((ship) => ship && ship.alive)
@@ -470,7 +488,7 @@ function updateShipSeparation(room, shipList, dt, now = 0) {
         if (!b?.alive || b === a) continue;
         const bRank = rankOf(b);
         if (bRank >= 0 && aRank >= 0 ? bRank <= aRank : compareEntityIds(b, a) <= 0) continue;
-        const result = resolveSeparationPair(room, a, b);
+        const result = resolveSeparationPair(room, a, b, options);
         if (!result) continue;
         overlaps += 1;
         unresolved.push([a, b, result.penetration]);

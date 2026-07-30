@@ -15,11 +15,11 @@ import { setDebugFrameStats, updateDebugOverlay } from "../debugOverlay.js";
 import { playerMap } from "../../ui/matchStatusUi.js";
 import { advancePixiBakeGeneration, flushAllPixiTextureCaches, pixiTextureDiagnostics } from "./pixiBake.js";
 import { updatePixiWorld, destroyPixiWorld } from "./pixiWorld.js";
-import { updatePixiShips, destroyPixiShipPool, pixiShipViewCounts } from "./pixiShips.js";
+import { updatePixiShips, updatePixiShipPoses, destroyPixiShipPool, pixiShipViewCounts } from "./pixiShips.js";
 import { updatePixiStations, destroyPixiStations, pixiStationViewCount } from "./pixiStations.js";
 import { destroyPixiContacts } from "./pixiSensorContacts.js";
 import { destroyPixiFog } from "./pixiFog.js";
-import { updatePixiDrones, destroyPixiDrones } from "./pixiDrones.js";
+import { updatePixiDrones, updatePixiDronePoses, destroyPixiDrones } from "./pixiDrones.js";
 import { recordRendererFrame, rendererMetricsSnapshot, resetRendererMetrics, setRendererMetricsPhase } from "../rendererMetrics.js";
 import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
 
@@ -32,6 +32,8 @@ let pixiContextLost = false;
 let pixiApplicationGeneration = 0;
 let pixiContextRecoveryAttempts = 0;
 let pixiLastVisibilityChangeAt = 0;
+let lastRenderedSnapshotSeq = 0;
+let lastSelectedShipIds = "";
 
 function computePixiResolution() {
   return Math.max(1, Math.min(getRenderQualityDprCap(), window.devicePixelRatio || 1));
@@ -217,17 +219,36 @@ function pixiFrame() {
     lastRenderStage = "getViewportWorldBounds";
     const bounds = getViewportWorldBounds(rect);
     const players = state.snapshot ? playerMap() : new Map();
+    const selectedIds = state.selectedShipIds ? [...state.selectedShipIds].sort().join(",") : "";
+    const snapshotSeq = state.snapshot?.snapshotSeq || 0;
+    const needsFullRender = !state.snapshot || snapshotSeq !== lastRenderedSnapshotSeq || selectedIds !== lastSelectedShipIds;
+
     pixiEnv.layers.overlay.clear();
-    lastRenderStage = "updatePixiWorld";
-    updatePixiWorld(pixiEnv, now, players, bounds, rect);
-    lastRenderStage = "updatePixiStations";
-    updatePixiStations(pixiEnv, now, players, bounds);
-    lastRenderStage = "updatePixiShips";
-    updatePixiShips(pixiEnv, now, players, bounds);
-    lastRenderStage = "updatePixiDrones";
-    updatePixiDrones(pixiEnv, now, players, bounds);
-    lastRenderStage = "updatePixiScreenUi";
-    updatePixiScreenUi(pixiEnv, now, players, rect);
+    if (needsFullRender) {
+      lastRenderStage = "updatePixiWorld";
+      updatePixiWorld(pixiEnv, now, players, bounds, rect);
+      lastRenderStage = "updatePixiStations";
+      updatePixiStations(pixiEnv, now, players, bounds);
+      lastRenderStage = "updatePixiShips";
+      updatePixiShips(pixiEnv, now, players, bounds);
+      lastRenderStage = "updatePixiDrones";
+      updatePixiDrones(pixiEnv, now, players, bounds);
+      lastRenderStage = "updatePixiScreenUi";
+      updatePixiScreenUi(pixiEnv, now, players, rect);
+      lastRenderedSnapshotSeq = snapshotSeq;
+      lastSelectedShipIds = selectedIds;
+    } else {
+      lastRenderStage = "updatePixiShipPoses";
+      updatePixiShipPoses(pixiEnv, now, players, bounds);
+      lastRenderStage = "updatePixiDronePoses";
+      updatePixiDronePoses(pixiEnv, now, players, bounds);
+      lastRenderStage = "updatePixiWorld";
+      updatePixiWorld(pixiEnv, now, players, bounds, rect);
+      lastRenderStage = "updatePixiStations";
+      updatePixiStations(pixiEnv, now, players, bounds);
+      lastRenderStage = "updatePixiScreenUi";
+      updatePixiScreenUi(pixiEnv, now, players, rect);
+    }
 
     pixiFrameCount += 1;
     if (now - pixiLastFpsTime > 1000) {

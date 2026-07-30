@@ -97,6 +97,8 @@ export const dom = {
   wiringHoverCard: document.getElementById("wiringHoverCard"),
   blueprintBuildTab: document.getElementById("blueprintBuildTab"),
   blueprintHeatTab: document.getElementById("blueprintHeatTab"),
+  blueprintDataLinksTab: document.getElementById("blueprintDataLinksTab"),
+  dataLinksToolbar: document.getElementById("dataLinksToolbar"),
   blueprintWiringTab: document.getElementById("blueprintWiringTab"),
   wiringToolbar: document.getElementById("wiringToolbar"),
   wiringModePower: document.getElementById("wiringModePower"),

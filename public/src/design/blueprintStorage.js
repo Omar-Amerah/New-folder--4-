@@ -333,7 +333,7 @@ function normalizeStoredWiringForDesign(wiring, modules) {
 
 function defaultCurrentDesign() {
   const modules = defaultDesign();
-  return { modules, wiring: normalizeWiring(defaultWiring(), modules), combatStyle: "hold" };
+  return { modules, wiring: normalizeWiring(defaultWiring(), modules), dataLinks: [], combatStyle: "hold" };
 }
 
 function savedDesignSummary(blueprint, wiring) {
@@ -372,6 +372,7 @@ function normalizeSavedDesign(design, index) {
     blueprint,
     // Each saved design keeps an independent, normalized copy of its wiring.
     wiring,
+    dataLinks: (globalThis.DataSupportRules?.normalizeDataLinks(blueprint, design.dataLinks, PART_STATS) || []),
     invalid: !validation.ok,
     invalidReason: validation.errors[0] || "Invalid blueprint.",
     combatStyle: safeStyle(design.combatStyle, "hold"),
@@ -393,11 +394,14 @@ function buildCurrentDesignFromPayload(payload) {
   const detailed = normalizeDesignDetailed(payload.modules, { allowEmpty: true });
   const modules = detailed.modules;
   if (!modules.length) return null;
+  const rules = globalThis.DataSupportRules;
+  const dataLinks = rules?.normalizeDataLinks(modules, payload.dataLinks, PART_STATS) || [];
   return {
     modules,
     normalizationIssues: detailed.issues,
     needsAttention: detailed.issues.length > 0,
     wiring: normalizeStoredWiringForDesign(payload.wiring, modules),
+    dataLinks,
     combatStyle: safeStyle(payload.combatStyle, "hold")
   };
 }
@@ -466,11 +470,13 @@ function backupPreMigrationDesign(original) {
     }
   } catch { /* storage full/unavailable — best effort */ }
 }
-export function designEnvelope(design, wiring, combatStyle = "hold", timestamps = {}) {
+export function designEnvelope(design, wiring, dataLinks, combatStyle = "hold", timestamps = {}) {
   const modules = normalizeDesign(design, { allowEmpty: true });
+  const rules = globalThis.DataSupportRules;
   return envelope("current-design", {
     modules,
     wiring: normalizeWiring(wiring, modules),
+    dataLinks: rules?.normalizeDataLinks(modules, dataLinks, PART_STATS) || [],
     combatStyle: safeStyle(combatStyle, "hold")
   }, timestamps);
 }
@@ -492,8 +498,8 @@ export function loadDesign() {
   else if (result.migrated && typeof console !== "undefined") console.info("[mfa] Migrated an older saved current design into the current format.");
   return result;
 }
-export function persistDesign(design, wiring, combatStyle = "hold") {
-  const env = designEnvelope(design, wiring, combatStyle);
+export function persistDesign(design, wiring, dataLinks, combatStyle = "hold") {
+  const env = designEnvelope(design, wiring, dataLinks, combatStyle);
   const ok = writeJson(LOCAL_DESIGN_KEY, env);
   if (ok && validateBlueprint(env.payload.modules).ok) writeJson(LOCAL_DESIGN_BACKUP_KEY, env);
   return ok;

@@ -21,7 +21,9 @@ const {
   markSnapshotHeatTelemetryWritten,
   markSnapshotStationStaticWritten,
   markSnapshotStationComponentWritten,
-  markSnapshotConditionStationsWritten
+  markSnapshotConditionStationsWritten,
+  pruneClientKnownShips,
+  pruneClientKnownStations
 } = require("./snapshots");
 const { recordSnapshot } = require("./performanceTelemetry");
 
@@ -56,6 +58,9 @@ function onSnapshotLifecycle(client, outcome, meta) {
     markSnapshotStationStaticWritten(client, meta.stationStaticRevisions);
     markSnapshotStationComponentWritten(client, meta.stationComponentRevisions);
     markSnapshotConditionStationsWritten(client, meta.conditionStationIds);
+    pruneClientKnownShips(client, meta.visibleShipIds);
+    pruneClientKnownStations(client, meta.conditionStationIds);
+    client._knownSignature = buildClientKnownSignature(client);
     if (meta.telemetryFocusShipId) {
       client.telemetryLastWrittenFocusId = meta.telemetryFocusShipId;
       client.telemetryLastWrittenAt = meta.telemetryAt || performanceNow();
@@ -142,30 +147,18 @@ function canSendCompact(room, b, broadcastSeq, forceStatic) {
 }
 function stableRevisionMap(map) {
   if (!(map instanceof Map) || map.size === 0) return "";
-  return [...map.entries()]
-    .sort((a, b) => compareIdStrings(a[0], b[0]))
-    .map(([id, revision]) => `${String(id)}:${Number(revision) || 0}`)
-    .join(",");
+  const entries = [];
+  for (const [id, revision] of map) entries.push([id, revision]);
+  entries.sort((a, b) => compareIdStrings(a[0], b[0]));
+  return entries.map(([id, revision]) => `${String(id)}:${Number(revision) || 0}`).join(",");
 }
 function stableIdSet(set) {
   if (!(set instanceof Set) || set.size === 0) return "";
   return [...set].map(String).sort().join(",");
 }
-function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId }) {
-  const player = client?.player;
-  if (!player?.id) return null;
-  // Deliberately strict. Player identity is included because own-ship/private
-  // visibility and player-specific economy fields can differ even on one team.
-  return JSON.stringify([
-    player.id,
-    player.team ?? null,
-    room.rules?.gameMode || "teams",
-    full ? "full" : "compact",
-    base,
-    seq,
-    revision,
-    epoch,
-    telemetryFocusShipId,
+function buildClientKnownSignature(client) {
+  if (!client) return "";
+  return [
     stableRevisionMap(client.knownShipDesignRevisions),
     stableRevisionMap(client.knownShipPowerRevisions),
     stableRevisionMap(client.knownShipPowerProtectionRevisions),
@@ -175,6 +168,26 @@ function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, t
     stableRevisionMap(client.knownStationStaticRevisions),
     stableRevisionMap(client.knownStationComponentRevisions),
     stableIdSet(client.knownConditionStationIds)
+  ].join("\0");
+}
+function getClientKnownSignature(client) {
+  return client?._knownSignature ?? (client._knownSignature = buildClientKnownSignature(client));
+}
+function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId }) {
+  const player = client?.player;
+  if (!player?.id) return null;
+  // Deliberately strict. Player identity is included because own-ship/private
+  // visibility and player-specific economy fields can differ even on one team.
+  return getClientKnownSignature(client) + "\0" + JSON.stringify([
+    player.id,
+    player.team ?? null,
+    room.rules?.gameMode || "teams",
+    full ? "full" : "compact",
+    base,
+    seq,
+    revision,
+    epoch,
+    telemetryFocusShipId
   ]);
 }
 function duplicateSnapshotPlayerIds(clients) {

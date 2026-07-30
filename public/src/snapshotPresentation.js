@@ -17,13 +17,13 @@
 // | selected component HP/alive revisions     | Selected Damage presentation; world hull renderer |
 // | ship/component Heat revisions             | Heat HUD; selected Heat presentation |
 // | selected Power/runtime/protection revisions| Selected Power presentation |
-// | selected wiring/design revision           | Selected static wiring/component geometry |
+// | selected design revision           | Selected static component geometry |
 // | player rally point / placement mode       | Rally controls |
 // | points/relay owner/progress                | Relay HUD; relay status |
 // | objectiveControl/controlVictory           | Control/victory status |
 // | winner                                    | Winner presentation |
 // | local selection/active group              | Selection HUD; side-panel owners |
-// | local Blueprint/Wiring/loadout revisions  | Purchase catalogue; deployment controls |
+// | local Blueprint/loadout revisions  | Purchase catalogue; deployment controls |
 // | local purchase quantity/pending/errors    | Purchase availability/pending/errors |
 // | local telemetry hover/panel mode           | Active selected-ship dynamic layer |
 // | latency pong                              | Latency HUD |
@@ -530,6 +530,7 @@ export function derivePresentationChanges({
 
   const playerMembershipChanged = mapMembershipChanged(previousPlayers, nextPlayers);
   const adminChanged = previousSnapshot.adminId !== nextSnapshot.adminId;
+  const gameModeChanged = fieldsChanged(previousSnapshot.rules, nextSnapshot.rules, ["gameMode"]);
   const identityChanged = mapCategoryChanged(previousPlayers, nextPlayers, PLAYER_IDENTITY_FIELDS);
   const connectionChanged = mapCategoryChanged(previousPlayers, nextPlayers, ["connected"]);
   const teamChanged = mapCategoryChanged(previousPlayers, nextPlayers, ["team"]);
@@ -599,7 +600,7 @@ export function derivePresentationChanges({
   changes.objectives.controlChanged = objectiveControlChanged(previousSnapshot, nextSnapshot);
   changes.objectives.controlVictoryChanged = controlVictoryChanged(previousSnapshot, nextSnapshot);
   changes.objectives.winnerChanged = winnerChanged(previousSnapshot, nextSnapshot);
-  changes.objectives.scoreboardChanged = scoreChanged || playerFleetChanged || identityChanged || teamChanged || connectionChanged;
+  changes.objectives.scoreboardChanged = scoreChanged || playerFleetChanged || identityChanged || teamChanged || connectionChanged || readyChanged || gameModeChanged;
 
   changes.heat.ownedFleetSummaryChanged = ownedHeatChanged(previousIndex, nextIndex, myId);
   const selectedIds = nextLocalState?.selectedShipIds || new Set();

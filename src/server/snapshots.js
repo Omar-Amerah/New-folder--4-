@@ -917,7 +917,10 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     baseSnapshotSeq: sendStatic ? null : (room._buildingBaseSnapshotSeq ?? Math.max(0, (room._buildingSnapshotSeq || room.snapshotSeq || 1) - 1)),
     staticRevision: room.staticRevision || 1,
     staticRevisions: { world: room.staticRevision || 1, map: room.staticRevision || 1, rules: room.staticRevision || 1, playerDesign: room.staticRevision || 1, shipDesign: room.staticRevision || 1, componentCatalogue: room.componentCatalogueRevision || 1 },
-    simulationTimeMs: Math.floor(now),
+    // The tick this state came from, not the moment it is being sent. This is
+    // the client's interpolation timeline: it must advance by exactly as much
+    // simulated time as the ships in it actually moved. See tickRoom.
+    simulationTimeMs: Math.floor(Number.isFinite(room.simulationTimeMs) ? room.simulationTimeMs : now),
     serverTimeMs: Date.now(),
     createdAtMs: Date.now(),
     phase: room.phase,
@@ -976,6 +979,25 @@ function markSnapshotHeatTelemetryWritten(client, revisions = []) {
   for (const [shipId, revision] of revisions) client.knownShipHeatTelemetryRevisions.set(shipId, revision);
 }
 
+function pruneClientKnownShips(client, shipIds = []) {
+  if (!client) return;
+  const keep = new Set(shipIds);
+  for (const key of ["knownShipDesignRevisions", "knownShipPowerRevisions", "knownShipPowerProtectionRevisions", "knownShipWiringLayoutRevisions", "knownShipHeatTelemetryRevisions"]) {
+    const map = client[key];
+    if (!(map instanceof Map)) continue;
+    for (const id of [...map.keys()]) if (!keep.has(id)) map.delete(id);
+  }
+}
+function pruneClientKnownStations(client, stationIds = []) {
+  if (!client) return;
+  const keep = new Set(stationIds);
+  for (const key of ["knownStationStaticRevisions", "knownStationComponentRevisions"]) {
+    const map = client[key];
+    if (!(map instanceof Map)) continue;
+    for (const id of [...map.keys()]) if (!keep.has(id)) map.delete(id);
+  }
+}
+
 function canViewPlayerEconomy(viewer, player) {
   if (!viewer || !player) return false;
   if (viewer.id === player.id) return true;
@@ -983,6 +1005,8 @@ function canViewPlayerEconomy(viewer, player) {
 }
 
 module.exports = {
+  pruneClientKnownShips,
+  pruneClientKnownStations,
   snapshotRoom,
   buildSharedSnapshot,
   collectSnapshotDesignRevisions,

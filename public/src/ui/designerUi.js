@@ -23,6 +23,7 @@ import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { getCachedDesignDataSupport } from "../design/dataSupportAnalysis.js";
 import { formatDataSupportValue } from "../design/dataSupportPresentation.js";
+import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation } from "./dataLinksUi.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
   refreshWiringPresentation,
@@ -96,13 +97,15 @@ function powerPresetLabel(preset) {
 export function isPhysicalBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isPaletteBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isWiringBlueprintEditMode(mode = state.blueprintView) { return WIRING_ENABLED && mode === "wiring"; }
+export function isDataLinksBlueprintMode(mode = state.blueprintView) { return !WIRING_ENABLED && mode === "dataLinks"; }
 export function isBlueprintRotationMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 export function isBlueprintRemovalMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 
 const BLUEPRINT_MODE_CONTENT = {
   build: { title: "Build", description: "Add, rotate and remove ship components." },
   heat: { title: "Heat", description: "Build while viewing predicted component Heat and thermal flow." },
-  wiring: { title: "Wiring", description: "Draw and edit Power or Data networks. Component placement is paused." }
+  wiring: { title: "Wiring", description: "Draw and edit Power or Data networks. Component placement is paused." },
+  dataLinks: { title: "Data Links", description: "Directly link Data-support sources to weapons. Component placement is paused." }
 };
 
 function heatDesignSignature(design, wiring, mode) {
@@ -180,6 +183,9 @@ export function renderBuildGrid() {
   } else if (WIRING_ENABLED && state.blueprintView === "wiring") {
     applyBlueprintPresentation();
     refreshWiringPresentation();
+  } else if (state.blueprintView === "dataLinks") {
+    applyBlueprintPresentation();
+    refreshDataLinksPresentation();
   } else {
     applyBlueprintPresentation();
   }
@@ -217,7 +223,7 @@ function suppressHeatGridNativeTooltips() {
 
 export function setBlueprintView(view) {
   const previousView = state.blueprintView;
-  state.blueprintView = view === "heat" ? "heat" : WIRING_ENABLED && view === "wiring" ? "wiring" : "build";
+  state.blueprintView = view === "heat" ? "heat" : view === "dataLinks" ? "dataLinks" : WIRING_ENABLED && view === "wiring" ? "wiring" : "build";
   if (state.blueprintView === "wiring") {
     document.dispatchEvent?.(new CustomEvent("designer-inspector-activate", { detail: { tab: "analysis" } }));
   }
@@ -264,13 +270,15 @@ function updateHeatFlowToggleControl() {
 function refreshBlueprintControls() {
   const heatView = state.blueprintView === "heat";
   const wiringView = isWiringBlueprintEditMode();
-  const buildView = !heatView && !wiringView;
+  const dataLinksView = isDataLinksBlueprintMode();
+  const buildView = !heatView && !wiringView && !dataLinksView;
   dom.grid.classList.toggle("heat-overlay-active", heatView);
   dom.grid.classList.toggle("wiring-overlay-active", wiringView);
   dom.blueprintBuildTab?.classList.toggle("active", buildView);
   dom.blueprintHeatTab?.classList.toggle("active", heatView);
+  dom.blueprintDataLinksTab?.classList.toggle("active", dataLinksView);
   dom.blueprintWiringTab?.classList.toggle("active", wiringView);
-  const tabs = [[dom.blueprintBuildTab, buildView], [dom.blueprintHeatTab, heatView], [dom.blueprintWiringTab, wiringView]];
+  const tabs = [[dom.blueprintBuildTab, buildView], [dom.blueprintHeatTab, heatView], [dom.blueprintDataLinksTab, dataLinksView], [dom.blueprintWiringTab, wiringView]];
   for (const [tab, active] of tabs) {
     tab?.setAttribute("aria-selected", String(active));
     tab?.setAttribute("tabindex", active ? "0" : "-1");
@@ -282,6 +290,7 @@ function refreshBlueprintControls() {
   if (dom.blueprintModeTitle) dom.blueprintModeTitle.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].title;
   if (dom.blueprintModeDescription) dom.blueprintModeDescription.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].description;
   if (dom.wiringToolbar) dom.wiringToolbar.hidden = !wiringView;
+  if (dom.dataLinksToolbar) dom.dataLinksToolbar.hidden = !dataLinksView;
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
   if (dom.thermalLoadModes) {
@@ -656,9 +665,20 @@ function assertHeatViewKeepsBaseGridDom() {
 }
 
 function ensureBlueprintGridEventHandlers() {
+  initDataLinksUi();
   if (!dom.grid.dataset.hasDelegatedClick) {
     dom.grid.addEventListener("click", (event) => {
       if (isWiringBlueprintEditMode() && suppressWiringClick()) return;
+      if (isDataLinksBlueprintMode()) {
+        const cell = event.target.closest(".build-cell");
+        if (!cell || !dom.grid.contains(cell)) return;
+        const pointed = gridCellFromPointer(event.clientX, event.clientY);
+        const x = pointed?.x ?? Number(cell.dataset.x);
+        const y = pointed?.y ?? Number(cell.dataset.y);
+        state.selectedCell = { x, y };
+        refreshDataLinksPresentation();
+        return;
+      }
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
       const pointed = gridCellFromPointer(event.clientX, event.clientY);
@@ -688,6 +708,11 @@ function ensureBlueprintGridEventHandlers() {
         handleWiringCellHover(x, y);
         return;
       }
+      if (isDataLinksBlueprintMode()) {
+        renderDataLinksOverlay();
+        renderHoverPreview();
+        return;
+      }
       updateHoveredHeatPart(x, y);
       renderHoverPreview();
     });
@@ -695,6 +720,10 @@ function ensureBlueprintGridEventHandlers() {
       state.hoveredCell = null;
       if (state.blueprintView === "wiring") {
         handleWiringGridLeave();
+        return;
+      }
+      if (isDataLinksBlueprintMode()) {
+        renderDataLinksOverlay();
         return;
       }
       updateHoveredHeatPart(null, null);
@@ -732,6 +761,11 @@ function ensureBlueprintGridEventHandlers() {
       renderLocalStats();
       renderPartInspector();
     });
+    dom.blueprintDataLinksTab?.addEventListener("click", () => {
+      setBlueprintView("dataLinks");
+      renderLocalStats();
+      renderPartInspector();
+    });
     dom.blueprintWiringTab?.addEventListener("click", () => {
       setBlueprintView("wiring");
       renderLocalStats();
@@ -739,6 +773,7 @@ function ensureBlueprintGridEventHandlers() {
     const modeEntries = [
       [dom.blueprintBuildTab, "build"],
       [dom.blueprintHeatTab, "heat"],
+      [dom.blueprintDataLinksTab, "dataLinks"],
       ...(WIRING_ENABLED ? [[dom.blueprintWiringTab, "wiring"]] : [])
     ].filter(([tab]) => Boolean(tab));
     const modeTabs = modeEntries.map(([tab]) => tab);
@@ -970,8 +1005,8 @@ export function refreshBlueprintUndoControl() {
 }
 
 function persistCurrentEditorDesign() {
-  if (blueprintEditUiHooks?.persistDesign) return blueprintEditUiHooks.persistDesign(state.design, state.wiring, state.combatStyle);
-  return persistDesign(state.design, state.wiring, state.combatStyle);
+  if (blueprintEditUiHooks?.persistDesign) return blueprintEditUiHooks.persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
+  return persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
 }
 
 function refreshEditorAfterBlueprintHistoryChange() {
@@ -1581,7 +1616,8 @@ function renderAnalysisPanels(stats, heat) {
   } else if (dom.dataAnalysisSummary) {
     const analysis = getCachedDesignDataSupport(state.design, null, PART_STATS, {
       thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE,
-      thermalAnalysis: heat
+      thermalAnalysis: heat,
+      dataLinks: state.dataLinks
     });
     const sourceRows = analysis.sources.map((source) => {
       const name = PART_DEFS[source.sourceType]?.name || source.sourceType;

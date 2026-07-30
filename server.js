@@ -328,14 +328,10 @@ function createGameServer(options = {}) {
             if (room.clients.size === 0 && now - room.lastEmptyAt > ROOM_IDLE_MS) closeLobby(room, null);
           }
         }, 60_000));
-        // Snapshots broadcast from the simulation timer (every Nth tick,
-        // immediately after that tick) instead of a second independent
-        // interval. Two free-running timers drift against each other under
-        // load, making the real snapshot spacing wobble; tick-aligned
-        // broadcasts keep the cadence steady and always ship a fresh state.
-        const ticksPerSnapshot = Math.max(1, Math.round(TICK_HZ / SNAPSHOT_HZ));
+        // Simulation and snapshot broadcast use two independent timers so
+        // that snapshot build/encode cannot stall the next simulation tick.
         const tickIntervalMs = 1000 / TICK_HZ;
-        let tickCount = 0;
+        const snapshotIntervalMs = 1000 / SNAPSHOT_HZ;
         timers.set("simulation", setInterval(() => {
           const now = performanceNow();
           const elapsedSinceTick = now - lastTick;
@@ -351,14 +347,6 @@ function createGameServer(options = {}) {
             counts.bullets += room.bullets?.length || 0;
             counts.effects += room.effects?.length || 0;
           }
-          tickCount += 1;
-          if (tickCount % ticksPerSnapshot === 0) {
-            for (const room of rooms.values()) {
-              if (room.phase !== "active") continue;
-              room._nextScheduledSnapshotAt = now + ticksPerSnapshot * tickIntervalMs;
-              broadcastSnapshot(room, now);
-            }
-          }
           recordTick({
             simulationMs,
             cycleMs: performanceNow() - cycleStartedAt,
@@ -367,6 +355,14 @@ function createGameServer(options = {}) {
             counts
           });
         }, tickIntervalMs));
+        timers.set("snapshot", setInterval(() => {
+          const now = performanceNow();
+          for (const room of rooms.values()) {
+            if (room.phase !== "active") continue;
+            room._nextScheduledSnapshotAt = now + snapshotIntervalMs;
+            broadcastSnapshot(room, now);
+          }
+        }, snapshotIntervalMs));
         for (const t of timers.values()) t.unref?.();
         httpServer.removeListener("error", reject);
         resolve(api);

@@ -160,6 +160,128 @@
     if (Number.isFinite(Number(result.damage)) && Number.isFinite(fireRate)) result.dps = Number(result.damage) * fireRate;
     return result;
   }
+  function normalizeDataLinks(design, dataLinks, catalogue) {
+    const modules = modulesOf(design);
+    const raw = Array.isArray(dataLinks) ? dataLinks : [];
+    const seen = new Set();
+    const result = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== "object") continue;
+      const sourceIndex = Number.isInteger(entry?.sourceIndex) ? entry.sourceIndex : Number(entry?.sourceIndex);
+      const targetIndex = Number.isInteger(entry?.targetIndex) ? entry.targetIndex : Number(entry?.targetIndex);
+      if (!Number.isInteger(sourceIndex) || !Number.isInteger(targetIndex)) continue;
+      if (sourceIndex === targetIndex) continue;
+      if (sourceIndex < 0 || sourceIndex >= modules.length || targetIndex < 0 || targetIndex >= modules.length) continue;
+      const source = modules[sourceIndex];
+      const target = modules[targetIndex];
+      if (!source || !target) continue;
+      if (!isDataSupportSource(source.type)) continue;
+      if (!isWeapon(target, catalogue)) continue;
+      const key = `${sourceIndex}:${targetIndex}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({ sourceIndex, targetIndex });
+    }
+    return result.sort((a, b) => a.sourceIndex - b.sourceIndex || a.targetIndex - b.targetIndex);
+  }
+
+  function validateDataLinks(design, dataLinks, catalogue) {
+    const modules = modulesOf(design);
+    const raw = Array.isArray(dataLinks) ? dataLinks : [];
+    const valid = [];
+    const rejected = [];
+    const seen = new Set();
+    for (let i = 0; i < raw.length; i += 1) {
+      const entry = raw[i];
+      const reason = (code, detail = "") => ({ index: i, code, entry, detail });
+      if (!entry || typeof entry !== "object") { rejected.push(reason("malformed-record")); continue; }
+      const sourceIndex = Number(entry?.sourceIndex);
+      const targetIndex = Number(entry?.targetIndex);
+      if (!Number.isInteger(sourceIndex) || sourceIndex < 0) { rejected.push(reason("invalid-source-index")); continue; }
+      if (!Number.isInteger(targetIndex) || targetIndex < 0) { rejected.push(reason("invalid-target-index")); continue; }
+      if (sourceIndex >= modules.length || targetIndex >= modules.length) { rejected.push(reason("missing-component")); continue; }
+      if (sourceIndex === targetIndex) { rejected.push(reason("self-link")); continue; }
+      const source = modules[sourceIndex];
+      const target = modules[targetIndex];
+      if (!source || !target) { rejected.push(reason("missing-component")); continue; }
+      if (isDataSupportSource(target.type)) { rejected.push(reason("target-is-source", "Source-to-source link rejected.")); continue; }
+      if (isWeapon(source, catalogue)) { rejected.push(reason("source-is-weapon", "Weapon-to-weapon link rejected.")); continue; }
+      if (!isDataSupportSource(source.type)) { rejected.push(reason("unsupported-source")); continue; }
+      if (!isWeapon(target, catalogue)) { rejected.push(reason("non-weapon-target")); continue; }
+      const key = `${sourceIndex}:${targetIndex}`;
+      if (seen.has(key)) { rejected.push(reason("duplicate")); continue; }
+      seen.add(key);
+      valid.push({ sourceIndex, targetIndex });
+    }
+    return { valid: valid.sort((a, b) => a.sourceIndex - b.sourceIndex || a.targetIndex - b.targetIndex), rejected };
+  }
+
+  function analyzeDirectDataSupport(design, dataLinks, catalogue, options = {}) {
+    const modules = modulesOf(design);
+    const bySource = new Map();
+    const byWeapon = new Map();
+    const normalized = normalizeDataLinks(design, dataLinks, catalogue);
+    for (const link of normalized) {
+      if (!bySource.has(link.sourceIndex)) bySource.set(link.sourceIndex, []);
+      bySource.get(link.sourceIndex).push(link.targetIndex);
+      if (!byWeapon.has(link.targetIndex)) byWeapon.set(link.targetIndex, []);
+      byWeapon.get(link.targetIndex).push(link.sourceIndex);
+    }
+    const allSources = modules.map((module, index) => isDataSupportSource(module?.type) ? index : -1).filter((i) => i >= 0);
+    const allWeapons = modules.map((module, index) => isWeapon(module, catalogue) ? index : -1).filter((i) => i >= 0);
+    const sourceAllocations = allSources.map((sourceIndex) => {
+      const module = modules[sourceIndex];
+      const part = partFor(catalogue, module.type);
+      const descriptor = DATA_SOURCE_INFO[module.type];
+      const directWeaponIndices = [...(bySource.get(sourceIndex) || [])].sort(numericSort);
+      const connectedWeaponIndices = directWeaponIndices;
+      const eligible = typeof options.isSourceEligible === "function" ? Boolean(options.isSourceEligible(sourceIndex, module, part, null)) : true;
+      const eligibleWeaponIndices = connectedWeaponIndices.filter((index) => typeof options.isWeaponEligible !== "function" || options.isWeaponEligible(index, modules[index], partFor(catalogue, modules[index].type), null));
+      const rawPower = typeof options.powerMultiplier === "function" ? options.powerMultiplier(sourceIndex, module, part, null) : options.powerMultiplier;
+      const powerMultiplier = normalizeSourceMultiplier(Number.isFinite(rawPower) ? rawPower : 1);
+      const rawThermal = typeof options.thermalMultiplier === "function" ? options.thermalMultiplier(sourceIndex, module, part, null) : options.thermalMultiplier;
+      const thermalMultiplier = normalizeSourceMultiplier(Number.isFinite(rawThermal) ? rawThermal : 1);
+      const rawOperational = typeof options.operationalMultiplier === "function" ? options.operationalMultiplier(sourceIndex, module, part, null) : options.operationalMultiplier;
+      const operationalMultiplier = normalizeSourceMultiplier(Number.isFinite(rawOperational) ? rawOperational : 1);
+      const rawMultiplier = typeof options.sourceMultiplier === "function" ? options.sourceMultiplier(sourceIndex, module, part, null) : options.sourceMultiplier;
+      const sourceMultiplier = normalizeSourceMultiplier(rawMultiplier !== undefined ? rawMultiplier : powerMultiplier * thermalMultiplier * operationalMultiplier);
+      const nominalBudget = nominalSupportBudget(module.type, catalogue);
+      const effectiveBudget = eligible ? nominalBudget * sourceMultiplier : 0;
+      const allocation = allocateSourceBudget({ effectiveBudget }, eligibleWeaponIndices);
+      const status = !eligible || sourceMultiplier === 0 ? "disabled" : allocation.recipientCount ? "active" : "idle-no-weapons";
+      const statusReason = status === "disabled" ? "Source is disabled or unpowered." : status === "idle-no-weapons" ? "No eligible weapon recipients are linked." : "Source is allocating its effective support budget.";
+      return { sourceIndex, sourceType: module.type, directWeaponIndices, eligibleWeaponIndices,
+        nominalBudget, powerMultiplier, thermalMultiplier, operationalMultiplier, sourceMultiplier, effectiveBudget,
+        recipientCount: allocation.recipientCount, bonusPerWeapon: allocation.bonusPerWeapon,
+        status, statusReason, ...descriptor };
+    });
+    const allocationsByWeapon = new Map();
+    sourceAllocations.forEach((source) => source.eligibleWeaponIndices.forEach((weaponIndex) => {
+      if (!allocationsByWeapon.has(weaponIndex)) allocationsByWeapon.set(weaponIndex, []);
+      allocationsByWeapon.get(weaponIndex).push(source);
+    }));
+    const weaponBonuses = allWeapons.map((weaponIndex) => {
+      const module = modules[weaponIndex];
+      const eligible = typeof options.isWeaponEligible !== "function" || options.isWeaponEligible(weaponIndex, module, partFor(catalogue, module.type), null);
+      const sourceList = (allocationsByWeapon.get(weaponIndex) || []).sort((a, b) => a.sourceIndex - b.sourceIndex);
+      const contributions = sourceList.map((source) => ({
+        sourceIndex: source.sourceIndex, sourceType: source.sourceType, bonusField: source.bonusField, amount: source.bonusPerWeapon
+      }));
+      const totals = { rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0 };
+      contributions.forEach((item) => { totals[item.bonusField] += item.amount; });
+      const sourceIndices = sourceList.map((s) => s.sourceIndex);
+      const status = !eligible ? "ineligible" : !sourceList.length ? "unsupported" : contributions.some((c) => c.amount !== 0) ? "supported" : "connected-unsupported";
+      const statusReason = status === "supported" ? "Predicted Data support is applied to this weapon." : status === "connected-unsupported" ? "Operating at base stats; no active source contributes." : "Operating at base stats.";
+      return { weaponIndex, weaponType: module.type, sourceIndices, contributions, ...totals, status, statusReason };
+    });
+    const sourceAllocationByIndex = Array(modules.length).fill(null); sourceAllocations.forEach((item) => { sourceAllocationByIndex[item.sourceIndex] = { ...item, directWeaponIndices: [...item.directWeaponIndices], eligibleWeaponIndices: [...item.eligibleWeaponIndices] }; });
+    const weaponBonusByIndex = Array(modules.length).fill(null); weaponBonuses.forEach((item) => { weaponBonusByIndex[item.weaponIndex] = { ...item, sourceIndices: [...item.sourceIndices], contributions: item.contributions.map((entry) => ({ ...entry })) }; });
+    const links = [...bySource].flatMap(([sourceIndex, targets]) => targets.map((targetIndex) => ({ sourceIndex, targetIndex }))).sort((a, b) => a.sourceIndex - b.sourceIndex || a.targetIndex - b.targetIndex);
+    return { version: 1, topologyMode: "direct-links", linkCount: links.length, activeSourceCount: sourceAllocations.filter((item) => item.status === "active").length,
+      supportedWeaponCount: weaponBonuses.filter((item) => item.status === "supported").length, links, sources: sourceAllocations, weapons: weaponBonuses,
+      sourceAllocations, weaponBonuses, sourceAllocationByIndex, weaponBonusByIndex, warnings: [] };
+  }
+
   return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, supportDescriptorForType, automaticDataNetworks, nominalSupportBudget,
-    normalizeSourceMultiplier, allocateSourceBudget, analyzeDataSupport, weaponSupportForIndex, effectiveWeaponProfile };
+    normalizeSourceMultiplier, allocateSourceBudget, analyzeDataSupport, analyzeDirectDataSupport, normalizeDataLinks, validateDataLinks, weaponSupportForIndex, effectiveWeaponProfile };
 }));

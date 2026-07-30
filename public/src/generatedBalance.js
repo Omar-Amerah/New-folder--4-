@@ -873,7 +873,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 4,
+        "damage": 8,
         "fireRate": 6,
         "range": 390,
         "projectileSpeed": 760,

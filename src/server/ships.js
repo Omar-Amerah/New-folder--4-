@@ -53,6 +53,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const stats = template ? template.stats : { ...(options.stats || player.stats || computeStats(player.design, player.wiring)) };
   const design = template ? template.design : (options.design || player.design);
   const wiring = template ? template.wiring : (options.wiring !== undefined ? options.wiring : player.wiring);
+  const dataLinks = template ? template.dataLinks : (options.dataLinks !== undefined ? options.dataLinks : (player.dataLinks || []));
   
   const spawn = getPlayerSpawn(room, player.id);
   const spawnRng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:${index}:${room.nextEntityId}`)) >>> 0);
@@ -94,6 +95,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     stats,
     design,
     wiring,
+    dataLinks,
     cost: stats.unitCost,
     radius: stats.radius,
     physicalRadius,

@@ -31,118 +31,36 @@ const {
   fastHypot,
   rotateToward
 } = require("./utils");
-const { PARTS } = require("./components");
-const { addComponentHeat, componentPerformance } = require("./heat");
-const { getCommandAuraMultiplier } = require("./commandAuras");
-const {
-  calculateDirectionalTurnInputs,
-  calculateMovementPowerMultiplier,
-  calculateMovementStats,
-  maneuverThrusterTorqueSign
-} = require("../../public/src/shared/movementStats.js");
-const { getComponentPowerMultiplier } = require("./componentPower");
-const { getShipComponentIndexes } = require("./componentIndexes");
-const { BALANCE } = require("./balanceConfig");
 const {
   ARRIVE_DISTANCE,
   ARRIVE_LATCH_RATIO,
   ARRIVE_SPEED,
-  BACKUP_CORE_TURN_SCALE,
   DESTINATION_ARRIVE_SPEED,
   EDGE_BOUNCE_MARGIN,
   EDGE_RESTITUTION,
-  ENGINE_HEAT_BASE,
-  ENGINE_HEAT_PER_THRUST,
   FACING_COMMAND_HYSTERESIS,
   FACING_MIN_GOAL_DISTANCE,
   FACING_MIN_GOAL_DISTANCE_RELEASE,
   FACING_MIN_SPEED,
   FACING_MIN_SPEED_RELEASE,
   FINAL_FACING_TOLERANCE,
-  MANEUVER_HEAT_PER_THRUST,
   REST_SPEED,
   TURN_COMMAND_DAMPING,
   VELOCITY_TIME_CONSTANT_S
 } = require("./movementTuning");
+// The hull's live performance envelope and the heat its manoeuvres cost are
+// shared with the rewritten controller -- see movementCapability.js.
+const {
+  applyEngineHeat: heatMainEngines,
+  applyTurnHeat,
+  directionalTurnRate,
+  driveAcceleration,
+  hasDrive,
+  heatAdjustedMovementStats
+} = require("./movementCapability");
 const { ensureMovementRuntime } = require("./movementRuntime");
 const { bumpMovementMetric } = require("./movementMetrics");
 
-// ---------------------------------------------------------------------------
-// Derived stats
-// ---------------------------------------------------------------------------
-
-function heatAdjustedMovementStats(ship, baseStats) {
-  const design = ship.design || [];
-  const multiplier = (index) => (ship.componentHp?.[index] ?? 1) > 0
-    ? componentPerformance(ship, index) * getComponentPowerMultiplier(ship, index)
-    : 0;
-  const engineThrustValues = [];
-  const engineMassValues = [];
-  for (const index of getShipComponentIndexes(ship).thrustIndices) {
-    const module = design[index];
-    const part = PARTS[module.type] || {};
-    const output = multiplier(index);
-    if (output > 0 && (!ship.validEngineIndices || ship.validEngineIndices.has(index))) {
-      engineThrustValues.push((part.thrust || 0) * output);
-      engineMassValues.push(part.mass || 0);
-    }
-  }
-  const isBlockedEngine = (index, module, part) => {
-    if ((ship.componentHp?.[index] ?? 1) <= 0) return true;
-    return ((part.thrust || 0) > 0 || module.type === "maneuverThruster")
-      && ship.validEngineIndices
-      && !ship.validEngineIndices.has(index);
-  };
-  const directionalTurnInputs = calculateDirectionalTurnInputs(design, PARTS, {
-    componentMultiplier: multiplier,
-    isBlockedEngine
-  });
-  const movement = calculateMovementStats({
-    mass: baseStats.mass,
-    thrust: baseStats.thrust,
-    turnBonus: 0,
-    powerGeneration: baseStats.powerGeneration,
-    powerUse: baseStats.powerUse,
-    engineThrustValues,
-    engineMassValues,
-    directionalTurnInputs,
-    hullControlThrust: BALANCE.movement?.hullControlThrust,
-    movementPowerMultiplier: Math.max(
-      1,
-      calculateMovementPowerMultiplier(
-        baseStats.powerGeneration || 0,
-        baseStats.powerUse || 0
-      )
-    )
-  });
-  const accelerationMultiplier = getCommandAuraMultiplier(ship, "accelerationMultiplier");
-  const turnMultiplier = getCommandAuraMultiplier(ship, "turnRateMultiplier");
-  if (Number.isFinite(movement.accel)
-    && Number.isFinite(accelerationMultiplier)
-    && accelerationMultiplier !== 1) {
-    movement.accel *= accelerationMultiplier;
-  }
-  if (Number.isFinite(movement.turnRate)
-    && Number.isFinite(turnMultiplier)
-    && turnMultiplier !== 1) {
-    movement.turnRate *= turnMultiplier;
-    movement.turnRateLeft *= turnMultiplier;
-    movement.turnRateRight *= turnMultiplier;
-  }
-  return { ...baseStats, ...movement };
-}
-
-function driveAcceleration(stats) {
-  return Math.max(0.001, Number(stats.accel) || 0);
-}
-
-// Whether the ship can produce thrust at all. driveAcceleration floors its
-// answer so the braking-profile maths never divides by zero, which means it
-// reports a trickle of thrust for a ship whose engines are all destroyed --
-// true of the stopping-distance maths, wrong for the propulsion path.
-function hasDrive(stats) {
-  return (Number(stats.effectiveThrust) || 0) > 0 && (Number(stats.maxSpeed) || 0) > 0;
-}
 
 function computeStoppingDistance(ship, stats) {
   const speed = fastHypot(ship.vx || 0, ship.vy || 0);
@@ -448,61 +366,6 @@ function resolveDesiredFacing(ship, stats, intent, decision) {
   return previous;
 }
 
-function directionalTurnRate(stats, current, desired, ship) {
-  const difference = angleDifference(current, desired);
-  if (Math.abs(difference) < 1e-9) return 0;
-  const base = difference > 0
-    ? (stats.turnRateRight ?? stats.turnRate ?? 0)
-    : (stats.turnRateLeft ?? stats.turnRate ?? 0);
-  const rate = Number.isFinite(base) ? base : 0;
-  return ship?.commandState === "backupCore" ? rate * BACKUP_CORE_TURN_SCALE : rate;
-}
-
-let cachedHeatRules = null;
-function activityHeatRate(type, part) {
-  if (!cachedHeatRules) cachedHeatRules = require("../../public/src/shared/heatRules.js");
-  return Math.max(0, Number(cachedHeatRules.activityHeat(type, part)) || 0);
-}
-
-function heatActiveManeuverThrusters(ship, turnActivity, dt) {
-  if (!turnActivity || !Number.isFinite(turnActivity)) return;
-  const desiredSign = Math.sign(turnActivity);
-  const exhaust = ship.engineExhaustAnalysis;
-  if (!exhaust) return;
-  for (const index of getShipComponentIndexes(ship).maneuverThrusterIndices) {
-    const module = ship.design[index];
-    const part = PARTS[module.type];
-    if (!part || (ship.componentHp?.[index] ?? 1) <= 0) continue;
-    if (!exhaust.validEngineIndices.has(index)) continue;
-    if (maneuverThrusterTorqueSign(module, exhaust.centerOfMass) !== desiredSign) continue;
-    const performance = componentPerformance(ship, index)
-      * getComponentPowerMultiplier(ship, index);
-    if (performance > 0) {
-      addComponentHeat(
-        ship,
-        index,
-        (ENGINE_HEAT_BASE + (part.lateralThrust || 0) * MANEUVER_HEAT_PER_THRUST)
-          * Math.abs(turnActivity)
-          * performance
-          * dt
-      );
-    }
-  }
-}
-
-function heatActiveGyroscopes(ship, turnActivity, dt) {
-  if (!turnActivity || !Number.isFinite(turnActivity)) return;
-  for (const index of getShipComponentIndexes(ship).gyroscopeIndices) {
-    const part = PARTS[ship.design[index].type] || {};
-    if ((ship.componentHp?.[index] ?? 1) <= 0) continue;
-    const performance = componentPerformance(ship, index)
-      * getComponentPowerMultiplier(ship, index);
-    const rate = activityHeatRate("gyroscope", part);
-    if (performance > 0 && rate > 0) {
-      addComponentHeat(ship, index, rate * Math.abs(turnActivity) * performance * dt);
-    }
-  }
-}
 
 function turnHullToward(ship, desiredFacing, stats, dt) {
   const before = ship.angle || 0;
@@ -528,32 +391,13 @@ function turnHullToward(ship, desiredFacing, stats, dt) {
   ship.turnActivity = rate > 0
     ? clampNumber(applied / Math.max(rate * dt, 1e-9) * signed, -1, 1)
     : 0;
-  heatActiveManeuverThrusters(ship, ship.turnActivity, dt);
-  heatActiveGyroscopes(ship, ship.turnActivity, dt);
+  applyTurnHeat(ship, ship.turnActivity, dt);
 }
 
 // ---------------------------------------------------------------------------
 // Propulsion
 // ---------------------------------------------------------------------------
 
-function heatMainEngines(ship, activity, dt, stats) {
-  if (activity <= 0) return;
-  for (const index of getShipComponentIndexes(ship).thrustIndices) {
-    const part = PARTS[ship.design[index].type];
-    if (!part || (ship.componentHp?.[index] ?? 1) <= 0) continue;
-    if (ship.validEngineIndices && !ship.validEngineIndices.has(index)) continue;
-    const performance = componentPerformance(ship, index)
-      * getComponentPowerMultiplier(ship, index);
-    if (performance > 0) {
-      addComponentHeat(
-        ship,
-        index,
-        (ENGINE_HEAT_BASE + (part.thrust || 0) * ENGINE_HEAT_PER_THRUST)
-          * activity * performance * dt
-      );
-    }
-  }
-}
 
 // Ships travel along their nose and nowhere else. The engines point backwards,
 // so the only thing they can do is change how fast the ship is going; changing

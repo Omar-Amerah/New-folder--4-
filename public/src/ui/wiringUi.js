@@ -235,7 +235,7 @@ function buildCompleteWiringAnalysis() {
   bump("wiringAnalysisCount");
   const wiringAnalysis = rules().analyzeWiring(state.design, state.wiring, PART_STATS);
   bump("dataSupportAnalysisCount");
-  const dataSupportAnalysis = getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode || "full" });
+  const dataSupportAnalysis = getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, { thermalLoadMode: state.thermalLoadMode || "full", dataLinks: state.dataLinks });
   bump("dataVulnerabilityAnalysisCount");
   const dataVulnerabilityReport = getCachedDataVulnerabilities(state.design, state.wiring, PART_STATS, dataSupportAnalysis);
   const networkById = new Map();
@@ -303,7 +303,7 @@ function pushUndo() { const stack = ui().undoStack; stack.push(rules().cloneWiri
 // Every committed wiring edit changes infrastructure cost, so the designer-derived
 // presentation (build cost, funds remaining, ship status, analysis) must refresh
 // alongside the wiring panel — not just refreshWiringPresentation().
-function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.combatStyle); refreshWiringPresentation(); renderLocalStats(); invalidatePresentation("wiring-edit"); }
+function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle); refreshWiringPresentation(); renderLocalStats(); invalidatePresentation("wiring-edit"); }
 
 function clearLocateHighlight() {
   locatedSectionId = null;

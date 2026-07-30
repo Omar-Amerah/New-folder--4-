@@ -90,6 +90,7 @@ export const state = {
   parts: {},
   design: initialDesign.modules,
   wiring: initialDesign.wiring,
+  dataLinks: initialDesign.dataLinks || [],
   combatStyle: initialDesign.combatStyle,
   designNormalizationIssues: Array.isArray(initialDesign.normalizationIssues) ? initialDesign.normalizationIssues : [],
   designNeedsAttention: Boolean(initialDesign.needsAttention),

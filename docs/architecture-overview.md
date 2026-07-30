@@ -34,10 +34,10 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
   visual ship poses between snapshots (`visualShips`, `renderInterpolation.js`),
   and renders with Pixi at display refresh rate, independent of the 30 Hz
   snapshot rate.
-- **Tick cadence.** Snapshot broadcast (`SNAPSHOT_HZ`) is driven from the
-  simulation timer (`TICK_HZ`) rather than a second free-running interval, so the
-  two cannot drift apart under load. Both are 30 Hz, i.e. one snapshot per tick.
-  Timers are `unref()`ed. Rooms idle-expire after 15 min empty.
+- **Tick cadence.** Simulation (`TICK_HZ`) and snapshot broadcast (`SNAPSHOT_HZ`)
+  run as separate timers. `TICK_HZ` remains 30 Hz, while `SNAPSHOT_HZ` is 20 Hz.
+  This keeps the simulation steady and prevents snapshot build/encode from
+  stalling the tick loop. Timers are `unref()`ed. Rooms idle-expire after 15 min empty.
 
 ## B. Server modules (`src/server/`)
 

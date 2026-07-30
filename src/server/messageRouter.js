@@ -125,6 +125,7 @@ function handleMessage(client, message) {
     }
     client.player.design = design.modules;
     client.player.wiring = deployWiring;
+    client.player.dataLinks = require("../../public/src/shared/dataSupportRules").normalizeDataLinks(design.modules, message.dataLinks || [], require("./components").PARTS);
     client.player.stats = deployStats;
     const combatStyle = sanitizeCombatStyle(message.combatStyle, sanitizeCombatStyle(client.player.combatStyle));
     client.player.combatStyle = combatStyle;

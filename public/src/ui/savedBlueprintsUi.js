@@ -557,7 +557,7 @@ function doLoadSavedDesign(id, editSource = true) {
 
   // Save design to localStorage (schema v2: modules + wiring)
   import("../design/blueprintStorage.js").then((mod) => {
-    mod.persistDesign(state.design, state.wiring, state.combatStyle);
+    mod.persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
   });
 
   // Re-draw grid and update UI

@@ -355,6 +355,50 @@ export function updatePixiDrones(env, now, players, bounds) {
   drawDroneRangeRings(env);
 }
 
+export function updatePixiDronePoses(env, now, players, bounds) {
+  const trailGfx = ensureTrails(env);
+  trailGfx.clear();
+  const zoom = Math.max(0.25, Number(state.camera?.zoom) || 1);
+
+  for (const drone of state.snapshot?.drones || []) {
+    const vis = state.visualDrones?.get?.(drone.id);
+    const x = vis ? vis.x : drone.x;
+    const y = vis ? vis.y : drone.y;
+    const angle = vis ? vis.angle : (drone.angle || 0);
+
+    const view = views.get(drone.id);
+    if (!view) continue;
+
+    const visible = !bounds || isCircleVisible(x, y, 24, bounds);
+    view.root.visible = visible;
+    if (!visible) continue;
+
+    view.root.position.set(x, y);
+    view.root.rotation = angle;
+
+    const player = players?.get?.(drone.ownerId);
+    if (view.type !== drone.type || view.teamColor !== player?.color) {
+      view.type = drone.type;
+      view.teamColor = player?.color;
+      drawDrone(env, view, drone, player);
+    }
+
+    const launchScale = drone.state === "launching" ? 0.7 + 0.3 * (drone.stateProgress || 0) : 1;
+    const damageScale = drone.maxHull > 0 ? 0.9 + 0.1 * Math.max(0, drone.hull / drone.maxHull) : 1;
+    const minimumScreenScale = Math.min(1.6, Math.max(1, 0.8 / zoom));
+    const scale = 1.25 * minimumScreenScale * launchScale * damageScale;
+    view.root.scale.set(scale);
+
+    const damaged = drone.maxHull > 0 && drone.hull < drone.maxHull * 0.35;
+    let alpha = drone.state === "orphaned" ? 0.55 : 1;
+    if (damaged) alpha *= 0.68 + 0.32 * Math.abs(Math.sin(now * 0.012));
+    view.root.alpha = alpha;
+
+    drawDroneTrail(trailGfx, drone, x, y, scale, zoom, damaged, now, angle);
+  }
+  drawDroneRangeRings(env);
+}
+
 export function destroyPixiDrones() {
   for (const view of views.values()) {
     view.root.parent?.removeChild(view.root);

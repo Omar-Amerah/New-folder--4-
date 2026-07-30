@@ -86,11 +86,11 @@ dom.blueprintCostBanner?.addEventListener("click", () => {
 dom.combatStyleSelect?.addEventListener("change", (e) => {
   state.combatStyle = e.target.value;
   import("./design/blueprintStorage.js").then((mod) => {
-    mod.persistDesign(state.design, state.wiring, state.combatStyle);
+    mod.persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
   });
   refreshLoadedBlueprintPresentation();
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: state.design, wiring: state.wiring, combatStyle: state.combatStyle });
+    send({ type: "deploy", design: state.design, wiring: state.wiring, dataLinks: state.dataLinks, combatStyle: state.combatStyle });
   }
 });
 dom.saveDesignButton?.addEventListener("click", () => {

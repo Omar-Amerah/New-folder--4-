@@ -3987,32 +3987,29 @@ function findTarget(room, ship, ships) {
 
 
 
-  for (const other of targets) {
+  const spatial = room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
+  const scratch = room._findTargetScratch || (room._findTargetScratch = { ships: [], stations: [], drones: [] });
 
-    if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) continue;
-
-    if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) continue;
-
+  function evaluateCandidate(other) {
+    if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) return;
+    if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) return;
     const distance = fastHypot(other.x - ship.x, other.y - ship.y);
-
-    if (distance > range || isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) continue;
-
+    if (distance > range || isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) return;
     const score = enemyShipThreatScore(ship, other, distance, range);
-
-    if (score > bestScore
-
-      || (score === bestScore && (distance < bestDistance
-
-        || (distance === bestDistance && (!best || isStableIdBefore(other, best)))))) {
-
+    if (score > bestScore || (score === bestScore && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best)))))) {
       best = other;
-
       bestDistance = distance;
-
       bestScore = score;
-
     }
+  }
 
+  if (spatial) {
+    const shipCandidates = spatial.queryRangeUnordered("ships", ship.x, ship.y, range, scratch.ships);
+    for (const other of shipCandidates) evaluateCandidate(other);
+    const stationCandidates = spatial.queryRangeUnordered("stations", ship.x, ship.y, range, scratch.stations);
+    for (const other of stationCandidates) evaluateCandidate(other);
+  } else {
+    for (const other of targets) evaluateCandidate(other);
   }
 
   if (!best && holdFallback) best = holdFallback;
@@ -4024,25 +4021,16 @@ function findTarget(room, ship, ships) {
   // themselves against hostile drones when no enemy ship is currently valid.
 
   if (!best) {
-
-    for (const drone of room.drones?.values?.() || []) {
-
+    const droneCandidates = spatial ? spatial.queryRangeUnordered("drones", ship.x, ship.y, range, scratch.drones) : (room.drones?.values?.() || []);
+    for (const drone of droneCandidates) {
       if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
-
       const distance = fastHypot(drone.x - ship.x, drone.y - ship.y);
-
       if (distance <= range && !isLineBlocked(room, ship.x, ship.y, drone.x, drone.y, 3)
-
         && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(drone, best))))) {
-
         best = drone;
-
         bestDistance = distance;
-
       }
-
     }
-
   }
 
 
@@ -4271,17 +4259,17 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
   if (!shipTarget) {
 
-    const stationTargets = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled");
+    const spatial = room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
 
-    for (const other of (ships || []).concat(stationTargets)) {
+    function evaluateCandidate(other) {
 
-      if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) continue;
+      if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) return;
 
-      if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) continue;
+      if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) return;
 
       const distance = fastHypot(other.x - worldX, other.y - worldY);
 
-      if (distance > range || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) continue;
+      if (distance > range || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) return;
 
       const score = enemyShipThreatScore(ship, other, distance, range);
 
@@ -4298,6 +4286,26 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
         bestShipScore = score;
 
       }
+
+    }
+
+    if (spatial) {
+
+      const scratch = room._pickWeaponSpatialScratch || (room._pickWeaponSpatialScratch = { ships: [], stations: [] });
+
+      const shipCandidates = spatial.queryRangeUnordered("ships", worldX, worldY, range, scratch.ships);
+
+      for (const other of shipCandidates) evaluateCandidate(other);
+
+      const stationCandidates = spatial.queryRangeUnordered("stations", worldX, worldY, range, scratch.stations);
+
+      for (const other of stationCandidates) evaluateCandidate(other);
+
+    } else {
+
+      const stationTargets = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled");
+
+      for (const other of (ships || []).concat(stationTargets)) evaluateCandidate(other);
 
     }
 

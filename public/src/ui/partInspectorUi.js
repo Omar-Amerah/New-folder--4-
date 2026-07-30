@@ -212,7 +212,8 @@ function requirementStatusFor(placed) {
   if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus) {
     try {
       const analysis = getCachedDesignDataSupport(design, state.wiring || null, PART_STATS, {
-        thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE
+        thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE,
+        dataLinks: state.dataLinks
       });
       status.data = dataRequirementState(getDesignSourceAllocation(analysis, index));
     } catch { status.data = { state: "unplaced", reason: null }; }

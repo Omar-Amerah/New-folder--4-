@@ -59,24 +59,27 @@ function analyzeTopology(ship, precomputedDataNetworks = null) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   if (!design.length) return { networks: [] };
   if (Array.isArray(precomputedDataNetworks)) return { networks: precomputedDataNetworks };
-  if (!WIRING_ENABLED) return { networks: DataSupportRules.automaticDataNetworks(design, PARTS) };
-  bump("wiringAnalysisCount");
-  return WiringRules.analyzeWiring(design, runtimeWiringFor(ship), PARTS).data || { networks: [] };
+  const dataLinks = DataSupportRules.normalizeDataLinks(design, ship?.dataLinks, PARTS);
+  return { networks: [{ id: "direct-data-links", label: "Data Links", mode: "direct-links", sourceIndices: [], weaponIndices: [], componentIndices: [], sectionIds: [] }], dataLinks };
+}
+function dataLinksSignature(dataLinks) {
+  const links = (dataLinks || []).map((l) => `${l.sourceIndex}:${l.targetIndex}`).sort();
+  return `dl:${links.join(",")}`;
 }
 function topologySignatureFrom(networks, ship) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const sourceAlive = design.map((m, i) => DataSupportRules.isDataSupportSource(m?.type) && isAlive(ship, i) ? i : -1).filter(i => i >= 0);
   const weaponAlive = design.map((m, i) => PARTS[m?.type]?.weapon && isAlive(ship, i) ? i : -1).filter(i => i >= 0);
-  return stable({ networks: (networks || []).map(n => ({ id: n.id, sectionIds: [...(n.sectionIds || [])].sort(), sourceIndices: [...(n.sourceIndices || [])].sort(numericSort), weaponIndices: [...(n.weaponIndices || [])].sort(numericSort) })), sourceAlive, weaponAlive });
+  return dataLinksSignature(ship?.dataLinks) + "#" + stable({ networks: (networks || []).map(n => ({ id: n.id, sectionIds: [...(n.sectionIds || [])].sort(), sourceIndices: [...(n.sourceIndices || [])].sort(numericSort), weaponIndices: [...(n.weaponIndices || [])].sort(numericSort) })), sourceAlive, weaponAlive });
 }
 function normalizeNetworks(networks) { return (networks || []).map((n) => ({ ...n, sourceIndices: [...(n.sourceIndices || [])], weaponIndices: [...(n.weaponIndices || [])], componentIndices: [...(n.componentIndices || [])], sectionIds: [...(n.sectionIds || [])] })); }
 function statusForSource(ship, record) {
   if (!record || !DataSupportRules.isDataSupportSource(record.sourceType)) return ["invalid-source", "Component is not a Data-support source."];
   if (!isAlive(ship, record.sourceIndex)) return ["destroyed", "Source component is destroyed."];
-  if (!record.networkId) return ["disconnected", "Source is not connected to a surviving Data network."];
+  if (!record.directWeaponIndices?.length) return ["idle-no-weapons", "No weapons are directly linked to this source."];
   if (record.powerMultiplier <= 0) return ["unpowered", "Source has no operational component Power."];
   if (record.thermalMultiplier <= 0) return ["overheated", "Source is overheated."];
-  if (!record.eligibleWeaponIndices.length) return ["idle-no-weapons", "No living eligible weapons are connected."];
+  if (!record.eligibleWeaponIndices?.length) return ["idle-no-weapons", "No living eligible weapons are connected."];
   if (record.powerMultiplier < 1) return ["underpowered", "Source Power is below nominal."];
   if (record.thermalMultiplier < 1) return ["thermally-reduced", "Source thermal state reduces output."];
   return ["active", "Source is allocating its effective support budget."];
@@ -84,12 +87,11 @@ function statusForSource(ship, record) {
 function statusForWeapon(ship, record) {
   if (!record) return ["ineligible", "Component is not a weapon."];
   if (!isAlive(ship, record.weaponIndex)) return ["destroyed", "Weapon component is destroyed."];
-  if (!record.networkId) return ["disconnected", "Weapon is not connected to a surviving Data network."];
-  return [record.contributions.some((c) => c.amount !== 0) ? "supported" : "connected-unsupported", record.contributions.some((c) => c.amount !== 0) ? "Weapon receives active Data support." : "Weapon is connected but receives no active bonus."];
+  return [record.contributions.some((c) => c.amount !== 0) ? "supported" : record.sourceIndices?.length ? "connected-unsupported" : "unsupported", record.contributions.some((c) => c.amount !== 0) ? "Weapon receives active Data support." : record.sourceIndices?.length ? "Weapon is linked but receives no active bonus." : "No Data sources are linked to this weapon."];
 }
-function buildAllocation(ship, networks) {
+function buildAllocation(ship, dataLinks) {
   bump("allocationRefreshCount");
-  const analysis = DataSupportRules.analyzeDataSupport(ship?.design || [], networks || [], PARTS, {
+  const analysis = DataSupportRules.analyzeDirectDataSupport(ship?.design || [], dataLinks || [], PARTS, {
     isSourceEligible: (index) => isDataSourceEligible(ship, index),
     isWeaponEligible: (index) => isDataWeaponEligible(ship, index),
     sourceMultiplier: (index) => sourceMultiplier(ship, index)
@@ -143,8 +145,8 @@ function disableShipDataSupport(ship, reason = "wiring-disabled") {
   };
   return ship.runtimeDataSupport;
 }
-function rebuildShipDataTopology(ship, reason = "topology", precomputedDataNetworks = null) { const topology = analyzeTopology(ship, precomputedDataNetworks); const sig = topologySignatureFrom(topology.networks, ship); const analysis = buildAllocation(ship, topology.networks); return installState(ship, topology.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
-function refreshShipDataAllocation(ship, reason = "allocation") { if (!ship?.runtimeDataSupport?.networks) return rebuildShipDataTopology(ship, reason); const sig = ship.runtimeDataSupport.topologySignature || topologySignatureFrom(ship.runtimeDataSupport.networks, ship); const analysis = buildAllocation(ship, ship.runtimeDataSupport.networks); return installState(ship, ship.runtimeDataSupport.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
+function rebuildShipDataTopology(ship, reason = "topology", precomputedDataNetworks = null) { const topology = analyzeTopology(ship, precomputedDataNetworks); const sig = topologySignatureFrom(topology.networks, ship); const analysis = buildAllocation(ship, topology.dataLinks); return installState(ship, topology.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
+function refreshShipDataAllocation(ship, reason = "allocation") { if (!ship?.runtimeDataSupport?.networks) return rebuildShipDataTopology(ship, reason); const sig = ship.runtimeDataSupport.topologySignature || topologySignatureFrom(ship.runtimeDataSupport.networks, ship); const analysis = buildAllocation(ship, ship.dataLinks); return installState(ship, ship.runtimeDataSupport.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
 function rebuildShipDataSupport(ship) { return ship && typeof ship === "object" ? rebuildShipDataTopology(ship, "rebuild") : null; }
 function ensureShipDataSupport(ship) { return ship?.runtimeDataSupport?.weaponBonusByIndex ? ship.runtimeDataSupport : rebuildShipDataSupport(ship); }
 
