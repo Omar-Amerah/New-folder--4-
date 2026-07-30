@@ -4,6 +4,7 @@
 // fall back to the default ship + default wiring), and wiring copies staying
 // independent across save/duplicate/export/import.
 import assert from "node:assert/strict";
+await import("./public/src/shared/featureFlags.js");
 
 function makeTestElement() {
   return {

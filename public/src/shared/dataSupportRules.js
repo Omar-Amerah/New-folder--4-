@@ -282,6 +282,8 @@
       sourceAllocations, weaponBonuses, sourceAllocationByIndex, weaponBonusByIndex, warnings: [] };
   }
 
-  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, supportDescriptorForType, automaticDataNetworks, nominalSupportBudget,
+  // isWeapon is part of the contract: the Data Links editor needs the same
+  // "can this component receive support?" test the allocator uses.
+  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, isWeapon, supportDescriptorForType, automaticDataNetworks, nominalSupportBudget,
     normalizeSourceMultiplier, allocateSourceBudget, analyzeDataSupport, analyzeDirectDataSupport, normalizeDataLinks, validateDataLinks, weaponSupportForIndex, effectiveWeaponProfile };
 }));

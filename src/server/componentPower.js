@@ -308,7 +308,8 @@ function rebuildShipWiringState(ship, reason = "component-boundary", options = {
   // Section 6C ordering: surviving Wiring topology is projected first, then
   // component Power is allocated by the shared solver, then Data-support source
   // multipliers read the fresh per-component Power state.
-  require("./componentData").rebuildShipDataTopology(ship, reason, dataAnalysis.networks || []);
+  const dataLinks = (dataAnalysis?.networks || []).flatMap((network) => (network?.sourceIndices || []).flatMap((sourceIndex) => (network?.weaponIndices || []).map((targetIndex) => ({ sourceIndex, targetIndex }))));
+  require("./componentData").rebuildShipDataTopology(ship, reason, dataAnalysis.networks || [], dataLinks);
   return runtime;
 }
 

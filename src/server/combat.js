@@ -245,6 +245,12 @@ function findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius = 0) {
 
     if (Math.abs(a.t - b.t) > 1e-6) return a.t - b.t;
 
+    const ay = a.hit?.y ?? 0;
+
+    const by = b.hit?.y ?? 0;
+
+    if (Math.abs(ay - by) > 1e-6) return by - ay;
+
     return a.index - b.index;
 
   });

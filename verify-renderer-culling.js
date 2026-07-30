@@ -1,6 +1,6 @@
 const assert = require('assert');
 require('./public/src/shared/featureFlags.js');
-global.document = { getElementById: () => ({ getContext: () => ({}) }), querySelector: () => null };
+global.document = { getElementById: () => ({ getContext: () => ({}), addEventListener() {}, removeEventListener() {} }), querySelector: () => null };
 global.window = {};
 (async () => {
   const m = await import('./public/src/game/viewportCulling.js');

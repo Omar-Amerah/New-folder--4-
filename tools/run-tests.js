@@ -170,6 +170,7 @@ const GROUPS = {
     "verify-ship-summary-browser.js",
     "verify-blueprint-inspector-tabs-browser.js",
     "verify-data-support-browser.js",
+    "verify-data-links-editor.js",
     "verify-live-turrets.js",
     "verify-heat-browser.js",
     "verify-renderer-input-browser.js",

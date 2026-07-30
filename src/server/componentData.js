@@ -3,6 +3,7 @@
 // it is intentionally not persisted into saved blueprints.
 
 const { PARTS } = require("./components");
+const { getShipComponentIndexes } = require("./componentIndexes");
 const { getCommandAuraMultiplier } = require("./commandAuras");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const DataSupportRules = require("../../public/src/shared/dataSupportRules");
@@ -102,6 +103,7 @@ function buildAllocation(ship, dataLinks) {
     record.operationalMultiplier = sourceOperationalMultiplier(ship, record.sourceIndex);
     record.sourceMultiplier = sourceMultiplier(ship, record.sourceIndex);
     record.effectiveBudget = record.nominalBudget * record.sourceMultiplier;
+    record.connectedWeaponIndices = record.directWeaponIndices || [];
     const [status, statusReason] = statusForSource(ship, record); record.status = status; record.statusReason = statusReason;
   }
   for (const record of analysis.weaponBonuses || []) {
@@ -145,9 +147,9 @@ function disableShipDataSupport(ship, reason = "wiring-disabled") {
   };
   return ship.runtimeDataSupport;
 }
-function rebuildShipDataTopology(ship, reason = "topology", precomputedDataNetworks = null) { const topology = analyzeTopology(ship, precomputedDataNetworks); const sig = topologySignatureFrom(topology.networks, ship); const analysis = buildAllocation(ship, topology.dataLinks); return installState(ship, topology.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
+function rebuildShipDataTopology(ship, reason = "topology", precomputedDataNetworks = null, precomputedDataLinks = null) { const topology = analyzeTopology(ship, precomputedDataNetworks); if (precomputedDataLinks) topology.dataLinks = precomputedDataLinks; ship.dataLinks = topology.dataLinks; const sig = topologySignatureFrom(topology.networks, ship); const analysis = buildAllocation(ship, topology.dataLinks); return installState(ship, topology.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
 function refreshShipDataAllocation(ship, reason = "allocation") { if (!ship?.runtimeDataSupport?.networks) return rebuildShipDataTopology(ship, reason); const sig = ship.runtimeDataSupport.topologySignature || topologySignatureFrom(ship.runtimeDataSupport.networks, ship); const analysis = buildAllocation(ship, ship.dataLinks); return installState(ship, ship.runtimeDataSupport.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
-function rebuildShipDataSupport(ship) { return ship && typeof ship === "object" ? rebuildShipDataTopology(ship, "rebuild") : null; }
+function rebuildShipDataSupport(ship) { return ship && typeof ship === "object" ? rebuildShipDataTopology(ship, "rebuild", ship?.runtimeDataSupport?.networks, ship?.dataLinks) : null; }
 function ensureShipDataSupport(ship) { return ship?.runtimeDataSupport?.weaponBonusByIndex ? ship.runtimeDataSupport : rebuildShipDataSupport(ship); }
 
 function dataRelevantHeatSignature(ship) {
@@ -256,7 +258,28 @@ function getEffectiveWeaponRanges(ship) {
   };
 }
 
+// Does this hull carry a demolition charge that could still go off?
+//
+// True for either size -- the 1x1 Demolition Charge and the 2x3 Proximity
+// Demolition Charge both carry a `proximityCharge` block, and both are armed
+// from the moment they are built. A destroyed or already detonated one does not
+// count.
+//
+// This lives here rather than in combat.js because the movement controller needs
+// it: a charging ship with a live charge is trying to touch its target, and one
+// without is trying to get alongside it. combat.js's
+// shipHasOperationalDemolitionCharge is the same question and defers to this.
+function shipHasArmedProximityCharge(ship) {
+  for (const index of getShipComponentIndexes(ship).proximityChargeIndices) {
+    if (!isAlive(ship, index)) continue;
+    if (ship.proximityChargeDetonated?.[index]) continue;
+    if (!PARTS[ship.design?.[index]?.type]?.proximityCharge) continue;
+    return true;
+  }
+  return false;
+}
+
 function getWeaponDataSupport(ship, weaponIndex) { if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return cloneSupport(null, weaponIndex); const state = ensureShipDataSupport(ship); return cloneSupport(state?.weaponBonusByIndex?.[weaponIndex], weaponIndex); }
 function getEffectiveWeaponStats(ship, weaponIndex) { const profile = getEffectiveWeaponStatsInternal(ship, weaponIndex); return profile ? { ...profile } : null; }
 function getSourceDataAllocation(ship, sourceIndex) { if (!Number.isInteger(sourceIndex) || sourceIndex < 0) return null; const state = ensureShipDataSupport(ship); return cloneAllocation(state?.sourceAllocationByIndex?.[sourceIndex], sourceIndex); }
-module.exports = { rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };
+module.exports = { shipHasArmedProximityCharge, rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };

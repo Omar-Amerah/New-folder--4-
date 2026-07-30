@@ -12,27 +12,29 @@ function sanitizeTeam(team, fallbackId) {
 }
 
 
-// Hold is currently the only combat stance the movement controller implements.
+// The combat stances the movement controller implements: Charge, Hold, Static.
 //
-// Charge, Orbit and Kite are withdrawn rather than deleted: the names still
-// parse, so saved blueprints, older clients and stored player preferences all
-// keep loading, but every one of them resolves to Hold. That means a ship can
-// never end up carrying a stance nothing will fly, and the stances can be
-// reinstated later by removing one line here.
+// Orbit and Kite are withdrawn rather than deleted: the names still parse, so
+// saved blueprints, older clients and stored player preferences all keep
+// loading, but both resolve to Hold. That means a ship can never end up carrying
+// a stance nothing will fly, and either can be reinstated by removing it from
+// this set once the controller flies it.
 //
 // Clients are still free to send them; they simply get Hold back in the
 // acknowledgement and in the snapshot, which is what tells the UI what actually
 // happened.
-const WITHDRAWN_COMBAT_STYLES = new Set(["charge", "orbit", "kite"]);
+const WITHDRAWN_COMBAT_STYLES = new Set(["orbit", "kite"]);
 
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
   if (WITHDRAWN_COMBAT_STYLES.has(clean)) return "hold";
-  if (clean === "hold" || clean === "static") return clean;
-  // Compatibility for saved blueprints and older clients.
+  if (clean === "charge" || clean === "hold" || clean === "static") return clean;
+  // Compatibility for saved blueprints and older clients. The aggressive aliases
+  // resolve to Charge, matching how the client's own normalizeCombatStyle maps
+  // them, so a blueprint saved as "brawler" gets the stance it was named for.
+  if (clean === "direct" || clean === "interceptor" || clean === "brawler") return "charge";
   if (clean === "circle" || clean === "evasive") return "hold";
   if (clean === "maintain" || clean === "sentry" || clean === "heavy") return "hold";
-  if (clean === "direct" || clean === "interceptor" || clean === "brawler") return "hold";
   const cleanFallback = String(fallback || "").toLowerCase();
   if (cleanFallback !== clean) return sanitizeCombatStyle(cleanFallback, "hold");
   return "hold";

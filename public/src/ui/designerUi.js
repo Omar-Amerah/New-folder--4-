@@ -21,7 +21,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
-import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, renderDataAnalysisPanel } from "./dataLinksUi.js";
+import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
   refreshWiringPresentation,
@@ -187,6 +187,9 @@ export function renderBuildGrid() {
   } else {
     applyBlueprintPresentation();
   }
+  // The Data Links overlay accepts pointer input while active, so every other
+  // view must tear it down or it keeps swallowing grid clicks.
+  if (state.blueprintView !== "dataLinks") renderDataLinksOverlay();
   if (WIRING_ENABLED && state.blueprintView !== "wiring") refreshWiringAnalysisPresentation();
   refreshBlueprintControls();
   refreshBlueprintDiscoverabilityUi();
@@ -231,6 +234,9 @@ export function setBlueprintView(view) {
     return;
   }
   if (previousView === "wiring" && state.blueprintView !== "wiring") resetWiringTransientState();
+  // Entering or leaving Data Links drops any armed source or selected link;
+  // component indices are only meaningful against the design that produced them.
+  if (previousView === "dataLinks" || state.blueprintView === "dataLinks") resetDataLinksUiState();
   if (state.blueprintView === "wiring") { state.hoveredCell = null; state.selectedCell = null; }
   refreshBlueprintControls();
   document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView } }));
@@ -288,7 +294,7 @@ function refreshBlueprintControls() {
   if (dom.blueprintModeTitle) dom.blueprintModeTitle.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].title;
   if (dom.blueprintModeDescription) dom.blueprintModeDescription.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].description;
   if (dom.wiringToolbar) dom.wiringToolbar.hidden = !wiringView;
-  if (dom.dataLinksToolbar) dom.dataLinksToolbar.hidden = !dataLinksView;
+  refreshDataLinksControls();
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
   if (dom.thermalLoadModes) {

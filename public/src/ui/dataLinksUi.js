@@ -1,6 +1,10 @@
-// Data Links view: renders explicit direct Data-support links as dashed lines.
-// This is not wiring; it uses the shared wiring overlay host to keep the grid
-// uncluttered and to reuse the established designer overlay pattern.
+// Data Links view: connects Data-support sources to weapons as logical links,
+// drawn as dashed lines. There is no cable and no routing — a link is just a
+// (source, weapon) pair, so this owns no wiring state or wiring DOM.
+//
+// Two ways to connect, both hit-testing the component's whole footprint:
+//   - click a source to arm it, then click weapons to toggle each link
+//   - drag from a source onto a weapon
 import { state } from "../state.js";
 import { dom } from "./dom.js";
 import { PART_DEFS, PART_STATS, partIconMarkup } from "../design/parts.js";
@@ -8,11 +12,15 @@ import { getCachedDesignDataSupport, getDesignEffectiveWeaponProfile, getDesignS
 import { formatDataSupportValue, formatDataSupportEquation } from "../design/dataSupportPresentation.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { persistDesign } from "../design/blueprintStorage.js";
+import { getOccupiedCells } from "../design/footprint.js";
+// Link edits change predicted weapon stats, so the ship summary is re-rendered
+// alongside the overlay. designerUi imports this module too; the cycle is the
+// same shape the wiring editor already uses and resolves at call time.
+import { renderLocalStats } from "./designerUi.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const GRID_SIZE = 15;
 
-const wRules = () => globalThis.WiringRules;
 const rules = () => globalThis.DataSupportRules;
 
 globalThis.DataLinksUi = { renderDataLinksOverlay, refreshDataLinksPresentation };
@@ -22,84 +30,181 @@ function svgEl(tag, attrs = {}) {
   for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
   return el;
 }
-function componentCenter(index) {
+// Footprint geometry in grid units. Derived from the component catalogue so
+// Data Links needs nothing from the wiring rules.
+function componentCells(index) {
   const module = state.design?.[index];
-  if (!module) return null;
-  try {
-    const c = wRules().componentCenter(module, PART_STATS);
-    return { x: Number(c?.x), y: Number(c?.y) };
-  } catch { return null; }
+  if (!module) return [];
+  const footprint = PART_STATS[module.type]?.footprint || { width: 1, height: 1 };
+  return getOccupiedCells(module.x, module.y, footprint, module.rotation || 0);
+}
+
+function componentCenter(index) {
+  const cells = componentCells(index);
+  if (!cells.length) return null;
+  let sumX = 0, sumY = 0;
+  for (const cell of cells) { sumX += cell.x + 0.5; sumY += cell.y + 0.5; }
+  return { x: sumX / cells.length, y: sumY / cells.length };
+}
+
+function isSourceIndex(index) {
+  return rules().isDataSupportSource(state.design?.[index]?.type);
+}
+
+function isWeaponIndex(index) {
+  return rules().isWeapon(state.design?.[index], PART_STATS);
+}
+
+function hasLink(sourceIndex, targetIndex) {
+  return (state.dataLinks || []).some((l) => l.sourceIndex === sourceIndex && l.targetIndex === targetIndex);
+}
+
+// Whole-footprint hit pads. One transparent rect per occupied cell means the
+// player clicks the component itself rather than hunting a small port dot.
+function hitPadsFor(index, role, { cursor, active }) {
+  return componentCells(index).map((cell) => svgEl("rect", {
+    x: cell.x, y: cell.y, width: 1, height: 1,
+    fill: "transparent",
+    class: `data-link-pad data-link-pad-${role}${active ? " is-active" : ""}`,
+    [`data-${role}-index`]: String(index),
+    "pointer-events": "all",
+    style: `cursor:${cursor}`
+  }));
 }
 
 export function renderDataLinksOverlay() {
-  const host = dom.wiringOverlayHost;
+  const host = dom.dataLinksOverlayHost;
   if (!host) return;
-  if (state.blueprintView !== "dataLinks") { host.replaceChildren(); return; }
+  if (state.blueprintView !== "dataLinks") {
+    host.replaceChildren();
+    host.classList.remove("is-active");
+    dom.grid?.classList.remove("data-links-active");
+    return;
+  }
   host.replaceChildren();
-  host.classList.add("wiring-overlay-active");
+  host.classList.add("is-active");
+  dom.grid?.classList.add("data-links-active");
 
   const svg = svgEl("svg", {
     viewBox: `0 0 ${GRID_SIZE} ${GRID_SIZE}`,
     class: "data-links-overlay",
-    preserveAspectRatio: "none",
-    "aria-hidden": "true"
+    preserveAspectRatio: "none"
   });
-  svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;";
 
-  const analysis = currentDataSupportAnalysis();
+  const links = state.dataLinks || [];
+  const armed = dataLinksUiState.armedSourceIndex;
+  const dragging = dataLinksUiState.drag?.sourceIndex ?? null;
+  // The armed or dragged source is the one the player is working on; everything
+  // else fades so its links and candidate weapons stand out.
+  const focus = dragging ?? armed;
 
-  const selected = state.selectedCell ? state.design.indexOf(state.design.find((m) => m.x === state.selectedCell.x && m.y === state.selectedCell.y)) : null;
-  const hoverIndex = state.hoveredCell ? state.design.indexOf(state.design.find((m) => m.x === state.hoveredCell.x && m.y === state.hoveredCell.y)) : null;
-  const focused = selected ?? hoverIndex ?? null;
+  // Ring the focused source and every weapon it can reach.
+  if (focus != null) {
+    const center = componentCenter(focus);
+    if (center) {
+      svg.appendChild(svgEl("circle", {
+        cx: center.x, cy: center.y, r: 0.62,
+        class: "data-link-source-halo"
+      }));
+    }
+    for (let i = 0; i < state.design.length; i += 1) {
+      if (!isDataLinksWeaponTargetValid(focus, i)) continue;
+      const target = componentCenter(i);
+      if (!target) continue;
+      svg.appendChild(svgEl("circle", {
+        cx: target.x, cy: target.y, r: 0.46,
+        class: `data-link-candidate${hasLink(focus, i) ? " is-linked" : ""}`
+      }));
+    }
+  }
 
-  const linkPaths = [];
-  for (const link of (analysis?.links || [])) {
+  const hitLines = [];
+  for (const link of links) {
     const from = componentCenter(link.sourceIndex);
     const to = componentCenter(link.targetIndex);
     if (!from || !to) continue;
     const key = `${link.sourceIndex}:${link.targetIndex}`;
-    const isRelevant = focused === null || link.sourceIndex === focused || link.targetIndex === focused;
-    const isSelected = dataLinksUiState.selectedLinkKey === key;
-    const dim = focused !== null && !isRelevant;
-    const line = svgEl("line", {
+    const selected = dataLinksUiState.selectedLinkKey === key;
+    const dim = focus != null && link.sourceIndex !== focus && link.targetIndex !== focus;
+    svg.appendChild(svgEl("line", {
       x1: from.x, y1: from.y, x2: to.x, y2: to.y,
-      stroke: isSelected ? "#f472b6" : "#22d3ee",
-      "stroke-width": isSelected ? "0.16" : "0.1",
-      "stroke-dasharray": "0.25 0.15",
-      opacity: dim ? "0.25" : (isSelected ? "1" : "0.95"),
+      class: `data-link-line${selected ? " is-selected" : ""}${dim ? " is-dim" : ""}`,
+      "pointer-events": "none"
+    }));
+    // The visible line is dashed, and a dashed stroke only hit-tests on its
+    // painted dashes. Carry clicks on a wider invisible companion instead.
+    hitLines.push(svgEl("line", {
+      x1: from.x, y1: from.y, x2: to.x, y2: to.y,
+      class: "data-link-hit",
       "data-link-key": key,
-      "pointer-events": "all",
+      "pointer-events": "stroke",
       style: "cursor:pointer"
-    });
-    linkPaths.push(line);
+    }));
   }
 
-  // Draw source output and weapon target ports for visible support types.
-  for (let i = 0; i < state.design.length; i += 1) {
-    const module = state.design[i];
-    const center = componentCenter(i);
-    if (!center) continue;
-    if (rules().isDataSupportSource(module?.type)) {
-      const isPending = dataLinksUiState.drag?.sourceIndex === i;
-      const port = svgEl("circle", { cx: center.x, cy: center.y, r: isPending ? "0.22" : "0.18", fill: "#22d3ee", opacity: focused === i || focused === null ? (isPending ? "1" : "0.9") : "0.25", "data-source-index": String(i), "pointer-events": "all", style: isPending ? "cursor:grabbing" : "cursor:grab" });
-      svg.appendChild(port);
-    } else if (rules().isWeapon(module, PART_STATS)) {
-      const isLinked = (analysis?.links || []).some((l) => l.targetIndex === i);
-      const isPending = dataLinksUiState.drag?.sourceIndex != null && isDataLinksWeaponTargetValid(dataLinksUiState.drag.sourceIndex, i);
-      const port = svgEl("circle", { cx: center.x, cy: center.y, r: isPending ? "0.18" : (isLinked ? "0.14" : "0.1"), fill: isPending ? "#86efac" : "none", stroke: "#22d3ee", "stroke-width": "0.08", opacity: focused === i || focused === null ? (isPending ? "1" : "0.9") : "0.25", "data-target-index": String(i), "pointer-events": "all", style: isPending ? "cursor:copy" : "cursor:pointer" });
-      svg.appendChild(port);
-    }
-  }
-
-  for (const line of linkPaths) svg.appendChild(line);
-
+  // Rubber band for an in-progress drag.
   if (dataLinksUiState.drag?.pointer) {
     const from = componentCenter(dataLinksUiState.drag.sourceIndex);
     const to = dataLinksUiState.drag.pointer;
-    if (from && to) svg.appendChild(svgEl("line", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: "#22d3ee", "stroke-width": "0.08", "stroke-dasharray": "0.2 0.1", opacity: "0.6", "pointer-events": "none" }));
+    if (from && to) {
+      svg.appendChild(svgEl("line", {
+        x1: from.x, y1: from.y, x2: to.x, y2: to.y,
+        class: "data-link-line is-pending",
+        "pointer-events": "none"
+      }));
+    }
+  }
+
+  for (const hit of hitLines) svg.appendChild(hit);
+
+  // Pads last so clicking a component always beats clicking a line across it.
+  for (let i = 0; i < state.design.length; i += 1) {
+    if (isSourceIndex(i)) {
+      const pads = hitPadsFor(i, "source", { cursor: dragging === i ? "grabbing" : "pointer", active: focus === i });
+      for (const pad of pads) svg.appendChild(pad);
+    } else if (isWeaponIndex(i)) {
+      const reachable = focus != null && isDataLinksWeaponTargetValid(focus, i);
+      const pads = hitPadsFor(i, "target", { cursor: reachable ? "copy" : "pointer", active: reachable });
+      for (const pad of pads) svg.appendChild(pad);
+    }
   }
 
   host.appendChild(svg);
+}
+
+// Which component occupies a grid point. Used for drop targets: a captured
+// pointer retargets its events to the capturing host, so the DOM under the
+// cursor cannot be hit-tested mid-drag — the geometry can.
+function componentIndexAtGridPoint(point) {
+  if (!point) return null;
+  const cellX = Math.floor(point.x);
+  const cellY = Math.floor(point.y);
+  const design = state.design || [];
+  for (let i = 0; i < design.length; i += 1) {
+    if (componentCells(i).some((cell) => cell.x === cellX && cell.y === cellY)) return i;
+  }
+  return null;
+}
+
+export function dataLinksHintText() {
+  const armed = dataLinksUiState.armedSourceIndex;
+  if (!state.design?.some((_, i) => isSourceIndex(i))) {
+    return "Add a Fire Control, Signal Amplifier, Targeting Computer or Stabilizer Node to create Data links.";
+  }
+  if (armed == null) {
+    return "Click a Data-support component to select it, then click weapons to link them. Drag from a source to a weapon also works.";
+  }
+  const name = PART_DEFS[state.design[armed]?.type]?.name || "Source";
+  const linked = (state.dataLinks || []).filter((l) => l.sourceIndex === armed).length;
+  return `${name} selected · ${linked} weapon${linked === 1 ? "" : "s"} linked. Click a weapon to link or unlink it · Esc to deselect.`;
+}
+
+export function refreshDataLinksControls() {
+  const active = state.blueprintView === "dataLinks";
+  if (dom.dataLinksToolbar) dom.dataLinksToolbar.hidden = !active;
+  if (!active) return;
+  if (dom.dataLinksHint) dom.dataLinksHint.textContent = dataLinksHintText();
+  if (dom.dataLinksClearButton) dom.dataLinksClearButton.disabled = (state.dataLinks || []).length === 0;
 }
 
 // Each host keeps its own last-rendered markup so the Data Links view and the
@@ -133,14 +238,22 @@ export function currentDataSupportAnalysis(options = {}) {
   });
 }
 
+// A source only counts as delivering when it has recipients to divide its
+// budget between; an unlinked source is idle no matter how large its budget.
+function isDeliveringSource(source) {
+  return source.recipientCount > 0 && source.effectiveBudget > 0;
+}
+
+// Ordered by how fundamental the blocker is, so the badge names the thing the
+// player has to fix rather than a downstream symptom.
 function sourceRowStatus(source) {
-  if (source.status === "active" || source.effectiveBudget > 0) {
-    return { label: `ACTIVE (${formatDataSupportValue({ bonusField: source.bonusField, amount: source.effectiveBudget })})`, tone: "badge-active" };
-  }
+  const amount = formatDataSupportValue({ bonusField: source.bonusField, amount: source.effectiveBudget });
   if (source.powerMultiplier <= 0) return { label: "UNPOWERED", tone: "badge-offline" };
-  if (source.thermalMultiplier < 1) return { label: "THERMALLY REDUCED", tone: "badge-reduced" };
+  if (source.thermalMultiplier <= 0) return { label: "OVERHEATED", tone: "badge-offline" };
   if (source.recipientCount === 0) return { label: "NO RECIPIENTS", tone: "badge-neutral" };
-  return { label: String(source.status).toUpperCase(), tone: "badge-neutral" };
+  if (source.effectiveBudget <= 0) return { label: String(source.status).toUpperCase(), tone: "badge-neutral" };
+  if (source.thermalMultiplier < 1) return { label: `REDUCED (${amount})`, tone: "badge-reduced" };
+  return { label: `ACTIVE (${amount})`, tone: "badge-active" };
 }
 
 function weaponRowStatus(weapon) {
@@ -171,7 +284,7 @@ function componentRowHtml(kind, index, type, { label, tone }, detail) {
   const module = state.design?.[index];
   const coords = module ? `(${module.x},${module.y})` : "";
   const icon = partIconMarkup ? partIconMarkup(type, "data-component-icon", module?.rotation || 0) : "";
-  return `<div class="wiring-summary-line wiring-component-row data-component-row data-component-row-stacked data-row-${kind} data-row-${tone}" data-data-inspector="${kind}">
+  return `<div class="data-component-row data-component-row-stacked data-row-${kind} data-row-${tone}" data-data-inspector="${kind}">
     <div class="data-row-head">
       <div class="data-row-main">
         ${icon}
@@ -192,9 +305,10 @@ function componentRowHtml(kind, index, type, { label, tone }, detail) {
 export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}) {
   const sources = analysis?.sources || [];
   const weapons = analysis?.weapons || [];
-  const activeSources = sources.filter((s) => s.status === "active" || s.effectiveBudget > 0);
+  const activeSources = sources.filter(isDeliveringSource);
   const supportedWeapons = weapons.filter((w) => w.status === "supported");
 
+  // Only budget that actually reaches a weapon counts as delivered.
   let totalRange = 0, totalAccuracy = 0, totalFireRate = 0;
   activeSources.forEach((s) => {
     if (s.bonusField === "rangeBonus") totalRange += s.effectiveBudget;
@@ -213,11 +327,12 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
   } else if (unpoweredSources.length > 0) {
     statusText = unpoweredSources.length === sources.length ? "OFFLINE · SOURCE UNPOWERED" : "PARTIALLY ACTIVE · SOURCE UNPOWERED";
     statusClass = unpoweredSources.length === sources.length ? "data-badge-offline" : "data-badge-partially-active";
+  } else if (activeSources.length === 0) {
+    // Nothing is reaching a weapon, so this outranks any thermal derate.
+    statusText = "IDLE · NO LINKS";
+    statusClass = "data-badge-partially-active";
   } else if (reducedSources.length > 0) {
     statusText = "PARTIALLY ACTIVE · SOURCE REDUCED";
-    statusClass = "data-badge-partially-active";
-  } else if (activeSources.length === 0) {
-    statusText = "IDLE · NO LINKS";
     statusClass = "data-badge-partially-active";
   }
 
@@ -234,15 +349,15 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
         title: `${partName(s.sourceType)} is unpowered`,
         message: `Its ${formatDataSupportValue({ bonusField: s.bonusField, amount: s.nominalBudget })} ${s.effect} is not being distributed.`
       });
+    } else if (s.recipientCount === 0) {
+      warningCallouts.push({
+        title: `${partName(s.sourceType)} has no weapon recipients`,
+        message: `Its ${formatDataSupportValue({ bonusField: s.bonusField, amount: s.nominalBudget })} ${s.effect} is wasted until a weapon is linked.`
+      });
     } else if (s.thermalMultiplier < 1) {
       warningCallouts.push({
         title: `${partName(s.sourceType)} is thermally reduced`,
         message: "Predicted heat is limiting support distribution."
-      });
-    } else if (s.recipientCount === 0) {
-      warningCallouts.push({
-        title: `${partName(s.sourceType)} has no weapon recipients`,
-        message: "No eligible weapons are linked to receive support."
       });
     }
   });
@@ -255,7 +370,7 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
 
   let body = `<div id="data-support-live" aria-live="polite" class="sr-only">Data support prediction refreshed.</div>`;
 
-  body += `<section class="wiring-summary-section data-inspection-card" data-data-inspector="overview">
+  body += `<section class="data-panel-section data-inspection-card" data-data-inspector="overview">
     <div class="data-card-header">
       <span class="data-network-title">DATA SUPPORT</span>
       <span class="data-badge ${statusClass}">${escapeHtml(statusText)}</span>
@@ -269,7 +384,7 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
   </section>`;
 
   body += `<div class="data-components-card" data-data-inspector="components-card">
-    <h5 class="data-section-heading">NETWORK COMPONENTS</h5>
+    <h5 class="data-section-heading">LINKED COMPONENTS</h5>
     <div class="data-component-list">`;
   if (!sources.length && !weapons.length) {
     body += `<div class="data-delivered-empty">Add a Data-support component and a weapon to predict Data support.</div>`;
@@ -302,88 +417,98 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
     body += `</div>`;
   }
 
-  body += `<details class="wiring-analysis-expander wiring-advanced-details" data-wiring-details="advanced">
-    <summary aria-expanded="false" aria-controls="data-infra-content"><span>Infrastructure details</span></summary>
-    <div id="data-infra-content" class="wiring-summary-subsection data-infra-details">
+  body += `<details class="data-details" data-data-inspector="infrastructure">
+    <summary aria-controls="data-infra-content"><span>Link details</span></summary>
+    <div id="data-infra-content" class="data-infra-details">
       <div class="data-infra-row"><span>Direct links</span><strong>${(analysis?.links || []).length}</strong></div>
-      <div class="data-infra-row"><span>Wiring cost</span><strong>$0.00</strong></div>
-      <div class="data-infra-row"><span>Heat-capacity displacement</span><strong>0</strong></div>
-      <div class="data-infra-note">Direct Data Links do not use physical cable and have no capacity, flow or overload limits.</div>
+      <div class="data-infra-row"><span>Sources fitted</span><strong>${sources.length}</strong></div>
+      <div class="data-infra-row"><span>Weapons fitted</span><strong>${weapons.length}</strong></div>
+      <div class="data-infra-note">Data links are free and weightless: they add no cost, no mass and no heat, and have no capacity or overload limit.</div>
     </div>
   </details>`;
 
   if (selectedLinkKey) {
     const [s, t] = selectedLinkKey.split(":").map(Number);
-    body += `<section class="wiring-summary-section data-inspection-card" data-data-inspector="selected-link">
-      <h5>Selected link</h5>
-      <div class="wiring-summary-line">${moduleLabel(s)} → ${moduleLabel(t)}</div>
-      <div class="wiring-summary-line wiring-muted-text">Press Delete or Backspace to remove this link.</div>
+    body += `<section class="data-panel-section data-inspection-card" data-data-inspector="selected-link">
+      <h5 class="data-section-heading">Selected link</h5>
+      <div class="data-panel-line">${moduleLabel(s)} → ${moduleLabel(t)}</div>
+      <div class="data-panel-line data-muted-text">Press Delete or Backspace to remove this link.</div>
     </section>`;
   }
 
   return body;
 }
 
-// Blueprint inspector host for the Data analysis tab. `heat` is the designer's
-// already-computed thermal prediction so the tab does not re-run it.
-export function renderDataAnalysisPanel(host, { thermalAnalysis } = {}) {
+// The Blueprint's Data analysis tab is the only host for these cards. It owns
+// no wiring DOM, so Data support keeps working once wiring is removed.
+// `thermalAnalysis` is the designer's already-computed prediction, passed in so
+// the tab does not run a second thermal pass.
+export function renderDataAnalysisPanel(host = dom.dataAnalysisSummary, { thermalAnalysis, selectedLinkKey } = {}) {
   if (!host) return;
   let analysis;
   try {
     analysis = currentDataSupportAnalysis(thermalAnalysis ? { thermalAnalysis } : {});
   } catch (_) {
-    setPanelMarkup(host, `<div role="status" class="wiring-summary-line">Data support analysis could not be produced.</div>`);
+    setPanelMarkup(host, `<div role="status" class="data-panel-line">Data support analysis could not be produced.</div>`);
     return;
   }
-  setPanelMarkup(host, dataSupportPanelMarkup(analysis));
-}
-
-export function renderDataLinksPanel() {
-  const panel = dom.wiringStatusPanel;
-  if (!panel) return;
-  if (state.blueprintView !== "dataLinks") { panel.hidden = true; return; }
-  panel.hidden = false;
-  panel.tabIndex = -1;
-
-  let analysis;
-  try {
-    analysis = currentDataSupportAnalysis();
-  } catch (_) {
-    setPanelMarkup(panel, `<div role="status" class="wiring-summary-line">Data Links analysis could not be produced.</div>`);
-    return;
-  }
-
-  setPanelMarkup(panel, dataSupportPanelMarkup(analysis, { selectedLinkKey: dataLinksUiState.selectedLinkKey }));
+  setPanelMarkup(host, dataSupportPanelMarkup(analysis, {
+    selectedLinkKey: selectedLinkKey ?? (state.blueprintView === "dataLinks" ? dataLinksUiState.selectedLinkKey : null)
+  }));
 }
 
 export function refreshDataLinksPresentation() {
   if (state.blueprintView !== "dataLinks") return;
   renderDataLinksOverlay();
-  renderDataLinksPanel();
+  refreshDataLinksControls();
+  renderDataAnalysisPanel();
 }
 
-const dataLinksUiState = { drag: null, selectedLinkKey: null };
+const dataLinksUiState = { drag: null, selectedLinkKey: null, armedSourceIndex: null };
+
+export function resetDataLinksUiState() {
+  dataLinksUiState.drag = null;
+  dataLinksUiState.selectedLinkKey = null;
+  dataLinksUiState.armedSourceIndex = null;
+}
 
 function isDataLinksWeaponTargetValid(sourceIndex, targetIndex) {
   const s = state.design?.[sourceIndex]; const t = state.design?.[targetIndex];
-  return s && t && sourceIndex !== targetIndex && rules().isDataSupportSource(s.type) && rules().isWeapon(t, PART_STATS);
+  return Boolean(s && t && sourceIndex !== targetIndex && rules().isDataSupportSource(s.type) && rules().isWeapon(t, PART_STATS));
+}
+
+// A link edit changes predicted weapon stats and therefore the ship summary, so
+// the design is persisted and the whole designer presentation is refreshed.
+function commitDataLinks(next) {
+  state.dataLinks = rules().normalizeDataLinks(state.design, next, PART_STATS);
+  persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
+  refreshDataLinksPresentation();
+  renderLocalStats();
 }
 
 function addDataLink(sourceIndex, targetIndex) {
   if (!isDataLinksWeaponTargetValid(sourceIndex, targetIndex)) return false;
-  if (state.dataLinks.some((l) => l.sourceIndex === sourceIndex && l.targetIndex === targetIndex)) return false;
-  state.dataLinks = [...state.dataLinks, { sourceIndex, targetIndex }];
-  state.dataLinks = rules().normalizeDataLinks(state.design, state.dataLinks, PART_STATS);
-  persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
-  refreshDataLinksPresentation();
+  if (hasLink(sourceIndex, targetIndex)) return false;
+  commitDataLinks([...(state.dataLinks || []), { sourceIndex, targetIndex }]);
   return true;
 }
 
 function removeDataLink(sourceIndex, targetIndex) {
-  state.dataLinks = state.dataLinks.filter((l) => l.sourceIndex !== sourceIndex || l.targetIndex !== targetIndex);
-  state.dataLinks = rules().normalizeDataLinks(state.design, state.dataLinks, PART_STATS);
-  persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
-  refreshDataLinksPresentation();
+  commitDataLinks((state.dataLinks || []).filter((l) => l.sourceIndex !== sourceIndex || l.targetIndex !== targetIndex));
+}
+
+// Click-to-connect: clicking an eligible weapon while a source is armed adds
+// the link, and clicking an already-linked weapon takes it away again.
+function toggleDataLink(sourceIndex, targetIndex) {
+  if (!isDataLinksWeaponTargetValid(sourceIndex, targetIndex)) return false;
+  if (hasLink(sourceIndex, targetIndex)) { removeDataLink(sourceIndex, targetIndex); return true; }
+  return addDataLink(sourceIndex, targetIndex);
+}
+
+export function clearAllDataLinks() {
+  if (!(state.dataLinks || []).length) return;
+  dataLinksUiState.selectedLinkKey = null;
+  commitDataLinks([]);
 }
 
 function pointerGridPoint(clientX, clientY) {
@@ -411,41 +536,87 @@ function pointerGridPoint(clientX, clientY) {
   return { x: Math.max(0, Math.min(GRID_SIZE, x + fx)), y: Math.max(0, Math.min(GRID_SIZE, y + fy)) };
 }
 
+// Past this distance a press is a drag, not a click. Without it a sloppy click
+// on a source would arm and immediately disarm the source.
+const DRAG_THRESHOLD_CELLS = 0.35;
+
 function onDataLinksPointerDown(event) {
-  if (state.blueprintView !== "dataLinks") return;
-  const source = event.target.closest("[data-source-index]");
-  const link = event.target.closest("[data-link-key]");
-  if (source) {
+  if (state.blueprintView !== "dataLinks" || event.button !== 0) return;
+  const sourcePad = event.target.closest("[data-source-index]");
+  const targetPad = event.target.closest("[data-target-index]");
+  const linkLine = event.target.closest("[data-link-key]");
+
+  if (sourcePad) {
     event.preventDefault();
-    dataLinksUiState.drag = { sourceIndex: Number(source.dataset.sourceIndex) };
+    const sourceIndex = Number(sourcePad.dataset.sourceIndex);
+    // Press starts a potential drag; whether it was a click is decided on up.
+    dataLinksUiState.drag = { sourceIndex, origin: pointerGridPoint(event.clientX, event.clientY), moved: false };
     dataLinksUiState.selectedLinkKey = null;
-    dom.wiringOverlayHost?.setPointerCapture?.(event.pointerId);
+    dom.dataLinksOverlayHost?.setPointerCapture?.(event.pointerId);
     renderDataLinksOverlay();
-  } else if (link) {
-    dataLinksUiState.selectedLinkKey = link.dataset.linkKey;
+    return;
+  }
+
+  if (targetPad) {
+    // Clicking a weapon while a source is armed toggles that link.
+    const targetIndex = Number(targetPad.dataset.targetIndex);
+    const armed = dataLinksUiState.armedSourceIndex;
+    if (armed != null && isDataLinksWeaponTargetValid(armed, targetIndex)) {
+      event.preventDefault();
+      toggleDataLink(armed, targetIndex);
+    }
+    return;
+  }
+
+  if (linkLine) {
+    // Selecting a link is a different job from building new ones, so it drops
+    // any armed source rather than leaving two selections live at once.
+    dataLinksUiState.selectedLinkKey = linkLine.dataset.linkKey;
+    dataLinksUiState.armedSourceIndex = null;
     dataLinksUiState.drag = null;
-    renderDataLinksOverlay();
-    renderDataLinksPanel();
+    refreshDataLinksPresentation();
+    return;
+  }
+
+  // Empty space clears the working selection.
+  if (dataLinksUiState.armedSourceIndex != null || dataLinksUiState.selectedLinkKey) {
+    dataLinksUiState.armedSourceIndex = null;
+    dataLinksUiState.selectedLinkKey = null;
+    refreshDataLinksPresentation();
   }
 }
 
 function onDataLinksPointerMove(event) {
   if (state.blueprintView !== "dataLinks" || !dataLinksUiState.drag) return;
-  const p = pointerGridPoint(event.clientX, event.clientY);
-  dataLinksUiState.drag.pointer = p;
+  const point = pointerGridPoint(event.clientX, event.clientY);
+  const origin = dataLinksUiState.drag.origin;
+  if (point && origin && Math.hypot(point.x - origin.x, point.y - origin.y) > DRAG_THRESHOLD_CELLS) {
+    dataLinksUiState.drag.moved = true;
+  }
+  // Only trail a rubber band once the press has become a real drag.
+  dataLinksUiState.drag.pointer = dataLinksUiState.drag.moved ? point : null;
   renderDataLinksOverlay();
 }
 
 function onDataLinksPointerUp(event) {
   if (state.blueprintView !== "dataLinks" || !dataLinksUiState.drag) return;
-  const target = event.target.closest("[data-target-index]");
-  if (target) {
-    const t = Number(target.dataset.targetIndex);
-    if (isDataLinksWeaponTargetValid(dataLinksUiState.drag.sourceIndex, t)) addDataLink(dataLinksUiState.drag.sourceIndex, t);
-  }
+  const { sourceIndex, moved } = dataLinksUiState.drag;
   dataLinksUiState.drag = null;
-  renderDataLinksOverlay();
-  renderDataLinksPanel();
+
+  if (moved) {
+    // Drag-to-connect: release over a weapon links it.
+    const targetIndex = componentIndexAtGridPoint(pointerGridPoint(event.clientX, event.clientY));
+    if (targetIndex != null && isDataLinksWeaponTargetValid(sourceIndex, targetIndex)) {
+      dataLinksUiState.armedSourceIndex = sourceIndex;
+      addDataLink(sourceIndex, targetIndex);
+      return;
+    }
+    dataLinksUiState.armedSourceIndex = sourceIndex;
+  } else {
+    // Click-to-connect: toggle this source as the armed one.
+    dataLinksUiState.armedSourceIndex = dataLinksUiState.armedSourceIndex === sourceIndex ? null : sourceIndex;
+  }
+  refreshDataLinksPresentation();
 }
 
 function onDataLinksKeyDown(event) {
@@ -453,21 +624,26 @@ function onDataLinksKeyDown(event) {
   if (event.key === "Escape") {
     dataLinksUiState.drag = null;
     dataLinksUiState.selectedLinkKey = null;
-    renderDataLinksOverlay();
-    renderDataLinksPanel();
+    dataLinksUiState.armedSourceIndex = null;
+    refreshDataLinksPresentation();
+    return;
   }
   if ((event.key === "Delete" || event.key === "Backspace") && dataLinksUiState.selectedLinkKey) {
+    event.preventDefault();
     const [s, t] = dataLinksUiState.selectedLinkKey.split(":").map(Number);
-    removeDataLink(s, t);
     dataLinksUiState.selectedLinkKey = null;
+    removeDataLink(s, t);
   }
 }
 
 export function initDataLinksUi() {
-  if (dom.wiringOverlayHost?.dataset.dataLinksBound) return;
-  dom.wiringOverlayHost?.addEventListener("pointerdown", onDataLinksPointerDown);
-  dom.wiringOverlayHost?.addEventListener("pointermove", onDataLinksPointerMove);
-  dom.wiringOverlayHost?.addEventListener("pointerup", onDataLinksPointerUp);
+  const host = dom.dataLinksOverlayHost;
+  if (!host || host.dataset.dataLinksBound) return;
+  host.addEventListener("pointerdown", onDataLinksPointerDown);
+  host.addEventListener("pointermove", onDataLinksPointerMove);
+  host.addEventListener("pointerup", onDataLinksPointerUp);
+  host.addEventListener("pointercancel", () => { dataLinksUiState.drag = null; renderDataLinksOverlay(); });
   document.addEventListener("keydown", onDataLinksKeyDown);
-  if (dom.wiringOverlayHost) dom.wiringOverlayHost.dataset.dataLinksBound = "1";
+  dom.dataLinksClearButton?.addEventListener("click", clearAllDataLinks);
+  host.dataset.dataLinksBound = "1";
 }

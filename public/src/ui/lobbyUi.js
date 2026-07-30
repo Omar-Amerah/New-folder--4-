@@ -659,6 +659,7 @@ export function deployDesign() {
       type: "deploy",
       design: state.design,
       wiring: state.wiring,
+      dataLinks: state.dataLinks,
       combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "hold"
     });
     if (!sent) {

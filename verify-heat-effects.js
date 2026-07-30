@@ -16,7 +16,7 @@ assert.strictEqual(HeatRules.passiveProtectionForState(S.HOT), 0.85, "Hot passiv
 assert.strictEqual(HeatRules.activeCoolingForState(S.OVERHEATED), 0, "Overheated active cooling is 0");
 assert.strictEqual(Number(HeatRules.structuralDamageMultiplierForState(S.OVERHEATED).toFixed(2)), 1.60, "Overheated structure takes x1.60");
 
-function shipFor(design, id="s", ownerId="a") { const ship={ id, ownerId, design, x:500,y:500, angle:0, alive:true, shield:0, vx:0, vy:0, radius:30 }; ship.stats={...computeStats(design)}; ship.maxShield=ship.stats.maxShield||0; health.initComponentState(ship); heat.initShipHeat(ship); ship.weaponCooldowns=design.map(()=>0); ship.weaponAngles=design.map(()=>0); ship.weaponDesiredAngles=[]; ship.weaponAimTargetIds=[]; ship.weaponFireTargetIds=[]; ship.beamEffectsAt=[]; return ship; }
+function shipFor(design, id="s", ownerId="a") { const ship={ id, ownerId, design, x:500,y:500, angle:0, alive:true, shield:0, vx:0, vy:0, radius:30 }; ship.stats={...computeStats(design)}; ship.maxShield=ship.stats.maxShield||0; health.initComponentState(ship); heat.initShipHeat(ship); ship.weaponCooldowns=design.map(()=>0); ship.weaponAngles=design.map(()=>0); ship.weaponDesiredAngles=[]; ship.weaponAimTargetIds=[]; ship.weaponFireTargetIds=[]; ship.weaponAcquiredTargetIds=design.map(()=>null); ship.weaponPendingTargetIds=design.map(()=>null); ship.weaponAcquireCompleteAt=design.map(()=>0); ship.beamEffectsAt=[]; return ship; }
 function roomFor(ships){ return { world:{width:2000,height:2000}, effects:[], bullets:[], missiles:[], players:new Map([["a",{id:"a",team:"a",ships:ships.filter(s=>s.ownerId==="a")}],["b",{id:"b",team:"b",ships:ships.filter(s=>s.ownerId==="b")}]]), rngState:1, safeZones:[], asteroids:[], rules:{} }; }
 
 // Active output: overheated weapons cannot fire and generate no firing heat.
@@ -27,6 +27,7 @@ const fullPower = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"blaster"}],"full
 const halfPower = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"blaster"}],"half","a");
 for (const ship of [fullPower, halfPower]) ship.componentPower = { byComponentIndex: [{ operationalMultiplier: 1 }, { operationalMultiplier: ship === halfPower ? 0.5 : 1 }] };
 const weaponTarget = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"frame"}],"weapon-target","b"); weaponTarget.x = 700;
+fullPower.weaponAcquiredTargetIds[1] = weaponTarget.id; halfPower.weaponAcquiredTargetIds[1] = weaponTarget.id;
 combat.updateShipWeapons(roomFor([fullPower,weaponTarget]), fullPower, [fullPower,weaponTarget], 1, 1000);
 combat.updateShipWeapons(roomFor([halfPower,weaponTarget]), halfPower, [halfPower,weaponTarget], 1, 1000);
 assert(fullPower.weaponCooldowns[1] > 0, "powered cool projectile weapon fires");

@@ -627,12 +627,17 @@
               <div id="thermalScenarioLabel" class="sr-only" aria-live="polite" hidden></div>
                 </div>
               </div>
+              <div id="dataLinksToolbar" class="data-links-toolbar" role="toolbar" aria-label="Data Links editor" hidden>
+                <small id="dataLinksHint" class="data-links-hint" aria-live="polite"></small>
+                <button type="button" id="dataLinksClearButton" class="data-links-clear">Clear all links</button>
+              </div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGridStage" class="build-grid-stage">
                 <div id="emptyGridInstruction" class="empty-grid-instruction" aria-hidden="true" hidden><strong>Choose a component, then left-click a grid cell to place it.</strong><span>Click the same component again or press R to rotate · Right-click to remove</span></div>
                 <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
                 <div id="heatFlowOverlayHost" class="heat-flow-overlay-host" aria-hidden="true"></div>
                 <div id="wiringOverlayHost" class="wiring-overlay-host"></div>
+                <div id="dataLinksOverlayHost" class="data-links-overlay-host"></div>
                 <div id="blueprintThermalHud" class="blueprint-thermal-hud" hidden></div>
                 <div id="heatContextCard" class="heat-context-card" hidden></div>
                 <div id="wiringHoverCard" class="wiring-hover-card" role="status" hidden></div>

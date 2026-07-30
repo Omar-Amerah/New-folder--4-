@@ -14,10 +14,10 @@ function createRuntimeShip(fixture) {
     design: clone(fixture.design), wiring: clone(fixture.wiring), stats: { maxHp: 1000 }, weaponCooldowns: [] };
   initComponentState(ship);
   Heat.initShipHeat(ship);
-  Power.initializeComponentPower(ship);
+  Power.applyShipPowerAllocation(ship);
   delete ship._activityDemandByIndex;
   Power.applyShipPowerAllocation(ship);
-  Data.rebuildShipDataTopology(ship, "fixture-runtime");
+  Power.rebuildShipWiringState(ship, "fixture-runtime", { skipRuntimeStats: true });
   return ship;
 }
 function applyFullPower(ship) { delete ship._activityDemandByIndex; Power.applyShipPowerAllocation(ship); Data.refreshShipDataAllocation(ship, "full-power"); return ship.componentPower; }

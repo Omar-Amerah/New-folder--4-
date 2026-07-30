@@ -554,6 +554,134 @@ function run() {
       `the group should form a firing line, not a ring (${(spread * 180 / Math.PI).toFixed(0)} deg of arc)`);
   }
 
+  // A group must engage when it is in range, exactly as a single ship does.
+  //
+  // The firing line is a way of arriving, not a formation to be held once the
+  // shooting can start. Requiring a slotted ship to reach its slot before it
+  // counted as engaged looked reasonable and produced the opposite of Hold: the
+  // slot is recomputed from the target's live position every tick, so against a
+  // target that is moving at all the slot moves too, arrival never latches, and
+  // the group flies at a point it can never reach while sitting well inside
+  // weapons range the whole time. Worse, following a slot placed at 90% of reach
+  // means backing away from an enemy that closes -- the one thing Hold must
+  // never do. A single ship was never slotted, so it behaved correctly, which is
+  // how the difference was reported.
+  {
+    const measure = (count) => {
+      const attackers = [];
+      for (let i = 0; i < count; i += 1) attackers.push(makeShip(1000, 1700 + i * 130, 0));
+      const enemy = makeShip(4000, 2000, Math.PI, UNARMED_DESIGN, "p2");
+      const { room, ships, players } = makeScenario({ p1: attackers, p2: [enemy] });
+      commandShips(room, players.get("p1"), enemy.x, enemy.y, {
+        shipIds: attackers.map((s) => s.id),
+        targetId: enemy.id
+      });
+      const reach = getMaxEffectiveWeaponRange(attackers[0]);
+
+      // Distance each ship covers AFTER it is first inside weapons range. The
+      // symptom is a ship still manoeuvring when it could already be shooting.
+      const armed = new Set();
+      const travelled = new Map();
+      const previous = new Map();
+      simulate(room, ships, 20, () => {
+        enemy.x -= 60 * DT; // a target that is moving is what moves the slot
+        for (const ship of attackers) {
+          if (rangeTo(ship, enemy) <= reach) armed.add(ship.id);
+          if (!armed.has(ship.id)) continue;
+          const was = previous.get(ship.id);
+          if (was) {
+            travelled.set(ship.id,
+              (travelled.get(ship.id) || 0) + Math.hypot(ship.x - was.x, ship.y - was.y));
+          }
+          previous.set(ship.id, { x: ship.x, y: ship.y });
+        }
+      });
+      return { attackers, enemy, travelled };
+    };
+
+    const lone = measure(1);
+    const loneTravel = lone.travelled.get(lone.attackers[0].id) || 0;
+    assert(lone.attackers[0].movement.holdEngaged, "sanity: a single ship engages");
+
+    const group = measure(4);
+    for (const ship of group.attackers) {
+      assert(ship.movement.holdEngaged,
+        `${ship.id}: a ship in a group must engage once in range, not fly on to its slot`);
+      const travel = group.travelled.get(ship.id) || 0;
+      assert(travel < loneTravel + 250,
+        `${ship.id} kept manoeuvring inside weapons range (${travel.toFixed(0)} px, against ${loneTravel.toFixed(0)} px for a lone ship)`);
+    }
+  }
+
+  // A finished formation move does not become a firing line.
+  //
+  // A move order carries a formationHeading too -- the course the group walked.
+  // Reading that as a firing-line bearing made every ship of a group that
+  // completed a move and then acquired targets of its own derive the *same*
+  // firing point, from a heading that had nothing to do with the enemy, and fly
+  // onto it in a heap.
+  {
+    // Spread the group ACROSS the approach, not along it: four ships stacked
+    // along the line to the enemy would each derive nearly the same standoff
+    // point from their own bearing too, and the fixture would measure nothing.
+    const attackers = [];
+    for (let i = 0; i < 4; i += 1) attackers.push(makeShip(1000, 500 + i * 1000, 0));
+    const enemy = makeShip(5000, 2000, Math.PI, UNARMED_DESIGN, "p2");
+    const { room, ships, players } = makeScenario({ p1: attackers, p2: [enemy] });
+    commandShips(room, players.get("p1"), 3000, 2000, {
+      shipIds: attackers.map((s) => s.id)
+    });
+    simulate(room, ships, 40);
+    for (const ship of attackers) {
+      assert(ship.movement.command?.type === "move" && ship.movement.orderComplete,
+        `sanity: ${ship.id} should have finished a formation move`);
+      // Combat publishes its acquisition; movement only reads it.
+      ship.combatTargetId = enemy.id;
+    }
+    simulate(room, ships, 60);
+
+    let closestPair = Infinity;
+    for (let i = 0; i < attackers.length; i += 1) {
+      for (let j = i + 1; j < attackers.length; j += 1) {
+        closestPair = Math.min(closestPair, rangeTo(attackers[i], attackers[j]));
+      }
+    }
+    const contact = attackers[0].physicalRadius * 2;
+    assert(closestPair > contact,
+      `a group auto-engaging after a move must not converge on one point (closest pair ${closestPair.toFixed(1)} px, hulls ${contact.toFixed(1)} px)`);
+    for (const ship of attackers) {
+      assert(rangeTo(ship, enemy) <= getMaxEffectiveWeaponRange(ship),
+        `${ship.id} should reach its own firing position (${rangeTo(ship, enemy).toFixed(0)} px)`);
+    }
+  }
+
+  // ...but a hostile between the ship and the target it was sent at IS steered
+  // around. That is the one case where an enemy is an obstacle: the player named
+  // something to shoot, and another enemy is in the way of getting to it.
+  {
+    const attacker = makeShip(1000, 2000, 0);
+    const reach = getMaxEffectiveWeaponRange(attacker);
+    const screen = makeShip(1000 + reach * 1.6, 2000, Math.PI, UNARMED_DESIGN, "p2");
+    const target = makeShip(1000 + reach * 3.2, 2000, Math.PI, UNARMED_DESIGN, "p2");
+    const { room, ships, players } = makeScenario({ p1: [attacker], p2: [screen, target] });
+    commandShips(room, players.get("p1"), target.x, target.y, {
+      shipIds: [attacker.id],
+      targetId: target.id
+    });
+
+    let closest = Infinity;
+    let steered = false;
+    simulate(room, ships, 60, () => {
+      closest = Math.min(closest, rangeTo(attacker, screen));
+      if (attacker._avoidance?.side) steered = true;
+    });
+    assert(steered, "an enemy screening the target should be steered around");
+    assert(closest > attacker.physicalRadius + screen.physicalRadius,
+      `...without ramming it (passed at ${closest.toFixed(1)} px)`);
+    assert(rangeTo(attacker, target) <= reach,
+      `...and the attacker should still reach a firing position (${rangeTo(attacker, target).toFixed(0)} px)`);
+  }
+
   // Ships already in range do not shuffle to tidy the formation.
   {
     const attackers = [];

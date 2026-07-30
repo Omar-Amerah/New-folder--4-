@@ -13,6 +13,8 @@
 @import url(./styles/build-preview.css);
 @import url(./styles/component-shapes.css);
 @import url(./styles/wiring-editor.css?v=data-analysis-restore-1);
+/* Data support stands alone: it must keep working once wiring is removed. */
+@import url(./styles/data-support.css?v=data-analysis-restore-1);
 
 /* Scale Blueprint interface chrome independently; the grid stage and all
    geometry used for placement, Heat and Wiring remain at 100%. */

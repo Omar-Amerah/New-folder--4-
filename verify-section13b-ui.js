@@ -2,6 +2,7 @@
 const assert = require("assert");
 const fs = require("fs");
 require('./public/src/shared/featureFlags.js');
+globalThis.MfaFeatureFlags = { ...globalThis.MfaFeatureFlags, WIRING_ENABLED: true };
 
 globalThis.document = { getElementById() { return { style: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false;} }, addEventListener(){}, setAttribute(){}, getContext(){ return null; } }; }, createElement() { return { style: {}, appendChild(){}, setAttribute(){}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false;} } }; } };
 globalThis.window = globalThis;

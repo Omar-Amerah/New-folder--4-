@@ -72,6 +72,7 @@ function makeShip(design, overrides = {}) {
   );
   attacker.weaponCooldowns = [0, 0];
   attacker.weaponAngles = [0, 0];
+  attacker.weaponAcquiredTargetIds = [null, "t"];
 
   const target = makeShip(
     [

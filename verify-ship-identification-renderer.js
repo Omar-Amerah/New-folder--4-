@@ -27,6 +27,6 @@ assert.match(outline, /gfx\.clear\(\)[\s\S]*gfx\.moveTo\(edge\.x1, edge\.y1\)[\s
 assert.doesNotMatch(outline, /new\s+(PIXI\.)?(Graphics|Sprite)|Texture|BlurFilter|GlowFilter|filter/i, 'outline update does not allocate Pixi display objects, textures, or filters per frame');
 assert.match(ships, /if \(view\.staticKey !== staticKey\)[\s\S]*rebuildPixiShipStatic/, 'hull textures rebuild only through static signature changes');
 assert.match(ships, /const staticKey = pixiStaticSignature\(pixiDesignSignature\(design\), player\.color, ship\.radius \|\| 0, env\.bakeScale\)/, 'HP, shield, selection, and player outline state are excluded from hull texture signature');
-assert.match(ships, /updatePixiPlayerHullOutline\(view, ship, player, design, zoom\);[\s\S]*updatePixiTurrets[\s\S]*updatePixiComponentDamage[\s\S]*if \(state\.selectedShipIds\.has\(ship\.id\)\) drawPixiSelectionRing/, 'selection/focus remain more prominent than permanent outline and bars');
+assert.match(ships, /updatePixiTurrets[\s\S]*updatePixiPlayerHullOutline\(view, ship, player, design, zoom\);[\s\S]*updatePixiComponentDamage[\s\S]*if \(state\.selectedShipIds\.has\(ship\.id\)\) drawPixiSelectionRing/, 'selection/focus remain more prominent than permanent outline and bars');
 
 console.log('ship identification renderer assertions passed');

@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 // Phases 5, 6 and 7.
 //
@@ -316,6 +316,51 @@ function run() {
     }
   }
 
+  // Avoidance is for friendlies. A plain move is not bent around hostiles.
+  //
+  // A move order is the player pointing at a spot: the ship goes there, past
+  // whatever happens to be in the way, and only the map -- asteroids, stations,
+  // the world edge -- is allowed to bend the course. Treating enemies as
+  // obstacles during ordinary movement curved a straight run by 109 px around a
+  // ship the player had never mentioned. Hostiles are steered around only when
+  // the ship has been sent at one (see verify-movement-phase8911).
+  //
+  // Note the fixtures elsewhere in this section: they read as p1-versus-p2 but
+  // every ship defaults to ownerId "p1", so they are friendly-avoidance cases.
+  // The owner has to be passed explicitly to make a real enemy.
+  {
+    // The blocker sits just off the track: outside hull contact, so nothing is
+    // rammed and separation never fires, but inside the clearance avoidance
+    // wants -- so the only thing that can bend the course is avoidance itself.
+    const straightLine = (blockerOwner) => {
+      const mover = makeShip(1500, 2000, 0);
+      const blocker = makeShip(2600, 2095, Math.PI, DESIGN, blockerOwner);
+      const groups = blockerOwner === "p1"
+        ? { p1: [mover, blocker] }
+        : { p1: [mover], p2: [blocker] };
+      const { room, players } = makeScenario(groups);
+      commandShips(room, players.get("p1"), 3800, 2000, { shipIds: [mover.id] });
+      let deviation = 0;
+      simulate(room, [mover, blocker], 40, () => {
+        deviation = Math.max(deviation, Math.abs(mover.y - 2000));
+      });
+      return { deviation, mover };
+    };
+
+    const pastEnemy = straightLine("p2");
+    assert(pastEnemy.deviation < 5,
+      `a plain move must not steer around an enemy (deviated ${pastEnemy.deviation.toFixed(1)} px)`);
+    assert(Math.hypot(pastEnemy.mover.x - 3800, pastEnemy.mover.y - 2000) <= ARRIVE_DISTANCE + 8,
+      "...and must still arrive");
+
+    // The control: the identical geometry with a friendly in the way is steered
+    // around, so the assertion above is measuring the rule and not a fixture in
+    // which nothing would have happened anyway.
+    const pastFriend = straightLine("p1");
+    assert(pastFriend.deviation > 20,
+      `a friendly in the same place should still be avoided (deviated ${pastFriend.deviation.toFixed(1)} px)`);
+  }
+
   // A rotating ship surrounded by stopped friendlies must not panic.
   {
     const centre = makeShip(2000, 2000, 0);
@@ -436,3 +481,4 @@ function run() {
 }
 
 run();
+

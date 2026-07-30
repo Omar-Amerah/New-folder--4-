@@ -167,12 +167,20 @@ function requirementsMarkup(model) {
       <span>${escapeHtml(requirement.detail)}</span>
     </div>`).join("");
 
+  const failures = model.requirements
+    .filter((requirement) => requirement.status === "unmet" && requirement.failureText)
+    .map((requirement) => `
+    <span class="part-requirement-failure" data-requirement-failure="${escapeHtml(requirement.id)}">
+      ${escapeHtml(requirement.label)} unmet: ${escapeHtml(requirement.failureText)}
+    </span>`).join("");
+
   return `
     <section class="part-requirements" aria-label="Requirements">
       <div class="part-requirements-row">
         <h4 class="part-section-heading part-requirements-heading">Requirements</h4>
         <div class="part-requirement-chips">${chips}</div>
       </div>
+      ${failures ? `<div class="part-requirement-failures">${failures}</div>` : ""}
       ${tips}
     </section>`;
 }

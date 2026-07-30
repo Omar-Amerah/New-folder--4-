@@ -74,7 +74,8 @@ const {
   WORLD_MARGIN
 } = require("./movementTuning");
 const { circularShipSeparation } = require("./performanceFlags");
-const { getMaxEffectiveWeaponRange } = require("./componentData");
+const { getMaxEffectiveWeaponRange, shipHasArmedProximityCharge } = require("./componentData");
+const { sanitizeCombatStyle } = require("./validation");
 const {
   applyEngineHeat,
   applyTurnHeat,
@@ -170,6 +171,18 @@ const FORMATION_HEADING_SPREAD = 0.55;
 // Grid spacing between destination slots, on top of the widest hull in the
 // selection, so a capital and a corvette in the same order both get room.
 const SLOT_SPACING_PAD = 12;
+
+// --- Charge ------------------------------------------------------------------
+// How far short of touching a charging ship stops when it has no demolition
+// charge aboard. Small enough to read as "alongside", large enough that the
+// separation solver is not correcting an overlap every tick for the whole fight.
+// A ship that IS carrying a charge uses none of this and drives into contact.
+const CHARGE_STANDOFF_PAD = 30;
+// ...and how far the target may open up before the charger gets under way
+// again. Narrow on purpose: a charger is already touching its target, so the
+// only thing this has to absorb is separation jitter, and anything wider reads
+// as the ship losing interest.
+const CHARGE_CLING_SLACK = 24;
 
 // --- Route following ---------------------------------------------------------
 // How far ahead of a corner a ship starts cutting toward the next leg. Scaled by
@@ -358,7 +371,12 @@ function moveSpeedToward(ship, desiredSpeed, speedCeiling, stats, dt) {
   // No working engines, no helm: the wreck coasts on the momentum it has. It
   // must not fall through to the driveAcceleration floor, which would let it
   // both accelerate and re-point its whole velocity along its nose.
-  if (!hasDrive(stats)) return;
+  if (!hasDrive(stats)) {
+    const damping = 0.05;
+    ship.vx = (ship.vx || 0) * (1 - damping * dt);
+    ship.vy = (ship.vy || 0) * (1 - damping * dt);
+    return;
+  }
 
   const target = Math.max(0, desiredSpeed);
   const ceiling = Math.max(target, Number.isFinite(speedCeiling) ? speedCeiling : target);
@@ -518,25 +536,41 @@ function refreshEngagement(room, ship, runtime, now) {
 
 // Is the ship close enough to settle here and open fire?
 //
-// A lone ship stops the moment it is inside its reach -- that is the whole of
-// Hold, and there is nowhere in particular it needs to be.
+// Being in range beats having somewhere to be. Every ship stops the moment it is
+// inside its reach, whether it is alone or holds a place on a group's firing
+// line -- the firing line is a way of arriving, not a formation to be maintained
+// once the shooting can start.
 //
-// A ship with a place on a group's firing line has somewhere to be, and only
-// counts as established once it has got there. Coming into range half way to
-// its slot is not a reason to abandon it: doing that leaves ships stopped
-// wherever they happened to cross the range ring, several of them parked across
-// the paths of the ones still coming, and the formation never forms. Ships that
-// were already in range when the order was given are latched at that moment
-// instead (see issueAttack), so they never relocate to tidy the line -- which is
-// the case that rule is actually for.
+// This used to require a slotted ship to reach its slot first, on the reasoning
+// that a ship stopping the instant it crossed the range ring leaves the line
+// half formed. It is the wrong trade, and it produced the worse failure: the
+// slot is recomputed from the target's live position every tick, so against an
+// enemy that is moving at all the slot moves too, `arrived` never latches, and
+// the whole group flies at a point it can never reach while sitting comfortably
+// inside weapons range the entire time. A single ship, which was never slotted,
+// engaged correctly -- which is exactly how it was reported.
 //
-// The arrival test is against `resume`, not `enter`: a ship stops its arrival
-// radius short of its slot, which is fractionally outside the range the slot was
-// placed at, and a strict test there would never fire.
+// The arrival test is the remaining half: between `enter` and `resume` a ship
+// that has reached its slot counts as established, because a ship stops its
+// arrival radius short of a slot placed at `enter` and a strict test there would
+// never fire.
 function canEngageFromHere(runtime, distance, enter, resume) {
-  const slotted = Number.isFinite(runtime.command?.formationHeading);
-  if (slotted) return runtime.arrived && distance <= resume;
-  return distance <= enter || (runtime.arrived && distance <= resume);
+  if (distance <= enter) return true;
+  return runtime.arrived && distance <= resume;
+}
+
+// The place this ship was given on a group's firing line, or null if it has
+// none.
+//
+// Scoped to the order that actually handed one out. A formation *move* carries a
+// formationHeading too, and that one is the course the group was walking -- not a
+// bearing on anything worth shooting. Reading it here meant a group that finished
+// a move and then acquired targets of its own derived one shared firing point
+// from a stale travel heading, and every ship in the group flew at it.
+function firingSlot(command) {
+  if (command?.type !== "attack") return null;
+  if (!Number.isFinite(command.formationHeading)) return null;
+  return { approach: command.formationHeading + Math.PI, lateral: command.firingLateral };
 }
 
 // Where to stand to shoot: on the line from the target back toward the attacker,
@@ -553,9 +587,8 @@ function canEngageFromHere(runtime, distance, enter, resume) {
 // measuring from each ship's own bearing spreads them evenly around the target,
 // which looks wrong and cannot concentrate fire.
 function firingPosition(ship, target, runtime, command, standoff) {
-  if (Number.isFinite(command?.formationHeading)) {
-    return firingPoint(target, command.formationHeading + Math.PI, command.firingLateral, standoff);
-  }
+  const slot = firingSlot(command);
+  if (slot) return firingPoint(target, slot.approach, slot.lateral, standoff);
   const held = runtime.engageApproach;
   if (held && held.targetId === target.id) {
     return firingPoint(target, held.approach, 0, standoff);
@@ -864,10 +897,34 @@ function yieldsTo(ship, other) {
   return compareEntityIds(ship, other) > 0;
 }
 
+// Which neighbours this ship will steer around.
+//
+// Friendlies, always: a fleet under way has to flow through itself, and that is
+// what Phases 5 and 6 are for.
+//
+// Enemies, only while the ship has been sent at one. A plain move is a plain
+// move -- the player pointed at a spot and the ship goes there, past whatever is
+// in the way, and only the map itself (asteroids, stations, the world edge) is
+// allowed to bend the course. Treating hostiles as obstacles during ordinary
+// movement measurably curved a straight 4000 px run by 109 px around a ship the
+// player had not mentioned, which reads as the fleet flinching.
+//
+// The one exception is the target itself. A ship closing on something it was
+// told to attack must not dodge the thing it is attacking; it stops at standoff
+// range, and hull contact is the separation solver's problem, not steering's.
+function avoidanceCandidates(room, ship, runtime) {
+  const engagement = runtime ? engagementTarget(room, ship, runtime) : null;
+  const explicit = engagement?.explicit ? engagement.target : null;
+  return (other) => {
+    if (!areEntityEnemies(room, ship.ownerId, other)) return true;
+    return Boolean(explicit) && other !== explicit;
+  };
+}
+
 // The nearest threat by time to closest approach, or null. A neighbour that is
 // merely nearby is not a threat: the pair has to be predicted to come inside
 // their combined clearance while still closing.
-function findAvoidanceThreat(room, ship, stats) {
+function findAvoidanceThreat(room, ship, stats, accepts) {
   if (!room.spatialIndex?.dynamicValid || !room.spatialIndex.queryRangeUnordered) return null;
   const speed = Math.abs(forwardSpeedOf(ship));
   // A ship holding station or turning on the spot is not on a collision course
@@ -886,6 +943,7 @@ function findAvoidanceThreat(room, ship, stats) {
   let best = null;
   for (const other of nearby) {
     if (!other?.alive || other === ship) continue;
+    if (accepts && !accepts(other)) continue;
     const rx = other.x - ship.x;
     const ry = other.y - ship.y;
     const rvx = (other.vx || 0) - (ship.vx || 0);
@@ -912,9 +970,9 @@ function findAvoidanceThreat(room, ship, stats) {
 
 // A bounded nudge, or the identity. Committed to a side for a fixed window so a
 // dodge stands for its whole duration rather than being re-argued every tick.
-function computeAvoidance(room, ship, stats, now) {
+function computeAvoidance(room, ship, runtime, stats, now) {
   const identity = { headingOffset: 0, speedMultiplier: 1 };
-  const threat = findAvoidanceThreat(room, ship, stats);
+  const threat = findAvoidanceThreat(room, ship, stats, avoidanceCandidates(room, ship, runtime));
   const state = ship._avoidance
     || (ship._avoidance = { side: 0, committedUntil: 0, severity: 0 });
   if (!threat) {
@@ -1039,6 +1097,13 @@ function bearingTo(ship, point) {
 // would otherwise pick, and targetLocks.js drops it when sensor fog takes the
 // contact away.
 
+// Which stance is flying this ship. Anything the controller does not implement
+// has already been resolved to Hold by sanitizeCombatStyle, so this only ever
+// returns something there is code for.
+function combatStance(ship) {
+  return sanitizeCombatStyle(ship?.combatStyle);
+}
+
 // How close this ship needs to be to fight, and how far the target may drift
 // before it is worth chasing again.
 //
@@ -1047,13 +1112,33 @@ function bearingTo(ship, point) {
 // stays put whatever the target does short of leaving. Two separate ratios give
 // that behaviour a dead band -- without one, a target hovering near the edge
 // makes the ship start and abandon an approach every second.
+//
+// Charge ignores weapon reach entirely and closes until it is alongside. How far
+// "alongside" is depends on what the hull is carrying:
+//
+//   * A demolition charge, either size, means the ship is the weapon. It drives
+//     until the hulls are touching and lets the trigger radius do the rest.
+//   * Anything else stops a hair short, so a brawl is two ships alongside each
+//     other rather than two hulls grinding through the separation solver for the
+//     rest of the fight.
+//
+// The dead band for Charge is deliberately narrow. Hold's exists so a target
+// loitering near the edge of a 500 px envelope cannot restart an approach every
+// second; a charger is already touching its target, so the only thing the band
+// has to absorb is separation jitter. Anything wider would read as the ship
+// letting go.
 function engagementRanges(ship, target, type) {
+  const hull = physicalCollisionRadius(ship) + physicalCollisionRadius(target);
+  if (type !== "repair" && combatStance(ship) === "charge") {
+    const enter = hull + (shipHasArmedProximityCharge(ship) ? 0 : CHARGE_STANDOFF_PAD);
+    return { enter, resume: enter + CHARGE_CLING_SLACK };
+  }
   const reach = type === "repair"
     ? (Number(ship.stats?.repairRange) || 0)
     : getMaxEffectiveWeaponRange(ship);
   // A ship with nothing that reaches still has to stop somewhere short of
   // wearing its target as a hat.
-  const contact = physicalCollisionRadius(ship) + physicalCollisionRadius(target) + REPAIR_STANDOFF_PAD;
+  const contact = hull + REPAIR_STANDOFF_PAD;
   const enter = Math.max(contact, reach * HOLD_RANGE_RATIO);
   return { enter, resume: Math.max(contact, reach * HOLD_RESUME_RATIO) };
 }
@@ -1303,7 +1388,7 @@ function updateShipMovement(room, ship, dt, now) {
 
   // Also once per tick: the spatial query is the expensive part, and a threat
   // that is worth dodging does not appear and vanish inside a single frame.
-  const avoidance = computeAvoidance(room, ship, stats, ship._simNow);
+  const avoidance = computeAvoidance(room, ship, runtime, stats, ship._simNow);
 
   // Ceil, not round: the substep is an upper bound on integration error, and a
   // tick that rounded down would silently integrate more coarsely than the rest.

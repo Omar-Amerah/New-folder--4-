@@ -43,6 +43,16 @@ function ship(design, paths = [], overrides = {}) {
   require("./src/server/componentData").refreshShipDataAllocation(s, "test-explicit-power");
   s.weaponCooldowns = design.map(() => 0);
   s.weaponAngles = design.map(() => 0);
+  s.weaponAimTargetIds = design.map(() => null);
+  s.weaponFireTargetIds = design.map(() => null);
+  s.weaponAcquiredTargetIds = design.map(() => null);
+  s.weaponPendingTargetIds = design.map(() => null);
+  s.weaponAcquireCompleteAt = design.map(() => 0);
+  s.pdAimTargetIds = design.map(() => null);
+  s.pdAcquiredTargetIds = design.map(() => null);
+  s.pdPendingTargetIds = design.map(() => null);
+  s.pdAcquireCompleteAt = design.map(() => 0);
+  s.pdReactionReadyAt = design.map(() => 0);
   return s;
 }
 
@@ -90,11 +100,13 @@ let r = room();
 design = [mod("signalAmplifier", 7, 6), mod("railgun", 7, 7)];
 s = ship(design, [[{ x: 7, y: 6 }, { x: 7, y: 7 }]], { x: 0, y: 0 });
 let e = enemyAt(PARTS.railgun.weapon.range + 25, 0); r.ships.set(s.id, s); r.ships.set(e.id, e);
+s.weaponAcquiredTargetIds[1] = e.id;
 updateShipWeapons(r, s, [s, e], 10, 1000);
 assert.equal(r.bullets.length, 1, "supported railgun fires beyond base range");
 close(r.bullets[0].life, getEffectiveWeaponStats(s, 1).range / (PARTS.railgun.weapon.projectileSpeed || 1080), "projectile life uses effective range");
 
 r = room(0); s = ship([mod("targetingComputer", 7, 6), mod("blaster", 7, 7)], [[{ x: 7, y: 6 }, { x: 7, y: 7 }]], { x: 0, y: 0 }); e = enemyAt(300, 0); r.ships.set(s.id, s); r.ships.set(e.id, e);
+s.weaponAcquiredTargetIds[1] = e.id;
 updateShipWeapons(r, s, [s, e], 10, 1000);
 close(bulletAngle(r.bullets[0]), -spreadScale(getEffectiveWeaponStats(s, 1), "blaster"), "blaster deterministic spread uses effective accuracy");
 close(s.weaponCooldowns[1], 1 / getEffectiveWeaponStats(s, 1).fireRate, "accuracy support does not affect cooldown");
@@ -107,6 +119,7 @@ let paths = [[{ x: 7, y: 6 }, { x: 7, y: 7 }]];
 let snap = snapshot(design, wire(design, paths));
 s = ship(design, paths);
 r = room(0); r.bullets.push({ id: "m", type: "missile", interceptable: true, hp: 20, life: 5, ownerId: "p2", x: 180, y: 0 });
+s.pdAcquiredTargetIds[1] = "m";
 updateShipWeapons(r, s, [s], 10, 1000);
 assert(getEffectiveWeaponStats(s, 1).accuracy >= PARTS.pointDefense.weapon.accuracy, "PD effective accuracy at or above base");
 assert.equal(r.bullets.length, 1, "hitscan PD spawns no interceptor projectile");
@@ -115,6 +128,7 @@ close(r.bullets[0].hp, 20 - PARTS.pointDefense.weapon.damage, "hitscan PD applie
 assertSnapshot(snap, design, wire(design, paths), "supported PD accuracy");
 
 r = room(0); s = ship([mod("pointDefense", 7, 7)], []); r.bullets.push({ id: "m2", type: "missile", interceptable: true, hp: 20, life: 5, ownerId: "p2", x: 180, y: 0 });
+s.pdAcquiredTargetIds[1] = "m2";
 updateShipWeapons(r, s, [s], 10, 1000);
 assert.equal(r.bullets.length, 1, "unsupported hitscan PD spawns no interceptor projectile");
 close(r.bullets[0].hp, 20 - PARTS.pointDefense.weapon.damage, "unsupported hitscan PD applies base damage to the missile");
@@ -135,6 +149,7 @@ assert(getEffectiveWeaponStats(s, 1).accuracy >= PARTS.pointDefense.weapon.accur
 // Test 3: PD fire-rate support controls its own cooldown exactly once.
 design = [mod("fireControl", 7, 6), mod("pointDefense", 7, 7)];
 s = ship(design, [[{ x: 7, y: 6 }, { x: 7, y: 7 }]]); r = room(); r.bullets.push({ id: "m", type: "missile", interceptable: true, life: 5, ownerId: "p2", x: 180, y: 0 });
+s.pdAcquiredTargetIds[1] = "m";
 updateShipWeapons(r, s, [s], 10, 1000);
 close(s.weaponCooldowns[1], Math.max(0.05, 1 / (PARTS.pointDefense.weapon.fireRate * (1 + budget("fireControl")))), "PD cooldown uses allocated fire rate");
 
@@ -142,12 +157,14 @@ close(s.weaponCooldowns[1], Math.max(0.05, 1 / (PARTS.pointDefense.weapon.fireRa
 design = [mod("fireControl", 7, 5), mod("pointDefense", 7, 6), mod("pointDefense", 7, 8)];
 s = ship(design, [[{ x: 7, y: 5 }, { x: 7, y: 6 }]]); r = room(); r.bullets.push({ id: "m", type: "missile", interceptable: true, life: 5, ownerId: "p2", x: 180, y: 0 });
 s.weaponCooldowns[2] = 999;
+s.pdAcquiredTargetIds[1] = "m";
 updateShipWeapons(r, s, [s], 10, 1000);
 const pdASupportedReload = Math.max(0.05, 1 / getEffectiveWeaponStats(s, 1).fireRate);
 close(s.weaponCooldowns[1], pdASupportedReload, "PD A supported reload");
 close(getWeaponDataSupport(s, 2).fireRateBonus, 0, "PD B receives no PD A fire-rate bonus");
 close(s.weaponCooldowns[2], 989, "longer PD B cooldown is not overwritten by stagger");
 s.weaponCooldowns[1] = 999; s.weaponCooldowns[2] = 0; r.bullets = [{ id: "m2", type: "missile", interceptable: true, life: 5, ownerId: "p2", x: 180, y: 0 }];
+s.pdAcquiredTargetIds[2] = "m2";
 updateShipWeapons(r, s, [s], 10, 2000);
 close(s.weaponCooldowns[2], Math.max(0.05, 1 / PARTS.pointDefense.weapon.fireRate), "PD B own full reload remains base when it fires");
 
@@ -157,8 +174,9 @@ function beamTick(design, paths) {
   const rm = room(); rm.ships.set(attacker.id, attacker); rm.ships.set(target.id, target);
   const beforeHp = target.hp;
   const beforeHeat = attacker.componentHeatInput.slice();
-  updateShipWeapons(rm, attacker, [attacker, target], 0.5, 1000);
   const beamIndex = design.findIndex((m) => PARTS[m.type]?.weapon?.type === "beam");
+  attacker.weaponAcquiredTargetIds[beamIndex] = target.id;
+  updateShipWeapons(rm, attacker, [attacker, target], 0.5, 1000);
   return { damage: beforeHp - target.hp, heat: attacker.componentHeatInput[beamIndex] - beforeHeat[beamIndex], attacker, target };
 }
 
@@ -188,6 +206,7 @@ close(getEffectiveWeaponStats(s, 3).fireRate / PARTS.missile.weapon.fireRate, 1 
 design = [mod("signalAmplifier", 7, 5), mod("fireControl", 7, 6), mod("targetingComputer", 7, 7), mod("missile", 7, 8), mod("fireControl", 0, 0), mod("blaster", 0, 1)];
 paths = [[{ x: 7, y: 5 }, { x: 7, y: 6 }, { x: 7, y: 7 }, { x: 7, y: 8 }], [{ x: 0, y: 0 }, { x: 0, y: 1 }]];
 s = ship(design, paths); e = enemyAt(PARTS.missile.weapon.range + 10, 0); r = room(0); r.ships.set(s.id, s); r.ships.set(e.id, e);
+s.weaponAcquiredTargetIds[3] = e.id;
 updateShipWeapons(r, s, [s, e], 10, 1000);
 assert.equal(r.bullets[0].type, "missile", "supported missile fires through actual path beyond base range");
 close(r.bullets[0].life, getEffectiveWeaponStats(s, 3).range / PARTS.missile.weapon.projectileSpeed, "missile lifetime uses effective range");

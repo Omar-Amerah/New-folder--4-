@@ -58,7 +58,16 @@ function createMockShip(id, ownerId, x, y, angle = 0, design = null) {
       unitCost: 100,
       weaponDps: 20
     },
-    componentPower: { byComponentIndex: defaultDesign.map(() => ({ operationalMultiplier: 1 })) }
+    componentPower: { byComponentIndex: defaultDesign.map(() => ({ operationalMultiplier: 1 })) },
+    weaponCooldowns: defaultDesign.map(() => 0),
+    weaponAngles: defaultDesign.map(() => 0),
+    weaponDesiredAngles: [],
+    weaponAimTargetIds: defaultDesign.map(() => null),
+    weaponFireTargetIds: defaultDesign.map(() => null),
+    weaponAcquiredTargetIds: defaultDesign.map(() => null),
+    weaponPendingTargetIds: defaultDesign.map(() => null),
+    weaponAcquireCompleteAt: defaultDesign.map(() => 0),
+    weaponBeamContacts: []
   };
 
   initComponentState(ship);
@@ -313,6 +322,7 @@ function runTests() {
     room.ships.set(shooter.id, shooter);
     room.ships.set(target1.id, target1);
     room.ships.set(target2.id, target2);
+    shooter.weaponAcquiredTargetIds[1] = target1.id;
 
     // Run 2 ticks to complete turret rotation and establish active beam contact
     updateShipWeapons(room, shooter, [shooter, target1, target2], 0.2, 1000);

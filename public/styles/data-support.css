@@ -1,0 +1,534 @@
+/* Data-support presentation: the Blueprint's Data analysis tab and the Data
+   Links view render the same cards from this stylesheet. Deliberately free of
+   any dependency on wiring-editor.css so Data survives without wiring. */
+
+/* ---- Data Links grid overlay ---- */
+
+.data-links-overlay-host {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 21;
+}
+
+/* Only the active view accepts input, so the Build grid keeps its own clicks. */
+.data-links-overlay-host.is-active {
+  pointer-events: auto;
+}
+
+.data-links-overlay {
+  position: absolute;
+  /* Match the grid's padding box, like the heat-flow overlay. */
+  inset: 8px;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  overflow: visible;
+}
+
+/* Dim components while linking so links and candidate rings stay readable. */
+.build-grid.data-links-active .build-cell {
+  filter: brightness(0.78) saturate(0.85);
+}
+
+.data-link-line {
+  fill: none;
+  stroke: #22d3ee;
+  stroke-width: 0.1;
+  stroke-linecap: round;
+  stroke-dasharray: 0.25 0.15;
+  opacity: 0.95;
+}
+
+.data-link-line.is-selected {
+  stroke: #f472b6;
+  stroke-width: 0.16;
+  opacity: 1;
+}
+
+.data-link-line.is-dim {
+  opacity: 0.22;
+}
+
+/* Invisible click target for a dashed link line. */
+.data-link-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 0.34;
+  stroke-linecap: round;
+}
+
+.data-link-line.is-pending {
+  stroke-width: 0.08;
+  opacity: 0.65;
+  stroke-dasharray: 0.2 0.1;
+}
+
+/* Halo around the source the player is currently working with. */
+.data-link-source-halo {
+  fill: rgba(34, 211, 238, 0.14);
+  stroke: #22d3ee;
+  stroke-width: 0.07;
+}
+
+/* Ring on every weapon that source can reach. */
+.data-link-candidate {
+  fill: none;
+  stroke: #86efac;
+  stroke-width: 0.07;
+  stroke-dasharray: 0.16 0.12;
+  opacity: 0.9;
+}
+
+.data-link-candidate.is-linked {
+  fill: rgba(34, 211, 238, 0.16);
+  stroke: #22d3ee;
+  stroke-dasharray: none;
+}
+
+/* Invisible whole-footprint hit targets. */
+.data-link-pad {
+  fill: transparent;
+}
+
+.data-link-pad-source.is-active,
+.data-link-pad-target.is-active {
+  fill: rgba(34, 211, 238, 0.05);
+}
+
+/* ---- Data Links toolbar ---- */
+
+.data-links-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  width: 100%;
+}
+
+.data-links-toolbar[hidden] {
+  display: none;
+}
+
+.data-links-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #9db4d6;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.data-links-clear {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid rgba(126, 160, 210, 0.28);
+  border-radius: 6px;
+  background: rgba(20, 32, 52, 0.6);
+  color: #cfe8ff;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.data-links-clear:hover:not(:disabled) {
+  border-color: rgba(0, 229, 255, 0.5);
+  background: rgba(0, 229, 255, 0.12);
+  color: #9eefff;
+}
+
+.data-links-clear:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.data-links-clear:focus-visible {
+  outline: 2px solid #00e5ff;
+  outline-offset: 2px;
+}
+
+.data-support-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.data-panel-section {
+  border-top: 1px solid rgba(126, 160, 210, 0.18);
+  padding-top: 6px;
+}
+
+.data-panel-line {
+  margin-bottom: 4px;
+  color: #9db4d6;
+  font-size: 12px;
+}
+
+.data-muted-text {
+  color: #7e9ac0;
+  font-size: 11px;
+}
+
+.data-inspection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(10, 18, 30, 0.85);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 6px;
+}
+
+.data-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* The status badge never wraps its own text, so let it drop to a second line
+     rather than widening the card past the inspector column. */
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-bottom: 2px;
+}
+
+.data-network-title {
+  color: #00e5ff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.data-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.data-badge-active,
+.badge-active {
+  background: rgba(0, 230, 118, 0.12);
+  color: #00e676;
+  border: 1px solid rgba(0, 230, 118, 0.32);
+}
+
+.data-badge-partially-active,
+.badge-reduced {
+  background: rgba(255, 193, 7, 0.12);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.32);
+}
+
+.data-badge-offline,
+.badge-offline {
+  background: rgba(255, 82, 82, 0.12);
+  color: #ff5252;
+  border: 1px solid rgba(255, 82, 82, 0.32);
+}
+
+.badge-neutral {
+  background: rgba(142, 166, 200, 0.12);
+  color: #8ea6c8;
+  border: 1px solid rgba(142, 166, 200, 0.24);
+}
+
+/* Summary stats cells */
+.data-summary-stats {
+  display: grid;
+  /* minmax(0, …) lets the nowrap stat values ellipsize instead of stretching
+     the grid past its container. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.data-stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  background: rgba(20, 32, 52, 0.55);
+  border: 1px solid rgba(126, 160, 210, 0.16);
+  border-radius: 6px;
+}
+
+.data-stat-label {
+  color: #8ea6c8;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.data-stat-value {
+  color: #e6eefb;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-stat-active {
+  color: #00e5ff;
+}
+
+.data-stat-none {
+  color: #8ea6c8;
+  font-weight: 500;
+}
+
+/* Component roster and delivered totals */
+.data-components-card,
+.data-delivered-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-section-heading {
+  color: #8ea6c8;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.data-component-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.data-component-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 6px 10px;
+  background: rgba(16, 26, 42, 0.6);
+  border: 1px solid rgba(126, 160, 210, 0.14);
+  border-radius: 5px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.data-component-row:hover {
+  background: rgba(22, 36, 58, 0.75);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+
+/* Component rows carry a name/status line plus the allocation arithmetic that
+   produced that status underneath it. */
+.data-component-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.data-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.data-component-detail {
+  color: #728aa8;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.data-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.data-component-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.data-component-name {
+  color: #d7e4f5;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-component-coords {
+  color: #728aa8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.data-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.data-status-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Delivered support */
+.data-delivered-empty {
+  padding: 8px 12px;
+  background: rgba(16, 26, 42, 0.4);
+  border: 1px dashed rgba(126, 160, 210, 0.2);
+  border-radius: 5px;
+  color: #8ea6c8;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.data-delivered-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.data-effect-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: rgba(0, 229, 255, 0.1);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 4px;
+  color: #00e5ff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Warnings */
+.data-warnings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-warning-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(255, 193, 7, 0.08);
+  border-left: 3px solid #ffc107;
+  border-top: 1px solid rgba(255, 193, 7, 0.18);
+  border-right: 1px solid rgba(255, 193, 7, 0.18);
+  border-bottom: 1px solid rgba(255, 193, 7, 0.18);
+  border-radius: 4px;
+}
+
+.data-warning-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffc107;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.data-warning-msg {
+  color: #d7e4f5;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Collapsible footer detail */
+.data-details {
+  border-bottom: 1px solid rgba(126, 160, 210, 0.15);
+}
+
+.data-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 2px;
+  color: #bdd0ea;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.data-details > summary::-webkit-details-marker { display: none; }
+
+.data-details > summary:focus-visible {
+  outline: 2px solid #ffd166;
+  outline-offset: 2px;
+}
+
+.data-infra-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.data-infra-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #8ea6c8;
+  font-size: 12px;
+}
+
+.data-infra-row strong {
+  color: #e6eefb;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-infra-note {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(20, 32, 52, 0.5);
+  border: 1px solid rgba(126, 160, 210, 0.12);
+  border-radius: 4px;
+  color: #728aa8;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 480px) {
+  .data-summary-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .data-row-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

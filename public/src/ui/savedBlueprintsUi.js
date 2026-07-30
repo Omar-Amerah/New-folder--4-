@@ -5,6 +5,7 @@ import { state } from "../state.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
 import { normalizeDesign, normalizeDesignDetailed, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
+import { PART_STATS } from "../design/parts.js";
 import { notify } from "./toastUi.js";
 import { renderLoadoutManager } from "./purchaseUi.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
@@ -542,6 +543,9 @@ function doLoadSavedDesign(id, editSource = true) {
   // Load an independent copy of the saved wiring alongside the modules, and
   // drop wiring-editor selection/undo state that referenced the old design.
   state.wiring = normalizeWiring(saved.wiring, valid);
+  // Data links are stored as component indices, so they only mean anything
+  // against the modules they were saved with. Re-normalize against those.
+  state.dataLinks = globalThis.DataSupportRules?.normalizeDataLinks(valid, saved.dataLinks, PART_STATS) || [];
   resetWiringEditorState();
   clearPhysicalBlueprintHistory();
   invalidateHeatAnalysisCache();
@@ -667,6 +671,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
       ...design,
       blueprint,
       wiring,
+      dataLinks: state.dataLinks,
       combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
@@ -685,6 +690,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
       name,
       blueprint,
       wiring,
+      dataLinks: state.dataLinks,
       combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
       weapons: weaponAbbrevText(stats),
@@ -703,7 +709,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   }
   const repaired = state.designNeedsAttention;
   if (repaired) {
-    const repairedOk = persistDesignImpl(state.design, state.wiring, state.combatStyle);
+    const repairedOk = persistDesignImpl(state.design, state.wiring, state.dataLinks, state.combatStyle);
     if (!repairedOk) {
       notify.warning("Could not save repaired blueprint. Please try again.");
       return false;
@@ -715,7 +721,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   }
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: blueprint, wiring, combatStyle: state.combatStyle || "hold" });
+    send({ type: "deploy", design: blueprint, wiring, dataLinks: state.dataLinks, combatStyle: state.combatStyle || "hold" });
   }
 
   captureEditorBaseline();
