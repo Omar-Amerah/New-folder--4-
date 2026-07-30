@@ -89,6 +89,39 @@ function invalidateShipCollisionGeometry(ship) {
   if (!ship) return;
   ship._collisionGeometry = null;
   ship._componentCellWorldCoords = null;
+  ship._projectileCollisionGrid = null;
+}
+
+const GRID_SIZE = 15;
+const GRID_CENTER = 7;
+
+function buildProjectileCollisionGrid(ship) {
+  const design = ship.design || [];
+  const designRevision = Number(ship.designRevision) || 1;
+  const cellOccupants = [];
+  for (let i = 0; i < GRID_SIZE * GRID_SIZE; i += 1) cellOccupants.push([]);
+  let occupiedCellCount = 0;
+  for (let i = 0; i < design.length; i += 1) {
+    const module = design[i];
+    for (const cell of componentCellLocalCoords(module)) {
+      const gx = Math.round(cell.y / MODULE_SCALE + GRID_CENTER);
+      const gy = Math.round(GRID_CENTER - cell.x / MODULE_SCALE);
+      if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) continue;
+      cellOccupants[gy * GRID_SIZE + gx].push({ componentIndex: i, localX: cell.x, localY: cell.y });
+      occupiedCellCount += 1;
+    }
+  }
+  return { designRevision, width: GRID_SIZE, height: GRID_SIZE, cellOccupants, occupiedCellCount };
+}
+
+function ensureProjectileCollisionGrid(ship) {
+  if (!ship) return null;
+  const designRevision = Number(ship.designRevision) || 1;
+  const cache = ship._projectileCollisionGrid;
+  if (cache && cache.designRevision === designRevision) return cache;
+  const next = buildProjectileCollisionGrid(ship);
+  ship._projectileCollisionGrid = next;
+  return next;
 }
 
 function ensureLocalGeometry(cache, ship, design) {
@@ -244,5 +277,6 @@ module.exports = {
   shipHullCircles,
   findShipHullOverlap,
   invalidateShipCollisionGeometry,
-  shieldRadiusForShip
+  shieldRadiusForShip,
+  ensureProjectileCollisionGrid
 };

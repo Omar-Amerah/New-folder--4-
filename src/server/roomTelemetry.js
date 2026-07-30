@@ -15,7 +15,20 @@ const DURATION_FIELDS = Object.freeze([
   "separationMapCollisionMs",
   "separationSpatialRebuildMs",
   "movementMapCollisionMs",
-  "shieldRuntimeMs"
+  "shieldRuntimeMs",
+  "projectileIntegrationMs",
+  "missileGuidanceMs",
+  "projectileMapQueryMs",
+  "projectileShipBroadPhaseMs",
+  "projectileShipNarrowPhaseMs",
+  "projectileStationCollisionMs",
+  "projectileDroneCollisionMs",
+  "projectileInterceptionMs",
+  "flakEventSelectionMs",
+  "flakExplosionMs",
+  "projectileCleanupMs",
+  "projectileSnapshotConstructionMs",
+  "projectileSnapshotEncodingMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -47,7 +60,38 @@ const COUNTER_FIELDS = Object.freeze([
   "shieldDerivedStatCalculations",
   "shieldDerivedStatCacheHits",
   "shieldDerivedStatCacheMisses",
-  "shieldDerivedStatVerificationFailures"
+  "shieldDerivedStatVerificationFailures",
+
+  // Phase Two projectile counters and durations
+  "projectilesVisited",
+  "ballisticProjectilesVisited",
+  "missilesVisited",
+  "flakProjectilesVisited",
+  "pointDefenceProjectilesVisited",
+  "missileGuidanceDeferred",
+  "asteroidQueries",
+  "shipQueries",
+  "stationQueries",
+  "droneQueries",
+  "interceptableProjectileQueries",
+  "candidateShipsReturned",
+  "candidateStationsReturned",
+  "candidateDronesReturned",
+  "candidateProjectilesReturned",
+  "hullBroadPhaseHits",
+  "shieldBubbleTests",
+  "componentCellsTested",
+  "componentGridCellsVisited",
+  "flakCandidatesTested",
+  "flakEventsCompared",
+  "flakSortOperations",
+  "projectilesCreated",
+  "projectilesRemoved",
+  "projectileSpawnMessages",
+  "projectileRemoveMessages",
+  "projectileCorrectionMessages",
+  "projectileFullBaselineEntries",
+  "projectileCompactEntries"
 ]);
 
 const ALL_FIELDS = Object.freeze([...DURATION_FIELDS, ...COUNTER_FIELDS]);

@@ -1,8 +1,14 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
-const { clampNumber, rotateToward, fastHypot, compareIdStrings } = require("./utils");
-const { bump } = require("./roomTelemetry");
-const { getShipCollisionGeometry, COMPONENT_CELL_COLLISION_RADIUS } = require("./componentGeometry");
+const { clampNumber, rotateToward, fastHypot, compareIdStrings, performanceNow, round } = require("./utils");
+const { bump, recordDuration, setCounter } = require("./roomTelemetry");
+const {
+  PROJECTILE_FLAK_SINGLE_PASS,
+  PROJECTILE_GUIDANCE_CADENCE,
+  PROJECTILE_GRID_COLLISION,
+  PROJECTILE_EVENT_REPLICATION
+} = require("./performanceFlags");
+const { getShipCollisionGeometry, COMPONENT_CELL_COLLISION_RADIUS, MODULE_SCALE, ensureProjectileCollisionGrid } = require("./componentGeometry");
 const { getLiveShips } = require("./ships");
 const { buildRoomSpatialIndex } = require("./spatialIndex");
 const Relationships = require("./relationships");
@@ -72,9 +78,39 @@ function removeProjectilesByOwner(room, ownerId) {
   room._projectileSpare = source;
 }
 
+function emitProjectileEvent(room, event) {
+  if (!room || !PROJECTILE_EVENT_REPLICATION()) return;
+  if (!room.projectileEvents) room.projectileEvents = [];
+  room.projectileEventSeq = (room.projectileEventSeq || 0) + 1;
+  event.seq = room.projectileEventSeq;
+  room.projectileEvents.push(event);
+  if (event.type === "spawn") bump(room, "projectileSpawnMessages");
+  else if (event.type === "remove") bump(room, "projectileRemoveMessages");
+  else if (event.type === "correction") bump(room, "projectileCorrectionMessages");
+}
+
 function addBullet(room, bullet) {
   bullet.id = `b${room.nextEntityId++}`;
   room.bullets.push(bullet);
+  bump(room, "projectilesCreated");
+  if (PROJECTILE_EVENT_REPLICATION()) {
+    bullet._spawnEventEmitted = true;
+    bullet.bornAt = bullet.bornAt == null ? performanceNow() : bullet.bornAt;
+    bullet.lastCorrectionAt = bullet.bornAt;
+    emitProjectileEvent(room, {
+      type: "spawn",
+      id: bullet.id,
+      ownerId: bullet.ownerId,
+      bulletType: bullet.type,
+      subtype: bullet.subtype,
+      x: round(bullet.x),
+      y: round(bullet.y),
+      vx: round(bullet.vx),
+      vy: round(bullet.vy),
+      age: 0,
+      life: bullet.life
+    });
+  }
   ensureProjectileLookup(room).set(bullet.id, bullet);
   const spatialIndex = room.spatialIndex;
   if (spatialIndex?.dynamicValid && typeof spatialIndex.append === "function" && bullet.life > 0) {
@@ -89,6 +125,11 @@ function addBullet(room, bullet) {
 
 function discardBullet(room, lookup, bullet) {
   if (bullet?.id) lookup.delete(bullet.id);
+  bump(room, "projectilesRemoved");
+  if (PROJECTILE_EVENT_REPLICATION() && bullet && bullet.id && !bullet._removeEventEmitted) {
+    bullet._removeEventEmitted = true;
+    emitProjectileEvent(room, { type: "remove", id: bullet.id });
+  }
   room.spatialIndex?.remove?.("projectiles", bullet);
   if (bullet?.interceptable) room.spatialIndex?.remove?.("interceptableProjectiles", bullet);
 }
@@ -130,9 +171,13 @@ function shieldCollisionRadius(ship) {
 }
 
 function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIndex, scratch = []) {
+  const mapStart = performanceNow();
   const margin = bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
   let hit = null;
-  if (spatialIndex) bump(room, "projectileSpatialQueries");
+  if (spatialIndex) {
+    bump(room, "projectileSpatialQueries");
+    bump(room, "asteroidQueries");
+  }
   const asteroids = spatialIndex
     ? spatialIndex.querySweptAabbUnordered("asteroids", x1, y1, bullet.x, bullet.y, margin, scratch)
     : (room.map?.asteroids || []);
@@ -142,7 +187,93 @@ function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIn
     if (!impact) continue;
     if (!hit || impact.t < hit.t) hit = impact;
   }
+  recordDuration(room, "projectileMapQueryMs", mapStart);
   return hit;
+}
+
+const GRID_SIZE = 15;
+const GRID_CENTER = 7;
+
+function worldToLocal(ship, wx, wy) {
+  const dx = wx - ship.x;
+  const dy = wy - ship.y;
+  const c = Math.cos(ship.angle || 0);
+  const s = Math.sin(ship.angle || 0);
+  return { x: dx * c + dy * s, y: -dx * s + dy * c };
+}
+
+function findOldComponentHit(ship, x1, y1, x2, y2, hitRadius) {
+  const geometry = getShipCollisionGeometry(ship);
+  const cellCoords = geometry.worldCells;
+  const componentHp = ship.componentHp;
+  let moduleHit = null;
+  let componentCellTests = 0;
+  for (const i of geometry.liveComponentIndices) {
+    if (componentHp && componentHp[i] <= 0) continue;
+    const cells = cellCoords[i];
+    componentCellTests += cells.length;
+    for (let c = 0; c < cells.length; c += 1) {
+      const cell = cells[c];
+      const hit = segmentCircleHit(x1, y1, x2, y2, cell.x, cell.y, COMPONENT_CELL_COLLISION_RADIUS + hitRadius);
+      if (hit && (!moduleHit || hit.t < moduleHit.t || (hit.t === moduleHit.t && i < moduleHit.index))) {
+        moduleHit = { ...hit, index: i };
+      }
+    }
+  }
+  return { hit: moduleHit, componentCellTests };
+}
+
+function findGridComponentHit(ship, x1, y1, x2, y2, hitRadius) {
+  const grid = ensureProjectileCollisionGrid(ship);
+  if (!grid) return findOldComponentHit(ship, x1, y1, x2, y2, hitRadius);
+  const a = worldToLocal(ship, x1, y1);
+  const b = worldToLocal(ship, x2, y2);
+  const padding = COMPONENT_CELL_COLLISION_RADIUS + hitRadius + MODULE_SCALE;
+  const minX = Math.min(a.x, b.x) - padding;
+  const maxX = Math.max(a.x, b.x) + padding;
+  const minY = Math.min(a.y, b.y) - padding;
+  const maxY = Math.max(a.y, b.y) + padding;
+  const gMinX = Math.max(0, Math.floor(minY / MODULE_SCALE + GRID_CENTER) - 1);
+  const gMaxX = Math.min(GRID_SIZE - 1, Math.ceil(maxY / MODULE_SCALE + GRID_CENTER) + 1);
+  const gMinY = Math.max(0, Math.floor(GRID_CENTER - maxX / MODULE_SCALE) - 1);
+  const gMaxY = Math.min(GRID_SIZE - 1, Math.ceil(GRID_CENTER - minX / MODULE_SCALE) + 1);
+  const candidates = new Set();
+  for (let gy = gMinY; gy <= gMaxY; gy += 1) {
+    const rowOffset = gy * GRID_SIZE;
+    for (let gx = gMinX; gx <= gMaxX; gx += 1) {
+      for (const occupant of grid.cellOccupants[rowOffset + gx]) {
+        candidates.add(occupant.componentIndex);
+      }
+    }
+  }
+  const geometry = getShipCollisionGeometry(ship);
+  const componentHp = ship.componentHp;
+  const cellCoords = geometry.worldCells;
+  let moduleHit = null;
+  let componentCellTests = 0;
+  for (const i of geometry.liveComponentIndices) {
+    if (!candidates.has(i)) continue;
+    if (componentHp && componentHp[i] <= 0) continue;
+    const cells = cellCoords[i];
+    componentCellTests += cells.length;
+    for (let c = 0; c < cells.length; c += 1) {
+      const cell = cells[c];
+      const hit = segmentCircleHit(x1, y1, x2, y2, cell.x, cell.y, COMPONENT_CELL_COLLISION_RADIUS + hitRadius);
+      if (hit && (!moduleHit || hit.t < moduleHit.t || (hit.t === moduleHit.t && i < moduleHit.index))) {
+        moduleHit = { ...hit, index: i };
+      }
+    }
+  }
+  return { hit: moduleHit, componentCellTests };
+}
+
+function compareModuleHits(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.index !== b.index) return false;
+  if (Math.abs(a.t - b.t) > 1e-6) return false;
+  if (Math.abs(a.x - b.x) > 0.01 || Math.abs(a.y - b.y) > 0.01) return false;
+  return true;
 }
 
 function segmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
@@ -272,6 +403,7 @@ function updateBullets(room, dt, now) {
     for (const st of stList) pushEvent(st, "station", true);
     for (const st of stList) pushEvent(st, "station", false);
     events.push({ t: 1, x: bullet.x, y: bullet.y, kind: null, entity: null, direct: false });
+    bump(room, "flakSortOperations");
     events.sort((a, b) => {
       if (a.t !== b.t) return a.t - b.t;
       if (a.direct !== b.direct) return a.direct ? -1 : 1;
@@ -281,7 +413,98 @@ function updateBullets(room, dt, now) {
     });
     const best = events[0];
     const candidates = events.reduce((sum, e) => sum + (!e.direct && e.kind && e.t < 1 ? 1 : 0), 0);
+    bump(room, "flakCandidatesTested", candidates);
+    bump(room, "flakEventsCompared", Math.max(0, events.length - 1));
     return { ...best, candidates };
+  }
+
+  function findFlakEventSinglePass(bullet, previousX, previousY, spatial, scratch) {
+    const fuseR = Math.max(0, Number(bullet.proximityFuseRadius) || 0);
+    const best = room._flakBestEventScratch || (room._flakBestEventScratch = { t: 1, x: bullet.x, y: bullet.y, kind: null, entity: null, direct: false, entityId: "", candidates: 0 });
+    best.t = 1;
+    best.x = bullet.x;
+    best.y = bullet.y;
+    best.kind = null;
+    best.entity = null;
+    best.direct = false;
+    best.entityId = "";
+    best.candidates = 0;
+
+    function considerEvent(t, x, y, kind, entity, direct) {
+      if (t < 0 || t > 1 || !Number.isFinite(t)) return;
+      if (!direct && kind) best.candidates += 1;
+      const entityId = String(entity?.id || kind || "");
+      if (t < best.t) {
+        best.t = t;
+        best.x = x;
+        best.y = y;
+        best.kind = kind;
+        best.entity = entity;
+        best.direct = direct;
+        best.entityId = entityId;
+      } else if (t === best.t) {
+        if (direct && !best.direct) {
+          best.direct = true;
+          best.kind = kind;
+          best.entity = entity;
+          best.x = x;
+          best.y = y;
+          best.entityId = entityId;
+        } else if (direct === best.direct && compareIdStrings(entityId, best.entityId) < 0) {
+          best.kind = kind;
+          best.entity = entity;
+          best.x = x;
+          best.y = y;
+          best.entityId = entityId;
+        }
+      }
+    }
+
+    const asteroid = projectileMapImpact(room, previousX, previousY, bullet, spatial, scratch.asteroids);
+    if (asteroid) considerEvent(asteroid.t, asteroid.x, asteroid.y, "asteroid", null, true);
+
+    function testCandidates(list, kind, key) {
+      for (const entity of list) {
+        if (entity === bullet) continue;
+        if (kind === "ship" && (!entity.alive || entity.destroyed)) continue;
+        if (kind === "station" && (!entity || entity.alive === false || entity.state === "disabled")) continue;
+        if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) continue;
+        if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) continue;
+        if (kind === "station") {
+          if (!Relationships.areEntityEnemies(room, bullet.ownerId, entity)) continue;
+        } else if (kind !== "asteroid" && !areEnemies(room, bullet.ownerId, entity.ownerId)) {
+          continue;
+        }
+        const radius = flakRadiusFor(entity, kind);
+        const directHit = kind === "station" && entity.shield < SHIELD_HIT_MIN
+          ? segmentStationHullHit(entity, previousX, previousY, bullet.x, bullet.y, 0)
+          : segmentCircleHit(previousX, previousY, bullet.x, bullet.y, entity.x, entity.y, radius);
+        if (directHit) considerEvent(directHit.t, directHit.x, directHit.y, kind, entity, true);
+        const proxHit = kind === "station" && entity.shield < SHIELD_HIT_MIN
+          ? segmentStationHullHit(entity, previousX, previousY, bullet.x, bullet.y, fuseR)
+          : segmentCircleHit(previousX, previousY, bullet.x, bullet.y, entity.x, entity.y, radius + fuseR);
+        if (proxHit) considerEvent(proxHit.t, proxHit.x, proxHit.y, kind, entity, false);
+      }
+    }
+
+    const pList = spatial
+      ? spatial.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.interceptableProjectiles)
+      : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
+    testCandidates(pList, "projectile", "interceptableProjectiles");
+    const dList = spatial
+      ? spatial.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.drones)
+      : (room.drones?.values?.() || []);
+    testCandidates(dList, "drone", "drones");
+    const sList = spatial
+      ? spatial.querySweptAabbUnordered("ships", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.ships)
+      : liveShips;
+    testCandidates(sList, "ship", "ships");
+    const stList = spatial
+      ? spatial.querySweptAabbUnordered("stations", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.stations)
+      : (room.stations || []);
+    testCandidates(stList, "station", "stations");
+    bump(room, "flakCandidatesTested", best.candidates);
+    return best;
   }
 
   function detonateFlakShell(bullet, detonateX, detonateY, triggerKind, triggerEntity, now, isDirect = false) {
@@ -371,6 +594,23 @@ function updateBullets(room, dt, now) {
     flakMetrics.explosionEntities += processed;
   }
 
+  let ballisticCount = 0;
+  let missileCount = 0;
+  let flakCount = 0;
+  let pdCount = 0;
+  for (const bullet of sourceBullets) {
+    if (bullet.type === "missile") missileCount += 1;
+    else if (bullet.type === "flak") flakCount += 1;
+    else if (bullet.type === "pdShot") pdCount += 1;
+    else if (bullet.type) ballisticCount += 1;
+  }
+  setCounter(room, "projectilesVisited", sourceBullets.length);
+  setCounter(room, "ballisticProjectilesVisited", ballisticCount);
+  setCounter(room, "missilesVisited", missileCount);
+  setCounter(room, "flakProjectilesVisited", flakCount);
+  setCounter(room, "pointDefenceProjectilesVisited", pdCount);
+  const updateStartedAt = performanceNow();
+
   for (const bullet of sourceBullets) {
     if (!Number.isFinite(bullet.x) || !Number.isFinite(bullet.y)
       || !Number.isFinite(bullet.vx) || !Number.isFinite(bullet.vy)
@@ -395,6 +635,7 @@ function updateBullets(room, dt, now) {
     const previousY = bullet.y;
 
     if (bullet.type === "missile") {
+      const guidanceStart = performanceNow();
       bullet.age = (bullet.age || 0) + dt;
       if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
         bullet.trackingDisabledFor -= dt;
@@ -404,40 +645,79 @@ function updateBullets(room, dt, now) {
         && (bullet.trackRemaining === undefined || bullet.trackRemaining > 0)
         && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
       if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
-        bump(room, "missileGuidanceUpdates");
-        const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
-        if (bullet.targetComponentIndex === undefined) bullet.targetComponentIndex = -1;
-        if (bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0)) {
-          bullet.targetComponentIndex = selectComponentAimIndex(room, target, bullet.targetComponentIndex);
+        if (bullet.nextGuidanceAt === undefined) bullet.nextGuidanceAt = now;
+        const updatesPerSecond = PROJECTILES.missileGuidanceUpdatesPerSecond || 12;
+        const cadenceEnabled = PROJECTILE_GUIDANCE_CADENCE();
+        const intervalMs = cadenceEnabled && updatesPerSecond > 0 ? 1000 / updatesPerSecond : 0;
+        const targetChanged = target.id !== bullet._guidanceTargetId;
+        const componentDestroyed = bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0);
+        const guidanceDue = !cadenceEnabled || now >= bullet.nextGuidanceAt || targetChanged || componentDestroyed;
+        if (guidanceDue) {
+          bump(room, "missileGuidanceUpdates");
+          bullet._guidanceTargetId = target.id;
+          const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
+          if (bullet.targetComponentIndex === undefined) bullet.targetComponentIndex = -1;
+          if (bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0)) {
+            bullet.targetComponentIndex = selectComponentAimIndex(room, target, bullet.targetComponentIndex);
+          }
+          const targetPoint = bullet.targetComponentIndex >= 0 ? componentAimWorldPosition(target, bullet.targetComponentIndex) : null;
+          const targetX = targetPoint ? targetPoint.x : target.x;
+          const targetY = targetPoint ? targetPoint.y : target.y;
+          let desired = Math.atan2(targetY - bullet.y, targetX - bullet.x);
+          let turnRate = MISSILE_GUIDANCE.armingTurnRate; // Weak tracking during arming delay
+
+          if (bullet.age >= (bullet.trackingDelay || 0)) {
+            const tracking = clampNumber(bullet.tracking ?? MISSILE_GUIDANCE.defaultTracking, 0, 1);
+            const baseTurnRate = bullet.baseTurnRate ?? MISSILE_GUIDANCE.baseTurnRate;
+            const trackingTurnRate = bullet.maxTurnRate ?? (MISSILE_GUIDANCE.turnRateBase + tracking * tracking * MISSILE_GUIDANCE.turnRateTrackingSquaredMultiplier);
+            turnRate = baseTurnRate + trackingTurnRate;
+
+            // Add slight lead prediction only for high-tracking missiles
+            const leadStrength = tracking * MISSILE_GUIDANCE.leadStrengthMultiplier;
+            const predictedX = targetX + (target.vx || 0) * leadStrength;
+            const predictedY = targetY + (target.vy || 0) * leadStrength;
+            desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
+          }
+
+          turnRate *= missileEcmModifier(room, target, ecmModCache || (ecmModCache = new Map()));
+
+          const current = Math.atan2(bullet.vy, bullet.vx);
+          const next = rotateToward(current, desired, turnRate * dt);
+          const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, fastHypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
+          bullet.vx = Math.cos(next) * speed;
+          bullet.vy = Math.sin(next) * speed;
+
+          bullet.lastGuidanceAt = now;
+          bullet.guidanceRevision = (bullet.guidanceRevision || 0) + 1;
+          if (PROJECTILE_EVENT_REPLICATION()) {
+            const correctionInterval = 1000 / 8;
+            if (now - (bullet.lastCorrectionAt || now) >= correctionInterval) {
+              bullet.lastCorrectionAt = now;
+              emitProjectileEvent(room, {
+                type: "correction",
+                id: bullet.id,
+                x: round(bullet.x),
+                y: round(bullet.y),
+                vx: round(bullet.vx),
+                vy: round(bullet.vy),
+                t: now
+              });
+            }
+          }
+          if (cadenceEnabled) {
+            const idNum = parseInt(String(bullet.id).slice(1), 10) || 0;
+            const staggerPartition = 100;
+            const stagger = (idNum % staggerPartition) * (intervalMs / staggerPartition);
+            bullet.nextGuidanceAt = now + intervalMs + stagger;
+          }
+        } else {
+          bump(room, "missileGuidanceDeferred");
         }
-        const targetPoint = bullet.targetComponentIndex >= 0 ? componentAimWorldPosition(target, bullet.targetComponentIndex) : null;
-        const targetX = targetPoint ? targetPoint.x : target.x;
-        const targetY = targetPoint ? targetPoint.y : target.y;
-        let desired = Math.atan2(targetY - bullet.y, targetX - bullet.x);
-        let turnRate = MISSILE_GUIDANCE.armingTurnRate; // Weak tracking during arming delay
-
-        if (bullet.age >= (bullet.trackingDelay || 0)) {
-          const tracking = clampNumber(bullet.tracking ?? MISSILE_GUIDANCE.defaultTracking, 0, 1);
-          const baseTurnRate = bullet.baseTurnRate ?? MISSILE_GUIDANCE.baseTurnRate;
-          const trackingTurnRate = bullet.maxTurnRate ?? (MISSILE_GUIDANCE.turnRateBase + tracking * tracking * MISSILE_GUIDANCE.turnRateTrackingSquaredMultiplier);
-          turnRate = baseTurnRate + trackingTurnRate;
-
-          // Add slight lead prediction only for high-tracking missiles
-          const leadStrength = tracking * MISSILE_GUIDANCE.leadStrengthMultiplier;
-          const predictedX = targetX + (target.vx || 0) * leadStrength;
-          const predictedY = targetY + (target.vy || 0) * leadStrength;
-          desired = Math.atan2(predictedY - bullet.y, predictedX - bullet.x);
-        }
-
-        turnRate *= missileEcmModifier(room, target, ecmModCache || (ecmModCache = new Map()));
-
-        const current = Math.atan2(bullet.vy, bullet.vx);
-        const next = rotateToward(current, desired, turnRate * dt);
-        const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, fastHypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
-        bullet.vx = Math.cos(next) * speed;
-        bullet.vy = Math.sin(next) * speed;
+      } else if (target && !areEnemies(room, bullet.ownerId, target.ownerId)) {
+        bullet._guidanceTargetId = target.id;
       }
       if (bullet.trackRemaining !== undefined) bullet.trackRemaining = Math.max(0, bullet.trackRemaining - dt);
+      recordDuration(room, "missileGuidanceMs", guidanceStart);
     }
 
     bullet.x += bullet.vx * dt;
@@ -452,7 +732,11 @@ function updateBullets(room, dt, now) {
     if (bullet.type === "flak") {
       flakMetrics.active += 1;
       const eventScratch = room._flakEventScratch || (room._flakEventScratch = { interceptableProjectiles: scratch.interceptableProjectiles, drones: scratch.drones, ships: scratch.ships, asteroids: asteroidCandidates });
-      const event = findFlakEvent(bullet, previousX, previousY, spatialIndex, eventScratch);
+      const flakSelectStart = performanceNow();
+      const event = PROJECTILE_FLAK_SINGLE_PASS()
+        ? findFlakEventSinglePass(bullet, previousX, previousY, spatialIndex, eventScratch)
+        : findFlakEvent(bullet, previousX, previousY, spatialIndex, eventScratch);
+      recordDuration(room, "flakEventSelectionMs", flakSelectStart);
       flakMetrics.proximityCandidates += event.candidates || 0;
 
       const dx = bullet.x - previousX;
@@ -490,7 +774,9 @@ function updateBullets(room, dt, now) {
       }
 
       if (detonateT < 1 || detonateKind) {
+        const flakExplStart = performanceNow();
         detonateFlakShell(bullet, detonateX, detonateY, detonateKind, detonateEntity || null, now, detonateDirect);
+        recordDuration(room, "flakExplosionMs", flakExplStart);
         discardBullet(room, bulletsById, bullet);
         continue;
       }
@@ -513,11 +799,16 @@ function updateBullets(room, dt, now) {
     }
 
     // pdShot: hostile interceptable projectiles along the swept segment.
+    const interceptionStart = performanceNow();
     if (bullet.type === "pdShot") {
-      if (spatialIndex) bump(room, "projectileSpatialQueries");
+      if (spatialIndex) {
+        bump(room, "projectileSpatialQueries");
+        bump(room, "interceptableProjectileQueries");
+      }
       const pList = spatialIndex
         ? spatialIndex.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, PROJECTILES.interceptRadius, scratch.interceptableProjectiles)
         : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
+      bump(room, "candidateProjectilesReturned", pList.length);
       for (const p of pList) {
         if (p === bullet) continue;
         if (!areEnemies(room, bullet.ownerId, p.ownerId)) continue;
@@ -525,6 +816,7 @@ function updateBullets(room, dt, now) {
         if (hit) recordHit({ kind: "projectile", t: hit.t, x: hit.x, y: hit.y, target: p, entityId: p.id });
       }
     }
+    recordDuration(room, "projectileInterceptionMs", interceptionStart);
 
     // Decoys are false targets only for guided missiles. Unguided bolts, rails
     // and other projectiles neither acquire nor collide with them.
@@ -537,11 +829,18 @@ function updateBullets(room, dt, now) {
       }
     }
 
-    if (spatialIndex) bump(room, "projectileSpatialQueries");
+    const shipBroadStart = performanceNow();
+    if (spatialIndex) {
+      bump(room, "projectileSpatialQueries");
+      bump(room, "shipQueries");
+    }
     const possibleShips = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("ships", previousX, previousY, bullet.x, bullet.y, 0, shipCandidates)
       : liveShips;
     bump(room, "projectileCandidateShips", possibleShips.length);
+    bump(room, "candidateShipsReturned", possibleShips.length);
+    recordDuration(room, "projectileShipBroadPhaseMs", shipBroadStart);
+    const shipNarrowStart = performanceNow();
     for (const ship of possibleShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
       const hitRadius = bullet.type === "missile" ? PROJECTILES.hitRadius.missile : bullet.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
@@ -549,6 +848,7 @@ function updateBullets(room, dt, now) {
       // While the shield holds, it presents a clean swept bubble hitbox. The
       // earliest collision across asteroids and all valid enemy ships wins.
       if (ship.shield >= SHIELD_HIT_MIN) {
+        bump(room, "shieldBubbleTests");
         const ringR = shieldCollisionRadius(ship) + hitRadius;
         const shieldHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ringR);
         if (!shieldHit) continue;
@@ -558,6 +858,7 @@ function updateBullets(room, dt, now) {
 
       const hullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ship.radius + hitRadius);
       if (!hullHit) continue;
+      bump(room, "hullBroadPhaseHits");
 
       // Shield down: bullets must strike an actual hull module. Test the swept
       // segment against every occupied grid cell of each live component (shared
@@ -567,34 +868,38 @@ function updateBullets(room, dt, now) {
       // is recorded once (by index), so it takes a single damage event even when
       // several of its cells are crossed. Destroyed components are skipped via
       // componentHp and so no longer block later projectiles.
-      const geometry = getShipCollisionGeometry(ship);
-      const cellCoords = geometry.worldCells;
-      const componentHp = ship.componentHp;
-      let moduleHit = null;
-      const collisionR = COMPONENT_CELL_COLLISION_RADIUS + hitRadius;
-      let componentCellTests = 0;
-      for (const i of geometry.liveComponentIndices) {
-        if (componentHp && componentHp[i] <= 0) continue;
-        const cells = cellCoords[i];
-        componentCellTests += cells.length;
-        for (let c = 0; c < cells.length; c++) {
-          const cell = cells[c];
-          const hit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, cell.x, cell.y, collisionR);
-          if (hit && (!moduleHit || hit.t < moduleHit.t || (hit.t === moduleHit.t && i < moduleHit.index))) {
-            moduleHit = { ...hit, index: i };
-          }
+      const useGrid = PROJECTILE_GRID_COLLISION();
+      let componentHitResult = useGrid
+        ? findGridComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius)
+        : findOldComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius);
+      if (useGrid && process.env.VERIFY_PROJECTILE_GRID_COLLISION === "1") {
+        const oldResult = findOldComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius);
+        if (!compareModuleHits(componentHitResult.hit, oldResult.hit)) {
+          const detail = `grid collision mismatch for ship ${ship.id}: new=${JSON.stringify(componentHitResult.hit)} old=${JSON.stringify(oldResult.hit)} bullet=${bullet.id}`;
+          if (process.env.NODE_ENV === "test") throw new Error(detail);
+          console.error(detail);
+          componentHitResult = oldResult;
         }
       }
+      const moduleHit = componentHitResult.hit;
+      const componentCellTests = componentHitResult.componentCellTests;
       if (moduleHit) {
         recordHit({ kind: "ship", t: moduleHit.t, x: moduleHit.x, y: moduleHit.y, ship, entityId: ship.id, shield: false });
       }
       bump(room, "projectileComponentCellTests", componentCellTests);
+      bump(room, "componentCellsTested", componentCellTests);
     }
+    recordDuration(room, "projectileShipNarrowPhaseMs", shipNarrowStart);
 
-    if (spatialIndex) bump(room, "projectileSpatialQueries");
+    const stationStart = performanceNow();
+    if (spatialIndex) {
+      bump(room, "projectileSpatialQueries");
+      bump(room, "stationQueries");
+    }
     const possibleStations = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("stations", previousX, previousY, bullet.x, bullet.y, 0, scratch.stations)
       : (room.stations || []);
+    bump(room, "candidateStationsReturned", possibleStations.length);
     for (const station of possibleStations) {
       if (station.alive === false || station.state === "disabled") continue;
       if (!Relationships.areEntityEnemies(room, bullet.ownerId, station)) continue;
@@ -604,6 +909,7 @@ function updateBullets(room, dt, now) {
           ? PROJECTILES.hitRadius.rail
           : PROJECTILES.hitRadius.default;
       if (station.shield >= SHIELD_HIT_MIN) {
+        bump(room, "shieldBubbleTests");
         const ringR = shieldCollisionRadius(station) + hitRadius;
         const shieldHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, station.x, station.y, ringR);
         if (shieldHit) recordHit({ kind: "station", t: shieldHit.t, x: shieldHit.x, y: shieldHit.y, station, entityId: station.id, shield: true });
@@ -612,11 +918,15 @@ function updateBullets(room, dt, now) {
       const hullHit = segmentStationHullHit(station, previousX, previousY, bullet.x, bullet.y, hitRadius);
       if (hullHit) recordHit({ kind: "station", t: hullHit.t, x: hullHit.x, y: hullHit.y, station, entityId: station.id, shield: false });
     }
+    recordDuration(room, "projectileStationCollisionMs", stationStart);
 
+    const droneStart = performanceNow();
+    if (spatialIndex) bump(room, "droneQueries");
     const possibleDrones = spatialIndex
       ? spatialIndex.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
       : (room.drones?.values?.() || []);
     bump(room, "projectileCandidateDrones", possibleDrones.length);
+    bump(room, "candidateDronesReturned", possibleDrones.length);
     for (const drone of possibleDrones) {
       if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
       const hitRadius = bullet.type === "missile"
@@ -635,6 +945,7 @@ function updateBullets(room, dt, now) {
       );
       if (hit) recordHit({ kind: "drone", t: hit.t, x: hit.x, y: hit.y, drone, entityId: drone.id });
     }
+    recordDuration(room, "projectileDroneCollisionMs", droneStart);
 
     if (earliest?.kind === "asteroid") {
       room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
@@ -745,6 +1056,7 @@ function updateBullets(room, dt, now) {
   room.bullets = kept;
   room._projectileSpare = sourceBullets;
 
+  const cleanupStart = performanceNow();
   const sourceEffects = room.effects || [];
   const keptEffects = room._effectSpare && room._effectSpare !== sourceEffects ? room._effectSpare : [];
   keptEffects.length = 0;
@@ -755,6 +1067,7 @@ function updateBullets(room, dt, now) {
   sourceEffects.length = 0;
   room.effects = keptEffects;
   room._effectSpare = sourceEffects;
+  recordDuration(room, "projectileCleanupMs", cleanupStart);
 
   if (flakMetrics.active > 0) {
     flakMetrics.processingNs = process.hrtime.bigint() - flakStart;
@@ -776,6 +1089,7 @@ function updateBullets(room, dt, now) {
   if (room.assertProjectileLookup || process.env.MFA_ASSERT_RUNTIME_CACHES === "1" || process.env.NODE_ENV === "test") {
     assertProjectileLookupConsistency(room);
   }
+  recordDuration(room, "projectileIntegrationMs", updateStartedAt);
 }
 
 module.exports = {

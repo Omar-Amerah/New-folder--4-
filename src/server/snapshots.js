@@ -1,6 +1,8 @@
 // Builds state snapshot objects representing game rooms and serializes them for network transmission.
 
-const { round, roundAngle, clampNumber } = require("./utils");
+const { round, roundAngle, clampNumber, performanceNow } = require("./utils");
+const { bump, recordDuration } = require("./roomTelemetry");
+const { PROJECTILE_EVENT_REPLICATION } = require("./performanceFlags");
 const { teamLabel } = require("./players");
 const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
 const { getActiveFleetCost } = require("./economy");
@@ -328,23 +330,33 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     }
   }
 
-  return {
+  const bulletStart = performanceNow();
+  const bullets = room.bullets.map((bullet) => ({
+    id: bullet.id,
+    type: bullet.type,
+    subtype: bullet.subtype,
+    ownerId: bullet.ownerId,
+    x: round(bullet.x),
+    y: round(bullet.y),
+    vx: round(bullet.vx),
+    vy: round(bullet.vy),
+    // Seconds since spawn, so the client can backdate a freshly fired bullet
+    // to its muzzle origin instead of extrapolating it ahead of the barrel.
+    age: Math.max(0, Math.round(now - (bullet.bornAt || now))) / 1000
+  }));
+  const events = (room.projectileEvents || []).slice();
+  if (PROJECTILE_EVENT_REPLICATION()) {
+    room.projectileEvents.length = 0;
+  }
+  recordDuration(room, "projectileSnapshotConstructionMs", bulletStart);
+  bump(room, "projectileFullBaselineEntries", bullets.length);
+  if (PROJECTILE_EVENT_REPLICATION()) bump(room, "projectileCompactEntries", events.length);
+
+  const shared = {
     ships,
     drones: buildDroneSnapshots(room, now),
     decoys: buildDecoySnapshots(room, now),
-    bullets: room.bullets.map((bullet) => ({
-      id: bullet.id,
-      type: bullet.type,
-      subtype: bullet.subtype,
-      ownerId: bullet.ownerId,
-      x: round(bullet.x),
-      y: round(bullet.y),
-      vx: round(bullet.vx),
-      vy: round(bullet.vy),
-      // Seconds since spawn, so the client can backdate a freshly fired bullet
-      // to its muzzle origin instead of extrapolating it ahead of the barrel.
-      age: Math.max(0, Math.round(now - (bullet.bornAt || now))) / 1000
-    })),
+    bullets,
     stations: buildStationSnapshots(room, now, sendStatic),
     points: objectivePoints.map((point) => ({
       id: point.id,
@@ -359,6 +371,11 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, round(now - effect.at)), subtype: effect.subtype })),
     objectiveControl
   };
+  if (PROJECTILE_EVENT_REPLICATION()) {
+    shared.projectileEvents = events;
+    shared.projectileEventSeq = room.projectileEventSeq || 0;
+  }
+  return shared;
 }
 
 function getKnownShipDesigns(client) {
