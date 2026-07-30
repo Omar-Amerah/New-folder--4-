@@ -1,4 +1,5 @@
 import { COMPONENT_HEAT_DELTA_STRIDE, componentHeatTupleFromDelta, normalizeComponentHeatTuple } from "./shared/componentHeatSnapshot.js";
+import { applySnapshotToProjectiles, getProjectilesForRender } from "./shared/projectileStore.js";
 
 export const SNAPSHOT_REJECTION = Object.freeze({
   STALE_EPOCH: "stale-epoch",
@@ -275,6 +276,8 @@ export function mergeFullSnapshot(message) {
   full.players = Array.isArray(full.players) ? full.players : [];
   full.ships = Array.isArray(full.ships) ? full.ships.map((s) => ({ ...s, componentHeat: normalizeComponentHeatSnapshot(s.componentHeat) })) : [];
   full.contacts = Array.isArray(full.contacts) ? full.contacts : [];
+  applySnapshotToProjectiles(full);
+  full.bullets = getProjectilesForRender();
   return { ok: true, snapshot: full, networkState: { stateEpoch: full.stateEpoch, snapshotSeq: full.snapshotSeq, staticRevision: full.staticRevision, hasFullBaseline: true } };
 }
 
@@ -290,6 +293,8 @@ export function mergeCompactSnapshot(previous, message) {
   // packet omits it leaves stale contacts on screen after a mode/state change.
   next.contacts = Array.isArray(next.contacts) ? next.contacts : [];
   if (!isNullish(next.stations)) next.stations = mergeCachedStationFields(previous.stations, next.stations);
+  applySnapshotToProjectiles(next);
+  next.bullets = getProjectilesForRender();
   for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = previous[key];
   return { ok: true, snapshot: next, networkState: { stateEpoch: next.stateEpoch, snapshotSeq: next.snapshotSeq, staticRevision: next.staticRevision, hasFullBaseline: true } };
 }

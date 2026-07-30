@@ -112,6 +112,7 @@ function bumpStateEpoch(room, reason = "state-reset") {
   require("./relationships").invalidateRelationshipCache(room);
   room.stateEpoch = Math.max(1, Number(room.stateEpoch) || 1) + 1;
   room.snapshotSeq = 0;
+  require("./projectileReplication").resetProjectileReplication(room, room.stateEpoch);
   room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;
   room.lastEpochReason = reason;
   for (const ship of room.ships?.values?.() || []) {

@@ -26,6 +26,7 @@ const {
   pruneClientKnownStations
 } = require("./snapshots");
 const { recordSnapshot } = require("./performanceTelemetry");
+const { markProjectilesWritten, markProjectilesReplaced } = require("./projectileReplication");
 
 const TELEMETRY_INTERVAL_MS = 500;
 
@@ -41,7 +42,10 @@ function ensureSnapshotBaseline(client, room) {
 function onSnapshotLifecycle(client, outcome, meta) {
   const b = ensureSnapshotBaseline(client, client.room || { stateEpoch: meta?.stateEpoch || 1 }); const d = diag(client); d[outcome] = (d[outcome] || 0) + 1;
   if (outcome === 'queued') { b.lastQueuedSeq = meta.snapshotSeq; b.queuedSnapshotKind = meta.snapshotKind; b.queuedBaseSeq = meta.baseSnapshotSeq ?? null; b.queuedStaticRevision = meta.staticRevision || 0; }
-  if (outcome === 'replaced' || outcome === 'dropped' || outcome === 'reset') { if (b.lastQueuedSeq === meta.snapshotSeq) { b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; } }
+  if (outcome === 'replaced' || outcome === 'dropped' || outcome === 'reset') {
+    if (b.lastQueuedSeq === meta.snapshotSeq) { b.lastQueuedSeq = 0; b.queuedSnapshotKind = null; b.queuedBaseSeq = null; b.queuedStaticRevision = 0; }
+    markProjectilesReplaced(client);
+  }
   if (outcome === 'written') {
     b.lastWrittenSeq = meta.snapshotSeq;
     b.lastSentSeq = b.lastWrittenSeq;
@@ -49,6 +53,7 @@ function onSnapshotLifecycle(client, outcome, meta) {
     b.queuedSnapshotKind = null;
     b.queuedBaseSeq = null;
     b.queuedStaticRevision = 0;
+    if (meta.projectileDelivery) markProjectilesWritten(client, client.room, meta.projectileDelivery);
     markSnapshotDesignsWritten(client, meta.shipDesignRevisions);
     markSnapshotVisibilityWritten(client, meta.visibleShipIds);
     markSnapshotPowerWritten(client, meta.shipPowerRevisions);
@@ -101,11 +106,13 @@ function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
   const encodingStartedAt = performanceNow();
   const payload = encodeMessage(snap);
   const encodingMs = performanceNow() - encodingStartedAt;
+  const projectileDelivery = client?._projectile?.pendingDelivery ?? null;
   return {
     payload,
     constructionMs,
     encodingMs,
     telemetryFocusShipId,
+    projectileDelivery,
     designRevisions: collectSnapshotDesignRevisions(snap),
     visibleShipIds: collectSnapshotVisibleShipIds(snap),
     powerRevisions: collectSnapshotPowerRevisions(snap),
@@ -128,6 +135,7 @@ function sendFullSnapshot(client, now = performanceNow(), reason = 'client-reque
   const meta = { stateEpoch: room.stateEpoch || 1, snapshotSeq: seq, baseSnapshotSeq: null, snapshotKind: 'full', staticRevision: room.staticRevision || 1, completeStatic: true, reason };
   const built = buildPayload(room, client, now, true, seq, null);
   meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
+  meta.projectileDelivery = built.projectileDelivery;
   meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
   meta.stationStaticRevisions = built.stationStaticRevisions; meta.stationComponentRevisions = built.stationComponentRevisions; meta.conditionStationIds = built.conditionStationIds;
   diag(client).fullBuilt += 1;
@@ -257,6 +265,7 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     for (const recipient of group.recipients) {
       const { client, meta } = recipient;
       meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
+      meta.projectileDelivery = built.projectileDelivery;
       meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
       meta.stationStaticRevisions = built.stationStaticRevisions; meta.stationComponentRevisions = built.stationComponentRevisions; meta.conditionStationIds = built.conditionStationIds;
       diag(client)[group.full ? 'fullBuilt' : 'compactBuilt'] += 1;

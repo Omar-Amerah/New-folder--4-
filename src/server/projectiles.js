@@ -8,6 +8,12 @@ const {
   PROJECTILE_GRID_COLLISION,
   PROJECTILE_EVENT_REPLICATION
 } = require("./performanceFlags");
+const {
+  recordProjectileSpawn,
+  recordProjectileRemove,
+  recordProjectileReason,
+  resetProjectileReplication
+} = require("./projectileReplication");
 const { getShipCollisionGeometry, COMPONENT_CELL_COLLISION_RADIUS, MODULE_SCALE, ensureProjectileCollisionGrid } = require("./componentGeometry");
 const { getLiveShips } = require("./ships");
 const { buildRoomSpatialIndex } = require("./spatialIndex");
@@ -57,6 +63,7 @@ function resetProjectileRuntime(room) {
   if (room.projectileById instanceof Map) room.projectileById.clear();
   else room.projectileById = new Map();
   room._projectileLookupInitialized = true;
+  resetProjectileReplication(room, room.stateEpoch || 1);
 }
 
 function removeProjectilesByOwner(room, ownerId) {
@@ -78,15 +85,9 @@ function removeProjectilesByOwner(room, ownerId) {
   room._projectileSpare = source;
 }
 
-function emitProjectileEvent(room, event) {
-  if (!room || !PROJECTILE_EVENT_REPLICATION()) return;
-  if (!room.projectileEvents) room.projectileEvents = [];
-  room.projectileEventSeq = (room.projectileEventSeq || 0) + 1;
-  event.seq = room.projectileEventSeq;
-  room.projectileEvents.push(event);
-  if (event.type === "spawn") bump(room, "projectileSpawnMessages");
-  else if (event.type === "remove") bump(room, "projectileRemoveMessages");
-  else if (event.type === "correction") bump(room, "projectileCorrectionMessages");
+function emitProjectileEvent(_room, _event) {
+  // Replaced by projectileReplication lifecycle records; kept as a no-op to
+  // avoid breaking any remaining callers until the flag is enabled.
 }
 
 function addBullet(room, bullet) {
@@ -94,22 +95,9 @@ function addBullet(room, bullet) {
   room.bullets.push(bullet);
   bump(room, "projectilesCreated");
   if (PROJECTILE_EVENT_REPLICATION()) {
-    bullet._spawnEventEmitted = true;
     bullet.bornAt = bullet.bornAt == null ? performanceNow() : bullet.bornAt;
     bullet.lastCorrectionAt = bullet.bornAt;
-    emitProjectileEvent(room, {
-      type: "spawn",
-      id: bullet.id,
-      ownerId: bullet.ownerId,
-      bulletType: bullet.type,
-      subtype: bullet.subtype,
-      x: round(bullet.x),
-      y: round(bullet.y),
-      vx: round(bullet.vx),
-      vy: round(bullet.vy),
-      age: 0,
-      life: bullet.life
-    });
+    recordProjectileSpawn(room, bullet, bullet.bornAt);
   }
   ensureProjectileLookup(room).set(bullet.id, bullet);
   const spatialIndex = room.spatialIndex;
@@ -128,14 +116,18 @@ function discardBullet(room, lookup, bullet) {
   bump(room, "projectilesRemoved");
   if (PROJECTILE_EVENT_REPLICATION() && bullet && bullet.id && !bullet._removeEventEmitted) {
     bullet._removeEventEmitted = true;
-    emitProjectileEvent(room, { type: "remove", id: bullet.id });
+    const reason = bullet._removeReason || "despawn";
+    const x = Number.isFinite(bullet._removeX) ? bullet._removeX : bullet.x;
+    const y = Number.isFinite(bullet._removeY) ? bullet._removeY : bullet.y;
+    recordProjectileRemove(room, bullet, reason, performanceNow(), x, y);
   }
   room.spatialIndex?.remove?.("projectiles", bullet);
   if (bullet?.interceptable) room.spatialIndex?.remove?.("interceptableProjectiles", bullet);
 }
 
-function removeProjectileRuntime(room, projectile) {
+function removeProjectileRuntime(room, projectile, reason = "despawn", finalX, finalY) {
   if (!room || !projectile) return false;
+  recordProjectileReason(projectile, reason, finalX, finalY);
   projectile.life = 0;
   discardBullet(room, ensureProjectileLookup(room), projectile);
   return true;
@@ -694,6 +686,7 @@ function updateBullets(room, dt, now) {
     if (!Number.isFinite(bullet.x) || !Number.isFinite(bullet.y)
       || !Number.isFinite(bullet.vx) || !Number.isFinite(bullet.vy)
       || !Number.isFinite(bullet.life) || !Number.isFinite(bullet.damage || 0)) {
+      recordProjectileReason(bullet, "despawn");
       discardBullet(room, bulletsById, bullet);
       continue;
     }
@@ -706,6 +699,7 @@ function updateBullets(room, dt, now) {
       if (bullet.type === "flak") {
         flakExpired = true;
       } else {
+        recordProjectileReason(bullet, "expired", bullet.x, bullet.y);
         discardBullet(room, bulletsById, bullet);
         continue;
       }
@@ -800,6 +794,7 @@ function updateBullets(room, dt, now) {
     bullet.y += bullet.vy * dt;
 
     if (bullet.type !== "flak" && (bullet.x < -PROJECTILES.worldPadding || bullet.x > room.world.width + PROJECTILES.worldPadding || bullet.y < -PROJECTILES.worldPadding || bullet.y > room.world.height + PROJECTILES.worldPadding)) {
+      recordProjectileReason(bullet, "boundary", bullet.x, bullet.y);
       discardBullet(room, bulletsById, bullet);
       continue;
     }
@@ -853,6 +848,7 @@ function updateBullets(room, dt, now) {
         const flakExplStart = timeThisBullet ? performanceNow() : 0;
         detonateFlakShell(bullet, detonateX, detonateY, detonateKind, detonateEntity || null, now, detonateDirect);
         if (timeThisBullet) recordDuration(room, "flakExplosionMs", flakExplStart);
+        recordProjectileReason(bullet, detonateKind ? "impact" : "expired", detonateX, detonateY);
         discardBullet(room, bulletsById, bullet);
         continue;
       }
@@ -1029,6 +1025,7 @@ function updateBullets(room, dt, now) {
 
     if (earliest?.kind === "asteroid") {
       room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
+      recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       discardBullet(room, bulletsById, bullet);
       continue;
     }
@@ -1036,6 +1033,7 @@ function updateBullets(room, dt, now) {
     if (earliest?.kind === "decoy") {
       require("./decoys").removeDecoy(room, earliest.decoy, now, "hit");
       room.effects.push({ type: "burst", subtype: "decoy", x: earliest.x, y: earliest.y, at: now });
+      recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       discardBullet(room, bulletsById, bullet);
       continue;
     }
@@ -1048,16 +1046,19 @@ function updateBullets(room, dt, now) {
       room.effects.push({ type: "spark", x: earliest.x, y: earliest.y, at: now });
       if (target.hp <= 0.001) {
         target.life = 0;
+        recordProjectileReason(target, "intercepted", earliest.x, earliest.y);
         discardBullet(room, bulletsById, target);
         interceptedPreviouslyKept = true;
         room.effects.push({ type: "burst", x: earliest.x, y: earliest.y, at: now });
         room.effects.push({ type: "text", text: "INTERCEPTED", x: earliest.x, y: earliest.y, at: now });
       }
+      recordProjectileReason(bullet, "intercepted", earliest.x, earliest.y);
       discardBullet(room, bulletsById, bullet);
       continue;
     }
 
     if (earliest?.kind === "ship") {
+      recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       const ship = earliest.ship;
       const shipDamage = Number.isFinite(bullet.shipDamageMultiplier) ? bullet.damage * bullet.shipDamageMultiplier : bullet.damage;
       damageShip(room, ship, shipDamage, bullet.ownerId, now, earliest.x, earliest.y, {
@@ -1097,6 +1098,7 @@ function updateBullets(room, dt, now) {
     }
 
     if (earliest?.kind === "station") {
+      recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       const station = earliest.station;
       damageStation(room, station, bullet.damage, bullet.ownerId, now, earliest.x, earliest.y, {
         shieldDamageMultiplier: bullet.shieldDamageMultiplier,

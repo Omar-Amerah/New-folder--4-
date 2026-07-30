@@ -1,0 +1,621 @@
+// Authoritative projectile lifecycle replication for PROJECTILE_EVENT_REPLICATION.
+//
+// This module owns the server-side lifecycle log, per-client event cursors and
+// visible projectile sets.  It does not perform gameplay collision or damage;
+// it only records authoritative spawn/remove/correction state and builds the
+// per-client, per-snapshot payload when the feature is enabled.
+
+"use strict";
+
+const { round, performanceNow } = require("./utils");
+const { PROJECTILE_EVENT_REPLICATION } = require("./performanceFlags");
+const {
+  usesSensorVisibility,
+  ensureTeamVisibility,
+  isPointVisibleInState,
+  normalizedTeamId
+} = require("./visibility");
+
+const PROJECTILE_EVENTS_CAPABILITY = "projectileEventsV1";
+
+const DEFAULTS = Object.freeze({
+  maxLifecycleLog: 8192,
+  maxPerClientBacklog: 4096,
+  maxEventBatch: 512,
+  maxPermittedSeqGap: 1024,
+  missileCorrectionIntervalMs: 100,
+  // Allow correction at the normal snapshot rate for anything non-ballistic.
+  guidedCorrectionIntervalMs: 100
+});
+
+const LIFECYCLE_EVENT_TYPES = Object.freeze([
+  "projectileSpawn",
+  "projectileRemove",
+  "projectileHide",
+  "projectileCorrection"
+]);
+
+const REMOVE_REASONS = Object.freeze([
+  "impact",
+  "intercepted",
+  "expired",
+  "boundary",
+  "despawn",
+  "ownerRemoved",
+  "roomReset"
+]);
+
+function isEventReplicationEnabled() {
+  return PROJECTILE_EVENT_REPLICATION();
+}
+
+function clientSupportsProjectileEvents(client) {
+  if (!client) return false;
+  const caps = client.protocol?.capabilities;
+  return Array.isArray(caps) && caps.includes(PROJECTILE_EVENTS_CAPABILITY);
+}
+
+function ensureReplication(room) {
+  if (room && room.projectileReplication) return room.projectileReplication;
+  if (!room) return null;
+  const rep = {
+    initialized: true,
+    stateEpoch: room.stateEpoch || 1,
+    nextEventSeq: 0,
+    nextCorrectionSeq: 0,
+    log: [],
+    diagnostics: {
+      projectileLifecycleEventsCreated: 0,
+      projectileSpawnEventsCreated: 0,
+      projectileRemoveEventsCreated: 0,
+      projectileHideEventsCreated: 0,
+      projectileCorrectionRecordsCreated: 0,
+      projectileEventBatchesWritten: 0,
+      projectileEventBytesWritten: 0,
+      projectileCorrectionBytesWritten: 0,
+      projectileFullBaselineBytes: 0,
+      projectileFallbackSnapshotBytes: 0,
+      lifecycleLogSize: 0,
+      lifecycleLogHighWaterMark: 0,
+      maximumClientProjectileBacklog: 0,
+      lifecycleEventsRepeatedBeforeWrite: 0,
+      lifecycleEventsPruned: 0,
+      projectileBaselinePromotions: 0,
+      staleProjectileEventsIgnored: 0,
+      staleProjectileCorrectionsIgnored: 0,
+      unknownProjectileCorrections: 0,
+      projectileResurrectionPrevented: 0,
+      projectileVisibilitySpawns: 0,
+      projectileVisibilityHides: 0
+    }
+  };
+  room.projectileReplication = rep;
+  room.projectileEventsV1 = { enabled: isEventReplicationEnabled() };
+  return rep;
+}
+
+function initializeClient(client, room, fullBaseline = false) {
+  if (!client || !room) return;
+  const rep = ensureReplication(room);
+  client._projectile = {
+    stateEpoch: rep.stateEpoch,
+    eventCursor: rep.nextEventSeq,
+    correctionCursor: 0,
+    knownVisible: new Set(),
+    pendingDelivery: null,
+    needsFullBaseline: fullBaseline
+  };
+}
+
+function resetProjectileReplication(room, newEpoch) {
+  if (!room) return;
+  const rep = ensureReplication(room);
+  rep.stateEpoch = Number.isInteger(newEpoch) ? newEpoch : (room.stateEpoch || 1);
+  rep.nextEventSeq = 0;
+  rep.nextCorrectionSeq = 0;
+  rep.log.length = 0;
+  rep.diagnostics.lifecycleLogSize = 0;
+  rep.diagnostics.lifecycleLogHighWaterMark = 0;
+  if (room.clients) {
+    for (const client of room.clients) {
+      initializeClient(client, room, true);
+    }
+  }
+}
+
+function closeProjectileReplication(room) {
+  if (!room) return;
+  if (room.projectileReplication) {
+    room.projectileReplication.log.length = 0;
+    room.projectileReplication = null;
+  }
+  if (room.clients) {
+    for (const client of room.clients) {
+      if (client._projectile) client._projectile = null;
+    }
+  }
+}
+
+function pruneLogIfNeeded(room) {
+  const rep = room?.projectileReplication;
+  if (!rep) return;
+  const max = DEFAULTS.maxLifecycleLog;
+  const over = rep.log.length - max;
+  if (over <= 0) return;
+  // Prune only the oldest records that every connected capable client has
+  // already passed.  Never silently discard undelivered lifecycle records.
+  let minCursor = Infinity;
+  if (room.clients) {
+    for (const client of room.clients) {
+      if (!clientSupportsProjectileEvents(client)) continue;
+      const cursor = client._projectile?.eventCursor ?? rep.nextEventSeq;
+      if (cursor < minCursor) minCursor = cursor;
+    }
+  }
+  if (!Number.isFinite(minCursor)) minCursor = rep.nextEventSeq;
+
+  let pruned = 0;
+  while (rep.log.length > 0 && rep.log[0].projectileEventSeq < minCursor) {
+    rep.log.shift();
+    pruned += 1;
+    if (rep.log.length <= max) break;
+  }
+
+  // If the log is still above the hard cap after conservative pruning, we must
+  // promote lagging clients to full baselines rather than losing events.
+  if (rep.log.length > max && room.clients) {
+    for (const client of room.clients) {
+      if (!clientSupportsProjectileEvents(client)) continue;
+      const cursor = client._projectile?.eventCursor ?? 0;
+      const first = rep.log[0]?.projectileEventSeq ?? 0;
+      if (first > cursor) {
+        if (client._projectile) {
+          client._projectile.needsFullBaseline = true;
+          client._projectile.eventCursor = rep.nextEventSeq;
+        }
+        rep.diagnostics.projectileBaselinePromotions += 1;
+      }
+    }
+  }
+
+  // Last resort: drop from the front only when backpressure already closed the
+  // client, or every client has been promoted.  This is a bounded hard cap.
+  if (rep.log.length > max * 2) {
+    const toDrop = rep.log.length - max;
+    rep.log.splice(0, toDrop);
+    rep.diagnostics.lifecycleEventsPruned += toDrop;
+    rep.diagnostics.lifecycleLogHighWaterMark = Math.max(rep.diagnostics.lifecycleLogHighWaterMark, rep.log.length);
+  } else {
+    rep.diagnostics.lifecycleEventsPruned += pruned;
+    rep.diagnostics.lifecycleLogHighWaterMark = Math.max(rep.diagnostics.lifecycleLogHighWaterMark, rep.log.length);
+  }
+  rep.diagnostics.lifecycleLogSize = rep.log.length;
+}
+
+function recordProjectileSpawn(room, bullet, now) {
+  if (!isEventReplicationEnabled() || !room || !bullet) return;
+  const rep = ensureReplication(room);
+  if (bullet._replicationSpawned) return;
+  if (rep.stateEpoch !== (room.stateEpoch || 1)) {
+    // Should have been reset on epoch change; recover defensively.
+    resetProjectileReplication(room, room.stateEpoch || 1);
+  }
+  rep.nextEventSeq += 1;
+  const seq = rep.nextEventSeq;
+  const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
+  const age = Number.isFinite(bullet.bornAt) ? Math.max(0, (simMs - bullet.bornAt) / 1000) : 0;
+  const remaining = Number.isFinite(bullet.life) ? round(bullet.life) : 0;
+  const event = {
+    type: "projectileSpawn",
+    stateEpoch: rep.stateEpoch,
+    projectileEventSeq: seq,
+    simulationTimeMs: simMs,
+    projectile: {
+      id: bullet.id,
+      ownerId: bullet.ownerId || null,
+      type: bullet.type,
+      subtype: bullet.subtype,
+      x: round(bullet.x),
+      y: round(bullet.y),
+      vx: round(bullet.vx),
+      vy: round(bullet.vy),
+      age: round(age),
+      remainingLife: remaining
+    }
+  };
+  if (Number.isFinite(bullet.angle)) event.projectile.angle = round(bullet.angle);
+  rep.log.push(event);
+  rep.diagnostics.projectileLifecycleEventsCreated += 1;
+  rep.diagnostics.projectileSpawnEventsCreated += 1;
+  bullet._replicationSpawned = true;
+  bullet._replicationRemoveSeq = null;
+  bullet._replicationSpawnSeq = seq;
+  bullet._lastCorrectionAt = simMs;
+  pruneLogIfNeeded(room);
+}
+
+function validateRemoveReason(reason) {
+  if (REMOVE_REASONS.includes(reason)) return reason;
+  return "despawn";
+}
+
+function recordProjectileRemove(room, bullet, reason, now, finalX, finalY) {
+  if (!isEventReplicationEnabled() || !room || !bullet) return;
+  const rep = ensureReplication(room);
+  if (bullet._replicationRemoveSeq) return;
+  if (!bullet._replicationSpawned) return;
+  if (rep.stateEpoch !== (room.stateEpoch || 1)) {
+    resetProjectileReplication(room, room.stateEpoch || 1);
+    return;
+  }
+  rep.nextEventSeq += 1;
+  const seq = rep.nextEventSeq;
+  const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
+  const x = Number.isFinite(finalX) ? round(finalX) : round(bullet.x);
+  const y = Number.isFinite(finalY) ? round(finalY) : round(bullet.y);
+  rep.log.push({
+    type: "projectileRemove",
+    stateEpoch: rep.stateEpoch,
+    projectileEventSeq: seq,
+    simulationTimeMs: simMs,
+    projectileId: bullet.id,
+    reason: validateRemoveReason(reason),
+    x,
+    y
+  });
+  rep.diagnostics.projectileLifecycleEventsCreated += 1;
+  rep.diagnostics.projectileRemoveEventsCreated += 1;
+  bullet._replicationRemoveSeq = seq;
+  pruneLogIfNeeded(room);
+}
+
+function recordProjectileReason(bullet, reason, finalX, finalY) {
+  if (!bullet) return;
+  bullet._removeReason = reason;
+  if (Number.isFinite(finalX)) bullet._removeX = finalX;
+  if (Number.isFinite(finalY)) bullet._removeY = finalY;
+}
+
+function getClientProjectileState(client, room) {
+  if (!client || !room) return null;
+  if (!client._projectile) initializeClient(client, room, true);
+  return client._projectile;
+}
+
+function viewerTeamId(room, client) {
+  if (!client?.player) return null;
+  return normalizedTeamId(room, client.player.team ?? client.player.id);
+}
+
+function visibleProjectilesForClient(room, client, now) {
+  if (!usesSensorVisibility(room)) {
+    const visible = new Set();
+    for (const bullet of room.bullets || []) {
+      if (bullet?.life > 0 && bullet?.id) visible.add(bullet.id);
+    }
+    return visible;
+  }
+  const teamId = viewerTeamId(room, client);
+  if (!teamId) return new Set();
+  const state = ensureTeamVisibility(room, teamId, now);
+  const visible = new Set();
+  for (const bullet of room.bullets || []) {
+    if (bullet?.life <= 0 || !bullet?.id) continue;
+    if (isPointVisibleInState(state, bullet.x, bullet.y, 0)) {
+      visible.add(bullet.id);
+    }
+  }
+  return visible;
+}
+
+function buildVisibleBaseline(room, client, now) {
+  const visible = visibleProjectilesForClient(room, client, now);
+  const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
+  const bullets = [];
+  const lookup = room.projectileById;
+  for (const id of visible) {
+    const bullet = lookup?.get?.(id);
+    if (!bullet || bullet.life <= 0) continue;
+    const age = Number.isFinite(bullet.bornAt) ? Math.max(0, (simMs - bullet.bornAt) / 1000) : 0;
+    const entry = {
+      id,
+      ownerId: bullet.ownerId || null,
+      type: bullet.type,
+      subtype: bullet.subtype,
+      x: round(bullet.x),
+      y: round(bullet.y),
+      vx: round(bullet.vx),
+      vy: round(bullet.vy),
+      age: round(age),
+      remainingLife: round(bullet.life)
+    };
+    if (Number.isFinite(bullet.angle)) entry.angle = round(bullet.angle);
+    bullets.push(entry);
+  }
+  return bullets;
+}
+
+function bulletSnapshot(projectileId, room, now) {
+  const bullet = room.projectileById?.get?.(projectileId);
+  if (!bullet || bullet.life <= 0) return null;
+  const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
+  const age = Number.isFinite(bullet.bornAt) ? Math.max(0, (simMs - bullet.bornAt) / 1000) : 0;
+  const entry = {
+    id: projectileId,
+    ownerId: bullet.ownerId || null,
+    type: bullet.type,
+    subtype: bullet.subtype,
+    x: round(bullet.x),
+    y: round(bullet.y),
+    vx: round(bullet.vx),
+    vy: round(bullet.vy),
+    age: round(age),
+    remainingLife: round(bullet.life)
+  };
+  if (Number.isFinite(bullet.angle)) entry.angle = round(bullet.angle);
+  return entry;
+}
+
+function buildCorrectionFor(bullet, rep, simMs) {
+  const age = Number.isFinite(bullet.bornAt) ? Math.max(0, (simMs - bullet.bornAt) / 1000) : 0;
+  rep.nextCorrectionSeq += 1;
+  return {
+    type: "projectileCorrection",
+    stateEpoch: rep.stateEpoch,
+    correctionSeq: rep.nextCorrectionSeq,
+    simulationTimeMs: simMs,
+    projectileId: bullet.id,
+    x: round(bullet.x),
+    y: round(bullet.y),
+    vx: round(bullet.vx),
+    vy: round(bullet.vy),
+    age: round(age),
+    remainingLife: round(bullet.life)
+  };
+}
+
+function shouldCorrect(bullet, now) {
+  if (!bullet) return false;
+  if (bullet.type === "missile" || bullet.type === "torpedo") {
+    return now - (bullet._lastCorrectionAt || 0) >= DEFAULTS.missileCorrectionIntervalMs;
+  }
+  if (bullet.type === "flak" || bullet.type === "pdShot" || bullet.type === "bolt" || bullet.type === "rail") {
+    // Only non-ballistic or guided fall through; ballistic ones do not receive
+    // corrections by default.
+    return false;
+  }
+  return now - (bullet._lastCorrectionAt || 0) >= DEFAULTS.guidedCorrectionIntervalMs;
+}
+
+function buildClientBatch(room, client, now, fullBaseline) {
+  if (!room || !client) return { events: [], newCursor: 0, knownVisible: new Set(), newCorrectionCursor: 0, bullets: [] };
+  const rep = ensureReplication(room);
+  const ps = getClientProjectileState(client, room);
+
+  // Full baseline: replace the client's known set with the current visible set.
+  if (fullBaseline) {
+    const bullets = buildVisibleBaseline(room, client, now);
+    ps.eventCursor = rep.nextEventSeq;
+    ps.correctionCursor = rep.nextCorrectionSeq;
+    ps.stateEpoch = rep.stateEpoch;
+    ps.needsFullBaseline = false;
+    const known = new Set(bullets.map((b) => b.id));
+    ps.knownVisible = known;
+    rep.diagnostics.projectileFullBaselineBytes += JSON.stringify(bullets).length;
+    return { events: [], newCursor: rep.nextEventSeq, knownVisible: known, newCorrectionCursor: rep.nextCorrectionSeq, bullets };
+  }
+
+  if (ps.stateEpoch !== rep.stateEpoch) {
+    ps.needsFullBaseline = true;
+    ps.eventCursor = rep.nextEventSeq;
+    ps.correctionCursor = rep.nextCorrectionSeq;
+    ps.stateEpoch = rep.stateEpoch;
+    ps.knownVisible = new Set();
+    rep.diagnostics.projectileBaselinePromotions += 1;
+    return { events: [], newCursor: rep.nextEventSeq, knownVisible: new Set(), newCorrectionCursor: rep.nextCorrectionSeq, bullets: [] };
+  }
+
+  const visible = visibleProjectilesForClient(room, client, now);
+  const events = [];
+  const nextCursor = Math.max(0, ps.eventCursor || 0);
+  const from = nextCursor;
+  const to = rep.nextEventSeq;
+
+  // Replay lifecycle records the client has not yet acknowledged.
+  if (from < to) {
+    for (const event of rep.log) {
+      if (event.projectileEventSeq <= from) continue;
+      if (event.projectileEventSeq > to) break;
+      if (event.stateEpoch !== rep.stateEpoch) continue;
+      if (event.type === "projectileSpawn") {
+        if (visible.has(event.projectile?.id)) {
+          events.push(event);
+        }
+      } else if (event.type === "projectileRemove") {
+        const id = event.projectileId;
+        // Only send removes for projectiles the client still thinks are alive.
+        if (ps.knownVisible.has(id)) {
+          events.push(event);
+        }
+      }
+    }
+  }
+
+  // Synthesise visibility transitions.
+  //   Not visible -> visible: fresh projectileSpawn using current state.
+  //   Visible -> not visible (still active): projectileHide.
+  const gained = [];
+  const lost = [];
+  for (const id of visible) {
+    if (!ps.knownVisible.has(id)) gained.push(id);
+  }
+  for (const id of ps.knownVisible) {
+    if (!visible.has(id)) {
+      // If the projectile is still alive, it is a hide.  If it was removed
+      // there will already be a remove record above, but if no record exists
+      // it is effectively hidden now.
+      const bullet = room.projectileById?.get?.(id);
+      if (bullet && bullet.life > 0) {
+        lost.push(id);
+      }
+    }
+  }
+
+  for (const id of gained) {
+    const current = bulletSnapshot(id, room, now);
+    if (!current) continue;
+    rep.nextEventSeq += 1;
+    events.push({
+      type: "projectileSpawn",
+      stateEpoch: rep.stateEpoch,
+      projectileEventSeq: rep.nextEventSeq,
+      simulationTimeMs: Math.floor(now),
+      projectile: current
+    });
+    rep.diagnostics.projectileVisibilitySpawns += 1;
+    rep.diagnostics.projectileLifecycleEventsCreated += 1;
+    rep.diagnostics.projectileSpawnEventsCreated += 1;
+  }
+
+  for (const id of lost) {
+    rep.nextEventSeq += 1;
+    events.push({
+      type: "projectileHide",
+      stateEpoch: rep.stateEpoch,
+      projectileEventSeq: rep.nextEventSeq,
+      simulationTimeMs: Math.floor(now),
+      projectileId: id
+    });
+    rep.diagnostics.projectileVisibilityHides += 1;
+    rep.diagnostics.projectileLifecycleEventsCreated += 1;
+    rep.diagnostics.projectileHideEventsCreated += 1;
+  }
+
+  // Corrections for visible, known, guided projectiles.
+  const correctionById = new Map();
+  const simMs = Math.floor(Number.isFinite(now) ? now : performanceNow());
+  for (const id of visible) {
+    if (!ps.knownVisible.has(id)) continue; // spawn already contains the latest state
+    const bullet = room.projectileById?.get?.(id);
+    if (!bullet || bullet.life <= 0) continue;
+    if (shouldCorrect(bullet, now)) {
+      bullet._lastCorrectionAt = now;
+      const correction = buildCorrectionFor(bullet, rep, simMs);
+      correctionById.set(id, correction);
+      rep.diagnostics.projectileCorrectionRecordsCreated += 1;
+    }
+  }
+
+  const corrections = [...correctionById.values()];
+  for (const c of corrections) events.push(c);
+
+  if (events.length > DEFAULTS.maxEventBatch) {
+    events.length = DEFAULTS.maxEventBatch;
+    rep.diagnostics.staleProjectileEventsIgnored += 1;
+  }
+
+  const newKnown = new Set(visible);
+  ps.knownVisible = newKnown;
+  ps.eventCursor = rep.nextEventSeq;
+  ps.correctionCursor = rep.nextCorrectionSeq;
+  return { events, newCursor: rep.nextEventSeq, knownVisible: newKnown, newCorrectionCursor: rep.nextCorrectionSeq, bullets: [] };
+}
+
+function applyClientProjectiles(room, client, now, sendStatic, snapshot) {
+  if (!room || !client || !snapshot) return null;
+  if (!isEventReplicationEnabled() || !clientSupportsProjectileEvents(client)) return null;
+  const rep = ensureReplication(room);
+  const ps = getClientProjectileState(client, room);
+  const full = ps.needsFullBaseline || sendStatic;
+  const batch = buildClientBatch(room, client, now, full);
+
+  snapshot.projectileStateEpoch = rep.stateEpoch;
+  snapshot.projectileEventSeq = batch.newCursor;
+  snapshot.projectileEventBaseSeq = full ? 0 : ps.eventCursor;
+  snapshot.projectileCorrectionSeq = batch.newCorrectionCursor;
+  snapshot.projectileSimulationTimeMs = Math.floor(now);
+
+  if (full) {
+    snapshot.bullets = batch.bullets;
+    snapshot.projectileEvents = [];
+    snapshot.projectileEventBaseSeq = 0;
+    rep.diagnostics.projectileFullBaselineBytes += JSON.stringify(batch.bullets).length;
+  } else {
+    snapshot.bullets = [];
+    snapshot.projectileEvents = batch.events;
+    rep.diagnostics.projectileEventBatchesWritten += 1;
+    for (const ev of batch.events) {
+      rep.diagnostics.projectileEventBytesWritten += JSON.stringify(ev).length;
+      if (ev.type === "projectileCorrection") {
+        rep.diagnostics.projectileCorrectionBytesWritten += JSON.stringify(ev).length;
+      }
+    }
+  }
+
+  return {
+    stateEpoch: rep.stateEpoch,
+    eventSeq: batch.newCursor,
+    correctionSeq: batch.newCorrectionCursor,
+    knownVisible: batch.knownVisible
+  };
+}
+
+function markProjectilesWritten(client, room, delivery) {
+  if (!client || !delivery || !room) return;
+  const ps = client._projectile;
+  if (!ps) return;
+  ps.stateEpoch = delivery.stateEpoch;
+  ps.eventCursor = delivery.eventSeq;
+  ps.correctionCursor = delivery.correctionSeq;
+  if (delivery.knownVisible instanceof Set) ps.knownVisible = delivery.knownVisible;
+  ps.pendingDelivery = null;
+}
+
+function markProjectilesReplaced(client) {
+  if (!client?._projectile) return;
+  client._projectile.pendingDelivery = null;
+}
+
+function setPendingDelivery(client, room, delivery) {
+  if (!client || !delivery) return;
+  const ps = client._projectile;
+  if (!ps) {
+    initializeClient(client, room, false);
+  }
+  client._projectile.pendingDelivery = delivery;
+}
+
+function getProjectileReplicationDiagnostics(room) {
+  const rep = room?.projectileReplication;
+  return rep ? { ...rep.diagnostics } : {};
+}
+
+function getLogSize(room) {
+  return room?.projectileReplication?.log?.length || 0;
+}
+
+module.exports = {
+  PROJECTILE_EVENTS_CAPABILITY,
+  LIFECYCLE_EVENT_TYPES,
+  REMOVE_REASONS,
+  DEFAULTS,
+  isEventReplicationEnabled,
+  clientSupportsProjectileEvents,
+  ensureReplication,
+  initializeClient,
+  resetProjectileReplication,
+  closeProjectileReplication,
+  recordProjectileSpawn,
+  recordProjectileRemove,
+  recordProjectileReason,
+  applyClientProjectiles,
+  buildClientBatch,
+  buildVisibleBaseline,
+  visibleProjectilesForClient,
+  markProjectilesWritten,
+  markProjectilesReplaced,
+  setPendingDelivery,
+  getClientProjectileState,
+  getProjectileReplicationDiagnostics,
+  getLogSize
+};

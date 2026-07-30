@@ -2205,7 +2205,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                   if (targetEnt.hp <= 0.001) {
 
-                     removeProjectileRuntime(room, targetEnt);
+                     removeProjectileRuntime(room, targetEnt, "intercepted", targetEnt.x, targetEnt.y);
 
                      room.effects.push({ type: "pdIntercept", x: targetEnt.x, y: targetEnt.y, at: now });
 
@@ -5318,7 +5318,7 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true, c
 
         if (entity.hp <= 0.001) {
 
-          removeProjectileRuntime(room, entity);
+          removeProjectileRuntime(room, entity, "intercepted", entity.x, entity.y);
 
           room.effects.push({ type: "spark", x: entity.x, y: entity.y, at: now });
 

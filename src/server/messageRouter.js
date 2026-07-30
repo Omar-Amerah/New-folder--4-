@@ -4,6 +4,7 @@ const { validateClientMessage } = require("./clientSchemas");
 const { negotiate, ERROR_CODES } = require("./protocol");
 const { send, sendPlayer, broadcastRoom } = require("./outbound");
 const { sendFullSnapshot, broadcastSnapshot } = require("./snapshotDelivery");
+const { initializeClient } = require("./projectileReplication");
 const { getRoute } = require("./routeRegistry");
 const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemetryFocusForRoom } = require("./relationships");
 
@@ -77,6 +78,7 @@ function handleMessage(client, message) {
     client.telemetryLastWrittenFocusId = null;
     client.telemetryLastWrittenAt = 0;
     joinRoom(client, message);
+    if (client.room) initializeClient(client, client.room, true);
     return;
   }
 

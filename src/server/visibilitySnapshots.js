@@ -165,12 +165,17 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
     }
   }
 
+  // Event-mode clients carry a per-client bullet baseline/empty list; fallback
+  // clients use the visibility-filtered shared bullet list.
+  const outputBullets = snapshot.projectileEvents !== undefined
+    ? (snapshot.bullets ?? [])
+    : shared.bullets;
   const result = {
     ...snapshot,
     ships,
     drones: shared.drones,
     decoys: shared.decoys,
-    bullets: shared.bullets,
+    bullets: outputBullets,
     effects: shared.effects,
     stations,
     contacts

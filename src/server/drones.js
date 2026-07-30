@@ -917,7 +917,7 @@ function updateDroneEntity(room, drone, dt, now) {
     } else if (effectiveTarget.interceptable) {
       effectiveTarget.hp = Math.max(0, (Number(effectiveTarget.hp) || 0) - config.damage);
       if (effectiveTarget.hp <= 0) {
-        removeProjectileRuntime(room, effectiveTarget);
+        removeProjectileRuntime(room, effectiveTarget, "intercepted", effectiveTarget.x, effectiveTarget.y);
         room.effects.push({ type: "burst", x: effectiveTarget.x, y: effectiveTarget.y, at: now });
       }
     }
