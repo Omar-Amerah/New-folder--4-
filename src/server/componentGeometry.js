@@ -112,7 +112,9 @@ function buildProjectileCollisionGrid(ship) {
     }
   }
   return {
+    designSource: design,
     designRevision,
+    designLength: design.length,
     width: GRID_SIZE,
     height: GRID_SIZE,
     cellOccupants,
@@ -128,9 +130,15 @@ function buildProjectileCollisionGrid(ship) {
 
 function ensureProjectileCollisionGrid(ship) {
   if (!ship) return null;
+  const design = ship.design || [];
   const designRevision = Number(ship.designRevision) || 1;
   const cache = ship._projectileCollisionGrid;
-  if (cache && cache.designRevision === designRevision) return cache;
+  if (cache
+    && cache.designSource === design
+    && cache.designLength === design.length
+    && cache.designRevision === designRevision) {
+    return cache;
+  }
   const next = buildProjectileCollisionGrid(ship);
   ship._projectileCollisionGrid = next;
   return next;

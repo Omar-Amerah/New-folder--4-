@@ -82,6 +82,7 @@ const COUNTER_FIELDS = Object.freeze([
   "shieldBubbleTests",
   "componentCellsTested",
   "componentGridCellsVisited",
+  "componentGridOccupiedCells",
   "flakCandidatesTested",
   "flakEventsCompared",
   "flakSortOperations",
