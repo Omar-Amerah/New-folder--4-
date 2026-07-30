@@ -4,7 +4,7 @@ const EngineExhaust = require("./public/src/shared/engineExhaust.js");
 const { PARTS } = require("./src/server/components");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState, updateEngineExhaustState } = require("./src/server/componentHealth");
-const { heatAdjustedMovementStats } = require("./src/server/movementSteering");
+const { heatAdjustedMovementStats } = require("./src/server/movementCapability");
 
 const recessed = [{x:7,y:7,type:"engine"},{x:6,y:7,type:"frame"},{x:8,y:7,type:"frame"}];
 let analysis = EngineExhaust.analyze(recessed, PARTS);

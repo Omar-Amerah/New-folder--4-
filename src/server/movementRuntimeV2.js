@@ -30,7 +30,15 @@ function createMovementRuntime() {
     phase: "idle",
     desiredHeading: null,
     desiredSpeed: 0,
-    arrived: false
+    arrived: false,
+    // A Move that has been carried out. Latched, and cleared only by a new
+    // order: once the ship has reached where it was sent, the combat stance
+    // takes the helm, and it must not be able to hand it back by nudging the
+    // ship far enough off the point to look un-arrived again.
+    orderComplete: false,
+    // Hold has reached its firing position. Also latched -- it is what makes the
+    // ship ignore a target closing on it rather than backing away.
+    holdEngaged: false
   };
 }
 
@@ -69,6 +77,9 @@ function setMovementCommand(ship, command) {
       formationSpeed: Number.isFinite(command.formationSpeed) && command.formationSpeed > 0
         ? Number(command.formationSpeed)
         : null,
+      // This ship's place across a group's firing line, so a fleet attacking one
+      // target forms a line rather than a ring around it.
+      firingLateral: Number.isFinite(command.firingLateral) ? Number(command.firingLateral) : 0,
       finalFacing: Number.isFinite(command.finalFacing) ? Number(command.finalFacing) : null,
       manual: Boolean(command.manual)
     }
@@ -81,6 +92,8 @@ function setMovementCommand(ship, command) {
   runtime.desiredHeading = null;
   runtime.desiredSpeed = 0;
   runtime.arrived = false;
+  runtime.orderComplete = false;
+  runtime.holdEngaged = false;
   if (!runtime.command) runtime.phase = "idle";
   else if (runtime.command.type === "stop") runtime.phase = "braking";
   else if (runtime.command.type === "move") runtime.phase = "travelling";

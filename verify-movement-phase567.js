@@ -30,6 +30,12 @@ const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
 const { physicalCollisionRadius } = require("./src/server/movementCollision");
 const { ARRIVE_DISTANCE } = require("./src/server/movementTuning");
 
+// Where the ship was ordered to. The runtime destination is cleared once the
+// order has been carried out -- the durable record of the order is the command.
+function orderedDestination(ship) {
+  return ship.movement.command?.destination || ship.movement.destination;
+}
+
 const DT = 1 / 30;
 const DESIGN = [
   { x: 7, y: 7, type: "core" },
@@ -304,7 +310,7 @@ function run() {
     const cap = Math.max(...ships.map((ship) => ship.stats.maxSpeed));
     assert(peak <= cap + 1, `avoidance must never raise speed above the hull cap (${peak.toFixed(1)} vs ${cap.toFixed(1)})`);
     for (const ship of ships) {
-      const off = Math.hypot(ship.x - ship.movement.destination.x, ship.y - ship.movement.destination.y);
+      const off = Math.hypot(ship.x - orderedDestination(ship).x, ship.y - orderedDestination(ship).y);
       assert(off <= ARRIVE_DISTANCE + 10,
         `a group should settle rather than mill: ${ship.id} is ${off.toFixed(1)} px off station`);
     }
@@ -379,16 +385,16 @@ function run() {
       targetId: enemy.id
     });
     simulate(room, [attacker, enemy], 1);
-    assert(attacker.movement.destination,
+    assert(orderedDestination(attacker),
       "an out-of-range attacker should be given somewhere to close to");
-    const firstApproach = { ...attacker.movement.destination };
+    const firstApproach = { ...orderedDestination(attacker) };
     assert(Math.hypot(firstApproach.x - enemy.x, firstApproach.y - enemy.y) > 100,
       "the approach point should stand off the target, not sit on it");
 
     // Move the target; the approach point must follow it.
     enemy.y = 2600;
     simulate(room, [attacker, enemy], 1);
-    assert(Math.abs(attacker.movement.destination.y - firstApproach.y) > 20,
+    assert(Math.abs(orderedDestination(attacker).y - firstApproach.y) > 20,
       "the approach point should track the target as it moves");
   }
 

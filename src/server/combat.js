@@ -3894,9 +3894,23 @@ function updateDestroyedShips(room, now) {
 
 
 
+// How far a ship will reach out to pick a target of its own accord: its longest
+// operational weapon, plus a small margin so it starts tracking something a
+// moment before it can shoot it rather than exactly as it comes into range.
+// A ship must never acquire across the map -- what it cannot shoot, it does not
+// chase.
+const ACQUISITION_MULTIPLIER = 1.05;
+
+// Once a target is chosen it is kept until it is substantially outside that
+// envelope. Dropping it the instant it steps past the edge means re-scanning
+// every tick and swapping between two enemies a few pixels apart, which reads as
+// a ship that cannot make up its mind and, under Hold, as one that keeps
+// starting and abandoning approaches.
+const TARGET_RETENTION_MULTIPLIER = 1.3;
+
 function maxShipWeaponAcquisitionRange(ship) {
 
-  const base = getMaxEffectiveWeaponRange(ship);
+  const base = getMaxEffectiveWeaponRange(ship) * ACQUISITION_MULTIPLIER;
 
   const sensorMult = getCommandAuraMultiplier(ship, "sensorRangeMultiplier");
 
@@ -3978,9 +3992,19 @@ function findTarget(room, ship, ships) {
       const explicitFocus = ship.focusTargetId === current.id;
       if (explicitFocus || sanitizeCombatStyle(ship.combatStyle) !== "hold") return current;
       const currentDistance = fastHypot(current.x - ship.x, current.y - ship.y);
-      if (currentDistance <= range
-        && !isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8)) return current;
-      holdFallback = current;
+      // Keep the target while it is anywhere near the envelope, not only while
+      // it is inside it. The retention margin is what stops a ship swapping
+      // between two enemies straddling the range edge on alternate ticks.
+      //
+      // Past that margin the target is genuinely gone and is released, so the
+      // ship acquires something it can actually reach -- or nothing. The
+      // fallback below covers only the near-but-obstructed case: an enemy still
+      // well inside the envelope with an asteroid briefly in the way is worth
+      // keeping, an enemy that has left is not.
+      if (currentDistance <= range * TARGET_RETENTION_MULTIPLIER) {
+        if (!isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8)) return current;
+        holdFallback = current;
+      }
     }
 
   }

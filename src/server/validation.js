@@ -12,15 +12,27 @@ function sanitizeTeam(team, fallbackId) {
 }
 
 
+// Hold is currently the only combat stance the movement controller implements.
+//
+// Charge, Orbit and Kite are withdrawn rather than deleted: the names still
+// parse, so saved blueprints, older clients and stored player preferences all
+// keep loading, but every one of them resolves to Hold. That means a ship can
+// never end up carrying a stance nothing will fly, and the stances can be
+// reinstated later by removing one line here.
+//
+// Clients are still free to send them; they simply get Hold back in the
+// acknowledgement and in the snapshot, which is what tells the UI what actually
+// happened.
+const WITHDRAWN_COMBAT_STYLES = new Set(["charge", "orbit", "kite"]);
+
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
-  if (clean === "charge" || clean === "hold" || clean === "orbit"
-    || clean === "kite" || clean === "static") return clean;
-  // Compatibility for saved blueprints and older clients. The authoritative
-  // stance surface is now Charge, Hold, Orbit, Kite, and Static.
-  if (clean === "circle" || clean === "evasive") return "orbit";
+  if (WITHDRAWN_COMBAT_STYLES.has(clean)) return "hold";
+  if (clean === "hold" || clean === "static") return clean;
+  // Compatibility for saved blueprints and older clients.
+  if (clean === "circle" || clean === "evasive") return "hold";
   if (clean === "maintain" || clean === "sentry" || clean === "heavy") return "hold";
-  if (clean === "direct" || clean === "interceptor" || clean === "brawler") return "charge";
+  if (clean === "direct" || clean === "interceptor" || clean === "brawler") return "hold";
   const cleanFallback = String(fallback || "").toLowerCase();
   if (cleanFallback !== clean) return sanitizeCombatStyle(cleanFallback, "hold");
   return "hold";

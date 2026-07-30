@@ -299,11 +299,11 @@ function updateBots(room, now) {
     const nearestEnemy = enemies[0];
 
     if (nearestEnemy && distanceToFleet(ships, nearestEnemy) < 760) {
-      const botStyles = ["charge", "hold", "orbit", "kite"];
+      // Bots used to rotate through Charge/Orbit/Kite here. Those stances are
+      // withdrawn while Hold is the only one the controller flies, and assigning
+      // them would leave a bot carrying a stance nothing implements.
       for (const ship of ships) {
-        if (!ship.combatStyle || ship.combatStyle === 'hold') {
-          ship.combatStyle = botStyles[seq % botStyles.length];
-        }
+        if (!ship.combatStyle) ship.combatStyle = "hold";
       }
       commandShips(room, player, nearestEnemy.x, nearestEnemy.y, {
         targetId: nearestEnemy.id,

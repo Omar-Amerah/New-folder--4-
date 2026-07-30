@@ -61,6 +61,12 @@ const WIDE_DESIGN = (() => {
 
 let shipSeq = 0;
 
+// Where the ship was ordered to. The runtime destination is cleared once the
+// order has been carried out -- the durable record of the order is the command.
+function orderedDestination(ship) {
+  return ship.movement.command?.destination || ship.movement.destination;
+}
+
 function makeShip(design, x, y, angle = 0) {
   const stats = computeStats(design);
   const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
@@ -281,7 +287,7 @@ function run() {
     stopShips(room, player, [ship.id]);
     assert.deepStrictEqual(ship.movement.path, [], "B should clear the path immediately");
     assert.strictEqual(ship.movement.waypointIndex, 0, "B should reset the waypoint index");
-    assert.strictEqual(ship.movement.destination, null, "B should clear the destination");
+    assert.strictEqual(orderedDestination(ship), null, "B should clear the destination");
     simulate(room, [ship], 20);
     assert.deepStrictEqual(ship.movement.path, [], "a stopped ship should not acquire a new route");
     assert(Math.hypot(ship.vx, ship.vy) === 0, "B should still bring the ship to rest");

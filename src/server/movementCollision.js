@@ -5,19 +5,6 @@ const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
   ASTEROID_RESTITUTION,
-  AVOIDANCE_BRAKE_TIME_S,
-  AVOIDANCE_CLEARANCE_PAD,
-  AVOIDANCE_CLEARANCE_PAD_SPAWN,
-  AVOIDANCE_HORIZON_S,
-  AVOIDANCE_HORIZON_SPAWN_S,
-  AVOIDANCE_MIN_LATERAL,
-  AVOIDANCE_QUERY_MIN_RANGE,
-  AVOIDANCE_SIDESTEP_RATIO,
-  AVOIDANCE_SIDE_COMMIT_MS,
-  AVOIDANCE_STRENGTH_EQUAL,
-  AVOIDANCE_STRENGTH_RIGHT_OF_WAY,
-  AVOIDANCE_STRENGTH_YIELD,
-  AVOIDANCE_YIELD_COURSE_RETENTION,
   SEPARATION_BIAS_SCALE,
   SEPARATION_BROAD_PHASE_PAD,
   SEPARATION_CORRECTION,
@@ -26,19 +13,10 @@ const {
   SEPARATION_MAX_BIAS_SPEED,
   SEPARATION_MIN_IMPULSE_CAP,
   SEPARATION_SLOP,
-  SHIP_MASS_RIGHT_OF_WAY_RATIO,
   STOPPED_SPEED,
   WORLD_MARGIN
 } = require("./movementTuning");
 const { bumpMovementMetric } = require("./movementMetrics");
-
-// combat.js pulls in most of the simulation, so resolve it on first use rather
-// than at load time -- this module sits underneath it.
-let cachedAreEnemies = null;
-function areEnemies(room, a, b) {
-  if (!cachedAreEnemies) cachedAreEnemies = require("./combat").areEnemies;
-  return cachedAreEnemies(room, a, b);
-}
 
 let cachedResolveStationCollision = null;
 function resolveStationCollision(room, ship, shipRadius) {
@@ -78,173 +56,6 @@ function shipIsStopped(ship) {
       || phase === "idle");
 }
 
-function stableAvoidancePriority(ship, other) {
-  const shipMass = Math.max(1, Number(ship.stats?.mass) || 1);
-  const otherMass = Math.max(1, Number(other.stats?.mass) || 1);
-  if (otherMass >= shipMass * SHIP_MASS_RIGHT_OF_WAY_RATIO) return 1;
-  if (shipMass >= otherMass * SHIP_MASS_RIGHT_OF_WAY_RATIO) return -1;
-  const otherStopped = shipIsStopped(other);
-  const shipStopped = shipIsStopped(ship);
-  if (otherStopped !== shipStopped) return otherStopped ? 1 : -1;
-  const massDifference = otherMass - shipMass;
-  if (Math.abs(massDifference) > 0.01) return massDifference > 0 ? 1 : -1;
-  return compareNaturalIds(other.id, ship.id) < 0 ? 1 : -1;
-}
-
-function applyLocalShipAvoidance(room, ship, decision, stats, now) {
-  if (!decision.needsPropulsion
-    || !room.spatialIndex?.dynamicValid
-    || !room.spatialIndex.queryRangeUnordered) return;
-  const ownRadius = physicalCollisionRadius(ship);
-  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
-  const spawning = Boolean(ship.spawnState && now < ship.spawnState.expiresAt);
-  const horizon = spawning ? AVOIDANCE_HORIZON_SPAWN_S : AVOIDANCE_HORIZON_S;
-  const queryRadius = ownRadius * 2
-    + Math.max(AVOIDANCE_QUERY_MIN_RANGE, speed * horizon);
-  // A player who right-clicks past an enemy asked for that line, not for a
-  // detour around it. Pathing already ignores ships entirely -- the swerve came
-  // from here -- so dropping enemies from the avoidance set while a hand-issued
-  // move is running gives the straight run. Enemy hulls stay solid: the ship
-  // drives into them and shoves through rather than sliding round.
-  const command = ship.movement?.command;
-  const drivingThrough = Boolean(command?.manual && command.type === "move");
-  const scratch = ship._shipAvoidanceScratch || (ship._shipAvoidanceScratch = []);
-  const nearby = room.spatialIndex.queryRangeUnordered(
-    "ships",
-    ship.x,
-    ship.y,
-    queryRadius,
-    scratch
-  );
-  let best = null;
-  for (const other of nearby) {
-    if (!other?.alive || other === ship) continue;
-    if (drivingThrough && areEnemies(room, ship.ownerId, other.ownerId)) continue;
-    const rx = other.x - ship.x;
-    const ry = other.y - ship.y;
-    const rvx = (other.vx || 0) - (ship.vx || 0);
-    const rvy = (other.vy || 0) - (ship.vy || 0);
-    const relativeSpeedSq = rvx * rvx + rvy * rvy;
-    const time = relativeSpeedSq > 0.01
-      ? clampNumber(-(rx * rvx + ry * rvy) / relativeSpeedSq, 0, horizon)
-      : 0;
-    const predictedX = rx + rvx * time;
-    const predictedY = ry + rvy * time;
-    const minimum = ownRadius + physicalCollisionRadius(other)
-      + (spawning ? AVOIDANCE_CLEARANCE_PAD_SPAWN : AVOIDANCE_CLEARANCE_PAD);
-    const predicted = fastHypot(predictedX, predictedY);
-    if (predicted >= minimum
-      || (!best && rx * rvx + ry * rvy >= 0 && fastHypot(rx, ry) > minimum * 1.15)) continue;
-    const urgency = minimum - predicted + (horizon - time) * 0.1;
-    if (!best
-      || urgency > best.urgency
-      || (urgency === best.urgency && String(other.id) < String(best.other.id))) {
-      best = { other, rx, ry, time, urgency };
-    }
-  }
-  if (!best) return;
-
-  // The side commitment belongs to the ship's own course, not to whichever
-  // neighbour happens to be the most urgent this tick. Keying it to best.other
-  // meant that in any group the commitment was void the moment a different hull
-  // took the lead -- which in a six-ship arrival happened several times a second.
-  // Re-deciding flips the sign of the sidestep, and the sidestep is the whole
-  // heading once a ship is giving way, so the commanded facing swung 180 degrees
-  // and back: 698 flips in 40 seconds, and a hull that spun continuously trying
-  // to follow them. The dodge now stands for its full duration whatever else
-  // wanders into range.
-  const state = ship._shipAvoidance || (ship._shipAvoidance = {});
-  let side = now < (state.committedUntil || 0) ? state.side : 0;
-  if (!side) {
-    const travelX = Math.cos(decision.moveAngle || ship.angle || 0);
-    const travelY = Math.sin(decision.moveAngle || ship.angle || 0);
-    const cross = travelX * best.ry - travelY * best.rx;
-    side = Math.abs(cross) > 0.01
-      ? (cross > 0 ? -1 : 1)
-      : (hashString(`${ship.id}:${best.other.id}`) & 1 ? 1 : -1);
-    if (state.side && state.side !== side) collisionBump(room, "shipAvoidanceSideChanges");
-    state.otherShipId = best.other.id;
-    state.side = side;
-    state.committedUntil = now + AVOIDANCE_SIDE_COMMIT_MS;
-  }
-
-  const priority = stableAvoidancePriority(ship, best.other);
-  const shipMass = Math.max(1, Number(ship.stats?.mass) || 1);
-  const otherMass = Math.max(1, Number(best.other.stats?.mass) || 1);
-  const hasMassRightOfWay = priority < 0
-    && shipMass >= otherMass * SHIP_MASS_RIGHT_OF_WAY_RATIO;
-  const strength = priority > 0
-    ? AVOIDANCE_STRENGTH_YIELD
-    : (hasMassRightOfWay ? AVOIDANCE_STRENGTH_RIGHT_OF_WAY : AVOIDANCE_STRENGTH_EQUAL);
-  // Avoidance steers by sidestepping the commanded velocity, not by pushing on
-  // the hull. Under flight assist the ship simply flies the amended command, and
-  // its heading follows from it -- so a dodge turns the ship as a consequence
-  // rather than by overwriting the facing, which used to snap the heading ~24
-  // degrees the instant a neighbour came into range and snap it back when they
-  // parted.
-  const sidestep = Math.max(
-    AVOIDANCE_MIN_LATERAL,
-    (Number(decision.maximumSpeed) || 0) * AVOIDANCE_SIDESTEP_RATIO
-  ) * strength;
-  // Avoidance may change where the command points. It may never raise how fast
-  // it asks for. On the final approach that budget is the braking profile, which
-  // has already reduced the commanded speed to what the remaining distance can
-  // absorb; everywhere else it is the intent's own throttle -- decision.maximumSpeed
-  // carries intent.maxSpeedFactor, so a stance that has deliberately wound the
-  // throttle down keeps it wound down.
-  //
-  // Leaving the non-arrival case uncapped meant a settled charger, whose own
-  // throttle is zero because it is sitting on its target's hull, was handed a
-  // lateral command anyway. Facing follows the commanded velocity, so the ship
-  // swung broadside to a target it was supposed to be ramming, and swung back
-  // when the dodge committed to the other side: 111 deg/s of rotation on a hull
-  // travelling 3 px/s.
-  const commandSpeedCap = decision.arrivalRequired && decision.isFinal && decision.goal
-    ? Math.max(0, Number(decision.desiredSpeed) || 0)
-    : Math.max(0, Number(decision.maximumSpeed) || 0);
-  const boundedSidestep = Math.min(sidestep, commandSpeedCap);
-  // Nothing left in the budget to steer with -- the intent has already wound the
-  // throttle to nothing, and a zero-length sidestep can only leave the command
-  // where it was. Bail rather than report an activation that did not happen.
-  if (boundedSidestep <= 0) return;
-  const forwardX = Math.cos(decision.moveAngle || ship.angle || 0);
-  const forwardY = Math.sin(decision.moveAngle || ship.angle || 0);
-  const sidestepX = -forwardY * side * boundedSidestep;
-  const sidestepY = forwardX * side * boundedSidestep;
-  // Exactly one ship in a pair gives way, and it is the one that lost the
-  // right-of-way test. The old disjunction also yielded on a short time to
-  // closest approach whenever the ship lacked a mass advantage -- but two hulls
-  // of similar mass both lack one, so both gave way to each other, neither
-  // closed, and a crowd converging on a rally point simply milled about. Priority
-  // is antisymmetric by construction, so this branch can only be true on one side
-  // of any pair.
-  const yielding = priority > 0 && best.time < AVOIDANCE_BRAKE_TIME_S;
-  if (yielding) {
-    // Give way by leaning off the course, not by abandoning it. Replacing the
-    // command with the sidestep alone leaves a velocity perpendicular to the
-    // goal -- the ship stops closing entirely and slides sideways for as long as
-    // anything is near it. Keeping a fraction of the course still opens the gap
-    // while the ship continues to make ground.
-    decision.desiredVelocity.x = decision.desiredVelocity.x * AVOIDANCE_YIELD_COURSE_RETENTION
-      + sidestepX;
-    decision.desiredVelocity.y = decision.desiredVelocity.y * AVOIDANCE_YIELD_COURSE_RETENTION
-      + sidestepY;
-  } else {
-    decision.desiredVelocity.x += sidestepX;
-    decision.desiredVelocity.y += sidestepY;
-  }
-  const amendedSpeed = fastHypot(
-    decision.desiredVelocity.x,
-    decision.desiredVelocity.y
-  );
-  if (amendedSpeed > commandSpeedCap && amendedSpeed > 0) {
-    const scale = commandSpeedCap / amendedSpeed;
-    decision.desiredVelocity.x *= scale;
-    decision.desiredVelocity.y *= scale;
-  }
-  decision.needsPropulsion = true;
-  collisionBump(room, "shipAvoidanceActivations");
-}
 
 function resolveMapCollision(room, ship) {
   const radius = physicalCollisionRadius(ship);
@@ -540,7 +351,6 @@ function resolveFleetMapCollisions(room) {
 }
 
 module.exports = {
-  applyLocalShipAvoidance,
   navigationClearanceRadius,
   physicalCollisionRadius,
   resolveFleetMapCollisions,

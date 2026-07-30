@@ -1,15 +1,10 @@
 "use strict";
 
 // The one entry point for ship movement. simulation.js, ships.js and
-// messageRouter.js reach for movement through here and nothing else, so the
-// implementation underneath can be swapped whole.
+// messageRouter.js reach for movement through here and nothing else.
 //
-// movementV2.js is the rewritten controller and the default.
-// movementFallback.js is the pre-rewrite stack, kept behind
-// MFA_MOVEMENT_FALLBACK for as long as the rewrite is in progress.
+// The implementation is movementV2.js. This file stays as the seam: it is what
+// let the controller be swapped out from under its callers during the rewrite,
+// and it is what would let it happen again.
 
-const { movementFallbackEnabled } = require("./movementFlags");
-
-module.exports = movementFallbackEnabled()
-  ? require("./movementFallback")
-  : require("./movementV2");
+module.exports = require("./movementV2");

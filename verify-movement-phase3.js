@@ -26,6 +26,12 @@ const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
 const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
 
+// Where the ship was ordered to. The runtime destination is cleared once the
+// order has been carried out -- the durable record of the order is the command.
+function orderedDestination(ship) {
+  return ship.movement.command?.destination || ship.movement.destination;
+}
+
 const DT = 1 / 30;
 
 const LIGHT_DESIGN = [
@@ -138,7 +144,7 @@ function centreOf(ships) {
 }
 
 function destinationsOf(ships) {
-  return ships.map((ship) => ({ id: ship.id, ...ship.movement.destination }));
+  return ships.map((ship) => ({ id: ship.id, ...orderedDestination(ship) }));
 }
 
 function run() {
@@ -192,7 +198,7 @@ function run() {
     simulate(room, ships, 60);
 
     for (const ship of ships) {
-      const toSlot = Math.hypot(ship.x - ship.movement.destination.x, ship.y - ship.movement.destination.y);
+      const toSlot = Math.hypot(ship.x - orderedDestination(ship).x, ship.y - orderedDestination(ship).y);
       assert(toSlot < 24, `every ship should reach its own slot (${ship.id} is ${toSlot.toFixed(1)} px off)`);
       assert(ship.movement.arrived, `${ship.id} should report arrival`);
     }
@@ -228,7 +234,7 @@ function run() {
 
     // First order: due east.
     commandShips(room, player, 4200, 1200, { shipIds: ships.map((s) => s.id) });
-    const eastward = new Map(ships.map((ship) => [ship.id, { ...ship.movement.destination }]));
+    const eastward = new Map(ships.map((ship) => [ship.id, { ...orderedDestination(ship) }]));
     const eastHeading = ships[0].movement.command.formationHeading;
 
     simulate(room, ships, 60);
@@ -243,7 +249,7 @@ function run() {
     assert(headingChange > 1.4,
       `the second order should be a real change of course (${(headingChange * 180 / Math.PI).toFixed(1)} deg)`);
 
-    const southward = new Map(ships.map((ship) => [ship.id, { ...ship.movement.destination }]));
+    const southward = new Map(ships.map((ship) => [ship.id, { ...orderedDestination(ship) }]));
 
     // The formation the player has on screen is the formation they get, in the
     // same orientation, whichever way the group travelled to reach it. So a
@@ -361,7 +367,7 @@ function run() {
     const acrossY = Math.cos(heading);
     const order = ships.map((ship) => ({
       before: ship.x * acrossX + ship.y * acrossY,
-      after: ship.movement.destination.x * acrossX + ship.movement.destination.y * acrossY
+      after: orderedDestination(ship).x * acrossX + orderedDestination(ship).y * acrossY
     })).sort((a, b) => a.before - b.before);
     for (let index = 1; index < order.length; index += 1) {
       assert(order[index].after >= order[index - 1].after - 1e-6,

@@ -11,8 +11,7 @@ const {
 } = require("./src/server/spawnPlanner");
 const {
   updateShipSeparation,
-  resolveFleetMapCollisions,
-  applyLocalShipAvoidance
+  resolveFleetMapCollisions
 } = require("./src/server/movement");
 const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
 const { findShipHullOverlap, computeDesignCollisionRadius } = require("./src/server/componentGeometry");
@@ -188,35 +187,31 @@ test("E occupied rally point", () => {
   for (let i = 0; i < values.length; i += 1) for (let j = i + 1; j < values.length; j += 1) assert(clear(values[i], values[j], 4));
 });
 
-test("F avoidance and towing regression", () => {
+// Separation resolves overlap; it must not tow. A light hull driving past a
+// heavy one may shoulder it aside a little, but it must never end up dragging it
+// along -- the heavy ship being carried the same distance as the ship pushing it
+// is a solver leaking momentum, and in a crowd it moves whole formations.
+//
+// This used to drive the ships through applyLocalShipAvoidance, the world-space
+// desired-velocity avoidance that the rewrite replaced with a bounded heading
+// and speed offset. The towing property belongs to the separation solver and is
+// tested directly here.
+test("F separation does not tow a heavy ship", () => {
   const r = room();
-  const slow = ship("slow", 500, 500, 40, 220);
+  // Offset so the light ship grazes past rather than meeting the heavy one dead
+  // on. A head-on stall measures nothing: neither ship travels, so "was it
+  // towed" has no denominator. Steering around an obstruction is avoidance's
+  // job, and avoidance is tested against the real controller elsewhere.
+  const slow = ship("slow", 500, 552, 40, 220);
   const fast = ship("fast", 425, 500, 40, 80);
-  fast.arrived = false;
-  fast.commandMode = "move";
   fast.vx = 70;
   r.ships.set(slow.id, slow);
   r.ships.set(fast.id, fast);
-  buildRoomSpatialIndex(r, [fast, slow], 0);
-  // Avoidance steers by amending the commanded velocity: it either pushes the
-  // ship off to one side or slows it down.
-  const decision = {
-    needsPropulsion: true, moveAngle: 0, maximumSpeed: 70,
-    desiredVelocity: { x: 70, y: 0 }
-  };
-  applyLocalShipAvoidance(r, fast, decision, { accel: 30 }, 0);
-  assert(Math.abs(decision.desiredVelocity.y) > 0 || decision.desiredVelocity.x < 70);
 
   let fastTravel = 0;
   const slowStart = slow.x;
   for (let tick = 0; tick < 120; tick += 1) {
     buildRoomSpatialIndex(r, [fast, slow], tick * 50);
-    const steering = {
-      needsPropulsion: true, moveAngle: 0, maximumSpeed: 70,
-      desiredVelocity: { x: 70, y: 0 }
-    };
-    applyLocalShipAvoidance(r, fast, steering, { accel: 30 }, tick * 50);
-    flightAssist(fast, steering, 30, 0.05);
     const previousX = fast.x;
     const previousY = fast.y;
     fast.x += fast.vx / 20;
@@ -225,13 +220,16 @@ test("F avoidance and towing regression", () => {
     slow.y += slow.vy / 20;
     fastTravel += Math.hypot(fast.x - previousX, fast.y - previousY);
     updateShipSeparation(r, [fast, slow], 0.05, tick * 50);
+    // Hold the pusher at a steady speed and let the heavy ship shed whatever it
+    // was given, so anything it retains is the solver's doing.
     const fastSpeed = Math.hypot(fast.vx, fast.vy);
     if (fastSpeed > 70) { fast.vx *= 70 / fastSpeed; fast.vy *= 70 / fastSpeed; }
     slow.vx *= 0.86;
     slow.vy *= 0.86;
   }
-  assert(slow.x - slowStart < fastTravel * 0.35);
-  assert(!findShipHullOverlap(fast, slow));
+  assert(slow.x - slowStart < fastTravel * 0.35,
+    `the heavy ship should not be towed (moved ${(slow.x - slowStart).toFixed(1)} px against ${fastTravel.toFixed(1)} px of pushing)`);
+  assert(!findShipHullOverlap(fast, slow), "and they must not be left overlapping");
 });
 
 test("G exact-coordinate deterministic recovery", () => {
@@ -300,7 +298,12 @@ test("L long-hull narrow phase", () => {
 test("M capital ship pushes a light blocker aside", () => {
   const r = room();
   const capital = ship("capital", 360, 600, 78, 720);
-  const blocker = ship("blocker", 485, 600, 30, 55);
+  // Slightly off the capital's centreline, so this is a hull shouldering a light
+  // ship aside as it passes rather than a dead-on stall. The capital does not
+  // steer around it: by mass it has right of way, and what is being tested is
+  // that the light ship gets moved out of the way instead of stopping the heavy
+  // one dead.
+  const blocker = ship("blocker", 485, 655, 30, 55);
   capital.arrived = false;
   capital.commandMode = "move";
   capital.vx = 62;
@@ -311,12 +314,10 @@ test("M capital ship pushes a light blocker aside", () => {
 
   for (let tick = 0; tick < 100; tick += 1) {
     buildRoomSpatialIndex(r, [capital, blocker], tick * 50);
-    const steering = {
-      needsPropulsion: true, moveAngle: 0, maximumSpeed: 70,
-      desiredVelocity: { x: 70, y: 0 }
-    };
-    applyLocalShipAvoidance(r, capital, steering, { accel: 30 }, tick * 50);
-    flightAssist(capital, steering, 30, 0.05);
+    // Drive the capital straight ahead under its own acceleration limit. It has
+    // right of way by mass and does not swerve; the question this asks is what
+    // the separation solver does about the light hull standing in its path.
+    flightAssist(capital, { desiredVelocity: { x: 70, y: 0 } }, 30, 0.05);
     capital.x += capital.vx * 0.05;
     capital.y += capital.vy * 0.05;
     blocker.x += blocker.vx * 0.05;

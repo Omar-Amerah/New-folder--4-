@@ -221,14 +221,16 @@ test("overheatRecoveryMultiplier is applied in heat.js", () => {
   assert(heatSrc.includes("overheatRecoveryMultiplier"), "heat.js should consume overheatRecoveryMultiplier");
 });
 
-test("accelerationMultiplier is applied in movementSteering.js", () => {
-  const moveSrc = require("fs").readFileSync("./src/server/movementSteering.js", "utf8");
-  assert(moveSrc.includes("accelerationMultiplier"), "movementSteering.js should consume accelerationMultiplier");
+// Command auras reach movement through the hull's live performance envelope,
+// which is derived in movementCapability.js.
+test("accelerationMultiplier is applied in movementCapability.js", () => {
+  const moveSrc = require("fs").readFileSync("./src/server/movementCapability.js", "utf8");
+  assert(moveSrc.includes("accelerationMultiplier"), "movementCapability.js should consume accelerationMultiplier");
 });
 
-test("turnRateMultiplier is applied in movementSteering.js", () => {
-  const moveSrc = require("fs").readFileSync("./src/server/movementSteering.js", "utf8");
-  assert(moveSrc.includes("turnRateMultiplier"), "movementSteering.js should consume turnRateMultiplier");
+test("turnRateMultiplier is applied in movementCapability.js", () => {
+  const moveSrc = require("fs").readFileSync("./src/server/movementCapability.js", "utf8");
+  assert(moveSrc.includes("turnRateMultiplier"), "movementCapability.js should consume turnRateMultiplier");
 });
 
 test("repairRateMultiplier is applied in componentHealth.js", () => {
@@ -261,6 +263,9 @@ test("all aura multipliers from component-balance.json are consumed by gameplay 
     "./src/server/combat.js",
     "./src/server/projectiles.js",
     "./src/server/movement.js",
+    // Movement auras are consumed where the hull's live performance envelope is
+    // derived, not in the controller.
+    "./src/server/movementCapability.js",
     "./src/server/heat.js",
     "./src/server/componentPower.js",
     "./src/server/componentHealth.js",

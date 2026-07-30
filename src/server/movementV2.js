@@ -57,6 +57,7 @@ const {
   EDGE_RESTITUTION,
   FINAL_FACING_TOLERANCE,
   HOLD_RANGE_RATIO,
+  HOLD_RESUME_RATIO,
   MAX_MOVEMENT_DT,
   REPAIR_STANDOFF_PAD,
   REST_SPEED,
@@ -72,13 +73,10 @@ const {
   heatAdjustedMovementStats,
   signedTurnRate
 } = require("./movementCapability");
-// Collision and separation are map geometry, not steering, and are shared with
-// the fallback implementation unchanged. applyLocalShipAvoidance is re-exported
-// but deliberately not called: predictive avoidance belongs to the
-// obstacle-avoidance phase of the rewrite, and until then ships fly the line
-// they were given and shove through what is in the way.
+// Collision and separation are map geometry, not steering. Predictive
+// avoidance lives in this file -- see computeAvoidance -- and emits a bounded
+// offset rather than the world-space velocity the old solver used.
 const {
-  applyLocalShipAvoidance,
   navigationClearanceRadius,
   physicalCollisionRadius,
   resolveFleetMapCollisions,
@@ -356,54 +354,180 @@ function maxTurnRate(stats) {
   );
 }
 
-// Once per tick, for a ship holding an attack or repair order: keep the target
-// alive and derive where -- if anywhere -- the ship needs to be to act on it.
+// Who owns the ship's movement this tick.
+//
+// One ladder, resolved here and nowhere else:
+//
+//   Stop            -- an explicit halt stands until another order replaces it
+//   Move            -- a player's destination, until the ship gets there
+//   Engage (Hold)   -- the combat stance, on an explicit or automatic target
+//   Idle            -- nothing to do
+//
+// Manual I/O rotation is deliberately absent: it overrides facing only, and it
+// must not delete the order underneath it, so it is applied in the step rather
+// than competing for authority here.
+//
+// A completed Move does not keep the helm. Once the ship has reached the point
+// it was sent to, that order has been carried out, and Hold is free to take over
+// against whatever it can see -- which is what makes "move there, then engage"
+// work without the player issuing a second order.
+function movementAuthority(runtime) {
+  const command = runtime.command;
+  if (command?.type === "stop") return "stop";
+  if (command?.type === "move") return runtime.orderComplete ? "engage" : "move";
+  return "engage";
+}
+
+// The target the stance should act on: the one the player named, else the one
+// combat acquired on its own. Explicit always wins while it is valid.
+function engagementTarget(room, ship, runtime) {
+  const command = runtime.command;
+  if (command?.type === "attack" || command?.type === "repair") {
+    const explicit = trackedEntity(room, command.targetId);
+    if (explicit) return { target: explicit, type: command.type, explicit: true };
+    return null;
+  }
+  // Automatic acquisition is combat's job; it publishes its choice on the ship.
+  // Movement only reads it -- targeting never issues movement of its own, it
+  // only supplies the stance with something to act on.
+  const automatic = trackedEntity(room, ship.combatTargetId);
+  return automatic ? { target: automatic, type: "attack", explicit: false } : null;
+}
+
+// Once per tick, for a ship whose movement is the combat stance's to decide.
 //
 // The destination this produces is a consequence of the target, never a place
-// the player clicked. It is recomputed from the target's current position, so a
-// target that runs is followed and a target that closes is simply held. Once the
-// ship is inside its engagement range the destination goes away entirely and the
-// ship holds station and shoots.
+// the player clicked, and it is recomputed from the target's current position --
+// so a target that runs is followed and a target that closes is simply held.
+// Inside engagement range there is no destination at all, which is what makes
+// Hold stand still and shoot rather than fussing over an exact distance.
 function refreshEngagement(room, ship, runtime, now) {
   const command = runtime.command;
-  if (!command || (command.type !== "attack" && command.type !== "repair")) return;
+  const engagement = engagementTarget(room, ship, runtime);
 
-  const target = trackedEntity(room, command.targetId);
-  if (!target) {
-    // Destroyed, or gone from the record entirely. An order against a target
-    // that no longer exists is not an order.
-    setMovementCommand(ship, null);
-    clearTargetReferences(ship);
-    syncMovementTarget(ship);
+  if (!engagement) {
+    // An explicit order against a target that no longer exists is not an order.
+    // Clearing it is what lets automatic acquisition take over next tick.
+    if (command?.type === "attack" || command?.type === "repair") {
+      setMovementCommand(ship, null);
+      clearTargetReferences(ship);
+      syncMovementTarget(ship);
+    }
+    runtime.holdEngaged = false;
+    clearRoute(runtime);
     return;
   }
 
-  // Keep combat's explicit-focus channel pointing at what the player named. It
-  // is what makes the chosen target outrank automatic acquisition.
-  if (command.type === "attack") {
-    ship.focusTargetId = command.targetId;
-    ship.combatTargetId = command.targetId;
-  } else {
-    ship.repairTargetId = command.targetId;
+  const { target, type, explicit } = engagement;
+  if (explicit) {
+    // Keep combat's explicit-focus channel pointing at what the player named.
+    // It is what makes the chosen target outrank automatic acquisition.
+    if (type === "attack") {
+      ship.focusTargetId = command.targetId;
+      ship.combatTargetId = command.targetId;
+    } else {
+      ship.repairTargetId = command.targetId;
+    }
   }
 
-  const dx = target.x - (ship.x || 0);
-  const dy = target.y - (ship.y || 0);
-  const distance = fastHypot(dx, dy);
-  const standoff = engagementStandoff(room, ship, target, command.type);
-  if (distance <= standoff) {
-    // In range: stand and fight. No destination means no movement at all --
-    // which is exactly what Hold should do once it can shoot.
-    runtime.destination = null;
-    runtime.path = [];
-    runtime.waypointIndex = 0;
-    runtime.route = null;
+  const distance = fastHypot(target.x - (ship.x || 0), target.y - (ship.y || 0));
+  const { enter, resume } = engagementRanges(ship, target, type);
+
+  if (runtime.holdEngaged) {
+    // Established. Only a target that has genuinely opened the range is worth
+    // getting under way for again -- and nothing at all is worth backing away
+    // from, however close it comes.
+    if (distance <= resume) {
+      clearRoute(runtime);
+      return;
+    }
+    runtime.holdEngaged = false;
+  } else if (canEngageFromHere(runtime, distance, enter, resume)) {
+    runtime.holdEngaged = true;
+    clearRoute(runtime);
     return;
   }
-  // Out of range: close, but only to the edge of the envelope. The point moves
-  // with the target, and the route layer paths around anything in the way.
-  const scale = (distance - standoff) / distance;
-  runtime.destination = { x: (ship.x || 0) + dx * scale, y: (ship.y || 0) + dy * scale };
+
+  runtime.destination = firingPosition(ship, target, runtime, command, enter);
+}
+
+// Is the ship close enough to settle here and open fire?
+//
+// A lone ship stops the moment it is inside its reach -- that is the whole of
+// Hold, and there is nowhere in particular it needs to be.
+//
+// A ship with a place on a group's firing line has somewhere to be, and only
+// counts as established once it has got there. Coming into range half way to
+// its slot is not a reason to abandon it: doing that leaves ships stopped
+// wherever they happened to cross the range ring, several of them parked across
+// the paths of the ones still coming, and the formation never forms. Ships that
+// were already in range when the order was given are latched at that moment
+// instead (see issueAttack), so they never relocate to tidy the line -- which is
+// the case that rule is actually for.
+//
+// The arrival test is against `resume`, not `enter`: a ship stops its arrival
+// radius short of its slot, which is fractionally outside the range the slot was
+// placed at, and a strict test there would never fire.
+function canEngageFromHere(runtime, distance, enter, resume) {
+  const slotted = Number.isFinite(runtime.command?.formationHeading);
+  if (slotted) return runtime.arrived && distance <= resume;
+  return distance <= enter || (runtime.arrived && distance <= resume);
+}
+
+// Where to stand to shoot: on the line from the target back toward the attacker,
+// at the engagement range.
+//
+// The direction is fixed when the engagement begins and then held. Recomputing
+// it from the ship's live position is a feedback loop -- the ship detours around
+// an obstacle, which swings the firing position, which changes the detour -- and
+// it walked ships into the very asteroids the route was avoiding. Fixing the
+// bearing means the point only ever moves because the target moved.
+//
+// For a group the direction is shared, and each ship takes its own place across
+// it. That is what makes a fleet form a firing line rather than a ring:
+// measuring from each ship's own bearing spreads them evenly around the target,
+// which looks wrong and cannot concentrate fire.
+function firingPosition(ship, target, runtime, command, standoff) {
+  if (Number.isFinite(command?.formationHeading)) {
+    return firingPoint(target, command.formationHeading + Math.PI, command.firingLateral, standoff);
+  }
+  const held = runtime.engageApproach;
+  if (held && held.targetId === target.id) {
+    return firingPoint(target, held.approach, 0, standoff);
+  }
+  const approach = Math.atan2((ship.y || 0) - target.y, (ship.x || 0) - target.x);
+  runtime.engageApproach = { targetId: target.id, approach };
+  return firingPoint(target, approach, 0, standoff);
+}
+
+// A place on the firing line, at the engagement range from the target.
+//
+// The along-track distance is shortened to absorb the lateral offset, so every
+// ship in the line ends up the same distance from the target rather than the
+// outer ones sitting further out. Without that the wings of a six-ship line
+// parked at sqrt(standoff^2 + lateral^2) -- measurably outside the range they
+// were sent to -- so they never counted as engaged, never stopped fussing, and
+// never turned to face what they were shooting at.
+//
+// The result is a shallow arc rather than a straight line. That is the point:
+// a line whose ends are out of range is not a firing line. The lateral spread is
+// capped so the formation stays on one side of the target and never wraps into
+// a ring.
+function firingPoint(target, approach, lateral, standoff) {
+  const requested = Number.isFinite(lateral) ? lateral : 0;
+  const offset = clampNumber(requested, -standoff * 0.7, standoff * 0.7);
+  const along = Math.sqrt(Math.max(0, standoff * standoff - offset * offset));
+  return {
+    x: target.x + Math.cos(approach) * along - Math.sin(approach) * offset,
+    y: target.y + Math.sin(approach) * along + Math.cos(approach) * offset
+  };
+}
+
+function clearRoute(runtime) {
+  runtime.destination = null;
+  runtime.path = [];
+  runtime.waypointIndex = 0;
+  runtime.route = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -850,18 +974,23 @@ function bearingTo(ship, point) {
 // would otherwise pick, and targetLocks.js drops it when sensor fog takes the
 // contact away.
 
-// How close this ship needs to be to fight. Standing off at a fraction of the
-// weapon envelope leaves room for the target to manoeuvre without immediately
-// breaking the engagement, and -- more importantly -- means the ship stops when
-// it can shoot rather than driving into the hull it is shooting at.
-function engagementStandoff(room, ship, target, type) {
+// How close this ship needs to be to fight, and how far the target may drift
+// before it is worth chasing again.
+//
+// Hold approaches to 90% of its reach and stops. The 90% is an approach
+// threshold, not a station to be maintained: once the ship is inside it, it
+// stays put whatever the target does short of leaving. Two separate ratios give
+// that behaviour a dead band -- without one, a target hovering near the edge
+// makes the ship start and abandon an approach every second.
+function engagementRanges(ship, target, type) {
   const reach = type === "repair"
     ? (Number(ship.stats?.repairRange) || 0)
     : getMaxEffectiveWeaponRange(ship);
   // A ship with nothing that reaches still has to stop somewhere short of
   // wearing its target as a hat.
   const contact = physicalCollisionRadius(ship) + physicalCollisionRadius(target) + REPAIR_STANDOFF_PAD;
-  return Math.max(contact, reach * HOLD_RANGE_RATIO);
+  const enter = Math.max(contact, reach * HOLD_RANGE_RATIO);
+  return { enter, resume: Math.max(contact, reach * HOLD_RESUME_RATIO) };
 }
 
 function trackedEntity(room, targetId) {
@@ -882,36 +1011,45 @@ function planMovement(room, ship, runtime, stats, route) {
   if (!command) return { ...resting, desiredHeading: ship.angle || 0, phase: "idle" };
 
   if (command.type === "stop") {
-    // Stop preserves the hull's heading exactly. Turning to face anything -- the
-    // destination it was just cancelled off, a target, its own velocity -- would
-    // make the stop key a rotate key.
+    // Stop preserves the hull's heading: turning to face the destination it was
+    // just cancelled off would make the stop key a rotate key.
+    //
+    // A target is the one exception, and not really an exception at all -- the
+    // ship has stopped moving, not stopped fighting, so it keeps its guns on
+    // what it was engaging.
     const speed = Math.abs(forwardSpeedOf(ship));
+    const engaged = engagementTarget(room, ship, runtime);
+    const distance = engaged ? fastHypot(engaged.target.x - ship.x, engaged.target.y - ship.y) : 0;
     return {
-      desiredHeading: ship.angle || 0,
+      desiredHeading: engaged && distance > BEARING_MIN_DISTANCE
+        ? bearingTo(ship, engaged.target)
+        : (ship.angle || 0),
       desiredSpeed: 0,
       phase: speed > REST_SPEED ? "braking" : "positioned"
     };
   }
 
-  // An attack or repair order with no destination is a ship already in range:
-  // it stands its ground and faces what it is shooting at, so fixed weapons
-  // bear. refreshEngagement gives it a destination only while it is too far out,
-  // and in that case this falls through to the ordinary move logic below --
-  // there is nothing special about flying to a point derived from a target.
-  if ((command.type === "attack" || command.type === "repair") && !runtime.destination) {
-    const target = trackedEntity(room, command.targetId);
-    const distance = target ? fastHypot(target.x - ship.x, target.y - ship.y) : 0;
-    return {
-      desiredHeading: target && distance > BEARING_MIN_DISTANCE
-        ? bearingTo(ship, target)
-        : (ship.angle || 0),
-      desiredSpeed: 0,
-      phase: "positioned"
-    };
-  }
-
   const destination = runtime.destination;
-  if (!destination) return { ...resting, phase: "positioned" };
+
+  // No destination, but something to shoot at: the ship is in its firing
+  // position. It stands its ground and faces what it is engaging so fixed
+  // weapons bear. This covers both an explicit attack order and a target
+  // acquired automatically, and it is reached the moment the stance decides the
+  // ship is close enough -- there is nothing else Hold does once established.
+  if (!destination) {
+    const engaged = engagementTarget(room, ship, runtime);
+    if (engaged) {
+      const distance = fastHypot(engaged.target.x - ship.x, engaged.target.y - ship.y);
+      return {
+        desiredHeading: distance > BEARING_MIN_DISTANCE
+          ? bearingTo(ship, engaged.target)
+          : (ship.angle || 0),
+        desiredSpeed: 0,
+        phase: "positioned"
+      };
+    }
+    return { ...resting, phase: "positioned" };
+  }
 
   const distance = fastHypot(destination.x - (ship.x || 0), destination.y - (ship.y || 0));
 
@@ -928,6 +1066,10 @@ function planMovement(room, ship, runtime, stats, route) {
   const speed = forwardSpeedOf(ship);
   if (distance <= ARRIVE_DISTANCE && speed <= DESTINATION_ARRIVE_SPEED) {
     runtime.arrived = true;
+    // A Move that has been flown is done with. Latching it here is what hands
+    // the helm to the combat stance afterwards, and what stops the stance and
+    // the stale Move order taking turns to drag the ship about.
+    if (command.type === "move") runtime.orderComplete = true;
     return { ...resting, phase: "positioned" };
   }
 
@@ -1060,9 +1202,15 @@ function updateShipMovement(room, ship, dt, now) {
   // Routing is strategy, not physics: it is resolved once per tick and the same
   // answer is flown by every substep. Re-running a path search inside the
   // integration loop buys nothing and costs a search per substep.
-  // An attack or repair order turns into a destination only while the ship is
-  // out of range; in range it produces none and the ship holds station.
-  refreshEngagement(room, ship, runtime, ship._simNow);
+  const authority = movementAuthority(runtime);
+  if (authority === "engage") {
+    // The stance turns a target into a destination only while the ship is out of
+    // range; in range it produces none and the ship holds station and fires.
+    refreshEngagement(room, ship, runtime, ship._simNow);
+  } else if (authority === "stop") {
+    runtime.holdEngaged = false;
+    clearRoute(runtime);
+  }
 
   const routed = runtime.destination
     ? resolveRoute(room, ship, runtime, ship._simNow)
@@ -1127,22 +1275,73 @@ function issueMove(ship, commandId, destination, options = {}) {
   syncMovementTarget(ship);
 }
 
+// Stop halts the ship. It deliberately does not clear what the ship is aiming
+// at: "stop moving" and "stop shooting" are different orders, and a ship told to
+// hold position while engaging should keep tracking and firing at its target
+// from where it now stands.
 function issueStop(ship, commandId, manual = true) {
-  clearTargetReferences(ship);
   setMovementCommand(ship, { id: `${commandId}:${ship.id}`, type: "stop", manual });
   syncMovementTarget(ship);
 }
 
-function issueAttack(room, ship, commandId, targetId, now) {
+function issueAttack(room, ship, commandId, targetId, now, options = {}) {
   const target = trackedEntity(room, targetId);
   const viewerTeam = room?.players?.get?.(ship.ownerId)?.team ?? ship.team ?? ship.ownerId;
   clearTargetReferences(ship);
   if (target && room && !canTeamTargetEntity(room, viewerTeam, target, now)) return false;
   ship.combatTargetId = targetId;
   ship.focusTargetId = targetId;
-  setMovementCommand(ship, { id: `${commandId}:${ship.id}`, type: "attack", targetId, manual: true });
+  setMovementCommand(ship, {
+    id: `${commandId}:${ship.id}`,
+    type: "attack",
+    targetId,
+    formationHeading: options.formationHeading,
+    firingLateral: options.firingLateral,
+    manual: true
+  });
+  // A ship that could already shoot the target when the order arrived is
+  // established where it stands. It does not relocate to make the firing line
+  // tidier -- that is movement for its own sake, and the player watching it
+  // sees a ship that was already fighting break off to shuffle sideways.
+  if (target) {
+    const runtime = ensureMovementRuntime(ship);
+    const distance = fastHypot(target.x - (ship.x || 0), target.y - (ship.y || 0));
+    if (distance <= engagementRanges(ship, target, "attack").enter) runtime.holdEngaged = true;
+  }
   syncMovementTarget(ship);
   return true;
+}
+
+// Places on the firing line for a group attacking one target.
+//
+// Spaced across the line rather than around the enemy: a ring means half the
+// fleet is shooting through the other half, and it reads as ships circling
+// something they are supposed to be shooting. Assignment is by each ship's
+// current position across the line, so nobody crosses anybody, and it is stable
+// -- the same selection attacking the same target twice gets the same places.
+//
+// Ships already in range simply never use theirs: the stance stops them where
+// they stand, so ordering an attack does not make a fleet that is already
+// engaged shuffle into a tidier line.
+function assignFiringLine(ships, target) {
+  const lateral = new Map();
+  if (ships.length < 2) return { lateral, approach: null };
+  const centre = fleetCentre(ships);
+  const approach = Math.atan2(target.y - centre.y, target.x - centre.x);
+  const acrossX = -Math.sin(approach);
+  const acrossY = Math.cos(approach);
+  const ordered = ships.slice().sort((a, b) => {
+    const acrossA = a.x * acrossX + a.y * acrossY;
+    const acrossB = b.x * acrossX + b.y * acrossY;
+    if (Math.abs(acrossA - acrossB) > 0.001) return acrossA - acrossB;
+    return compareEntityIds(a, b);
+  });
+  const widest = ordered.reduce((largest, ship) => Math.max(largest, separationRadius(ship)), 18);
+  const spacing = widest * 2 + SLOT_SPACING_PAD;
+  for (let index = 0; index < ordered.length; index += 1) {
+    lateral.set(ordered[index].id, (index - (ordered.length - 1) / 2) * spacing);
+  }
+  return { lateral, approach };
 }
 
 function issueRepair(ship, commandId, targetId) {
@@ -1417,7 +1616,13 @@ function commandShips(room, player, x, y, options = {}) {
 
   if (enemy) {
     const now = performanceNow();
-    for (const ship of ships) issueAttack(room, ship, commandId, livingTarget.id, now);
+    const line = assignFiringLine(ships, livingTarget);
+    for (const ship of ships) {
+      issueAttack(room, ship, commandId, livingTarget.id, now, {
+        formationHeading: line.approach,
+        firingLateral: line.lateral?.get(ship.id)
+      });
+    }
     return { ok: true, code: "attack", commanded: ships.length };
   }
   if (ally) {
@@ -1514,7 +1719,6 @@ function applyCombatStyle(ship, combatStyle) {
 module.exports = {
   SUPPORTED_MOVEMENT_TYPES,
   applyCombatStyle,
-  applyLocalShipAvoidance,
   commandShips,
   commandShipsToAssignedSlots,
   createMovementRuntime,
