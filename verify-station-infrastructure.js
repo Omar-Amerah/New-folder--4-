@@ -20,7 +20,7 @@ const { buildSharedSnapshot } = require("./src/server/snapshots");
 const { computeStats } = require("./src/server/shipStats");
 const { DEFAULT_ROOM_RULES, INFRASTRUCTURE } = require("./src/server/config");
 const { getShipComponentIndexes } = require("./src/server/componentIndexes");
-const { moduleCentreToLocal, buildHomeStationGeometry, HANGAR_BAY_COUNT } = require("./src/server/stationTemplates");
+const { moduleCentreToLocal } = require("./src/server/stationTemplates");
 const { updateStationWeapons, stationModuleWorldPosition, damageStation } = require("./src/server/stationCombat");
 const { PARTS } = require("./src/server/components");
 const { areEnemies } = require("./src/server/combat");
@@ -116,26 +116,10 @@ function run() {
   );
 
   section("Station shield and hull hitboxes match the rendered station geometry");
-  // Every probe below is measured off the authored template rather than a
-  // hardcoded footprint, so re-sizing the station cannot silently invalidate it.
-  const homeGeometry = buildHomeStationGeometry();
-  const homeHalfWidth = (homeGeometry.shell.maxX - homeGeometry.shell.minX) / 2;
-  const homeHalfHeight = (homeGeometry.shell.maxY - homeGeometry.shell.minY) / 2;
-  // A lateral offset clear of the whole structure, and one squarely inside the
-  // outer hull column beside the outermost bay.
-  const outboardY = homeHalfHeight + 80;
-  const outerColumn = homeGeometry.collisionRects
-    .reduce((widest, rect) => (rect.maxY > widest.maxY ? rect : widest));
-  const platingY = (outerColumn.minY + outerColumn.maxY) / 2;
-  const probeX = homeHalfWidth + 180;
-  const expectedHomeShieldRadius = Math.hypot(homeHalfWidth, homeHalfHeight) * 1.06;
+  const expectedHomeShieldRadius = Math.hypot(270, 270) * 1.06;
   assert(
     Math.abs(home.shieldRadius - expectedHomeShieldRadius) < 0.001,
-    `home shield wraps the rendered footprint (${home.shieldRadius} vs ${expectedHomeShieldRadius})`
-  );
-  assert(
-    Array.isArray(home.hangars) && home.hangars.length === HANGAR_BAY_COUNT,
-    `a home station has one launch bay per team seat (got ${home.hangars?.length})`
+    `home shield wraps the rendered 540x540 footprint (${home.shieldRadius} vs ${expectedHomeShieldRadius})`
   );
   assert(
     shieldCollisionRadius(home) === home.shieldRadius
@@ -150,30 +134,26 @@ function run() {
       y: home.y + localX * sin + localY * cos
     };
   };
-  const emptyStart = worldPoint(probeX, outboardY);
-  const emptyEnd = worldPoint(-probeX, outboardY);
+  const emptyStart = worldPoint(600, 350);
+  const emptyEnd = worldPoint(-600, 350);
   assert(
     segmentStationHullHit(home, emptyStart.x, emptyStart.y, emptyEnd.x, emptyEnd.y) === null,
     "a shot outside the rendered station footprint does not hit the old enclosing circle"
   );
-  const flankStart = worldPoint(probeX, platingY);
-  const flankEnd = worldPoint(-probeX, platingY);
+  const flankStart = worldPoint(600, 198);
+  const flankEnd = worldPoint(-600, 198);
   const flankHit = segmentStationHullHit(home, flankStart.x, flankStart.y, flankEnd.x, flankEnd.y);
   assert(flankHit && flankHit.t > 0 && flankHit.t < 1, "a shot through rendered flank plating hits the compound hull");
-  // Straight down each bay: the corridors are genuinely open, so a shot reaches
-  // the rear bulkhead of whichever one it entered.
-  for (const bay of homeGeometry.bays) {
-    const bayStart = worldPoint(probeX, bay.centreY);
-    const bayEnd = worldPoint(homeGeometry.shell.minX - 40, bay.centreY);
-    const bayHit = segmentStationHullHit(home, bayStart.x, bayStart.y, bayEnd.x, bayEnd.y);
-    const hitDx = bayHit.x - home.x;
-    const hitDy = bayHit.y - home.y;
-    const hitLocalX = hitDx * Math.cos(home.angle) + hitDy * Math.sin(home.angle);
-    assert(
-      Math.abs(hitLocalX - bay.rearWallX) < 0.001,
-      `shots pass through open bay ${bay.index} and hit its rendered rear bulkhead (${hitLocalX} vs ${bay.rearWallX})`
-    );
-  }
+  const hangarStart = worldPoint(600, 0);
+  const hangarEnd = worldPoint(-250, 0);
+  const hangarHit = segmentStationHullHit(home, hangarStart.x, hangarStart.y, hangarEnd.x, hangarEnd.y);
+  const hitDx = hangarHit.x - home.x;
+  const hitDy = hangarHit.y - home.y;
+  const hangarHitLocalX = hitDx * Math.cos(home.angle) + hitDy * Math.sin(home.angle);
+  assert(
+    Math.abs(hangarHitLocalX - 18) < 0.001,
+    "shots pass through the visibly open hangar mouth and hit its rendered rear bulkhead"
+  );
 
   const hitRoom = createRoom("HITBOX");
   hitRoom.disableSpatialIndex = true;
@@ -193,10 +173,10 @@ function run() {
     };
   };
   const fireAcross = (localY) => {
-    const start = targetPoint(probeX, localY);
+    const start = targetPoint(600, localY);
     // The red home faces inward from the arena edge. Stop just behind its rear
     // face so the verification remains inside the world boundary.
-    const end = targetPoint(homeGeometry.shell.minX + 40, localY);
+    const end = targetPoint(-250, localY);
     addBullet(hitRoom, {
       type: "bolt",
       ownerId: "blue",
@@ -212,7 +192,7 @@ function run() {
     updateBullets(hitRoom, 1, 1000);
   };
   targetHome.shield = 0;
-  fireAcross(outboardY);
+  fireAcross(350);
   assert(hitRoom.bullets.length === 1, "the live projectile path passes through empty space outside the station hull");
   hitRoom.bullets.length = 0;
   hitRoom.projectileById.clear();

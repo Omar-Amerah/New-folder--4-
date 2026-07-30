@@ -16,52 +16,43 @@
 // (render bounds, collision cells, hangar dimensions) reads the scale, and it is
 // exported here as the single source of truth.
 //
-// STATION_MODULE_SCALE = 56 gives a 15-cell station front of 840 world units
-// against a maximum 15x15 ship's 195 — a 4.3x ratio. The station is deliberately
-// larger than the single-bay design it replaced: a team's home station now
-// carries THREE launch bays side by side, one per player (up to three), and
-// three bays cannot share a 540u front face.
+// STATION_MODULE_SCALE = 36 gives a 15-cell station front of 540 world units
+// against a maximum 15x15 ship's 195 — a 2.77x ratio, inside the 2.2-2.8 target.
 //
 // GRID CONVENTION
 // Client and server both map a design cell to structure-local space as
 //   local.x = (7 - cell.y) * scale      // +x is FORWARD
 //   local.y = (cell.x - 7) * scale      // +y is lateral
-// so a station's hangars face +x by opening at the LOWEST cell y, and each
+// so a station's hangar faces +x by opening at the LOWEST cell y, and the
 // aperture's width runs along cell x.
 //
 // HOME STATION LAYOUT (cell space, front at the top / low y)
 //
-//        <---------------- 15 cells (840u) ---------------->
-//        +----+-----+---+-----+---+-----+----+   <- front face (y=0)
-//        |hull| bay |wal| bay |wal| bay |hull|
-//        | 2  |  3  | 1 |  3  | 1 |  3  |  2 |   ^ 7 cells deep
-//        |x0-1|x2-4 |x5 |x6-8 |x9 |x10-12|x13-14  v
-//        +----+-----+---+-----+---+-----+----+
-//        |            rear body (8 cells)    |
-//        +-----------------------------------+
+//        <------------- 15 cells (540u) ------------->
+//        +--------+                      +-----------+   <- front face (y=0)
+//        | left   |   aperture 7 cells   | right     |
+//        | hull   |    (open corridor)   | hull      |   ^ 7 cells deep
+//        | 4 wide |        238u          | 4 wide    |   v
+//        +--------+----------------------+-----------+
+//        |               rear body (8 cells)         |
+//        +-------------------------------------------+
 //
-// Each bay is a genuine void in the design: no module occupies it, so the
-// compound collision geometry leaves all three open. The outer hulls and the
-// two dividing walls stay connected through the rear body, so generated wiring
-// reaches every component.
-//
-// A bay is 3 cells (168u) wide, which is narrower than a maximum 15x15 hull
-// (195u). That is deliberate and safe: a ship under launch control ignores its
-// own station's collision entirely (see resolveStationCollision) and is pinned
-// to its bay centreline until it clears the release plane, so an oversized hull
-// simply pushes out through the bay mouth rather than jamming in it.
+// The corridor is a genuine void in the design: no module occupies it, so the
+// compound collision geometry leaves it open and a launching ship starts inside
+// the structure rather than in front of it. Left and right hulls stay connected
+// through the rear body, so generated wiring reaches every component.
 
 const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
 
 // The ship module scale. Ships are laid out at 13 world units per cell.
 const SHIP_MODULE_SCALE = 13;
-// Stations use the same 15x15 grid at a larger scale (see the note above). Three
-// launch bays plus their dividing walls need the whole front face, so the scale
-// carries the size instead of the cell count: 56 gives 168u bays, wide enough
-// for every hull a player builds in practice, and a station that still fits
-// inside its spawn region.
-const STATION_MODULE_SCALE = 56;
+// Stations use the same 15x15 grid at a larger scale (see the note above). 36
+// is the smallest scale where the 7-cell aperture clears a maximum ship's
+// lateral half-extent plus its per-cell hull collision radius by more than a
+// full ship blueprint cell, while the 15-cell front stays inside the 2.2-2.8x
+// visual ratio (540 / 195 = 2.77).
+const STATION_MODULE_SCALE = 36;
 const GRID_CENTER = 7;
 const GRID_CELLS = 15;
 
@@ -79,19 +70,13 @@ const HOME_X_MAX = GRID_CELLS - 1;
 const HOME_Y_MIN = 0;
 const HOME_Y_MAX = GRID_CELLS - 1;
 
-// Three bays of three cells each, symmetric about the grid centre: outer hulls
-// of two cells, single-cell dividing walls between neighbouring bays.
-//   [0-1 hull][2-4 bay][5 wall][6-8 bay][9 wall][10-12 bay][13-14 hull]
-// One player on the team gets the middle bay, two get the outer pair, three get
-// all of them (see hangarBayForPlayer in stations.js).
-const HANGAR_BAY_COUNT = 3;
-const APERTURE_CELLS = 3;
-const HANGAR_BAY_CELLS = Object.freeze([2, 6, 10].map((xMin) => Object.freeze({
-  xMin,
-  xMax: xMin + APERTURE_CELLS - 1
-})));
+// Aperture: seven cells (252u) around the grid centre. A 195u ship, padded by
+// its per-cell hull radius, passes with 19.3u of clearance on each side.
+const APERTURE_CELLS = 7;
+const APERTURE_X_MIN = Math.floor((GRID_CELLS - APERTURE_CELLS) / 2); // 4
+const APERTURE_X_MAX = APERTURE_X_MIN + APERTURE_CELLS - 1;           // 10
 
-// Corridor depth: seven cells (392u), so a full 195u ship sits entirely inside
+// Corridor depth: seven cells (252u), so a full 195u ship sits entirely inside
 // the station before it moves.
 const CORRIDOR_CELLS = 7;
 const CORRIDOR_Y_MIN = HOME_Y_MIN;
@@ -102,39 +87,23 @@ const RELAY_CELLS = 9;
 // Relays are structures too, but far smaller than a home station.
 const RELAY_MODULE_SCALE = 20;
 
-// The solid hull columns left between and beside the bays, as inclusive cell
-// ranges. Collision, wiring connectivity and the surface-part table all read
-// this rather than re-deriving the gaps.
-const HOME_HULL_COLUMNS = Object.freeze([
-  Object.freeze({ xMin: 0, xMax: 1 }),
-  Object.freeze({ xMin: 5, xMax: 5 }),
-  Object.freeze({ xMin: 9, xMax: 9 }),
-  Object.freeze({ xMin: 13, xMax: 14 })
-]);
-
-function bayIndexAt(x) {
-  for (let i = 0; i < HANGAR_BAY_CELLS.length; i += 1) {
-    const bay = HANGAR_BAY_CELLS[i];
-    if (x >= bay.xMin && x <= bay.xMax) return i;
-  }
-  return -1;
+function inAperture(x) {
+  return x >= APERTURE_X_MIN && x <= APERTURE_X_MAX;
 }
 function inCorridorVoid(x, y) {
-  return bayIndexAt(x) >= 0 && y >= CORRIDOR_Y_MIN && y <= CORRIDOR_Y_MAX;
+  return inAperture(x) && y >= CORRIDOR_Y_MIN && y <= CORRIDOR_Y_MAX;
 }
 
-function isSolidCell(x, y) {
-  if (x < HOME_X_MIN || x > HOME_X_MAX || y < HOME_Y_MIN || y > HOME_Y_MAX) return false;
-  return !inCorridorVoid(x, y);
-}
-
-// A cell is on the hull surface when it touches open space — the outside of the
-// shell or one of the three bay voids. With bays cut into the front face the old
-// closed-form depth formula no longer describes the shape, so it is read
-// straight off the cell occupancy instead.
-function onHullSurface(x, y) {
-  return !isSolidCell(x - 1, y) || !isSolidCell(x + 1, y)
-    || !isSolidCell(x, y - 1) || !isSolidCell(x, y + 1);
+// Distance in cells to the nearest surface — the outer shell or a corridor wall.
+function surfaceDepth(x, y) {
+  let depth = Math.min(x - HOME_X_MIN, HOME_X_MAX - x, y - HOME_Y_MIN, HOME_Y_MAX - y);
+  if (y <= CORRIDOR_Y_MAX) {
+    if (x < APERTURE_X_MIN) depth = Math.min(depth, APERTURE_X_MIN - x - 1);
+    else if (x > APERTURE_X_MAX) depth = Math.min(depth, x - APERTURE_X_MAX - 1);
+  } else if (inAperture(x)) {
+    depth = Math.min(depth, y - CORRIDOR_Y_MAX - 1);
+  }
+  return depth;
 }
 
 // The rotation that points a surface module away from the hull it is mounted
@@ -159,37 +128,21 @@ function outwardRotation(x, y, xMin, xMax, yMin, yMax) {
   return 90;
 }
 
-// The rotation that points a home-station surface module away from the solid it
-// is mounted on, choosing whichever adjacent cell is actually open. Bay walls
-// therefore face into their bay and the shell faces out of the station.
-function homeSurfaceRotation(x, y) {
-  if (!isSolidCell(x, y - 1)) return 0;    // open ahead  -> +x
-  if (!isSolidCell(x, y + 1)) return 180;  // open behind -> -x
-  if (!isSolidCell(x - 1, y)) return 270;  // open to -y
-  if (!isSolidCell(x + 1, y)) return 90;   // open to +y
-  return 0;
-}
-
-// Weapon batteries: point defence lines the bay walls (it protects the launch
-// corridors), heavier mounts outboard and along the flanks. Every one is an
+// Weapon batteries: point defence closest to the mouth (it protects the launch
+// corridor), heavier mounts outboard and along the flanks. Every one is an
 // ordinary weapon component running through the ordinary combat pipeline.
 function homeStationSurfacePart(x, y) {
   const onFront = y === HOME_Y_MIN;
   const onFlank = x === HOME_X_MIN || x === HOME_X_MAX;
   const onRear = y === HOME_Y_MAX;
-  // Bay walls: any solid cell inside the corridor band that borders a bay.
-  const onBayWall = y <= CORRIDOR_Y_MAX
-    && (bayIndexAt(x - 1) >= 0 || bayIndexAt(x + 1) >= 0);
-  if (onBayWall && !onFront) {
-    if (y === CORRIDOR_Y_MIN + 1 || y === CORRIDOR_Y_MAX - 1) return "pointDefense";
-    return "armor";
-  }
+  // Corridor walls beside the mouth.
+  const besideMouth = y <= CORRIDOR_Y_MIN + 2
+    && (x === APERTURE_X_MIN - 1 || x === APERTURE_X_MAX + 1);
+  if (besideMouth) return "pointDefense";
   if (onFront) {
-    // The dividing walls between bays are single cells: give their noses point
-    // defence so every launch corridor is covered from both sides.
-    if (bayIndexAt(x - 1) >= 0 && bayIndexAt(x + 1) >= 0) return "pointDefense";
-    if (bayIndexAt(x - 1) >= 0 || bayIndexAt(x + 1) >= 0) return "flakCannon";
-    return "blaster";
+    if (x === APERTURE_X_MIN - 2 || x === APERTURE_X_MAX + 2) return "flakCannon";
+    if (x === HOME_X_MIN + 1 || x === HOME_X_MAX - 1) return "blaster";
+    return "armor";
   }
   if (onFlank) {
     if (y === CORRIDOR_Y_MIN + 2) return "pointDefense";
@@ -229,10 +182,8 @@ function homeStationInteriorPart(x, y, coreX, coreY) {
 // extends into — always inward, given these rotations — and the body fill skips
 // those cells rather than stacking two modules on one square.
 const HOME_REPAIR_BEAM_MOUNTS = Object.freeze([
-  // Nose of each dividing wall, between two bays: a hull limping into either
-  // corridor is under a beam on final approach.
-  { x: 5, y: CORRIDOR_Y_MIN + 1, rotation: 0 },
-  { x: 9, y: CORRIDOR_Y_MIN + 1, rotation: 0 },
+  { x: APERTURE_X_MIN - 1, y: CORRIDOR_Y_MIN + 2, rotation: 0 },
+  { x: APERTURE_X_MAX + 1, y: CORRIDOR_Y_MIN + 2, rotation: 0 },
   { x: HOME_X_MIN, y: 5, rotation: 270 },
   { x: HOME_X_MAX, y: 5, rotation: 90 },
   { x: HOME_X_MIN, y: 9, rotation: 270 },
@@ -264,16 +215,16 @@ function buildHomeStationDesign() {
         continue;
       }
       if (emitterCells.has(key)) continue;
-      const onSurface = onHullSurface(x, y);
+      const onSurface = surfaceDepth(x, y) === 0;
       const type = onSurface
         ? homeStationSurfacePart(x, y)
         : homeStationInteriorPart(x, y, coreX, coreY);
-      // Batteries on a bay wall stay bore-sighted down their launch corridor;
-      // every other surface battery points off its own facing. Only weapons are
-      // turned: armour plating is non-rotatable hull art.
-      const onBayNose = y === HOME_Y_MIN && (bayIndexAt(x - 1) >= 0 || bayIndexAt(x + 1) >= 0);
-      const rotation = onSurface && PARTS[type]?.weapon && !onBayNose
-        ? homeSurfaceRotation(x, y)
+      // Batteries beside the hangar mouth stay bore-sighted down the launch
+      // corridor; every other surface battery points off its own facing.
+      // Only weapons are turned: armour plating is non-rotatable hull art.
+      const besideMouth = inAperture(x + 1) || inAperture(x - 1);
+      const rotation = onSurface && PARTS[type]?.weapon && !(besideMouth && y <= CORRIDOR_Y_MIN + 2)
+        ? outwardRotation(x, y, HOME_X_MIN, HOME_X_MAX, HOME_Y_MIN, HOME_Y_MAX)
         : 0;
       design.push({ x, y, type, rotation });
     }
@@ -348,76 +299,48 @@ function cellRectToLocal(xMin, xMax, yMin, yMax, scale) {
 }
 
 // Home station geometry in structure-local space, +x forward. Collision is
-// compound on purpose: one circle would seal the bay mouths, the three paths
-// that have to stay open.
+// compound on purpose: one circle would seal the hangar mouth, the single path
+// that has to stay open.
 function buildHomeStationGeometry() {
   const scale = STATION_MODULE_SCALE;
   const shell = cellRectToLocal(HOME_X_MIN, HOME_X_MAX, HOME_Y_MIN, HOME_Y_MAX, scale);
+  const aperture = cellRectToLocal(APERTURE_X_MIN, APERTURE_X_MAX, CORRIDOR_Y_MIN, CORRIDOR_Y_MAX, scale);
   const mouthX = shell.maxX;
-  const releasePlaneX = mouthX + MAX_SHIP_EXTENT / 2 + HULL_CELL_PADDING;
-
-  const bays = HANGAR_BAY_CELLS.map((cells, index) => {
-    const rect = cellRectToLocal(cells.xMin, cells.xMax, CORRIDOR_Y_MIN, CORRIDOR_Y_MAX, scale);
-    const rearWallX = rect.minX;
-    const halfWidth = (rect.maxY - rect.minY) / 2;
-    // Each bay runs parallel to the station's nose, offset laterally by its
-    // centreline. Everything downstream measures ALONG +x and ACROSS from this
-    // centreY, so the three bays share one set of maths.
-    const centreY = (rect.minY + rect.maxY) / 2;
-    return {
-      index,
-      centreY,
-      halfWidth,
-      minY: rect.minY,
-      maxY: rect.maxY,
-      mouthX,
-      rearWallX,
-      length: mouthX - rearWallX,
-      // Centred in the corridor: the deepest point where a hull is both clear
-      // of the rear wall and still behind the mouth.
-      interiorSpawn: { x: (rearWallX + mouthX) / 2, y: centreY },
-      // Where a launching ship's whole padded hull is outside the structure.
-      releasePlaneX,
-      // The blast door across this bay's mouth. Doors are NOT part of
-      // collisionRects: they are solid to everything except a hull under launch
-      // control, so ships may leave a bay but nothing may fly back in.
-      doorRect: {
-        minX: mouthX - scale * 0.4,
-        maxX: mouthX,
-        minY: rect.minY,
-        maxY: rect.maxY
-      }
-    };
-  });
-
-  const primary = bays[Math.floor(bays.length / 2)];
+  const rearWallX = aperture.minX;
+  const halfWidth = (aperture.maxY - aperture.minY) / 2;
 
   return {
     moduleScale: scale,
-    bayCount: bays.length,
-    bays,
     collisionRects: [
-      // The outer hulls and the two dividing walls, each full depth.
-      ...HOME_HULL_COLUMNS.map((column) =>
-        cellRectToLocal(column.xMin, column.xMax, HOME_Y_MIN, HOME_Y_MAX, scale)),
-      // Rear body closing the back of all three corridors.
-      cellRectToLocal(HANGAR_BAY_CELLS[0].xMin, HANGAR_BAY_CELLS[HANGAR_BAY_CELLS.length - 1].xMax,
-        CORRIDOR_Y_MAX + 1, HOME_Y_MAX, scale)
+      // Left hull, full depth.
+      cellRectToLocal(HOME_X_MIN, APERTURE_X_MIN - 1, HOME_Y_MIN, HOME_Y_MAX, scale),
+      // Right hull, full depth.
+      cellRectToLocal(APERTURE_X_MAX + 1, HOME_X_MAX, HOME_Y_MIN, HOME_Y_MAX, scale),
+      // Rear body closing the back of the corridor.
+      cellRectToLocal(APERTURE_X_MIN, APERTURE_X_MAX, CORRIDOR_Y_MAX + 1, HOME_Y_MAX, scale)
     ],
-    doorRects: bays.map((bay) => bay.doorRect),
-    // Back-compatible single-bay view, describing the centre bay. Callers that
-    // predate multi-bay stations keep working and address the middle corridor.
-    aperture: { x: mouthX, halfWidth: primary.halfWidth, minY: primary.minY, maxY: primary.maxY },
-    corridor: { rearWallX: primary.rearWallX, mouthX, halfWidth: primary.halfWidth, length: primary.length },
-    doorRect: primary.doorRect,
-    interiorSpawn: primary.interiorSpawn,
-    releasePlaneX,
+    aperture: { x: mouthX, halfWidth, minY: aperture.minY, maxY: aperture.maxY },
+    corridor: { rearWallX, mouthX, halfWidth, length: mouthX - rearWallX },
+    // The blast door across the mouth. It is NOT part of collisionRects: it is
+    // solid to everything except the hull currently launching, so a ship may
+    // leave the hangar but nothing may fly back in. Without it an enemy could
+    // park inside the corridor and stop the station building ships at all,
+    // since a launch only starts when the corridor is clear.
+    doorRect: {
+      minX: mouthX - scale * 0.4,
+      maxX: mouthX,
+      minY: aperture.minY,
+      maxY: aperture.maxY
+    },
+    // Centred in the corridor: the deepest point where a maximum ship's whole
+    // padded hull is both clear of the rear wall and still behind the mouth.
+    interiorSpawn: { x: (rearWallX + mouthX) / 2, y: 0 },
+    // Where a launching ship's whole padded hull is outside the structure.
+    releasePlaneX: mouthX + MAX_SHIP_EXTENT / 2 + HULL_CELL_PADDING,
     shell,
     maxShipExtent: MAX_SHIP_EXTENT,
-    // Clearance a bay grants a maximum ship on each side. Negative for a full
-    // 15x15 hull, which is expected: launching ships ignore their own station's
-    // collision (see resolveStationCollision) and push straight out.
-    clearance: primary.halfWidth - MAX_SHIP_EXTENT / 2
+    // Clearance the aperture grants a maximum ship on each side.
+    clearance: halfWidth - MAX_SHIP_EXTENT / 2
   };
 }
 
@@ -433,14 +356,13 @@ const HOME_STATION_CELLS = Object.freeze({
   corridorCells: CORRIDOR_CELLS,
   bodyCells: BODY_CELLS,
   apertureCells: APERTURE_CELLS,
-  bayCount: HANGAR_BAY_COUNT,
-  bays: HANGAR_BAY_CELLS,
-  hullColumns: HOME_HULL_COLUMNS,
   maxShipCells: MAX_SHIP_CELLS,
   xMin: HOME_X_MIN,
   xMax: HOME_X_MAX,
   yMin: HOME_Y_MIN,
   yMax: HOME_Y_MAX,
+  apertureXMin: APERTURE_X_MIN,
+  apertureXMax: APERTURE_X_MAX,
   corridorYMin: CORRIDOR_Y_MIN,
   corridorYMax: CORRIDOR_Y_MAX
 });
@@ -455,8 +377,6 @@ module.exports = {
   MAX_SHIP_EXTENT,
   HULL_CELL_PADDING,
   HOME_STATION_CELLS,
-  HANGAR_BAY_COUNT,
-  HANGAR_BAY_CELLS,
   RELAY_CELLS,
   stationModuleScale,
   buildHomeStationDesign,
@@ -468,8 +388,5 @@ module.exports = {
   moduleCentreToLocal,
   outwardRotation,
   inCorridorVoid,
-  isSolidCell,
-  onHullSurface,
-  bayIndexAt,
   PARTS_REFERENCE: PARTS
 };
