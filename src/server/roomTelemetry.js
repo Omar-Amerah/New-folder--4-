@@ -1,6 +1,6 @@
 "use strict";
 
-// Per-room reusable tick telemetry.  All counters are plain numbers on a single
+// Per-room reusable tick telemetry. All counters are plain numbers on a single
 // room-scoped object that is reset deterministically at the start of every tick.
 // No per-entity, per-candidate or per-projectile allocations are made for
 // telemetry; callers bump counters and record stage durations using the helpers
@@ -36,6 +36,12 @@ const DURATION_FIELDS = Object.freeze([
   "pointDefenceMountSelectionMs",
   "stationTargetAcquisitionMs",
   "effectiveWeaponProfileMs",
+  "targetLineOfSightMs",
+  "targetVisibilityMs",
+  "weaponAimMs",
+  "weaponFiringMs",
+  "beamProcessingMs",
+  // Retained for compatibility with early Phase Three diagnostics.
   "weaponAimFiringMs"
 ]);
 
@@ -111,6 +117,8 @@ const COUNTER_FIELDS = Object.freeze([
   "ordinaryTargetSearchDeferred",
   "ordinaryTargetImmediateReacquisitions",
   "pointDefenceTargetSearches",
+  "pointDefenceTargetSearchDeferred",
+  "pointDefenceImmediateReacquisitions",
   "pointDefenceThreatSetBuilds",
   "pointDefenceThreatSetReuses",
   "pointDefenceThreatCandidates",
@@ -131,6 +139,7 @@ const COUNTER_FIELDS = Object.freeze([
   "targetRangeChecks",
   "targetArcChecks",
   "targetTieBreaks",
+  "targetInvalidations",
   "effectiveWeaponProfileBuilds",
   "effectiveWeaponProfileCacheHits",
   "effectiveWeaponProfileCacheMisses",
