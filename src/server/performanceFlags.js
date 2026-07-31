@@ -56,6 +56,18 @@ function __setPROJECTILE_GRID_COLLISION(value) {
 // --- Phase Three weapon targeting and profile performance flags ---
 
 let _weaponTargetAcquisitionCadence = false;
+
+// --- Phase Four authoritative fixed-timestep simulation flag ---
+
+let _fixedAuthoritativeTimestep = false;
+
+function FIXED_AUTHORITATIVE_TIMESTEP() {
+  return _fixedAuthoritativeTimestep;
+}
+
+function __setFIXED_AUTHORITATIVE_TIMESTEP(value) {
+  _fixedAuthoritativeTimestep = Boolean(value);
+}
 let _pointDefenceSharedThreats = false;
 let _weaponProfileRevisionCache = false;
 
@@ -99,5 +111,7 @@ module.exports = {
   __setPROJECTILE_GRID_COLLISION,
   __setWEAPON_TARGET_ACQUISITION_CADENCE,
   __setPOINT_DEFENCE_SHARED_THREATS,
-  __setWEAPON_PROFILE_REVISION_CACHE
+  __setWEAPON_PROFILE_REVISION_CACHE,
+  FIXED_AUTHORITATIVE_TIMESTEP,
+  __setFIXED_AUTHORITATIVE_TIMESTEP
 };

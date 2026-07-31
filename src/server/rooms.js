@@ -106,7 +106,15 @@ function createRoom(code, options = {}) {
     stateEpoch: 1,
     snapshotSeq: 0,
     staticRevision: 1,
-    componentCatalogueRevision: 1
+    componentCatalogueRevision: 1,
+    // Phase Four fixed-timestep authoritative simulation runtime state.
+    _authoritativeTimeMs: 0,
+    _simulationAccumulatorMs: 0,
+    _lastSimulationCallbackMs: 0,
+    _simulationStep: 0,
+    _simulationLocked: false,
+    _simulationReentries: 0,
+    _pendingFixedStepMetrics: null
   };
 }
 
@@ -148,6 +156,15 @@ function bumpStateEpoch(room, reason = "state-reset") {
       client.snapshotBaseline.lastFullSeq = 0;
     }
   }
+  // Phase Four: timing state is not part of the persistent game state; clear it
+  // on a state reset so authoritative time cannot leak across room epochs.
+  room._authoritativeTimeMs = 0;
+  room._simulationAccumulatorMs = 0;
+  room._lastSimulationCallbackMs = 0;
+  room._simulationStep = 0;
+  room._simulationLocked = false;
+  room._simulationReentries = 0;
+  room._pendingFixedStepMetrics = null;
 }
 
 function setRoomRules(room, requester, updates) {
