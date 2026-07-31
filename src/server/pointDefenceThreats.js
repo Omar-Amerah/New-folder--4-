@@ -175,11 +175,10 @@ function _buildCandidateList(room, entity, identity, queryRadius, now) {
     candidates.push({ type: "decoy", entity: decoy });
   }
 
-  candidates.sort(_threatComparator(candidates, entity, entity.id, viewerTeam || identity, ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"]));
   return candidates;
 }
 
-function _threatComparator(candidates, entity, protectedShipId, shipOwnerId, priorityList) {
+function _sortCandidates(candidates, entity, protectedShipId, shipOwnerId, priorityList) {
   const cx = entity.x || 0;
   const cy = entity.y || 0;
   const ranks = new WeakMap();
@@ -192,7 +191,7 @@ function _threatComparator(candidates, entity, protectedShipId, shipOwnerId, pri
     distSqs.set(c, dx * dx + dy * dy);
     protectedFlags.set(c, Targeting.isCandidateTargetingProtected(c, protectedShipId, null, shipOwnerId));
   }
-  return (a, b) => {
+  return candidates.slice().sort((a, b) => {
     const rA = ranks.get(a) ?? -1;
     const rB = ranks.get(b) ?? -1;
     if (rA !== rB) {
@@ -207,7 +206,7 @@ function _threatComparator(candidates, entity, protectedShipId, shipOwnerId, pri
     const dB = distSqs.get(b) ?? Infinity;
     if (dA !== dB) return dA - dB;
     return Targeting.isStableIdBefore?.(a.entity, b.entity) ? -1 : 1;
-  };
+  });
 }
 
 function _entityRelevantRevisions(entity) {
@@ -294,6 +293,7 @@ function ensurePointDefenceThreatSet(room, entity, identity, now) {
     entity._pdThreatSet.nextRefreshAt = now + PD_REFRESH_MS;
     entity._pdThreatSet._signature = _signature(room, entity, meta);
     entity._pdThreatSet._candidatesLength = candidates.length;
+    entity._pdThreatSet.sortedByPriority = {};
 
     TargetingTelemetry.bump(room, "pointDefenceThreatSetBuilds");
     TargetingTelemetry.bump(room, "pointDefenceThreatCandidates", candidates.length);
@@ -411,7 +411,13 @@ function selectPointDefenceTarget(room, originX, originY, shipOwnerId, weapon, p
   let best = null;
   TargetingTelemetry.bump(room, "pointDefenceMountSelections");
 
-  for (const candidate of threatSet.candidates) {
+  const priorityKey = priorityList.join(",");
+  if (!threatSet.sortedByPriority[priorityKey]) {
+    threatSet.sortedByPriority[priorityKey] = _sortCandidates(threatSet.candidates, entity, protectedShipId, shipOwnerId, priorityList);
+  }
+  const sorted = threatSet.sortedByPriority[priorityKey];
+
+  for (const candidate of sorted) {
     const distSq = _validateCandidate(room, candidate, originX, originY, shipOwnerId, weapon, now, priorityList, canSee, reservations);
     if (distSq === null) continue;
     best = candidate;

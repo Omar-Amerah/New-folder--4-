@@ -983,8 +983,6 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
 
 function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null, now = 0) {
 
-  TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
-
   if (PerformanceFlags.POINT_DEFENCE_SHARED_THREATS()) {
     const defender = room?.ships?.get?.(protectedShipId) || (room?.stations || []).find((s) => s.id === protectedShipId);
     if (defender) {
@@ -1291,7 +1289,8 @@ function getCadencedShipCombatTarget(room, ship, ships, now) {
     }
   }
 
-  const force = focusChanged || !currentValid;
+  const hadCachedTarget = cachedId !== null;
+  const force = focusChanged || (hadCachedTarget && !currentValid);
   const due = TargetingCadence.isAcquisitionDue(ship, "shipCombat", 0, now);
 
   if (currentValid && !force && !due) {
@@ -1647,6 +1646,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       if (pdCurrentValid && !pdDue) {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
         currentPdTarget = pdCached;
+      } else if (!pdDue) {
+        TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
+        currentPdTarget = null;
       } else {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
         currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
@@ -4595,7 +4597,7 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
   const primaryId = primary?.id ?? null;
   const primaryChanged = primaryId !== state.lastPrimaryId;
   state.lastPrimaryId = primaryId;
-  const force = (hadCachedTarget && (!cached || !currentValid)) || primaryChanged;
+  const force = primaryChanged || (hadCachedTarget && (!cached || !currentValid));
 
   if (hadCachedTarget && (!cached || !currentValid)) {
     state.id = null;
@@ -5723,6 +5725,8 @@ module.exports = {
   findTarget,
 
   findPointDefenseTarget,
+
+  _lookupPointDefenceEntity,
 
   pickWeaponFireTarget,
 

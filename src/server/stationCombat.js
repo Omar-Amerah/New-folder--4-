@@ -12,7 +12,7 @@ const { angleDifference, fastHypot, rngRange, rotateToward } = require("./utils"
 const TurretRules = require("../../public/src/shared/turretRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
 const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("./stationTemplates");
-const { isInSafeZone, areEnemies, weaponReloadSeconds, findPointDefenseTarget } = require("./combat");
+const { isInSafeZone, isLineBlocked, areEnemies, weaponReloadSeconds, findPointDefenseTarget, _lookupPointDefenceEntity } = require("./combat");
 const { canTeamTargetEntity } = require("./visibility");
 const PerformanceFlags = require("./performanceFlags");
 const Targeting = require("./targetingEligibility");
@@ -337,9 +337,39 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       // nothing fragile is inbound. Before this it could see ships alone, so
       // eight point-defence mounts watched missiles fly past into the hull.
       const isPointDefense = (weapon.type || "") === "pointDefense";
-      const pdTarget = isPointDefense
-        ? findPointDefenseTarget(room, origin.x, origin.y, identity, weapon, targets, station.id, now)
-        : null;
+      let pdTarget = null;
+      if (isPointDefense) {
+        const pdCachedId = station.weaponAimTargetIds[i] ?? null;
+        const pdCached = pdCachedId ? _lookupPointDefenceEntity(room, pdCachedId) : null;
+        const worldWeaponAngle = (station.angle || 0) + (station.weaponAngles[i] || 0);
+        const pdArcRadians = (weapon.arc || 360) * Math.PI / 180;
+        let pdCurrentValid = false;
+        if (pdCached) {
+          pdCurrentValid = Targeting.isPointDefenceTargetValid(room, identity, pdCached, weapon.range || 0, now, {
+            originX: origin.x,
+            originY: origin.y,
+            arcRadians: pdArcRadians,
+            weaponAngle: worldWeaponAngle,
+            reservations: room._pdReservations,
+            priorityList: weapon.targetPriority,
+            team: station.team
+          });
+          if (pdCurrentValid && isLineBlocked(room, origin.x, origin.y, pdCached.entity.x, pdCached.entity.y, 4)) pdCurrentValid = false;
+          if (!pdCurrentValid) TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
+        }
+        const pdDue = TargetingCadence.isAcquisitionDue(station, "stationPointDefence", i, now);
+        if (pdCurrentValid && !pdDue) {
+          TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
+          pdTarget = pdCached;
+        } else if (!pdDue) {
+          TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
+          pdTarget = null;
+        } else {
+          TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
+          pdTarget = findPointDefenseTarget(room, origin.x, origin.y, identity, weapon, targets, station.id, now);
+          TargetingCadence.markAcquisitionCompleted(station, "stationPointDefence", i, now);
+        }
+      }
       const target = pdTarget ? pdTarget.entity
         : (PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()
             ? getCadencedStationWeaponTarget(room, station, i, targets, identity, now)
