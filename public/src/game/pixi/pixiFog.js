@@ -14,8 +14,6 @@ const SENSOR_FOG_COLOR_BASE = "rgba(0, 4, 16, ";
 const FULL_DARK_COLOR = "rgba(0, 0, 0, 1)";
 const EDGE_START = 0.86;
 
-const SHOT_TAG_TTL_MS = 700;
-
 let fogView = null;
 
 function viewerTeam() {
@@ -45,16 +43,12 @@ function createFogView(env) {
   root.eventMode = "none";
   outside.eventMode = "none";
   sprite.eventMode = "none";
-  const tagGfx = new env.PIXI.Graphics();
-  tagGfx.eventMode = "none";
-  root.addChild(outside, sprite, tagGfx);
+  root.addChild(outside, sprite);
   env.layers.fog.addChild(root);
   return {
     root,
     outside,
     sprite,
-    tagGfx,
-    shotTags: new Map(),
     texture: null,
     canvas: null,
     context: null,
@@ -217,59 +211,6 @@ function drawFogMask(view, sources, mode, opacity) {
   view.texture?.source?.update?.();
 }
 
-function effectTagKey(effect) {
-  return `${effect.at ?? 0}:${Math.round(effect.x)}:${Math.round(effect.y)}`;
-}
-
-function updateShotTags(view, now) {
-  for (const [key, tag] of view.shotTags) {
-    if (now - tag.birthAt > SHOT_TAG_TTL_MS) view.shotTags.delete(key);
-  }
-
-  for (const effect of state.snapshot?.effects || []) {
-    if (effect.type !== "shieldhit") continue;
-    if (!Number.isFinite(effect.nx) || !Number.isFinite(effect.ny)) continue;
-    const key = effectTagKey(effect);
-    if (view.shotTags.has(key)) continue;
-    view.shotTags.set(key, {
-      x: Number(effect.x),
-      y: Number(effect.y),
-      nx: Number(effect.nx),
-      ny: Number(effect.ny),
-      birthAt: now
-    });
-  }
-}
-
-function drawShotTags(view, now) {
-  const gfx = view.tagGfx;
-  if (!gfx) return;
-  gfx.clear();
-  const zoom = Math.max(0.05, state.camera?.zoom || 1);
-  const color = "#ff5f7e";
-
-  for (const tag of view.shotTags.values()) {
-    const age = now - tag.birthAt;
-    if (age > SHOT_TAG_TTL_MS) continue;
-    const a = Math.max(0, 1 - age / SHOT_TAG_TTL_MS);
-    const r = 8 / zoom;
-
-    const x1 = tag.x;
-    const y1 = tag.y - r;
-    const x2 = tag.x - r * 0.866;
-    const y2 = tag.y + r * 0.5;
-    const x3 = tag.x + r * 0.866;
-    const y3 = tag.y + r * 0.5;
-
-    gfx.moveTo(x1, y1);
-    gfx.lineTo(x2, y2);
-    gfx.lineTo(x3, y3);
-    gfx.closePath();
-    gfx.fill({ color, alpha: 0.18 * a });
-    gfx.stroke({ width: 1.5 / zoom, color, alpha: 0.82 * a });
-  }
-}
-
 export function updatePixiFog(env, now, _bounds) {
   if (!usesSensorVisibility()) {
     if (fogView) {
@@ -281,8 +222,6 @@ export function updatePixiFog(env, now, _bounds) {
   if (!env.layers?.fog) return;
   if (!fogView) fogView = createFogView(env);
   fogView.root.visible = true;
-  updateShotTags(fogView, now);
-  drawShotTags(fogView, now);
 
   const snapshot = state.snapshot || {};
   const mode = state.rules?.visibilityMode;

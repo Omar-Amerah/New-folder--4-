@@ -8,6 +8,7 @@ const VERSION = 1;
 
 const MAX_TOMBSTONES = 4096;
 const TOMBSTONE_WINDOW = 2048;
+const TERMINAL_LIFETIME_MS = 300;
 
 let store = {
   version: VERSION,
@@ -17,7 +18,8 @@ let store = {
   correctionSeq: 0,
   hasBaseline: false,
   projectiles: new Map(),
-  tombstones: new Map()
+  tombstones: new Map(),
+  terminals: new Map()
 };
 
 function resetStore(stateEpoch, projectileStateEpoch) {
@@ -29,7 +31,8 @@ function resetStore(stateEpoch, projectileStateEpoch) {
     correctionSeq: 0,
     hasBaseline: false,
     projectiles: new Map(),
-    tombstones: new Map()
+    tombstones: new Map(),
+    terminals: new Map()
   };
 }
 
@@ -84,10 +87,25 @@ function applyEvent(event, message) {
       installProjectile(event.projectile, simMs);
     }
   } else if (event.type === "projectileRemove") {
+    const existing = store.projectiles.get(event.projectileId);
+    if (existing) {
+      const terminal = {
+        id: existing.id,
+        type: existing.type,
+        subtype: existing.subtype,
+        ownerId: existing.ownerId,
+        angle: existing.angle,
+        finalX: event.x,
+        finalY: event.y,
+        removeReason: event.reason,
+        removedSimulationTimeMs: simMs
+      };
+      store.terminals.set(event.projectileId, terminal);
+    }
     store.projectiles.delete(event.projectileId);
     const seq = Number(event.projectileEventSeq) || 0;
-    const existing = store.tombstones.get(event.projectileId);
-    if (!existing || seq > existing.seq) {
+    const tombstone = store.tombstones.get(event.projectileId);
+    if (!tombstone || seq > tombstone.seq) {
       store.tombstones.set(event.projectileId, { seq, simulationTimeMs: simMs });
     }
   } else if (event.type === "projectileHide") {
@@ -113,6 +131,7 @@ function applyBaseline(message) {
   const bullets = message.bullets || [];
   store.projectiles = new Map();
   store.tombstones = new Map();
+  store.terminals = new Map();
   for (const b of bullets) {
     installProjectile(b, Number(message.projectileSimulationTimeMs) || Number(message.simulationTimeMs) || 0);
   }
@@ -176,23 +195,48 @@ export function getProjectilesForRender(now = null) {
   const out = [];
   const useNow = Number.isFinite(now);
   for (const p of store.projectiles.values()) {
-    const dt = (useNow && Number.isFinite(p.simulationTimeMs)) ? Math.max(0, (now - p.simulationTimeMs) / 1000) : 0;
     const render = {
       id: p.id,
       type: p.type,
       subtype: p.subtype,
       ownerId: p.ownerId,
-      x: p.x + p.vx * dt,
-      y: p.y + p.vy * dt,
+      x: p.x,
+      y: p.y,
       vx: p.vx,
       vy: p.vy,
-      age: p.age + dt,
-      remainingLife: Math.max(0, p.remainingLife - dt),
+      age: p.age,
+      remainingLife: p.remainingLife,
       simulationTimeMs: p.simulationTimeMs
     };
     if (p.angle !== undefined) render.angle = p.angle;
     out.push(render);
   }
+
+  const expired = [];
+  for (const [id, t] of store.terminals) {
+    const removed = Number(t.removedSimulationTimeMs) || 0;
+    if (useNow && now > removed + TERMINAL_LIFETIME_MS) {
+      expired.push(id);
+      continue;
+    }
+    out.push({
+      id: t.id,
+      terminal: true,
+      type: t.type,
+      subtype: t.subtype,
+      ownerId: t.ownerId,
+      x: t.finalX,
+      y: t.finalY,
+      vx: 0,
+      vy: 0,
+      age: 0,
+      remainingLife: 0,
+      removeReason: t.removeReason,
+      simulationTimeMs: removed
+    });
+  }
+  for (const id of expired) store.terminals.delete(id);
+
   return out;
 }
 
@@ -204,6 +248,7 @@ export function getProjectileStoreState() {
     correctionSeq: store.correctionSeq,
     hasBaseline: store.hasBaseline,
     count: store.projectiles.size,
-    tombstones: store.tombstones.size
+    tombstones: store.tombstones.size,
+    terminals: store.terminals.size
   };
 }

@@ -128,17 +128,6 @@ export function drawAsteroid(asteroid, now) {
 }
 
 // --- Projectile presentation helpers -----------------------------------------
-// Where to draw a bullet this frame. Ships render slightly behind the server
-// (exponential smoothing), so extrapolating bullets forward by the raw snapshot
-// age makes a freshly fired bolt appear detached ahead of the barrel. Render
-// bullets with the same small visual lag, and never behind their muzzle origin.
-const BULLET_VISUAL_LAG = 0.05;
-export function bulletRenderPosition(bullet, elapsed) {
-  const age = Number.isFinite(bullet.age) ? bullet.age : 1;
-  const t = Math.max(-age, elapsed - BULLET_VISUAL_LAG);
-  return { x: bullet.x + bullet.vx * t, y: bullet.y + bullet.vy * t };
-}
-
 export function isFriendlyProjectile(bullet, players) {
   if (!bullet) return false;
   if (bullet.ownerId === state.myId) return true;

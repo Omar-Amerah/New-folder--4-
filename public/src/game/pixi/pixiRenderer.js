@@ -116,7 +116,8 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.effectText);
   worldRoot.addChild(layers.fog);
   // Remembered contacts are tactical UI and remain legible over unexplored
-  // space; live world entities stay beneath the fog.
+  // space; live world entities stay beneath the fog so sensor softness and
+  // opacity control how strongly they fade in and out.
   worldRoot.addChild(layers.contacts);
   worldRoot.addChild(layers.overlay);
   app.stage.addChild(backdropRoot);
