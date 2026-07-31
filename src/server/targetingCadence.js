@@ -8,7 +8,7 @@ const PerformanceFlags = require("./performanceFlags");
 
 const ACQUISITION_INTERVALS = Object.freeze({
   ordinaryShip: 1000 / 8,        // 8 Hz
-  shipCombat: 1000 / 4,          // 4 Hz ship-level primary target refresh
+  shipCombat: 1000 / 5,          // 5 Hz ship-level primary target refresh
   pointDefence: 1000 / 12,       // 12 Hz
   stationOrdinary: 1000 / 8,     // 8 Hz
   stationPointDefence: 1000 / 12 // 12 Hz

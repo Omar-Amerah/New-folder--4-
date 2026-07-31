@@ -607,5 +607,41 @@ let testShipCounter = 0;
     console.log("✔ Test 22 passed: Shared PD respects individual weapon target priorities.");
   }
 
+  // 23. Destroyed PD target is immediately reacquired between cadence windows.
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "pointDefense" }, { x: 7, y: 8, type: "engine" }]);
+    const room = makeRoom([pdShip]);
+    const oldMissile = { id: "m-old", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 100, y: 0, life: 5, interceptable: true, hp: 20 };
+    const otherMissile = { id: "m-other", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 120, y: 0, life: 5, interceptable: true, hp: 20 };
+    room.bullets.push(oldMissile, otherMissile);
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+
+    // First tick: acquire old missile.
+    const now1 = 33;
+    buildRoomSpatialIndex(room, [pdShip], now1);
+    updateShipWeapons(room, pdShip, [pdShip], 1 / 30, now1);
+    const pdIndex = getShipComponentIndexes(pdShip).weaponIndices[0];
+    assert.strictEqual(pdShip.pdAcquiredTargetIds[pdIndex], "m-old", "PD acquired the initial missile");
+
+    // Second tick, well before the 12 Hz PD window: destroy old, leaving the
+    // other threat already in the shared set.
+    const now2 = 66;
+    oldMissile.life = 0;
+    buildRoomSpatialIndex(room, [pdShip], now2);
+    updateShipWeapons(room, pdShip, [pdShip], 1 / 30, now2);
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.pointDefenceImmediateReacquisitions >= 1, "Invalidating the cached PD target triggers immediate reacquisition");
+    assert.ok(t.pointDefenceTargetSearches >= 2, "PD performs a new search when the old target is lost");
+    assert.strictEqual(pdShip.pdPendingTargetIds[pdIndex], "m-other", "PD immediately switches to the other threat");
+    console.log("✔ Test 23 passed: Destroyed PD target is immediately reacquired.");
+  }
+
   console.log("\nPhase 3 Targeting & Point Defence verification passed.");
 })();

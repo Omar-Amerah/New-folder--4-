@@ -358,10 +358,11 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           if (!pdCurrentValid) TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
         }
         const pdDue = TargetingCadence.isAcquisitionDue(station, "stationPointDefence", i, now);
+        const pdForce = pdCachedId !== null && !pdCurrentValid;
         if (pdCurrentValid && !pdDue) {
           TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
           pdTarget = pdCached;
-        } else if (!pdDue) {
+        } else if (!pdDue && !pdForce) {
           TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
           pdTarget = null;
         } else {

@@ -1643,10 +1643,11 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       }
 
       const pdDue = TargetingCadence.isAcquisitionDue(ship, "pointDefence", i, now);
+      const pdForce = pdCachedId !== null && !pdCurrentValid;
       if (pdCurrentValid && !pdDue) {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
         currentPdTarget = pdCached;
-      } else if (!pdDue) {
+      } else if (!pdDue && !pdForce) {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
         currentPdTarget = null;
       } else {
@@ -2140,11 +2141,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const prevContact = ship.weaponBeamContacts[i];
 
-      const charge = TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledBeamProcessingDuration", () =>
-        beamContactCharge(prevContact, weaponTarget?.id, worldWeaponAngle, effectiveWeapon)
-      );
-
-      const beamResult = damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * charge.multiplier * dt, now, {
+      const beamResult = TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledBeamProcessingDuration", () => {
+        const charge = beamContactCharge(prevContact, weaponTarget?.id, worldWeaponAngle, effectiveWeapon);
+        return damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * charge.multiplier * dt, now, {
 
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
 
@@ -2159,6 +2158,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         weaponIndex: i
 
       });
+
+    });
 
 
 
