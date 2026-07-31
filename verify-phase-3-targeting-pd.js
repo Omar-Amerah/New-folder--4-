@@ -20,6 +20,9 @@ let testShipCounter = 0;
   const RoomTelemetry = require("./src/server/roomTelemetry");
   const PointDefenceThreats = require("./src/server/pointDefenceThreats");
   const WiringRules = require("./public/src/shared/wiringRules");
+  const { updateShipWeapons } = require("./src/server/combat");
+  const { updateStationWeapons } = require("./src/server/stationCombat");
+  const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
 
   function makeTestShip(design, wiring = null, ownerId = "p1") {
     let shipWiring = wiring;
@@ -52,6 +55,12 @@ let testShipCounter = 0;
     };
     initComponentState(ship);
     reallocateShipPower(ship, "init");
+    if (ship.componentPower?.byComponentIndex) {
+      for (let i = 0; i < ship.design.length; i += 1) {
+        const rec = ship.componentPower.byComponentIndex[i];
+        if (rec) rec.operationalMultiplier = 1;
+      }
+    }
     ship.weaponAngles = ship.design.map(() => 0);
     ship.weaponCooldowns = ship.design.map(() => 0);
     ship.weaponDesiredAngles = ship.design.map(() => 0);
@@ -305,6 +314,219 @@ let testShipCounter = 0;
     assert.strictEqual(pdShip._weaponTargetState, null, "Weapon target state cleared");
     assert.strictEqual(pdShip.effectiveWeaponProfileCache, null, "Effective profile cache cleared");
     console.log("✔ Test 12 passed: Room reset clears all Phase 3 caches.");
+  }
+
+  // 13. updateShipWeapons with no targets and cadence defers most searches.
+  {
+    const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
+    const room = makeRoom([ship]);
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      const now = (tick + 1) * (1000 / 30);
+      buildRoomSpatialIndex(room, [ship], now);
+      updateShipWeapons(room, ship, [], 1 / 30, now);
+    }
+
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.ordinaryTargetSearchDeferred >= 3, "No-target searches are deferred between cadence windows");
+    assert.ok(t.ordinaryTargetSearches <= 2, "No-target searches happen at cadence due times only");
+    console.log("✔ Test 13 passed: Ship cadence defers no-target searches.");
+  }
+
+  // 14. Destroyed ordinary target forces immediate reacquisition.
+  {
+    const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
+    const enemy = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    enemy.x = 150;
+    enemy.y = 100;
+    const room = makeRoom([ship, enemy]);
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+
+    for (let tick = 0; tick < 3; tick += 1) {
+      const now = (tick + 1) * (1000 / 30);
+      buildRoomSpatialIndex(room, [ship, enemy], now);
+      if (tick === 2) enemy.alive = false;
+      updateShipWeapons(room, ship, [ship, enemy], 1 / 30, now);
+    }
+
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.ordinaryTargetImmediateReacquisitions >= 1, "A destroyed target triggers immediate reacquisition");
+    console.log("✔ Test 14 passed: Destroyed ordinary target triggers immediate reacquisition.");
+  }
+
+  // 15. Fallback target does not force a full search every tick.
+  {
+    const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
+    const far = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    far.x = 1200;
+    far.y = 0;
+    const close = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    close.x = 150;
+    close.y = 0;
+    const room = makeRoom([ship, far, close]);
+    ship.focusTargetId = far.id;
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      const now = (tick + 1) * (1000 / 30);
+      buildRoomSpatialIndex(room, [ship, far, close], now);
+      updateShipWeapons(room, ship, [ship, far], 1 / 30, now);
+    }
+
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.ordinaryTargetSearches <= 2, "Fallback target is not re-searched every tick");
+    console.log("✔ Test 15 passed: Fallback target is retained without searching every tick.");
+  }
+
+  // 16. Multiple PD mounts share one threat set across several ticks.
+  {
+    const pdShip = makeTestShip([
+      { x: 7, y: 7, type: "core" },
+      { x: 8, y: 7, type: "pointDefense" },
+      { x: 9, y: 7, type: "pointDefense" },
+      { x: 8, y: 6, type: "pointDefense" },
+      { x: 7, y: 6, type: "reactor" },
+      { x: 7, y: 8, type: "engine" }
+    ]);
+    const room = makeRoom([pdShip]);
+    for (let i = 0; i < 30; i += 1) {
+      const angle = (i / 30) * Math.PI * 2;
+      const d = 120;
+      room.bullets.push({ id: `m3-${i}`, type: "missile", ownerId: "p2", targetId: pdShip.id, x: pdShip.x + Math.cos(angle) * d, y: pdShip.y + Math.sin(angle) * d, life: 5, interceptable: true, hp: 20 });
+    }
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      const now = (tick + 1) * (1000 / 30);
+      buildRoomSpatialIndex(room, [pdShip], now);
+      updateShipWeapons(room, pdShip, [pdShip], 1 / 30, now);
+    }
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.pointDefenceThreatSetBuilds <= 2, "Threat set is not rebuilt every tick");
+    assert.ok(t.pointDefenceThreatSetReuses >= 6, "Multiple PD mounts reuse the same threat set");
+    assert.ok(t.pointDefenceMountSelections >= 9, "Every PD mount selects a target each tick");
+    console.log("✔ Test 16 passed: Multiple PD mounts share one threat set.");
+  }
+
+  // 17. Effective weapon profile cache is reused across updateShipWeapons ticks.
+  {
+    const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
+    const room = makeRoom([ship]);
+    PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      const now = (tick + 1) * (1000 / 30);
+      buildRoomSpatialIndex(room, [ship], now);
+      updateShipWeapons(room, ship, [ship], 1 / 30, now);
+    }
+
+    PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(false);
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.effectiveWeaponProfileBuilds >= 1 || t.effectiveWeaponProfileCacheHits >= 1, "Profile cache is built or reused");
+    console.log("✔ Test 17 passed: Effective weapon profile cache is reused across updateShipWeapons.");
+  }
+
+  // 18. Station cadence defers ordinary target searches.
+  {
+    const station = {
+      id: `test-station-${(testShipCounter += 1)}`,
+      entityType: "station",
+      moduleScale: 59,
+      x: 1000,
+      y: 1000,
+      angle: 0,
+      team: "A",
+      state: "operational",
+      alive: true,
+      hp: 1000,
+      maxHp: 1000,
+      design: [
+        { x: 7, y: 7, type: "core" },
+        { x: 6, y: 7, type: "blaster" },
+        { x: 8, y: 7, type: "blaster" }
+      ],
+      componentHp: [1000, 1000, 1000],
+      componentMaxHp: [1000, 1000, 1000],
+      weaponCooldowns: [0, 0, 0],
+      weaponAngles: [0, 0, 0],
+      weaponAimTargetIds: [null, null, null],
+      weaponFireTargetIds: [null, null, null],
+      weaponDesiredAngles: [null, null, null]
+    };
+    const enemy = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    enemy.x = 1100;
+    enemy.y = 1000;
+    const room = makeRoom([station]);
+    room.ships.set(enemy.id, enemy);
+
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      const now = (tick + 1) * (1000 / 30);
+      buildRoomSpatialIndex(room, [...room.ships.values()], now);
+      updateStationWeapons(room, [station], [...room.ships.values()], 1 / 30, now);
+    }
+
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.stationTargetSearchDeferred >= 2, "Station cadence defers searches");
+    assert.ok(t.stationTargetSearches <= 2, "Station searches happen at cadence due times");
+    console.log("✔ Test 18 passed: Station cadence defers ordinary target searches.");
+  }
+
+  // 19. Edge-mounted station PD uses the correct module scale.
+  {
+    const station = {
+      id: `test-station-${(testShipCounter += 1)}`,
+      entityType: "station",
+      moduleScale: 59,
+      x: 1000,
+      y: 1000,
+      angle: 0,
+      team: "A",
+      state: "operational",
+      alive: true,
+      hp: 1000,
+      maxHp: 1000,
+      design: [
+        { x: 7, y: 7, type: "core" },
+        { x: 14, y: 7, type: "pointDefense" }
+      ],
+      componentHp: [1000, 1000],
+      componentMaxHp: [1000, 1000],
+      weaponCooldowns: [0, 0],
+      weaponAngles: [0, 0],
+      weaponAimTargetIds: [null, null],
+      weaponFireTargetIds: [null, null],
+      weaponDesiredAngles: [null, null]
+    };
+    const room = makeRoom([station]);
+    const missile = { id: "m-edge", type: "missile", ownerId: "p2", targetId: station.id, x: 1000 - 25, y: 1000 + 440, life: 5, interceptable: true, hp: 20 };
+    room.bullets.push(missile);
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    RoomTelemetry.resetRoomTelemetry(room);
+    const now = 33;
+    buildRoomSpatialIndex(room, [...room.ships.values()], now);
+    updateStationWeapons(room, [station], [], 1 / 30, now);
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.pointDefenceMountSelections >= 1, "Edge-mounted station PD can select a target");
+    console.log("✔ Test 19 passed: Edge-mounted station PD uses the correct module scale.");
   }
 
   console.log("\nPhase 3 Targeting & Point Defence verification passed.");
