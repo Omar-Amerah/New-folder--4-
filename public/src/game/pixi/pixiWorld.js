@@ -462,6 +462,7 @@ function updatePixiBullets(env, players, bounds, renderTime) {
       toDelete.push(id);
       continue;
     }
+    let sample = null;
     if (p.terminal) {
       if (renderTime < p.terminal.startTime) {
         p.renderedX = p.terminal.fromX;
@@ -516,7 +517,7 @@ function updatePixiBullets(env, players, bounds, renderTime) {
         p.renderedVy = p.currentSample.vy;
       }
     } else {
-      let sample = p.currentSample;
+      sample = p.currentSample;
       if (sample && renderTime < sample.simulationTimeMs && p.previousSample) {
         sample = p.previousSample;
       }
