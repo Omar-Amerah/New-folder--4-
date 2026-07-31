@@ -8,6 +8,7 @@ const { ECONOMY } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 
 const { rngRange, clampNumber, angleDifference, rotateToward, fastHypot, performanceNow, compareIdStrings } = require("./utils");
+const { gameplayNow } = require("./gameplayTime");
 
 const { normalizeRotation } = require("./shipDesign");
 
@@ -1008,7 +1009,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
   const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
 
-  const nowTs = now || performanceNow();
+  const nowTs = gameplayNow(room, now || performanceNow());
   const viewerPlayer = room.players?.get?.(shipOwnerId);
   const viewerTeam = viewerPlayer?.team;
 
@@ -3918,6 +3919,7 @@ const SELF_DESTRUCT_MS = 1400;
 
 
 function requestSelfDestruct(room, player, shipIds, now) {
+  now = gameplayNow(room, now || performanceNow());
 
   const { selectOwnedLivingShips } = require("./selection");
 
@@ -4143,7 +4145,7 @@ function findTarget(room, ship, ships) {
 
   const range = maxShipWeaponAcquisitionRange(ship);
   let holdFallback = null;
-  const now = performanceNow();
+  const now = gameplayNow(room);
   const owner = room.players?.get?.(ship.ownerId);
   const viewerTeam = owner?.team || ship.team;
 
@@ -4404,7 +4406,7 @@ function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, w
 
   const nearbyArmedCount = countNearbyArmedDrones(room, ship, closeRange * 1.5);
 
-  const now = performanceNow();
+  const now = gameplayNow(room);
   const owner = room.players?.get?.(ship.ownerId);
   const viewerTeam = owner?.team || ship.team;
 
@@ -4454,7 +4456,7 @@ function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, w
 function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range, options = {}) {
 
   let shipTarget = null;
-  const now = performanceNow();
+  const now = gameplayNow(room);
   const owner = room.players?.get?.(ship.ownerId);
   const viewerTeam = owner?.team || ship.team;
 

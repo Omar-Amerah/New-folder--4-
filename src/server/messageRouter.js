@@ -1,4 +1,5 @@
 const { clampNumber, performanceNow } = require("./utils");
+const { gameplayNow } = require("./gameplayTime");
 const { SNAPSHOT_HZ } = require("./config");
 const { validateClientMessage } = require("./clientSchemas");
 const { negotiate, ERROR_CODES } = require("./protocol");
@@ -164,7 +165,7 @@ function handleMessage(client, message) {
       send(client, { type: "purchaseResult", ok: false, requestId, code: "invalid-request", message: "Invalid purchase request" });
       return;
     }
-    const now = performanceNow();
+    const now = gameplayNow(client.room, performanceNow());
     const count = clampNumber(message.count, 1, 5);
     const purchaseDesign = validateDesign(message.design);
     if (!purchaseDesign.ok) {
@@ -294,7 +295,7 @@ function handleMessage(client, message) {
 
   if (message.type === "setDroneBayMode") {
     if (client.room.phase !== "active") return;
-    const now = performanceNow();
+    const now = gameplayNow(client.room, performanceNow());
     const changed = require("./drones").setDroneBayMode(client.room, client.player, message.shipId, message.componentId, message.mode, now);
     if (changed) broadcastSnapshot(client.room, now);
     return;
@@ -343,7 +344,7 @@ function handleMessage(client, message) {
   if (message.type === "destruct") {
     if (client.room.phase !== "active") return;
     const shipIds = Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined;
-    requestSelfDestruct(client.room, client.player, shipIds, performanceNow());
+    requestSelfDestruct(client.room, client.player, shipIds, gameplayNow(client.room, performanceNow()));
     return;
   }
 

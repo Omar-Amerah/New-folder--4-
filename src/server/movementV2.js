@@ -56,6 +56,7 @@ const {
   fastHypot,
   performanceNow
 } = require("./utils");
+const { gameplayNow } = require("./gameplayTime");
 const { areEntityAllies, areEntityEnemies } = require("./relationships");
 const { selectOwnedLivingShips } = require("./selection");
 const { canTeamTargetEntity } = require("./visibility");
@@ -2215,7 +2216,7 @@ function commandShips(room, player, x, y, options = {}) {
   const commandId = nextMovementCommandId(room, enemy ? "a" : (ally ? "r" : "m"));
 
   if (enemy) {
-    const now = performanceNow();
+    const now = gameplayNow(room);
     // Stance decides the shape, so a mixed selection gets both: the chargers
     // spread around the target, the rest form a line at weapons range. A charger
     // must not be handed a formationHeading -- that is a place on the line, and

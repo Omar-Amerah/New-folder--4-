@@ -32,6 +32,8 @@
     "test:movement-phase8911": "node verify-movement-phase8911.js",
     "test:propulsion": "node verify-propulsion-rebalance.js",
     "test:targeting": "node verify-targeting.js",
+    "test:phase-4a": "node verify-phase-4a.js",
+    "benchmark:phase-4a": "node benchmark-phase-4a.js",
     "test:reconnect": "node verify-reconnect.js && node verify-lobby-refresh-reconnect.js",
     "test:core-reactor": "node verify-core-reactor.js",
     "test:heat-thermo": "node verify-heat-thermo.js",
