@@ -1212,6 +1212,22 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
 
 
+function _lookupPointDefenceEntity(room, id) {
+  const bullet = (room?.bullets || []).find((b) => b && b.id === id);
+  if (bullet) return { type: "projectile", entity: bullet };
+  const drone = room?.drones?.get?.(id);
+  if (drone) return { type: "drone", entity: drone };
+  const ship = room?.ships?.get?.(id);
+  if (ship) return { type: "ship", entity: ship };
+  const decoy = room?.decoys?.get?.(id);
+  if (decoy) return { type: "decoy", entity: decoy };
+  return null;
+}
+
+
+
+
+
 function isInSafeZone(room, x, y, shipOrPlayer = null) {
 
   if (!room.map || !room.map.safeZones) return false;
@@ -1607,7 +1623,35 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       if (!ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt = new Array(pdLen).fill(0);
       if (!ship.pdReactionReadyAt) ship.pdReactionReadyAt = new Array(pdLen).fill(0);
 
-      currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
+      const worldWeaponAngle = (ship.angle || 0) + (ship.weaponAngles[i] || 0);
+      const pdArcRadians = arcRadians;
+      const pdBaseWeapon = part.weapon || effectiveWeapon;
+      const pdCachedId = ship.pdAcquiredTargetIds[i] ?? null;
+      const pdCached = pdCachedId ? _lookupPointDefenceEntity(room, pdCachedId) : null;
+      let pdCurrentValid = false;
+      if (pdCached) {
+        pdCurrentValid = Targeting.isPointDefenceTargetValid(room, ship.ownerId, pdCached, effectiveWeapon.range || 0, now, {
+          originX: worldX,
+          originY: worldY,
+          arcRadians: pdArcRadians,
+          weaponAngle: worldWeaponAngle,
+          reservations: room._pdReservations,
+          priorityList: pdBaseWeapon.targetPriority,
+          team: ship.team
+        });
+        if (pdCurrentValid && isLineBlocked(room, worldX, worldY, pdCached.entity.x, pdCached.entity.y, 4)) pdCurrentValid = false;
+        if (!pdCurrentValid) TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
+      }
+
+      const pdDue = TargetingCadence.isAcquisitionDue(ship, "pointDefence", i, now);
+      if (pdCurrentValid && !pdDue) {
+        TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
+        currentPdTarget = pdCached;
+      } else {
+        TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
+        currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
+        TargetingCadence.markAcquisitionCompleted(ship, "pointDefence", i, now);
+      }
 
       const newPdId = currentPdTarget ? (currentPdTarget.entity.id ?? null) : null;
       const pdAcquiredId = ship.pdAcquiredTargetIds[i] ?? null;
