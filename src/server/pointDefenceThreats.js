@@ -2,25 +2,34 @@
 
 // Shared Point Defence threat candidate set for Phase Three.
 // One candidate superset is built per defending ship/station per refresh
-// interval. Each live PD mount then filters and selects from that superset
-// without performing an independent full spatial search.
+// interval. Each live defensive mount then filters and selects from that
+// superset without performing an independent full spatial search every tick.
 
 const { PARTS } = require("./components");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { isComponentAlive } = require("./componentHealth");
-const { getEffectiveWeaponStatsInternal } = require("./componentData");
+const {
+  ensureEffectiveWeaponProfileCache,
+  getEffectiveWeaponStatsCached,
+  getEffectiveWeaponStatsInternal
+} = require("./componentData");
+const { getCommandAuraMultiplier } = require("./commandAuras");
+const { getOccupiedCells } = require("./footprint");
+const { normalizeRotation } = require("./shipDesign");
 const { fastHypot } = require("./utils");
 const Relationships = require("./relationships");
 const Visibility = require("./visibility");
 const Targeting = require("./targetingEligibility");
+const TargetingCadence = require("./targetingCadence");
 const StationTemplates = require("./stationTemplates");
 const TargetingTelemetry = require("./targetingTelemetry");
 
 const PD_REFRESH_MS = 1000 / 12; // 12 Hz
-const MOTION_PADDING = 150; // metres of motion covered between 12 Hz refreshes
+const MOTION_PADDING = 150; // metres of relative motion covered between refreshes
 const SHIP_MODULE_SCALE = 13;
 const STATION_MODULE_SCALE = StationTemplates.STATION_MODULE_SCALE;
 const GRID_CENTER = 7;
+const DEFENSIVE_FAMILIES = new Set(["pointDefense", "flak"]);
 
 function _viewerTeam(room, ownerId, team) {
   if (!ownerId) return team || null;
@@ -30,24 +39,60 @@ function _viewerTeam(room, ownerId, team) {
 
 function _moduleCentreToLocal(module, scale) {
   const part = PARTS[module.type] || PARTS.frame;
-  const footprint = part.footprint || { width: 1, height: 1 };
-  const width = Number(footprint.width) || 1;
-  const height = Number(footprint.height) || 1;
-  const cx = (Number(module.x) || 0) + (width - 1) / 2;
-  const cy = (Number(module.y) || 0) + (height - 1) / 2;
-  return {
-    x: (GRID_CENTER - cy) * scale,
-    y: (cx - GRID_CENTER) * scale
-  };
+  const cells = getOccupiedCells(
+    module.x,
+    module.y,
+    part.footprint || { width: 1, height: 1 },
+    normalizeRotation(module.rotation)
+  );
+  let x = 0;
+  let y = 0;
+  for (const cell of cells) {
+    x += (GRID_CENTER - cell.y) * scale;
+    y += (cell.x - GRID_CENTER) * scale;
+  }
+  const count = Math.max(1, cells.length);
+  return { x: x / count, y: y / count };
 }
 
 function _entityModuleScale(entity) {
-  // Stations use the station module scale; everything else uses ship scale.
   if (entity?.moduleScale) return entity.moduleScale;
-  return entity?.entityType === "station" ? STATION_MODULE_SCALE : SHIP_MODULE_SCALE;
+  return entity?.entityType === "station" || entity?.stationType ? STATION_MODULE_SCALE : SHIP_MODULE_SCALE;
+}
+
+function _mountWorldPosition(entity, index) {
+  const hardpoint = entity?.hardpoints?.[index];
+  const local = hardpoint || _moduleCentreToLocal(entity.design[index], _entityModuleScale(entity));
+  const angle = Number(entity?.angle) || 0;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: (Number(entity?.x) || 0) + local.x * cos - local.y * sin,
+    y: (Number(entity?.y) || 0) + local.x * sin + local.y * cos
+  };
+}
+
+function _metadataSignature(entity, profileCache) {
+  return [
+    profileCache?.revision || 0,
+    entity?.designRevision || 1,
+    entity?.componentAliveRevision || 1,
+    entity?.moduleScale || 0,
+    entity?.hardpoints?.length || 0,
+    entity?.commandState || "mainCore",
+    getCommandAuraMultiplier(entity, "pointDefenceTrackingMultiplier"),
+    getCommandAuraMultiplier(entity, "flakTrackingMultiplier"),
+    getCommandAuraMultiplier(entity, "interceptionReactionMultiplier")
+  ].join(":");
 }
 
 function _getPointDefenceMetadata(entity) {
+  const profileCache = ensureEffectiveWeaponProfileCache(entity);
+  const signature = _metadataSignature(entity, profileCache);
+  if (entity?._pdThreatMetadataCache?.signature === signature) {
+    return entity._pdThreatMetadataCache.meta;
+  }
+
   const scale = _entityModuleScale(entity);
   const indexes = getShipComponentIndexes(entity).weaponIndices;
   const pdIndices = [];
@@ -57,22 +102,27 @@ function _getPointDefenceMetadata(entity) {
     const module = entity?.design?.[i];
     if (!module) continue;
     const part = PARTS[module.type] || PARTS.frame;
-    if ((part.weapon?.type || "") !== "pointDefense") continue;
+    const effective = getEffectiveWeaponStatsCached(entity, i)
+      || getEffectiveWeaponStatsInternal(entity, i)
+      || part.weapon;
+    if (!DEFENSIVE_FAMILIES.has(effective?.type || part.weapon?.type || "")) continue;
     if (!isComponentAlive(entity, i)) continue;
     pdIndices.push(i);
-    const effective = getEffectiveWeaponStatsInternal(entity, i);
-    const range = effective?.range || part.weapon?.range || 0;
+    const range = Number(effective?.range || part.weapon?.range) || 0;
     if (range > maxRange) maxRange = range;
-    const local = _moduleCentreToLocal(module, scale);
+    const local = entity?.hardpoints?.[i] || _moduleCentreToLocal(module, scale);
     const offset = fastHypot(local.x, local.y);
     if (offset > maxOffset) maxOffset = offset;
   }
-  return {
+
+  const meta = {
     pdIndices,
     maxRange: Math.max(1, maxRange),
     maxOffset,
     queryRadius: Math.max(1, maxRange) + maxOffset + MOTION_PADDING
   };
+  if (entity) entity._pdThreatMetadataCache = { signature, meta };
+  return meta;
 }
 
 function _buildCandidateList(room, entity, identity, queryRadius, now) {
@@ -98,7 +148,7 @@ function _buildCandidateList(room, entity, identity, queryRadius, now) {
   const dronePadding = Number(room?.droneSpatialPadding) || 0;
   const drones = spatial && spatial.dynamicValid
     ? spatial.queryRangeUnordered("drones", x, y, queryRadius + dronePadding, scratch.drones)
-    : (room?.drones ? [...room.drones.values()] : []);
+    : (room?.drones?.values?.() || []);
 
   for (const drone of drones) {
     if (drone.destroyed || drone.removed || room?.drones?.get?.(drone.id) !== drone) continue;
@@ -109,7 +159,7 @@ function _buildCandidateList(room, entity, identity, queryRadius, now) {
 
   const ships = spatial && spatial.dynamicValid
     ? spatial.queryRangeUnordered("ships", x, y, queryRadius, scratch.ships)
-    : (room?.ships ? [...room.ships.values()] : []);
+    : (room?.ships?.values?.() || []);
 
   for (const ship of ships) {
     if (ship.id === entity.id) continue;
@@ -118,7 +168,7 @@ function _buildCandidateList(room, entity, identity, queryRadius, now) {
     candidates.push({ type: "ship", entity: ship });
   }
 
-  const decoys = room?.decoys ? [...room.decoys.values()] : [];
+  const decoys = room?.decoys?.values?.() || [];
   for (const decoy of decoys) {
     if (now >= decoy.expiresAt) continue;
     if (!Relationships.areEnemies(room, identity, decoy.ownerId)) continue;
@@ -135,7 +185,8 @@ function _entityRelevantRevisions(entity) {
     heatStateRevision: entity?.heatStateRevision || 0,
     powerRevision: entity?.powerRevision || 0,
     dataSupportTopology: entity?.runtimeDataSupport?.topologyRevision || 0,
-    dataSupportAllocation: entity?.runtimeDataSupport?.allocationRevision || 0
+    dataSupportAllocation: entity?.runtimeDataSupport?.allocationRevision || 0,
+    weaponProfileRevision: entity?.effectiveWeaponProfileCache?.revision || 0
   };
 }
 
@@ -160,14 +211,13 @@ function _signatureChanged(threatSet, room, entity, now, meta) {
   if (!prev) return true;
 
   const next = _signature(room, entity, meta);
-  const keys = Object.keys(next);
-  for (const k of keys) {
-    if (Array.isArray(next[k])) {
-      const a = next[k];
-      const b = prev[k] || [];
+  for (const key of Object.keys(next)) {
+    if (Array.isArray(next[key])) {
+      const a = next[key];
+      const b = prev[key] || [];
       if (a.length !== b.length) return true;
       for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return true;
-    } else if (next[k] !== prev[k]) {
+    } else if (next[key] !== prev[key]) {
       return true;
     }
   }
@@ -176,20 +226,15 @@ function _signatureChanged(threatSet, room, entity, now, meta) {
 
 function _reuseCandidateArray(threatSet, candidates) {
   if (!threatSet) return candidates;
-  const old = threatSet.candidates;
-  const updated = threatSet.candidates = [];
+  const reused = threatSet.candidates;
   for (let i = 0; i < candidates.length; i += 1) {
-    const cand = candidates[i];
-    let entry = old[i];
-    if (!entry) entry = {};
-    entry.type = cand.type;
-    entry.entity = cand.entity;
-    updated.push(entry);
+    const source = candidates[i];
+    const entry = reused[i] || (reused[i] = {});
+    entry.type = source.type;
+    entry.entity = source.entity;
   }
-  // Trim any extra old entries so the array length matches.
-  old.length = candidates.length;
-  updated.length = candidates.length;
-  return updated;
+  reused.length = candidates.length;
+  return reused;
 }
 
 function ensurePointDefenceThreatSet(room, entity, identity, now) {
@@ -206,6 +251,7 @@ function ensurePointDefenceThreatSet(room, entity, identity, now) {
     }
 
     _reuseCandidateArray(entity._pdThreatSet, candidates);
+    entity._pdThreatSet.entity = entity;
     entity._pdThreatSet.maxRange = meta.maxRange;
     entity._pdThreatSet.queryRadius = meta.queryRadius;
     entity._pdThreatSet.maxOffset = meta.maxOffset;
@@ -227,63 +273,129 @@ function ensurePointDefenceThreatSet(room, entity, identity, now) {
 }
 
 function invalidatePointDefenceThreatSet(entity) {
-  if (entity?._pdThreatSet) {
-    entity._pdThreatSet = null;
-  }
+  if (!entity) return;
+  entity._pdThreatSet = null;
+  entity._pdThreatMetadataCache = null;
+  entity._pdSelectionState = null;
 }
 
 function invalidateAllPointDefenceThreatSets(room) {
   if (!room) return;
-  for (const ship of room?.ships ? [...room.ships.values()] : []) invalidatePointDefenceThreatSet(ship);
+  for (const ship of room?.ships?.values?.() || []) invalidatePointDefenceThreatSet(ship);
   for (const station of room?.stations || []) invalidatePointDefenceThreatSet(station);
 }
 
-// Select a single PD target from the shared threat set for one mount.
-// `canSee(cand)` is the mount's line-of-sight predicate.
-// `reservations` is a Map for overkill tracking.
-function selectPointDefenceTarget(room, originX, originY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, reservations = null) {
-  if (!threatSet || !threatSet.candidates.length) return null;
+function _mountIndexForOrigin(entity, threatSet, originX, originY) {
+  let bestIndex = -1;
+  let bestDistanceSq = Infinity;
+  for (const index of threatSet.pdIndices || []) {
+    const position = _mountWorldPosition(entity, index);
+    const dx = position.x - originX;
+    const dy = position.y - originY;
+    const distanceSq = dx * dx + dy * dy;
+    if (distanceSq < bestDistanceSq || (distanceSq === bestDistanceSq && index < bestIndex)) {
+      bestIndex = index;
+      bestDistanceSq = distanceSq;
+    }
+  }
+  return bestIndex;
+}
 
-  const rangeSq = (weapon.range || 0) * (weapon.range || 0);
+function _selectionState(entity, mountIndex) {
+  if (!entity._pdSelectionState) entity._pdSelectionState = {};
+  const key = String(mountIndex);
+  if (!entity._pdSelectionState[key]) {
+    entity._pdSelectionState[key] = { initialized: false, type: null, id: null, entity: null };
+  }
+  return entity._pdSelectionState[key];
+}
+
+function _findCachedCandidate(threatSet, state) {
+  if (!state?.entity) return null;
+  for (const candidate of threatSet.candidates) {
+    if (candidate.type !== state.type) continue;
+    if (candidate.entity === state.entity) return candidate;
+    if (candidate.entity?.id != null && candidate.entity.id === state.id) return candidate;
+  }
+  return null;
+}
+
+function _validateCandidate(room, candidate, originX, originY, shipOwnerId, weapon, now, priorityList, canSee, reservations) {
+  if (!candidate?.entity) return null;
+  TargetingTelemetry.bump(room, "pointDefenceCandidatesRevalidated");
+
+  const dx = candidate.entity.x - originX;
+  const dy = candidate.entity.y - originY;
+  const distSq = dx * dx + dy * dy;
+  const range = Number(weapon.range) || 0;
+  if (distSq > range * range) {
+    TargetingTelemetry.bump(room, "pointDefenceCandidatesRejectedStale");
+    return null;
+  }
+  if (canSee && !canSee(candidate)) return null;
+  if (!Targeting.isPointDefenceTargetValid(room, shipOwnerId, candidate, range, now, {
+    originX,
+    originY,
+    team: _viewerTeam(room, shipOwnerId, null),
+    reservations,
+    priorityList
+  })) return null;
+  return distSq;
+}
+
+// Select a single defensive target from the shared threat set for one mount.
+// Expensive ranking is cadenced at 12 Hz, but the selected target is revalidated
+// every simulation tick so invalid targets trigger immediate reacquisition.
+function selectPointDefenceTarget(room, originX, originY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, reservations = null) {
+  if (!threatSet) return null;
+
+  const entity = threatSet.entity;
   const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
+  const mountIndex = entity ? _mountIndexForOrigin(entity, threatSet, originX, originY) : -1;
+  const state = entity ? _selectionState(entity, mountIndex) : null;
+  const cadenceKind = entity?.entityType === "station" || entity?.stationType ? "stationPointDefence" : "pointDefence";
+
+  const cached = state ? _findCachedCandidate(threatSet, state) : null;
+  const cachedDistanceSq = cached
+    ? _validateCandidate(room, cached, originX, originY, shipOwnerId, weapon, now, priorityList, canSee, reservations)
+    : null;
+  const cachedValid = cachedDistanceSq !== null;
+  const hadCachedTarget = Boolean(state?.entity);
+  const forceReacquire = hadCachedTarget && !cachedValid;
+  const due = !entity || TargetingCadence.isAcquisitionDue(entity, cadenceKind, mountIndex, now);
+
+  if (cachedValid && !due) {
+    TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
+    return cached;
+  }
+  if (state?.initialized && !hadCachedTarget && !due) {
+    TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
+    return null;
+  }
+  if (forceReacquire) {
+    TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
+  }
 
   let best = null;
   let bestDistSq = Infinity;
-
   TargetingTelemetry.bump(room, "pointDefenceMountSelections");
 
-  for (const cand of threatSet.candidates) {
-    const ent = cand.entity;
-    if (!ent) continue;
-
-    TargetingTelemetry.bump(room, "pointDefenceCandidatesRevalidated");
-
-    const dx = ent.x - originX;
-    const dy = ent.y - originY;
-    const distSq = dx * dx + dy * dy;
-    if (distSq > rangeSq) {
-      TargetingTelemetry.bump(room, "pointDefenceCandidatesRejectedStale");
-      continue;
-    }
-
-    if (canSee && !canSee(cand)) continue;
-
-    if (!Targeting.isPointDefenceTargetValid(room, shipOwnerId, cand, Math.sqrt(rangeSq), now, {
-      originX,
-      originY,
-      team: _viewerTeam(room, shipOwnerId, null),
-      reservations,
-      priorityList
-    })) {
-      continue;
-    }
-
-    if (Targeting.isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
-      best = cand;
+  for (const candidate of threatSet.candidates) {
+    const distSq = _validateCandidate(room, candidate, originX, originY, shipOwnerId, weapon, now, priorityList, canSee, reservations);
+    if (distSq === null) continue;
+    if (Targeting.isCandidateBetter(candidate, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
+      best = candidate;
       bestDistSq = distSq;
     }
   }
 
+  if (state) {
+    state.initialized = true;
+    state.type = best?.type || null;
+    state.id = best?.entity?.id ?? null;
+    state.entity = best?.entity || null;
+  }
+  if (entity) TargetingCadence.markAcquisitionCompleted(entity, cadenceKind, mountIndex, now);
   return best;
 }
 

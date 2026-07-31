@@ -10,6 +10,21 @@ const RoomTelemetry = require("./roomTelemetry");
 const MAX_SAMPLES_PER_SECOND = 64;
 const SAMPLE_WINDOW = 4;
 
+// Call sites use descriptive sampled-operation names while room telemetry owns
+// the stable public schema. Keep the translation in one place so an unregistered
+// field cannot silently discard timings.
+const DURATION_FIELD_ALIASES = Object.freeze({
+  sampledOrdinaryAcquisitionDuration: "ordinaryTargetAcquisitionMs",
+  sampledPDSetBuildDuration: "pointDefenceThreatSetMs",
+  sampledPDSelectionDuration: "pointDefenceMountSelectionMs",
+  sampledStationAcquisitionDuration: "stationTargetAcquisitionMs",
+  sampledProfileBuildDuration: "effectiveWeaponProfileMs"
+});
+
+function canonicalDurationField(name) {
+  return DURATION_FIELD_ALIASES[name] || name;
+}
+
 function bump(room, name, amount = 1) {
   return RoomTelemetry.bump(room, name, amount);
 }
@@ -19,15 +34,21 @@ function setCounter(room, name, value) {
 }
 
 function recordDuration(room, name, startMs) {
-  return RoomTelemetry.recordDuration(room, name, startMs);
+  return RoomTelemetry.recordDuration(room, canonicalDurationField(name), startMs);
+}
+
+function _hashString(str) {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+  }
+  return Math.abs(hash) % 64;
 }
 
 function _shipIdHash(ship) {
   if (!ship) return 0;
   const id = ship.id;
-  if (typeof id === "string") {
-    return id.length ? id.charCodeAt(id.length - 1) : 0;
-  }
+  if (typeof id === "string") return _hashString(id);
   return (Number.isFinite(Number(id)) ? Math.abs(Number(id)) % 64 : 0) || 0;
 }
 
@@ -61,17 +82,11 @@ function withSampledDuration(room, now, ship, weaponIndex, name, fn) {
   }
 
   const start = performanceNow();
-  let threw = false;
-  let result;
   try {
-    result = fn();
-  } catch (err) {
-    threw = true;
-    throw err;
+    return fn();
   } finally {
-    if (!threw) recordDuration(room, name, start);
+    recordDuration(room, name, start);
   }
-  return result;
 }
 
 // Record a duration unconditionally (callers already sampled externally).
@@ -85,5 +100,6 @@ module.exports = {
   recordDuration,
   isTimingSample,
   withSampledDuration,
-  recordUnconditionalDuration
+  recordUnconditionalDuration,
+  canonicalDurationField
 };
