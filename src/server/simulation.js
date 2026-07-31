@@ -12,7 +12,7 @@ const { updateShipPowerProtection } = require("./powerProtection");
 const { assertComponentHpConsistency, isComponentAssertionEnabled } = require("./componentHealth");
 const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
-const { buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./spatialIndex");
+const { buildRoomSpatialIndex, shipBroadPhaseRadius, publishSpatialTelemetry } = require("./spatialIndex");
 const { updateStationWeapons } = require("./stationCombat");
 const { updateCommandAuras } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
@@ -68,9 +68,7 @@ function tickRoom(room, dt, now) {
   if (WIRING_ENABLED) for (const ship of ships) updateShipPowerProtection(ship, dt);
   durations.powerDemandProtection = performanceNow() - startedAt;
   // Build spatial index before movement and drone updates to ensure static asteroid data is available
-  startedAt = performanceNow();
   buildRoomSpatialIndex(room, ships, now);
-  durations.spatialIndex = performanceNow() - startedAt;
   // Command auras are authoritative and rely on the spatial index; update before
   // any gameplay system consumes the per-ship aura multipliers this tick.
   startedAt = performanceNow();
@@ -186,6 +184,7 @@ function tickRoom(room, dt, now) {
   invalidateVisibility(room, "post-combat");
   room._visibilityFinalizedAt = now;
   durations.objectives = performanceNow() - startedAt;
+  durations.spatialIndex = publishSpatialTelemetry(room);
   recordRoomTick(durations);
   if (!room._suppressRoomTelemetry) recordRoomTelemetry(room);
   const componentAssertionsEnabled = isComponentAssertionEnabled();

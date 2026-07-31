@@ -4,6 +4,8 @@
 // collision checks remain with their owning gameplay systems.
 const { BALANCE } = require("./balanceConfig");
 const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
+const { setCounter } = require("./roomTelemetry");
+const { performanceNow } = require("./utils");
 
 const DEFAULT_CELL_SIZE = Math.max(64, Number(process.env.MFA_SPATIAL_CELL_SIZE) || 320);
 const PROJECTILES = BALANCE.projectiles || {};
@@ -49,9 +51,10 @@ function stationBroadPhaseRadius(station) {
 
 function isLiveForKind(kind, entity) {
   if (!entity) return false;
-  if (kind === "ships") return entity.alive !== false;
+  if (kind === "ships") return entity.alive === true && !entity.removed;
   if (kind === "drones") return !entity.destroyed && !entity.removed;
-  if (kind === "projectiles" || kind === "interceptableProjectiles") return entity.life > 0;
+  if (kind === "projectiles") return entity.life > 0;
+  if (kind === "interceptableProjectiles") return entity.life > 0 && entity.interceptable;
   if (kind === "stations") return entity.alive !== false && entity.state !== "disabled";
   return true;
 }
@@ -62,6 +65,7 @@ function createKindState() {
     columns: new Map(),
     records: [],
     recordsByEntity: new Map(),
+    recordsByEntityId: new Map(),
     recordPool: [],
     bucketPool: [],
     rowMapPool: [],
@@ -141,6 +145,7 @@ class RoomSpatialIndex {
     }
     state.records.length = 0;
     state.recordsByEntity.clear();
+    state.recordsByEntityId.clear();
     state.nextOrder = 0;
   }
 
@@ -261,7 +266,13 @@ class RoomSpatialIndex {
       records[i] = records[records.length - 1];
       records.pop();
     }
-    state.recordsByEntity.delete(record.entity);
+    if (record.entity) {
+      state.recordsByEntity.delete(record.entity);
+      if (record.entity.id !== undefined && record.entity.id !== null) {
+        const existing = state.recordsByEntityId.get(record.entity.id);
+        if (existing === record) state.recordsByEntityId.delete(record.entity.id);
+      }
+    }
     this._releaseRecord(state, record);
     this.spatialRemovals += 1;
   }
@@ -278,6 +289,12 @@ class RoomSpatialIndex {
       record = this._allocateRecord(state);
       state.records.push(record);
       state.recordsByEntity.set(entity, record);
+    }
+    // Enforce one record per entity ID: remove any stale record with the same ID.
+    if (entity.id !== undefined && entity.id !== null) {
+      const byId = state.recordsByEntityId.get(entity.id);
+      if (byId && byId !== record) this._removeRecord(state, byId);
+      state.recordsByEntityId.set(entity.id, record);
     }
     record.entity = entity;
     record.order = order;
@@ -416,19 +433,29 @@ class RoomSpatialIndex {
 
   // Update the positions of a known live collection. Removes stale records
   // (dead, missing, or no longer provided) before refreshing the remainder.
+  // Each live record is stamped with a canonical order taken from the
+  // collection's iteration so query order is deterministic and matches a
+  // full rebuild over the same collection.
   updateLiveEntities(kind, items, radiusFn) {
+    const start = performanceNow();
     const state = this.kindState[kind];
     if (!state) return this;
     const live = new Set();
+    let order = 0;
     for (const item of items || []) {
       if (!isLiveForKind(kind, item)) continue;
       live.add(item);
       const radius = radiusFn ? radiusFn(item) : 0;
       this.update(kind, item, radius);
+      const record = state.recordsByEntity.get(item);
+      if (record) record.order = order;
+      order += 1;
     }
     for (const [entity, record] of Array.from(state.recordsByEntity.entries())) {
       if (!live.has(entity)) this._removeRecord(state, record);
     }
+    state.nextOrder = Math.max(state.nextOrder, order);
+    this.spatialUpdateDurationMs += performanceNow() - start;
     return this;
   }
 
@@ -622,15 +649,20 @@ class RoomSpatialIndex {
   }
 
   // Lightweight integrity check suitable for tests and development.
+  // `radiusFn` is the authoritative radius helper used to verify stored radii.
+  // `expectedSet` is an iterable of live entities that must be present.
   // Returns { ok: boolean, issues: string[], stats: {} }.
-  verifyIntegrity(kind = null) {
+  verifyIntegrity(kind = null, radiusFn = null, expectedSet = null) {
     const kinds = kind && KINDS.includes(kind) ? [kind] : KINDS;
     const issues = [];
     const stats = {};
+    const expected = expectedSet ? new Set(expectedSet) : null;
     for (const k of kinds) {
       const state = this.kindState[k];
       if (!state) continue;
       const seenEntities = new Set();
+      const seenIds = new Set();
+      const seenInBuckets = new Set();
       let liveRecords = 0;
       let bucketRecordCount = 0;
       for (const record of state.records) {
@@ -640,17 +672,30 @@ class RoomSpatialIndex {
           continue;
         }
         if (seenEntities.has(record.entity)) {
-          issues.push(`${k}: duplicate record for entity ${record.entity.id}`);
+          issues.push(`${k}: duplicate record object for entity ${record.entity.id}`);
         }
         seenEntities.add(record.entity);
         if (state.recordsByEntity.get(record.entity) !== record) {
           issues.push(`${k}: record for ${record.entity.id} not found in recordsByEntity`);
+        }
+        if (record.entity.id !== undefined && record.entity.id !== null) {
+          if (state.recordsByEntityId.get(record.entity.id) !== record) {
+            issues.push(`${k}: record for ${record.entity.id} not found in recordsByEntityId`);
+          }
+          if (seenIds.has(record.entity.id)) {
+            issues.push(`${k}: duplicate entity ID ${record.entity.id}`);
+          }
+          seenIds.add(record.entity.id);
         }
         if (record.inactive) {
           issues.push(`${k}: inactive record in active list for ${record.entity.id}`);
         }
         if (!isLiveForKind(k, record.entity)) {
           issues.push(`${k}: non-live entity ${record.entity.id} still recorded`);
+        }
+        const authoritativeRadius = radiusFn ? radiusFn(record.entity) : record.radius;
+        if (Math.abs(record.radius - authoritativeRadius) > 1e-9) {
+          issues.push(`${k}: stored radius does not match authoritative radius for ${record.entity.id}`);
         }
         const expected = this._computeCellBounds(record.entity.x, record.entity.y, record.radius);
         if (
@@ -665,8 +710,12 @@ class RoomSpatialIndex {
       if (state.records.length !== state.recordsByEntity.size) {
         issues.push(`${k}: active record count ${state.records.length} != recordsByEntity size ${state.recordsByEntity.size}`);
       }
+      if (state.recordsByEntity.size !== state.recordsByEntityId.size) {
+        issues.push(`${k}: recordsByEntity size ${state.recordsByEntity.size} != recordsByEntityId size ${state.recordsByEntityId.size}`);
+      }
       for (const [cx, rows] of state.columns.entries()) {
         for (const [cy, bucket] of rows.entries()) {
+          const bucketSeen = new Set();
           for (const record of bucket) {
             bucketRecordCount += 1;
             if (record.inactive || !record.entity) {
@@ -678,6 +727,28 @@ class RoomSpatialIndex {
             ) {
               issues.push(`${k}: record ${record.entity?.id} in wrong bucket ${cx},${cy}`);
             }
+            if (bucketSeen.has(record)) {
+              issues.push(`${k}: duplicate bucket entry for ${record.entity?.id} in ${cx},${cy}`);
+            }
+            bucketSeen.add(record);
+            seenInBuckets.add(record);
+            // Ensure this bucket membership is in the record's expected cells.
+            if (record && (cx < record.minCellX || cx > record.maxCellX || cy < record.minCellY || cy > record.maxCellY)) {
+              issues.push(`${k}: bucket ${cx},${cy} not in expected cells for ${record.entity?.id}`);
+            }
+          }
+        }
+      }
+      // Verify every active record is present in each bucket it should occupy.
+      for (const record of state.records) {
+        if (!record.entity) continue;
+        for (let cx = record.minCellX; cx <= record.maxCellX; cx += 1) {
+          const rows = state.columns.get(cx);
+          for (let cy = record.minCellY; cy <= record.maxCellY; cy += 1) {
+            const bucket = rows?.get(cy);
+            if (!bucket || !bucket.includes(record)) {
+              issues.push(`${k}: record ${record.entity.id} missing from bucket ${cx},${cy}`);
+            }
           }
         }
       }
@@ -686,9 +757,22 @@ class RoomSpatialIndex {
           issues.push(`${k}: recordsByEntity entry without matching active record ${entity.id}`);
         }
       }
+      if (expected) {
+        for (const entity of expected) {
+          if (!state.recordsByEntity.has(entity)) {
+            issues.push(`${k}: expected entity ${entity.id} not found in recordsByEntity`);
+          }
+        }
+        for (const record of state.records) {
+          if (record.entity && !expected.has(record.entity)) {
+            issues.push(`${k}: unexpected record for ${record.entity.id}`);
+          }
+        }
+      }
       stats[k] = {
         liveRecords,
         recordsByEntity: state.recordsByEntity.size,
+        recordsByEntityId: state.recordsByEntityId.size,
         buckets: bucketRecordCount,
         columns: state.columns.size
       };
@@ -710,7 +794,12 @@ function buildRoomSpatialIndex(room, ships, now = 0) {
     index.cellSize = requestedCellSize;
   }
   if (!incremental || !index.dynamicValid || cellSizeChanged) {
+    const start = performanceNow();
     index.rebuild(room, ships, now);
+    index.spatialUpdateDurationMs += performanceNow() - start;
+    // Reset telemetry snapshots whenever a full rebuild resets the index.
+    room._spatialTelemetrySnapshot = {};
+    room._spatialDurationSnapshot = 0;
   }
   return room.spatialIndex;
 }
@@ -719,7 +808,43 @@ function clearRoomSpatialIndex(room) {
   if (!room) return null;
   if (room.spatialIndex instanceof RoomSpatialIndex) room.spatialIndex.reset({ includeAsteroids: true });
   else room.spatialIndex = new RoomSpatialIndex(room.spatialCellSize || DEFAULT_CELL_SIZE);
+  room._spatialTelemetrySnapshot = {};
+  room._spatialDurationSnapshot = 0;
   return room.spatialIndex;
+}
+
+// Publish per-tick spatial-index telemetry deltas from the cumulative index
+// counters into the room's per-tick telemetry record. Returns the spatial
+// duration accumulated since the last call, which callers can fold into
+// the main subsystem timing.
+function publishSpatialTelemetry(room) {
+  const index = room?.spatialIndex;
+  if (!(index instanceof RoomSpatialIndex)) return 0;
+  const snap = room._spatialTelemetrySnapshot || (room._spatialTelemetrySnapshot = {});
+  const counters = [
+    "spatialFullRebuilds",
+    "spatialPartialRebuilds",
+    "spatialRecoveryRebuilds",
+    "spatialIncrementalInserts",
+    "spatialIncrementalUpdates",
+    "spatialNoOpUpdates",
+    "spatialCellMembershipChanges",
+    "spatialRemovals",
+    "spatialCategoryChanges",
+    "spatialStaleDetections"
+  ];
+  for (const c of counters) {
+    const current = Number(index[c]) || 0;
+    const prev = Number(snap[c]) || 0;
+    setCounter(room, c, current - prev);
+    snap[c] = current;
+  }
+  const durationNow = Number(index.spatialUpdateDurationMs) || 0;
+  const durationPrev = Number(room._spatialDurationSnapshot) || 0;
+  const durationDelta = Math.max(0, durationNow - durationPrev);
+  setCounter(room, "spatialUpdateDurationMs", durationDelta);
+  room._spatialDurationSnapshot = durationNow;
+  return durationDelta;
 }
 
 module.exports = {
@@ -727,6 +852,7 @@ module.exports = {
   RoomSpatialIndex,
   buildRoomSpatialIndex,
   clearRoomSpatialIndex,
+  publishSpatialTelemetry,
   shipBroadPhaseRadius,
   stationBroadPhaseRadius,
   droneBroadPhaseRadius

@@ -160,7 +160,20 @@ const COUNTER_FIELDS = Object.freeze([
   "fixedSteps",
   "fixedStepCatchUpCallbacks",
   "fixedStepMaxCatchUp",
-  "fixedStepReentryAttempts"
+  "fixedStepReentryAttempts",
+
+  // Phase 4B incremental spatial-index counters
+  "spatialFullRebuilds",
+  "spatialPartialRebuilds",
+  "spatialRecoveryRebuilds",
+  "spatialIncrementalInserts",
+  "spatialIncrementalUpdates",
+  "spatialNoOpUpdates",
+  "spatialCellMembershipChanges",
+  "spatialRemovals",
+  "spatialCategoryChanges",
+  "spatialStaleDetections",
+  "spatialUpdateDurationMs"
 ]);
 
 const ALL_FIELDS = Object.freeze([...DURATION_FIELDS, ...COUNTER_FIELDS]);

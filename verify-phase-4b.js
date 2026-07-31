@@ -73,7 +73,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 // 2-11. Direct incremental API on an index.
 {
   const index = new RoomSpatialIndex(100);
-  const entity = { id: "e1", x: 150, y: 150, radius: 30 };
+  const entity = { id: "e1", x: 150, y: 150, radius: 30, alive: true, removed: false };
 
   // 2. Initial insertion creates exactly one live record.
   const record = index.insert("ships", entity, 30);
@@ -129,7 +129,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   assert.strictEqual(index.remove("ships", entity), false, "repeated remove is idempotent");
 
   // 11. Category changes remove the old-kind record and add the new-kind record.
-  const p = { id: "p1", x: 0, y: 0, life: 1, interceptable: false };
+  const p = { id: "p1", x: 0, y: 0, life: 1, interceptable: true };
   index.insert("projectiles", p, 0);
   assert.strictEqual(index.count("projectiles"), 1, "projectile inserted");
   index.changeKind("projectiles", "interceptableProjectiles", p, 0);
@@ -202,7 +202,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   }
   const a = full.queryRange("ships", 600, 600, 300).map((s) => s.id);
   const b = incremental.queryRange("ships", 600, 600, 300).map((s) => s.id);
-  assert.deepStrictEqual(a.sort(), b.sort(), "incremental and full rebuild return the same candidates");
+  assert.deepStrictEqual(a.slice().sort(), b.slice().sort(), "incremental and full rebuild return the same candidates");
   assert.deepStrictEqual(a, b, "incremental and full rebuild ordering matches");
 }
 

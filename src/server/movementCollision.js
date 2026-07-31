@@ -335,9 +335,9 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
         room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
       } else {
         room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+        bump(room, "separationShipIndexRebuilds");
+        recordDuration(room, "separationSpatialRebuildMs", rebuildStart);
       }
-      bump(room, "separationShipIndexRebuilds");
-      recordDuration(room, "separationSpatialRebuildMs", rebuildStart);
     }
   }
   if (unresolved.length) {

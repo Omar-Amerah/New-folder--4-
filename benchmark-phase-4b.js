@@ -16,6 +16,10 @@ const {
 
 const ARTIFACT = path.join("test-artifacts", "performance", "benchmark-phase-4b.json");
 
+function idNumber(id) {
+  return Number.parseInt(String(id).slice(1), 10) || 0;
+}
+
 function makeShip(i, x, y) {
   return {
     id: `s${i}`,
@@ -82,46 +86,114 @@ function makeFixture(shipCount, mode) {
   for (let i = 0; i < bulletCount; i += 1) {
     bullets.push(makeBullet(i, (i * 211) % spread + 100, (i * 523) % spread + 100));
   }
-  return { ships, drones, bullets };
+  return { ships, drones, bullets, nextShipId: shipCount, nextDroneId: droneCount, nextBulletId: bulletCount, mode };
 }
 
-function measure(fixture, steps, incremental) {
+function cloneFixture(fixture) {
+  return {
+    ships: fixture.ships.map((s) => ({ ...s })),
+    drones: new Map([...fixture.drones.entries()].map(([k, d]) => [k, { ...d }])),
+    bullets: fixture.bullets.map((b) => ({ ...b })),
+    nextShipId: fixture.nextShipId,
+    nextDroneId: fixture.nextDroneId,
+    nextBulletId: fixture.nextBulletId,
+    mode: fixture.mode
+  };
+}
+
+function applyStep(fixture, step, mode) {
+  const stationary = mode === "stationary";
+  const churn = mode === "churn";
+  for (const ship of fixture.ships) {
+    if (ship.alive !== true || ship.removed) continue;
+    const idNum = idNumber(ship.id);
+    const move = stationary ? 0 : 4;
+    ship.x += Math.cos(step + idNum) * move;
+    ship.y += Math.sin(step + idNum) * move;
+    if (churn && step > 0 && (idNum + step * 7) % 23 === 0) {
+      ship.alive = false;
+      ship.removed = true;
+    }
+  }
+  for (const drone of fixture.drones.values()) {
+    if (drone.destroyed || drone.removed) continue;
+    const idNum = idNumber(drone.id);
+    const move = stationary ? 0 : (step % 2 ? 3 : -3);
+    drone.x += move;
+    drone.y += (step % 3 ? 2 : -2) * (stationary ? 0 : 1);
+    if (churn && step > 0 && (idNum + step * 3) % 47 === 0) {
+      drone.destroyed = true;
+    }
+  }
+  for (const bullet of fixture.bullets) {
+    if (bullet.life <= 0) continue;
+    const idNum = idNumber(bullet.id);
+    const move = stationary ? 0 : (1 / 60);
+    bullet.x += bullet.vx * move;
+    bullet.y += bullet.vy * move;
+    bullet.life -= 1 / 30;
+    if (churn && step > 0 && (idNum + step * 5) % 37 === 0) {
+      bullet.life = 0;
+    }
+  }
+  if (churn && step > 0) {
+    const spread = 30000;
+    for (let i = 0; i < 3; i += 1) {
+      const newId = fixture.nextShipId++;
+      fixture.ships.push(makeShip(newId, (newId * 127) % spread + 100, (newId * 293) % spread + 100));
+    }
+    for (let i = 0; i < 2; i += 1) {
+      const newId = fixture.nextDroneId++;
+      const d = makeDrone(newId, (newId * 401) % spread + 100, (newId * 809) % spread + 100);
+      fixture.drones.set(d.id, d);
+    }
+    for (let i = 0; i < 10; i += 1) {
+      const newId = fixture.nextBulletId++;
+      fixture.bullets.push(makeBullet(newId, (newId * 211) % spread + 100, (newId * 523) % spread + 100));
+    }
+  }
+}
+
+function buildRoomStub(fixture) {
+  return {
+    spatialCellSize: 320,
+    stations: [],
+    drones: fixture.drones,
+    bullets: fixture.bullets
+  };
+}
+
+function measure(baseFixture, steps, incremental) {
   __setINCREMENTAL_SPATIAL_INDEX(incremental);
+  const fixture = cloneFixture(baseFixture);
   const index = new RoomSpatialIndex(320);
-  const roomStub = { spatialCellSize: 320, stations: [], drones: fixture.drones, bullets: fixture.bullets };
   let spatialMs = 0;
   let updateMs = 0;
   const start = performance.now();
   for (let step = 0; step < steps; step += 1) {
+    applyStep(fixture, step, baseFixture.mode);
+    const roomStub = buildRoomStub(fixture);
+    const liveShips = fixture.ships.filter((s) => s.alive === true && !s.removed);
+    const liveBullets = fixture.bullets.filter((b) => b.life > 0);
+    const liveInterceptable = liveBullets.filter((b) => b.interceptable);
+    const liveDrones = [...fixture.drones.values()].filter((d) => !d.destroyed && !d.removed);
+
     const spatialStart = performance.now();
     if (incremental) {
       if (step === 0) {
-        index.rebuild(roomStub, fixture.ships, step);
+        index.rebuild(roomStub, liveShips, step);
       }
     } else {
-      index.rebuild(roomStub, fixture.ships, step);
+      index.rebuild(roomStub, liveShips, step);
     }
     spatialMs += performance.now() - spatialStart;
 
     if (incremental) {
       const updateStart = performance.now();
-      // Simulate small movements and refresh all dynamic kinds.
-      for (const ship of fixture.ships) {
-        ship.x += Math.cos(step + ship.id) * 4;
-        ship.y += Math.sin(step + ship.id) * 4;
-      }
-      index.updateLiveEntities("ships", fixture.ships, shipBroadPhaseRadius);
-      for (const drone of fixture.drones.values()) {
-        drone.x += (step % 2 ? 3 : -3);
-        drone.y += (step % 3 ? 2 : -2);
-      }
-      index.updateLiveEntities("drones", fixture.drones.values(), droneBroadPhaseRadius);
-      for (const bullet of fixture.bullets) {
-        bullet.x += bullet.vx * (1 / 60);
-        bullet.y += bullet.vy * (1 / 60);
-      }
-      index.updateLiveEntities("projectiles", fixture.bullets, () => 0);
-      index.updateLiveEntities("interceptableProjectiles", fixture.bullets.filter((b) => b.interceptable), () => 0);
+      index.updateLiveEntities("ships", liveShips, shipBroadPhaseRadius);
+      index.updateLiveEntities("drones", liveDrones, droneBroadPhaseRadius);
+      index.updateLiveEntities("projectiles", liveBullets, () => 0);
+      index.updateLiveEntities("interceptableProjectiles", liveInterceptable, () => 0);
       updateMs += performance.now() - updateStart;
     }
   }
@@ -148,7 +220,8 @@ function summary(values) {
 }
 
 function runScenario(shipCount, mode) {
-  const fixture = makeFixture(shipCount, mode);
+  const baseFixture = makeFixture(shipCount, mode);
+  baseFixture.mode = mode;
   const steps = 60;
   const runs = 5;
   const fullTimes = [];
@@ -156,9 +229,9 @@ function runScenario(shipCount, mode) {
   let fullMetrics = null;
   let incMetrics = null;
   for (let i = 0; i < runs; i += 1) {
-    fullMetrics = measure(fixture, steps, false);
+    fullMetrics = measure(baseFixture, steps, false);
     fullTimes.push(fullMetrics.totalMs);
-    incMetrics = measure(fixture, steps, true);
+    incMetrics = measure(baseFixture, steps, true);
     incTimes.push(incMetrics.totalMs);
   }
   return {
