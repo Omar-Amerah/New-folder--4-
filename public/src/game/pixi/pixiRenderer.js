@@ -108,18 +108,16 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.stations);
   worldRoot.addChild(layers.command);
   worldRoot.addChild(layers.engineSmoke);
-  // Fog sits above the static world and stations but below the server-filtered
-  // dynamic layers, so changing fog opacity darkens the background without
-  // hiding detected enemies, projectiles or effects.
-  worldRoot.addChild(layers.fog);
   worldRoot.addChild(layers.enemyBullets);
   worldRoot.addChild(layers.ships);
   worldRoot.addChild(layers.drones);
   worldRoot.addChild(layers.friendlyBullets);
   worldRoot.addChild(layers.effects);
   worldRoot.addChild(layers.effectText);
+  worldRoot.addChild(layers.fog);
   // Remembered contacts are tactical UI and remain legible over unexplored
-  // space; live world entities stay above the fog.
+  // space; live world entities stay beneath the fog so sensor softness and
+  // opacity control how strongly they fade in and out.
   worldRoot.addChild(layers.contacts);
   worldRoot.addChild(layers.overlay);
   app.stage.addChild(backdropRoot);
