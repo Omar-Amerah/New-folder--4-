@@ -241,16 +241,16 @@ function advanceRoomAuthoritative(room, wallNow) {
       ? 0
       : wallNowValid
         ? wallNow - room._lastSimulationCallbackMs
-        : FIXED_STEP_MS;
+        : 0;
     if (wallNowValid) {
       room._lastSimulationCallbackMs = safeWallNow;
     }
 
-    // Defend against non-monotonic or non-finite callback deltas; the fallback
-    // above is already a fixed step, so this is a second safety net.
+    // Non-monotonic or non-finite callbacks contribute no elapsed time. The
+    // next valid callback will account for the real wall-clock interval.
     const safeCallbackDeltaMs = Number.isFinite(callbackDeltaMs) && callbackDeltaMs >= 0
       ? callbackDeltaMs
-      : FIXED_STEP_MS;
+      : 0;
 
     room._simulationAccumulatorMs = (room._simulationAccumulatorMs || 0) + safeCallbackDeltaMs;
 

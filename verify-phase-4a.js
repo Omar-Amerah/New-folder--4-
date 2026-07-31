@@ -243,16 +243,17 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 
   assert.doesNotThrow(() => advanceRoomAuthoritative(room, t0 - 1), "backwards wall time does not throw");
   assert.strictEqual(room._lastSimulationCallbackMs, lastMs, "backwards callback does not corrupt history");
-  assert.strictEqual(room._simulationStep, afterValid + 1, "backwards callback runs one fallback step");
+  assert.strictEqual(room._simulationStep, afterValid, "backwards callback does not advance the room");
 
   assert.doesNotThrow(() => advanceRoomAuthoritative(room, NaN), "NaN wall time does not throw");
   assert.strictEqual(room._lastSimulationCallbackMs, lastMs, "NaN callback does not corrupt history");
+  assert.strictEqual(room._simulationStep, afterValid, "NaN callback does not advance the room");
 
   // A normal callback after the bad ones should not see an artificially huge
   // delta; it only consumes the real wall time since the last valid callback.
   advanceRoomAuthoritative(room, t0 + 3 * FIXED_STEP_MS);
   assert.strictEqual(getRoomTelemetry(room).fixedStepDiscardedBacklogMs, 0, "no artificial discarded backlog");
-  assert.strictEqual(room._simulationStep, afterValid + 5, "normal callback continues cleanly from the last valid time");
+  assert.strictEqual(room._simulationStep, afterValid + 3, "normal callback continues cleanly from the last valid time");
 }
 
 // 15. Exception recovery: a failing step preserves the remaining accumulator.
