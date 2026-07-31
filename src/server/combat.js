@@ -1614,8 +1614,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         }
         // While acquisition is pending, the weapon may track (aimEntity
         // is set below) but must not fire. Check if timer has completed.
-        const isFirstEver = !acquiredId && !pendingId;
-        if (isFirstEver || now >= ship.weaponAcquireCompleteAt[i]) {
+        
+        if (now >= ship.weaponAcquireCompleteAt[i]) {
           // Acquisition complete: promote pending to acquired.
           ship.weaponAcquiredTargetIds[i] = newTargetId;
           ship.weaponPendingTargetIds[i] = null;
