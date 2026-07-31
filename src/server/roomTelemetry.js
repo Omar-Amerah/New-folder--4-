@@ -28,7 +28,15 @@ const DURATION_FIELDS = Object.freeze([
   "flakExplosionMs",
   "projectileCleanupMs",
   "projectileSnapshotConstructionMs",
-  "projectileSnapshotEncodingMs"
+  "projectileSnapshotEncodingMs",
+
+  // Phase Three targeting sampled timing
+  "ordinaryTargetAcquisitionMs",
+  "pointDefenceThreatSetMs",
+  "pointDefenceMountSelectionMs",
+  "stationTargetAcquisitionMs",
+  "effectiveWeaponProfileMs",
+  "weaponAimFiringMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -92,7 +100,33 @@ const COUNTER_FIELDS = Object.freeze([
   "projectileRemoveMessages",
   "projectileCorrectionMessages",
   "projectileFullBaselineEntries",
-  "projectileCompactEntries"
+  "projectileCompactEntries",
+
+  // Phase Three targeting telemetry counters
+  "ordinaryTargetValidationAttempts",
+  "ordinaryTargetValidationFailures",
+  "ordinaryTargetSearches",
+  "ordinaryTargetSearchCandidates",
+  "ordinaryTargetSearchCacheHits",
+  "ordinaryTargetSearchDeferred",
+  "ordinaryTargetImmediateReacquisitions",
+  "pointDefenceTargetSearches",
+  "pointDefenceThreatSetBuilds",
+  "pointDefenceThreatCandidates",
+  "pointDefenceMountSelections",
+  "pointDefenceSharedSetHits",
+  "pointDefenceSharedSetMisses",
+  "stationTargetSearches",
+  "stationTargetCandidates",
+  "targetVisibilityChecks",
+  "targetRelationshipChecks",
+  "targetRangeChecks",
+  "targetArcChecks",
+  "targetTieBreaks",
+  "effectiveWeaponProfileBuilds",
+  "effectiveWeaponProfileCacheHits",
+  "effectiveWeaponProfileCacheMisses",
+  "effectiveWeaponProfileInvalidations"
 ]);
 
 const ALL_FIELDS = Object.freeze([...DURATION_FIELDS, ...COUNTER_FIELDS]);

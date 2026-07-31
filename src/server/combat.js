@@ -46,6 +46,11 @@ const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty }
 const Relationships = require("./relationships");
 const { segmentStationHullHit, nearestStationHullPoint } = require("./stationCollision");
 
+const TargetingTelemetry = require("./targetingTelemetry");
+const PointDefenceThreats = require("./pointDefenceThreats");
+const TargetingCadence = require("./targetingCadence");
+const PerformanceFlags = require("./performanceFlags");
+
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { sanitizeCombatStyle } = require("./validation");
 
@@ -970,6 +975,21 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
 
 
 function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null, now = 0) {
+
+  TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
+
+  if (PerformanceFlags.POINT_DEFENCE_SHARED_THREATS()) {
+    const defender = room?.ships?.get?.(protectedShipId) || (room?.stations || []).find((s) => s.id === protectedShipId);
+    if (defender) {
+      const threatSet = PointDefenceThreats.ensurePointDefenceThreatSet(room, defender, shipOwnerId, now);
+      const canSee = (cand) => {
+        const margin = cand.type === "ship" ? 8 : cand.type === "drone" ? 3 : 4;
+        return !isLineBlocked(room, worldX, worldY, cand.entity.x, cand.entity.y, margin);
+      };
+      const selected = PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations);
+      if (selected) return selected;
+    }
+  }
 
   const rangeSq = weapon.range * weapon.range;
 

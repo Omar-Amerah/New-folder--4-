@@ -130,7 +130,8 @@ const GROUPS = {
     "verify-circular-separation.js",
     "verify-redundant-map-collision.js",
     "verify-shield-cache.js",
-    "verify-projectile-event-replication.js"
+    "verify-projectile-event-replication.js",
+    "verify-phase-3-targeting-pd.js"
   ],
 
   // Browser-free module/room/input lifecycle integration. These may use fake
