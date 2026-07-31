@@ -996,6 +996,8 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
       const selected = TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledPDSelectionDuration", () =>
         PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations)
       );
+      if (selected) TargetingTelemetry.bump(room, "pointDefenceSharedSetHits");
+      else TargetingTelemetry.bump(room, "pointDefenceSharedSetMisses");
       TargetingTelemetry.bump(room, "pointDefenceLegacyScansAvoided");
       return selected;
     }
@@ -4496,6 +4498,7 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
   if (hadCachedTarget && (!cached || !currentValid)) {
     state.id = null;
     state.category = null;
+    TargetingTelemetry.bump(room, "targetInvalidations");
     TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
   } else if (primaryChanged) {
     TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
@@ -4504,6 +4507,7 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
   const due = TargetingCadence.isAcquisitionDue(ship, kind, i, now);
 
   if (currentValid && !force && !due) {
+    TargetingTelemetry.bump(room, "ordinaryTargetSearchCacheHits");
     TargetingTelemetry.bump(room, "ordinaryTargetSearchDeferred");
     return cached;
   }

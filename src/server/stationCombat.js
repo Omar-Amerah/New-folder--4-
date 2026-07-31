@@ -265,9 +265,11 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
 
   if (hadCachedTarget && !cached) {
     state.id = null;
+    TargetingTelemetry.bump(room, "targetInvalidations");
     TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
   } else if (force) {
     state.id = null;
+    TargetingTelemetry.bump(room, "targetInvalidations");
     TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
   }
 

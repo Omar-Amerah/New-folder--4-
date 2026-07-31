@@ -8,6 +8,7 @@
 const Relationships = require("./relationships");
 const Visibility = require("./visibility");
 const { fastHypot, compareIdStrings, angleDifference } = require("./utils");
+const TargetingTelemetry = require("./targetingTelemetry");
 
 function stableId(value) {
   return String(value?.id ?? value ?? "");
@@ -87,6 +88,7 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
 
   if (Math.abs(candidateDistSq - bestDistSq) > 1e-4) return candidateDistSq < bestDistSq;
 
+  TargetingTelemetry.bump(room, "targetTieBreaks");
   return isStableIdBefore(candidate.entity, bestCandidate.entity);
 }
 
@@ -117,21 +119,25 @@ function _targetPosition(target) {
 
 // Validates a non-projectile target for ordinary/ship weapons.
 function isOrdinaryWeaponTargetValid(room, attacker, target, now, range, options = {}) {
+  TargetingTelemetry.bump(room, "targetRelationshipChecks");
   if (!_isLiving(target)) return false;
   if (target.id === attacker?.id) return false;
 
   const ownerId = attacker?.ownerId;
   if (!Relationships.areEntityEnemies(room, ownerId, target)) return false;
 
+  TargetingTelemetry.bump(room, "targetVisibilityChecks");
   const viewerTeam = _viewerTeam(room, ownerId, attacker?.team);
   if (Visibility.usesSensorVisibility(room) && viewerTeam && !Visibility.canTeamTargetEntity(room, viewerTeam, target, now)) {
     return false;
   }
 
+  TargetingTelemetry.bump(room, "targetRangeChecks");
   const pos = _targetPosition(target);
   const distance = fastHypot(pos.x - options.originX, pos.y - options.originY);
   if (distance > range) return false;
 
+  TargetingTelemetry.bump(room, "targetArcChecks");
   if (options.arcRadians > 0 && !Number.isNaN(options.weaponAngle) && !_isInArc(options.originX, options.originY, options.weaponAngle, options.arcRadians, pos.x, pos.y)) {
     return false;
   }

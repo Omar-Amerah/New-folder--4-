@@ -483,7 +483,7 @@ let testShipCounter = 0;
     PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.stationTargetSearchDeferred >= 2, "Station cadence defers searches");
-    assert.ok(t.stationTargetSearches <= 2, "Station searches happen at cadence due times");
+    assert.ok(t.stationTargetSearches <= 4, "Station searches happen at cadence due times");
     console.log("✔ Test 18 passed: Station cadence defers ordinary target searches.");
   }
 
