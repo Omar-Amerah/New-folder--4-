@@ -417,7 +417,7 @@ function updatePixiBullets(env, players, bounds) {
         });
       }
       view.root.position.set(renderX, renderY);
-      view.root.rotation = Math.atan2(bullet.vy, bullet.vx);
+      view.root.rotation = Number.isFinite(bullet.angle) ? bullet.angle : Math.atan2(bullet.vy, bullet.vx);
     }
   }
   pixiEnemyBulletPool.frameEnd();
