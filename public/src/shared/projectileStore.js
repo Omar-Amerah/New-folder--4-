@@ -8,16 +8,7 @@ const VERSION = 1;
 
 const MAX_TOMBSTONES = 4096;
 const TOMBSTONE_WINDOW = 2048;
-const TERMINAL_TRAVEL_MIN_MS = 25;
-const TERMINAL_TRAVEL_MAX_MS = 120;
-const TERMINAL_BULLET_FADE_MS = 180;
-const TERMINAL_MISSILE_FADE_MS = 300;
-const CORRECTION_BLEND_TIME = 0.05; // seconds
-const CORRECTION_SNAP_DISTANCE = 500;
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, Number(value) || 0));
-}
+const TERMINAL_LIFETIME_MS = 100;
 
 let store = {
   version: VERSION,
@@ -69,24 +60,6 @@ function isTombstoned(id, seq) {
 function installProjectile(data, simulationTimeMs) {
   if (!data || !data.id) return;
   const existing = store.projectiles.get(data.id);
-  const isMissile = data.type === "missile";
-  let visual = null;
-  let visualUpdatedAt = simulationTimeMs;
-  if (existing && existing.type === "missile" && existing.visual) {
-    visual = existing.visual;
-    visualUpdatedAt = existing.visualUpdatedAt ?? simulationTimeMs;
-  } else if (isMissile) {
-    visual = {
-      x: data.x,
-      y: data.y,
-      vx: data.vx,
-      vy: data.vy,
-      targetX: data.x,
-      targetY: data.y,
-      targetVx: data.vx,
-      targetVy: data.vy
-    };
-  }
   const next = {
     id: data.id,
     type: data.type,
@@ -102,10 +75,6 @@ function installProjectile(data, simulationTimeMs) {
     simulationTimeMs: simulationTimeMs,
     correctionSeq: existing?.correctionSeq ?? 0
   };
-  if (isMissile) {
-    next.visual = visual;
-    next.visualUpdatedAt = visualUpdatedAt;
-  }
   store.projectiles.set(data.id, next);
 }
 
@@ -120,22 +89,19 @@ function applyEvent(event, message) {
   } else if (event.type === "projectileRemove") {
     const existing = store.projectiles.get(event.projectileId);
     if (existing) {
-      const isMissile = existing.type === "missile";
-      const fromX = (isMissile && existing.visual) ? existing.visual.x : existing.x;
-      const fromY = (isMissile && existing.visual) ? existing.visual.y : existing.y;
       const terminal = {
         id: existing.id,
         type: existing.type,
         subtype: existing.subtype,
         ownerId: existing.ownerId,
         angle: existing.angle,
-        fromX,
-        fromY,
-        speed: Math.hypot(existing.vx, existing.vy),
+        fromX: existing.x,
+        fromY: existing.y,
         finalX: event.x,
         finalY: event.y,
         removeReason: event.reason,
-        removedSimulationTimeMs: simMs
+        removedSimulationTimeMs: simMs,
+        visualExpiresAt: simMs + TERMINAL_LIFETIME_MS
       };
       store.terminals.set(event.projectileId, terminal);
     }
@@ -161,12 +127,6 @@ function applyEvent(event, message) {
     existing.remainingLife = event.remainingLife;
     existing.correctionSeq = event.correctionSeq;
     existing.simulationTimeMs = simMs;
-    if (existing.type === "missile" && existing.visual) {
-      existing.visual.targetX = event.x;
-      existing.visual.targetY = event.y;
-      existing.visual.targetVx = event.vx;
-      existing.visual.targetVy = event.vy;
-    }
   }
 }
 
@@ -239,118 +199,50 @@ export function getProjectilesForRender(now = null) {
   const useNow = Number.isFinite(now);
   for (const p of store.projectiles.values()) {
     const dt = (useNow && Number.isFinite(p.simulationTimeMs)) ? Math.max(0, (now - p.simulationTimeMs) / 1000) : 0;
-    const isMissile = p.type === "missile";
-    let x = p.x;
-    let y = p.y;
-    let vx = p.vx;
-    let vy = p.vy;
-    if (isMissile && p.visual) {
-      const v = p.visual;
-      const vdt = (useNow && Number.isFinite(p.visualUpdatedAt)) ? Math.max(0, (now - p.visualUpdatedAt) / 1000) : 0;
-      if (vdt > 0) {
-        const error = Math.hypot(v.targetX - v.x, v.targetY - v.y);
-        if (error > CORRECTION_SNAP_DISTANCE) {
-          v.x = v.targetX;
-          v.y = v.targetY;
-          v.vx = v.targetVx;
-          v.vy = v.targetVy;
-        } else {
-          const blend = 1 - Math.exp(-vdt / CORRECTION_BLEND_TIME);
-          v.x += v.vx * vdt;
-          v.y += v.vy * vdt;
-          v.x += (v.targetX - v.x) * blend;
-          v.y += (v.targetY - v.y) * blend;
-          v.vx += (v.targetVx - v.vx) * blend;
-          v.vy += (v.targetVy - v.vy) * blend;
-        }
-        p.visualUpdatedAt = now;
-      }
-      x = v.x;
-      y = v.y;
-      vx = v.vx;
-      vy = v.vy;
-    } else {
-      x += p.vx * dt;
-      y += p.vy * dt;
-    }
     const render = {
       id: p.id,
       type: p.type,
       subtype: p.subtype,
       ownerId: p.ownerId,
-      x,
-      y,
-      vx,
-      vy,
+      x: p.x + p.vx * dt,
+      y: p.y + p.vy * dt,
+      vx: p.vx,
+      vy: p.vy,
       age: p.age + dt,
       remainingLife: Math.max(0, p.remainingLife - dt),
       simulationTimeMs: p.simulationTimeMs
     };
-    if (!isMissile && p.angle !== undefined) render.angle = p.angle;
+    if (p.angle !== undefined) render.angle = p.angle;
     out.push(render);
   }
 
   const expired = [];
   for (const [id, t] of store.terminals) {
     const removed = Number(t.removedSimulationTimeMs) || 0;
-    const age = useNow ? Math.max(0, now - removed) : 0;
-    const dx = t.finalX - t.fromX;
-    const dy = t.finalY - t.fromY;
-    const distance = Math.hypot(dx, dy);
-    const speed = Math.max(0.001, t.speed);
-    const travelDurationMs = clamp((distance / speed) * 1000, TERMINAL_TRAVEL_MIN_MS, TERMINAL_TRAVEL_MAX_MS);
-    const fadeDurationMs = t.type === "missile" ? TERMINAL_MISSILE_FADE_MS : TERMINAL_BULLET_FADE_MS;
-    const totalMs = travelDurationMs + fadeDurationMs;
-    if (useNow && age > totalMs) {
+    if (useNow && now > removed + TERMINAL_LIFETIME_MS) {
       expired.push(id);
       continue;
     }
-    if (age < travelDurationMs) {
-      const progress = travelDurationMs > 0 ? age / travelDurationMs : 1;
-      const x = t.fromX + dx * progress;
-      const y = t.fromY + dy * progress;
-      const terminalVx = travelDurationMs > 0 ? dx / (travelDurationMs / 1000) : 0;
-      const terminalVy = travelDurationMs > 0 ? dy / (travelDurationMs / 1000) : 0;
-      const body = {
-        id: t.id,
-        terminal: true,
-        phase: 1,
-        type: t.type,
-        subtype: t.subtype,
-        ownerId: t.ownerId,
-        x,
-        y,
-        vx: terminalVx,
-        vy: terminalVy,
-        age: age / 1000,
-        remainingLife: 0,
-        removeReason: t.removeReason,
-        simulationTimeMs: removed
-      };
-      if (t.type !== "missile" && t.angle !== undefined) body.angle = t.angle;
-      out.push(body);
-    } else {
-      const fade = age - travelDurationMs;
-      const impactFade = Math.max(0, 1 - fade / fadeDurationMs);
-      const flash = {
-        id: t.id,
-        terminal: true,
-        phase: 2,
-        type: t.type,
-        subtype: t.subtype,
-        ownerId: t.ownerId,
-        x: t.finalX,
-        y: t.finalY,
-        vx: 0,
-        vy: 0,
-        age: age / 1000,
-        remainingLife: 0,
-        removeReason: t.removeReason,
-        impactFade,
-        simulationTimeMs: removed
-      };
-      out.push(flash);
-    }
+    const dt = (useNow && Number.isFinite(removed)) ? Math.max(0, (now - removed) / 1000) : 0;
+    const render = {
+      id: t.id,
+      terminal: true,
+      type: t.type,
+      subtype: t.subtype,
+      ownerId: t.ownerId,
+      x: t.finalX,
+      y: t.finalY,
+      vx: 0,
+      vy: 0,
+      age: dt,
+      remainingLife: 0,
+      removeReason: t.removeReason,
+      fromX: t.fromX,
+      fromY: t.fromY,
+      simulationTimeMs: removed
+    };
+    if (t.angle !== undefined) render.angle = t.angle;
+    out.push(render);
   }
   for (const id of expired) store.terminals.delete(id);
 

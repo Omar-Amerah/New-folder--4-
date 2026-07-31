@@ -9,7 +9,6 @@ import { getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, 
 import { activeEngineSmoke } from "../shipDynamics.js";
 import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
-import { playerMap } from "../../ui/matchStatusUi.js";
 import { invalidatePresentation } from "../../presentationInvalidation.js";
 import { updatePixiContacts } from "./pixiSensorContacts.js";
 import { updatePixiFog } from "./pixiFog.js";
@@ -400,7 +399,6 @@ function updatePixiBullets(env, players, bounds) {
     const now = performance.now();
     const elapsed = Math.min(0.15, (now - (state.snapshotReceivedAt || now)) / 1000);
     for (const bullet of snap.bullets) {
-      if (bullet.terminal && bullet.impactFade !== undefined) continue;
       if (state.debugStats) state.debugStats.totalBullets++;
       const { x: renderX, y: renderY } = bulletRenderPosition(bullet, elapsed);
       if (bounds && !isCircleVisible(renderX, renderY, 20, bounds)) continue;
@@ -419,7 +417,7 @@ function updatePixiBullets(env, players, bounds) {
         });
       }
       view.root.position.set(renderX, renderY);
-      view.root.rotation = bullet.type === "missile" ? Math.atan2(bullet.vy, bullet.vx) : (Number.isFinite(bullet.angle) ? bullet.angle : Math.atan2(bullet.vy, bullet.vx));
+      view.root.rotation = Number.isFinite(bullet.angle) ? bullet.angle : Math.atan2(bullet.vy, bullet.vx);
     }
   }
   pixiEnemyBulletPool.frameEnd();
@@ -495,25 +493,6 @@ function updatePixiEffects(env, now, bounds) {
       gfx.moveTo(x, y + radius * 0.75);
       gfx.lineTo(x, y + radius * 1.65);
       gfx.stroke({ width: 1.5 / zoom, color: "#a78bfa", alpha: pulse * 0.9 });
-    }
-  }
-  if (snap?.bullets) {
-    const players = playerMap();
-    for (const bullet of snap.bullets) {
-      if (!bullet.terminal || bullet.impactFade === undefined) continue;
-      const x = bullet.x;
-      const y = bullet.y;
-      if (bounds && !isCircleVisible(x, y, 40, bounds)) continue;
-      const owner = players.get(bullet.ownerId);
-      const color = owner?.color || "#ffffff";
-      const t = 1 - bullet.impactFade;
-      const maxRadius = bullet.type === "missile" ? 34 : 10;
-      const r = maxRadius * (0.4 + t * 0.6);
-      const alpha = bullet.impactFade;
-      gfx.circle(x, y, r);
-      gfx.fill({ color, alpha: alpha * 0.4 });
-      gfx.circle(x, y, r * 0.45);
-      gfx.fill({ color, alpha });
     }
   }
   if (snap && snap.effects) {
