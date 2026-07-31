@@ -95,7 +95,7 @@ function powerPresetLabel(preset) {
 export function isPhysicalBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isPaletteBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isWiringBlueprintEditMode(mode = state.blueprintView) { return WIRING_ENABLED && mode === "wiring"; }
-export function isDataLinksBlueprintMode(mode = state.blueprintView) { return !WIRING_ENABLED && mode === "dataLinks"; }
+export function isDataLinksBlueprintMode(mode = state.blueprintView) { return mode === "dataLinks"; }
 export function isBlueprintRotationMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 export function isBlueprintRemovalMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 

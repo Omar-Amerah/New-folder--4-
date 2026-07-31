@@ -222,7 +222,7 @@ async function until(fn, what, timeoutMs = 15000) {
     diagnostics.playerId = myId;
 
     await bot.open();
-    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "blue", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
+    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "red", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
     await until(() => bot.latest.joined, "bot join");
     diagnostics.botPlayerId = bot.latest.joined.playerId || bot.latest.joined.id;
     await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none", visibilityMode: "full" } }));
@@ -233,6 +233,8 @@ async function until(fn, what, timeoutMs = 15000) {
     bot.send({ type: "deploy", design: DESIGN, wiring: DESIGN_WIRING, combatStyle: "sentry" });
     await until(() => bot.latest.state?.phase === "active", "active phase");
     diagnostics.phases.push({ phase: "active", at: Date.now() });
+    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "buyShip", design, wiring, count: 1, requestId: `h-${Date.now()}-b`, combatStyle: "sentry" }), { design: DESIGN, wiring: DESIGN_WIRING });
+    bot.send({ type: "buyShip", design: DESIGN, wiring: DESIGN_WIRING, count: 1, requestId: `h-${Date.now()}-t`, combatStyle: "sentry" });
 
     const ship = await until(() => {
       assertNoMergeError(bot);

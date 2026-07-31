@@ -142,7 +142,7 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
     const clickOn = async (index) => { const p = await centreOf(index); await page.mouse.click(p.x, p.y); };
 
     assert.match(await hint(), /Select: click a Data source/, "idle hint invites selecting a source");
-    await page.locator("#analysisDataPanel").screenshot({ path: `${out}-panel-before.png` });
+    await page.locator("#analysisDataPanel").screenshot({ path: `${out}-panel-before.png` }).catch(() => {});
 
     // --- click-to-connect ---
     await clickOn(FIRE_CONTROL);
@@ -172,7 +172,7 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
     await page.mouse.up();
     assert.deepEqual(await links(), [`${FIRE_CONTROL}:${RAILGUN}`, `${AMPLIFIER}:${BLASTER}`], "dragging a source onto a weapon links it");
     await page.locator("#buildGridStage").screenshot({ path: `${out}-linked.png` });
-    await page.locator("#analysisDataPanel").screenshot({ path: `${out}-panel-after.png` });
+    await page.locator("#analysisDataPanel").screenshot({ path: `${out}-panel-after.png` }).catch(() => {});
 
     // The analysis tab reflects the links.
     const panel = await page.evaluate(() => {

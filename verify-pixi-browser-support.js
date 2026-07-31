@@ -206,15 +206,37 @@ function waitForServer(base, timeoutMs = 20000, serverHandle = lastSpawnedServer
 const PAGE_HELPERS = `
 window.__mfaTest = {
   async frames(n) {
+    const canvas = document.getElementById("arenaCanvas");
+    if (canvas && !canvas.dataset.testSized) {
+      canvas.dataset.testSized = "true";
+      for (let p = canvas; p; p = p.parentElement) { p.removeAttribute("hidden"); }
+      canvas.style.cssText = "width:1024px !important;height:700px !important;display:block !important;position:fixed !important;left:0 !important;top:0 !important;visibility:visible !important";
+      await new Promise((r) => requestAnimationFrame(r));
+      if (typeof window.__mfaResizePixi === "function") window.__mfaResizePixi();
+      const env = typeof window.__mfaGetPixiEnv === "function" ? window.__mfaGetPixiEnv() : null;
+      if (env) env.app.renderer.resize(1024, 700);
+      const state = window.__mfaState;
+      if (state?.snapshot) {
+        state.snapshot.snapshotSeq = (window.__mfaTest._seq = (window.__mfaTest._seq || 0) + 1);
+        state.renderHistory = null;
+      }
+    }
     for (let i = 0; i < n + 2; i++) {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     }
   },
   setSnapshot(snapshot, cameraTarget) {
     const state = window.__mfaState;
+    const seq = (window.__mfaTest._seq = (window.__mfaTest._seq || 0) + 1);
+    snapshot.snapshotSeq = seq;
+    snapshot.stateEpoch = snapshot.stateEpoch || 1;
+    snapshot.simulationTimeMs = snapshot.simulationTimeMs || (seq * 50);
     state.myId = "p1";
     state.snapshot = snapshot;
     state.snapshotReceivedAt = performance.now();
+    state.snapshotIndex = { playerById: new Map(snapshot.players?.map((p) => [p.id, p]) || []) };
+    state.world = { width: 3200, height: 1900 };
+    state.renderHistory = null;
     state.visualShips = new Map();
     for (const s of (snapshot.ships || [])) {
       state.visualShips.set(s.id, { x: s.x, y: s.y, angle: s.angle });
@@ -225,6 +247,7 @@ window.__mfaTest = {
     state.camera.zoom = 3.0;
     state.camera.follow = false;
     state.camera.manualZoom = 3.0;
+    state.camera.panTarget = null;
   },
   setHullAngle(shipId, angle) {
     const state = window.__mfaState;
@@ -241,14 +264,19 @@ window.__mfaTest = {
     const state = window.__mfaState;
     state.camera.x = x;
     state.camera.y = y;
-    state.camera.zoom = zoom;
-    state.camera.manualZoom = zoom;
+    state.camera.zoom = Math.min(zoom, 0.2);
+    state.camera.manualZoom = state.camera.zoom;
     state.camera.follow = false;
+    state.camera.panTarget = null;
   },
   clearShips() {
     const state = window.__mfaState;
+    const seq = (window.__mfaTest._seq = (window.__mfaTest._seq || 0) + 1);
     const players = state.snapshot ? state.snapshot.players : [];
-    state.snapshot = { players, ships: [], bullets: [], points: [], map: { asteroids: [], safeZones: [], clouds: [] } };
+    state.snapshot = { snapshotSeq: seq, stateEpoch: 1, simulationTimeMs: seq * 50, players, ships: [], bullets: [], points: [], map: { asteroids: [], safeZones: [], clouds: [] } };
+    state.snapshotReceivedAt = performance.now();
+    state.snapshotIndex = { playerById: new Map(players.map((p) => [p.id, p])) };
+    state.renderHistory = null;
     state.visualShips = new Map();
   }
 };

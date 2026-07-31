@@ -8,7 +8,7 @@ const { PARTS } = require("./src/server/components");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState, flushComponentLifecycleRefresh } = require("./src/server/componentHealth");
 const { initShipHeat, updateShipHeat, distributeComponentHeatByWeight } = require("./src/server/heat");
-const { rebuildShipWiringState, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
+const { rebuildShipWiringState, getComponentPowerMultiplier, getShieldCapacityPowerMultiplier, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
 const { damageShip, SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE } = require("./src/server/combat");
 
 const EPS = 1e-9;
@@ -37,8 +37,8 @@ function assertWeighted(ship, deltas, expectedHeat, message, contributionsOverri
   for (let i = 0; i < deltas.length; i += 1) if (!contributions.some(c => c.index === i)) close(deltas[i], 0, `${message} unrelated ${i}`);
 }
 function assertContributionParity(ship, label) {
-  const shared = ShieldRules.calculateShieldCapacityContributions(ship.design, PARTS, { isLive: i => (ship.componentHp?.[i] ?? 1) > 0, powerMultiplier: i => ship.componentPower.byComponentIndex[i].operationalMultiplier });
-  const stats = ShieldRules.calculateShieldStats(ship.design, PARTS, { isLive: i => (ship.componentHp?.[i] ?? 1) > 0, powerMultiplier: i => ship.componentPower.byComponentIndex[i].operationalMultiplier, heatMultiplier: i => HeatRules.activeOutputForState(ship.componentHeatState[i] || HeatRules.STATE.NORMAL) });
+  const shared = ShieldRules.calculateShieldCapacityContributions(ship.design, PARTS, { isLive: i => (ship.componentHp?.[i] ?? 1) > 0, powerMultiplier: i => getShieldCapacityPowerMultiplier(ship, i) });
+  const stats = ShieldRules.calculateShieldStats(ship.design, PARTS, { isLive: i => (ship.componentHp?.[i] ?? 1) > 0, powerMultiplier: i => getComponentPowerMultiplier(ship, i), capacityPowerMultiplier: i => getShieldCapacityPowerMultiplier(ship, i), heatMultiplier: i => HeatRules.activeOutputForState(ship.componentHeatState[i] || HeatRules.STATE.NORMAL) });
   const runtime = effectiveShieldCapacityContributions(ship);
   close(shared.reduce((v, c) => v + c.capacity, 0), stats.capacity, `${label} shared sum matches stats capacity`);
   assert.deepStrictEqual(runtime, shared, `${label} runtime/shared contribution parity`);
@@ -52,7 +52,7 @@ function assertContributionParity(ship, label) {
   assertWeighted(ship, deltas, heat, "mixed");
   assert(deltas[3] > deltas[2] && PARTS.aegisProjector.shield > PARTS.shield.shield, "aegis receives more than shield");
   assert(deltas[2] > deltas[5] && PARTS.shield.shield > PARTS.capacitor.shield, "shield receives more than capacitor");
-  assert(deltas[5] > deltas[4] && PARTS.capacitor.shield > PARTS.battery.shield, "capacitor receives more than battery");
+  assert(deltas[4] === 0 && deltas[5] === 0, "battery and capacitor receive no shield impact heat");
 }
 
 // Equal contributors.
@@ -69,9 +69,10 @@ function assertContributionParity(ship, label) {
   const partial = PARTS.auxGenerator.powerGeneration / PARTS.shield.powerUse;
   close(ship.componentPower.byComponentIndex[3].operationalMultiplier, partial, "partial shield multiplier");
   const contributions = effectiveShieldCapacityContributions(ship);
-  close(contributions.find(c => c.index === 2).capacity, PARTS.shield.shield, "full capacity contribution");
-  close(contributions.find(c => c.index === 3).capacity, PARTS.shield.shield * partial, "partial capacity contribution");
-  const { deltas, heat } = hit(ship, 40); assertWeighted(ship, deltas, heat, "underpowered"); assert(deltas[3] < deltas[2], "underpowered receives less heat");
+  const massScale = 1 + ship.design.reduce((sum, m) => sum + (PARTS[m.type]?.mass || 0), 0) * ShieldRules.SHIELD_MASS_SCALE_FACTOR;
+  close(contributions.find(c => c.index === 2).capacity, PARTS.shield.shield * massScale, "full capacity contribution");
+  close(contributions.find(c => c.index === 3).capacity, PARTS.shield.shield * massScale, "underpowered capacity held at full maintenance power");
+  const { deltas, heat } = hit(ship, 40); assertWeighted(ship, deltas, heat, "underpowered"); close(deltas[3], deltas[2], "underpowered shields split impact heat equally");
 }
 
 // Disconnected/unpowered, destroyed renormalisation, and before/after proof.
@@ -88,7 +89,7 @@ function assertContributionParity(ship, label) {
 // Battery/capacitor decision and no new activity Heat.
 {
   const ship = shipFor([at("battery",0,0), at("capacitor",1,0)], []);
-  const result = hit(ship, 30); assert(result.deltas[0] > 0 && result.deltas[1] > 0, "battery and capacitor receive impact heat");
+  const result = hit(ship, 30); assert(result.deltas[0] === 0 && result.deltas[1] === 0, "battery and capacitor do not receive impact heat without shield capacity");
   close(HeatRules.activityHeat("battery", PARTS.battery), 0, "battery activity heat remains zero"); close(HeatRules.activityHeat("capacitor", PARTS.capacitor), 0, "capacitor activity heat remains zero");
   updateShipHeat(ship, 1, room(), 200); updateShipHeat(ship, 1, room(), 300); close(ship.componentHeatGenerated[0], 0, "battery update adds no continuous activity heat"); close(ship.componentHeatGenerated[1], 0, "capacitor update adds no continuous activity heat");
 }
@@ -98,7 +99,9 @@ function assertContributionParity(ship, label) {
   const shares = [], capacities = [], regens = [];
   for (const state of [HeatRules.STATE.NORMAL, HeatRules.STATE.HOT, HeatRules.STATE.OVERHEATED]) {
     const ship = shipFor([at("reactor",0,0), at("shield",1,0)], [[0,1,[{x:0,y:0},{x:1,y:0}]]]);
-    ship.componentHeatState[1] = state; capacities.push(effectiveShieldCapacityContributions(ship)[0].capacity); regens.push(effectiveShieldStats(ship).recharge); shares.push(hit(ship, 25).deltas[1]);
+    ship.componentHeatState[1] = state;
+    ship.heatStateRevision = (ship.heatStateRevision || 0) + 1;
+    capacities.push(effectiveShieldCapacityContributions(ship)[0].capacity); regens.push(effectiveShieldStats(ship).recharge); shares.push(hit(ship, 25).deltas[1]);
   }
   close(capacities[0], capacities[1], "hot capacity independent"); close(capacities[0], capacities[2], "overheated capacity independent"); close(shares[0], shares[1], "hot impact share independent"); close(shares[0], shares[2], "overheated impact share independent"); assert(regens[0] > regens[1] && regens[1] > regens[2], "shield regen still changes by Heat multiplier");
 }

@@ -374,7 +374,6 @@ export function handleServerMessage(message) {
       return;
     }
     state.snapshotNetwork = { ...result.networkState, resyncing: false, lastResyncRequestAt: state.snapshotNetwork?.lastResyncRequestAt || 0 };
-    recordNetworkEvent("acceptedSnapshot", { stateEpoch: state.snapshotNetwork.stateEpoch, snapshotSeq: state.snapshotNetwork.snapshotSeq, snapshotKind: message.snapshotKind || null });
     state.snapshotReceivedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     snapshotDiagnostics.snapshotAcceptedCount += 1;
     snapshotDiagnostics.latest.snapshotSeq = state.snapshotNetwork.snapshotSeq;
@@ -396,6 +395,7 @@ export function handleServerMessage(message) {
     if (state.pendingDeploy && state.mine?.ready) state.pendingDeploy = false;
     pruneSelection({ invalidate: false });
 
+    recordNetworkEvent("acceptedSnapshot", { stateEpoch: state.snapshotNetwork.stateEpoch, snapshotSeq: state.snapshotNetwork.snapshotSeq, snapshotKind: message.snapshotKind || null });
     const phaseChanged = previousPhase !== state.phase;
     snapshotDiagnostics.latest.previousPhase = previousPhase;
     snapshotDiagnostics.latest.acceptedPhase = accepted.phase ?? previousPhase;

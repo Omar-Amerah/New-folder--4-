@@ -16,7 +16,7 @@ const ANALYSIS_TABS = [
   ["movement", "analysisMovementTab", "analysisMovementPanel"]
 ];
 const AVAILABLE_ANALYSIS_TABS = WIRING_ENABLED
-  ? ANALYSIS_TABS.filter(([key]) => key !== "data")
+  ? ANALYSIS_TABS.filter(([key]) => key !== "power")
   : ANALYSIS_TABS.filter(([key]) => key !== "power" && key !== "wiring");
 
 function applyTabState(entries, activeKey) {
@@ -33,7 +33,7 @@ function applyTabState(entries, activeKey) {
 function analysisForBlueprintView(view = state.blueprintView) {
   if (view === "heat") return "heat";
   if (WIRING_ENABLED && view === "wiring") return "wiring";
-  if (!WIRING_ENABLED && view === "dataLinks") return "data";
+  if (view === "dataLinks") return "data";
   return "movement";
 }
 

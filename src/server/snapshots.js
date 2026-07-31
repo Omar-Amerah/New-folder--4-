@@ -695,7 +695,7 @@ function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusS
   const legacyTelemetry = telemetryFocusShipId === undefined;
   const entries = [];
   for (const base of sharedShips) {
-    if (sensorVisibility && visibilityState && !visibilityState.visibleEntityIds.has(base.id)) continue;
+    if (sensorVisibility && !sendStatic && visibilityState && !visibilityState.visibleEntityIds.has(base.id)) continue;
     const entry = { ...base };
     const ship = room.ships.get(entry.id);
     if (!ship || ship.removed) {

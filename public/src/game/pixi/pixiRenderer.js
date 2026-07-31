@@ -5,7 +5,7 @@
 import { dom, replaceArenaCanvas } from "../../ui/dom.js";
 import { DIAGNOSTICS_ENABLED } from "../../constants.js";
 import { state } from "../../state.js";
-import { updateCamera } from "../camera.js";
+import { updateCamera, invalidateCanvasRectCache } from "../camera.js";
 import { bindArenaPointerListeners, unbindArenaPointerListeners, inputDiagnostics } from "../input.js";
 import { interpolateShips } from "../renderInterpolation.js";
 import { getViewportWorldBounds } from "../viewportCulling.js";
@@ -491,4 +491,8 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
 if (typeof window !== "undefined" && DIAGNOSTICS_ENABLED) {
   window.__mfaSetRendererMetricsPhase = (phase, options) => setRendererMetricsPhase(phase, options);
   window.__mfaInjectPixiFrameFailure = (message = "Injected test frame failure") => { pixiFatalFrameError = null; handleFatalPixiFrameError(new Error(message), "test-injected-frame-failure"); return getPixiRuntimeDiagnostics(); };
+}
+if (typeof window !== "undefined") {
+  window.__mfaResizePixi = () => { invalidateCanvasRectCache(); resizePixiRenderer(); };
+  window.__mfaGetPixiEnv = () => pixiEnv;
 }

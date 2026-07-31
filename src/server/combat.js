@@ -1614,7 +1614,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         }
         // While acquisition is pending, the weapon may track (aimEntity
         // is set below) but must not fire. Check if timer has completed.
-        if (now >= ship.weaponAcquireCompleteAt[i]) {
+        const isFirstEver = !acquiredId && !pendingId;
+        if (isFirstEver || now >= ship.weaponAcquireCompleteAt[i]) {
           // Acquisition complete: promote pending to acquired.
           ship.weaponAcquiredTargetIds[i] = newTargetId;
           ship.weaponPendingTargetIds[i] = null;
@@ -3327,6 +3328,7 @@ function isTargetInWeaponArc(ship, module, target, arcRadians) {
 function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, options = {}) {
 
   if (isInSafeZone(room, ship.x, ship.y, ship)) return; // Invincible in own/team spawn
+  if (!Number.isFinite(damage)) return; // Invalid damage values cannot produce meaningful resolution
 
 
 
@@ -3488,6 +3490,11 @@ function evaluateShipCommandState(room, ship, now, attackerId = null) {
 
     return true;
 
+  }
+
+  if (mainCoreIdx < 0) {
+    ship.coreDestroyed = false;
+    return false;
   }
 
 

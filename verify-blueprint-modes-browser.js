@@ -93,7 +93,7 @@ function assertStable(before, after, label) {
       await page.keyboard.press("Home");
       assert.equal(await page.locator("#blueprintBuildTab").getAttribute("aria-selected"), "true");
       await page.keyboard.press("End");
-      assert.equal(await page.locator("#blueprintDataLinksTab").getAttribute("aria-selected"), "true");
+      assert.equal(await page.locator("#blueprintWiringTab").getAttribute("aria-selected"), "true");
     }
     assert.deepEqual(errors, []);
     console.log("Blueprint modes browser verification passed");

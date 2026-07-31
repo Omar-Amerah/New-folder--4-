@@ -322,6 +322,9 @@ async function main() {
       { design: SHOOTER_DESIGN, wiring: SHOOTER_WIRING });
     enemy.send({ type: "deploy", design: ENEMY_DESIGN, wiring: ENEMY_WIRING, combatStyle: "sentry" });
     await until(() => enemy.state()?.phase === "active", 15000, "match start");
+    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "buyShip", design, wiring, count: 1, requestId: `lt-${Date.now()}-s`, combatStyle: "sentry" }),
+      { design: SHOOTER_DESIGN, wiring: SHOOTER_WIRING });
+    enemy.send({ type: "buyShip", design: ENEMY_DESIGN, wiring: ENEMY_WIRING, count: 1, requestId: `lt-${Date.now()}-e`, combatStyle: "sentry" });
 
     const shooterShip = await until(() => enemy.state()?.ships?.find((s) => s.ownerId === browserPlayerId && s.alive), 10000, "shooter ship spawn");
     const enemyShip = await until(() => enemy.state()?.ships?.find((s) => s.ownerId === enemyPlayerId && s.alive), 10000, "enemy ship spawn");
