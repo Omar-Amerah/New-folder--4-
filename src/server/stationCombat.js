@@ -466,7 +466,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       }
 
       if (family === "blaster" || family === "bolt") {
-        addBullet(room, {
+        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "bolt",
           ownerId: identity,
           targetId: target.id,
@@ -482,8 +482,9 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           bornAt: now,
           armorInteractionSeconds: Math.min(1, reload)
         });
+        });
       } else if (family === "missile") {
-        addBullet(room, {
+        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "missile",
           subtype: module.type,
           interceptable: true,
@@ -507,8 +508,9 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           age: 0,
           armorInteractionSeconds: Math.min(1, reload)
         });
+        });
       } else if (family === "flak") {
-        addBullet(room, {
+        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "flak",
           ownerId: identity,
           targetId: target.id,
@@ -528,6 +530,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           life: range / speed,
           bornAt: now,
           armorInteractionSeconds: Math.min(1, reload)
+        });
         });
       } else {
         continue;

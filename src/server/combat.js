@@ -983,8 +983,9 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
 
 function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null, now = 0) {
 
+  const defender = room?.ships?.get?.(protectedShipId) || (room?.stations || []).find((s) => s.id === protectedShipId);
+
   if (PerformanceFlags.POINT_DEFENCE_SHARED_THREATS()) {
-    const defender = room?.ships?.get?.(protectedShipId) || (room?.stations || []).find((s) => s.id === protectedShipId);
     if (defender) {
       const threatSet = PointDefenceThreats.ensurePointDefenceThreatSet(room, defender, shipOwnerId, now);
       const canSee = (cand) => TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledLineOfSightDuration", () => {
@@ -1051,7 +1052,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
     const distSq = dx * dx + dy * dy;
 
-    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, bullet.x, bullet.y, 4)) continue;
+    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, bullet.x, bullet.y, 4))) continue;
 
 
 
@@ -1094,7 +1095,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
     const distSq = dx * dx + dy * dy;
 
-    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3)) continue;
+    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3))) continue;
 
 
 
@@ -1137,7 +1138,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
     const distSq = dx * dx + dy * dy;
 
-    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) continue;
+    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, other.x, other.y, 8))) continue;
 
 
 
@@ -1175,7 +1176,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
     const distSq = dx * dx + dy * dy;
 
-    if (distSq > rangeSq || isLineBlocked(room, worldX, worldY, decoy.x, decoy.y, 4)) continue;
+    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, decoy.x, decoy.y, 4))) continue;
 
 
 
@@ -1276,7 +1277,7 @@ function getCadencedShipCombatTarget(room, ship, ships, now) {
         originX: ship.x,
         originY: ship.y
       });
-      if (currentValid && isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8)) currentValid = false;
+      if (currentValid && TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8))) currentValid = false;
       if (!currentValid) TargetingTelemetry.bump(room, "shipCombatTargetInvalidations");
     }
   }
@@ -1638,7 +1639,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           priorityList: pdBaseWeapon.targetPriority,
           team: ship.team
         });
-        if (pdCurrentValid && isLineBlocked(room, worldX, worldY, pdCached.entity.x, pdCached.entity.y, 4)) pdCurrentValid = false;
+        if (pdCurrentValid && TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, pdCached.entity.x, pdCached.entity.y, 4))) pdCurrentValid = false;
         if (!pdCurrentValid) TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
       }
 
@@ -2021,7 +2022,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
-      addBullet(room, {
+      TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
 
         type: "bolt",
 
@@ -2053,6 +2054,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       });
 
+    });
+
       ship.weaponCooldowns[i] = reload;
 
       addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
@@ -2067,7 +2070,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
-      addBullet(room, {
+      TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
 
         type: "missile",
 
@@ -2114,6 +2117,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         armorInteractionSeconds: Math.min(1, reload)
 
       });
+
+    });
 
       ship.weaponCooldowns[i] = reload;
 
@@ -2278,7 +2283,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         const expectedDamage = Number.isFinite(baseHp) ? Math.min(blastDamage, Math.max(0, baseHp - reserved)) : 0;
         if (expectedDamage > 0) room._pdReservations.set(targetEnt.id, reserved + expectedDamage);
 
-        addBullet(room, {
+        TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
 
           type: "flak",
 
@@ -2317,6 +2322,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           life: life,
 
           bornAt: now
+
+        });
 
         });
 
@@ -2439,7 +2446,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-            addBullet(room, {
+            TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
 
                type: "pdShot",
 
@@ -2477,6 +2484,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
             });
 
+            });
+
             ship.weaponCooldowns[i] = reload;
 
             addComponentHeat(ship, i, 4);
@@ -2495,7 +2504,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
-      addBullet(room, {
+      TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
 
         type: "rail",
 
@@ -2526,6 +2535,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         armorInteractionSeconds: Math.min(1, reload)
 
       });
+
+    });
 
       ship.weaponCooldowns[i] = reload;
 
@@ -4149,7 +4160,7 @@ function findTarget(room, ship, ships) {
       const focusedDistance = fastHypot(focused.x - ship.x, focused.y - ship.y);
 
       if (focusedDistance <= range * 1.12
-        && !isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8)) return focused;
+        && !TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, focused.x, focused.y, 8))) return focused;
 
     }
 
@@ -4181,7 +4192,7 @@ function findTarget(room, ship, ships) {
       // well inside the envelope with an asteroid briefly in the way is worth
       // keeping, an enemy that has left is not.
       if (currentDistance <= range * TARGET_RETENTION_MULTIPLIER) {
-        if (!isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8)) return current;
+        if (!TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8))) return current;
         holdFallback = current;
       }
     }
@@ -4403,7 +4414,7 @@ function bestDroneFireTarget(room, ship, worldX, worldY, range, module = null, w
 
     const distance = fastHypot(drone.x - worldX, drone.y - worldY);
 
-    if (distance > range || isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3)) continue;
+    if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3))) continue;
 
     const arcRadians = (Number(weapon?.arc) || 360) * Math.PI / 180;
 
@@ -4450,7 +4461,7 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
     const distance = fastHypot(primary.x - worldX, primary.y - worldY);
 
-    if (distance <= range && !isLineBlocked(room, worldX, worldY, primary.x, primary.y, 8)) shipTarget = primary;
+    if (distance <= range && !TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, primary.x, primary.y, 8))) shipTarget = primary;
 
   }
 
@@ -4472,7 +4483,7 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
       const distance = fastHypot(other.x - worldX, other.y - worldY);
 
-      if (distance > range || isLineBlocked(room, worldX, worldY, other.x, other.y, 8)) return;
+      if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, other.x, other.y, 8))) return;
 
       const score = enemyShipThreatScore(ship, other, distance, range);
 
@@ -4593,7 +4604,7 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
       originY: worldY,
       ignoreDrones: !canWeaponDefensivelyTargetDrones(options.weapon)
     });
-    if (currentValid && isLineBlocked(room, worldX, worldY, cached.x, cached.y, 8)) {
+    if (currentValid && TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, cached.x, cached.y, 8))) {
       currentValid = false;
     }
     if (!currentValid) TargetingTelemetry.bump(room, "ordinaryTargetValidationFailures");
